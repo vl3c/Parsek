@@ -412,6 +412,24 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Dev
 
+- **A test can now stage a delivery target whose cargo racks are completely full, so
+  the last untested way a supply run can be turned away is finally reachable.** A run
+  is refused if EITHER the destination's tank has no room OR its cargo slots do - and
+  the code checks the tank first, so on the two-rover test save the slot half had
+  never once been seen: every test that got as far as the refusal was refused over
+  fuel. Reaching it needs a destination with no free slot, and no amount of running
+  the save produces one (the rover has three free slots and a run fills at most two).
+  A test spec can now say "fill every free slot with this part", and the test harness
+  does it by COPYING a stored part the save already contains rather than writing a new
+  one from nothing: the only things it changes are which slot the copy sits in and the
+  internal id that has to be unique. The rule is written down where it is implemented -
+  every free slot, containers in file order, lowest slot first - and every way it could
+  go quietly wrong is a hard stop before the game even starts: no such part in the save,
+  no cargo rack on that craft, or nothing free to fill. A new lane stages the target
+  with an empty tank and full racks and expects the whole run to be held, with the fuel
+  NOT delivered, which is what the code says happens. That lane has not been flown yet -
+  it is written from the source and gets re-checked against the first real run.
+
 - **Two test lanes now pin the rule for a supply route whose destination craft is
   gone: it moves to the craft standing on the spot, but never to the craft that was
   carrying the cargo.** The measurement that raised the question is a few entries

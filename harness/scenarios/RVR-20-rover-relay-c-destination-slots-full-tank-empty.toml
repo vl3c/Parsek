@@ -1,0 +1,366 @@
+schema = 1
+id = "RVR-20-rover-relay-c-destination-slots-full-tank-empty"
+tier = "nightly"
+# =====================================================================================
+# THE MATRIX'S LAST OPEN CELL: THE DESTINATION HAS EVERY UNIT OF RESOURCE ROOM IT COULD
+# HAVE AND NOT ONE FREE SLOT.
+#
+# **NEVER FLOWN. AUTHORED 2026-09-06.** Every token below is PREDICTED from source, not
+# measured, and the two the prediction cannot reach are regexed and said to be so. The
+# supervisor flies this lane after provisioning and re-pins from the census; until then
+# nothing in this file is a measurement and it must not be read as one.
+#
+# WHAT IT MEASURES, IN ONE SENTENCE. `RouteDestinationCapacityCheck` is all-or-nothing
+# over TWO populations - resources and stored-part inventory slots - and `FirstShortToken`
+# walks the RESOURCE lines before the inventory ones. Every relay-c lane that reaches the
+# refusing direction refuses on the resource half (RVR-13 `short=LiquidFuel` at zero
+# headroom, RVR-14 the same at 100 units of headroom), so on this fixture the inventory
+# half has never been observed at all. This lane inverts both halves at once: the tank is
+# staged EMPTY (400 of headroom against a 200 manifest, the most room it can have) and
+# every slot is staged FULL, so the resource walk cannot refuse and the slot count is the
+# only thing that can.
+#
+# THE EDGE ROADMAP ITEM 15 RECORDED AS NOT EXPRESSIBLE, NOW EXPRESSIBLE. That entry says
+# the destination-slots-full cell "IS NOT EXPRESSIBLE FROM THESE BYTES" and needs "a
+# FLIGHTSTATE FILL MODE (with an explicit, defensible placement rule) or a SECOND
+# HARVEST". The fill mode is the one this lane uses, and its rule is stated where it is
+# implemented (`harness/lib/savepatch.py`, the `fill` comment): CLONE a `STOREDPART` node
+# ALREADY PRESENT IN THIS SAVE into EVERY FREE SLOT, containers in FILE order and slots
+# ascending inside each, rewriting nothing but the clone's ADDRESS (`slotIndex`) and the
+# one field whose uniqueness the save depends on (the nested `PART`'s `persistentId`).
+# The bytes are RECORDED; only the placement is authored. RVR-16 reached the same GATE on
+# the OTHER rover fixture by PLAYING it (3 of 6 slots free, one cycle consuming all
+# three), which is why this mode was not built earlier; it cannot be played here, because
+# rover A has three free slots and one cycle consumes at most two.
+#
+# -------------------------------------------------------------------------------------
+# THE STAGED STATE, AND THE ARITHMETIC IT PRODUCES.
+#
+# ONE `[[fixture.liveState]]` ENTRY, on rover A (pid 4280917262), doing two things:
+#   * `resources = { LiquidFuel = 0 }` - RVR-15's own staging, verbatim. A's tank holds
+#     400 at capacity, so an emptied tank is 400 of headroom against a 200 manifest.
+#   * `fill = { part = "evaChute", slots = 3 }` - A carries TWO `ConformalStorageUnit`
+#     containers of three slots each and ships THREE stored parts (c0: evaChute at slot 0;
+#     c1: evaScienceKit at slot 0, DeployedCentralStation at slot 1), so the free set is
+#     exactly {c0s1, c0s2, c1s2} and the fill clones A's OWN `evaChute` into all three.
+#     Six of six slots occupied. `harness/lib/test_savepatch.py`'s `CommittedFillTests`
+#     pins those three addresses against the committed bytes, so a re-harvest that moved
+#     them reds locally rather than on the instance.
+#
+# THE `slots = 3` IS DECLARED BECAUSE THE SAVE DOES NOT CARRY IT. `InventorySlots` is a
+# PART-CONFIG property of `ConformalStorageUnit`; the string appears ZERO times in
+# `persistent.sfs` and the fixture ships no readable craft file (its `.craft` sidecars are
+# compressed `PSN0` blobs). The 3 is `build_rover_relay_c_recorded.INVENTORY_CONTAINER_SLOTS`,
+# the builder's own measured constant, and a `harness/lib` cell asserts this spec's
+# declared value against it so the two cannot drift.
+#
+# ROVER B IS NOT TOUCHED, exactly as RVR-13, RVR-14 and RVR-15 leave it: the builder
+# already stages both endpoints at start-of-cycle from their own recorded dock windows, so
+# B holds the 200 LiquidFuel and three stored parts that cover the 154.3999999999952
+# pickup. That is what makes gate 6 pass and the gate-8 refusal attributable.
+#
+# -------------------------------------------------------------------------------------
+# THE PREDICTION, DERIVED LAYER BY LAYER, WITH THE SOURCE LINES IT RESTS ON.
+#
+#   1. `RouteDeliveryPlanner.PrepareDelivery` builds ONE plan covering BOTH populations.
+#      The resource line asks 200 against 400 of free capacity, so `available` equals
+#      `requested` and `anyResourcePartial` stays FALSE
+#      (`RouteDeliveryPlanner.cs:222`). The inventory loop calls
+#      `probe.ProbeFirstEmptyInventorySlot()` for every stack it places; with ZERO empty
+#      slots the first call returns invalid, the loop breaks, the leftover units are
+#      recorded as skipped and `anyInventoryPartial` is set
+#      (`RouteDeliveryPlanner.cs:259-275`). Then:
+#          `bool isPartial = anyResourcePartial || anyInventoryPartial;`
+#      (`RouteDeliveryPlanner.cs:279`) - TRUE on the inventory half alone.
+#   2. **THE FUEL DOES NOT DELIVER, AND THAT IS THE LANE'S CENTRAL CLAIM.**
+#      `RouteDestinationCapacityCheck.HasCapacityForAllStops` does exactly this
+#      (`RouteDestinationCapacityCheck.cs:108-122`):
+#          `if (!plan.IsPartial) { ...reserve...; continue; }`
+#          `fullToken = FirstShortToken(plan); fullStopIndex = i; return false;`
+#      A partial plan is the FAILURE condition, not a reduced success, so the WHOLE cycle
+#      refuses - the resource line that fits is refused along with the items that do not.
+#      This is RVR-14's measured reading of the same two layers, arrived at from the other
+#      population: there a fitting INVENTORY half was refused because the resource half
+#      was short, here a fitting RESOURCE half is refused because the inventory half is.
+#      **THE ASYMMETRY IS WALKED IN BOTH DIRECTIONS BY THE PAIR**, which is the reason to
+#      author this lane rather than call it a duplicate of RVR-16.
+#   3. `FirstShortToken` walks the plan's RESOURCE lines first and returns the first whose
+#      `Available < Requested`; with 400 of headroom there is none, so it falls through to
+#      the INVENTORY lines and names the first without an assigned slot
+#      (`RouteDestinationCapacityCheck.cs:206-236`). The prefix is the one constant
+#      `StoredPartTokenPrefix = "stored-part:"` (`:43`), so the token is
+#      `stored-part:<partName>`.
+#   4. `RouteDispatchEvaluator.cs:263-266` builds
+#      `new EligibilityResult(EligibilityFailureKind.DestinationFull, fullResource, 0.0)` -
+#      the shortfall is a HARD-CODED zero for this kind, so `shortfall=0` carries no
+#      information here and is not pinned.
+#   5. `ProcessLoopRoute` takes its blocked branch, which "emit[s] NOTHING (no debit, no
+#      delivery...)" (`RouteOrchestrator.cs:944-967`, and the multi-stop twin at
+#      `:1368-1397`). So there is no `Origin debit:`, no `Delivery write:` and no
+#      `Inventory store:` anywhere in the run, and **A's LiquidFuel is still 0 when the
+#      cycle ends** - unchanged, because the gate runs before any writer and
+#      `PrepareDelivery` is pure (`LiveDeliveryCapacityProbe`'s `Consume*` methods mutate
+#      only their own bookkeeping sets).
+#
+# -------------------------------------------------------------------------------------
+# WHAT IS A PREDICTION AND WHAT IS NOT, LISTED SO THE CENSUS CAN BE READ AGAINST IT.
+#
+# PREDICTED (from source; nothing below has been measured on this fixture):
+#   * that the cycle BLOCKS rather than delivering the fuel and skipping the items;
+#   * that the hold kind is `DestinationFull` and the detail carries the `stored-part:`
+#     prefix rather than a bare resource name;
+#   * that all three producers agree (the capacity check, `Route.RecordHold`'s persisted
+#     verdict, and `ProcessLoopRoute`'s BLOCKED line);
+#   * that the armed send-once is consumed into `blocked-then-paused`, the RVR-13 reading
+#     of the same blocked-cycle shape on the same route;
+#   * that nothing is debited or written.
+#
+# NOT PREDICTABLE, AND REGEXED FOR THAT REASON:
+#   * **WHICH PART THE TOKEN NAMES.** With zero free slots EVERY inventory line is short,
+#     so `FirstShortToken` returns the manifest's FIRST item - and RVR-16 established, by
+#     flying it, that the manifest's order is NOT the window census's identity-hash order
+#     (hash-ascending would have named the station; two flights put it last). RVR-15
+#     measured this fixture's manifest as FOUR inventory units and never printed their
+#     order. So the part name is `[A-Za-z]+` at all three producers. The alternation
+#     deliberately excludes `<unknown>`, `FirstShortToken`'s blank-name fallback: a
+#     manifest item that had lost its part name would be a different finding.
+#   * `stop=`, for RVR-13's reason exactly: this route has TWO stops and the mapping from
+#     the census ordering to `fullStopIndex` has never been measured here. RVR-16 pins
+#     `stop=0` because its route has one stop; this one cannot.
+#   * `cMin=` and the route id, which are per-run.
+#
+# -------------------------------------------------------------------------------------
+# WHAT MAKES THE REFUSAL ATTRIBUTABLE - the RVR-13 set, plus one forbid that is this
+# lane's own.
+#   * GATE 6 IS PROVEN TO HAVE PASSED. The required `all 1 pickup source(s) cover -
+#     eligible` line says the walk reached gate 8 with the origin satisfied, so the
+#     `DestinationFull` reading cannot be some other gate wearing the name.
+#     `BLOCKED kind=OriginLacksCargo` is forbidden to say the same negatively.
+#   * THE RESOURCE HALF IS FORBIDDEN BY NAME. `BLOCKED kind=DestinationFull
+#     reason=LiquidFuel` - RVR-13's and RVR-14's reading - must not appear. With 400 of
+#     headroom against a 200 manifest it arithmetically cannot, so its presence would mean
+#     the resource staging reached the wrong vessel or the wrong number.
+#   * **THE FILL'S OWN FALSIFICATION, and it is the sharpest line in the file.** If the
+#     `fill` silently did nothing, A would sit at 0 LiquidFuel with its three committed
+#     free slots - which is RVR-15's staged state exactly, and RVR-15 MEASURED that state
+#     delivering: `Delivery write: route=... dest=A pid=4280917262 resource=LiquidFuel
+#     requested=200 written=200 tankBefore=0 tankAfter=200 capacity=400 path=unloaded`,
+#     with `inventoryUnits=4/4 inventoryUnitsSkipped=0 partial=0`. That whole line is
+#     FORBIDDEN here, character for character. A no-op fill therefore reds on a measured
+#     line from a green lane rather than on an authored guess - which is what makes the
+#     staging falsifiable rather than merely declared.
+#   * NOTHING IS DEBITED. `Origin debit:`, `Inventory remove` and `Delivery write:` are
+#     forbidden bare, RVR-13's claim on the same route: a cycle that took 154.4 units off
+#     B and only then found nowhere to put them would destroy the player's fuel on every
+#     blocked crossing.
+#
+# -------------------------------------------------------------------------------------
+# WHAT THIS LANE DOES NOT CLAIM.
+#   * It does not claim a NEW behaviour over RVR-16. That lane already drove the inventory
+#     branch and produced the suite's first `stored-part:` token; this one drives the same
+#     branch on the OTHER fixture, with the resource half at MAXIMUM room rather than
+#     merely sufficient room, and with a MULTI-STOP route whose origin gate must pass
+#     first. That is a second sample of one behaviour, not a second behaviour, so no
+#     registry row is declared (see `[dimensionsCovered]`).
+#   * It does not claim the resource staging is load-bearing for the BLOCK. It is not:
+#     RVR-7 measured the unstaged 200/400 destination as an EXACT FIT that delivers, so
+#     the resource walk would pass at 200 as well. The `LiquidFuel = 0` is what makes the
+#     lane's claim the SHARP one - maximum resource headroom, zero slot headroom - and its
+#     witness is the harness's own `liveState patched ... LiquidFuel 200->0` line plus the
+#     forbidden RVR-15 delivery line above.
+# =====================================================================================
+description = "NEVER FLOWN - AUTHORED 2026-09-06, every token PREDICTED from source rather than measured; the supervisor flies it after provisioning and re-pins from the census. THE MATRIX'S LAST OPEN CELL, the one roadmap item 15 recorded as NOT EXPRESSIBLE FROM THESE BYTES: the destination has every unit of resource room it could have and not one free slot. RouteDestinationCapacityCheck is all-or-nothing over TWO populations and FirstShortToken walks RESOURCES before inventory, so on rover-relay-c-recorded the inventory half has never been observed - RVR-13 refuses at zero resource headroom and RVR-14 at 100 units, both naming LiquidFuel. This lane inverts both halves through ONE [[fixture.liveState]] entry on rover A: resources = { LiquidFuel = 0 } (RVR-15's staging, 400 of headroom against a 200 manifest) plus the new fill = { part = \"evaChute\", slots = 3 }, which clones A's OWN recorded evaChute STOREDPART into its three free slots (c0s1, c0s2, c1s2, pinned against the committed bytes in harness/lib) so six of six are occupied. THE FILL MODE IS WHAT ROADMAP ITEM 15 ASKED FOR: a placement rule stated where it is implemented - clone a STOREDPART already present in this save into every free slot, containers in file order and slots ascending, rewriting nothing but the clone's slotIndex and the nested PART's persistentId. The bytes are RECORDED; only the placement is authored. slots = 3 is DECLARED because the save does not carry it (InventorySlots is a part-config property, absent from persistent.sfs, and the fixture's craft sidecars are compressed blobs); it is the builder's own measured constant and a harness/lib cell ties the two together. THE PREDICTION, from source: PrepareDelivery builds ONE plan over both populations, the resource line fits (available == requested, no anyResourcePartial) while the inventory loop's first ProbeFirstEmptyInventorySlot returns invalid and sets anyInventoryPartial, so isPartial = anyResourcePartial || anyInventoryPartial is TRUE on the inventory half alone; HasCapacityForAllStops treats a partial plan as the FAILURE condition ('if (!plan.IsPartial) { reserve; continue; } fullToken = FirstShortToken(plan); return false;'), so THE FUEL DOES NOT DELIVER - the whole cycle refuses and A's LiquidFuel is still 0 when it ends. FirstShortToken finds no short resource line and falls through to the inventory ones, naming the first without a slot with the StoredPartTokenPrefix, so the detail is stored-part:<partName> at three producers. This is RVR-14's measured reading of the same two layers walked in the MIRROR direction - there a fitting inventory half was refused because the resource half was short - which is the reason to author it rather than call it a duplicate of RVR-16. WHICH PART THE TOKEN NAMES IS NOT PREDICTABLE and is regexed: with zero free slots every line is short so the token is the manifest's FIRST item, and RVR-16 established by flying it that the manifest's order is not the window census's hash order. stop= is regexed for RVR-13's reason (two stops, mapping unmeasured). THE FILL'S OWN FALSIFICATION is the sharpest line in the spec: a fill that silently did nothing leaves A at 0 LiquidFuel with three free slots, which is RVR-15's staged state exactly, and RVR-15 MEASURED that state DELIVERING - so RVR-15's whole delivery-write line is forbidden here character for character and a no-op fill reds on a measured line from a green lane. Attributability is the RVR-13 set: the required 'all 1 pickup source(s) cover - eligible' proves gate 6 passed, BLOCKED kind=OriginLacksCargo and BLOCKED kind=DestinationFull reason=LiquidFuel are both forbidden, and Origin debit: / Inventory remove / Delivery write: are forbidden bare. NO D10 row is claimed: RVR-16 already drove this branch and produced the suite's first stored-part: token, and a second sample of one behaviour on a second fixture is the growth rule's inflation case."
+instanceProfile = "stock-minimal"
+tags = ["seam-verbs", "logistics", "route-create", "route-hold", "destination-full",
+        "live-state", "recorded-fixture", "RVR-20", "matrix"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/rover-relay-c-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[[fixture.liveState]]
+# Rover A, the DELIVERY DESTINATION, inverted on both axes at once.
+#
+# `LiquidFuel = 0` is RVR-15's declaration verbatim, and for the same reason: it is the
+# most room this endpoint can have (400 of capacity against a 200 manifest), so the
+# resource walk of `FirstShortToken` cannot be what refuses. The applier refuses an amount
+# above `maxAmount` rather than clamping and refuses a vessel carrying more than one
+# LiquidFuel RESOURCE node - A carries exactly one - so "0" means one unambiguous thing.
+#
+# `fill` clones A's OWN `evaChute` STOREDPART into its three free slots. The template tier
+# that wins is the vessel's own container (`savepatch.find_stored_part_template` walks
+# this vessel -> any other FLIGHTSTATE vessel -> any route window's snapshot), so the
+# cloned bytes are the ones this craft already carries; only `slotIndex` and the nested
+# PART's `persistentId` are authored. `slots = 3` is the per-container capacity, declared
+# because the save does not record it and cross-checked by the applier against every
+# occupied `slotIndex` - a wrong capacity is refused pre-boot, never worked around.
+pid       = 4280917262
+resources = { LiquidFuel = 0 }
+fill      = { part = "evaChute", slots = 3 }
+
+[driver]
+# RVR-13's ELEVEN STEPS, ARGUMENT FOR ARGUMENT, including `TimeJump ut=1100` and the route
+# name. That is the whole design of a matrix lane: the driver is the control and the
+# `liveState` block is the variable. The prologue is the family's - the committed-tree
+# restore path resumes a promotion-stub recording ~1 s into the scene, `StopRecording` is
+# idempotent-OK, `DiscardTree` answers OK with nothing-discarded when no plain tree is
+# live, and `verboseLogging = true` is REQUIRED because the two
+# `DestinationHasCapacity` / `hold recorded` lines are Verbose.
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                    expect = "OK" },
+  { cmd = "DiscardTree",                                                      expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "SealSlot",     args = { tree = "88c012a6eed94bf09ff73397a4a31410" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "create", tree = "88c012a6eed94bf09ff73397a4a31410", name = "relay-c" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "send-once", route = "relay-c" },  expect = "OK", budget = 120 },
+  { cmd = "TimeJump",     args = { ut = "1100" },                             expect = "OK", budget = 300 },
+  { cmd = "SaveGame",                                                         expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# NO D10 VALUE IS CLAIMED, and it is a decision rather than an omission. The row this lane
+# would earn is `destination-full-gate`'s INVENTORY direction, and RVR-16 already declared
+# it as a second declarer alongside RVR-13 off a green census - the first `stored-part:`
+# token any driven run produced. This lane drives the SAME branch of `FirstShortToken` and
+# the same `ProbeFirstEmptyInventorySlot` claim on a different fixture, with a different
+# resource headroom and a multi-stop route; that is a second SAMPLE of one behaviour.
+# RVR-13's own row draws the line for exactly this case - it records that RVR-14 "measures
+# the same branch at a second headroom value and does NOT re-declare" - and the D1
+# `commit-in-foreign-soi` precedent requires a different code path, surface or measured
+# behaviour before a value splits. None of the three differs here.
+#
+# `inventory-cargo` is RVR-15's and is untouched: that row names a complete driven PICKUP
+# AND DELIVERY with `inventoryUnitsSkipped=[1-9]` and `partial=1` forbidden, and this lane
+# delivers nothing at all.
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (the H7 lesson): a bare key after an `[expectations.<sub>]`
+# header is TOML-scoped to that sub-table and never read. No tracer is armed by this spec,
+# so the empty list is honest, and NO render-composition block is declared - declaring one
+# would set `PARSEK_RENDER_MANIFEST=1`, and a confirmed dock crossing appends
+# `route-dock-crossing` CLOCK-EVENTs to that manifest.
+allowedAnomalies = []
+
+[expectations.recordings]
+# The matrix's anti-data-loss floor, exact on both bounds and RVR-13's / RVR-15's measured
+# value over these bytes. The route this lane creates holds `SOURCE` references into the
+# committed corpus, so a recording destroyed mid-run would flip the fresh route to
+# `SourceChanged` and present as a route defect rather than as data loss. The liveState
+# patch adds STOREDPART lines inside one FLIGHTSTATE vessel, which no recording count
+# reads.
+count = { min = 10, max = 10 }
+
+[expectations.logContracts]
+# THIRTEEN TOKENS. Each is a literal RUN taken from the emitting `string.Format` /
+# interpolation in source, never a line pasted from a log. Two shapes to note:
+# `ProcessLoopRoute`'s BLOCKED line continues past an EM DASH after `shortfall=`, so every
+# token in this family stops at the reason; and both `DestinationHasCapacity` lines are
+# `VerboseRateLimited`, so a lane must not require two occurrences of one.
+#
+# TOKENS 1-6 ARE RVR-13's PROLOGUE SET and are this lane's CONTROL: RVR-13, RVR-14 and
+# RVR-15 all measured them green over the identical payload. If one reds, the run diverged
+# from the matrix baseline somewhere OTHER than the staged endpoint, and that is the first
+# thing to know.
+#
+# TOKENS 7-8  GATE 6 PASSING, at the pickup source. `resources=1 inventory=3` is B's own
+#             committed cargo, measured by RVR-13 on these bytes and untouched by this
+#             lane's staging. It is what makes token 9's refusal attributable to gate 8.
+#
+# TOKENS 9-11 GATE 8 REFUSING, at three producers - the check
+#             (`LiveRouteRuntimeEnvironment.DestinationHasCapacity`), the persisted verdict
+#             (`Route.RecordHold`) and the cycle's outcome (`ProcessLoopRoute`). A fix that
+#             plumbed the token into one and not the others reds on exactly one line.
+#             `stored-part:` is the PREDICTION: it is `FirstShortToken`'s inventory branch,
+#             which on this fixture nothing has ever reached.
+#
+# TOKENS 12-13 THE ARMED PAUSE, RVR-13's reading of the same blocked-cycle shape on the
+#             same route: a blocked cycle consumes the one-shot arm and the route lands in
+#             `blocked-then-paused`.
+#
+# NOT PINNED, DELIBERATELY: `shortfall=`, which `RouteDispatchEvaluator` hard-codes to
+# `0.0` for this kind and which therefore carries no information; and any
+# `status=DestinationFull` reading, which belongs to the dead self-timer path (a blocked
+# loop route ends at `Paused` with `LastHoldKind` set).
+required  = [
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "sealslot complete mode=tree tree=88c012a6eed94bf09ff73397a4a31410 total=8 sealed=0 remaining=0 alreadySealed=True",
+  "routecommand create gate tree=88c012a6eed94bf09ff73397a4a31410 treeFound=True dismissed=False sealed=True eligible=True status=Eligible alreadyPromoted=False refusal=None",
+  "routecommand complete action=create tree=88c012a6eed94bf09ff73397a4a31410 route=.* name='relay-c' status=Paused",
+  "PauseAfterCurrentCycle=true \\(route will dispatch one cycle when conditions allow, then transition to Paused\\)",
+  "PostWalk: routes=0",
+  "PickupSourcesHaveCargo: route [0-9a-f]{8} source pid=90564594 name=B resources=1 inventory=3 decision=cover",
+  "PickupSourcesHaveCargo: route [0-9a-f]{8} all 1 pickup source\\(s\\) cover - eligible",
+  "DestinationHasCapacity: route [0-9a-f]{8} destination FULL stop=[0-9]+ short=stored-part:[A-Za-z]+",
+  "Route [0-9a-f]{8} hold recorded kind=DestinationFull detail=stored-part:[A-Za-z]+",
+  "LoopRoute\\(multi\\): route [0-9a-f]{8} cycle=cycle-0 cMin=[0-9]+ BLOCKED kind=DestinationFull reason=stored-part:[A-Za-z]+",
+  "ArmedPause: route [0-9a-f]{8} cycle=cycle-0 BLOCKED cycle consumed the armed pause",
+  "reason=blocked-then-paused",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "routecommand rejected",
+  "dispatch fired",
+  # THE NO-DEBIT CLAIM, RVR-13's on the same route: the gate runs before any writer, so a
+  # debit here would mean the cycle took B's fuel and only then discovered it had nowhere
+  # to put it.
+  "Origin debit:",
+  "Inventory remove",
+  "Delivery write:",
+  # THE FILL'S OWN FALSIFICATION, and the reason it is spelled out rather than left to the
+  # bare `Delivery write:` above: this is RVR-15's MEASURED line, character for character,
+  # on the state a no-op fill would leave behind (A at 0 LiquidFuel with its three
+  # committed free slots - RVR-15's staging exactly, which RVR-15 measured DELIVERING).
+  # A fill that silently did nothing therefore reds on a green lane's measurement.
+  "Delivery write: route=.* dest=A pid=4280917262 resource=LiquidFuel requested=200 written=200 tankBefore=0 tankAfter=200 capacity=400 path=unloaded",
+  "inventoryUnitsSkipped=0 partial=0",
+  # THE RESOURCE HALF MUST NOT BE THE REFUSER. With 400 of headroom against a 200 manifest
+  # it arithmetically cannot be, so this line appearing would mean the resource staging
+  # reached the wrong vessel or the wrong number.
+  "BLOCKED kind=DestinationFull reason=LiquidFuel",
+  # And it must not be the ORIGIN gate that failed - B is stocked exactly as the fixture
+  # leaves it, so an OriginLacksCargo reading would mean the patch reached the wrong
+  # vessel entirely.
+  "BLOCKED kind=OriginLacksCargo",
+]
+
+[expectations.recordings.structure]
+# REPORT-ONLY (no `gating` key) and identical to RVR-13's: the committed fixture's own
+# structure re-read through `harness/lib/saveparse.py`. Nothing in this lane's driver
+# creates or destroys a recording, and the liveState patch touches one FLIGHTSTATE vessel,
+# so the produced save should read the matrix's numbers.
+trees          = { min = 3, max = 3 }
+committedTrees = { min = 3, max = 3 }
+recordings     = { min = 10, max = 12 }
+terminalStates = { Landed = { min = 5 }, Docked = { min = 2 } }
+branchPoints   = { Dock = { min = 2, max = 2 }, Undock = { min = 2, max = 2 } }
+
+[expectations.routes]
+# REPORT-ONLY, and DERIVED from RVR-13's armed-baseline shape rather than measured: a
+# blocked cycle skips rather than completes, and `blocked-then-paused` leaves the route
+# `Paused`. Arming any of it is a separate operator decision taken after a reading run
+# whose facets match, with its own `ARMED_ALLOWLIST` entry.
+count           = { min = 1, max = 1 }
+dormant         = { min = 0, max = 0 }
+stops           = { min = 2, max = 2 }
+sourceRefs      = { min = 3, max = 3 }
+completedCycles = { min = 0, max = 0 }
+skippedCycles   = { min = 1, max = 1 }
+statuses        = { Paused = { min = 1, max = 1 } }
+
+[runtime]
+# RVR-13's budget arithmetic, unchanged: `run.py` gives every deferred seam verb
+# `required_step_wait(max(step budget, SEAM_FALLBACK_DEFERRAL_SECONDS=600))` = 660 s
+# regardless of the declared step budget, and LoadGame plus the TimeJump are deferred.
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

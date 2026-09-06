@@ -408,6 +408,9 @@ inventory = "clear"                  # and empty both containers
   writes), or `restore-dock-endpoint:<windowIndex>` (restore from that route
   window's own `DOCK_ENDPOINT_INVENTORY` snapshot - the fixture's own recorded
   bytes).
+* `fill = { part = "<partName>", slots = N }` - CLONE a `STOREDPART` node ALREADY
+  PRESENT IN THIS SAVE into EVERY FREE SLOT of every `ModuleInventoryPart` on the
+  vessel. See the section below; it is a separate key, composable with `inventory`.
 * `remove = true` - DELETE the vessel's whole `VESSEL` node, the only way to author
   "the endpoint this route names is no longer in the save" without a second harvest.
   Exclusive with `resources` / `inventory` (both would patch a node this entry then
@@ -431,6 +434,63 @@ inventory = "clear"                  # and empty both containers
   cycle finally holds `EndpointLost`. The general point, because the roadmap got it
   wrong once: a reachability claim made about ONE application of a staging mode is
   not a claim about the mode.
+
+#### `fill` - authoring a FULL inventory from recorded bytes
+
+The DESTINATION-SLOTS-FULL edge needs a destination with no free slot, and on
+`rover-relay-c-recorded` no amount of playing gets there: rover A has two
+`ConformalStorageUnit` containers of three slots, ships three stored parts, and one
+delivery cycle consumes at most two of the three that are free. (It IS reachable by
+playing `rover-route-recorded` - 3 of 6 free, one cycle consuming all three - which
+is RVR-16, and is why this key was not built earlier.)
+
+```toml
+[[fixture.liveState]]
+pid  = 4280917262
+fill = { part = "evaChute", slots = 3 }
+```
+
+**THE PLACEMENT RULE, and it is the whole of the mode:** clone a `STOREDPART` node
+ALREADY PRESENT IN THIS SAVE for that part name into EVERY FREE SLOT of EVERY
+`ModuleInventoryPart` on the vessel - containers in FILE order, slots ASCENDING
+inside each. Nothing about a clone is authored except its ADDRESS: `slotIndex`
+becomes the target slot and the nested `PART`'s `persistentId` is re-stamped to a
+value no line in the save already carries. Every other byte - `quantity`,
+`stackCapacity`, `variantName`, `cid`, the whole nested `PART` - is the recorded one.
+The bytes are RECORDED; only the placement is authored, which is the difference from
+the "a fill mode would be invented bytes" position this key replaces.
+
+* **`part`** - the template is looked up in a stated order: this vessel's own
+  containers, then any other `FLIGHTSTATE` vessel's, then any route window's
+  `DOCK_ENDPOINT_INVENTORY` snapshot (re-indented by the same lift a restore uses).
+  No template anywhere is a REFUSAL naming the part and all three places.
+* **`slots`** - the per-container slot capacity, DECLARED because the save does not
+  carry it: `InventorySlots` is a part-config property and the string appears zero
+  times in `persistent.sfs` (the fixture's craft sidecars are compressed `PSN0`
+  blobs). A bare `fill = "<partName>"` string was rejected for exactly this - with
+  no capacity, "every free slot" would have to be inferred from the highest observed
+  `slotIndex`, which reads a FULL container as capacity-1 and fills nothing: a
+  declaration that reads as "fill it" and patches nothing, the failure this whole
+  mechanism exists to prevent. The applier CROSS-CHECKS the declared number against
+  the bytes and refuses any existing `slotIndex >= slots`.
+* **Why `persistentId` and only `persistentId`.** Measured: inside `FLIGHTSTATE` all
+  72 `persistentId` values are distinct, so a verbatim duplicate breaks the one
+  uniqueness the key exists for. `cid` is shared BY CONSTRUCTION across instances of
+  a part kind (`evaChute` reads `cid = 4294400076` in all three rovers) and is left
+  alone; `uid`, `mid` and `launchID` are `0` on every stored part. A template
+  carrying more than one `persistentId` line at any depth is REFUSED rather than
+  half-stamped.
+* **Composes with `inventory`, and the order is fixed.** The inventory mode runs
+  FIRST, so `inventory = "clear"` + `fill` fills every slot and `fill` alone fills
+  what the fixture left free. The fill's TEMPLATE, though, is resolved BEFORE that
+  mode runs - `clear` would otherwise delete the very stored part the fill names,
+  and "empty it, then fill it with the part this fixture holds" is a coherent
+  declaration. Exclusive with `remove = true`, like the other patch keys.
+* **A fill that would place NOTHING is an ERROR, not a pass** - no free slot, no
+  container, no template, a duplicated `slotIndex`: all refused pre-boot with the
+  cause named and KSP never launched.
+
+RVR-20 is the lane this key exists for, and it is NOT YET FLOWN.
 
 A sibling key covers the one career quantity a route lane's arithmetic runs on:
 
@@ -491,24 +551,26 @@ behaviourally: applying `restore-dock-endpoint:<N>` to an endpoint the builder
 already restored from the same window is a BYTE-IDENTICAL no-op, and clearing then
 restoring returns the committed bytes exactly.
 
-WHAT IT CANNOT DO, and why that is a property of the bytes: there is no `fill` mode,
-no `restore-undock-endpoint:<N>` and no `relocate`. An `UNDOCK_ENDPOINT_INVENTORY`
+WHAT IT CANNOT DO, and why that is a property of the bytes: there is no
+`restore-undock-endpoint:<N>` and no `relocate`. An `UNDOCK_ENDPOINT_INVENTORY`
 snapshot is not a census of the resulting inventory (on `rover-relay-c-recorded`
 window 1 it carries four items, two of them the same part name at the same
-`slotIndex`, against a live rover holding six, with no container index recorded), and
-a fill mode would mean authoring `STOREDPART` nodes no snapshot ever wrote. A
-`relocate` mode would change NOTHING for a route whose endpoint still carries a live
-pid: `RouteEndpointResolver`'s pid step is position-blind and wins before proximity is
-consulted, so moving a vessel is only observable once its pid is gone - which is what
-`remove` already does.
+`slotIndex`, against a live rover holding six, with no container index recorded), so
+nothing inside those bytes assigns them to containers. A `relocate` mode would change
+NOTHING for a route whose endpoint still carries a live pid: `RouteEndpointResolver`'s
+pid step is position-blind and wins before proximity is consulted, so moving a vessel
+is only observable once its pid is gone - which is what `remove` already does.
 
-The destination-slots-full edge is not expressible BY STAGING on
-`rover-relay-c-recorded` (rover A starts with three free slots and one cycle consumes
-at most two), and that limit is a property of THAT fixture rather than of this
+The destination-slots-full edge on `rover-relay-c-recorded` was in that list until
+2026-09-06, on the reasoning that a fill "would mean authoring `STOREDPART` nodes no
+snapshot ever wrote". It does not: `fill` CLONES a stored part the save already
+carries, so the bytes are recorded and only the placement is authored. RVR-20 is that
+lane (authored, not yet flown). It remains true that the edge cannot be reached by
+PLAYING this fixture - rover A starts with three free slots and one cycle consumes at
+most two - and that the limit is a property of THAT fixture rather than of the
 mechanism: on `rover-route-recorded` the destination starts with three free slots and
-one cycle consumes ALL THREE (a three-part manifest), so RVR-16 reaches the same edge
-by PLAYING the fixture with a single `resources` declaration. The relay-c version of the edge still needs a second
-harvest; it stays filed in `docs/dev/autotest-roadmap.md` item 15.
+one cycle consumes ALL THREE (a three-part manifest), so RVR-16 reaches the same gate
+with a single `resources` declaration and no new key.
 
 ### Recording sidecars: what is committed and what is derived
 
