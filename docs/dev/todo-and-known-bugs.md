@@ -233,13 +233,98 @@ count can account for.
 
 ---
 
-## ROUTE-ENDPOINT-TRANSFER-DOCKED-DOMINANT-PARTNER: while a visitor is docked to a delivery destination and DOMINATES the merged vessel, the route now REBINDS to the visitor and follows it away after undock [RAISED 2026-09-04 by the Fable review of PR #1627 (the endpoint-transfer ruling). DESIGN RESIDUE of that PR, not a defect it introduced blindly - the pre-#1627 behaviour was self-healing by accident. OPEN, no fix proposed; two siblings filed in the same entry]
+## ~~ROUTE-ENDPOINT-TRANSFER-DOCKED-DOMINANT-PARTNER: while a visitor is docked to a delivery destination and DOMINATES the merged vessel, the route now REBINDS to the visitor and follows it away after undock~~ [RAISED 2026-09-04 by the Fable review of PR #1627 (the endpoint-transfer ruling). DESIGN RESIDUE of that PR, not a defect it introduced blindly - the pre-#1627 behaviour was self-healing by accident. FIXED 2026-09-06 (P17) by mitigation (a) PLUS a resolver half the costing did not see was needed - (a) alone would not have worked. Sibling 1 is superseded; sibling 2 stays a NOTE]
 
-**THE SHAPE.** A destination stop's `RouteEndpoint` carries `RootPartUId = 0`.
-`RouteBuilder` stamps that field at exactly two sites and both are the ORIGIN
+**FIXED IN TWO HALVES, AND MITIGATION (a) ALONE WOULD NOT HAVE WORKED.** Stamping the
+destination's `RootPartUId` at capture is necessary but not sufficient, and the reason is
+exactly the dominance rule this entry is about: `Part.Couple` merges into the DOMINANT
+half's `Vessel`, so while a dominant visitor is docked the base's root part is aboard the
+composite as an ORDINARY part - it is no vessel's ROOT. The resolver's root-part step
+matched on the candidate's OWN root only, so a stamped destination would still have missed
+for exactly as long as the pair stayed docked. Both halves shipped together:
+
+- **The stamp.** `ParsekFlight.BuildRouteEndpointFromVessel` reads the endpoint's root part
+  `flightID` (pre-couple, while the endpoint still has its own `Vessel`),
+  `TryBuildRouteEndpointFromSnapshot` reads it from the snapshot's own `root` index, and the
+  window-build site backfills from the `endpointRootPartUId` it already computes when the
+  descriptor could not supply one. The post-couple `FindVesselByPid` fallback was re-derived
+  rather than assumed safe: it resolves at all only when the endpoint half DOMINATED and
+  survived as the merged vessel, in which case the merged root IS the endpoint's own.
+- **The match.** `RouteEndpointResolver.TryRootPartMatchPure` runs two passes over the same
+  launch-unique key: own-root first, then PART-SET-CONTAINS. A part `flightID` is
+  launch-unique, so a vessel carrying it IS the craft that physically holds the recorded
+  endpoint - delivering into that composite reaches the base, which is the pre-#1627 outcome
+  restored BY IDENTITY instead of by positional accident. Pass order is the contract and is
+  deliberately asymmetric: an own-root match beats a contains match everywhere, so the
+  MIRROR direction (destination dominant) resolves through pass 1 exactly as before. The
+  composite arm announces itself - `Endpoint resolved through a DOCKED COMPOSITE:
+  rootPartUId=... recordedPid=... compositePid=...`, `InfoRateLimited` on a key carrying the
+  resolved pid, because it is a standing condition an operator wants when a delivery lands
+  somewhere unexpected.
+
+**A DROPPED READER FOUND ON THE WAY, and it would have made the stamp save-transient.**
+`RouteProofCodec.DeserializeRouteEndpoint` never read `rootPartUId` - `RouteNodeCodec` has
+always WRITTEN it and `RouteCodec` has always read it, but the proof side did not, so a
+window endpoint's root id survived only until the recording was saved. It is read now, and
+a cell fails on the old reader.
+
+**TWO MORE FIELD-BY-FIELD COPIES WERE DROPPING THE SAME KEYS** (found by the
+mirror-direction sweep, not by the reported case): `RouteBuilder`'s MID-TREE DOCKED ORIGIN
+and PICKUP ORIGIN branches rebuilt `Route.Origin` field by field from the window endpoint
+and omitted both `RootPartUId` and `LaunchGuid`, so those origins walked pid -> proximity
+for the same structural reason. Both carry the identity fields now.
+
+**WHAT HAPPENS TO THE SIBLINGS.** SIBLING 1 (the route's own transport left docked at the
+destination, holding `EndpointLost reason=stop-0-no-candidate-after-transport-exclusion`)
+is SUPERSEDED for a stamped endpoint: the walk resolves at the root-part step and never
+reaches the transport exclusion, which lives on the proximity step. That is the right
+reading rather than a hole in the ruling - the exclusion exists to stop a positional
+SUBSTITUTION picking the carrier, and a root-part hit is the recorded endpoint by identity,
+not a substitute. The hold can still arise for an endpoint with NO stamped root id (every
+route built before this pass), which is the residual case. SIBLING 2 (the exclusion being a
+union across every route owning the endpoint) is unchanged and still a NOTE.
+
+**TWO FOLLOW-UPS FROM THE ADVERSARIAL REVIEW OF THIS PACKAGE, in the same PR.**
+
+- **The part-set pass is now COST-GATED, because the comment justifying it was half wrong.**
+  It read "the permanently-lost case already pays for the proximity build below", which is
+  true only for a SURFACE endpoint: `proximityEligible` gates on `IsSurface`, so an ORBITAL
+  endpoint whose depot is gone missed pass 1, walked every part of every vessel in pass 2,
+  and had no proximity step to reach - every frame the Logistics window drew that route.
+  `RouteEndpointResolver.ShouldRunDeepRootScan` memoizes the MISS per (endpoint root,
+  live-vessel count) for `DeepRootScanNegativeCacheFrames` (120 frames, about two seconds;
+  FRAMES not UT, because a UT budget evaporates under warp). The correctness cost is a
+  bounded DELAY and never a wrong answer: the memo is dropped the moment the live vessel
+  COUNT changes, which is precisely what a dock (2 -> 1) or an undock (1 -> 2) does - the
+  transitions that make a previously-unfindable root findable. A hit clears it. The comment
+  is corrected in the same commit.
+- **The destination endpoint carries the LAUNCH GUID too, for symmetry with the origin.**
+  `ParsekFlight.BuildRouteEndpointFromVessel` reads it at the same pre-couple instant as
+  the root id. Asymmetric before: an origin's pid step was guid-gated and a destination's
+  was not, for no reason other than which site had the key. It only ever NARROWS the pid
+  step (an unreadable guid stays null, which is the ungated behaviour), and the hasher
+  excludes it, so no existing route moves to `SourceChanged`.
+
+**Headless:** `RouteEndpointDockedCompositeTests` (13 cells) - both dominance directions
+landing on the same composite with different reason tokens, own-root beating contains, the
+undock round trip resolving on the same key, the pass's edges (zero id, ghost exclusion on
+BOTH passes, an unreadable part set, an ambiguous composite), the step order being
+unchanged by the stamp, and the stamp surviving both codecs without moving the proof hash.
+
+**STILL NOT LIVE-PROVEN, and the entry's own reasoning about that stands.** No committed
+lane reaches a docked composite: `rover-route-recorded`'s rovers are undocked by the time
+the route dispatches. A lane wants a two-vessel DOCKED-AT-REST fixture with a `VesselType`
+/ mass pair chosen so the visitor wins `GetDominantVessel`, plus a driven undock - a
+mission, not a `[[fixture.liveState]]` edit. Worth building; it now proves a fix rather
+than reproducing a defect. NOTE FOR THE HARVESTER: a re-harvested `rover-route-recorded`
+would carry stamped delivery endpoints, so `RVR-18`'s "the root-part step cannot run on
+cycle 0" claim is a property of the COMMITTED bytes only (recorded in that spec's header).
+
+**THE ORIGINAL FILING.** A destination stop's `RouteEndpoint` carried `RootPartUId = 0`.
+`RouteBuilder` stamped that field at exactly two sites and both were the ORIGIN
 (`RootPartUId = originProof.StartDockedOriginRootPartUId`); a delivery stop's endpoint is
-`window.EndpointAtDock` verbatim, whose keys are pid / body / lat / lon / alt / isSurface
-and nothing else. So the resolver's walk for a destination is pid -> proximity, with the
+`window.EndpointAtDock` verbatim, whose keys were pid / body / lat / lon / alt / isSurface
+and nothing else. So the resolver's walk for a destination was pid -> proximity, with the
 launch-unique root-part step unreachable by construction.
 
 Now dock any visitor to that destination base. `Part.Couple` destroys one of the two
@@ -289,16 +374,24 @@ which is not obvious from either route's own configuration.
 
 **MITIGATION CANDIDATES, neither costed:**
 
-(a) STAMP `RootPartUId` FOR DESTINATION STOPS AT CAPTURE TIME. The information is in hand:
+(a) STAMP `RootPartUId` FOR DESTINATION STOPS AT CAPTURE TIME - **THIS IS WHAT WAS BUILT,
+plus the resolver half described at the top, which this costing did not see was needed.**
+The information is in hand:
 `ParsekFlight.CapturePendingDockRouteEndpointProof` resolves the live `endpointVessel`
 before calling `BuildRouteEndpointFromVessel`, so the endpoint's own root part `flightID`
 is readable at exactly the moment `ENDPOINT_AT_DOCK` is written. With it, the destination
 walk starts at the root-part step, the docked composite resolves back to the BASE by
 identity (the base's root part survives the couple - `Part.Couple` re-parents parts, it
 does not renumber `flightID`), and neither the mis-transfer nor sibling 1's hold can arise.
-This is also the fix RESOLVER-PID-STEP-NOT-GUID-GATED wants for the same endpoint, so the
-two should be costed together. It touches the capture site, `RouteNodeCodec` (the field
-already round-trips, so no schema generation moves) and the route hash.
+This is also the fix RESOLVER-PID-STEP-NOT-GUID-GATED wanted for the same endpoint, and
+the two were built in the same package. It touches the capture site, `RouteNodeCodec` (the
+field already round-trips, so no schema generation moves) and the route hash. THE COSTING
+MISSED ONE THING and the build found it: the field round-tripped through `RouteCodec` but
+NOT through `RouteProofCodec`, whose endpoint reader dropped it - so the stamp would have
+been save-transient. And the claim that "the docked composite resolves back to the BASE by
+identity" was true about the flightID surviving and FALSE about the match: the root-part
+step compared the candidate's OWN root, which the base is not while a dominant visitor is
+docked.
 
 (b) DEFER THE REBIND WHILE THE RESOLVED VESSEL IS A DOCKED COMPOSITE. Keep delivering
 (the cargo reaches the right physical place either way) but do not PERSIST the transfer
@@ -879,7 +972,7 @@ vessels; that cell reds today. (3) Lane `RVR-5-rover-relay-eligibility` pins
 a fix it must be re-pinned (the fixture's window is then either admitted or fails
 the next gate), so the lane doubles as the regression instrument.
 
-## UNDOCK-BG-CHILD-WRITES-RELATIVE-METRES-AS-FLAT-LAT-LON: an undock background child persists anchor-local metre offsets as flat lat/lon points, and `maxDist` reads 735 km for a rover that never left the pad area [FOUND 2026-09-02 by forensics on the hand-flown rover relay `logs/2026-09-02_2041` (save `logistics-rover-B`, now the `rover-relay-recorded` fixture). DEFECT. The safe substitution that exists to prevent exactly this is disabled by a zero-frame TrackSection the same producer emits. OPEN, not fixed]
+## ~~UNDOCK-BG-CHILD-WRITES-RELATIVE-METRES-AS-FLAT-LAT-LON: an undock background child persists anchor-local metre offsets as flat lat/lon points, and `maxDist` reads 735 km for a rover that never left the pad area~~ [FOUND 2026-09-02 by forensics on the hand-flown rover relay `logs/2026-09-02_2041` (save `logistics-rover-B`, now the `rover-relay-recorded` fixture). DEFECT. The safe substitution that exists to prevent exactly this is disabled by a zero-frame TrackSection the same producer emits. FIXED 2026-09-06 on branch `undock-bg-child-section` - all four sites, headless-proven; see "What shipped" at the end of this entry]
 
 **Symptom.** Both undock-side background children of the relay
 (`49eaec92876041efa53deb1f5e5c96f4` "rover B", `0f391265a0b2453ea94fccd5daa1febb`
@@ -940,7 +1033,8 @@ point at lon 0.777 to one at lon -74.725 is `2 * 600000 * sin(37.75 deg) =
    `VesselSpawner.BackfillMaxDistance` (`VesselSpawner.cs:4041`): `rec.Points[0]`
    is the launch reference and every flat point goes through
    `body.GetWorldSurfacePosition(lat, lon, alt)` (`ComputeMaxDistanceCore`,
-   `:4068`). Its guarded sibling `BackfillMaxDistanceAbsoluteOnly` (`:4109`)
+   `:4068`). Its guarded sibling `BackfillMaxDistanceAbsoluteOnly` (`:4109`; since
+   widened and renamed `BackfillMaxDistanceFromBodyFixedSurfaces`, see "What shipped")
    exists precisely for this and its XML doc names the hazard verbatim ("a
    falsely huge maxDist"), but only `ParsekFlight.IsActiveTreeIdleOnPad`
    (`ParsekFlight.cs:2453`) uses it.
@@ -1007,6 +1101,9 @@ green; that is the gap, not a clean bill.
    the Absolute-only variant walks `rec.TrackSections` and leaves
    `MaxDistanceFromLaunch` untouched when a recording has no Absolute section, so
    a sections-less legacy recording needs the flat path kept as a fallback.
+   (As shipped this became `BackfillMaxDistanceFromBodyFixedSurfaces`, which also
+   reads Relative `bodyFixedFrames` - the proposal's Absolute-only reading was
+   itself a fail-closed for every parent-anchored recording. See "What shipped".)
 4. Optional, and the durable one: an analyzer rule that FAILS when a flat
    `Recording.Points` entry's UT is covered by a Relative section and it does not
    equal that section's `bodyFixedFrames` sample.
@@ -1020,6 +1117,151 @@ green; that is the gap, not a clean bill.
 every recording's `maxDist < 1000` and that no `.prec.txt` flat `POINT` carries
 `|lon| < 1` at KSC longitude. The fix claim in (1) is derived from reading the two
 predicates, not executed.
+
+**What shipped (2026-09-06, branch `undock-bg-child-section`).** All four sites, in
+the order above, plus one PREMISE CORRECTION that changed site 4's shape.
+
+1. **The close decision is now pure and shared.** `TrackSectionCloseClassifier.Classify`
+   (`Source/Parsek/TrackSectionCloseDecision.cs`) returns `Persist` /
+   `DiscardPayloadFree` / `DiscardSeedOnlyRelativeTransient`, and BOTH
+   `FlightRecorder.CloseCurrentTrackSection` and
+   `BackgroundRecorder.CloseBackgroundTrackSection` route through it, so the mirror the
+   BG comment always claimed is now mechanical. PAYLOAD-FREE means all three authored
+   surfaces empty - `frames`, `bodyFixedFrames` AND `checkpoints` - which is wider than
+   the entry's `frameCount == 0 && checkpointCount == 0`: a Relative section whose only
+   surface is `bodyFixedFrames` is renderable coverage
+   (BODYFIXEDFRAMES-INVISIBLE-TO-BOTH-EMPTINESS-PREDICATES) and must not be dropped.
+   `isBoundarySeam` sections persist first, ahead of every discard. One Verbose line per
+   discard, `TrackSection discarded (payload-free: no frames, bodyFixedFrames or
+   checkpoints)` with pid (BG) / env / ref / UT span / duration.
+
+   **The span bound is KEPT, deliberately, and it is the one deviation from the entry's
+   "regardless of `referenceFrame`" wording being read as "regardless of everything".**
+   `FlightRecorder` has always discarded a zero-frame section only when it spanned less
+   than 1.0 s; making that unconditional red 46 existing recorder cells across six test
+   files, all of which open a section, close it 10-100 s later without ever sampling, and
+   assert the section landed in the list. Empirically the bound is enough: of the 18
+   payload-free sections in the ENTIRE committed fixture corpus (1914 sections across 8
+   saves) 16 span 0.02 s or 0.04 s - including this defect's undock shell - and the two
+   outliers (5.04 s, 5.54 s) are both in `rover-relay-c-recorded`. The bound is hygiene,
+   not the load-bearing fix: site 2 makes the codec immune at ANY span.
+
+2. **The codec skips an empty shell instead of giving up.**
+   `TrajectoryTextSidecarCodec.IsPayloadFreeTrackSection` is the shared predicate;
+   `HasCompleteTrackSectionPayloadForFlatSync`,
+   `TryBuildBodyFixedPrimaryFlatPointsForRelativeSections` and
+   `FrameTrackSectionCoversUT` all skip such a section. The third is the mirror the entry
+   did not name: an empty shell was ALSO claiming to cover its UT span, which would drop
+   a genuine flat tail point inside it from the safe fallback list. A recording whose
+   sections are ALL payload-free still answers "no payload" (the skip cannot manufacture
+   one), and a Relative section that HAS frames but no `bodyFixedFrames` still refuses the
+   substitution.
+
+   **READ side.** `RebuildPointsFromTrackSections` needed no change: it is frame-blind by
+   design and an empty section contributes nothing to it. What the skip DOES unlock on
+   read is the repair of recordings already on disk: a damaged child loads with
+   `sectionAuthoritative=False` and non-empty sections, so
+   `TrajectorySidecarBinary.Read` runs `TryHealMalformedFlatFallbackTrajectoryFromTrackSections`,
+   which was blocked by the same shell and now substitutes the body-fixed samples into
+   the flat list. Pinned by `DamagedFlatList_HealsOnLoad`.
+
+   **The heal repairs the flat LIST only, not the number derived from it.** Nothing
+   recomputes `MaxDistanceFromLaunch` on load, so a recording already on disk keeps the
+   value it was finalized with - including the ~735 km carried by the two committed
+   `rover-relay-recorded` children (`49eaec92...`, `0f391265...`). Those two stay wrong
+   until the fixture is re-harvested from a fresh flight; only a recording finalized by
+   the fixed code (site 3) gets a correct number.
+
+3. **Finalization routes maxDist by shape.** `VesselSpawner.ClassifyMaxDistanceBackfillRoute`
+   (pure, returns `None` / `BodyFixedSections` / `FlatPoints`) decides:
+   a body-fixed section surface present -> `BackfillMaxDistanceFromBodyFixedSurfaces`,
+   no sections at all (or sections with no body-fixed surface AND no Relative section, where
+   the flat list cannot be carrying anchor-local metres) -> the flat `BackfillMaxDistance`,
+   kept because the section walk leaves `MaxDistanceFromLaunch` untouched when it finds no
+   body-fixed sample, so such a recording would otherwise stay at 0 and be discarded as
+   idle-on-pad. A recording that HAS Relative sections but no body-fixed sample stays on the
+   section walk at 0: fail CLOSED beats resolving anchor-local metres as lat/lon.
+   `ParsekFlight.FinalizeIndividualRecording` logs which ran:
+   `FinalizeIndividualRecording: maxDist backfill route=body-fixed-sections
+   reference=relative-body-fixed-frames` / `route=flat-points`.
+
+   **The walk reads BOTH body-fixed surfaces (pre-merge review follow-up).** The first cut
+   of this site walked Absolute `frames` only, which was a NEW fail-CLOSED, the mirror of
+   the defect: the parent-anchored contract names Relative `bodyFixedFrames` the PRIMARY
+   body-fixed playback surface, and 16 of the 214 committed fixture recordings carry
+   sections with no Absolute frame at all (15 of them with `BODY_FIXED_POINT`s: 14 debris
+   plus the `bdock-recorded` dock partner `4af6cfd7...`). Each of those would have finalized
+   with `MaxDistanceFromLaunch` untouched at 0, so `IsIdleOnPad` reads true and
+   `HasPadLocalizedMotionOverride` bails under 30 m. `CollectBodyFixedSectionSamples` now
+   gathers Absolute `frames` + Relative `bodyFixedFrames` (never Relative `frames`), and
+   `ResolveLaunchReferenceIndex` takes the EARLIEST sample by UT across both surfaces as the
+   launch reference - a recording that opens on its anchor window has no Absolute frame to
+   start from. `TryComputeMaxDistanceFromBodyFixedSurfaces` is the pure core with the
+   position resolver injected, so the chord is unit-testable headless. The 16th
+   no-Absolute-frames recording, `rover-relay-c-recorded/a597f168...`, is a pre-fix damaged
+   child whose one section is payload-free: nothing body-fixed to measure, so it stays at 0
+   (it also carries only one flat POINT, so the pre-fix flat path skipped it too).
+
+4. **The analyzer rule shipped, but NOT the one this entry proposed, and at WARN.**
+
+   *Premise correction.* The proposed rule - FAIL when a flat `Points` entry whose UT a
+   Relative section covers does not equal that section's `bodyFixedFrames` sample - would
+   fire on HEALTHY post-fix recordings. A fixed undock child is written
+   section-authoritative, and `TrajectorySidecarBinary.Read` then rebuilds `rec.Points`
+   from the sections through the frame-blind `RebuildPointsFromTrackSections`: the
+   in-memory flat list of a healthy recording carries the Relative section's anchor-local
+   metres BY DESIGN. The mismatch the rule would measure is the normal state of the
+   compatibility mirror, not damage. (This is also why site 3 is load-bearing and not
+   redundant with sites 1-2: even post-fix, the flat list is not a safe distance source.)
+
+   *What shipped instead.* `INV11-EMPTY-SECTION`
+   (`Source/Parsek/Analyzer/Rules/Inv11EmptyTrackSection.cs`, registered in both
+   `InvariantRegistry.AllRules` and `InGamePureCoreRules`): one finding per payload-free
+   `TrackSection`, naming recording, section index, env, ref and UT span. That IS the
+   defect's signature - it is what disabled both defences - and it is what the fixed
+   producers no longer emit.
+
+   *Severity: WARN, and the fixture question.* Ran over the committed fixtures with
+   `PARSEK_ANALYZER_BASELINE_MODE=forbid`: `rover-relay-recorded` reads `FAIL=0 WARN=2
+   RED=0` (`49eaec92...#0`, `0f391265...#0`) and `rover-relay-c-recorded` reads `FAIL=0
+   WARN=4 RED=0` (`5c847692...#0`, `a597f168...#0`, `ec4bf428...#0`, `ec4bf428...#3`).
+   No fixture bytes were rewritten. At FAIL the rule would red the analyzer verifier on
+   every lane staging those saves (RVR-5, RVR-6, and the eight RVR lanes on the relay-c
+   fixture). Neither offered escape works: **(b) baselining is structurally impossible** -
+   the harness verifier and the CI fixture floor both run `BaselineMode.Forbid`, where the
+   mere PRESENCE of a `baseline.cfg` beside a save is itself a FAIL
+   (`design-autotest-findings-baseline.md`); **(a) scoping to post-fix recordings has no
+   marker** - gating on `sectionAuthoritative` is vacuous (a payload-free section is
+   exactly what makes a recording NON-section-authoritative), and inventing a persisted
+   marker is schema churn the one-current-contract rule forbids. WARN reports the damage
+   on every save that carries it without gating any lane, which is precisely the state the
+   RVR-5 / RVR-6 headers described ("a green analyzer row on this lane is NOT a clean bill
+   for that defect") - except the row is no longer silent. Promoting it to FAIL is a
+   one-line change the day the two relay fixtures are re-harvested.
+
+   `AnalyzerVersion` is NOT bumped: `AnalysisReport` states the rule explicitly - the
+   version moves only on an `.analysis.json` SCHEMA change, never when a rule is added
+   (rules are data inside findings).
+
+**Verification as executed.** `Source/Parsek.Tests/UndockBgChildEmptySectionTests.cs`,
+26 cells: the entry's item (1) over the measured three-section shape (confirmed RED
+first - with the two codec skips disabled the cell fails `Expected: True Actual: False`
+on the substitution); the pure close decision across payload-free / single-frame Absolute
+finalization / seed-only Relative / boundary seam / body-fixed-only / checkpoint-only /
+the long-shell bound; the backfill routing in all five outcomes (sectioned, sections-less,
+Relative-body-fixed-only, Relative-frames-only, checkpoint-only-with-flat-points); what the
+walk READS (body-fixed chord not the anchor-local one, mixed surfaces with the earliest
+sample as reference, Relative `frames` refused); a corpus cell over all 214 committed
+`.prec.txt` sidecars under `harness/fixtures/saves/` asserting that no sectioned recording
+routes to `None` (measured: 214 sectioned, 214 to `BodyFixedSections`, 0 to `FlatPoints`,
+0 to `None`; 16 without Absolute frames, 15 of them with Relative `bodyFixedFrames`); the
+on-load heal; and the INV11 rule positive + negative. Full suite green (22462 passed, 1
+pre-existing skip, 22463 total), all three harness Python suites green (`lib` 2247,
+`missions/lib` 2259, `provision` 238). Item (3), the live re-fly of a dock/undock relay,
+was NOT run - this branch flew nothing. The first relay lane flown after this ships
+should read `maxDist < 1000` on both undock children and an INV11-free analyzer row on a
+save produced from a fresh flight.
+
 ## L3-CREWREPORT-BIOME-PIN-DEPENDS-ON-LANDING-SITE: `L3-career-science-recover` pins a science subject id whose BIOME the flight rolls for, so a perfectly good run reds on where the capsule stopped [FOUND 2026-09-02 by the L3 confirmation flight `2026-09-02_1824` (PARSEK-FAIL(expectation), one unmet). HARNESS/LANE AUTHORING, not a product defect. OPEN - the spec is deliberately NOT edited by the branch that found it (`l6-dwell-variants`, whose scope is the recover-dwell param); the PARSEK-FAIL stands as filed]
 
 **What was measured.** `L3-career-science-recover` flew a confirmation run for the new
@@ -2066,9 +2308,45 @@ a SURFACE depot resolves by identity first and by the M1 descriptor only if the 
 root part is gone. What binding the pid at the undock still buys is a cheaper O(1) lookup
 and a second corroborating key, not the difference between resolving and not.
 
-## ROUTE-WINDOW-SCAFFOLDING-COUPLE-WARNS-TWICE-ON-H57: a one-part docking-port couple opens a route window it can never populate, and the guard Warns [FOUND 2026-09-02 by the P12 item-7 census. OPEN, cosmetic, PRE-EXISTING and NOT a P12 regression]
+## ~~ROUTE-WINDOW-SCAFFOLDING-COUPLE-WARNS-TWICE-ON-H57: a one-part docking-port couple opens a route window it can never populate, and the guard Warns~~ [FOUND 2026-09-02 by the P12 item-7 census. Cosmetic, PRE-EXISTING and NOT a P12 regression. FIXED RIG-SIDE 2026-09-06 (P17); the product is untouched by design]
 
-H57's collected log carries, twice:
+**THE PRODUCER WAS NOT THE ONE THIS ENTRY NAMED, and the log says so.** The original
+filing read the shape off the source and blamed
+`CellContext.AttachTransportDockPort`. It is not that call: `AttachTransportDockPort`
+couples its port while NO recording exists (cell 1's `Begin()` discards the ephemeral
+auto-record session before any rig work), and a couple outside a recording opens no
+window at all. Both Warns come from `CellContext.BuildPartnerRig` assembling the
+DESTINATION rig - `AddPartToRig` couples the spawned one-part `dockingPort2` and then
+the one-part `fuelTank` onto that rig's own command core - while cell 1's recording IS
+live. Measured on `logs/2026-09-06_2030_H57-NEGCTL-P15-predecessor-notconsulted/KSP.log`
+:14339 and :14469: each Warn stands two lines after
+`RouteDockCapture partner-B-port` / `partner-B-tank live after 76 frame(s): pid=... parts=1`
+and carries that spawn's pid as `targetPid`, with `OnPartCouple:entry ... rec=` naming
+the live recording. Two rig sub-parts, two Warns - which is also why the count was
+exactly 2 in every pre-P12 log and did not move when the third cell landed.
+
+**THE FIX, and it is rig-side exactly as this entry required.** Cell 1
+(`StartDockedOrigin_StartsDockedThenUndocksAndDelivers`) now assembles the destination
+rig - and half-fills its tank - BEFORE `StartRecordingAndWait`, alongside the depot rig
+it already built there. The only couple left inside the recorded span is
+`CoupleAndAwaitWindow`'s dock of the destination's port onto the transport's, which is
+the couple the delivery window is measured across and the only one the cell ever meant
+to record. Cells 2 and 3 build no second rig and needed no change; H55 / H56
+(`RouteDockCapture`) are untouched.
+
+**WHAT DID NOT MOVE.** No `[InGameTest]` attribute changed, so the batch tally is
+identical (`total=3 passed=3 failed=0 skipped=0`), and no required token changed shape:
+the scaffolding couples never produced a window, an `Endpoint resolved:` line or a
+manifest, so nothing pinned was reading them. The lane's `windows=1` /
+`Route proof dock window captured:` tokens describe the destination dock, which still
+happens inside the recording. NOT ARMED as a `forbidden` token in the spec - arming is a
+three-run discipline this pass has flown none of - but the H57 header now records the
+measurement and says to arm it off the first census that reads zero.
+
+**PRODUCT UNCHANGED, and that was the entry's own ruling.** Suppressing the Warn would
+blind the same guard on a REAL mismatch, which is the case it exists for.
+
+**THE ORIGINAL FILING.** H57's collected log carried, twice:
 
 ```
 [Parsek][WARN][Flight] Route window dock capture failed: docked snapshot does not contain
@@ -2086,9 +2364,9 @@ ZERO occurrences (`2026-09-02_1833`) is not a counter-example: it is `PARSEK-FAI
 and emitted no `Route proof dock window capture` line of any kind, so it never reached the
 code. The tank on the depot changed the DELIVERY manifest, not this.
 
-**RIG ARTEFACT, not a product gap.** `endpointParts=1` names a ONE-PART vessel: the bare
-`dockingPort2` that `CellContext.AttachTransportDockPort` spawns and couples onto the active
-vessel as scaffolding, before any cargo rig exists. It has no `ModuleCommand`, no tank and no
+**RIG ARTEFACT, not a product gap** (correct as far as it goes; the named call site was
+wrong - see above). `endpointParts=1` names a ONE-PART vessel: a bare
+`dockingPort2` the rig spawns and couples on as scaffolding. It has no `ModuleCommand`, no tank and no
 inventory - it is not a cargo endpoint and never could be one - but a couple is a couple, so
 `ParsekFlight`'s dock handler opens a route window for it and
 `RouteProofCapture.BuildDockRouteConnectionWindow` then refuses to build one because the
@@ -2097,14 +2375,11 @@ writes no window, and the run is unaffected - H57 passed all 17 tokens with thes
 present. The same rig already produces the sibling `is not trackable (debris)` line at
 teardown for the same reason, and the H57 spec header documents that one as legitimate.
 
-**NOT FIXED, and the product must not be changed for it.** Suppressing the Warn would blind
-the same guard on a REAL mismatch, which is the case it exists for (a genuine endpoint whose
-snapshot lost its parts is a wrong-quantity risk). The honest fixes are both rig-side and
-neither is worth a flight on its own: have `AttachTransportDockPort` couple its port BEFORE
-any recording exists (it already does on some paths), or give the scaffolding port a
-`forbidden`-token exemption in the lane rather than a product change. Revisit only if the
-pair ever appears on a lane whose endpoint IS a real cargo vessel - that would be a genuine
-product finding and a different entry.
+**THE FIX OPTIONS AS ORIGINALLY FILED** (the first is what was built, once the real call
+site was identified): couple the scaffolding BEFORE any recording exists, or give the
+scaffolding port a `forbidden`-token exemption in the lane rather than a product change.
+STILL LIVE AS A FUTURE FINDING: if the pair ever appears on a lane whose endpoint IS a
+real cargo vessel, that is a genuine product finding and a different entry.
 
 ## ~~ROUTE-ORIGIN-PROOF-PICKUP-PREDATING-THE-RECORDING: a run that loaded its cargo BEFORE the recording started reads no gain and is refused as an origin~~ [FOUND 2026-09-02 by the adversarial review of P12 (F2). FIXED 2026-09-06 - the PREVIOUS recording's window is now the evidence]
 
@@ -2216,11 +2491,12 @@ it worth a ruling are closed rather than accepted:
     `EndpointLost` on its own token, `no-candidate-after-transport-exclusion`.
 
 Untouched: the RADIUS (still 500 m), the step ORDER, and the "same depot that drifted a
-few metres" case, which resolves to the same pid and is explicitly a Keep. Still open and
-still owning its own half: `RESOLVER-PID-STEP-NOT-GUID-GATED` below - a `RouteEndpoint`
-carries no launch guid, so the pid step landing on a different LAUNCH of the same craft
-file is undetectable; `RouteEndpointTransfer.Evaluate` has that arm and unit-tests it, but
-nothing in production can feed it yet. Pure decisions + the transport guard are covered by
+few metres" case, which resolves to the same pid and is explicitly a Keep. The half this
+paragraph used to leave open - `RESOLVER-PID-STEP-NOT-GUID-GATED` below, the pid step
+landing on a different LAUNCH of the same craft file - was CLOSED 2026-09-06: the endpoint
+persists the bind's own launch guid, the pid step refuses a conclusively-different match
+and falls through to proximity, and `RouteEndpointTransfer.Evaluate` is fed that guid
+instead of a hardcoded null. Pure decisions + the transport guard are covered by
 `RouteEndpointTransferTests`; the flight-side proof is the re-authored `RVR-18` plus the
 new transport-only-candidate lane.
 
@@ -2271,7 +2547,8 @@ away and was outside the radius even before it was deleted.
     route's own carrier - which is precisely the "a route paying itself" case the
     root-part step was introduced to prevent for ORIGINS. Delivery endpoints have no such
     step available when the proof is absent.
-  * IT COMPOSES WITH AN ALREADY-FILED GAP. RESOLVER-PID-STEP-NOT-GUID-GATED (above) is
+  * IT COMPOSES WITH AN ALREADY-FILED GAP (since FIXED 2026-09-06).
+    RESOLVER-PID-STEP-NOT-GUID-GATED (above) was
     the same theme one step earlier: a craft-baked pid can name a different launch. On
     this fixture the two interact - `rover fuel 0` carries the SAME baked pid as the
     recorded destination and is a later rollout of that craft file, so the pid step was
@@ -2296,9 +2573,80 @@ by design, and its header says so. A fix lands with that lane re-authored agains
 contract in the same commit; the `EndpointLost` direction it currently FORBIDS is what it
 would then require. No other committed lane reaches the proximity step at all.
 
-## RESOLVER-PID-STEP-NOT-GUID-GATED: `RouteEndpointResolver`'s pid step matches a bare `persistentId`, which is craft-baked and can name a different launch of the same craft [FOUND 2026-09-02 by the adversarial review of P12 (F3). OPEN, low severity while the root step covers the origin]
+## ~~RESOLVER-PID-STEP-NOT-GUID-GATED: `RouteEndpointResolver`'s pid step matches a bare `persistentId`, which is craft-baked and can name a different launch of the same craft~~ [FOUND 2026-09-02 by the adversarial review of P12 (F3). FIXED 2026-09-06 (P17), by the fix shape this entry named]
 
-`RouteEndpointResolver.TryResolveEndpoint`'s `EndpointResolutionStep.Pid` calls
+**FIXED - THE ENDPOINT NOW CARRIES THE BIND'S OWN GUID DECISION.**
+
+- `RouteEndpoint.LaunchGuid` is the new field, and `RouteOriginProof.StartDockedOriginVesselGuid`
+  is where it comes from: `RouteProofCapture.TryBindStartDockedOriginAtUndock` persists the
+  guid it READ, but ONLY on the `Stamped` arm. `StampedGuidUnknown` means the comparison had
+  no evidence on at least one side, so writing whichever half was readable would manufacture a
+  key the decision did not rest on - and the resolver would then refuse a live depot on a guid
+  nothing corroborated. Null there keeps the ungated behaviour, which is the correct reading
+  of "no evidence".
+- `RouteEndpointResolver`'s pid step refuses on `GuidsConclusivelyDiffer` and logs
+  `Endpoint pid step refused: pid=... reason=different-launch recordedGuid=... liveGuid=...`;
+  an accepted match names which reading admitted it (`guidGate=same-launch` /
+  `unknown-recorded` / `unknown-live`) through the pure `ClassifyPidGuidGate`. A REFUSAL is
+  not a dead end: the walk falls through to surface proximity, which resolves positionally and
+  then REBINDS through `RouteEndpointTransfer`, so the route follows the depot actually
+  standing there instead of paying a stranger by name.
+- **The mirror direction, checked and fixed with it:** `RouteEndpointTransfer.ApplyTransfers`
+  now stamps the RESOLVED vessel's guid onto the rebound endpoint (clearing it when
+  unreadable, rather than leaving the vanished vessel's guid beside the new pid - which would
+  have made every future pid match on that endpoint read `different-launch`), passes the
+  endpoint's own recorded guid into `Evaluate` instead of a hardcoded `null`, and
+  `SameEndpoint` compares the field so a rebound endpoint no longer matches its pre-transfer
+  copy.
+
+**NO SCHEMA GENERATION MOVED, and the reason is the sparse-additive shape.** Both new keys
+(`launchGuid` on the endpoint, `startDockedOriginVesselGuid` beside the proof's pid) are
+written only when non-empty, so every route and every proof that predates them round-trips
+byte-identically; an absent key reads back null, which the `VesselLaunchIdentity` contract
+already defines as "no evidence", so an old recording is not misread - it simply keeps the
+ungated pid behaviour it always had. Both are read back normalized, because an unnormalized
+string would read as conclusively different from a normalized live one and turn the gate into
+a refusal machine.
+
+**THE HASHER EXCLUDES BOTH, DELIBERATELY.** They name the SAME vessel the pid and the root
+already name, and they are written by sites younger than the proofs they land on, so hashing
+either would flip existing routes to `SourceChanged` in `RouteStore.RevalidateSources` the
+first time a recording is re-saved with the field populated. Pinned by
+`RouteEndpointLaunchGuidTests.RouteProofHash_IsUnchangedByTheLaunchGuidOnEitherSurface`.
+
+**THE DECISION IS THE CLASSIFIER'S, after the adversarial review of this package.** As
+first built, `ClassifyPidGuidGate` produced only a LOG TOKEN: the refusal was an inline
+`GuidsConclusivelyDiffer` + `continue` beside it, so deleting the refusal left the suite
+73/73 green and the pure four-reading cells proved nothing about production. The pid step's
+whole decision is now `RouteEndpointResolver.DecidePidStep` (`NoCandidate` / `Accept` /
+`RefuseDifferentLaunch`), routed THROUGH the classifier and compared against the shared
+`PidGuidGateDifferentLaunch` constant; `TryResolveEndpoint` reads live state and dispatches,
+holding no branch of its own. Mutation-verified: neutering the classifier's refusing arm
+reds `DecidePidStep_RefusesADifferentLaunch_AndAcceptsEveryOtherReading` and two
+`RefusedPidStep_FallsThroughToTheNextStep` rows.
+
+**REACHABILITY IS THIN, and that is worth saying plainly.** The pid step runs only when the
+endpoint carries no root id or that root no longer resolves, and
+`RouteProofCapture.TryBindStartDockedOriginAtUndock` sets
+`proof.StartDockedOriginRootPartUId = originHalf.RootPartUId` UNCONDITIONALLY - so on any
+route built since that bind, the gate is reached only after the depot's root part has
+stopped resolving entirely. It is a guard on the residual path, not a hot one, and no
+committed lane exercises it (RVR-18's flight resolved at `step=root-part` with zero
+` guidGate=` and zero `Endpoint pid step refused:` lines - the new branches were not reached
+by any lane).
+
+**Headless:** `RouteEndpointLaunchGuidTests` (17 cells) - the gate in all three directions
+(matching accepts, conclusively-different refuses, and BOTH unknown-side readings accept,
+which is the case that would break every pre-existing route if it were got wrong), the
+normalization insensitivity, both codec round trips with their sparse-absence halves, the
+hash invariance, the transfer mirror, and the step walk: a refused pid falling through to
+proximity on a surface endpoint and to NOTHING on an orbital one, driven through the same
+pure `ResolveEndpointStepPure` production drives. NOT live-proven: no committed lane
+dispatches a route whose depot root has stopped resolving, and H57 emits no
+`Endpoint resolved:` line at all.
+
+**THE ORIGINAL FILING.**
+`RouteEndpointResolver.TryResolveEndpoint`'s `EndpointResolutionStep.Pid` called
 `ResolveByPid(endpoint.VesselPersistentId)` and accepts any non-ghost match. A
 `persistentId` is baked into the `.craft` and reused verbatim on every launch of that craft
 (CLAUDE.md's standing rule), so a bare match can name a DIFFERENT launch - the exact trap
@@ -2311,12 +2659,13 @@ step is reachable only when the endpoint has no root id (a KSC or mid-tree docke
 a pre-P12 proof) or when the depot's root part no longer resolves - and in that second case
 the vessel it would then match is a same-craft sibling standing where the depot was.
 
-FIX SHAPE: `RouteEndpoint` carries no launch guid, which is why the step cannot be gated
-today. P12's bind already MAKES the decision - `RouteProofCapture.DecideOriginPidStamp`
-compares the origin's live guid against the recorded launch's - so the fix is to persist that
-guid alongside the stamped pid on the endpoint and require
-`!VesselLaunchIdentity.GuidsConclusivelyDiffer` before the pid step accepts a match. That
-touches `RouteEndpoint`, `RouteCodec` and the route hash, so it wants its own pass.
+FIX SHAPE (built as filed): `RouteEndpoint` carried no launch guid, which is why the step
+could not be gated. P12's bind already MAKES the decision -
+`RouteProofCapture.DecideOriginPidStamp` compares the origin's live guid against the recorded
+launch's - so the fix was to persist that guid alongside the stamped pid on the endpoint and
+require `!VesselLaunchIdentity.GuidsConclusivelyDiffer` before the pid step accepts a match.
+It touched `RouteEndpoint`, `RouteCodec` / `RouteProofCodec` and the route hash (the last as
+an EXCLUSION), and it took its own pass.
 
 ## ~~ROUTE-ORIGIN-PROOF-BIND-FOLLOWS-FOCUS-NOT-THE-RUN: the undock bind names the origin from which half KEPT FOCUS, and binds delivery partners as origins~~ [FOUND 2026-09-02 as the mirror-direction check on the P12 binding; MEASURED LIVE 2026-09-03 on `logs/2026-09-03_0026_rover-c`, which promoted it from "low severity, inert" to "both predicted failure modes fired on one flight". FIXED 2026-09-03]
 
@@ -4073,10 +4422,59 @@ The original proposal named `Saves` + `GameState`; `RewindPoints` is what
 `Inv9RewindPoint` resolves through `RecordingPaths`, so a copy of only those two would have
 left the WARN in place.
 
-## ROUTE-DELIVERY-CLOCK-OMITS-THE-HOLD-ARGS: `RouteLoopClock.TryGetRouteLoopState` threads only the relaunch schedule and the loiter cuts into the span clock, so on a hold-carrying or launch-aligned route-backed unit the DELIVERY clock and the RENDER clock are not the same clock [FOUND BY READING 2026-08-25 while scouting the M-A7 render-composition plan surface, from the source alone - NOT measured on a flight. LATENT on every committed route today (v0 same-body routes carry no holds). REPORT-ONLY and DELIBERATELY NOT FIXED IN THE M-A7 PR: that PR is observation-only, and changing what the delivery clock computes is a product decision of its own]
+## ~~ROUTE-DELIVERY-CLOCK-OMITS-THE-HOLD-ARGS: `RouteLoopClock.TryGetRouteLoopState` threads only the relaunch schedule and the loiter cuts into the span clock, so on a hold-carrying or launch-aligned route-backed unit the DELIVERY clock and the RENDER clock are not the same clock~~ [FOUND BY READING 2026-08-25 while scouting the M-A7 render-composition plan surface, from the source alone - NOT measured on a flight. LATENT on every committed route today (v0 same-body routes carry no holds). FIXED 2026-09-06 (P17)]
 
-`Source/Parsek/Logistics/RouteLoopClock.cs:255-278` forwards exactly two of the
-span clock's optional arguments:
+**FIXED - THE SEAM NOW FORWARDS THE UNIT'S WHOLE OPTIONAL SURFACE.** All eleven
+optional arguments come off the `LoopUnit`
+(`Source/Parsek/Logistics/RouteLoopClock.cs`, `TryGetRouteLoopState`), so the
+delivery clock IS the render clock for the same unit. The three supporting pieces:
+
+- `RouteLoopClock.CarriesHoldArgs` / `DescribeHoldArgs` / `HoldArgsChangeKey` -
+  pure, InvariantCulture, and the source of the log line below. The change key is
+  the constant `none` on a faithful unit so the per-tick guard allocates nothing on
+  the shipping population.
+- `RouteOrchestrator`'s loop-route path emits one `LoopRoute clock args: route=...
+  unit=N schedule=0 loiterCuts=0 arrivalHoldSeconds=... launchHoldEngaged=...`
+  Verbose line per route, change-based (`VerboseOnChange`), so an operator can read
+  WHICH clock the delivery side ran instead of inferring it. That line is what the
+  entry's "not measured on a flight" caveat needed and could not have.
+- Headless: `RouteLoopClockHoldArgWiringTests` (8 cells). The load-bearing shape is
+  an EQUALITY against the render call plus an INEQUALITY against the old
+  schedule-only call at a discriminating UT - an equality alone would pass on a
+  build that still dropped the arguments. Both directions are pinned: the
+  arrival-hold fixture (span [0,1000], hold 200 s at 600: held reads 600 at UT 700,
+  un-held reads 700), the zero-slack launch-hold fixture (the borrow-at-launch
+  advance engages on every cycle, so the launch-alignment trio bites at every
+  sample), and the HOLD-FREE mirror where all three clocks - delivery, render and
+  the pre-fix schedule-only reading - must agree EXACTLY, which is what says no v0
+  same-body route moved.
+
+**WHAT THE EQUALITIES CANNOT CATCH, found by the adversarial review of this package.**
+The suite's `RenderClock` is a HAND-WRITTEN replica of the engine's argument list, not a
+call into a shared forwarding helper - there is no such helper: the span clock's optional
+surface is hand-copied at four production sites (`GhostPlaybackEngine.cs:424`, `:1972`,
+`Reaim/ReaimPlaybackResolver.cs:229` with a deliberate `schedule: null`, and
+`RouteLoopClock.cs`) and a fifth time by the test. A TWELFTH optional argument left at its
+default everywhere would therefore default on both sides of every equality and the whole
+class would stay green, which is the opposite of what the seam's own comment claimed. The
+comment is corrected, and the completeness gate is a reflection cell
+(`SpanClockOptionalArguments_AreExactlyTheForwardedSet`) pinning
+`TryComputeSpanLoopUT`'s optional-parameter NAMES against `DescribeHoldArgs`' token set
+plus the schedule and the cuts. Mutation-verified by adding a 12th optional to the span
+clock: the cell reds, no other cell moves. The equalities say whether the forwarding is
+CORRECT; the reflection cell says whether it is COMPLETE. A single forwarding helper for
+all five sites would be the stronger fix and is NOT what was built - `ReaimPlaybackResolver`
+deliberately passes `schedule: null`, so it cannot use one unchanged.
+
+The two comments that asserted the divergence as a standing fact are corrected in
+the same commit (`RouteOrchestrator`'s M-A7 capture-point note and
+`RenderCompositionRecorder.NoteRouteDockCrossing`'s doc): RC-ROUTE now checks an
+equality on a hold-carrying lane rather than measuring a known gap. Still NOT
+measured on a flight - no committed lane carries a hold-bearing route-backed unit -
+so the M-A7 reading below stays owed as a CONFIRMATION rather than as a diagnosis.
+
+**THE ORIGINAL FILING.** `Source/Parsek/Logistics/RouteLoopClock.cs:255-278`
+forwarded exactly two of the span clock's optional arguments:
 
 ```
 GhostPlaybackLogic.TryComputeSpanLoopUT(
@@ -4096,7 +4494,7 @@ back out of the cycle, so on a unit that carries one the two clocks diverge by
 the held seconds: the delivery clock's `loopUT` runs ahead of the rendered one,
 and the `cycleIndex` a dock crossing is attributed to can be off by one once the
 divergence exceeds the remaining span. The Phase 6 hardening comment at the call
-site is accurate about what it DID thread and silent about what it did not.
+site was accurate about what it DID thread and silent about what it did not.
 
 WHY IT IS LATENT, NOT DEAD. A v0 same-body route's backing mission is faithful
 (`bodyInfo = null`), so every hold field is zero / NaN and the omission is
@@ -4112,9 +4510,10 @@ unit's hold fields on `PLAN.UNIT` (`arrivalHoldSeconds` / `arrivalHoldAtUT` /
 `recordedDockUT` + dispatch window on `PLAN.UNIT.ROUTE`, the observed
 `hold-engage` / `hold-release` clock events, and the `route-dock-crossing`
 events with the cycle index the delivery side attributed them to. RC-ROUTE
-therefore has both clocks in one file and can state the divergence as a number
-rather than as this reading. Do that on a hold-carrying route lane (Phase 4,
-G1's B27/V18) before proposing a fix.
+therefore has both clocks in one file and can state the relationship as a number
+rather than as a reading. STILL OWED after the fix, with the sign flipped: on a
+hold-carrying route lane (Phase 4, G1's B27/V18) the manifest must now show the two
+clocks AGREEING, which is the live confirmation the headless equality cannot give.
 
 ---
 

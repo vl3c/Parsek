@@ -26,15 +26,16 @@ namespace Parsek.Logistics
     /// unless the launch guids conclusively differ.</para>
     ///
     /// <para>WHAT IS REBOUND, AND WHAT IS NOT. The identity fields move
-    /// (<see cref="RouteEndpoint.VesselPersistentId"/> and
-    /// <see cref="RouteEndpoint.RootPartUId"/>, the latter taken from the resolved vessel so
-    /// the NEXT resolution wins at the launch-unique root-part step rather than on a
-    /// craft-baked pid). The POSITION fields (body / lat / lon / altitude / isSurface) stay as
-    /// the historical dock anchor: they are what the 500 m radius is measured from, and moving
-    /// the anchor onto each successive substitute would let a route walk across the landscape
-    /// one transfer at a time. Nothing is added to the on-disk shape - both identity fields
-    /// already round-trip through <see cref="RouteNodeCodec.SerializeEndpoint"/>, so no schema
-    /// generation moves.</para>
+    /// (<see cref="RouteEndpoint.VesselPersistentId"/>,
+    /// <see cref="RouteEndpoint.RootPartUId"/> and
+    /// <see cref="RouteEndpoint.LaunchGuid"/> - the latter two taken from the resolved vessel
+    /// so the NEXT resolution wins at the launch-unique root-part step, and so that if it
+    /// falls to the pid step that step is gated rather than bare). The POSITION fields (body /
+    /// lat / lon / altitude / isSurface) stay as the historical dock anchor: they are what the
+    /// 500 m radius is measured from, and moving the anchor onto each successive substitute
+    /// would let a route walk across the landscape one transfer at a time. All three identity
+    /// fields round-trip sparsely through <see cref="RouteNodeCodec.SerializeEndpoint"/>, so
+    /// no schema generation moves.</para>
     ///
     /// <para>THE ONE CONSTRAINT WORTH KNOWING. Both halves - the guard and the rebind - need
     /// to know which route owns the endpoint, and the resolver is handed a COPY of the struct,
@@ -88,11 +89,12 @@ namespace Parsek.Logistics
         /// it lands on is the same physical vessel: never a transfer.</item>
         /// <item>The PID step returns the recorded pid by construction, so it is a transfer only
         /// when the launch guids CONCLUSIVELY differ - i.e. a different launch of the same craft
-        /// file wearing the same baked pid. A <see cref="RouteEndpoint"/> carries no launch guid
-        /// today (filed as RESOLVER-PID-STEP-NOT-GUID-GATED), so production always passes an
-        /// unknown recorded guid here and this arm stays unreachable until an endpoint persists
-        /// one; the arm exists so that the day it does, the mirror direction is already decided
-        /// rather than discovered.</item>
+        /// file wearing the same baked pid. Since 2026-09-06 a <see cref="RouteEndpoint"/> DOES
+        /// carry a launch guid where its stamping site could read one, so this arm is fed real
+        /// evidence rather than a hardcoded null. It stays unreached from the RESOLVER, which
+        /// now refuses a conclusively-different pid match at the step itself and falls through
+        /// to proximity; the arm covers a future caller that reports a pid-step resolution
+        /// here.</item>
         /// <item>The SURFACE-PROXIMITY step is positional, so any vessel that is not the recorded
         /// one is a transfer. Same pid with guids that do not conclusively differ is the ordinary
         /// "the depot drifted a few metres" case and stays a Keep.</item>
@@ -276,6 +278,10 @@ namespace Parsek.Logistics
         {
             return a.VesselPersistentId == b.VesselPersistentId
                 && a.RootPartUId == b.RootPartUId
+                // The launch guid is part of the VALUE for the same reason the pid is: a
+                // rebound endpoint must no longer match its pre-transfer copy, so a caller
+                // re-resolving a stale struct finds no owner instead of rebinding twice.
+                && string.Equals(a.LaunchGuid, b.LaunchGuid, StringComparison.Ordinal)
                 && string.Equals(a.BodyName, b.BodyName, StringComparison.Ordinal)
                 && a.Latitude.Equals(b.Latitude)
                 && a.Longitude.Equals(b.Longitude)
@@ -512,7 +518,13 @@ namespace Parsek.Logistics
             if (owners == null || owners.Count == 0) return 0;
 
             string decisionReason;
-            if (Evaluate(recorded.VesselPersistentId, null, resolvedPid, resolvedLaunchGuid,
+            // The endpoint's OWN recorded launch guid, not a hardcoded null: since 2026-09-06
+            // a stamped endpoint persists the guid its bind read
+            // (RESOLVER-PID-STEP-NOT-GUID-GATED), so Evaluate's guid arms are reachable from
+            // production instead of being decided-but-dark. Null on an endpoint that never
+            // carried one, which is the unknown reading and keeps those arms inert.
+            if (Evaluate(recorded.VesselPersistentId, recorded.LaunchGuid,
+                    resolvedPid, resolvedLaunchGuid,
                     step, out decisionReason) != TransferDecision.Transfer)
             {
                 ParsekLog.Verbose(Tag,
@@ -554,6 +566,13 @@ namespace Parsek.Logistics
                 // step instead of walking to proximity again. Zero (unknown) clears the stale
                 // recorded root rather than leaving one that names the vanished vessel.
                 rebind.RootPartUId = resolvedRootPartFlightId;
+                // And the resolved vessel's LAUNCH GUID, for the mirror reason: the pid being
+                // written here is craft-baked, so without the guid beside it the next
+                // resolution's pid step would be ungated again on a freshly rebound endpoint.
+                // Null (unreadable) clears the stale recorded guid rather than leaving one
+                // that names the vessel that went away - a guid from the OLD vessel against
+                // the NEW pid would make every future pid match read different-launch.
+                rebind.LaunchGuid = VesselLaunchIdentity.NormalizeGuid(resolvedLaunchGuid);
 
                 if (owner.Role == EndpointRole.Origin)
                 {

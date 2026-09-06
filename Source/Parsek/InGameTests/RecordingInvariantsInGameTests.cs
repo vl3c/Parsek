@@ -155,7 +155,7 @@ namespace Parsek.InGameTests
         // ----- [M-A3 hook H5] The RecordingInvariants FLIGHT category -----
 
         /// <summary>
-        /// Walks the LIVE store through the M-A1 pure-core invariant subset (INV1-INV8) and
+        /// Walks the LIVE store through the M-A1 pure-core invariant subset (INV1-INV8 plus INV11) and
         /// fails on any Fail finding (design "H5 - What it does each run"). FLIGHT-scoped:
         /// a loaded career with a populated RecordingStore reliably exists there after the
         /// autorun save loads. Synchronous (the walk is read-only); every Warn finding logs

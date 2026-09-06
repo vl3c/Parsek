@@ -2102,6 +2102,16 @@ namespace Parsek
                  || pidDecision == OriginPidStampDecision.StampedGuidUnknown)
                     ? resolvedOriginPid
                     : 0u;
+            // PERSIST THE GUID THE DECISION ALREADY READ, but only on the arm that actually
+            // KNEW one. StampedGuidUnknown means the comparison had no evidence on at least
+            // one side, so writing whatever half was readable would manufacture a key the
+            // decision did not rest on - and downstream the resolver's pid gate would then
+            // refuse a live depot on a guid nothing corroborated. Null there keeps the
+            // ungated pid behaviour, which is the correct reading of "no evidence".
+            proof.StartDockedOriginVesselGuid =
+                pidDecision == OriginPidStampDecision.Stamped
+                    ? VesselLaunchIdentity.NormalizeGuid(resolvedOriginGuid)
+                    : null;
             proof.StartDockedOriginPickupKind = pickup;
             proof.StartDockedOriginPickupValidated = IsPickupValidated(pickup);
 

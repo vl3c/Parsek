@@ -20,6 +20,15 @@ namespace Parsek
         // KSC origins, dock-window endpoints and pre-2026-09-02 routes, which keep the
         // pid + proximity resolution they always had.
         public uint RootPartUId;
+        // KSP's per-launch Vessel.id guid for VesselPersistentId, normalized, when the site
+        // that stamped the pid could read one. Null/empty means UNKNOWN and never "a
+        // different launch" (the VesselLaunchIdentity contract). It exists so the resolver's
+        // PID step can be guid-gated: a persistentId is craft-baked and is reused verbatim on
+        // every launch of the same .craft, so a bare pid match can name a DIFFERENT launch
+        // standing where the depot was (RESOLVER-PID-STEP-NOT-GUID-GATED). Sparse on disk and
+        // deliberately NOT hashed (see RouteProofHasher), so learning a second name for the
+        // same vessel cannot re-key a route.
+        public string LaunchGuid;
         public string BodyName;
         public double Latitude;
         public double Longitude;
@@ -245,6 +254,14 @@ namespace Parsek
         // whichever half stock made dominant. The UNDOCK binds it, behind the launch-guid
         // gate in RouteProofCapture.DecideOriginPidStamp (P12).
         public uint StartDockedOriginVesselPid;
+        // The launch guid the bind READ when it stamped that pid, normalized; null when the
+        // pid was refused, when no live vessel resolved, or when the guid was unreadable.
+        // It is the persisted half of the decision DecideOriginPidStamp already makes, and it
+        // exists so the built route's origin endpoint can carry a launch-unique
+        // corroboration for its craft-baked pid (RESOLVER-PID-STEP-NOT-GUID-GATED). Written
+        // sparsely beside the pid and NOT hashed - it names the same vessel the pid and the
+        // root already name.
+        public string StartDockedOriginVesselGuid;
         // Origin depot identity. ZERO until an undock binds it; at the bind it is the
         // rootPartUId of the seam half the RUN was not flying. rootPartUId is a KSP
         // part flightID: assigned per launch and NOT craft-baked, so unlike persistentId it
@@ -289,6 +306,7 @@ namespace Parsek
             return new RouteOriginProof
             {
                 StartDockedOriginVesselPid = StartDockedOriginVesselPid,
+                StartDockedOriginVesselGuid = StartDockedOriginVesselGuid,
                 StartDockedOriginRootPartUId = StartDockedOriginRootPartUId,
                 StartDockedOriginVesselName = StartDockedOriginVesselName,
                 StartDockedOriginVesselType = StartDockedOriginVesselType,

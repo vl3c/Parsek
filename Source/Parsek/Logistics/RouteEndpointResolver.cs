@@ -120,6 +120,18 @@ namespace Parsek.Logistics
             /// <summary>Root part flightID; 0 when neither the live parts nor the proto
             /// snapshot could supply one (the vessel is then never a root match).</summary>
             public uint RootPartFlightId;
+            /// <summary>
+            /// EVERY part flightID this vessel carries, for the DOCKED-COMPOSITE arm.
+            /// <c>Part.Couple</c> merges two craft into the DOMINANT half's <c>Vessel</c>
+            /// (<c>Vessel.GetDominantVessel</c>: higher <c>VesselType</c>, then heavier, then
+            /// larger guid), and the absorbed half's root part stays aboard as an ORDINARY
+            /// part - re-parented, never renumbered. So a base with a dominant visitor docked
+            /// to it is no vessel's ROOT any more, and matching only on
+            /// <see cref="RootPartFlightId"/> would lose it for exactly as long as the pair
+            /// stays docked. Null / empty in pure-test contexts that only exercise the root
+            /// arm.
+            /// </summary>
+            public IReadOnlyList<uint> PartFlightIds;
             /// <summary>The live <c>Vessel</c> for the resolver to return; null in pure-test contexts.</summary>
             public Vessel Vessel;
         }
@@ -191,16 +203,65 @@ namespace Parsek.Logistics
             {
                 if (step == EndpointResolutionStep.RootPart)
                 {
+                    // THE PART SETS ARE BUILT LAZILY, and that is a cost decision, not a
+                    // style one. This step runs EVERY FRAME the Logistics window draws a
+                    // route, so collecting a part-id list per live vessel on the common path
+                    // would be a per-frame allocation for a pass that almost never runs. Pass
+                    // 1 (own root) uses the cheap snapshots; only a total miss - the
+                    // docked-composite case and the permanently-lost case - rebuilds them
+                    // with part sets.
+                    //
+                    // AND THE MISS IS MEMOIZED, because "it already pays for the proximity
+                    // build below" is only true for a SURFACE endpoint: proximityEligible
+                    // gates on IsSurface, so an ORBITAL endpoint whose depot is gone misses
+                    // pass 1, walks every part of every vessel in pass 2, and then has no
+                    // proximity step to reach - every frame the window is open, forever.
+                    // ShouldRunDeepRootScan bounds that to one deep walk per (endpoint,
+                    // live-vessel-set) per DeepRootScanNegativeCacheFrames. Correctness cost
+                    // is a bounded DELAY, never a wrong answer: the memo is dropped the
+                    // moment the live vessel COUNT changes, which is exactly what a dock (2
+                    // -> 1) or an undock (1 -> 2) does - the transitions that make a
+                    // previously-missing root newly findable.
                     List<RootIdVesselSnapshot> rootSnapshots =
-                        BuildRootIdSnapshots(FlightGlobals.Vessels);
-                    if (TryRootPartMatchPure(
-                            endpoint.RootPartUId,
-                            rootSnapshots,
-                            GhostMapPresence.ghostMapVesselPids,
-                            out Vessel byRoot,
-                            out uint rootPickedPid,
-                            out uint rootCollidingPid,
-                            out string rootReason))
+                        BuildRootIdSnapshots(FlightGlobals.Vessels, includePartSets: false);
+                    bool rootMatched = TryRootPartMatchPure(
+                        endpoint.RootPartUId,
+                        rootSnapshots,
+                        GhostMapPresence.ghostMapVesselPids,
+                        out Vessel byRoot,
+                        out uint rootPickedPid,
+                        out uint rootCollidingPid,
+                        out string rootReason);
+                    if (!rootMatched && rootReason == "no-root-match")
+                    {
+                        int liveVesselCount =
+                            FlightGlobals.Vessels != null ? FlightGlobals.Vessels.Count : 0;
+                        int nowFrame = ReadFrameCount();
+                        if (ShouldRunDeepRootScan(
+                                endpoint.RootPartUId, liveVesselCount, nowFrame,
+                                deepRootScanMemo, DeepRootScanNegativeCacheFrames))
+                        {
+                            rootSnapshots = BuildRootIdSnapshots(
+                                FlightGlobals.Vessels, includePartSets: true);
+                            rootMatched = TryRootPartMatchPure(
+                                endpoint.RootPartUId,
+                                rootSnapshots,
+                                GhostMapPresence.ghostMapVesselPids,
+                                out byRoot,
+                                out rootPickedPid,
+                                out rootCollidingPid,
+                                out rootReason);
+                            deepRootScanMemo = rootMatched
+                                ? default(DeepRootScanMemo)
+                                : new DeepRootScanMemo
+                                {
+                                    RootPartUId = endpoint.RootPartUId,
+                                    VesselCount = liveVesselCount,
+                                    AtFrame = nowFrame,
+                                };
+                        }
+                    }
+                    if (rootMatched)
                     {
                         vessel = byRoot;
                         // AMBIGUITY IS ANNOUNCED ON THE SUCCESS PATH. Two live vessels sharing
@@ -208,14 +269,40 @@ namespace Parsek.Logistics
                         // first SILENTLY would let a route debit an arbitrary one of them
                         // forever with no trace. Both ids are named, so the log identifies the
                         // pair rather than only complaining that a pair exists.
-                        if (rootReason == "root-match-ambiguous")
+                        if (rootReason == "root-match-ambiguous"
+                            || rootReason == "docked-composite-match-ambiguous")
                         {
                             ParsekLog.Warn("Logistics",
                                 "Endpoint root-part match AMBIGUOUS: rootPartUId="
                                 + endpoint.RootPartUId.ToString(CultureInfo.InvariantCulture)
                                 + " pickedPid=" + rootPickedPid.ToString(CultureInfo.InvariantCulture)
                                 + " collidingPid=" + rootCollidingPid.ToString(CultureInfo.InvariantCulture)
-                                + " - two vessels report the same root part flightID; taking the first");
+                                + " reason=" + rootReason
+                                + " - two vessels report the same part flightID; taking the first");
+                        }
+                        // THE DOCKED-COMPOSITE ARM IS ANNOUNCED TOO, and at Info rather than
+                        // Verbose: it is a standing condition an operator will want to see
+                        // when a delivery lands somewhere unexpected - the recorded endpoint
+                        // is currently INSIDE a merged craft whose pid is not the recorded
+                        // one, so the delivery goes into the composite. Rate-limited on a key
+                        // that carries the resolved pid, so a re-dock to a different visitor
+                        // prints at once while a stable pair prints once.
+                        if (rootReason == "docked-composite-match"
+                            || rootReason == "docked-composite-match-ambiguous")
+                        {
+                            ParsekLog.InfoRateLimited("Logistics",
+                                "endpoint-docked-composite-"
+                                + endpoint.RootPartUId.ToString(CultureInfo.InvariantCulture)
+                                + "-" + rootPickedPid.ToString(CultureInfo.InvariantCulture),
+                                "Endpoint resolved through a DOCKED COMPOSITE: rootPartUId="
+                                + endpoint.RootPartUId.ToString(CultureInfo.InvariantCulture)
+                                + " recordedPid="
+                                + endpoint.VesselPersistentId.ToString(CultureInfo.InvariantCulture)
+                                + " compositePid=" + rootPickedPid.ToString(CultureInfo.InvariantCulture)
+                                + " - the recorded endpoint is docked to another craft and the"
+                                + " merged vessel carries the other half's persistentId; the"
+                                + " route resolves it by part identity and is NOT rebound",
+                                30.0);
                         }
                         ParsekLog.Verbose("Logistics",
                             "Endpoint resolved: step=root-part rootPartUId="
@@ -234,24 +321,58 @@ namespace Parsek.Logistics
 
                 if (step == EndpointResolutionStep.Pid)
                 {
-                    // A CORROBORATING FALLBACK BEHIND THE ROOT-PART STEP, AND NOT GUID-GATED.
-                    // It runs only when the endpoint carries no root id or that root no
-                    // longer resolves. A persistentId is craft-baked, so a bare match here
-                    // can name a DIFFERENT launch of the same craft file - the exact trap
-                    // VesselLaunchIdentity exists for. It is ungated today because a
-                    // RouteEndpoint carries no launch guid to gate against. Filed as
-                    // RESOLVER-PID-STEP-NOT-GUID-GATED; fix shape = persist the bind's guid
-                    // decision on the endpoint and gate this step with it.
+                    // A CORROBORATING FALLBACK BEHIND THE ROOT-PART STEP, GUID-GATED SINCE
+                    // 2026-09-06. It runs only when the endpoint carries no root id or that
+                    // root no longer resolves. A persistentId is craft-baked and is reused
+                    // verbatim on every launch of the same .craft, so a bare match can name a
+                    // DIFFERENT launch - the exact trap VesselLaunchIdentity exists for, and
+                    // in this step's own reachable case (the depot's root no longer resolves)
+                    // the vessel it would match is precisely a same-craft sibling standing
+                    // where the depot was.
+                    //
+                    // THE GATE IS THE STANDARD ONE, NOT A STRICTER ONE: a match is refused
+                    // ONLY when both guids are known and conclusively differ. An endpoint with
+                    // no persisted guid (every route built before the key existed, every KSC
+                    // origin, every evidence-free pid stamp) or a live vessel whose guid
+                    // cannot be read degrades to the ungated match it always had, which is
+                    // CLAUDE.md's unknown-guid rule. A refusal is not a dead end either: the
+                    // walk falls through to the surface-proximity step, which resolves
+                    // positionally and then REBINDS through RouteEndpointTransfer, so the
+                    // route follows the depot actually standing there instead of paying a
+                    // stranger by name.
+                    // THE WHOLE DECISION IS PURE AND LIVES IN DecidePidStep. This block reads
+                    // live state (the pid lookup, the ghost set, the vessel's guid) and then
+                    // DISPATCHES; it decides nothing of its own, so the refusal arm is
+                    // headlessly reachable and cannot be deleted while the suite stays green.
                     Vessel byPid = ResolveByPid(endpoint.VesselPersistentId);
                     HashSet<uint> ghostPids = GhostMapPresence.ghostMapVesselPids;
-                    if (byPid != null
-                        && (ghostPids == null || !ghostPids.Contains(byPid.persistentId)))
+                    bool candidateUsable = byPid != null
+                        && (ghostPids == null || !ghostPids.Contains(byPid.persistentId));
+                    string liveGuid = candidateUsable
+                        ? RouteEndpointTransfer.TryReadLaunchGuid(byPid)
+                        : null;
+                    PidStepOutcome pidOutcome = DecidePidStep(
+                        candidateUsable, endpoint.LaunchGuid, liveGuid);
+
+                    if (pidOutcome == PidStepOutcome.Accept)
                     {
                         vessel = byPid;
                         ParsekLog.Verbose("Logistics",
                             "Endpoint resolved: step=pid pid="
-                            + endpoint.VesselPersistentId.ToString(CultureInfo.InvariantCulture));
+                            + endpoint.VesselPersistentId.ToString(CultureInfo.InvariantCulture)
+                            + " guidGate=" + ClassifyPidGuidGate(endpoint.LaunchGuid, liveGuid));
                         return true;
+                    }
+                    if (pidOutcome == PidStepOutcome.RefuseDifferentLaunch)
+                    {
+                        ParsekLog.Verbose("Logistics",
+                            "Endpoint pid step refused: pid="
+                            + endpoint.VesselPersistentId.ToString(CultureInfo.InvariantCulture)
+                            + " reason=" + PidGuidGateDifferentLaunch
+                            + " recordedGuid=" + GuidToken(endpoint.LaunchGuid)
+                            + " liveGuid=" + GuidToken(liveGuid)
+                            + " - a craft-baked persistentId matched a DIFFERENT launch of"
+                            + " the same craft; falling through to the next step");
                     }
                     continue;
                 }
@@ -326,6 +447,144 @@ namespace Parsek.Logistics
 
             reason = "pid-miss-no-surface-fallback";
             return false;
+        }
+
+        /// <summary>
+        /// The last DEEP root-part scan (the part-set pass) that found nothing, so the same
+        /// fruitless walk is not repeated on every OnGUI frame. Live state, single-threaded,
+        /// and a pure MISS memo: a hit clears it, and it is consulted only after pass 1 has
+        /// already missed - so it can delay a resolution by at most
+        /// <see cref="DeepRootScanNegativeCacheFrames"/> frames and can never produce one.
+        /// </summary>
+        internal struct DeepRootScanMemo
+        {
+            /// <summary>The endpoint root id the miss was recorded for; 0 = nothing memoized.</summary>
+            public uint RootPartUId;
+            /// <summary><c>FlightGlobals.Vessels.Count</c> when the miss was recorded.</summary>
+            public int VesselCount;
+            /// <summary><c>Time.frameCount</c> when the miss was recorded. FRAMES, not UT:
+            /// a UT budget evaporates under time warp, which is exactly when a stale route
+            /// window is left drawing.</summary>
+            public int AtFrame;
+        }
+
+        /// <summary>How long a deep-scan miss is trusted, in frames (about two seconds at
+        /// 60 fps). Small enough that a change the vessel COUNT does not witness - a part
+        /// renumbered under an unchanged roster - still self-heals promptly.</summary>
+        internal const int DeepRootScanNegativeCacheFrames = 120;
+
+        private static DeepRootScanMemo deepRootScanMemo;
+
+        /// <summary>
+        /// Pure: should the expensive part-set scan run, given the last recorded miss? Any
+        /// of - a DIFFERENT endpoint, a CHANGED live-vessel count (a dock or an undock, the
+        /// transitions that make a missing root findable), a non-advancing frame counter
+        /// (a scene reload or a bogus reading, never trusted), or an expired budget - runs
+        /// it. Written as a should-RUN rather than a should-SKIP so the fail-open direction
+        /// is the default one.
+        /// </summary>
+        internal static bool ShouldRunDeepRootScan(
+            uint rootPartUId, int liveVesselCount, int nowFrame,
+            DeepRootScanMemo memo, int cacheFrames)
+        {
+            if (memo.RootPartUId == 0u || memo.RootPartUId != rootPartUId) return true;
+            if (memo.VesselCount != liveVesselCount) return true;
+            // <= 0 is the UNKNOWN-CLOCK reading (ReadFrameCount's catch, or the very first
+            // frame): no budget can be measured against it, so run.
+            if (nowFrame <= 0 || memo.AtFrame <= 0) return true;
+            int elapsed = nowFrame - memo.AtFrame;
+            if (elapsed < 0) return true;
+            return elapsed >= cacheFrames;
+        }
+
+        /// <summary>Test seam: drops the deep-scan miss memo.</summary>
+        internal static void ResetForTesting()
+        {
+            deepRootScanMemo = default(DeepRootScanMemo);
+        }
+
+        /// <summary>Frame counter for the miss memo, defensive for the same reason the other
+        /// live probes here are: an unreadable clock must cost a rescan, not a crash.</summary>
+        private static int ReadFrameCount()
+        {
+            try
+            {
+                return UnityEngine.Time.frameCount;
+            }
+            catch
+            {
+                return 0;
+            }
+        }
+
+        /// <summary>The one refusing reading of <see cref="ClassifyPidGuidGate"/>, and the
+        /// token the refusal log prints. A constant because
+        /// <see cref="DecidePidStep"/> compares against it: the token and the decision are
+        /// the same fact, so a rename cannot leave a log saying one thing and a gate doing
+        /// another.</summary>
+        internal const string PidGuidGateDifferentLaunch = "different-launch";
+
+        /// <summary>What the PID step does with the candidate it found.</summary>
+        internal enum PidStepOutcome
+        {
+            /// <summary>No usable live vessel for the recorded pid (none resolved, or the
+            /// only match is a Parsek ghost). Falls through to the next step.</summary>
+            NoCandidate = 0,
+            /// <summary>A live vessel matched and the guid gate admits it.</summary>
+            Accept = 1,
+            /// <summary>A live vessel matched but its launch guid CONCLUSIVELY differs from
+            /// the endpoint's: a craft-baked pid naming a different launch of the same
+            /// .craft. Falls through to the next step (proximity), which resolves
+            /// positionally and rebinds - never a dead end.</summary>
+            RefuseDifferentLaunch = 2,
+        }
+
+        /// <summary>
+        /// THE PID STEP'S WHOLE DECISION, pure. <see cref="TryResolveEndpoint"/> reads the
+        /// live state and then dispatches on this, holding no branch of its own - which is
+        /// what makes the refusal arm reachable headlessly. Routed THROUGH
+        /// <see cref="ClassifyPidGuidGate"/> rather than re-testing
+        /// <c>GuidsConclusivelyDiffer</c> beside it, so the token an operator reads in the
+        /// log and the gate that refused are one function: mutate the classifier and the
+        /// gate moves with it.
+        /// </summary>
+        /// <param name="candidateUsable">A live non-ghost vessel resolved for the
+        /// endpoint's persistentId.</param>
+        /// <param name="recordedGuid">The endpoint's persisted launch guid (may be
+        /// null/empty - that is "no evidence", not "differs").</param>
+        /// <param name="liveGuid">The candidate's launch guid, or null when unreadable.</param>
+        internal static PidStepOutcome DecidePidStep(
+            bool candidateUsable, string recordedGuid, string liveGuid)
+        {
+            if (!candidateUsable) return PidStepOutcome.NoCandidate;
+            return ClassifyPidGuidGate(recordedGuid, liveGuid) == PidGuidGateDifferentLaunch
+                ? PidStepOutcome.RefuseDifferentLaunch
+                : PidStepOutcome.Accept;
+        }
+
+        /// <summary>
+        /// The PID step's guid-gate outcome as one stable token, pure so the four readings
+        /// can be pinned headlessly against the same function production logs.
+        /// <see cref="PidGuidGateDifferentLaunch"/> is the ONLY refusing one; both
+        /// unknown-side readings and the same-launch reading accept, which is the
+        /// VesselLaunchIdentity contract (unknown means "no evidence", never "differs").
+        /// </summary>
+        internal static string ClassifyPidGuidGate(string recordedGuid, string liveGuid)
+        {
+            if (VesselLaunchIdentity.GuidsConclusivelyDiffer(recordedGuid, liveGuid))
+                return PidGuidGateDifferentLaunch;
+            if (string.IsNullOrEmpty(VesselLaunchIdentity.NormalizeGuid(recordedGuid)))
+                return "unknown-recorded";
+            if (string.IsNullOrEmpty(VesselLaunchIdentity.NormalizeGuid(liveGuid)))
+                return "unknown-live";
+            return "same-launch";
+        }
+
+        /// <summary>A guid for a log line: the normalized value, or <c>&lt;unknown&gt;</c>.</summary>
+        private static string GuidToken(string guid)
+        {
+            string normalized = VesselLaunchIdentity.NormalizeGuid(guid);
+            return string.IsNullOrEmpty(normalized) ? "<unknown>" : normalized;
         }
 
         /// <summary>
@@ -453,13 +712,38 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
-        /// Pure root-part identity search. Returns the single vessel whose ROOT part
-        /// flightID equals <paramref name="rootPartUId"/>, excluding ghost map vessels.
-        /// A zero <paramref name="rootPartUId"/> never matches (it is the "unknown"
+        /// Pure root-part identity search, in TWO passes over the same launch-unique key.
+        ///
+        /// <para>PASS 1, the ordinary one: the vessel whose OWN ROOT part flightID equals
+        /// <paramref name="rootPartUId"/>.</para>
+        ///
+        /// <para>PASS 2, THE DOCKED COMPOSITE (2026-09-06,
+        /// ROUTE-ENDPOINT-TRANSFER-DOCKED-DOMINANT-PARTNER): the vessel whose PART SET
+        /// CONTAINS that flightID. <c>Part.Couple</c> merges two craft into the DOMINANT
+        /// half's <c>Vessel</c> - higher <c>VesselType</c>, then heavier, then larger guid
+        /// (<c>Vessel.GetDominantVessel</c>) - and the absorbed half's parts are RE-PARENTED,
+        /// never renumbered. So while a dominant visitor is docked to a base the base is no
+        /// vessel's root, its own pid is gone from <c>FlightGlobals</c>, and pass 1 alone
+        /// would lose it for exactly as long as the pair stays docked; the walk would fall to
+        /// proximity, land on the composite, and REBIND the route to the visitor, which then
+        /// undocks and flies away with it. A part flightID is launch-unique, so a vessel
+        /// carrying it IS the physical craft that holds the recorded endpoint - cargo
+        /// delivered into that composite reaches the base, which is the pre-#1627 outcome
+        /// restored by identity rather than by positional accident.</para>
+        ///
+        /// <para>PASS ORDER IS THE CONTRACT and it is not symmetric: an own-root match beats a
+        /// contains match everywhere, so the MIRROR case (the destination dominates the merge)
+        /// resolves through pass 1 exactly as before and the two directions land on the same
+        /// composite. Pass 2 runs only when pass 1 found nothing at all.</para>
+        ///
+        /// <para>A zero <paramref name="rootPartUId"/> never matches (it is the "unknown"
         /// sentinel, and a snapshot that could not supply a root id also carries 0 - so
         /// admitting it would pair every unknown with every other unknown). Two vessels
         /// carrying one root flightID is impossible in a healthy save; if it happens the
         /// FIRST is taken and the reason token records the collision so a log names it.
+        /// <paramref name="reason"/> also names WHICH pass resolved
+        /// (<c>docked-composite-match</c>), so an operator can tell a base standing on its own
+        /// from one currently inside a merged craft.</para>
         /// </summary>
         internal static bool TryRootPartMatchPure(
             uint rootPartUId,
@@ -498,19 +782,53 @@ namespace Parsek.Logistics
                 else if (secondIdx < 0) secondIdx = i;
             }
 
-            if (firstIdx < 0)
+            if (firstIdx >= 0)
+            {
+                vessel = snapshots[firstIdx].Vessel;
+                pickedPid = snapshots[firstIdx].PersistentId;
+                if (found > 1)
+                {
+                    collidingPid = snapshots[secondIdx].PersistentId;
+                    reason = "root-match-ambiguous";
+                }
+                return true;
+            }
+
+            // PASS 2: the recorded root part is aboard some vessel without being its root.
+            int compositeFound = 0;
+            int compositeFirst = -1;
+            int compositeSecond = -1;
+            for (int i = 0; i < snapshots.Count; i++)
+            {
+                IReadOnlyList<uint> parts = snapshots[i].PartFlightIds;
+                if (parts == null || parts.Count == 0) continue;
+                if (excludePids != null && excludePids.Contains(snapshots[i].PersistentId)) continue;
+
+                bool carries = false;
+                for (int p = 0; p < parts.Count; p++)
+                {
+                    if (parts[p] != rootPartUId) continue;
+                    carries = true;
+                    break;
+                }
+                if (!carries) continue;
+
+                compositeFound++;
+                if (compositeFirst < 0) compositeFirst = i;
+                else if (compositeSecond < 0) compositeSecond = i;
+            }
+
+            if (compositeFirst < 0)
             {
                 reason = "no-root-match";
                 return false;
             }
 
-            vessel = snapshots[firstIdx].Vessel;
-            pickedPid = snapshots[firstIdx].PersistentId;
-            if (found > 1)
-            {
-                collidingPid = snapshots[secondIdx].PersistentId;
-                reason = "root-match-ambiguous";
-            }
+            vessel = snapshots[compositeFirst].Vessel;
+            pickedPid = snapshots[compositeFirst].PersistentId;
+            reason = compositeFound > 1 ? "docked-composite-match-ambiguous" : "docked-composite-match";
+            if (compositeFound > 1)
+                collidingPid = snapshots[compositeSecond].PersistentId;
             return true;
         }
 
@@ -521,9 +839,17 @@ namespace Parsek.Logistics
         /// half an unloaded depot (the normal state of a depot at dispatch time) would
         /// never match. NOT filtered by body or situation: identity does not depend on
         /// where the vessel is.
+        ///
+        /// <para>The PART SET is collected only when <paramref name="includePartSets"/> - the
+        /// docked-composite pass needs it and nothing else does, and this method runs every
+        /// frame the Logistics window draws a route, so a per-vessel list allocation on the
+        /// common path would be a per-frame cost for a pass that almost never runs. Read
+        /// live-parts-first / proto-second for the same reason the root is: at dispatch time
+        /// the depot is normally unloaded.</para>
         /// </summary>
         private static List<RootIdVesselSnapshot> BuildRootIdSnapshots(
-            IReadOnlyList<Vessel> liveVessels)
+            IReadOnlyList<Vessel> liveVessels,
+            bool includePartSets)
         {
             var snapshots = new List<RootIdVesselSnapshot>();
             if (liveVessels == null) return snapshots;
@@ -536,11 +862,50 @@ namespace Parsek.Logistics
                 {
                     PersistentId = v.persistentId,
                     RootPartFlightId = ResolveRootPartFlightId(v),
+                    PartFlightIds = includePartSets ? ResolvePartFlightIds(v) : null,
                     Vessel = v,
                 });
             }
 
             return snapshots;
+        }
+
+        /// <summary>
+        /// Every part flightID on the vessel: live parts first, the <c>ProtoVessel</c>'s part
+        /// snapshots second, null when neither can supply any. Defensive for the same reason
+        /// <see cref="ResolveRootPartFlightId"/> is - a stock-side null during scene teardown
+        /// must surface as an endpoint miss, never a crash.
+        /// </summary>
+        private static List<uint> ResolvePartFlightIds(Vessel v)
+        {
+            if (v == null) return null;
+            try
+            {
+                if (v.parts != null && v.parts.Count > 0)
+                {
+                    var ids = new List<uint>(v.parts.Count);
+                    for (int i = 0; i < v.parts.Count; i++)
+                    {
+                        Part p = v.parts[i];
+                        if (p != null) ids.Add(p.flightID);
+                    }
+                    return ids;
+                }
+
+                ProtoVessel pv = v.protoVessel;
+                if (pv?.protoPartSnapshots == null || pv.protoPartSnapshots.Count == 0) return null;
+                var protoIds = new List<uint>(pv.protoPartSnapshots.Count);
+                for (int i = 0; i < pv.protoPartSnapshots.Count; i++)
+                {
+                    ProtoPartSnapshot snap = pv.protoPartSnapshots[i];
+                    if (snap != null) protoIds.Add(snap.flightID);
+                }
+                return protoIds;
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         /// <summary>

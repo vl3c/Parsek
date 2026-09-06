@@ -4158,10 +4158,126 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Which backfill a recording's <see cref="Recording.MaxDistanceFromLaunch"/> takes
+        /// at finalization. See <see cref="ClassifyMaxDistanceBackfillRoute"/>.
+        /// </summary>
+        internal enum MaxDistanceBackfillRoute
+        {
+            /// <summary>Nothing to do: already computed, or no usable trajectory.</summary>
+            None,
+
+            /// <summary>
+            /// <see cref="BackfillMaxDistanceFromBodyFixedSurfaces"/> over the TrackSections'
+            /// body-fixed surfaces (Absolute <c>frames</c> + Relative <c>bodyFixedFrames</c>).
+            /// </summary>
+            BodyFixedSections,
+
+            /// <summary><see cref="BackfillMaxDistance"/> over the flat Points list.</summary>
+            FlatPoints,
+        }
+
+        /// <summary>
+        /// Which authored surface supplied a body-fixed sample (and, for the launch
+        /// reference, which one the earliest sample came from).
+        /// </summary>
+        internal enum MaxDistanceReferenceSurface
+        {
+            /// <summary>No body-fixed surface at all.</summary>
+            None,
+
+            /// <summary>An Absolute section's <c>frames</c>.</summary>
+            AbsoluteFrames,
+
+            /// <summary>A Relative section's <c>bodyFixedFrames</c>.</summary>
+            RelativeBodyFixedFrames,
+        }
+
+        /// <summary>One body-fixed sample and the authored surface it came from.</summary>
+        internal struct BodyFixedSectionSample
+        {
+            public TrajectoryPoint point;
+            public MaxDistanceReferenceSurface surface;
+            public int sectionIndex;
+        }
+
+        /// <summary>
+        /// Pure routing decision for the finalization-time maxDist backfill.
+        ///
+        /// <para>A recording WITH TrackSections goes through the body-fixed section walk.
+        /// The flat <c>Points</c> list is a frame-blind compatibility mirror: a Relative
+        /// section's frames are appended to it verbatim, and in a Relative section
+        /// <c>latitude/longitude/altitude</c> are anchor-local Cartesian METRES, not
+        /// body-fixed coordinates (CLAUDE.md "Rotation / world frame"). Feeding those to
+        /// <c>body.GetWorldSurfacePosition</c> produced maxDist ~735 km for a rover that
+        /// never left the pad area (todo
+        /// UNDOCK-BG-CHILD-WRITES-RELATIVE-METRES-AS-FLAT-LAT-LON), and
+        /// <c>MaxDistanceFromLaunch</c> feeds IsIdleOnPad / IsPadFailure, so the inflated
+        /// value FAILS OPEN.</para>
+        ///
+        /// <para>The section walk reads BOTH body-fixed surfaces: an Absolute section's
+        /// <c>frames</c> and a Relative section's <c>bodyFixedFrames</c>, which the
+        /// parent-anchored contract names the PRIMARY body-fixed playback surface. A
+        /// recording whose only body-fixed surface is the Relative one (every genuine
+        /// debris recording, and an undock partner that never left its anchor window)
+        /// therefore still gets a real distance instead of staying at 0 and reading as
+        /// idle-on-pad - the mirror fail-CLOSED of the defect above.</para>
+        ///
+        /// <para>The flat path is kept for a sections-less recording (a legacy or
+        /// synthesized recording whose trajectory lives solely in <c>Points</c>), and for
+        /// a recording whose sections carry no body-fixed surface AND no Relative section
+        /// at all (an on-rails checkpoint-only recording): there the flat list cannot have
+        /// been poured full of anchor-local metres, and the section walk deliberately
+        /// leaves <c>MaxDistanceFromLaunch</c> untouched, so without the fallback such a
+        /// recording would keep maxDist = 0 and be discarded as idle-on-pad. A recording
+        /// that HAS Relative sections but no body-fixed samples stays on the section walk
+        /// and keeps 0: fail closed beats resolving anchor-local metres as lat/lon.</para>
+        /// </summary>
+        internal static MaxDistanceBackfillRoute ClassifyMaxDistanceBackfillRoute(Recording rec)
+        {
+            if (rec == null)
+                return MaxDistanceBackfillRoute.None;
+            if (rec.MaxDistanceFromLaunch > 0.0)
+                return MaxDistanceBackfillRoute.None;
+
+            bool hasFlatPoints = rec.Points != null && rec.Points.Count >= 2;
+            if (rec.TrackSections == null || rec.TrackSections.Count == 0)
+                return hasFlatPoints ? MaxDistanceBackfillRoute.FlatPoints : MaxDistanceBackfillRoute.None;
+
+            bool hasBodyFixedSurface = false;
+            bool hasRelativeSection = false;
+            for (int i = 0; i < rec.TrackSections.Count; i++)
+            {
+                TrackSection section = rec.TrackSections[i];
+                if (section.referenceFrame == ReferenceFrame.Relative)
+                {
+                    hasRelativeSection = true;
+                    if (section.bodyFixedFrames != null && section.bodyFixedFrames.Count > 0)
+                        hasBodyFixedSurface = true;
+                }
+                else if (section.referenceFrame == ReferenceFrame.Absolute
+                         && section.frames != null && section.frames.Count > 0)
+                {
+                    hasBodyFixedSurface = true;
+                }
+            }
+
+            if (hasBodyFixedSurface)
+                return MaxDistanceBackfillRoute.BodyFixedSections;
+            if (!hasRelativeSection && hasFlatPoints)
+                return MaxDistanceBackfillRoute.FlatPoints;
+            return MaxDistanceBackfillRoute.BodyFixedSections;
+        }
+
+        /// <summary>
         /// Backfills <see cref="Recording.MaxDistanceFromLaunch"/> from trajectory points.
         /// Called from <see cref="ParsekFlight.FinalizeIndividualRecording"/> for tree recordings
         /// that reach finalization via ForceStop (which skips BuildCaptureRecording). Bug #290d.
         /// Requires FlightGlobals.Bodies to be available (KSP runtime only).
+        ///
+        /// <para>NOT for a recording whose TrackSections author a body-fixed surface (see
+        /// <see cref="ClassifyMaxDistanceBackfillRoute"/>): the flat Points list is
+        /// reference-frame-blind, so such a recording must go through
+        /// <see cref="BackfillMaxDistanceFromBodyFixedSurfaces(Recording)"/> instead.</para>
         /// </summary>
         internal static void BackfillMaxDistance(Recording rec)
         {
@@ -4215,90 +4331,237 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Live-state variant of <see cref="BackfillMaxDistance"/>. Walks
-        /// only Absolute-frame TrackSections (where <c>frames</c> entries
-        /// carry body-fixed lat/lon/alt) and skips RELATIVE-frame sections
-        /// whose <c>frames</c> store anchor-local Cartesian metres in the
-        /// same fields. Feeding RELATIVE-frame metres into
-        /// <c>body.GetWorldSurfacePosition(lat, lon, alt)</c> would yield a
-        /// position deep inside the planet and a falsely huge maxDist
-        /// (see CLAUDE.md "Rotation / world frame" gotcha).
+        /// Collects every BODY-FIXED sample a recording's TrackSections author, in section
+        /// order: an Absolute section's <c>frames</c> (lat/lon/alt are body-fixed) and a
+        /// Relative section's <c>bodyFixedFrames</c> (the parent-anchored contract's PRIMARY
+        /// body-fixed playback surface: full <c>TrajectoryPoint</c>s in body-fixed form).
         ///
-        /// <para>Used by <see cref="ParsekFlight.IsActiveTreeIdleOnPad"/>
-        /// to compute distance-from-launch on a live, unfinalized
-        /// <c>Recording</c>. The recorder always opens its first section
-        /// as <c>ReferenceFrame.Absolute</c>
-        /// (<c>FlightRecorder.cs:5488</c>), so the first frame's lat/lon/alt
-        /// is always safe to use as the launch reference.</para>
+        /// <para>A Relative section's <c>frames</c> are NEVER collected: there
+        /// <c>latitude/longitude/altitude</c> hold anchor-local Cartesian METRES, and
+        /// resolving those through <c>GetWorldSurfacePosition</c> is the
+        /// UNDOCK-BG-CHILD-WRITES-RELATIVE-METRES-AS-FLAT-LAT-LON defect (CLAUDE.md
+        /// "Rotation / world frame"). Pure: no KSP calls.</para>
         /// </summary>
-        internal static void BackfillMaxDistanceAbsoluteOnly(Recording rec)
+        /// <param name="rec">The recording whose TrackSections are walked.</param>
+        /// <param name="sectionsWithoutBodyFixedSurface">Count of sections that contributed
+        /// nothing - a Relative section with no <c>bodyFixedFrames</c>, an OrbitalCheckpoint
+        /// section, an empty Absolute section.</param>
+        internal static List<BodyFixedSectionSample> CollectBodyFixedSectionSamples(
+            Recording rec, out int sectionsWithoutBodyFixedSurface)
         {
+            sectionsWithoutBodyFixedSurface = 0;
+            var samples = new List<BodyFixedSectionSample>();
+            if (rec == null || rec.TrackSections == null) return samples;
+
+            for (int s = 0; s < rec.TrackSections.Count; s++)
+            {
+                TrackSection section = rec.TrackSections[s];
+                List<TrajectoryPoint> surface = null;
+                MaxDistanceReferenceSurface kind = MaxDistanceReferenceSurface.None;
+
+                if (section.referenceFrame == ReferenceFrame.Absolute)
+                {
+                    surface = section.frames;
+                    kind = MaxDistanceReferenceSurface.AbsoluteFrames;
+                }
+                else if (section.referenceFrame == ReferenceFrame.Relative)
+                {
+                    surface = section.bodyFixedFrames;
+                    kind = MaxDistanceReferenceSurface.RelativeBodyFixedFrames;
+                }
+
+                if (surface == null || surface.Count == 0)
+                {
+                    sectionsWithoutBodyFixedSurface++;
+                    continue;
+                }
+
+                for (int j = 0; j < surface.Count; j++)
+                {
+                    samples.Add(new BodyFixedSectionSample
+                    {
+                        point = surface[j],
+                        surface = kind,
+                        sectionIndex = s,
+                    });
+                }
+            }
+            return samples;
+        }
+
+        /// <summary>
+        /// Index of the launch-reference sample: the EARLIEST by UT across both body-fixed
+        /// surfaces, not the first Absolute frame. A recording whose first authored frame
+        /// lives in a Relative section's <c>bodyFixedFrames</c> (an undock partner, any
+        /// parent-anchored debris) has no Absolute frame to start from, and taking a later
+        /// Absolute frame as the origin would measure the chord from the wrong end. Ties
+        /// keep the earlier collection order. Returns -1 for an empty list. Pure.
+        /// </summary>
+        internal static int ResolveLaunchReferenceIndex(List<BodyFixedSectionSample> samples)
+        {
+            if (samples == null || samples.Count == 0) return -1;
+            int best = 0;
+            for (int i = 1; i < samples.Count; i++)
+            {
+                if (samples[i].point.ut < samples[best].point.ut) best = i;
+            }
+            return best;
+        }
+
+        /// <summary>
+        /// Pure core of <see cref="BackfillMaxDistanceFromBodyFixedSurfaces"/>: the greatest
+        /// distance between the launch-reference sample and every other body-fixed sample,
+        /// with position resolution injected so the walk is testable headless. Returns false
+        /// (and writes nothing) when the recording authors no body-fixed sample or the
+        /// reference position itself cannot be resolved.
+        /// </summary>
+        internal static bool TryComputeMaxDistanceFromBodyFixedSurfaces(
+            Recording rec,
+            Func<TrajectoryPoint, Vector3d?> resolveSurfacePosition,
+            out double maxDist,
+            out MaxDistanceReferenceSurface referenceSurface,
+            out int sampleCount,
+            out int unresolvedSampleCount,
+            out int sectionsWithoutBodyFixedSurface)
+        {
+            maxDist = 0.0;
+            referenceSurface = MaxDistanceReferenceSurface.None;
+            sampleCount = 0;
+            unresolvedSampleCount = 0;
+
+            List<BodyFixedSectionSample> samples =
+                CollectBodyFixedSectionSamples(rec, out sectionsWithoutBodyFixedSurface);
+            int refIdx = ResolveLaunchReferenceIndex(samples);
+            if (refIdx < 0 || resolveSurfacePosition == null) return false;
+
+            Vector3d? launchPos = resolveSurfacePosition(samples[refIdx].point);
+            if (!launchPos.HasValue) return false;
+
+            referenceSurface = samples[refIdx].surface;
+            for (int i = 0; i < samples.Count; i++)
+            {
+                Vector3d? ptPos = resolveSurfacePosition(samples[i].point);
+                if (!ptPos.HasValue)
+                {
+                    unresolvedSampleCount++;
+                    continue;
+                }
+                double d = Vector3d.Distance(launchPos.Value, ptPos.Value);
+                if (d > maxDist) maxDist = d;
+                sampleCount++;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Live-state variant of <see cref="BackfillMaxDistance"/>. Walks the TrackSections'
+        /// BODY-FIXED surfaces only - Absolute <c>frames</c> and Relative
+        /// <c>bodyFixedFrames</c> - and never a Relative section's <c>frames</c>, whose
+        /// lat/lon/alt hold anchor-local Cartesian metres. Feeding those into
+        /// <c>body.GetWorldSurfacePosition(lat, lon, alt)</c> would yield a position deep
+        /// inside the planet and a falsely huge maxDist (see CLAUDE.md "Rotation / world
+        /// frame" gotcha).
+        ///
+        /// <para>The launch reference is the EARLIEST body-fixed sample by UT across both
+        /// surfaces, so a recording that opens on a Relative section (an undock partner, any
+        /// parent-anchored debris) still measures its chord from its own first frame. When
+        /// the recording authors no body-fixed sample at all,
+        /// <c>MaxDistanceFromLaunch</c> is left untouched - fail closed; see
+        /// <see cref="ClassifyMaxDistanceBackfillRoute"/> for which recordings take the flat
+        /// fallback instead.</para>
+        ///
+        /// <para>Used by <see cref="ParsekFlight.IsActiveTreeIdleOnPad"/> to compute
+        /// distance-from-launch on a live, unfinalized <c>Recording</c>, and by
+        /// <c>ParsekFlight.FinalizeIndividualRecording</c>.</para>
+        /// </summary>
+        internal static void BackfillMaxDistanceFromBodyFixedSurfaces(Recording rec)
+        {
+            MaxDistanceReferenceSurface ignored;
+            BackfillMaxDistanceFromBodyFixedSurfaces(rec, out ignored);
+        }
+
+        /// <summary>
+        /// <see cref="BackfillMaxDistanceFromBodyFixedSurfaces(Recording)"/>, reporting which
+        /// authored surface supplied the launch reference so the caller can name it in its
+        /// own route log line.
+        /// </summary>
+        internal static void BackfillMaxDistanceFromBodyFixedSurfaces(
+            Recording rec, out MaxDistanceReferenceSurface referenceSurface)
+        {
+            referenceSurface = MaxDistanceReferenceSurface.None;
             if (rec == null || rec.TrackSections == null || rec.TrackSections.Count == 0)
                 return;
 
-            // Find the first Absolute section's first frame for launch reference.
-            TrajectoryPoint? launchFrame = null;
-            CelestialBody bodyFirst = null;
-            for (int i = 0; i < rec.TrackSections.Count && launchFrame == null; i++)
+            // The FlightGlobals read lives in the resolver lambda, invoked only from inside
+            // the try: headless (unit-test) hosts throw on the static initializer instead of
+            // returning null, and that must read as "nothing to compute", not a crash.
+            Func<TrajectoryPoint, Vector3d?> resolver = pt =>
             {
-                var section = rec.TrackSections[i];
-                if (section.referenceFrame != ReferenceFrame.Absolute) continue;
-                if (section.frames == null || section.frames.Count == 0) continue;
-                var f = section.frames[0];
-                try
-                {
-                    bodyFirst = FlightGlobals.Bodies?.Find(b => b.name == f.bodyName);
-                }
-                catch
-                {
-                    return; // FlightGlobals not available (unit tests)
-                }
-                if (bodyFirst == null)
-                {
-                    ParsekLog.Warn("Spawner",
-                        $"BackfillMaxDistanceAbsoluteOnly: cannot resolve body '{f.bodyName}' for recording '{rec.RecordingId}'");
-                    return;
-                }
-                launchFrame = f;
+                CelestialBody body = FlightGlobals.Bodies?.Find(b => b.name == pt.bodyName);
+                if (body == null) return null;
+                return body.GetWorldSurfacePosition(pt.latitude, pt.longitude, pt.altitude);
+            };
+
+            double maxDist;
+            int sampleCount;
+            int unresolvedSampleCount;
+            int sectionsWithoutBodyFixedSurface;
+            bool computed;
+            try
+            {
+                computed = TryComputeMaxDistanceFromBodyFixedSurfaces(
+                    rec, resolver, out maxDist, out referenceSurface,
+                    out sampleCount, out unresolvedSampleCount,
+                    out sectionsWithoutBodyFixedSurface);
+            }
+            catch
+            {
+                referenceSurface = MaxDistanceReferenceSurface.None;
+                return; // FlightGlobals not available (unit tests)
             }
 
-            if (launchFrame == null || bodyFirst == null)
+            if (!computed)
             {
-                // No Absolute-frame data yet (recorder just started, all
-                // RELATIVE, etc.). Nothing to compute - leave existing
-                // MaxDistanceFromLaunch untouched.
+                // Two different refusals, and the distinction matters when reading a log:
+                // no body-fixed sample at all (an all-Relative-frames or checkpoint-only
+                // recording - by design, nothing to measure) versus samples present whose
+                // reference body name did not resolve (a real problem). Either way
+                // MaxDistanceFromLaunch is left untouched.
+                int collectedSamples = CollectBodyFixedSectionSamples(rec, out int _).Count;
+                if (collectedSamples > 0)
+                    ParsekLog.Warn("Spawner",
+                        $"BackfillMaxDistanceFromBodyFixedSurfaces: cannot resolve the launch-reference " +
+                        $"body for recording '{rec.RecordingId}' ({collectedSamples} body-fixed samples) " +
+                        $"- maxDist left at {rec.MaxDistanceFromLaunch:F0}m");
+                else
+                    ParsekLog.Verbose("Spawner",
+                        $"BackfillMaxDistanceFromBodyFixedSurfaces: rec={rec.RecordingId} " +
+                        $"no body-fixed surface (sections={rec.TrackSections.Count}) - maxDist left at " +
+                        $"{rec.MaxDistanceFromLaunch:F0}m");
                 return;
             }
 
-            Vector3d launchPos = bodyFirst.GetWorldSurfacePosition(
-                launchFrame.Value.latitude, launchFrame.Value.longitude, launchFrame.Value.altitude);
-            double maxDist = 0;
-            int bodyFixedFrameCount = 0;
-            int skippedSections = 0;
-            for (int s = 0; s < rec.TrackSections.Count; s++)
-            {
-                var section = rec.TrackSections[s];
-                if (section.referenceFrame != ReferenceFrame.Absolute)
-                {
-                    skippedSections++;
-                    continue;
-                }
-                if (section.frames == null) continue;
-                for (int j = 0; j < section.frames.Count; j++)
-                {
-                    var pt = section.frames[j];
-                    CelestialBody bodyPt = FlightGlobals.Bodies?.Find(b => b.name == pt.bodyName);
-                    if (bodyPt == null) continue;
-                    Vector3d ptPos = bodyPt.GetWorldSurfacePosition(pt.latitude, pt.longitude, pt.altitude);
-                    double d = Vector3d.Distance(launchPos, ptPos);
-                    if (d > maxDist) maxDist = d;
-                    bodyFixedFrameCount++;
-                }
-            }
+            if (unresolvedSampleCount > 0)
+                ParsekLog.Warn("Spawner",
+                    $"BackfillMaxDistanceFromBodyFixedSurfaces: {unresolvedSampleCount} samples had " +
+                    $"unresolvable body names for recording '{rec.RecordingId}'");
+
             rec.MaxDistanceFromLaunch = maxDist;
             ParsekLog.Verbose("Spawner",
-                $"BackfillMaxDistanceAbsoluteOnly: rec={rec.RecordingId} maxDist={maxDist:F0}m " +
-                $"from {bodyFixedFrameCount} Absolute frames (skipped {skippedSections} non-Absolute sections)");
+                $"BackfillMaxDistanceFromBodyFixedSurfaces: rec={rec.RecordingId} maxDist={maxDist:F0}m " +
+                $"from {sampleCount} body-fixed samples reference={DescribeReferenceSurface(referenceSurface)} " +
+                $"(sections without a body-fixed surface: {sectionsWithoutBodyFixedSurface})");
+        }
+
+        /// <summary>Grep-stable name for a <see cref="MaxDistanceReferenceSurface"/>.</summary>
+        internal static string DescribeReferenceSurface(MaxDistanceReferenceSurface surface)
+        {
+            switch (surface)
+            {
+                case MaxDistanceReferenceSurface.AbsoluteFrames: return "absolute-frames";
+                case MaxDistanceReferenceSurface.RelativeBodyFixedFrames: return "relative-body-fixed-frames";
+                default: return "none";
+            }
         }
 
         /// <summary>
