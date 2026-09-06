@@ -230,17 +230,35 @@ namespace Parsek.Logistics
         /// <summary>
         /// Resolves the route's loop-clock state at <paramref name="currentUT"/>
         /// from its backing-mission <paramref name="unit"/>. Pass-through to
-        /// <see cref="GhostPlaybackLogic.TryComputeSpanLoopUT"/> threading the
-        /// unit's OWN <see cref="GhostPlaybackLogic.LoopUnit.RelaunchSchedule"/> +
-        /// <see cref="GhostPlaybackLogic.LoopUnit.LoiterCuts"/> (Phase 6 hardening;
-        /// both null for a v0 same-body route -> the uncompressed-span behavior is
-        /// byte-identical, and a future inter-body route's synodic schedule fires
-        /// delivery on the same re-aimed launches the ghost renders on). Returns
-        /// false on the same early-return conditions as the inner clock
+        /// <see cref="GhostPlaybackLogic.TryComputeSpanLoopUT"/> threading EVERY
+        /// optional argument the unit carries - the relaunch schedule, the loiter
+        /// cuts AND the nine hold / launch-alignment arguments the RENDER side
+        /// passes from the same <see cref="GhostPlaybackLogic.LoopUnit"/>.
+        ///
+        /// <para>ONE UNIT, ONE CLOCK, and that is the contract this method exists to
+        /// hold. The span clock FREEZES <paramref name="loopUT"/> for the duration of
+        /// an engaged hold and pays the frozen seconds back out of the cycle, so a
+        /// caller that forwarded only the schedule and the cuts ran a DIFFERENT clock
+        /// from the one the ghost is rendered on: the delivery clock's loopUT ran
+        /// ahead of the rendered one by the held seconds and the cycle index a dock
+        /// crossing is attributed to could be off by one (todo entry
+        /// ROUTE-DELIVERY-CLOCK-OMITS-THE-HOLD-ARGS). Byte-identical for every v0
+        /// same-body route - a faithful backing mission (<c>bodyInfo = null</c>)
+        /// leaves every hold field zero / NaN, which is what the defaults were - so
+        /// the change is live only on the hold-carrying / launch-aligned population
+        /// the re-aim work produces.</para>
+        ///
+        /// <para>A NEW OPTIONAL ARGUMENT ON THE SPAN CLOCK IS A CHANGE HERE TOO: the
+        /// rule is that this seam forwards the unit's whole surface, so
+        /// <see cref="DescribeHoldArgs"/> and
+        /// <see cref="RouteLoopClockHoldArgWiringTests"/> both enumerate the same set
+        /// and a defaulted argument reds the suite rather than diverging silently.</para>
+        ///
+        /// <para>Returns false on the same early-return conditions as the inner clock
         /// (degenerate span, <paramref name="currentUT"/> before the phase anchor,
         /// or — with a non-null schedule — before the first scheduled launch) with
         /// <paramref name="cycleIndex"/> = 0 and
-        /// <paramref name="isInInterCycleTail"/> = false.
+        /// <paramref name="isInInterCycleTail"/> = false.</para>
         /// </summary>
         /// <param name="unit">The route's backing-mission loop unit (read-only).</param>
         /// <param name="currentUT">Game UT.</param>
@@ -259,12 +277,11 @@ namespace Parsek.Logistics
             out long cycleIndex,
             out bool isInInterCycleTail)
         {
-            // Phase 6 hardening: thread the unit's OWN relaunch schedule + loiter
-            // cuts (NOT hardcoded null). For a v0 same-body route the backing
-            // Mission is faithful (bodyInfo=null), so both are null and this stays
-            // the uncompressed-span path. For a future inter-body route they carry
-            // the Missions-layer synodic / re-aim schedule, so delivery fires on the
-            // same re-aimed launches the render uses. Consumed read-only.
+            // THE WHOLE OPTIONAL SURFACE, not a subset. Phase 6 threaded the relaunch
+            // schedule + the loiter cuts; the nine hold / launch-alignment arguments
+            // below kept their defaults and made this a second clock on any unit that
+            // carried one. All eleven now come from the unit, so this is the same call
+            // the render side makes. Consumed read-only.
             return GhostPlaybackLogic.TryComputeSpanLoopUT(
                 currentUT,
                 unit.PhaseAnchorUT,
@@ -275,7 +292,68 @@ namespace Parsek.Logistics
                 out cycleIndex,
                 out isInInterCycleTail,
                 schedule: unit.RelaunchSchedule,
-                loiterCuts: unit.LoiterCuts);
+                loiterCuts: unit.LoiterCuts,
+                arrivalHoldSeconds: unit.ArrivalHoldSeconds,
+                arrivalHoldAtUT: unit.ArrivalHoldAtUT,
+                arrivalHoldAlignPeriod: unit.ArrivalAlignPeriodSeconds,
+                launchBodyRotationPeriod: unit.LaunchBodyRotationPeriodSeconds,
+                launchHoldEngaged: unit.LaunchHoldEngaged,
+                soiExitAtUT: unit.RecordedSoiExitUT,
+                arrivalJointSecondaryPeriod: unit.ArrivalJointSecondaryPeriodSeconds,
+                arrivalJointSecondaryTolerance: unit.ArrivalJointSecondaryToleranceSeconds,
+                arrivalJointMaxWholeHoldPeriods: unit.ArrivalJointMaxWholeHoldPeriods);
+        }
+
+        /// <summary>
+        /// True when the unit carries ANY non-default hold / launch-alignment argument -
+        /// i.e. when threading them can change what
+        /// <see cref="TryGetRouteLoopState"/> resolves. Pure, and cheap enough to be the
+        /// per-tick guard in front of <see cref="DescribeHoldArgs"/>: a v0 same-body
+        /// route's faithful backing mission leaves every field at zero / NaN and this is
+        /// a run of comparisons with no allocation.
+        /// </summary>
+        internal static bool CarriesHoldArgs(GhostPlaybackLogic.LoopUnit unit)
+        {
+            return unit.ArrivalHoldSeconds != 0.0
+                || !double.IsNaN(unit.ArrivalHoldAtUT)
+                || !double.IsNaN(unit.ArrivalAlignPeriodSeconds)
+                || !double.IsNaN(unit.LaunchBodyRotationPeriodSeconds)
+                || unit.LaunchHoldEngaged
+                || !double.IsNaN(unit.RecordedSoiExitUT)
+                || !double.IsNaN(unit.ArrivalJointSecondaryPeriodSeconds)
+                || !double.IsNaN(unit.ArrivalJointSecondaryToleranceSeconds)
+                || unit.ArrivalJointMaxWholeHoldPeriods != 0;
+        }
+
+        /// <summary>
+        /// The nine hold / launch-alignment arguments <see cref="TryGetRouteLoopState"/>
+        /// forwards, in the order the span clock declares them. Pure and
+        /// InvariantCulture (a unit test reads it), so an operator reading a KSP.log can
+        /// see WHICH clock the delivery side ran without inferring it from the unit.
+        /// </summary>
+        internal static string DescribeHoldArgs(GhostPlaybackLogic.LoopUnit unit)
+        {
+            return "arrivalHoldSeconds=" + unit.ArrivalHoldSeconds.ToString("R", IC)
+                + " arrivalHoldAtUT=" + unit.ArrivalHoldAtUT.ToString("R", IC)
+                + " arrivalHoldAlignPeriod=" + unit.ArrivalAlignPeriodSeconds.ToString("R", IC)
+                + " launchBodyRotationPeriod=" + unit.LaunchBodyRotationPeriodSeconds.ToString("R", IC)
+                + " launchHoldEngaged=" + (unit.LaunchHoldEngaged ? "1" : "0")
+                + " soiExitAtUT=" + unit.RecordedSoiExitUT.ToString("R", IC)
+                + " arrivalJointSecondaryPeriod=" + unit.ArrivalJointSecondaryPeriodSeconds.ToString("R", IC)
+                + " arrivalJointSecondaryTolerance=" + unit.ArrivalJointSecondaryToleranceSeconds.ToString("R", IC)
+                + " arrivalJointMaxWholeHoldPeriods="
+                + unit.ArrivalJointMaxWholeHoldPeriods.ToString(IC);
+        }
+
+        /// <summary>
+        /// The change key for the hold-arg log line: the full description when the unit
+        /// carries any hold, the constant <c>none</c> otherwise. Keeping the common case
+        /// allocation-free is the whole reason this is separate from
+        /// <see cref="DescribeHoldArgs"/> - the caller is a per-tick route evaluation.
+        /// </summary>
+        internal static string HoldArgsChangeKey(GhostPlaybackLogic.LoopUnit unit)
+        {
+            return CarriesHoldArgs(unit) ? DescribeHoldArgs(unit) : "none";
         }
 
         /// <summary>

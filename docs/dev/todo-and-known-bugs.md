@@ -3855,10 +3855,42 @@ The original proposal named `Saves` + `GameState`; `RewindPoints` is what
 `Inv9RewindPoint` resolves through `RecordingPaths`, so a copy of only those two would have
 left the WARN in place.
 
-## ROUTE-DELIVERY-CLOCK-OMITS-THE-HOLD-ARGS: `RouteLoopClock.TryGetRouteLoopState` threads only the relaunch schedule and the loiter cuts into the span clock, so on a hold-carrying or launch-aligned route-backed unit the DELIVERY clock and the RENDER clock are not the same clock [FOUND BY READING 2026-08-25 while scouting the M-A7 render-composition plan surface, from the source alone - NOT measured on a flight. LATENT on every committed route today (v0 same-body routes carry no holds). REPORT-ONLY and DELIBERATELY NOT FIXED IN THE M-A7 PR: that PR is observation-only, and changing what the delivery clock computes is a product decision of its own]
+## ~~ROUTE-DELIVERY-CLOCK-OMITS-THE-HOLD-ARGS: `RouteLoopClock.TryGetRouteLoopState` threads only the relaunch schedule and the loiter cuts into the span clock, so on a hold-carrying or launch-aligned route-backed unit the DELIVERY clock and the RENDER clock are not the same clock~~ [FOUND BY READING 2026-08-25 while scouting the M-A7 render-composition plan surface, from the source alone - NOT measured on a flight. LATENT on every committed route today (v0 same-body routes carry no holds). FIXED 2026-09-06 (P17)]
 
-`Source/Parsek/Logistics/RouteLoopClock.cs:255-278` forwards exactly two of the
-span clock's optional arguments:
+**FIXED - THE SEAM NOW FORWARDS THE UNIT'S WHOLE OPTIONAL SURFACE.** All eleven
+optional arguments come off the `LoopUnit`
+(`Source/Parsek/Logistics/RouteLoopClock.cs`, `TryGetRouteLoopState`), so the
+delivery clock IS the render clock for the same unit. The three supporting pieces:
+
+- `RouteLoopClock.CarriesHoldArgs` / `DescribeHoldArgs` / `HoldArgsChangeKey` -
+  pure, InvariantCulture, and the source of the log line below. The change key is
+  the constant `none` on a faithful unit so the per-tick guard allocates nothing on
+  the shipping population.
+- `RouteOrchestrator`'s loop-route path emits one `LoopRoute clock args: route=...
+  unit=N schedule=0 loiterCuts=0 arrivalHoldSeconds=... launchHoldEngaged=...`
+  Verbose line per route, change-based (`VerboseOnChange`), so an operator can read
+  WHICH clock the delivery side ran instead of inferring it. That line is what the
+  entry's "not measured on a flight" caveat needed and could not have.
+- Headless: `RouteLoopClockHoldArgWiringTests` (7 cells). The load-bearing shape is
+  an EQUALITY against the render call plus an INEQUALITY against the old
+  schedule-only call at a discriminating UT - an equality alone would pass on a
+  build that still dropped the arguments. Both directions are pinned: the
+  arrival-hold fixture (span [0,1000], hold 200 s at 600: held reads 600 at UT 700,
+  un-held reads 700), the zero-slack launch-hold fixture (the borrow-at-launch
+  advance engages on every cycle, so the launch-alignment trio bites at every
+  sample), and the HOLD-FREE mirror where all three clocks - delivery, render and
+  the pre-fix schedule-only reading - must agree EXACTLY, which is what says no v0
+  same-body route moved.
+
+The two comments that asserted the divergence as a standing fact are corrected in
+the same commit (`RouteOrchestrator`'s M-A7 capture-point note and
+`RenderCompositionRecorder.NoteRouteDockCrossing`'s doc): RC-ROUTE now checks an
+equality on a hold-carrying lane rather than measuring a known gap. Still NOT
+measured on a flight - no committed lane carries a hold-bearing route-backed unit -
+so the M-A7 reading below stays owed as a CONFIRMATION rather than as a diagnosis.
+
+**THE ORIGINAL FILING.** `Source/Parsek/Logistics/RouteLoopClock.cs:255-278`
+forwarded exactly two of the span clock's optional arguments:
 
 ```
 GhostPlaybackLogic.TryComputeSpanLoopUT(
@@ -3878,7 +3910,7 @@ back out of the cycle, so on a unit that carries one the two clocks diverge by
 the held seconds: the delivery clock's `loopUT` runs ahead of the rendered one,
 and the `cycleIndex` a dock crossing is attributed to can be off by one once the
 divergence exceeds the remaining span. The Phase 6 hardening comment at the call
-site is accurate about what it DID thread and silent about what it did not.
+site was accurate about what it DID thread and silent about what it did not.
 
 WHY IT IS LATENT, NOT DEAD. A v0 same-body route's backing mission is faithful
 (`bodyInfo = null`), so every hold field is zero / NaN and the omission is
@@ -3894,9 +3926,10 @@ unit's hold fields on `PLAN.UNIT` (`arrivalHoldSeconds` / `arrivalHoldAtUT` /
 `recordedDockUT` + dispatch window on `PLAN.UNIT.ROUTE`, the observed
 `hold-engage` / `hold-release` clock events, and the `route-dock-crossing`
 events with the cycle index the delivery side attributed them to. RC-ROUTE
-therefore has both clocks in one file and can state the divergence as a number
-rather than as this reading. Do that on a hold-carrying route lane (Phase 4,
-G1's B27/V18) before proposing a fix.
+therefore has both clocks in one file and can state the relationship as a number
+rather than as a reading. STILL OWED after the fix, with the sign flipped: on a
+hold-carrying route lane (Phase 4, G1's B27/V18) the manifest must now show the two
+clocks AGREEING, which is the live confirmation the headless equality cannot give.
 
 ---
 

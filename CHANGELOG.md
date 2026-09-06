@@ -10,6 +10,15 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A supply route whose flight waits somewhere now counts the wait the same way the
+  ghost you watch does.** Some flights hold: a launch that waits for the pad to come round
+  under the departure, or an arrival that waits before it starts down. The ghost you see
+  in the map view pauses for exactly that long. The clock the route used to decide when a
+  delivery had happened did not pause, so on a flight carrying a wait the two ran apart by
+  the length of it and a delivery could be credited to the wrong repeat of the run. Both
+  now read the same clock. No same-body route ever waits, so nothing changes for any route
+  that exists today; this is the inter-body case, fixed before it ships.
+
 - **A supply run that loaded its cargo before you came back to it can now become a
   route.** Docking the tanker to the base, transferring the fuel, then flying something
   else and returning to the tanker later - flying it from the tracking station, or
