@@ -1257,34 +1257,93 @@ namespace Parsek.Tests
         // tree acquired an orbital phase lock: cadence 162.74 s became 549.47 s and the
         // dispatch anchor jumped 274.18 -> 660.91. The Unity-bound seam reads the live
         // Vessel, so the DECISION is this pure predicate.
-        // catches: the landed/splashed/prelaunch set shrinking, or the predicate
-        // inverting (which would reject every genuine orbiting anchor).
+        //
+        // The contract is PHYSICAL, not a situation list (the #1623 review's follow-up):
+        // the anchor's orbit must not intersect the surface or the atmosphere. That is
+        // what rejects an aircraft FLYING and an ascending SUB_ORBITAL rocket, both of
+        // which carry a closed stock orbit with a finite period and would phase-lock a
+        // mission to a meaningless number exactly as a landed rover did. It SUBSUMES the
+        // old list: a surface pseudo-orbit's periapsis is hundreds of kilometres below
+        // the surface (the first row below is that shape).
+        // catches: the floor dropping to the surface on an atmospheric body (which would
+        // re-admit every low-flying aircraft), the boundary going non-strict, an input
+        // guard going missing, or the predicate inverting (which would reject every
+        // genuine orbiting anchor).
         [Theory]
-        [InlineData(true, Vessel.Situations.LANDED)]
-        [InlineData(true, Vessel.Situations.SPLASHED)]
-        [InlineData(true, Vessel.Situations.PRELAUNCH)]
-        // LandedOrSplashed and situation are read independently: either one alone rejects.
-        [InlineData(false, Vessel.Situations.LANDED)]
-        [InlineData(false, Vessel.Situations.SPLASHED)]
-        [InlineData(false, Vessel.Situations.PRELAUNCH)]
-        [InlineData(true, Vessel.Situations.ORBITING)]
-        public void IsPhaseAnchorEligible_RejectsSurfaceAnchors(
-            bool landedOrSplashed, Vessel.Situations situation)
+        // A stock surface pseudo-orbit on Kerbin: e ~0.9948 puts periapsis ~600 km below
+        // the surface, so the orbit test alone rejects the whole old LANDED/SPLASHED/
+        // PRELAUNCH list without naming a single situation.
+        [InlineData(-597000.0, true, 70000.0)]
+        // An aircraft cruising at 5 km and an ascending rocket whose periapsis is still
+        // in the air: closed orbits, finite periods, no phase reference.
+        [InlineData(-600000.0, true, 70000.0)]
+        [InlineData(35000.0, true, 70000.0)]
+        [InlineData(69999.0, true, 70000.0)]
+        // Boundary: periapsis EXACTLY at the atmosphere top is rejected (fail closed).
+        [InlineData(70000.0, true, 70000.0)]
+        // Airless body (the Mun): the floor is the surface, and 0 itself is rejected.
+        [InlineData(-1000.0, false, 0.0)]
+        [InlineData(0.0, false, 0.0)]
+        // Non-finite / nonsensical inputs fail closed.
+        [InlineData(double.NaN, true, 70000.0)]
+        [InlineData(double.PositiveInfinity, true, 70000.0)]
+        [InlineData(100000.0, true, double.NaN)]
+        [InlineData(100000.0, true, double.PositiveInfinity)]
+        [InlineData(100000.0, true, -1.0)]
+        public void IsPhaseAnchorEligible_RejectsSurfaceAndAtmosphereIntersectingAnchors(
+            double periapsisAltitude, bool bodyHasAtmosphere, double atmosphereDepth)
         {
-            Assert.False(MissionPeriodicity.IsPhaseAnchorEligible(landedOrSplashed, situation));
+            Assert.False(MissionPeriodicity.IsPhaseAnchorEligible(
+                periapsisAltitude, bodyHasAtmosphere, atmosphereDepth));
         }
 
-        // catches: the guard over-reaching into the airborne / orbiting situations a
-        // genuine rendezvous anchor reports (the design's supported shape).
+        // catches: the guard over-reaching into the genuinely orbiting anchors a real
+        // rendezvous target reports (the design's supported shape).
         [Theory]
-        [InlineData(Vessel.Situations.ORBITING)]
-        [InlineData(Vessel.Situations.SUB_ORBITAL)]
-        [InlineData(Vessel.Situations.ESCAPING)]
-        [InlineData(Vessel.Situations.FLYING)]
-        [InlineData(Vessel.Situations.DOCKED)]
-        public void IsPhaseAnchorEligible_AcceptsAirborneAnchors(Vessel.Situations situation)
+        // Kerbin: one metre above the atmosphere top, an 80 km LKO station, a keo orbit.
+        [InlineData(70001.0, true, 70000.0)]
+        [InlineData(80000.0, true, 70000.0)]
+        [InlineData(2863330.0, true, 70000.0)]
+        // Airless bodies (Mun / Minmus): anything above the surface qualifies.
+        [InlineData(1.0, false, 0.0)]
+        [InlineData(14000.0, false, 0.0)]
+        // An airless body's atmosphereDepth is ignored outright, even if stock left junk
+        // in it - the floor is the surface.
+        [InlineData(14000.0, false, double.NaN)]
+        public void IsPhaseAnchorEligible_AcceptsOrbitingAnchors(
+            double periapsisAltitude, bool bodyHasAtmosphere, double atmosphereDepth)
         {
-            Assert.True(MissionPeriodicity.IsPhaseAnchorEligible(false, situation));
+            Assert.True(MissionPeriodicity.IsPhaseAnchorEligible(
+                periapsisAltitude, bodyHasAtmosphere, atmosphereDepth));
+        }
+
+        // The seam's cheap surface pre-check: it exists ONLY so the flight log can name a
+        // surface rejection (harness lane RVR-9 reads that line) without reading the
+        // pseudo-orbit first. It decides nothing the orbit test above does not already
+        // decide, so it is pinned as a classifier of SITUATIONS, not as the contract.
+        // catches: the landed/splashed/prelaunch set shrinking (which would silently
+        // change the logged reason), or the predicate inverting.
+        [Theory]
+        [InlineData(true, Vessel.Situations.LANDED, true)]
+        [InlineData(true, Vessel.Situations.SPLASHED, true)]
+        [InlineData(true, Vessel.Situations.PRELAUNCH, true)]
+        // LandedOrSplashed and situation are read independently: either one alone matches.
+        [InlineData(false, Vessel.Situations.LANDED, true)]
+        [InlineData(false, Vessel.Situations.SPLASHED, true)]
+        [InlineData(false, Vessel.Situations.PRELAUNCH, true)]
+        [InlineData(true, Vessel.Situations.ORBITING, true)]
+        // Airborne / orbiting situations are NOT surface: they fall through to the orbit
+        // test, which is what rejects FLYING and SUB_ORBITAL.
+        [InlineData(false, Vessel.Situations.ORBITING, false)]
+        [InlineData(false, Vessel.Situations.SUB_ORBITAL, false)]
+        [InlineData(false, Vessel.Situations.ESCAPING, false)]
+        [InlineData(false, Vessel.Situations.FLYING, false)]
+        [InlineData(false, Vessel.Situations.DOCKED, false)]
+        public void IsSurfaceAnchorSituation_ClassifiesTheLoggedSurfaceCase(
+            bool landedOrSplashed, Vessel.Situations situation, bool expected)
+        {
+            Assert.Equal(expected,
+                MissionPeriodicity.IsSurfaceAnchorSituation(landedOrSplashed, situation));
         }
 
         [Fact]
