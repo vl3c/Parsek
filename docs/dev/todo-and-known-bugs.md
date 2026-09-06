@@ -237,7 +237,7 @@ log or it reds on the absence.
 
 ---
 
-## DISASSEMBLED-VESSEL-TERMINAL-STATE: a vessel whose last part is pocketed in EVA construction ends its recording as `TerminalState.Destroyed`, indistinguishable from a crash [RAISED 2026-09-02 alongside the inventory KIND ruling. APPROVED IN PRINCIPLE by the operator, including the schema-generation bump it needs. OPEN, not started]
+## DISASSEMBLED-VESSEL-TERMINAL-STATE: a vessel whose last part is pocketed in EVA construction ends its recording as `TerminalState.Destroyed`, indistinguishable from a crash [RAISED 2026-09-02 alongside the inventory KIND ruling. APPROVED IN PRINCIPLE by the operator, including the schema-generation bump it needs. OPEN, BLOCKED 2026-09-06 on a fixture-corpus ruling - detection is solved, the bump is not]
 
 **What happens today.** Pocket the last remaining part of a vessel during EVA
 construction and KSP destroys the vessel like any other. Parsek takes the plain
@@ -253,18 +253,109 @@ approved a distinct terminal value for it.
 **Why it is not a one-liner.** A new `TerminalState` member is a serialized-enum
 change, so it needs `RecordingStore.CurrentRecordingSchemaGeneration` to go from 4
 to 5, and there is NO migration path by contract: `IsRecordingSchemaCompatible`
-rejects an older generation outright. Every committed fixture stamps
-`recordingSchemaGeneration = 4`, so a bump means re-stamping every one of them and
-re-running the lanes that read them. The co-op integration branch
+rejects an older generation outright. The co-op integration branch
 (`coop-multiplayer`) also plans generation 5 in its M2.1, so whoever lands second
 takes generation 6 - coordinate before starting.
 
-**The detection question, unresolved.** Nothing yet distinguishes "the last part
-was pocketed by a kerbal in EVA construction" from a real destruction at the
-`onVesselWillDestroy` seam. The starting point is KSP's own EVA-construction
-events / `ModuleInventoryPart` store path around the moment of destruction; the
-answer has to be positive evidence (a witnessed store of that part into an
-inventory in the same frame), never an inference from "no explosion FX".
+**THE BLOCKER, measured 2026-09-06. The earlier sentence in this entry - "a bump
+means re-stamping every one of them" - was an estimate, and the corpus does not
+support it as written.** Measured blast radius: **706 `recordingSchemaGeneration`
+text tokens across 277 committed files, ALL reading 4, plus 216 binary `.prec`
+files carrying the generation as a little-endian `int32` at byte offset 8**
+(`PSK0` magic, `Source/Parsek/TrajectorySidecarBinary.cs:253`). That is 29 stamped
+fixtures under `harness/fixtures/saves/` and 4 under `Source/Parsek.Tests/Fixtures/`
+(`C1Career` alone holds 128 stamps in its `persistent.sfs`). `.pann`, `.pgsb`,
+`.pgse`, `.pgsm` and `.craft` carry no generation; `.craft` snapshot sidecars use
+`PSN0` and DO carry one at offset 8 as well (416 files).
+
+**There is no precedent to follow and no tool to do it.** The last bump,
+`a400bada6` (3 -> 4, ParentAnchorRecordingId key rename), touched
+`RecordingStore.cs` and NOTHING else - the committed fixture corpus did not exist
+yet. So generations 2, 3 and 4 were all bumped before there was anything to
+re-stamp, and all three were SHAPE changes. Nothing in the tree re-stamps a schema
+generation: every "restamp" in `harness/tools/` and `scripts/` is about a vessel
+pid, a launch guid, a save Title or a loadmeta count, and `harness/lib/savepatch.py`
+states its own boundary at lines 28-36 ("THE PARSEK PAYLOAD IS NEVER TOUCHED").
+No builder can re-mint a recording payload either: the seven `build_*_recorded.py`
+finishers operate in place on an already-harvested `persistent.sfs` and abort when
+it is absent, and the career builders that do carry stamps (`career-earned-pad`,
+`career-same-name-pad`, `rover-route-career`) copy gen-4 bytes verbatim out of
+`C2CareerPostFix` / `rover-route-recorded`. The only minting path,
+`harvest_bdock_station.py`, needs a live flight and has no `--check`.
+
+**The repo's own stated policy is RE-HARVEST, and every stamped fixture is
+harvested-provenance.** `Source/Parsek/Analyzer/Rules/FixtureStampRule.cs:14-16`
+routes a stale stamp to "the M-A4 regeneration script re-run (a synthetic stamp)
+or a re-harvest (a harvested stamp, which the no-migration policy cannot
+regenerate by script)", emitting `action=re-harvest-queue` for harvested
+provenance. `harness/lib/test_saveparse.py:3270-3275` says the same in its failure
+message: "the fixture must be re-harvested at the new generation (or the consumer
+lane silently tests nothing)". That cell is the cross-language pin - it reads
+`RecordingStore.cs` and compares the constant against each fixture's pinned
+`schemaGeneration`, so the bump reds all 28 `RECORDED_FIXTURES` subTests the moment
+the constant moves.
+
+**What breaks, by population.** (a) Headless C# tests that go hard RED because
+they load a stamped fixture through the gate: `C1CareerLedgerReplayTests`,
+`C2CareerLedgerReplayTests`, `C2CareerPostFixReplayTests`,
+`ContractDeadlineAbsoluteUTTests`, `StrategyPrefixHoldbackTests` (all via
+`Ledger.LoadFromFile`, which CLEARS the ledger on a generation mismatch) and
+`RoverRelayCOracleTests` (via `RecordingTree.Load`, which silently returns an
+EMPTY tree). (b) ~100 committed harness lanes across 29 fixtures that would stage
+and fly fine while `RecordingTree.Load` empties every tree - the flight runs and
+measures nothing. That silent degradation is exactly what the `RECORDED_FIXTURES`
+cross-check exists to convert into a local red. (c) Three literal pins that are
+meant to move: `FormatRoundtripTests.cs:52`, `FormatVersionTests.cs:43`,
+`SwitchSegmentBuilderTests.cs:513`; plus the `expected {'4'}` guards in six
+`build_*_recorded.py` and `build_career_contract_pad.py:259,417`.
+
+**The ruling the operator owes this work.** Generation 5 as proposed here would be
+the FIRST pure-discriminator bump: appending `TerminalState.Disassembled = 8`
+renames no key, adds no field and changes no binary layout, so a gen-4 fixture is
+byte-identical to what gen-5 code would write for the same flight. If the operator
+rules that a pure-discriminator bump may be re-stamped, the work is a new tool
+(706 text tokens + 216 `.prec` int32 writes + the `PSN0` craft sidecars, preserving
+per-fixture line endings - `rover-relay-c-recorded` is LF, builder-authored
+fixtures are CRLF) and the provenance cost must be accepted: after a re-stamp no
+reader can tell a fixture harvested at 5 from one re-stamped from 4, which is the
+distinction `FixtureStampRule` exists to keep. If the operator holds the written
+policy, the 33 stamped fixtures go to the re-harvest queue and this work waits on
+those flights. **Do not bump the constant until that ruling exists**, and do not
+add the enum member without the bump - the two were coupled deliberately.
+
+**The detection question, RESOLVED 2026-09-06 (decompiled KSP 1.12.5
+`Assembly-CSharp.dll` with `ilspycmd`).** The pocket path is
+`EVAConstructionModeEditor.PickupPart()`. It is gated on
+`hoveredPart.vessel.vesselType` being `DroppedPart` or `Debris`, then sets
+`hoveredPart.protoPartSnapshot = new ProtoPartSnapshot(hoveredPart, vessel.protoVessel)`,
+assigns `UIPartActionControllerInventory.Instance.CurrentCargoPart =
+CreatePartFromInventory(that snapshot)`, calls `BackupPart(..., droppedPart: true)`
+and only THEN calls `hoveredPart.vessel.Die()`, which is what fires
+`onVesselWillDestroy`. Three consequences for the implementation:
+
+- The multi-part detach path is NOT this one and cannot reach it: the grab handler
+  returns early on `hoveredPart.vessel.rootPart.persistentId == hoveredPart.persistentId`,
+  so the root part of a multi-part vessel can never be grabbed. "Last part
+  pocketed" is therefore always the single-part `DroppedPart` / `Debris` vessel.
+- Do NOT match on `persistentId`. `ProtoPartSnapshot.ConfigurePart` (line 2657-2670)
+  assigns the stored pid and then runs `FlightGlobals.CheckPartpersistentId(...,
+  removeOldId: true, addNewId: true)`; because the ORIGINAL part is still alive at
+  that instant the created cargo part collides and is given a NEW pid, which is
+  written back into the snapshot. The pids differ by construction.
+- The exact positive evidence, available synchronously at `onVesselWillDestroy`
+  with no Harmony patch, is OBJECT IDENTITY:
+  `dyingVessel.parts.Count == 1 && dyingPart.protoPartSnapshot != null &&
+  dyingPart.protoPartSnapshot.partRef == UIPartActionControllerInventory.Instance.CurrentCargoPart`
+  (non-null), with `EVAConstructionModeController.Instance.IsOpen` as the mode
+  guard. `CreatePart()` sets `partRef` to the instance it returns, so that
+  reference equality holds only for the part this pickup just converted into held
+  cargo. `GameEvents.OnEVAConstructionModePartDetached` does NOT fire on this path
+  (it belongs to the multi-part detach branch), and `ConstructionEventType.PartPicked`
+  fires AFTER `Die()`, so neither is usable as a same-frame witness.
+- Keep the decision a pure `internal static` predicate over already-extracted
+  primitives (mode-open bool, part count, the identity bool) so it is headless
+  testable, and read the two KSP UI singletons behind a `[MethodImpl(NoInlining)]`
+  core - the mono gotcha for `FlightGlobals`-adjacent statics applies.
 
 ---
 
