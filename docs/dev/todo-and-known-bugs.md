@@ -15,6 +15,58 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~CARRY-FORWARD-SIDECAR-HALF-DROPS-THE-TREE-IT-EXISTS-TO-KEEP: the unserializable-tree carry-forward drops every live recording without a trajectory sidecar, so a tree whose ROOT has no `.prec` is deleted from the save at Error~~ [FOUND 2026-09-06 by the full in-game census (H5, S1.4, S1.6, S1.7 all PARSEK-FAIL on the forbidden `[Parsek][ERROR]` token; every daily lane booting the synthetic corpus had been red since 2026-08-29 and no one had flown one). PRODUCT DEFECT introduced by fix (B) of QUICKLOAD-OVER-COMMITTED-RESTORE-OVERLAP-DELETES-TREE-ON-SAVE (`done/todo-and-known-bugs-v8.md`). FIXED 2026-09-06 on branch `ingame-autoflight`]
+
+### The mechanism, measured
+
+Evidence: `logs/2026-09-06_2104_H5-invariants-corpus/KSP.log` lines 16345-16434.
+
+1. The synthetic corpus carries 34 metadata-only tree recordings (`e1-*`, `e2-*`, `e3-*`,
+   `gc-*`, `dock-r*`, `collision-r1-*`, `surface-dock-r1-*`, `m2-drill-*`, `m4-*`) that
+   `SyntheticRecordingTests` serializes straight from hand-built `RecordingTree`s, with no
+   `.prec` ever written. Every H5 flight has loaded them as `missing trajectory sidecar`
+   (34 in the 2026-07-19 green run too) - a KNOWN fixture shape, not new.
+2. On save each reads `SidecarLoadFailed=True reason=trajectory-missing` with empty
+   in-memory state, so the bug-#585 guard skips the sidecar write and the tree is
+   "unsafe to serialize" -> `cannot write tree ... from memory`.
+3. Fix (B)'s carry-forward then RECONCILED the on-disk node against the live tree with
+   `IsCarriedRecordingStillReal` = "in the live tree AND its `.prec` exists on disk".
+   Every recording of such a tree fails the second half, `keep.Count == 0`, the carry is
+   refused as "would resurrect deleted data", and the tree is dropped at Error - 39
+   ERROR lines per save, and the second OnSave of the session finds nothing to carry.
+4. Before (B) the same trees were omitted SILENTLY (errors=0 in the green runs), which is
+   why the census never saw it: (B) made an old silent loss loud, and its reconciliation
+   made it unconditional for the root case.
+
+**Why the sidecar half was wrong in every case, not only for the corpus.** The carry
+runs precisely when a live recording's sidecar cannot be written. A deleted recording has
+already left the live tree, so membership alone covers the resurrection hazard the
+reconciliation was written for; the only recordings the sidecar half ever removes are
+live ones whose file is missing - the exact fault the invariant "a save must never delete
+a tree it cannot serialize" promises to survive. When that recording is the root
+(single-recording trees, i.e. most missions) the refusal deletes the whole tree.
+
+### The fix
+
+`ParsekScenario.IsCarriedRecordingStillReal` is live-tree membership only; the
+`CarriedRecordingSidecarExistsOverrideForTesting` seam is gone with the disk probe, so
+the end-to-end cell `SaveTreeRecordings_UnserializableTree_KeepsItsNodeFromTheOnDiskSave`
+now runs the REAL predicate (root recording, no sidecar) and asserts no `[ERROR]` and no
+refusal. `CarryForward_DropsRecordingsWhoseSidecarsAreGone` is inverted into
+`CarryForward_KeepsLiveRecordingsWhoseSidecarsAreGone`;
+`IsCarriedRecordingStillReal_RequiresBothHalves` becomes `_IsLiveTreeMembershipOnly`.
+`CarryForward_DropsRecordingsTheLiveTreeNoLongerHas`, the root-refusal, the empty-husk
+refusal and the branch-point prune are unchanged: the resurrection guard is intact.
+
+**Follow-up worth its own decision, NOT done here:** the corpus shape itself. The product
+never produces a committed recording without a `.prec` (the store writes an empty one for
+a zero-point recording), so the 34 metadata-only tree fixtures make every corpus-booting
+lane (H5, H14, H15, H16, H49, H53, S1.4, S1.6, S1.7) save through the carry-forward
+path with ~100 WARN lines per save. Writing empty sidecars for them in the injector would
+put those lanes on the ordinary save path - and would also make them stop covering this
+carry-forward path live, so it is a trade to rule on, and it moves nothing in the
+`recordings=308 trees=278` pins either way.
+
 ## ROUTE-ENDPOINT-TRANSFER-DOCKED-DOMINANT-PARTNER: while a visitor is docked to a delivery destination and DOMINATES the merged vessel, the route now REBINDS to the visitor and follows it away after undock [RAISED 2026-09-04 by the Fable review of PR #1627 (the endpoint-transfer ruling). DESIGN RESIDUE of that PR, not a defect it introduced blindly - the pre-#1627 behaviour was self-healing by accident. OPEN, no fix proposed; two siblings filed in the same entry]
 
 **THE SHAPE.** A destination stop's `RouteEndpoint` carries `RootPartUId = 0`.

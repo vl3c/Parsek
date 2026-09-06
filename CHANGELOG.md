@@ -10,6 +10,20 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A mission whose flight-path file is missing is no longer deleted from the save.**
+  The 2026-08-29 fix that stopped Parsek dropping a mission it could not write out
+  carried the mission through from the previous save instead - but it also threw away
+  any recording in that mission whose flight-path file was not on disk, on the grounds
+  that a file-less recording must be one you had deleted. That is exactly backwards: a
+  mission is unwritable BECAUSE one of its recordings has no file, so the rule discarded
+  the one recording the carry-through existed to keep, and when that recording was the
+  mission's first flight the whole mission was dropped with an error after all. A
+  recording you deleted has already left the mission, so that is now the only test;
+  a recording that is still in the mission is kept whether or not its file exists, loads
+  as an empty flight you can delete yourself, and never takes the mission down with it.
+  Found by the automated in-game census, where every save of the synthetic test corpus
+  reproduced it.
+
 - **Taking a dropped part's last piece into a kerbal's inventory no longer reads as a
   crash.** Pocket the last remaining part of a vessel during EVA construction and the
   game destroys that vessel exactly as it does after a crash, so Parsek sealed the
