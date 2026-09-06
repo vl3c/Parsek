@@ -924,3 +924,39 @@ or `TracedPathTreatment`.
 - The marker rides the line via `GhostTrajectoryPolylineRenderer.TryAnchorMarkerToPolyline`
   when a leg drew, else the trajectory head. The `IsIconSuppressed` / `ghostsWithSuppressedIcon`
   disjunct is the KEPT PERMANENT no-conic / suppressed-icon fallback (see the polyline entry).
+
+### `Display/RouteTrajectoryLineRenderer.cs` + `RouteMemberRunExpansion.cs` - a route MEMBER is a RUN
+
+- `Route.RecordingIds` holds composition RUN HEADS, not recordings.
+  `RouteBackingMission.ComputeMemberRecordingIds` keys every selectable interval of one
+  physical vessel's through-line under that run's head (`StripSegMarker(HeadLegId)`), and
+  `MissionCompositionBuilder` walks the run through
+  `MissionThroughLineBuilder.ContinuationSuccessor`. A run of N chained recordings therefore
+  contributes exactly ONE id.
+- The renderer expands each member id to its whole continuation run
+  (`RouteMemberRunExpansion.ExpandVisibleRun`, which reuses
+  `MissionThroughLineBuilder.Build`'s own `MemberLegIds` rather than re-walking) and builds one
+  GROUP per segment, from that segment's own `Recording`. Before the expansion the drawn path
+  was each run's HEAD alone, so an interplanetary transfer - which always lands in a
+  continuation - was never drawn and `FilterLegsToEndpointBodies` could never drop a
+  third-body leg (`transferDropped=0` was structural on any chained subject;
+  ROUTE-LINE-MEMBER-DROPS-CONTINUATION-SEGMENTS).
+- Three filters bound the walk, each mirroring an authority that already exists, and the walk
+  STOPS at the first segment any of them rejects (the vessel's through-line ends there, it is
+  not a set to be sieved): ERS visibility (a superseded / rewind-retired segment is never
+  walked into), `Route.CreationTreeRecordingIds` (post-creation branches, fail-open when the
+  snapshot is empty), and whole-recording `Route.ExcludedIntervalKeys` entries (a
+  `<id>/segN` or `<id>@dockM` key names a sub-interval the renderer cannot cut and is NOT an
+  exclusion here).
+- The DECLARED member is never filtered and the expansion only ADDS groups. `members=` in
+  `Route line build:` still counts declared members that resolved; `Route line members:`
+  reports `heads=` / `segments=` alongside.
+- `RouteMemberLegs.isDeclaredMember` is load-bearing: only declared members feed
+  `CollectMemberBodies`, so `ClassifyRouteScope`'s malformed-mixed-bodies cross-check reads the
+  route's own member set. Feeding it derived segments would let ONE continuation on another
+  body classify a declared same-body route `MalformedMixedBodies` and hide a line that drew
+  before. The dock clip and the per-recording RELATIVE-frame dispatch are unchanged: each
+  segment goes through `BuildLegsForRecording` against its own recording.
+- `ComputeRouteSignature` folds every expanded segment's id + content hash, so a continuation's
+  re-cut invalidates the cached line. The tree-scoped half of the expansion is memoized against
+  the ERS list identity (`DrawAll` runs on the map onPreCull hook).

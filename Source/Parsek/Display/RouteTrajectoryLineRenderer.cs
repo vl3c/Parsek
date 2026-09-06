@@ -89,6 +89,17 @@ namespace Parsek.Display
             public string memberRecordingId;
             public Recording rec;
             public LegPolyline[] legs;
+
+            /// <summary>
+            /// True when this group is a DECLARED <see cref="Route.RecordingIds"/> entry, false when
+            /// it is a continuation segment the member-run expansion added. Only declared members
+            /// feed <see cref="CollectMemberBodies"/>: the malformed-mixed-bodies cross-check asks
+            /// whether the route's own MEMBER SET leaves the body it declares, and answering it from
+            /// derived segments would let one continuation on another body skip a same-body route's
+            /// line entirely - a route that drew before drawing nothing. Scope classification is
+            /// therefore bit-identical to the head-only build.
+            /// </summary>
+            public bool isDeclaredMember;
         }
 
         private struct RouteLineSet
@@ -363,6 +374,17 @@ namespace Parsek.Display
         // ------------------------------------------------------------------
 
         /// <summary>
+        /// Head-only overload (<paramref name="resolve"/> alone): every member id resolves to ONE
+        /// recording. Kept for the pure unit tests that drive a hand-built member set; the live
+        /// path always passes the run expander below.
+        /// </summary>
+        internal static List<RouteMemberLegs> BuildRouteMemberLegs(
+            Route route, Func<string, Recording> resolve,
+            out int resolvableMembers, out int totalLegs, out int transferLegsDropped)
+            => BuildRouteMemberLegs(route, resolve, null,
+                out resolvableMembers, out totalLegs, out transferLegsDropped, out _);
+
+        /// <summary>
         /// Resolves a route's backing recordings and builds their non-orbital polyline legs,
         /// clipped to the route's dock UT. Reuses the ghost leg builder verbatim (same body-fixed
         /// lat/lon/alt extraction, same downsample cap, same RELATIVE-frame handling) so route
@@ -373,48 +395,88 @@ namespace Parsek.Display
         /// (<see cref="FilterLegsToEndpointBodies"/>; <paramref name="transferLegsDropped"/>
         /// reports the count) — same-body routes are never filtered. READ-ONLY over the route +
         /// recording data.
+        ///
+        /// <para>A MEMBER IS A RUN. <see cref="Route.RecordingIds"/> holds composition run HEADS
+        /// (<c>RouteBackingMission.ComputeMemberRecordingIds</c> strips every
+        /// <c>headLegId + "/segN"</c> interval key back to its head), so
+        /// <paramref name="expandRun"/> expands each member id to the ordered recordings of its
+        /// whole continuation run and EVERY segment becomes its own group - drawn from its own
+        /// recording, under its own recording id (the ghost-owned skip and the M-A7 defer record are
+        /// per recording). Without it the route line drew only each run's first segment and the
+        /// interplanetary transfer, which always lands in a continuation, was unreachable
+        /// (ROUTE-LINE-MEMBER-DROPS-CONTINUATION-SEGMENTS). <paramref name="resolvableMembers"/>
+        /// still counts DECLARED members that resolved; <paramref name="expandedSegments"/> counts
+        /// the continuation segments the expansion WALKED on top of them (deduped, including any
+        /// that ended up contributing no drawable leg - so it reports reach, not yield).</para>
         /// </summary>
         internal static List<RouteMemberLegs> BuildRouteMemberLegs(
             Route route, Func<string, Recording> resolve,
-            out int resolvableMembers, out int totalLegs, out int transferLegsDropped)
+            Func<string, IReadOnlyList<Recording>> expandRun,
+            out int resolvableMembers, out int totalLegs, out int transferLegsDropped,
+            out int expandedSegments)
         {
             resolvableMembers = 0;
             totalLegs = 0;
             transferLegsDropped = 0;
+            expandedSegments = 0;
             var groups = new List<RouteMemberLegs>();
             if (route == null || route.RecordingIds == null || resolve == null)
                 return groups;
 
             double dockClipUT = route.RecordedDockUT;
-            var seen = new HashSet<string>(StringComparer.Ordinal);
+            // Two dedupe sets, deliberately: `declaredSeen` counts each DECLARED member id once
+            // (members= keeps its shipped meaning), `built` guards the groups so a member that is
+            // also a continuation segment of an earlier member's run is drawn once, not twice.
+            var declaredSeen = new HashSet<string>(StringComparer.Ordinal);
+            var built = new HashSet<string>(StringComparer.Ordinal);
+            // Membership by ID, not by position: a declared member can also BE a continuation
+            // segment of an earlier member's run (a dock-merged child under its parent), and it is
+            // still a declared member when it is built there.
+            var declaredIds = new HashSet<string>(route.RecordingIds, StringComparer.Ordinal);
             for (int r = 0; r < route.RecordingIds.Count; r++)
             {
                 string recId = route.RecordingIds[r];
-                if (string.IsNullOrEmpty(recId) || !seen.Add(recId)) continue;
+                if (string.IsNullOrEmpty(recId) || !declaredSeen.Add(recId)) continue;
                 Recording rec = resolve(recId);
                 if (rec == null) continue;
                 resolvableMembers++;
 
-                var built = GhostTrajectoryPolylineRenderer.BuildLegsForRecording(rec);
-                if (built == null || built.Count == 0) continue;
-
-                List<LegPolyline> kept = null;
-                for (int i = 0; i < built.Count; i++)
+                // The member's run: the head (always) plus its continuation segments. The expander
+                // is the ONLY producer of the segment list; a null one (pure tests) keeps the
+                // shipped head-only shape.
+                IReadOnlyList<Recording> run = expandRun != null ? expandRun(recId) : null;
+                int segments = run != null ? run.Count : 1;
+                for (int s = 0; s < segments; s++)
                 {
-                    var leg = built[i];
-                    if (leg.PointCount < 2) continue;
-                    if (!LegWithinDockClip(leg.startUT, leg.endUT, dockClipUT)) continue;
-                    (kept ?? (kept = new List<LegPolyline>())).Add(leg);
+                    Recording segRec = run != null ? run[s] : rec;
+                    if (segRec == null) continue;
+                    string segId = !string.IsNullOrEmpty(segRec.RecordingId)
+                        ? segRec.RecordingId : recId;
+                    if (!built.Add(segId)) continue;
+                    if (s > 0) expandedSegments++;
+
+                    var segLegs = GhostTrajectoryPolylineRenderer.BuildLegsForRecording(segRec);
+                    if (segLegs == null || segLegs.Count == 0) continue;
+
+                    List<LegPolyline> kept = null;
+                    for (int i = 0; i < segLegs.Count; i++)
+                    {
+                        var leg = segLegs[i];
+                        if (leg.PointCount < 2) continue;
+                        if (!LegWithinDockClip(leg.startUT, leg.endUT, dockClipUT)) continue;
+                        (kept ?? (kept = new List<LegPolyline>())).Add(leg);
+                    }
+                    if (kept == null || kept.Count == 0) continue;
+
+                    totalLegs += kept.Count;
+                    groups.Add(new RouteMemberLegs
+                    {
+                        memberRecordingId = segId,
+                        rec = segRec,
+                        legs = kept.ToArray(),
+                        isDeclaredMember = declaredIds.Contains(segId),
+                    });
                 }
-                if (kept == null || kept.Count == 0) continue;
-
-                totalLegs += kept.Count;
-                groups.Add(new RouteMemberLegs
-                {
-                    memberRecordingId = recId,
-                    rec = rec,
-                    legs = kept.ToArray(),
-                });
             }
 
             // Inter-body scope: keep only the endpoint-body legs (origin + destination); the
@@ -538,6 +600,17 @@ namespace Parsek.Display
         /// stable across a save round-trip.
         /// </summary>
         internal static long ComputeRouteSignature(Route route, Func<string, Recording> resolve)
+            => ComputeRouteSignature(route, resolve, null);
+
+        /// <summary>
+        /// Run-aware overload: folds every CONTINUATION SEGMENT of each member run (id + content
+        /// hash) as well as the head, so a re-cut / re-optimized continuation invalidates the cached
+        /// line the same way a head change does. Head-only when
+        /// <paramref name="expandRun"/> is null (the shipped computation, bit-identical).
+        /// </summary>
+        internal static long ComputeRouteSignature(
+            Route route, Func<string, Recording> resolve,
+            Func<string, IReadOnlyList<Recording>> expandRun)
         {
             if (route == null) return 0L;
             unchecked
@@ -551,6 +624,16 @@ namespace Parsek.Display
                         Recording rec = resolve?.Invoke(route.RecordingIds[r]);
                         if (rec != null)
                             h ^= GhostTrajectoryPolylineRenderer.ComputeContentHash(rec);
+
+                        IReadOnlyList<Recording> run = expandRun?.Invoke(route.RecordingIds[r]);
+                        if (run == null) continue;
+                        for (int s = 1; s < run.Count; s++)   // element 0 is the head, folded above
+                        {
+                            Recording seg = run[s];
+                            if (seg == null) continue;
+                            h = MixString(h, seg.RecordingId);
+                            h ^= GhostTrajectoryPolylineRenderer.ComputeContentHash(seg);
+                        }
                     }
                 }
                 h ^= BitConverter.DoubleToInt64Bits(route.RecordedDockUT);
@@ -610,7 +693,9 @@ namespace Parsek.Display
                     Route route = routes[ri];
                     if (route == null || string.IsNullOrEmpty(route.Id)) continue;
 
-                    RouteLineSet set = RefreshForRoute(route, ResolveRecording);
+                    RouteLineSet set = RefreshForRoute(
+                        route, ResolveRecording,
+                        RouteMemberRunExpansion.CreateLiveExpander(route));
 
                     RouteLineScope scope = ResolveScope(route, set);
 
@@ -705,16 +790,21 @@ namespace Parsek.Display
             Route route, RouteLineSet set, out RouteScopeBasis basis)
             => ClassifyRouteScope(
                 route,
-                IsInterBodyByEndpoints(route) ? null : CollectMemberBodies(set),
+                IsInterBodyByEndpoints(route) ? null : CollectMemberBodies(set.groups),
                 out basis);
 
-        private static List<string> CollectMemberBodies(RouteLineSet set)
+        /// <summary>
+        /// The member bodies the scope cross-check reads: one per DECLARED member group (see
+        /// <see cref="RouteMemberLegs.isDeclaredMember"/>), never one per drawn segment.
+        /// </summary>
+        internal static List<string> CollectMemberBodies(IReadOnlyList<RouteMemberLegs> groups)
         {
-            if (set.groups == null || set.groups.Length == 0) return null;
-            var bodies = new List<string>(set.groups.Length);
-            for (int g = 0; g < set.groups.Length; g++)
+            if (groups == null || groups.Count == 0) return null;
+            var bodies = new List<string>(groups.Count);
+            for (int g = 0; g < groups.Count; g++)
             {
-                Recording rec = set.groups[g].rec;
+                if (!groups[g].isDeclaredMember) continue;
+                Recording rec = groups[g].rec;
                 if (rec == null) continue;
                 string body = !string.IsNullOrEmpty(rec.StartBodyName)
                     ? rec.StartBodyName
@@ -724,9 +814,11 @@ namespace Parsek.Display
             return bodies;
         }
 
-        private static RouteLineSet RefreshForRoute(Route route, Func<string, Recording> resolve)
+        private static RouteLineSet RefreshForRoute(
+            Route route, Func<string, Recording> resolve,
+            Func<string, IReadOnlyList<Recording>> expandRun)
         {
-            long sig = ComputeRouteSignature(route, resolve);
+            long sig = ComputeRouteSignature(route, resolve, expandRun);
             if (routeCache.TryGetValue(route.Id, out RouteLineSet existing) && existing.signature == sig)
                 return existing;
 
@@ -734,7 +826,9 @@ namespace Parsek.Display
                 DestroyRouteLines(stale.groups);
 
             var groups = BuildRouteMemberLegs(
-                route, resolve, out int resolvable, out int totalLegs, out int transferDropped);
+                route, resolve, expandRun,
+                out int resolvable, out int totalLegs, out int transferDropped,
+                out int expandedSegments);
             var set = new RouteLineSet { groups = groups.ToArray(), signature = sig };
             routeCache[route.Id] = set;
             BuildInvocationCountForTesting++;
@@ -770,6 +864,18 @@ namespace Parsek.Display
                 string.Format(CultureInfo.InvariantCulture,
                     "Route line build: route={0} members={1} groups={2} legs={3} transferDropped={4}",
                     RouteIds.Short(route.Id), resolvable, set.groups.Length, totalLegs, transferDropped),
+                5.0);
+
+            // The member-set expansion, once per build: a route member is a composition RUN HEAD,
+            // so heads= is what the route declares and segments= is what walking each run's
+            // continuation reached (walked and deduped, whether or not it yielded a leg).
+            // heads == members above; segments=0 means every member run is a single segment
+            // (nothing to expand), NOT that the expansion is off.
+            ParsekLog.VerboseRateLimited(Tag, "route-members." + route.Id,
+                string.Format(CultureInfo.InvariantCulture,
+                    "Route line members: route={0} heads={1} segments={2} groups={3} legs={4}",
+                    RouteIds.Short(route.Id), resolvable, expandedSegments,
+                    set.groups.Length, totalLegs),
                 5.0);
             return set;
         }
@@ -843,6 +949,7 @@ namespace Parsek.Display
         /// <summary>Destroys every cached route's VectorLines (cross-save flush / scene teardown).</summary>
         internal static void Clear()
         {
+            RouteMemberRunExpansion.ClearCaches();
             if (routeCache.Count == 0)
             {
                 BuildInvocationCountForTesting = 0;
@@ -908,7 +1015,13 @@ namespace Parsek.Display
         /// <see cref="CacheCountForTesting"/> / <see cref="BuildInvocationCountForTesting"/>.
         /// </summary>
         internal static void RefreshForRouteForTesting(Route route, Func<string, Recording> resolve)
-            => RefreshForRoute(route, resolve);
+            => RefreshForRoute(route, resolve, null);
+
+        /// <summary>Run-aware test seam: drives the cache refresh with a member-run expander.</summary>
+        internal static void RefreshForRouteForTesting(
+            Route route, Func<string, Recording> resolve,
+            Func<string, IReadOnlyList<Recording>> expandRun)
+            => RefreshForRoute(route, resolve, expandRun);
 
         internal static void ResetForTesting()
         {
@@ -916,6 +1029,7 @@ namespace Parsek.Display
             // Unity Destroy call.
             routeCache.Clear();
             BuildInvocationCountForTesting = 0;
+            RouteMemberRunExpansion.ResetForTesting();
         }
     }
 }

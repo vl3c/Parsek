@@ -10,6 +10,20 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A supply route's map line now draws the whole journey, not just the launch.** A route
+  remembers the flights that back it, but it remembered each one by its FIRST recording
+  segment, and a long flight is split into several as it crosses environments. So the line
+  drawn on the map and in the tracking station showed the pad ascent and whatever the
+  destination station recorded on its own, and left out everything in between - on the
+  Kerbin to Duna route in the test campaign, an 8.5 million second journey. The line now
+  follows each flight through all of its segments. A cross-planet route still stops drawing
+  its recorded transfer between the two planets, on purpose (that stretch is re-aimed for
+  every launch window, so drawing the recorded one would show a path that never flies
+  again) - the difference is that there is now a transfer there to leave out, where before
+  there was nothing at all. Nothing else about a route changes: the same flights back it,
+  the line still stops at the docking moment, and a leg the route was told to leave out, or
+  one that a rewind replaced, stays out.
+
 - **A supply run that loaded its cargo before you came back to it can now become a
   route.** Docking the tanker to the base, transferring the fuel, then flying something
   else and returning to the tanker later - flying it from the tracking station, or

@@ -269,12 +269,27 @@ count = { min = 43, max = 60 }
 
 [expectations.logContracts]
 # Section 4 states the whole argument; this is the list.
+# INTERIM PINS (G10 / ROUTE-LINE-MEMBER-DROPS-CONTINUATION-SEGMENTS, 2026-09-06): the two
+# route-line COUNT pins below are deliberately LOOSENED to regexes until the next reading run
+# re-pins them from this lane's own bytes. A route MEMBER is a composition RUN HEAD, and the
+# renderer resolved each member id to ONE recording, so every chain-CONTINUATION segment of a
+# member run was invisible to the overview line; it now expands each member id to its whole
+# continuation run (`RouteMemberRunExpansion`, reusing `MissionThroughLineBuilder`'s own walk).
+# THIS SUBJECT IS CHAINED, so the counts MUST move: `interbody-route-recorded` carries
+# `36c7688b` (chainIndex 1 of the run headed by member `d23e453b` - the Sun-frame transfer this
+# lane could never reach) and `04177024` (chainIndex 1 under member `c549ef6e`). Headless
+# prediction off the fixture's own bytes (`RouteMemberRunExpansionTests`):
+# `route=8f644e71 members=4 groups=4 legs=17 transferDropped=0` and
+# `route=71a983a1 members=4 groups=4 legs=16 transferDropped=2`, so `legsDrawn` 6 -> 33.
+# `members=4` STAYS pinned: the declared member set is untouched and the expansion only ADDS
+# segments. `transferDropped` is left unpinned because it is the G10 READING - the run measures
+# it, it does not assert it.
 required  = [
   "Route scope: route=[0-9a-f]{8} origin=Kerbin destination=Duna scope=InterBody basis=Endpoints",
   "Route scope: route=[0-9a-f]{8} origin=Kerbin destination=Mun scope=InterBody basis=Endpoints",
   "RevalidateSources reason=.* routes=2 transitioned=0",
-  "Route line build: route=[0-9a-f]{8} members=4 groups=3 legs=3 transferDropped=0",
-  "Route line draw: enabled=True routesDrawn=2 legsDrawn=6 skippedOwned=0 malformed=0 other=0",
+  "Route line build: route=[0-9a-f]{8} members=4 groups=[0-9]+ legs=[0-9]+ transferDropped=[0-9]+",
+  "Route line draw: enabled=True routesDrawn=2 legsDrawn=[1-9][0-9]* skippedOwned=0 malformed=0 other=0",
   # GHOSTDRIVING: PROMOTED FROM UNMEASURED TO REQUIRED BY RUN 1, which
   # answered the question this lane was authored not to prejudge. Both
   # tokens printed - `ghostDriving=1` once and `routeMissions=1` four times -

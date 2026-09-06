@@ -15,7 +15,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ROUTE-LINE-MEMBER-DROPS-CONTINUATION-SEGMENTS: the route overview line draws only each member's RUN HEAD recording, so every chain-continuation segment of the run is missing from the drawn path [RAISED 2026-09-06 by the G10 leg-drop feasibility walk (`docs/dev/research/g10-leg-drop-subject.md`), branch `g10-leg-drop`. OPEN, no fix applied; a fix re-pins B32 / V26M / V26T and needs a lane re-flight]
+## ~~ROUTE-LINE-MEMBER-DROPS-CONTINUATION-SEGMENTS: the route overview line draws only each member's RUN HEAD recording, so every chain-continuation segment of the run is missing from the drawn path~~ [RAISED 2026-09-06 by the G10 leg-drop feasibility walk (`docs/dev/research/g10-leg-drop-subject.md`); FIXED 2026-09-06 on branch `g10-leg-drop`. B32 / V26M / V26T pins converted to INTERIM regexes; the lane re-flight is owed and takes G10's leg-drop reading with it]
 
 **THE SHAPE.** `RouteBackingMission.ComputeMemberRecordingIds` derives
 `Route.RecordingIds` as `StripSegMarker(node.HeadLegId)` over the kept selectable
@@ -49,14 +49,40 @@ a chain continuation, so the third-body legs the filter exists to drop are never
 The reading G10 wants is one member-resolution change away on the fixture already
 committed.
 
-**FIX SHAPE (not applied).** Resolve a member id to its through-line RUN rather than to
-one recording, at the route-line seam only, and fold the run's recordings into
-`ComputeRouteSignature` so a continuation's content change still invalidates the cached
-line. Check both directions before accepting it: a same-body route must not start drawing
-a cross-body chord through `ClassifyRouteScope`'s member-body consistency read (which
-`CollectMemberBodies` feeds from the resolved recordings), and the round-trip stand-down
-in `FilterLegsToEndpointBodies` must still fire when a widened member set resolves origin
-== destination. Re-pins `members` / `groups` / `legs` / `legsDrawn` on B32 / V26M / V26T.
+**FIXED: a member id resolves to its through-line RUN.** `Display/RouteMemberRunExpansion.cs`
+expands each `Route.RecordingIds` entry to the ordered recordings of its continuation run and
+`RouteTrajectoryLineRenderer.BuildRouteMemberLegs` builds one group per SEGMENT, from that
+segment's own `Recording` (so the dock clip and the per-recording RELATIVE-frame dispatch are
+untouched). The walk is not a re-implementation: it reads
+`MissionThroughLineBuilder.Build`'s own `MemberLegIds` - the same `ContinuationSuccessor` walk
+the member-set producer uses - and takes the suffix from the member onward. It STOPS at the
+first segment that is not ERS-visible (a superseded / rewind-retired segment is never walked
+into), that `Route.CreationTreeRecordingIds` did not know at creation (fail-open on an empty
+snapshot, the `RouteRunCostCalculator` contract for the same set), or that
+`Route.ExcludedIntervalKeys` names WHOLE (a `<id>/segN` / `<id>@dockM` key is a sub-interval the
+renderer cannot cut and is not an exclusion here). `ComputeRouteSignature` folds every segment's
+id + content hash; the tree-scoped half of the expansion is memoized against the ERS list
+identity, since `DrawAll` runs on the map onPreCull hook. Contract:
+`design-map-ts-render-architecture.md` Appendix A.
+
+**BOTH MIRROR DIRECTIONS CHECKED, and the first one changed the fix.** (1) `CollectMemberBodies`
+feeds `ClassifyRouteScope`'s malformed-mixed-bodies cross-check from the resolved groups, so if
+the expansion's segments fed it too, ONE continuation on another body would classify a declared
+same-body route `MalformedMixedBodies` and hide a line that drew before. Groups therefore carry
+`isDeclaredMember` and only declared members feed it, making scope classification bit-identical
+to the head-only build (cell:
+`Build_SameBodyRoute_ContinuationOnAnotherBody_DoesNotTurnTheRouteMalformed`). (2) The
+round-trip stand-down in `FilterLegsToEndpointBodies` is unchanged and still fires on
+origin == destination - the expansion only adds legs to the same resolution. Measured on the
+same-body scope as well: `depot-route-recorded`'s route moves `groups=3 legs=5` ->
+`groups=4 legs=14` with `transferDropped=0`, i.e. it GAINS `a85a7ae0` and drops nothing.
+
+**MEASURED (headless, off the committed fixtures' own bytes;
+`Source/Parsek.Tests/RouteMemberRunExpansionTests.cs`).** `interbody-route-recorded`:
+`route=71a983a1` `members=4 groups=3 legs=3 transferDropped=0` -> `members=4 groups=4 legs=16
+transferDropped=2` (the two Sun-frame legs of `36c7688b`), and its same-fixture control
+`route=8f644e71` -> `groups=4 legs=17 transferDropped=0` (Kerbin + Mun only, nothing to drop).
+The declared member count never moves: the expansion only ADDS.
 
 ---
 

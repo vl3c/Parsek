@@ -2127,6 +2127,36 @@ the recorded dock.** Two shapes satisfy it, primary first:
   starting campaign, but as harvested today it fails that gate for the same run-head
   reason.
 
+**STEP (1) IS DONE AND THE RULING WENT THE OTHER WAY (2026-09-06, branch
+`g10-leg-drop`): ROUTES RIDE THE LOOP, SO A ROUTE'S MEMBERS ARE RUNS.** The run-head member
+set is NOT intended, the operator save specified below is therefore NOT needed for G10, and
+everything after this paragraph is kept only as the spec for the case that was ruled against.
+The route line now expands each member id to its whole continuation run
+(`Display/RouteMemberRunExpansion.cs`, reusing `MissionThroughLineBuilder`'s own
+`MemberLegIds` walk; contract in `design-map-ts-render-architecture.md` Appendix A) and
+builds one group per segment, ERS-visibility-bounded, gated on
+`Route.CreationTreeRecordingIds` and on whole-recording `ExcludedIntervalKeys`, with the dock
+clip and the per-recording RELATIVE dispatch unchanged. Measured HEADLESS against the
+committed fixture's own bytes (`RouteMemberRunExpansionTests`, which drives the real
+`SaveDirectoryLoader` model + `RouteCodec` route): `route=71a983a1` moves
+`members=4 groups=3 legs=3 transferDropped=0` -> `members=4 groups=4 legs=16
+transferDropped=2`, and its Paused sibling `route=8f644e71` -> `groups=4 legs=17
+transferDropped=0` (Kerbin + Mun only, so nothing to drop - the same-fixture control).
+`depot-route-recorded`'s same-body route moves `groups=3 legs=5` -> `groups=4 legs=14`,
+`transferDropped=0`, the mirror direction: it GAINS its hidden 1324-point continuation and
+drops nothing.
+
+**WHAT THE READING NOW COSTS: one re-flight of B32 / V26M / V26T, no new fixture and no new
+subject.** Their `Route line build:` / `Route line draw:` count pins are converted to INTERIM
+regexes with a header note in each spec (`members=4` stays pinned - the declared member set is
+untouched; `transferDropped` is left unpinned because it IS the reading), so no lane reds on a
+count that must move. H59 and V18T are NOT touched and are NOT expected to move: neither
+subject can be chained - `rover-route-recorded`'s two trees carry no through-line longer than
+one leg (checked by building the view over the fixture, not by grepping `chainIndex`), and
+V18T pins no counts at all (its `routeLineBuilds = { min = 1 }` window is a build-count floor,
+which the expansion does not change). G10's leg-drop reading is taken when the re-flight logs
+`transferDropped=[1-9]` on `71a983a1`; the operator save below stays unbuilt.
+
 **THE OPERATOR SAVE SPECIFICATION for B32** (write it once, fly it by hand; the
 seam cannot create this and no driven lane can either, because route candidacy is
 seal-gated and the create gate refuses `candidate-ineligible MissingRouteProof`

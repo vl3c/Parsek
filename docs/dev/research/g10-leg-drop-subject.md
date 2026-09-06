@@ -103,3 +103,17 @@ ROUTE-LINE-MEMBER-DROPS-CONTINUATION-SEGMENTS.
    Spec in the G10 roadmap entry.
 
 ASCII only; no em dashes.
+
+## RULED AND FIXED 2026-09-06 (same branch)
+
+The operator ruled way (1): routes ride the loop, so a route's members are RUNS. The renderer
+now expands each member id to its whole continuation run
+(`Display/RouteMemberRunExpansion.cs`; contract in `design-map-ts-render-architecture.md`
+Appendix A), which makes the section above's "no subject is reachable" verdict obsolete without
+a new fixture: on `interbody-route-recorded` the Kerbin -> Duna route reads
+`members=4 groups=4 legs=16 transferDropped=2` where it read `groups=3 legs=3
+transferDropped=0`, and the Kerbin -> Mun sibling reads `groups=4 legs=17 transferDropped=0` -
+the same-fixture control, since its run visits no third body. Measured headless off these bytes
+by `Source/Parsek.Tests/RouteMemberRunExpansionTests.cs`. B32 / V26M / V26T carry INTERIM count
+pins until the re-flight re-pins them; the operator save specified in the G10 roadmap entry is
+NOT needed and stays unbuilt.
