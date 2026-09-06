@@ -752,6 +752,9 @@ namespace Parsek
                 case TerminalState.Recovered: return "Recovered";
                 case TerminalState.Docked: return "Docked";
                 case TerminalState.Boarded: return "Boarded";
+                // The word the Missions tab, the per-vessel rows, the event digest and
+                // the route status cell all read from: an ending, not a loss.
+                case TerminalState.Disassembled: return "Disassembled";
                 default: return t.Value.ToString();
             }
         }

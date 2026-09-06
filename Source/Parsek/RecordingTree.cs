@@ -773,7 +773,7 @@ namespace Parsek
         /// <summary>
         /// Checks whether a recording is a spawnable leaf:
         /// 1. No children (ChildBranchPointId is null)
-        /// 2. Terminal state allows spawning (not Destroyed/Recovered/Docked/Boarded)
+        /// 2. Terminal state allows spawning (not Destroyed/Recovered/Docked/Boarded/Disassembled)
         /// 3. Has a vessel snapshot
         /// </summary>
         internal static bool IsSpawnableLeaf(Recording rec)
@@ -784,8 +784,11 @@ namespace Parsek
             if (rec.TerminalStateValue.HasValue)
             {
                 var ts = rec.TerminalStateValue.Value;
+                // Disassembled joins the non-spawnable set: the parts are inside a
+                // kerbal's inventory, so there is no vessel left to hand back to KSP.
                 if (ts == TerminalState.Destroyed || ts == TerminalState.Recovered
-                    || ts == TerminalState.Docked || ts == TerminalState.Boarded)
+                    || ts == TerminalState.Docked || ts == TerminalState.Boarded
+                    || ts == TerminalState.Disassembled)
                     return false;
             }
 
@@ -962,12 +965,16 @@ namespace Parsek
             return terminalState == TerminalState.Destroyed
                 || terminalState == TerminalState.Recovered
                 || terminalState == TerminalState.Docked
-                || terminalState == TerminalState.Boarded;
+                || terminalState == TerminalState.Boarded
+                // The vessel's last part is inside an inventory: nothing continues,
+                // and there is nothing to spawn back.
+                || terminalState == TerminalState.Disassembled;
         }
 
         /// <summary>
         /// Pure decision method: checks whether all leaf recordings in a tree have
-        /// non-spawnable terminal states (Destroyed, Recovered, Docked, Boarded).
+        /// non-spawnable terminal states (Destroyed, Recovered, Docked, Boarded,
+        /// Disassembled).
         /// A recording is a leaf if it has no ChildBranchPointId.
         /// Leaves with null TerminalStateValue are considered NOT terminal (still active).
         /// If activeRecordingId is non-null, the active recording is treated as alive

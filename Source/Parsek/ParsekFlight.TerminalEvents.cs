@@ -1,12 +1,156 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Globalization;
 
 namespace Parsek
 {
     public partial class ParsekFlight
     {
         #region Terminal Event Detection (Destruction)
+
+        /// <summary>
+        /// Pure decision: should the disassembly stamp be applied to
+        /// <paramref name="rec"/>? Separated from the live seam so the guards are
+        /// testable headlessly.
+        ///
+        /// <para>A recording already carrying a terminal verdict is left alone -
+        /// the pocket seam is a first-writer, never an override. In particular a
+        /// recording sealed out of band (identity loss, an earlier destruction) keeps
+        /// its verdict, and the value is idempotent when re-run.</para>
+        /// </summary>
+        internal static bool ShouldStampDisassembledTerminal(
+            VesselDeathKind deathKind,
+            Recording rec)
+        {
+            if (deathKind != VesselDeathKind.Disassembled) return false;
+            if (rec == null) return false;
+            if (rec.TerminalStateValue.HasValue) return false;
+            return true;
+        }
+
+        /// <summary>
+        /// Builds the Info line for a disassembly stamp. Pure so the grep-stable
+        /// token set (<c>kind=Disassembled reason=last-part-stored</c>) is pinned by
+        /// a headless test rather than by reading a flight log.
+        /// </summary>
+        internal static string FormatDisassembledTerminalLog(
+            string vesselName, uint pid, int partCount, string recordingId, double ut)
+        {
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "Recording terminal: kind=Disassembled reason=last-part-stored vessel='{0}' " +
+                "pid={1} parts={2} rec={3} ut={4:F3}",
+                string.IsNullOrEmpty(vesselName) ? "(null)" : vesselName,
+                pid,
+                partCount,
+                string.IsNullOrEmpty(recordingId) ? "(null)" : recordingId,
+                ut);
+        }
+
+        /// <summary>
+        /// Live seam for the EVA-construction pocket. Called synchronously from
+        /// <c>OnVesselWillDestroy</c> while the <see cref="Vessel"/> and the KSP UI
+        /// singletons are still valid; the live reads sit behind
+        /// <see cref="VesselDisassemblyClassifier.TryReadVesselDeathEvidenceCore"/>'s
+        /// NoInlining core and the decision itself is pure.
+        ///
+        /// Returns true when a recording was stamped
+        /// <see cref="TerminalState.Disassembled"/>.
+        /// </summary>
+        bool TryStampDisassembledTerminal(Vessel v)
+        {
+            if (v == null || activeTree == null) return false;
+
+            // Only vessels this tree is recording in the background can be pocketed:
+            // the pickup path is gated on VesselType DroppedPart / Debris, which is
+            // never the active vessel (that is the EVA kerbal doing the picking).
+            string recordingId;
+            if (!activeTree.BackgroundMap.TryGetValue(v.persistentId, out recordingId))
+                return false;
+
+            Recording rec;
+            if (string.IsNullOrEmpty(recordingId)
+                || activeTree.Recordings == null
+                || !activeTree.Recordings.TryGetValue(recordingId, out rec)
+                || rec == null)
+                return false;
+
+            VesselDeathEvidence evidence;
+            VesselDeathKind deathKind =
+                VesselDisassemblyClassifier.ClassifyLiveVesselDeath(v, out evidence);
+            if (!ShouldStampDisassembledTerminal(deathKind, rec))
+                return false;
+
+            double ut = Planetarium.GetUniversalTime();
+            ApplyDisassembledTerminal(rec, ut);
+
+            ParsekLog.Info("Flight", FormatDisassembledTerminalLog(
+                v.vesselName, v.persistentId, evidence.PartCount, rec.RecordingId, ut));
+            return true;
+        }
+
+        /// <summary>
+        /// The stamp itself, split out so its exact write-set is pinned headlessly.
+        ///
+        /// <para><b>Deliberately does NOT set <see cref="Recording.VesselDestroyed"/>.</b>
+        /// This mirrors the ordinary background destruction path, which never sets it
+        /// either (only the ACTIVE-recorder override
+        /// <see cref="ApplyDestroyedFallback"/> does), and setting it here is actively
+        /// harmful: this seam runs BEFORE
+        /// <c>BackgroundRecorder.OnBackgroundVesselWillDestroy</c>, whose
+        /// already-destroyed short circuit keys on exactly that bool. Tripping it
+        /// would take the <c>RetireDestroyedBackgroundEntry</c> branch, which drops
+        /// <c>loadedStates</c> WITHOUT flushing the accumulated TrackSections to the
+        /// recording, skips the persist, and drains the <c>BackgroundMap</c> so
+        /// <c>DeferredDestructionCheck</c> never runs - the pocketed debris would keep
+        /// its terminal verdict and lose its frames. Nothing needs the flag: every
+        /// spawn and termination gate this state touches reads the terminal value.</para>
+        /// </summary>
+        internal static void ApplyDisassembledTerminal(Recording rec, double ut)
+        {
+            if (rec == null) return;
+            rec.StampTerminalState(TerminalState.Disassembled, "EvaConstructionPocket");
+            rec.ExplicitEndUT = ut;
+        }
+
+        /// <summary>
+        /// Pure half of <c>DeferredDestructionCheck</c>'s finalization-cache gate. The
+        /// cache for a pocketed vessel holds Destroyed - the background destroy refresh
+        /// runs before anyone knows why the vessel died - so applying it would replace
+        /// the Disassembled verdict stamped at the synchronous seam. A phantom terrain
+        /// crash is excluded for the same reason: its override already re-stamped.
+        ///
+        /// <para>Extracted so the skip is driven by a headless cell instead of inferred
+        /// from the <c>pending.disassembled</c> field alone; the coroutine itself needs
+        /// live Unity and cannot be run in the suite.</para>
+        /// </summary>
+        internal static bool ShouldApplyFinalizationCacheOnDeferredDestruction(
+            bool isPhantomCrash,
+            bool disassembled,
+            bool hasBackgroundRecorder)
+        {
+            if (isPhantomCrash) return false;
+            if (disassembled) return false;
+            return hasBackgroundRecorder;
+        }
+
+        /// <summary>
+        /// Pure half of <c>DeferredDestructionCheck</c>'s terminal-destruction fallback:
+        /// it runs only when neither override claimed the recording AND the finalization
+        /// cache did not apply. <c>ApplyTerminalDestruction</c> stamps Destroyed and sets
+        /// <see cref="Recording.VesselDestroyed"/>, so reaching it for a pocket would
+        /// undo both halves of <see cref="ApplyDisassembledTerminal"/>'s contract.
+        /// </summary>
+        internal static bool ShouldApplyTerminalDestructionOnDeferredDestruction(
+            bool isPhantomCrash,
+            bool disassembled,
+            bool cacheApplied)
+        {
+            if (isPhantomCrash) return false;
+            if (disassembled) return false;
+            return !cacheApplied;
+        }
 
         /// <summary>
         /// Pure decision method: determines whether a deferred destruction check should be started.
@@ -360,8 +504,22 @@ namespace Parsek
                 }
             }
 
+            // An EVA-construction pocket was already stamped Disassembled at the
+            // synchronous seam. The finalization cache for this pid holds Destroyed
+            // (the BG destroy refresh cannot know why the vessel died), so applying it
+            // here would overwrite the verdict; take the same shape as the phantom
+            // crash override and attach only the captured terminal data.
+            if (pending.disassembled)
+            {
+                ApplyTerminalData(pending, rec);
+                ParsekLog.Info("Flight",
+                    $"DeferredDestructionCheck: keeping Disassembled terminal for " +
+                    $"'{rec.RecordingId}' (pid={pending.vesselPid}) - finalization cache not applied");
+            }
+
             bool cacheApplied = false;
-            if (!isPhantomCrash && backgroundRecorder != null)
+            if (ShouldApplyFinalizationCacheOnDeferredDestruction(
+                    isPhantomCrash, pending.disassembled, backgroundRecorder != null))
             {
                 RecordingFinalizationCacheApplyResult cacheResult;
                 cacheApplied = backgroundRecorder.TryApplyFinalizationCacheForBackgroundEnd(
@@ -375,7 +533,8 @@ namespace Parsek
                     out cacheResult);
             }
 
-            if (!isPhantomCrash && !cacheApplied)
+            if (ShouldApplyTerminalDestructionOnDeferredDestruction(
+                    isPhantomCrash, pending.disassembled, cacheApplied))
                 ApplyTerminalDestruction(pending, rec);
 
             packStates.Remove(pending.vesselPid);
@@ -388,6 +547,10 @@ namespace Parsek
 
             if (!string.IsNullOrEmpty(rec.EvaCrewName))
                 ParsekLog.Info("Flight", $"Background EVA vessel ended: pid={pending.vesselPid} recId={pending.recordingId}");
+            else if (pending.disassembled)
+                // A designed outcome, not a loss: keep it off the WRN surface the log
+                // validator reads.
+                ParsekLog.Info("Flight", $"Background vessel disassembled: pid={pending.vesselPid} recId={pending.recordingId}");
             else
                 ParsekLog.Warn("Flight", $"Background vessel destroyed: pid={pending.vesselPid} recId={pending.recordingId}");
 

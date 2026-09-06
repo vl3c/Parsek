@@ -8145,13 +8145,23 @@ namespace Parsek
         /// Recovered/Destroyed can overwrite null or situation-based states (Orbiting, Landed, etc.).
         /// Destroyed cannot overwrite Recovered (onVesselTerminated fires after onVesselRecovered).
         /// </summary>
-        private static bool CanOverwriteTerminalState(TerminalState? existing, TerminalState incoming)
+        internal static bool CanOverwriteTerminalState(TerminalState? existing, TerminalState incoming)
         {
             if (!existing.HasValue) return true;
 
             // Recovered and Destroyed are "final" — only Recovered blocks further overwrite
             if (existing.Value == TerminalState.Recovered) return false;
             if (existing.Value == TerminalState.Destroyed) return false;
+
+            // Disassembled is final for the same reason, and has to be named separately
+            // because the caller matches by VESSEL NAME alone (MatchesVessel). A pocketed
+            // debris recording keeps the name of the craft the part came off, so a later
+            // recovery of ANY live vessel sharing that name would otherwise reach it,
+            // replace the verdict AND null its VesselSnapshot. Not cosmetic: Recovered is
+            // exactly what LedgerOrchestrator.AddVesselRecoveryCostActions and
+            // ResurrectionRetirementEligibility key on, so the overwrite would start
+            // paying recovery funds for a part that was merely put in a pocket.
+            if (existing.Value == TerminalState.Disassembled) return false;
 
             // Situation-based states (Orbiting, Landed, Splashed, SubOrbital) can be overwritten
             // by Recovered or Destroyed (lifecycle events take precedence over scene-exit situation)
