@@ -267,34 +267,198 @@ log or it reds on the absence.
 
 ---
 
-## DISASSEMBLED-VESSEL-TERMINAL-STATE: a vessel whose last part is pocketed in EVA construction ends its recording as `TerminalState.Destroyed`, indistinguishable from a crash [RAISED 2026-09-02 alongside the inventory KIND ruling. APPROVED IN PRINCIPLE by the operator, including the schema-generation bump it needs. OPEN, not started]
+## ~~DISASSEMBLED-VESSEL-TERMINAL-STATE: a vessel whose last part is pocketed in EVA construction ends its recording as `TerminalState.Destroyed`, indistinguishable from a crash~~ [RAISED 2026-09-02 alongside the inventory KIND ruling. APPROVED IN PRINCIPLE by the operator. BLOCKED 2026-09-06 on a fixture-corpus ruling; RULED and FIXED 2026-09-06 on branch `disassembled-terminal-state` - shipped at generation 4, no bump]
 
-**What happens today.** Pocket the last remaining part of a vessel during EVA
-construction and KSP destroys the vessel like any other. Parsek takes the plain
-`ParsekFlight.OnVesselWillDestroy` path and seals the recording as
-`TerminalState.Destroyed`, so the Missions tab shows a deliberate disassembly and
-a crash as the same outcome.
+**FIXED 2026-09-06. The ruling, first.** The operator ruled: **no schema
+generation bump.** A purely additive enum member renames no key, adds no field
+and changes no binary layout, so it is NOT a schema change - a gen-4 recording is
+byte-identical to what gen-5 code would have written for the same flight. Bumping
+would instead have rejected the operator's own play saves and all 33 harvested
+fixtures with no re-harvest possible (the measured blast radius is kept below).
+`TerminalState.Disassembled = 8` therefore ships at
+`CurrentRecordingSchemaGeneration = 4`, and **generation 5 stays reserved for the
+co-op integration branch's M2.1 shape change** (noted in
+`design-coop-async-multiplayer.md` section 17.1). The rule is now written into
+`.claude/CLAUDE.md`'s recording-schema paragraph: additive enum members do not
+bump; SHAPE changes (renamed or removed keys, changed layouts) do, and they cost
+the re-harvest.
 
-**The ruling this follows from.** The 2026-09-02 inventory ruling says a vessel
-whose core is pocketed into an inventory HAS ENDED ITS MISSION, and from then on
-the core is generic cargo. That is a mission ending, not a loss, and the operator
-approved a distinct terminal value for it.
+**What ships.** `TerminalState.Disassembled` (`Source/Parsek/TerminalState.cs`).
+The detection seam is `ParsekFlight.TryStampDisassembledTerminal`
+(`ParsekFlight.TerminalEvents.cs`), called synchronously from
+`OnVesselWillDestroy` BEFORE `backgroundRecorder.OnBackgroundVesselWillDestroy`,
+because that handler's `background_destroy` finalization refresh eagerly stamps
+`Destroyed` onto a still-unstamped recording
+(`RecordingFinalizationCacheProducer.PopulateDestroyEventTerminalCache`);
+stamping first turns that eager write into a no-op instead of a one-frame flicker
+that has to be re-stamped afterwards. The verdict is carried into
+`DeferredDestructionCheck` on `PendingDestruction.disassembled`, which skips both
+the finalization-cache apply and `ApplyTerminalDestruction` - the same shape the
+phantom-terrain-crash override already used. The decision itself is pure
+(`VesselDisassemblyClassifier.ClassifyVesselDeath(evaConstructionModeOpen,
+partCount, dyingPartIsCurrentCargoPart)`), the live reads sit behind
+`TryReadVesselDeathEvidenceCore` under `[MethodImpl(NoInlining)]`, and the seam
+is a FIRST-WRITER: a recording already carrying any terminal verdict is left
+alone. The stamp's write-set (`ApplyDisassembledTerminal`) is terminal value +
+`ExplicitEndUT` and deliberately NOT `VesselDestroyed`, mirroring the ordinary
+background destruction path - setting that bool here trips
+`BackgroundRecorder`'s already-destroyed short circuit, whose
+`RetireDestroyedBackgroundEntry` branch drops `loadedStates` WITHOUT flushing
+the accumulated TrackSections, skips the persist and drains the `BackgroundMap`
+so the deferred check never runs. Caught in self-review, pinned by a cell. Log line at Info:
+`Recording terminal: kind=Disassembled reason=last-part-stored vessel='...' pid=... parts=1 rec=... ut=...`.
+The two "Background vessel destroyed" WRN lines (`ParsekFlight`, `BgRecorder`)
+route to Info for this case - it is a designed outcome, and the log validator
+reads the WRN surface.
 
-**Why it is not a one-liner.** A new `TerminalState` member is a serialized-enum
-change, so it needs `RecordingStore.CurrentRecordingSchemaGeneration` to go from 4
-to 5, and there is NO migration path by contract: `IsRecordingSchemaCompatible`
-rejects an older generation outright. Every committed fixture stamps
-`recordingSchemaGeneration = 4`, so a bump means re-stamping every one of them and
-re-running the lanes that read them. The co-op integration branch
-(`coop-multiplayer`) also plans generation 5 in its M2.1, so whoever lands second
-takes generation 6 - coordinate before starting.
+**Consumers, and why each.** `TerminalKindClassifier` maps Disassembled to
+`TerminalKind.Landed`, so a supersede commits `MergeState.Immutable`: Crashed
+exists to keep a slot rewindable for an outcome the player may want to undo by
+flying again, and a vessel whose last part is in a kerbal's inventory has nothing
+to continue and no crash to re-fly. `RecordingTree.IsSpawnableLeaf` /
+`IsNonSpawnableTerminal` and `GhostChainWalker.ResolveTermination` /
+`IsTreeFullyTerminated` all admit it as terminal and non-spawnable (there is no
+vessel left to hand back to KSP); `GhostPlaybackLogic.IsSpawnableTerminal`
+refuses it through its existing default. Wording:
+`MissionCompositionBuilder.TerminalName` is the single source for the Missions tab
+word, the flattened per-vessel rows' `EndEvent`, the event digest verb and the
+route status cell, so one edit covers all four; plus
+`TimelineEntryDisplay.FormatTerminalState` and
+`RecordingsTableFormatters.FormatEndPosition`. **The ledger is untouched by
+design**: `LedgerOrchestrator.AddVesselRecoveryCostActions` and
+`ResurrectionRetirementEligibility.Classify` both key strictly on
+`TerminalState.Recovered`, so a pocket cannot be mistaken for a recovery - pinned
+by two cells rather than asserted. `KspStatePatcher` reads no terminal state at
+all. **No analyzer rule enumerates terminal kinds** (grep: zero `TerminalState`
+references under `Source/Parsek/Analyzer/`); INV10 round-trips the value
+generically, which the codec cell covers. `harness/lib/saveparse.py`'s
+`TERMINAL_STATE_NAMES` gains `"Disassembled"` at index 8; no committed fixture
+carries the value and no tally moves.
 
-**The detection question, unresolved.** Nothing yet distinguishes "the last part
-was pocketed by a kerbal in EVA construction" from a real destruction at the
-`onVesselWillDestroy` seam. The starting point is KSP's own EVA-construction
-events / `ModuleInventoryPart` store path around the moment of destruction; the
-answer has to be positive evidence (a witnessed store of that part into an
-inventory in the same frame), never an inference from "no explosion FX".
+**Headless-proven only - there is no live driver.** kRPC exposes no EVA
+construction API, so no harness mission can pick a part up and no scenario can
+witness the state end to end. 48 xUnit cells in
+`Source/Parsek.Tests/DisassembledTerminalStateTests.cs` cover the pure classifier
+over the whole 2x3x2 conjunct cube, the first-writer guard, the log formatter
+(including a `de-DE` culture pin), the codec round trip at `terminalState = 8`,
+the unchanged generation gate (4 accepted, 3 `generation-older`, 5
+`generation-newer`), and every consumer above; plus the `TerminalState` count pin
+in `RecordingTreeTests` (8 -> 9) and a `terminal_state_name` cell in
+`harness/lib/test_saveparse.py`. No `[InGameTest]` was added, so the
+`CommittedBatchTallySourceSyncTests` tallies are unmoved. What no test can witness
+is KSP actually raising `onVesselWillDestroy` from
+`EVAConstructionModeEditor.PickupPart`; that is established by decompilation, not
+by a flight.
+
+Two REGRESSION flights were run on the branch to prove the seam costs the existing
+destroy paths nothing - neither can witness the state itself:
+`RVR-2-rover-route-create` PASS (`harness/results/2026-09-06_1708_RVR-2-rover-route-create.json`,
+`terminalStates {Docked: 1, Landed: 3}`, zero Disassembled lines, as expected for a
+flight with no EVA construction) and `H56` PASS `total=6 passed=6` (2026-09-06_1709),
+which also confirms the WRN -> Info reroute left no stray `Background vessel destroyed`
+WRN behind.
+
+**Review dispositions (2026-09-06, appended commit).** One MEDIUM and three LOW,
+all fixed rather than accepted:
+- MEDIUM: `ParsekScenario.CanOverwriteTerminalState` treated only `Recovered` and
+  `Destroyed` as final, and its caller `UpdateRecordingsForTerminalEvent` matches
+  the PENDING tree by vessel NAME alone (`MatchesVessel`). A pocketed recording
+  keeps the name of the craft its part came off, so a later recovery of any live
+  vessel sharing that name would have replaced `Disassembled` with `Recovered` AND
+  nulled the `VesselSnapshot` - and `Recovered` is exactly what
+  `AddVesselRecoveryCostActions` and `ResurrectionRetirementEligibility` key on, so
+  the pocket would have started paying recovery funds. `Disassembled` now refuses
+  every overwrite, with an end-to-end cell through
+  `UpdateRecordingsForTerminalEvent` plus a negative control proving the walk is
+  unchanged for an unstamped sibling.
+- LOW: the BG path is now DRIVEN, not asserted. `IsBackgroundRecordingDestroyed`
+  went `internal` and a cell proves a `Disassembled` recording does not trip it
+  (with a `Destroyed` contrast so the cell cannot pass vacuously); the
+  `DeferredDestructionCheck` skip was extracted into
+  `ShouldApplyFinalizationCacheOnDeferredDestruction` /
+  `ShouldApplyTerminalDestructionOnDeferredDestruction`, used at the live sites and
+  covered by truth-table cells - the coroutine itself needs live Unity.
+- LOW: `Disassembled` joins `IsTerminalSinglePointDebrisStubState`
+  (`ParsekFlight.TerminalOrbit.cs`); a one-sample pocketed debris leaf is a stub,
+  and it is the shape the path produces most often. `Docked` / `Boarded` stay out
+  of BOTH single-point sets on purpose - they are join transitions, so the sample
+  is the junction rather than a stub - now stated in the code.
+- LOW: the classifier's KSP-scope argument was misstated; corrected above and in
+  `VesselDisassemblyClassifier`'s type comment.
+- INFO: `.claude/CLAUDE.md`'s schema paragraph now states the accepted downgrade
+  cost of not bumping - an older build fails the codec's `Enum.IsDefined` guard and
+  leaves `TerminalStateValue` NULL, so the recording reads as never-terminated.
+  Degraded metadata, never corrupt data, and a generation bump would not have
+  helped anyway (it rejects the recording outright rather than reading it better).
+
+All three guards were mutation-checked: reverting each one reds the class (4 of 48
+cells fail).
+
+**The detection path (decompiled KSP 1.12.5 `Assembly-CSharp.dll` with
+`ilspycmd`), kept for whoever touches this seam next.** The pocket path is
+`EVAConstructionModeEditor.PickupPart()`. It is gated on
+`hoveredPart.vessel.vesselType` being `DroppedPart` or `Debris`, then sets
+`hoveredPart.protoPartSnapshot = new ProtoPartSnapshot(hoveredPart, vessel.protoVessel)`,
+assigns `UIPartActionControllerInventory.Instance.CurrentCargoPart =
+CreatePartFromInventory(that snapshot)`, calls `BackupPart(..., droppedPart: true)`
+and only THEN calls `hoveredPart.vessel.Die()`, which is what fires
+`onVesselWillDestroy`. Three consequences:
+
+- **What KSP narrows, and what it does not** (corrected in the 2026-09-06 review;
+  the first write-up misattributed this). The
+  `hoveredPart.vessel.rootPart.persistentId == hoveredPart.persistentId` early
+  return lives in `DetachInput()` (line 2230), which `Update()` calls at line 268,
+  two lines BEFORE `PickupPartInput()` at 270 - a different input gesture, and no
+  gate on the pickup path at all. What the pickup path checks is
+  `CanPartBeEdited(hoveredPart, weightOnlyCheck: false)` (called from `PickupPart`
+  at 1421), whose `part.children.Count <= 0` (5701) refuses a part that still has
+  children. That does NOT reduce the path to single-part vessels: a childless LEAF
+  of a multi-part `Debris` vessel passes it, and `PickupPart` then calls
+  `hoveredPart.vessel.Die()` (1459) on the whole vessel regardless. So the
+  classifier's `partCount == 1` conjunct is a PARSEK restriction, not a restatement
+  of a KSP one - and it is the conservative side: that multi-part shape keeps
+  today's `Destroyed`. The vessel is still never the active one (the active vessel
+  is the EVA kerbal doing the picking), so the seam only ever fires for a tree
+  `BackgroundMap` member. Line numbers: `ilspycmd -t EVAConstructionModeEditor`.
+- **A pocket can never carry crew**, which is load-bearing downstream: the same
+  `CanPartBeEdited` refuses `protoModuleCrew.Count > 0` (5728), so
+  `KerbalsModule.InferCrewEndState`'s final default branch - the one that would
+  fold Disassembled in with the intact situations and answer `Aboard`/`Dead` - is
+  UNREACHABLE for this state rather than merely untested.
+- Do NOT match on `persistentId`. `ProtoPartSnapshot.ConfigurePart` assigns the
+  stored pid and then runs `FlightGlobals.CheckPartpersistentId(..., removeOldId:
+  true, addNewId: true)`; because the ORIGINAL part is still alive at that instant
+  the created cargo part collides and is given a NEW pid, written back into the
+  snapshot. The pids differ by construction.
+- The exact positive evidence, available synchronously with no Harmony patch, is
+  OBJECT IDENTITY: `dyingPart.protoPartSnapshot.partRef ==
+  UIPartActionControllerInventory.Instance.CurrentCargoPart` (non-null), with
+  `EVAConstructionModeController.Instance.IsOpen` as the mode guard.
+  `GameEvents.OnEVAConstructionModePartDetached` does NOT fire on this path (it
+  belongs to the multi-part detach branch) and `ConstructionEventType.PartPicked`
+  fires AFTER `Die()`, so neither is usable as a same-frame witness.
+
+**The blast radius that produced the ruling, measured 2026-09-06 and kept because
+the next SHAPE bump inherits it.** 706 `recordingSchemaGeneration` text tokens
+across 277 committed files, all reading 4, plus 216 binary `.prec` files carrying
+the generation as a little-endian `int32` at byte offset 8 (`PSK0` magic,
+`Source/Parsek/TrajectorySidecarBinary.cs:253`), plus 416 `PSN0` craft snapshot
+sidecars carrying one at the same offset. That is 29 stamped fixtures under
+`harness/fixtures/saves/` and 4 under `Source/Parsek.Tests/Fixtures/` (`C1Career`
+alone holds 128 stamps in its `persistent.sfs`). `.pann`, `.pgsb`, `.pgse`,
+`.pgsm` and `.craft` carry no generation. There is no precedent and no tool: the
+last bump, `a400bada6` (3 -> 4), touched `RecordingStore.cs` and nothing else
+because the fixture corpus did not exist yet; nothing in the tree re-stamps a
+schema generation, and no builder can re-mint a recording payload
+(`harness/lib/savepatch.py` states its own boundary in its module docstring: "THE PARSEK PAYLOAD IS NEVER TOUCHED"). The repo's
+written policy is RE-HARVEST for harvested provenance
+(`Source/Parsek/Analyzer/Rules/FixtureStampRule.cs:14-16`,
+`harness/lib/test_saveparse.py:3270-3275`), and every stamped fixture is
+harvested-provenance. A bump would go hard RED in `C1CareerLedgerReplayTests`,
+`C2CareerLedgerReplayTests`, `C2CareerPostFixReplayTests`,
+`ContractDeadlineAbsoluteUTTests`, `StrategyPrefixHoldbackTests` and
+`RoverRelayCOracleTests`, and would silently empty every tree across ~100
+committed harness lanes.
 
 ---
 

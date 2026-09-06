@@ -296,6 +296,10 @@ PARSEK_SCENARIO_NAME = "ParsekScenario"
 TERMINAL_STATE_NAMES: Tuple[str, ...] = (
     "Orbiting", "Landed", "Splashed", "SubOrbital",
     "Destroyed", "Recovered", "Docked", "Boarded",
+    # 8: the EVA-construction pocket (a vessel whose LAST part was stored into an
+    # inventory). Purely additive - appending an enum member is not a schema change,
+    # so gen-4 fixtures stay readable and no committed tally moves.
+    "Disassembled",
 )
 
 # BranchPointType (Source/Parsek/BranchPoint.cs) - NUMERIC on disk, so

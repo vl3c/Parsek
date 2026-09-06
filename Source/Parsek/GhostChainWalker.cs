@@ -746,7 +746,10 @@ namespace Parsek
             if (tipRec.TerminalStateValue.HasValue)
             {
                 var ts = tipRec.TerminalStateValue.Value;
-                if (ts == TerminalState.Destroyed || ts == TerminalState.Recovered)
+                // Disassembled ends the physical object exactly as Destroyed and
+                // Recovered do: the chain has no live successor to walk to.
+                if (ts == TerminalState.Destroyed || ts == TerminalState.Recovered
+                    || ts == TerminalState.Disassembled)
                 {
                     chain.IsTerminated = true;
                     ParsekLog.VerboseOnChange(Tag,
@@ -838,7 +841,8 @@ namespace Parsek
 
         /// <summary>
         /// Returns true if every leaf recording in the tree has a terminal state of
-        /// Destroyed or Recovered. Such trees can never produce a ghost (#174).
+        /// Destroyed, Recovered or Disassembled. Such trees can never produce a
+        /// ghost (#174).
         /// </summary>
         internal static bool IsTreeFullyTerminated(RecordingTree tree)
         {
@@ -856,7 +860,8 @@ namespace Parsek
                     return false;
 
                 var ts = rec.TerminalStateValue.Value;
-                if (ts != TerminalState.Destroyed && ts != TerminalState.Recovered)
+                if (ts != TerminalState.Destroyed && ts != TerminalState.Recovered
+                    && ts != TerminalState.Disassembled)
                     return false;
             }
 

@@ -171,8 +171,10 @@ namespace Parsek.Tests
                 Assert.Equal(ts, (TerminalState)parsed);
             }
 
-            // Verify we have all 8 values (0-7)
-            Assert.Equal(8, Enum.GetValues(typeof(TerminalState)).Length);
+            // Verify we have all 9 values (0-8; 8 = Disassembled, added 2026-09-06
+            // as a purely additive member at recording schema generation 4).
+            Assert.Equal(9, Enum.GetValues(typeof(TerminalState)).Length);
+            Assert.Equal(8, (int)TerminalState.Disassembled);
         }
 
         // --- Recording tree with single node ---

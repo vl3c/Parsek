@@ -429,6 +429,14 @@ class B9SnapshotTests(unittest.TestCase):
         self.assertEqual(4, by_id["b9-booster-a"].terminal_state)  # Destroyed
         self.assertEqual("Orbiting", saveparse.terminal_state_name(0))
         self.assertEqual("Destroyed", saveparse.terminal_state_name(4))
+        # 8 = Disassembled, appended 2026-09-06 as a purely additive enum member
+        # (no schema-generation bump). No committed fixture can carry it yet -
+        # there is no live driver for the EVA-construction pocket - so the
+        # vocabulary is pinned directly rather than through a snapshot.
+        self.assertEqual("Disassembled", saveparse.terminal_state_name(8))
+        self.assertEqual(9, len(saveparse.TERMINAL_STATE_NAMES))
+        # An enum member this parse does not know must still surface as itself.
+        self.assertEqual("9", saveparse.terminal_state_name(9))
 
     def test_merge_state_default_is_immutable_when_omitted(self):
         # The writer OMITS mergeState = Immutable (the default); absence must

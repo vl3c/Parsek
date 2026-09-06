@@ -236,6 +236,7 @@ namespace Parsek
                 case TerminalState.Recovered:  return "Recovered";
                 case TerminalState.Docked:     return "Docked";
                 case TerminalState.Boarded:    return "Boarded";
+                case TerminalState.Disassembled: return "Disassembled";
                 default:                       return "";
             }
         }
