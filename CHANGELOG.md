@@ -10,6 +10,14 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Test housekeeping: two harmless warnings an unattended supply-route check left in
+  every log are gone.** The check built one of its practice craft in mid-recording, and
+  bolting a part onto a craft counts as a docking, so the game opened a cargo window for
+  a bare docking port and then correctly refused to fill it - twice, every run. The check
+  now builds that craft before it starts recording. Nothing in the game changed: the
+  warning is the safety net doing its job, and it still fires on the real mismatch it
+  exists for.
+
 - **A supply route whose flight waits somewhere now counts the wait the same way the
   ghost you watch does.** Some flights hold: a launch that waits for the pad to come round
   under the departure, or an arrival that waits before it starts down. The ghost you see

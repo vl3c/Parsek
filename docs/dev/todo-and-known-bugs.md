@@ -1848,9 +1848,45 @@ a SURFACE depot resolves by identity first and by the M1 descriptor only if the 
 root part is gone. What binding the pid at the undock still buys is a cheaper O(1) lookup
 and a second corroborating key, not the difference between resolving and not.
 
-## ROUTE-WINDOW-SCAFFOLDING-COUPLE-WARNS-TWICE-ON-H57: a one-part docking-port couple opens a route window it can never populate, and the guard Warns [FOUND 2026-09-02 by the P12 item-7 census. OPEN, cosmetic, PRE-EXISTING and NOT a P12 regression]
+## ~~ROUTE-WINDOW-SCAFFOLDING-COUPLE-WARNS-TWICE-ON-H57: a one-part docking-port couple opens a route window it can never populate, and the guard Warns~~ [FOUND 2026-09-02 by the P12 item-7 census. Cosmetic, PRE-EXISTING and NOT a P12 regression. FIXED RIG-SIDE 2026-09-06 (P17); the product is untouched by design]
 
-H57's collected log carries, twice:
+**THE PRODUCER WAS NOT THE ONE THIS ENTRY NAMED, and the log says so.** The original
+filing read the shape off the source and blamed
+`CellContext.AttachTransportDockPort`. It is not that call: `AttachTransportDockPort`
+couples its port while NO recording exists (cell 1's `Begin()` discards the ephemeral
+auto-record session before any rig work), and a couple outside a recording opens no
+window at all. Both Warns come from `CellContext.BuildPartnerRig` assembling the
+DESTINATION rig - `AddPartToRig` couples the spawned one-part `dockingPort2` and then
+the one-part `fuelTank` onto that rig's own command core - while cell 1's recording IS
+live. Measured on `logs/2026-09-06_2030_H57-NEGCTL-P15-predecessor-notconsulted/KSP.log`
+:14339 and :14469: each Warn stands two lines after
+`RouteDockCapture partner-B-port` / `partner-B-tank live after 76 frame(s): pid=... parts=1`
+and carries that spawn's pid as `targetPid`, with `OnPartCouple:entry ... rec=` naming
+the live recording. Two rig sub-parts, two Warns - which is also why the count was
+exactly 2 in every pre-P12 log and did not move when the third cell landed.
+
+**THE FIX, and it is rig-side exactly as this entry required.** Cell 1
+(`StartDockedOrigin_StartsDockedThenUndocksAndDelivers`) now assembles the destination
+rig - and half-fills its tank - BEFORE `StartRecordingAndWait`, alongside the depot rig
+it already built there. The only couple left inside the recorded span is
+`CoupleAndAwaitWindow`'s dock of the destination's port onto the transport's, which is
+the couple the delivery window is measured across and the only one the cell ever meant
+to record. Cells 2 and 3 build no second rig and needed no change; H55 / H56
+(`RouteDockCapture`) are untouched.
+
+**WHAT DID NOT MOVE.** No `[InGameTest]` attribute changed, so the batch tally is
+identical (`total=3 passed=3 failed=0 skipped=0`), and no required token changed shape:
+the scaffolding couples never produced a window, an `Endpoint resolved:` line or a
+manifest, so nothing pinned was reading them. The lane's `windows=1` /
+`Route proof dock window captured:` tokens describe the destination dock, which still
+happens inside the recording. NOT ARMED as a `forbidden` token in the spec - arming is a
+three-run discipline this pass has flown none of - but the H57 header now records the
+measurement and says to arm it off the first census that reads zero.
+
+**PRODUCT UNCHANGED, and that was the entry's own ruling.** Suppressing the Warn would
+blind the same guard on a REAL mismatch, which is the case it exists for.
+
+**THE ORIGINAL FILING.** H57's collected log carried, twice:
 
 ```
 [Parsek][WARN][Flight] Route window dock capture failed: docked snapshot does not contain
@@ -1868,9 +1904,9 @@ ZERO occurrences (`2026-09-02_1833`) is not a counter-example: it is `PARSEK-FAI
 and emitted no `Route proof dock window capture` line of any kind, so it never reached the
 code. The tank on the depot changed the DELIVERY manifest, not this.
 
-**RIG ARTEFACT, not a product gap.** `endpointParts=1` names a ONE-PART vessel: the bare
-`dockingPort2` that `CellContext.AttachTransportDockPort` spawns and couples onto the active
-vessel as scaffolding, before any cargo rig exists. It has no `ModuleCommand`, no tank and no
+**RIG ARTEFACT, not a product gap** (correct as far as it goes; the named call site was
+wrong - see above). `endpointParts=1` names a ONE-PART vessel: a bare
+`dockingPort2` the rig spawns and couples on as scaffolding. It has no `ModuleCommand`, no tank and no
 inventory - it is not a cargo endpoint and never could be one - but a couple is a couple, so
 `ParsekFlight`'s dock handler opens a route window for it and
 `RouteProofCapture.BuildDockRouteConnectionWindow` then refuses to build one because the
@@ -1879,14 +1915,11 @@ writes no window, and the run is unaffected - H57 passed all 17 tokens with thes
 present. The same rig already produces the sibling `is not trackable (debris)` line at
 teardown for the same reason, and the H57 spec header documents that one as legitimate.
 
-**NOT FIXED, and the product must not be changed for it.** Suppressing the Warn would blind
-the same guard on a REAL mismatch, which is the case it exists for (a genuine endpoint whose
-snapshot lost its parts is a wrong-quantity risk). The honest fixes are both rig-side and
-neither is worth a flight on its own: have `AttachTransportDockPort` couple its port BEFORE
-any recording exists (it already does on some paths), or give the scaffolding port a
-`forbidden`-token exemption in the lane rather than a product change. Revisit only if the
-pair ever appears on a lane whose endpoint IS a real cargo vessel - that would be a genuine
-product finding and a different entry.
+**THE FIX OPTIONS AS ORIGINALLY FILED** (the first is what was built, once the real call
+site was identified): couple the scaffolding BEFORE any recording exists, or give the
+scaffolding port a `forbidden`-token exemption in the lane rather than a product change.
+STILL LIVE AS A FUTURE FINDING: if the pair ever appears on a lane whose endpoint IS a
+real cargo vessel, that is a genuine product finding and a different entry.
 
 ## ~~ROUTE-ORIGIN-PROOF-PICKUP-PREDATING-THE-RECORDING: a run that loaded its cargo BEFORE the recording started reads no gain and is refused as an origin~~ [FOUND 2026-09-02 by the adversarial review of P12 (F2). FIXED 2026-09-06 - the PREVIOUS recording's window is now the evidence]
 

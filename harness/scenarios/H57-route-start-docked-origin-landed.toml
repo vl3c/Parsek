@@ -537,6 +537,20 @@ required  = [
 # transport-side `dockingPort2` off the active vessel, and THAT half really is a bare
 # docking port, so the line legitimately appears late in a healthy run. The guard lives
 # in the cells, scoped to each partner undock, where it can be precise.
+#
+# ALSO DELIBERATELY NOT ARMED YET: `Route window dock capture failed`. Every H57 log
+# before 2026-09-06 carried it exactly twice
+# (ROUTE-WINDOW-SCAFFOLDING-COUPLE-WARNS-TWICE-ON-H57). The producer was MEASURED off
+# 2026-09-06_2030 KSP.log :14339 / :14469 - `transportParts=17 endpointParts=1`,
+# immediately after `partner-B-port` / `partner-B-tank` go live - so it was cell 1
+# ASSEMBLING the destination rig mid-recording (two plain Part.Couple calls onto that
+# rig's own core), NOT `AttachTransportDockPort`, which already couples before any
+# recording exists. The cell now assembles that rig BEFORE it starts recording, so the
+# only couple left inside the recorded span is the dock the delivery window is measured
+# across, and the next census should show ZERO of these lines. It is not pinned as
+# forbidden here because arming is a three-run discipline (reading run, armed re-flight,
+# negative control) and this pass has flown none of them: arm it off the first census
+# that reads zero.
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 [runtime]

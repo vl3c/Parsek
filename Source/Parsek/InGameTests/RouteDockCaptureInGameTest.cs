@@ -900,6 +900,42 @@ namespace Parsek.InGameTests
                 uint mergedPid = merged.persistentId;
                 int mergedSituation = (int)merged.situation;
 
+                // THE DESTINATION RIG IS ASSEMBLED HERE, BEFORE THE RECORDING EXISTS, AND
+                // THAT PLACEMENT IS THE FIX FOR ROUTE-WINDOW-SCAFFOLDING-COUPLE-WARNS-TWICE-ON-H57.
+                // BuildPartnerRig couples the port and the tank onto the rig's own command core
+                // with plain Part.Couple calls. Those are couples like any other, so while a
+                // recording is live ParsekFlight's dock handler opens a route window for each of
+                // them - transport = this run's 17-part active vessel, endpoint = the one-part
+                // scaffolding vessel - and RouteProofCapture.BuildDockRouteConnectionWindow then
+                // refuses to build one because the docked snapshot carries neither pid set. THE
+                // GUARD IS RIGHT and is deliberately left alone: it fails closed on a real
+                // endpoint whose snapshot lost its parts, which is a wrong-quantity risk.
+                // Assembling the rig before the recording starts removes the couples from the
+                // recorded span instead. Only the DOCK the cell is about - the destination's
+                // port onto the transport's, below - now happens inside the recording, which is
+                // the only couple this cell ever meant to record.
+                //
+                // Measured, not assumed: the two Warns in every H57 log carry
+                // `transportParts=17 endpointParts=1` and sit immediately after
+                // `partner-B-port` / `partner-B-tank` become live (2026-09-06_2030 KSP.log
+                // :14339, :14469), so the producer is THIS rig build and not
+                // AttachTransportDockPort, which already couples before any recording exists.
+                var destination = new PartnerRig("B");
+                IEnumerator buildDest = ctx.BuildPartnerRig(
+                    destination, PartnerBOffsetsMeters, withTank: true, withContainer: false);
+                while (buildDest.MoveNext()) yield return buildDest.Current;
+                if (destination.Tank == null)
+                    InGameAssert.Skip("destination rig has no tank to receive the delivery");
+                ctx.SetResourceAmountToHalf(destination.Tank, TransferResourceName);
+                ParsekLog.Info("TestRunner",
+                    "RouteDockCapture destination rig assembled pre-recording: cell=" + ctx.CellName
+                    + " run=" + ctx.RunId
+                    + " destinationRoot=" + destination.Root.flightID.ToString(IC)
+                    + " destinationParts=" + (destination.Vessel != null && destination.Vessel.parts != null
+                        ? destination.Vessel.parts.Count.ToString(IC) : "?")
+                    + " - the rig's own sub-part couples are OUTSIDE the recorded span, so no "
+                    + "scaffolding route window is opened for them");
+
                 int beforeStart = ctx.CapturedCount;
                 IEnumerator rec = ctx.StartRecordingAndWait();
                 while (rec.MoveNext()) yield return rec.Current;
@@ -977,17 +1013,12 @@ namespace Parsek.InGameTests
                     "StartDockedOriginBind: cell=" + ctx.CellName + " depotRoot=" +
                     depotRootFlightId.ToString(IC) + " line=" + bindLine);
 
-                // DELIVER ELSEWHERE: a SECOND partner, a different endpoint
-                // vessel from the origin, reached while the same recording runs.
+                // DELIVER ELSEWHERE: a SECOND partner, a different endpoint vessel from the
+                // origin, DOCKED while the same recording runs. The rig itself was assembled
+                // before the recording started (see the note at the build site); what happens
+                // here - and the only couple of this cell that belongs inside the recorded
+                // span - is the dock the delivery window is measured across.
                 int beforeDelivery = ctx.CapturedCount;
-                var destination = new PartnerRig("B");
-                IEnumerator buildDest = ctx.BuildPartnerRig(
-                    destination, PartnerBOffsetsMeters, withTank: true, withContainer: false);
-                while (buildDest.MoveNext()) yield return buildDest.Current;
-                if (destination.Tank == null)
-                    InGameAssert.Skip("destination rig has no tank to receive the delivery");
-                ctx.SetResourceAmountToHalf(destination.Tank, TransferResourceName);
-
                 IEnumerator dock = ctx.CoupleAndAwaitWindow(destination);
                 while (dock.MoveNext()) yield return dock.Current;
                 double delivered = ctx.TransferResource(
