@@ -611,9 +611,41 @@ namespace Parsek
             return true;
         }
 
+        /// <summary>
+        /// Rebuilds a malformed flat fallback trajectory (POINT list / top-level
+        /// ORBIT_SEGMENT list) from the recording's TrackSections.
+        /// </summary>
+        /// <param name="markDirty">
+        /// <c>true</c> is the default and has NO production caller: both shipped callers
+        /// are the READ paths named below and both pass <c>false</c>. The default is kept
+        /// for a future WRITE-side or repair caller, where the heal WOULD be a mutation
+        /// the recording owns, so the sidecar must be rewritten and its
+        /// <see cref="Recording.SidecarEpoch"/> advanced with it. Until such a caller
+        /// exists the default is exercised only by tests, which use it to show that a
+        /// non-read caller still dirties.
+        ///
+        /// <para><c>false</c> for the two READ paths
+        /// (<see cref="TrajectorySidecarBinary.Read"/> and
+        /// <see cref="DeserializeTrajectoryFrom"/>). Reading a file must not rewrite it:
+        /// the read-path contract is normalize-on-rewrite - "files no flow dirties stay
+        /// byte-identical" - and the flat POINT list this heals is DERIVED from the
+        /// sections, re-derived on every read and re-derived again on the write side by
+        /// <see cref="GetFlatFallbackPointsForWrite"/>, so persisting it buys nothing.
+        /// It costs, though: dirtying at read makes the next <c>FlushDirtyFiles</c> bump
+        /// <see cref="Recording.SidecarEpoch"/>, and
+        /// <see cref="Parsek.Logistics.RouteSourceRef.SidecarEpoch"/> is a route's
+        /// proof-of-source field - so every committed route whose member recording
+        /// healed on load parked in
+        /// <see cref="Parsek.Logistics.RouteStatus.SourceChanged"/> with
+        /// <c>reason=SourceChanged/sidecar-epoch-drift</c>, permanently (design 7.4
+        /// forbids auto-recovery from SourceChanged), even though no witnessed proof
+        /// datum moved. See todo
+        /// ROUTE-SOURCECHANGED-AT-LOAD-AFTER-SIDECAR-EPOCH-DRIFT.</para>
+        /// </param>
         internal static bool TryHealMalformedFlatFallbackTrajectoryFromTrackSections(
             Recording rec,
-            bool allowRelativeSections = false)
+            bool allowRelativeSections = false,
+            bool markDirty = true)
         {
             if (rec == null
                 || !HasCompleteTrackSectionPayloadForFlatSync(rec.TrackSections, allowRelativeSections))
@@ -636,7 +668,26 @@ namespace Parsek
 
             rec.CachedStats = null;
             rec.CachedStatsPointCount = 0;
-            rec.MarkFilesDirty();
+            if (markDirty)
+            {
+                rec.MarkFilesDirty();
+            }
+            else
+            {
+                // The point list changed, so the derived label caches keyed on it are
+                // stale even though the FILE is not. MarkFilesDirty does this as a side
+                // effect; the read path needs the invalidation without the dirty flag.
+                rec.InvalidateSegmentBodyDisplayLabelCache();
+                if (!RecordingStore.SuppressLogging)
+                {
+                    ParsekLog.Verbose("RecordingStore",
+                        $"TryHealMalformedFlatFallbackTrajectory: recording={rec.RecordingId} " +
+                        "healed in memory only, sidecar left byte-identical " +
+                        "(loadTimeHealKeepsSidecarEpoch) points=" +
+                        $"{rec.Points.Count} orbitSegments={rec.OrbitSegments.Count} " +
+                        $"sidecarEpoch={rec.SidecarEpoch}");
+                }
+            }
             return true;
         }
 
@@ -1432,8 +1483,12 @@ namespace Parsek
                 bool healedMalformedFlatFallback = false;
                 if (rec.TrackSections.Count > 0)
                 {
+                    // markDirty: false - same reading as the binary read path: a READ must
+                    // not rewrite the file it just read, because the rewrite advances the
+                    // SidecarEpoch every committed route captured as proof-of-source
+                    // (todo ROUTE-SOURCECHANGED-AT-LOAD-AFTER-SIDECAR-EPOCH-DRIFT).
                     healedMalformedFlatFallback = TryHealMalformedFlatFallbackTrajectoryFromTrackSections(
-                        rec, allowRelativeSections: true);
+                        rec, allowRelativeSections: true, markDirty: false);
                     if (healedMalformedFlatFallback && !RecordingStore.SuppressLogging)
                     {
                         ParsekLog.Verbose("RecordingStore",

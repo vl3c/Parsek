@@ -10,6 +10,17 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Loading a save no longer stops your supply routes.** Parsek repairs a known defect in
+  older recordings while reading them - a trajectory whose flat point list was written in
+  the wrong frame - and until now that repair also rewrote the recording's file. A route
+  watches the files of the flights it was built from and stops itself if one of them
+  changes, because a changed flight means the delivery it proved may never have happened;
+  a stopped route has to be recreated by hand. So merely loading a save could stop every
+  route built on a repaired flight, even though nothing about the delivery had changed.
+  The repair now happens in memory only, leaving the file exactly as it was, and routes
+  load in the state you left them. A flight that genuinely changes - a rewind, a re-fly,
+  a merge - still stops the routes built on it, as before.
+
 - **A supply route no longer follows the wrong craft home when something is parked at its
   destination.** Dock any ship to a base and the game merges the two into one vessel,
   keeping the name and id of whichever half it considers dominant - which is often the

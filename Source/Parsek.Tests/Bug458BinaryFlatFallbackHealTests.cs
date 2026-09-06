@@ -41,8 +41,20 @@ namespace Parsek.Tests
             }
         }
 
+        // Bug #458: the binary read path must run the malformed-flat-fallback healer, so a
+        // recording whose flat list duplicates its track-section prefix hydrates monotonic
+        // instead of failing CommittedRecordingsHaveValidData. That is the whole claim, and
+        // it is asserted below on the IN-MEMORY list.
+        //
+        // The cell used to also assert `restored.FilesDirty` - #458 noted the flush as a
+        // consequence, never as its goal. It is now asserted FALSE: a READ must not rewrite
+        // the file it just read, because the rewrite advances SidecarEpoch, which is a
+        // route's proof-of-source field (todo
+        // ROUTE-SOURCECHANGED-AT-LOAD-AFTER-SIDECAR-EPOCH-DRIFT). The sibling load-time
+        // invariant repair on this same path, DropNonMonotonicTrajectoryPoints, has always
+        // healed without dirtying; the flat-list heal now matches it.
         [Fact]
-        public void BinaryFlatFallbackWithDuplicatedTrackSectionPrefix_HealsOnLoadAndMarksFilesDirty()
+        public void BinaryFlatFallbackWithDuplicatedTrackSectionPrefix_HealsOnLoadWithoutDirtyingTheFile()
         {
             var written = BuildMalformedBinaryFlatFallbackRecording();
             string precPath = Path.Combine(tempDir, written.RecordingId + ".prec");
@@ -59,7 +71,7 @@ namespace Parsek.Tests
 
             Assert.Equal(14, restored.Points.Count);
             Assert.Single(restored.TrackSections);
-            Assert.True(restored.FilesDirty);
+            Assert.False(restored.FilesDirty);
             Assert.Equal(215.84, restored.Points[restored.Points.Count - 1].ut, 6);
             for (int i = 1; i < restored.Points.Count; i++)
             {
