@@ -616,9 +616,13 @@ namespace Parsek
         /// ORBIT_SEGMENT list) from the recording's TrackSections.
         /// </summary>
         /// <param name="markDirty">
-        /// <c>true</c> (the default) for the WRITE-side and repair flows: the heal is a
-        /// mutation the recording owns, so the sidecar must be rewritten and its
-        /// <see cref="Recording.SidecarEpoch"/> advanced with it.
+        /// <c>true</c> is the default and has NO production caller: both shipped callers
+        /// are the READ paths named below and both pass <c>false</c>. The default is kept
+        /// for a future WRITE-side or repair caller, where the heal WOULD be a mutation
+        /// the recording owns, so the sidecar must be rewritten and its
+        /// <see cref="Recording.SidecarEpoch"/> advanced with it. Until such a caller
+        /// exists the default is exercised only by tests, which use it to show that a
+        /// non-read caller still dirties.
         ///
         /// <para><c>false</c> for the two READ paths
         /// (<see cref="TrajectorySidecarBinary.Read"/> and

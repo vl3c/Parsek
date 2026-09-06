@@ -97,10 +97,25 @@ namespace Parsek.Tests.Logistics
             return Path.Combine(RepoRoot(), "harness", "fixtures", "saves", fixture);
         }
 
+        /// <summary>
+        /// The readable text MIRROR (`.prec.txt`). Read by the text codec, which is the
+        /// path the headless bisection measured; it is NOT what the shipped game reads.
+        /// </summary>
         private static string PrecPath(string fixture, string recordingId)
         {
             return Path.Combine(FixtureSaveDir(fixture), "Parsek", "Recordings",
                 recordingId + ".prec.txt");
+        }
+
+        /// <summary>
+        /// The PRODUCTION sidecar (`.prec`, binary PSK0) - what
+        /// <c>RecordingStore.DeserializeTrajectorySidecar</c> reads at load, and the only
+        /// encoding supported since the v0 reset.
+        /// </summary>
+        private static string BinaryPrecPath(string fixture, string recordingId)
+        {
+            return Path.Combine(FixtureSaveDir(fixture), "Parsek", "Recordings",
+                recordingId + ".prec");
         }
 
         /// <summary>
@@ -194,6 +209,68 @@ namespace Parsek.Tests.Logistics
                 "reading a committed sidecar must leave it byte-identical - a dirty flag " +
                 "here becomes a SidecarEpoch bump on the next flush, which is drift the " +
                 "route's proof-of-source comparison reads as SourceChanged");
+        }
+
+        // catches: the same regression on the read path the GAME actually takes. The cell
+        // above reads the readable `.prec.txt` MIRROR through the text codec; production
+        // reads the binary `.prec` through TrajectorySidecarBinary.Read, which carries its
+        // own heal call site, and text-only coverage would leave that site free to be
+        // restored to markDirty: true with the suite green. Mutation-checked: flipping
+        // TrajectorySidecarBinary.cs's heal call back to markDirty: true reds this cell
+        // for all three members.
+        [Theory]
+        [MemberData(nameof(DriftingRouteMembers))]
+        public void FixtureRouteMember_BinaryReadPathDoesNotDirtyTheSidecar(
+            string fixture, string recordingId, string routeId, string routeStatus)
+        {
+            _ = routeId;
+            _ = routeStatus;
+
+            string path = BinaryPrecPath(fixture, recordingId);
+            Assert.True(File.Exists(path),
+                "committed binary fixture sidecar must exist at " + path);
+
+            var logLines = new List<string>();
+            var rec = new Recording { RecordingId = recordingId };
+            bool priorSuppress = RecordingStore.SuppressLogging;
+            bool? priorVerbose = ParsekLog.VerboseOverrideForTesting;
+            try
+            {
+                // The heal's in-memory-only branch is the thing under test and it logs;
+                // both gates have to be open for that line to reach the sink.
+                ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+                ParsekLog.VerboseOverrideForTesting = true;
+                RecordingStore.SuppressLogging = false;
+                Assert.True(RecordingStore.LoadTrajectorySidecarForTesting(path, rec),
+                    "the committed .prec must probe as a supported binary sidecar - if " +
+                    "this fails the cell is measuring nothing");
+            }
+            finally
+            {
+                RecordingStore.SuppressLogging = priorSuppress;
+                ParsekLog.VerboseOverrideForTesting = priorVerbose;
+                ParsekLog.TestSinkForTesting = null;
+            }
+
+            Assert.True(HasPayloadFreeSection(rec),
+                "this fixture member is the regression subject because it carries a " +
+                "payload-free TrackSection; if that stopped being true, re-pick the subject");
+
+            Assert.False(rec.FilesDirty,
+                "the BINARY read path must leave the file it just read byte-identical - a " +
+                "dirty flag here becomes a SidecarEpoch bump on the next flush, which is " +
+                "the drift the route's proof-of-source comparison reads as SourceChanged");
+
+            // Anti-vacuity. FilesDirty=false would also hold if the heal never fired on
+            // these bytes at all, and the heal is idempotent (a second call finds the
+            // list already rebuilt and returns false), so it cannot be re-run to prove
+            // reachability. What proves it is the read path's OWN line, written only from
+            // the markDirty: false branch: the heal ran, on the binary path, and left the
+            // sidecar alone.
+            Assert.Contains(logLines, l =>
+                l.Contains("[RecordingStore]")
+                && l.Contains("loadTimeHealKeepsSidecarEpoch")
+                && l.Contains(recordingId));
         }
 
         // catches: a "fix" that keeps the epoch by disabling the heal. PR #1630's whole

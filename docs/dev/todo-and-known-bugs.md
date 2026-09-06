@@ -37,8 +37,10 @@ fixtures on the previous build (base `c753e94c2`) read `{"Active":1,"Paused":1}`
    immediately before `RevalidateSources`, and the three saved ids are exactly the three
    that logged `healed=true` on read: `0c8ec58d` (`prePoints=606 postPoints=601
    preOrbitSegments=5 postOrbitSegments=4`), `efb9be71`, `a85a7ae0`. On the green build the
-   same three logged `healed=false` and only one recording (`a85a7ae0`, via the unrelated
-   legacy `EnsureCheckpointSectionsForTopLevelOrbitSegments` seam) was flushed.
+   same three logged `healed=false` and a single recording (`a85a7ae0`) was flushed - by
+   something OTHER than the sidecar read path, which is measured inert over these bytes
+   (see RESIDUE below); that one flush is not attributed here and never bore on the
+   symptom, because `a85a7ae0` is in no route's `SOURCE_REFS`.
    `SaveRecordingFiles` defaults to `incrementEpoch: true`, so each flush is `+1`.
 3. What dirtied them: `TrajectoryTextSidecarCodec.TryHealMalformedFlatFallbackTrajectoryFromTrackSections`
    ended in `rec.MarkFilesDirty()`, and both READ paths
@@ -65,20 +67,59 @@ through `GetFlatFallbackPointsForWrite`, so persisting it bought nothing. PR #16
 is untouched: the in-memory recording still comes back with the Relative section's
 body-fixed samples in its flat list instead of anchor-local metres, which is what playback,
 `BackfillMaxDistance` and `IsIdleOnPad` read. No stored-hash migration: nothing about the
-comparison or the captured refs changed. Cells:
-`Source/Parsek.Tests/Logistics/RouteLoadTimeSidecarEpochTests.cs`, 18 (the three read-does-not-dirty
+comparison or the captured refs changed. The `markDirty: true` default is left with NO
+production caller and its doc-comment says so. Cells:
+`Source/Parsek.Tests/Logistics/RouteLoadTimeSidecarEpochTests.cs`, 21 (the three read-does-not-dirty
 cells and the three load-cycle cells confirmed RED with `markDirty: true` restored), plus the
 two mirror cells (a genuinely rewritten member still flips `SourceChanged`; a non-read caller
 still dirties) and the hash pin (a payload-free section, its removal, and a flat-list rewrite
-all leave `RouteProofHasher` output unchanged).
+all leave `RouteProofHasher` output unchanged). The three added cells cover the read path the
+GAME takes: the other fixture-member cells read the readable `.prec.txt` MIRROR through the
+text codec, while production reads the binary `.prec` (PSK0) through
+`TrajectorySidecarBinary.Read`, which carries its OWN heal call site - so
+`FixtureRouteMember_BinaryReadPathDoesNotDirtyTheSidecar` loads the real binary bytes through
+`RecordingStore.LoadTrajectorySidecarForTesting` and asserts `FilesDirty=false` plus the
+heal's own `loadTimeHealKeepsSidecarEpoch` line (anti-vacuity: the heal is idempotent, so it
+cannot be re-run to prove it fired). Restoring `markDirty: true` at that call site reds
+exactly those three and nothing else - which is the coverage hole they close.
 
-**RESIDUE, not fixed here (NOTE).** The read paths still call
-`EnsureCheckpointSectionsForTopLevelOrbitSegments(markDirty: true)` - the "legacy heal seam"
-the same comment sanctions. It dirties `a85a7ae0` on EVERY load of `depot-route-recorded`
-and would flip any route sourced on it by the identical mechanism. It predates this
-regression, changes the SECTION list rather than a derived list, and shifts section ordinals
-(so it also drives the annotation invalidation), which is why it was left alone. If a route
-is ever seen parking `SourceChanged` on a load where nothing healed, this is the seam.
+**CONFIRMED IN FLIGHT, three lanes, 2026-09-06 on `f0deb8f6b`.** `V18T-depot-route-ts-arrival`
+(`2026-09-06_2250`, PASS attempt 1, wall 53 s): armed `[expectations.routes]` GATING PASS,
+`routeStatuses={'Active': 1}`, `ghostDriving=1`, one ghost vessel created, and the file-level
+half - zero `->SourceChanged`, zero `FlushDirtyFiles`, 21 `sidecar left byte-identical` lines.
+`V26T-interbody-route-ts-arrival` (`_2252`, PASS, 57 s): `{'Paused': 1, 'Active': 1}` - the
+fixture's deliberate pair intact - `ghostDriving=1`, two ghost vessels.
+`RVR-7-rover-relay-c-dispatch` (`_2254`, PASS, 51 s): armed routes `{'Paused': 1}`, dispatch
+unchanged, which is the mirror direction (this fixture ships three payload-free-section
+recordings, so a heal made INERT rather than quiet would show here). On all three the operator
+diffed the produced save's `Parsek/Recordings` against the committed fixture: BYTE-IDENTICAL
+(V18T 22/22 `.prec`) - the load rewrote nothing, which is the claim.
+
+**RESIDUE, not fixed here (NOTE) - AND IT IS INERT OVER THESE BYTES, MEASURED.** The read
+paths still call `EnsureCheckpointSectionsForTopLevelOrbitSegments(markDirty: true)` - the
+"legacy heal seam" the same comment sanctions. An earlier draft of this entry claimed it
+dirties `a85a7ae0` on every load; that was an attribution, not a measurement, and the
+measurement says otherwise on both halves:
+
+- **It does not fire.** Every committed `.prec` of both fixtures was read through the
+  PRODUCTION binary path (`RecordingStore.LoadTrajectorySidecarForTesting` ->
+  `TrajectorySidecarBinary.Read`, which runs this seam at `markDirty: true`) and came back
+  `FilesDirty=false`: 0/22 in `depot-route-recorded`, 0/45 in `interbody-route-recorded`.
+  Re-running the seam over the same recordings reports `AnyMutation=false Clipped=0
+  ReconciledEmptySections=0 Added=0 Resorted=0` under BOTH `reconcileEmptySections`
+  settings - for `a85a7ae0`, `SkippedExisting=9` and nothing else. The bridge only reaches
+  `MarkFilesDirty()` inside `if (stats.AnyMutation)`, so with no mutation there is no dirty.
+- **Even a firing seam could not flip THESE routes.** `RouteStore.RevalidateSources` walks
+  `route.SourceRefs` and nothing else - runs are not walked - and `a85a7ae0` appears in no
+  route's `SOURCE_REFS` in either fixture (the depot route's four are `44129e52`,
+  `8b036c83`, `0c8ec58d`, `70667ab4`; `a85a7ae0` and `efb9be71` are ordinary tree members).
+  A future route whose member set spans `[root..dock]` could pick one up, which is the
+  shape that would make this seam matter.
+
+It stays a NOTE rather than a fix because it predates this regression, changes the SECTION
+list rather than a derived list, and shifts section ordinals (so it also drives the
+annotation invalidation). Hypothesis form only: if a route is ever seen parking
+`SourceChanged` on a load where nothing healed, look here first.
 
 ---
 
