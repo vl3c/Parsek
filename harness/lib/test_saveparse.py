@@ -886,6 +886,10 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         "preparsek-brandnew-career": False,
         "gloops-airshow": True,
         "gs1-two-stage-pad": True,
+        # coalescer-pad is gs1-two-stage-pad byte for byte except two parts' stage
+        # assignments (harness/tools/build_coalescer_pad.py), so it carries the same
+        # ParsekScenario node gs1 does.
+        "coalescer-pad": True,
         "gs2-orbital-stack": True,
         # The FORGE-logi-pad harvest: the purpose-built `Logi Cargo Rig` PRELAUNCH on
         # the pad, the fixture H38-logistics-isolated flies. True like every other

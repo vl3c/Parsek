@@ -20,25 +20,39 @@ instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "isolated-batch", "coalescer", "controlled-decoupled-child", "R6", "H62"]
 
 [fixture]
-# `gs1-two-stage-pad` IS THE ONLY COMMITTED HOST THAT SATISFIES ALL THREE GUARDS, and
-# the three are stated by the cells rather than inferred:
+# `coalescer-pad` IS `gs1-two-stage-pad` WITH THE DECOUPLER MOVED INTO THE FIRST STAGE,
+# derived byte for byte by `harness/tools/build_coalescer_pad.py` (drift-gated by
+# `harness/lib/test_coalescer_pad.py`). The three guards the cells state are all met
+# by gs1's craft - and the first census proved that is not enough:
 #   1. `sit = PRELAUNCH` + `ModuleEngines` - both cells call
-#      `StageManager.ActivateNextStage()` and need the stage to actually fire. This is
-#      the `staging` requirement `IsolatedBatchWiringGroupTests` gates statically.
+#      `StageManager.ActivateNextStage()` ONCE and need that stage to actually fire.
+#      This is the `staging` requirement `IsolatedBatchWiringGroupTests` gates
+#      statically.
 #   2. `HasAtLeastTwoCommandModules(vessel)` - the skip reads "requires an active
 #      vessel with 2+ command modules/probe cores, got N". A controlled-decoupled
 #      CHILD is by definition the half that keeps a controller, so a single-pod craft
-#      produces DEBRIS and neither cell has a subject. `gs1`'s `GS1 Auto-Chute
-#      Booster` carries `mk1pod.v2` AND `probeCoreOcto2.v2` (two `ModuleCommand`).
+#      produces DEBRIS and neither cell has a subject. The `GS1 Auto-Chute Booster`
+#      carries `mk1pod.v2` AND `probeCoreOcto2.v2` (two `ModuleCommand`).
 #   3. `HasDecouplerModule(vessel)` - the craft carries a `Decoupler.1`
 #      (`ModuleDecouple`), verified by reading its VESSEL block.
+# WHAT THE FIRST CENSUS FOUND (run `2026-09-06_2258`, on gs1-two-stage-pad itself):
+# `total=2 passed=0 failed=0 skipped=2`, both cells skipping with "requires the next
+# stage to separate a controllable child". gs1's staging is the GS-1 FLIGHT's - stage
+# 2 lights the engine, stage 1 fires the decoupler and the booster chutes - so the
+# cells' single staging call ignited the engine on the pad and separated nothing. The
+# guards check for a decoupler's PRESENCE; what the cells need is a decoupler in the
+# NEXT stage, which no attribute and no static requirement can see. The derived host
+# swaps exactly two parts' `istg`/`sqor` (Decoupler.1 1 -> 2, liquidEngine2 2 -> 1)
+# and leaves `stg = 3`, so the first `ActivateNextStage()` now parts the pod (root,
+# stays active) from the booster (probe core + tank + engine + chutes) - a controlled
+# child sitting on the pad, engine unlit. Nothing else in the save differs from gs1.
 # `gloops-airshow` fails 1, 2 and 3; `b2-lko-craft` satisfies 1 and 3 but its 73-part
 # launcher's upper stage is not a second CONTROLLER, so it would take the debris path.
 #
 # SANDBOX, empty corpus, `injectedRecordings = "none"`: both cells build their own
 # tree from a live recording and reap it, and an injected corpus would only add store
 # noise to the parent-anchor walk.
-saveTemplate = "fixtures/saves/gs1-two-stage-pad"
+saveTemplate = "fixtures/saves/coalescer-pad"
 injectedRecordings = "none"
 craft = []
 
