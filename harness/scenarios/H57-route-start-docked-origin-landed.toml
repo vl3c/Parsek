@@ -154,7 +154,9 @@ tier = "nightly"
 #   not distinguish "the seam producer works" from "any craft that ever docked gets an
 #   origin", which is the exact false-positive population the predicate exists to exclude.
 #
-# 3 `StartDockedOrigin_PredecessorWindowValidatesThePickup` - the RELOAD shape, added
+# 3 `StartDockedOrigin_PredecessorWindowValidatesThePickup` - the RE-ENTRY shape (stock
+#   Fly / Switch-To back onto a craft left docked, NOT a plain quit / reload, which
+#   resumes the same recording in place), added
 #   2026-09-06 with ROUTE-ORIGIN-PROOF-PICKUP-PREDATING-THE-RECORDING. The transport
 #   starts docked and TAKES NOTHING while this recording runs, so its own pickup reads
 #   `Carried` and, before this pass, the run could never become a route. A PREVIOUS
@@ -463,7 +465,7 @@ required  = [
   # evaluated window was still OPEN - the previous recording ended while still docked,
   # which is exactly WHY this recording starts docked - so the rise was measured across
   # TWO records (the window's dock baseline against this recording's own transport-half
-  # start manifests), which is the shape the operator's reload actually produces. A
+  # start manifests), which is the shape the operator's re-entry actually produces. A
   # COMPLETE window would print a number there and is the easier case; pinning the NaN
   # keeps this lane on the hard one. `predecessorDockUT` beside it is regexed - it is a
   # run-local UT - and so are every recording id and window id on the line.

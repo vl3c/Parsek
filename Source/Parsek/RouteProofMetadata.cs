@@ -228,8 +228,9 @@ namespace Parsek
         /// No rise inside THIS recording, but the PREVIOUS recording of the same launch
         /// holds the connection window that bracketed the load, and the transport half's
         /// admitted cargo rose across it. The inflow was witnessed - just not by this
-        /// recording, whose start baseline already includes the cargo (the dock / load /
-        /// quicksave / reload / undock shape). VALIDATING, exactly like
+        /// recording, whose start baseline already includes the cargo (dock, load, fly
+        /// something else, come back through stock Fly / Switch-To - which starts a NEW
+        /// recording in the same tree - then undock). VALIDATING, exactly like
         /// <see cref="Gain"/>: the same flow test, measured on the same transport half,
         /// against the same partner. See
         /// <c>docs/dev/research/pickup-predating-the-recording.md</c>.

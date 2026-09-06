@@ -1,9 +1,12 @@
 # Accepting a pickup witnessed by the PREVIOUS recording
 
 Closes ROUTE-ORIGIN-PROOF-PICKUP-PREDATING-THE-RECORDING. The player case: dock the
-tanker to the base, transfer fuel, quicksave and quit; tomorrow load, undock, fly the
-run. Tomorrow's recording starts already docked, so it never witnesses the inflow, the
+tanker to the base, transfer fuel, go fly something else; later come back to the tanker
+through stock Fly / Switch-To, undock, fly the run. That re-entry starts a NEW recording,
+which opens already docked, so it never witnesses the inflow, the
 bind stamps `pickup=Carried pickupValidated=0`, and the run cannot become a route.
+(A plain quit / reload is NOT this case and never was - see (b): it resumes the SAME
+recording in place, and the ordinary in-recording window path already covers it.)
 "Undocked with cargo aboard" is NOT the fix - a full tanker that only delivered would
 count, which is the wrong-debit the design forbids. The evidence has to come from the
 window the PREVIOUS recording of the same vessel already holds.

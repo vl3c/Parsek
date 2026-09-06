@@ -1406,8 +1406,9 @@ namespace Parsek
         /// with cargo it already had", which is exactly what an operator reading a
         /// non-validated proof needs to see - but it never validates.</para>
         ///
-        /// <para>THE INFLOW THAT PREDATES THE RECORDING (dock, load, quicksave, reload,
-        /// start recording docked, undock) is no longer failed closed: it validates as
+        /// <para>THE INFLOW THAT PREDATES THE RECORDING (dock, load, fly something else,
+        /// come back through stock Fly / Switch-To - which starts a NEW recording in the
+        /// same tree - then undock) is no longer failed closed: it validates as
         /// <see cref="OriginPickupKind.GainFromPredecessorWindow"/> when the PREVIOUS
         /// recording of the same launch holds the connection window that bracketed the load
         /// and the transport half's admitted cargo rose across it

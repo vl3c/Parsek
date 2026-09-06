@@ -7,8 +7,11 @@ namespace Parsek.Tests
     /// <summary>
     /// THE PICKUP THAT PREDATES THE RECORDING, pinned headlessly
     /// (ROUTE-ORIGIN-PROOF-PICKUP-PREDATING-THE-RECORDING). The player docks the tanker to
-    /// the base, transfers fuel, quicksaves and quits; the next session's recording opens
-    /// already docked and never witnesses the inflow. The evidence is on the PREVIOUS
+    /// the base, transfers fuel, then flies something else and comes back to the tanker
+    /// through stock Fly / Switch-To; that re-entry starts a NEW recording in the same
+    /// tree, which opens already docked and never witnesses the inflow. (A plain quit /
+    /// reload does NOT produce this shape - it resumes the SAME recording in place.) The
+    /// evidence is on the PREVIOUS
     /// recording of the same launch - its <see cref="RouteConnectionWindow"/> brackets the
     /// load - and this file pins what makes that window admissible and what refuses it.
     ///
