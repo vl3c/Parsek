@@ -2407,16 +2407,16 @@ namespace Parsek
         /// every recording in the active tree is idle-on-pad (max
         /// distance from launch &lt; pad-localized threshold) computed
         /// from live data via
-        /// <see cref="VesselSpawner.BackfillMaxDistanceAbsoluteOnly"/>.
-        /// Idle-on-pad recordings cannot have RELATIVE-frame TrackSections
-        /// (the recorder skips RELATIVE entry while the vessel is on
-        /// surface, see <c>FlightRecorder.cs:5099-5131</c>).
+        /// <see cref="VesselSpawner.BackfillMaxDistanceFromBodyFixedSurfaces(Recording)"/>,
+        /// which reads the body-fixed surface of an Absolute section
+        /// (<c>frames</c>) and of a Relative section (<c>bodyFixedFrames</c>)
+        /// and never a Relative section's anchor-local <c>frames</c>.
         ///
         /// <para>This method MUTATES: it calls
         /// <see cref="FlushRecorderIntoActiveTreeForSerialization"/> first
         /// so the live recorder's <c>Recording</c> + open
         /// <c>TrackSections</c> become populated on the tree recordings
-        /// (<see cref="VesselSpawner.BackfillMaxDistanceAbsoluteOnly"/>
+        /// (<see cref="VesselSpawner.BackfillMaxDistanceFromBodyFixedSurfaces(Recording)"/>
         /// reads <c>rec.TrackSections</c> only). Without this, atmospheric
         /// flights that haven't crossed an env boundary or saved yet have
         /// empty <c>TrackSections</c> and the helper would falsely report
@@ -2455,7 +2455,7 @@ namespace Parsek
             foreach (var rec in activeTree.Recordings.Values)
             {
                 if (rec == null) continue;
-                VesselSpawner.BackfillMaxDistanceAbsoluteOnly(rec);
+                VesselSpawner.BackfillMaxDistanceFromBodyFixedSurfaces(rec);
                 if (rec.Points != null && rec.Points.Count > 0)
                     anyHasPoints = true;
                 if (!IsIdleOnPad(rec))

@@ -564,6 +564,34 @@ lose the run-happened evidence; it only moves it out of the findings list.
   tripping field -> FAIL naming the field. CitedContract:
   `RecordingTreeRecordCodec.SaveRecordingInto` / `LoadRecordingFrom`,
   `RecordingManifestCodec`, `TrajectorySidecarBinary`.
+- **INV11 payload-free TrackSection** (`RuleId INV11-EMPTY-SECTION`). A section
+  carrying none of the three authored surfaces - no `frames`, no
+  `bodyFixedFrames`, no `checkpoints` - is an empty shell: nothing can render or
+  read it, and its presence in a recording's section list used to make
+  `TrajectoryTextSidecarCodec.HasCompleteTrackSectionPayloadForFlatSync` and
+  `TryBuildBodyFixedPrimaryFlatPointsForRelativeSections` answer "payload
+  incomplete" for the WHOLE recording, which is how an undock background child
+  persisted a Relative section's anchor-local METRES as flat lat/lon points and
+  read `maxDist` ~735 km for a rover that never left the pad area (closed todo
+  UNDOCK-BG-CHILD-WRITES-RELATIVE-METRES-AS-FLAT-LAT-LON). One finding per empty
+  section, naming recording, section index, env, ref and UT span. Pure over the
+  model, so it is in the in-game H5 subset too. CitedContract:
+  `TrackSectionCloseClassifier.Classify` /
+  `TrajectoryTextSidecarCodec.IsPayloadFreeTrackSection`.
+
+  **WARN, not FAIL, and the severity is a corpus decision.** The producers no
+  longer emit the shape (both recorders discard a payload-free section at close),
+  but two COMMITTED harness fixtures ship recordings that carry it -
+  `rover-relay-recorded` (2 sections) and `rover-relay-c-recorded` (4) - and ten
+  RVR lanes stage them. A FAIL would red the analyzer verifier on every one.
+  Baselining is structurally unavailable (the harness verifier and the CI fixture
+  floor both run `BaselineMode.Forbid`, where a `baseline.cfg` beside the save is
+  itself a FAIL), and there is no marker to scope the rule to post-fix recordings
+  (`sectionAuthoritative` would be a vacuous gate: a payload-free section is
+  exactly what makes a recording NON-section-authoritative). WARN names the damage
+  on every save that carries it without gating a lane; promote to FAIL when the two
+  relay fixtures are re-harvested. Adding the rule does NOT bump `AnalyzerVersion`
+  (that moves only on an `.analysis.json` schema change).
 
 ### Fixture versioning
 

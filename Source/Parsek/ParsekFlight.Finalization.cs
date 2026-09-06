@@ -683,9 +683,36 @@ namespace Parsek
             // Tree recordings reach finalization via ForceStop which skips BuildCaptureRecording
             // (where MaxDistanceFromLaunch is normally computed). Without this, all recordings
             // have maxDist=0.0 and IsTreeIdleOnPad falsely discards the entire tree.
-            if (rec.MaxDistanceFromLaunch <= 0.0 && rec.Points.Count >= 2)
+            //
+            // A recording whose TrackSections author a body-fixed surface routes through the
+            // section walk (Absolute frames + Relative bodyFixedFrames): the flat Points list
+            // is reference-frame-blind, and a Relative section's frames carry anchor-local
+            // METRES in latitude/longitude/altitude. The flat path is kept for a sections-less
+            // recording and for one whose sections carry no body-fixed surface and no Relative
+            // section at all, because the section walk leaves MaxDistanceFromLaunch untouched
+            // when it finds no body-fixed sample.
+            VesselSpawner.MaxDistanceBackfillRoute backfillRoute =
+                VesselSpawner.ClassifyMaxDistanceBackfillRoute(rec);
+            switch (backfillRoute)
             {
-                VesselSpawner.BackfillMaxDistance(rec);
+                case VesselSpawner.MaxDistanceBackfillRoute.BodyFixedSections:
+                    VesselSpawner.MaxDistanceReferenceSurface referenceSurface;
+                    VesselSpawner.BackfillMaxDistanceFromBodyFixedSurfaces(rec, out referenceSurface);
+                    ParsekLog.Verbose("Flight",
+                        $"FinalizeIndividualRecording: maxDist backfill route=body-fixed-sections " +
+                        $"reference={VesselSpawner.DescribeReferenceSurface(referenceSurface)} " +
+                        $"rec='{rec.RecordingId}' sections={rec.TrackSections?.Count ?? 0} " +
+                        $"points={rec.Points.Count} maxDist={rec.MaxDistanceFromLaunch:F0}m");
+                    break;
+
+                case VesselSpawner.MaxDistanceBackfillRoute.FlatPoints:
+                    VesselSpawner.BackfillMaxDistance(rec);
+                    ParsekLog.Verbose("Flight",
+                        $"FinalizeIndividualRecording: maxDist backfill route=flat-points " +
+                        $"reference=flat-points rec='{rec.RecordingId}' " +
+                        $"sections={rec.TrackSections?.Count ?? 0} points={rec.Points.Count} " +
+                        $"maxDist={rec.MaxDistanceFromLaunch:F0}m");
+                    break;
             }
 
             // Warn if leaf has no playback data. Reads the same playable-section term

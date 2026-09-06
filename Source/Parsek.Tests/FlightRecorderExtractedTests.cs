@@ -354,8 +354,11 @@ namespace Parsek.Tests
             recorder.CloseCurrentTrackSection(10.05);
 
             Assert.Empty(recorder.TrackSections);
+            // The discard is now stated as "payload-free" (no frames, no bodyFixedFrames,
+            // no checkpoints) and is shared with BackgroundRecorder through
+            // TrackSectionCloseClassifier; the span threshold it applies is unchanged.
             Assert.Contains(logLines, l => l.Contains("TrackSection discarded")
-                && l.Contains("zero frames"));
+                && l.Contains("payload-free"));
         }
 
         [Fact]

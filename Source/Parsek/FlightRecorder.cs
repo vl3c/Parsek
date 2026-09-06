@@ -5472,16 +5472,42 @@ namespace Parsek
                 largeGapThresholdSeconds: sparseGapThreshold,
                 warpFlags: sectionFrameWarpFlags);
 
-            // Skip degenerate zero-frame sections from brief RELATIVE/environment flickers
-            // (e.g., debris triggers anchor for one frame then leaves). Only discard if
-            // the section was very short — longer empty sections may be intentional (tests, checkpoints).
+            int bodyFixedFrameCount = currentTrackSection.bodyFixedFrames?.Count ?? 0;
             double sectionDuration = ut - currentTrackSection.startUT;
-            if (frameCount == 0 && checkpointCount == 0 && sectionDuration < 1.0)
+            TrackSectionCloseDisposition disposition = TrackSectionCloseClassifier.Classify(
+                frameCount,
+                bodyFixedFrameCount,
+                checkpointCount,
+                sectionDuration,
+                currentTrackSection.referenceFrame,
+                currentTrackSection.isBoundarySeam);
+
+            // Discard a short PAYLOAD-FREE section: no frames, no bodyFixedFrames, no
+            // checkpoints. Nothing downstream can render or read it, and persisting one
+            // makes the codec's flat-trajectory defences
+            // (HasCompleteTrackSectionPayloadForFlatSync and
+            // TryBuildBodyFixedPrimaryFlatPointsForRelativeSections) answer "payload
+            // incomplete" for the WHOLE recording; that is how an undock background
+            // child persisted a Relative section's anchor-local metres as flat lat/lon
+            // points and read maxDist ~735 km for a rover that never left the pad area
+            // (todo UNDOCK-BG-CHILD-WRITES-RELATIVE-METRES-AS-FLAT-LAT-LON).
+            //
+            // Same span threshold as the zero-frame discard this replaces; what widened
+            // is the SURFACE it reads (bodyFixedFrames now protects a section from being
+            // dropped) and the fact that BackgroundRecorder now mirrors it. The
+            // single-frame Absolute finalizations FinalizeAllForCommit emits carry a
+            // frame, so they still persist, and isBoundarySeam sections are exempt (the
+            // classifier persists them first) for the optimizer's split-suppression
+            // contract.
+            if (disposition == TrackSectionCloseDisposition.DiscardPayloadFree)
             {
                 trackSectionActive = false;
                 ParsekLog.Verbose("Recorder",
-                    $"TrackSection discarded (zero frames, {sectionDuration.ToString("F3", CultureInfo.InvariantCulture)}s): " +
-                    $"env={currentTrackSection.environment} ref={currentTrackSection.referenceFrame}");
+                    "TrackSection discarded (payload-free: no frames, bodyFixedFrames or checkpoints): " +
+                    $"env={currentTrackSection.environment} ref={currentTrackSection.referenceFrame} " +
+                    $"startUT={currentTrackSection.startUT.ToString("F3", CultureInfo.InvariantCulture)} " +
+                    $"endUT={ut.ToString("F3", CultureInfo.InvariantCulture)} " +
+                    $"duration={sectionDuration.ToString("F3", CultureInfo.InvariantCulture)}s");
                 return;
             }
 
@@ -5527,11 +5553,10 @@ namespace Parsek
             //   Relative scope already excludes them in practice (seams are
             //   authored Absolute), but the check is kept explicit for
             //   future seam variants.
-            if (frameCount <= 1
-                && checkpointCount == 0
-                && sectionDuration < 0.05
-                && currentTrackSection.referenceFrame == ReferenceFrame.Relative
-                && !currentTrackSection.isBoundarySeam)
+            //
+            // The predicate itself lives in TrackSectionCloseClassifier.Classify so both
+            // recorders read one decision and it is unit-testable.
+            if (disposition == TrackSectionCloseDisposition.DiscardSeedOnlyRelativeTransient)
             {
                 trackSectionActive = false;
                 ParsekLog.Verbose("Recorder",

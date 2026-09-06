@@ -205,9 +205,14 @@ tags = ["seam-verbs", "logistics", "route-candidacy", "route-create", "untyped-d
 # KNOWN DAMAGED BYTES SHIPPED ON PURPOSE: the two undock background children
 # (`49eaec92...` rover B, `0f391265...` rover A) carry `maxDist` of ~735 km and a handful
 # of leading flat POINTs that are anchor-local metre offsets written as lat/lon (todo
-# UNDOCK-BG-CHILD-WRITES-RELATIVE-METRES-AS-FLAT-LAT-LON). No analyzer rule reads
-# `maxDist` or range-checks flat points, so the analyzer verifier passes these bytes; a
-# green analyzer row on this lane is NOT a clean bill for that defect.
+# UNDOCK-BG-CHILD-WRITES-RELATIVE-METRES-AS-FLAT-LAT-LON, FIXED 2026-09-06 at the
+# producer; these bytes predate the fix and are NOT rewritten). No analyzer rule reads
+# `maxDist` or range-checks flat points, so the analyzer verifier still passes these
+# bytes - but it no longer passes them silently: INV11-EMPTY-SECTION now WARNs on the
+# zero-payload TrackSection each child carries (`49eaec92...#0`, `0f391265...#0`),
+# measured `FAIL=0 WARN=2 RED=0` over this fixture under baseline mode Forbid. The rule
+# is WARN precisely so these committed bytes do not red the lane; a green analyzer row
+# here is still NOT a clean bill for that defect, and the WARN rows are the reason why.
 # `rover-relay-recorded`, the relay harvest: the operator's hand-flown `logistics-rover-B`
 # SANDBOX save, collected 2026-09-02, harvested `--keep-parsek --expect-situation
 # ORBITING` and finished by `harness/tools/build_rover_relay_recorded.py`. Pinned shape in
