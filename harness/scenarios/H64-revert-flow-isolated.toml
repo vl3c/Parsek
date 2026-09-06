@@ -1,0 +1,127 @@
+schema = 1
+id = "H64-revert-flow-isolated"
+tier = "nightly"
+# ROADMAP R6, ISOLATED HALF, LANE 4 OF 7, and the first committed spec ever to drive
+# STOCK REVERT TO LAUNCH. The one `RevertFlow` cell starts a real recording, stages
+# the craft off the pad, then invokes KSP's own revert-to-launch through the
+# `FlightDriver` reflection surface and asserts Parsek SOFT-UNSTASHES the live tree
+# WITHOUT opening the merge dialog.
+#
+# WHY IT NEEDS THE ISOLATED ARG. The single declaration is
+# `AllowBatchExecution = false` + `RestoreBatchFlightBaselineAfterExecution = true`:
+# ordinary executes 0, isolated executes 1. WHOLLY batch-disabled, so the ordinary
+# path's executable ceiling is ZERO and the interim `passed=[1-9][0-9]*` spelling
+# already rejects the only line it could print (`passed=0`, which is also the vacuous
+# line).
+#
+# ONE CELL IS NOT A SMALL LANE HERE. A revert-to-launch tears the FLIGHT scene down
+# and rebuilds it, so this batch costs a real scene reload plus the isolated path's
+# own baseline restore on top.
+#
+# AUTHORED 2026-09-06, NEVER FLOWN.
+description = "Drive the in-game RevertFlow category through the ISOLATED batch entry point over a PRELAUNCH pad craft: start a real recording, stage off the pad, invoke stock Revert to Launch, and assert the live tree is soft-unstashed with no merge dialog - the one test no unattended path could run before R5."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "isolated-batch", "revert-flow", "R6", "H64"]
+
+[fixture]
+# `gs1-two-stage-pad`, and the cell's own guard chain names why: it skips unless the
+# active vessel is non-EVA and `sit = PRELAUNCH` ("requires a PRELAUNCH vessel on the
+# pad so the test can launch and then stock-revert"), unless flight is idle, and
+# unless `FlightInputHandler.state` and the `FlightDriver` revert reflection surface
+# are available. It then throttles up and stages, so it also needs a working engine -
+# on an engineless craft the launch half never happens and the revert has nothing to
+# unstash. That pair (PRELAUNCH + `ModuleEngines` on the ACTIVE vessel) is the
+# `staging` requirement `IsolatedBatchWiringGroupTests` gates statically, and
+# `gloops-airshow` fails it.
+#
+# gs1 over b2-lko-craft: the 15-part `GS1 Auto-Chute Booster` reverts faster than a
+# 73-part launcher and there is nothing in this cell that wants a big stack. It is the
+# same host H61, H62 and H65 boot, which makes a cross-lane comparison of the revert /
+# quickload cost meaningful.
+#
+# SANDBOX, empty corpus, `injectedRecordings = "none"`: the cell builds its own tree
+# from a live recording, and the whole point of the assertion is that the revert
+# leaves it SOFT-UNSTASHED rather than committed - so an injected corpus would make
+# the produced count un-attributable.
+saveTemplate = "fixtures/saves/gs1-two-stage-pad"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# `autoRecordOnLaunch` pinned false. The cell starts its OWN recording with
+# `StartRecording` and guards on `requires an idle prelaunch vessel (recording already
+# active)`, so an auto-record that fired first would self-skip the only cell in the
+# lane and print the all-skipped line. Pinning it false is the difference between a
+# census and a coin flip here, because with a single cell there is no other tally
+# token to read.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "RevertFlow", isolated = "true" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# D1 `commit-revert-merge`, CLAIMED WITH A STATED HONEST LIMIT - the MC-1 shape.
+# What this cell executes is the REVERT half of that token and only that half: a real
+# stock Revert to Launch over a live recording, with the assertion that the tree is
+# soft-unstashed and that NO merge dialog appears. It never presses a merge button, so
+# the MERGE half of the token is not exercised here; that half is driven by H63 (the
+# popup's own Merge branch) and by H21 (the scene-exit route into the same popup).
+# The token is still claimed rather than withheld because the revert path is what
+# `commit-revert-merge` names first and nothing else in the suite drives it, and
+# because the roadmap's R6 entry assigns it to this category. A reader who needs the
+# merge half must read H63 and H21, which is what this note is for.
+D1  = ["commit-revert-merge"]
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# ZERO, and here it is a DIRECT restatement of the cell's own thesis. A revert that
+# COMMITTED the live tree instead of soft-unstashing it would leave a recording in the
+# produced save; `gs1-two-stage-pad` stages an EMPTY corpus and injects nothing, so
+# any non-zero count is either that commit or a failed baseline revert - both of which
+# should red loudly. This is the one lane in the wave where the count row and the
+# in-game assertion point at the same behaviour from two sides.
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# EVIDENCE STANDING: NONE. Authored 2026-09-06, never flown.
+#
+# `total=1` is ATTRIBUTE-EXACT (one `[InGameTest(Category = "RevertFlow")]`
+# declaration, FLIGHT-scoped, kept in sync by `CommittedBatchTallySourceSyncTests`).
+# `failed=0` is the assertion. The split is a regex class.
+#
+# THE PREDICTION, written to be refuted: the cell EXECUTES, `total=1 passed=1
+# failed=0 skipped=0`. Four of its five guards are settled by the host and the driver
+# (non-EVA, PRELAUNCH, idle, `FlightInputHandler.state`). The FIFTH IS NOT SETTLED BY
+# ANY SAVE FILE and is the census's real product: `FlightDriver revert-to-launch
+# reflection surface unavailable on this KSP build`. Nothing in the suite has ever
+# resolved that surface at run time, so a skip on it is a FINDING about the reflection
+# probe against KSP 1.12.5 rather than a fixture mismatch - and with one cell, that
+# skip is the whole batch, which is exactly why it is worth flying.
+#
+# WHAT A ONE-CELL INTERIM PIN CANNOT SAY is nothing, unusually: with `total=1` the
+# only lines the pin admits are `passed=1 skipped=0`, so this lane's interim spelling
+# is as strong as a whole pin and becomes one verbatim on the first green census.
+required  = [
+  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=RevertFlow scene=FLIGHT",
+  "runtests start category=RevertFlow isolated=true",
+  "Using batch baseline slot .* for 1 restore-after-run test\\(s\\)",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# 1320 s worst case (660 + 660); 1400 clears it. One cell, but a revert-to-launch is a
+# full FLIGHT teardown and rebuild and the isolated path adds a baseline restore on
+# top, so this is not a fast lane despite the tally.
+budgetSeconds = 1400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

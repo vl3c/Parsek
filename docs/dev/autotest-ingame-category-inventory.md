@@ -91,12 +91,12 @@ Two limits of this table, stated so nobody over-reads it:
 
 | Category | Decls | Exec FLIGHT | Exec SPACECENTER | Exec TRACKSTATION | Batch-disabled | Members with self-skip | Driven by | Bucket |
 |---|---|---|---|---|---|---|---|---|
-| `AutoMergeCommit` | 1 | 0 | 0 | 0 | 1 | 1 | - | B |
-| `AutoRecord` | 10 | 0 | 0 | 0 | 10 | 10 | - | B |
+| `AutoMergeCommit` | 1 | 0 | 0 | 0 | 1 | 1 | H67-automerge-commit-isolated (ISOLATED, AUTHORED 2026-09-06, NEVER FLOWN - interim pin. H21's scene-exit seam with `autoMerge` FLIPPED ON, over the ORBITING `gs2-orbital-stack`: stock save-and-exit out of FLIGHT must commit SILENTLY and at FULL FIDELITY, keeping the committed leaf's `VesselSnapshot` and spawn-at-end eligibility. The host is DICTATED by the cell, whose own skip says only an ORBITING vessel produces the stable-terminal shape `CommitTreeSceneExit` preserves a snapshot for - which is why this lane added the `orbiting` fixture-requirement class. `total=1` attribute-exact, `failed=0` asserted, split interim, though at total=1 the interim spelling admits only `passed=1 skipped=0`) | B |
+| `AutoRecord` | 10 | 0 | 0 | 0 | 10 | 10 | H61-autorecord-isolated (ISOLATED, AUTHORED 2026-09-06, NEVER FLOWN - interim pin. The largest isolated batch in the suite, over the crewed PRELAUNCH `gs1-two-stage-pad`: launch auto-record starting exactly once, deferred EVA auto-record after a real `FlightEVA.spawnEVA`, the post-switch watch's negative case, and the two #526 pad-transient canaries. `total=10` attribute-exact, `failed=0` asserted, split interim with a PREDICTED 5-execute / 5-skip census in the spec header - three positive post-switch cells want LANDED or ORBITING, the EVA-ghost cell wants a mid-flight parent, and the two-EVA cell wants 2+ crew where this host carries 1. Claims D1 `auto-record-launch` + `auto-record-eva` only: `auto-record-first-mod-switch` is NOT claimed, because on a PRELAUNCH host the only post-switch cell that executes is the negative one) | B |
 | `BackgroundSeeder` | 2 | 2 | 0 | 0 | 0 | 2 | - | B |
 | `Bug289` | 2 | 2 | 0 | 0 | 0 | 0 | - | B |
 | `ClawCouple` | 2 | 2 | 0 | 0 | 0 | 2 | H42 (flown 2026-08-28, executes 2 of 2) | A |
-| `Coalescer` | 2 | 0 | 0 | 0 | 2 | 2 | - | B |
+| `Coalescer` | 2 | 0 | 0 | 0 | 2 | 2 | H62-coalescer-isolated (ISOLATED, AUTHORED 2026-09-06, NEVER FLOWN - interim pin. A REAL controlled-decoupled split over `gs1-two-stage-pad`, the only committed host carrying PRELAUNCH + an engine + 2 command modules + a decoupler: the live seed residual decision line with numeric `seedLiveRootDist=` / `propagatedResidual=`, and the child's `ParentAnchorRecordingId` stamped at the focused parent at split time. `total=2` attribute-exact, split interim, both cells predicted to execute. Claims D5 `controlled-decoupled-child` only - `crash-coalescing` is NOT claimed, because neither cell crashes anything) | B |
 | `ContinuationIntegrity` | 2 | 2 | 2 | 2 | 0 | 0 | - | B |
 | `Contracts` | 2 | 2 | 0 | 0 | 0 | 2 | - | B |
 | `CrewReservation` | 15 | 14 | 6 | 5 | 0 | 12 | H31 | A |
@@ -131,7 +131,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `MapPresence` | 5 | 5 | 3 | 3 | 0 | 2 | H28 | A |
 | `MapRender` | 22 | 21 | 0 | 0 | 1 | 14 | S1.7 | B |
 | `MapView` | 4 | 3 | 3 | 4 | 0 | 2 | H47 (flown 2026-08-28, executes 4 of 4) | A |
-| `MergeDialog` | 2 | 0 | 0 | 0 | 2 | 2 | - | B |
+| `MergeDialog` | 2 | 0 | 0 | 0 | 2 | 2 | H63-merge-dialog-isolated (ISOLATED, AUTHORED 2026-09-06, NEVER FLOWN - interim pin. The merge popup's own two branches driven in place over a FABRICATED pending tree - Discard clears it, deferred Merge commits it through the real `Merge to Timeline` path - which is a different seam from H21's, where a real stock scene exit spawns the same popup. Boots `gloops-airshow`: neither cell stages or spawns, so the requirement is `loaded-vessel`. `total=2` attribute-exact, split interim; its two non-trivial guards are REFLECTION guards, so a skip there is a finding rather than a fixture mismatch) | B |
 | `MissionPhasing` | 4 | 4 | 0 | 0 | 0 | 2 | - | B |
 | `Missions` | 13 | 7 | 6 | 0 | 0 | 9 | M1, H54 (FLIGHT slice, flown 2026-08-28, executes **3 of 13** - see the archetype note below) | B |
 | `Optimizer` | 2 | 0 | 2 | 0 | 0 | 2 | - | B |
@@ -146,12 +146,12 @@ Two limits of this table, stated so nobody over-reads it:
 | `Pipeline-Outlier` | 1 | 1 | 0 | 0 | 0 | 0 | - | B |
 | `Pipeline-Smoothing` | 4 | 4 | 0 | 0 | 0 | 1 | H18 | A |
 | `Pipeline-Terrain` | 1 | 1 | 0 | 0 | 0 | 1 | - | B |
-| `PlaybackControl` | 1 | 0 | 0 | 0 | 1 | 1 | - | B |
+| `PlaybackControl` | 1 | 0 | 0 | 0 | 1 | 1 | H66-playback-control-isolated (ISOLATED, AUTHORED 2026-09-06, NEVER FLOWN - interim pin. Commits a synthetic keep-vessel tree over `gloops-airshow`, fast-forwards the timeline into playback past the 15 s `RewindToLaunchLeadTimeSeconds` lead, and asserts the spawn happens EXACTLY ONCE and is not replaced by a second pid - checked immediately and again after a duplicate-prevention wait. `total=1` attribute-exact, so the interim spelling admits only `passed=1 skipped=0`. Claims D9 `fast-forward` and D6 `spawn-at-end-pid-dedup`; the unsettled guard is whether `TryBuildSyntheticKeepVesselTree` succeeds unattended, which nothing has ever run) | B |
 | `PlaybackFidelity` | 7 | 7 | 0 | 0 | 0 | 7 | H36 | A |
 | `PreParsekBackup` | 4 | 4 | 4 | 4 | 0 | 4 | PPB-1 | A |
-| `QuickloadResume` | 3 | 1 | 0 | 0 | 2 | 1 | - | B |
+| `QuickloadResume` | 3 | 1 | 0 | 0 | 2 | 1 | H65-quickload-resume-isolated (ISOLATED, AUTHORED 2026-09-06, NEVER FLOWN - interim pin. KSP's stock PROGRAMMATIC quickload backend over `gs1-two-stage-pad`: the `DontDestroyOnLoad` bridge surviving a real quicksave / quickload on a disposable slot, and a mid-recording F5/F9 resuming the SAME `activeRecordingId`. The R6 wave's ONLY partly-batch-disabled member - ordinary executes 1, isolated executes 3 - so it is declared in `PARTLY_BATCH_DISABLED_IDS` and its interim `passed=` is pinned as a FLOOR OF 2, since the plain `[1-9][0-9]*` spelling would accept `passed=1`, the exact line a run that lost the isolated arg prints. Its baseline-slot literal is 2, not the category total 3: only two of the three declarations carry the restore flag. Claims nothing beyond D14 - D9 `rewind-to-launch` names Parsek's own rewind machinery, not KSP's F5/F9) | B |
 | `ReFlyWorldPreservation` | 6 | 6 | 0 | 0 | 0 | 6 | S4.2 | A |
-| `ReStockCompat` | 9 | 9 | 0 | 0 | 0 | 9 | - | B |
+| `ReStockCompat` | 9 | 9 | 0 | 0 | 0 | 9 | MC-2-restock-compat (`modded-compat` instance profile, LIVE-PROVEN 2026-08-04 run `2026-08-04_2011`, PASS attempt 1, tally pinned WHOLE at `total=9 passed=8 failed=0 skipped=1`; the one skip is `ReStockAloneNormalScanNonEmpty`'s inverse gate, which Waterfall's presence on that profile closes by design. This row read `-` until 2026-09-06 and was simply stale - the spec has driven the category since 2026-08-04) | B |
 | `RecordedSignals` | 3 | 3 | 1 | 1 | 0 | 2 | H33 | A |
 | `Recording` | 1 | 0 | 1 | 0 | 0 | 0 | - | B |
 | `RecordingFinalization` | 3 | 3 | 0 | 0 | 0 | 0 | H19 | A |
@@ -162,7 +162,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `ResourceManifest` | 1 | 1 | 0 | 0 | 0 | 0 | - | B |
 | `ResourceReconciliation` | 1 | 0 | 1 | 0 | 0 | 0 | - | B |
 | `ResourceTopBar` | 2 | 0 | 2 | 0 | 0 | 2 | - | B |
-| `RevertFlow` | 1 | 0 | 0 | 0 | 1 | 1 | - | B |
+| `RevertFlow` | 1 | 0 | 0 | 0 | 1 | 1 | H64-revert-flow-isolated (ISOLATED, AUTHORED 2026-09-06, NEVER FLOWN - interim pin. The first committed spec anywhere to drive STOCK REVERT TO LAUNCH: over `gs1-two-stage-pad` it records, stages off the pad, invokes KSP's own revert through the `FlightDriver` reflection surface, and asserts Parsek soft-unstashes the live tree with NO merge dialog. `total=1` attribute-exact, so the interim spelling admits only `passed=1 skipped=0`. Four of five guards are settled by the host and the driver; the fifth - whether the `FlightDriver` revert surface resolves on this KSP build - has never been exercised at run time anywhere, and with one cell that skip would be the whole batch. Claims D1 `commit-revert-merge` with a stated honest limit: this is the REVERT half only) | B |
 | `RevertVesselStrip` | 1 | 1 | 0 | 0 | 0 | 1 | - | B |
 | `Rewind` | 38 | 26 | 6 | 0 | 6 | 24 | R7a / R7c | A |
 | `RewindSaves` | 1 | 1 | 1 | 1 | 0 | 1 | - | B |
@@ -202,7 +202,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `Unity` | 4 | 4 | 4 | 4 | 0 | 1 | - | B |
 | `WarpToTime` | 1 | 0 | 1 | 0 | 0 | 1 | - | B |
 | `Watch` | 2 | 2 | 0 | 0 | 0 | 0 | - | B |
-| `WaterfallCompat` | 8 | 8 | 0 | 0 | 0 | 7 | - | B |
+| `WaterfallCompat` | 8 | 8 | 0 | 0 | 0 | 7 | MC-1-waterfall-compat (`modded-compat` instance profile, LIVE-PROVEN 2026-08-04 run `2026-08-04_2008`, PASS attempt 1, tally pinned WHOLE at `total=8 passed=7 failed=0 skipped=1`; the one skip is `WaterfallGateClosedOnStockInstall`'s inverse gate, which the profile's real Waterfall install closes by design. This row read `-` until 2026-09-06 and was simply stale - the spec has driven the category since 2026-08-04) | B |
 
 ## Triage
 
@@ -299,12 +299,35 @@ Tier B item-4 subject the roadmap wrote as a manual flight and H56's probe retir
 ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE, fixed in the same commit as these cells, so
 nothing has ever exercised the fixed producer live.
 
-Driven by a committed spec: **47 of 111 categories**, up from 35
-across six waves - `ReFlyWorldPreservation` via S4.2, `RecordedSignals` via H33,
+Driven by a committed spec: **70 of 112 categories**, covering **538 of 620
+declarations** (re-derived mechanically 2026-09-06: count the table rows whose
+Driven-by cell is not `-`, and sum their Decls column).
+
+TWO CORRECTIONS ARE FOLDED INTO THOSE NUMBERS, and they are worth naming because the
+prose below is a history that had drifted from its own table. (1) The sentence read
+**47 of 111** before this pass while the table itself already carried 61 driven rows
+out of 112 - it had not been re-derived across roughly a dozen waves, and the
+narrative that follows enumerates only the waves someone remembered to append.
+(2) `WaterfallCompat` (8) and `ReStockCompat` (9) had read `-` since 2026-08-04
+despite being driven and LIVE-PROVEN by `MC-1-waterfall-compat` /
+`MC-2-restock-compat` on that date; both rows are fixed in this commit. The R6
+isolated wave (H61-H67) then adds the remaining seven - `AutoRecord` (10),
+`Coalescer` (2), `MergeDialog` (2), `RevertFlow` (1), `QuickloadResume` (3),
+`PlaybackControl` (1) and `AutoMergeCommit` (1) - all AUTHORED 2026-09-06 and NONE
+FLOWN, so they move the DRIVEN numbers and stay in bucket B until a census.
+
+THE LESSON, since this is not the first doc-count drift the suite has recorded: a
+hand-maintained running total sitting beside a machine-derived table is a second
+copy, and it rots in the direction of understatement. Re-derive it from the table
+rather than appending another clause to the sentence.
+
+The history the number used to carry is kept below verbatim, because it records which
+wave bought what. It was up from 35 across six waves - `ReFlyWorldPreservation` via
+S4.2, `RecordedSignals` via H33,
 `SnapshotBaseline` via H32, and `Logistics` via H34 all landed together in one merge
 (the S1.8 SoiCrossingPlayback wave had taken it to 35 from 34, and 28 and 8 the waves
 before), then `PlaybackFidelity` via H36 and `PartEventFidelity` via H37. Measured
-against declarations rather than categories, that is 418 of 613 inside a driven
+against declarations rather than categories, that stood at 418 of 613 inside a driven
 category (was 318 before these waves: 324 after S4.2, 327 after H33, 334 after H32,
 381 once `Logistics` counted, 388 with `PlaybackFidelity`, 393 with
 `PartEventFidelity`, and 401 once L3's capture matrix took `StrategyLifecycle` from 3
@@ -558,7 +581,7 @@ one wired category costs one KSP boot per cadence. Wiring all 74 undriven catego
 would mean 89 boots. The question is never "can this category run in a batch" but
 "is what it executes worth a boot".
 
-### Bucket A - wired now (30 categories, 181 declarations)
+### Bucket A - wired now (46 categories, 280 declarations)
 
 Two sub-classes, admitted on DIFFERENT grounds. Conflating them is how the isolated
 spec would end up pinned against the wrong derivation.
@@ -839,7 +862,7 @@ make these lanes pass.
 | `H39-logistics-isolated-bdock` | Logistics | 47 declared, 46 admitted | The same 46 cells over `bdock-recorded` - the FIRST time the restore-flagged Logistics declarations run against a non-empty recording store (two committed trees, 19 recordings, one dock window). Pays two of H38's five missing-recorded-subject skips, and is the fixture-axis negative control on H38: the census delta says which of its 39 passes were RIG properties rather than universal ones - measured, 5 of them. FLOWN 3x 2026-08-28, pinned whole `47/34/0/13` with count 21; its census-2 recordings-floor red is half of how the tree-deletion data loss was found |
 | `H40-logistics-isolated-depot-route` | Logistics | 47 declared, 46 admitted | The same 46 cells over `depot-route-recorded`, the suite's ONLY committed Active GhostDriving route (four `SOURCE_REF` rows carrying `routeProofHash`, a Dock and an Undock branch point, 22 recordings). The axis it adds is ROUTE-PRESENT vs ROUTE-ABSENT: every route-reading cell in the category has until now executed only against state a test forged in-body. Carries the `RevalidateSources ... routes=1 transitioned=0` anti-vacuity token, tightened to `reason=OnLoad` by the census (the authored wildcard also matched on the route-less host). FLOWN 3x 2026-08-28, pinned whole `47/35/0/12` with count 22. It adds ZERO distinct declarations over `H38 ∪ H39` - its value is the execution context plus the nine-cell destination-headroom test-defect family its census 1 exposed against a 720/720 tank |
 
-### Bucket B - wireable, but needs something first (71 categories, 410 declarations)
+### Bucket B - wireable, but needs something first (66 categories, 340 declarations)
 
 Not one list but six reasons, and the reason is what decides whether it is worth
 doing.
@@ -882,11 +905,24 @@ spawned-endpoint recordings, which also makes `SpawnHealth`'s third cell
 C# fixture change, not a spec change, and it is the highest-value item in this
 bucket because it unblocks three cells across two categories at once.
 
-**B2 - needs the modded-compat instance profile.** `ReStockCompat` (9) and
-`WaterfallCompat` (8) are batch-eligible and substantial, but every cell gates on the
-mod being installed, so on `stock-minimal` all 17 would skip. They belong on the
-`modded-compat` profile, and `WaterfallCompat` in particular is where the pristine-FX
-fallback lives.
+**B2 - CLOSED 2026-08-04 BY R14, and this note lagged it by a month.**
+`ReStockCompat` (9) and `WaterfallCompat` (8) are batch-eligible and substantial, but
+every cell gates on the mod being installed, so on `stock-minimal` all 17 would skip.
+That was the whole blocker, and R14 removed it: the second provisioned instance
+`automation/modded-compat` shipped on 2026-08-04 and `MC-1-waterfall-compat` /
+`MC-2-restock-compat` both flew PASS on attempt 1 the same day, 15 of the 17 members
+executing. The 2 remaining skips are the by-design inverse gates
+(`WaterfallGateClosedOnStockInstall` and `ReStockAloneNormalScanNonEmpty`), each
+closed by the other mod's presence on that profile, and both tallies are pinned WHOLE.
+
+WHAT WAS STALE, corrected 2026-09-06: the table's Driven-by cells for both categories
+still read `-`, and so did this note, so anyone planning the next wave would have
+counted 17 declarations as undriven work that had been done for a month. The rows now
+name their specs. The categories stay in bucket **B** by the rule the bucket column
+follows - it tracks the STOCK-MINIMAL batch story, and these two are driven on a
+DIFFERENT instance profile. `WaterfallCompat` in particular is where the pristine-FX
+fallback lives; both runs are detailed in `docs/dev/autotest-status.md`,
+"Modded-compat instance (D17), R14".
 
 **B3 - reachable only at SPACECENTER, and thin.** `Ledger` (4), `StockUiOverlay` (6),
 `ResourceTopBar` (2), `Optimizer` (2), `Recording` (1),
@@ -1082,35 +1118,85 @@ seven now are; the "one self-skip wants reading first" caution earned its keep
 twice - see the header note's H26 and H30 corrections, both invisible to the
 attribute columns above.)
 
-**B6-ISO - needs an ISOLATED batch and a launchable-craft fixture (5 categories, 16
-declarations).** `AutoRecord` (10), `Coalescer` (2), `MergeDialog` (2),
-`PlaybackControl` (1), `RevertFlow` (1). These arrived in bucket B from the retired
-C1 when R5 shipped: every one of their declarations is `AllowBatchExecution = false`
-AND `RestoreBatchFlightBaselineAfterExecution = true`, so the ordinary filter
-executes none of them and the isolated filter executes all of them. What each still
-needs is ordinary spec-authoring work, not a capability:
+**B6-ISO - ALL SEVEN AUTHORED 2026-09-06, NONE FLOWN (7 categories, 20
+declarations).** `AutoRecord` (10) -> `H61-autorecord-isolated`; `Coalescer` (2) ->
+`H62-coalescer-isolated`; `MergeDialog` (2) -> `H63-merge-dialog-isolated`;
+`RevertFlow` (1) -> `H64-revert-flow-isolated`; `QuickloadResume` (3) ->
+`H65-quickload-resume-isolated`; `PlaybackControl` (1) ->
+`H66-playback-control-isolated`; `AutoMergeCommit` (1) ->
+`H67-automerge-commit-isolated`.
+
+THIS NOTE USED TO NAME FIVE CATEGORIES AND 16 DECLARATIONS. It is seven and 20, and
+the two it missed are worth naming because neither is an edge case. `AutoMergeCommit`
+arrived after the note was written (R4's plan-section-7 autoMerge scene-exit cell).
+`QuickloadResume` never appeared here at all, because it is only PARTLY
+batch-disabled: two of its three declarations are isolated-only and one is an ordinary
+batch cell, so it did not match the "every one of their declarations" phrasing this
+note opens with and fell between the buckets. The isolated arg buys it two real cells
+all the same, which is the same argument R7a and the Logistics family already carry.
+
+These arrived in bucket B from the retired C1 when R5 shipped: their declarations are
+`AllowBatchExecution = false` AND `RestoreBatchFlightBaselineAfterExecution = true`
+(all of them, save `QuickloadResume`'s one ordinary cell), so the ordinary filter
+executes none of them and the isolated filter executes them. What each needed was
+ordinary spec-authoring work, not a capability - and the three things this note
+predicted that work would take are exactly what the wave paid:
 
 1. A spec whose `RunTests` step carries `isolated = "true"`. Template:
-   `harness/scenarios/H21-scene-exit-merge-isolated.toml`.
-2. A fixture whose ACTIVE vessel can do what the tests do. This is the part that
-   bites: `SceneExitMerge`'s cells stage the active vessel and wait for it to leave
-   PRELAUNCH and clear 80 m, so the default `gloops-airshow` host (a 1-part
-   `mk1-capsule` with zero `ModuleEngines`) would self-skip both and print the
-   all-skipped tally the isolated arg exists to rule out. Read each category's
-   `BatchSkipReason` and self-skip guards before choosing.
-3. A budget sized for real quickloads. H21 MEASURED a two-test isolated batch at
-   29.6 s of batch time inside 101 s wall, so the roadmap's fear that a 10-test
-   `AutoRecord` batch is unaffordable in one boot looks overstated - but it is ten
-   launch-and-restore cycles, so size it and expect the first run to find something.
+   `harness/scenarios/H21-scene-exit-merge-isolated.toml`. Done, seven times.
+2. A fixture whose ACTIVE vessel can do what the tests do. THIS WAS THE PART THAT
+   BIT, as predicted, and the answer is three hosts rather than one.
+   `gs1-two-stage-pad` (crewed, PRELAUNCH, one engine, TWO command modules and a
+   decoupler) carries H61 / H62 / H64 / H65 - the staging lanes.
+   `gloops-airshow` carries H63 and H66, whose cells never stage and need only a real
+   vessel to exist. `gs2-orbital-stack` carries H67, whose cell states an ORBITING
+   host as a PRODUCT requirement: only that situation produces the stable-terminal
+   recording `CommitTreeSceneExit` preserves a `VesselSnapshot` for, so a PRELAUNCH
+   host would not merely skip the cell, it would make the assertion unreachable. That
+   forced a FOURTH fixture-requirement class, `orbiting`, into
+   `IsolatedBatchWiringGroupTests` alongside `staging` / `logistics` /
+   `loaded-vessel`.
+3. A budget sized for real quickloads. All seven declare 1400 s, which clears the
+   1320 s deferred worst case. H61 is the one to watch: ten launch-and-restore cycles
+   at H21's measured ~15 s per cycle projects to ~150 s of batch, and if the first
+   census lands near the 540 s `RunTests` cap the lane should be SPLIT BY SITUATION
+   rather than given a bigger budget.
 
-`AutoRecord` (10) is the largest and closes D1 `auto-record-first-mod-switch`;
-`Coalescer` closes D5 `crash-coalescing` / `controlled-decoupled-child`;
-`RevertFlow` closes D1 `commit-revert-merge`. Tracked as R6 in
-`docs/dev/autotest-roadmap.md`.
+WHAT THE AUTHORING PASS REFUTED, before any of them flew. This section used to close
+with "`AutoRecord` (10) is the largest and closes D1 `auto-record-first-mod-switch`;
+`Coalescer` closes D5 `crash-coalescing` / `controlled-decoupled-child`; `RevertFlow`
+closes D1 `commit-revert-merge`" - and reading the cell bodies knocked out two of
+those four claims:
 
-### Bucket C - not batch-runnable (1 category, 10 declarations)
+- `AutoRecord` does NOT close `auto-record-first-mod-switch` on a PRELAUNCH host. All
+  three POSITIVE post-switch cells demand LANDED or ORBITING, so the only one that
+  executes is the negative `AutoRecordOnPostSwitch_NoOp_DoesNotStart`, and a negative
+  case is not the token. Closing it needs a LANDED host and an ORBITING host, i.e. two
+  more lanes.
+- `Coalescer` does NOT close `crash-coalescing`. Both its cells stage a decoupler and
+  assert on the resulting CONTROLLED child; neither crashes anything, and nothing in
+  either body reaches the crash-coalescing path.
+- `controlled-decoupled-child` and `commit-revert-merge` stand, the latter with a
+  stated honest limit: H64 executes the REVERT half (a real stock Revert to Launch
+  over a live recording, asserting the soft-unstash and the ABSENCE of the dialog),
+  while the merge half belongs to H63 and H21.
 
-One reason, and it is not fixable by writing a spec.
+Tracked as R6 in `docs/dev/autotest-roadmap.md`.
+
+WHAT THE BUCKET COLUMN STILL SAYS. All seven rows stay **B** until a census: the
+column tracks live-proven status and an authored-but-never-flown spec has proved
+nothing. Each moves to **A** in the commit that pins its measured tally whole and
+removes its id from `IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS`.
+
+### Bucket C - not batch-runnable (0 categories, 0 declarations)
+
+EMPTY, and it has been since R12 closed C2 on 2026-07-30 - the header said
+"1 category, 10 declarations" until 2026-09-06 because it was never re-derived after
+that closure moved `TrackingStation` to bucket A. Both sub-reasons below are retired
+and are kept for their reasoning rather than their contents. All three bucket headers
+were re-derived mechanically in the same pass (count the table's rows by Bucket cell,
+sum their Decls column); the same drift the triage section's own "Driven by a
+committed spec" sentence had, for the same reason.
 
 **C1 - RETIRED BY R5 (2026-07-27).** This sub-reason used to hold six categories -
 `AutoRecord` (10), `Coalescer` (2), `MergeDialog` (2), `SceneExitMerge` (2),

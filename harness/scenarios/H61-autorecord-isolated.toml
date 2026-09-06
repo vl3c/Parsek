@@ -1,0 +1,226 @@
+schema = 1
+id = "H61-autorecord-isolated"
+tier = "nightly"
+# ROADMAP R6, ISOLATED HALF, LANE 1 OF 7 - and the largest of them: ten cells, every
+# one of which launches, EVAs, or arms a post-switch watch on the live active vessel,
+# and every one of which is followed by a real quickload baseline restore.
+#
+# WHY IT NEEDS THE ISOLATED ARG. All ten `AutoRecord` declarations are
+# `AllowBatchExecution = false` + `RestoreBatchFlightBaselineAfterExecution = true`,
+# so the ORDINARY filter executes ZERO of them and the isolated filter executes all
+# ten. The category is WHOLLY batch-disabled (H21's shape, not R7a's), which is what
+# lets the interim `passed=[1-9][0-9]*` spelling below already reject every line the
+# ordinary path could print: its executable ceiling is 0.
+#
+# AUTHORED 2026-09-06, NEVER FLOWN. The `passed=` / `skipped=` split below is a
+# REGEX CLASS, not a pin, and the cell-by-cell prediction in this header is written
+# to be REFUTED by the first census rather than confirmed by it.
+description = "Drive the in-game AutoRecord category through the ISOLATED batch entry point over a crewed two-stage PRELAUNCH pad craft: launch auto-record, EVA auto-record, the post-switch watch's negative case, and the two #526 pad-transient canaries - ten cells no unattended path could run before R5."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "isolated-batch", "auto-record", "R6", "H61"]
+
+[fixture]
+# NOT gloops-airshow, for H21's reason and one more of this lane's own.
+#
+# H21's reason: `AutoRecordOnLaunch_StartsExactlyOnce` calls
+# `StageManager.ActivateNextStage()` and then waits on `WaitForLaunchAutoRecordStart`
+# for 30 s. On the 1-part engineless `mk1-capsule` nothing ignites and the cell
+# self-skips, which pushes the tally toward the all-skipped line the isolated arg
+# exists to rule out. `IsolatedBatchWiringGroupTests::test_the_fixture_can_actually
+# _fly_the_category` gates that statically through the `staging` requirement
+# (PRELAUNCH + at least one `ModuleEngines` on the ACTIVE vessel).
+#
+# THIS LANE'S OWN REASON: the EVA cell needs CREW. `gloops-airshow` carries one
+# kerbal, so it would satisfy the single-EVA cell; `gs1-two-stage-pad` carries
+# Valentina in an `mk1pod.v2` and satisfies it too, while also being the only
+# committed PRELAUNCH+engine host that is small enough for ten launch-and-restore
+# cycles. It is the 15-part `GS1 Auto-Chute Booster` (mk1pod.v2 + probeCoreOcto2.v2 +
+# Decoupler.1 + liquidEngine2, `sit = PRELAUNCH`, SANDBOX), already flown by
+# `GS-1-auto-chute-booster`.
+#
+# NO LAUNCH CLAMPS, and that is load-bearing rather than incidental:
+# `RealSpawnControl_WarpToRecordingEnd_OnPad_DoesNotAutoStartLaunchRecording` carries
+# an explicit `ActiveVesselHasLaunchClamps()` skip, because a clamped pad craft never
+# produces the launch situation transition whose suppression the cell asserts. The
+# fixture's active vessel carries none (verified by reading its VESSEL block).
+#
+# ONE CREW, which is why one cell is PREDICTED TO SKIP rather than a host defect:
+# `EvaTwiceFromSameCapsuleProducesTwoBranches` requires `CountCrewInParts(vessel) >= 2`.
+# Closing that cell needs a 2-crew PRELAUNCH pad host (`eva3-pad-3crew` is the obvious
+# candidate) and is deliberately left to a follow-up lane rather than swapped in here,
+# because this host is the one that satisfies the other nine.
+saveTemplate = "fixtures/saves/gs1-two-stage-pad"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# THE SetSetting STEP IS KEPT, AND THE DECISION IS NOT THE OBVIOUS ONE. This lane
+# tests auto-record itself, so pinning `autoRecordOnLaunch = false` looks like it
+# would disable the subject. It does not, and the source settles it: EVERY AutoRecord
+# cell that needs a flag ON sets that flag ITSELF inside a `try` and restores the
+# captured original in `finally` -
+#   * `AutoRecordOnLaunch_StartsExactlyOnce` (RuntimeTests.cs:2037) sets
+#     `ParsekSettings.Current.autoRecordOnLaunch = true`,
+#   * `TimelineFastForward_OnPad_*` (:14139) and `RealSpawnControl_WarpToRecordingEnd_
+#     OnPad_*` (:14248) both do the same, because a suppression assertion is vacuous
+#     with the flag off,
+#   * `AutoRecordOnEvaFromPad_*` (:2118) sets `autoRecordOnEva`,
+#   * `AutoRecordOnPostSwitch_NoOp_DoesNotStart` (:2944) sets
+#     `autoRecordOnFirstModificationAfterSwitch`.
+# So the driver's pin cannot reach any cell's subject. What it DOES buy is the same
+# thing it buys H21: the batch starts from a KNOWN IDLE flight. Six of the ten cells
+# carry an `if (flight.IsRecording) InGameAssert.Skip(...)` guard, and a load-time
+# auto-record firing on scene entry would self-skip them for an environmental reason
+# that looks exactly like a product defect. Pinning it false removes that race outright
+# rather than resting on ordering.
+#
+# NOTE on the recording-rules suppression, same as H21:
+# `hlib.spec_expects_live_recording` reads the DRIVER (a StartRecording step, or an
+# `autoRecordOnLaunch = true` pin) and so returns False here, suppressing
+# REC-001/REC-003 even though this run genuinely records from inside the test bodies.
+# That is a suppression, so it can only under-detect; the BATCH_COMPLETE pin is the
+# real gate.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "AutoRecord", isolated = "true" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# HONEST, and NARROWER THAN THE ROADMAP'S R6 ENTRY CLAIMS. R6 says this category
+# "Closes D1 `auto-record-first-mod-switch`". On a PRELAUNCH host it does not, and the
+# reason is in the cells' own guards: all THREE positive post-switch cells demand a
+# situation this host is not in - `AutoRecordOnPostSwitch_LandedMotion_*` (:2657) and
+# `AutoRecordOnPostSwitch_GearToggle_*` (:2854) require LANDED, and
+# `AutoRecordOnPostSwitch_OrbitalEngineOrRcs_*` (:2754) requires ORBITING. The only
+# post-switch cell that executes here is `AutoRecordOnPostSwitch_NoOp_DoesNotStart`,
+# which arms the watch and asserts NOTHING starts. A negative case is not the token,
+# so the token is NOT claimed and the roadmap line is corrected in the same commit.
+# Closing it needs a LANDED host and an ORBITING host; both are named as follow-up
+# lanes in docs/dev/autotest-roadmap.md.
+#
+# WHAT IS CLAIMED, one token per executing subject:
+#  - `auto-record-launch`: `AutoRecordOnLaunch_StartsExactlyOnce` stages the real
+#    craft, waits for it to leave the pad, and asserts EXACTLY ONE
+#    `Auto-record started (` line plus a non-null `ActiveRecordingId`.
+#  - `auto-record-eva`: `AutoRecordOnEvaFromPad_StartsExactlyOnce` drives
+#    `FlightEVA.spawnEVA` on a real crew member and asserts exactly one
+#    `Auto-record started (EVA from pad)` line and that focus moved to the kerbal.
+# SANDBOX on a FLIGHT-scene pad craft (D14).
+#
+# NOT CLAIMED, deliberately: D9 `fast-forward` and D13 `real-spawn-control`, even
+# though the two #526 cells drive a timeline fast-forward and a Real Spawn Control
+# warp respectively. Their SUBJECT is auto-record SUPPRESSION - each asserts the FF /
+# warp does not start a bogus recording - so the fast-forward is the fixture and not
+# the measurement. `fast-forward` is claimed by H66, whose cell asserts the playback
+# and the spawn.
+D1  = ["auto-record-launch", "auto-record-eva"]
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (see H21): `expectations.allowedAnomalies` is read as a
+# bare key, so it must stay ahead of the `[expectations.<sub>]` headers.
+allowedAnomalies = []
+
+[expectations.recordings]
+# ZERO, and this doubles as the CAMPAIGN-ISOLATION assertion. Every executing cell
+# creates a real live recording (a launch tree, an EVA branch, a synthetic
+# keep-vessel tree); each cell restores a quickloaded flight baseline afterwards and
+# the batch teardown then reverts persistent.sfs from the clean `.bak`
+# `CaptureBatchBaseline` wrote before the marker. `gs1-two-stage-pad` stages an EMPTY
+# corpus (0 `.prec` sidecars) and injects nothing, so the produced save must carry no
+# recordings at all. A non-zero count here does not mean "a cell leaked" - it means
+# the isolated path's restore contract did not hold, which is exactly the property R5
+# is betting on and should red loudly. (`test_each_pins_the_recordings_count_its_
+# fixture_implies` requires this exact {0, 0} for an empty-corpus template; a window
+# would accept a leaked tree or a failed baseline revert.)
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# ANTI-VACUITY plus the R5 discrimination requirement, on the three tokens every
+# isolated member owes.
+#
+# EVIDENCE STANDING: NONE. Authored 2026-09-06, never flown. `total=10` is
+# ATTRIBUTE-EXACT (ten `[InGameTest(Category = "AutoRecord")]` declarations, all
+# FLIGHT-scoped, kept in sync by `CommittedBatchTallySourceSyncTests`); `failed=0` is
+# the ASSERTION; `passed=` and `skipped=` are regex classes because the split turns on
+# run-time `InGameAssert.Skip` guards no attribute predicts.
+#
+# THE PREDICTION, written to be refuted. FIVE EXECUTE, FIVE SKIP:
+#   EXECUTE
+#     1. AutoRecordOnLaunch_StartsExactlyOnce (:2037) - PRELAUNCH + engine + idle, all
+#        satisfied by the host.
+#     2. AutoRecordOnEvaFromPad_StartsExactlyOnce (:2118) - crewed non-EVA + idle +
+#        a resolvable `FlightEVA` and airlock. Valentina is aboard the mk1pod.v2.
+#     3. AutoRecordOnPostSwitch_NoOp_DoesNotStart (:2944) - the only post-switch cell
+#        with no situation guard.
+#     4. TimelineFastForward_OnPad_DoesNotAutoStartLaunchRecording (:14139) - idle +
+#        non-EVA + main body + PRELAUNCH-or-landed.
+#     5. RealSpawnControl_WarpToRecordingEnd_OnPad_DoesNotAutoStartLaunchRecording
+#        (:14248) - the same four plus the no-launch-clamps guard, which this host
+#        satisfies.
+#   SKIP
+#     6. EvaKerbalGhostHasVesselSnapshot (:2215) - explicit skip on PRELAUNCH /
+#        LANDED / SPLASHED: the cell needs a MID-FLIGHT parent, because from the pad
+#        KSP's switch to the kerbal is slower than Parsek's 1-frame DeferredEvaBranch
+#        deferral and the periodic finalizer auto-seals the kerbal recording as Landed
+#        before a recorder rebinds. Its own comment says so at length.
+#     7. EvaTwiceFromSameCapsuleProducesTwoBranches (:2488) - needs 2+ crew; the host
+#        carries 1.
+#     8. AutoRecordOnPostSwitch_LandedMotion_StartsExactlyOnce (:2657) - needs LANDED.
+#     9. AutoRecordOnPostSwitch_OrbitalEngineOrRcs_StartsExactlyOnce (:2754) - needs
+#        ORBITING.
+#    10. AutoRecordOnPostSwitch_GearToggle_StartsExactlyOnce (:2854) - needs LANDED.
+# So the predicted line is `total=10 passed=5 failed=0 skipped=5`. Four of the five
+# predicted skips are SITUATION properties of the host and one is a CREW property;
+# none is a product claim. If the census reads any of the five as PASSED, the
+# prediction was wrong and the pin is replaced whole - which is what the interim class
+# exists for.
+#
+# THE THREE TOKENS, and what each rests on:
+#  - The BATCH_COMPLETE line. `total=10` literal; `failed=0` literal; `passed=` is the
+#    plain `[1-9][0-9]*` interim spelling, which is SUFFICIENT here because the
+#    ordinary path's executable ceiling for this category is ZERO - the only line it
+#    could print is `passed=0`, which this rejects, and which is also a member of the
+#    vacuity family the anti-vacuity gate enumerates.
+#  - `runtests start category=AutoRecord isolated=true` - emitted by
+#    `ParsekTestCommandAddon.RunTestsImpl` on the exact step this driver sends, so it
+#    is reachable by construction. It is also the CANARY for the provisioning trap:
+#    the harness flies a DIFFERENT KSP instance from `dotnet build`'s, so its ABSENCE
+#    means a stale automation `Parsek.dll` rather than a Parsek regression.
+#  - `Using batch baseline slot ... for 10 restore-after-run test(s)` - emitted ONLY
+#    by `PrepareBatchFlightRestoreExecution`, which `RunCategory` never calls. The
+#    literal 10 is DERIVED: it is the count of restore-flagged declarations the
+#    isolated filter admits at FLIGHT, and all ten AutoRecord cells carry the flag.
+#    Pinned as a literal rather than a class because a class is satisfied by a batch
+#    that admitted a different population.
+required  = [
+  "BATCH_COMPLETE v1 total=10 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=AutoRecord scene=FLIGHT",
+  "runtests start category=AutoRecord isolated=true",
+  "Using batch baseline slot .* for 10 restore-after-run test\\(s\\)",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# Budget arithmetic (M-A5 S8), the same shape H21 states: LoadGame is ITSELF in
+# `hlib.DEFERRED_SEAM_VERBS`, so run.py gives EVERY deferred step
+# `required_step_wait(max(step budget, SEAM_FALLBACK_DEFERRAL_SECONDS=600))` = 660 s
+# regardless of the declared budget. Worst case is 660 + 660 = 1320, and 1400 clears
+# it so a genuine seam TIMEOUT surfaces as a retryable driver-INVALID rather than a
+# harness KILL that prints no tally.
+#
+# IS 1400 ENOUGH FOR TEN CELLS? H21 MEASURED a two-cell isolated batch at 29.6 s of
+# batch time inside 101 s wall on a 73-part launcher, i.e. ~15 s per launch-and-restore
+# cycle. Ten cells on a 15-part craft projects to ~150 s of batch, and five of the ten
+# are predicted to self-skip in microseconds. The first census measures it; if the real
+# batch approaches the 540 s RunTests cap this budget is the wrong lever and the lane
+# should be split by situation instead.
+budgetSeconds = 1400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

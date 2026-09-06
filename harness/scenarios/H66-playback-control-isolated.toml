@@ -1,0 +1,136 @@
+schema = 1
+id = "H66-playback-control-isolated"
+tier = "nightly"
+# ROADMAP R6, ISOLATED HALF, LANE 6 OF 7. The one `PlaybackControl` cell commits a
+# SYNTHETIC keep-vessel tree to the timeline, fast-forwards UT into it, waits for the
+# ghost to go active and for the recording to spawn its real vessel, and then asserts
+# the spawn happened EXACTLY ONCE - twice, once immediately and once after a two-second
+# duplicate-prevention wait. It recovers the spawned vessel and removes the committed
+# tree in `finally`.
+#
+# WHY IT NEEDS THE ISOLATED ARG. The single declaration is
+# `AllowBatchExecution = false` + `RestoreBatchFlightBaselineAfterExecution = true`:
+# ordinary executes 0, isolated executes 1. WHOLLY batch-disabled, so the ordinary
+# path's executable ceiling is ZERO and the interim spelling already rejects the only
+# line it could print.
+#
+# AUTHORED 2026-09-06, NEVER FLOWN.
+description = "Drive the in-game PlaybackControl category through the ISOLATED batch entry point: commit a synthetic keep-vessel recording, fast-forward the timeline into playback, and assert the keep-vessel spawn happens exactly once and is not replaced by a second pid - the one test no unattended path could run before R5."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "isolated-batch", "playback-control", "fast-forward", "R6", "H66"]
+
+[fixture]
+# `gloops-airshow`, and the cell's guards say why a cheap host is the RIGHT host here
+# rather than merely an affordable one. It needs an idle flight, an active vessel that
+# is non-EVA with a main body, and `sit = PRELAUNCH` or landed/splashed - its own skip
+# calls that "a deterministic keep-vessel playback canary". It then builds its
+# synthetic tree FROM THAT VESSEL (`TryBuildSyntheticKeepVesselTree(activeVessel, ...)`)
+# and later spawns a copy of it. So the host is the SUBJECT of the spawn, and a 1-part
+# `mk1-capsule` makes the spawn, the pid census (`CountLoadedVesselsByPid`) and the
+# `ShipConstruction.RecoverVesselFromFlight` cleanup as simple as they can be. A
+# 15-part or 73-part craft would add parts to every one of those steps and buy nothing.
+#
+# The requirement class is `loaded-vessel` (PART nodes present; the active vessel not
+# an asteroid / EVA kerbal / debris), which is what
+# `IsolatedBatchWiringGroupTests::test_the_fixture_can_actually_fly_the_category`
+# gates. It is deliberately NOT `staging`: this cell never calls
+# `ActivateNextStage`, so holding it to PRELAUNCH-with-engines would assert a
+# capability none of its code reads. `gloops-airshow` IS PRELAUNCH, which satisfies the
+# cell's own situation guard - but that is a property of this host, not a requirement
+# of the category, and a LANDED host would serve equally.
+#
+# SANDBOX, empty corpus, `injectedRecordings = "none"`: the cell authors its own
+# synthetic tree in-session, so an injected corpus would add ghosts the pid census
+# would have to distinguish.
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# `autoRecordOnLaunch` pinned false. The cell's FIRST guard is `requires idle flight -
+# stop the active recording before running this test`, and a load-time auto-record is
+# the one way this host produces a live recording uninvited. With one cell in the lane,
+# that skip is the whole batch, so the pin is what separates a census from a coin flip.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "PlaybackControl", isolated = "true" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# TWO TOKENS, each tied to an assertion the cell actually makes.
+#  - D9 `fast-forward`: the cell calls `flight.FastForwardToRecording(recording)` and
+#    then WAITS OUT the 15 s `RewindToLaunchLeadTimeSeconds` lead before the ghost goes
+#    active, asserting an active timeline ghost at the right committed index. That is
+#    the fast-forward mechanism executed rather than decided, and no other committed
+#    spec drives it.
+#  - D6 `spawn-at-end-pid-dedup`: the cell reads `recording.SpawnedVesselPersistentId`,
+#    resolves the real vessel by pid, and asserts `CountLoadedVesselsByPid(spawnedPid)
+#    == 1` BOTH immediately after the spawn and again after a two-second wait, plus
+#    that `SpawnedVesselPersistentId` did not change. Exactly-once keep-vessel spawn
+#    with no second pid IS that value.
+# SANDBOX on a FLIGHT-scene host (D14).
+#
+# NOT CLAIMED: D6 `basic-playback`. That value asserts a replay RAN; this cell asserts
+# what happens AT playback entry and stops there - it never plays a trajectory through
+# to its end. Claiming it would overstate a lane whose whole subject is the spawn.
+D6  = ["spawn-at-end-pid-dedup"]
+D9  = ["fast-forward"]
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# ZERO, and it is a real three-way assertion for this lane specifically: the cell
+# COMMITS a synthetic tree to `RecordingStore` through the production `CommitTree`
+# path, spawns a live vessel from it, and then must recover the vessel and remove the
+# tree in `finally`. `gloops-airshow` stages an EMPTY corpus and injects nothing, so a
+# produced count above zero means the cell's cleanup, the per-test baseline restore, or
+# the batch teardown's revert from the pre-batch `.bak` did not hold. With one cell,
+# this row is the only instrument pointed at the store.
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# EVIDENCE STANDING: NONE. Authored 2026-09-06, never flown.
+#
+# `total=1` is ATTRIBUTE-EXACT; `failed=0` is the assertion; the split is a regex
+# class. As in H64, `total=1` makes the interim spelling as strong as a whole pin -
+# the only line it admits is `passed=1 skipped=0` - so it becomes a literal verbatim on
+# the first green census.
+#
+# THE PREDICTION, written to be refuted: the cell EXECUTES, `total=1 passed=1 failed=0
+# skipped=0`. Four of its five guards are settled by the host and the driver (idle
+# flight, active vessel present, non-EVA, main body, PRELAUNCH). THE FIFTH IS NOT
+# SETTLED BY ANY SAVE FILE and is what the census buys: `TryBuildSyntheticKeepVesselTree`
+# must succeed at snapshotting the live active vessel into a spawnable synthetic
+# recording, and its failure is a skip with a reason string. Nothing in the suite has
+# ever run that builder unattended.
+#
+# WHAT THE CELL COULD STILL FAIL ON, and why a fail here is worth more than a skip:
+# every assertion after the guards is about the live spawn - a non-zero
+# `SpawnedVesselPersistentId`, the vessel findable by pid, exactly one loaded vessel
+# at that pid, and no replacement pid two seconds later. Those are the
+# `spawn-at-end-pid-dedup` behaviour under an unattended fast-forward, which is the
+# thing this lane exists to measure.
+required  = [
+  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=PlaybackControl scene=FLIGHT",
+  "runtests start category=PlaybackControl isolated=true",
+  "Using batch baseline slot .* for 1 restore-after-run test\\(s\\)",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# 1320 s worst case (660 + 660); 1400 clears it. One cell, but it waits out a 15 s
+# fast-forward lead plus a 10 s spawn wait plus a 2 s duplicate-prevention wait before
+# the isolated path's baseline restore, so the batch is tens of seconds rather than the
+# microseconds the tally suggests.
+budgetSeconds = 1400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

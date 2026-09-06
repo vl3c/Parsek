@@ -4023,6 +4023,26 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # 47 as its six siblings; the split is MEASURED at 38/9 (see
         # `MEASURED_SKIPPED`) and is no longer interim.
         "RVR-6-rover-relay-logistics-host": ("Logistics", 47),
+        # ROADMAP R6, ISOLATED HALF - SEVEN LANES AUTHORED 2026-09-06, NONE FLOWN.
+        # They are the rest of the population R5 unlocked and nothing had driven: one
+        # spec per category, each over a host chosen by that category's own guards.
+        # Six are WHOLLY batch-disabled (H21's shape, ordinary ceiling 0); the seventh,
+        # H65, is the wave's only PARTLY batch-disabled member and is declared in
+        # PARTLY_BATCH_DISABLED_IDS with its arithmetic.
+        #
+        # Every one of the seven is INTERIM (see INTERIM_PIN_IDS) and every one carries
+        # a cell-by-cell predicted split in its own header, written to be refuted by
+        # the first census. Three fixtures cover all seven: `gs1-two-stage-pad` (the
+        # crewed PRELAUNCH two-controller pad craft) for the four staging lanes,
+        # `gloops-airshow` (the bare capsule) for the two that only need a real vessel
+        # to exist, and `gs2-orbital-stack` for the one that needs an ORBITING host.
+        "H61-autorecord-isolated": ("AutoRecord", 10),
+        "H62-coalescer-isolated": ("Coalescer", 2),
+        "H63-merge-dialog-isolated": ("MergeDialog", 2),
+        "H64-revert-flow-isolated": ("RevertFlow", 1),
+        "H65-quickload-resume-isolated": ("QuickloadResume", 3),
+        "H66-playback-control-isolated": ("PlaybackControl", 1),
+        "H67-automerge-commit-isolated": ("AutoMergeCommit", 1),
     }
 
     # Members whose category is only PARTLY batch-disabled, i.e. the ordinary path
@@ -4063,7 +4083,29 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
                                  # attribute-level, so it is the same 8-vs-46
                                  # for every Logistics member whatever host it
                                  # boots.
-                                 "RVR-6-rover-relay-logistics-host"}
+                                 "RVR-6-rover-relay-logistics-host",
+                                 # H65 is the R6 wave's ONLY member here, and the
+                                 # arithmetic is the narrowest a non-exempt member has
+                                 # carried. `QuickloadResume` has three FLIGHT-scoped
+                                 # declarations: TWO are AllowBatchExecution = false +
+                                 # RestoreBatchFlightBaselineAfterExecution = true
+                                 # (`BridgeSurvivesSceneTransition` and
+                                 # `Quickload_MidRecording_ResumesSameActiveRecordingId`,
+                                 # both driving KSP's stock programmatic quickload
+                                 # backend) and ONE is AllowBatchExecution = true with
+                                 # no restore flag (`ReentrancyGuard_ClearedAfterRestore`,
+                                 # an ordinary in-process assertion). So ordinary
+                                 # executable = 1, isolated executable = 3, and the arg
+                                 # buys the two real quickload cells. Because the
+                                 # ordinary ceiling is 1 rather than 0, its interim
+                                 # `passed=` is pinned as a FLOOR OF 2
+                                 # (`(?:[2-9]|[1-9][0-9]+)`) rather than the plain
+                                 # `[1-9][0-9]*` spelling its six wave siblings use -
+                                 # the H38 move, swept by
+                                 # test_an_interim_pin_still_rejects_the_ordinary_paths_
+                                 # executable_ceiling. The other six R6 lanes are WHOLLY
+                                 # batch-disabled and are NOT listed here.
+                                 "H65-quickload-resume-isolated"}
 
     # Members whose BATCH_COMPLETE line cannot distinguish the isolated path from the
     # ordinary one, whatever it is pinned to, so the discrimination duty transfers to
@@ -4363,7 +4405,51 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     # replaced whole, a MEASURED_SKIPPED entry is added if the run-time guards push
     # `skipped` above the attribute floor of 1, the `recordings.count` window is replaced
     # with an exact pin, and the id LEAVES this set in the same commit.
-    INTERIM_PIN_IDS = set()
+    #
+    # NON-EMPTY AGAIN 2026-09-06 - AND WITH SEVEN AT ONCE, the largest this set has
+    # ever been. They are the roadmap R6 isolated half: one lane per remaining
+    # ISOLATED-batch category (`AutoRecord`, `Coalescer`, `MergeDialog`, `RevertFlow`,
+    # `QuickloadResume`, `PlaybackControl`, `AutoMergeCommit`), all authored
+    # 2026-09-06 and none flown. Every `total=` is attribute-exact and every `failed=0`
+    # is a literal; only the split is a class.
+    #
+    # WHY ALL SEVEN ARE INTERIM RATHER THAN PINNED WHOLE, and it is the H39/H40 reason
+    # rather than H38's: the split turns on run-time `InGameAssert.Skip` guards that
+    # read LIVE state no attribute and no save file settles. Four flavours occur across
+    # the wave and each spec header names which of its cells rest on which -
+    #   * SITUATION guards (H61's five predicted skips: three post-switch cells want
+    #     LANDED or ORBITING, one wants a mid-flight EVA parent, one wants 2+ crew);
+    #   * REFLECTION guards (H63's merge-dialog helpers, H64's `FlightDriver`
+    #     revert-to-launch surface) - properties of the DLL, so a skip there is a
+    #     FINDING rather than a fixture mismatch;
+    #   * LIVE-BUILDER guards (H66's `TryBuildSyntheticKeepVesselTree`, H62's
+    #     post-stage split check), which no save file can predict;
+    #   * TIMING guards (H65's 30 s `WaitForLaunchAutoRecordStart` deadline on a
+    #     15-part craft).
+    #
+    # WHAT DEFENDS THEM MEANWHILE. Six of the seven are WHOLLY batch-disabled, so the
+    # ordinary path's executable ceiling is ZERO and the plain `passed=[1-9][0-9]*`
+    # spelling already rejects every line it could print (the H55/H56 argument, swept
+    # by test_an_interim_pin_still_rejects_the_ordinary_paths_executable_ceiling at one
+    # iteration - passed=0, the vacuous line). The seventh, H65, has an ordinary
+    # ceiling of 1 and therefore pins a FLOOR OF 2; the same sweep runs two iterations
+    # over it. Three of the seven (H64, H66, H67) declare `total=1`, which makes their
+    # interim spelling as strong as a whole pin - the only line it admits is
+    # `passed=1 skipped=0` - so those three become literals verbatim on a green census.
+    #
+    # WHAT EACH OWES, the standing obligation: the first census measures the split, the
+    # spec's pin is replaced whole, a MEASURED_SKIPPED entry is added if the run-time
+    # guards push `skipped` above the attribute floor of 0, and the id LEAVES this set
+    # in the same commit.
+    INTERIM_PIN_IDS = {
+        "H61-autorecord-isolated",
+        "H62-coalescer-isolated",
+        "H63-merge-dialog-isolated",
+        "H64-revert-flow-isolated",
+        "H65-quickload-resume-isolated",
+        "H66-playback-control-isolated",
+        "H67-automerge-commit-isolated",
+    }
 
     # id -> measured `skipped=` for members whose RUN-TIME InGameAssert.Skip guards
     # push the split above the attribute-derived floor. The attributes give a FLOOR
@@ -4922,6 +5008,68 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # pre-existing unloaded LiquidFuel vessel. That is asserted in-cell (the band
         # guard skips with the measured amount named) and argued in the spec's header.
         "RouteEscrowContention": "logistics",
+        # --- ROADMAP R6, the isolated half (2026-09-06). Seven rows, and they are NOT
+        # a block: each is derived from that category's own bodies, and three different
+        # requirements come out of the seven.
+        #
+        # `AutoRecord` stages. `AutoRecordOnLaunch_StartsExactlyOnce` calls
+        # `StageManager.ActivateNextStage()` after throttling to 1 and then waits on
+        # `WaitForLaunchAutoRecordStart(30f)`, so an engineless host self-skips it. Two
+        # further claims this row does NOT encode, because the table has no predicate
+        # for them, both stated in H61's own fixture block instead: the EVA cell needs
+        # CREW aboard, and the Real-Spawn-Control pad canary needs NO LAUNCH CLAMPS
+        # (its own guard says a clamped craft never produces the launch transition
+        # whose suppression it asserts).
+        "AutoRecord": "staging",
+        # `Coalescer` stages, and its two cells need more of the host than `staging`
+        # asserts: `HasAtLeastTwoCommandModules` and `HasDecouplerModule`, because a
+        # CONTROLLED-decoupled child is by definition the half that keeps a controller.
+        # The table has no predicate for either, so both are argued in H62's fixture
+        # block and asserted in-cell; the row states the part `staging` can prove.
+        "Coalescer": "staging",
+        # `MergeDialog` does NOT stage, and giving it `staging` on family resemblance
+        # would assert a capability neither cell reads. Both fabricate a pending tree
+        # in memory and drive the real popup by reflection; their guards are `no
+        # existing pending tree`, `merge dialog reflection helpers are unavailable` and
+        # `ParsekScenario instance is unavailable in FLIGHT`. What the host owes is
+        # only a real, controllable active vessel for FLIGHT to boot with, which is
+        # exactly `loaded-vessel`.
+        "MergeDialog": "loaded-vessel",
+        # `RevertFlow` stages: its one cell throttles up, calls ActivateNextStage, and
+        # only then invokes stock Revert to Launch, whose whole subject is what the
+        # revert does to the recording the launch produced. Its own guard also demands
+        # `sit = PRELAUNCH` in so many words ("requires a PRELAUNCH vessel on the pad so
+        # the test can launch and then stock-revert"), so both halves of `staging` are
+        # named by the cell rather than inferred.
+        "RevertFlow": "staging",
+        # `QuickloadResume` gets `staging` from ONE of its three cells rather than from
+        # the category: `Quickload_MidRecording_ResumesSameActiveRecordingId` takes an
+        # idle-PRELAUNCH branch that stages the craft to create the live recording it
+        # then quickloads across, and ASSERTS the craft left PRELAUNCH before F5 - so on
+        # an engineless host that is a FAIL, not a skip. The other two cells constrain
+        # the host barely at all. The row is the strictest of the three, which is the
+        # fail-closed direction.
+        "QuickloadResume": "staging",
+        # `PlaybackControl` does NOT stage. Its cell commits a synthetic keep-vessel
+        # tree built FROM the active vessel, fast-forwards into playback and asserts the
+        # spawn happens exactly once - so what it needs is a real craft to snapshot and
+        # spawn a copy of, i.e. `loaded-vessel`. It does carry a
+        # PRELAUNCH-or-landed/splashed guard of its own ("a deterministic keep-vessel
+        # playback canary"), which `gloops-airshow` satisfies; that is a property of the
+        # chosen host and not a category requirement, so it is argued in H66's fixture
+        # block rather than encoded here.
+        "PlaybackControl": "loaded-vessel",
+        # `AutoMergeCommit` is the row that FORCED A NEW REQUIREMENT CLASS, and none of
+        # the existing three could stand in. Its cell's situation guard is a statement
+        # about the product, not a convenience: "requires an ORBITING active vessel so
+        # the scene-exit finalize produces a stable-terminal recording (the only shape
+        # CommitTreeSceneExit preserves a VesselSnapshot for) that is also past the 30 m
+        # idle-on-pad discard". So a PRELAUNCH host does not merely skip it - it makes
+        # the assertion (a kept `VesselSnapshot` on the committed leaf) unreachable, and
+        # routing this row to `staging` would assert the exact OPPOSITE of what the cell
+        # needs. `loaded-vessel` and `logistics` are both silent about the situation.
+        # Hence `orbiting`, implemented below beside `staging`.
+        "AutoMergeCommit": "orbiting",
     }
 
     @staticmethod
@@ -4965,6 +5113,25 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
             if vessel.count("name = ModuleEngines") < 1:
                 problems.append(
                     "active vessel (index %d) carries NO ModuleEngines" % idx)
+            return problems
+        if requirement == "orbiting":
+            # The MIRROR of `staging`'s situation half, added with the R6 wave for
+            # `AutoMergeCommit`, whose cell states the requirement as a product fact:
+            # only an ORBITING host produces the stable-terminal recording
+            # `CommitTreeSceneExit` preserves a `VesselSnapshot` for, and only that
+            # shape is past the 30 m idle-on-pad discard. Scoped to the ACTIVE vessel
+            # for the reason `_active_vessel_block` states: `gs2-orbital-stack` carries
+            # six VESSEL nodes and a file-wide substring check would pass on any of
+            # them.
+            if "sit = ORBITING" not in vessel:
+                problems.append("active vessel (index %d) is not ORBITING" % idx)
+            # A real craft to record and commit. Deliberately the same PART floor
+            # `loaded-vessel` applies, and for the same reason: an asteroid or an EVA
+            # kerbal in orbit satisfies the situation and nothing else the cell needs.
+            if not re.search(r"^\t\t\tPART\s*$", vessel, flags=re.M):
+                problems.append(
+                    "active vessel (index %d) declares no PART nodes - there is "
+                    "nothing to record and commit" % idx)
             return problems
         if requirement == "logistics":
             # (a) A real craft to snapshot. `VesselSpawner.TryBackupSnapshot` has
@@ -5226,6 +5393,17 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # `reason = no-liquidfuel-resource` and every unloaded-depot cell skips - the
         # exact Logistics analogue of the engineless case.
         ("logistics", "gloops-airshow", "LiquidFuel"),
+        # ORBITING, wrong situation - the control the R6 wave owes for its new
+        # requirement class, and the mirror image of the `staging`/`bdock-recorded` row
+        # above. `gs1-two-stage-pad`'s active vessel is a real 15-part crewed craft with
+        # PART nodes and an engine, so it clears everything `orbiting` asserts EXCEPT
+        # the situation, and must still be rejected. Without this row, dropping the
+        # ORBITING branch to "make H67 pass on any host" would go unnoticed - and the
+        # cell it guards states its situation requirement as a product fact (only an
+        # ORBITING host produces the stable-terminal shape whose VesselSnapshot the test
+        # reads back), so a silently-weakened predicate would produce a red that looks
+        # exactly like a Parsek defect.
+        ("orbiting", "gs1-two-stage-pad", "ORBITING"),
         # LOADED-VESSEL, wrong active-vessel TYPE. `mun-orbit-recorded`'s active vessel
         # is a real craft, so the PART floor alone would accept every committed fixture
         # and the class would be a tautology; this row runs the requirement over a save
@@ -5318,6 +5496,28 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
             "gloops-airshow's active vessel is a real 1-part craft, so it must PASS "
             "`loaded-vessel` - if it does not, that requirement has inherited one of "
             "the other two and the table is decoration")
+        # And the FOURTH class, added with the R6 wave, must be mutually exclusive with
+        # `staging` in BOTH directions rather than merely different from it. The two
+        # hosts are each other's negative control: `gs1-two-stage-pad` is a PRELAUNCH
+        # crewed pad craft with an engine and `gs2-orbital-stack` is an ORBITING crewed
+        # stack with engines, so a predicate that collapsed the situation checks into
+        # each other (or dropped them) would show up as one of these four assertions
+        # flipping.
+        gs1 = os.path.join(HARNESS_ROOT, "fixtures", "saves", "gs1-two-stage-pad",
+                           "persistent.sfs")
+        gs2 = os.path.join(HARNESS_ROOT, "fixtures", "saves", "gs2-orbital-stack",
+                           "persistent.sfs")
+        self.assertEqual([], self._fixture_flight_problems(gs1, "staging"),
+                         "gs1-two-stage-pad is a PRELAUNCH craft with a ModuleEngines "
+                         "and must PASS `staging`")
+        self.assertNotEqual([], self._fixture_flight_problems(gs1, "orbiting"),
+                            "gs1-two-stage-pad is PRELAUNCH and must FAIL `orbiting`")
+        self.assertEqual([], self._fixture_flight_problems(gs2, "orbiting"),
+                         "gs2-orbital-stack's active vessel is an ORBITING 41-part "
+                         "Kerbal X and must PASS `orbiting` - if it does not, that "
+                         "requirement has inherited another one")
+        self.assertNotEqual([], self._fixture_flight_problems(gs2, "staging"),
+                            "gs2-orbital-stack is ORBITING and must FAIL `staging`")
 
     def test_an_unknown_requirement_fails_closed(self):
         # FAIL-CLOSED: a typo in FIXTURE_REQUIREMENTS, or a category routed to a
@@ -5331,12 +5531,53 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         self.assertTrue(any("unknown fixture requirement" in p for p in problems),
                         problems)
 
+    @staticmethod
+    def _declaration_body(mask, line):
+        """The masked text of the method body whose `[InGameTest]` attribute starts at
+        1-based ``line``, or "" when no brace body follows it.
+
+        Brace-matched over the MASKED source, so a brace inside a comment or a string
+        literal cannot open or close the span (`_mask_csharp_noise` blanks their
+        interiors while preserving offsets, which is what keeps the line lookup valid).
+        """
+        off = 0
+        for _ in range(line - 1):
+            nxt = mask.find("\n", off)
+            if nxt < 0:
+                return ""
+            off = nxt + 1
+        open_at = mask.find("{", off)
+        if open_at < 0:
+            return ""
+        depth = 0
+        for k in range(open_at, len(mask)):
+            if mask[k] == "{":
+                depth += 1
+            elif mask[k] == "}":
+                depth -= 1
+                if depth == 0:
+                    return mask[open_at:k + 1]
+        return mask[open_at:]
+
+    @classmethod
+    def _categories_that_stage(cls):
+        """{category: sorted origins whose METHOD BODY calls ActivateNextStage}."""
+        out = {}
+        for rel, text in walk_parsek_sources():
+            mask = hlib._mask_csharp_noise(text)
+            for decl in hlib.parse_ingame_test_declarations(text, rel):
+                out.setdefault(decl.category, [])
+                line = int(decl.origin.rsplit(":", 1)[1].split(" ", 1)[0])
+                if "ActivateNextStage" in cls._declaration_body(mask, line):
+                    out[decl.category].append(decl.origin)
+        return {cat: sorted(origins) for cat, origins in out.items()}
+
     def test_the_requirement_table_agrees_with_what_the_cells_actually_do(self):
         # FIXTURE_REQUIREMENTS is DECLARED, and a declaration about someone else's code
         # rots. This derives the same fact from SOURCE: a `staging` category's cells must
-        # actually reach the stage manager, and a `logistics` / `loaded-vessel` one must
-        # not - because "needs a PRELAUNCH host with engines" is a claim about staging and
-        # nothing else.
+        # actually reach the stage manager, and a `logistics` / `loaded-vessel` /
+        # `orbiting` one must not - because "needs a PRELAUNCH host with engines" is a
+        # claim about staging and nothing else.
         #
         # COMMENT-STRIPPED, per the house rule (`feedback-source-derived-guards-use-ast`):
         # the raw text of the Logistics category contains the word PRELAUNCH and a
@@ -5344,38 +5585,62 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # would read those as code and this gate would pass for the wrong reason - which
         # is the exact failure mode that rule was written for. hlib._mask_csharp_noise is
         # the same masker parse_ingame_test_declarations uses.
+        #
+        # SCOPED TO THE DECLARATION'S OWN METHOD BODY, and this was FILE-scoped until
+        # the R6 wave (2026-09-06). The old form asked "does any FILE holding a
+        # declaration of this category call ActivateNextStage", which is the SAME
+        # proximity attribution the H44 census caught and the house rule forbids: a guard
+        # was credited to a cell because it lived nearby. It happened to give the right
+        # answer only because every category in the table lived in a small dedicated
+        # file. `RuntimeTests.cs` is ~14,000 lines and holds declarations for dozens of
+        # categories, six of them wired by the R6 wave - so under the file rule
+        # `MergeDialog`, `PlaybackControl` and `AutoMergeCommit` would all read as
+        # STAGING because a sibling `AutoRecord` cell in the same file stages, and
+        # `AutoMergeCommit` in particular would have been forced onto a PRELAUNCH host
+        # whose situation its cell explicitly rejects.
+        #
+        # THE REFINEMENT CHANGES NO EXISTING VERDICT, which is what makes it a
+        # correction rather than a re-interpretation: `SceneExitMerge` (2 of 2 bodies)
+        # and `Rewind` (3 of 38) still read as staging, and `Logistics`,
+        # `LogisticsGrapple`, `RouteDockCapture`, `RouteStartDockedOrigin` and
+        # `RouteEscrowContention` still read as not. It is also STRICTLY stronger: a
+        # category whose file stages but whose own cells do not can no longer inherit
+        # the claim.
         staging_call = "ActivateNextStage"
-        by_category = {}
-        source_by_rel = {}
-        for rel, text in walk_parsek_sources():
-            source_by_rel[rel] = hlib._mask_csharp_noise(text)
-            for decl in hlib.parse_ingame_test_declarations(text, rel):
-                by_category.setdefault(decl.category, set()).add(rel)
+        staged = self._categories_that_stage()
+        # ANTI-VACUITY FLOOR. A body extractor that returned "" for everything would
+        # make every `staging` row red and every other row pass - the second half
+        # silently. Requiring the derivation to find the known staging categories keeps
+        # a broken extractor loud in both directions.
+        self.assertTrue(
+            staged.get("SceneExitMerge"),
+            "the body-scoped derivation found no staging cell in SceneExitMerge, whose "
+            "two cells both call %s - the extractor is broken and every non-staging "
+            "row below would pass vacuously" % staging_call)
 
         for category, requirement in sorted(self.FIXTURE_REQUIREMENTS.items()):
             with self.subTest(category=category):
-                files = by_category.get(category)
-                self.assertTrue(
-                    files,
+                self.assertIn(
+                    category, staged,
                     "FIXTURE_REQUIREMENTS names category %r but no [InGameTest] "
                     "declaration in Source/Parsek carries it - the row is stale or "
                     "misspelled" % category)
-                stages = any(staging_call in source_by_rel[rel] for rel in sorted(files))
+                stagers = staged[category]
                 if requirement == "staging":
                     self.assertTrue(
-                        stages,
+                        stagers,
                         "%r is routed to the `staging` requirement - which asserts the "
-                        "host is PRELAUNCH with engines - but none of its files (%s) "
-                        "calls %s outside a comment. Either the row is wrong or the "
-                        "cells stopped staging."
-                        % (category, sorted(files), staging_call))
+                        "host is PRELAUNCH with engines - but not one of its own "
+                        "[InGameTest] method bodies calls %s outside a comment. Either "
+                        "the row is wrong or the cells stopped staging."
+                        % (category, staging_call))
                 else:
-                    self.assertFalse(
-                        stages,
+                    self.assertEqual(
+                        [], stagers,
                         "%r is routed to the %r requirement, which does NOT demand a "
-                        "stageable host - but one of its files (%s) calls %s outside a "
-                        "comment, so a real cell may need staging the fixture is not "
-                        "held to." % (category, requirement, sorted(files), staging_call))
+                        "stageable host - but these of its own cells call %s outside a "
+                        "comment, so a real cell needs staging the fixture is not held "
+                        "to: %s" % (category, requirement, staging_call, stagers))
 
     def test_every_member_category_declares_a_fixture_requirement(self):
         # The table is fail-closed only if something checks it is TOTAL over the
@@ -5390,7 +5655,7 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
             "host: %s. Read the category's bodies and add a row - do NOT default it "
             "to `staging`, which is a specific claim about StageManager" % missing)
         unknown = sorted(set(self.FIXTURE_REQUIREMENTS.values())
-                         - {"staging", "logistics", "loaded-vessel"})
+                         - {"staging", "logistics", "loaded-vessel", "orbiting"})
         self.assertEqual([], unknown,
                          "FIXTURE_REQUIREMENTS names requirement(s) with no "
                          "implementation in _fixture_flight_problems: %s" % unknown)

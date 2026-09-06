@@ -732,10 +732,39 @@ stock-minimal` to reach a harness run.
 
 **R6. Drive the recording-lifecycle and classification batches.** Roughly 8 specs.
 
-- Isolated (needs R5): `AutoRecord`, `SceneExitMerge`, `MergeDialog`, `RevertFlow`,
-  `Coalescer`, `QuickloadResume`. Closes D1 `auto-record-first-mod-switch`,
-  `commit-scene-exit`, `commit-revert-merge`; D5 `controlled-decoupled-child`,
-  `crash-coalescing`; D9 `rewind-to-launch`.
+- ~~Isolated (needs R5): `AutoRecord`, `SceneExitMerge`, `MergeDialog`, `RevertFlow`,
+  `Coalescer`, `QuickloadResume`.~~ **AUTHORED 2026-09-06 - ALL SEVEN, NONE FLOWN.**
+  `SceneExitMerge` shipped earlier as R5's shakedown (`H21-scene-exit-merge-isolated`,
+  LIVE-PROVEN 2026-07-27); the rest are now committed as
+  `H61-autorecord-isolated`, `H62-coalescer-isolated`, `H63-merge-dialog-isolated`,
+  `H64-revert-flow-isolated`, `H65-quickload-resume-isolated`,
+  `H66-playback-control-isolated` and `H67-automerge-commit-isolated`. That is SEVEN
+  rather than the five this line listed: `PlaybackControl` and `AutoMergeCommit` were
+  in the same unlocked population and belong here. Every one is an INTERIM pin
+  (`total=` attribute-exact, `failed=0` asserted, split a regex class) with a
+  cell-by-cell predicted census in its own header, and every one owes its first
+  flight; the specs are AUTHORED, not PROVEN, and none of the coverage below is
+  claimed off them yet. Status rows: `docs/dev/autotest-status.md`, "In-game ISOLATED
+  batch wiring, R6 isolated half, H61-H67". Bucket detail:
+  `docs/dev/autotest-ingame-category-inventory.md`, "B6-ISO".
+
+  **THE COVERAGE LINE ABOVE WAS WRONG IN TWO PLACES, and the authoring pass found it
+  by reading the cell bodies.** It used to read "Closes D1
+  `auto-record-first-mod-switch`, `commit-scene-exit`, `commit-revert-merge`; D5
+  `controlled-decoupled-child`, `crash-coalescing`; D9 `rewind-to-launch`". Corrected:
+  - D1 `auto-record-first-mod-switch` is NOT closed by `AutoRecord` on a PRELAUNCH
+    host. All three POSITIVE post-switch cells demand LANDED or ORBITING, so the only
+    one that executes is the negative `AutoRecordOnPostSwitch_NoOp_DoesNotStart`.
+    Closing it needs a LANDED host and an ORBITING host - two follow-up lanes.
+  - D5 `crash-coalescing` is NOT closed by `Coalescer`. Both its cells stage a
+    decoupler and assert on the resulting CONTROLLED child; neither crashes anything.
+  - D9 `rewind-to-launch` is NOT closed by `QuickloadResume`. That value names
+    Parsek's own rewind machinery; these cells drive KSP's F5/F9 backend, which has no
+    registry value. H65 claims nothing beyond D14.
+  What the wave DOES claim, once flown: D1 `auto-record-launch` + `auto-record-eva`
+  (H61), `discard-rollback` (H63), `commit-revert-merge` (H64, revert half only),
+  `commit-scene-exit` + `auto-merge` (H67); D5 `controlled-decoupled-child` (H62);
+  D6 `spawn-at-end-pid-dedup` and D9 `fast-forward` (H66).
 - Free today: `Optimizer` (D4 `env-body-split`, `surface-graze-suppression`),
   `BackgroundSeeder` (D4 `seed-event-split`), `Recording` (D5 `bg-on-rails`),
   `TrajectoryMath` (D2 `threshold-debounce`), `Pipeline-Anchor` (D3

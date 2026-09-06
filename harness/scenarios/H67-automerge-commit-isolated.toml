@@ -1,0 +1,154 @@
+schema = 1
+id = "H67-automerge-commit-isolated"
+tier = "nightly"
+# ROADMAP R6, ISOLATED HALF, LANE 7 OF 7, and the only member of the wave that boots
+# an ORBITING host. The one `AutoMergeCommit` cell starts a real recording on an
+# orbiting crewed craft, exits FLIGHT through stock save-and-exit semantics with
+# `autoMerge = ON`, and asserts the commit was SILENT (no pre-transition merge dialog)
+# and FULL-FIDELITY (the committed leaf keeps its `VesselSnapshot` and stays
+# spawn-at-end eligible).
+#
+# HOW IT DIFFERS FROM H21, and the pair is the point. H21 drives the SAME scene-exit
+# seam with `autoMerge` OFF, so the popup appears and its two branches are the subject.
+# This lane flips the setting and asserts the popup does NOT appear and the commit
+# happens anyway, at full fidelity. Neither reading substitutes for the other.
+#
+# WHY IT NEEDS THE ISOLATED ARG. The single declaration is
+# `AllowBatchExecution = false` + `RestoreBatchFlightBaselineAfterExecution = true`:
+# ordinary executes 0, isolated executes 1. WHOLLY batch-disabled, so the ordinary
+# path's executable ceiling is ZERO.
+#
+# AUTHORED 2026-09-06, NEVER FLOWN.
+description = "Drive the in-game AutoMergeCommit category through the ISOLATED batch entry point over an ORBITING crewed stack: record, exit FLIGHT through stock save-and-exit under autoMerge=ON, and assert the tree commits silently at full fidelity - no dialog, VesselSnapshot kept, leaf still spawn-at-end eligible."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "isolated-batch", "auto-merge", "scene-exit", "R6", "H67"]
+
+[fixture]
+# `gs2-orbital-stack`, AND THE HOST IS DICTATED BY THE CELL RATHER THAN CHOSEN. Its
+# situation guard is not a convenience skip; it is a statement about what the product
+# does, quoted from the source:
+#
+#   "requires an ORBITING active vessel so the scene-exit finalize produces a
+#    stable-terminal recording (the only shape CommitTreeSceneExit preserves a
+#    VesselSnapshot for) that is also past the 30 m idle-on-pad discard"
+#
+# So a PRELAUNCH or LANDED host does not merely skip the cell - it makes the cell's
+# ASSERTION unreachable, because the snapshot the test checks for is only preserved on
+# the stable-terminal shape. `gs2-orbital-stack`'s active vessel is the 41-part
+# `Kerbal X` at `sit = ORBITING` with Valentina and Bob aboard, SANDBOX, already flown
+# by `GS-2-orbital-probe-deploy`.
+#
+# THIS IS WHY THE WAVE ADDS A NEW REQUIREMENT CLASS. `IsolatedBatchWiringGroupTests`
+# had `staging` (PRELAUNCH + engines), `logistics` (a snapshottable craft with a
+# positive-capacity LiquidFuel tank) and `loaded-vessel` (a real craft to spawn beside).
+# None of the three can state "the active vessel is ORBITING", and routing this lane to
+# any of them would either assert a capability the cell never reads or - in `staging`'s
+# case - assert the exact OPPOSITE of what it needs. The new `orbiting` requirement is
+# added in the same commit, mirroring how `staging` is checked, with a positive control
+# proving it REJECTS `gs1-two-stage-pad` for the PRELAUNCH reason.
+#
+# SANDBOX, empty corpus, `injectedRecordings = "none"`: the cell builds its own tree
+# from a live recording and commits it, so the produced count is the assertion (below)
+# and an injected corpus would make it un-attributable.
+saveTemplate = "fixtures/saves/gs2-orbital-stack"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# `autoRecordOnLaunch` pinned false, and on an ORBITING host that is not a formality:
+# the cell guards on `requires an idle vessel (recording already active)` and on
+# `requires no existing pending tree`, then starts its own recording. Auto-record's
+# post-switch and situation-change triggers are exactly the kind that fire on scene
+# entry over an orbiting craft, and with one cell in the lane such a skip is the whole
+# batch.
+#
+# `autoMerge` ITSELF IS NOT SET HERE, deliberately. The cell flips
+# `ParsekSettings.Current`'s autoMerge to ON inside its own body and restores it - it
+# is the SUBJECT, so pinning it from the driver would move the measurement into the
+# harness. `autoMerge` is one of the hidden fields the 2026-08-27 settings
+# simplification clamps to its shipping value in `ParsekScenario.OnLoad`, so a driver
+# pin would additionally be fighting that clamp.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "AutoMergeCommit", isolated = "true" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# TWO D1 TOKENS, both executed rather than decided.
+#  - `commit-scene-exit`: the cell exits FLIGHT through stock save-and-exit semantics
+#    and asserts the live tree was committed by that exit. H21 claims the same token
+#    for the DIALOG route out of the same seam; this lane claims it for the SILENT
+#    route, which is a different code path through `CommitTreeSceneExit`.
+#  - `auto-merge`: the setting under test. Nothing else in the committed suite drives
+#    `autoMerge = ON` through a real scene exit - S0.7 and S0.9/S0.10 exercise the
+#    limbo and warm/cold-load shapes around it, not the full-fidelity commit assertion.
+# SANDBOX on a FLIGHT-scene orbiting host (D14).
+#
+# NOT CLAIMED: D6 `spawn-at-end-pid-dedup`, even though the cell asserts the committed
+# leaf stays SPAWN-AT-END ELIGIBLE. Eligibility is a property of the committed record
+# (a kept `VesselSnapshot` on a stable-terminal leaf); the cell never spawns anything,
+# so the dedup behaviour that value names is untouched. H66 owns it.
+D1  = ["commit-scene-exit", "auto-merge"]
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# ZERO, and this is the one row in the wave that needs its reasoning spelled out,
+# because the cell's whole subject is a COMMIT and zero looks like a contradiction.
+# It is not: the isolated path quickloads a flight baseline after every restore-flagged
+# test, and the batch teardown then reverts persistent.sfs from the clean `.bak`
+# `CaptureBatchBaseline` wrote BEFORE the marker. The commit is asserted IN SESSION,
+# against the live store, and must not survive into the produced save.
+# `gs2-orbital-stack` stages an EMPTY corpus (0 `.prec` sidecars) and injects nothing,
+# so a non-zero count here is not "the commit worked" - it is the isolated path's
+# restore contract failing, which is precisely the property R5 is betting on and should
+# red loudly.
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# EVIDENCE STANDING: NONE. Authored 2026-09-06, never flown.
+#
+# `total=1` is ATTRIBUTE-EXACT; `failed=0` is the assertion; the split is a regex
+# class. As in H64 and H66, `total=1` makes the interim spelling as strong as a whole
+# pin - the only line it admits is `passed=1 skipped=0`.
+#
+# THE PREDICTION, written to be refuted: the cell EXECUTES, `total=1 passed=1 failed=0
+# skipped=0`. Every one of its six guards is settled by the host and the driver -
+# active vessel present, non-EVA, ORBITING, idle, no pending tree,
+# `ParsekSettings.Current` available - which makes this the best-determined SKIP half
+# in the wave and moves the census's whole product onto the assertions.
+#
+# WHAT THE CENSUS ACTUALLY BUYS, therefore: whether an unattended stock save-and-exit
+# out of an ORBITING FLIGHT scene under `autoMerge = ON` commits SILENTLY (no
+# pre-transition popup - H21's log carries `Pre-transition tree merge dialog:` and
+# `User chose:` lines, and this run must not) and at FULL FIDELITY (the committed leaf
+# keeps its `VesselSnapshot`). Those two are asserted in-cell rather than pinned here,
+# because pinning the ABSENCE of the dialog line as a `forbidden` would also fire on a
+# dialog spawned by any other subsystem in the same run and would read as a product
+# defect. The first census records what the log carried; if the silent-commit path
+# turns out to have its own grep-stable line, this spec pins it in the same commit as
+# the whole tally.
+required  = [
+  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=AutoMergeCommit scene=FLIGHT",
+  "runtests start category=AutoMergeCommit isolated=true",
+  "Using batch baseline slot .* for 1 restore-after-run test\\(s\\)",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# 1320 s worst case (660 + 660); 1400 clears it. One cell, but it costs a FLIGHT ->
+# SPACECENTER transition on a 41-part stack plus the isolated path's baseline restore
+# to bring the scene back, which is H21's per-cell cost pattern rather than a cheap
+# in-process assertion.
+budgetSeconds = 1400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

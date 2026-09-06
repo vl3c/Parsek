@@ -1,0 +1,130 @@
+schema = 1
+id = "H63-merge-dialog-isolated"
+tier = "nightly"
+# ROADMAP R6, ISOLATED HALF, LANE 3 OF 7. The two `MergeDialog` cells fabricate a
+# pending tree, spawn the REAL merge popup, click a REAL button on it, and assert what
+# the click did to the store - the popup's own two branches, driven rather than
+# reasoned about.
+#
+# HOW IT DIFFERS FROM H21, which is the reason both lanes exist. H21's
+# `SceneExitMerge` cells reach the SAME popup through a real stock save-and-exit out
+# of FLIGHT, so their subject is the SCENE-EXIT seam that spawns it. These two
+# fabricate the pending tree directly and drive the popup in place, so their subject
+# is the POPUP: that it renders both actions, that Discard clears the pending tree,
+# and that the deferred Merge commits it through the real `Merge to Timeline` path.
+# Neither lane's evidence covers the other's seam.
+#
+# WHY IT NEEDS THE ISOLATED ARG. Both declarations are `AllowBatchExecution = false`
+# + `RestoreBatchFlightBaselineAfterExecution = true`: ordinary executes 0, isolated
+# executes 2. WHOLLY batch-disabled, so the ordinary path's ceiling is 0.
+#
+# AUTHORED 2026-09-06, NEVER FLOWN.
+description = "Drive the in-game MergeDialog category through the ISOLATED batch entry point: fabricate a pending tree in a live FLIGHT session and drive both branches of the real merge popup - the Discard button clearing the pending tree and the deferred Merge button committing it through the real Merge to Timeline path."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "isolated-batch", "merge-dialog", "R6", "H63"]
+
+[fixture]
+# `gloops-airshow`, AND THIS IS THE ONE LANE IN THE WAVE THAT WANTS THE CHEAP HOST.
+# Neither cell stages, launches, EVAs or spawns anything: they build a pending tree in
+# memory, call the merge dialog's own reflection surface, and click. Their guards are
+# `requires no existing pending tree`, `merge dialog reflection helpers are
+# unavailable` and (cell 2) `ParsekScenario instance is unavailable in FLIGHT` - not
+# one of which is a craft property. So what the host owes is only that FLIGHT boots
+# with a real, controllable active vessel to host the popup, which is exactly the
+# `loaded-vessel` requirement `IsolatedBatchWiringGroupTests` gates: PART nodes
+# present, and the active vessel not an asteroid / EVA kerbal / debris.
+#
+# `gloops-airshow`'s 1-part `mk1-capsule` satisfies that and nothing more - it is
+# engineless and fuel-less, which is why it is REJECTED by the `staging` and
+# `logistics` requirements and is the positive control for `loaded-vessel` in
+# `test_the_requirement_classes_are_not_interchangeable`. Using the 15-part
+# `gs1-two-stage-pad` here would buy nothing and cost load time; using it would also
+# blur the reading, since a craft with a decoupler and engines has more ways to
+# perturb a fabricated tree than a bare capsule does.
+#
+# SANDBOX, empty corpus, `injectedRecordings = "none"`: cell 2 COMMITS a synthetic
+# tree to the timeline and then cleans it up, so the produced count is the assertion
+# (see below) and an injected corpus would make it un-attributable.
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# `autoRecordOnLaunch` pinned false. Neither cell reads the setting, but both guard on
+# `requires no existing pending tree`, and a live recording started by auto-record on
+# scene entry is the one way this host produces one uninvited. Pinning it false makes
+# the precondition a property of the driver rather than of the fixture's load
+# sequence. It also keeps this lane's driver step-for-step identical to H21's, so a
+# census delta between the two is attributable to the CELLS rather than to the boot.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "MergeDialog", isolated = "true" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# ONE D1 TOKEN, and the restraint is deliberate.
+#  - `discard-rollback` is claimed outright: `TreeMergeDialog_DiscardButton_
+#    ClearsPendingTree` presses the real Discard button and asserts the pending tree
+#    is gone, which is the token executed rather than decided.
+#  - The MERGE cell is NOT given a token, and the reason is that no honest one exists
+#    for it. `commit-scene-exit` is H21's (a real stock save-and-exit spawns the
+#    popup); `commit-revert-merge` is H64's (a real stock Revert to Launch); this cell
+#    commits a FABRICATED pending tree through the popup with no originating seam at
+#    all. Claiming either would attribute a seam this lane never drives. If the family
+#    ever wants the popup's commit half as its own token, the registry growth rule
+#    applies and a value is added with its reasoning - it is not borrowed here.
+D1  = ["discard-rollback"]
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# ZERO, and for this lane it is the SHARPEST instrument in the spec. Cell 2 really
+# does commit a tree to the timeline through the production path, so a produced count
+# of zero is a THREE-WAY assertion: the cell's own cleanup ran, the isolated path's
+# per-test baseline restore held, and the batch teardown reverted persistent.sfs from
+# the pre-batch `.bak`. `gloops-airshow` stages an EMPTY corpus and injects nothing,
+# so anything above zero is a leaked commit and reds.
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# EVIDENCE STANDING: NONE. Authored 2026-09-06, never flown.
+#
+# `total=2` is ATTRIBUTE-EXACT; `failed=0` is the assertion; the split is a regex
+# class.
+#
+# THE PREDICTION, written to be refuted: BOTH EXECUTE, `total=2 passed=2 failed=0
+# skipped=0`. The `no existing pending tree` guard is satisfied by a fresh boot with
+# auto-record pinned off. The other two guards are REFLECTION guards - the cells
+# resolve the merge dialog's helpers and `ParsekScenario.Instance` by reflection and
+# skip if either is unavailable - and those are properties of the DLL, not of the
+# save. That makes this lane's skip half unusually well-determined, and it also makes
+# a skip here MEANINGFUL: `merge dialog reflection helpers are unavailable` on a
+# correctly provisioned instance would say the reflection surface moved under the
+# cells, which is a finding rather than a fixture mismatch.
+#
+# The literal 2 in the baseline-slot token is DERIVED (both declarations carry
+# `RestoreBatchFlightBaselineAfterExecution`), and the seam echo doubles as the
+# stale-automation-DLL canary.
+required  = [
+  "BATCH_COMPLETE v1 total=2 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=MergeDialog scene=FLIGHT",
+  "runtests start category=MergeDialog isolated=true",
+  "Using batch baseline slot .* for 2 restore-after-run test\\(s\\)",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# 1320 s worst case (660 + 660); 1400 clears it. This is the cheapest lane of the
+# seven - no staging, no launch, a 1-part host - so the two baseline restores dominate
+# and H21's measured ~100 s wall is the expectation.
+budgetSeconds = 1400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
