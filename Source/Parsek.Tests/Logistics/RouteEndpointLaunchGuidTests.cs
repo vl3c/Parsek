@@ -373,5 +373,87 @@ namespace Parsek.Tests.Logistics
                     RouteEndpointResolver.EndpointResolutionStep.Pid, out string unknown));
             Assert.Equal("pid-same-launch", unknown);
         }
+
+        // ==================================================================
+        // 5. THE STEP THE GATE ACTUALLY SITS IN
+        // ==================================================================
+
+        // catches: the refusal being decided somewhere other than the classifier, and the
+        // refusal arm being deleted.
+        //
+        // WHY THIS CELL EXISTS. The gate's four readings were pinned as a pure function
+        // (section 1) and the production step then re-tested GuidsConclusivelyDiffer inline
+        // beside it, so ClassifyPidGuidGate was load-bearing only for a LOG TOKEN: deleting
+        // the inline refusal left the whole suite green. DecidePidStep is now the step's whole
+        // decision and the caller only dispatches on it, so the refusal is reachable headlessly
+        // - mutate the classifier and this reds.
+        [Fact]
+        public void DecidePidStep_RefusesADifferentLaunch_AndAcceptsEveryOtherReading()
+        {
+            Assert.Equal(
+                RouteEndpointResolver.PidStepOutcome.RefuseDifferentLaunch,
+                RouteEndpointResolver.DecidePidStep(true, GuidA, GuidB));
+
+            Assert.Equal(
+                RouteEndpointResolver.PidStepOutcome.Accept,
+                RouteEndpointResolver.DecidePidStep(true, GuidA, GuidA));
+            // Unknown on either side is "no evidence", never "differs" - the reading that
+            // carries every route built before the key existed.
+            Assert.Equal(
+                RouteEndpointResolver.PidStepOutcome.Accept,
+                RouteEndpointResolver.DecidePidStep(true, null, GuidB));
+            Assert.Equal(
+                RouteEndpointResolver.PidStepOutcome.Accept,
+                RouteEndpointResolver.DecidePidStep(true, GuidA, null));
+
+            // No live vessel at all is its own outcome, not a refusal: the log must not
+            // announce a different launch when nothing was compared.
+            Assert.Equal(
+                RouteEndpointResolver.PidStepOutcome.NoCandidate,
+                RouteEndpointResolver.DecidePidStep(false, GuidA, GuidB));
+            Assert.Equal(
+                RouteEndpointResolver.PidStepOutcome.NoCandidate,
+                RouteEndpointResolver.DecidePidStep(false, null, null));
+
+            // The refusal token and the refusing reading are the same fact.
+            Assert.Equal(
+                RouteEndpointResolver.PidGuidGateDifferentLaunch,
+                RouteEndpointResolver.ClassifyPidGuidGate(GuidA, GuidB));
+        }
+
+        // catches: a refusal being treated as a dead end instead of a fall-through. Drives the
+        // SAME pure walk production drives (ResolveEndpointStepPure over NextEndpointStep) with
+        // pidMatches taken from DecidePidStep, so the guid decision and the step order are
+        // composed here exactly as they are in TryResolveEndpoint.
+        //
+        // The expected step travels as its NAME rather than the enum value: the enum is
+        // internal, and an internal parameter type on a public xUnit Theory does not compile.
+        [Theory]
+        // root known but gone, pid matches a DIFFERENT launch, surface endpoint -> proximity
+        [InlineData(true, false, GuidA, GuidB, true, "SurfaceProximity")]
+        // same pair, ORBITAL endpoint (no proximity step at all) -> nothing resolves
+        [InlineData(true, false, GuidA, GuidB, false, "None")]
+        // same launch -> the pid step wins and proximity is never reached
+        [InlineData(true, false, GuidA, GuidA, true, "Pid")]
+        // unknown live guid -> accepts, same as before the gate existed
+        [InlineData(true, false, GuidA, null, true, "Pid")]
+        // the root still resolves -> identity wins and the gate is never consulted
+        [InlineData(true, true, GuidA, GuidB, true, "RootPart")]
+        public void RefusedPidStep_FallsThroughToTheNextStep(
+            bool rootIdKnown, bool rootMatches, string recordedGuid, string liveGuid,
+            bool proximityEligible, string expectedStep)
+        {
+            bool pidMatches =
+                RouteEndpointResolver.DecidePidStep(true, recordedGuid, liveGuid)
+                    == RouteEndpointResolver.PidStepOutcome.Accept;
+
+            RouteEndpointResolver.EndpointResolutionStep resolved =
+                RouteEndpointResolver.ResolveEndpointStepPure(
+                    rootIdKnown, rootMatches,
+                    pidKnown: true, pidMatches: pidMatches,
+                    proximityEligible: proximityEligible, proximityMatches: true);
+
+            Assert.Equal(expectedStep, resolved.ToString());
+        }
     }
 }

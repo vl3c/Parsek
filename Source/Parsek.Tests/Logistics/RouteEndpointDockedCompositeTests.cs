@@ -42,10 +42,14 @@ namespace Parsek.Tests.Logistics
         {
             ParsekLog.ResetTestOverrides();
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            // The resolver's deep-scan miss memo is process-wide static state (CLAUDE.md's
+            // shared-static rule), so it is dropped on both sides of every cell here.
+            RouteEndpointResolver.ResetForTesting();
         }
 
         public void Dispose()
         {
+            RouteEndpointResolver.ResetForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
         }
@@ -362,6 +366,74 @@ namespace Parsek.Tests.Logistics
 
             Assert.NotEqual(RouteProofHasher.NoRouteProofSentinel, unstamped);
             Assert.Equal(unstamped, stamped);
+        }
+
+        // ==================================================================
+        // THE DEEP SCAN'S COST GATE
+        // ==================================================================
+
+        // catches: the part-set rebuild running on every frame for an endpoint that will never
+        // be found, and the memo suppressing a scan that could now succeed.
+        //
+        // The pass-2 rebuild walks every part of every vessel and the step runs every frame
+        // the Logistics window draws a route. "It already pays for the proximity build" is
+        // true only for a SURFACE endpoint - proximityEligible gates on IsSurface - so an
+        // ORBITAL endpoint whose depot is gone would walk every part, forever, with no
+        // proximity step to reach. ShouldRunDeepRootScan bounds that. It is a MISS memo, so
+        // every direction that could hide a findable root must run: a different endpoint, a
+        // changed vessel count (what a dock or an undock IS), a rewound / unknown frame
+        // counter, and the expiry.
+        [Fact]
+        public void ShouldRunDeepRootScan_SuppressesOnlyTheRepeatedIdenticalMiss()
+        {
+            var memo = new RouteEndpointResolver.DeepRootScanMemo
+            {
+                RootPartUId = BaseRootFlightId,
+                VesselCount = 4,
+                AtFrame = 1000,
+            };
+            const int budget = RouteEndpointResolver.DeepRootScanNegativeCacheFrames;
+
+            // The one suppressed case: same endpoint, same roster, inside the budget.
+            Assert.False(RouteEndpointResolver.ShouldRunDeepRootScan(
+                BaseRootFlightId, 4, 1000 + budget - 1, memo, budget));
+            Assert.False(RouteEndpointResolver.ShouldRunDeepRootScan(
+                BaseRootFlightId, 4, 1000, memo, budget));
+
+            // A DIFFERENT endpoint is not this miss.
+            Assert.True(RouteEndpointResolver.ShouldRunDeepRootScan(
+                VisitorRootFlightId, 4, 1001, memo, budget));
+            // The roster changed - a dock (2 -> 1) or an undock (1 -> 2), which is exactly
+            // when a root that was nobody's own becomes findable again.
+            Assert.True(RouteEndpointResolver.ShouldRunDeepRootScan(
+                BaseRootFlightId, 3, 1001, memo, budget));
+            Assert.True(RouteEndpointResolver.ShouldRunDeepRootScan(
+                BaseRootFlightId, 5, 1001, memo, budget));
+            // Budget expired.
+            Assert.True(RouteEndpointResolver.ShouldRunDeepRootScan(
+                BaseRootFlightId, 4, 1000 + budget, memo, budget));
+            // Frame counter went backwards, or is the unknown-clock reading.
+            Assert.True(RouteEndpointResolver.ShouldRunDeepRootScan(
+                BaseRootFlightId, 4, 999, memo, budget));
+            Assert.True(RouteEndpointResolver.ShouldRunDeepRootScan(
+                BaseRootFlightId, 4, 0, memo, budget));
+            // An empty memo never suppresses (root id 0 is "nothing recorded", and 0 is also
+            // the id an endpoint with no stamped root carries - it must not memoize itself).
+            Assert.True(RouteEndpointResolver.ShouldRunDeepRootScan(
+                BaseRootFlightId, 4, 1001,
+                default(RouteEndpointResolver.DeepRootScanMemo), budget));
+            Assert.True(RouteEndpointResolver.ShouldRunDeepRootScan(
+                0u, 4, 1001, default(RouteEndpointResolver.DeepRootScanMemo), budget));
+            // A memo whose own frame is the unknown reading is not trusted either.
+            Assert.True(RouteEndpointResolver.ShouldRunDeepRootScan(
+                BaseRootFlightId, 4, 10,
+                new RouteEndpointResolver.DeepRootScanMemo
+                {
+                    RootPartUId = BaseRootFlightId,
+                    VesselCount = 4,
+                    AtFrame = 0,
+                },
+                budget));
         }
 
         private static Recording HashFixture(uint endpointRoot)

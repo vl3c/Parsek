@@ -30,8 +30,20 @@ _(unreleased — entries accumulate here per commit)_
   actual launch the depot was, and refuse a match that is provably a different one. When
   that happens the route falls back to looking for whatever vessel is standing at the
   recorded dock point, exactly as it does when the depot is gone, and tells you once if it
-  moves to a different craft. Routes made before this update carry no such record and
+  moves to a different craft. The same record is now kept for the DESTINATION of a
+  delivery too, not only for the depot a run loads from, so both ends of a route are
+  protected the same way. Routes made before this update carry no such record and
   behave as they always did.
+
+- **Housekeeping: a route whose destination has gone missing no longer re-searches every
+  part of every craft in the game, every frame.** When a route cannot find one of its
+  ends, it looks once through the parts of every vessel in case the craft it wants is
+  currently merged into a bigger one. For a route to a landed base that search is followed
+  by a position-based one, so it happens once and stops; for a route to something in
+  ORBIT there is no position fallback, so the search was repeating for as long as the
+  Logistics window stayed open. It is now done at most once every couple of seconds, and
+  immediately again whenever a craft docks or undocks - the moment that can change the
+  answer.
 
 - **Test housekeeping: two harmless warnings an unattended supply-route check left in
   every log are gone.** The check built one of its practice craft in mid-recording, and

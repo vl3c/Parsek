@@ -248,11 +248,20 @@ namespace Parsek.Logistics
         /// the change is live only on the hold-carrying / launch-aligned population
         /// the re-aim work produces.</para>
         ///
-        /// <para>A NEW OPTIONAL ARGUMENT ON THE SPAN CLOCK IS A CHANGE HERE TOO: the
-        /// rule is that this seam forwards the unit's whole surface, so
-        /// <see cref="DescribeHoldArgs"/> and
-        /// <see cref="RouteLoopClockHoldArgWiringTests"/> both enumerate the same set
-        /// and a defaulted argument reds the suite rather than diverging silently.</para>
+        /// <para>A NEW OPTIONAL ARGUMENT ON THE SPAN CLOCK IS A CHANGE HERE TOO, and the
+        /// gate that says so is a REFLECTION cell, not the equality cells. There is no
+        /// shared forwarding helper: the span clock's optional surface is hand-copied at
+        /// four call sites (<c>GhostPlaybackEngine</c> twice, <c>ReaimPlaybackResolver</c>
+        /// with a deliberate <c>schedule: null</c>, and this method), and the wiring
+        /// suite's own render call is a fifth hand-written replica - so a 12th optional
+        /// left at its default HERE would default identically THERE and every equality
+        /// would still pass. <c>RouteLoopClockHoldArgWiringTests</c>'
+        /// <c>SpanClockOptionalArguments_AreExactlyTheForwardedSet</c> pins
+        /// <see cref="GhostPlaybackLogic.TryComputeSpanLoopUT"/>'s optional-parameter names
+        /// against <see cref="DescribeHoldArgs"/>' token set plus the schedule and the
+        /// cuts, so adding one reds the suite and lands the author on this comment. The
+        /// equality cells then say whether the forwarding is CORRECT; the reflection cell
+        /// says whether it is COMPLETE.</para>
         ///
         /// <para>Returns false on the same early-return conditions as the inner clock
         /// (degenerate span, <paramref name="currentUT"/> before the phase anchor,

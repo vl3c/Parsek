@@ -5465,6 +5465,17 @@ namespace Parsek
                 // still has its own Vessel: after Part.Couple the merged craft's root is the
                 // DOMINANT half's, so a later read could name the wrong vessel.
                 RootPartUId = Logistics.RouteEndpointResolver.ResolveRootPartFlightId(vessel),
+                // AND ITS LAUNCH GUID, for symmetry with the origin path. The origin
+                // endpoint carries the guid its undock bind READ
+                // (RouteProofCapture's Stamped arm, RESOLVER-PID-STEP-NOT-GUID-GATED); a
+                // destination captured here has the live vessel in hand, so the same key is
+                // free and read at the same pre-couple instant as the root id. It only ever
+                // NARROWS the resolver's pid step - the gate refuses a match whose guid
+                // conclusively differs and falls through to proximity, and an unreadable
+                // guid stays null, which is the ungated behaviour every pre-key route has.
+                // Not hashed (RouteProofHasher excludes it deliberately), so stamping it
+                // moves no existing route to SourceChanged.
+                LaunchGuid = Logistics.RouteEndpointTransfer.TryReadLaunchGuid(vessel),
                 BodyName = vessel.mainBody != null ? vessel.mainBody.bodyName : null,
                 Latitude = vessel.latitude,
                 Longitude = vessel.longitude,

@@ -207,9 +207,21 @@ namespace Parsek.Logistics
                     // style one. This step runs EVERY FRAME the Logistics window draws a
                     // route, so collecting a part-id list per live vessel on the common path
                     // would be a per-frame allocation for a pass that almost never runs. Pass
-                    // 1 (own root) uses the cheap snapshots; only a total miss - which is the
-                    // docked-composite case, and the permanently-lost case that already pays
-                    // for the proximity build below - rebuilds them with part sets.
+                    // 1 (own root) uses the cheap snapshots; only a total miss - the
+                    // docked-composite case and the permanently-lost case - rebuilds them
+                    // with part sets.
+                    //
+                    // AND THE MISS IS MEMOIZED, because "it already pays for the proximity
+                    // build below" is only true for a SURFACE endpoint: proximityEligible
+                    // gates on IsSurface, so an ORBITAL endpoint whose depot is gone misses
+                    // pass 1, walks every part of every vessel in pass 2, and then has no
+                    // proximity step to reach - every frame the window is open, forever.
+                    // ShouldRunDeepRootScan bounds that to one deep walk per (endpoint,
+                    // live-vessel-set) per DeepRootScanNegativeCacheFrames. Correctness cost
+                    // is a bounded DELAY, never a wrong answer: the memo is dropped the
+                    // moment the live vessel COUNT changes, which is exactly what a dock (2
+                    // -> 1) or an undock (1 -> 2) does - the transitions that make a
+                    // previously-missing root newly findable.
                     List<RootIdVesselSnapshot> rootSnapshots =
                         BuildRootIdSnapshots(FlightGlobals.Vessels, includePartSets: false);
                     bool rootMatched = TryRootPartMatchPure(
@@ -222,16 +234,32 @@ namespace Parsek.Logistics
                         out string rootReason);
                     if (!rootMatched && rootReason == "no-root-match")
                     {
-                        rootSnapshots = BuildRootIdSnapshots(
-                            FlightGlobals.Vessels, includePartSets: true);
-                        rootMatched = TryRootPartMatchPure(
-                            endpoint.RootPartUId,
-                            rootSnapshots,
-                            GhostMapPresence.ghostMapVesselPids,
-                            out byRoot,
-                            out rootPickedPid,
-                            out rootCollidingPid,
-                            out rootReason);
+                        int liveVesselCount =
+                            FlightGlobals.Vessels != null ? FlightGlobals.Vessels.Count : 0;
+                        int nowFrame = ReadFrameCount();
+                        if (ShouldRunDeepRootScan(
+                                endpoint.RootPartUId, liveVesselCount, nowFrame,
+                                deepRootScanMemo, DeepRootScanNegativeCacheFrames))
+                        {
+                            rootSnapshots = BuildRootIdSnapshots(
+                                FlightGlobals.Vessels, includePartSets: true);
+                            rootMatched = TryRootPartMatchPure(
+                                endpoint.RootPartUId,
+                                rootSnapshots,
+                                GhostMapPresence.ghostMapVesselPids,
+                                out byRoot,
+                                out rootPickedPid,
+                                out rootCollidingPid,
+                                out rootReason);
+                            deepRootScanMemo = rootMatched
+                                ? default(DeepRootScanMemo)
+                                : new DeepRootScanMemo
+                                {
+                                    RootPartUId = endpoint.RootPartUId,
+                                    VesselCount = liveVesselCount,
+                                    AtFrame = nowFrame,
+                                };
+                        }
                     }
                     if (rootMatched)
                     {
@@ -312,32 +340,39 @@ namespace Parsek.Logistics
                     // positionally and then REBINDS through RouteEndpointTransfer, so the
                     // route follows the depot actually standing there instead of paying a
                     // stranger by name.
+                    // THE WHOLE DECISION IS PURE AND LIVES IN DecidePidStep. This block reads
+                    // live state (the pid lookup, the ghost set, the vessel's guid) and then
+                    // DISPATCHES; it decides nothing of its own, so the refusal arm is
+                    // headlessly reachable and cannot be deleted while the suite stays green.
                     Vessel byPid = ResolveByPid(endpoint.VesselPersistentId);
                     HashSet<uint> ghostPids = GhostMapPresence.ghostMapVesselPids;
-                    if (byPid != null
-                        && (ghostPids == null || !ghostPids.Contains(byPid.persistentId)))
-                    {
-                        string liveGuid = RouteEndpointTransfer.TryReadLaunchGuid(byPid);
-                        if (VesselLaunchIdentity.GuidsConclusivelyDiffer(
-                                endpoint.LaunchGuid, liveGuid))
-                        {
-                            ParsekLog.Verbose("Logistics",
-                                "Endpoint pid step refused: pid="
-                                + endpoint.VesselPersistentId.ToString(CultureInfo.InvariantCulture)
-                                + " reason=different-launch"
-                                + " recordedGuid=" + GuidToken(endpoint.LaunchGuid)
-                                + " liveGuid=" + GuidToken(liveGuid)
-                                + " - a craft-baked persistentId matched a DIFFERENT launch of"
-                                + " the same craft; falling through to the next step");
-                            continue;
-                        }
+                    bool candidateUsable = byPid != null
+                        && (ghostPids == null || !ghostPids.Contains(byPid.persistentId));
+                    string liveGuid = candidateUsable
+                        ? RouteEndpointTransfer.TryReadLaunchGuid(byPid)
+                        : null;
+                    PidStepOutcome pidOutcome = DecidePidStep(
+                        candidateUsable, endpoint.LaunchGuid, liveGuid);
 
+                    if (pidOutcome == PidStepOutcome.Accept)
+                    {
                         vessel = byPid;
                         ParsekLog.Verbose("Logistics",
                             "Endpoint resolved: step=pid pid="
                             + endpoint.VesselPersistentId.ToString(CultureInfo.InvariantCulture)
                             + " guidGate=" + ClassifyPidGuidGate(endpoint.LaunchGuid, liveGuid));
                         return true;
+                    }
+                    if (pidOutcome == PidStepOutcome.RefuseDifferentLaunch)
+                    {
+                        ParsekLog.Verbose("Logistics",
+                            "Endpoint pid step refused: pid="
+                            + endpoint.VesselPersistentId.ToString(CultureInfo.InvariantCulture)
+                            + " reason=" + PidGuidGateDifferentLaunch
+                            + " recordedGuid=" + GuidToken(endpoint.LaunchGuid)
+                            + " liveGuid=" + GuidToken(liveGuid)
+                            + " - a craft-baked persistentId matched a DIFFERENT launch of"
+                            + " the same craft; falling through to the next step");
                     }
                     continue;
                 }
@@ -415,16 +450,129 @@ namespace Parsek.Logistics
         }
 
         /// <summary>
+        /// The last DEEP root-part scan (the part-set pass) that found nothing, so the same
+        /// fruitless walk is not repeated on every OnGUI frame. Live state, single-threaded,
+        /// and a pure MISS memo: a hit clears it, and it is consulted only after pass 1 has
+        /// already missed - so it can delay a resolution by at most
+        /// <see cref="DeepRootScanNegativeCacheFrames"/> frames and can never produce one.
+        /// </summary>
+        internal struct DeepRootScanMemo
+        {
+            /// <summary>The endpoint root id the miss was recorded for; 0 = nothing memoized.</summary>
+            public uint RootPartUId;
+            /// <summary><c>FlightGlobals.Vessels.Count</c> when the miss was recorded.</summary>
+            public int VesselCount;
+            /// <summary><c>Time.frameCount</c> when the miss was recorded. FRAMES, not UT:
+            /// a UT budget evaporates under time warp, which is exactly when a stale route
+            /// window is left drawing.</summary>
+            public int AtFrame;
+        }
+
+        /// <summary>How long a deep-scan miss is trusted, in frames (about two seconds at
+        /// 60 fps). Small enough that a change the vessel COUNT does not witness - a part
+        /// renumbered under an unchanged roster - still self-heals promptly.</summary>
+        internal const int DeepRootScanNegativeCacheFrames = 120;
+
+        private static DeepRootScanMemo deepRootScanMemo;
+
+        /// <summary>
+        /// Pure: should the expensive part-set scan run, given the last recorded miss? Any
+        /// of - a DIFFERENT endpoint, a CHANGED live-vessel count (a dock or an undock, the
+        /// transitions that make a missing root findable), a non-advancing frame counter
+        /// (a scene reload or a bogus reading, never trusted), or an expired budget - runs
+        /// it. Written as a should-RUN rather than a should-SKIP so the fail-open direction
+        /// is the default one.
+        /// </summary>
+        internal static bool ShouldRunDeepRootScan(
+            uint rootPartUId, int liveVesselCount, int nowFrame,
+            DeepRootScanMemo memo, int cacheFrames)
+        {
+            if (memo.RootPartUId == 0u || memo.RootPartUId != rootPartUId) return true;
+            if (memo.VesselCount != liveVesselCount) return true;
+            // <= 0 is the UNKNOWN-CLOCK reading (ReadFrameCount's catch, or the very first
+            // frame): no budget can be measured against it, so run.
+            if (nowFrame <= 0 || memo.AtFrame <= 0) return true;
+            int elapsed = nowFrame - memo.AtFrame;
+            if (elapsed < 0) return true;
+            return elapsed >= cacheFrames;
+        }
+
+        /// <summary>Test seam: drops the deep-scan miss memo.</summary>
+        internal static void ResetForTesting()
+        {
+            deepRootScanMemo = default(DeepRootScanMemo);
+        }
+
+        /// <summary>Frame counter for the miss memo, defensive for the same reason the other
+        /// live probes here are: an unreadable clock must cost a rescan, not a crash.</summary>
+        private static int ReadFrameCount()
+        {
+            try
+            {
+                return UnityEngine.Time.frameCount;
+            }
+            catch
+            {
+                return 0;
+            }
+        }
+
+        /// <summary>The one refusing reading of <see cref="ClassifyPidGuidGate"/>, and the
+        /// token the refusal log prints. A constant because
+        /// <see cref="DecidePidStep"/> compares against it: the token and the decision are
+        /// the same fact, so a rename cannot leave a log saying one thing and a gate doing
+        /// another.</summary>
+        internal const string PidGuidGateDifferentLaunch = "different-launch";
+
+        /// <summary>What the PID step does with the candidate it found.</summary>
+        internal enum PidStepOutcome
+        {
+            /// <summary>No usable live vessel for the recorded pid (none resolved, or the
+            /// only match is a Parsek ghost). Falls through to the next step.</summary>
+            NoCandidate = 0,
+            /// <summary>A live vessel matched and the guid gate admits it.</summary>
+            Accept = 1,
+            /// <summary>A live vessel matched but its launch guid CONCLUSIVELY differs from
+            /// the endpoint's: a craft-baked pid naming a different launch of the same
+            /// .craft. Falls through to the next step (proximity), which resolves
+            /// positionally and rebinds - never a dead end.</summary>
+            RefuseDifferentLaunch = 2,
+        }
+
+        /// <summary>
+        /// THE PID STEP'S WHOLE DECISION, pure. <see cref="TryResolveEndpoint"/> reads the
+        /// live state and then dispatches on this, holding no branch of its own - which is
+        /// what makes the refusal arm reachable headlessly. Routed THROUGH
+        /// <see cref="ClassifyPidGuidGate"/> rather than re-testing
+        /// <c>GuidsConclusivelyDiffer</c> beside it, so the token an operator reads in the
+        /// log and the gate that refused are one function: mutate the classifier and the
+        /// gate moves with it.
+        /// </summary>
+        /// <param name="candidateUsable">A live non-ghost vessel resolved for the
+        /// endpoint's persistentId.</param>
+        /// <param name="recordedGuid">The endpoint's persisted launch guid (may be
+        /// null/empty - that is "no evidence", not "differs").</param>
+        /// <param name="liveGuid">The candidate's launch guid, or null when unreadable.</param>
+        internal static PidStepOutcome DecidePidStep(
+            bool candidateUsable, string recordedGuid, string liveGuid)
+        {
+            if (!candidateUsable) return PidStepOutcome.NoCandidate;
+            return ClassifyPidGuidGate(recordedGuid, liveGuid) == PidGuidGateDifferentLaunch
+                ? PidStepOutcome.RefuseDifferentLaunch
+                : PidStepOutcome.Accept;
+        }
+
+        /// <summary>
         /// The PID step's guid-gate outcome as one stable token, pure so the four readings
         /// can be pinned headlessly against the same function production logs.
-        /// <c>different-launch</c> is the ONLY refusing one; both unknown-side readings and
-        /// the same-launch reading accept, which is the VesselLaunchIdentity contract
-        /// (unknown means "no evidence", never "differs").
+        /// <see cref="PidGuidGateDifferentLaunch"/> is the ONLY refusing one; both
+        /// unknown-side readings and the same-launch reading accept, which is the
+        /// VesselLaunchIdentity contract (unknown means "no evidence", never "differs").
         /// </summary>
         internal static string ClassifyPidGuidGate(string recordedGuid, string liveGuid)
         {
             if (VesselLaunchIdentity.GuidsConclusivelyDiffer(recordedGuid, liveGuid))
-                return "different-launch";
+                return PidGuidGateDifferentLaunch;
             if (string.IsNullOrEmpty(VesselLaunchIdentity.NormalizeGuid(recordedGuid)))
                 return "unknown-recorded";
             if (string.IsNullOrEmpty(VesselLaunchIdentity.NormalizeGuid(liveGuid)))

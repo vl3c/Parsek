@@ -26,6 +26,13 @@ namespace Parsek.Tests.Logistics
     /// INEQUALITY against the old schedule-only call at a discriminating UT, so a cell cannot
     /// pass by both sides being trivially identical - which is exactly what the hold-free
     /// mirror case IS, and it is pinned separately for that reason.</para>
+    ///
+    /// <para>WHAT THE EQUALITIES CANNOT DO is catch an argument added to the span clock and
+    /// forwarded by NOBODY: <see cref="RenderClock"/> is a hand-written replica of the same
+    /// list (there is no shared forwarding helper - production hand-copies it at four sites),
+    /// so a defaulted-everywhere argument defaults on both sides and every equality passes.
+    /// That is section 4's reflection cell, which pins the span clock's optional-parameter
+    /// names against the forwarded set.</para>
     /// </summary>
     [Collection("Sequential")]
     public class RouteLoopClockHoldArgWiringTests : IDisposable
@@ -323,6 +330,76 @@ namespace Parsek.Tests.Logistics
             {
                 Thread.CurrentThread.CurrentCulture = prior;
             }
+        }
+
+        // ==================================================================
+        // 4. COMPLETENESS - the gate the equalities CANNOT be
+        // ==================================================================
+
+        // catches: a TWELFTH optional argument on the span clock, defaulted at every
+        // forwarding site.
+        //
+        // WHY THE EQUALITY CELLS DO NOT CATCH THAT. There is no shared forwarding helper:
+        // the span clock's optional surface is hand-copied at four production sites
+        // (GhostPlaybackEngine twice, ReaimPlaybackResolver with a deliberate
+        // schedule: null, and RouteLoopClock.TryGetRouteLoopState) and a fifth time by
+        // RenderClock above. A new optional that nobody forwards therefore defaults on BOTH
+        // sides of every equality and the whole class stays green while the delivery clock
+        // and the render clock have silently stopped being the unit's whole surface. This
+        // cell is the completeness half: it reads the span clock's signature by reflection
+        // and pins the optional-parameter NAMES against the set this file's contract says is
+        // forwarded - the schedule, the loiter cuts, and exactly the nine tokens
+        // DescribeHoldArgs emits (the token names are the parameter names, deliberately, so
+        // the log line and the signature cannot drift apart either).
+        //
+        // Failing here is not a defect by itself: it means someone added an argument and
+        // must decide, per site, whether to forward it - then extend this list.
+        [Fact]
+        public void SpanClockOptionalArguments_AreExactlyTheForwardedSet()
+        {
+            System.Reflection.MethodInfo clock = typeof(GhostPlaybackLogic).GetMethod(
+                "TryComputeSpanLoopUT",
+                System.Reflection.BindingFlags.Static
+                | System.Reflection.BindingFlags.NonPublic
+                | System.Reflection.BindingFlags.Public);
+            Assert.NotNull(clock);
+
+            var optionalNames = new System.Collections.Generic.List<string>();
+            foreach (System.Reflection.ParameterInfo p in clock.GetParameters())
+            {
+                if (p.IsOptional) optionalNames.Add(p.Name);
+            }
+
+            // The two structural arguments Phase 6 already threaded, then the nine hold /
+            // launch-alignment ones, in the order the span clock declares them.
+            var expected = new System.Collections.Generic.List<string>
+            {
+                "schedule",
+                "loiterCuts",
+                "arrivalHoldSeconds",
+                "arrivalHoldAtUT",
+                "arrivalHoldAlignPeriod",
+                "launchBodyRotationPeriod",
+                "launchHoldEngaged",
+                "soiExitAtUT",
+                "arrivalJointSecondaryPeriod",
+                "arrivalJointSecondaryTolerance",
+                "arrivalJointMaxWholeHoldPeriods",
+            };
+            Assert.Equal(expected, optionalNames);
+
+            // And the nine hold tokens the log line emits ARE those nine parameter names,
+            // so DescribeHoldArgs cannot describe a clock the seam does not run.
+            string[] pairs = RouteLoopClock.DescribeHoldArgs(BuildUnit(
+                HoldSpanStart, HoldSpanEnd, HoldCadence, HoldAnchor)).Split(' ');
+            var described = new System.Collections.Generic.List<string>();
+            foreach (string pair in pairs)
+            {
+                int eq = pair.IndexOf('=');
+                Assert.True(eq > 0, "hold-arg token is not key=value: " + pair);
+                described.Add(pair.Substring(0, eq));
+            }
+            Assert.Equal(expected.GetRange(2, expected.Count - 2), described);
         }
     }
 }

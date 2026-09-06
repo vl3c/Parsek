@@ -15,7 +15,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ~~ROUTE-ENDPOINT-TRANSFER-DOCKED-DOMINANT-PARTNER: while a visitor is docked to a delivery destination and DOMINATES the merged vessel, the route now REBINDS to the visitor and follows it away after undock~~ [RAISED 2026-09-04 by the Fable review of PR #1627 (the endpoint-transfer ruling). DESIGN RESIDUE of that PR, not a defect it introduced blindly - the pre-#1627 behaviour was self-healing by accident. FIXED 2026-09-06 (P17) by mitigation (a) PLUS the resolver half (a) alone was missing. Sibling 1 is superseded; sibling 2 stays a NOTE]
+## ~~ROUTE-ENDPOINT-TRANSFER-DOCKED-DOMINANT-PARTNER: while a visitor is docked to a delivery destination and DOMINATES the merged vessel, the route now REBINDS to the visitor and follows it away after undock~~ [RAISED 2026-09-04 by the Fable review of PR #1627 (the endpoint-transfer ruling). DESIGN RESIDUE of that PR, not a defect it introduced blindly - the pre-#1627 behaviour was self-healing by accident. FIXED 2026-09-06 (P17) by mitigation (a) PLUS a resolver half the costing did not see was needed - (a) alone would not have worked. Sibling 1 is superseded; sibling 2 stays a NOTE]
 
 **FIXED IN TWO HALVES, AND MITIGATION (a) ALONE WOULD NOT HAVE WORKED.** Stamping the
 destination's `RootPartUId` at capture is necessary but not sufficient, and the reason is
@@ -66,7 +66,28 @@ not a substitute. The hold can still arise for an endpoint with NO stamped root 
 route built before this pass), which is the residual case. SIBLING 2 (the exclusion being a
 union across every route owning the endpoint) is unchanged and still a NOTE.
 
-**Headless:** `RouteEndpointDockedCompositeTests` (12 cells) - both dominance directions
+**TWO FOLLOW-UPS FROM THE ADVERSARIAL REVIEW OF THIS PACKAGE, in the same PR.**
+
+- **The part-set pass is now COST-GATED, because the comment justifying it was half wrong.**
+  It read "the permanently-lost case already pays for the proximity build below", which is
+  true only for a SURFACE endpoint: `proximityEligible` gates on `IsSurface`, so an ORBITAL
+  endpoint whose depot is gone missed pass 1, walked every part of every vessel in pass 2,
+  and had no proximity step to reach - every frame the Logistics window drew that route.
+  `RouteEndpointResolver.ShouldRunDeepRootScan` memoizes the MISS per (endpoint root,
+  live-vessel count) for `DeepRootScanNegativeCacheFrames` (120 frames, about two seconds;
+  FRAMES not UT, because a UT budget evaporates under warp). The correctness cost is a
+  bounded DELAY and never a wrong answer: the memo is dropped the moment the live vessel
+  COUNT changes, which is precisely what a dock (2 -> 1) or an undock (1 -> 2) does - the
+  transitions that make a previously-unfindable root findable. A hit clears it. The comment
+  is corrected in the same commit.
+- **The destination endpoint carries the LAUNCH GUID too, for symmetry with the origin.**
+  `ParsekFlight.BuildRouteEndpointFromVessel` reads it at the same pre-couple instant as
+  the root id. Asymmetric before: an origin's pid step was guid-gated and a destination's
+  was not, for no reason other than which site had the key. It only ever NARROWS the pid
+  step (an unreadable guid stays null, which is the ungated behaviour), and the hasher
+  excludes it, so no existing route moves to `SourceChanged`.
+
+**Headless:** `RouteEndpointDockedCompositeTests` (13 cells) - both dominance directions
 landing on the same composite with different reason tokens, own-root beating contains, the
 undock round trip resolving on the same key, the pass's edges (zero id, ghost exclusion on
 BOTH passes, an unreadable part set, an ambiguous composite), the step order being
@@ -2226,13 +2247,36 @@ either would flip existing routes to `SourceChanged` in `RouteStore.RevalidateSo
 first time a recording is re-saved with the field populated. Pinned by
 `RouteEndpointLaunchGuidTests.RouteProofHash_IsUnchangedByTheLaunchGuidOnEitherSurface`.
 
-**Headless:** `RouteEndpointLaunchGuidTests` (15 cells) - the gate in all three directions
+**THE DECISION IS THE CLASSIFIER'S, after the adversarial review of this package.** As
+first built, `ClassifyPidGuidGate` produced only a LOG TOKEN: the refusal was an inline
+`GuidsConclusivelyDiffer` + `continue` beside it, so deleting the refusal left the suite
+73/73 green and the pure four-reading cells proved nothing about production. The pid step's
+whole decision is now `RouteEndpointResolver.DecidePidStep` (`NoCandidate` / `Accept` /
+`RefuseDifferentLaunch`), routed THROUGH the classifier and compared against the shared
+`PidGuidGateDifferentLaunch` constant; `TryResolveEndpoint` reads live state and dispatches,
+holding no branch of its own. Mutation-verified: neutering the classifier's refusing arm
+reds `DecidePidStep_RefusesADifferentLaunch_AndAcceptsEveryOtherReading` and two
+`RefusedPidStep_FallsThroughToTheNextStep` rows.
+
+**REACHABILITY IS THIN, and that is worth saying plainly.** The pid step runs only when the
+endpoint carries no root id or that root no longer resolves, and
+`RouteProofCapture.TryBindStartDockedOriginAtUndock` sets
+`proof.StartDockedOriginRootPartUId = originHalf.RootPartUId` UNCONDITIONALLY - so on any
+route built since that bind, the gate is reached only after the depot's root part has
+stopped resolving entirely. It is a guard on the residual path, not a hot one, and no
+committed lane exercises it (RVR-18's flight resolved at `step=root-part` with zero
+` guidGate=` and zero `Endpoint pid step refused:` lines - the new branches were not reached
+by any lane).
+
+**Headless:** `RouteEndpointLaunchGuidTests` (17 cells) - the gate in all three directions
 (matching accepts, conclusively-different refuses, and BOTH unknown-side readings accept,
 which is the case that would break every pre-existing route if it were got wrong), the
 normalization insensitivity, both codec round trips with their sparse-absence halves, the
-hash invariance, and the transfer mirror. NOT live-proven: no committed lane dispatches a
-route whose depot root has stopped resolving, and H57 emits no `Endpoint resolved:` line at
-all.
+hash invariance, the transfer mirror, and the step walk: a refused pid falling through to
+proximity on a surface endpoint and to NOTHING on an orbital one, driven through the same
+pure `ResolveEndpointStepPure` production drives. NOT live-proven: no committed lane
+dispatches a route whose depot root has stopped resolving, and H57 emits no
+`Endpoint resolved:` line at all.
 
 **THE ORIGINAL FILING.**
 `RouteEndpointResolver.TryResolveEndpoint`'s `EndpointResolutionStep.Pid` called
@@ -4027,7 +4071,7 @@ delivery clock IS the render clock for the same unit. The three supporting piece
   Verbose line per route, change-based (`VerboseOnChange`), so an operator can read
   WHICH clock the delivery side ran instead of inferring it. That line is what the
   entry's "not measured on a flight" caveat needed and could not have.
-- Headless: `RouteLoopClockHoldArgWiringTests` (7 cells). The load-bearing shape is
+- Headless: `RouteLoopClockHoldArgWiringTests` (8 cells). The load-bearing shape is
   an EQUALITY against the render call plus an INEQUALITY against the old
   schedule-only call at a discriminating UT - an equality alone would pass on a
   build that still dropped the arguments. Both directions are pinned: the
@@ -4037,6 +4081,23 @@ delivery clock IS the render clock for the same unit. The three supporting piece
   sample), and the HOLD-FREE mirror where all three clocks - delivery, render and
   the pre-fix schedule-only reading - must agree EXACTLY, which is what says no v0
   same-body route moved.
+
+**WHAT THE EQUALITIES CANNOT CATCH, found by the adversarial review of this package.**
+The suite's `RenderClock` is a HAND-WRITTEN replica of the engine's argument list, not a
+call into a shared forwarding helper - there is no such helper: the span clock's optional
+surface is hand-copied at four production sites (`GhostPlaybackEngine.cs:424`, `:1972`,
+`Reaim/ReaimPlaybackResolver.cs:229` with a deliberate `schedule: null`, and
+`RouteLoopClock.cs`) and a fifth time by the test. A TWELFTH optional argument left at its
+default everywhere would therefore default on both sides of every equality and the whole
+class would stay green, which is the opposite of what the seam's own comment claimed. The
+comment is corrected, and the completeness gate is a reflection cell
+(`SpanClockOptionalArguments_AreExactlyTheForwardedSet`) pinning
+`TryComputeSpanLoopUT`'s optional-parameter NAMES against `DescribeHoldArgs`' token set
+plus the schedule and the cuts. Mutation-verified by adding a 12th optional to the span
+clock: the cell reds, no other cell moves. The equalities say whether the forwarding is
+CORRECT; the reflection cell says whether it is COMPLETE. A single forwarding helper for
+all five sites would be the stronger fix and is NOT what was built - `ReaimPlaybackResolver`
+deliberately passes `schedule: null`, so it cannot use one unchanged.
 
 The two comments that asserted the divergence as a standing fact are corrected in
 the same commit (`RouteOrchestrator`'s M-A7 capture-point note and
