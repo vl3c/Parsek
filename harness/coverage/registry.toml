@@ -215,15 +215,23 @@ values = ["rewind-to-launch", "fast-forward", "rewind-to-separation", "refly-gat
 #   * NOT SPLIT BY SURFACE, for the sibling's measured reason: B32 (flight map, log), V26M
 #     (flight map, log + manifest) and V26T (tracking station) read the same two build lines
 #     byte-identically on three consecutive runs.
-# CLAIMED CONDITIONAL ON THE ARMED RE-FLIGHT - the H59 `route-map-lines-surface` precedent
-# verbatim. What earns it so far: three reading runs with byte-identical build lines (2026-09-06
-# runs 1 and 2, and run 3 `2026-09-06_2111` / `_2113` / `_2115`, all PASS attempt 1) and a
-# GATING token, `transferDropped=2` required as a LITERAL on all three lanes as of 2026-09-07
-# where it was deliberately unpinned while it was still the open measurement. What is OWED
-# before the claim is unconditional: the armed re-flight of the three lanes plus the negative
-# control `B32X-legdrop-negative-control` (authored uncommitted, identical to B32 except the
-# `71a983a1` build token flipped to `transferDropped=0`; replayed against the run-3 B32 log it
-# reads exactly one unmet token and zero forbids).
+# CLAIMED UNCONDITIONAL 2026-09-07, package P16 - the H59 `route-map-lines-surface` precedent
+# discharged in full. FIVE driven readings of the same two build lines, byte-identical every
+# time: 2026-09-06 reading runs 1 and 2, run 3 (`2026-09-06_2111` / `_2113` / `_2115`), the
+# armed run on branch tip `3b1a9323a` (`_2207` B32 / `_2210` V26M), and the armed re-flight on
+# the merged base (`2026-09-06_2334` V26T / `_2338` B32, both PASS attempt 1), with
+# `transferDropped=2` required as a LITERAL on all three lanes. NEGATIVE CONTROL
+# `B32X-legdrop-negative-control` (authored uncommitted, identical to B32 except the `71a983a1`
+# build token flipped to `transferDropped=0`) flew `_2214` and red `PARSEK-FAIL(expectation)` on
+# EXACTLY that one token - `logContracts.required not matched: Route line build: route=71a983a1
+# members=4 groups=4 legs=16 transferDropped=0` - one mismatch, zero forbids hit, analyzer green.
+# THE ARMED RUN ON `3b1a9323a` ALSO RED V26T AND V18T, AND NOT ON THIS CLAIM: a base regression
+# parked every committed route `SourceChanged` at load
+# (ROUTE-SOURCECHANGED-AT-LOAD-AFTER-SIDECAR-EPOCH-DRIFT, fixed in PR #1637), so the unmet tokens
+# were `ghostDriving=[1-9]`, `routeMissions=[1-9]` and `created [1-9][0-9]* ghost vessel\(s\)`
+# with saveParse reading `routes.statuses.Active 0 < min 1`. The build lines in that red run are
+# BYTE-IDENTICAL to the green one's, which is the statement that the drift never touched this
+# counter; the re-flight on the merged base reads them again beside `ghostDriving=1`.
 # "multi-origin-escrow" gained a THIRD owner 2026-09-02 with H60-route-escrow-contention,
 # and the value is NOT re-scoped by it - the addition is a different PRODUCER of the same
 # behaviour, in the shape the growth rule allows a shared value. H38 and H40 carry it off

@@ -1961,11 +1961,13 @@ adds the inclined-and-eccentric MOON target the way Moho did for planets), plus
 deep-space return shapes. Breadth work; schedule opportunistically behind
 G1-G5.
 
-**G10 - INTER-BODY route composition - CLOSED 2026-09-07** on three readings of
-`transferDropped=2` (runs 1 and 2 of 2026-09-06 plus run 3 `2026-09-06_2111` /
-`_2113` / `_2115`, all PASS attempt 1), with the counts now pinned as literals on
-B32 / V26M / V26T and the new coverage value `route-transfer-leg-drop` claimed
-conditional on the armed re-flight. The closing measurement and what it did NOT
+**G10 - INTER-BODY route composition - CLOSED 2026-09-07** on five readings of
+`transferDropped=2` (runs 1 and 2 of 2026-09-06, run 3 `2026-09-06_2111` /
+`_2113` / `_2115`, the armed run `_2207` / `_2210`, and the armed re-flight
+`_2334` V26T / `_2338` B32 on the merged base - all PASS attempt 1), with the
+counts pinned as literals on B32 / V26M / V26T, a negative control that red on
+exactly the flipped token, and the new coverage value `route-transfer-leg-drop`
+claimed UNCONDITIONAL. The closing measurement and what it did NOT
 prove are at the end of this block; everything between is the trail, kept because
 two of its diagnoses were corrected by later runs and the corrections are only
 legible beside what they corrected. (`B32-interbody-route` subject stamp,
@@ -2207,10 +2209,10 @@ basis=Endpoints`, and no `Route member run stop:` line anywhere. Those counts ar
 LITERALS on all three lanes (interim regexes for two rounds, because the fix was still moving
 under them), which turns `FilterLegsToEndpointBodies` dropping a leg from a reading into a GATE.
 `routeCoDrawViolations=0` on both V26M and V26T, down from 1024 and then 403. New coverage value
-`route-transfer-leg-drop`, one cell across all three lanes, CLAIMED CONDITIONAL ON THE ARMED
-RE-FLIGHT (the H59 `route-map-lines-surface` precedent); V26M and V26T arm
-`[expectations.renderComposition]` on `routeLineBuilds = {min = 2}` + `routeCoDrawViolations =
-{max = 0}` in the same commit.
+`route-transfer-leg-drop`, one cell across all three lanes, claimed CONDITIONAL ON THE ARMED
+RE-FLIGHT at that point (the H59 `route-map-lines-surface` precedent) and made UNCONDITIONAL by
+the armed round below; V26M and V26T arm `[expectations.renderComposition]` on
+`routeLineBuilds = {min = 2}` + `routeCoDrawViolations = {max = 0}` in the same commit.
 
 WHAT RUN 3 DID **NOT** PROVE, stated because the prediction said it would. The paint arm's
 stand-down did not fire on any frame: V26M read `legsDrawn=33 skippedOwned=0 ownedLegs=0
@@ -2228,12 +2230,36 @@ wiring sites those cells cannot see. The OWNERSHIP arm did fire live in the same
 (`routesDrawn=1 legsDrawn=14`, gated block green, zero mismatches) and H59 held as controls on
 all three runs.
 
+**THE ARMED ROUND FLEW AND THE CLAIM IS DISCHARGED.** First pass on branch tip `3b1a9323a`:
+B32 `2026-09-06_2207` PASS attempt 1 (wall 71 s) and V26M `_2210` PASS attempt 1 (60 s), both on
+the whole pin with `renderComposition` armed; the negative control
+`B32X-legdrop-negative-control` (uncommitted, supervisor scratchpad, `_2214`) red
+`PARSEK-FAIL(expectation)` on EXACTLY the one seeded token, verbatim `logContracts.required not
+matched: Route line build: route=71a983a1 members=4 groups=4 legs=16 transferDropped=0`, one
+mismatch, zero forbids, analyzer green. V26T `_2212` and V18T `_2216` red in that same round AND
+NOT ON THIS BLOCK'S CLAIM: `main` at that moment carried
+ROUTE-SOURCECHANGED-AT-LOAD-AFTER-SIDECAR-EPOCH-DRIFT, so every committed route parked
+`SourceChanged` at load and the unmet tokens were the ghost-driving ones (`ghostDriving=[1-9]`,
+`routeMissions=[1-9]`, `created [1-9][0-9]* ghost vessel\(s\)`, plus V18T's
+`skippedByStatus=[1-9]` forbid) with saveParse reading `routes.statuses.Active 0 < min 1`. The
+BUILD lines in those red runs are byte-identical to every green one's, which is the reading that
+the drift never touched the leg-drop counter. PR #1637 fixed it (the load-time flat-list heal no
+longer rewrites the sidecar, so the epoch a route captured as proof-of-source stops moving), and
+after merging `origin/main` at `4f80b305b` into this branch the round re-flew GREEN:
+V26T `2026-09-06_2334` PASS attempt 1 (54 s, every verifier PASS, `routes count=2
+statuses={Active: 1, Paused: 1}`, `ghostDriving=1 skippedByStatus=1`, renderCompose
+`routeLineBuilds=2 routeCoDrawViolations=0`), the V18T control `_2337_a2` PASS
+(`flakedThenPassed` - attempt 1 INVALID on the known driver `LoadGame` REJECTED race, not a
+product signal; `legs=14 transferDropped=0`, `legsDrawn=14`, armed `[expectations.routes]`
+GATING PASS, 21 `sidecar left byte-identical` lines, ZERO `->SourceChanged`), and B32 `_2338`
+PASS attempt 1 (55 s, both `scope=InterBody basis=Endpoints` lines, the same two build lines).
+
 STILL OPEN AFTER THIS BLOCK, and no part of it: `DispatchWindowPeriod != 0` synodic cadence is
 unmeasured and unmeasurable by design since the scope fix (the field is informational), no
-dispatch has been driven on an inter-body route, and the ownership arm is still whole-member
-(ROUTE-LINE-OWNERSHIP-ARM-IS-STILL-WHOLE-MEMBER). The armed re-flight of B32 / V26M / V26T plus
-the negative control `B32X-legdrop-negative-control` is what makes the new coverage claim
-unconditional; that is a run request, not further work.
+dispatch has been driven on an inter-body route, the ownership arm is still whole-member
+(ROUTE-LINE-OWNERSHIP-ARM-IS-STILL-WHOLE-MEMBER), and V26M's paint-arm stand-down remains
+epoch-dependent rather than guaranteed by the step list
+(V26M-GHOST-SPAWN-IN-MAP-WINDOW-IS-EPOCH-DEPENDENT).
 
 **THE OPERATOR SAVE SPECIFICATION for B32** (write it once, fly it by hand; the
 seam cannot create this and no driven lane can either, because route candidacy is
