@@ -18,7 +18,11 @@ tier = "nightly"
 # ordinary executes 0, isolated executes 1. WHOLLY batch-disabled, so the ordinary
 # path's executable ceiling is ZERO.
 #
-# AUTHORED 2026-09-06, NEVER FLOWN.
+# LIVE-PROVEN 2026-09-06, run `2026-09-06_2016` (PASS attempt 1, wall 55 s, every
+# verifier PASS or SKIPPED). The cell executed and passed - `total=1 passed=1
+# failed=0 skipped=0`, no `SKIPPED:` line - so an unattended stock save-and-exit out
+# of an ORBITING FLIGHT scene under `autoMerge = ON` committed the tree silently and
+# at full fidelity, asserted in-cell.
 description = "Drive the in-game AutoMergeCommit category through the ISOLATED batch entry point over an ORBITING crewed stack: record, exit FLIGHT through stock save-and-exit under autoMerge=ON, and assert the tree commits silently at full fidelity - no dialog, VesselSnapshot kept, leaf still spawn-at-end eligible."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "isolated-batch", "auto-merge", "scene-exit", "R6", "H67"]
@@ -111,30 +115,39 @@ allowedAnomalies = []
 count = { min = 0, max = 0 }
 
 [expectations.logContracts]
-# EVIDENCE STANDING: NONE. Authored 2026-09-06, never flown.
+# EVIDENCE STANDING: MEASURED ONCE, run `2026-09-06_2016` (2026-09-06, PASS on
+# attempt 1, 55 s wall, every verifier PASS or SKIPPED), whose collected KSP.log
+# carries `BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0
+# category=AutoMergeCommit scene=FLIGHT` and `Using batch baseline slot ... for 1
+# restore-after-run test(s)`.
 #
-# `total=1` is ATTRIBUTE-EXACT; `failed=0` is the assertion; the split is a regex
-# class. As in H64 and H66, `total=1` makes the interim spelling as strong as a whole
-# pin - the only line it admits is `passed=1 skipped=0`.
+# `total=1` is ATTRIBUTE-EXACT; `failed=0` is the assertion; the split is now a
+# MEASURED LITERAL sitting exactly on the attribute floor of 0 skips, so NO
+# `MEASURED_SKIPPED` entry is owed. As in H64 and H66, `total=1` made the interim
+# spelling as strong as a whole pin - the only line it admitted is `passed=1
+# skipped=0`.
 #
-# THE PREDICTION, written to be refuted: the cell EXECUTES, `total=1 passed=1 failed=0
-# skipped=0`. Every one of its six guards is settled by the host and the driver -
+# THE PREDICTION, written to be refuted, WAS CONFIRMED: the cell EXECUTES, `total=1
+# passed=1 failed=0 skipped=0`. Every one of its six guards is settled by the host and the driver -
 # active vessel present, non-EVA, ORBITING, idle, no pending tree,
 # `ParsekSettings.Current` available - which makes this the best-determined SKIP half
 # in the wave and moves the census's whole product onto the assertions.
 #
-# WHAT THE CENSUS ACTUALLY BUYS, therefore: whether an unattended stock save-and-exit
+# WHAT THE CENSUS ACTUALLY BOUGHT, therefore: whether an unattended stock save-and-exit
 # out of an ORBITING FLIGHT scene under `autoMerge = ON` commits SILENTLY (no
 # pre-transition popup - H21's log carries `Pre-transition tree merge dialog:` and
 # `User chose:` lines, and this run must not) and at FULL FIDELITY (the committed leaf
 # keeps its `VesselSnapshot`). Those two are asserted in-cell rather than pinned here,
 # because pinning the ABSENCE of the dialog line as a `forbidden` would also fire on a
 # dialog spawned by any other subsystem in the same run and would read as a product
-# defect. The first census records what the log carried; if the silent-commit path
-# turns out to have its own grep-stable line, this spec pins it in the same commit as
-# the whole tally.
+# defect. THE CENSUS ANSWERED BOTH THROUGH THE CELL: it EXECUTED and it PASSED, so
+# the silent-commit and full-fidelity assertions held. NO additional grep-stable
+# silent-commit token is pinned off this run - the tally is pinned whole and the two
+# claims stay in-cell where the assertions are, which is the same restraint the
+# paragraph above states. If a later reading of the log finds a line unique to the
+# silent-commit path, it is pinned then and named here.
 required  = [
-  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=AutoMergeCommit scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=AutoMergeCommit scene=FLIGHT",
   "runtests start category=AutoMergeCommit isolated=true",
   "Using batch baseline slot .* for 1 restore-after-run test\\(s\\)",
 ]
@@ -144,7 +157,9 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 # 1320 s worst case (660 + 660); 1400 clears it. One cell, but it costs a FLIGHT ->
 # SPACECENTER transition on a 41-part stack plus the isolated path's baseline restore
 # to bring the scene back, which is H21's per-cell cost pattern rather than a cheap
-# in-process assertion.
+# in-process assertion. MEASURED at 55 s wall on run `2026-09-06_2016` - the cheapest
+# of the six R6 lanes flown, despite the largest craft, because one cell buys one
+# transition.
 budgetSeconds = 1400
 
 [retry]

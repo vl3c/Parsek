@@ -18,7 +18,12 @@ tier = "nightly"
 # and rebuilds it, so this batch costs a real scene reload plus the isolated path's
 # own baseline restore on top.
 #
-# AUTHORED 2026-09-06, NEVER FLOWN.
+# LIVE-PROVEN 2026-09-06, run `2026-09-06_2013` (PASS attempt 1, wall 60 s, every
+# verifier PASS or SKIPPED). The cell executed and passed - `total=1 passed=1
+# failed=0 skipped=0`, no `SKIPPED:` line - so the open question this lane was flown
+# to settle is answered: the `FlightDriver` revert-to-launch reflection surface DOES
+# resolve at run time on KSP 1.12.5, and a real stock Revert to Launch soft-unstashes
+# the live tree with no merge dialog under an unattended batch.
 description = "Drive the in-game RevertFlow category through the ISOLATED batch entry point over a PRELAUNCH pad craft: start a real recording, stage off the pad, invoke stock Revert to Launch, and assert the live tree is soft-unstashed with no merge dialog - the one test no unattended path could run before R5."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "isolated-batch", "revert-flow", "R6", "H64"]
@@ -89,26 +94,30 @@ allowedAnomalies = []
 count = { min = 0, max = 0 }
 
 [expectations.logContracts]
-# EVIDENCE STANDING: NONE. Authored 2026-09-06, never flown.
+# EVIDENCE STANDING: MEASURED ONCE, run `2026-09-06_2013` (2026-09-06, PASS on
+# attempt 1, 60 s wall, every verifier PASS or SKIPPED), whose collected KSP.log
+# carries `BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=RevertFlow
+# scene=FLIGHT` and `Using batch baseline slot ... for 1 restore-after-run test(s)`.
 #
 # `total=1` is ATTRIBUTE-EXACT (one `[InGameTest(Category = "RevertFlow")]`
 # declaration, FLIGHT-scoped, kept in sync by `CommittedBatchTallySourceSyncTests`).
-# `failed=0` is the assertion. The split is a regex class.
+# `failed=0` is the assertion. The split is now a MEASURED LITERAL sitting exactly on
+# the attribute floor of 0 skips, so NO `MEASURED_SKIPPED` entry is owed.
 #
-# THE PREDICTION, written to be refuted: the cell EXECUTES, `total=1 passed=1
-# failed=0 skipped=0`. Four of its five guards are settled by the host and the driver
-# (non-EVA, PRELAUNCH, idle, `FlightInputHandler.state`). The FIFTH IS NOT SETTLED BY
-# ANY SAVE FILE and is the census's real product: `FlightDriver revert-to-launch
-# reflection surface unavailable on this KSP build`. Nothing in the suite has ever
-# resolved that surface at run time, so a skip on it is a FINDING about the reflection
-# probe against KSP 1.12.5 rather than a fixture mismatch - and with one cell, that
-# skip is the whole batch, which is exactly why it is worth flying.
+# THE PREDICTION, written to be refuted, WAS CONFIRMED: the cell EXECUTES, `total=1
+# passed=1 failed=0 skipped=0`. Four of its five guards are settled by the host and
+# the driver (non-EVA, PRELAUNCH, idle, `FlightInputHandler.state`). The FIFTH IS NOT
+# SETTLED BY ANY SAVE FILE and was the census's real product: `FlightDriver
+# revert-to-launch reflection surface unavailable on this KSP build`. Nothing in the
+# suite had ever resolved that surface at run time; this run did, so the probe is
+# LIVE against KSP 1.12.5 rather than a latent dead branch. With one cell that skip
+# would have been the whole batch, which is exactly why it was worth flying.
 #
-# WHAT A ONE-CELL INTERIM PIN CANNOT SAY is nothing, unusually: with `total=1` the
-# only lines the pin admits are `passed=1 skipped=0`, so this lane's interim spelling
-# is as strong as a whole pin and becomes one verbatim on the first green census.
+# WHAT A ONE-CELL INTERIM PIN COULD NOT SAY was nothing, unusually: with `total=1`
+# the only line the interim spelling admitted was `passed=1 skipped=0`, so it was
+# already as strong as a whole pin and becomes one verbatim now.
 required  = [
-  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=RevertFlow scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=RevertFlow scene=FLIGHT",
   "runtests start category=RevertFlow isolated=true",
   "Using batch baseline slot .* for 1 restore-after-run test\\(s\\)",
 ]
@@ -117,7 +126,9 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 [runtime]
 # 1320 s worst case (660 + 660); 1400 clears it. One cell, but a revert-to-launch is a
 # full FLIGHT teardown and rebuild and the isolated path adds a baseline restore on
-# top, so this is not a fast lane despite the tally.
+# top, so this is not a fast lane despite the tally. MEASURED at 60 s wall on run
+# `2026-09-06_2013` - more than the two-cell H63 (56 s) on a smaller tally, which is
+# the teardown cost showing up exactly where the derivation put it.
 budgetSeconds = 1400
 
 [retry]

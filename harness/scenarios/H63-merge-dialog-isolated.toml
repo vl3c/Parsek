@@ -18,7 +18,10 @@ tier = "nightly"
 # + `RestoreBatchFlightBaselineAfterExecution = true`: ordinary executes 0, isolated
 # executes 2. WHOLLY batch-disabled, so the ordinary path's ceiling is 0.
 #
-# AUTHORED 2026-09-06, NEVER FLOWN.
+# LIVE-PROVEN 2026-09-06, run `2026-09-06_2012` (PASS attempt 1, wall 56 s, every
+# verifier PASS or SKIPPED). Both cells executed and passed - `total=2 passed=2
+# failed=0 skipped=0`, no `SKIPPED:` line at all - so neither reflection guard fired
+# and the pin below is whole.
 description = "Drive the in-game MergeDialog category through the ISOLATED batch entry point: fabricate a pending tree in a live FLIGHT session and drive both branches of the real merge popup - the Discard button clearing the pending tree and the deferred Merge button committing it through the real Merge to Timeline path."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "isolated-batch", "merge-dialog", "R6", "H63"]
@@ -92,26 +95,33 @@ allowedAnomalies = []
 count = { min = 0, max = 0 }
 
 [expectations.logContracts]
-# EVIDENCE STANDING: NONE. Authored 2026-09-06, never flown.
+# EVIDENCE STANDING: MEASURED ONCE, run `2026-09-06_2012` (2026-09-06, PASS on
+# attempt 1, 56 s wall, every verifier PASS or SKIPPED), whose collected KSP.log
+# carries `BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0
+# category=MergeDialog scene=FLIGHT` and `Using batch baseline slot ... for 2
+# restore-after-run test(s)`.
 #
-# `total=2` is ATTRIBUTE-EXACT; `failed=0` is the assertion; the split is a regex
-# class.
+# `total=2` is ATTRIBUTE-EXACT; `failed=0` is the assertion; the split was a regex
+# class and is now a MEASURED LITERAL sitting exactly on the attribute floor of 0
+# skips, so NO `MEASURED_SKIPPED` entry is owed.
 #
-# THE PREDICTION, written to be refuted: BOTH EXECUTE, `total=2 passed=2 failed=0
-# skipped=0`. The `no existing pending tree` guard is satisfied by a fresh boot with
+# THE PREDICTION, written to be refuted, WAS CONFIRMED: BOTH EXECUTE, `total=2
+# passed=2 failed=0 skipped=0`. The `no existing pending tree` guard is satisfied by a fresh boot with
 # auto-record pinned off. The other two guards are REFLECTION guards - the cells
 # resolve the merge dialog's helpers and `ParsekScenario.Instance` by reflection and
 # skip if either is unavailable - and those are properties of the DLL, not of the
 # save. That makes this lane's skip half unusually well-determined, and it also makes
 # a skip here MEANINGFUL: `merge dialog reflection helpers are unavailable` on a
 # correctly provisioned instance would say the reflection surface moved under the
-# cells, which is a finding rather than a fixture mismatch.
+# cells, which is a finding rather than a fixture mismatch. The census printed NO
+# `SKIPPED:` line, so both reflection surfaces resolved on KSP 1.12.5 at run time -
+# a thing nothing in the suite had confirmed before.
 #
 # The literal 2 in the baseline-slot token is DERIVED (both declarations carry
 # `RestoreBatchFlightBaselineAfterExecution`), and the seam echo doubles as the
 # stale-automation-DLL canary.
 required  = [
-  "BATCH_COMPLETE v1 total=2 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=MergeDialog scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=MergeDialog scene=FLIGHT",
   "runtests start category=MergeDialog isolated=true",
   "Using batch baseline slot .* for 2 restore-after-run test\\(s\\)",
 ]
@@ -120,7 +130,9 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 [runtime]
 # 1320 s worst case (660 + 660); 1400 clears it. This is the cheapest lane of the
 # seven - no staging, no launch, a 1-part host - so the two baseline restores dominate
-# and H21's measured ~100 s wall is the expectation.
+# and H21's measured ~100 s wall was the expectation. MEASURED at 56 s wall on run
+# `2026-09-06_2012`, the cheapest of the six R6 lanes that have flown, which is what
+# the derivation predicted.
 budgetSeconds = 1400
 
 [retry]

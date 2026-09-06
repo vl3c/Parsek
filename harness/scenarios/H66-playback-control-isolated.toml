@@ -14,7 +14,12 @@ tier = "nightly"
 # path's executable ceiling is ZERO and the interim spelling already rejects the only
 # line it could print.
 #
-# AUTHORED 2026-09-06, NEVER FLOWN.
+# LIVE-PROVEN 2026-09-06, run `2026-09-06_2015` (PASS attempt 1, wall 73 s, every
+# verifier PASS or SKIPPED). The cell executed and passed - `total=1 passed=1
+# failed=0 skipped=0`, no `SKIPPED:` line - so `TryBuildSyntheticKeepVesselTree`
+# snapshotted the live active vessel into a spawnable synthetic recording for the
+# first time under an unattended batch, and the exactly-once keep-vessel spawn held
+# through the fast-forward.
 description = "Drive the in-game PlaybackControl category through the ISOLATED batch entry point: commit a synthetic keep-vessel recording, fast-forward the timeline into playback, and assert the keep-vessel spawn happens exactly once and is not replaced by a second pid - the one test no unattended path could run before R5."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "isolated-batch", "playback-control", "fast-forward", "R6", "H66"]
@@ -94,29 +99,35 @@ allowedAnomalies = []
 count = { min = 0, max = 0 }
 
 [expectations.logContracts]
-# EVIDENCE STANDING: NONE. Authored 2026-09-06, never flown.
+# EVIDENCE STANDING: MEASURED ONCE, run `2026-09-06_2015` (2026-09-06, PASS on
+# attempt 1, 73 s wall, every verifier PASS or SKIPPED), whose collected KSP.log
+# carries `BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0
+# category=PlaybackControl scene=FLIGHT` and `Using batch baseline slot ... for 1
+# restore-after-run test(s)`.
 #
-# `total=1` is ATTRIBUTE-EXACT; `failed=0` is the assertion; the split is a regex
-# class. As in H64, `total=1` makes the interim spelling as strong as a whole pin -
-# the only line it admits is `passed=1 skipped=0` - so it becomes a literal verbatim on
-# the first green census.
+# `total=1` is ATTRIBUTE-EXACT; `failed=0` is the assertion; the split is now a
+# MEASURED LITERAL sitting exactly on the attribute floor of 0 skips, so NO
+# `MEASURED_SKIPPED` entry is owed. As in H64, `total=1` made the interim spelling as
+# strong as a whole pin - the only line it admitted is `passed=1 skipped=0` - so it
+# becomes a literal verbatim now.
 #
-# THE PREDICTION, written to be refuted: the cell EXECUTES, `total=1 passed=1 failed=0
-# skipped=0`. Four of its five guards are settled by the host and the driver (idle
-# flight, active vessel present, non-EVA, main body, PRELAUNCH). THE FIFTH IS NOT
-# SETTLED BY ANY SAVE FILE and is what the census buys: `TryBuildSyntheticKeepVesselTree`
-# must succeed at snapshotting the live active vessel into a spawnable synthetic
-# recording, and its failure is a skip with a reason string. Nothing in the suite has
-# ever run that builder unattended.
+# THE PREDICTION, written to be refuted, WAS CONFIRMED: the cell EXECUTES, `total=1
+# passed=1 failed=0 skipped=0`. Four of its five guards are settled by the host and
+# the driver (idle flight, active vessel present, non-EVA, main body, PRELAUNCH). THE
+# FIFTH IS NOT SETTLED BY ANY SAVE FILE and is what the census bought:
+# `TryBuildSyntheticKeepVesselTree` must succeed at snapshotting the live active
+# vessel into a spawnable synthetic recording, and its failure is a skip with a reason
+# string. Nothing in the suite had ever run that builder unattended; it succeeded.
 #
 # WHAT THE CELL COULD STILL FAIL ON, and why a fail here is worth more than a skip:
 # every assertion after the guards is about the live spawn - a non-zero
 # `SpawnedVesselPersistentId`, the vessel findable by pid, exactly one loaded vessel
 # at that pid, and no replacement pid two seconds later. Those are the
 # `spawn-at-end-pid-dedup` behaviour under an unattended fast-forward, which is the
-# thing this lane exists to measure.
+# thing this lane exists to measure. `failed=0` over an EXECUTED cell is therefore the
+# lane's whole product: every one of those assertions held.
 required  = [
-  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=PlaybackControl scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=PlaybackControl scene=FLIGHT",
   "runtests start category=PlaybackControl isolated=true",
   "Using batch baseline slot .* for 1 restore-after-run test\\(s\\)",
 ]
@@ -126,7 +137,8 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 # 1320 s worst case (660 + 660); 1400 clears it. One cell, but it waits out a 15 s
 # fast-forward lead plus a 10 s spawn wait plus a 2 s duplicate-prevention wait before
 # the isolated path's baseline restore, so the batch is tens of seconds rather than the
-# microseconds the tally suggests.
+# microseconds the tally suggests. MEASURED at 73 s wall on run `2026-09-06_2015`,
+# which is the most expensive PER CELL in the wave and exactly the waits above.
 budgetSeconds = 1400
 
 [retry]

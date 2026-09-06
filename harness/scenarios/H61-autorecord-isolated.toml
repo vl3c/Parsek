@@ -12,9 +12,14 @@ tier = "nightly"
 # lets the interim `passed=[1-9][0-9]*` spelling below already reject every line the
 # ordinary path could print: its executable ceiling is 0.
 #
-# AUTHORED 2026-09-06, NEVER FLOWN. The `passed=` / `skipped=` split below is a
-# REGEX CLASS, not a pin, and the cell-by-cell prediction in this header is written
-# to be REFUTED by the first census rather than confirmed by it.
+# LIVE-PROVEN 2026-09-06, run `2026-09-06_2010` (PASS attempt 1, wall 80 s, every
+# verifier PASS or SKIPPED). The `passed=` / `skipped=` split below was authored as a
+# REGEX CLASS, with the cell-by-cell prediction in this header written to be REFUTED
+# by the first census rather than confirmed by it. IT WAS NOT REFUTED: the census
+# measured `total=10 passed=5 failed=0 skipped=5` and the five cells that skipped are
+# the five this header named, cell for cell, on the reasons it named. The split is
+# now pinned whole and the five measured skip reasons are quoted verbatim under
+# `[expectations.logContracts]`.
 description = "Drive the in-game AutoRecord category through the ISOLATED batch entry point over a crewed two-stage PRELAUNCH pad craft: launch auto-record, EVA auto-record, the post-switch watch's negative case, and the two #526 pad-transient canaries - ten cells no unattended path could run before R5."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "isolated-batch", "auto-record", "R6", "H61"]
@@ -142,11 +147,16 @@ count = { min = 0, max = 0 }
 # ANTI-VACUITY plus the R5 discrimination requirement, on the three tokens every
 # isolated member owes.
 #
-# EVIDENCE STANDING: NONE. Authored 2026-09-06, never flown. `total=10` is
-# ATTRIBUTE-EXACT (ten `[InGameTest(Category = "AutoRecord")]` declarations, all
-# FLIGHT-scoped, kept in sync by `CommittedBatchTallySourceSyncTests`); `failed=0` is
-# the ASSERTION; `passed=` and `skipped=` are regex classes because the split turns on
-# run-time `InGameAssert.Skip` guards no attribute predicts.
+# EVIDENCE STANDING: MEASURED ONCE, run `2026-09-06_2010` (2026-09-06, PASS on
+# attempt 1, 80 s wall, every verifier PASS or SKIPPED), whose collected KSP.log
+# carries `BATCH_COMPLETE v1 total=10 passed=5 failed=0 skipped=5 category=AutoRecord
+# scene=FLIGHT` and `Using batch baseline slot ... for 10 restore-after-run test(s)`.
+# `total=10` is ATTRIBUTE-EXACT (ten `[InGameTest(Category = "AutoRecord")]`
+# declarations, all FLIGHT-scoped, kept in sync by
+# `CommittedBatchTallySourceSyncTests`); `failed=0` is the ASSERTION; `passed=5` and
+# `skipped=5` are MEASURED LITERALS, and because the attribute floor for skipped is 0
+# the 5 is declared in `IsolatedBatchWiringGroupTests.MEASURED_SKIPPED` with its
+# derivation. Re-measure rather than re-guess if the host or the guards move.
 #
 # THE PREDICTION, written to be refuted. FIVE EXECUTE, FIVE SKIP:
 #   EXECUTE
@@ -175,16 +185,39 @@ count = { min = 0, max = 0 }
 #    10. AutoRecordOnPostSwitch_GearToggle_StartsExactlyOnce (:2854) - needs LANDED.
 # So the predicted line is `total=10 passed=5 failed=0 skipped=5`. Four of the five
 # predicted skips are SITUATION properties of the host and one is a CREW property;
-# none is a product claim. If the census reads any of the five as PASSED, the
-# prediction was wrong and the pin is replaced whole - which is what the interim class
-# exists for.
+# none is a product claim.
+#
+# THE CENSUS CONFIRMED IT CELL FOR CELL. Run `2026-09-06_2010` printed exactly
+# `total=10 passed=5 failed=0 skipped=5`, and the five `SKIPPED:` lines name the five
+# cells predicted above, on the five reasons predicted above, verbatim:
+#   * `AutoRecordOnPostSwitch_GearToggle_StartsExactlyOnce - requires a LANDED active
+#     vessel for the post-switch gear-toggle canary, got PRELAUNCH`
+#   * `AutoRecordOnPostSwitch_LandedMotion_StartsExactlyOnce - requires a LANDED
+#     active vessel for the post-switch landed-motion canary, got PRELAUNCH`
+#   * `AutoRecordOnPostSwitch_OrbitalEngineOrRcs_StartsExactlyOnce - requires an
+#     ORBITING active vessel for the post-switch orbital canary, got PRELAUNCH`
+#   * `EvaKerbalGhostHasVesselSnapshot - requires a mid-flight crewed vessel - EVA
+#     from PRELAUNCH auto-seals the kerbal recording as Landed before the live
+#     recorder can rebind to the kerbal`
+#   * `EvaTwiceFromSameCapsuleProducesTwoBranches - requires at least two crew in the
+#     active vessel, got 1`
+# All five are host properties (four situation, one crew) and none is a product
+# claim, so the residue is a HOST requirement rather than a defect: closing the three
+# post-switch cells needs a LANDED host and an ORBITING host, `EvaKerbalGhost...` a
+# MID-FLIGHT crewed host, and `EvaTwice...` a host with 2+ crew. `eva3-pad-3crew`
+# would buy the last one, but its launch clamps carry the
+# `RealSpawnControl_WarpToRecordingEnd_OnPad_*` cell's own skip - so it trades one
+# cell for another rather than closing the lane, which is why the swap was not made
+# here.
 #
 # THE THREE TOKENS, and what each rests on:
-#  - The BATCH_COMPLETE line. `total=10` literal; `failed=0` literal; `passed=` is the
-#    plain `[1-9][0-9]*` interim spelling, which is SUFFICIENT here because the
-#    ordinary path's executable ceiling for this category is ZERO - the only line it
-#    could print is `passed=0`, which this rejects, and which is also a member of the
-#    vacuity family the anti-vacuity gate enumerates.
+#  - The BATCH_COMPLETE line, now pinned WHOLE: `total=10 passed=5 failed=0
+#    skipped=5`. The interim spelling it replaces was the plain `[1-9][0-9]*`
+#    `passed=` form, which was SUFFICIENT while it stood because the ordinary path's
+#    executable ceiling for this category is ZERO - the only line that path could
+#    print is `passed=0`, which both spellings reject, and which is also a member of
+#    the vacuity family the anti-vacuity gate enumerates. The whole pin is strictly
+#    stronger: it also rejects any drift in the measured split.
 #  - `runtests start category=AutoRecord isolated=true` - emitted by
 #    `ParsekTestCommandAddon.RunTestsImpl` on the exact step this driver sends, so it
 #    is reachable by construction. It is also the CANARY for the provisioning trap:
@@ -197,7 +230,7 @@ count = { min = 0, max = 0 }
 #    Pinned as a literal rather than a class because a class is satisfied by a batch
 #    that admitted a different population.
 required  = [
-  "BATCH_COMPLETE v1 total=10 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=AutoRecord scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=10 passed=5 failed=0 skipped=5 category=AutoRecord scene=FLIGHT",
   "runtests start category=AutoRecord isolated=true",
   "Using batch baseline slot .* for 10 restore-after-run test\\(s\\)",
 ]
@@ -214,9 +247,9 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 # IS 1400 ENOUGH FOR TEN CELLS? H21 MEASURED a two-cell isolated batch at 29.6 s of
 # batch time inside 101 s wall on a 73-part launcher, i.e. ~15 s per launch-and-restore
 # cycle. Ten cells on a 15-part craft projects to ~150 s of batch, and five of the ten
-# are predicted to self-skip in microseconds. The first census measures it; if the real
-# batch approaches the 540 s RunTests cap this budget is the wrong lever and the lane
-# should be split by situation instead.
+# are predicted to self-skip in microseconds. MEASURED: run `2026-09-06_2010` took 80 s
+# WALL for the whole run - load, batch, flush and quit - so the batch is nowhere near
+# the 540 s RunTests cap and the budget is not the binding constraint on this lane.
 budgetSeconds = 1400
 
 [retry]

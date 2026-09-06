@@ -4023,16 +4023,20 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # 47 as its six siblings; the split is MEASURED at 38/9 (see
         # `MEASURED_SKIPPED`) and is no longer interim.
         "RVR-6-rover-relay-logistics-host": ("Logistics", 47),
-        # ROADMAP R6, ISOLATED HALF - SEVEN LANES AUTHORED 2026-09-06, NONE FLOWN.
-        # They are the rest of the population R5 unlocked and nothing had driven: one
-        # spec per category, each over a host chosen by that category's own guards.
-        # Six are WHOLLY batch-disabled (H21's shape, ordinary ceiling 0); the seventh,
-        # H65, is the wave's only PARTLY batch-disabled member and is declared in
-        # PARTLY_BATCH_DISABLED_IDS with its arithmetic.
+        # ROADMAP R6, ISOLATED HALF - SEVEN LANES AUTHORED 2026-09-06, SIX FLOWN GREEN
+        # THE SAME DAY. They are the rest of the population R5 unlocked and nothing had
+        # driven: one spec per category, each over a host chosen by that category's own
+        # guards. Six are WHOLLY batch-disabled (H21's shape, ordinary ceiling 0); the
+        # seventh, H65, is the wave's only PARTLY batch-disabled member and is declared
+        # in PARTLY_BATCH_DISABLED_IDS with its arithmetic.
         #
-        # Every one of the seven is INTERIM (see INTERIM_PIN_IDS) and every one carries
-        # a cell-by-cell predicted split in its own header, written to be refuted by
-        # the first census. Three fixtures cover all seven: `gs1-two-stage-pad` (the
+        # Every one of the seven carries a cell-by-cell predicted split in its own
+        # header, written to be refuted by the first census. SIX HAVE NOW MEASURED IT
+        # and pin their tallies whole - H61 `2026-09-06_2010` (10/5/0/5), H63 `_2012`
+        # (2/2/0/0), H64 `_2013` (1/1/0/0), H65 `_2014` (3/3/0/0), H66 `_2015`
+        # (1/1/0/0), H67 `_2016` (1/1/0/0), each PASS on attempt 1 - and not one
+        # prediction was refuted. H62 alone is still INTERIM (see INTERIM_PIN_IDS).
+        # Three fixtures cover all seven: `gs1-two-stage-pad` (the
         # crewed PRELAUNCH two-controller pad craft) for the four staging lanes,
         # `gloops-airshow` (the bare capsule) for the two that only need a real vessel
         # to exist, and `gs2-orbital-stack` for the one that needs an ORBITING host.
@@ -4097,14 +4101,19 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
                                  # an ordinary in-process assertion). So ordinary
                                  # executable = 1, isolated executable = 3, and the arg
                                  # buys the two real quickload cells. Because the
-                                 # ordinary ceiling is 1 rather than 0, its interim
-                                 # `passed=` is pinned as a FLOOR OF 2
+                                 # ordinary ceiling is 1 rather than 0, its INTERIM
+                                 # `passed=` was pinned as a FLOOR OF 2
                                  # (`(?:[2-9]|[1-9][0-9]+)`) rather than the plain
-                                 # `[1-9][0-9]*` spelling its six wave siblings use -
+                                 # `[1-9][0-9]*` spelling its six wave siblings used -
                                  # the H38 move, swept by
                                  # test_an_interim_pin_still_rejects_the_ordinary_paths_
-                                 # executable_ceiling. The other six R6 lanes are WHOLLY
-                                 # batch-disabled and are NOT listed here.
+                                 # executable_ceiling. Its census `2026-09-06_2014`
+                                 # measured `total=3 passed=3 failed=0 skipped=0`, so
+                                 # the pin is now a LITERAL that clears the ceiling of 1
+                                 # by construction; the arithmetic above still decides
+                                 # the spelling if the split ever goes loose again. The
+                                 # other six R6 lanes are WHOLLY batch-disabled and are
+                                 # NOT listed here.
                                  "H65-quickload-resume-isolated"}
 
     # Members whose BATCH_COMPLETE line cannot distinguish the isolated path from the
@@ -4410,10 +4419,13 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     # ever been. They are the roadmap R6 isolated half: one lane per remaining
     # ISOLATED-batch category (`AutoRecord`, `Coalescer`, `MergeDialog`, `RevertFlow`,
     # `QuickloadResume`, `PlaybackControl`, `AutoMergeCommit`), all authored
-    # 2026-09-06 and none flown. Every `total=` is attribute-exact and every `failed=0`
-    # is a literal; only the split is a class.
+    # 2026-09-06 and, at the time this paragraph was written, none flown. Every
+    # `total=` is attribute-exact and every `failed=0` is a literal; only the split is
+    # a class. The paragraphs that follow are KEPT as the record of what the seven owed
+    # and why; six discharged it the same day (see the roster at the foot of this
+    # comment).
     #
-    # WHY ALL SEVEN ARE INTERIM RATHER THAN PINNED WHOLE, and it is the H39/H40 reason
+    # WHY ALL SEVEN WERE INTERIM RATHER THAN PINNED WHOLE, and it is the H39/H40 reason
     # rather than H38's: the split turns on run-time `InGameAssert.Skip` guards that
     # read LIVE state no attribute and no save file settles. Four flavours occur across
     # the wave and each spec header names which of its cells rest on which -
@@ -4441,15 +4453,32 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     # spec's pin is replaced whole, a MEASURED_SKIPPED entry is added if the run-time
     # guards push `skipped` above the attribute floor of 0, and the id LEAVES this set
     # in the same commit.
-    INTERIM_PIN_IDS = {
-        "H61-autorecord-isolated",
-        "H62-coalescer-isolated",
-        "H63-merge-dialog-isolated",
-        "H64-revert-flow-isolated",
-        "H65-quickload-resume-isolated",
-        "H66-playback-control-isolated",
-        "H67-automerge-commit-isolated",
-    }
+    #
+    # DOWN TO ONE ON 2026-09-06 - SIX OF THE SEVEN DISCHARGED THE SAME DAY THEY WERE
+    # AUTHORED. Each flew once on the fixed DLL and PASSED on attempt 1 with every
+    # verifier PASS or SKIPPED, and each now pins its measured tally whole:
+    #   H61 `2026-09-06_2010`, wall  80 s - total=10 passed=5 failed=0 skipped=5
+    #   H63 `2026-09-06_2012`, wall  56 s - total=2  passed=2 failed=0 skipped=0
+    #   H64 `2026-09-06_2013`, wall  60 s - total=1  passed=1 failed=0 skipped=0
+    #   H65 `2026-09-06_2014`, wall  63 s - total=3  passed=3 failed=0 skipped=0
+    #   H66 `2026-09-06_2015`, wall  73 s - total=1  passed=1 failed=0 skipped=0
+    #   H67 `2026-09-06_2016`, wall  55 s - total=1  passed=1 failed=0 skipped=0
+    # NOT ONE PREDICTION WAS REFUTED, which is the unusual part and worth stating
+    # plainly: the interim class exists because a header's cell-by-cell hypothesis is
+    # not evidence, and on this wave every hypothesis happened to be right. H61 is the
+    # only one whose split moved off the attribute floor at all, and its five run-time
+    # skips are the exact five its header named, on the exact reasons it named - so it
+    # is the only member of the wave that earns a MEASURED_SKIPPED entry. The other
+    # five sit on a floor of 0 and owe none.
+    #
+    # `H62-coalescer-isolated` was the last to leave: its first census (run
+    # `2026-09-06_1956`, on gs1-two-stage-pad) read `passed=0 skipped=2` because gs1's
+    # FIRST stage lights the engine rather than firing the decoupler, so the cells'
+    # single staging call separated nothing; re-hosted on the derived `coalescer-pad`
+    # (the same save with the decoupler moved into the first stage) it measured
+    # `total=2 passed=2 failed=0 skipped=0` on run `2026-09-06_2017` and is pinned
+    # whole. The set is EMPTY again; the obligation above is what a new member owes.
+    INTERIM_PIN_IDS: set = set()
 
     # id -> measured `skipped=` for members whose RUN-TIME InGameAssert.Skip guards
     # push the split above the attribute-derived floor. The attributes give a FLOOR
@@ -4547,6 +4576,37 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # remains a hypothesis, and closing it needs the run's own `SKIPPED:` roster
         # rather than this number.
         "RVR-6-rover-relay-logistics-host": 9,
+        # H61 (`gs1-two-stage-pad`): 0 attribute-forced + 5 run-time. MEASURED off its
+        # census `2026-09-06_2010` (PASS attempt 1, wall 80 s, every verifier PASS or
+        # SKIPPED), which read `BATCH_COMPLETE v1 total=10 passed=5 failed=0 skipped=5
+        # category=AutoRecord scene=FLIGHT`. The attribute floor is 0 because all ten
+        # `AutoRecord` declarations are FLIGHT-scoped and the isolated filter admits
+        # every one, so all five skips are run-time `InGameAssert.Skip` guards.
+        #
+        # THE FIVE, and unlike RVR-6's extra skip these ARE named, because the run's
+        # own `SKIPPED:` lines name them (a count is never inferred into a name here;
+        # a roster is only written when the log carried one). All five are HOST
+        # properties - four situation, one crew - and none is a product claim:
+        #   * `AutoRecordOnPostSwitch_GearToggle_StartsExactlyOnce` - "requires a
+        #     LANDED active vessel for the post-switch gear-toggle canary, got
+        #     PRELAUNCH"
+        #   * `AutoRecordOnPostSwitch_LandedMotion_StartsExactlyOnce` - "requires a
+        #     LANDED active vessel for the post-switch landed-motion canary, got
+        #     PRELAUNCH"
+        #   * `AutoRecordOnPostSwitch_OrbitalEngineOrRcs_StartsExactlyOnce` -
+        #     "requires an ORBITING active vessel for the post-switch orbital canary,
+        #     got PRELAUNCH"
+        #   * `EvaKerbalGhostHasVesselSnapshot` - "requires a mid-flight crewed vessel
+        #     - EVA from PRELAUNCH auto-seals the kerbal recording as Landed before the
+        #     live recorder can rebind to the kerbal"
+        #   * `EvaTwiceFromSameCapsuleProducesTwoBranches` - "requires at least two
+        #     crew in the active vessel, got 1"
+        # This is the wave's one member whose split moved off the attribute floor, and
+        # the spec header's cell-by-cell prediction named all five in advance, on these
+        # reasons, and was confirmed cell for cell. Re-measure rather than re-guess:
+        # every one of the five is a property of `gs1-two-stage-pad`, so a host swap
+        # moves this number.
+        "H61-autorecord-isolated": 5,
     }
 
     @classmethod

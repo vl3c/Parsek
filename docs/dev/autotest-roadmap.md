@@ -733,18 +733,26 @@ stock-minimal` to reach a harness run.
 **R6. Drive the recording-lifecycle and classification batches.** Roughly 8 specs.
 
 - ~~Isolated (needs R5): `AutoRecord`, `SceneExitMerge`, `MergeDialog`, `RevertFlow`,
-  `Coalescer`, `QuickloadResume`.~~ **AUTHORED 2026-09-06 - ALL SEVEN, NONE FLOWN.**
+  `Coalescer`, `QuickloadResume`.~~ **AUTHORED 2026-09-06 - ALL SEVEN; SIX LIVE-PROVEN
+  THE SAME DAY.**
   `SceneExitMerge` shipped earlier as R5's shakedown (`H21-scene-exit-merge-isolated`,
   LIVE-PROVEN 2026-07-27); the rest are now committed as
   `H61-autorecord-isolated`, `H62-coalescer-isolated`, `H63-merge-dialog-isolated`,
   `H64-revert-flow-isolated`, `H65-quickload-resume-isolated`,
   `H66-playback-control-isolated` and `H67-automerge-commit-isolated`. That is SEVEN
   rather than the five this line listed: `PlaybackControl` and `AutoMergeCommit` were
-  in the same unlocked population and belong here. Every one is an INTERIM pin
-  (`total=` attribute-exact, `failed=0` asserted, split a regex class) with a
-  cell-by-cell predicted census in its own header, and every one owes its first
-  flight; the specs are AUTHORED, not PROVEN, and none of the coverage below is
-  claimed off them yet. Status rows: `docs/dev/autotest-status.md`, "In-game ISOLATED
+  in the same unlocked population and belong here. Every one was authored as an INTERIM
+  pin (`total=` attribute-exact, `failed=0` asserted, split a regex class) with a
+  cell-by-cell predicted census in its own header. SIX HAVE NOW FLOWN AND ARE PINNED
+  WHOLE, each PASS on attempt 1 with every verifier PASS or SKIPPED: H61
+  `2026-09-06_2010` (80 s, `total=10 passed=5 failed=0 skipped=5`), H63 `_2012` (56 s,
+  `2/2/0/0`), H64 `_2013` (60 s, `1/1/0/0`), H65 `_2014` (63 s, `3/3/0/0`), H66 `_2015`
+  (73 s, `1/1/0/0`), H67 `_2016` (55 s, `1/1/0/0`) - and not one header prediction was
+  refuted. `H62-coalescer-isolated` flew twice: `_1956` on gs1-two-stage-pad read
+  `passed=0 skipped=2` (gs1's first stage lights the engine, so the one staging call
+  separated nothing), and `_2017` on the derived `coalescer-pad` host read `2/2/0/0`
+  and is pinned whole. `IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS` is empty again. Status
+  rows: `docs/dev/autotest-status.md`, "In-game ISOLATED
   batch wiring, R6 isolated half, H61-H67". Bucket detail:
   `docs/dev/autotest-ingame-category-inventory.md`, "B6-ISO".
 
@@ -761,10 +769,15 @@ stock-minimal` to reach a harness run.
   - D9 `rewind-to-launch` is NOT closed by `QuickloadResume`. That value names
     Parsek's own rewind machinery; these cells drive KSP's F5/F9 backend, which has no
     registry value. H65 claims nothing beyond D14.
-  What the wave DOES claim, once flown: D1 `auto-record-launch` + `auto-record-eva`
+  What the wave claims: D1 `auto-record-launch` + `auto-record-eva`
   (H61), `discard-rollback` (H63), `commit-revert-merge` (H64, revert half only),
   `commit-scene-exit` + `auto-merge` (H67); D5 `controlled-decoupled-child` (H62);
-  D6 `spawn-at-end-pid-dedup` and D9 `fast-forward` (H66).
+  D6 `spawn-at-end-pid-dedup` and D9 `fast-forward` (H66). All of these are now
+  backed by a green census rather than by the spec alone.
+  THE THREE CORRECTIONS ABOVE ALSO SURVIVED THE CENSUS: H61's three positive
+  post-switch cells each skipped naming their required situation against `got
+  PRELAUNCH`, so D1 `auto-record-first-mod-switch` is measured-open, not argued-open,
+  and the LANDED / ORBITING follow-up lanes are still owed.
 - Free today: `Optimizer` (D4 `env-body-split`, `surface-graze-suppression`),
   `BackgroundSeeder` (D4 `seed-event-split`), `Recording` (D5 `bg-on-rails`),
   `TrajectoryMath` (D2 `threshold-debounce`), `Pipeline-Anchor` (D3
