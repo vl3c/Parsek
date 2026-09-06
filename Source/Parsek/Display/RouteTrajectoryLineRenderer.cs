@@ -29,11 +29,16 @@ namespace Parsek.Display
     /// <para>
     /// Draw ordering avoids double-drawing over a route ghost's OWN live trajectory: the shared
     /// <see cref="GhostTrajectoryPolylineRenderer.Driver"/> runs its ghost-leg draw first (in the
-    /// same map-camera onPreCull frame) and publishes the recordings whose non-orbital leg it
-    /// actually drew; this renderer then skips any backing recording the ghost is drawing this
-    /// frame (<see cref="GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg"/>), so the leg
-    /// the animated ghost is on is drawn once (by the ghost) and the rest of the route path is
-    /// drawn statically here.
+    /// same map-camera onPreCull frame) and publishes both the recordings it OWNS
+    /// (<see cref="GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg"/>, the current-element
+    /// draw) and the LEG SPANS whose mesh it currently has on screen
+    /// (<see cref="GhostTrajectoryPolylineRenderer.IsPaintingNonOrbitalLegSpan"/>, which also covers
+    /// the forward RUN legs of chain members - the population a route member run expands into).
+    /// Ownership stands a whole group down (<see cref="ShouldSkipGroupAsGhostDrawn"/> - it carries no
+    /// span); the paint arm stands down ONE LEG at a time
+    /// (<see cref="ShouldSkipLegAsGhostPainted"/>), so a member the ghost paints only partly still
+    /// draws its unpainted legs. The leg the animated ghost is on is drawn once (by the ghost) and
+    /// the rest of the route path is drawn statically here.
     /// </para>
     ///
     /// <para>
@@ -89,6 +94,17 @@ namespace Parsek.Display
             public string memberRecordingId;
             public Recording rec;
             public LegPolyline[] legs;
+
+            /// <summary>
+            /// True when this group is a DECLARED <see cref="Route.RecordingIds"/> entry, false when
+            /// it is a continuation segment the member-run expansion added. Only declared members
+            /// feed <see cref="CollectMemberBodies"/>: the malformed-mixed-bodies cross-check asks
+            /// whether the route's own MEMBER SET leaves the body it declares, and answering it from
+            /// derived segments would let one continuation on another body skip a same-body route's
+            /// line entirely - a route that drew before drawing nothing. Scope classification is
+            /// therefore bit-identical to the head-only build.
+            /// </summary>
+            public bool isDeclaredMember;
         }
 
         private struct RouteLineSet
@@ -363,6 +379,17 @@ namespace Parsek.Display
         // ------------------------------------------------------------------
 
         /// <summary>
+        /// Head-only overload (<paramref name="resolve"/> alone): every member id resolves to ONE
+        /// recording. Kept for the pure unit tests that drive a hand-built member set; the live
+        /// path always passes the run expander below.
+        /// </summary>
+        internal static List<RouteMemberLegs> BuildRouteMemberLegs(
+            Route route, Func<string, Recording> resolve,
+            out int resolvableMembers, out int totalLegs, out int transferLegsDropped)
+            => BuildRouteMemberLegs(route, resolve, null,
+                out resolvableMembers, out totalLegs, out transferLegsDropped, out _);
+
+        /// <summary>
         /// Resolves a route's backing recordings and builds their non-orbital polyline legs,
         /// clipped to the route's dock UT. Reuses the ghost leg builder verbatim (same body-fixed
         /// lat/lon/alt extraction, same downsample cap, same RELATIVE-frame handling) so route
@@ -373,48 +400,93 @@ namespace Parsek.Display
         /// (<see cref="FilterLegsToEndpointBodies"/>; <paramref name="transferLegsDropped"/>
         /// reports the count) — same-body routes are never filtered. READ-ONLY over the route +
         /// recording data.
+        ///
+        /// <para>A MEMBER IS A RUN. <see cref="Route.RecordingIds"/> holds composition run HEADS
+        /// (<c>RouteBackingMission.ComputeMemberRecordingIds</c> strips every
+        /// <c>headLegId + "/segN"</c> interval key back to its head), so
+        /// <paramref name="expandRun"/> expands each member id to the ordered recordings of its
+        /// whole continuation run and EVERY segment becomes its own group - drawn from its own
+        /// recording, under its own recording id (the ghost-owned skip and the M-A7 defer record are
+        /// per recording). Without it the route line drew only each run's first segment and the
+        /// interplanetary transfer, which always lands in a continuation, was unreachable
+        /// (ROUTE-LINE-MEMBER-DROPS-CONTINUATION-SEGMENTS). <paramref name="resolvableMembers"/>
+        /// still counts DECLARED members that resolved; <paramref name="expandedSegments"/> counts
+        /// the non-head segments this build actually took a group for - incremented after the
+        /// cross-member dedupe and before the leg build, so a segment that yields no drawable leg is
+        /// still counted (reach, not yield) while one already built under an earlier member is not.
+        /// It is the ONLY segment counter, and it is what the <c>Route line members:</c> log line
+        /// prints as <c>segments=</c>. The expander's PRE-claim walk is a different number on a
+        /// different line: <c>Route member run: ... walked=</c>, emitted per member by
+        /// <see cref="RouteMemberRunExpansion"/>. Nothing prints <c>walked=</c> here.</para>
         /// </summary>
         internal static List<RouteMemberLegs> BuildRouteMemberLegs(
             Route route, Func<string, Recording> resolve,
-            out int resolvableMembers, out int totalLegs, out int transferLegsDropped)
+            Func<string, IReadOnlyList<Recording>> expandRun,
+            out int resolvableMembers, out int totalLegs, out int transferLegsDropped,
+            out int expandedSegments)
         {
             resolvableMembers = 0;
             totalLegs = 0;
             transferLegsDropped = 0;
+            expandedSegments = 0;
             var groups = new List<RouteMemberLegs>();
             if (route == null || route.RecordingIds == null || resolve == null)
                 return groups;
 
             double dockClipUT = route.RecordedDockUT;
-            var seen = new HashSet<string>(StringComparer.Ordinal);
+            // Two dedupe sets, deliberately: `declaredSeen` counts each DECLARED member id once
+            // (members= keeps its shipped meaning), `built` guards the groups so a member that is
+            // also a continuation segment of an earlier member's run is drawn once, not twice.
+            var declaredSeen = new HashSet<string>(StringComparer.Ordinal);
+            var built = new HashSet<string>(StringComparer.Ordinal);
+            // Membership by ID, not by position: a declared member can also BE a continuation
+            // segment of an earlier member's run (a dock-merged child under its parent), and it is
+            // still a declared member when it is built there.
+            var declaredIds = new HashSet<string>(route.RecordingIds, StringComparer.Ordinal);
             for (int r = 0; r < route.RecordingIds.Count; r++)
             {
                 string recId = route.RecordingIds[r];
-                if (string.IsNullOrEmpty(recId) || !seen.Add(recId)) continue;
+                if (string.IsNullOrEmpty(recId) || !declaredSeen.Add(recId)) continue;
                 Recording rec = resolve(recId);
                 if (rec == null) continue;
                 resolvableMembers++;
 
-                var built = GhostTrajectoryPolylineRenderer.BuildLegsForRecording(rec);
-                if (built == null || built.Count == 0) continue;
-
-                List<LegPolyline> kept = null;
-                for (int i = 0; i < built.Count; i++)
+                // The member's run: the head (always) plus its continuation segments. The expander
+                // is the ONLY producer of the segment list; a null one (pure tests) keeps the
+                // shipped head-only shape.
+                IReadOnlyList<Recording> run = expandRun != null ? expandRun(recId) : null;
+                int segments = run != null ? run.Count : 1;
+                for (int s = 0; s < segments; s++)
                 {
-                    var leg = built[i];
-                    if (leg.PointCount < 2) continue;
-                    if (!LegWithinDockClip(leg.startUT, leg.endUT, dockClipUT)) continue;
-                    (kept ?? (kept = new List<LegPolyline>())).Add(leg);
+                    Recording segRec = run != null ? run[s] : rec;
+                    if (segRec == null) continue;
+                    string segId = !string.IsNullOrEmpty(segRec.RecordingId)
+                        ? segRec.RecordingId : recId;
+                    if (!built.Add(segId)) continue;
+                    if (s > 0) expandedSegments++;
+
+                    var segLegs = GhostTrajectoryPolylineRenderer.BuildLegsForRecording(segRec);
+                    if (segLegs == null || segLegs.Count == 0) continue;
+
+                    List<LegPolyline> kept = null;
+                    for (int i = 0; i < segLegs.Count; i++)
+                    {
+                        var leg = segLegs[i];
+                        if (leg.PointCount < 2) continue;
+                        if (!LegWithinDockClip(leg.startUT, leg.endUT, dockClipUT)) continue;
+                        (kept ?? (kept = new List<LegPolyline>())).Add(leg);
+                    }
+                    if (kept == null || kept.Count == 0) continue;
+
+                    totalLegs += kept.Count;
+                    groups.Add(new RouteMemberLegs
+                    {
+                        memberRecordingId = segId,
+                        rec = segRec,
+                        legs = kept.ToArray(),
+                        isDeclaredMember = declaredIds.Contains(segId),
+                    });
                 }
-                if (kept == null || kept.Count == 0) continue;
-
-                totalLegs += kept.Count;
-                groups.Add(new RouteMemberLegs
-                {
-                    memberRecordingId = recId,
-                    rec = rec,
-                    legs = kept.ToArray(),
-                });
             }
 
             // Inter-body scope: keep only the endpoint-body legs (origin + destination); the
@@ -538,6 +610,17 @@ namespace Parsek.Display
         /// stable across a save round-trip.
         /// </summary>
         internal static long ComputeRouteSignature(Route route, Func<string, Recording> resolve)
+            => ComputeRouteSignature(route, resolve, null);
+
+        /// <summary>
+        /// Run-aware overload: folds every CONTINUATION SEGMENT of each member run (id + content
+        /// hash) as well as the head, so a re-cut / re-optimized continuation invalidates the cached
+        /// line the same way a head change does. Head-only when
+        /// <paramref name="expandRun"/> is null (the shipped computation, bit-identical).
+        /// </summary>
+        internal static long ComputeRouteSignature(
+            Route route, Func<string, Recording> resolve,
+            Func<string, IReadOnlyList<Recording>> expandRun)
         {
             if (route == null) return 0L;
             unchecked
@@ -551,6 +634,16 @@ namespace Parsek.Display
                         Recording rec = resolve?.Invoke(route.RecordingIds[r]);
                         if (rec != null)
                             h ^= GhostTrajectoryPolylineRenderer.ComputeContentHash(rec);
+
+                        IReadOnlyList<Recording> run = expandRun?.Invoke(route.RecordingIds[r]);
+                        if (run == null) continue;
+                        for (int s = 1; s < run.Count; s++)   // element 0 is the head, folded above
+                        {
+                            Recording seg = run[s];
+                            if (seg == null) continue;
+                            h = MixString(h, seg.RecordingId);
+                            h ^= GhostTrajectoryPolylineRenderer.ComputeContentHash(seg);
+                        }
                     }
                 }
                 h ^= BitConverter.DoubleToInt64Bits(route.RecordedDockUT);
@@ -585,6 +678,88 @@ namespace Parsek.Display
         // ------------------------------------------------------------------
 
         /// <summary>
+        /// PURE per-GROUP no-double-draw arbitration on the OWNERSHIP arm, applied to EVERY group by
+        /// its OWN recording id - a declared <see cref="Route.RecordingIds"/> member and an expanded
+        /// continuation segment alike. A group with no legs is never a skip (there is nothing to
+        /// double-draw); an empty id cannot be arbitrated and draws, as it did before the expansion
+        /// existed.
+        ///
+        /// <para>THE OWNERSHIP ARM IS THE COARSE ONE AND IT STAYS GROUP-LEVEL, deliberately.
+        /// <c>drewNonOrbitalLegRecordings</c> remains the SOLE ownership source (Appendix A), it is
+        /// published only on the ghost's CURRENT-element draw, and it carries NO UT span - it answers
+        /// "is the polyline the owner of this recording's non-orbital PHASE" - so there is nothing to
+        /// arbitrate per leg with. This is also the shipped M6 v1 behaviour H59's armed census pinned
+        /// (<c>skippedOwned=1</c> on a one-leg member). The PAINT arm, which does carry spans, is per
+        /// leg: <see cref="ShouldSkipLegAsGhostPainted"/>.</para>
+        /// </summary>
+        internal static bool ShouldSkipGroupAsGhostDrawn(
+            RouteMemberLegs group, Func<string, bool> ghostDrawsRecording)
+        {
+            if (ghostDrawsRecording == null) return false;
+            if (group.legs == null || group.legs.Length == 0) return false;
+            if (string.IsNullOrEmpty(group.memberRecordingId)) return false;
+            return ghostDrawsRecording(group.memberRecordingId);
+        }
+
+        /// <summary>
+        /// PURE per-LEG no-double-draw arbitration on the PAINT arm: stand this ONE leg down when the
+        /// ghost polyline currently has a VISIBLE mesh of the same recording covering the leg's own
+        /// recorded span.
+        ///
+        /// <para>WHY THE ARM EXISTS AT ALL: a continuation segment of a member run is painted by the
+        /// ghost's FORWARD RUN-LEG pass under its own recording id, and that pass never publishes
+        /// ownership by design - so an ownership-only read answered "nobody has this segment" while the
+        /// ghost was drawing it, and the route line painted a second identical line over it (measured
+        /// 2026-09-06 reading run 1: V26M / V26T <c>ROUTE_CODRAW_VIOLATION</c> on the expanded segment
+        /// with <c>skippedOwned=0</c>). Checked in the MIRROR direction and it widened the fix: a
+        /// DECLARED member can be forward-painted the same way, so the arm applies to every group.</para>
+        ///
+        /// <para>WHY PER LEG (re-review F1): the forward run-leg pass paints the legs the ghost is ON,
+        /// not the member's whole recorded path, so standing the member down WHOLE erased every leg the
+        /// ghost was not painting - a hole in the route line exactly where the overview is the only
+        /// producer. Reading run 2 measured the size of it: V26M's stood-down group carried 13 legs
+        /// (<c>legsDrawn</c> 33 -> 20) while the ghost's mesh covered a part of it.</para>
+        ///
+        /// <para>WHY THE GHOST'S ANSWER IS MESH MEMBERSHIP AND NOT "PAINTED THIS FRAME": the ghost's
+        /// draw pass early-returns on any frame its -50 decide walk did not run, and its deactivation
+        /// sweep lives INSIDE that same pass - so on such a frame the meshes stay on screen while a
+        /// frame-stamped answer reads "painting nothing", and the route line paints a second identical
+        /// line over a mesh that is still there. Measured 2026-09-06 (reading run 2): V26M
+        /// <c>routeCoDrawViolations=403</c>, every one on the same recording, the first 50 frames after
+        /// the last stand-down frame. See <c>GhostTrajectoryPolylineRenderer.paintedLegSpans</c>.</para>
+        /// </summary>
+        internal static bool ShouldSkipLegAsGhostPainted(
+            string memberRecordingId, double legStartUT, double legEndUT,
+            Func<string, double, double, bool> ghostPaintsSpan)
+        {
+            if (ghostPaintsSpan == null) return false;
+            if (string.IsNullOrEmpty(memberRecordingId)) return false;
+            return ghostPaintsSpan(memberRecordingId, legStartUT, legEndUT);
+        }
+
+        // Cached delegates (allocated once) so the arbitration never allocates a closure on the map
+        // onPreCull hot path.
+        private static readonly Func<string, bool> ghostOwnsProbe = GhostOwnsRecording;
+        private static readonly Func<string, double, double, bool> ghostPaintsSpanProbe =
+            GhostPaintsRecordingSpan;
+
+        /// <summary>
+        /// The live half of <see cref="ShouldSkipGroupAsGhostDrawn"/>: the ghost polyline OWNS this
+        /// recording's non-orbital phase this frame (the current-element publish).
+        /// </summary>
+        private static bool GhostOwnsRecording(string recordingId)
+            => GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(recordingId);
+
+        /// <summary>
+        /// The live half of <see cref="ShouldSkipLegAsGhostPainted"/>: the ghost polyline has a VISIBLE
+        /// mesh for this recording overlapping the leg's span.
+        /// </summary>
+        private static bool GhostPaintsRecordingSpan(
+            string recordingId, double legStartUT, double legEndUT)
+            => GhostTrajectoryPolylineRenderer.IsPaintingNonOrbitalLegSpan(
+                recordingId, legStartUT, legEndUT);
+
+        /// <summary>
         /// Draws every committed same-body route's overview line this frame. Called from the shared
         /// polyline Driver's map-camera onPreCull slot AFTER the ghost-leg draw, so
         /// <see cref="GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg"/> reflects the
@@ -602,6 +777,9 @@ namespace Parsek.Display
             ReconcileCommittedRoutes();
 
             int routesDrawn = 0, legsDrawn = 0, skippedOwned = 0, skippedMalformed = 0, skippedOther = 0;
+            // Split of skippedOwned by ARM, so a reading run can tell a whole-member ownership stand-down
+            // from the per-leg paint stand-downs without re-deriving it from the ghost's own log.
+            int ownedLegs = 0, paintedLegs = 0;
             if (enabled)
             {
                 var routes = RouteStore.CommittedRoutes;
@@ -610,7 +788,9 @@ namespace Parsek.Display
                     Route route = routes[ri];
                     if (route == null || string.IsNullOrEmpty(route.Id)) continue;
 
-                    RouteLineSet set = RefreshForRoute(route, ResolveRecording);
+                    RouteLineSet set = RefreshForRoute(
+                        route, ResolveRecording,
+                        RouteMemberRunExpansion.CreateLiveExpander(route));
 
                     RouteLineScope scope = ResolveScope(route, set);
 
@@ -627,13 +807,14 @@ namespace Parsek.Display
                         RouteMemberLegs group = set.groups[g];
                         if (group.legs == null || group.legs.Length == 0) continue;
 
-                        // No-double-draw: the per-cycle ghost polyline already draws this member's
-                        // leg when its playback head is on it; skip it here so the static overview
-                        // never paints a second identical line over the live ghost trajectory.
-                        if (GhostTrajectoryPolylineRenderer.IsRenderingNonOrbitalLeg(group.memberRecordingId))
+                        // No-double-draw, OWNERSHIP arm: per GROUP recording id, because ownership
+                        // carries no UT span (ShouldSkipGroupAsGhostDrawn / ghostOwnsProbe). Counted in
+                        // LEGS, like the paint arm below, so skippedOwned means one thing.
+                        if (ShouldSkipGroupAsGhostDrawn(group, ghostOwnsProbe))
                         {
-                            skippedOwned++;
-                            // M-A7: the deferral is a RATIFIED skip (the ghost owns this member's leg
+                            skippedOwned += group.legs.Length;
+                            ownedLegs += group.legs.Length;
+                            // M-A7: the deferral is a RATIFIED skip (the ghost has this member's leg
                             // this frame); aggregated per (route, member) by the recorder.
                             Parsek.MapRender.RenderCompositionRecorder.NoteRouteLegDeferred(
                                 route.Id, group.memberRecordingId);
@@ -642,8 +823,29 @@ namespace Parsek.Display
 
                         LegPolyline[] legs = group.legs; // array ref shared with the cached set
                         string keyBase = "route:" + route.Id + ":" + group.memberRecordingId;
+                        bool notedPaintDefer = false;
                         for (int i = 0; i < legs.Length; i++)
                         {
+                            // No-double-draw, PAINT arm: per LEG, because the ghost's visible mesh
+                            // covers spans, not members. A member the ghost paints only partly keeps
+                            // drawing the legs it does not cover (re-review F1).
+                            if (ShouldSkipLegAsGhostPainted(
+                                    group.memberRecordingId, legs[i].startUT, legs[i].endUT,
+                                    ghostPaintsSpanProbe))
+                            {
+                                skippedOwned++;
+                                paintedLegs++;
+                                // One deferral record per (route, member) per frame, as the ownership
+                                // arm emits: the manifest census counts members deferred, not legs.
+                                if (!notedPaintDefer)
+                                {
+                                    notedPaintDefer = true;
+                                    Parsek.MapRender.RenderCompositionRecorder.NoteRouteLegDeferred(
+                                        route.Id, group.memberRecordingId);
+                                }
+                                continue;
+                            }
+
                             CelestialBody body = resolveBody(legs[i].bodyName);
                             if (body == null) continue;
                             // requireConicAnchor:false -> draw body-fixed (or anchored when a
@@ -654,16 +856,16 @@ namespace Parsek.Display
                             {
                                 legsDrawn++;
                                 anyDrawn = true;
-                                // M-A7 CO-DRAW VIOLATION: the ownership set said nobody owned this
-                                // member (we got past the skip above) yet a ghost leg mesh for the same
-                                // recording is still live - the one frame shape aggregate skip counts
-                                // cannot see (the -50 walk early-returned after clearing the drew set
-                                // while last frame's mesh is still active). Recorded on the EVENT only,
-                                // so the per-frame cost lands on the defect. Instant no-op when the
-                                // manifest env gate is unarmed.
+                                // M-A7 CO-DRAW VIOLATION: the arbitration said the ghost had nothing
+                                // over THIS LEG'S SPAN (we got past both arms) yet a ghost leg mesh of
+                                // the same recording is live across it. The probe reads the LIVE
+                                // Vectrosity state rather than the membership set the arbitration reads,
+                                // so a membership set that drifts from its meshes reds here. Recorded on
+                                // the EVENT only, so the per-frame cost lands on the defect; instant
+                                // no-op when the manifest env gate is unarmed.
                                 if (Parsek.MapRender.RenderCompositionRecorder.IsEnabled
                                     && GhostTrajectoryPolylineRenderer.IsAnyLegActiveForRecording(
-                                        group.memberRecordingId))
+                                        group.memberRecordingId, legs[i].startUT, legs[i].endUT))
                                 {
                                     Parsek.MapRender.RenderCompositionRecorder.NoteRouteCoDrawViolation(
                                         route.Id, group.memberRecordingId, frame);
@@ -680,9 +882,10 @@ namespace Parsek.Display
             ParsekLog.VerboseRateLimited(Tag, "route-draw",
                 string.Format(CultureInfo.InvariantCulture,
                     "Route line draw: enabled={0} routesDrawn={1} legsDrawn={2} skippedOwned={3} " +
-                    "malformed={4} other={5} deact={6} cache={7} frame={8}",
+                    "malformed={4} other={5} deact={6} cache={7} frame={8} ownedLegs={9} " +
+                    "paintedLegs={10}",
                     enabled, routesDrawn, legsDrawn, skippedOwned, skippedMalformed, skippedOther,
-                    deactivated, routeCache.Count, frame),
+                    deactivated, routeCache.Count, frame, ownedLegs, paintedLegs),
                 2.0);
         }
 
@@ -705,16 +908,21 @@ namespace Parsek.Display
             Route route, RouteLineSet set, out RouteScopeBasis basis)
             => ClassifyRouteScope(
                 route,
-                IsInterBodyByEndpoints(route) ? null : CollectMemberBodies(set),
+                IsInterBodyByEndpoints(route) ? null : CollectMemberBodies(set.groups),
                 out basis);
 
-        private static List<string> CollectMemberBodies(RouteLineSet set)
+        /// <summary>
+        /// The member bodies the scope cross-check reads: one per DECLARED member group (see
+        /// <see cref="RouteMemberLegs.isDeclaredMember"/>), never one per drawn segment.
+        /// </summary>
+        internal static List<string> CollectMemberBodies(IReadOnlyList<RouteMemberLegs> groups)
         {
-            if (set.groups == null || set.groups.Length == 0) return null;
-            var bodies = new List<string>(set.groups.Length);
-            for (int g = 0; g < set.groups.Length; g++)
+            if (groups == null || groups.Count == 0) return null;
+            var bodies = new List<string>(groups.Count);
+            for (int g = 0; g < groups.Count; g++)
             {
-                Recording rec = set.groups[g].rec;
+                if (!groups[g].isDeclaredMember) continue;
+                Recording rec = groups[g].rec;
                 if (rec == null) continue;
                 string body = !string.IsNullOrEmpty(rec.StartBodyName)
                     ? rec.StartBodyName
@@ -724,9 +932,11 @@ namespace Parsek.Display
             return bodies;
         }
 
-        private static RouteLineSet RefreshForRoute(Route route, Func<string, Recording> resolve)
+        private static RouteLineSet RefreshForRoute(
+            Route route, Func<string, Recording> resolve,
+            Func<string, IReadOnlyList<Recording>> expandRun)
         {
-            long sig = ComputeRouteSignature(route, resolve);
+            long sig = ComputeRouteSignature(route, resolve, expandRun);
             if (routeCache.TryGetValue(route.Id, out RouteLineSet existing) && existing.signature == sig)
                 return existing;
 
@@ -734,7 +944,9 @@ namespace Parsek.Display
                 DestroyRouteLines(stale.groups);
 
             var groups = BuildRouteMemberLegs(
-                route, resolve, out int resolvable, out int totalLegs, out int transferDropped);
+                route, resolve, expandRun,
+                out int resolvable, out int totalLegs, out int transferDropped,
+                out int expandedSegments);
             var set = new RouteLineSet { groups = groups.ToArray(), signature = sig };
             routeCache[route.Id] = set;
             BuildInvocationCountForTesting++;
@@ -770,6 +982,21 @@ namespace Parsek.Display
                 string.Format(CultureInfo.InvariantCulture,
                     "Route line build: route={0} members={1} groups={2} legs={3} transferDropped={4}",
                     RouteIds.Short(route.Id), resolvable, set.groups.Length, totalLegs, transferDropped),
+                5.0);
+
+            // The member-set expansion, once per build: a route member is a composition RUN HEAD, so
+            // heads= is what the route declares and segments= is THE ONE segment counter - the non-head
+            // segments this build took a group for, deduped across members, counted whether or not the
+            // group yielded a drawable leg (reach, not yield). heads == members above; segments=0 means
+            // every member run is a single segment (nothing to expand), NOT that the expansion is off.
+            // This line carries NO walked= token: the expander's PRE-claim walk is reported per member
+            // on its own line (RouteMemberRunExpansion, "Route member run: ... walked="), so the two
+            // numbers are never on the same line and cannot be confused.
+            ParsekLog.VerboseRateLimited(Tag, "route-members." + route.Id,
+                string.Format(CultureInfo.InvariantCulture,
+                    "Route line members: route={0} heads={1} segments={2} groups={3} legs={4}",
+                    RouteIds.Short(route.Id), resolvable, expandedSegments,
+                    set.groups.Length, totalLegs),
                 5.0);
             return set;
         }
@@ -843,6 +1070,7 @@ namespace Parsek.Display
         /// <summary>Destroys every cached route's VectorLines (cross-save flush / scene teardown).</summary>
         internal static void Clear()
         {
+            RouteMemberRunExpansion.ClearCaches();
             if (routeCache.Count == 0)
             {
                 BuildInvocationCountForTesting = 0;
@@ -908,7 +1136,13 @@ namespace Parsek.Display
         /// <see cref="CacheCountForTesting"/> / <see cref="BuildInvocationCountForTesting"/>.
         /// </summary>
         internal static void RefreshForRouteForTesting(Route route, Func<string, Recording> resolve)
-            => RefreshForRoute(route, resolve);
+            => RefreshForRoute(route, resolve, null);
+
+        /// <summary>Run-aware test seam: drives the cache refresh with a member-run expander.</summary>
+        internal static void RefreshForRouteForTesting(
+            Route route, Func<string, Recording> resolve,
+            Func<string, IReadOnlyList<Recording>> expandRun)
+            => RefreshForRoute(route, resolve, expandRun);
 
         internal static void ResetForTesting()
         {
@@ -916,6 +1150,7 @@ namespace Parsek.Display
             // Unity Destroy call.
             routeCache.Clear();
             BuildInvocationCountForTesting = 0;
+            RouteMemberRunExpansion.ResetForTesting();
         }
     }
 }

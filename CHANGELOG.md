@@ -10,6 +10,32 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A supply route's map line now draws the whole journey, not just the launch.** A route
+  remembers the flights that back it, but it remembered each one by its FIRST recording
+  segment, and a long flight is split into several as it crosses environments. So the line
+  drawn on the map and in the tracking station showed the pad ascent and whatever the
+  destination station recorded on its own, and left out everything in between - on the
+  Kerbin to Duna route in the test campaign, an 8.5 million second journey. The line now
+  follows each flight through all of its segments. A cross-planet route still stops drawing
+  its recorded transfer between the two planets, on purpose (that stretch is re-aimed for
+  every launch window, so drawing the recorded one would show a path that never flies
+  again) - the difference is that there is now a transfer there to leave out, where before
+  there was nothing at all. Nothing else about a route changes: the same flights back it,
+  the line still stops at the docking moment, and a leg the route was told to leave out, or
+  one that a rewind replaced, stays out. Flying it in the test campaign found a second thing
+  to fix: on the middle stretch of a journey the route line and the replaying ghost's own
+  trajectory line were both drawing the same segment, one over the other. The route line
+  already stood down for a segment the ghost was flying; it now also stands down for one the
+  ghost is drawing ahead of itself, which is how a chained flight's later segments appear -
+  and it keeps standing down for as long as the ghost's line is actually on screen, not only
+  on the frames the ghost redraws it, which is how the doubled line kept coming back after a
+  few seconds. It stands down over exactly the stretch the ghost is showing: the rest of that
+  flight's path, and the rest of the route, keep drawing - including the case where zooming
+  the map far enough out makes the game rebuild the ghost's line from scratch, which throws
+  its old one away: the route line now takes that stretch back at once instead of leaving a
+  gap where neither line draws. And when two craft dock, the merged flight that follows
+  belongs to one of them: the line now agrees with the rest of Parsek about which one.
+
 - **Loading a save no longer stops your supply routes.** Parsek repairs a known defect in
   older recordings while reading them - a trajectory whose flat point list was written in
   the wrong frame - and until now that repair also rewrote the recording's file. A route

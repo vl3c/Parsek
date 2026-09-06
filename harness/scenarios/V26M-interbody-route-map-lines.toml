@@ -113,6 +113,11 @@ id = "V26M-interbody-route-map-lines"
 # NO `[dimensionsCovered]` CLAIM. Nothing is armed, so nothing is earned. D10 has no
 # `inter-body-scope` value today; the registry growth rule puts it in the PR that first
 # gates on it.
+#   SUPERSEDED: the cell IS claimed - D10 `route-map-lines-inter-body` since 2026-09-02
+#   off the armed re-flight + control, and D10 `route-transfer-leg-drop` since
+#   2026-09-07 conditional on the armed re-flight of the whole pin. See
+#   `[dimensionsCovered]` below and the registry entries; this paragraph is the
+#   pre-flight state and is kept only so the progression is legible.
 #
 # ================= RE-PINNED 2026-09-02 OFF READING RUN 1 =================
 # The lane FLEW on the pre-F1 build and every route reading came back IDENTICAL
@@ -161,7 +166,7 @@ id = "V26M-interbody-route-map-lines"
 #
 # =====================================================================================
 tier = "operator"
-description = "FLOWN 2026-09-02, ARMED-DISCIPLINE COMPLETE: reading run `2026-09-02_18xx` (route tokens read from the KSP.log; the run itself classified `PARSEK-FAIL(analyzer)` on the fixture's own pre-existing INV2 double-cover, since repaired), pins tightened off it, armed re-flight PASS attempt 1, and a negative control `B32X-interbody-scope-negative-control` (uncommitted) that red `PARSEK-FAIL(expectation)` on exactly the seeded `scope=SameBody` token with zero forbids and a green analyzer. THE RENDER-COMPOSITION HALF OF G10 and the first non-SameBody reading of the M-A7 route surfaces: the flight-map OPEN/CLOSE pair over the `interbody-route-recorded` harvest with a manifest CENSUS of what an INTER-BODY route's overview line composed. B32 is the LOG reading of the same subject; this lane asks what the RENDERER BUILT, which only the manifest answers. THE HEADLINE UNKNOWN WAS `transferLegsDropped`, the spec was authored to survive both readings, and THE MEASUREMENT IS OUTCOME B: `transferLegsDropped=0` on both `ROUTE_LINE_BUILD` records. `groups=3` out of `members=4` says why - the transfer member `5ca48c99` carries no `startBodyName` and its heliocentric coast is recorded as OrbitSegments, which `BuildLegsForRecording` never emits as a polyline leg, so there was no third-body leg to drop. THE ENDPOINT-LEG FILTER NOW RUNS (that was half the product fix) BUT HAS STILL NEVER DROPPED A LEG ON A DRIVEN RUN, so G10's gap of that name REMAINS OPEN after this lane and needs a subject whose transfer stretch was recorded in the PHYSICS frame; the ratified transfer gap is real here but visible only as an absence, which is a weaker reading and is recorded as such rather than dressed up. Manifest reading: `routeLineBuilds=2`, `routeCoDrawViolations=0`, `seamKinds={flexible-soi: 2, rigid: 15}` - the FIRST `flexible-soi` seam any route lane has measured - two INFO `RC-QUAL` raises, `unevaluable=1066`, and a per-unit `ROUTE` node reading `scope=InterBody dispatchWindowPeriod=0`, the first `InterBody` scope any manifest has carried, beside the stored period the fix demoted. `[expectations.renderComposition]` STAYS BARE: `unevaluable=1066` against V18T's ceiling of 10 is the clearest argument there is against copying a sibling's window, and a second matching reading is owed before any of it is armed. The map-open PAIR is this lane's own obligation (the G10 entry names it) and a hard precondition, not scene-setting. The export placement is PINNED to the step immediately before `FlushAndQuit` and therefore sits after `ExitMapView`, which costs nothing: the recorder resets on a SCENE SWITCH, not on a map toggle, and every facet named is an accumulated count. ONE SCENE ONLY, because RENDER-MANIFEST-VERB-EXPORT-IN-A-SECOND-SCENE-CLOBBERS-THE-FIRST-SCENE-ACCUMULATION makes a FLIGHT-observe / elsewhere-export lane read zeroes for everything FLIGHT measured. Same carried control as B32."
+description = "FLOWN 2026-09-02, ARMED-DISCIPLINE COMPLETE: reading run `2026-09-02_18xx` (route tokens read from the KSP.log; the run itself classified `PARSEK-FAIL(analyzer)` on the fixture's own pre-existing INV2 double-cover, since repaired), pins tightened off it, armed re-flight PASS attempt 1, and a negative control `B32X-interbody-scope-negative-control` (uncommitted) that red `PARSEK-FAIL(expectation)` on exactly the seeded `scope=SameBody` token with zero forbids and a green analyzer. THE RENDER-COMPOSITION HALF OF G10 and the first non-SameBody reading of the M-A7 route surfaces: the flight-map OPEN/CLOSE pair over the `interbody-route-recorded` harvest with a manifest CENSUS of what an INTER-BODY route's overview line composed. B32 is the LOG reading of the same subject; this lane asks what the RENDERER BUILT, which only the manifest answers. THE HEADLINE UNKNOWN WAS `transferLegsDropped`, the spec was authored to survive both readings, and THE MEASUREMENT IS OUTCOME B: `transferLegsDropped=0` on both `ROUTE_LINE_BUILD` records. `groups=3` out of `members=4` says why - the transfer member `5ca48c99` carries no `startBodyName` and its heliocentric coast is recorded as OrbitSegments, which `BuildLegsForRecording` never emits as a polyline leg, so there was no third-body leg to drop. THE ENDPOINT-LEG FILTER NOW RUNS (that was half the product fix) BUT HAS STILL NEVER DROPPED A LEG ON A DRIVEN RUN, so G10's gap of that name REMAINS OPEN after this lane and needs a subject whose transfer stretch was recorded in the PHYSICS frame; the ratified transfer gap is real here but visible only as an absence, which is a weaker reading and is recorded as such rather than dressed up. Manifest reading: `routeLineBuilds=2`, `routeCoDrawViolations=0`, `seamKinds={flexible-soi: 2, rigid: 15}` - the FIRST `flexible-soi` seam any route lane has measured - two INFO `RC-QUAL` raises, `unevaluable=1066`, and a per-unit `ROUTE` node reading `scope=InterBody dispatchWindowPeriod=0`, the first `InterBody` scope any manifest has carried, beside the stored period the fix demoted. `[expectations.renderComposition]` STAYS BARE: `unevaluable=1066` against V18T's ceiling of 10 is the clearest argument there is against copying a sibling's window, and a second matching reading is owed before any of it is armed. The map-open PAIR is this lane's own obligation (the G10 entry names it) and a hard precondition, not scene-setting. The export placement is PINNED to the step immediately before `FlushAndQuit` and therefore sits after `ExitMapView`, which costs nothing: the recorder resets on a SCENE SWITCH, not on a map toggle, and every facet named is an accumulated count. ONE SCENE ONLY, because RENDER-MANIFEST-VERB-EXPORT-IN-A-SECOND-SCENE-CLOBBERS-THE-FIRST-SCENE-ACCUMULATION makes a FLIGHT-observe / elsewhere-export lane read zeroes for everything FLIGHT measured. Same carried control as B32. READING RUN 1 (2026-09-06, PASS attempt 1) MEASURED THE G10 LEG DROP: `Route line build: route=71a983a1 members=4 groups=4 legs=16 transferDropped=2` (control `8f644e71` groups=4 legs=17 transferDropped=0), `Route line members: ... heads=4 segments=3`, `Route line draw: ... routesDrawn=2 legsDrawn=33 skippedOwned=0`. The same run raised `routeCoDrawViolations=1024` on V26M / V26T over ONE finding (the expanded segment `36c7688b`, painted by the ghost's forward run-leg pass, which publishes no ownership), so the count pins STAY INTERIM through the co-draw fix. READING RUN 2 (2026-09-06, all five lanes PASS) held the build and members lines byte-identical and red the FIRST CUT of that fix twice: V26M `legsDrawn=20 skippedOwned=1` on 5 of 7 frames (a THIRTEEN-leg group stood down whole for a mesh covering part of it) and `routeCoDrawViolations=403` starting FIFTY frames after the last stand-down frame (the paint set was frame-stamped while the ghost's draw pass and its deactivation sweep share one early return, so a bailed frame left the mesh up and the route line resumed over it); V26T painted nothing at all (`legsDrawn=33 skippedOwned=0`, violations 0). Paint is now VISIBLE-MESH MEMBERSHIP and the paint arm is PER LEG against each leg's own span; `skippedOwned` counts LEGS and the draw line gained an `ownedLegs=` / `paintedLegs=` tail. READING RUN 3 FLEW 2026-09-06 (`_2111` B32 / `_2113` V26M / `_2115` V26T / `_2117` V18T / `_2118` H59, ALL PASS ATTEMPT 1) AND THE COUNTS ARE PINNED WHOLE ON IT: build and members lines byte-identical for the THIRD time, so `route=71a983a1 members=4 groups=4 legs=16 transferDropped=2` and its control `route=8f644e71 members=4 groups=4 legs=17 transferDropped=0` are required LITERALS (with both `Route line members:` lines), which makes G10's leg drop a GATE. `routeCoDrawViolations=0` on V26M and V26T. THE PREDICTION'S OTHER HALF DID NOT LAND, and that is the reading rather than a miss: V26M's stand-down never fired (`legsDrawn=33 skippedOwned=0 ownedLegs=0 paintedLegs=0` on all seven draw lines) because `ghostLifecycle` read `spawned=0` - no ghost was alive in the map-open window at all, where runs 1 and 2 each had one painting `36c7688b`. Ghost presence there is EPOCH-DEPENDENT (V26M-GHOST-SPAWN-IN-MAP-WINDOW-IS-EPOCH-DEPENDENT), so `legsDrawn` / `skippedOwned` stay regexes and the paint arm's live evidence remains run 2's diagnosis plus the xUnit cells and two source gates; the ownership arm's live proof is H59's nine `skippedOwned=1 ownedLegs=1 paintedLegs=0` frames in the same set. V26M / V26T ARMED `[expectations.renderComposition]` on `routeLineBuilds = {min = 2}` + `routeCoDrawViolations = {max = 0}` (no `unevaluable` ceiling: 1065 on V26M against 6 on V26T over the same fixture). New D10 value `route-transfer-leg-drop`, CLAIMED UNCONDITIONAL: THE ARMED ROUND FLEW 2026-09-07. First pass on branch tip `3b1a9323a` - B32 `2026-09-06_2207` PASS attempt 1 (71 s), V26M `_2210` PASS attempt 1 (60 s), whole pins held - with the negative control `B32X-legdrop-negative-control` (uncommitted, identical to B32 except the `71a983a1` build token flipped to `transferDropped=0`) red `PARSEK-FAIL(expectation)` at `_2214` on EXACTLY that one token, zero forbids, analyzer green. V26T `_2212` and V18T `_2216` red in that round on a BASE REGRESSION and not on this claim: `main` then parked every committed route `SourceChanged` at load (ROUTE-SOURCECHANGED-AT-LOAD-AFTER-SIDECAR-EPOCH-DRIFT), so the ghost-driving tokens went unmet while the BUILD lines stayed byte-identical to every green run's. PR #1637 fixed it, `origin/main` at `4f80b305b` was merged in, and the round RE-FLEW GREEN on that base: V26T `2026-09-06_2334` PASS attempt 1 (54 s, `routes count=2 statuses={Active: 1, Paused: 1}`, `ghostDriving=1 skippedByStatus=1`, renderCompose `routeLineBuilds=2 routeCoDrawViolations=0`), control V18T `_2337_a2` PASS `flakedThenPassed` (`legs=14 transferDropped=0`), B32 `_2338` PASS attempt 1 (55 s). FIVE driven readings of `transferDropped=2`, byte-identical every time."
 instanceProfile = "stock-minimal"
 tags = ["V26", "route", "logistics", "inter-body", "kerbin", "duna", "map-render",
         "scene-map", "render-composition", "rc-route", "route-map-lines"]
@@ -262,10 +267,17 @@ steps = [
 ]
 
 [dimensionsCovered]
-# Same basis as B32 - identical gated tokens on the same surface. DELIBERATELY NOT
-# CLAIMED: any renderComposition cell, because that block is still BARE and gates
-# nothing, which is exactly the condition H35 CLAIM-IS-NOT-GATE names.
-D10 = ["route-map-lines-inter-body"]
+# Same basis as B32 - identical gated tokens on the same surface.
+# `route-transfer-leg-drop` ADDED 2026-09-07 (package P16), CLAIMED CONDITIONAL ON THE
+# ARMED RE-FLIGHT (the H59 precedent): the drop is gated here by the required literal
+# `Route line build: route=71a983a1 ... transferDropped=2` against the same-subject control
+# `8f644e71 ... transferDropped=0`, and the demonstration owed is the armed run plus
+# `B32X-legdrop-negative-control`. The registry entry carries the distinctness argument.
+# STILL DELIBERATELY NOT CLAIMED: any renderComposition-specific cell. This lane's block
+# IS armed as of the same commit (`routeLineBuilds`, `routeCoDrawViolations`), but D10 has
+# no manifest-facet value and inventing one to mark the arming would be a claim about an
+# instrument rather than about a behaviour - which is what H35 CLAIM-IS-NOT-GATE refuses.
+D10 = ["route-map-lines-inter-body", "route-transfer-leg-drop"]
 D14 = ["kerbin", "duna", "scene-map", "sandbox"]
 
 [expectations]
@@ -295,9 +307,10 @@ count = { min = 43, max = 60 }
 #     own endpoints. `basis=Endpoints` is pinned as well as the scope: `basis=MemberBodies`
 #     would mean the endpoint bodies were unreadable and the shipped v1 fallback answered,
 #     a different reading of the same verdict.
-#   "Route line build: route=[0-9a-f]{8} members=" - the overview line set was built. Every
-#     count after `members=` is unpinned; `transferDropped` in particular is THE
-#     measurement (section 1) and requiring a value either way would pre-register it.
+#   "Route line build: route=..." - the overview line set was built. SINCE 2026-09-07 every
+#     count on it is pinned literally, `transferDropped` included: it was left unpinned while
+#     it was still THE measurement (section 1), and three identical readings turned the
+#     measurement into a subject property, so pinning it is what makes G10's leg drop a GATE.
 #   "Route line draw: enabled=True routesDrawn=[1-9]" - BUILT is not DRAWN, and this lane
 #     is about the draw.
 #   "RevalidateSources reason=.* routes=2 transitioned=0" - both committed routes survived
@@ -306,11 +319,94 @@ count = { min = 43, max = 60 }
 #     section 2 stated as tokens. The `already=false` halves are load-bearing: they say
 #     the verb DID something rather than answering OK against a map that was already in
 #     that state.
+# PINNED WHOLE 2026-09-07 (G10 / ROUTE-LINE-MEMBER-DROPS-CONTINUATION-SEGMENTS and its co-draw
+# follow-up), off THREE readings whose build / members lines are byte-identical - runs 1 and 2 of
+# 2026-09-06 and run 3 (`2026-09-06_2113`, PASS attempt 1). The counts were regexes for two
+# rounds precisely because the fix was still moving under them; it has stopped moving, measured
+# rather than declared. A route MEMBER is a composition RUN HEAD, and the renderer resolved each
+# member id to
+# ONE recording, so every chain-CONTINUATION segment of a member run was invisible to the
+# overview line; it now expands each member id to its whole continuation run
+# (`RouteMemberRunExpansion`, over `MissionThroughLineBuilder`'s own walk, under composition's
+# shared-visited first-head-wins claim rule).
+# MEASURED, reading run 1 (2026-09-06, PASS attempt 1, identical on B32 / V26M / V26T):
+#   Route line build: route=71a983a1 members=4 groups=4 legs=16 transferDropped=2
+#   Route line build: route=8f644e71 members=4 groups=4 legs=17 transferDropped=0
+#   Route line members: route=71a983a1 heads=4 segments=3 groups=4 legs=16   (also segments=3
+#     on 8f644e71)
+#   Route line draw: enabled=True routesDrawn=2 legsDrawn=33 skippedOwned=0 malformed=0
+#                    other=0 deact=0 cache=2
+# THE LEG DROP IS MEASURED: `transferDropped=2` is the first time `FilterLegsToEndpointBodies`
+# has dropped a leg on a driven run, which is exactly G10's reading.
+# WHY THE COUNTS STAY INTERIM ANYWAY: run 1's manifest ALSO raised
+# `routeCoDrawViolations=1024` (the cap) on V26M / V26T with one distinct finding -
+# `ROUTE_CODRAW_VIOLATION[71a983a1 recId=36c7688b...]` - because the ghost polyline's FORWARD
+# RUN-LEG pass paints a continuation segment under its OWN recording id and never publishes
+# ownership, so the route line's ownership-only arbitration painted a second identical line over
+# it. The fix stands a group down when the ghost either OWNS its recording's phase or PAINTED a
+# leg of it THIS FRAME, so `skippedOwned` is expected to leave 0 in the map scene and
+# `legsDrawn` to fall by the painted segments' legs on those frames - hence `skippedOwned` is
+# now a regex too. `members=4` STAYS pinned: the declared member set is untouched and the
+# expansion only ADDS segments. `transferDropped` is left unpinned because it is the G10
+# READING - the run measures it, it does not assert it.
+# MEASURED, reading run 2 (2026-09-06, same five lanes, all PASS; the fix's first cut in flight):
+#   build / members lines BYTE-IDENTICAL to run 1 (`71a983a1 ... legs=16 transferDropped=2`,
+#     `8f644e71 ... legs=17 transferDropped=0`, `heads=4 segments=3`)
+#   V26M draw: `routesDrawn=2 legsDrawn=33 skippedOwned=0` on 3 frames,
+#              `routesDrawn=2 legsDrawn=20 skippedOwned=1` on 5 of 7 (f6746-7222)
+#   V26T draw: `legsDrawn=33 skippedOwned=0` on every frame, routeCoDrawViolations=0
+#   V26M manifest: routeCoDrawViolations=403 (was 1024), all
+#     `ROUTE_CODRAW_VIOLATION[71a983a1 recId=36c7688b8e5141f7809e2d4dbe9dc094]` at ut=87625323.3,
+#     frames 7272+ (suppressed=118)
+# TWO DEFECTS IN THAT READING, BOTH FIXED IN THE SAME BRANCH, and they are why the pins are STILL
+# interim. (1) The violations start FIFTY frames AFTER the last stand-down frame: the paint set
+# was frame-stamped, the ghost's draw pass early-returns whenever its -50 decide walk did not run,
+# and its deactivation sweep lives INSIDE that pass - so a bailed frame leaves the mesh on screen
+# while a stamped set reads empty, and the route line resumed over it. "Painted" now means "has a
+# VISIBLE MESH": membership added on the actual draw, removed on hide / release / rebuild / scene
+# load / flush / Driver destroy. (2) `legsDrawn` 33 -> 20 is a THIRTEEN-leg group stood down whole
+# for a mesh covering part of it - a hole in the route path. The paint arm is now PER LEG against
+# each leg's own recorded span; the ownership arm stays whole-group (it carries no span) and that
+# residual is filed as ROUTE-LINE-OWNERSHIP-ARM-IS-STILL-WHOLE-MEMBER. `skippedOwned` now counts
+# LEGS on both arms, and the draw line gained an `ownedLegs=` / `paintedLegs=` tail AFTER `frame=`
+# (no pinned substring moves).
+# MEASURED, READING RUN 3 (`2026-09-06_2113`, PASS attempt 1; all five lanes of the set PASS
+# attempt 1 on DLL d91bc257...) - AND THE PREDICTION WAS HALF RIGHT, WHICH IS THE HALF WORTH
+# READING. What matched: build / members lines byte-identical for the THIRD time,
+# `routeCoDrawViolations=0` here and on V26T, V26T unchanged. What did NOT: this lane's seven
+# draw lines all read `routesDrawn=2 legsDrawn=33 skippedOwned=0 malformed=0 other=0 deact=0
+# cache=2 ... ownedLegs=0 paintedLegs=0` - the stand-down did not fire AT ALL, and the reason is
+# not the arbitration:
+#   ghostLifecycle observed `spawned=0 spawnLines=0` (two destroys at engine teardown, no
+#   spawns), and `paintedLegSpans` never appears in any of the five logs. NO GHOST WAS ALIVE IN
+#   THE MAP-OPEN WINDOW ON THIS RUN, so there was no mesh for the paint arm to defer to. Runs 1
+#   and 2 DID have one - the same recording `36c7688b` both times, painting the same expanded
+#   segment - so ghost presence in this lane's map window is EPOCH-DEPENDENT rather than
+#   guaranteed by the step list, and this run's `skippedOwned=0` is a statement about the ghost
+#   population, not about the fix. Filed as V26M-GHOST-SPAWN-IN-MAP-WINDOW-IS-EPOCH-DEPENDENT.
+#   CONSEQUENCE FOR THE EVIDENCE, stated plainly rather than papered over: the paint arm's LIVE
+#   proof on this package is reading run 2's diagnosis (where it fired, and fired WRONG twice -
+#   that is what produced the two defects the fix addresses) plus the xUnit cells that drive the
+#   per-leg arbitration and the mesh-membership contract directly; run 3 exercised it only
+#   headlessly. The OWNERSHIP arm's live proof is H59, which read `skippedOwned=1 ownedLegs=1
+#   paintedLegs=0` on nine of its thirteen draw frames in this same set.
+# WHY THE COUNT PINS GO LITERAL ANYWAY: they are BUILD-side, and the build is independent of
+# which ghosts happen to be alive - it walked the same members, expanded the same runs and
+# dropped the same two transfer legs on all three runs, with and without a painting ghost.
+# `legsDrawn` / `skippedOwned` stay REGEXES for exactly the reason above: they are the
+# arbitration's output and its input is epoch-dependent. `ownedLegs=` / `paintedLegs=` are
+# OBSERVED, never pinned.
+# THE ROUTE IDS ARE LITERALS: both routes are committed in the fixture, so their ids are fixture
+# bytes and have read the same on three runs (V18T classes its id because its route is CREATED
+# per run). A red on an id here means the fixture moved.
 required  = [
   "Route scope: route=[0-9a-f]{8} origin=Kerbin destination=Duna scope=InterBody basis=Endpoints",
   "Route scope: route=[0-9a-f]{8} origin=Kerbin destination=Mun scope=InterBody basis=Endpoints",
-  "Route line build: route=[0-9a-f]{8} members=4 groups=3 legs=3 transferDropped=0",
-  "Route line draw: enabled=True routesDrawn=2 legsDrawn=6 skippedOwned=0 malformed=0 other=0",
+  "Route line build: route=71a983a1 members=4 groups=4 legs=16 transferDropped=2",
+  "Route line build: route=8f644e71 members=4 groups=4 legs=17 transferDropped=0",
+  "Route line members: route=71a983a1 heads=4 segments=3 groups=4 legs=16",
+  "Route line members: route=8f644e71 heads=4 segments=3 groups=4 legs=17",
+  "Route line draw: enabled=True routesDrawn=2 legsDrawn=[1-9][0-9]* skippedOwned=[0-9]+ malformed=0 other=0",
   "RevalidateSources reason=.* routes=2 transitioned=0",
   "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
   "entermapview ok mapOpen=true already=false",
@@ -331,7 +427,10 @@ forbidden = [
 ]
 
 [expectations.renderComposition]
-# M-A7 Phase 4 - DECLARED BARE 2026-09-02: NO `gating`, NO window, NO list, DELIBERATELY.
+# M-A7 Phase 4 - DECLARED BARE 2026-09-02, ARMED 2026-09-07 on two windows (at the
+# bottom of this block). The bare-declaration reasoning is KEPT VERBATIM below because
+# it is what the arming had to discharge, and because three of its five "do not predict
+# this" paragraphs still stand and are still the reason those keys are absent.
 #
 # Declaring is what sets `PARSEK_RENDER_MANIFEST=1` at launch and arms the C# recorder at
 # Awake, and `rendercompose` then records its facets UNCONDITIONALLY on a parseable
@@ -375,13 +474,48 @@ forbidden = [
 # `ROUTE_LINE_BUILD` records read `transferLegsDropped=0`, which is outcome B
 # (see the re-pin block at the top of this file).
 #
-# STILL BARE, DELIBERATELY. `unevaluable=1064` against V18T's ceiling of 10 is
-# the clearest possible argument for not copying a sibling's window: this is a
-# FLIGHT scene with 20 vessels and a 40-tick map-open dwell, a different regime
-# entirely, and the number needs a SECOND matching reading before it becomes a
-# ceiling. Arming candidates for that pass: `routeLineBuilds = { min = 2 }`,
-# `routeCoDrawViolations = { max = 0 }`,
-# `requireSeamKinds = [rigid, flexible-soi]`.
+# OBSERVED, RUN 3 (`2026-09-06_2113`, report-only): `routeLineBuilds=2`,
+# `routeCoDrawViolations=0`, `routeLegDefers=0`, `ownershipChanges=0`,
+# `seamKinds={flexible-soi: 2, rigid: 15}`, two INFO `RC-QUAL` raises and nothing
+# at WARN or FAIL, `unevaluable=1065` (`decimated-section-seam_endpoint` 750,
+# `seam-endpoint-skipped` 309, six minor). Run 1 read 1064 at the same shape.
+#
+# ARMED 2026-09-07, ON EXACTLY TWO WINDOWS, and the restraint is the point.
+#   `routeLineBuilds = { min = 2 }` - the anti-vacuity floor, and it is now an
+#     ARITHMETIC THAT HAS BEEN RUN rather than the one the bare block refused to
+#     assert: two committed routes, two builds, on three readings. It is what says
+#     the route-line pass RAN at all; without it every other window here is
+#     satisfiable by a manifest from a lane that never opened the map.
+#   `routeCoDrawViolations = { max = 0 }` - the arbitration's own instrument, and
+#     the reason this package exists: run 1 read 1024 (the cap), run 2 read 403,
+#     run 3 reads 0. IT GATES ONLY WHEN A GHOST PAINTS, and that is stated rather
+#     than assumed: the probe records a violation only where the route line
+#     actually DREW a leg while a ghost mesh of the same recording was live across
+#     that leg's span, so on a run with no ghost in the map window (which is what
+#     run 3 was - `spawned=0`; see the re-pin block above and the lane todo
+#     V26M-GHOST-SPAWN-IN-MAP-WINDOW-IS-EPOCH-DEPENDENT) the window is trivially
+#     satisfied. It is armed anyway because it costs nothing on such a run and is
+#     the ONLY mechanical catch on the epoch where a ghost IS present.
+# NOT ARMED, each for its own measured reason:
+#   `unevaluable` - NO CEILING, deliberately. 1065 here against V18T's 10 is the
+#     clearest argument against copying a sibling's window: this is a FLIGHT scene
+#     with 20 vessels and a 40-tick map-open dwell, and 750 of the 1065 are
+#     DECIMATION of the seam-endpoint section, i.e. a number that tracks how many
+#     endpoint records the run produced and how the census thinned them. A ceiling
+#     over it would red on session length, not on composition, and a ceiling loose
+#     enough not to would assert nothing.
+#   `dwells` / `cycles` - no loop is armed on this subject and no route has run a
+#     cycle, so both read 0 and any floor would red the runs it was armed from.
+#   `ownershipChanges` - measured 0 three times and correctly so (no TracedPath
+#     ownership on this subject); `{max = 0}` would assert the absence of a
+#     surface this lane does not exercise.
+#   `requireSeamKinds` - `flexible-soi` has now been measured twice at 2, but the
+#     seam census is a property of which recordings the ghost pass walked, which
+#     run 3 showed is epoch-dependent here. It stays out until a reading measures
+#     it on a ghost-free epoch too.
+gating = true
+routeLineBuilds = { min = 2 }
+routeCoDrawViolations = { max = 0 }
 
 [expectations.routes]
 # M-C2 save-parse, DECLARED REPORT-ONLY: `gating` IS DELIBERATELY OMITTED. The

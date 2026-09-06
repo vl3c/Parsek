@@ -217,22 +217,56 @@ class InterbodyRouteSpecFixtureSyncTests(unittest.TestCase):
                 "%s stages the inter-body fixture but requires no InterBody "
                 "scope reading" % name)
 
-    def test_no_consumer_spec_arms_a_render_composition_or_routes_gate(self):
-        """NEVER FLOWN, so nothing is armed - and the sibling allowlists agree.
+    # Arming over THIS fixture, per lane and per block, with the readings that
+    # earned it. REWRITTEN 2026-09-07 from the bare "nothing is armed" fence it
+    # was while the three lanes had never flown, into the shape the sibling
+    # rosters use and for their stated reason: a bare fence retires the moment
+    # anyone arms anything, taking its evidence trail with it, where an
+    # allowlist keeps the question open forever and makes a FOURTH arming
+    # record its own subject before it can go green.
+    ARMED_OVER_THIS_FIXTURE = {
+        # V26M / V26T, `renderComposition`, ARMED 2026-09-07 (package P16) off
+        # three report-only readings of the same five-lane set - runs 1 and 2 of
+        # 2026-09-06 and run 3 (`2026-09-06_2113` / `2026-09-06_2115`, both PASS
+        # attempt 1), the third matching the first facet for facet on every key
+        # either block windows. Exactly two windows each:
+        # `routeLineBuilds = {min = 2}` (two committed routes, two builds, three
+        # readings) and `routeCoDrawViolations = {max = 0}` (1024 -> 403 -> 0
+        # across the three runs). `unevaluable` is deliberately NOT armed on
+        # either - 1065 on V26M against 6 on V26T over the SAME fixture, because
+        # that census scales with the observed population rather than with the
+        # composition. Full reasoning in each spec's block and in
+        # `test_hlib.RENDERCOMPOSE_ARMED_SPECS`; owed from here is the armed
+        # re-flight of both lanes plus one negative control.
+        ("V26M-interbody-route-map-lines.toml", "renderComposition"),
+        ("V26T-interbody-route-ts-arrival.toml", "renderComposition"),
+    }
 
-        `test_no_committed_spec_arms_gating` (save-parse) and the
-        render-composition validator both refuse an arming that no reading run
-        earned; this cell states the same thing locally, so a future edit that
-        arms one of these three lanes reds beside the fixture it arms over.
+    def test_only_the_allowlist_arms_a_gate_over_this_fixture(self):
+        """Arming is per-block and per-lane, and it is earned by a READING.
+
+        `test_no_committed_spec_arms_gating` (save-parse) and
+        `test_hlib.RENDERCOMPOSE_ARMED_SPECS` (render-composition) hold the
+        program-wide rosters; this cell states the same thing LOCALLY, so an
+        edit that arms a block over this fixture reds beside the fixture it arms
+        over. `routes` stays unarmed on all three lanes (its windows are
+        corroborated but arming is a separate decision), and `rewind` /
+        `recordings` are not gating blocks on this subject at all.
         """
+        armed = set()
         for name, spec in sorted(self.consumers.items()):
             exp = spec.get("expectations") or {}
             for block in ("routes", "renderComposition",
                           "rewind", "recordings"):
                 node = exp.get(block)
-                if isinstance(node, dict):
-                    self.assertNotIn("gating", node,
-                                     "%s arms [expectations.%s]" % (name, block))
+                if isinstance(node, dict) and "gating" in node:
+                    armed.add((name, block))
+        self.assertEqual(sorted(self.ARMED_OVER_THIS_FIXTURE), sorted(armed),
+                         "the set of blocks armed over interbody-route-recorded "
+                         "changed; arming is a per-lane operator decision taken "
+                         "after a report-only reading run whose facets match the "
+                         "declared windows - add it to ARMED_OVER_THIS_FIXTURE in "
+                         "the same commit that arms it, citing the run id")
 
 
 if __name__ == "__main__":
