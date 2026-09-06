@@ -711,6 +711,22 @@ namespace Parsek.Logistics
             }
             GhostPlaybackLogic.LoopUnit unit = unitOpt.Value;
 
+            // WHICH CLOCK THE DELIVERY SIDE ACTUALLY RAN. Change-based, so a v0
+            // same-body route prints one `arrivalHoldSeconds=0 ...` line per route per
+            // session and a hold-carrying one re-prints only when the args themselves
+            // move. The change key is the cheap half (a constant on the common path);
+            // the message is built only when the line emits. It exists because the two
+            // clocks USED to differ silently (ROUTE-DELIVERY-CLOCK-OMITS-THE-HOLD-ARGS)
+            // and nothing in the log said so.
+            ParsekLog.VerboseOnChange(Tag,
+                "route-loop-clock-args-" + route.Id,
+                RouteLoopClock.HoldArgsChangeKey(unit),
+                () => "LoopRoute clock args: route=" + ShortIdForLog(route)
+                    + " unit=" + unit.OwnerIndex.ToString(IC)
+                    + " schedule=" + (unit.RelaunchSchedule != null ? "1" : "0")
+                    + " loiterCuts=" + (unit.LoiterCuts != null ? unit.LoiterCuts.Count.ToString(IC) : "0")
+                    + " " + RouteLoopClock.DescribeHoldArgs(unit));
+
             // Span-clock state.
             bool ok = RouteLoopClock.TryGetRouteLoopState(
                 unit, currentUT, out double loopUT, out long cycleIndex, out bool isInInterCycleTail);
@@ -818,10 +834,11 @@ namespace Parsek.Logistics
                 unit, loopUT, cycleIndex, route.RecordedDockUT,
                 route.LastObservedLoopCycleIndex, out RouteLoopClock.OwedDockCrossing owedCrossing);
             long dockCycleIndex = owedCrossing.DockCycleIndex;
-            // M-A7 render-composition CLOCK-EVENT capture (capture point 4, route half). NOTE: this is
-            // the DELIVERY clock, which is NOT the render clock - TryGetRouteLoopState forwards only
-            // the relaunch schedule and the loiter cuts, so on a hold-carrying unit the two diverge.
-            // Recording it is what makes that divergence checkable. Instant no-op when unarmed.
+            // M-A7 render-composition CLOCK-EVENT capture (capture point 4, route half). The DELIVERY
+            // clock is now the SAME clock as the render one - TryGetRouteLoopState forwards the unit's
+            // whole optional surface, hold arguments included - so this event is the instrument that
+            // keeps it so rather than the instrument that measures a known divergence. Instant no-op
+            // when unarmed.
             if (crossing)
             {
                 Parsek.MapRender.RenderCompositionRecorder.NoteRouteDockCrossing(

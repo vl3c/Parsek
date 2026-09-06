@@ -22,8 +22,9 @@ namespace Parsek.Logistics
     /// </summary>
     internal static class RouteNodeCodec
     {
-        // Endpoint shape: vesselPersistentId (sparse on pid == 0), bodyName (sparse
-        // on empty), latitude, longitude, altitude, isSurface. The same struct
+        // Endpoint shape: vesselPersistentId (sparse on pid == 0), rootPartUId (sparse on 0),
+        // launchGuid (sparse on empty), bodyName (sparse on empty), latitude, longitude,
+        // altitude, isSurface. The same struct
         // serializes the same way whether it lands inside a ROUTE node or inside a
         // RouteConnectionWindow. Sparse writes on pid == 0 and empty body name keep
         // KSC origins (pid == 0) byte-identical on both sides.
@@ -36,6 +37,14 @@ namespace Parsek.Logistics
             // byte-identically.
             if (ep.RootPartUId != 0)
                 node.AddValue("rootPartUId", ep.RootPartUId.ToString(ic));
+            // Sparse again: an endpoint whose stamping site could not read a launch guid -
+            // every route built before 2026-09-06, every KSC origin, every refused pid stamp
+            // - omits the key and round-trips byte-identically. An absent key reads back
+            // null, which VesselLaunchIdentity defines as "no evidence", so the resolver's
+            // pid step degrades to the ungated match it always had rather than refusing an
+            // old route's depot.
+            if (!string.IsNullOrEmpty(ep.LaunchGuid))
+                node.AddValue("launchGuid", ep.LaunchGuid);
             if (!string.IsNullOrEmpty(ep.BodyName))
                 node.AddValue("bodyName", ep.BodyName);
             node.AddValue("latitude", ep.Latitude.ToString("R", ic));

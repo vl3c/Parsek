@@ -623,6 +623,13 @@ namespace Parsek.Logistics
                     origin = new RouteEndpoint
                     {
                         VesselPersistentId = originProof.StartDockedOriginVesselPid,
+                        // The launch guid the bind read WHEN it stamped that pid, so the
+                        // resolver's PID step can be guid-gated instead of accepting a
+                        // craft-baked match from a different launch of the same .craft
+                        // (RESOLVER-PID-STEP-NOT-GUID-GATED). Null on every proof bound
+                        // before the key existed and on every evidence-free stamp, which
+                        // leaves those routes on the ungated behaviour they always had.
+                        LaunchGuid = originProof.StartDockedOriginVesselGuid,
                         RootPartUId = originProof.StartDockedOriginRootPartUId,
                         BodyName = originProof.StartDockedOriginBodyName,
                         Latitude = originProof.StartDockedOriginLatitude,
@@ -639,6 +646,9 @@ namespace Parsek.Logistics
                     origin = new RouteEndpoint
                     {
                         VesselPersistentId = originProof.StartDockedOriginVesselPid,
+                        // Same guid, same reason: this branch resolves by pid at dispatch
+                        // time and is exactly where an ungated pid does the most damage.
+                        LaunchGuid = originProof.StartDockedOriginVesselGuid,
                         RootPartUId = originProof.StartDockedOriginRootPartUId,
                         BodyName = originRec.StartBodyName ?? string.Empty,
                         Latitude = 0.0,
@@ -667,6 +677,15 @@ namespace Parsek.Logistics
                 origin = new RouteEndpoint
                 {
                     VesselPersistentId = originWindowEndpoint.VesselPersistentId,
+                    // CARRY THE IDENTITY FIELDS, not just the pid. This branch used to copy
+                    // the window endpoint field by field and silently drop both launch-unique
+                    // keys, so a mid-tree docked origin resolved pid -> proximity with the
+                    // root-part step unreachable - the same construction that made a docked
+                    // destination transferable to its visitor
+                    // (ROUTE-ENDPOINT-TRANSFER-DOCKED-DOMINANT-PARTNER). Zero / null on a
+                    // window captured before those keys existed, which is the old behaviour.
+                    RootPartUId = originWindowEndpoint.RootPartUId,
+                    LaunchGuid = originWindowEndpoint.LaunchGuid,
                     BodyName = originWindowEndpoint.BodyName ?? string.Empty,
                     Latitude = originWindowEndpoint.Latitude,
                     Longitude = originWindowEndpoint.Longitude,
@@ -715,6 +734,10 @@ namespace Parsek.Logistics
                 origin = new RouteEndpoint
                 {
                     VesselPersistentId = pickupEndpoint.VesselPersistentId,
+                    // Same carry, same reason: a pickup origin resolves the live SOURCE vessel
+                    // at debit time, so dropping its identity keys left it on pid + proximity.
+                    RootPartUId = pickupEndpoint.RootPartUId,
+                    LaunchGuid = pickupEndpoint.LaunchGuid,
                     BodyName = pickupEndpoint.BodyName ?? string.Empty,
                     Latitude = pickupEndpoint.Latitude,
                     Longitude = pickupEndpoint.Longitude,
