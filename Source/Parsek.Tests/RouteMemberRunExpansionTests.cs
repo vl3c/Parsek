@@ -613,6 +613,12 @@ namespace Parsek.Tests
             Assert.False(GhostTrajectoryPolylineRenderer.LegSpansOverlap(100.0, 200.0, 200.0, 300.0));
             Assert.False(GhostTrajectoryPolylineRenderer.LegSpansOverlap(200.0, 300.0, 100.0, 200.0));
             Assert.True(GhostTrajectoryPolylineRenderer.LegSpansOverlap(100.0, 200.5, 200.0, 300.0));
+            // Re-review F5: the IDENTICAL span is the arbitration's workhorse case and was the one
+            // shape this cell did not state. A leg's mesh is recorded from that leg's own
+            // startUT/endUT, so the paint arm asks exactly this question every time the ghost is on
+            // a route member's leg; a strictness that excluded it would disable the stand-down
+            // entirely while every other cell here still passed.
+            Assert.True(GhostTrajectoryPolylineRenderer.LegSpansOverlap(100.0, 200.0, 100.0, 200.0));
             // Containment either way round is coverage.
             Assert.True(GhostTrajectoryPolylineRenderer.LegSpansOverlap(100.0, 400.0, 200.0, 300.0));
             Assert.True(GhostTrajectoryPolylineRenderer.LegSpansOverlap(200.0, 300.0, 100.0, 400.0));

@@ -15,7 +15,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ~~ROUTE-LINE-MEMBER-DROPS-CONTINUATION-SEGMENTS: the route overview line draws only each member's RUN HEAD recording, so every chain-continuation segment of the run is missing from the drawn path~~ [RAISED 2026-09-06 by the G10 leg-drop feasibility walk (`docs/dev/research/g10-leg-drop-subject.md`); FIXED 2026-09-06 on branch `g10-leg-drop`. B32 / V26M / V26T pins converted to INTERIM regexes; the lane re-flight is owed and takes G10's leg-drop reading with it]
+## ~~ROUTE-LINE-MEMBER-DROPS-CONTINUATION-SEGMENTS: the route overview line draws only each member's RUN HEAD recording, so every chain-continuation segment of the run is missing from the drawn path~~ [RAISED 2026-09-06 by the G10 leg-drop feasibility walk (`docs/dev/research/g10-leg-drop-subject.md`); FIXED 2026-09-06 on branch `g10-leg-drop`, and DISCHARGED 2026-09-07: the pins were interim regexes for two rounds and are now LITERALS on all three lanes, off three readings whose build and members lines are byte-identical. G10's leg-drop reading came with them and the roadmap block is CLOSED. Owed from here: the armed re-flight plus the negative control `B32X-legdrop-negative-control`]
 
 **THE SHAPE.** `RouteBackingMission.ComputeMemberRecordingIds` derives
 `Route.RecordingIds` as `StripSegMarker(node.HeadLegId)` over the kept selectable
@@ -139,9 +139,31 @@ findings against the first cut of the fix, both fixed in the same branch:
 
 V26T (TRACKSTATION) read `legsDrawn=33 skippedOwned=0 routeCoDrawViolations=0` on every frame - no
 ghost paint there at all - and armed V18T (`legsDrawn=14`, violations 0) / H59 were unchanged.
-READING RUN 3 IS OWED on the same five lanes: `routeCoDrawViolations=0`, `skippedOwned>0` with
-`paintedLegs>0` whenever the ghost mesh covers a segment, and `legsDrawn` falling only by the
-covered legs.
+**READING RUN 3 (2026-09-06, `_2111` / `_2113` / `_2115` / `_2117` / `_2118`, all five lanes
+PASS attempt 1) CLOSED THE COUNT PINS AND MEASURED ONE THING THE PREDICTION DID NOT.** Build
+and members lines byte-identical for the THIRD time, `routeCoDrawViolations=0` on V26M and
+V26T, so every count on both `Route line build:` lines and both `Route line members:` lines
+is now a required LITERAL on B32 / V26M / V26T. What did NOT happen is the paint stand-down:
+V26M read `legsDrawn=33 skippedOwned=0 ownedLegs=0 paintedLegs=0` on all seven draw lines and
+its `ghostLifecycle` census read `spawned=0 spawnLines=0` - NO GHOST WAS ALIVE IN THE MAP-OPEN
+WINDOW, where runs 1 and 2 each had one painting `36c7688b`. That is a property of the epoch
+rather than of the arbitration (filed as V26M-GHOST-SPAWN-IN-MAP-WINDOW-IS-EPOCH-DEPENDENT
+below), so `legsDrawn` / `skippedOwned` stay regexes, the paint arm's live evidence remains
+run 2's diagnosis plus the xUnit cells, and the OWNERSHIP arm's live proof is H59's nine
+`skippedOwned=1 ownedLegs=1 paintedLegs=0` frames in the same set.
+
+**TWO REVIEW ITEMS FROM THE FIX'S OWN RE-REVIEW, CLOSED IN THE SAME BRANCH.** (F1) Both live
+wiring sites of the arbitration were unguarded - `ClearPaintedLegMesh` in the Driver's
+`RunDeactivationSweep`, and `DrawAll`'s consumption of both arms - because the behavioural
+cells drive a test-side replica (`ArbitrateGroup`) and a test-side paint seam
+(`SetLegPaintForTesting`, which calls the hide path itself), so deleting either left all
+cells green. `RouteLinePaintArbitrationSourceGateTests` pins both inside their enclosing
+method's brace-matched body over a length-preserving sanitized copy of the source (comments
+and string literals blanked), and each pin was mutation-verified - including two mutations
+that merely COMMENT the pinned line, which is what proves the sanitizer. (F2) `TryDrawLeg`'s
+map-line mode-flip DESTROYS the leg's VectorLine and the deactivation sweep cannot catch that
+(it only flips lines that are currently active), so the rebuild site now clears the leg's
+mesh membership itself; a successful draw re-adds it in the same pass. Same gate, third cell.
 
 **THREE REVIEW ITEMS CLOSED WITH IT.** (F1) `MissionThroughLineBuilder` has no shared visited set
 while `MissionComposition.cs:151-156` does, and `MissionStructure.cs:344-386` hands a Dock branch
@@ -157,6 +179,34 @@ expanded segments built as groups, on `Route line members:`; the expander's pre-
 reported as `walked=` on its own line, and `ApplyRouteFilters` no longer decrements a fresh tally
 below zero (`Dropped` is its own field). (F4) an empty tree id is no longer a cache key, so two
 id-less trees cannot share one claim index.
+
+---
+
+## V26M-GHOST-SPAWN-IN-MAP-WINDOW-IS-EPOCH-DEPENDENT: the V26M lane's map-open dwell sometimes holds a painting ghost and sometimes holds none, so its paint-arm reading is not reproducible from the step list [RAISED 2026-09-07 on branch `g10-leg-drop` from reading run 3. LANE/HARNESS item, NOT a product defect. OPEN, low priority]
+
+`V26M-interbody-route-map-lines` opens the flight map over `interbody-route-recorded` and
+dwells 40 ticks. On reading runs 1 and 2 (2026-09-06) a ghost of recording `36c7688b` was
+alive and PAINTING inside that window - which is what raised `routeCoDrawViolations=1024`,
+then 403, and what let the per-leg paint arm be observed live at `legsDrawn=20
+skippedOwned=1`. On reading run 3 (`2026-09-06_2113`, same spec, same fixture, same DLL
+family) the run's `ghostLifecycle` census reads `spawned=0 spawnLines=0` (two destroys at
+engine teardown, no spawns) and `paintedLegSpans` appears nowhere in the log, so all seven
+draw lines read `skippedOwned=0 ownedLegs=0 paintedLegs=0`.
+
+**WHY IT MATTERS AND WHAT IT DOES NOT MEAN.** It does not weaken the run's other readings:
+the BUILD side is independent of the ghost population and came back byte-identical for the
+third time, which is what the count pins rest on. What it costs is a LIVE exercise of the
+paint arm on demand - run 3 exercised it only headlessly - so a future regression in that arm
+would be caught by the xUnit cells and the source gates rather than by this lane. The
+OWNERSHIP arm has a reproducible live lane (H59, nine `ownedLegs=1` frames on every run).
+
+**WHAT IS NOT YET KNOWN:** which input decides it. The spec pins no clock motion and the
+fixture is fixed, so the candidates are the save's own UT against the ghost spawn policy's
+window, and frame timing inside the dwell. Diagnosing it means comparing the three runs'
+spawn-decision lines rather than guessing, and it is worth doing before anyone tries to arm
+a `paintedLegs`-bearing token on this lane. Do NOT widen a pin to absorb it: the two shapes
+are distinguishable on the draw line itself (`ownedLegs=` / `paintedLegs=`), and a lane that
+accepts both without saying which it saw is the vacuous reading this suite refuses.
 
 ---
 

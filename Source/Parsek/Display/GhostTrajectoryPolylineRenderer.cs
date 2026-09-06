@@ -3534,7 +3534,17 @@ namespace Parsek.Display
             // (like stock) the line is recreated on flip. See RebuildLineForMode.
             int legWantMode = MapLineUses3D() ? 1 : 2;
             if (leg.vectorLine != null && leg.lineMode != legWantMode)
+            {
+                // Mesh-membership REMOVE (re-review F2): the rebuild DESTROYS this leg's line, so the
+                // mesh the route line's paint arm is standing down for is gone from here. A successful
+                // draw below re-adds it through NotePaintedLegMesh in the same pass; a draw that bails
+                // after this point (inflate failure, run-leg anchor reject) must not leave the route
+                // line deferring to a mesh that no longer exists. The deactivation sweep is NOT a
+                // substitute: it only flips lines that are currently ACTIVE, and the replacement line's
+                // initial active state is a Vectrosity detail this must not bet on.
+                ClearPaintedLegMesh(recordingId, legIndex);
                 leg.vectorLine = RebuildLineForMode(leg.vectorLine, m);
+            }
             if (leg.vectorLine == null)
                 leg.vectorLine = BuildLegVectorLine(recordingId, legIndex, m);
             leg.lineMode = legWantMode;

@@ -128,6 +128,14 @@ id = "B32-interbody-route-scope"
 # failures, and V26M's header names them. Requiring a drop here would be requiring an
 # unverified emitter - V22K's stated trap.
 #
+# BOTH PARAGRAPHS ABOVE ARE SUPERSEDED BY THE 2026-09-07 WHOLE PIN (see the re-pin block
+# above `required`), and they are kept because the reasoning is what makes the change
+# readable. The ROUTE IDS are now literals: the H59 lesson was about a route CREATED by
+# the run, and these two are committed fixture bytes that read identically on three runs.
+# `transferDropped=` is now REQUIRED AT ITS MEASURED VALUE on both lines (2 on the Duna
+# route, 0 on the Mun control) - the emitter is no longer unverified, it has been read
+# three times, and pinning it is what makes G10's leg drop a GATE rather than a note.
+#
 # NO `[expectations.renderComposition]` BLOCK. Declaring it would set
 # `PARSEK_RENDER_MANIFEST=1` and oblige the export-before-teardown placement; the manifest
 # reading belongs to V26M, which owns the map-open pair. This lane is a LOG reading.
@@ -136,6 +144,11 @@ id = "B32-interbody-route-scope"
 # cell is declared once a GATING token earns it, and nothing here is armed. D10 would want
 # a new `inter-body-scope` value in `harness/coverage/registry.toml`, which the growth rule
 # says lands in the PR that first gates on it.
+#   SUPERSEDED: the cell IS claimed - D10 `route-map-lines-inter-body` since 2026-09-02
+#   off the armed re-flight + control, and D10 `route-transfer-leg-drop` since
+#   2026-09-07 conditional on the armed re-flight of the whole pin. See
+#   `[dimensionsCovered]` below and the registry entries; this paragraph is the
+#   pre-flight state and is kept only so the progression is legible.
 #
 # ================= RE-PINNED 2026-09-02 OFF READING RUN 1 =================
 # The lane FLEW on the pre-F1 build and every route reading came back IDENTICAL
@@ -184,7 +197,7 @@ id = "B32-interbody-route-scope"
 #
 # =====================================================================================
 tier = "operator"
-description = "FLOWN 2026-09-02, ARMED-DISCIPLINE COMPLETE: reading run `2026-09-02_18xx` (route tokens read from the KSP.log; the run itself classified `PARSEK-FAIL(analyzer)` on the fixture's own pre-existing INV2 double-cover, since repaired), pins tightened off it, armed re-flight PASS attempt 1, and a negative control `B32X-interbody-scope-negative-control` (uncommitted) that red `PARSEK-FAIL(expectation)` on exactly the seeded `scope=SameBody` token with zero forbids and a green analyzer. THE FIRST LANE ANYWHERE THAT HAS READ `ClassifyRouteScope = InterBody`, and it exists because the product change on branch `interbody-scope-fix` made that verdict reachable at all: `ClassifyRouteScope` used to read `Route.DispatchWindowPeriod` as the scope authority while `RouteBuilder` hard-coded it to 0.0, so every real Kerbin -> Duna route classified `MalformedMixedBodies`, had its line SKIPPED, and left `FilterLegsToEndpointBodies` unreachable (todo ROUTE-INTERBODY-SCOPE-NEVER-REACHABLE). Scope is now derived from the ENDPOINT bodies through `IsInterBodyByEndpoints`, and this lane reads the verdict out of the new per-build log line. MEASURED, identical on all three lanes and on both runs: `Route scope: route=71a983a1 origin=Kerbin destination=Duna scope=InterBody basis=Endpoints` and the same for `8f644e71 ... destination=Mun`; `Route line build: ... members=4 groups=3 legs=3 transferDropped=0` twice; `Route line draw: enabled=True routesDrawn=2 legsDrawn=6 skippedOwned=0 malformed=0 other=0`. Subject: the `interbody-route-recorded` harvest of the operator's own hand-played campaign, carrying TWO committed routes that are both inter-body under the new rule - `Route: KSC -> Duna` (Active, DockingPort dock+undock, completedCycles 0) and `Route: KSC -> Mun` (Paused) - and BOTH still carrying `dispatchWindowPeriod = 0`, which is exactly why both drew nothing before. The map is opened in FLIGHT as a HARD precondition rather than as scene-setting: `RouteTrajectoryLineRenderer.DrawAll`'s only call site is a map-camera onPreCull hook (`GhostTrajectoryPolylineRenderer.cs:3942-3952`), so a FLIGHT lane with the map closed runs no route pass and reads none of these tokens. NO TimeJump and NO dispatch is attempted, deliberately: the Duna route's 8.53 Ms transit against an 87.6 Ms save clock, its `loopAnchorUT = -1` and its per-tick `ReaimWindows` basis make the dispatch anchor uncomputable from the committed bytes, and the overview line draws STATICALLY so the scope reading needs no clock motion. The falsifier is carried in the spec rather than left to a later control: `Route line draw: .* malformed=[1-9]` and `scope=MalformedMixedBodies` are FORBIDDEN. The FIRST is precisely what this subject emitted before the fix, on every drawn frame; the SECOND could not have been emitted then because the `Route scope:` line did not exist - it is the same claim restated on the new line, so a future regression that keeps the line but flips the verdict reds too. Route ids stay classed `[0-9a-f]{8}` (the H59 `2026-09-02_1017` lesson); the body names, `scope=InterBody`, `basis=Endpoints` and `routes=2 transitioned=0` carry the claim. `[expectations.routes]` is REPORT-ONLY with the measured shape; the arming pass is still owed and is a separate operator decision. READING RUN 1 (2026-09-06, PASS attempt 1) MEASURED THE G10 LEG DROP: `Route line build: route=71a983a1 members=4 groups=4 legs=16 transferDropped=2` (control `8f644e71` groups=4 legs=17 transferDropped=0), `Route line members: ... heads=4 segments=3`, `Route line draw: ... routesDrawn=2 legsDrawn=33 skippedOwned=0`. The same run raised `routeCoDrawViolations=1024` on V26M / V26T over ONE finding (the expanded segment `36c7688b`, painted by the ghost's forward run-leg pass, which publishes no ownership), so the count pins STAY INTERIM through the co-draw fix. READING RUN 2 (2026-09-06, all five lanes PASS) held the build and members lines byte-identical and red the FIRST CUT of that fix twice: V26M `legsDrawn=20 skippedOwned=1` on 5 of 7 frames (a THIRTEEN-leg group stood down whole for a mesh covering part of it) and `routeCoDrawViolations=403` starting FIFTY frames after the last stand-down frame (the paint set was frame-stamped while the ghost's draw pass and its deactivation sweep share one early return, so a bailed frame left the mesh up and the route line resumed over it); V26T painted nothing at all (`legsDrawn=33 skippedOwned=0`, violations 0). Paint is now VISIBLE-MESH MEMBERSHIP and the paint arm is PER LEG against each leg's own span; `skippedOwned` counts LEGS and the draw line gained an `ownedLegs=` / `paintedLegs=` tail. READING RUN 3 EXPECTS: build / members unchanged, `routeCoDrawViolations=0`, V26T unchanged, and on V26M `skippedOwned>0` with `paintedLegs>0` where the mesh covers a segment with `legsDrawn` between 20 and 33."
+description = "FLOWN 2026-09-02, ARMED-DISCIPLINE COMPLETE: reading run `2026-09-02_18xx` (route tokens read from the KSP.log; the run itself classified `PARSEK-FAIL(analyzer)` on the fixture's own pre-existing INV2 double-cover, since repaired), pins tightened off it, armed re-flight PASS attempt 1, and a negative control `B32X-interbody-scope-negative-control` (uncommitted) that red `PARSEK-FAIL(expectation)` on exactly the seeded `scope=SameBody` token with zero forbids and a green analyzer. THE FIRST LANE ANYWHERE THAT HAS READ `ClassifyRouteScope = InterBody`, and it exists because the product change on branch `interbody-scope-fix` made that verdict reachable at all: `ClassifyRouteScope` used to read `Route.DispatchWindowPeriod` as the scope authority while `RouteBuilder` hard-coded it to 0.0, so every real Kerbin -> Duna route classified `MalformedMixedBodies`, had its line SKIPPED, and left `FilterLegsToEndpointBodies` unreachable (todo ROUTE-INTERBODY-SCOPE-NEVER-REACHABLE). Scope is now derived from the ENDPOINT bodies through `IsInterBodyByEndpoints`, and this lane reads the verdict out of the new per-build log line. MEASURED, identical on all three lanes and on both runs: `Route scope: route=71a983a1 origin=Kerbin destination=Duna scope=InterBody basis=Endpoints` and the same for `8f644e71 ... destination=Mun`; `Route line build: ... members=4 groups=3 legs=3 transferDropped=0` twice; `Route line draw: enabled=True routesDrawn=2 legsDrawn=6 skippedOwned=0 malformed=0 other=0`. Subject: the `interbody-route-recorded` harvest of the operator's own hand-played campaign, carrying TWO committed routes that are both inter-body under the new rule - `Route: KSC -> Duna` (Active, DockingPort dock+undock, completedCycles 0) and `Route: KSC -> Mun` (Paused) - and BOTH still carrying `dispatchWindowPeriod = 0`, which is exactly why both drew nothing before. The map is opened in FLIGHT as a HARD precondition rather than as scene-setting: `RouteTrajectoryLineRenderer.DrawAll`'s only call site is a map-camera onPreCull hook (`GhostTrajectoryPolylineRenderer.cs:3942-3952`), so a FLIGHT lane with the map closed runs no route pass and reads none of these tokens. NO TimeJump and NO dispatch is attempted, deliberately: the Duna route's 8.53 Ms transit against an 87.6 Ms save clock, its `loopAnchorUT = -1` and its per-tick `ReaimWindows` basis make the dispatch anchor uncomputable from the committed bytes, and the overview line draws STATICALLY so the scope reading needs no clock motion. The falsifier is carried in the spec rather than left to a later control: `Route line draw: .* malformed=[1-9]` and `scope=MalformedMixedBodies` are FORBIDDEN. The FIRST is precisely what this subject emitted before the fix, on every drawn frame; the SECOND could not have been emitted then because the `Route scope:` line did not exist - it is the same claim restated on the new line, so a future regression that keeps the line but flips the verdict reds too. Route ids stay classed `[0-9a-f]{8}` (the H59 `2026-09-02_1017` lesson); the body names, `scope=InterBody`, `basis=Endpoints` and `routes=2 transitioned=0` carry the claim. `[expectations.routes]` is REPORT-ONLY with the measured shape; the arming pass is still owed and is a separate operator decision. READING RUN 1 (2026-09-06, PASS attempt 1) MEASURED THE G10 LEG DROP: `Route line build: route=71a983a1 members=4 groups=4 legs=16 transferDropped=2` (control `8f644e71` groups=4 legs=17 transferDropped=0), `Route line members: ... heads=4 segments=3`, `Route line draw: ... routesDrawn=2 legsDrawn=33 skippedOwned=0`. The same run raised `routeCoDrawViolations=1024` on V26M / V26T over ONE finding (the expanded segment `36c7688b`, painted by the ghost's forward run-leg pass, which publishes no ownership), so the count pins STAY INTERIM through the co-draw fix. READING RUN 2 (2026-09-06, all five lanes PASS) held the build and members lines byte-identical and red the FIRST CUT of that fix twice: V26M `legsDrawn=20 skippedOwned=1` on 5 of 7 frames (a THIRTEEN-leg group stood down whole for a mesh covering part of it) and `routeCoDrawViolations=403` starting FIFTY frames after the last stand-down frame (the paint set was frame-stamped while the ghost's draw pass and its deactivation sweep share one early return, so a bailed frame left the mesh up and the route line resumed over it); V26T painted nothing at all (`legsDrawn=33 skippedOwned=0`, violations 0). Paint is now VISIBLE-MESH MEMBERSHIP and the paint arm is PER LEG against each leg's own span; `skippedOwned` counts LEGS and the draw line gained an `ownedLegs=` / `paintedLegs=` tail. READING RUN 3 FLEW 2026-09-06 (`_2111` B32 / `_2113` V26M / `_2115` V26T / `_2117` V18T / `_2118` H59, ALL PASS ATTEMPT 1) AND THE COUNTS ARE PINNED WHOLE ON IT: build and members lines byte-identical for the THIRD time, so `route=71a983a1 members=4 groups=4 legs=16 transferDropped=2` and its control `route=8f644e71 members=4 groups=4 legs=17 transferDropped=0` are required LITERALS (with both `Route line members:` lines), which makes G10's leg drop a GATE. `routeCoDrawViolations=0` on V26M and V26T. THE PREDICTION'S OTHER HALF DID NOT LAND, and that is the reading rather than a miss: V26M's stand-down never fired (`legsDrawn=33 skippedOwned=0 ownedLegs=0 paintedLegs=0` on all seven draw lines) because `ghostLifecycle` read `spawned=0` - no ghost was alive in the map-open window at all, where runs 1 and 2 each had one painting `36c7688b`. Ghost presence there is EPOCH-DEPENDENT (V26M-GHOST-SPAWN-IN-MAP-WINDOW-IS-EPOCH-DEPENDENT), so `legsDrawn` / `skippedOwned` stay regexes and the paint arm's live evidence remains run 2's diagnosis plus the xUnit cells and two source gates; the ownership arm's live proof is H59's nine `skippedOwned=1 ownedLegs=1 paintedLegs=0` frames in the same set. V26M / V26T ARMED `[expectations.renderComposition]` on `routeLineBuilds = {min = 2}` + `routeCoDrawViolations = {max = 0}` (no `unevaluable` ceiling: 1065 on V26M against 6 on V26T over the same fixture). New D10 value `route-transfer-leg-drop`, claimed CONDITIONAL on the armed re-flight; that re-flight and the negative control `B32X-legdrop-negative-control` are OWED."
 instanceProfile = "stock-minimal"
 tags = ["B32", "route", "logistics", "inter-body", "kerbin", "duna", "depot", "dock",
         "map-render", "route-map-lines", "scene-map", "first-contact"]
@@ -266,7 +279,15 @@ steps = [
 # exitmapview echoes (the map pass is this lane's precondition, not scene-setting);
 # `kerbin` and `duna` by the body names inside the gated scope tokens; `sandbox` by the
 # fixture (Mode = SANDBOX), the basis V18T claims it on.
-D10 = ["route-map-lines-inter-body"]
+# `route-transfer-leg-drop` ADDED 2026-09-07 (package P16) and CLAIMED CONDITIONAL ON THE
+# ARMED RE-FLIGHT, the H59 `route-map-lines-surface` precedent. It is gated the moment this
+# commit lands - `Route line build: route=71a983a1 ... transferDropped=2` is a required
+# LITERAL above, with the same-subject control `8f644e71 ... transferDropped=0` required
+# beside it - but CLAIM-IS-NOT-GATE wants the gate DEMONSTRATED, and the demonstration is
+# the armed run plus `B32X-legdrop-negative-control` (uncommitted; the `71a983a1` token
+# flipped to `transferDropped=0`, replaying one unmet and zero forbids against the run-3
+# log). The registry entry carries the full distinctness argument.
+D10 = ["route-map-lines-inter-body", "route-transfer-leg-drop"]
 D14 = ["kerbin", "duna", "scene-map", "sandbox"]
 
 [expectations]
@@ -318,7 +339,7 @@ count = { min = 43, max = 60 }
 #
 # THE RENDER PASS:
 #   "Route line build: route=[0-9a-f]{8} members=" - the overview line set was built.
-#    Every count after `members=` is left unpinned (section 6).
+#    Since 2026-09-07 every count on it is pinned literally, off three identical readings.
 #   "Route line draw: enabled=True routesDrawn=[1-9]" - the per-frame draw summary, and
 #    the token that separates BUILT from DRAWN. Rate-limited at 2.0 s on a shared key.
 #
@@ -327,16 +348,19 @@ count = { min = 43, max = 60 }
 #    save-derived route and the token proves the load finished against it), and the two
 #    map-view echoes, which are the precondition of section 3 stated as a token.
 #
-# DELIBERATELY NOT REQUIRED: any `transferDropped=` value (section 6), any cadence or
+# DELIBERATELY NOT REQUIRED (`transferDropped=` left this list on 2026-09-07): any cadence or
 # dispatch token (section 4), and `SelectGhostDrivingBackingMissions` / `routeMissions`
 # ghost-driving tokens - the Duna route has `loopAnchorUT = -1` and has never run a cycle,
 # so whether the selector materializes a backing mission for it is an UNMEASURED question
 # on this subject, and requiring an unverified emitter is V22K's stated trap. V26T pins
 # the TS-host union where that question is the lane's own.
-# INTERIM PINS (G10 / ROUTE-LINE-MEMBER-DROPS-CONTINUATION-SEGMENTS and its co-draw follow-up,
-# re-stated 2026-09-06 after READING RUN 1): the route-line COUNT pins below STAY loosened to
-# regexes until the reading run that follows the co-draw fix re-pins them from this lane's own
-# bytes. A route MEMBER is a composition RUN HEAD, and the renderer resolved each member id to
+# PINNED WHOLE 2026-09-07 (G10 / ROUTE-LINE-MEMBER-DROPS-CONTINUATION-SEGMENTS and its co-draw
+# follow-up), off THREE readings whose build / members lines are byte-identical - runs 1 and 2 of
+# 2026-09-06 and run 3 (`2026-09-06_2111`, PASS attempt 1, wall 55 s). The counts below were
+# regexes for two rounds precisely because the fix was still moving under them; it has now stopped
+# moving, measured rather than declared, so every count on both `Route line build:` lines and both
+# `Route line members:` lines is a LITERAL. A route MEMBER is a composition RUN HEAD, and the
+# renderer resolved each member id to
 # ONE recording, so every chain-CONTINUATION segment of a member run was invisible to the
 # overview line; it now expands each member id to its whole continuation run
 # (`RouteMemberRunExpansion`, over `MissionThroughLineBuilder`'s own walk, under composition's
@@ -382,17 +406,37 @@ count = { min = 43, max = 60 }
 # residual is filed as ROUTE-LINE-OWNERSHIP-ARM-IS-STILL-WHOLE-MEMBER. `skippedOwned` now counts
 # LEGS on both arms, and the draw line gained an `ownedLegs=` / `paintedLegs=` tail AFTER `frame=`
 # (no pinned substring moves).
-# PREDICTION FOR READING RUN 3: build / members lines unchanged again; `routeCoDrawViolations=0`
-# on V26M / V26T; V26T unchanged at `legsDrawn=33 skippedOwned=0` (that scene paints nothing);
-# V26M `skippedOwned>0` with `paintedLegs>0` on the frames whose mesh covers a segment, and
-# `legsDrawn` between 20 and 33 - down only by the covered legs, never by all 13.
+# MEASURED, READING RUN 3 (`2026-09-06_2111`, PASS attempt 1, wall 55 s; all five lanes of the
+# set PASS attempt 1 on DLL d91bc257...), AND IT IS WHAT THE PINS BELOW ARE WRITTEN FROM:
+#   Route line build: route=71a983a1 members=4 groups=4 legs=16 transferDropped=2
+#   Route line build: route=8f644e71 members=4 groups=4 legs=17 transferDropped=0
+#   Route line members: route=71a983a1 heads=4 segments=3 groups=4 legs=16
+#   Route line members: route=8f644e71 heads=4 segments=3 groups=4 legs=17
+#   five draw lines, all `routesDrawn=2 legsDrawn=33 skippedOwned=0 malformed=0 other=0 deact=0
+#     cache=2 ... ownedLegs=0 paintedLegs=0`
+#   NO `Route member run stop:` line anywhere in the log - the run expansion walked every member
+#     to its terminal segment and no filter, exclusion or supersede cut one short.
+# THE ROUTE IDS ARE PINNED AS LITERALS HERE and that is a property of the SUBJECT rather than a
+# style choice: both routes are COMMITTED IN THE FIXTURE (`RevalidateSources ... routes=2`), so
+# their ids are fixture bytes and have read the same on all three runs. V18T pins the character
+# class `[0-9a-f]{8}` instead because its route is CREATED by the run and its id is generated per
+# run. A red on the id here means the fixture moved, which is a finding, not a flake.
+# WHY `legsDrawn` / `skippedOwned` STAY REGEXES while everything else went literal: they are the
+# arbitration's OUTPUT, and the arbitration's input is which legs a ghost mesh covers at the
+# observation instant. `malformed=0 other=0` stay pinned because they are the two ways this lane
+# goes green and empty; `routesDrawn=2` stays pinned because both routes must draw something.
+# `ownedLegs=` / `paintedLegs=` are OBSERVED, not pinned, for the same reason - see the V26M
+# header's ghost-presence note and the lane todo
+# V26M-GHOST-SPAWN-IN-MAP-WINDOW-IS-EPOCH-DEPENDENT.
 required  = [
   "Route scope: route=[0-9a-f]{8} origin=Kerbin destination=Duna scope=InterBody basis=Endpoints",
   "Route scope: route=[0-9a-f]{8} origin=Kerbin destination=Mun scope=InterBody basis=Endpoints",
   "RevalidateSources reason=.* routes=2 transitioned=0",
-  "Route line build: route=[0-9a-f]{8} members=4 groups=[0-9]+ legs=[0-9]+ transferDropped=[0-9]+",
+  "Route line build: route=71a983a1 members=4 groups=4 legs=16 transferDropped=2",
+  "Route line build: route=8f644e71 members=4 groups=4 legs=17 transferDropped=0",
+  "Route line members: route=71a983a1 heads=4 segments=3 groups=4 legs=16",
+  "Route line members: route=8f644e71 heads=4 segments=3 groups=4 legs=17",
   "Route line draw: enabled=True routesDrawn=2 legsDrawn=[1-9][0-9]* skippedOwned=[0-9]+ malformed=0 other=0",
-  "Route line members: route=[0-9a-f]{8} heads=4 segments=[0-9]+",
   "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
   "entermapview ok mapOpen=true already=false",
   "exitmapview ok mapOpen=false already=false",

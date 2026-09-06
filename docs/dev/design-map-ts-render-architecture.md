@@ -996,6 +996,21 @@ or `TracedPathTreatment`.
   first cut cleared and re-stamped the set per frame, so it read "painting nothing" exactly
   there: reading run 2 measured V26M `routeCoDrawViolations=403`, all on one recording,
   beginning 50 frames after the last stand-down frame - the route line resuming over a live mesh.
+- THE HIDE PATHS ARE THE CONTRACT, AND THEY ARE SOURCE-GATED. Membership only means anything
+  because every way a mesh leaves the screen retires it: `ClearPaintedLegMesh` from the
+  deactivation sweep (per leg, beside the flip that hides the line) and from `TryDrawLeg`'s
+  MAP-LINE MODE-FLIP REBUILD (per leg - the rebuild DESTROYS the VectorLine, and the sweep cannot
+  cover that because it only flips lines that are currently ACTIVE, so a draw bailing after the
+  rebuild would leave the route line deferring to a mesh that no longer exists);
+  `ClearPaintedLegMeshes` per recording on cache release and whole-recording rebuild; and
+  `ResetPaintedLegMeshes` on scene load, cross-save flush and Driver destroy. A NEW hide path must
+  call one of these, and a new PAINT path must call `NotePaintedLegMesh` on the ACTUAL draw.
+  `RouteLinePaintArbitrationSourceGateTests` pins the sweep site, the rebuild site and `DrawAll`'s
+  consumption of BOTH arms - structurally, inside each enclosing method's brace-matched body over
+  a comment- and literal-blanked copy of the source - because the behavioural cells drive a
+  test-side replica of the live loop (`ArbitrateGroup`) and a test-side paint seam
+  (`SetLegPaintForTesting`, which calls the hide path itself), so deleting any of those live sites
+  leaves every one of them green.
 - Not to be confused with `GhostMapPresence.NotePaintedRecordingLine` and its
   `paintedRecordingIdsThisFrame`: that set is TRACING-GATED, per recording with no spans, records
   the decide walk's ENQUEUE INTENT, and is read only by the map-render probe's line-blink

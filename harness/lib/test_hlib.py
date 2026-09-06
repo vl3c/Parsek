@@ -7208,8 +7208,8 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "V18T-depot-route-ts-arrival.toml":  "operator by the calibration discipline (V1/V2/V24W precedent); AUTHORED 2026-08-26, NEVER FLOWN, reading pending. THE SUITE'S FIRST ROUTE LANE and G1's first lane of any kind: a tracking-station observation of the committed Active GhostDriving SameBody route in the B27 harvest `depot-route-recorded`, arming NO mission loop because the ROUTE drives. Its anchor branch is genuinely unresolvable pre-flight - the header derives all THREE candidates (unlocked-faithful, single-rotation phase lock, and a VesselOrbital-dominant joint/zero-drift road whose anchor is not computable from the committed bytes at all) and the two forward jumps are chosen to be honest under every one of them, with the calibration recipe written down. So the reading run measures the anchor and round 2 re-pins; that is the discipline, not a debt. What IS gated on the first flight is anti-vacuity, three ways: `RevalidateSources ... transitioned=0` (the route did not flip to SourceChanged under the load-time optimizer - the one failure mode that would make this lane green and empty at once), `ghostDriving=[1-9]` and `routeMissions=[1-9]`. `[expectations.renderComposition]` is BARE and D10 `route-map-lines` is deliberately UNDECLARED (H35 CLAIM-IS-NOT-GATE): the headline facet `routeLineBuilds >= 1` would be the first non-zero reading of that census anywhere, and it gets declared in the commit that arms it, citing the run",
         "V25M-duna-park-player-loop.toml":   "operator by the calibration discipline (V8-iteration-1 precedent); AUTHORED 2026-08-26, NEVER FLOWN, reading pending. RE-AIM'S SECOND DEPARTURE CLASS - a heliocentric-parking departure, over `duna-park-recorded`, the path `ReaimClassifier`'s own exception comment names by fixture ('EXCEPTION (s15 Kerbal X #2)') and that no committed lane has driven. Unlike V18T its clock IS fully derivable and the header derives it end to end off the committed .prec bytes: classifier verdict (parking=True, via a replay of DetectRuns / the empty-cut scope gate / the ecc+sma admissibility gate), loiter cuts (ONE, destination-side, 43,963.92 s at the Duna capture, downstream of every window so all three map uncompressed), synodic 19,645,697.250367, span/synodic 1.185268 -> cadence = 2x synodic with PadAlignLaunch declined, k=142, D0 5,350,759,909.583645 and phaseAnchorUT 5,336,966,486.982761 - with the k shown robust to the seconds of scene time between LoadGame and the MissionConfig that stamps LoopAnchorUT. Operator tier is therefore the ordinary first-flight promotion call: the run confirms or refutes a written prediction rather than discovering one. The prediction is pinned as ONE conjunction regex over the ReaimDiag line and its exact inverse (the 'transfer departs from a heliocentric parking orbit' decline) is FORBIDDEN, so a refutation reds loudly instead of quietly measuring a faithful replay",
         "B32-interbody-route-scope.toml":    "operator by the calibration discipline; FLOWN 2026-09-02, ARMED-DISCIPLINE COMPLETE (reading run, pins tightened off it, armed re-flight PASS attempt 1, and a negative control that red PARSEK-FAIL(expectation) on exactly the seeded token). THE FIRST LANE ANYWHERE THAT HAS READ `ClassifyRouteScope = InterBody`, over the `interbody-route-recorded` harvest. It stays untagged because what it owed was an ordinary reading, not a human call, and that reading is in: the product change that made the verdict reachable (todo ROUTE-INTERBODY-SCOPE-NEVER-REACHABLE) landed in the same PR, the tokens are derived from the classifier source rather than predicted, and the two FORBIDS carry the pre-fix reading as a control the lane brings with it. Nothing is armed, so the flights confirmed without a promotion decision attached; the `[expectations.routes]` arming pass is the one still outstanding.",
-        "V26M-interbody-route-map-lines.toml": "operator by the calibration discipline; FLOWN 2026-09-02, ARMED-DISCIPLINE COMPLETE (reading run, pins tightened off it, armed re-flight PASS attempt 1, and a negative control that red PARSEK-FAIL(expectation) on exactly the seeded token). The RENDER-COMPOSITION half of G10 - the manifest census of an inter-body route line. It read `transferLegsDropped=0`, which is OUTCOME B of the two its header pre-registered: the filter RUNS but found no third-body leg, so G10's `never dropped a leg on a driven run` gap REMAINS OPEN. `[expectations.renderComposition]` stays DECLARED BARE; the arming pass is the human call and it is deliberately NOT taken here.",
-        "V26T-interbody-route-ts-arrival.toml": "operator by the calibration discipline; FLOWN 2026-09-02, ARMED-DISCIPLINE COMPLETE (reading run, pins tightened off it, armed re-flight PASS attempt 1, and a negative control that red PARSEK-FAIL(expectation) on exactly the seeded token). V18T's tracking-station grammar on the inter-body subject. It carries ONE genuinely open question the reading run must answer rather than pass: V18T's front-door tokens (`ghostDriving=[1-9]`, `routeMissions=[1-9]`) are deliberately NOT required, because this subject's Duna route has `loopAnchorUT = -1` and has never run a cycle, so whether a never-dispatched route enters the GhostDriving selection is unmeasured - and RUN 1 ANSWERED IT: `ghostDriving=1` and `routeMissions=1` both printed, so dispatch history is NOT a precondition for a route driving a tracking-station ghost, and both tokens are REQUIRED from the armed re-flight onward. What this lane still owes is the renderComposition arming pass.",
+        "V26M-interbody-route-map-lines.toml": "operator by the calibration discipline; FLOWN 2026-09-02, ARMED-DISCIPLINE COMPLETE (reading run, pins tightened off it, armed re-flight PASS attempt 1, and a negative control that red PARSEK-FAIL(expectation) on exactly the seeded token). The RENDER-COMPOSITION half of G10 - the manifest census of an inter-body route line. It read `transferLegsDropped=0`, which is OUTCOME B of the two its header pre-registered: the filter RUNS but found no third-body leg, so G10's `never dropped a leg on a driven run` gap REMAINS OPEN. `[expectations.renderComposition]` stayed DECLARED BARE at that point and the arming pass was left as the human call. THAT CALL WAS TAKEN 2026-09-07 (package P16, after reading run 3 `2026-09-06_2113` PASS attempt 1 matched run 1 facet for facet): the block is ARMED on `routeLineBuilds = {min = 2}` + `routeCoDrawViolations = {max = 0}` and nothing else - no `unevaluable` ceiling, because 1065 here against V26T's 6 on the SAME fixture says that census scales with the observed population rather than with the composition. The same run ALSO closed G10's leg-drop gap: `transferDropped=2` on three consecutive runs, now pinned as a literal. The armed re-flight and the negative control are OWED.",
+        "V26T-interbody-route-ts-arrival.toml": "operator by the calibration discipline; FLOWN 2026-09-02, ARMED-DISCIPLINE COMPLETE (reading run, pins tightened off it, armed re-flight PASS attempt 1, and a negative control that red PARSEK-FAIL(expectation) on exactly the seeded token). V18T's tracking-station grammar on the inter-body subject. It carries ONE genuinely open question the reading run must answer rather than pass: V18T's front-door tokens (`ghostDriving=[1-9]`, `routeMissions=[1-9]`) are deliberately NOT required, because this subject's Duna route has `loopAnchorUT = -1` and has never run a cycle, so whether a never-dispatched route enters the GhostDriving selection is unmeasured - and RUN 1 ANSWERED IT: `ghostDriving=1` and `routeMissions=1` both printed, so dispatch history is NOT a precondition for a route driving a tracking-station ghost, and both tokens are REQUIRED from the armed re-flight onward. The renderComposition arming pass this lane owed was TAKEN 2026-09-07 (package P16, after reading run 3 `2026-09-06_2115` PASS attempt 1): armed on `routeLineBuilds = {min = 2}` + `routeCoDrawViolations = {max = 0}`, deliberately symmetric with V26M and with no `unevaluable` ceiling on either. The armed re-flight and the negative control are OWED.",
     }
 
     def _specs(self):
@@ -8534,6 +8534,37 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
         # (byte-identical to HEAD after the revert, checked rather than assumed).
         # Not shared with any sibling: each armed lane inverts a window of its own.
         "V18T-depot-route-ts-arrival.toml",
+        # THE V26 INTER-BODY PAIR, ARMED 2026-09-07 (package P16, the G10 leg drop)
+        # off THREE report-only readings of the same five-lane set, the third of
+        # which (`2026-09-06_2113` V26M / `2026-09-06_2115` V26T, both PASS attempt
+        # 1) matched the first facet for facet on every key either block windows.
+        # BOTH ARM EXACTLY TWO WINDOWS AND NO MORE:
+        #   `routeLineBuilds = {min = 2}` - the anti-vacuity floor and the one
+        #     arithmetic the bare blocks refused to assert in advance (V18T's
+        #     measured 1 was a ONE-route subject; this fixture commits two, and both
+        #     lanes read 2 on runs 1 and 3).
+        #   `routeCoDrawViolations = {max = 0}` - the arbitration's own instrument,
+        #     and the counter this package moved: run 1 read 1024 (the cap) on V26M
+        #     over one finding, run 2 read 403, run 3 reads 0 on both lanes.
+        # WHAT IS DELIBERATELY NOT ARMED, and it is the same key on both so the pair
+        # stays symmetric: `unevaluable`. V26M reads 1065 (750 of them the
+        # seam-endpoint DECIMATION) against V26T's 6 on the SAME fixture, because
+        # the census scales with the observed population - a FLIGHT scene with 20
+        # vessels and a 40-tick map dwell against a TS boot. A ceiling on either
+        # would gate session length rather than composition, which is the V17M
+        # mistake in another costume. `dwells` / `cycles` are 0 by construction (no
+        # loop armed, no route has run a cycle), `ownershipChanges` is 0 correctly
+        # (no TracedPath ownership on this subject) and `requireSeamKinds` stays out
+        # because the seam census tracks which recordings the ghost pass walked,
+        # which run 3 measured to be EPOCH-DEPENDENT here (V26M
+        # `ghostLifecycle spawned=0` - no ghost was alive in its map window at all,
+        # where runs 1 and 2 each had one; filed as
+        # V26M-GHOST-SPAWN-IN-MAP-WINDOW-IS-EPOCH-DEPENDENT).
+        # OWED, and named so it is not mistaken for discharged: the ARMED RE-FLIGHT
+        # of both lanes and their negative control. The arming lands in this commit
+        # with its readings cited; the discipline is not complete until those fly.
+        "V26M-interbody-route-map-lines.toml",
+        "V26T-interbody-route-ts-arrival.toml",
     }
 
     def test_no_committed_spec_arms_render_composition_gating(self):
@@ -9112,13 +9143,26 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
         """The property both key-set pins exist to protect, stated once against the
         roster so a THIRD armed lane inherits it: an armed block whose every
         assertion is a ceiling passes green off a manifest that observed nothing.
-        A floor is a `min` on a count window or a `requireSeamKinds` list (a kind
-        that must be PRESENT); `unevaluable` is a ceiling by nature and never counts.
-        The grammar's `_validate_armed_empty` notch only refuses a block with NO
-        assertion key at all, so this is the sharper statement."""
+        A floor is a positive `min` on ANY count window except `unevaluable`, or a
+        `requireSeamKinds` list (a kind that must be PRESENT); `unevaluable` is a
+        ceiling by nature and never counts. The grammar's `_validate_armed_empty`
+        notch only refuses a block with NO assertion key at all, so this is the
+        sharper statement.
+
+        THE FLOOR SET IS DERIVED FROM `RENDER_COMPOSITION_WINDOW_KEYS` RATHER THAN
+        LISTED (2026-09-07, package P16). It was the literal pair ("dwells",
+        "cycles") from before the 2026-08-26 schema extension, which left the three
+        keys that extension added uncredited: V18T armed `routeLineBuilds = {min = 1}`
+        - a floor by every word of the property above - and passed this cell only
+        through its `requireSeamKinds`, and the V26 pair arms `routeLineBuilds =
+        {min = 2}` with no seam-kind list at all. Deriving keeps the property exact
+        (a `min` on a count the recorder writes 0 for on an empty manifest DOES red
+        there) and makes a future window key inherit it without an edit here."""
+        floor_keys = tuple(k for k in rendercompose.RENDER_COMPOSITION_WINDOW_KEYS
+                           if k != "unevaluable")
         for name in sorted(self.RENDERCOMPOSE_ARMED_SPECS):
             block = self._armed_block(name)
-            floors = [k for k in ("dwells", "cycles")
+            floors = [k for k in floor_keys
                       if isinstance(block.get(k), dict) and block[k].get("min", 0) > 0]
             floors += ["requireSeamKinds"] if block.get("requireSeamKinds") else []
             self.assertTrue(floors,

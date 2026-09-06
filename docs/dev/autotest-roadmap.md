@@ -1961,8 +1961,15 @@ adds the inclined-and-eccentric MOON target the way Moho did for planets), plus
 deep-space return shapes. Breadth work; schedule opportunistically behind
 G1-G5.
 
-**G10 - INTER-BODY route composition** (`B32-interbody-route` subject stamp,
-lanes `V26M`/`V26T`). G1 stood up the route front door on a SAME-BODY route
+**G10 - INTER-BODY route composition - CLOSED 2026-09-07** on three readings of
+`transferDropped=2` (runs 1 and 2 of 2026-09-06 plus run 3 `2026-09-06_2111` /
+`_2113` / `_2115`, all PASS attempt 1), with the counts now pinned as literals on
+B32 / V26M / V26T and the new coverage value `route-transfer-leg-drop` claimed
+conditional on the armed re-flight. The closing measurement and what it did NOT
+prove are at the end of this block; everything between is the trail, kept because
+two of its diagnoses were corrected by later runs and the corrections are only
+legible beside what they corrected. (`B32-interbody-route` subject stamp,
+lanes `V26M`/`V26T`.) G1 stood up the route front door on a SAME-BODY route
 (`depot-route-recorded`, V18T armed - the suite's first armed route lane), but
 every route mechanism that is route-SPECIFIC in the render engages only
 inter-body: `ClassifyRouteScope = InterBody` has never been read live,
@@ -2191,10 +2198,42 @@ painted member keeps drawing its uncovered legs. `skippedOwned` now counts LEGS 
 carries an `ownedLegs=` / `paintedLegs=` split. V18T (armed, `legsDrawn=14`, violations 0) and
 H59 (armed, 12 draw lines) were unaffected on both runs.
 
-WHAT IS OWED IS READING RUN 3 on the same five lanes: `transferDropped=2` unchanged,
-`routeCoDrawViolations=0` on V26M / V26T, `skippedOwned>0` with `paintedLegs>0` whenever the
-polyline's mesh covers a segment, `legsDrawn` down only by the covered legs (not by 13), and
-V18T / H59 as controls. Only then are the counts re-pinned and the block closed.
+**READING RUN 3 FLEW 2026-09-06 (`_2111` B32 / `_2113` V26M / `_2115` V26T / `_2117` V18T /
+`_2118` H59, ALL PASS ATTEMPT 1) AND THE BLOCK IS CLOSED ON IT.** The leg drop is measured on
+THREE consecutive runs with byte-identical build and members lines - `route=71a983a1 members=4
+groups=4 legs=16 transferDropped=2` against the same-fixture control `8f644e71 members=4
+groups=4 legs=17 transferDropped=0`, `heads=4 segments=3` on both, both routes `scope=InterBody
+basis=Endpoints`, and no `Route member run stop:` line anywhere. Those counts are now PINNED AS
+LITERALS on all three lanes (interim regexes for two rounds, because the fix was still moving
+under them), which turns `FilterLegsToEndpointBodies` dropping a leg from a reading into a GATE.
+`routeCoDrawViolations=0` on both V26M and V26T, down from 1024 and then 403. New coverage value
+`route-transfer-leg-drop`, one cell across all three lanes, CLAIMED CONDITIONAL ON THE ARMED
+RE-FLIGHT (the H59 `route-map-lines-surface` precedent); V26M and V26T arm
+`[expectations.renderComposition]` on `routeLineBuilds = {min = 2}` + `routeCoDrawViolations =
+{max = 0}` in the same commit.
+
+WHAT RUN 3 DID **NOT** PROVE, stated because the prediction said it would. The paint arm's
+stand-down did not fire on any frame: V26M read `legsDrawn=33 skippedOwned=0 ownedLegs=0
+paintedLegs=0` on all seven draw lines, and its `ghostLifecycle` census reads `spawned=0
+spawnLines=0` - NO GHOST WAS ALIVE IN THE MAP-OPEN WINDOW AT ALL, where runs 1 and 2 each had
+one (the same recording `36c7688b` both times). Ghost presence in that window is
+EPOCH-DEPENDENT rather than guaranteed by the step list, so run 3's zero is a statement about
+the ghost population and not about the arbitration; filed as
+V26M-GHOST-SPAWN-IN-MAP-WINDOW-IS-EPOCH-DEPENDENT. The paint arm's live evidence on this package
+is therefore reading run 2's diagnosis (where it DID fire, and fired wrong twice - which is what
+produced the two defects the fix removes) plus the xUnit cells that drive the per-leg
+arbitration and the mesh-membership contract directly, with two source gates pinning the live
+wiring sites those cells cannot see. The OWNERSHIP arm did fire live in the same set: H59 read
+`skippedOwned=1 ownedLegs=1 paintedLegs=0` on nine of its thirteen draw frames. V18T
+(`routesDrawn=1 legsDrawn=14`, gated block green, zero mismatches) and H59 held as controls on
+all three runs.
+
+STILL OPEN AFTER THIS BLOCK, and no part of it: `DispatchWindowPeriod != 0` synodic cadence is
+unmeasured and unmeasurable by design since the scope fix (the field is informational), no
+dispatch has been driven on an inter-body route, and the ownership arm is still whole-member
+(ROUTE-LINE-OWNERSHIP-ARM-IS-STILL-WHOLE-MEMBER). The armed re-flight of B32 / V26M / V26T plus
+the negative control `B32X-legdrop-negative-control` is what makes the new coverage claim
+unconditional; that is a run request, not further work.
 
 **THE OPERATOR SAVE SPECIFICATION for B32** (write it once, fly it by hand; the
 seam cannot create this and no driven lane can either, because route candidacy is

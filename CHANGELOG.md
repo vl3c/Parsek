@@ -30,9 +30,11 @@ _(unreleased — entries accumulate here per commit)_
   and it keeps standing down for as long as the ghost's line is actually on screen, not only
   on the frames the ghost redraws it, which is how the doubled line kept coming back after a
   few seconds. It stands down over exactly the stretch the ghost is showing: the rest of that
-  flight's path, and the rest of the route, keep drawing. And when two craft dock, the merged
-  flight that follows belongs to one of them: the line now agrees with the rest of Parsek
-  about which one.
+  flight's path, and the rest of the route, keep drawing - including the case where zooming
+  the map far enough out makes the game rebuild the ghost's line from scratch, which throws
+  its old one away: the route line now takes that stretch back at once instead of leaving a
+  gap where neither line draws. And when two craft dock, the merged flight that follows
+  belongs to one of them: the line now agrees with the rest of Parsek about which one.
 
 - **A supply run that loaded its cargo before you came back to it can now become a
   route.** Docking the tanker to the base, transferring the fuel, then flying something

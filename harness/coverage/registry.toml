@@ -192,10 +192,38 @@ values = ["rewind-to-launch", "fast-forward", "rewind-to-separation", "refly-gat
 # all three, and an uncommitted negative control that red PARSEK-FAIL(expectation) on exactly
 # the seeded `scope=SameBody` token with zero forbids. The gating tokens are the required
 # `scope=InterBody basis=Endpoints` lines, and the control proved they can fire.
-# WHAT THIS CELL DOES NOT CLAIM: that the ratified transfer-leg DROP has been observed.
-# `transferLegsDropped=0` on both records - the filter RUNS but the subject's transfer member
-# contributed no drawable leg - so G10's gap of that name is still OPEN and needs a subject
-# whose transfer stretch was recorded in the physics frame.
+# WHAT THIS CELL DID NOT CLAIM AS OF 2026-09-02: that the ratified transfer-leg DROP had been
+# observed. `transferLegsDropped=0` on both records - the filter RAN but the subject's transfer
+# member contributed no drawable leg - so G10's gap of that name stayed OPEN. THE SENTENCE IS
+# KEPT because it is the before-state the next value is measured against.
+# "route-transfer-leg-drop" (added 2026-09-07 with package P16, per the growth rule; the SAME
+# three declarers): `FilterLegsToEndpointBodies` actually DROPS a leg on a driven run - route
+# `71a983a1` builds `legs=16 transferDropped=2` against the same-subject control `8f644e71` at
+# `legs=17 transferDropped=0`. IT IS A DISTINCT VALUE RATHER THAN A RE-CLAIM OF
+# "route-map-lines-inter-body", on the growth rule's own strongest axis:
+#   * A CODE PATH NO LANE COULD REACH, AND FOR A SECOND REASON THAN THE SIBLING'S. The
+#     2026-09-02 fix made the InterBody BRANCH reachable, which is what the sibling names; the
+#     filter behind it still had nothing to act on, because `Route.RecordingIds` names
+#     composition RUN HEADS and the renderer resolved each id to ONE recording, so every
+#     chain-CONTINUATION segment - including the one carrying this subject's physics-frame
+#     Sun-body stretch - was invisible to the builder. `transferDropped=0` was STRUCTURAL on any
+#     chained subject rather than a property of this save
+#     (ROUTE-LINE-MEMBER-DROPS-CONTINUATION-SEGMENTS, now ~~done~~).
+#   * DIFFERENT MEASURED BEHAVIOUR, with its control INSIDE the subject: the two routes of ONE
+#     fixture, in ONE run, differ 2 against 0 on this counter. A regression that disabled the
+#     filter reds on the Duna route while the Mun route holds still.
+#   * NOT SPLIT BY SURFACE, for the sibling's measured reason: B32 (flight map, log), V26M
+#     (flight map, log + manifest) and V26T (tracking station) read the same two build lines
+#     byte-identically on three consecutive runs.
+# CLAIMED CONDITIONAL ON THE ARMED RE-FLIGHT - the H59 `route-map-lines-surface` precedent
+# verbatim. What earns it so far: three reading runs with byte-identical build lines (2026-09-06
+# runs 1 and 2, and run 3 `2026-09-06_2111` / `_2113` / `_2115`, all PASS attempt 1) and a
+# GATING token, `transferDropped=2` required as a LITERAL on all three lanes as of 2026-09-07
+# where it was deliberately unpinned while it was still the open measurement. What is OWED
+# before the claim is unconditional: the armed re-flight of the three lanes plus the negative
+# control `B32X-legdrop-negative-control` (authored uncommitted, identical to B32 except the
+# `71a983a1` build token flipped to `transferDropped=0`; replayed against the run-3 B32 log it
+# reads exactly one unmet token and zero forbids).
 # "multi-origin-escrow" gained a THIRD owner 2026-09-02 with H60-route-escrow-contention,
 # and the value is NOT re-scoped by it - the addition is a different PRODUCER of the same
 # behaviour, in the shape the growth rule allows a shared value. H38 and H40 carry it off
@@ -219,7 +247,7 @@ values = ["candidate-detection", "ksc-origin", "docked-depot-origin", "dock-prod
           "inventory-cargo", "harvest-provenance", "multi-stop", "multi-origin-escrow",
           "round-trip-pair", "inter-body-nth-window", "dispatch-cadence", "hold-reasons",
           "destination-full-gate", "route-map-lines", "route-map-lines-surface",
-          "route-map-lines-inter-body", "route-x-rewind"]
+          "route-map-lines-inter-body", "route-transfer-leg-drop", "route-x-rewind"]
 
 [D11]  # missions / periodicity / re-aim
 values = ["default-mission", "leg-trim", "whole-mission-loop", "self-overlap", "clone",
