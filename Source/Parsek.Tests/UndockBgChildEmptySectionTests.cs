@@ -1,9 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
 using System.Linq;
 using Parsek.Analyzer;
 using Parsek.Analyzer.Rules;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace Parsek.Tests
 {
@@ -38,8 +41,11 @@ namespace Parsek.Tests
     [Collection("Sequential")]
     public class UndockBgChildEmptySectionTests : IDisposable
     {
-        public UndockBgChildEmptySectionTests()
+        private readonly ITestOutputHelper output;
+
+        public UndockBgChildEmptySectionTests(ITestOutputHelper output)
         {
+            this.output = output;
             ParsekLog.SuppressLogging = true;
         }
 
@@ -372,17 +378,17 @@ namespace Parsek.Tests
         // ---------- Site 3: the finalization backfill routing ----------
 
         // Guards the routing that turns the shape into a number. A recording WITH
-        // sections must take the Absolute-only walk (the flat list is frame-blind); a
-        // sections-less recording keeps the flat path, because the Absolute-only walk
-        // leaves MaxDistanceFromLaunch untouched when it finds no Absolute section and
-        // such a recording would otherwise stay at 0 and be discarded as idle-on-pad.
+        // sections must take the body-fixed section walk (the flat list is frame-blind);
+        // a sections-less recording keeps the flat path, because the section walk leaves
+        // MaxDistanceFromLaunch untouched when it finds no body-fixed sample and such a
+        // recording would otherwise stay at 0 and be discarded as idle-on-pad.
         [Fact]
-        public void BackfillRoute_SectionsPresent_TakesAbsoluteOnly()
+        public void BackfillRoute_SectionsPresent_TakesBodyFixedSections()
         {
             Recording rec = UndockChildRecording();
 
             Assert.Equal(
-                VesselSpawner.MaxDistanceBackfillRoute.AbsoluteSections,
+                VesselSpawner.MaxDistanceBackfillRoute.BodyFixedSections,
                 VesselSpawner.ClassifyMaxDistanceBackfillRoute(rec));
         }
 
@@ -392,6 +398,67 @@ namespace Parsek.Tests
             var rec = new Recording { RecordingId = "legacy-flat" };
             rec.Points.Add(BodyFixedPoint(10.0));
             rec.Points.Add(BodyFixedPoint(20.0));
+
+            Assert.Equal(
+                VesselSpawner.MaxDistanceBackfillRoute.FlatPoints,
+                VesselSpawner.ClassifyMaxDistanceBackfillRoute(rec));
+        }
+
+        // (c) The flat fallback fires ONLY where the flat list cannot be carrying
+        // anchor-local metres. A recording whose only body-fixed surface is a Relative
+        // section's bodyFixedFrames takes the section walk even though its flat list is
+        // long enough to tempt the fallback - that list is exactly the poisoned one.
+        [Fact]
+        public void BackfillRoute_RelativeBodyFixedOnly_TakesBodyFixedSectionsNotFlat()
+        {
+            Recording rec = RelativeBodyFixedOnlyRecording();
+            Assert.True(rec.Points.Count >= 2, "the poisoned flat list must be long enough to tempt the fallback");
+
+            Assert.Equal(
+                VesselSpawner.MaxDistanceBackfillRoute.BodyFixedSections,
+                VesselSpawner.ClassifyMaxDistanceBackfillRoute(rec));
+        }
+
+        // A recording that has Relative sections but NO body-fixed sample anywhere stays
+        // on the section walk and keeps maxDist = 0: fail CLOSED. Reading its flat list
+        // would resolve anchor-local metres as lat/lon - the defect itself.
+        [Fact]
+        public void BackfillRoute_RelativeFramesOnly_StaysOnTheSectionWalk()
+        {
+            var rec = new Recording { RecordingId = "relative-frames-only" };
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 110.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    AnchorLocalOffsetPoint(100.0), AnchorLocalOffsetPoint(110.0),
+                },
+            });
+            rec.Points.AddRange(rec.TrackSections[0].frames);
+
+            Assert.Equal(
+                VesselSpawner.MaxDistanceBackfillRoute.BodyFixedSections,
+                VesselSpawner.ClassifyMaxDistanceBackfillRoute(rec));
+        }
+
+        // The one sectioned shape that still takes the flat list: no body-fixed surface
+        // AND no Relative section at all (an on-rails checkpoint-only recording), so the
+        // flat list cannot have been poured full of anchor-local metres.
+        [Fact]
+        public void BackfillRoute_CheckpointOnlySectionsWithFlatPoints_TakesFlatPoints()
+        {
+            var rec = new Recording { RecordingId = "checkpoint-only-with-points" };
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.OrbitalCheckpoint,
+                startUT = 200.0,
+                endUT = 800.0,
+                checkpoints = new List<OrbitSegment> { new OrbitSegment { startUT = 200.0, endUT = 800.0 } },
+            });
+            rec.Points.Add(BodyFixedPoint(200.0));
+            rec.Points.Add(BodyFixedPoint(800.0));
 
             Assert.Equal(
                 VesselSpawner.MaxDistanceBackfillRoute.FlatPoints,
@@ -416,6 +483,173 @@ namespace Parsek.Tests
             Assert.Equal(
                 VesselSpawner.MaxDistanceBackfillRoute.None,
                 VesselSpawner.ClassifyMaxDistanceBackfillRoute(null));
+        }
+
+        // ---------- Site 3: what the walk READS ----------
+
+        // A deterministic stand-in for CelestialBody.GetWorldSurfacePosition: a flat plane
+        // at 1000 m per degree. It is only a unit system - these cells assert WHICH samples
+        // the walk read, not KSP geodesy, and the production walk resolves the same
+        // TrajectoryPoints through FlightGlobals.
+        private const double MetresPerDegree = 1000.0;
+
+        private static Vector3d? FlatSurfaceResolver(TrajectoryPoint pt)
+        {
+            if (string.IsNullOrEmpty(pt.bodyName)) return null;
+            return new Vector3d(
+                pt.latitude * MetresPerDegree, pt.longitude * MetresPerDegree, pt.altitude);
+        }
+
+        /// <summary>
+        /// A parent-anchored child whose ONLY body-fixed surface is the Relative section's
+        /// bodyFixedFrames - the corpus shape the reviewer counted (14 debris plus the
+        /// bdock-recorded dock partner). Its flat list carries the anchor-local metres,
+        /// whose chord is deliberately far larger than the true one.
+        /// </summary>
+        private static Recording RelativeBodyFixedOnlyRecording()
+        {
+            var relative = new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 120.0,
+                anchorRecordingId = "5f76d136e3dc4316bff71f4cfb0688a4",
+                frames = new List<TrajectoryPoint>
+                {
+                    // Anchor-local metres in the lat/lon/alt fields: a 3.0-"degree" spread
+                    // that the flat resolver would read as a 3000 m chord.
+                    new TrajectoryPoint { ut = 100.0, latitude = 0.0, longitude = 0.0, altitude = 0.0, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 120.0, latitude = 3.0, longitude = 0.0, altitude = 0.0, bodyName = "Kerbin" },
+                },
+                bodyFixedFrames = new List<TrajectoryPoint>
+                {
+                    // The true body-fixed surface: a 0.5-"degree" = 500 m chord.
+                    new TrajectoryPoint { ut = 100.0, latitude = 0.0, longitude = 0.0, altitude = 0.0, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 120.0, latitude = 0.5, longitude = 0.0, altitude = 0.0, bodyName = "Kerbin" },
+                },
+            };
+
+            var rec = new Recording { RecordingId = "relative-body-fixed-only", VesselName = "undock partner" };
+            rec.TrackSections.Add(relative);
+            rec.Points.AddRange(relative.frames);
+            return rec;
+        }
+
+        // (a) The should-fix this follow-up closes. Under the Absolute-only walk this
+        // recording finalized with MaxDistanceFromLaunch untouched at 0, so IsIdleOnPad
+        // read TRUE and HasPadLocalizedMotionOverride bailed under 30 m: a NEW fail-CLOSED
+        // on live debris and undock partners, the mirror of the defect this PR fixes. The
+        // walk must read the Relative section's bodyFixedFrames and land on the TRUE
+        // body-fixed chord - not 0, and not the anchor-local chord.
+        [Fact]
+        public void Walk_RelativeBodyFixedOnly_MeasuresTheBodyFixedChord()
+        {
+            Recording rec = RelativeBodyFixedOnlyRecording();
+
+            Assert.True(VesselSpawner.TryComputeMaxDistanceFromBodyFixedSurfaces(
+                rec, FlatSurfaceResolver,
+                out double maxDist,
+                out VesselSpawner.MaxDistanceReferenceSurface referenceSurface,
+                out int sampleCount,
+                out int unresolved,
+                out int sectionsWithoutSurface));
+
+            Assert.Equal(500.0, maxDist, 6);            // the true body-fixed chord
+            Assert.NotEqual(0.0, maxDist);              // not the old fail-closed 0
+            Assert.NotEqual(3000.0, maxDist);           // not the anchor-local chord
+            Assert.Equal(
+                VesselSpawner.MaxDistanceReferenceSurface.RelativeBodyFixedFrames, referenceSurface);
+            Assert.Equal(2, sampleCount);
+            Assert.Equal(0, unresolved);
+            Assert.Equal(0, sectionsWithoutSurface);
+        }
+
+        // (b) Mixed shapes read BOTH surfaces, and the launch reference is the EARLIEST
+        // sample by UT - here a Relative bodyFixedFrames entry, because the recording opens
+        // on its anchor window. Taking the first ABSOLUTE frame instead would measure the
+        // chord from the middle of the trajectory: 300 m rather than 500 m.
+        [Fact]
+        public void Walk_MixedSurfaces_UsesBothAndTheEarliestSampleAsReference()
+        {
+            var rec = new Recording { RecordingId = "mixed-surfaces" };
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 200.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    AnchorLocalOffsetPoint(100.0), AnchorLocalOffsetPoint(200.0),
+                },
+                bodyFixedFrames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 100.0, latitude = 0.0, longitude = 0.0, altitude = 0.0, bodyName = "Kerbin" },
+                    new TrajectoryPoint { ut = 200.0, latitude = 0.5, longitude = 0.0, altitude = 0.0, bodyName = "Kerbin" },
+                },
+            });
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Absolute,
+                startUT = 300.0,
+                endUT = 300.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    new TrajectoryPoint { ut = 300.0, latitude = 0.3, longitude = 0.0, altitude = 0.0, bodyName = "Kerbin" },
+                },
+            });
+
+            List<VesselSpawner.BodyFixedSectionSample> samples =
+                VesselSpawner.CollectBodyFixedSectionSamples(rec, out int sectionsWithoutSurface);
+            Assert.Equal(3, samples.Count);             // 2 bodyFixedFrames + 1 Absolute frame
+            Assert.Equal(0, sectionsWithoutSurface);
+            Assert.Equal(0, VesselSpawner.ResolveLaunchReferenceIndex(samples));
+
+            Assert.True(VesselSpawner.TryComputeMaxDistanceFromBodyFixedSurfaces(
+                rec, FlatSurfaceResolver,
+                out double maxDist,
+                out VesselSpawner.MaxDistanceReferenceSurface referenceSurface,
+                out int sampleCount,
+                out int unresolved,
+                out sectionsWithoutSurface));
+
+            Assert.Equal(500.0, maxDist, 6);
+            Assert.Equal(
+                VesselSpawner.MaxDistanceReferenceSurface.RelativeBodyFixedFrames, referenceSurface);
+            Assert.Equal(3, sampleCount);
+            Assert.Equal(0, unresolved);
+        }
+
+        // A Relative section's own `frames` are NEVER a distance source: with no
+        // bodyFixedFrames beside them the walk finds no reference and writes nothing, so
+        // the caller's existing MaxDistanceFromLaunch survives.
+        [Fact]
+        public void Walk_RelativeFramesOnly_RefusesAndWritesNothing()
+        {
+            var rec = new Recording { RecordingId = "relative-frames-only" };
+            rec.TrackSections.Add(new TrackSection
+            {
+                referenceFrame = ReferenceFrame.Relative,
+                startUT = 100.0,
+                endUT = 110.0,
+                frames = new List<TrajectoryPoint>
+                {
+                    AnchorLocalOffsetPoint(100.0), AnchorLocalOffsetPoint(110.0),
+                },
+            });
+
+            Assert.False(VesselSpawner.TryComputeMaxDistanceFromBodyFixedSurfaces(
+                rec, FlatSurfaceResolver,
+                out double maxDist,
+                out VesselSpawner.MaxDistanceReferenceSurface referenceSurface,
+                out int sampleCount,
+                out int unresolved,
+                out int sectionsWithoutSurface));
+
+            Assert.Equal(0.0, maxDist);
+            Assert.Equal(VesselSpawner.MaxDistanceReferenceSurface.None, referenceSurface);
+            Assert.Equal(0, sampleCount);
+            Assert.Equal(1, sectionsWithoutSurface);
         }
 
         // ---------- Site 4: the analyzer rule ----------
@@ -487,6 +721,109 @@ namespace Parsek.Tests
             var rule = new Inv11EmptyTrackSection();
 
             Assert.Empty(rule.Evaluate(ModelWith(fixedChild, bodyFixedOnly, checkpointOnly)));
+        }
+
+        // ---------- (d) the committed fixture corpus ----------
+
+        /// <summary>
+        /// Corpus ground truth for the routing, over every committed `.prec.txt` under
+        /// `harness/fixtures/saves/`. Two claims, both measured rather than argued:
+        ///
+        /// <para>(1) NO recording that carries a TrackSection routes to
+        /// <c>None</c> - i.e. finalization never silently leaves such a recording at
+        /// maxDist = 0 for want of a route.</para>
+        ///
+        /// <para>(2) Every recording whose sections carry NO Absolute frames but DO carry
+        /// Relative <c>bodyFixedFrames</c> resolves a launch reference. That population is
+        /// the whole point of the follow-up: under the Absolute-only walk each of them
+        /// finalized with maxDist untouched at 0, which reads as idle-on-pad and bails
+        /// <c>HasPadLocalizedMotionOverride</c> under 30 m.</para>
+        ///
+        /// The measured counts are written to the test output so the PR can quote them.
+        /// </summary>
+        [Fact]
+        public void BackfillRoute_CommittedFixtureCorpus_EverySectionedRecordingHasARoute()
+        {
+            string savesRoot = Path.GetFullPath(Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "..",
+                "harness", "fixtures", "saves"));
+            Assert.True(Directory.Exists(savesRoot), "fixture saves root must exist at " + savesRoot);
+
+            int sidecarsScanned = 0;
+            int sectioned = 0;
+            int sectionedNoAbsoluteFrames = 0;
+            int sectionedNoAbsoluteButRelativeBodyFixed = 0;
+            int routedBodyFixedSections = 0;
+            int routedFlatPoints = 0;
+            var routedNone = new List<string>();
+            var noLaunchReference = new List<string>();
+            var withoutAbsoluteFrames = new List<string>();
+
+            foreach (string precTxt in Directory
+                .GetFiles(savesRoot, "*.prec.txt", SearchOption.AllDirectories)
+                .OrderBy(x => x, StringComparer.Ordinal))
+            {
+                ConfigNode node;
+                try { node = ConfigNode.Load(precTxt); }
+                catch { continue; }
+                if (node == null) continue;
+
+                string label = Path.GetFileName(Path.GetDirectoryName(Path.GetDirectoryName(
+                                   Path.GetDirectoryName(precTxt)))) + "/" + Path.GetFileName(precTxt);
+                var rec = new Recording { RecordingId = label };
+                try { TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom(node, rec); }
+                catch { continue; }
+                sidecarsScanned++;
+
+                if (rec.TrackSections == null || rec.TrackSections.Count == 0) continue;
+                sectioned++;
+
+                // The finalization precondition: maxDist has not been computed yet.
+                rec.MaxDistanceFromLaunch = 0.0;
+                VesselSpawner.MaxDistanceBackfillRoute route =
+                    VesselSpawner.ClassifyMaxDistanceBackfillRoute(rec);
+                if (route == VesselSpawner.MaxDistanceBackfillRoute.None)
+                    routedNone.Add(label);
+                else if (route == VesselSpawner.MaxDistanceBackfillRoute.FlatPoints)
+                    routedFlatPoints++;
+                else
+                    routedBodyFixedSections++;
+
+                bool hasAbsoluteFrames = rec.TrackSections.Any(s =>
+                    s.referenceFrame == ReferenceFrame.Absolute && s.frames != null && s.frames.Count > 0);
+                if (hasAbsoluteFrames) continue;
+
+                sectionedNoAbsoluteFrames++;
+                withoutAbsoluteFrames.Add(label);
+                bool hasRelativeBodyFixed = rec.TrackSections.Any(s =>
+                    s.referenceFrame == ReferenceFrame.Relative
+                    && s.bodyFixedFrames != null && s.bodyFixedFrames.Count > 0);
+                if (!hasRelativeBodyFixed) continue;
+
+                sectionedNoAbsoluteButRelativeBodyFixed++;
+                List<VesselSpawner.BodyFixedSectionSample> samples =
+                    VesselSpawner.CollectBodyFixedSectionSamples(rec, out int _);
+                if (VesselSpawner.ResolveLaunchReferenceIndex(samples) < 0)
+                    noLaunchReference.Add(label);
+            }
+
+            output.WriteLine(string.Format(CultureInfo.InvariantCulture,
+                "fixture corpus: sidecars={0} sectioned={1} routed(body-fixed-sections)={2} " +
+                "routed(flat-points)={3} routed(none)={4} sectioned-without-absolute-frames={5} " +
+                "of which relative-body-fixed={6}",
+                sidecarsScanned, sectioned, routedBodyFixedSections, routedFlatPoints,
+                routedNone.Count, sectionedNoAbsoluteFrames,
+                sectionedNoAbsoluteButRelativeBodyFixed));
+            foreach (string label in withoutAbsoluteFrames)
+                output.WriteLine("  without-absolute-frames: " + label);
+
+            Assert.True(sidecarsScanned > 100, "the committed corpus must actually have loaded");
+            Assert.True(sectioned > 0, "the corpus must carry sectioned recordings");
+            Assert.True(sectionedNoAbsoluteButRelativeBodyFixed > 0,
+                "the corpus must carry the population this follow-up is about: sectioned " +
+                "recordings whose only body-fixed surface is Relative bodyFixedFrames");
+            Assert.Empty(routedNone);
+            Assert.Empty(noLaunchReference);
         }
     }
 }

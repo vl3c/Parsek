@@ -23,8 +23,13 @@ _(unreleased — entries accumulate here per commit)_
   that distance is what Parsek uses to decide a craft never went anywhere, an undocked
   craft that genuinely idled could escape being tidied away. The empty stub is no longer
   kept, the safety net now skips an empty stretch instead of giving up on the whole
-  recording, and the distance is measured from real map positions only. Recordings already
-  saved with the bad list repair themselves the next time they are loaded.
+  recording, and the distance is measured from real map positions only - including the real
+  positions a craft keeps recording while it is still close to the craft it undocked from,
+  so a craft that never leaves that stretch is measured rather than treated as having gone
+  nowhere. Recordings already saved with the bad list repair their point list the next time
+  they are loaded; the wrong distance figure stored alongside it is not recalculated, so a
+  recording saved before this fix keeps the number it was saved with until it is recorded
+  again.
 
 - **If the craft a supply route delivered to is gone but another craft stands where it
   was, the route now moves to that craft and tells you once.** Parsek already handled the

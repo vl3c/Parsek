@@ -558,7 +558,8 @@ point at lon 0.777 to one at lon -74.725 is `2 * 600000 * sin(37.75 deg) =
    `VesselSpawner.BackfillMaxDistance` (`VesselSpawner.cs:4041`): `rec.Points[0]`
    is the launch reference and every flat point goes through
    `body.GetWorldSurfacePosition(lat, lon, alt)` (`ComputeMaxDistanceCore`,
-   `:4068`). Its guarded sibling `BackfillMaxDistanceAbsoluteOnly` (`:4109`)
+   `:4068`). Its guarded sibling `BackfillMaxDistanceAbsoluteOnly` (`:4109`; since
+   widened and renamed `BackfillMaxDistanceFromBodyFixedSurfaces`, see "What shipped")
    exists precisely for this and its XML doc names the hazard verbatim ("a
    falsely huge maxDist"), but only `ParsekFlight.IsActiveTreeIdleOnPad`
    (`ParsekFlight.cs:2453`) uses it.
@@ -625,6 +626,9 @@ green; that is the gap, not a clean bill.
    the Absolute-only variant walks `rec.TrackSections` and leaves
    `MaxDistanceFromLaunch` untouched when a recording has no Absolute section, so
    a sections-less legacy recording needs the flat path kept as a fallback.
+   (As shipped this became `BackfillMaxDistanceFromBodyFixedSurfaces`, which also
+   reads Relative `bodyFixedFrames` - the proposal's Absolute-only reading was
+   itself a fail-closed for every parent-anchored recording. See "What shipped".)
 4. Optional, and the durable one: an analyzer rule that FAILS when a flat
    `Recording.Points` entry's UT is covered by a Relative section and it does not
    equal that section's `bodyFixedFrames` sample.
@@ -686,15 +690,42 @@ the order above, plus one PREMISE CORRECTION that changed site 4's shape.
    which was blocked by the same shell and now substitutes the body-fixed samples into
    the flat list. Pinned by `DamagedFlatList_HealsOnLoad`.
 
+   **The heal repairs the flat LIST only, not the number derived from it.** Nothing
+   recomputes `MaxDistanceFromLaunch` on load, so a recording already on disk keeps the
+   value it was finalized with - including the ~735 km carried by the two committed
+   `rover-relay-recorded` children (`49eaec92...`, `0f391265...`). Those two stay wrong
+   until the fixture is re-harvested from a fresh flight; only a recording finalized by
+   the fixed code (site 3) gets a correct number.
+
 3. **Finalization routes maxDist by shape.** `VesselSpawner.ClassifyMaxDistanceBackfillRoute`
-   (pure, returns `None` / `AbsoluteSections` / `FlatPoints`) decides:
-   sections present -> `BackfillMaxDistanceAbsoluteOnly`, no sections at all -> the flat
-   `BackfillMaxDistance` (kept because the Absolute-only walk leaves
-   `MaxDistanceFromLaunch` untouched when it finds no Absolute section, so a sections-less
-   legacy recording would otherwise stay at 0 and be discarded as idle-on-pad).
+   (pure, returns `None` / `BodyFixedSections` / `FlatPoints`) decides:
+   a body-fixed section surface present -> `BackfillMaxDistanceFromBodyFixedSurfaces`,
+   no sections at all (or sections with no body-fixed surface AND no Relative section, where
+   the flat list cannot be carrying anchor-local metres) -> the flat `BackfillMaxDistance`,
+   kept because the section walk leaves `MaxDistanceFromLaunch` untouched when it finds no
+   body-fixed sample, so such a recording would otherwise stay at 0 and be discarded as
+   idle-on-pad. A recording that HAS Relative sections but no body-fixed sample stays on the
+   section walk at 0: fail CLOSED beats resolving anchor-local metres as lat/lon.
    `ParsekFlight.FinalizeIndividualRecording` logs which ran:
-   `FinalizeIndividualRecording: maxDist backfill route=absolute-sections` /
-   `route=flat-points`.
+   `FinalizeIndividualRecording: maxDist backfill route=body-fixed-sections
+   reference=relative-body-fixed-frames` / `route=flat-points`.
+
+   **The walk reads BOTH body-fixed surfaces (pre-merge review follow-up).** The first cut
+   of this site walked Absolute `frames` only, which was a NEW fail-CLOSED, the mirror of
+   the defect: the parent-anchored contract names Relative `bodyFixedFrames` the PRIMARY
+   body-fixed playback surface, and 16 of the 214 committed fixture recordings carry
+   sections with no Absolute frame at all (15 of them with `BODY_FIXED_POINT`s: 14 debris
+   plus the `bdock-recorded` dock partner `4af6cfd7...`). Each of those would have finalized
+   with `MaxDistanceFromLaunch` untouched at 0, so `IsIdleOnPad` reads true and
+   `HasPadLocalizedMotionOverride` bails under 30 m. `CollectBodyFixedSectionSamples` now
+   gathers Absolute `frames` + Relative `bodyFixedFrames` (never Relative `frames`), and
+   `ResolveLaunchReferenceIndex` takes the EARLIEST sample by UT across both surfaces as the
+   launch reference - a recording that opens on its anchor window has no Absolute frame to
+   start from. `TryComputeMaxDistanceFromBodyFixedSurfaces` is the pure core with the
+   position resolver injected, so the chord is unit-testable headless. The 16th
+   no-Absolute-frames recording, `rover-relay-c-recorded/a597f168...`, is a pre-fix damaged
+   child whose one section is payload-free: nothing body-fixed to measure, so it stays at 0
+   (it also carries only one flat POINT, so the pre-fix flat path skipped it too).
 
 4. **The analyzer rule shipped, but NOT the one this entry proposed, and at WARN.**
 
@@ -738,13 +769,20 @@ the order above, plus one PREMISE CORRECTION that changed site 4's shape.
    (rules are data inside findings).
 
 **Verification as executed.** `Source/Parsek.Tests/UndockBgChildEmptySectionTests.cs`,
-19 cells: the entry's item (1) over the measured three-section shape (confirmed RED
+26 cells: the entry's item (1) over the measured three-section shape (confirmed RED
 first - with the two codec skips disabled the cell fails `Expected: True Actual: False`
 on the substitution); the pure close decision across payload-free / single-frame Absolute
 finalization / seed-only Relative / boundary seam / body-fixed-only / checkpoint-only /
-the long-shell bound; the backfill routing in all three outcomes; the on-load heal; and
-the INV11 rule positive + negative. Full suite green (22355 passed, 1 pre-existing skip, 22356 total),
-all three harness Python suites green. Item (3), the live re-fly of a dock/undock relay,
+the long-shell bound; the backfill routing in all five outcomes (sectioned, sections-less,
+Relative-body-fixed-only, Relative-frames-only, checkpoint-only-with-flat-points); what the
+walk READS (body-fixed chord not the anchor-local one, mixed surfaces with the earliest
+sample as reference, Relative `frames` refused); a corpus cell over all 214 committed
+`.prec.txt` sidecars under `harness/fixtures/saves/` asserting that no sectioned recording
+routes to `None` (measured: 214 sectioned, 214 to `BodyFixedSections`, 0 to `FlatPoints`,
+0 to `None`; 16 without Absolute frames, 15 of them with Relative `bodyFixedFrames`); the
+on-load heal; and the INV11 rule positive + negative. Full suite green (22380 passed, 1
+pre-existing skip, 22381 total), all three harness Python suites green (`lib` 2247,
+`missions/lib` 2259, `provision` 238). Item (3), the live re-fly of a dock/undock relay,
 was NOT run - this branch flew nothing. The first relay lane flown after this ships
 should read `maxDist < 1000` on both undock children and an INV11-free analyzer row on a
 save produced from a fresh flight.
