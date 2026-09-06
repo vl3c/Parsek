@@ -19,23 +19,28 @@ namespace Parsek.InGameTests
             Vessel v = FlightGlobals.ActiveVessel;
             InGameAssert.IsNotNull(v, "active vessel exists");
             // A landed / splashed / prelaunch vessel carries a stock PSEUDO-orbit (extreme
-            // eccentricity, finite period) that passes the closed-orbit filters, so it is part
-            // of the fail-closed set in its own right (PERIODICITY-LANDED-ANCHOR-PHASE-LOCK),
-            // not because the orbit looks open.
-            bool onSurface = !MissionPeriodicity.IsPhaseAnchorEligible(v.LandedOrSplashed, v.situation);
-            if (onSurface || v.orbit == null || v.orbit.eccentricity >= 1.0
+            // eccentricity, finite period) that passes the closed-orbit filters, and so does an
+            // aircraft FLYING or an ascending SUB_ORBITAL rocket. All three fail the ORBIT
+            // contract - the orbit intersects the surface or the atmosphere
+            // (PERIODICITY-LANDED-ANCHOR-PHASE-LOCK) - not the open-orbit filters.
+            bool onSurface = MissionPeriodicity.IsSurfaceAnchorSituation(
+                v.LandedOrSplashed, v.situation);
+            bool orbitReenters = !onSurface && !IsLiveOrbitAPhaseReference(v);
+            if (onSurface || orbitReenters || v.orbit == null || v.orbit.eccentricity >= 1.0
                 || !(v.orbit.period > 0.0) || double.IsNaN(v.orbit.period))
             {
-                // The seam only resolves CLOSED orbits of AIRBORNE vessels by contract; a
-                // suborbital / landed active vessel must fail closed rather than report a
-                // bogus period.
+                // The seam only resolves CLOSED orbits that clear the surface / atmosphere by
+                // contract; a suborbital / flying / landed active vessel must fail closed rather
+                // than report a bogus period.
                 bool openResolved = FlightGlobalsBodyInfo.Instance.TryGetVesselOrbit(
                     v.persistentId, v.id.ToString(), out _, out _);
                 InGameAssert.IsFalse(openResolved,
-                    "non-closed-orbit / surface active vessel does not resolve (fail closed)");
+                    "non-closed-orbit / surface / atmosphere-intersecting active vessel does not "
+                    + "resolve (fail closed)");
                 ParsekLog.Info("InGameTest",
                     "[MissionPhasing] active vessel is not an eligible phase anchor " +
-                    $"(onSurface={onSurface} situation={v.situation}); fail-closed contract verified");
+                    $"(onSurface={onSurface} orbitReenters={orbitReenters} " +
+                    $"situation={v.situation}); fail-closed contract verified");
                 return;
             }
 
@@ -80,7 +85,7 @@ namespace Parsek.InGameTests
         {
             Vessel v = FlightGlobals.ActiveVessel;
             InGameAssert.IsNotNull(v, "active vessel exists");
-            if (MissionPeriodicity.IsPhaseAnchorEligible(v.LandedOrSplashed, v.situation))
+            if (!MissionPeriodicity.IsSurfaceAnchorSituation(v.LandedOrSplashed, v.situation))
             {
                 InGameAssert.Skip(
                     "needs a LANDED / SPLASHED / PRELAUNCH active vessel to stand in for the "
@@ -140,6 +145,77 @@ namespace Parsek.InGameTests
                 v.persistentId, v.id.ToString(), out _, out _);
             InGameAssert.IsFalse(seamResolved,
                 "the live seam itself refuses the landed anchor (the guard, not a downstream rule)");
+        }
+
+        [InGameTest(Category = "MissionPhasing", Scene = GameScenes.FLIGHT,
+            Description = "An AIRBORNE anchor whose orbit re-enters (aircraft FLYING, ascending "
+                + "SUB_ORBITAL rocket, or any periapsis inside the atmosphere) is refused by the "
+                + "orbit contract: stock reports a closed orbit with a finite period for it, and "
+                + "locking a mission to that number is as meaningless as locking to a landed "
+                + "craft's pseudo-orbit")]
+        public static void AirborneAnchor_RefusedByTheOrbitContract()
+        {
+            Vessel v = FlightGlobals.ActiveVessel;
+            InGameAssert.IsNotNull(v, "active vessel exists");
+            if (MissionPeriodicity.IsSurfaceAnchorSituation(v.LandedOrSplashed, v.situation))
+            {
+                InGameAssert.Skip(
+                    "needs an AIRBORNE active vessel whose orbit re-enters (FLYING / SUB_ORBITAL, "
+                    + "or any orbit with periapsis inside the atmosphere); the active vessel is "
+                    + $"on the surface (situation={v.situation})");
+                return;
+            }
+            Orbit orbit = v.orbit;
+            CelestialBody refBody = orbit != null ? orbit.referenceBody : null;
+            if (orbit == null || refBody == null)
+            {
+                InGameAssert.Skip(
+                    "needs an airborne active vessel carrying a stock orbit around a resolvable "
+                    + "body to read PeA / atmosphereDepth from");
+                return;
+            }
+            if (IsLiveOrbitAPhaseReference(v))
+            {
+                InGameAssert.Skip(
+                    "needs an active vessel whose orbit INTERSECTS the surface or atmosphere "
+                    + $"(peA={orbit.PeA:F1} clears {refBody.bodyName}'s floor, so it is a genuine "
+                    + "orbiting anchor)");
+                return;
+            }
+
+            // The contract is load-bearing only if stock would otherwise have handed the solver a
+            // usable number: record what it actually reports for this airborne craft.
+            ParsekLog.Info("InGameTest",
+                "[MissionPhasing] airborne orbit: " +
+                $"situation={v.situation} ecc={orbit.eccentricity:F4} period={orbit.period:F2}s " +
+                $"peA={orbit.PeA:F1} body={refBody.bodyName} atmosphere={refBody.atmosphere} " +
+                $"atmosphereDepth={refBody.atmosphereDepth:F1}");
+
+            InGameAssert.IsFalse(
+                MissionPeriodicity.IsPhaseAnchorEligible(
+                    orbit.PeA, refBody.atmosphere, refBody.atmosphereDepth),
+                "the pure contract refuses an orbit that intersects the surface / atmosphere");
+
+            bool seamResolved = FlightGlobalsBodyInfo.Instance.TryGetVesselOrbit(
+                v.persistentId, v.id.ToString(), out double period, out _);
+            InGameAssert.IsFalse(seamResolved,
+                "the live seam refuses the airborne anchor (the orbit contract, not a "
+                + "downstream rule)");
+            InGameAssert.IsTrue(double.IsNaN(period),
+                "a refused anchor reports no period at all (fail closed, not a bogus number)");
+        }
+
+        // The live-orbit half of the eligibility contract, read off the vessel the way
+        // FlightGlobalsBodyInfo.TryGetVesselOrbit reads it. False when there is no orbit or no
+        // reference body to place it against (fail closed, mirroring the seam).
+        private static bool IsLiveOrbitAPhaseReference(Vessel v)
+        {
+            Orbit orbit = v != null ? v.orbit : null;
+            CelestialBody refBody = orbit != null ? orbit.referenceBody : null;
+            if (refBody == null)
+                return false;
+            return MissionPeriodicity.IsPhaseAnchorEligible(
+                orbit.PeA, refBody.atmosphere, refBody.atmosphereDepth);
         }
     }
 }

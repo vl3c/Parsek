@@ -1042,12 +1042,20 @@ Each INCLUDED segment contributes only the phase constraint its own frame impose
    is the "no-inertial-arc -> MinCycleDuration" edge case). The rotation constraint
    requires the surface<->inertial-orbit hand-off, not a bare surface segment.
    This holds for the LIVE-anchor rule 5 as well, and it is enforced there rather
-   than assumed: a LANDED / SPLASHED / PRELAUNCH anchor carries a stock pseudo-orbit
-   (e ~0.9948 with a finite, settling-dependent period) that passes every
-   closed-orbit filter, so `IBodyInfo.TryGetVesselOrbit` rejects it outright via
-   `MissionPeriodicity.IsPhaseAnchorEligible`. Without that guard a surface-only
-   relay tree acquired a `VesselOrbital` lock from a parked rover and had its cadence
-   stretched 3.4x (PERIODICITY-LANDED-ANCHOR-PHASE-LOCK, 2026-09-03).
+   than assumed, by a PHYSICAL test rather than a situation list:
+   `IBodyInfo.TryGetVesselOrbit` rejects any anchor whose orbit INTERSECTS the surface
+   or the atmosphere - periapsis at or below `atmosphereDepth` on a body with an
+   atmosphere, at or below 0 on an airless one - via
+   `MissionPeriodicity.IsPhaseAnchorEligible(periapsisAltitude, bodyHasAtmosphere,
+   atmosphereDepth)`. That covers three shapes stock reports a CLOSED orbit with a
+   finite period for, none of which is a phase reference: a LANDED / SPLASHED /
+   PRELAUNCH craft (its pseudo-orbit, e ~0.9948 with a settling-dependent period, has
+   its periapsis hundreds of kilometres below the surface), an aircraft FLYING, and an
+   ascending SUB_ORBITAL rocket. Without that guard a surface-only relay tree acquired
+   a `VesselOrbital` lock from a parked rover and had its cadence stretched 3.4x
+   (PERIODICITY-LANDED-ANCHOR-PHASE-LOCK, 2026-09-03; the situation-list form shipped
+   first and was replaced by the orbit test, which subsumes it, when the review
+   pointed out that an aircraft would lock a mission just the same).
 
 2. **Inertial orbit segment around body B** -> by itself imposes **no** phase
    constraint (B is always there; an inertial orbit is faithful at any UT). Its only

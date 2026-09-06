@@ -177,10 +177,12 @@ atmospheric-only config of B imposes NO phase constraint"; the live-anchor secti
 of `design-mission-phasing-alignment.md` (3.2 and 5.2) simply never considered a
 landed anchor.
 
-**Fix.** `TryGetVesselOrbit` now rejects `LandedOrSplashed` / `PRELAUNCH` anchors
-through the pure `MissionPeriodicity.IsPhaseAnchorEligible`, logging one
-rate-limited `TryGetVesselOrbit: skipped landed anchor pid=... situation=...` line
-per anchor pid. `ClassifyVesselOrbitalConstraint` then takes its existing
+**Fix.** `TryGetVesselOrbit` now rejects `LandedOrSplashed` / `PRELAUNCH` anchors,
+logging one rate-limited `TryGetVesselOrbit: skipped landed anchor pid=...
+situation=...` line per anchor pid (as shipped this ran through the pure
+`MissionPeriodicity.IsPhaseAnchorEligible(landedOrSplashed, situation)`; since the
+follow-up below it is the situation-naming pre-check
+`MissionPeriodicity.IsSurfaceAnchorSituation`, with the orbit contract deciding). `ClassifyVesselOrbitalConstraint` then takes its existing
 `UnsupportedRendezvous` reject, `Solve` maps that to the no-lock sentinel, and the
 route keeps its built cadence and anchor. Chosen over an extractor-side guard,
 which would have taken the `count == 0` free-loop branch and substituted
@@ -223,6 +225,34 @@ the ONLY place a `VesselOrbital` period is read) ->
 implementation outside test code, so there is no second reader to guard. Nothing to
 fix; do not re-open this on a flight log without decompiling the deployed method
 body first (see `.claude/CLAUDE.md` -> "Verify the deployed DLL after building").
+
+**~~Follow-up from the #1623 review: FLYING / SUB_ORBITAL anchors were still
+accepted.~~ DONE 2026-09-06 (branch `airborne-phase-anchors`).** The shipped guard
+was a SITUATION LIST, so an aircraft in the atmosphere or a rocket on its way up
+still passed: stock gives both a closed orbit (ecc < 1) with a finite period, which
+is exactly the meaningless number the landed rover contributed. Never measured in a
+flight - the relay subject is all-surface - but reachable from ordinary play the
+moment a mission names an airborne craft as its rendezvous target.
+
+**Fix.** The situation list is replaced by the PHYSICAL contract:
+`MissionPeriodicity.IsPhaseAnchorEligible(double periapsisAltitude, bool
+bodyHasAtmosphere, double atmosphereDepth)` requires the anchor's orbit not to
+intersect the surface or the atmosphere - periapsis strictly above `atmosphereDepth`
+on a body with an atmosphere, strictly above 0 on an airless one - fed from the live
+`Orbit.PeA` plus `orbit.referenceBody.atmosphere` / `.atmosphereDepth`. NaN /
+infinite / negative-depth inputs and the boundary itself fail closed. It SUBSUMES the
+old list (a surface pseudo-orbit's periapsis is hundreds of kilometres below the
+surface), so nothing about the landed case changes. The cheap situation pre-check
+survives as `MissionPeriodicity.IsSurfaceAnchorSituation`, decides nothing, and
+exists only to keep the surface rejection legible in the log - it still emits the
+`TryGetVesselOrbit: skipped landed anchor pid=... situation=...` line harness lane
+RVR-9 pins, unchanged word for word. The new rejection logs
+`TryGetVesselOrbit: skipped atmosphere-intersecting anchor pid=... situation=...
+peA=... body=... atmosphere=... atmosphereDepth=...` (rate-limited Verbose, keyed per
+anchor pid). Covered by the re-pinned `IsPhaseAnchorEligible_*` theories, a new
+`IsSurfaceAnchorSituation_*` theory, and an in-game `MissionPhasing` cell
+(`AirborneAnchor_RefusedByTheOrbitContract`) that drives the live orbit through the
+seam and skips naming its required context otherwise.
 
 ---
 
