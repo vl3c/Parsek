@@ -6,7 +6,7 @@ namespace Parsek
     ///
     /// <list type="bullet">
     ///   <item><description><see cref="InFlight"/> — recording never reached a terminal state, or ended with the vessel still orbiting / sub-orbital.</description></item>
-    ///   <item><description><see cref="Landed"/> — landed, splashed, recovered, docked, or boarded. Merge rule commits <see cref="MergeState.Immutable"/>.</description></item>
+    ///   <item><description><see cref="Landed"/> - landed, splashed, recovered, docked, boarded, or disassembled. Merge rule commits <see cref="MergeState.Immutable"/>.</description></item>
     ///   <item><description><see cref="Crashed"/> — destroyed / BG-crash. Merge rule commits <see cref="MergeState.CommittedProvisional"/> so the slot stays rewindable (design §6.6 step 2, §7.17, §7.43).</description></item>
     /// </list>
     /// </summary>
@@ -45,6 +45,13 @@ namespace Parsek
                 case TerminalState.Recovered:
                 case TerminalState.Docked:
                 case TerminalState.Boarded:
+                // Disassembled is a STABLE ending, so it commits Immutable like the
+                // other deliberate ones. The re-fly rule reserves Crashed (and its
+                // CommittedProvisional, still-rewindable slot) for outcomes the player
+                // may want to undo by flying again; a vessel whose last part is now
+                // sitting in a kerbal's inventory has nothing left to continue and no
+                // crash to re-fly.
+                case TerminalState.Disassembled:
                     return TerminalKind.Landed;
                 case TerminalState.Orbiting:
                 case TerminalState.SubOrbital:

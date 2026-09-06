@@ -115,7 +115,8 @@ namespace Parsek
             // the split seed point. These stubs are non-playable, fail the data-health
             // contract, and never contribute a meaningful ghost or spawn path. #447 widened
             // this beyond Destroyed, but only for debris that has already fully ended
-            // (Landed / Recovered / Splashed / Destroyed). Scene-exit commits can still
+            // (the set is IsTerminalSinglePointDebrisStubState: Landed / Splashed /
+            // Destroyed / Recovered / Disassembled). Scene-exit commits can still
             // produce one-point SubOrbital / Orbiting debris leaves; keep those for
             // diagnosis instead of silently deleting non-terminal recordings.
 
@@ -403,6 +404,23 @@ namespace Parsek
             return HasOnlyMirroredSinglePointTrackSection(rec);
         }
 
+        /// <summary>
+        /// The terminal verdicts under which a ONE-SAMPLE debris leaf is a stub worth
+        /// pruning: the object's story ends where that sample sits, so the single point
+        /// is not a trajectory anything can play back.
+        ///
+        /// <para>Disassembled belongs here and is in fact the shape the EVA-construction
+        /// pocket produces most often - a DroppedPart vessel picked back up shortly
+        /// after it was dropped ends with one sample and nothing else.</para>
+        ///
+        /// <para>With <see cref="IsPreservedSinglePointInFlightDebrisState"/>
+        /// (SubOrbital / Orbiting, kept because that debris is still moving and REC-002
+        /// must keep seeing it) this covers seven of the nine <see cref="TerminalState"/>
+        /// members. Docked and Boarded are deliberately in NEITHER set: they are join
+        /// transitions, not endings - the physical object continues inside another
+        /// recording - so a one-sample leaf carrying either is the junction sample and
+        /// pruning it would drop the only record of the join.</para>
+        /// </summary>
         private static bool IsTerminalSinglePointDebrisStubState(TerminalState state)
         {
             switch (state)
@@ -411,6 +429,7 @@ namespace Parsek
                 case TerminalState.Splashed:
                 case TerminalState.Destroyed:
                 case TerminalState.Recovered:
+                case TerminalState.Disassembled:
                     return true;
                 default:
                     return false;
