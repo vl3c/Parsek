@@ -10,6 +10,58 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A supply route no longer follows the wrong craft home when something is parked at its
+  destination.** Dock any ship to a base and the game merges the two into one vessel,
+  keeping the name and id of whichever half it considers dominant - which is often the
+  visitor, and never your choice. A route delivering to that base could only recognise it
+  by an id that had just disappeared, so it fell back to "whatever is standing here", moved
+  itself onto the visiting ship, and then followed that ship away when it undocked. Routes
+  now record the destination's own launch-unique identity when the delivery is first
+  witnessed, and recognise it even while it is merged into a bigger craft - whichever half
+  dominates. Deliveries during a dock go into the combined vessel, which is where the base
+  is, and the route is still pointing at the base afterwards. Routes made before this
+  update carry no such record and are unchanged.
+
+- **A supply route can no longer mistake a fresh copy of a craft for the depot it was
+  built to use.** Kerbal Space Program gives every craft file a fixed id and stamps the
+  same one onto every launch of it, so a route that could only find its depot by that id
+  would happily accept a brand-new copy of the same craft standing where the depot used
+  to be - and then load from, or deliver to, the wrong vessel. Routes now remember which
+  actual launch the depot was, and refuse a match that is provably a different one. When
+  that happens the route falls back to looking for whatever vessel is standing at the
+  recorded dock point, exactly as it does when the depot is gone, and tells you once if it
+  moves to a different craft. The same record is now kept for the DESTINATION of a
+  delivery too, not only for the depot a run loads from, so both ends of a route are
+  protected the same way. Routes made before this update carry no such record and
+  behave as they always did.
+
+- **Housekeeping: a route whose destination has gone missing no longer re-searches every
+  part of every craft in the game, every frame.** When a route cannot find one of its
+  ends, it looks once through the parts of every vessel in case the craft it wants is
+  currently merged into a bigger one. For a route to a landed base that search is followed
+  by a position-based one, so it happens once and stops; for a route to something in
+  ORBIT there is no position fallback, so the search was repeating for as long as the
+  Logistics window stayed open. It is now done at most once every couple of seconds, and
+  immediately again whenever a craft docks or undocks - the moment that can change the
+  answer.
+
+- **Test housekeeping: two harmless warnings an unattended supply-route check left in
+  every log are gone.** The check built one of its practice craft in mid-recording, and
+  bolting a part onto a craft counts as a docking, so the game opened a cargo window for
+  a bare docking port and then correctly refused to fill it - twice, every run. The check
+  now builds that craft before it starts recording. Nothing in the game changed: the
+  warning is the safety net doing its job, and it still fires on the real mismatch it
+  exists for.
+
+- **A supply route whose flight waits somewhere now counts the wait the same way the
+  ghost you watch does.** Some flights hold: a launch that waits for the pad to come round
+  under the departure, or an arrival that waits before it starts down. The ghost you see
+  in the map view pauses for exactly that long. The clock the route used to decide when a
+  delivery had happened did not pause, so on a flight carrying a wait the two ran apart by
+  the length of it and a delivery could be credited to the wrong repeat of the run. Both
+  now read the same clock. No same-body route ever waits, so nothing changes for any route
+  that exists today; this is the inter-body case, fixed before it ships.
+
 - **A craft you undock from no longer records itself as having travelled hundreds of
   kilometres while sitting still.** When two craft undock, the half you are not flying is
   recorded in the background, and that recording opened with an empty stub covering the

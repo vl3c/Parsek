@@ -1543,10 +1543,11 @@ namespace Parsek.MapRender
         }
 
         /// <summary>
-        /// The route DELIVERY clock's crossing of <c>RecordedDockUT</c>. NOTE: this is a DIFFERENT
-        /// clock from the render clock - <c>RouteLoopClock.TryGetRouteLoopState</c> forwards only the
-        /// relaunch schedule and the loiter cuts, omitting the hold / launch-hold / joint arguments, so
-        /// on a hold-carrying unit the two diverge. RC-ROUTE can check exactly that.
+        /// The route DELIVERY clock's crossing of <c>RecordedDockUT</c>. Since 2026-09-06 it is the SAME
+        /// clock as the render one: <c>RouteLoopClock.TryGetRouteLoopState</c> forwards the unit's whole
+        /// optional surface - the relaunch schedule, the loiter cuts AND the nine hold / launch-hold /
+        /// joint arguments (todo entry ROUTE-DELIVERY-CLOCK-OMITS-THE-HOLD-ARGS). RC-ROUTE therefore
+        /// checks an EQUALITY on a hold-carrying lane rather than measuring a known divergence.
         /// </summary>
         internal static void NoteRouteDockCrossing(
             int ownerIndex, long dockCycleIndex, double currentUT, string routeId)
