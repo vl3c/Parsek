@@ -944,8 +944,8 @@ sample as reference, Relative `frames` refused); a corpus cell over all 214 comm
 `.prec.txt` sidecars under `harness/fixtures/saves/` asserting that no sectioned recording
 routes to `None` (measured: 214 sectioned, 214 to `BodyFixedSections`, 0 to `FlatPoints`,
 0 to `None`; 16 without Absolute frames, 15 of them with Relative `bodyFixedFrames`); the
-on-load heal; and the INV11 rule positive + negative. Full suite green (22380 passed, 1
-pre-existing skip, 22381 total), all three harness Python suites green (`lib` 2247,
+on-load heal; and the INV11 rule positive + negative. Full suite green (22428 passed, 1
+pre-existing skip, 22429 total), all three harness Python suites green (`lib` 2247,
 `missions/lib` 2259, `provision` 238). Item (3), the live re-fly of a dock/undock relay,
 was NOT run - this branch flew nothing. The first relay lane flown after this ships
 should read `maxDist < 1000` on both undock children and an INV11-free analyzer row on a
