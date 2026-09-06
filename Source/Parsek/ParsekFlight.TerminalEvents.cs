@@ -115,6 +115,44 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Pure half of <c>DeferredDestructionCheck</c>'s finalization-cache gate. The
+        /// cache for a pocketed vessel holds Destroyed - the background destroy refresh
+        /// runs before anyone knows why the vessel died - so applying it would replace
+        /// the Disassembled verdict stamped at the synchronous seam. A phantom terrain
+        /// crash is excluded for the same reason: its override already re-stamped.
+        ///
+        /// <para>Extracted so the skip is driven by a headless cell instead of inferred
+        /// from the <c>pending.disassembled</c> field alone; the coroutine itself needs
+        /// live Unity and cannot be run in the suite.</para>
+        /// </summary>
+        internal static bool ShouldApplyFinalizationCacheOnDeferredDestruction(
+            bool isPhantomCrash,
+            bool disassembled,
+            bool hasBackgroundRecorder)
+        {
+            if (isPhantomCrash) return false;
+            if (disassembled) return false;
+            return hasBackgroundRecorder;
+        }
+
+        /// <summary>
+        /// Pure half of <c>DeferredDestructionCheck</c>'s terminal-destruction fallback:
+        /// it runs only when neither override claimed the recording AND the finalization
+        /// cache did not apply. <c>ApplyTerminalDestruction</c> stamps Destroyed and sets
+        /// <see cref="Recording.VesselDestroyed"/>, so reaching it for a pocket would
+        /// undo both halves of <see cref="ApplyDisassembledTerminal"/>'s contract.
+        /// </summary>
+        internal static bool ShouldApplyTerminalDestructionOnDeferredDestruction(
+            bool isPhantomCrash,
+            bool disassembled,
+            bool cacheApplied)
+        {
+            if (isPhantomCrash) return false;
+            if (disassembled) return false;
+            return !cacheApplied;
+        }
+
+        /// <summary>
         /// Pure decision method: determines whether a deferred destruction check should be started.
         /// Returns true if the vessel is in the BackgroundMap, not in dockingInProgress, and a tree exists.
         /// </summary>
@@ -480,7 +518,8 @@ namespace Parsek
             }
 
             bool cacheApplied = false;
-            if (!isPhantomCrash && !pending.disassembled && backgroundRecorder != null)
+            if (ShouldApplyFinalizationCacheOnDeferredDestruction(
+                    isPhantomCrash, pending.disassembled, backgroundRecorder != null))
             {
                 RecordingFinalizationCacheApplyResult cacheResult;
                 cacheApplied = backgroundRecorder.TryApplyFinalizationCacheForBackgroundEnd(
@@ -494,7 +533,8 @@ namespace Parsek
                     out cacheResult);
             }
 
-            if (!isPhantomCrash && !pending.disassembled && !cacheApplied)
+            if (ShouldApplyTerminalDestructionOnDeferredDestruction(
+                    isPhantomCrash, pending.disassembled, cacheApplied))
                 ApplyTerminalDestruction(pending, rec);
 
             packStates.Remove(pending.vesselPid);

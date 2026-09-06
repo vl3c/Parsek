@@ -437,5 +437,189 @@ namespace Parsek.Tests
 
             Assert.Empty(result);
         }
+
+        // ---------------------------------------------------------------
+        // Terminal-event overwrite: Disassembled is final.
+        // ---------------------------------------------------------------
+
+        [Fact]
+        public void CanOverwriteTerminalState_DisassembledBlocksEveryIncomingState()
+        {
+            // The three final verdicts refuse every incoming state.
+            foreach (TerminalState incoming in Enum.GetValues(typeof(TerminalState)))
+            {
+                Assert.False(ParsekScenario.CanOverwriteTerminalState(
+                    TerminalState.Disassembled, incoming));
+            }
+
+            // And the situation-based states still yield, so the guard added for
+            // Disassembled did not turn the whole predicate into "never overwrite".
+            Assert.True(ParsekScenario.CanOverwriteTerminalState(
+                TerminalState.Landed, TerminalState.Recovered));
+            Assert.True(ParsekScenario.CanOverwriteTerminalState(
+                null, TerminalState.Recovered));
+        }
+
+        [Fact]
+        public void UpdateRecordingsForTerminalEvent_SameNameRecovery_LeavesDisassembledAndItsSnapshot()
+        {
+            // UpdateRecordingsForTerminalEvent walks the PENDING tree matching by
+            // vessel NAME alone, and a pocketed part keeps the name of the craft it
+            // came off. Without the guard, recovering any live vessel with that name
+            // would rewrite the verdict to Recovered AND null the VesselSnapshot -
+            // and Recovered is what the ledger's recovery correlator keys on.
+            var snapshot = new ConfigNode("VESSEL");
+            var pocketed = new Recording
+            {
+                RecordingId = "rec-pocket",
+                VesselName = "Girder Debris",
+                TerminalStateValue = TerminalState.Disassembled,
+                ExplicitEndUT = 900.0,
+                VesselSnapshot = snapshot,
+            };
+            var tree = new RecordingTree
+            {
+                Id = "tree-pocket",
+                TreeName = "tree-pocket",
+                RootRecordingId = "rec-pocket",
+                ActiveRecordingId = "rec-pocket",
+            };
+            tree.Recordings["rec-pocket"] = pocketed;
+            RecordingStore.StashPendingTree(tree);
+
+            bool updated = ParsekScenario.UpdateRecordingsForTerminalEvent(
+                "Girder Debris", TerminalState.Recovered, 1800.0);
+
+            Assert.False(updated);
+            Assert.Equal(TerminalState.Disassembled, pocketed.TerminalStateValue);
+            Assert.Equal(900.0, pocketed.ExplicitEndUT);
+            Assert.Same(snapshot, pocketed.VesselSnapshot);
+        }
+
+        [Fact]
+        public void UpdateRecordingsForTerminalEvent_SameNameRecovery_StillClaimsAnUnstampedSibling()
+        {
+            // Negative control for the cell above: the walk is unchanged for a
+            // recording that has NOT been pocketed, so the guard is scoped to the
+            // Disassembled verdict rather than to the name match.
+            var live = new Recording
+            {
+                RecordingId = "rec-live",
+                VesselName = "Girder Debris",
+                VesselSnapshot = new ConfigNode("VESSEL"),
+            };
+            var tree = new RecordingTree
+            {
+                Id = "tree-live",
+                TreeName = "tree-live",
+                RootRecordingId = "rec-live",
+                ActiveRecordingId = "rec-live",
+            };
+            tree.Recordings["rec-live"] = live;
+            RecordingStore.StashPendingTree(tree);
+
+            bool updated = ParsekScenario.UpdateRecordingsForTerminalEvent(
+                "Girder Debris", TerminalState.Recovered, 1800.0);
+
+            Assert.True(updated);
+            Assert.Equal(TerminalState.Recovered, live.TerminalStateValue);
+            Assert.Null(live.VesselSnapshot);
+        }
+
+        // ---------------------------------------------------------------
+        // The background-destroy path, driven rather than asserted.
+        // ---------------------------------------------------------------
+
+        [Fact]
+        public void IsBackgroundRecordingDestroyed_DisassembledRecording_IsFalse()
+        {
+            // The whole reason ApplyDisassembledTerminal leaves VesselDestroyed false:
+            // this guard is what every BG entrypoint consults, and a true answer takes
+            // the retirement branch that drops loadedStates WITHOUT flushing the
+            // accumulated TrackSections. Drive the predicate itself, not the field.
+            var pocketed = new Recording
+            {
+                RecordingId = "rec-pocket",
+                TerminalStateValue = TerminalState.Disassembled,
+            };
+            var crashed = new Recording
+            {
+                RecordingId = "rec-crash",
+                TerminalStateValue = TerminalState.Destroyed,
+                VesselDestroyed = true,
+            };
+            var tree = new RecordingTree { Id = "tree-bg", TreeName = "tree-bg" };
+            tree.Recordings["rec-pocket"] = pocketed;
+            tree.Recordings["rec-crash"] = crashed;
+
+            var bg = new BackgroundRecorder(tree);
+
+            Assert.False(bg.IsBackgroundRecordingDestroyed("rec-pocket"));
+            // Contrast: an ordinary destruction DOES trip the guard, so the assertion
+            // above is not passing because the predicate is inert here.
+            Assert.True(bg.IsBackgroundRecordingDestroyed("rec-crash"));
+        }
+
+        [Theory]
+        // (isPhantomCrash, disassembled, hasBackgroundRecorder) -> cache applies?
+        [InlineData(false, false, true, true)]
+        [InlineData(false, true, true, false)]
+        [InlineData(true, false, true, false)]
+        [InlineData(false, false, false, false)]
+        public void ShouldApplyFinalizationCacheOnDeferredDestruction_SkipsThePocket(
+            bool isPhantomCrash, bool disassembled, bool hasBackgroundRecorder, bool expected)
+        {
+            // The finalization cache for a pocketed pid holds Destroyed (the background
+            // destroy refresh cannot know why the vessel died), so applying it would
+            // replace the verdict stamped at the synchronous seam.
+            Assert.Equal(expected, ParsekFlight.ShouldApplyFinalizationCacheOnDeferredDestruction(
+                isPhantomCrash, disassembled, hasBackgroundRecorder));
+        }
+
+        [Theory]
+        // (isPhantomCrash, disassembled, cacheApplied) -> ApplyTerminalDestruction runs?
+        [InlineData(false, false, false, true)]
+        [InlineData(false, true, false, false)]
+        [InlineData(true, false, false, false)]
+        [InlineData(false, false, true, false)]
+        public void ShouldApplyTerminalDestructionOnDeferredDestruction_SkipsThePocket(
+            bool isPhantomCrash, bool disassembled, bool cacheApplied, bool expected)
+        {
+            // ApplyTerminalDestruction stamps Destroyed and sets VesselDestroyed, so
+            // reaching it for a pocket would undo BOTH halves of the stamp's contract.
+            Assert.Equal(expected, ParsekFlight.ShouldApplyTerminalDestructionOnDeferredDestruction(
+                isPhantomCrash, disassembled, cacheApplied));
+        }
+
+        // ---------------------------------------------------------------
+        // Single-point debris pruning.
+        // ---------------------------------------------------------------
+
+        [Fact]
+        public void IsSinglePointDebrisLeaf_DisassembledOneSampleDebris_IsAStub()
+        {
+            // The shape the pocket produces most often: a DroppedPart vessel picked
+            // back up shortly after it was dropped, leaving one sample and nothing
+            // else. It is a stub exactly as a Landed or Destroyed one-sample leaf is.
+            var rec = new Recording
+            {
+                RecordingId = "rec-pocket",
+                IsDebris = true,
+                TerminalStateValue = TerminalState.Disassembled,
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = 500.0 });
+
+            Assert.True(ParsekFlight.IsSinglePointDebrisLeaf(rec));
+
+            // Docked stays out of BOTH sets on purpose - it is a join transition, so
+            // the single sample is the junction, not a stub.
+            rec.TerminalStateValue = TerminalState.Docked;
+            Assert.False(ParsekFlight.IsSinglePointDebrisLeaf(rec));
+            Assert.False(ParsekFlight.IsStopMetricsExemptSinglePointDebrisLeaf(rec));
+
+            // And Disassembled is a STUB, never a preserved in-flight leaf.
+            rec.TerminalStateValue = TerminalState.Disassembled;
+            Assert.False(ParsekFlight.IsStopMetricsExemptSinglePointDebrisLeaf(rec));
+        }
     }
 }

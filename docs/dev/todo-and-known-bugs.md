@@ -307,7 +307,7 @@ carries the value and no tally moves.
 
 **Headless-proven only - there is no live driver.** kRPC exposes no EVA
 construction API, so no harness mission can pick a part up and no scenario can
-witness the state end to end. 35 xUnit cells in
+witness the state end to end. 48 xUnit cells in
 `Source/Parsek.Tests/DisassembledTerminalStateTests.cs` cover the pure classifier
 over the whole 2x3x2 conjunct cube, the first-writer guard, the log formatter
 (including a `de-DE` culture pin), the codec round trip at `terminalState = 8`,
@@ -320,6 +320,50 @@ is KSP actually raising `onVesselWillDestroy` from
 `EVAConstructionModeEditor.PickupPart`; that is established by decompilation, not
 by a flight.
 
+Two REGRESSION flights were run on the branch to prove the seam costs the existing
+destroy paths nothing - neither can witness the state itself:
+`RVR-2-rover-route-create` PASS (`harness/results/2026-09-06_1708_RVR-2-rover-route-create.json`,
+`terminalStates {Docked: 1, Landed: 3}`, zero Disassembled lines, as expected for a
+flight with no EVA construction) and `H56` PASS `total=6 passed=6` (2026-09-06_1709),
+which also confirms the WRN -> Info reroute left no stray `Background vessel destroyed`
+WRN behind.
+
+**Review dispositions (2026-09-06, appended commit).** One MEDIUM and three LOW,
+all fixed rather than accepted:
+- MEDIUM: `ParsekScenario.CanOverwriteTerminalState` treated only `Recovered` and
+  `Destroyed` as final, and its caller `UpdateRecordingsForTerminalEvent` matches
+  the PENDING tree by vessel NAME alone (`MatchesVessel`). A pocketed recording
+  keeps the name of the craft its part came off, so a later recovery of any live
+  vessel sharing that name would have replaced `Disassembled` with `Recovered` AND
+  nulled the `VesselSnapshot` - and `Recovered` is exactly what
+  `AddVesselRecoveryCostActions` and `ResurrectionRetirementEligibility` key on, so
+  the pocket would have started paying recovery funds. `Disassembled` now refuses
+  every overwrite, with an end-to-end cell through
+  `UpdateRecordingsForTerminalEvent` plus a negative control proving the walk is
+  unchanged for an unstamped sibling.
+- LOW: the BG path is now DRIVEN, not asserted. `IsBackgroundRecordingDestroyed`
+  went `internal` and a cell proves a `Disassembled` recording does not trip it
+  (with a `Destroyed` contrast so the cell cannot pass vacuously); the
+  `DeferredDestructionCheck` skip was extracted into
+  `ShouldApplyFinalizationCacheOnDeferredDestruction` /
+  `ShouldApplyTerminalDestructionOnDeferredDestruction`, used at the live sites and
+  covered by truth-table cells - the coroutine itself needs live Unity.
+- LOW: `Disassembled` joins `IsTerminalSinglePointDebrisStubState`
+  (`ParsekFlight.TerminalOrbit.cs`); a one-sample pocketed debris leaf is a stub,
+  and it is the shape the path produces most often. `Docked` / `Boarded` stay out
+  of BOTH single-point sets on purpose - they are join transitions, so the sample
+  is the junction rather than a stub - now stated in the code.
+- LOW: the classifier's KSP-scope argument was misstated; corrected above and in
+  `VesselDisassemblyClassifier`'s type comment.
+- INFO: `.claude/CLAUDE.md`'s schema paragraph now states the accepted downgrade
+  cost of not bumping - an older build fails the codec's `Enum.IsDefined` guard and
+  leaves `TerminalStateValue` NULL, so the recording reads as never-terminated.
+  Degraded metadata, never corrupt data, and a generation bump would not have
+  helped anyway (it rejects the recording outright rather than reading it better).
+
+All three guards were mutation-checked: reverting each one reds the class (4 of 48
+cells fail).
+
 **The detection path (decompiled KSP 1.12.5 `Assembly-CSharp.dll` with
 `ilspycmd`), kept for whoever touches this seam next.** The pocket path is
 `EVAConstructionModeEditor.PickupPart()`. It is gated on
@@ -330,13 +374,27 @@ CreatePartFromInventory(that snapshot)`, calls `BackupPart(..., droppedPart: tru
 and only THEN calls `hoveredPart.vessel.Die()`, which is what fires
 `onVesselWillDestroy`. Three consequences:
 
-- The multi-part detach path is NOT this one and cannot reach it: the grab handler
-  returns early on `hoveredPart.vessel.rootPart.persistentId == hoveredPart.persistentId`,
-  so the root part of a multi-part vessel can never be grabbed. "Last part
-  pocketed" is therefore always the single-part `DroppedPart` / `Debris` vessel,
-  and that vessel is never the active one (the active vessel is the EVA kerbal
-  doing the picking), so the seam only ever fires for a tree `BackgroundMap`
-  member.
+- **What KSP narrows, and what it does not** (corrected in the 2026-09-06 review;
+  the first write-up misattributed this). The
+  `hoveredPart.vessel.rootPart.persistentId == hoveredPart.persistentId` early
+  return lives in `DetachInput()` (line 2230), which `Update()` calls at line 268,
+  two lines BEFORE `PickupPartInput()` at 270 - a different input gesture, and no
+  gate on the pickup path at all. What the pickup path checks is
+  `CanPartBeEdited(hoveredPart, weightOnlyCheck: false)` (called from `PickupPart`
+  at 1421), whose `part.children.Count <= 0` (5701) refuses a part that still has
+  children. That does NOT reduce the path to single-part vessels: a childless LEAF
+  of a multi-part `Debris` vessel passes it, and `PickupPart` then calls
+  `hoveredPart.vessel.Die()` (1459) on the whole vessel regardless. So the
+  classifier's `partCount == 1` conjunct is a PARSEK restriction, not a restatement
+  of a KSP one - and it is the conservative side: that multi-part shape keeps
+  today's `Destroyed`. The vessel is still never the active one (the active vessel
+  is the EVA kerbal doing the picking), so the seam only ever fires for a tree
+  `BackgroundMap` member. Line numbers: `ilspycmd -t EVAConstructionModeEditor`.
+- **A pocket can never carry crew**, which is load-bearing downstream: the same
+  `CanPartBeEdited` refuses `protoModuleCrew.Count > 0` (5728), so
+  `KerbalsModule.InferCrewEndState`'s final default branch - the one that would
+  fold Disassembled in with the intact situations and answer `Aboard`/`Dead` - is
+  UNREACHABLE for this state rather than merely untested.
 - Do NOT match on `persistentId`. `ProtoPartSnapshot.ConfigurePart` assigns the
   stored pid and then runs `FlightGlobals.CheckPartpersistentId(..., removeOldId:
   true, addNewId: true)`; because the ORIGINAL part is still alive at that instant

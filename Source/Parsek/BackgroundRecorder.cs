@@ -2498,8 +2498,16 @@ namespace Parsek
         /// advanced, accept new <see cref="PartEvent"/>s, or have an open orbit
         /// segment closed at a later UT — all of which would shift the
         /// destruction-explosion timing downstream in <see cref="GhostPlaybackLogic"/>.
+        ///
+        /// <para>The predicate reads <see cref="Recording.VesselDestroyed"/> and NOTHING
+        /// else, which is what keeps an EVA-construction pocket sampling normally right
+        /// up to its destroy frame: <c>ApplyDisassembledTerminal</c> deliberately leaves
+        /// that flag false, so a Disassembled recording is not "destroyed" here and its
+        /// accumulated TrackSections still get flushed and persisted by
+        /// <see cref="OnBackgroundVesselWillDestroy"/>. Internal so a headless cell can
+        /// drive that, rather than only asserting the flag at the stamp.</para>
         /// </summary>
-        private bool IsBackgroundRecordingDestroyed(string recordingId)
+        internal bool IsBackgroundRecordingDestroyed(string recordingId)
         {
             if (string.IsNullOrEmpty(recordingId) || tree == null || tree.Recordings == null)
                 return false;

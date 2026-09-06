@@ -18,8 +18,11 @@ _(unreleased — entries accumulate here per commit)_
   ends as **Disassembled**: the mission ended, nothing was lost, and the part is generic
   cargo from then on. It is not a recovery either - no funds, science or reputation are
   involved - and the flight is treated as a settled ending rather than a crash you might
-  want to re-fly. Nothing changes for a real crash, and the same part detached from a
-  multi-part craft is unaffected (the game does not let you grab a craft's own root part).
+  want to re-fly. It also never overwrites itself afterwards: recovering another craft
+  that happens to share the pocketed part's name no longer rewrites the ending into a
+  recovery and pays out funds for it. Nothing changes for a real crash, and taking one
+  piece off a craft that still has other parts is unaffected - only the LAST part ending
+  a vessel reads as disassembly, and anything else keeps the old behaviour.
 
 - **If the craft a supply route delivered to is gone but another craft stands where it
   was, the route now moves to that craft and tells you once.** Parsek already handled the

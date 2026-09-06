@@ -41,10 +41,32 @@ namespace Parsek
     /// source. So at the destroy seam the held cargo part already exists and the
     /// snapshot's <c>partRef</c> points at it.</para>
     ///
-    /// <para><b>Why the other candidate witnesses do not work.</b> The multi-part
-    /// detach branch cannot reach <c>PickupPart</c> at all (the grab handler returns
-    /// early when the hovered part IS the vessel root), so "last part pocketed" is
-    /// always the single-part case. <c>persistentId</c> matching is unusable:
+    /// <para><b>What KSP itself narrows, and what it does not.</b> The
+    /// "hovered part IS the vessel root, return" check lives in
+    /// <c>DetachInput()</c> (line 2230), which <c>Update()</c> calls at line 268,
+    /// two lines BEFORE <c>PickupPartInput()</c> at 270 - it is a separate input
+    /// gesture and no gate on the pickup path at all. What the pickup path checks is
+    /// <c>CanPartBeEdited(hoveredPart, weightOnlyCheck: false)</c> (called from
+    /// <c>PickupPart</c> at 1421), whose <c>part.children.Count &lt;= 0</c> (5701)
+    /// refuses any part that still has children. That does NOT reduce the path to
+    /// single-part vessels: a childless LEAF of a multi-part Debris vessel passes it,
+    /// and <c>PickupPart</c> then calls <c>hoveredPart.vessel.Die()</c> (1459) on the
+    /// whole vessel regardless. The <c>partCount == 1</c> conjunct below is therefore
+    /// a Parsek-side restriction, not a restatement of a KSP one - and it is the
+    /// conservative side: that multi-part shape keeps today's <c>Destroyed</c>.
+    /// (Line numbers: <c>ilspycmd -t EVAConstructionModeEditor</c> against KSP
+    /// 1.12.5's <c>Assembly-CSharp.dll</c>.)</para>
+    ///
+    /// <para><b>Why a pocket can never carry crew.</b> The same
+    /// <c>CanPartBeEdited</c> refuses any part with
+    /// <c>protoModuleCrew.Count &gt; 0</c> (5728). So a Disassembled recording has no
+    /// crew aboard, which is what keeps <c>KerbalsModule.InferCrewEndState</c>'s
+    /// final default branch - the one that would fold Disassembled in with the intact
+    /// situations and answer <c>Aboard</c>/<c>Dead</c> - unreachable for this state,
+    /// rather than merely untested.</para>
+    ///
+    /// <para><b>Why the other candidate witnesses do not work.</b>
+    /// <c>persistentId</c> matching is unusable:
     /// <c>ProtoPartSnapshot.ConfigurePart</c> re-pids the created cargo part against
     /// the still-live original, so the two pids differ BY CONSTRUCTION.
     /// <c>GameEvents.OnEVAConstructionModePartDetached</c> never fires on this path,
@@ -64,8 +86,11 @@ namespace Parsek
         ///   path only runs while the EVA construction panel is open, so a crash that
         ///   happens to coincide with a stale cargo reference cannot pass.</description></item>
         ///   <item><description><paramref name="partCount"/> == 1 - this is the LAST
-        ///   part. A multi-part vessel losing one part is not a vessel ending, and
-        ///   the KSP path cannot produce it anyway.</description></item>
+        ///   part. A multi-part vessel losing one part is not the ending this state
+        ///   describes. KSP CAN reach <c>Die()</c> on a multi-part Debris vessel whose
+        ///   childless leaf was pocketed (see the type comment), and that shape stays
+        ///   <see cref="VesselDeathKind.Destroyed"/> on purpose: the conservative
+        ///   answer, unchanged from before this state existed.</description></item>
         ///   <item><description><paramref name="dyingPartIsCurrentCargoPart"/> - the
         ///   dying part's proto snapshot points at the part KSP just handed to the
         ///   kerbal, which is the positive evidence that this death IS the pickup.</description></item>
