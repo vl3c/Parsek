@@ -15,6 +15,73 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~ROUTE-SOURCECHANGED-AT-LOAD-AFTER-SIDECAR-EPOCH-DRIFT: every committed route whose member recording carries a payload-free TrackSection parks in `SourceChanged` on plain save load~~ [FOUND 2026-09-07 by the flight operator on a DLL built from `g10-leg-drop` at `3b1a9323a` (that branch merged with `origin/main`, i.e. PRs #1630 + #1634 + #1636 in). REGRESSION introduced by PR #1630. FIXED 2026-09-07 on branch `route-hash-drift`, headlessly bisected against `c753e94c2`]
+
+**Symptom.** At fixture load, verbatim:
+`Route 71a983a1 Active->SourceChanged reason=SupersedeStateVersion-bump/SourceChanged/sidecar-epoch-drift id=3700f40e`
+and `Route 8f644e71 Paused->SourceChanged ... id=5737c255` (`interbody-route-recorded`),
+`Route 5420f805 Active->SourceChanged ... id=0c8ec58d` (`depot-route-recorded`). Downstream
+`SelectGhostDrivingBackingMissions: ghostDriving=0 skippedByStatus=2`, no route ghosts in
+the tracking station, V26T and V18T red. The fixtures are unmodified in git; the SAME
+fixtures on the previous build (base `c753e94c2`) read `{"Active":1,"Paused":1}`.
+
+**Chain, one link at a time.**
+
+1. `RouteStore.FirstDifferingField` compares the route's captured `RouteSourceRef` against
+   a live one field by field and breaks on the FIRST mismatch. `sidecar-epoch` is compared
+   sixth, BEFORE `start-ut` / `end-ut` / `route-proof-hash`, so the named field is the only
+   one that moved: all three members' `routeProofHash` is `no-route-proof` and their
+   captured `sidecarEpoch` (4 / 3 / 5) is byte-equal to the `sidecarEpoch` in their own
+   committed `.prec` (pinned by `FixtureRouteMember_CapturedEpochAgreesWithTheSidecarAtRest`).
+2. So the epoch moved DURING the load. `FlushDirtyFiles: saved 3` fires in OnLoad
+   immediately before `RevalidateSources`, and the three saved ids are exactly the three
+   that logged `healed=true` on read: `0c8ec58d` (`prePoints=606 postPoints=601
+   preOrbitSegments=5 postOrbitSegments=4`), `efb9be71`, `a85a7ae0`. On the green build the
+   same three logged `healed=false` and only one recording (`a85a7ae0`, via the unrelated
+   legacy `EnsureCheckpointSectionsForTopLevelOrbitSegments` seam) was flushed.
+   `SaveRecordingFiles` defaults to `incrementEpoch: true`, so each flush is `+1`.
+3. What dirtied them: `TrajectoryTextSidecarCodec.TryHealMalformedFlatFallbackTrajectoryFromTrackSections`
+   ended in `rec.MarkFilesDirty()`, and both READ paths
+   (`TrajectorySidecarBinary.Read`, `TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom`)
+   call it.
+4. Why it started firing: the heal is gated on
+   `HasCompleteTrackSectionPayloadForFlatSync`, and PR #1630 (`d3a4e4774`, site 2) taught
+   that predicate to SKIP a payload-free section instead of reading it as "this recording's
+   payload is incomplete". All three member recordings carry exactly one payload-free
+   0.02 s shell section, so the predicate flipped `false -> true` for them and the heal
+   became reachable. Measured headlessly through the production text read path:
+   at `c753e94c2` `completePayload=False filesDirty=False points=606/136/101`; at
+   `origin/main` `completePayload=True filesDirty=True points=601/135/100`. PR #1634 is
+   ruled out by construction - `EndpointRootPartUId` / `RootPartUId` / `LaunchGuid` are
+   deliberately NOT hashed (`RouteProofHasher`), and the drift field was not the hash.
+   PR #1636 touched no file under `Source/Parsek`.
+
+**What shipped.** The two READ paths pass `markDirty: false`; the heal keeps a `markDirty`
+parameter defaulting to `true` for write-side and repair callers. Reading a file must not
+rewrite it - that is the read path's OWN documented normalize-on-rewrite contract ("files
+no flow dirties stay byte-identical") - and the flat POINT list the heal rebuilds is
+DERIVED: it is re-derived on every read, and the write side re-derives it independently
+through `GetFlatFallbackPointsForWrite`, so persisting it bought nothing. PR #1630's intent
+is untouched: the in-memory recording still comes back with the Relative section's
+body-fixed samples in its flat list instead of anchor-local metres, which is what playback,
+`BackfillMaxDistance` and `IsIdleOnPad` read. No stored-hash migration: nothing about the
+comparison or the captured refs changed. Cells:
+`Source/Parsek.Tests/Logistics/RouteLoadTimeSidecarEpochTests.cs`, 18 (the three read-does-not-dirty
+cells and the three load-cycle cells confirmed RED with `markDirty: true` restored), plus the
+two mirror cells (a genuinely rewritten member still flips `SourceChanged`; a non-read caller
+still dirties) and the hash pin (a payload-free section, its removal, and a flat-list rewrite
+all leave `RouteProofHasher` output unchanged).
+
+**RESIDUE, not fixed here (NOTE).** The read paths still call
+`EnsureCheckpointSectionsForTopLevelOrbitSegments(markDirty: true)` - the "legacy heal seam"
+the same comment sanctions. It dirties `a85a7ae0` on EVERY load of `depot-route-recorded`
+and would flip any route sourced on it by the identical mechanism. It predates this
+regression, changes the SECTION list rather than a derived list, and shifts section ordinals
+(so it also drives the annotation invalidation), which is why it was left alone. If a route
+is ever seen parking `SourceChanged` on a load where nothing healed, this is the seam.
+
+---
+
 ## ~~ROUTE-ENDPOINT-TRANSFER-DOCKED-DOMINANT-PARTNER: while a visitor is docked to a delivery destination and DOMINATES the merged vessel, the route now REBINDS to the visitor and follows it away after undock~~ [RAISED 2026-09-04 by the Fable review of PR #1627 (the endpoint-transfer ruling). DESIGN RESIDUE of that PR, not a defect it introduced blindly - the pre-#1627 behaviour was self-healing by accident. FIXED 2026-09-06 (P17) by mitigation (a) PLUS a resolver half the costing did not see was needed - (a) alone would not have worked. Sibling 1 is superseded; sibling 2 stays a NOTE]
 
 **FIXED IN TWO HALVES, AND MITIGATION (a) ALONE WOULD NOT HAVE WORKED.** Stamping the
@@ -946,6 +1013,15 @@ the order above, plus one PREMISE CORRECTION that changed site 4's shape.
    `TrajectorySidecarBinary.Read` runs `TryHealMalformedFlatFallbackTrajectoryFromTrackSections`,
    which was blocked by the same shell and now substitutes the body-fixed samples into
    the flat list. Pinned by `DamagedFlatList_HealsOnLoad`.
+
+   **AMENDED 2026-09-07 (`route-hash-drift`): that read-side repair is IN MEMORY ONLY.**
+   As shipped here the heal also called `MarkFilesDirty()`, so the load rewrote the sidecar
+   and `SidecarEpoch` advanced on a plain load - which is a route's proof-of-source field,
+   and parked every route built on a repaired member in `SourceChanged`. Both read paths now
+   pass `markDirty: false`; the recording still comes back repaired, the FILE is left
+   byte-identical, and a later sanctioned rewrite normalizes it through the write-path
+   `GetFlatFallbackPointsForWrite` exactly as the read-path comment already promised. See
+   `ROUTE-SOURCECHANGED-AT-LOAD-AFTER-SIDECAR-EPOCH-DRIFT` at the top of this file.
 
    **The heal repairs the flat LIST only, not the number derived from it.** Nothing
    recomputes `MaxDistanceFromLaunch` on load, so a recording already on disk keeps the
