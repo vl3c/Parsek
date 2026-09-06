@@ -43,7 +43,16 @@ _(unreleased — entries accumulate here per commit)_
   more than four minutes, for an alignment that meant nothing. Landed, splashed, and
   on-the-pad craft are no longer treated as orbital timing references, so a surface-only
   run keeps the cadence it was built with. Runs that really do meet a craft in orbit are
-  unaffected.
+  unaffected. **The same nonsense was still reachable in the air, and the rule is now
+  the physical one instead of a list of situations.** The game reports a nominal orbit
+  with a real period for an aeroplane in flight and for a rocket on its way up too, so
+  either could have set a run's timing exactly as the parked rover did. What Parsek
+  asks now is whether the craft's orbit actually stays up: its lowest point must clear
+  the atmosphere on a world that has one, or the ground on a world that does not.
+  Anything that comes back down - parked, flying, or still climbing - is not a timing
+  reference, and a run that names one keeps the cadence it was built with. A craft
+  genuinely in orbit is unaffected, and the log says which craft was passed over and
+  why.
 
 - **Supply routes: where a delivery's cargo came from is now worked out from what the
   craft actually DID - and a run is recognised no matter which craft kept its name after
