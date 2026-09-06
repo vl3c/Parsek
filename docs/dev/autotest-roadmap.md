@@ -3049,24 +3049,49 @@ gated behind the ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE probe (todo) before any
     RVR-12's pre-flight note that `inventory-cargo` was "arguably" its own is
     CORRECTED in place by the census: that row names a route whose cargo IS
     inventory, and RVR-12 refuses for want of it and moves nothing.
-    **THE ONE OPEN CELL: DESTINATION SLOTS FULL, TANK EMPTY.** It would exercise
-    `FirstShortToken`'s INVENTORY branch and produce a `storedPart:<partName>` hold
-    token nothing in the corpus has ever emitted live. IT IS NOT EXPRESSIBLE FROM
-    THESE BYTES, and the reason is a property of the save rather than a scope call:
-    the only snapshot describing a six-slot rover A is window 1's
-    `UNDOCK_ENDPOINT_INVENTORY`, which is NOT a census of the resulting inventory -
-    measured, it carries FOUR items of which two are the SAME part name at the SAME
-    `slotIndex` (`DeployedCentralStation` slot 1 twice) against a live rover A
-    holding SIX, and it records no container index at all, so nothing inside these
-    bytes assigns those two to containers (the builder itself needed rover A's live
-    `persistentId`s to tell the original station from the delivered one, and a
-    restore mode has no live vessel to read). A `fill` mode would mean AUTHORING
-    `STOREDPART` nodes no snapshot in this save recorded, which is the one thing
-    every fixture builder in this tree refuses to do. So the edge needs a
-    FLIGHTSTATE FILL MODE (with an explicit, defensible placement rule) or a SECOND
-    HARVEST that saves with the destination already full - and until one exists,
-    `restore-undock-endpoint:<N>` is deliberately NOT a mode, because it would
-    place items somewhere plausible rather than somewhere recorded.
+    **THE ONE OPEN CELL - DESTINATION SLOTS FULL, TANK EMPTY - IS CLOSED AS OF
+    2026-09-06: THE FILL MODE EXISTS AND RVR-20 IS AUTHORED (NOT FLOWN).** The cell
+    exercises `FirstShortToken`'s INVENTORY branch on this fixture, where every
+    committed lane refuses on the RESOURCE half and the inventory half is therefore
+    unobservable by construction. WHAT THIS ENTRY USED TO SAY, kept because the
+    reasoning is still half-right and the half that was wrong is worth naming: that
+    the edge "IS NOT EXPRESSIBLE FROM THESE BYTES" because the only snapshot
+    describing a six-slot rover A is window 1's `UNDOCK_ENDPOINT_INVENTORY`, which is
+    NOT a census of the resulting inventory - measured, it carries FOUR items of
+    which two are the SAME part name at the SAME `slotIndex`
+    (`DeployedCentralStation` slot 1 twice) against a live rover A holding SIX, and
+    it records no container index at all, so nothing inside these bytes assigns those
+    two to containers (the builder itself needed rover A's live `persistentId`s to
+    tell the original station from the delivered one, and a restore mode has no live
+    vessel to read). ALL OF THAT STILL HOLDS, and it is why `restore-undock-endpoint:<N>`
+    is still deliberately NOT a mode. **WHAT WAS WRONG WAS THE SECOND HALF** - "a
+    `fill` mode would mean AUTHORING `STOREDPART` nodes no snapshot in this save
+    recorded". It does not have to: a fill can CLONE a `STOREDPART` the save already
+    carries, and then the bytes are RECORDED and only the PLACEMENT is authored. That
+    is the "explicit, defensible placement rule" this entry asked for, and it is
+    stated where it is implemented (`harness/lib/savepatch.py`): clone into EVERY FREE
+    SLOT of every `ModuleInventoryPart`, containers in FILE order and slots ascending,
+    rewriting nothing but `slotIndex` and the nested `PART`'s `persistentId` (measured:
+    all 72 FLIGHTSTATE `persistentId`s are distinct, so a verbatim duplicate breaks the
+    one uniqueness the key exists for, while `cid` is shared across instances of a part
+    kind and is left alone). The per-container capacity is DECLARED in the spec rather
+    than inferred, because `InventorySlots` is a part-config property that appears zero
+    times in `persistent.sfs` and inferring it from the highest occupied `slotIndex`
+    would read a FULL container as capacity-1 and fill nothing - a declaration that
+    reads as "fill it" and patches nothing, which is the failure mode the whole
+    mechanism exists to prevent; the applier cross-checks the declared number against
+    every occupied slot and refuses a wrong one pre-boot. A SECOND HARVEST is therefore
+    no longer needed for this cell. `RVR-20-rover-relay-c-destination-slots-full-tank-empty`
+    stages the tank EMPTY (400 of headroom against a 200 manifest, so the resource walk
+    cannot refuse) and all six slots FULL, and PREDICTS - from source, not from a
+    flight - that the WHOLE cycle holds `DestinationFull` with a `stored-part:` detail
+    and the fitting fuel line refused along with the items, because
+    `isPartial = anyResourcePartial || anyInventoryPartial` and
+    `HasCapacityForAllStops` treats a partial plan as the failure condition. It is the
+    MIRROR of RVR-14, which measured a fitting INVENTORY half refused because the
+    resource half was short. NOT FLOWN: the supervisor flies it after provisioning and
+    re-pins from the census, and the two tokens the prediction cannot reach (which part
+    the shortfall names, and `stop=`) are regexed and said to be so in the header.
     **WHAT THE MATRIX IS CALIBRATED AGAINST**: RVR-7's `[expectations.routes]` block
     is ARMED in the same commit (`gating = true`, registered in `ARMED_ALLOWLIST`)
     off its two agreeing report-only reading runs. Every matrix lane declares that
