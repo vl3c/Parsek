@@ -6369,6 +6369,35 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Reads a vessel snapshot's ROOT PART <c>flightID</c> (the <c>uid</c> value of the
+        /// PART node the snapshot's <c>root</c> index names). Returns false when the node has
+        /// no usable root index or the named part carries no non-zero <c>uid</c>.
+        ///
+        /// <para>A part <c>flightID</c> is assigned per LAUNCH and is not baked into the
+        /// <c>.craft</c>, so unlike <c>persistentId</c> it identifies a physical vessel. This
+        /// is how a route connection window records WHICH vessel its endpoint was
+        /// (<c>RouteConnectionWindow.EndpointRootPartUId</c>) - the endpoint's own
+        /// <c>Vessel</c> is destroyed by <c>Part.Couple</c> moments later.</para>
+        /// </summary>
+        internal static bool TryReadRootPartFlightId(ConfigNode vesselNode, out uint flightId)
+        {
+            flightId = 0u;
+            if (vesselNode == null) return false;
+            if (!int.TryParse(vesselNode.GetValue("root"), NumberStyles.Integer,
+                    CultureInfo.InvariantCulture, out int rootIndex))
+            {
+                return false;
+            }
+            ConfigNode[] partNodes = vesselNode.GetNodes("PART");
+            if (partNodes == null || rootIndex < 0 || rootIndex >= partNodes.Length)
+                return false;
+            string uidStr = partNodes[rootIndex].GetValue("uid");
+            return uidStr != null
+                && uint.TryParse(uidStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out flightId)
+                && flightId != 0u;
+        }
+
+        /// <summary>
         /// Regenerate per-part identity fields (persistentId, flightID, missionID, launchID)
         /// on all PART sub-nodes. Returns old→new persistentId mapping for robotics patching. (#234)
         /// Delegate injection allows pure unit testing without KSP runtime.

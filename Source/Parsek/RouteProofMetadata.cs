@@ -71,6 +71,17 @@ namespace Parsek
         public double DockUT = double.NaN;
         public double UndockUT = double.NaN;
         public uint TransferTargetVesselPid;
+        /// <summary>
+        /// The ENDPOINT vessel's root part <c>flightID</c> at the dock, when it could be
+        /// read; 0 otherwise. A <c>flightID</c> is assigned per launch and is NOT baked into
+        /// the <c>.craft</c>, so this is the launch-unique identity that
+        /// <see cref="TransferTargetVesselPid"/> and <see cref="EndpointPartPersistentIds"/>
+        /// (both craft-baked) cannot supply. Read by the predecessor-window pickup evidence
+        /// to prove the window's partner is the SAME PHYSICAL vessel now being named as an
+        /// origin; unknown on either side degrades to the part-pid overlap, exactly as every
+        /// other identity site here degrades on an unknown launch guid.
+        /// </summary>
+        public uint EndpointRootPartUId;
         public RouteConnectionKind TransferKind;
         public List<uint> TransportPartPersistentIds;
         public List<uint> EndpointPartPersistentIds;
@@ -95,6 +106,7 @@ namespace Parsek
                 DockUT = DockUT,
                 UndockUT = UndockUT,
                 TransferTargetVesselPid = TransferTargetVesselPid,
+                EndpointRootPartUId = EndpointRootPartUId,
                 TransferKind = TransferKind,
                 TransportPartPersistentIds = TransportPartPersistentIds != null
                     ? new List<uint>(TransportPartPersistentIds)
@@ -212,6 +224,18 @@ namespace Parsek
         Carried = 2,
         /// <summary>The transport leaves the seam with no admitted cargo at all.</summary>
         None = 3,
+        /// <summary>
+        /// No rise inside THIS recording, but the PREVIOUS recording of the same launch
+        /// holds the connection window that bracketed the load, and the transport half's
+        /// admitted cargo rose across it. The inflow was witnessed - just not by this
+        /// recording, whose start baseline already includes the cargo (dock, load, fly
+        /// something else, come back through stock Fly / Switch-To - which starts a NEW
+        /// recording in the same tree - then undock). VALIDATING, exactly like
+        /// <see cref="Gain"/>: the same flow test, measured on the same transport half,
+        /// against the same partner. See
+        /// <c>docs/dev/research/pickup-predating-the-recording.md</c>.
+        /// </summary>
+        GainFromPredecessorWindow = 4,
     }
 
     internal sealed class RouteOriginProof
