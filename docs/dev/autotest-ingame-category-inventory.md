@@ -171,7 +171,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `RouteLifecycle` | 8 | 8 | 8 | 8 | 0 | 8 | RVR-3 (flown once 2026-09-01, `total=6 passed=4 failed=2`; the two failures were CONTRACT DRIFT - see the triage note - and the category is now 8 cells pinning BOTH halves of the armed-pause state machine. Pins `total=8` exactly with `passed=`/`skipped=` interim, `failed=0` asserted, plus a REQUIRED PASS token per resolution cell, and declares no render-composition expectations block, which is what keeps the five crossing cells from self-skipping) | B |
 | `RouteLiveAnchor` | 1 | 1 | 0 | 0 | 0 | 1 | - | B |
 | `RouteRewindTimeline` | 7 | 7 | 7 | 7 | 0 | 1 | H6 | B |
-| `RouteStartDockedOrigin` | 2 | 0 | 0 | 0 | 2 | 2 | H57 (ISOLATED, LIVE-PROVEN 2026-09-02 `2026-09-02_1044` PASS attempt 1, `total=2 passed=2 failed=0 skipped=0` pinned whole, nightly - Tier B item 4, the START-DOCKED origin subject. Two cells that reuse the `RouteDockCapture` rig but dock BEFORE the recorder starts, so their product is the start-time ORIGIN PROOF rather than a route window: the subject docks a partner rig into the active vessel, starts the recording docked, undocks and delivers LiquidFuel to a SECOND partner, then reads the proof back off the captured recording; the negative control undocks BEFORE the start and must capture nothing. Its own category, not a seventh `RouteDockCapture` cell, precisely so H55's and H56's pinned `total=6` does not move. Pins `total=2` exactly with `passed=`/`skipped=` interim and `failed=0` asserted) | A |
+| `RouteStartDockedOrigin` | 3 | 0 | 0 | 0 | 3 | 3 | H57 (ISOLATED, RE-PIN PENDING A RE-FLIGHT 2026-09-06 - a THIRD cell, the predecessor-window pickup (ROUTE-ORIGIN-PROOF-PICKUP-PREDATING-THE-RECORDING): the run starts docked, takes NOTHING while recording, and the PREVIOUS recording of the same launch holds the window that bracketed the load, so the bind must read `pickup=GainFromPredecessorWindow pickupValidated=1`. `total=3` is attribute-exact; `passed=`/`skipped=` are a regex class and the id is back in `IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS`. PRIOR: LIVE-PROVEN 2026-09-02 `2026-09-02_1044` PASS attempt 1, `total=2 passed=2 failed=0 skipped=0` pinned whole, nightly - Tier B item 4, the START-DOCKED origin subject. Two cells that reuse the `RouteDockCapture` rig but dock BEFORE the recorder starts, so their product is the start-time ORIGIN PROOF rather than a route window: the subject docks a partner rig into the active vessel, starts the recording docked, undocks and delivers LiquidFuel to a SECOND partner, then reads the proof back off the captured recording; the negative control undocks BEFORE the start and must capture nothing. Its own category, not a seventh `RouteDockCapture` cell, precisely so H55's and H56's pinned `total=6` does not move. Pins `total=2` exactly with `passed=`/`skipped=` interim and `failed=0` asserted) | A |
 | `SaveLoad` | 4 | 4 | 4 | 4 | 0 | 2 | H51 (flown 2026-08-28, executes 4 of 4) | A |
 | `SceneAndPatch` | 7 | 4 | 3 | 2 | 0 | 4 | H53 (FLIGHT slice, flown 2026-08-28, executes **2 of 7** - two residual skips are DRIVER-state, see below) | B |
 | `SceneExitMerge` | 2 | 0 | 0 | 0 | 2 | 2 | H21 | A |
@@ -206,7 +206,7 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **112 categories / 619 declarations**. Buckets **A 36 categories
+Totals, re-derived: **112 categories / 620 declarations**. Buckets **A 36 categories
 (239 declarations)**, **B 76 categories (380 declarations)**, **C 0 categories (0
 declarations)**. The 107th is `AutoMergeCommit` (R4, the AUTOMERGE-ON-BY-DEFAULT
 wave; the 106th is `DisabledHoverEcho`, landed the same week): the plan-§7
@@ -283,7 +283,7 @@ competitor is freed only by a release that takes no cargo, which is cell 2's
 `RouteStore.RemoveRoute`. The identity is pinned headlessly by
 `RouteCargoEscrowTests.NettedAvailable_IsInvariantAcrossEveryWindowSplitOfTheReservation`.
 
-The 111th is `RouteStartDockedOrigin` (H57, 2026-09-02): TWO cells that share the
+The 111th is `RouteStartDockedOrigin` (H57, 2026-09-02; a THIRD cell 2026-09-06): cells that share the
 `RouteDockCapture` source file and its whole spawn / couple / undock rig, but nothing
 else. Every `RouteDockCapture` cell docks AFTER the recorder is running and its product
 is a route WINDOW; these two dock BEFORE it starts, and their product is the start-time

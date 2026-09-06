@@ -278,15 +278,19 @@ count = { min = 5, max = 5 }
 #
 # DERIVED, NOT GUESSED. The commands, so the next reader re-runs them:
 #   hlib.derive_batch_tally(decls, "RouteStartDockedOrigin", "FLIGHT", isolated=True)
-#     -> total=2  scene_skipped=0  batch_skipped=0  executable=2
+#     -> total=3  scene_skipped=0  batch_skipped=0  executable=3
 #   hlib.derive_batch_tally(decls, "RouteStartDockedOrigin", "FLIGHT")
-#     -> total=2  scene_skipped=0  batch_skipped=2  executable=0
-#   restore-flagged declarations admitted at FLIGHT -> 2
+#     -> total=3  scene_skipped=0  batch_skipped=3  executable=0
+#   restore-flagged declarations admitted at FLIGHT -> 3
 #
-#  - total=2 is ATTRIBUTE-EXACT: 2 `[InGameTest(Category = "RouteStartDockedOrigin")]`
-#    declarations, both `Scene = GameScenes.FLIGHT`, both `AllowBatchExecution = false` +
+#  - total=3 is ATTRIBUTE-EXACT: 3 `[InGameTest(Category = "RouteStartDockedOrigin")]`
+#    declarations, all `Scene = GameScenes.FLIGHT`, all `AllowBatchExecution = false` +
 #    `RestoreBatchFlightBaselineAfterExecution = true`. Kept in sync by
-#    `CommittedBatchTallySourceSyncTests`, so a third cell reds locally.
+#    `CommittedBatchTallySourceSyncTests`, so a fourth cell reds locally. The THIRD cell
+#    arrived 2026-09-06 with the predecessor-window pickup pass
+#    (ROUTE-ORIGIN-PROOF-PICKUP-PREDATING-THE-RECORDING), which is why the `passed=` /
+#    `skipped=` split is a REGEX CLASS again and the id is back in
+#    `IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS` until the re-flight measures it.
 #  - The ATTRIBUTE FLOOR for `skipped` is 0 on the isolated path.
 #  - THE INTERIM `passed=` SPELLING IS THE PLAIN `[1-9][0-9]*`, and it is correct here
 #    rather than lazy: `RouteStartDockedOrigin` is WHOLLY batch-disabled, so the ORDINARY
@@ -343,8 +347,8 @@ count = { min = 5, max = 5 }
 required  = [
   "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
   "runtests start category=RouteStartDockedOrigin isolated=true",
-  "Using batch baseline slot .* for 2 restore-after-run test\\(s\\)",
-  "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=RouteStartDockedOrigin scene=FLIGHT",
+  "Using batch baseline slot .* for 3 restore-after-run test\\(s\\)",
+  "BATCH_COMPLETE v1 total=3 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=RouteStartDockedOrigin scene=FLIGHT",
   "RouteOriginProof seam scan: settledDockSeamCandidates=[1-9][0-9]* externalParentCandidates=0",
   # P12: CAPTURE NAMES NO ORIGIN. Both halves are recorded and the choice is deferred to
   # the undock, so the producer line is now `pair captured` and carries halfA / halfB

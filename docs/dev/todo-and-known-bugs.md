@@ -1694,42 +1694,51 @@ any recording exists (it already does on some paths), or give the scaffolding po
 pair ever appears on a lane whose endpoint IS a real cargo vessel - that would be a genuine
 product finding and a different entry.
 
-## ROUTE-ORIGIN-PROOF-PICKUP-PREDATING-THE-RECORDING: a run that loaded its cargo BEFORE the recording started reads no gain and is refused as an origin [FOUND 2026-09-02 by the adversarial review of P12 (F2). OPEN by decision, fail-closed]
+## ~~ROUTE-ORIGIN-PROOF-PICKUP-PREDATING-THE-RECORDING: a run that loaded its cargo BEFORE the recording started reads no gain and is refused as an origin~~ [FOUND 2026-09-02 by the adversarial review of P12 (F2). FIXED 2026-09-06 - the PREVIOUS recording's window is now the evidence]
 
 The transfer rule validates a start-docked origin only on a `Gain` - the transport half's
-admitted cargo must RISE between recording start and the undock - because that is the FLOW
-design 19.2.2 item 2 calls a Loaded provenance, and 19.2.1's causal test asks for "the
-witnessed event that put each unit of cargo on the transport". The shape that falls outside
-it: dock at the depot, load, quicksave, reload, START THE RECORDING, undock. The inflow is
-real and was witnessed - just not by THIS recording, whose start baseline already includes
-the cargo. It reads `Carried` and is refused.
+admitted cargo must RISE between recording start and the undock. The shape that fell
+outside it: dock at the depot, load, quicksave, reload, START THE RECORDING, undock. The
+inflow was real and was witnessed - just not by THIS recording, whose start baseline
+already includes the cargo. It read `Carried` and was refused.
 
-WHY NOT ADMITTED ANYWAY. Admitting `Carried` was the earlier draft and it is worse: it
-validates residual anything, so a pure DELIVERY undock - transport cargo DOWN, leftover fuel
-and monopropellant still aboard - would name the vessel the run just delivered to as its
-supply origin. That is the exact wrong-debit the design doc's "deducts from recorded origin
-depot, NOT TRANSPORT" line forbids, and it is a wrong debit rather than a missing route.
-Pinned by `Pickup_PureDeliveryUndock_IsNotAPickup`.
+**Fix (the walk as built).** At the undock bind, `ParsekFlight.TryBindStartDockedOriginOnUndock`
+resolves the PREVIOUS recording of the same launch through the pure
+`RouteProofCapture.TryResolveOriginProofPredecessor`: parent BRANCH POINT first (the edge
+the stock Fly / Switch-To re-entry actually produces - `SwitchSegmentBuilder` builds a new
+recording in the SAME tree linked only by a `VesselSwitchContinuation` branch point), then
+`ParentRecordingId`, then the chain predecessor, every candidate gated by
+`VesselLaunchIdentity.RecordingsShareLaunch` and never leaving the active tree. Its window
+list goes to the pure `RouteProofCapture.ClassifyPredecessorPickup`, which takes the LATEST
+window by dock UT - one window, never a scan for any that gained - and admits it only when
+the partner matches (transport pid set against the half now flying the run, endpoint pid
+set against the half being named the origin) AND the launch-unique keys agree (the new
+`RouteConnectionWindow.EndpointRootPartUId`, the endpoint's root part `flightID` read from
+the pre-couple partner snapshot at the dock, against the origin half's `rootPartUId`;
+unknown on either side degrades to the pid overlap) AND the window is entirely before this
+recording's start. A COMPLETE window is measured dock -> undock inside itself; an OPEN one
+(still docked when the predecessor ended, which is WHY this recording starts docked) is
+measured dock -> this recording's own transport-half start manifests, and additionally
+requires the two transport part sets to be EQUAL. The rise is `ClassifyOriginPickup`
+reused verbatim, so resources and inventory both count and there is still one transfer
+rule. The result stamps `OriginPickupKind.GainFromPredecessorWindow`, which
+`IsPickupValidated` admits exactly like `Gain`.
 
-THE FIX SHAPE, stated so it is not re-derived. The evidence exists, on a DIFFERENT recording:
-the preceding chained segment (same vessel, prior recording in the same tree) carries the
-`RouteConnectionWindow` that bracketed the load, and a window whose
-`UndockTransportResources` exceed its `DockTransportResources` for an admitted resource IS
-the witnessed inflow. Accepting it would mean, at bind time: walk from the proof's recording
-to its chain predecessor, take the LATEST complete window whose `UndockUT` is at or before
-this recording's start, and admit the pickup when that window shows a transport-side rise.
-STILL OPEN AFTER THE 2026-09-03 BINDER FIX, and the fix does not touch it. That package added
-two ACTION-derived signals for choosing the transport HALF (the witnessed dock window, then the
-docked-span gain), but the PICKUP VALIDATION is unchanged: it is still a `Gain` measured between
-this recording's own start baseline and the undock, so a load that happened before the recorder
-existed still reads `Carried` and still refuses. If anything the new bind gate sharpens the
-boundary rather than blurring it - on a WITNESSED dock a non-gain now writes nothing at all,
-while the start-docked family (which is exactly this shape) keeps the unvalidated stamp.
+**What did NOT change.** "Undocked with cargo aboard" is still not evidence: without a
+partner-matched window showing a rise the proof keeps its unvalidated `Carried` stamp and
+`HasDockedOriginProof` refuses it, so a full tanker that only delivered still cannot name
+its destination as an origin (`Pickup_PureDeliveryUndock_IsNotAPickup` stands). And the
+predecessor is consulted ONLY when this recording did not witness the dock and did not
+already measure a `Gain` - a witnessed dock that moved nothing onto the transport is
+positive delivery evidence, and a stale window one recording back must not overturn it.
+Every refusal is named on the bind line (`predecessorPickup=NoWindows` /
+`NoPartnerMatch` / `PartnerRootMismatch` / `WindowAfterRecordingStart` /
+`TransportPartSetDrift` / `Unmeasurable` / `NoRise` / `not-consulted`).
 
-NOT BUILT HERE because that lookup is neither cheap nor pure at this seam - the binder is a
-pure function over one proof plus two snapshots, and reaching a sibling recording would drag
-tree traversal and chain resolution into it. Do it as its own pass, with the traversal placed
-on the live side (`ParsekFlight`) and only the DECISION handed to `RouteProofCapture`.
+Headless: `PredecessorWindowPickupTests` (33 cells over the window rules, the walk, the
+whole binder and the persisted partner identity). Live: H57's third cell,
+`StartDockedOrigin_PredecessorWindowValidatesThePickup`. Memo:
+`docs/dev/research/pickup-predating-the-recording.md`.
 
 ## ~~ROUTE-DELIVERY-PROXIMITY-RETARGETS-ANY-NEARBY-VESSEL: when the recorded destination no longer exists, the endpoint resolver's 500 m surface search accepts whatever craft is parked there - and the route delivered a full manifest into the player's own active-scene rover~~ [MEASURED 2026-09-03 by the RVR-18 census `2026-09-03_2011`. RULED 2026-09-04 and FIXED - the substitution is now a persisted, announced TRANSFER, with the route's own transport excluded]
 

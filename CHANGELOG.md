@@ -10,6 +10,19 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A supply run that loaded its cargo yesterday can now become a route.** Docking the
+  tanker to the base, transferring the fuel, then quitting and flying the run the next
+  day used to lose the route: the new session's recording opens with the tanker already
+  docked and full, so it never sees the fuel come aboard, and Parsek would not name the
+  base as the supply origin on cargo it had not watched arrive. It now reads the loading
+  off the PREVIOUS recording of the same craft - the one that was running when you did
+  the transfer - and accepts it when that recording shows the fuel going onto the tanker
+  from the very craft you are now undocking from. What has not changed is the thing that
+  rule exists to prevent: simply undocking with cargo aboard still proves nothing, so a
+  full tanker that only delivered can never name the base it delivered to as its supply
+  origin. If the previous recording shows the cargo going the other way, or was docked to
+  a different craft, the run is refused exactly as before.
+
 - **If the craft a supply route delivered to is gone but another craft stands where it
   was, the route now moves to that craft and tells you once.** Parsek already handled the
   rebuilt-base case by looking for a craft within 500 m of the recorded dock spot - but it
