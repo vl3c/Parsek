@@ -608,6 +608,21 @@ class ValidateSpecWiringTests(unittest.TestCase):
         good = hlib.validate_spec(spec, {}, bug_ids=[])
         self.assertEqual(base.errors, good.errors)
 
+    def test_a_bad_fill_reaches_validate_spec(self):
+        """The `fill` half of the same wiring. A `slots` that is not a positive
+        integer must never reach a prepared instance."""
+        bad = hlib.validate_spec(
+            self._spec([{"pid": PID_A, "fill": {"part": "evaChute",
+                                                "slots": 0}}]), {}, bug_ids=[])
+        self.assertTrue(any("fill.slots" in e for e in bad.errors), bad.errors)
+
+    def test_a_good_fill_adds_no_error(self):
+        base = hlib.validate_spec(self._spec(None), {}, bug_ids=[])
+        good = hlib.validate_spec(
+            self._spec([{"pid": PID_A, "fill": {"part": "evaChute",
+                                                "slots": 3}}]), {}, bug_ids=[])
+        self.assertEqual(base.errors, good.errors)
+
 
 _SYNTHETIC_CAREER = "\n".join([
     "GAME",
@@ -783,6 +798,40 @@ class ValidateNewModeTests(unittest.TestCase):
         self.assertEqual([], savepatch.validate_career_state({}))
         self.assertEqual([], savepatch.validate_career_state({"saveTemplate": "x"}))
 
+    def test_the_fill_table_shape(self):
+        good = {"part": "evaChute", "slots": 3}
+        self.assertEqual([], savepatch.validate_live_state(
+            {"liveState": [{"pid": 1, "fill": good}]}))
+        for bad, needle in (
+                ("evaChute", "must be a table"),
+                ({"slots": 3}, "must be a non-empty STOREDPART partName"),
+                ({"part": "  ", "slots": 3}, "non-empty"),
+                ({"part": "evaChute"}, "must be a positive integer"),
+                ({"part": "evaChute", "slots": 0}, "must be a positive integer"),
+                ({"part": "evaChute", "slots": True}, "must be a positive integer"),
+                ({"part": "evaChute", "slots": 3.0}, "must be a positive integer"),
+                ({"part": "evaChute", "slots": 3, "containers": 2}, "unknown key")):
+            errs = savepatch.validate_live_state(
+                {"liveState": [{"pid": 1, "fill": bad}]})
+            self.assertTrue(any(needle in e for e in errs), (bad, errs))
+
+    def test_fill_alone_is_a_complete_entry_but_not_with_remove(self):
+        good = {"part": "evaChute", "slots": 3}
+        self.assertEqual([], savepatch.validate_live_state(
+            {"liveState": [{"pid": 1, "fill": good}]}))
+        errs = savepatch.validate_live_state(
+            {"liveState": [{"pid": 1, "remove": True, "fill": good}]})
+        self.assertTrue(any("cannot be combined" in e for e in errs), errs)
+
+    def test_fill_composes_with_the_inventory_modes(self):
+        good = {"part": "evaChute", "slots": 3}
+        for mode in ("keep", "clear", "restore-dock-endpoint:1"):
+            self.assertEqual([], savepatch.validate_live_state(
+                {"liveState": [{"pid": 1, "inventory": mode, "fill": good}]}),
+                "inventory=%r alongside fill must be accepted - the inventory "
+                "mode decides what is occupied and the fill decides what fills "
+                "what is left" % (mode,))
+
 
 class CommittedRoverRouteFixtureTests(unittest.TestCase):
     """The two new modes against the bytes the lanes that use them will stage.
@@ -928,6 +977,413 @@ class CommittedRoverRouteFixtureTests(unittest.TestCase):
             savepatch.apply_career_state(self.text, {"funds": 7409})
 
 
+def _stored_part(depth, slot, part_name, persistent_id):
+    """A minimal but structurally real STOREDPART block at ``depth`` tabs.
+
+    Real enough for every branch the fill applier walks: the five STOREDPART
+    scalars in the committed order, a nested PART carrying the one id that gets
+    re-stamped, and a nested MODULE so the clone is not a two-line toy."""
+    t = "\t" * depth
+    return [
+        t + "STOREDPART",
+        t + "{",
+        t + "\tslotIndex = %d" % slot,
+        t + "\tpartName = %s" % part_name,
+        t + "\tquantity = 1",
+        t + "\tstackCapacity = 1",
+        t + "\tvariantName = ",
+        t + "\tPART",
+        t + "\t{",
+        t + "\t\tname = %s" % part_name,
+        t + "\t\tcid = 4294400076",
+        t + "\t\tuid = 0",
+        t + "\t\tmid = 0",
+        t + "\t\tpersistentId = %s" % persistent_id,
+        t + "\t\tMODULE",
+        t + "\t\t{",
+        t + "\t\t\tname = ModuleCargoPart",
+        t + "\t\t\tstagingEnabled = True",
+        t + "\t\t}",
+        t + "\t}",
+        t + "}",
+    ]
+
+
+def _container(stored):
+    """One `MODULE { name = ModuleInventoryPart }` at FLIGHTSTATE depth."""
+    out = [
+        "\t\t\t\tMODULE",
+        "\t\t\t\t{",
+        "\t\t\t\t\tname = ModuleInventoryPart",
+        "\t\t\t\t\tstagingEnabled = True",
+    ]
+    if stored:
+        out.append("\t\t\t\t\tinventory = %s"
+                   % ",".join(n for _s, n, _p in sorted(stored)))
+    out.append("\t\t\t\t\tSTOREDPARTS")
+    out.append("\t\t\t\t\t{")
+    for slot, name, pid in sorted(stored):
+        out.extend(_stored_part(6, slot, name, pid))
+    out.append("\t\t\t\t\t}")
+    out.append("\t\t\t\t}")
+    return out
+
+
+def _fill_save(alpha_stored, beta_stored, window_part=None):
+    """A save with two vessels carrying one container each, plus (optionally) a
+    route window whose `DOCK_ENDPOINT_INVENTORY` holds one snapshot part.
+
+    Node depths are the real ones - the window's STOREDPART sits exactly three
+    tabs deeper than FLIGHTSTATE's, which is what `SNAPSHOT_INDENT_STRIP` lifts
+    - so the third template tier is exercised rather than approximated."""
+    lines = ["GAME", "{"]
+    if window_part is not None:
+        lines += [
+            "\tSCENARIO", "\t{", "\t\tname = ParsekScenario",
+            "\t\tRECORDING_TREE", "\t\t{",
+            "\t\t\tRECORDING", "\t\t\t{",
+            "\t\t\t\tROUTE_CONNECTION_WINDOWS", "\t\t\t\t{",
+            "\t\t\t\t\tWINDOW", "\t\t\t\t\t{",
+            "\t\t\t\t\t\tDOCK_ENDPOINT_INVENTORY", "\t\t\t\t\t\t{",
+            "\t\t\t\t\t\t\tITEM", "\t\t\t\t\t\t\t{",
+            "\t\t\t\t\t\t\t\tSTOREDPART_SNAPSHOT", "\t\t\t\t\t\t\t\t{",
+        ]
+        lines += _stored_part(9, 0, window_part, "555000555")
+        lines += ["\t\t\t\t\t\t\t\t}", "\t\t\t\t\t\t\t}",
+                  "\t\t\t\t\t\t}", "\t\t\t\t\t}", "\t\t\t\t}",
+                  "\t\t\t}", "\t\t}", "\t}"]
+    lines += ["\tFLIGHTSTATE", "\t{", "\t\tactiveVessel = 0"]
+    for name, pid, stored in (("Alpha", 111, alpha_stored),
+                              ("Beta", 222, beta_stored)):
+        lines += ["\t\tVESSEL", "\t\t{",
+                  "\t\t\tname = %s" % name,
+                  "\t\t\tpersistentId = %d" % pid,
+                  "\t\t\tPART", "\t\t\t{", "\t\t\t\tname = box"]
+        if stored is not None:
+            lines += _container(stored)
+        lines += ["\t\t\t}", "\t\t}"]
+    lines += ["\t}", "}", ""]
+    return "\n".join(lines)
+
+
+class SyntheticFillTests(unittest.TestCase):
+    """The `fill` mode's own branches, on bytes small enough to read.
+
+    The committed-fixture half is `CommittedFillTests` below; this half is where
+    the TEMPLATE LOOKUP ORDER and the refusals live, because those need saves
+    that deliberately lack things the real fixture has."""
+
+    def _fill(self, text, entry):
+        return savepatch.apply_live_state(text, [entry])
+
+    def _slots(self, text, pid):
+        lines = _lines(text)
+        vessel = [s for _n, p, s in savepatch.flightstate_vessels(lines)
+                  if p == str(pid)][0]
+        out = []
+        for module in savepatch.inventory_modules(lines, vessel):
+            out.append(([(slot, name) for slot, name, _b
+                         in savepatch.container_entries(lines, module)],
+                        savepatch.get_value(lines, module, "inventory")))
+        return out
+
+    # -- the placement rule ------------------------------------------------
+
+    def test_every_free_slot_is_filled_in_container_then_slot_order(self):
+        text = _fill_save([(1, "evaChute", "900")], [(0, "evaChute", "901")])
+        after, notes = self._fill(
+            text, {"pid": 111, "fill": {"part": "evaChute", "slots": 3}})
+        (entries, csv), = self._slots(after, 111)
+        self.assertEqual([(0, "evaChute"), (1, "evaChute"), (2, "evaChute")],
+                         entries)
+        self.assertEqual("evaChute,evaChute,evaChute", csv)
+        self.assertIn("fill=evaChute x2 slots=3 [c0s0,c0s2]", notes[0])
+
+    def test_the_note_only_appears_when_the_key_is_declared(self):
+        text = _fill_save([(0, "evaChute", "900")], None)
+        _after, notes = self._fill(text, {"pid": 111, "inventory": "keep",
+                                          "resources": {}})
+        self.assertNotIn("fill=", notes[0])
+
+    def test_a_clone_is_the_template_verbatim_apart_from_slot_and_pid(self):
+        text = _fill_save([(0, "evaChute", "900")], None)
+        after, _ = self._fill(
+            text, {"pid": 111, "fill": {"part": "evaChute", "slots": 2}})
+        lines = _lines(after)
+        vessel = [s for _n, p, s in savepatch.flightstate_vessels(lines)
+                  if p == "111"][0]
+        module = savepatch.inventory_modules(lines, vessel)[0]
+        blocks = {slot: block for slot, _n, block
+                  in savepatch.container_entries(lines, module)}
+        original, clone = blocks[0], blocks[1]
+        self.assertEqual(len(original), len(clone))
+        differing = [(a, b) for a, b in zip(original, clone) if a != b]
+        self.assertEqual(2, len(differing),
+                         "a clone must differ from its template in exactly two "
+                         "lines (slotIndex, persistentId), got %r" % (differing,))
+        self.assertIn("slotIndex", differing[0][0])
+        self.assertIn("persistentId", differing[1][0])
+        self.assertIn("cid = 4294400076", "\n".join(clone),
+                      "cid is shared across instances of a part kind and must "
+                      "NOT be re-stamped")
+
+    def test_clone_ids_avoid_every_value_the_save_already_carries(self):
+        # The base id is deliberately present in the template, so a writer that
+        # allocated from the base without checking would collide immediately.
+        base = str(savepatch.FILL_CLONE_PERSISTENT_ID_BASE)
+        text = _fill_save([(0, "evaChute", base)], None)
+        after, _ = self._fill(
+            text, {"pid": 111, "fill": {"part": "evaChute", "slots": 3}})
+        ids = [line.strip().split(" = ")[1] for line in _lines(after)
+               if line.strip().startswith("persistentId = ")]
+        self.assertEqual(len(ids), len(set(ids)),
+                         "a fill produced duplicate persistentIds: %r" % (ids,))
+        self.assertNotIn(base, [i for i in ids if i != base][0:0] or [None])
+        self.assertEqual(1, ids.count(base))
+
+    # -- composition with the inventory modes ------------------------------
+
+    def test_clear_then_fill_fills_every_slot(self):
+        text = _fill_save([(0, "evaChute", "900"), (1, "evaChute", "901")], None)
+        after, notes = self._fill(text, {"pid": 111, "inventory": "clear",
+                                         "fill": {"part": "evaChute",
+                                                  "slots": 3}})
+        (entries, _csv), = self._slots(after, 111)
+        self.assertEqual([0, 1, 2], [s for s, _n in entries])
+        self.assertIn("inventory=clear (1 container(s))", notes[0])
+        self.assertIn("fill=evaChute x3", notes[0],
+                      "the inventory mode runs FIRST, so clear+fill fills all")
+
+    def test_the_template_is_resolved_before_the_clear_deletes_it(self):
+        """The ordering decision, stated as its own cell because it is the one
+        place the two halves of an entry are resolved against DIFFERENT texts.
+        Alpha's only `evaChute` is the one `clear` is about to delete, and there
+        is no other in the save - so a fill resolving its template after the
+        clear would refuse a declaration that plainly means something."""
+        text = _fill_save([(0, "evaChute", "900")], None)
+        after, notes = self._fill(text, {"pid": 111, "inventory": "clear",
+                                         "fill": {"part": "evaChute",
+                                                  "slots": 2}})
+        self.assertIn("from this vessel's own container (slot 0)", notes[0])
+        (entries, _csv), = self._slots(after, 111)
+        self.assertEqual([0, 1], [s for s, _n in entries])
+
+    # -- the template lookup order -----------------------------------------
+
+    def test_the_vessels_own_container_wins(self):
+        text = _fill_save([(0, "evaChute", "900")], [(0, "evaChute", "901")],
+                          window_part="evaChute")
+        _after, notes = self._fill(
+            text, {"pid": 111, "fill": {"part": "evaChute", "slots": 2}})
+        self.assertIn("from this vessel's own container (slot 0)", notes[0])
+
+    def test_another_flightstate_vessel_is_the_second_choice(self):
+        text = _fill_save([(0, "evaScienceKit", "900")],
+                          [(0, "evaChute", "901")], window_part="evaChute")
+        _after, notes = self._fill(
+            text, {"pid": 111, "fill": {"part": "evaChute", "slots": 2}})
+        self.assertIn("from FLIGHTSTATE vessel 'Beta' (slot 0)", notes[0])
+
+    def test_a_route_window_snapshot_is_the_last_resort(self):
+        text = _fill_save([(0, "evaScienceKit", "900")], None,
+                          window_part="evaChute")
+        after, notes = self._fill(
+            text, {"pid": 111, "fill": {"part": "evaChute", "slots": 2}})
+        self.assertIn("from window 0's DOCK_ENDPOINT_INVENTORY", notes[0])
+        # And the lifted bytes land at FLIGHTSTATE depth, not the snapshot's.
+        lines = _lines(after)
+        vessel = [s for _n, p, s in savepatch.flightstate_vessels(lines)
+                  if p == "111"][0]
+        module = savepatch.inventory_modules(lines, vessel)[0]
+        for _slot, _name, block in savepatch.container_entries(lines, module):
+            self.assertTrue(block[0].startswith("\t" * 6),
+                            "a lifted snapshot must be re-indented to "
+                            "FLIGHTSTATE depth, got %r" % (block[0],))
+            self.assertFalse(block[0].startswith("\t" * 7))
+
+    # -- the refusals ------------------------------------------------------
+
+    def test_no_template_anywhere_is_refused(self):
+        text = _fill_save([(0, "evaChute", "900")], None)
+        with self.assertRaises(savepatch.LiveStatePatchError) as ctx:
+            self._fill(text, {"pid": 111,
+                              "fill": {"part": "evaScienceKit", "slots": 3}})
+        self.assertIn("has no template in this save", str(ctx.exception))
+
+    def test_a_vessel_without_a_container_is_refused(self):
+        text = _fill_save([(0, "evaChute", "900")], None)
+        with self.assertRaises(savepatch.LiveStatePatchError) as ctx:
+            self._fill(text, {"pid": 222,
+                              "fill": {"part": "evaChute", "slots": 3}})
+        self.assertIn("carries no ModuleInventoryPart", str(ctx.exception))
+
+    def test_a_declared_capacity_below_an_occupied_slot_is_refused(self):
+        text = _fill_save([(0, "evaChute", "900"), (2, "evaChute", "901")], None)
+        with self.assertRaises(savepatch.LiveStatePatchError) as ctx:
+            self._fill(text, {"pid": 111,
+                              "fill": {"part": "evaChute", "slots": 2}})
+        self.assertIn("the declared capacity is wrong", str(ctx.exception))
+
+    def test_a_full_vessel_is_refused_rather_than_no_opped(self):
+        text = _fill_save([(0, "evaChute", "900"), (1, "evaChute", "901")], None)
+        with self.assertRaises(savepatch.LiveStatePatchError) as ctx:
+            self._fill(text, {"pid": 111,
+                              "fill": {"part": "evaChute", "slots": 2}})
+        self.assertIn("would place nothing", str(ctx.exception))
+
+    def test_a_duplicated_slot_index_is_refused(self):
+        text = _fill_save([(0, "evaChute", "900")], None)
+        # Author the duplicate by hand: two STOREDPARTs at slot 0.
+        lines = _lines(text)
+        vessel = [s for _n, p, s in savepatch.flightstate_vessels(lines)
+                  if p == "111"][0]
+        module = savepatch.inventory_modules(lines, vessel)[0]
+        holder = savepatch.child_nodes(lines, module, "STOREDPARTS")[0]
+        stored = savepatch.child_nodes(lines, holder, "STOREDPART")[0]
+        lines[stored[1]:stored[1]] = _stored_part(6, 0, "evaChute", "902")
+        with self.assertRaises(savepatch.LiveStatePatchError) as ctx:
+            self._fill("\n".join(lines),
+                       {"pid": 111, "fill": {"part": "evaChute", "slots": 3}})
+        self.assertIn("two stored parts at slotIndex 0", str(ctx.exception))
+
+    def test_a_template_with_two_ids_is_refused_rather_than_half_stamped(self):
+        text = _fill_save([(0, "evaChute", "900")], None)
+        lines = _lines(text)
+        for i, line in enumerate(lines):
+            if line.strip() == "name = ModuleCargoPart":
+                lines.insert(i + 1, line.replace("name = ModuleCargoPart",
+                                                 "persistentId = 4242"))
+                break
+        with self.assertRaises(savepatch.LiveStatePatchError) as ctx:
+            self._fill("\n".join(lines),
+                       {"pid": 111, "fill": {"part": "evaChute", "slots": 3}})
+        self.assertIn("persistentId lines", str(ctx.exception))
+
+    # -- line endings ------------------------------------------------------
+
+    def test_crlf_survives_a_fill(self):
+        text = _fill_save([(0, "evaChute", "900")], None).replace("\n", "\r\n")
+        after, _ = self._fill(
+            text, {"pid": 111, "fill": {"part": "evaChute", "slots": 2}})
+        self.assertNotIn("\n\n", after.replace("\r\n", "\n\n").replace("\n\n", "\r\n"))
+        self.assertIn("\r\n", after)
+        self.assertEqual(len(after.split("\r\n")), len(after.split("\n")))
+
+
+class CommittedFillTests(unittest.TestCase):
+    """`fill` against `rover-relay-c-recorded`, the bytes RVR-20 stages.
+
+    THE LANE THIS MODE EXISTS FOR: rover A carries two `ConformalStorageUnit`
+    containers of three slots and ships three stored parts, so exactly three
+    slots are free - c0s1, c0s2 and c1s2 - and one delivery cycle consumes at
+    most two of them. The slot shortfall is unreachable by playing this fixture,
+    which is why the mode was built and why these cells pin the ADDRESSES rather
+    than only the count."""
+
+    FILL = {"part": "evaChute", "slots": 3}
+
+    def setUp(self):
+        self.text = _read_fixture()
+
+    def _after(self, entry):
+        return savepatch.apply_live_state(self.text, [entry],
+                                          save_name=FIXTURE_NAME)
+
+    def _containers(self, text, pid):
+        lines = _lines(text)
+        vessel = [s for _n, p, s in savepatch.flightstate_vessels(lines)
+                  if p == str(pid)][0]
+        return [(savepatch.container_entries(lines, module),
+                 savepatch.get_value(lines, module, "inventory"))
+                for module in savepatch.inventory_modules(lines, vessel)]
+
+    def test_the_destinations_three_free_slots_are_filled(self):
+        after, notes = self._after({"pid": PID_A, "resources": {"LiquidFuel": 0},
+                                    "fill": self.FILL})
+        self.assertIn("resources=[LiquidFuel 200->0]", notes[0])
+        self.assertIn("fill=evaChute x3 slots=3 [c0s1,c0s2,c1s2]", notes[0])
+        containers = self._containers(after, PID_A)
+        self.assertEqual(2, len(containers))
+        self.assertEqual([0, 1, 2], [s for s, _n, _b in containers[0][0]])
+        self.assertEqual([0, 1, 2], [s for s, _n, _b in containers[1][0]])
+        self.assertEqual("evaChute,evaChute,evaChute", containers[0][1])
+        self.assertEqual("evaScienceKit,DeployedCentralStation,evaChute",
+                         containers[1][1])
+
+    def test_the_csv_stays_slot_ascending_and_matches_the_bodies(self):
+        after, _ = self._after({"pid": PID_A, "fill": self.FILL})
+        for entries, csv in self._containers(after, PID_A):
+            self.assertEqual(",".join(n for _s, n, _b in entries), csv)
+            self.assertEqual(sorted(s for s, _n, _b in entries),
+                             [s for s, _n, _b in entries])
+
+    def test_the_existing_stored_parts_are_untouched(self):
+        before = self._containers(self.text, PID_A)
+        after, _ = self._after({"pid": PID_A, "fill": self.FILL})
+        kept = {(s, n): b for entries, _c in before for s, n, b in entries}
+        found = {(s, n): b for entries, _c in self._containers(after, PID_A)
+                 for s, n, b in entries}
+        for key, block in kept.items():
+            self.assertEqual(block, found[key],
+                             "fill rewrote the committed stored part %r" % (key,))
+
+    def test_every_persistent_id_in_the_staged_save_stays_unique_in_flightstate(self):
+        after, _ = self._after({"pid": PID_A, "fill": self.FILL})
+        lines = _lines(after)
+        fs = savepatch.flightstate_node(lines)
+        ids = [line.strip().split(" = ")[1]
+               for line in lines[fs[0]:fs[1]]
+               if line.strip().startswith("persistentId = ")]
+        self.assertEqual(len(ids), len(set(ids)),
+                         "a fill duplicated a FLIGHTSTATE persistentId")
+        before = savepatch.save_persistent_ids(_lines(self.text))
+        self.assertEqual(3, len(set(ids) - before),
+                         "exactly three ids must be new (one per clone)")
+
+    def test_the_other_two_rovers_are_untouched(self):
+        after, _ = self._after({"pid": PID_A, "fill": self.FILL})
+        for pid in (PID_B, PID_C):
+            self.assertEqual(self._containers(self.text, pid),
+                             self._containers(after, pid))
+
+    def test_the_parsek_payload_is_never_touched(self):
+        after, _ = self._after({"pid": PID_A, "resources": {"LiquidFuel": 0},
+                                "fill": self.FILL})
+        before_lines, after_lines = _lines(self.text), _lines(after)
+        scn = savepatch.parsek_scenario_node(before_lines)
+        self.assertIsNotNone(scn)
+        self.assertEqual(before_lines[scn[0]:scn[1]], after_lines[scn[0]:scn[1]],
+                         "a fill rewrote bytes inside the ParsekScenario node")
+
+    def test_the_fixture_line_endings_survive(self):
+        after, _ = self._after({"pid": PID_A, "fill": self.FILL})
+        self.assertNotIn("\r\n", after, "the fixture is LF and must stay LF")
+
+    def test_slot_renumbering_is_stable_and_a_second_fill_refuses(self):
+        """The idempotence claim, in the only form it can take: the addresses a
+        fill assigns are a FUNCTION of the container's occupancy, so re-running
+        the same declaration over the SAME input reproduces the same bytes, and
+        re-running it over the OUTPUT refuses because nothing is free. A mode
+        that quietly appended a fourth `evaChute` at slot 0 would pass the first
+        half and fail the second."""
+        first, _ = self._after({"pid": PID_A, "fill": self.FILL})
+        again, _ = self._after({"pid": PID_A, "fill": self.FILL})
+        self.assertEqual(first, again)
+        with self.assertRaises(savepatch.LiveStatePatchError) as ctx:
+            savepatch.apply_live_state(first, [{"pid": PID_A, "fill": self.FILL}],
+                                       save_name=FIXTURE_NAME)
+        self.assertIn("would place nothing", str(ctx.exception))
+
+    def test_clearing_first_fills_all_six(self):
+        after, notes = self._after({"pid": PID_A, "inventory": "clear",
+                                    "fill": self.FILL})
+        self.assertIn("fill=evaChute x6 slots=3 "
+                      "[c0s0,c0s1,c0s2,c1s0,c1s1,c1s2]", notes[0])
+        for entries, csv in self._containers(after, PID_A):
+            self.assertEqual([0, 1, 2], [s for s, _n, _b in entries])
+            self.assertEqual("evaChute,evaChute,evaChute", csv)
+
+
 class CommittedSpecUsageTests(unittest.TestCase):
     """Every committed spec that declares liveState must declare it against a
     fixture whose vessel vocabulary someone has actually derived, and every pid
@@ -999,6 +1455,39 @@ class CommittedSpecUsageTests(unittest.TestCase):
                 self.assertIn(str(entry.get("pid")), live,
                               "%s declares pid %r, which %s does not carry"
                               % (name, entry.get("pid"), template))
+
+    def test_a_declared_fill_capacity_matches_the_builders_measured_constant(self):
+        """`fill.slots` is the ONE number in this mechanism that no committed
+        byte carries (`InventorySlots` is a part-config property; the string does
+        not appear in the save at all), so a spec declares it. That makes it the
+        classic drift shape - a literal in one file describing bytes in another -
+        and this is the tie: every fill declared against `rover-relay-c-recorded`
+        must agree with `build_rover_relay_c_recorded.INVENTORY_CONTAINER_SLOTS`,
+        the builder's own measured 3, which its `verify_*` steps assert the
+        committed `slotIndex` values against."""
+        known = {FIXTURE_NAME: relayc.INVENTORY_CONTAINER_SLOTS}
+        declared = 0
+        for name, spec in self._specs():
+            fixture = spec.get("fixture") or {}
+            template = (fixture.get("saveTemplate") or "").rsplit("/", 1)[-1]
+            for entry in savepatch.declared_live_state(fixture):
+                fill = entry.get(savepatch.FILL_KEY)
+                if not fill:
+                    continue
+                declared += 1
+                self.assertIn(
+                    template, known,
+                    "%s declares a fill against %s, whose per-container slot "
+                    "capacity nothing has measured; add its row here off the "
+                    "builder's own constant" % (name, template))
+                self.assertEqual(
+                    known[template], fill.get("slots"),
+                    "%s declares fill.slots=%r on %s but the builder measured %d "
+                    "per container" % (name, fill.get("slots"), template,
+                                       known[template]))
+        self.assertGreater(declared, 0,
+                           "no committed spec declares a fill, so this cell "
+                           "guards nothing - remove it or the mode")
 
     def test_a_career_block_is_only_declared_on_a_career_fixture(self):
         """`[fixture.career]` rewrites `SCENARIO { name = Funding }`, and the
