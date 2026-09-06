@@ -921,6 +921,11 @@ namespace Parsek
             // Surface position
             public bool hasSurface;
             public SurfacePosition surfacePosition;
+
+            // True when the death was already classified (and stamped) as an
+            // EVA-construction disassembly at the synchronous destroy seam. The
+            // deferred pass then only attaches the captured terminal data.
+            public bool disassembled;
         }
 
         internal enum DeferredDestructionOutcome
@@ -3220,6 +3225,16 @@ namespace Parsek
 
             ParsekLog.RecState("OnVesselWillDestroy:entry", CaptureRecorderState());
 
+            // EVA-construction pocket: the LAST part of a DroppedPart/Debris vessel
+            // being stored in an inventory is a deliberate disassembly, not a loss.
+            // Stamped HERE, before the background recorder's "background_destroy"
+            // finalization refresh, because that refresh eagerly stamps
+            // TerminalState.Destroyed onto a still-unstamped recording
+            // (RecordingFinalizationCacheProducer.PopulateDestroyEventTerminalCache);
+            // stamping first turns that eager write into a no-op instead of a
+            // one-frame Destroyed flicker that later has to be re-stamped.
+            bool disassembledDeath = TryStampDisassembledTerminal(v);
+
             // Watch mode: handle vessel destruction (null saved camera, exit if active vessel destroyed)
             watchMode.OnVesselWillDestroy(v);
 
@@ -3256,6 +3271,10 @@ namespace Parsek
                 {
                     string recordingId = activeTree.BackgroundMap[v.persistentId];
                     var pending = CaptureVesselStateForTerminal(v, recordingId);
+                    // The terminal verdict for a pocketed part was already stamped
+                    // synchronously above; the deferred pass must not overwrite it
+                    // with the finalization cache's Destroyed.
+                    pending.disassembled = disassembledDeath;
                     StartCoroutine(DeferredDestructionCheck(pending));
                     break;
                 }

@@ -10,6 +10,17 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Taking a dropped part's last piece into a kerbal's inventory no longer reads as a
+  crash.** Pocket the last remaining part of a vessel during EVA construction and the
+  game destroys that vessel exactly as it does after a crash, so Parsek sealed the
+  recording as Destroyed - a deliberate tidy-up and a lost craft showed up as the same
+  outcome in the Missions tab, the recordings table and the timeline. Such a flight now
+  ends as **Disassembled**: the mission ended, nothing was lost, and the part is generic
+  cargo from then on. It is not a recovery either - no funds, science or reputation are
+  involved - and the flight is treated as a settled ending rather than a crash you might
+  want to re-fly. Nothing changes for a real crash, and the same part detached from a
+  multi-part craft is unaffected (the game does not let you grab a craft's own root part).
+
 - **If the craft a supply route delivered to is gone but another craft stands where it
   was, the route now moves to that craft and tells you once.** Parsek already handled the
   rebuilt-base case by looking for a craft within 500 m of the recorded dock spot - but it

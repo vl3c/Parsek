@@ -98,6 +98,8 @@ namespace Parsek
                     return !string.IsNullOrEmpty(body) ? "Destroyed, " + body : "Destroyed";
                 case TerminalState.Recovered:
                     return !string.IsNullOrEmpty(body) ? "Recovered, " + body : "Recovered";
+                case TerminalState.Disassembled:
+                    return !string.IsNullOrEmpty(body) ? "Disassembled, " + body : "Disassembled";
                 case TerminalState.SubOrbital:
                     return !string.IsNullOrEmpty(body) ? "SubOrbital, " + body : "SubOrbital";
                 case TerminalState.Boarded:

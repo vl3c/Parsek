@@ -2742,8 +2742,21 @@ namespace Parsek
             // DeferredDestructionCheck consumes the cache after true destruction is
             // confirmed and persists the sidecar again with terminal metadata.
 
+            Recording terminalRec = null;
+            if (!string.IsNullOrEmpty(recordingId))
+                tree.Recordings.TryGetValue(recordingId, out terminalRec);
+            bool disassembled =
+                terminalRec != null
+                && terminalRec.TerminalStateValue == TerminalState.Disassembled;
+
             if (v.vesselType == VesselType.EVA)
                 ParsekLog.Info("BgRecorder", $"Background EVA vessel ended: pid={pid}");
+            else if (disassembled)
+                // ParsekFlight.TryStampDisassembledTerminal ran before this handler
+                // (same frame, same event): the vessel's last part was pocketed in EVA
+                // construction. A designed outcome belongs on the Info surface, not
+                // the WRN one the log validator reads.
+                ParsekLog.Info("BgRecorder", $"Background vessel disassembled: pid={pid} rec={recordingId}");
             else
                 ParsekLog.Warn("BgRecorder", $"Background vessel destroyed: pid={pid}");
 

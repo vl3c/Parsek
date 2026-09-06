@@ -1544,6 +1544,14 @@ Plan agents at dispatch time, per `docs/dev/development-workflow.md` step 4a.
 Section 11's decision point: additive fields on generation 4 (proposed) vs a
 clean bump to 5 at the exchange layer's birth.
 
+Generation 5 stays RESERVED for this design's shape change. The 2026-09-06
+operator ruling on P14 (`TerminalState.Disassembled`) settled the adjacent
+question and did NOT consume the number: a purely additive enum member renames
+no key, adds no field and changes no layout, so it shipped at generation 4 and
+no fixture was re-stamped. Whoever bumps for a SHAPE change still owns the
+re-harvest of the 33 stamped fixtures; the measured blast radius is recorded in
+`docs/dev/todo-and-known-bugs.md` under DISASSEMBLED-VESSEL-TERMINAL-STATE.
+
 ### 17.2 Arbitration clock hardening
 (timestamp, playerId) is v1. If skew-unfairness bites in practice, candidates:
 NTP-style offset sampling against peers' packet timestamps, or a per-tip
