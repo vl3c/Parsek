@@ -38,7 +38,8 @@ tags = ["ingame-batch", "isolated-batch", "coalescer", "controlled-decoupled-chi
 #      carries `mk1pod.v2` AND `probeCoreOcto2.v2` (two `ModuleCommand`).
 #   3. `HasDecouplerModule(vessel)` - the craft carries a `Decoupler.1`
 #      (`ModuleDecouple`), verified by reading its VESSEL block.
-# WHAT THE FIRST CENSUS FOUND (run `2026-09-06_2258`, on gs1-two-stage-pad itself):
+# WHAT THE FIRST CENSUS FOUND (run `2026-09-06_1956`, collected logs folder
+# `2026-09-06_2258_H62-coalescer-isolated`, on gs1-two-stage-pad itself):
 # `total=2 passed=0 failed=0 skipped=2`, both cells skipping with "requires the next
 # stage to separate a controllable child". gs1's staging is the GS-1 FLIGHT's - stage
 # 2 lights the engine, stage 1 fires the decoupler and the booster chutes - so the
@@ -101,18 +102,21 @@ allowedAnomalies = []
 # ZERO - the campaign-isolation assertion, as in H21 and H61. Both cells create a
 # real tree and reap it in a finally block; the isolated path restores a quickloaded
 # flight baseline after each; the batch teardown reverts persistent.sfs from the
-# pre-batch `.bak`. `gs1-two-stage-pad` stages an EMPTY corpus and injects nothing,
+# pre-batch `.bak`. `coalescer-pad` stages an EMPTY corpus and injects nothing,
 # so a non-zero count means the restore contract did not hold rather than that a cell
 # leaked.
 count = { min = 0, max = 0 }
 
 [expectations.logContracts]
-# EVIDENCE STANDING: NONE. Authored 2026-09-06, never flown.
+# EVIDENCE STANDING: MEASURED, run `2026-09-06_2017` (PASS attempt 1, 57 s wall):
+# `total=2 passed=2 failed=0 skipped=0`, both cells PASSED. The first flight,
+# `2026-09-06_1956` on gs1-two-stage-pad, read `passed=0 skipped=2` (see the
+# fixture block above).
 #
 # `total=2` is ATTRIBUTE-EXACT (two `[InGameTest(Category = "Coalescer")]`
 # declarations, both FLIGHT-scoped, kept in sync by
-# `CommittedBatchTallySourceSyncTests`). `failed=0` is the ASSERTION. `passed=` and
-# `skipped=` are regex classes.
+# `CommittedBatchTallySourceSyncTests`). `failed=0` is the ASSERTION; `passed=` and
+# `skipped=` are the measured literals.
 #
 # THE PREDICTION, written to be refuted: BOTH EXECUTE, `total=2 passed=2 failed=0
 # skipped=0`. Every one of each cell's six pre-flight guards is a property of this

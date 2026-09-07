@@ -14,7 +14,7 @@ tier = "nightly"
 # path's executable ceiling is ZERO and the interim spelling already rejects the only
 # line it could print.
 #
-# LIVE-PROVEN 2026-09-06, run `2026-09-06_2015` (PASS attempt 1, wall 73 s, every
+# LIVE-PROVEN 2026-09-06, run `2026-09-06_2015` (PASS attempt 1, wall 74 s, every
 # verifier PASS or SKIPPED). The cell executed and passed - `total=1 passed=1
 # failed=0 skipped=0`, no `SKIPPED:` line - so `TryBuildSyntheticKeepVesselTree`
 # snapshotted the live active vessel into a spawnable synthetic recording for the
@@ -100,7 +100,7 @@ count = { min = 0, max = 0 }
 
 [expectations.logContracts]
 # EVIDENCE STANDING: MEASURED ONCE, run `2026-09-06_2015` (2026-09-06, PASS on
-# attempt 1, 73 s wall, every verifier PASS or SKIPPED), whose collected KSP.log
+# attempt 1, 74 s wall, every verifier PASS or SKIPPED), whose collected KSP.log
 # carries `BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0
 # category=PlaybackControl scene=FLIGHT` and `Using batch baseline slot ... for 1
 # restore-after-run test(s)`.
@@ -137,7 +137,7 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 # 1320 s worst case (660 + 660); 1400 clears it. One cell, but it waits out a 15 s
 # fast-forward lead plus a 10 s spawn wait plus a 2 s duplicate-prevention wait before
 # the isolated path's baseline restore, so the batch is tens of seconds rather than the
-# microseconds the tally suggests. MEASURED at 73 s wall on run `2026-09-06_2015`,
+# microseconds the tally suggests. MEASURED at 74 s wall on run `2026-09-06_2015`,
 # which is the most expensive PER CELL in the wave and exactly the waits above.
 budgetSeconds = 1400
 

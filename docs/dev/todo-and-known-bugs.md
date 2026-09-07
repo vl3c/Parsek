@@ -15,7 +15,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## ~~WARPTOTIME-CELL-VERDICT-DEPENDED-ON-BATCH-ORDER: `WarpToTime_ResolvePlan_LiveScene` measured its two resolutions and then SKIPPED when no rewind target was present, so the same cell read PASSED after 17 other categories and SKIPPED after 3~~ [FOUND 2026-09-07 by LT-2's first pinned flight (`2026-09-07_1509`, skipped where the empty-store census `_0854` had passed). TEST DETERMINISM, not a product defect. FIXED 2026-09-07 on branch `long-tail-batch`]
+## ~~WARPTOTIME-CELL-VERDICT-DEPENDED-ON-BATCH-ORDER: `WarpToTime_ResolvePlan_LiveScene` measured its two resolutions and then SKIPPED when no rewind target was present, so the same cell read PASSED after 17 other categories and SKIPPED after 3~~ [FOUND 2026-09-07 by LT-2's first pinned flight (`2026-09-07_1508`, skipped where the empty-store census `_0854` had passed). TEST DETERMINISM, not a product defect. FIXED 2026-09-07 on branch `long-tail-batch`]
 
 The cell asserts a far-future date resolves ForwardOnly and that UT 0 resolves to a
 defined plan kind, THEN checks rewind reachability only when a rewind target exists
