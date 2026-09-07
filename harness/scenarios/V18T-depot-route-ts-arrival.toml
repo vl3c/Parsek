@@ -166,8 +166,11 @@ id = "V18T-depot-route-ts-arrival"
 #     THIS LANE'S OWN BYTES, AND THE BRANCH READING IN SECTION 2 IS CORRECTED
 # ---------------------------------------------------------------------------------
 # The recipe above was followed against FOUR collected logs of this spec on two builds
-# (`2026-08-26_2015`, `2026-09-06_2117`, `_2250`, `_2337_a2`) and every line below is
-# byte-identical across all four, so the re-pin is off measurement, not derivation.
+# (`2026-08-26_2015`, `2026-09-06_2117`, `_2250`, `_2337_a2`) and every PINNED FIELD below
+# is identical across all four (the FIRST `PhaseLock APPLIED` emission of each run is
+# byte-identical; the later emissions vary in the trailing digits of `P=` /
+# `fixedCadenceResidual=` per RUN, which the regex loosens), so the re-pin is off
+# measurement, not derivation.
 #
 # WHAT THE RECIPE'S THREE LINES ACTUALLY READ, in order:
 #     ExtractConstraints: tree=c9ef80ee... members=5 launchBody=Kerbin ut0=1420.246738452149
@@ -211,7 +214,7 @@ id = "V18T-depot-route-ts-arrival"
 # read-only). Every required regex below quotes the measured literal with only the
 # run-varying fields loosened (`currentUT=`, the pre-jump `ut=`, and the last digits of
 # `P=` / `fixedCadenceResidual=`, which drift in the 10th significant figure between
-# builds - `21904.030242313424` vs `21904.0302461934` - while the anchor, the cadence,
+# runs, even on one build - `21904.030242313424` vs `21904.0302461934` - while the anchor, the cadence,
 # the first launch and the minimum interval do not move at all):
 #   (3) the route-owned cadence: the `PhaseLock APPLIED` line with `method=joint-best-fit`,
 #       the anchor and cadence rewrite, `zeroDrift=yes` and `scheduleWithinTol=yes`; the
@@ -685,6 +688,8 @@ forbidden = [
   # skipped.
   "SelectGhostDrivingBackingMissions: .*skippedByStatus=[1-9]",
   # ROUND 2: the station reason the v1 live path cannot produce (see section 2b); a standing guard, not the claim.
+  # It IS reachable from the in-game test `MapRenderTracerCoverageInGameTest` (classifies with the anchor true and
+  # emits the event), so this lane must never gain a `RunTests` step for that category.
   "fail-closed-to-faithful .*producer=moving-target-station",
 ]
 

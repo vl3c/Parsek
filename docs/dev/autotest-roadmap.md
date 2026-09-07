@@ -2044,16 +2044,23 @@ load-bearing because the halves have different owners:
   reading needed a run, and V27M is it: RVR-18's liveState patch (recorded
   destination removed, `A` 2.00 m away) on H59's drive shape, with the map opened
   only AFTER the `TimeJump ut=1600` that carries the dispatch and the rebind, so
-  every render line post-dates the transfer by construction. Reading run
+  every draw / polyline / KSC line post-dates the transfer by construction (the
+  `Route line build` line does NOT - it fires once at route creation, and the
+  pre-PR review caught the spec claiming otherwise; see below). Reading run
   `2026-09-07_1858` read every pre-registered candidate token (one harness-side
   `[Stage]` line was an authoring defect and was dropped); armed re-flight `2026-09-07_1902`
   PASS attempt 1 with `[expectations.routes]` GATING on `destinationVesselPids =
-  ["2875537755"]`; negative control `2026-09-07_1903` red on exactly the inverted
-  `Route line build ... legs=1` render token. MEASURED: the rebind is persisted (the
-  STOP names the NEW pid) AND the route still ghost-drives (`ghostDriving=1`, status
-  `Active` at the end of the run) AND the overview line builds from the member
-  recordings with H59's counts to the leg (`members=2 groups=1 legs=1
-  transferDropped=0`) AND the flight-scene ghost polyline draws AND the KSC host
+  ["2875537755"]`; negative controls `2026-09-07_1903` (the inverted `Route line
+  build ... legs=1` token - regex liveness, since that line is create-time) and
+  `2026-09-07_1924` (the inverted post-rebind draw token `ownedLegs=1`), each red on
+  exactly its one seeded token. MEASURED: the rebind is persisted (the STOP names
+  the NEW pid) AND the route still ghost-drives (`ghostDriving=1`, status `Active`
+  at the end of the run) AND the overview line built at creation from the member
+  recordings (H59's counts to the leg, `members=2 groups=1 legs=1
+  transferDropped=0`) is NOT rebuilt by the rebind - `ComputeRouteSignature` folds
+  member ids, content hashes, `RecordedDockUT`, origin body and stop BODIES, never
+  the stop pid, so no rebuild fires and every post-map draw frame is a cache hit
+  (`cache=1 ownedLegs=1`) - AND the flight-scene ghost polyline draws AND the KSC host
   resolves every landed member from the post-rebind save with nothing skipped. So
   "the ghost renders at the SUBSTITUTED endpoint" is FALSE as a product statement
   and was never the design: no render surface consults the rebound endpoint; the
