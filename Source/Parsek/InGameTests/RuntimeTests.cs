@@ -15764,8 +15764,18 @@ namespace Parsek.InGameTests
             }
             else
             {
-                InGameAssert.Skip("no rewind target present (or already at game start) — " +
-                    "rewind-reachability assertion not applicable");
+                // NOT a skip. The far-future ForwardOnly resolution and the defined-kind
+                // resolution of UT 0 above are the cell's measurements and have already
+                // held; only the rewind-reachability HALF is inapplicable without a rewind
+                // target or with the clock still at game start. Skipping here made the
+                // cell's verdict depend on what earlier categories in the same batch had
+                // left in the store (it PASSED on the 2026-09-07 census after 17 other
+                // categories and SKIPPED on LT-2's first pinned flight after 3), so the
+                // inapplicable half is logged and the measured half stands as the PASS.
+                ParsekLog.Verbose("TestRunner",
+                    "WarpToTime_ResolvePlan_LiveScene: rewind-reachability half not applicable " +
+                    $"(anyRewindSave={anyRewindSave} careerStartAvailable={careerStartAvailable} now={now:F1}); " +
+                    $"UT-0 plan kind={startPlan.Kind}");
             }
         }
 

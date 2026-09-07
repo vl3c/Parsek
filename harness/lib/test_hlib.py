@@ -6279,7 +6279,51 @@ class MultiCategoryBatchWiringGroupTests(unittest.TestCase):
     # at different scenes may therefore share a category legitimately - which is
     # why the no-overlap cell below is keyed on (scene, category), exactly as
     # H34 / H35 / H38 share `Logistics` across three members.
-    GROUP = {}   # {id: (scene, {category: total})}
+    GROUP = {   # {id: (scene, {category: total})}
+        "LT-1-long-tail-flight": ("FLIGHT", {
+            "BackgroundSeeder": 2,
+            "Bug289": 2,
+            "ContinuationIntegrity": 2,
+            "FinalizeLimbo": 2,
+            "Flight": 2,
+            "ForwardRender": 1,
+            "GhostLifecycle": 17,
+            "GhostMapOrbits": 2,
+            "IdentityLoss": 3,
+            "MissionPhasing": 4,
+            "PartEventTiming": 2,
+            "Pipeline-Anchor-BubbleEntry": 2,
+            "Pipeline-AnchorPropagate": 1,
+            "Pipeline-Frame": 1,
+            "Pipeline-Outlier": 1,
+            "Pipeline-Terrain": 1,
+            "RecordingStore": 2,
+            "RenderComposition": 1,
+            "ResourceManifest": 1,
+            "RevertVesselStrip": 1,
+            "RewindSaves": 1,
+            "SpawnCollision": 2,
+            "SpawnTerminalOrbit": 3,
+            "Spawner": 2,
+            "StockWarpLimits": 1,
+            "Structure": 2,
+            "SwitchIntentPatch": 3,
+            "TerminalOrbit": 2,
+            "TestCommands": 4,
+            "TestRunner": 2,
+            "TestRunnerIsolation": 2,
+            "Unity": 4,
+            "Watch": 2,
+        }),
+        "LT-2-long-tail-spacecenter": ("SPACECENTER", {
+            "Optimizer": 2,
+            "Recording": 1,
+            "ResourceReconciliation": 1,
+            "WarpToTime": 1,
+            "TestRunnerIsolation": 2,
+            "SwitchIntentPatch": 3,
+        }),
+    }
 
     # Members whose split has NOT been measured yet, mirroring the two sibling
     # families. A listed member may leave `passed=` / `skipped=` as the interim

@@ -15,6 +15,22 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~WARPTOTIME-CELL-VERDICT-DEPENDED-ON-BATCH-ORDER: `WarpToTime_ResolvePlan_LiveScene` measured its two resolutions and then SKIPPED when no rewind target was present, so the same cell read PASSED after 17 other categories and SKIPPED after 3~~ [FOUND 2026-09-07 by LT-2's first pinned flight (`2026-09-07_1509`, skipped where the empty-store census `_0854` had passed). TEST DETERMINISM, not a product defect. FIXED 2026-09-07 on branch `long-tail-batch`]
+
+The cell asserts a far-future date resolves ForwardOnly and that UT 0 resolves to a
+defined plan kind, THEN checks rewind reachability only when a rewind target exists
+and the clock has moved. The tail was an `InGameAssert.Skip`, which discards the two
+measurements already made and hands the verdict to whatever earlier categories left in
+the store. The multi-category contract pins every constituent whole, so an
+order-dependent verdict is a lane that reds on ordering alone. The tail now logs the
+inapplicable half at Verbose and lets the measured half stand as the PASS.
+
+Same flight found the sibling shape in `DisabledHoverEcho`: its one cell needs the OS
+pointer inside the game window to measure a hover, passed on the census and skipped on
+the pinned flight ("pointer was never inside the probe button rect"). Nothing in the
+seam can place the pointer, so the category is NOT an LT-1 constituent and stays
+undriven with that reason recorded in the inventory.
+
 ## ~~PARTEVENTTIMING-DEPLOYABLE-CELL-ASSERTS-THE-RETIRED-SNAP: `PartEventTiming_DeployableTransition_AppliesAtEventUt` asserted a deployable pose SNAPS at the event UT, which the S2 interpolation retired; the cell had never been driven and failed on the first batch that ran it~~ [FOUND 2026-09-07 by the first multi-category census (`LT-0-census-flight`, 38 categories in one boot: the only FAILED cell of 92 considered). TEST CONTRACT DRIFT, not a product defect - the single-category control flight failed identically and H36 proves the animated contract live. FIXED 2026-09-07 on branch `long-tail-batch`]
 
 **What the census read.** `BATCH_COMPLETE v1 total=2 passed=1 failed=1 skipped=0

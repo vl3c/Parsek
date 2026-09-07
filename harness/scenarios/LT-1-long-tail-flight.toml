@@ -1,0 +1,134 @@
+schema = 1
+id = "LT-1-long-tail-flight"
+tier = "nightly"
+# THE LONG TAIL, ONE BOOT. Thirty-three in-game categories that were never driven
+# because each is too small to justify its own KSP boot (the inventory's bucket B5,
+# the roadmap's "Cause E: one category per spec") - run as ONE multi-category
+# batch through the seam's comma-list RunTests selector. The runner batches each
+# constituent in turn and prints its own BATCH_COMPLETE line, then the
+# category=multi:33 aggregate; the contract that makes that honest is per
+# constituent, not per aggregate: every category below pins its own whole line,
+# so a constituent that executes nothing reds by name (hlib's
+# SINGLE_BATCH_SELECTOR_RULE as amended 2026-09-07).
+#
+# WHAT THE FIRST CENSUS MEASURED (scratch run `2026-09-07_0840` over 38 candidate
+# categories, 386 s wall, 92 cells): 54 passed, 1 FAILED, 37 skipped. The one
+# failure was PartEventTiming's deployable cell asserting the pre-S2 snap - test
+# drift in a cell no batch had ever run, re-pinned to the animated contract in the
+# same branch and PASSING 2/2 on its control flight `2026-09-07_0854`. FOUR
+# candidates executed NOTHING on this host and are deliberately NOT constituents:
+# `Contracts` (both cells career-only), `CrewReservationLive` (no spawned vessel
+# pids), `DisabledHoverEcho` (its one cell needs the OS pointer inside the game
+# window to measure a hover - it passed on the census and skipped on the first
+# pinned flight, and nothing in the seam can place the pointer), `PartEventFX` (no FX infos on active ghosts - the corpus ghosts have no
+# engine / chute / light parts resolved in this scene) and `RouteLiveAnchor` (no
+# supply route at a live station). Each is named in the inventory's B5 note with
+# what host would buy it; pinning them here would be exactly the vacuous slice the
+# contract refuses.
+#
+# THE SKIPS THAT REMAIN ARE MEASURED AND NAMED, and the whole pin carries every one
+# of them: GhostLifecycle 15 of 17 (no active ghosts / loop units / overlap
+# recordings in this scene - the S1.4 playback lane owns that surface),
+# BackgroundSeeder 1 (no stateful parts to seed on the 1-part pod), GhostMapOrbits 1
+# (no ghost map vessels), MissionPhasing 1 (wants an airborne vessel), Spawner 1
+# (no autostrut parts in range), Structure 1 (no committed routes),
+# SwitchIntentPatch 2 (its KSC and TS cells scene-skip), TestCommands 3 (career-only
+# research cell, the MAINMENU cell, and the file-channel round trip only an operator drives),
+# TestRunnerIsolation 1 (the SPACECENTER cell). LT-2 takes the SPACECENTER slices.
+description = "Run the 33 long-tail in-game categories as one multi-category batch at FLIGHT over the injected synthetic corpus, every constituent pinned whole."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "multi-category", "long-tail", "LT-1"]
+
+[fixture]
+# gloops-airshow (1-part crewed pod, PRELAUNCH) with the synthetic corpus injected:
+# the store-reading constituents (RecordingStore, TerminalOrbit, RewindSaves,
+# Structure's mission cell, IdentityLoss, Watch) read the 274 committed recordings
+# rather than passing vacuously over an empty store, which is why this lane carries
+# S1.4 / H14's count pin. Categories that mutate the store (Optimizer) are LT-2's,
+# on an EMPTY store, for exactly the opposite reason.
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "all-synthetic"
+craft = []
+
+[driver]
+kind = "seam"
+# autoRecordOnLaunch pinned false as every H-spec does: several constituents guard
+# on an idle recorder. Budget: the 540 s RunTests cap is the M-A5 deferred-step cap;
+# the census measured about 8 s of per-category batch overhead (baseline capture,
+# crash marker, results export) on top of cells that all finish in under 0.3 s, so
+# 34 constituents sit near 300 s. See runtime.budgetSeconds.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "BackgroundSeeder,Bug289,ContinuationIntegrity,FinalizeLimbo,Flight,ForwardRender,GhostLifecycle,GhostMapOrbits,IdentityLoss,MissionPhasing,PartEventTiming,Pipeline-Anchor-BubbleEntry,Pipeline-AnchorPropagate,Pipeline-Frame,Pipeline-Outlier,Pipeline-Terrain,RecordingStore,RenderComposition,ResourceManifest,RevertVesselStrip,RewindSaves,SpawnCollision,SpawnTerminalOrbit,Spawner,StockWarpLimits,Structure,SwitchIntentPatch,TerminalOrbit,TestCommands,TestRunner,TestRunnerIsolation,Unity,Watch" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# Only the environment axes. The 34 constituents touch a dozen dimensions between
+# them, but a dimension cell is claimed by a lane that asserts the product
+# behaviour the cell names, and a whole-tally pin over a category asserts that its
+# cells RAN, not what they proved. The per-category rows in the inventory say what
+# each category covers.
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The injected corpus, unchanged by any constituent (S1.4 / H14 pin the same 274).
+count = { min = 274, max = 274 }
+
+[expectations.logContracts]
+# ANTI-VACUITY, PER CONSTITUENT: one whole literal line per category, each the
+# measured census line (PartEventTiming from its post-fix control flight), plus the
+# aggregate whose counts are the sums. `failed=0` on every line is the assertion.
+required  = [
+  "runtests start category=BackgroundSeeder,Bug289,ContinuationIntegrity,FinalizeLimbo,Flight,ForwardRender,GhostLifecycle,GhostMapOrbits,IdentityLoss,MissionPhasing,PartEventTiming,Pipeline-Anchor-BubbleEntry,Pipeline-AnchorPropagate,Pipeline-Frame,Pipeline-Outlier,Pipeline-Terrain,RecordingStore,RenderComposition,ResourceManifest,RevertVesselStrip,RewindSaves,SpawnCollision,SpawnTerminalOrbit,Spawner,StockWarpLimits,Structure,SwitchIntentPatch,TerminalOrbit,TestCommands,TestRunner,TestRunnerIsolation,Unity,Watch isolated=false strict=false multi=33",
+  "BATCH_COMPLETE v1 total=2 passed=1 failed=0 skipped=1 category=BackgroundSeeder scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=Bug289 scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=ContinuationIntegrity scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=FinalizeLimbo scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=Flight scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=ForwardRender scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=17 passed=2 failed=0 skipped=15 category=GhostLifecycle scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=2 passed=1 failed=0 skipped=1 category=GhostMapOrbits scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=IdentityLoss scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=4 passed=3 failed=0 skipped=1 category=MissionPhasing scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=PartEventTiming scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=Pipeline-Anchor-BubbleEntry scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=Pipeline-AnchorPropagate scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=Pipeline-Frame scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=Pipeline-Outlier scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=Pipeline-Terrain scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=RecordingStore scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=RenderComposition scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=ResourceManifest scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=RevertVesselStrip scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=RewindSaves scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=SpawnCollision scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=SpawnTerminalOrbit scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=2 passed=1 failed=0 skipped=1 category=Spawner scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=StockWarpLimits scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=2 passed=1 failed=0 skipped=1 category=Structure scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=3 passed=1 failed=0 skipped=2 category=SwitchIntentPatch scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=TerminalOrbit scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=4 passed=1 failed=0 skipped=3 category=TestCommands scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=TestRunner scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=2 passed=1 failed=0 skipped=1 category=TestRunnerIsolation scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=4 passed=4 failed=0 skipped=0 category=Unity scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=Watch scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=80 passed=54 failed=0 skipped=26 category=multi:33 scene=FLIGHT",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# 660 (LoadGame, the deferred-step floor) + 660 (RunTests) = 1320 worst case; 1400
+# clears it. Measured census wall 386 s over 38 constituents.
+budgetSeconds = 1400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
