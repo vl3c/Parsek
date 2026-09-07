@@ -31,6 +31,7 @@ Runnable with the stdlib runner only::
 
 import ast
 import copy
+import hashlib
 import inspect
 import json
 import os
@@ -2823,14 +2824,13 @@ class SubprocessScopedRetrySmokeTests(unittest.TestCase):
         self.assertEqual("PASS", retries[0]["attempt2"])
         # (b) The flake ledger accrues it: refresh over the produced result JSON gives
         # the scenario a nonzero numerator (PASS + synthetic INVALID).
-        orig_cov = run.COVERAGE_DIR
-        run.COVERAGE_DIR = os.path.join(self.tmp, "coverage")
-        try:
-            run.refresh_coverage_and_flake([spec], {"schema": 1}, self.logger)
-            with open(os.path.join(run.COVERAGE_DIR, "flake.json"), "r", encoding="utf-8") as fh:
-                flake = json.load(fh)
-        finally:
-            run.COVERAGE_DIR = orig_cov
+        # Through the injected coverage seam, so the COMMITTED
+        # coverage/duration.json this refresh also writes is never touched.
+        cov = os.path.join(self.tmp, "coverage")
+        run.refresh_coverage_and_flake([spec], {"schema": 1}, self.logger,
+                                       coverage_dir=cov)
+        with open(os.path.join(cov, "flake.json"), "r", encoding="utf-8") as fh:
+            flake = json.load(fh)
         sc = flake["scenarios"]["SMOKE-fake"]
         self.assertEqual(2, sc["total"], "PASS + synthetic INVALID from the recovered flake")
         self.assertEqual(1, sc["numerator"], "the recovered subprocess flake accrued")
@@ -2868,29 +2868,77 @@ class DurationLedgerIoTests(unittest.TestCase):
 
     SCENARIO = "SMOKE-fake"
 
+    # The COMMITTED ledger, read once as bytes. Every cell below drives the real
+    # read/merge/write path over a COPY of it in a temp dir through the
+    # coverage_dir / results_dir seams -- never over the tracked file
+    # (HARNESS-SUITE-REWRITES-TRACKED-DURATION-JSON: a suite run that leaves it
+    # modified smuggles a rewritten ledger into an unrelated commit).
+    COMMITTED_LEDGER = os.path.join(run.HARNESS_ROOT, "coverage", "duration.json")
+
+    @classmethod
+    def setUpClass(cls):
+        """Pin the committed ledger's bytes for the tearDownClass guard below."""
+        cls._committed_digest_at_start = cls._digest_committed()
+
+    @classmethod
+    def tearDownClass(cls):
+        """The hygiene guarantee, asserted mechanically: this class exercises
+        the committed ledger's contract and must leave the tracked file
+        byte-identical. Before the seams landed the cells wrote through
+        run.COVERAGE_DIR and every suite run left it MODIFIED in git status."""
+        after = cls._digest_committed()
+        if after != cls._committed_digest_at_start:
+            raise AssertionError(
+                "DurationLedgerIoTests modified the COMMITTED %s "
+                "(digest %s -> %s); the cells must drive refresh_coverage_and_flake "
+                "through its coverage_dir / results_dir seams, never the module "
+                "globals" % (cls.COMMITTED_LEDGER,
+                             cls._committed_digest_at_start, after))
+
+    @classmethod
+    def _digest_committed(cls):
+        try:
+            with open(cls.COMMITTED_LEDGER, "rb") as fh:
+                return hashlib.sha256(fh.read()).hexdigest()
+        except OSError:
+            # An absent ledger is a legitimate state (a clone that never flew);
+            # the guard then pins "still absent".
+            return "absent"
+
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="parsek-harness-duration-")
-        self._orig_results = run.RESULTS_DIR
-        self._orig_cov = run.COVERAGE_DIR
-        run.RESULTS_DIR = os.path.join(self.tmp, "results")
-        run.COVERAGE_DIR = os.path.join(self.tmp, "coverage")
-        os.makedirs(run.RESULTS_DIR, exist_ok=True)
-        os.makedirs(run.COVERAGE_DIR, exist_ok=True)
+        self.results_dir = os.path.join(self.tmp, "results")
+        self.coverage_dir = os.path.join(self.tmp, "coverage")
+        os.makedirs(self.results_dir, exist_ok=True)
+        os.makedirs(self.coverage_dir, exist_ok=True)
         self.logger = run.HarnessLogger(
-            os.path.join(run.RESULTS_DIR, "duration_harness.log"))
+            os.path.join(self.results_dir, "duration_harness.log"))
         self.template = os.path.join(self.tmp, "fresh-career")
         os.makedirs(self.template, exist_ok=True)
         self.spec = _make_spec(self.template, 30, 600)
 
     def tearDown(self):
-        run.RESULTS_DIR = self._orig_results
-        run.COVERAGE_DIR = self._orig_cov
         self.logger.close()
         shutil.rmtree(self.tmp, ignore_errors=True)
 
+    def _refresh(self):
+        """The one call under test, through the injected seams. No global is
+        patched, so a cell that raises cannot leave a later cell pointed at a
+        temp dir."""
+        run.refresh_coverage_and_flake([self.spec], {"schema": 1}, self.logger,
+                                       coverage_dir=self.coverage_dir,
+                                       results_dir=self.results_dir)
+
+    def _copy_committed_ledger(self):
+        """Seed the temp ledger with the REAL committed bytes, so the merge runs
+        against a production-shaped multi-scenario record rather than a
+        hand-written stub. Returns its parsed scenario map."""
+        shutil.copyfile(self.COMMITTED_LEDGER, self._path)
+        return self._read_ledger()["scenarios"]
+
     @property
     def _path(self):
-        return os.path.join(run.COVERAGE_DIR, "duration.json")
+        return os.path.join(self.coverage_dir, "duration.json")
 
     def _write_ledger(self, text):
         with open(self._path, "w", encoding="utf-8", newline="\n") as fh:
@@ -2901,7 +2949,7 @@ class DurationLedgerIoTests(unittest.TestCase):
                   "scenarioId": self.SCENARIO, "verdict": hlib.VERDICT_PASS,
                   "attempt": 1, "wallSeconds": wall, "startedUtc": ended,
                   "endedUtc": ended, "note": ""}
-        with open(os.path.join(run.RESULTS_DIR, "%s.json" % run_id), "w",
+        with open(os.path.join(self.results_dir, "%s.json" % run_id), "w",
                   encoding="utf-8", newline="\n") as fh:
             fh.write(hlib.serialize_result(result))
 
@@ -2925,13 +2973,43 @@ class DurationLedgerIoTests(unittest.TestCase):
                                      "last": 626.0, "lastVsP50": 0.998},
             }}, sort_keys=True, indent=2) + "\n")
         self._seed_pass_result(1400, "2026-07-26T10:00:00Z", "2026-07-26_1000_x")
-        run.refresh_coverage_and_flake([self.spec], {"schema": 1}, self.logger)
+        self._refresh()
         scenarios = self._read_ledger()["scenarios"]
         self.assertEqual(sorted(scenarios),
                          ["B11-mun-orbit", "B12-minmus-orbit", self.SCENARIO])
         self.assertEqual(scenarios["B11-mun-orbit"]["n"], 5)
         self.assertEqual(scenarios["B12-minmus-orbit"]["p50"], 627.0)
         self.assertEqual(scenarios[self.SCENARIO]["n"], 1)
+
+    def test_the_real_committed_ledger_merges_instead_of_being_replaced(self):
+        """The same claim as the cell above, but over the REAL committed bytes
+        rather than a hand-written two-entry stub: a checkout that flew ONE
+        scenario must leave every measured scenario in the production ledger
+        with its sample count intact. Copied into the temp coverage dir, so the
+        tracked file is only ever READ."""
+        before = self._copy_committed_ledger()
+        if not before:
+            self.skipTest("committed duration.json holds no scenarios in this clone")
+        self._seed_pass_result(1400, "2026-07-26T10:00:00Z", "2026-07-26_1000_x")
+        self._refresh()
+        after = self._read_ledger()["scenarios"]
+        for sid, entry in before.items():
+            self.assertIn(sid, after, "committed scenario %s was dropped" % sid)
+            self.assertGreaterEqual(after[sid]["n"], entry["n"],
+                                    "committed scenario %s lost samples" % sid)
+        self.assertIn(self.SCENARIO, after, "this run's PASS did not accrue")
+
+    def test_a_refresh_through_the_seams_leaves_the_committed_ledger_untouched(self):
+        """HARNESS-SUITE-REWRITES-TRACKED-DURATION-JSON, stated directly and
+        order-independently: one full refresh through the injected seams, and
+        the tracked harness/coverage/duration.json is byte-identical."""
+        before = self._digest_committed()
+        self._copy_committed_ledger()
+        self._seed_pass_result(1400, "2026-07-26T10:00:00Z", "2026-07-26_1000_x")
+        self._refresh()
+        self.assertEqual(before, self._digest_committed())
+        # And the temp copy DID move, so the refresh really ran.
+        self.assertIn(self.SCENARIO, self._read_ledger()["scenarios"])
 
     def test_a_measured_scenario_accrues_instead_of_being_replaced(self):
         """MAJOR-2: the summary-only committed entry keeps its n instead of
@@ -2943,14 +3021,14 @@ class DurationLedgerIoTests(unittest.TestCase):
                                           "last": 1318.0, "lastVsP50": 1.001}},
         }, sort_keys=True, indent=2) + "\n")
         self._seed_pass_result(1400, "2026-07-26T10:00:00Z", "2026-07-26_1000_x")
-        run.refresh_coverage_and_flake([self.spec], {"schema": 1}, self.logger)
+        self._refresh()
         entry = self._read_ledger()["scenarios"][self.SCENARIO]
         self.assertEqual(entry["n"], 5)
         self.assertGreaterEqual(entry["n"], hlib.DURATION_MIN_SAMPLES)
         self.assertEqual(entry["last"], 1400.0)
         # A second run over the SAME accumulated results dir plus one new PASS.
         self._seed_pass_result(1290, "2026-07-27T10:00:00Z", "2026-07-27_1000_x")
-        run.refresh_coverage_and_flake([self.spec], {"schema": 1}, self.logger)
+        self._refresh()
         entry = self._read_ledger()["scenarios"][self.SCENARIO]
         self.assertEqual(entry["n"], 6)
         self.assertEqual(sorted(entry["samples"].values()), [1290.0, 1400.0])
@@ -2962,7 +3040,7 @@ class DurationLedgerIoTests(unittest.TestCase):
         partial = '{\n  "schema": 1,\n  "scenarios": {\n    "B11-mun-orb'
         self._write_ledger(partial)
         self._seed_pass_result(1400, "2026-07-26T10:00:00Z", "2026-07-26_1000_x")
-        run.refresh_coverage_and_flake([self.spec], {"schema": 1}, self.logger)
+        self._refresh()
         with open(self._path, "r", encoding="utf-8") as fh:
             self.assertEqual(fh.read(), partial)
         body = self._log_body()
@@ -2973,14 +3051,14 @@ class DurationLedgerIoTests(unittest.TestCase):
         self._write_ledger(json.dumps(
             {"schema": hlib.SCHEMA_VERSION + 1, "scenarios": {}}) + "\n")
         self._seed_pass_result(1400, "2026-07-26T10:00:00Z", "2026-07-26_1000_x")
-        run.refresh_coverage_and_flake([self.spec], {"schema": 1}, self.logger)
+        self._refresh()
         self.assertEqual(self._read_ledger()["schema"], hlib.SCHEMA_VERSION + 1)
         self.assertIn("failed the schema gate", self._log_body())
 
     def test_a_missing_ledger_is_a_legitimate_first_write(self):
         self.assertFalse(os.path.exists(self._path))
         self._seed_pass_result(1400, "2026-07-26T10:00:00Z", "2026-07-26_1000_x")
-        run.refresh_coverage_and_flake([self.spec], {"schema": 1}, self.logger)
+        self._refresh()
         self.assertEqual(self._read_ledger()["scenarios"][self.SCENARIO]["n"], 1)
         self.assertNotIn("[Error][Duration]", self._log_body())
 
@@ -2988,7 +3066,7 @@ class DurationLedgerIoTests(unittest.TestCase):
         """The write is tmp + os.replace (MAJOR-4a); a leftover .tmp would mean
         the rename never happened."""
         self._seed_pass_result(1400, "2026-07-26T10:00:00Z", "2026-07-26_1000_x")
-        run.refresh_coverage_and_flake([self.spec], {"schema": 1}, self.logger)
+        self._refresh()
         self.assertFalse(os.path.exists(self._path + ".tmp"))
         self.assertTrue(os.path.isfile(self._path))
 
@@ -3002,7 +3080,7 @@ class DurationLedgerIoTests(unittest.TestCase):
             "scenarios": {"X": {"n": 5, "lastVsP50": 2.0}}},
             sort_keys=True, indent=2) + "\n")
         self._seed_pass_result(1400, "2026-07-26T10:00:00Z", "2026-07-26_1000_x")
-        run.refresh_coverage_and_flake([self.spec], {"schema": 1}, self.logger)
+        self._refresh()
         self.assertNotIn("X", self._read_ledger()["scenarios"])
 
 
@@ -3732,6 +3810,264 @@ def _raise_sheet_boom(results_dir, run_id):
 
 def _raise_artifact_boom(*args, **kwargs):
     raise RuntimeError("boom (injected artifact failure)")
+
+
+def _copytree_boom_into_results(dst_prefix, real_copytree):
+    """A copytree that fails ONLY for a destination under results/, so the
+    injected fault hits the save snapshot and leaves fixture staging alone.
+
+    It lands ONE FILE in the destination before raising, which is the whole
+    point: the real shutil.copytree fails PART WAY through too, and a fault that
+    raised before any byte moved would leave nothing behind whether the code
+    copied into a tmp name or straight into results/<runId>_save/. With a
+    half-written destination, the cell that asserts no <runId>_save dir survives
+    a failed copy can only pass under tmp+rename -- mutation-checked by pointing
+    _snapshot_produced_save's copytree at the final dir and watching it red."""
+    def _copytree(src, dst, *args, **kwargs):
+        if os.path.abspath(dst).startswith(os.path.abspath(dst_prefix)):
+            os.makedirs(dst, exist_ok=True)
+            with open(os.path.join(dst, "persistent.sfs"), "w",
+                      encoding="utf-8") as fh:
+                fh.write("half-written by the injected fault\n")
+            raise OSError("boom (injected save-snapshot copy failure)")
+        return real_copytree(src, dst, *args, **kwargs)
+    return _copytree
+
+
+class ProducedSaveSnapshotSmokeTests(unittest.TestCase):
+    """HARNESS-PRODUCED-SAVE-CLOBBERED-BY-SIBLING-RUN, driven over the fake KSP.
+
+    The produced save lives at <instance>/saves/<saveTemplate leaf> and staging
+    rmtree's it, so a sibling run sharing the leaf destroys a finished run's
+    output seconds after the machine lock is released. run.py now copies it into
+    results/<runId>_save/ inside the lock. These cells assert the copy happened
+    with the staged save's files in it, that the result JSON carries the block,
+    that a copy failure leaves the verdict alone, that retention removes only
+    *_save dirs of the SAME scenario, and that the stale-tmp sweep reaps a
+    mid-copy orphan while sparing the current run's own tmp dir."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="parsek-harness-savesnap-")
+        self.instance = os.path.join(self.tmp, "instance")
+        os.makedirs(self.instance, exist_ok=True)
+        _write_manifest(self.instance, "stock-minimal")
+        self.template = os.path.join(self.tmp, "fresh-career")
+        os.makedirs(os.path.join(self.template, "Parsek", "Recordings"), exist_ok=True)
+        with open(os.path.join(self.template, "persistent.sfs"), "w") as fh:
+            fh.write("GAME { }\n")
+        # A sidecar under Parsek/, so the cells prove the WHOLE save directory
+        # is copied and not just persistent.sfs -- the Parsek/ tree IS the
+        # harvest payload. Deliberately NOT a .prec: the smoke spec pins
+        # recordings.count to 0, and this cell is about the copy, not the count.
+        with open(os.path.join(self.template, "Parsek", "Recordings",
+                               "seed.txt"), "w") as fh:
+            fh.write("sidecar\n")
+        self._orig_results = run.RESULTS_DIR
+        run.RESULTS_DIR = os.path.join(self.tmp, "results")
+        self.logger = run.HarnessLogger(
+            os.path.join(run.RESULTS_DIR, "savesnap_harness.log"))
+
+    def tearDown(self):
+        run.RESULTS_DIR = self._orig_results
+        self.logger.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _run(self, mode="pass", spec=None):
+        spec = spec if spec is not None else _make_spec(self.template, 30, 600)
+        rt = FakeRuntime(mode)
+        result = run.run_attempt(spec, self.instance, self.tmp, rt, attempt=1,
+                                 prior_boot_crashed=False, logger=self.logger)
+        return result, rt
+
+    def _snap_dir(self, result):
+        return os.path.join(run.RESULTS_DIR,
+                            "%s%s" % (result["runId"], run.SAVE_SNAPSHOT_DIR_SUFFIX))
+
+    def _log_body(self):
+        with open(self.logger.log_path, "r", encoding="utf-8") as fh:
+            return fh.read()
+
+    def test_a_pass_run_owns_a_copy_of_its_produced_save(self):
+        """The fix itself: after the run, results/<runId>_save/ holds the staged
+        save's files -- persistent.sfs AND the Parsek/ sidecar tree -- so a
+        sibling's staging rmtree can no longer take the harvest source away."""
+        result, _ = self._run("pass")
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"])
+        snap = result["snapshot"]
+        self.assertTrue(snap["ran"], "reason=%s" % snap["reason"])
+        self.assertTrue(snap["reason"].startswith("every-verdict-default"))
+        d = self._snap_dir(result)
+        self.assertEqual(os.path.basename(d), snap["path"])
+        self.assertTrue(os.path.isfile(os.path.join(d, "persistent.sfs")))
+        self.assertTrue(os.path.isfile(os.path.join(d, "Parsek", "Recordings",
+                                                    "seed.txt")))
+        self.assertGreater(snap["files"], 1)
+        self.assertGreater(snap["bytes"], 0)
+        # The snapshot is a COPY: the instance save is still there for anything
+        # that resolves it by leaf (and is still the thing a sibling clobbers).
+        self.assertTrue(os.path.isfile(
+            os.path.join(self.instance, "saves", "fresh-career", "persistent.sfs")))
+        self.assertIn("result=copied", self._log_body())
+        # ... and the block round-trips into the durable result JSON.
+        with open(os.path.join(run.RESULTS_DIR, "%s.json" % result["runId"]),
+                  "r", encoding="utf-8") as fh:
+            persisted = json.load(fh)
+        self.assertEqual(snap, persisted["snapshot"])
+
+    def test_a_parsek_fail_run_is_snapshotted_too(self):
+        """A failing save is forensic evidence -- it is the only copy of the
+        state that produced the failure. Nothing about the policy reads the
+        verdict to decide, and this pins that."""
+        spec = _make_spec(self.template, 30, 600)
+        spec["expectations"]["logContracts"]["required"].append(
+            "a line this run will never write")
+        result, _ = self._run("pass", spec=spec)
+        self.assertEqual(hlib.VERDICT_PARSEK_FAIL, result["verdict"])
+        self.assertTrue(result["snapshot"]["ran"],
+                        "reason=%s" % result["snapshot"]["reason"])
+        self.assertTrue(os.path.isdir(self._snap_dir(result)))
+
+    def test_a_spec_opt_out_skips_the_copy_and_says_so(self):
+        spec = _make_spec(self.template, 30, 600)
+        spec[hlib.SAVE_SNAPSHOT_SPEC_SECTION] = {hlib.SAVE_SNAPSHOT_SPEC_KEY: False}
+        result, _ = self._run("pass", spec=spec)
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"])
+        self.assertFalse(result["snapshot"]["ran"])
+        self.assertTrue(result["snapshot"]["reason"].startswith("spec-opt-out"))
+        self.assertFalse(os.path.isdir(self._snap_dir(result)))
+        self.assertIn("result=skipped", self._log_body())
+
+    def test_a_copy_failure_never_changes_the_verdict(self):
+        """Verdict-neutrality, the same contract the artifact step carries: an
+        injected copytree failure degrades to a Warn with ran=False, and the
+        attempt still reads PASS with no half-copied directory left behind.
+
+        The injected fault writes a FILE into its destination and then raises
+        (like the real copytree, which fails part way through), so the
+        "no <runId>_save dir" assertion below is a real discriminator: a
+        straight copy into the final name would leave that half-written
+        directory standing and red this cell. tmp+rename is what makes it
+        pass."""
+        orig = shutil.copytree
+        shutil.copytree = _copytree_boom_into_results(run.RESULTS_DIR, orig)
+        try:
+            result, _ = self._run("pass")
+        finally:
+            shutil.copytree = orig
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"])
+        self.assertFalse(result["snapshot"]["ran"])
+        self.assertTrue(result["snapshot"]["reason"].startswith("copy-failed"))
+        self.assertIsNone(result["snapshot"]["path"])
+        self.assertFalse(os.path.isdir(self._snap_dir(result)),
+                         "the half-written destination must not survive as the "
+                         "final <runId>_save dir")
+        self.assertFalse(
+            os.path.isdir(self._snap_dir(result) + run.SAVE_SNAPSHOT_TMP_SUFFIX),
+            "a failed copy must leave no partial directory")
+        self.assertIn("[Warn][Snapshot]", self._log_body())
+
+    def test_retention_prunes_only_same_scenario_save_dirs(self):
+        """The keep window is PER SCENARIO (a global one would let a busy
+        scenario evict another's only copy), it touches nothing but *_save dirs,
+        and the current run's own dir is always protected."""
+        os.makedirs(run.RESULTS_DIR, exist_ok=True)
+        keep = hlib.SAVE_SNAPSHOT_KEEP_PER_SCENARIO
+        # Older snapshots: enough of THIS scenario to overflow the window, one of
+        # a DIFFERENT scenario, plus a shots dir and a result JSON as bystanders.
+        mine = ["old%d_SMOKE-fake_save" % i for i in range(keep + 2)]
+        for i, name in enumerate(mine + ["old0_OTHER-scenario_save"]):
+            d = os.path.join(run.RESULTS_DIR, name)
+            os.makedirs(d, exist_ok=True)
+            with open(os.path.join(d, "persistent.sfs"), "w") as fh:
+                fh.write("x")
+            sid = "OTHER-scenario" if name.endswith("OTHER-scenario_save") else "SMOKE-fake"
+            with open(os.path.join(run.RESULTS_DIR,
+                                   "%s.json" % name[:-len(run.SAVE_SNAPSHOT_DIR_SUFFIX)]),
+                      "w", encoding="utf-8") as fh:
+                json.dump({"schema": hlib.SCHEMA_VERSION, "scenarioId": sid}, fh)
+            os.utime(d, (1000 + i, 1000 + i))
+        bystander = os.path.join(run.RESULTS_DIR, "old0_SMOKE-fake_shots")
+        os.makedirs(bystander, exist_ok=True)
+
+        result, _ = self._run("pass")
+        self.assertTrue(result["snapshot"]["ran"])
+        survivors = sorted(n for n in os.listdir(run.RESULTS_DIR)
+                           if n.endswith(run.SAVE_SNAPSHOT_DIR_SUFFIX))
+        # The other scenario's single snapshot is untouched.
+        self.assertIn("old0_OTHER-scenario_save", survivors)
+        # This scenario keeps exactly the window, and the current run is in it.
+        mine_left = [n for n in survivors if "SMOKE-fake" in n]
+        self.assertEqual(keep, len(mine_left), mine_left)
+        self.assertIn(os.path.basename(self._snap_dir(result)), mine_left)
+        self.assertNotIn("old0_SMOKE-fake_save", mine_left, "oldest pruned first")
+        # Nothing outside *_save was touched.
+        self.assertTrue(os.path.isdir(bystander))
+        self.assertTrue(os.path.isfile(
+            os.path.join(run.RESULTS_DIR, "old0_SMOKE-fake.json")))
+
+    def test_a_stale_tmp_dir_from_another_run_is_swept(self):
+        """A run KILLED mid-copy leaves <runId>_save.harness-tmp behind: the
+        per-scenario retention never sees it (it does not end in _save) and only
+        a rerun of the SAME runId would overwrite it. The next run's prune pass
+        sweeps it, and touches nothing else in results/."""
+        os.makedirs(run.RESULTS_DIR, exist_ok=True)
+        stale = os.path.join(run.RESULTS_DIR,
+                             "old9_SMOKE-fake%s%s" % (run.SAVE_SNAPSHOT_DIR_SUFFIX,
+                                                      run.SAVE_SNAPSHOT_TMP_SUFFIX))
+        os.makedirs(stale, exist_ok=True)
+        with open(os.path.join(stale, "persistent.sfs"), "w", encoding="utf-8") as fh:
+            fh.write("half-written by a killed run\n")
+        # Bystanders the NAME gate must never select.
+        shots = os.path.join(run.RESULTS_DIR, "old9_SMOKE-fake_shots")
+        os.makedirs(shots, exist_ok=True)
+        shots_tmp = os.path.join(run.RESULTS_DIR,
+                                 "old9_SMOKE-fake_shots%s" % run.SAVE_SNAPSHOT_TMP_SUFFIX)
+        os.makedirs(shots_tmp, exist_ok=True)
+        json_path = os.path.join(run.RESULTS_DIR, "old9_SMOKE-fake.json")
+        with open(json_path, "w", encoding="utf-8") as fh:
+            json.dump({"schema": hlib.SCHEMA_VERSION, "scenarioId": "SMOKE-fake"}, fh)
+
+        result, _ = self._run("pass")
+        self.assertTrue(result["snapshot"]["ran"], result["snapshot"]["reason"])
+        self.assertFalse(os.path.isdir(stale), "the orphaned tmp dir must be swept")
+        self.assertIn("retention swept", self._log_body())
+        self.assertIn(os.path.basename(stale), self._log_body())
+        self.assertTrue(os.path.isdir(shots))
+        self.assertTrue(os.path.isdir(shots_tmp),
+                        "only *_save.harness-tmp is in scope")
+        self.assertTrue(os.path.isfile(json_path))
+        self.assertTrue(os.path.isdir(self._snap_dir(result)))
+
+    def test_the_current_runs_own_tmp_dir_is_never_swept(self):
+        """The pass can run while THIS run's copy is still being written (the
+        failure branch reaches it), so the current run's tmp name is protected
+        unconditionally. Driven against the prune pass directly, which is the
+        only way to hold a mid-copy tmp dir still."""
+        os.makedirs(run.RESULTS_DIR, exist_ok=True)
+        protect = "now_SMOKE-fake%s" % run.SAVE_SNAPSHOT_DIR_SUFFIX
+        mine_tmp = os.path.join(run.RESULTS_DIR,
+                                protect + run.SAVE_SNAPSHOT_TMP_SUFFIX)
+        other_tmp = os.path.join(run.RESULTS_DIR,
+                                 "old9_SMOKE-fake%s%s" % (run.SAVE_SNAPSHOT_DIR_SUFFIX,
+                                                          run.SAVE_SNAPSHOT_TMP_SUFFIX))
+        for d in (mine_tmp, other_tmp):
+            os.makedirs(d, exist_ok=True)
+        run._prune_save_snapshot_dirs(protect, self.logger)
+        self.assertTrue(os.path.isdir(mine_tmp),
+                        "a copy in progress must never be swept out from under itself")
+        self.assertFalse(os.path.isdir(other_tmp))
+
+    def test_an_early_refusal_run_records_no_produced_save(self):
+        """An admission-drift run never staged a save, so there is nothing of its
+        own to preserve -- and the record says exactly that instead of ran=False
+        with no reason."""
+        os.remove(os.path.join(self.instance, "GameData", "Parsek",
+                               "provision-manifest.json"))
+        result, _ = self._run("pass")
+        self.assertEqual(hlib.VERDICT_INVALID, result["verdict"])
+        self.assertFalse(result["snapshot"]["ran"])
+        self.assertEqual("no-produced-save", result["snapshot"]["reason"])
+
 
 class DryRunPlanVerifierEnumerationTests(unittest.TestCase):
     """--dry-run's [VERIFY] line must name the verifiers that can move the verdict.

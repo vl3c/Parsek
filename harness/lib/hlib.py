@@ -3815,6 +3815,26 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
         errors.append("expectedFail.subkind: %r not in %s"
                       % (ef_subkind, list(PARSEK_FAIL_SUBKINDS)))
 
+    # Optional [harvest] block: the produced-save snapshot opt-out. Absent on
+    # every committed spec (the default is SNAPSHOT), so this only ever fires
+    # for a spec that went out of its way to declare one. Typed strictly: a
+    # misspelled key here would silently read as "no opt-out", which is the
+    # benign direction, but a spec that MEANT to opt out and did not deserves
+    # to be told at validation rather than to find a snapshot in results/.
+    harvest = spec.get(SAVE_SNAPSHOT_SPEC_SECTION, {}) or {}
+    if not isinstance(harvest, dict):
+        errors.append("%s: must be a table" % SAVE_SNAPSHOT_SPEC_SECTION)
+    else:
+        unknown = sorted(k for k in harvest if k != SAVE_SNAPSHOT_SPEC_KEY)
+        if unknown:
+            errors.append("%s: unknown key(s) %s (accepted: %s)"
+                          % (SAVE_SNAPSHOT_SPEC_SECTION, unknown,
+                             [SAVE_SNAPSHOT_SPEC_KEY]))
+        snap = harvest.get(SAVE_SNAPSHOT_SPEC_KEY)
+        if snap is not None and not isinstance(snap, bool):
+            errors.append("%s.%s: %r must be a boolean"
+                          % (SAVE_SNAPSHOT_SPEC_SECTION, SAVE_SNAPSHOT_SPEC_KEY, snap))
+
     return SpecValidation(len(errors) == 0, tuple(errors), tuple(warnings))
 
 
@@ -7673,3 +7693,181 @@ def select_shots_dirs_to_prune(entries: Sequence[Tuple[str, float, int]],
             kept_bytes += max(0, size)
     prune.reverse()  # oldest first, so a partial prune removes the oldest
     return prune
+
+
+# ---------------------------------------------------------------------------
+# Produced-save snapshot (HARNESS-PRODUCED-SAVE-CLOBBERED-BY-SIBLING-RUN).
+#
+# The produced save lives at <instance>/saves/<saveTemplate leaf>, and the leaf
+# is shared by every scenario that stages from the same template. Staging
+# rmtree's it as its first destructive act, and the machine lock is released
+# when a run ENDS -- exactly when the produced save's useful life begins. So a
+# sibling session's next run destroys the finished run's output within seconds
+# (measured: 9 s), and the harvest that follows misreads a green flight as a
+# mission that never left the pad.
+#
+# The fix is ownership: each run copies its produced save into its OWN results
+# folder BEFORE the lock is released, so the bytes a harvest reads can no longer
+# be rewritten by anyone. These two functions are the PURE half -- whether to
+# copy, and which old snapshots the retention pass removes. The copy itself is
+# the shell's (run.py _snapshot_produced_save).
+# ---------------------------------------------------------------------------
+
+# Default: SNAPSHOT ON EVERY VERDICT. A PARSEK-FAIL save is forensic evidence
+# (it is the only copy of the state that produced the failure), a PASS save is
+# the harvest source for the next fixture, and an INVALID save is how a driver
+# fault is told apart from a Parsek one. Nothing here reads the verdict to
+# decide; the verdict is recorded in the reason so the log line says what was
+# preserved.
+SAVE_SNAPSHOT_KEEP_PER_SCENARIO = 3
+# Per-snapshot size ceiling. A save is normally single-digit MB; a run that
+# somehow produced gigabytes is a runaway, and copying it would trade the
+# forensic value of ONE run for the disk every later run needs.
+SAVE_SNAPSHOT_MAX_BYTES = 2 * 1024 * 1024 * 1024
+# Refuse the copy when it would leave the volume below this. The harness stages
+# fixtures onto the same disk, so filling it reds every later run for an
+# unrelated reason -- a snapshot must never be the thing that does that.
+SAVE_SNAPSHOT_FREE_DISK_FLOOR_BYTES = 5 * 1024 * 1024 * 1024
+# Spec opt-out: [harvest] snapshotProducedSave = false. Opt-OUT, not opt-in, so
+# a spec author never has to have predicted that a run would be worth keeping.
+SAVE_SNAPSHOT_SPEC_SECTION = "harvest"
+SAVE_SNAPSHOT_SPEC_KEY = "snapshotProducedSave"
+# The two directory-name suffixes the snapshot owns, canonical HERE so the pure
+# sweep below and the shell that creates the directories cannot drift apart
+# (run.py aliases both). The copy lands in <runId>_save.harness-tmp and is
+# renamed to <runId>_save, so the final name is never a partial directory.
+SAVE_SNAPSHOT_DIR_SUFFIX = "_save"
+SAVE_SNAPSHOT_TMP_SUFFIX = ".harness-tmp"
+
+
+@dataclass
+class SaveSnapshotDecision:
+    """Whether this run copies its produced save into results/, and why."""
+    snapshot: bool
+    reason: str
+
+
+def decide_save_snapshot(verdict: str,
+                         spec: Optional[Dict],
+                         save_bytes: Optional[int],
+                         free_bytes: Optional[int],
+                         save_present: bool = True,
+                         max_bytes: Optional[int] = None,
+                         free_floor_bytes: Optional[int] = None) -> SaveSnapshotDecision:
+    """Decide whether the run's produced save is snapshotted into results/.
+
+    Ordered so the cheapest structural refusals come first and the disk facts
+    last. ``save_bytes`` / ``free_bytes`` may be None when the shell could not
+    measure them (an OSError on the stat / disk_usage call); an UNKNOWN fact is
+    admitted rather than treated as a refusal -- losing a snapshot is the
+    expensive outcome, and a copy that then fails on a full disk is a Warn that
+    leaves the verdict alone.
+
+    Reasons are grep-stable prefixes; the snapshot reason carries the verdict so
+    one log line says what was preserved and under which outcome.
+    """
+    if max_bytes is None:
+        max_bytes = SAVE_SNAPSHOT_MAX_BYTES
+    if free_floor_bytes is None:
+        free_floor_bytes = SAVE_SNAPSHOT_FREE_DISK_FLOOR_BYTES
+    if not save_present:
+        # An early-refusal run (admission drift, instance-locked, spec-invalid)
+        # never staged a save, so there is nothing of its own to preserve.
+        return SaveSnapshotDecision(False, "no-produced-save")
+    harvest = ((spec or {}).get(SAVE_SNAPSHOT_SPEC_SECTION, {}) or {})
+    if harvest.get(SAVE_SNAPSHOT_SPEC_KEY) is False:
+        return SaveSnapshotDecision(
+            False, "spec-opt-out %s.%s=false" % (SAVE_SNAPSHOT_SPEC_SECTION,
+                                                 SAVE_SNAPSHOT_SPEC_KEY))
+    if save_bytes is not None and save_bytes > max_bytes:
+        return SaveSnapshotDecision(
+            False, "size-cap bytes=%d cap=%d" % (save_bytes, max_bytes))
+    if save_bytes is not None and free_bytes is not None \
+            and free_bytes - save_bytes < free_floor_bytes:
+        return SaveSnapshotDecision(
+            False, "free-disk-floor free=%d need=%d floor=%d"
+            % (free_bytes, save_bytes, free_floor_bytes))
+    return SaveSnapshotDecision(True, "every-verdict-default verdict=%s" % (verdict,))
+
+
+def select_save_snapshot_dirs_to_prune(
+        entries: Sequence[Tuple[str, str, float]],
+        protect_name: Optional[str] = None,
+        keep_per_scenario: Optional[int] = None) -> List[str]:
+    """Which ``results/*_save`` dirs the retention pass removes.
+
+    ``entries`` are ``(dir_name, scenario_id, mtime_epoch)`` rows for every
+    produced-save snapshot under results/. No size term, deliberately: the
+    window is a COUNT per scenario, so a byte budget would only buy a
+    directory-tree walk of every snapshot on every run for a number nothing
+    reads. Retention is PER SCENARIO,
+    not global: the reason to keep a snapshot is that it is the newest evidence
+    for ITS scenario, and a global window would let one busy scenario evict
+    every other scenario's only copy. Within a scenario, newest-first;
+    everything past ``keep_per_scenario`` is pruned. ``protect_name`` (the
+    CURRENT run's dir) is always kept and counts toward its scenario's window.
+
+    A row whose ``scenario_id`` is empty (no result JSON to read it from, and a
+    run id the caller could not parse) buckets under its OWN dir name, so an
+    unattributable snapshot can never be pruned by another scenario's budget --
+    deletion fails closed. Returned oldest first, so a partial prune removes the
+    oldest.
+    """
+    if keep_per_scenario is None:
+        keep_per_scenario = SAVE_SNAPSHOT_KEEP_PER_SCENARIO
+    buckets: Dict[str, List[Tuple[str, float]]] = {}
+    for name, scenario_id, mtime in entries:
+        key = scenario_id or ("\x00unattributed\x00" + name)
+        buckets.setdefault(key, []).append((name, mtime))
+    prune: List[Tuple[float, str]] = []
+    for _key, rows in buckets.items():
+        newest_first = sorted(rows, key=lambda r: (r[1], r[0]), reverse=True)
+        kept = 0
+        for name, mtime in newest_first:
+            if name == protect_name:
+                kept += 1
+                continue
+            if kept >= keep_per_scenario:
+                prune.append((mtime, name))
+            else:
+                kept += 1
+    prune.sort()
+    return [name for _mtime, name in prune]
+
+
+def select_stale_save_snapshot_tmp_dirs_to_sweep(
+        names: Sequence[str],
+        protect_name: Optional[str] = None) -> List[str]:
+    """Which ``results/<runId>_save.harness-tmp`` dirs the retention pass removes.
+
+    The copy lands in a tmp name and is renamed, so no partial directory can be
+    read as a whole save. The cost is that a run KILLED mid-copy (budget
+    watchdog, Ctrl-C, a crash) leaves its tmp dir behind forever: the per
+    scenario retention above only sees ``*_save`` names, and only a later run
+    that reproduced the SAME runId would overwrite it. This sweep is that
+    orphan's only reaper.
+
+    "Stale" is simply "not the current run's". No age term, and none is needed:
+    the machine lock makes runs mutually exclusive machine-wide, so any OTHER
+    run's tmp dir cannot be a copy in progress -- it is the residue of a run
+    that already ended. ``protect_name`` is the current run's tmp dir name and
+    is never returned even when it exists (the pass can run while that copy is
+    still being written, e.g. from the failure branch).
+
+    ``names`` may be every directory name under results/; the gate is the NAME
+    pattern, so a ``_shots`` dir, a result JSON, a contact sheet or anything
+    else can never be selected. A name must be exactly
+    ``<nonempty runId>`` + ``_save`` + ``.harness-tmp``. Returned sorted, so the
+    log line and the deletion order are deterministic.
+    """
+    suffix = SAVE_SNAPSHOT_DIR_SUFFIX + SAVE_SNAPSHOT_TMP_SUFFIX
+    out = []
+    for name in names:
+        if not name.endswith(suffix):
+            continue
+        if len(name) <= len(suffix):  # a bare "_save.harness-tmp", no runId
+            continue
+        if protect_name is not None and name == protect_name:
+            continue
+        out.append(name)
+    return sorted(out)

@@ -16036,3 +16036,285 @@ class PartShowcaseWindowSyncTests(unittest.TestCase):
         _, deltas = self._jumps()
         for d in deltas:
             self.assertGreater(d, 0.0, "a non-positive deltaSeconds would be refused")
+
+
+def _save_snapshot_scenarios_dir():
+    """harness/scenarios/, resolved from this file (lib/ is one level down)."""
+    return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "scenarios")
+
+
+class SaveSnapshotPolicyTests(unittest.TestCase):
+    """hlib.decide_save_snapshot: whether a finished run copies its produced
+    save into results/ (HARNESS-PRODUCED-SAVE-CLOBBERED-BY-SIBLING-RUN).
+
+    The default is SNAPSHOT ON EVERY VERDICT, so the cells that matter are the
+    refusals - each one is a way to lose forensic evidence, and each has to be a
+    deliberate, named reason rather than a silent skip."""
+
+    SPEC = {"id": "X"}
+
+    def _d(self, **kw):
+        args = {"verdict": hlib.VERDICT_PASS, "spec": self.SPEC,
+                "save_bytes": 10 * 1024 * 1024, "free_bytes": 500 * 1024 ** 3}
+        args.update(kw)
+        return hlib.decide_save_snapshot(**args)
+
+    def test_every_verdict_snapshots_by_default(self):
+        for verdict in (hlib.VERDICT_PASS, hlib.VERDICT_PARSEK_FAIL,
+                        hlib.VERDICT_INVALID, hlib.VERDICT_EXPECTED_FAIL):
+            d = self._d(verdict=verdict)
+            self.assertTrue(d.snapshot, "%s must snapshot: %s" % (verdict, d.reason))
+            self.assertTrue(d.reason.startswith("every-verdict-default"))
+            self.assertIn(verdict, d.reason,
+                          "the reason must name the verdict it preserved")
+
+    def test_a_run_that_staged_no_save_has_nothing_to_preserve(self):
+        d = self._d(save_present=False)
+        self.assertFalse(d.snapshot)
+        self.assertEqual("no-produced-save", d.reason)
+
+    def test_a_spec_can_opt_out(self):
+        spec = {"id": "X", hlib.SAVE_SNAPSHOT_SPEC_SECTION:
+                {hlib.SAVE_SNAPSHOT_SPEC_KEY: False}}
+        d = self._d(spec=spec)
+        self.assertFalse(d.snapshot)
+        self.assertTrue(d.reason.startswith("spec-opt-out"))
+
+    def test_an_explicit_true_and_an_absent_block_both_snapshot(self):
+        """Opt-OUT, not opt-in: only the literal False refuses. A spec author
+        must never have had to predict that a run would be worth keeping."""
+        spec = {"id": "X", hlib.SAVE_SNAPSHOT_SPEC_SECTION:
+                {hlib.SAVE_SNAPSHOT_SPEC_KEY: True}}
+        self.assertTrue(self._d(spec=spec).snapshot)
+        self.assertTrue(self._d(spec={"id": "X"}).snapshot)
+        self.assertTrue(self._d(spec=None).snapshot)
+        self.assertTrue(self._d(spec={"id": "X",
+                                      hlib.SAVE_SNAPSHOT_SPEC_SECTION: {}}).snapshot)
+
+    def test_a_runaway_save_is_refused_by_the_size_cap(self):
+        d = self._d(save_bytes=hlib.SAVE_SNAPSHOT_MAX_BYTES + 1)
+        self.assertFalse(d.snapshot)
+        self.assertTrue(d.reason.startswith("size-cap"))
+        # Exactly at the cap still copies (the cap is a ceiling, not a fence).
+        self.assertTrue(self._d(save_bytes=hlib.SAVE_SNAPSHOT_MAX_BYTES).snapshot)
+
+    def test_the_copy_never_takes_the_disk_below_the_floor(self):
+        """The harness stages fixtures onto the same volume: a snapshot that
+        filled it would red every later run for an unrelated reason."""
+        # Under the size cap, so this is the disk rule and not the cap.
+        save = hlib.SAVE_SNAPSHOT_MAX_BYTES // 2
+        d = self._d(save_bytes=save,
+                    free_bytes=hlib.SAVE_SNAPSHOT_FREE_DISK_FLOOR_BYTES + save - 1)
+        self.assertFalse(d.snapshot)
+        self.assertTrue(d.reason.startswith("free-disk-floor"), d.reason)
+        # One byte more of headroom and the copy runs.
+        self.assertTrue(self._d(
+            save_bytes=save,
+            free_bytes=hlib.SAVE_SNAPSHOT_FREE_DISK_FLOOR_BYTES + save).snapshot)
+
+    def test_an_unmeasurable_fact_is_admitted_not_refused(self):
+        """A None size / free-space reading means the shell could not stat, not
+        that the save is huge. Losing the snapshot is the expensive outcome; a
+        copy that then fails on a full disk is a Warn that leaves the verdict
+        alone."""
+        self.assertTrue(self._d(save_bytes=None).snapshot)
+        self.assertTrue(self._d(free_bytes=None).snapshot)
+        self.assertTrue(self._d(save_bytes=None, free_bytes=None).snapshot)
+
+    def test_the_structural_refusals_outrank_the_disk_facts(self):
+        """A run with no save must read no-produced-save, never a size or disk
+        reason - the reason is what an operator hunting a missing snapshot
+        reads."""
+        d = self._d(save_present=False, save_bytes=None, free_bytes=0)
+        self.assertEqual("no-produced-save", d.reason)
+
+
+class SaveSnapshotRetentionTests(unittest.TestCase):
+    """hlib.select_save_snapshot_dirs_to_prune: results/ is gitignored and
+    nothing else prunes it, and a save snapshot is tens of MB. Retention is PER
+    SCENARIO - the reason to keep one is that it is the newest evidence for ITS
+    scenario."""
+
+    def _rows(self, *specs):
+        # (dir_name, scenario_id, mtime) -- no size term; the window is a count.
+        return list(specs)
+
+    def test_nothing_to_prune_inside_the_window(self):
+        rows = self._rows(("a_save", "S1", 1.0), ("b_save", "S1", 2.0))
+        self.assertEqual([], hlib.select_save_snapshot_dirs_to_prune(
+            rows, keep_per_scenario=3))
+
+    def test_oldest_first_past_the_window(self):
+        rows = self._rows(("a_save", "S1", 1.0), ("b_save", "S1", 2.0),
+                          ("c_save", "S1", 3.0), ("d_save", "S1", 4.0))
+        self.assertEqual(["a_save", "b_save"],
+                         hlib.select_save_snapshot_dirs_to_prune(
+                             rows, keep_per_scenario=2))
+
+    def test_one_scenario_never_evicts_another(self):
+        """The whole reason retention is per scenario: a global newest-N window
+        would let a busy scenario delete the only copy another scenario has."""
+        rows = self._rows(("a_save", "BUSY", 5.0), ("b_save", "BUSY", 6.0),
+                          ("c_save", "BUSY", 7.0), ("d_save", "BUSY", 8.0),
+                          ("rare_save", "RARE", 1.0))
+        prune = hlib.select_save_snapshot_dirs_to_prune(rows, keep_per_scenario=2)
+        self.assertNotIn("rare_save", prune)
+        self.assertEqual(["a_save", "b_save"], prune)
+
+    def test_the_current_run_is_always_kept(self):
+        """The current run's snapshot is the newest of its scenario, so it heads
+        the window and the oldest falls out."""
+        rows = self._rows(("cur_save", "S1", 9.0), ("a_save", "S1", 8.0),
+                          ("b_save", "S1", 7.0))
+        prune = hlib.select_save_snapshot_dirs_to_prune(
+            rows, protect_name="cur_save", keep_per_scenario=2)
+        self.assertNotIn("cur_save", prune,
+                         "the run that just took its snapshot must never prune it")
+        self.assertEqual(["b_save"], prune,
+                         "the protected dir counts toward its scenario window")
+
+    def test_a_protected_dir_survives_even_when_the_window_is_already_full(self):
+        """The protection is absolute, not a tiebreak: a clock skew that dated
+        the current run behind its neighbours must not delete the snapshot the
+        run just took."""
+        rows = self._rows(("cur_save", "S1", 1.0), ("a_save", "S1", 8.0),
+                          ("b_save", "S1", 9.0))
+        prune = hlib.select_save_snapshot_dirs_to_prune(
+            rows, protect_name="cur_save", keep_per_scenario=2)
+        self.assertEqual([], prune)
+
+    def test_an_unattributable_dir_is_never_pruned_by_another_scenario(self):
+        """Deletion fails closed: a snapshot whose scenario could not be read
+        (no result JSON) buckets alone, so a busy neighbour budget can never
+        take it."""
+        rows = self._rows(("a_save", "S1", 1.0), ("b_save", "S1", 2.0),
+                          ("c_save", "S1", 3.0), ("orphan_save", "", 0.5))
+        prune = hlib.select_save_snapshot_dirs_to_prune(rows, keep_per_scenario=1)
+        self.assertNotIn("orphan_save", prune)
+        self.assertEqual(["a_save", "b_save"], prune)
+
+    def test_two_unattributable_dirs_do_not_share_a_bucket(self):
+        rows = self._rows(("o1_save", "", 1.0), ("o2_save", "", 2.0),
+                          ("o3_save", "", 3.0))
+        self.assertEqual([], hlib.select_save_snapshot_dirs_to_prune(
+            rows, keep_per_scenario=1))
+
+    def test_the_default_window_is_the_module_constant(self):
+        rows = self._rows(*[("s%d_save" % i, "S1", float(i))
+                            for i in range(hlib.SAVE_SNAPSHOT_KEEP_PER_SCENARIO + 1)])
+        prune = hlib.select_save_snapshot_dirs_to_prune(rows)
+        self.assertEqual(["s0_save"], prune)
+
+
+class StaleSaveSnapshotTmpSweepTests(unittest.TestCase):
+    """hlib.select_stale_save_snapshot_tmp_dirs_to_sweep: the copy lands in
+    <runId>_save.harness-tmp and is renamed, so a run KILLED mid-copy leaves a
+    tmp dir the per-scenario retention never sees (it does not end in _save) and
+    only a rerun of the same runId would overwrite. This sweep is its only
+    reaper, and it is NAME-gated so it can never take anything else."""
+
+    SUFFIX = hlib.SAVE_SNAPSHOT_DIR_SUFFIX + hlib.SAVE_SNAPSHOT_TMP_SUFFIX
+
+    def test_a_stale_tmp_dir_is_swept(self):
+        self.assertEqual(["r1" + self.SUFFIX],
+                         hlib.select_stale_save_snapshot_tmp_dirs_to_sweep(
+                             ["r1" + self.SUFFIX]))
+
+    def test_the_current_runs_own_tmp_dir_is_never_swept(self):
+        """It may be a copy IN PROGRESS -- the pass runs from the same run's
+        failure branch -- so the protection is unconditional."""
+        mine = "cur" + self.SUFFIX
+        names = [mine, "other" + self.SUFFIX]
+        self.assertEqual(["other" + self.SUFFIX],
+                         hlib.select_stale_save_snapshot_tmp_dirs_to_sweep(
+                             names, protect_name=mine))
+
+    def test_nothing_but_the_tmp_name_shape_is_ever_selected(self):
+        """The gate is the whole point: this runs over EVERY directory name
+        under results/, so a shots dir, a finished snapshot, a contact sheet or
+        a JSON must all be invisible to it."""
+        names = ["r1_save", "r1_shots", "r1.json", "contact-sheets",
+                 "r1_shots.harness-tmp", "r1_saves.harness-tmp",
+                 "_save.harness-tmp", "r1_save.harness-tmp.bak",
+                 "r1" + self.SUFFIX]
+        self.assertEqual(["r1" + self.SUFFIX],
+                         hlib.select_stale_save_snapshot_tmp_dirs_to_sweep(names))
+
+    def test_a_bare_suffix_with_no_run_id_is_not_swept(self):
+        """Deletion fails closed on a name that cannot have come from the
+        <runId> + suffix construction."""
+        self.assertEqual([], hlib.select_stale_save_snapshot_tmp_dirs_to_sweep(
+            [self.SUFFIX]))
+
+    def test_the_order_is_deterministic(self):
+        names = ["c" + self.SUFFIX, "a" + self.SUFFIX, "b" + self.SUFFIX]
+        self.assertEqual(["a" + self.SUFFIX, "b" + self.SUFFIX, "c" + self.SUFFIX],
+                         hlib.select_stale_save_snapshot_tmp_dirs_to_sweep(names))
+
+    def test_no_names_is_no_work(self):
+        self.assertEqual([], hlib.select_stale_save_snapshot_tmp_dirs_to_sweep([]))
+
+
+class HarvestSpecBlockValidationTests(unittest.TestCase):
+    """The optional [harvest] block (the produced-save snapshot opt-out) is
+    typed at validation: a spec that MEANT to opt out and misspelled the key
+    would otherwise find a snapshot in results/ and no explanation."""
+
+    def _spec(self, harvest):
+        spec = {
+            "schema": hlib.SCHEMA_VERSION, "id": "H-x", "tier": "daily",
+            "instanceProfile": "stock-minimal",
+            "fixture": {"saveTemplate": "fixtures/saves/fresh-career",
+                        "injectedRecordings": "none", "craft": []},
+            "driver": {"kind": "seam", "steps": [
+                {"cmd": "LoadGame", "args": {"save": "${runSave}", "name": "persistent"},
+                 "expect": "OK", "budget": 30},
+                {"cmd": "FlushAndQuit", "expect": "OK"}]},
+            "expectations": {"recordings": {"count": {"min": 0, "max": 0}},
+                             "logContracts": {"required": [], "forbidden": []},
+                             "allowedAnomalies": []},
+            "runtime": {"budgetSeconds": 600},
+            "retry": {"policy": "once"},
+            "expectedFail": {"bugId": ""},
+        }
+        if harvest is not None:
+            spec[hlib.SAVE_SNAPSHOT_SPEC_SECTION] = harvest
+        return spec
+
+    def _errors(self, harvest):
+        return [e for e in hlib.validate_spec(self._spec(harvest), {"schema": 1},
+                                              bug_ids=[]).errors
+                if e.startswith(hlib.SAVE_SNAPSHOT_SPEC_SECTION)]
+
+    def test_absent_and_boolean_blocks_validate(self):
+        self.assertEqual([], self._errors(None))
+        self.assertEqual([], self._errors({}))
+        self.assertEqual([], self._errors({hlib.SAVE_SNAPSHOT_SPEC_KEY: False}))
+        self.assertEqual([], self._errors({hlib.SAVE_SNAPSHOT_SPEC_KEY: True}))
+
+    def test_an_unknown_key_rejects(self):
+        errs = self._errors({"snapshotSave": False})
+        self.assertEqual(1, len(errs), errs)
+        self.assertIn("unknown key", errs[0])
+
+    def test_a_non_boolean_value_rejects(self):
+        errs = self._errors({hlib.SAVE_SNAPSHOT_SPEC_KEY: "false"})
+        self.assertEqual(1, len(errs), errs)
+        self.assertIn("must be a boolean", errs[0])
+
+    def test_no_committed_spec_declares_the_block(self):
+        """The default is SNAPSHOT, and no committed spec opts out. This cell is
+        the tripwire: if one ever does, the operator reading a missing snapshot
+        should find the opt-out named here rather than hunt run.py."""
+        declared = []
+        for path in sorted(glob.glob(os.path.join(_save_snapshot_scenarios_dir(),
+                                                  "*.toml"))):
+            with open(path, "rb") as fh:
+                spec = tomllib.load(fh)
+            if hlib.SAVE_SNAPSHOT_SPEC_SECTION in spec:
+                declared.append(os.path.basename(path))
+        self.assertEqual([], declared,
+                         "these specs declare [%s]; if that is deliberate, update "
+                         "this cell and harness/README.md"
+                         % hlib.SAVE_SNAPSHOT_SPEC_SECTION)

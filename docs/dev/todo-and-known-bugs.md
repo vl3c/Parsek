@@ -2878,7 +2878,40 @@ own committed `RECORDING_TREE` bytes, reads Eligible with two stops (source B, d
 The defect is that the bytes were wrong and would have been load-bearing on any tree that did
 NOT root at KSC.
 
-## HARNESS-SUITE-REWRITES-TRACKED-DURATION-JSON: running the harness `lib` suite dirties the committed `harness/coverage/duration.json` [FOUND 2026-09-02 while running the suites for the origin-proof wave. OPEN, NOT FIXED BY DECISION - filed so the dirty file is recognised rather than investigated]
+## ~~HARNESS-SUITE-REWRITES-TRACKED-DURATION-JSON: running the harness `lib` suite dirties the committed `harness/coverage/duration.json`~~ [FOUND 2026-09-02 while running the suites for the origin-proof wave. FIXED 2026-09-06 as hygiene, on the operator's call to fix it rather than keep passing through it]
+
+**FIXED - by an injectable seam, not by weakening the cell.**
+`refresh_coverage_and_flake` and `load_all_results` now take optional
+`coverage_dir` / `results_dir` arguments defaulting to the module constants, and
+`DurationLedgerIoTests` drives the real read / merge / write path through those
+against a temp directory. What the class measures is UNCHANGED and in one place
+STRONGER: `test_the_real_committed_ledger_merges_instead_of_being_replaced`
+copies the REAL committed `duration.json` into the temp coverage dir and asserts
+every measured scenario survives a one-scenario refresh with its sample count
+intact - so the merge is still proved against production bytes, not a
+hand-written two-entry stub. A seam beats monkeypatching the globals: a cell that
+raises between patch and restore would leave every later cell pointed at a temp
+dir.
+
+Two cells pin the hygiene itself, so it cannot regress:
+`test_a_refresh_through_the_seams_leaves_the_committed_ledger_untouched`
+(sha256 before and after one full refresh) and a `tearDownClass` guard that
+compares the committed file's digest across the whole class and names the seams
+in its failure message. `git status` is clean after
+`cd harness && python -m unittest discover -s lib -q`.
+
+A note on the ORIGINAL diagnosis, kept because it is the interesting part: the
+mechanism below named `run.COVERAGE_DIR` as what the cell "reaches through", but
+the class had ALREADY redirected `run.COVERAGE_DIR` to a temp dir in `setUp`
+since 2026-07-26 (commit 657a03faf, months before this entry was filed). Measured
+on 2026-09-06 at `ddcca3292`: the full `lib` suite leaves
+`harness/coverage/duration.json` byte-identical AND mtime-identical. So the
+observed dirty file on 2026-09-02 came from something else that was never
+identified - most likely a real `run.py` invocation in that session, which writes
+the ledger by design. The filed mechanism was misattributed; the seam work above
+stands on its own as the guarantee that the SUITE can never be the cause.
+
+ORIGINAL ENTRY BELOW.
 
 `cd harness && python -m unittest discover -s lib -q` leaves
 `harness/coverage/duration.json` MODIFIED in `git status` every time. The writer is
@@ -7431,7 +7464,64 @@ of the seam steps closes the window, because the re-resume happens before any st
 can run.
 
 ---
-## HARNESS-PRODUCED-SAVE-CLOBBERED-BY-SIBLING-RUN: the machine lock serialises RUNS, not the produced save, so a finished green flight's output is destroyed by the next run that shares its `saveTemplate` leaf [FOUND 2026-08-12 while harvesting `eeloo-orbit-recorded` from `B21-eeloo-orbit`. A HARNESS LIFECYCLE GAP, not a Parsek defect - the lock is doing exactly what it says]
+## ~~HARNESS-PRODUCED-SAVE-CLOBBERED-BY-SIBLING-RUN: the machine lock serialises RUNS, not the produced save, so a finished green flight's output is destroyed by the next run that shares its `saveTemplate` leaf~~ [FOUND 2026-08-12 while harvesting `eeloo-orbit-recorded` from `B21-eeloo-orbit`. FIXED 2026-09-06 after it bit again the same week, with two sessions sharing the machine. A HARNESS LIFECYCLE GAP, not a Parsek defect - the lock was doing exactly what it says]
+
+**FIXED by OWNERSHIP, at the source.** `run.py` now copies the produced save into
+`results/<runId>_save/` as phase 10 of the run - after the verifier chain and
+collect-logs, and BEFORE the machine lock is released. Every finished run
+therefore owns its bytes, and a sibling's staging `rmtree` can no longer take the
+harvest source away. Naming mirrors the `*_shots` convention (the runId already
+carries the scenario id). The whole save directory goes: `persistent.sfs` plus
+the `Parsek/` sidecar tree.
+
+Extending the LOCK past run end was rejected: it would hold the machine for as
+long as a harvest might take, unbounded and unattended. Of the three options
+listed at the bottom of this entry, none was taken either - (a) a per-run save
+directory touches every consumer that resolves a produced save by leaf, (b)
+rename-on-supersede survives exactly one generation, and (c) a WARN makes the
+destruction visible without preventing it.
+
+Shape:
+- `hlib.decide_save_snapshot` (pure) - SNAPSHOT ON EVERY VERDICT by default; a
+  PARSEK-FAIL save is the only copy of the state that produced the failure. Named
+  refusals only: `no-produced-save`, `spec-opt-out` (`[harvest]
+  snapshotProducedSave = false`; no committed spec declares it, pinned by a
+  tripwire cell), `size-cap` (2 GiB), `free-disk-floor` (5 GiB). An UNMEASURABLE
+  disk fact is admitted, not refused.
+- `hlib.select_save_snapshot_dirs_to_prune` (pure) - retention keeps the newest 3
+  `*_save` dirs PER SCENARIO (a global window would let a busy scenario evict
+  another's only copy), always protecting the current run's; a snapshot whose
+  scenario cannot be read buckets alone, so deletion fails closed. Touches
+  nothing but `results/*_save/`.
+- `hlib.select_stale_save_snapshot_tmp_dirs_to_sweep` (pure) - the same retention
+  pass sweeps orphaned `results/<runId>_save.harness-tmp` dirs. Retention above
+  never sees them (they do not end in `_save`) and only a rerun of the SAME runId
+  would overwrite one, so a run killed mid-copy would otherwise leak a whole
+  save's worth of bytes forever. NAME-gated (`<runId>` + `_save` +
+  `.harness-tmp` exactly) and it spares the current run's own tmp name, since the
+  pass can run while that copy is still being written.
+- `run.py::_snapshot_produced_save` (shell) - copies to a `.harness-tmp` name and
+  renames, so a kill mid-copy leaves no partial directory a harvest would read as
+  whole. Failure-isolated: a copy failure is a Warn with `ran=false` and never
+  moves the verdict. Records `snapshot: {ran, path, bytes, files, reason}` in the
+  result JSON next to `collectLogs` and logs one `[Harness][Info][Snapshot]` line
+  either way.
+
+**The mitigation below is retired**, and `harvest_bdock_station.py --save-dir`
+now names the snapshot as the preferred source: chaining a `cp -r` into the same
+command as the run was always a race the run itself could win earlier, and now
+does. The instance save still works and is what to use when a run's
+`snapshot.reason` says the copy was skipped.
+
+Tests: `SaveSnapshotPolicyTests` + `SaveSnapshotRetentionTests` +
+`HarvestSpecBlockValidationTests` (pure, `harness/lib/test_hlib.py`) and
+`ProducedSaveSnapshotSmokeTests` (`harness/lib/test_run_smoke.py`), which drives
+the fake KSP end to end and asserts the copied files, the result-JSON block, a
+copy failure leaving the verdict intact, and retention pruning only same-scenario
+`_save` dirs. Docs: `harness/README.md` -> "The produced-save snapshot";
+`docs/dev/design-autotest-harness-core.md` phase 10.
+
+ORIGINAL ENTRY BELOW.
 
 **What happened.** `B21-eeloo-orbit` flew green twice on 2026-08-12. The FIRST green
 run, `2026-08-12_2003` (PASS attempt 1, wall 3,083 s, ~51 minutes of real flight), had
