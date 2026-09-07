@@ -1457,8 +1457,11 @@ never be declared on either. A `W` lane may therefore SHARE a host with an
 existing lane - `V24W-duna-one-warp-stair` observes the same flight map V2 does -
 because what distinguishes it is not where it watches from but how its clock
 moves. **The first committed `W` lane is `V24W-duna-one-warp-stair`** (authored
-2026-08-25, never flown, reading run pending; status row in
-`autotest-status.md`), over `fixtures/saves/duna-one-recorded`, the harvest of
+2026-08-25, never flown, reading run pending when written; DISCIPLINE-COMPLETE
+2026-08-25 across six flights - readings `_1415` / `_1502` / `_1616`, armed
+re-flights `_1722` / `_1811`, negative control `_1925` - and LIVE-PROVEN in
+`autotest-status.md`, D14 `warp-rails` claimed at arming), over
+`fixtures/saves/duna-one-recorded`, the harvest of
 the first free-play ground-truth session. `V24M` / `V24T` / `V24K` are reserved
 alongside it and unused; a second warp-schedule subject should take the next free
 number with a `W`, not a second suffix letter.
@@ -1469,7 +1472,9 @@ open PRs before authoring and renumber only if one already claims an id. It take
 the ORDINARY `M` suffix and mints nothing, because what makes it a distinct
 subject is the RECORDING rather than the host or the drive shape. **The first
 committed V25 lane is `V25M-duna-park-player-loop`** (authored 2026-08-26, never
-flown, reading run pending; status row in `autotest-status.md`), over
+flown, reading run pending when written; ARMED on `renderComposition` the same day
+off readings `2026-08-26_1744` / `_1817` / `_1823`, armed re-flight `_1837` PASS,
+negative control `_1839`; LIVE-PROVEN in `autotest-status.md` as of 2026-09-07), over
 `fixtures/saves/duna-park-recorded` - the SECOND payload stripped out of the same
 visually-validated s15 free-play save that gave `duna-one-recorded`, and disjoint
 from it. It is **re-aim's second departure class**: every prior re-aim subject in
