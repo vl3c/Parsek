@@ -101,9 +101,44 @@ id = "V3C-flight-arrival-companion"
 #     Ike-clear lever is the AIMED ARRIVAL PERIAPSIS: >= ~4,300 km alt
 #     (high band, what run 4 flew naturally) or <= ~1,600 km alt (low
 #     band, ~135 km inside the shell's inner edge) - a follow-up flight.
+#   SEAM INSTANT RESOLVED (2026-09-07, v3c-seam-instant; the roadmap section
+#   "The re-aim seam instant (V3C): the co-location decision" is the design
+#   record). Re-reading run 3 attempt 1 (_0747, collected as
+#   logs/2026-08-08_1102_V3C-flight-arrival-companion) frame by frame around
+#   the seam refuted the ZONE WALL paragraph above on three counts:
+#   - THE CORRIDOR NEVER EXISTED: every dist[] sample coincides with a
+#     '[Zone] ... beyond visual range (...) but exempt during warp (orbital
+#     ghost)' line at render distances of 55.9-163.6 Mm. The trace fired
+#     because the #171 warp exemption (zone Beyond + warp > 1x + orbit
+#     segments) lifts the 120 km hide; that gate binds ONLY at 1x, and the
+#     x413 hidden-by-zone GuardSkips all sit in the 1x planning windows.
+#   - THE GATE AT THE SEAM WAS THE WARP HIDE: the seam (28,781,184.52,
+#     confirmed by this run's icon bounds=[24396029.0,28781184.5]) was
+#     crossed at 10,000x with GuardSkip reason=unit-member-warp-hidden (x46),
+#     from suppressGhosts = !mapViewEnabled && warp > 50x (WarpThresholds.
+#     GhostHide); engine-frame-iter read hs=F [out:none] for the whole coast,
+#     so nothing was positioned and neither instrument could run. A zone-relax
+#     aid would have changed nothing at that frame (option 2 not built);
+#     a to-the-second co-departure needs ~13 s launch timing and ~0.03 m/s
+#     velocity agreement against a 1,500 s margin and a 2.0 m/s burn cutoff
+#     (option 1 not achievable).
+#   - MAP VIEW LIFTS IT: suppressGhosts is false whenever MapView.MapIsEnabled
+#     (#290, ghosts stay positioned at any warp for the map markers), and the
+#     warp exemption covers the zone hide, so a flight-scene observer with the
+#     map OPEN under rails warp keeps the far loop ghost positioned through the
+#     seam instant at any distance. Hence the EnterMapView step below and the
+#     REQUIRED '[ReaimSeam] SEAM ... body=Duna' anti-vacuity token.
+#   RATE ARITHMETIC for reading the Tier-C verdict: the teleport threshold is
+#   max(1,000 km, (bodySpeed + 15 km/s) * dt * 4). At 10,000x and the instance's
+#   measured 60 fps (dt ~167 s) it is ~14.8 Mm, so the ~49 Mm seam jump raises
+#   loop-seam-teleport; at 100,000x (dt ~1,667 s) it is ~148 Mm and the jump
+#   reads as expected motion, so only the SEAM line reports it. _0747 crossed
+#   the seam at 10,000x (KSP's WarpTo ramp), so the GS-3 red is EXPECTED but
+#   depends on the ramp on the day; the SEAM line's jump= value is the
+#   rate-independent measurement.
 # =====================================================================================
 tier = "operator"
-description = "COMPANION FLIGHT: the flown B17 pad-align Duna mission flies a fresh DD1 while the injected looped-interplanetary recording replays ENGAGED re-aim alongside - the only shape that reaches the flight-engine seam surface (a parked observer is hidden-by-zone before positioning). ghostRenderTracing + the loop-seam-teleport Tier-C instrument armed; the known ~62-deg handoff teleport is the EXPECTED red on this reading run."
+description = "COMPANION FLIGHT: the flown B17 pad-align Duna mission flies a fresh DD1 while the injected looped-interplanetary recording replays ENGAGED re-aim alongside, with the MAP OPEN for the whole flight (EnterMapView before the mission phase) so the flight engine keeps the far loop ghost positioned through the Sun->Duna seam instant under rails warp (map view lifts the >50x warp hide, the #171 warp exemption lifts the 120 km zone hide - the 2026-09-07 co-location decision, roadmap section). ghostRenderTracing + the loop-seam-teleport Tier-C instrument armed; the [ReaimSeam] SEAM body=Duna line is REQUIRED (anti-vacuity), and the known ~62-deg handoff teleport is the EXPECTED red on this reading run when the seam frame rides <= 10,000x."
 instanceProfile = "stock-minimal"
 tags = ["V3", "flight-arrival", "companion", "reaim", "interplanetary", "pending-flight", "reading-iteration"]
 
@@ -148,14 +183,22 @@ steps = [
   # craft flies alongside the engaged replay - the co-flight corridor that
   # produced this spec's dist[] sampling (x56 on run 3).
   { cmd = "TimeJump", args = { ut = "23000000" },  expect = "OK", budget = 300 },
+  # THE CO-LOCATION DECISION (2026-09-07, header ledger + roadmap section): open
+  # the MAP before the mission phase and leave it open. With MapView.MapIsEnabled
+  # the engine's suppressGhosts (= !mapViewEnabled && warp > 50x) is false, so the
+  # coast at 10,000x-100,000x no longer skips the loop member as
+  # unit-member-warp-hidden (the gate that hid the seam on _0747), and under
+  # warp > 1x the #171 exemption keeps a Beyond-zone orbital ghost positioned,
+  # so both seam instruments (inside PositionFromOrbit) run at the seam frame at
+  # any distance. The mission machine is camera-agnostic (kRPC + MechJeb; the
+  # mid-mission pad-align TimeJump touches warp, never the map). Budget as B32.
+  { cmd = "EnterMapView",                                                    expect = "OK", budget = 120 },
   { phase = "mission",  expect = "MISSION-OK", budget = 4200 },
-  # NO post-mission seam bracket: the arrival seam is UNOBSERVABLE from any
-  # Duna park (the 120 km zone wall - see the header ledger), so bracket
-  # steps here would imply a measurement they cannot make. This spec's
-  # measured value is the CO-FLIGHT coast corridor (dist[] sampling while
-  # the live craft rides inside the ghost's 120 km zone) plus the
-  # encounter-closure evidence; the seam-instant observation needs the
-  # co-location redesign named in the header.
+  # NO post-mission seam bracket: the arrival seam is crossed MID-MISSION
+  # (28,781,184.52, ~435 ks before the commit) with the map open, which is
+  # where this spec measures it; the required SEAM token below is the
+  # anti-vacuity pin, and a post-park bracket would be a backward TimeJump the
+  # seam refuses (the forbidden token below).
   { cmd = "FlushAndQuit",                                                    expect = "OK" },
 ]
 
@@ -331,6 +374,7 @@ tombstones    = { max = 0 }
 
 [expectations.logContracts]
 # Reading-run pins:
+#   the seam-instant anti-vacuity token (the [ReaimSeam] SEAM line, see below);
 #   the loop-arm evidence (missionconfig applied / SetLoopEnabled);
 #   the mode evidence: ReaimDiag classify + the ENGAGED line for the injected
 #     member (no mission-name prefix: the injected tree's default mission
@@ -343,6 +387,14 @@ required  = [
   "SetLoopEnabled: loop ON",
   "\\[ReaimDiag\\] mission=",
   "ENGAGED re-aim Kerbin->Duna via Sun",
+  # THE ANTI-VACUITY PIN (2026-09-07): the [ReaimSeam] trace logs a SEAM line
+  # only on the frame where the positioned ghost's orbit segment changes, and
+  # body= names the segment ENTERED, so this token is satisfiable only if the
+  # engine positioned the ghost on both sides of the Sun->Duna handoff. A run
+  # that never reached the seam surface (the V3F/V3R/_0747 lesson) reads as a
+  # mismatch here instead of a clean bill. The jump= value on the matched line
+  # is the rate-independent seam measurement.
+  "\\[ReaimSeam\\] SEAM member=0 seg#[0-9]+->[0-9]+ body=Duna",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",

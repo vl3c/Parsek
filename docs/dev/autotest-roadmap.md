@@ -2394,6 +2394,102 @@ Phase 3 wants one committed loop lane per road (phase-lock, re-aim,
 faithful), all of which exist today, so it can start any time and every gap
 entry above gets a stronger confirmation bar once it lands.
 
+### The re-aim seam instant (V3C): the co-location decision, 2026-09-07
+
+`V3C-flight-arrival-companion` was the last row in `autotest-status.md`'s "Committed,
+not yet green" table, parked on "the seam-instant observation needs a co-location
+design (to-the-second co-departure, or a temporary zone-relax debug aid in the
+MapRenderWarpControl mold) - a design decision, not a parameter". This section is
+that decision. It was taken by re-reading the run-3 attempt-1 log (`2026-08-08_0747`,
+collected as `logs/2026-08-08_1102_V3C-flight-arrival-companion`; the same spec as the
+`_0802` PASS, which kept no log) frame by frame around the arrival seam, and the
+reading REFUTES THE PREMISE both named options were built on. Three measured facts:
+
+1. **The co-flight corridor never existed.** The header's "dist[] x56 with the live
+   craft inside the ghost's 120 km corridor" is wrong. Every `[ReaimSeam] member=0`
+   sample in `_0747` coincides with a `[Zone] ... beyond visual range (NNNm render
+   distance) but exempt during warp (orbital ghost)` line at the SAME wall second, at
+   render distances of 55.9 Mm (10:50:40), 104.4 Mm (10:55:02) and 163.6 Mm
+   (10:57:25). The trace fired because the #171 WARP EXEMPTION
+   (`GhostPlaybackLogic.ShouldApplyWarpZoneHideExemption`: `zone == Beyond && warp > 1x
+   && HasOrbitSegments`) lifted the zone hide, not because the observer was inside
+   `GhostVisualRangeMeters`. The 120 km gate binds ONLY at 1x. The hidden-by-zone
+   GuardSkips (x413) all sit in the 1x planning windows between warp legs.
+2. **The seam instant was crossed at 10,000x with the ghost skipped by the WARP HIDE,
+   not the zone gate.** `Time warp rate changed to 10000.0x at UT=24628151` (10:57:31)
+   through `100000.0x at UT=29080254` (10:58:16) brackets the cycle-0 arrival seam
+   28,781,184.52 (this run's own icon driver prints `bounds=[24396029.0,28781184.5]`
+   and `windowUT=28781184.52-28813228.47`, so the header arithmetic is confirmed off
+   the run's bytes). In that window the loop member's only GuardSkip reason is
+   `unit-member-warp-hidden` (x46; `mission-loop-unit-inactive` x105 is the
+   post-span inter-cycle wait), raised by `GhostPlaybackEngine`'s unit-member path
+   from `suppressGhosts = !ctx.mapViewEnabled && warp > WarpThresholds.GhostHide`
+   (50x). `engine-frame-iter` reads `hs=F [out:none]` for the whole coast: no
+   playback state, nothing positioned, so neither `[ReaimSeam]` nor
+   `TrackLoopSeamTeleport` (both live inside `IGhostPositioner.PositionFromOrbit`)
+   could run. A zone-relax override would have changed NOTHING at that frame.
+3. **Map view lifts the gate that actually bit, and the warp exemption lifts the other
+   one.** `suppressGhosts` is false whenever `MapView.MapIsEnabled` (#290: ghosts stay
+   positioned at any warp so map markers track), and under warp > 1x the Beyond-zone
+   hide is exempt (fact 1). So a flight-scene observer in MAP VIEW under rails warp
+   keeps a far orbital loop ghost positioned every frame, at any distance, through a
+   seam instant. Both product paths exist today; V3F/V3R dwelt the map camera at 1x
+   (fact 1's gate) and V3C flew the coast in flight view at > 50x (fact 2's gate), so
+   no flown lane had ever had both lifted at once.
+
+**Option 1, to-the-second co-departure: not achievable, by two orders of magnitude on
+each axis.** Along-track: two craft on the same transfer separate by their departure
+offset times the heliocentric speed (~9.3 km/s), so 120 km at the seam needs the live
+ejection within ~13 s of the recorded one; the pad-align machine's timing budget is
+`padAlignMarginSeconds = 1500` plus ascent and circularize variance plus MechJeb's
+ASAP burnUT anywhere inside one ~2,000 s park orbit, and `_0747` measured the
+resulting offset as 55.9 Mm of separation 43 ks after the ghost's Kerbin exit.
+Cross-track: 120 km after the recorded tof of 4,385,155 s is a velocity agreement of
+0.027 m/s, against `correctionCutDvMps = 2.0` and correction rounds that aim at DUNA's
+periapsis, not at the ghost. Closing either gap would need a new guidance mode that
+targets the ghost's state vector, for a measurement fact 3 gives away for free.
+
+**Option 2, the env-gated zone-relax aid: refuted by fact 2, so not built.** The hook
+would have widened `RenderingZoneManager.ClassifyDistance` / `ApplyDistanceLodPolicy`
+(the two readers of `GhostVisualRangeMeters` and `LoopSimplifiedMeters` on the
+positioning path; `ComputeTerrainClearance` is the third reader and would have to be
+excluded). At the observed seam frame the zone hide was already exempt and the warp
+hide was the blocker, so the aid measures nothing the co-flight needs. It would
+matter only for a 1x observer, and a cheaper zero-product-change route exists there
+too: `m3_loop_arrival_dwell`'s optional `dwellRampFactors` rails stair (declared by
+V1 and V24W, never by V3F/V3R) inside the map camera lifts both gates without touching
+`Source/`. The `MapRenderWarpControl` mold itself is gone (removed 2026-08-29 per its
+own banner: a gameplay-affecting aid must not ship even behind a default-off const),
+and its `ParsekConfig.cs` epitaph says a future aid starts fresh; nothing here needs
+one. Recorded as an option, not a plan.
+
+**Decision: option 3, no product change.** V3C adds one seam step, `EnterMapView`,
+immediately before the mission phase, so the whole co-flight runs with the map open;
+the mission machine (kRPC + MechJeb) is camera-agnostic, `TimeJumpManager.ExecuteJump`
+touches warp but never the map, and the runner's only camera write is V1's map action.
+The lane then measures, at the seam instant: the raw handoff discontinuity (the
+`[ReaimSeam] SEAM member=0 seg#A->B body=Duna ... jump=Nm` verbose line, now a REQUIRED
+token so a run that never positioned the ghost at the seam reads as a mismatch rather
+than a clean bill), and the Tier-C `loop-seam-teleport` verdict. Rate arithmetic the
+reading must be read against: the instrument's threshold is `max(1,000 km,
+(bodySpeed + 15 km/s) * dt * 4)`; at 10,000x and the instance's measured 60 fps (frames
+40072 -> 40132 in 1.007 s) dt is ~167 s and the threshold ~14.8 Mm, so the ~49 Mm seam
+jump raises; at 100,000x the threshold is ~148 Mm and the same jump is expected motion,
+so only the SEAM line reports it. `_0747` crossed the seam at 10,000x (KSP's `WarpTo`
+ramp), so the GS-3 red is expected but is a function of the ramp on the day. What the
+lane does NOT measure: player-real zone behavior at 1x (V3F/V3R characterized it:
+`hidden-by-zone` before positioning), the flight-camera mesh (the map is open), and
+the cycle-0 DEPARTURE seam at D0 = 24,396,029 (crossed while the live craft is still
+on the pad or ascending; whether the ghost is positioned there depends on the warp
+state at that instant and is read off the flight, not assumed).
+
+The falsifiable claim, before the flight: with the map open, the `_0747` timeline
+predicts zero `unit-member-warp-hidden` GuardSkips during the coast, `engine-frame-iter`
+`hs=T` through UT 28,813,228, one `[ReaimSeam] SEAM ... body=Duna` line, and a
+`loop-seam-teleport` raise iff the seam frame's warp rate is <= 10,000x. If the coast
+still shows `hs=F`, the cause is a third gate this reading did not name, and the lane
+stays a finding about reach.
+
 ### The induction caveat (why classes must be flown, not argued)
 
 The moon-to-moon program is the standing exhibit: THREE render behaviors nobody
