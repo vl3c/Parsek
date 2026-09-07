@@ -19,9 +19,13 @@ Covered here (design docs/dev/design-autotest-harness-core.md):
     ``plan_unmet_mission_tail`` + ``spec_skips_tail_on_unmet_mission``)
   - expectations evaluation (``evaluate_expectations``)
   - the in-game batch anti-vacuity gate (``batch_contract_vacuity_gap`` +
-    ``vacuous_batch_complete_probes``), enforced by ``validate_spec``
+    ``vacuous_batch_complete_probes``), enforced by ``validate_spec``; for a
+    MULTI-category selector it is applied per constituent
+    (``parse_batch_selector_categories`` + ``selector_has_malformed_tokens`` +
+    ``resolve_batch_tally_pins_by_category``)
   - the batch-tally SOURCE-SYNC gate (``parse_ingame_test_declarations`` +
-    ``derive_batch_tally`` + ``resolve_batch_tally_pin`` +
+    ``derive_batch_tally`` + ``resolve_batch_tally_pin`` /
+    ``resolve_batch_tally_pins_by_category`` +
     ``batch_tally_pin_mismatches``): the pure half of the check that a spec's
     pinned ``total=``/``skipped=`` still agrees with the C# ``[InGameTest]``
     attributes. Enforced by a test-suite sweep, not ``validate_spec`` -- the
@@ -1118,6 +1122,76 @@ def is_multi_category_selector(selector: Optional[str]) -> bool:
     return s == "all" or "," in s
 
 
+def parse_batch_selector_categories(selector: Optional[str]) -> List[str]:
+    """The constituent categories a RunTests/autorun selector names, in order.
+
+    The wire form is what the C# seam splits on: a comma list, whitespace around a
+    token ignored. Returns:
+
+      - ``[]`` for None / empty / whitespace-only (no batch, or the RunAll shape a
+        spec expresses by omitting the arg entirely);
+      - ``["all"]`` for the literal RunAll token. It is returned as a one-element
+        list so callers can treat every selector uniformly, but it is NEVER an
+        enumeration: "all" is whatever the assembly declares at run time, which is
+        why validate_spec refuses it on a batch-owning spec. Compare against
+        ``INGAME_RUNALL_CATEGORY`` before reading the list as constituents.
+      - the stripped, non-empty tokens in declaration order otherwise. Order is
+        preserved (not sorted, not de-duplicated) because it is the order the
+        runner executes the batches in and the order an error message should name
+        them in; ``selector_has_malformed_tokens`` is what rejects a duplicate.
+    """
+    if not selector:
+        return []
+    s = str(selector).strip()
+    if not s:
+        return []
+    if s == INGAME_RUNALL_CATEGORY:
+        return [INGAME_RUNALL_CATEGORY]
+    return [tok.strip() for tok in s.split(",") if tok.strip()]
+
+
+def selector_has_malformed_tokens(selector: Optional[str]) -> Optional[str]:
+    """Why ``selector`` is a malformed comma list, or None when it is well formed.
+
+    Truthy exactly when malformed, and the string names the defect so validate_spec
+    can quote it rather than emit a bare "invalid". Two defects, both of which
+    ``parse_batch_selector_categories`` would otherwise silently absorb into a
+    SHORTER constituent list than the author wrote - and a shorter list is the
+    unsafe direction, because the per-constituent admission gate then has fewer
+    categories to demand pins for than the runner will actually batch:
+
+      - an EMPTY token (``"A,,B"``, ``"A,"``, a leading comma). The C# split keeps
+        the empty entry; whether the runner skips it or runs a category named ""
+        is not something a spec should be allowed to discover on the instance.
+      - a DUPLICATE token (``"A,A"``). The runner would batch A twice and print two
+        ``category=A`` lines, so a single pinned line is satisfied while one of the
+        two batches is entirely ungated - the two-RunTests-steps dodge wearing a
+        different hat.
+
+    A single bare category and the RunAll token are both well formed here; this
+    function judges the LIST shape only, never whether a token names a real
+    category (that is the tally cross-check's job) and never whether "all" is
+    admissible (that is validate_spec's).
+    """
+    if not selector:
+        return None
+    s = str(selector).strip()
+    if not s or s == INGAME_RUNALL_CATEGORY or "," not in s:
+        return None
+    raw = [tok.strip() for tok in s.split(",")]
+    if any(not tok for tok in raw):
+        return ("it contains an EMPTY category token (a doubled, leading or "
+                "trailing comma)")
+    seen: List[str] = []
+    for tok in raw:
+        if tok in seen:
+            return ("it names %r more than once, so that category would be "
+                    "batched twice and a single pinned line would leave one of "
+                    "the two batches ungated" % tok)
+        seen.append(tok)
+    return None
+
+
 def _is_aggregate(bc: BatchComplete) -> bool:
     return _MULTI_CATEGORY_RE.match(bc.category or "") is not None
 
@@ -1306,10 +1380,23 @@ def resolve_batch_complete(
 #      `category=multi:<n>` AGGREGATE, whose tally sums every constituent, so an
 #      aggregate pin cannot express "category B was not vacuous" and a
 #      single-constituent pin trivially rejects the OTHER constituent's probes for
-#      the wrong reason (category-token mismatch). Per-constituent non-vacuity is NOT
-#      expressible on this contract surface at all. CLOSED FAIL-CLOSED by
-#      SINGLE_BATCH_SELECTOR_RULE: a batch-owning spec must name exactly one
-#      category; a multi or absent selector is an ERROR.
+#      the wrong reason (category-token mismatch). CLOSED FAIL-CLOSED from
+#      2026-07-26 to 2026-09-07 by SINGLE_BATCH_SELECTOR_RULE refusing every multi
+#      selector outright.
+#      AMENDED 2026-09-07 - the comma list is now ADMISSIBLE, "all" is not. The
+#      aggregate never grew a per-constituent surface and it did not need to: the
+#      runner ALREADY emits one per-category BATCH_COMPLETE line per constituent
+#      (TestRunnerShortcut's multi-category driver runs one RunCategory batch per
+#      token and prints the aggregate last), and `evaluate_expectations` searches
+#      every required pattern over the whole log independently. So per-constituent
+#      non-vacuity IS expressible: one whole pin per constituent, each probed
+#      against ONLY its own category's patterns. Filtering the probe input to the
+#      constituent's own patterns is what closes the original dodge - a pattern for
+#      category A rejects every B-probe by token mismatch, i.e. for the wrong
+#      reason, so B's probe must never be shown A's pattern. "all" stays an ERROR
+#      because its constituent set is not enumerable from the spec (it is whatever
+#      the assembly declares at run time), so "every constituent is pinned" cannot
+#      be decided statically at all.
 #   3. TWO BATCH_COMPLETE patterns satisfied by DIFFERENT log lines -
 #      `evaluate_expectations` re.searches each required pattern over the whole log
 #      independently, so ANDing them against one synthesized probe was too weak.
@@ -1329,11 +1416,18 @@ BATCH_VACUITY_OPT_OUT_REASON_KEY = "batchVacuityOptOutReason"
 
 # The shape the anti-vacuity guarantee is defined over. Quoted verbatim in the
 # validate_spec errors so a rejected spec author reads the reason, not just the rule.
+#
+# The NAME is kept from the 2026-07-26 rule it supersedes (it is quoted by id in
+# several test messages and in the design doc), but the rule it states is the
+# 2026-09-07 amendment: ONE RunTests step still, and a comma list now admitted on
+# proof rather than refused on shape.
 SINGLE_BATCH_SELECTOR_RULE = (
-    "a batch-owning spec must drive exactly ONE RunTests step naming exactly ONE "
-    "category: the vacuity probe is built for a single named category, and neither a "
-    "second batch nor a multi-category aggregate can be pinned non-vacuously on the "
-    "current contract surface")
+    "a batch-owning spec must drive exactly ONE RunTests step, and EVERY category "
+    "that step names must carry its own whole BATCH_COMPLETE pin: a single category "
+    "is probed directly, and a comma list is admitted only when each constituent's "
+    "OWN pattern (never a sibling constituent's) rejects that constituent's entire "
+    "vacuous family; the selector 'all' is refused outright because its constituent "
+    "set is not enumerable from the spec")
 
 # ---------------------------------------------------------------------------
 # R5: the ISOLATED batch argument.
@@ -1514,15 +1608,17 @@ def _batch_probe_skipped_counts(patterns: Sequence[str]) -> List[int]:
 
 
 def _batch_probe_categories(selector: Optional[str]) -> Tuple[str, ...]:
-    """Category token the GATING BATCH_COMPLETE line carries for ``selector``.
+    """Category token the probed BATCH_COMPLETE line carries for ``selector``.
 
-    ONE token, always. A batch-owning spec is required by ``validate_spec`` to name
-    exactly one category on exactly one RunTests step (see
-    ``SINGLE_BATCH_SELECTOR_RULE`` and the module note above for why), so the probe
-    family is single-category by construction. A None/empty selector is the RunAll shape the
-    runner stamps as ``all``; ``validate_spec`` rejects THAT on a batch-owning spec
-    too, and the token is kept here only so a direct caller of the pure function
-    gets a defined answer.
+    ONE token, always, and ``selector`` is therefore a single CATEGORY here rather
+    than a spec's whole selector string. A single-category spec passes its selector
+    straight in; a multi-category spec (2026-09-07 amendment) calls
+    ``batch_contract_vacuity_gap`` once PER CONSTITUENT with that constituent's own
+    name and its own patterns, so the probe family stays single-category by
+    construction either way. A None/empty selector is the RunAll shape the runner
+    stamps as ``all``; ``validate_spec`` rejects THAT on a batch-owning spec, and
+    the token is kept here only so a direct caller of the pure function gets a
+    defined answer.
     """
     if not selector:
         return ("all",)
@@ -2370,6 +2466,13 @@ def resolve_batch_tally_pin(
     contradicting an earlier literal is reported by
     ``batch_tally_pin_mismatches`` rather than silently resolved, since two
     patterns pinning different totals can never both be met.
+
+    SINGLE-CATEGORY SPECS ONLY. The merge is across every BATCH_COMPLETE pattern
+    regardless of which category each one pins, which is right for a spec that
+    drives one category and WRONG for a MULTI-category spec: there the first
+    pattern's `total=` and the second pattern's `scene=` would be merged into one
+    pin describing no line the runner ever prints. A multi-category spec must use
+    ``resolve_batch_tally_pins_by_category`` (2026-09-07 amendment).
     """
     pats = [str(p) for p in (required_patterns or []) if "BATCH_COMPLETE" in str(p)]
     if not pats:
@@ -2388,6 +2491,50 @@ def resolve_batch_tally_pin(
         failed=vals.get("failed"), skipped=vals.get("skipped"),
         category=vals.get("category"), scene=vals.get("scene"),
         patterns=tuple(pats))
+
+
+def resolve_batch_tally_pins_by_category(
+    required_patterns: Sequence[str],
+) -> Dict[str, BatchTallyPin]:
+    """One ``BatchTallyPin`` per LITERAL ``category=`` token the contract pins.
+
+    The multi-category counterpart of ``resolve_batch_tally_pin`` (2026-09-07
+    amendment). Patterns are grouped by the literal category they name and each
+    group is resolved on its OWN, so a constituent's pin is merged only from the
+    patterns that describe that constituent's line.
+
+    Excluded from the grouping, deliberately:
+
+      - patterns that do not name BATCH_COMPLETE (they are satisfied by other log
+        lines and pin no tally);
+      - patterns whose ``category=`` is absent or is a REGEX rather than a literal
+        (``_pin_literal_word`` answers None). Such a pattern belongs to no
+        constituent, so it can neither create a group nor join one - which is what
+        makes "constituent C is unpinned" a decidable statement rather than one a
+        wildcard could quietly satisfy;
+      - the AGGREGATE (``category=multi:<n>``). It is a real and useful pin - it is
+        what run.py gates the whole run on - but its tally sums the constituents
+        and corresponds to no single C# category, so it is out of scope for a
+        per-category derivation exactly as ``BatchTallyPin.is_aggregate`` says.
+
+    The returned dict is keyed by the category token as written. An empty dict
+    means the contract pins no per-category line at all.
+    """
+    by_category: Dict[str, List[str]] = {}
+    for raw in (required_patterns or []):
+        pat = str(raw)
+        if "BATCH_COMPLETE" not in pat:
+            continue
+        cat = _pin_literal_word(_pin_token(pat, "category"))
+        if cat is None or _MULTI_CATEGORY_RE.match(cat) is not None:
+            continue
+        by_category.setdefault(cat, []).append(pat)
+    out: Dict[str, BatchTallyPin] = {}
+    for cat, pats in by_category.items():
+        pin = resolve_batch_tally_pin(pats)
+        if pin is not None:
+            out[cat] = pin
+    return out
 
 
 def batch_tally_pin_mismatches(
@@ -3443,16 +3590,27 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
                 "expectations.logContracts.%s = true with a %s."
                 % (run_tests_steps, SINGLE_BATCH_SELECTOR_RULE,
                    BATCH_VACUITY_OPT_OUT_KEY, BATCH_VACUITY_OPT_OUT_REASON_KEY))
-        if opt_out is not True and (not selector or is_multi_category_selector(selector)):
+        constituents = parse_batch_selector_categories(selector)
+        # "all" and an ABSENT selector are the same defect wearing two spellings:
+        # the set of categories the batch will run is decided at RUN TIME by what
+        # the assembly declares, so "every constituent carries its own whole pin"
+        # is not a statement validation can evaluate at all. A COMMA LIST is
+        # different - its constituents are written down - and since 2026-09-07 it
+        # is admitted on per-constituent proof below rather than refused on shape.
+        selector_is_runall = (not selector
+                              or constituents == [INGAME_RUNALL_CATEGORY])
+        if opt_out is not True and selector_is_runall:
             errors.append(
-                "driver: batch selector %r is %s -- %s. The gating line for a "
-                "multi-category run is the category=multi:<n> AGGREGATE, whose tally "
-                "sums the constituents, so 'category B executed nothing' is not "
-                "expressible. Name one category per spec. Deliberate exception: set "
+                "driver: batch selector %r is %s -- %s. The gating line for such a "
+                "run is the category=multi:<n> AGGREGATE, whose tally sums the "
+                "constituents, and the constituent set is not enumerable from the "
+                "spec, so 'category B executed nothing' cannot be stated here at "
+                "all. Name the categories explicitly (one, or a comma list with one "
+                "whole pin per constituent). Deliberate exception: set "
                 "expectations.logContracts.%s = true with a %s."
                 % (selector,
                    "absent (RunTests with no category runs ALL categories)"
-                   if not selector else "multi-category",
+                   if not selector else "the RunAll token",
                    SINGLE_BATCH_SELECTOR_RULE,
                    BATCH_VACUITY_OPT_OUT_KEY, BATCH_VACUITY_OPT_OUT_REASON_KEY))
         if opt_out is True:
@@ -3461,6 +3619,65 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
                     "expectations.logContracts.%s: a non-empty %s is REQUIRED (an "
                     "unexplained opt-out is how the vacuous-batch class comes back)"
                     % (BATCH_VACUITY_OPT_OUT_KEY, BATCH_VACUITY_OPT_OUT_REASON_KEY))
+        elif selector_is_runall:
+            # Already rejected above with a reason of its own; probing a selector
+            # whose constituents are unknowable would only add a second error
+            # saying the same thing less precisely.
+            pass
+        elif len(constituents) > 1:
+            # PER-CONSTITUENT ADMISSION (2026-09-07). One whole pin per category,
+            # each probed against ONLY that category's own patterns. The filter is
+            # the load-bearing part and it is why this is not simply
+            # `batch_contract_vacuity_gap(required_patterns, C)` in a loop: a
+            # pattern pinning category=A rejects every B-probe by token mismatch,
+            # so with the unfiltered pattern list every constituent would be
+            # reported non-vacuous the moment ANY sibling was pinned - which is the
+            # exact "rejected for the wrong reason" dodge the 2026-07-26 rule
+            # closed by refusing the whole shape.
+            malformed = selector_has_malformed_tokens(selector)
+            if malformed is not None:
+                errors.append(
+                    "driver: multi-category batch selector %r is malformed -- %s. "
+                    "%s." % (selector, malformed, SINGLE_BATCH_SELECTOR_RULE))
+            else:
+                pins_by_category = resolve_batch_tally_pins_by_category(
+                    required_patterns)
+                for constituent in constituents:
+                    pin = pins_by_category.get(constituent)
+                    if pin is None or not pin.statically_checkable:
+                        errors.append(
+                            "expectations.logContracts.required: multi-category "
+                            "batch selector %r names constituent %r, but no "
+                            "required BATCH_COMPLETE pattern pins category=%s with "
+                            "a literal scene= -- so that constituent's batch would "
+                            "run UNGATED behind the aggregate. %s. Pin its own whole "
+                            "per-category line (e.g. 'BATCH_COMPLETE v1 total=N "
+                            "passed=N failed=0 skipped=0 category=%s scene=Y'). "
+                            "Deliberate exception: set %s = true with a %s."
+                            % (selector, constituent, constituent,
+                               SINGLE_BATCH_SELECTOR_RULE, constituent,
+                               BATCH_VACUITY_OPT_OUT_KEY,
+                               BATCH_VACUITY_OPT_OUT_REASON_KEY))
+                        continue
+                    gap = batch_contract_vacuity_gap(pin.patterns, constituent)
+                    if gap is not None:
+                        errors.append(
+                            "expectations.logContracts.required: multi-category "
+                            "batch selector %r cannot detect a vacuous batch for "
+                            "constituent %r -- that constituent's OWN pattern(s) "
+                            "ACCEPT %s. A sibling constituent's pattern does not "
+                            "count: it rejects these probes by category-token "
+                            "mismatch, not by tally. Pin the tally that must "
+                            "actually execute (e.g. 'BATCH_COMPLETE v1 total=N "
+                            "passed=N failed=0 skipped=0 category=%s scene=Y', or "
+                            "'passed=[1-9][0-9]*' when the exact split is not yet "
+                            "measured); derive N from that category's [InGameTest] "
+                            "Scene / AllowBatchExecution attributes and the "
+                            "fixture's LoadGame route. Deliberate exception: set "
+                            "%s = true with a %s."
+                            % (selector, constituent, gap, constituent,
+                               BATCH_VACUITY_OPT_OUT_KEY,
+                               BATCH_VACUITY_OPT_OUT_REASON_KEY))
         else:
             gap = batch_contract_vacuity_gap(required_patterns, selector)
             if gap is not None:

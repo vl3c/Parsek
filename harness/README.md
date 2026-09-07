@@ -645,6 +645,68 @@ that catches a dropped row before it costs a flight - the weaker "the saveTempla
 names a real directory" form stays green when a row goes missing. Pure resolution:
 `hlib.plan_shared_ship_overlay` / `hlib.validate_shared_ships_manifest`.
 
+## Spec authoring: pinning a multi-category batch
+
+A batch-owning spec drives ONE `RunTests` step. Since 2026-09-07 that step may name
+a COMMA LIST, so one KSP boot can carry the long tail of one- and two-test
+categories instead of one boot each:
+
+```toml
+[[driver.steps]]
+cmd = "RunTests"
+args = { category = "Watch,Unity,Bug289" }
+expect = "OK"
+budget = 540
+```
+
+The runner batches each constituent in turn, prints one `BATCH_COMPLETE` line per
+constituent, and prints the `category=multi:<n>` aggregate last. The RUN gates on
+the aggregate (union `failed`, cross-checked against the per-category line count).
+The CONSTITUENTS are gated statically, at `--dry-run` time, and that is what a spec
+author has to satisfy: **every constituent needs its own whole pin**, and a
+constituent's pin is probed against ONLY its own patterns.
+
+```toml
+[expectations.logContracts]
+required = [
+  "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=Watch scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=4 passed=4 failed=0 skipped=0 category=Unity scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=Bug289 scene=FLIGHT",
+]
+```
+
+Rules, each of which `validate_spec` names when it rejects:
+
+- Each constituent's pin needs a LITERAL `category=` and a LITERAL `scene=`. Without
+  both, its tally cannot be cross-checked against the C# attributes.
+- Each constituent's own pattern must reject that constituent's whole vacuous family
+  (`passed=0 failed=0 skipped=total`). A SIBLING's pattern does not count: it rejects
+  those probes by category-token mismatch - for the wrong reason - and leaning on it
+  is the dodge the single-category rule originally existed to close.
+- No empty token (`"A,,B"`, a leading or trailing comma) and no duplicate (`"A,A"`).
+  A duplicate is batched twice, and one pinned line then leaves one batch ungated.
+- `"all"` and an ABSENT category are still refused: their constituent set is decided
+  at run time, so "every constituent is pinned" cannot be checked here at all.
+- Still one `RunTests` step per spec.
+
+Deriving the numbers: `total` is attribute-exact per constituent - the `[InGameTest]`
+declarations of that category, counting the ones the two filters skip - so derive it
+from `Scene` / `AllowBatchExecution` plus the fixture's LoadGame route, exactly as
+for a single-category spec. `passed` / `skipped` are NOT derivable (run-time
+`InGameAssert.Skip` decides the split); pin them from the lane's first census run,
+and until then use the interim `passed=[1-9][0-9]*` form and declare the spec in
+`MultiCategoryBatchWiringGroupTests.INTERIM_PIN_IDS`.
+
+A constituent that can execute NOTHING at the lane's boot scene (wholly
+scene-ineligible, or wholly batch-disabled on the chosen batch path) is refused by
+that test family rather than carried: its `passed=0` would otherwise hide behind a
+green aggregate. Put it in a lane that boots its scene, or drop it from the selector.
+
+New lanes join `MultiCategoryBatchWiringGroupTests.GROUP` (`id -> (scene,
+{category: total})`) in the commit that commits them. Full contract and rationale:
+`docs/dev/design-autotest-harness-core.md` -> "AMENDMENT 2026-09-07 - Multi-category
+batch contract".
+
 ## Running the tests
 
 ```

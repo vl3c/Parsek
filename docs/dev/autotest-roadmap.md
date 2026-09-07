@@ -375,19 +375,34 @@ stock. That is the whole of D17's blockage for 3 to 4 of its 6 cells.
 
 ### Cause E: missing harness machinery
 
-**One category per spec.** `hlib.SINGLE_BATCH_SELECTOR_RULE` (`hlib.py:691`, enforced
-at `hlib.py:2158-2190`) requires that a batch-owning spec drive exactly ONE
-`RunTests` step naming exactly ONE category. More than one step is an error; a
-multi-category selector (`"all"` or `"A,B"`) is an error. The rule applies to
-`driver.autorun.tests` as well, not just `driver.steps`. The stated reason is honest
-and narrow: the gating line for a multi-category run is the `category=multi:<n>`
-aggregate, whose tally sums the constituents, so "category B executed nothing" is not
-expressible on the current contract surface. There is a deliberate opt-out
-(`expectations.logContracts.batchVacuityOptOut` plus a required reason) but taking it
-throws away the anti-vacuity guarantee.
+**~~One category per spec.~~ CLOSED 2026-09-07 by the multi-category batch
+contract.** `hlib.SINGLE_BATCH_SELECTOR_RULE` used to require that a batch-owning
+spec drive exactly ONE `RunTests` step naming exactly ONE category: more than one
+step was an error, and so was any multi-category selector (`"all"` or `"A,B"`). The
+stated reason was honest and narrow - the gating line for a multi-category run is
+the `category=multi:<n>` aggregate, whose tally sums the constituents, so "category
+B executed nothing" was not expressible - and the consequence was that every
+category cost its own KSP boot, which is the tax that set the long-tail ceiling.
 
-Consequence: every category costs its own KSP boot. That is affordable at the scale
-of this roadmap (see COST) but it is the tax that sets the long-tail ceiling.
+A COMMA LIST is now admitted, on proof rather than on shape: validate_spec requires
+every constituent to carry its own whole `BATCH_COMPLETE` pin, probed against ONLY
+that constituent's own patterns (a sibling's pattern rejects those probes by
+category-token mismatch, i.e. for the wrong reason, which is the dodge the original
+refusal named). Nothing at run time changed - the multi-category driver already
+emitted one per-category line per constituent, and each required pattern is searched
+over the whole log independently - so the entire contract is static. The one-step
+rule stands, and `"all"` / an absent selector stay errors because their constituent
+set is decided at run time and cannot be enumerated from the spec. Full contract:
+`docs/dev/design-autotest-harness-core.md` -> "AMENDMENT 2026-09-07 - Multi-category
+batch contract"; test family `MultiCategoryBatchWiringGroupTests` in
+`harness/lib/test_hlib.py`; authoring guidance in `harness/README.md`. The
+deliberate opt-out (`expectations.logContracts.batchVacuityOptOut` plus a required
+reason) is unchanged and still throws away the anti-vacuity guarantee.
+
+What is NOT closed by it: the lanes. The first two, `LT-1-long-tail-flight` and
+`LT-2-long-tail-spacecenter`, are being authored against a census flight and have
+not flown; the group table starts EMPTY and each lane joins it with its measured
+split.
 
 **No structural save-content assertion.** The only assertion any spec can make about
 the produced recordings is `recordings.count`, a min/max integer window, and it is

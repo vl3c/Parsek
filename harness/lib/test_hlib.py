@@ -99,6 +99,23 @@ def load_unclaimed_ingame_attribute_tokens():
     return out
 
 
+def spec_batch_selector(spec):
+    """The batch selector a spec drives, resolved exactly as hlib.validate_spec and
+    run.py::_driven_category do: the FIRST RunTests step's category, else
+    driver.autorun.tests, else None.
+
+    Factored out so the three wiring-group discoveries partition the committed set
+    on the SAME reading of the same key. Since the 2026-09-07 multi-category
+    amendment the answer may be a comma list, which is why it is a "selector" and
+    not a "category" here.
+    """
+    driver = (spec.get("driver", {}) or {})
+    for step in (driver.get("steps", []) or []):
+        if (step or {}).get("cmd") == "RunTests":
+            return ((step.get("args", {}) or {}).get("category"))
+    return (driver.get("autorun", {}) or {}).get("tests")
+
+
 def batch_owning_specs():
     """(name, spec, selector) for every committed spec that OWNS a batch.
 
@@ -2153,6 +2170,12 @@ class BatchVacuityGateShapeTests(unittest.TestCase):
         # Dodge 2: a pin naming ONE constituent rejects the other constituent's
         # probes for the wrong reason (category-token mismatch), so the gate reported
         # no gap while category B could run all-skipped.
+        #
+        # STILL REJECTED AFTER THE 2026-09-07 AMENDMENT, and for the SAME reason
+        # rather than by the old blanket shape rule: the comma list is now
+        # admissible in principle, but `GhostPlayback` here carries no pin of its
+        # own, so its batch would run ungated behind the aggregate. What changed is
+        # only that a spec CAN now buy admission, by pinning both.
         spec = self._h5()
         for s in spec["driver"]["steps"]:
             if (s or {}).get("cmd") == "RunTests":
@@ -2160,6 +2183,7 @@ class BatchVacuityGateShapeTests(unittest.TestCase):
         v = hlib.validate_spec(spec, self.reg)
         self.assertFalse(v.ok)
         self.assertTrue(any("multi-category" in e for e in v.errors), list(v.errors))
+        self.assertTrue(any("GhostPlayback" in e for e in v.errors), list(v.errors))
 
     def test_absent_category_selector_is_rejected(self):
         # Same class: RunTests with no category is RunAll, i.e. every category at
@@ -2246,6 +2270,278 @@ class BatchVacuityGateShapeTests(unittest.TestCase):
             with self.subTest(spec=name):
                 v = hlib.validate_spec(load_spec(name), self.reg)
                 self.assertTrue(v.ok, "%s: %s" % (name, list(v.errors)))
+
+
+class MultiCategorySelectorParseTests(unittest.TestCase):
+    """The two pure selector readers the 2026-09-07 amendment rests on.
+
+    They are separated on purpose: `parse_batch_selector_categories` answers WHAT
+    the constituents are and is deliberately forgiving (it drops empty tokens), and
+    `selector_has_malformed_tokens` answers whether that forgiveness LOST anything.
+    A single function doing both would have to choose, and either choice is wrong -
+    raising makes the parse unusable for reporting, and absorbing silently makes the
+    admission gate demand pins for fewer categories than the runner will batch.
+    """
+
+    def test_absent_and_empty_selectors_have_no_constituents(self):
+        for selector in (None, "", "   ", ","):
+            with self.subTest(selector=repr(selector)):
+                self.assertEqual([], hlib.parse_batch_selector_categories(selector))
+
+    def test_runall_is_returned_as_a_token_never_as_an_enumeration(self):
+        # The one-element list is a uniform SHAPE, not a claim that "all" names a
+        # category. A caller that reads it as a constituent would demand a pin for
+        # a C# category named "all", which no declaration may carry
+        # (CommittedBatchTallySourceSyncTests pins that separately).
+        self.assertEqual([hlib.INGAME_RUNALL_CATEGORY],
+                         hlib.parse_batch_selector_categories("all"))
+        self.assertEqual([hlib.INGAME_RUNALL_CATEGORY],
+                         hlib.parse_batch_selector_categories("  all  "))
+
+    def test_a_single_category_is_one_constituent(self):
+        self.assertEqual(["Watch"], hlib.parse_batch_selector_categories("Watch"))
+        self.assertEqual(["Pipeline-Frame"],
+                         hlib.parse_batch_selector_categories(" Pipeline-Frame "))
+
+    def test_a_comma_list_splits_in_declaration_order(self):
+        # ORDER, not a set: it is the order the runner batches them in and the
+        # order an error names them in. Sorting here would make an error message
+        # point at a different constituent than the one the author is reading.
+        self.assertEqual(["Watch", "Unity", "Bug289"],
+                         hlib.parse_batch_selector_categories("Watch,Unity,Bug289"))
+        self.assertEqual(["Watch", "Unity"],
+                         hlib.parse_batch_selector_categories("  Watch , Unity "))
+
+    def test_empty_tokens_are_dropped_by_the_parse_and_named_by_the_guard(self):
+        # The pair, stated as one cell because neither half is safe alone.
+        self.assertEqual(["A", "B"], hlib.parse_batch_selector_categories("A,,B"))
+        for selector in ("A,,B", "A,", ",B", "A, ,B"):
+            with self.subTest(selector=selector):
+                reason = hlib.selector_has_malformed_tokens(selector)
+                self.assertIsNotNone(reason, selector)
+                self.assertIn("EMPTY", reason)
+
+    def test_a_duplicate_constituent_is_malformed(self):
+        # Not cosmetic: the runner batches the category TWICE and prints two
+        # `category=A` lines, so one pinned line is satisfied while the other batch
+        # is ungated - the two-RunTests-steps dodge in a different spelling.
+        reason = hlib.selector_has_malformed_tokens("Watch,Unity,Watch")
+        self.assertIsNotNone(reason)
+        self.assertIn("Watch", reason)
+        self.assertIn("more than once", reason)
+
+    def test_well_formed_selectors_are_not_flagged(self):
+        for selector in (None, "", "Watch", "all", "Watch,Unity",
+                         " Watch , Unity "):
+            with self.subTest(selector=repr(selector)):
+                self.assertIsNone(hlib.selector_has_malformed_tokens(selector))
+
+
+class MultiCategoryPinResolutionTests(unittest.TestCase):
+    """`resolve_batch_tally_pins_by_category`: one pin per literal category, and
+    above all NO merging across categories."""
+
+    WATCH = ("BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 "
+             "category=Watch scene=FLIGHT")
+    UNITY = ("BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 "
+             "category=Unity scene=SPACECENTER")
+
+    def test_each_category_resolves_from_its_own_patterns_only(self):
+        pins = hlib.resolve_batch_tally_pins_by_category([self.WATCH, self.UNITY])
+        self.assertEqual({"Watch", "Unity"}, set(pins))
+        self.assertEqual((3, 3, "FLIGHT"), (pins["Watch"].total,
+                                            pins["Watch"].passed,
+                                            pins["Watch"].scene))
+        self.assertEqual((2, 2, "SPACECENTER"), (pins["Unity"].total,
+                                                 pins["Unity"].passed,
+                                                 pins["Unity"].scene))
+
+    def test_the_flat_resolver_would_have_fused_them(self):
+        # THE REASON THE BY-CATEGORY RESOLVER EXISTS, asserted rather than argued.
+        # `resolve_batch_tally_pin` merges first-literal-wins across every pattern,
+        # so over the same two patterns it invents a pin (Watch's total, Watch's
+        # scene) that describes ONE of the two lines and silently drops the other.
+        fused = hlib.resolve_batch_tally_pin([self.WATCH, self.UNITY])
+        self.assertEqual(("Watch", "FLIGHT", 3), (fused.category, fused.scene,
+                                                  fused.total))
+        self.assertEqual(2, len(fused.patterns))
+
+    def test_tokens_split_across_two_patterns_of_one_category_still_merge(self):
+        # Within a category the merge is still right and still wanted.
+        pins = hlib.resolve_batch_tally_pins_by_category([
+            "BATCH_COMPLETE v1 total=3 category=Watch scene=FLIGHT",
+            "BATCH_COMPLETE v1 passed=3 failed=0 skipped=0 category=Watch"])
+        self.assertEqual({"Watch"}, set(pins))
+        self.assertEqual((3, 3, 0, 0, "FLIGHT"),
+                         (pins["Watch"].total, pins["Watch"].passed,
+                          pins["Watch"].failed, pins["Watch"].skipped,
+                          pins["Watch"].scene))
+
+    def test_the_aggregate_and_the_unpinnable_are_excluded(self):
+        pins = hlib.resolve_batch_tally_pins_by_category([
+            self.WATCH,
+            # the aggregate: real, gating at run time, and not a C# category
+            "BATCH_COMPLETE v1 total=5 passed=5 failed=0 skipped=0 "
+            "category=multi:2 scene=FLIGHT",
+            # a REGEX category: belongs to no constituent, so it must not create a
+            # group (which would answer "pinned" for a wildcard) nor join one
+            r"BATCH_COMPLETE v1 .* category=\S+ scene=FLIGHT",
+            # not a batch line at all
+            "runtests start category=Watch,Unity isolated=false"])
+        self.assertEqual({"Watch"}, set(pins))
+
+    def test_no_batch_pattern_resolves_to_an_empty_map(self):
+        self.assertEqual({}, hlib.resolve_batch_tally_pins_by_category([]))
+        self.assertEqual({}, hlib.resolve_batch_tally_pins_by_category(
+            ["runtests start category=Watch isolated=false"]))
+
+
+class MultiCategoryAdmissionTests(unittest.TestCase):
+    """validate_spec's 2026-09-07 admission: a comma list is admitted IFF every
+    constituent carries its own whole, non-vacuous pin.
+
+    The specs here are synthetic edits of a committed one, so nothing asserted
+    depends on which lanes happen to be on disk.
+    """
+
+    WATCH = ("BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 "
+             "category=Watch scene=FLIGHT")
+    UNITY = ("BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 "
+             "category=Unity scene=FLIGHT")
+    # Names the category but accepts its whole vacuous family (`passed=` unpinned).
+    UNITY_VACUOUS = r"BATCH_COMPLETE v1 .*category=Unity scene=FLIGHT"
+
+    def setUp(self):
+        self.reg = load_registry()
+
+    def _spec(self, selector, required):
+        spec = copy.deepcopy(load_spec("H5-invariants-corpus.toml"))
+        for s in spec["driver"]["steps"]:
+            if (s or {}).get("cmd") == "RunTests":
+                if selector is None:
+                    s["args"].pop("category", None)
+                else:
+                    s["args"]["category"] = selector
+        spec["expectations"]["logContracts"]["required"] = list(required)
+        return spec
+
+    def test_a_whole_pin_per_constituent_is_admitted(self):
+        v = hlib.validate_spec(
+            self._spec("Watch,Unity", [self.WATCH, self.UNITY]), self.reg)
+        self.assertTrue(v.ok, list(v.errors))
+
+    def test_three_constituents_are_admitted_the_same_way(self):
+        bug289 = ("BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 "
+                  "category=Bug289 scene=FLIGHT")
+        v = hlib.validate_spec(
+            self._spec("Watch,Unity,Bug289", [self.WATCH, self.UNITY, bug289]),
+            self.reg)
+        self.assertTrue(v.ok, list(v.errors))
+
+    def test_an_unpinned_constituent_is_rejected_by_name(self):
+        v = hlib.validate_spec(self._spec("Watch,Unity", [self.WATCH]), self.reg)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("constituent 'Unity'" in e for e in v.errors),
+                        list(v.errors))
+        # And the message must not blame the pinned one.
+        self.assertFalse(any("constituent 'Watch'" in e for e in v.errors),
+                         list(v.errors))
+
+    def test_a_constituent_pinned_without_a_literal_scene_is_rejected(self):
+        # `statically_checkable` needs BOTH tokens. A pin with no literal scene=
+        # cannot be cross-checked against the attributes, and the scene is exactly
+        # what the B10 defect turned on.
+        v = hlib.validate_spec(
+            self._spec("Watch,Unity",
+                       [self.WATCH,
+                        r"BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 "
+                        r"category=Unity scene=\S+"]), self.reg)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("constituent 'Unity'" in e and "literal scene=" in e
+                            for e in v.errors), list(v.errors))
+
+    def test_the_wrong_reason_dodge_is_rejected(self):
+        # THE CELL THIS AMENDMENT LIVES OR DIES BY. `Unity` here HAS a pattern, and
+        # that pattern accepts every vacuous Unity tally. An implementation that
+        # probed the WHOLE required list for `Unity` would report no gap, because
+        # the `Watch` pattern rejects every Unity probe - by category-token
+        # mismatch, i.e. for the wrong reason. Only the per-constituent filter sees
+        # the hole.
+        v = hlib.validate_spec(
+            self._spec("Watch,Unity", [self.WATCH, self.UNITY_VACUOUS]), self.reg)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("constituent 'Unity'" in e and "OWN pattern" in e
+                            for e in v.errors), list(v.errors))
+
+    def test_the_filter_is_what_makes_that_cell_fail(self):
+        # The same claim proved against the pure function directly, so the cell
+        # above cannot start passing for an unrelated reason. Unfiltered: no gap.
+        # Filtered to Unity's own pattern: a gap.
+        self.assertIsNone(hlib.batch_contract_vacuity_gap(
+            [self.WATCH, self.UNITY_VACUOUS], "Unity"))
+        self.assertIsNotNone(hlib.batch_contract_vacuity_gap(
+            [self.UNITY_VACUOUS], "Unity"))
+
+    def test_an_empty_token_in_the_selector_is_rejected(self):
+        v = hlib.validate_spec(
+            self._spec("Watch,,Unity", [self.WATCH, self.UNITY]), self.reg)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("malformed" in e and "EMPTY" in e for e in v.errors),
+                        list(v.errors))
+
+    def test_a_duplicated_constituent_is_rejected(self):
+        v = hlib.validate_spec(
+            self._spec("Watch,Watch", [self.WATCH]), self.reg)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("malformed" in e and "more than once" in e
+                            for e in v.errors), list(v.errors))
+
+    def test_the_runall_token_is_still_rejected(self):
+        # "all" is the one multi shape that stays refused: its constituents are
+        # whatever the assembly declares at run time, so "every constituent is
+        # pinned" is not decidable here at all.
+        v = hlib.validate_spec(self._spec("all", [self.WATCH]), self.reg)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("RunAll token" in e for e in v.errors), list(v.errors))
+
+    def test_an_absent_selector_is_still_rejected(self):
+        v = hlib.validate_spec(self._spec(None, [self.WATCH]), self.reg)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("absent" in e for e in v.errors), list(v.errors))
+
+    def test_the_per_constituent_errors_are_waivable_by_the_opt_out(self):
+        spec = self._spec("Watch,Unity", [self.WATCH])
+        lc = spec["expectations"]["logContracts"]
+        lc[hlib.BATCH_VACUITY_OPT_OUT_KEY] = True
+        lc[hlib.BATCH_VACUITY_OPT_OUT_REASON_KEY] = "documented shape exception"
+        v = hlib.validate_spec(spec, self.reg)
+        self.assertTrue(v.ok, list(v.errors))
+
+    def test_a_single_category_spec_is_untouched_by_the_amendment(self):
+        # Both directions: the shipped shape still validates, and the single-category
+        # vacuity gate still reds. If the multi branch had swallowed the single case,
+        # the second half here would pass.
+        ok = self._spec("Watch", [self.WATCH])
+        self.assertTrue(hlib.validate_spec(ok, self.reg).ok)
+        bad = self._spec("Watch", [r"BATCH_COMPLETE v1 .*failed=0\b"])
+        v = hlib.validate_spec(bad, self.reg)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("cannot detect a vacuous batch" in e
+                            for e in v.errors), list(v.errors))
+
+    def test_a_second_runtests_step_is_still_rejected_on_a_multi_spec(self):
+        # The amendment relaxed the SELECTOR, not the one-step rule: a second step
+        # is still probed by nobody (run.py resolves only the first).
+        spec = self._spec("Watch,Unity", [self.WATCH, self.UNITY])
+        steps = spec["driver"]["steps"]
+        idx = next(i for i, s in enumerate(steps)
+                   if (s or {}).get("cmd") == "RunTests")
+        steps.insert(idx + 1, {"cmd": "RunTests", "args": {"category": "Bug289"},
+                               "expect": "OK", "budget": 540})
+        v = hlib.validate_spec(spec, self.reg)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("RunTests steps declared" in e for e in v.errors),
+                        list(v.errors))
 
 
 # ---------------------------------------------------------------------------
@@ -3061,9 +3357,34 @@ class CommittedBatchTallySourceSyncTests(unittest.TestCase):
             lc = (spec.get("expectations", {}) or {}).get("logContracts", {}) or {}
             if lc.get(hlib.BATCH_VACUITY_OPT_OUT_KEY) is True:
                 continue
-            # A multi-category selector gates on the union aggregate, whose total
-            # spans categories the pin does not enumerate; nothing to demand here.
-            if hlib.is_multi_category_selector(selector):
+            # A COMMA-LIST selector owes one statically-checkable pin PER
+            # CONSTITUENT (2026-09-07 amendment), so it is not skipped here - it is
+            # checked N times. Only the RunAll token is skipped, and only because
+            # its constituent set is not enumerable from the spec at all;
+            # validate_spec refuses it outright on a batch-owning spec, so the skip
+            # can never hide a committed lane.
+            constituents = hlib.parse_batch_selector_categories(selector)
+            if constituents == [hlib.INGAME_RUNALL_CATEGORY]:
+                continue
+            if len(constituents) > 1:
+                pins = hlib.resolve_batch_tally_pins_by_category(
+                    lc.get("required", []) or [])
+                for constituent in constituents:
+                    cpin = pins.get(constituent)
+                    self.assertIsNotNone(
+                        cpin, "%s drives multi-category selector %r but no "
+                              "logContracts.required pattern pins category=%s"
+                              % (name, selector, constituent))
+                    self.assertTrue(
+                        cpin.statically_checkable,
+                        "%s pins a BATCH_COMPLETE line for %s with no literal "
+                        "scene=, so that constituent's tally cannot be kept in "
+                        "sync with the source" % (name, constituent))
+                    self.assertIsNotNone(
+                        cpin.total,
+                        "%s must pin total= as a LITERAL for constituent %s"
+                        % (name, constituent))
+                checked.append(name)
                 continue
             pin = hlib.resolve_batch_tally_pin(lc.get("required", []) or [])
             self.assertIsNotNone(
@@ -3082,14 +3403,40 @@ class CommittedBatchTallySourceSyncTests(unittest.TestCase):
         self.assertTrue(checked, "no committed RunTests spec found - sweep is inert")
 
     def test_every_pinned_tally_agrees_with_the_source(self):
-        for name, spec, _selector in self.specs:
+        # THE gate's working half, and the one that must follow a multi spec into
+        # every constituent: `resolve_batch_tally_pin` MERGES across patterns
+        # regardless of which category each names, so on a comma-list spec it would
+        # fuse constituent A's total with constituent B's scene into a pin
+        # describing no line the runner prints - and then check that fiction against
+        # the source. The by-category resolver is what keeps "adding a test to any
+        # constituent category reds locally" true.
+        for name, spec, selector in self.specs:
             with self.subTest(spec=name):
                 lc = (spec.get("expectations", {}) or {}).get("logContracts", {}) or {}
+                isolated = hlib.spec_batch_isolated(spec)
+                constituents = hlib.parse_batch_selector_categories(selector)
+                if len(constituents) > 1:
+                    pins = hlib.resolve_batch_tally_pins_by_category(
+                        lc.get("required", []) or [])
+                    for constituent in constituents:
+                        cpin = pins.get(constituent)
+                        if cpin is None or not cpin.statically_checkable:
+                            continue
+                        problems = hlib.batch_tally_pin_mismatches(
+                            cpin, self.decls, isolated=isolated)
+                        self.assertEqual(
+                            problems, [],
+                            "%s's pinned BATCH_COMPLETE tally for constituent %s "
+                            "no longer matches Source/Parsek. Re-derive it and "
+                            "update the spec (and its derivation comment) in the "
+                            "same commit:\n  - %s"
+                            % (name, constituent, "\n  - ".join(problems)))
+                    continue
                 pin = hlib.resolve_batch_tally_pin(lc.get("required", []) or [])
                 if pin is None or not pin.statically_checkable:
                     continue
                 problems = hlib.batch_tally_pin_mismatches(
-                    pin, self.decls, isolated=hlib.spec_batch_isolated(spec))
+                    pin, self.decls, isolated=isolated)
                 self.assertEqual(
                     problems, [],
                     "%s's pinned BATCH_COMPLETE tally no longer matches "
@@ -3112,6 +3459,41 @@ class CommittedBatchTallySourceSyncTests(unittest.TestCase):
         for name, spec in isolated:
             with self.subTest(spec=name):
                 lc = (spec.get("expectations", {}) or {}).get("logContracts", {}) or {}
+                selector_here = spec_batch_selector(spec)
+                constituents = hlib.parse_batch_selector_categories(selector_here)
+                if len(constituents) > 1:
+                    # A MULTI-category isolated spec (expressible since 2026-09-07,
+                    # committed by nobody yet). The contrast is the same one, taken
+                    # per constituent: the arg must change what SOME constituent
+                    # executes. If every constituent's pin is equally satisfiable on
+                    # the ordinary path the tally proves nothing about R5, and the
+                    # seam echo carries the proof instead - built from the WHOLE
+                    # selector, which is what the start line prints.
+                    pins = hlib.resolve_batch_tally_pins_by_category(
+                        lc.get("required", []) or [])
+                    discriminates = False
+                    for constituent in constituents:
+                        cpin = pins.get(constituent)
+                        self.assertIsNotNone(cpin, "%s: %s" % (name, constituent))
+                        self.assertTrue(
+                            cpin.statically_checkable,
+                            "%s must pin a literal category= and scene= for %s or "
+                            "the contrast below is vacuous" % (name, constituent))
+                        if hlib.batch_tally_pin_mismatches(
+                                cpin, self.decls, isolated=False):
+                            discriminates = True
+                    if discriminates:
+                        continue
+                    req = lc.get("required", []) or []
+                    echo = ("runtests start category=%s isolated=true"
+                            % (selector_here or "").strip())
+                    self.assertIn(
+                        echo, req,
+                        "%s declares isolated = \"true\" and NO constituent's "
+                        "pinned tally can separate the isolated path from the "
+                        "ordinary one, so the spec must pin the seam's echo %r as "
+                        "the discriminator." % (name, echo))
+                    continue
                 pin = hlib.resolve_batch_tally_pin(lc.get("required", []) or [])
                 self.assertIsNotNone(pin, name)
                 # Self-standing (review F9): on an INTERIM pin
@@ -3163,10 +3545,26 @@ class CommittedBatchTallySourceSyncTests(unittest.TestCase):
         for name, spec, selector in self.specs:
             with self.subTest(spec=name):
                 lc = (spec.get("expectations", {}) or {}).get("logContracts", {}) or {}
+                constituents = hlib.parse_batch_selector_categories(selector)
+                if constituents == [hlib.INGAME_RUNALL_CATEGORY]:
+                    continue
+                if len(constituents) > 1:
+                    # SET EQUALITY for a comma list, which is the drift this cell
+                    # exists to catch one dimension out: a spec that pins four
+                    # per-category lines but drives three categories has an
+                    # unreachable pattern that reds the run at expectations time,
+                    # and one that drives four but pins three has a batch nobody
+                    # gates - the very hole the amendment was written to close.
+                    pins = hlib.resolve_batch_tally_pins_by_category(
+                        lc.get("required", []) or [])
+                    self.assertEqual(
+                        sorted(set(constituents)), sorted(pins),
+                        "%s drives RunTests category=%r but pins per-category "
+                        "BATCH_COMPLETE lines for %s"
+                        % (name, selector, sorted(pins)))
+                    continue
                 pin = hlib.resolve_batch_tally_pin(lc.get("required", []) or [])
                 if pin is None or pin.category is None or selector is None:
-                    continue
-                if hlib.is_multi_category_selector(selector):
                     continue
                 self.assertEqual(
                     pin.category, selector.strip(),
@@ -3574,8 +3972,22 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
                 any((step or {}).get("cmd") == "RunTests"
                     for step in (_driver.get("steps", []) or []))
                 or isinstance(_driver.get("autorun"), dict))
+            # THE FOURTH CONDITION IS NEW (2026-09-07) and it keeps the three
+            # wiring families a PARTITION rather than an overlap. A comma-list
+            # selector is committable since the multi-category amendment, and its
+            # properties are asserted by MultiCategoryBatchWiringGroupTests (one
+            # derivation, one pin and one executable floor PER CONSTITUENT). Every
+            # cell here reads `GROUP[sid]` as a single (category, total, scene)
+            # triple, so admitting a multi spec would compare its whole selector
+            # string against one category name and red for the wrong reason. The
+            # id pattern alone would not do it: it excludes `LT-` today, but the
+            # partition must hold for an H-numbered multi lane too, so the key is
+            # DERIVED from the spec's own selector - the same discipline the
+            # isolated/ordinary split already follows.
             if (cls.GROUP_ID_RE.match(sid) and drives_batch
-                    and not hlib.spec_batch_isolated(spec)):
+                    and not hlib.spec_batch_isolated(spec)
+                    and not hlib.is_multi_category_selector(
+                        spec_batch_selector(spec))):
                 cls.on_disk.add(sid)
             if sid in cls.GROUP:
                 cls.specs[sid] = spec
@@ -3884,8 +4296,19 @@ def discover_isolated_spec_ids(named_specs):
     for `sid in GROUP` with the whole suite green, because with exactly one isolated
     spec on disk the discovered set and the table coincide - the membership cell
     then compares two sets that are equal for the wrong reason.
+
+    MULTI-CATEGORY SPECS ARE EXCLUDED (2026-09-07), isolated or not: every cell in
+    the isolated family reads GROUP[sid] as one (category, total) pair and derives
+    ONE tally from it, so a comma-list member would be compared against its own
+    selector string as if that were a C# category name. Such a lane belongs to
+    MultiCategoryBatchWiringGroupTests, which derives per constituent. This keeps
+    the three families a partition with no spec falling between them - and it is
+    keyed off the spec's own selector, never off an id prefix, so an H-numbered
+    multi lane is classified the same way an LT- one is.
     """
-    return {sid for sid, spec in named_specs if hlib.spec_batch_isolated(spec)}
+    return {sid for sid, spec in named_specs
+            if hlib.spec_batch_isolated(spec)
+            and not hlib.is_multi_category_selector(spec_batch_selector(spec))}
 
 
 class IsolatedBatchWiringGroupTests(unittest.TestCase):
@@ -5790,6 +6213,327 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
                     [], self._fixture_flight_problems(sfs, requirement),
                     "%s's fixture %s cannot fly this category under the %r "
                     "requirement" % (sid, template, requirement))
+
+
+def discover_multi_category_spec_ids(named_specs):
+    """Spec ids whose batch selector is a COMMA LIST, from (id, spec) pairs.
+
+    The discovery RULE of the third wiring family, factored out for the same reason
+    `discover_isolated_spec_ids` is: as an inline expression inside setUpClass it
+    could be swapped for `sid in GROUP` and, with the table and the disk agreeing
+    (they do, at zero members and at every count after), the membership cell would
+    compare two sets that are equal for the wrong reason.
+
+    The RunAll token is NOT claimed even though `is_multi_category_selector` calls
+    it multi: no committed spec can carry it (validate_spec refuses it on a
+    batch-owning spec, and `test_every_committed_batch_spec_still_validates_clean`
+    holds that true repo-wide), and every cell in this family enumerates
+    constituents, which "all" has none of.
+    """
+    out = set()
+    for sid, spec in named_specs:
+        selector = spec_batch_selector(spec)
+        constituents = hlib.parse_batch_selector_categories(selector)
+        if len(constituents) > 1:
+            out.add(sid)
+    return out
+
+
+class MultiCategoryBatchWiringGroupTests(unittest.TestCase):
+    """The MULTI-CATEGORY batch family: specs whose one RunTests step names a comma
+    list, so the runner batches each constituent in turn and prints one
+    per-category BATCH_COMPLETE line plus the `category=multi:<n>` aggregate.
+
+    WHY THE FAMILY EXISTS. Roughly eighteen in-game categories hold one or two
+    tests each (`Bug289`, `ContinuationIntegrity`, `ForwardRender`,
+    `PartEventTiming`, the small `Pipeline-*` four, `RecordingStore`,
+    `ResourceManifest`, `StockWarpLimits`, `TestRunner`, `Watch`, `Unity`, ...).
+    Under the pre-2026-09-07 rule each would have cost its own KSP boot, which is
+    why none of them was ever driven (autotest-roadmap "Cause E"; inventory bucket
+    "B5 - too small to justify a dedicated boot"). The amendment lets one boot
+    carry all of them, and this class is the price: the aggregate is what gates the
+    RUN, so every property that used to be asserted once per spec is asserted here
+    once per CONSTITUENT. A constituent whose slice cannot execute anything is
+    exactly the vacuous batch the whole gate exists to refuse, and it would hide
+    behind a green aggregate.
+
+    MEMBERSHIP IS DISCOVERED FROM DISK (`discover_multi_category_spec_ids`) and
+    compared for set equality with GROUP, the shape both sibling families use.
+
+    AN EMPTY GROUP IS THE STARTING STATE, NOT A BUG. The contract shipped before
+    its first lane: `LT-1-long-tail-flight` and `LT-2-long-tail-spacecenter` are
+    authored against a census flight and are added here, with their measured
+    splits, in the commit that commits them. So this class must be correct over
+    zero members - which is why the two cells that would otherwise be vacuous
+    (discovery, and the family partition) are driven from SYNTHETIC specs and
+    assert regardless of what is on disk.
+    """
+
+    # id -> (scene, {category: attribute-exact total}). The totals are re-derived
+    # below from Source/Parsek rather than trusted from this table; the table
+    # exists so a category rename reds HERE naming both spellings, and so that a
+    # new lane arrives with its doc row rather than silently.
+    #
+    # SCENE IS PER SPEC, not per constituent: one batch runs in one scene, and the
+    # scene is what decides each constituent's scene-eligibility slice. Two lanes
+    # at different scenes may therefore share a category legitimately - which is
+    # why the no-overlap cell below is keyed on (scene, category), exactly as
+    # H34 / H35 / H38 share `Logistics` across three members.
+    GROUP = {}   # {id: (scene, {category: total})}
+
+    # Members whose split has NOT been measured yet, mirroring the two sibling
+    # families. A listed member may leave `passed=` / `skipped=` as the interim
+    # regex class on a PER-CONSTITUENT basis; it must still pin `total=` literally
+    # for every constituent. It must stay a set LITERAL of ids (or `set()` when
+    # empty, NEVER a `{}` literal, which would be an empty DICT and make every
+    # membership read False).
+    INTERIM_PIN_IDS: set = set()
+
+    @classmethod
+    def setUpClass(cls):
+        cls.decls = load_ingame_test_declarations()
+        cls.specs = {}
+        cls.on_disk = set()
+        for name in sorted(os.listdir(SCENARIOS_DIR)):
+            if not name.endswith(".toml"):
+                continue
+            spec = load_spec(name)
+            sid = spec.get("id") or ""
+            cls.on_disk |= discover_multi_category_spec_ids([(sid, spec)])
+            if sid in cls.GROUP:
+                cls.specs[sid] = spec
+
+    # --- Cells that assert with ZERO members on disk -----------------------
+
+    def _synthetic_multi(self, sid, isolated=False):
+        spec = copy.deepcopy(load_spec("H5-invariants-corpus.toml"))
+        spec["id"] = sid
+        for s in spec["driver"]["steps"]:
+            if (s or {}).get("cmd") == "RunTests":
+                s["args"]["category"] = "Watch,Unity"
+                if isolated:
+                    s["args"]["isolated"] = "true"
+        return spec
+
+    def test_the_discovery_rule_reads_the_spec_not_an_id_list(self):
+        # Synthetic, so it holds at zero members and at fifty. An id-lookup
+        # implementation returns an empty set for both of these.
+        multi = self._synthetic_multi("ZZ-stranger")
+        single = copy.deepcopy(load_spec("H7-trajectory-math.toml"))
+        self.assertEqual(
+            {"ZZ-stranger"},
+            discover_multi_category_spec_ids([("ZZ-stranger", multi),
+                                              ("YY-single", single)]),
+            "membership must come from the spec's own selector")
+
+    def test_the_runall_token_is_not_claimed_as_a_member(self):
+        spec = copy.deepcopy(load_spec("H5-invariants-corpus.toml"))
+        for s in spec["driver"]["steps"]:
+            if (s or {}).get("cmd") == "RunTests":
+                s["args"]["category"] = "all"
+        self.assertEqual(set(),
+                         discover_multi_category_spec_ids([("ZZ-runall", spec)]))
+
+    def test_neither_sibling_family_can_claim_an_lt_id(self):
+        # The partition, proved at the two discovery rules rather than argued from
+        # the id prefix. `LT-` fails IngameBatchWiringGroupTests.GROUP_ID_RE by
+        # spelling, but the load-bearing half is the ISOLATED family, whose rule is
+        # derived from the spec: an LT lane that ever carried `isolated = "true"`
+        # must still land here and not there, or it would be checked against one
+        # (category, total) pair built from its whole selector string.
+        for isolated in (False, True):
+            with self.subTest(isolated=isolated):
+                sid = "LT-1-long-tail-flight"
+                spec = self._synthetic_multi(sid, isolated=isolated)
+                self.assertIsNone(IngameBatchWiringGroupTests.GROUP_ID_RE.match(sid))
+                self.assertEqual(set(),
+                                 discover_isolated_spec_ids([(sid, spec)]))
+                self.assertEqual({sid},
+                                 discover_multi_category_spec_ids([(sid, spec)]))
+                self.assertEqual(isolated, hlib.spec_batch_isolated(spec))
+
+    def test_the_three_families_are_disjoint_over_the_committed_set(self):
+        # DISJOINTNESS, not coverage: the H-series family is id-scoped by design
+        # (B10, M1, R7a and friends are batch specs outside it), so "every batch
+        # spec is claimed" is not the property. What must hold is that no spec is
+        # claimed twice - a spec in two families is checked against two
+        # incompatible derivations and the first red names the wrong cause.
+        named = []
+        for name in sorted(os.listdir(SCENARIOS_DIR)):
+            if name.endswith(".toml"):
+                spec = load_spec(name)
+                named.append((spec.get("id") or "", spec))
+        self.assertTrue(named, "no specs on disk - sweep is inert")
+        multi = discover_multi_category_spec_ids(named)
+        isolated = discover_isolated_spec_ids(named)
+        ordinary = {sid for sid, spec in named
+                    if IngameBatchWiringGroupTests.GROUP_ID_RE.match(sid)
+                    and sid in IngameBatchWiringGroupTests.GROUP}
+        self.assertEqual(set(), multi & isolated)
+        self.assertEqual(set(), multi & ordinary)
+        self.assertEqual(set(), isolated & ordinary)
+
+    def test_the_interim_set_is_a_set_and_names_only_members(self):
+        # Same guard both siblings carry: a `{}` literal here would be an empty
+        # DICT and every membership read below would answer False, silently
+        # exempting nothing while looking like it exempts something.
+        self.assertIsInstance(self.INTERIM_PIN_IDS, set)
+        self.assertLessEqual(
+            self.INTERIM_PIN_IDS, set(self.GROUP),
+            "INTERIM_PIN_IDS names ids that are not GROUP members: %s"
+            % sorted(self.INTERIM_PIN_IDS - set(self.GROUP)))
+
+    def test_the_group_is_exactly_the_committed_set(self):
+        # SET EQUALITY against disk. Passes at zero on both sides, and fires the
+        # moment a multi lane is committed without its row here.
+        self.assertEqual(
+            sorted(self.on_disk), sorted(self.GROUP),
+            "the multi-category specs on disk differ from the table in this test. "
+            "A spec here but not on disk was removed or renamed; a spec on disk "
+            "but not here is new and must be added to GROUP, to the enumeration "
+            "in docs/dev/autotest-ingame-category-inventory.md, and to the section "
+            "table + scenario total in docs/dev/autotest-status.md, in the same "
+            "commit")
+        self.assertEqual(
+            len(self.GROUP), len(self.specs),
+            "GROUP names %d spec(s) but only %d were loaded from %s"
+            % (len(self.GROUP), len(self.specs), SCENARIOS_DIR))
+
+    # --- Per-member cells (inert until the first lane lands, by design) ----
+
+    def test_each_member_declares_at_least_two_constituents(self):
+        for sid, (scene, categories) in sorted(self.GROUP.items()):
+            with self.subTest(spec=sid):
+                self.assertTrue(scene, "%s: the table must name the boot scene" % sid)
+                self.assertGreaterEqual(
+                    len(categories), 2,
+                    "%s is in the MULTI family but its table row names %d "
+                    "categor(ies); a one-category lane belongs in the ordinary or "
+                    "isolated family" % (sid, len(categories)))
+
+    def test_the_selector_is_exactly_the_tables_constituents(self):
+        for sid, spec in sorted(self.specs.items()):
+            with self.subTest(spec=sid):
+                steps = (spec.get("driver", {}) or {}).get("steps", []) or []
+                run_tests = [s for s in steps if (s or {}).get("cmd") == "RunTests"]
+                self.assertEqual(1, len(run_tests),
+                                 "%s must own exactly one RunTests batch "
+                                 "(hlib.SINGLE_BATCH_SELECTOR_RULE)" % sid)
+                selector = (run_tests[0].get("args", {}) or {}).get("category")
+                constituents = hlib.parse_batch_selector_categories(selector)
+                # UNIQUE within the spec: a repeated token batches the category
+                # twice and one pinned line leaves one of the two ungated.
+                self.assertIsNone(
+                    hlib.selector_has_malformed_tokens(selector),
+                    "%s: selector %r is malformed" % (sid, selector))
+                self.assertEqual(len(constituents), len(set(constituents)))
+                self.assertEqual(sorted(self.GROUP[sid][1]), sorted(constituents),
+                                 "%s drives %r but its table row names %s"
+                                 % (sid, selector, sorted(self.GROUP[sid][1])))
+
+    def test_each_constituent_total_equals_the_source_derivation(self):
+        for sid, spec in sorted(self.specs.items()):
+            scene, categories = self.GROUP[sid]
+            isolated = hlib.spec_batch_isolated(spec)
+            lc = (spec.get("expectations", {}) or {}).get("logContracts", {}) or {}
+            pins = hlib.resolve_batch_tally_pins_by_category(
+                lc.get("required", []) or [])
+            for category, expected_total in sorted(categories.items()):
+                with self.subTest(spec=sid, category=category):
+                    derived = hlib.derive_batch_tally(self.decls, category, scene,
+                                                      isolated=isolated)
+                    self.assertEqual(
+                        derived.total, expected_total,
+                        "%s: the source now declares %d %s test(s), not %d"
+                        % (sid, derived.total, category, expected_total))
+                    pin = pins.get(category)
+                    self.assertIsNotNone(
+                        pin, "%s pins no BATCH_COMPLETE line for %s"
+                             % (sid, category))
+                    self.assertTrue(pin.statically_checkable, sid)
+                    self.assertEqual(pin.scene, scene)
+                    self.assertEqual(pin.total, derived.total)
+                    self.assertEqual([], hlib.batch_tally_pin_mismatches(
+                        pin, self.decls, isolated=isolated))
+
+    def test_each_constituent_can_actually_execute_something(self):
+        # THE CELL THE FAMILY EXISTS FOR. The run gates on the AGGREGATE, whose
+        # tally sums the constituents, so a constituent that is wholly
+        # scene-ineligible or wholly batch-disabled at this spec's scene
+        # contributes `total=N passed=0 skipped=N` and the aggregate still reads
+        # green off its siblings. That is the B10 class one level down, and no
+        # run-time evidence would name it: the per-category line is present and
+        # honest. It is refused statically instead.
+        for sid, spec in sorted(self.specs.items()):
+            scene, categories = self.GROUP[sid]
+            isolated = hlib.spec_batch_isolated(spec)
+            for category in sorted(categories):
+                with self.subTest(spec=sid, category=category):
+                    derived = hlib.derive_batch_tally(self.decls, category, scene,
+                                                      isolated=isolated)
+                    self.assertGreater(
+                        derived.executable, 0,
+                        "%s batches %s at scene=%s where the attributes admit "
+                        "ZERO executable tests (%d scene-skipped, %d "
+                        "batch-skipped): that constituent would run all-skipped "
+                        "behind a green aggregate. Move it to a lane that boots "
+                        "its scene, or drop it from the selector."
+                        % (sid, category, scene, derived.scene_skipped,
+                           derived.batch_skipped))
+
+    def test_each_constituent_pin_is_whole_unless_the_member_is_interim(self):
+        for sid, spec in sorted(self.specs.items()):
+            lc = (spec.get("expectations", {}) or {}).get("logContracts", {}) or {}
+            pins = hlib.resolve_batch_tally_pins_by_category(
+                lc.get("required", []) or [])
+            for category in sorted(self.GROUP[sid][1]):
+                with self.subTest(spec=sid, category=category):
+                    pin = pins.get(category)
+                    self.assertIsNotNone(pin, sid)
+                    loose = pin.passed is None or pin.skipped is None
+                    self.assertEqual(
+                        sid in self.INTERIM_PIN_IDS, loose,
+                        "%s / %s: interim-vs-whole pin state disagrees with "
+                        "INTERIM_PIN_IDS" % (sid, category))
+                    self.assertIsNotNone(
+                        pin.total,
+                        "%s must pin total= for %s even when the split is "
+                        "unmeasured" % (sid, category))
+
+    def test_no_constituent_is_vacuous_when_probed_directly(self):
+        # Probed through batch_contract_vacuity_gap itself rather than inherited
+        # from validate_spec's pass, and PER CONSTITUENT against that
+        # constituent's OWN patterns - a sibling's pattern rejects these probes by
+        # category-token mismatch, which is the wrong reason.
+        for sid, spec in sorted(self.specs.items()):
+            lc = (spec.get("expectations", {}) or {}).get("logContracts", {}) or {}
+            self.assertNotIn(hlib.BATCH_VACUITY_OPT_OUT_KEY, lc,
+                             "%s must not opt out of the anti-vacuity gate" % sid)
+            pins = hlib.resolve_batch_tally_pins_by_category(
+                lc.get("required", []) or [])
+            for category in sorted(self.GROUP[sid][1]):
+                with self.subTest(spec=sid, category=category):
+                    pin = pins.get(category)
+                    self.assertIsNotNone(pin, sid)
+                    gap = hlib.batch_contract_vacuity_gap(pin.patterns, category)
+                    self.assertIsNone(gap, "%s / %s accepts a vacuous batch: %s"
+                                      % (sid, category, gap))
+
+    def test_no_two_members_at_one_scene_share_a_constituent(self):
+        # Two lanes batching the same category at the same scene derive the same
+        # tally and prove the same thing twice, at the cost of a second boot - the
+        # opposite of what this family is for. Keyed on (scene, category) because
+        # the SAME category at a different scene is a different slice and a
+        # legitimate second member (the Logistics precedent in the isolated family).
+        seen = {}   # {(scene, category): id}
+        for sid, (scene, categories) in sorted(self.GROUP.items()):
+            for category in sorted(categories):
+                key = (scene, category)
+                self.assertNotIn(
+                    key, seen,
+                    "%s and %s both batch %s at scene=%s" % (seen.get(key), sid,
+                                                             category, scene))
+                seen[key] = sid
 
 
 class IsolatedAutorunEnvWiringTests(unittest.TestCase):

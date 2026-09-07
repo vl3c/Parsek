@@ -1104,6 +1104,21 @@ KSP boot each at one or two tests. They are the strongest argument for a future
 multi-category batch contract, and the honest answer today is "not worth wiring",
 not "cannot be wired".
 
+**THAT CONTRACT NOW EXISTS (2026-09-07).** A spec's one `RunTests` step may name a
+comma list, admitted when every constituent carries its own whole `BATCH_COMPLETE`
+pin probed against only that constituent's own patterns; the runner already printed
+one per-category line per constituent, so nothing at run time changed. The argument
+this paragraph made is therefore answered: this bucket costs ONE boot per SCENE, not
+one per category. Contract:
+`docs/dev/design-autotest-harness-core.md` -> "AMENDMENT 2026-09-07 - Multi-category
+batch contract". Two lanes are being AUTHORED against a census flight,
+`LT-1-long-tail-flight` and `LT-2-long-tail-spacecenter`; NEITHER HAS FLOWN, the
+`MultiCategoryBatchWiringGroupTests` table is empty until each lane's split is
+measured, and the split is what decides which of the categories above a given lane
+can actually carry (a constituent with zero executable tests at the lane's boot
+scene is refused by that family's executable-floor cell, not silently carried behind
+a green aggregate). Nothing in this bucket is claimed as covered yet.
+
 **B6 - ~~THE NEXT WAVE~~ CLOSED 2026-08-05: all seven wired.** `KspApiSanity` /
 `Serialization` shipped 2026-08-04 as H24 / H25; the remaining five shipped
 2026-08-05 (`wire-wave-2`) as H26 (`LogContracts`), H27 (`Diagnostics`), H28
