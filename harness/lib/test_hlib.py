@@ -8135,6 +8135,8 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
     # each classified by hand. A NEW one reds
     # `test_every_untagged_candidate_is_classified` until someone decides.
     REVIEWED_UNTAGGED = {
+        # THE G3b RENDER-SURFACE LANE, 2026-09-07, same shape as H59 below.
+        "V27M-rover-route-endpoint-substituted-map-lines.toml": "tier=operator on the calibration-discipline shape, NOT debt: reading run `2026-09-07_1858`, armed re-flight `_1902` PASS attempt 1, negative control `_1903` red on exactly the inverted `Route line build ... legs=1` token, `[expectations.routes]` GATING - roadmap gap G3b closed by it the same day; it stays operator because its subject is a liveState-patched fixture whose value is the one-off class answer (no render surface consults a rebound endpoint), not a regression floor worth a nightly slot.",
         # THE D11 CENSUS LANE, 2026-09-02, same reading-run shape as the four below.
         "H59-surface-route-map-lines.toml":        "tier=operator as a CENSUS reading run, NOT debt: roadmap Tier D item 11 (registry dimension D10) asks for a route-map-lines lane on a SURFACE route authored against the measured landed pin LANDED-TERMINAL-LOOP-HAS-NO-MAP-PRESENCE-OUTSIDE-THE-FLIGHT-SCENE rather than against V18T's orbital pins. Every token is structural or a VALUE REGEX and the two plausible outcomes (a surface route's overview line drawn, routesDrawn=1 legsDrawn>=1; or not drawn, with other= / malformed= / skippedOwned= discriminating WHY) are pre-registered in the spec header, so the flight's product is a census a human reads. It is also the first committed lane to drive EnterMapView on a route or a landed subject, which is what makes `Polyline frame:` (RC-OWN-DRAW-HALF-IS-MAP-GATED's own evidence rule) a required instrument token here. Nothing armed; what is owed is the FLIGHT, not a human review call",
         # THE FOUR 2026-09-02 READING-RUN LANES, authored so every live-gated todo entry
@@ -9111,6 +9113,7 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
     # saveParse evaluator, so a second inversion would re-prove the evaluator
     # rather than these windows.
     ARMED_ALLOWLIST = {"S4.1-rewind-merge.toml", "CL-3-refly-crew-tombstone.toml",
+                       "V27M-rover-route-endpoint-substituted-map-lines.toml",  # routes, armed 2026-09-07 off `2026-09-07_1858`
                        "V14M-ike-player-loop.toml", "V14T-ike-ts-arrival.toml",
                        "V15M-gilly-player-loop.toml", "V15T-gilly-ts-arrival.toml",
                        # V16M / V16T: `rewind` (all max 0 - a replay-observation
@@ -10373,6 +10376,10 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
                                     # (`routeLineBuilds = { min = 1 }`) is earned off this
                                     # lane's own readings rather than copied from V18T.
                                     "H59-surface-route-map-lines.toml",
+                                    # V27M (2026-09-07): bare on purpose - the export
+                                    # runs after its KSC boot and reads the SPACECENTER
+                                    # manifest (routeLineBuilds=0), like H59.
+                                    "V27M-rover-route-endpoint-substituted-map-lines.toml",
                                     "V14M-ike-player-loop.toml",
                                     "V8-eve-player-loop.toml",
                                     "V24W-duna-one-warp-stair.toml",
