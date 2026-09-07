@@ -80,9 +80,11 @@ tier = "nightly"
 #    was satisfied and the cell did NOT execute: it took the LAST of its six escape hatches
 #    and skipped with `capsule hatch still obstructed after moving the first EVA kerbal
 #    clear; spawnEVA would refuse the second EVA, so the background-parent path is
-#    unreachable`. The reason is physical rather than a defect - in microgravity the first
-#    kerbal does not fall away from the hatch after `MoveVesselClearOfAnchor`, it floats
-#    where it was put, and KSP's obstruction check then refuses the second EVA. So the
+#    unreachable`. The mechanism is INFERRED, not logged: the two flights exited through
+#    different hatches (`_1609`: `KSP did not complete the programmatic switch ... within
+#    10s`; `_1618`: `capsule hatch still obstructed`), consistent with the first kerbal not
+#    falling clear of the hatch in microgravity after `MoveVesselClearOfAnchor`, but nothing
+#    in either log measures the kerbal's position. On that inference the
 #    walk-clear step really does have no orbital precedent, exactly as this header warned,
 #    and the answer is that it has none because it does not work there. H70 BUYS THIS CELL
 #    ON THE PAD instead, where the same census day measured it PASSING with
@@ -242,7 +244,8 @@ count = { min = 0, max = 0 }
 
 [expectations.logContracts]
 # EVIDENCE STANDING: MEASURED ONCE ON THE FIXED DLL, run `2026-09-07_1618` (PASS on
-# attempt 1, 74 s wall, every verifier PASS or SKIPPED), whose collected KSP.log carries
+# attempt 1, 74 s wall, every verifier PASS or SKIPPED), whose artifact KSP.log
+# (`harness/results/<run>_shots/KSP.log`, gitignored; a PASS run keeps no collected copy) carries
 # `BATCH_COMPLETE v1 total=10 passed=3 failed=0 skipped=7 category=AutoRecord
 # scene=FLIGHT` and `Using batch baseline slot ... for 10 restore-after-run test(s)`.
 # `total=10` is ATTRIBUTE-EXACT and source-synced; `failed=0` is the ASSERTION and was a
@@ -382,25 +385,26 @@ count = { min = 0, max = 0 }
 #       change the host. That is what happened: the guard now names the requirement it
 #       always meant (a crewed vessel FLYING inside an atmosphere) instead of excluding
 #       three settled situations and admitting ORBITING by omission, so the predicted
-#       FAIL is a MEASURED SKIP. The cell's residue is unchanged and still needs a
-#       genuinely suborbital crewed host, which no committed fixture is.
+#       FAIL is a MEASURED SKIP. The cell's residue is unchanged and FLYING is
+#       necessary, not sufficient: the body waits 10 s for the EVA kerbal to settle and
+#       asserts a Landed terminal, so the host must be FLYING low over terrain - low enough that the EVA kerbal reaches the ground inside the cell's 10 s settle wait and its terminal reads Landed, not Splashed; a just-airborne or hovering craft over the KSC grass, not a cruise-altitude one. No committed fixture is.
 #     * REFUTATION 2, and a plain refutation rather than a fix.
 #       `EvaTwiceFromSameCapsuleProducesTwoBranches - capsule hatch still obstructed
 #       after moving the first EVA kerbal clear; spawnEVA would refuse the second EVA, so
 #       the background-parent path is unreachable`. This header predicted the cell would
 #       EXECUTE in orbit and named the walk-clear step as the one with no committed
-#       precedent. It has none because it does not work there: in microgravity the first
-#       kerbal does not fall away from the hatch after `MoveVesselClearOfAnchor`, so KSP's
-#       obstruction check refuses the second EVA and the cell takes the LAST of its six
-#       escape hatches. As the header also said, every one of those exits is a Skip rather
+#       precedent. The inferred reason (two flights, two different skip strings, no
+#       position logged) is that in microgravity the first kerbal does not fall away from
+#       the hatch after `MoveVesselClearOfAnchor`, so KSP's obstruction check refuses the
+#       second EVA and the cell takes the LAST of its six escape hatches. As the header also said, every one of those exits is a Skip rather
 #       than a Fail, so the refutation cost a skip and not a red. H70 measured the same
 #       cell PASSING on the pad the same day (`evaBranches=2`), so the cell is bought -
 #       just not here, and not by any orbital host.
 #
 # WHAT THE CENSUS SETTLES ABOUT THE HOST SET: 8 of `AutoRecord`'s 10 cells now execute
 # somewhere across H61 / H68 / H69 / H70. The two that execute NOWHERE are
-# `EvaKerbalGhostHasVesselSnapshot` (needs a crewed vessel FLYING inside an atmosphere -
-# no committed fixture, so a forge or a derived in-flight save) and
+# `EvaKerbalGhostHasVesselSnapshot` (needs a crewed vessel FLYING low over terrain - low enough that the EVA kerbal reaches the ground inside the cell's 10 s settle wait and its terminal reads Landed, not Splashed; a just-airborne or hovering craft over the KSC grass, not a cruise-altitude one -
+# no committed fixture, so a forge or a derived in-flight save sized to that bound) and
 # `AutoRecordOnPostSwitch_GearToggle_StartsExactlyOnce` (needs a LANDED craft carrying
 # `ModuleWheels.ModuleWheelDeployment` - see H69, which proved the situation guard is not
 # the binding one).

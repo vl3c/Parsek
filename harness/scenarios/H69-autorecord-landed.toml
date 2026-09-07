@@ -155,14 +155,17 @@ kind = "seam"
 # H61's SPINE PLUS RVR-1's KILL TRIPLE, and each half is taken whole rather than
 # re-derived.
 #
-# THE KILL TRIPLE IS LOAD-BEARING HERE AND ABSENT FROM H61, and the difference is the host
+# THE KILL TRIPLE IS A GUARD HERE AND ABSENT FROM H61, and the difference is the host
 # rather than a preference. `gs1-two-stage-pad` is a fresh un-recorded pad fixture with
 # zero trees, so there is nothing to stop and nothing to discard. This save carries TWO
-# committed trees, and the committed-tree restore path resumes a promotion-stub recording
-# roughly 1 s into the scene - BEFORE any step can run. That is measured across the V
-# corpus and is structural, not fixture-specific (H56 states it for these exact bytes).
-# `StopRecording` is idempotent-OK and `DiscardTree` answers OK with nothing-discarded
-# when no plain tree is live, so the pair is safe on any entry state.
+# committed trees, and the committed-tree restore path can resume a promotion-stub
+# recording asynchronously after load (the V-corpus lesson, which H56 stated for these
+# bytes as "roughly 1 s into the scene"). MEASURED, and the premise did NOT hold as a
+# kill: on both H69 flights (`_1611`, `_1619`) and on H56's own run, the steps read
+# `stoprecording stopped=false idle=true` and `discardtree nothing=true` - nothing was
+# live by the time they ran. The triple stays because the resume's timing is not
+# pinned and both verbs are idempotent-OK on any entry state; it is insurance, not a
+# measured kill, and a future recorded host should not be sized on the 1 s claim.
 #
 # WHY IT MATTERS MORE TO THIS CATEGORY THAN TO H56's. SIX of the ten `AutoRecord`
 # declarations carry an `if (flight.IsRecording) InGameAssert.Skip(...)` guard - including
@@ -268,7 +271,8 @@ count = { min = 5, max = 5 }
 
 [expectations.logContracts]
 # EVIDENCE STANDING: MEASURED ONCE ON THE FIXED DLL, run `2026-09-07_1619` (PASS on
-# attempt 1, 99 s wall, every verifier PASS or SKIPPED), whose collected KSP.log carries
+# attempt 1, 99 s wall, every verifier PASS or SKIPPED), whose artifact KSP.log
+# (`harness/results/<run>_shots/KSP.log`, gitignored; a PASS run keeps no collected copy) carries
 # `BATCH_COMPLETE v1 total=10 passed=4 failed=0 skipped=6 category=AutoRecord
 # scene=FLIGHT` and `Using batch baseline slot ... for 10 restore-after-run test(s)`.
 # `total=10` is ATTRIBUTE-EXACT and source-synced; `failed=0` is the ASSERTION, and it is
@@ -379,7 +383,8 @@ count = { min = 5, max = 5 }
 # somewhere across H61 / H68 / H69 / H70. The two that execute NOWHERE are the two named
 # above as harvest requirements - `AutoRecordOnPostSwitch_GearToggle_*` (a LANDED craft
 # carrying `ModuleWheels.ModuleWheelDeployment`) and `EvaKerbalGhostHasVesselSnapshot` (a
-# crewed vessel FLYING inside an atmosphere, per the widened guard H68's census reads).
+# crewed vessel FLYING low over terrain - low enough that the EVA kerbal reaches the ground inside the cell's 10 s settle wait and its terminal reads Landed, not Splashed; a just-airborne or hovering craft over the KSC grass, not a cruise-altitude one - FLYING is what the widened guard names, the bound is what
+# the body's 10 s settle wait and Landed terminal add).
 #
 # -------------------------------------------------------------------------------------
 # THE SIX TOKENS, and what each rests on:

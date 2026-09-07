@@ -221,6 +221,38 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void TheMultiCategoryContinuationCarriesTheIsolatedArm()
+        {
+            // The multi-category selector (2026-09-07) added a SECOND dispatch site: the
+            // two-phase completion pump dispatches tokens 2..N after each settled batch.
+            // The single-dispatch fence above covers only RunTestsImpl, so a mutation to
+            // `ownedRunner.RunCategory(next)` there would compile, pass every cell, and
+            // silently run tokens 2..N through the ORDINARY filter on an isolated lane -
+            // exactly the drop the autorun driver's own comment warns about. Fence it.
+            string body = StripComments(Between(
+                ReadSource("TestCommands", "ParsekTestCommandAddon.cs"),
+                "if (completionVerb == \"RunTests\")", "if (!done)"));
+
+            Assert.Contains("FoldSettledMultiCategoryBatch();", body);
+            Assert.Contains("ownedRunner.ResetResults();", body);
+            Assert.Contains("ownedRunner.RunBatchSelector(next, multiCategoryIsolated);", body);
+            Assert.Contains("ClearMultiCategoryState();", body);
+            Assert.DoesNotContain("IncludingFlightRestore", body);
+            Assert.DoesNotContain("ownedRunner.RunCategory(", body);
+            Assert.DoesNotContain("ownedRunner.RunAll(", body);
+            // The fold must precede the reset that wipes the statuses it reads.
+            Assert.True(
+                body.IndexOf("FoldSettledMultiCategoryBatch();", StringComparison.Ordinal)
+                < body.IndexOf("ownedRunner.ResetResults();", StringComparison.Ordinal),
+                "the settled token must be folded BEFORE ResetResults wipes its statuses");
+            // Every exit of the two-phase state clears the token queue.
+            string clear = StripComments(Between(
+                ReadSource("TestCommands", "ParsekTestCommandAddon.cs"),
+                "private void ClearTwoPhase()", "// The TimeJump completion fields"));
+            Assert.Contains("ClearMultiCategoryState();", clear);
+        }
+
+        [Fact]
         public void TheSeamParsesAndRejectsBothArgsFailClosed()
         {
             // The review's F6: the dispatch line was fenced but nothing above it, so

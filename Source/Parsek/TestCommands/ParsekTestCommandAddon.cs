@@ -968,6 +968,10 @@ namespace Parsek.TestCommands
             mergeAnswerApplied = false;
             mergeAnswerResult = null;
             mergeAnswerDrivePending = false;
+            // A multi-category RunTests that ends by TIMEOUT or by a completion
+            // exception must not leave its token queue armed for the next RunTests to
+            // inherit; the sequence is over the moment the two-phase state is.
+            ClearMultiCategoryState();
             // The TimeJump completion fields (jumpTargetUt / jumpStartUt /
             // jumpSettleFramesRemaining) are not cleared here: they are re-armed wholesale at
             // the start of every TimeJumpImpl Execute (sibling partial), so a stale value can
@@ -1840,7 +1844,15 @@ namespace Parsek.TestCommands
                 ownedRunner = new InGameTestRunner(this);
 
             if (multiCategoryCurrent != null)
+            {
+                // The reference driver resets before EVERY token, including the first:
+                // the H3 line's `total` counts every test whose Status is not NotRun on
+                // the whole runner, so a prior batch on this same owned runner would
+                // leak into token 1's per-category line (the fold is category-filtered
+                // and would not, leaving the aggregate and the line disagreeing).
+                ownedRunner.ResetResults();
                 WarnIfCategoryMatchesNoTests(multiCategoryCurrent);
+            }
             ownedRunner.RunBatchSelector(category, isolated);
 
             ParsekLog.Info(Tag,

@@ -340,7 +340,7 @@ count = { min = 0, max = 0 }
 # WHAT THE CENSUS SETTLES ABOUT THE HOST SET: 8 of `AutoRecord`'s 10 cells now execute
 # somewhere across H61 / H68 / H69 / H70, and this lane owns the eighth on its own. The
 # two that execute NOWHERE are `EvaKerbalGhostHasVesselSnapshot` (needs a crewed vessel
-# FLYING inside an atmosphere per the widened guard - no committed fixture) and
+# FLYING low over terrain - low enough that the EVA kerbal reaches the ground inside the cell's 10 s settle wait and its terminal reads Landed, not Splashed; a just-airborne or hovering craft over the KSC grass, not a cruise-altitude one - no committed fixture) and
 # `AutoRecordOnPostSwitch_GearToggle_*` (needs a LANDED craft carrying
 # `ModuleWheels.ModuleWheelDeployment` - H69 proved the situation guard is not the binding
 # one). Both are HARVEST requirements rather than product claims.

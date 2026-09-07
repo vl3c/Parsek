@@ -23,7 +23,10 @@ tier = "nightly"
 # categories LT-1 already pins. Skips inside the pinned lines: TestRunnerIsolation 1
 # (the SPACECENTER in-memory-restore gate cell, self-skipped pending its own green
 # run) and SwitchIntentPatch 2 (its FLIGHT and TS cells scene-skip here; the KSC
-# marker patch cell is the one this scene buys).
+# marker patch cell is the one this scene buys). `WarpToTime`'s cell measures the
+# far-future ForwardOnly resolution and the defined UT-0 plan kind here; its
+# rewind-reachability half needs a rewind target and a moved clock, which this
+# empty-store host does not provide, so that half is exercised by no committed lane.
 description = "Run the six SPACECENTER-scoped long-tail in-game categories as one multi-category batch over an empty store, every constituent pinned whole."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "multi-category", "long-tail", "LT-2"]

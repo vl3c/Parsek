@@ -15,8 +15,9 @@ tier = "nightly"
 # categories, 386 s wall, 92 cells): 54 passed, 1 FAILED, 37 skipped. The one
 # failure was PartEventTiming's deployable cell asserting the pre-S2 snap - test
 # drift in a cell no batch had ever run, re-pinned to the animated contract in the
-# same branch and PASSING 2/2 on its control flight `2026-09-07_0854`. FOUR
-# candidates executed NOTHING on this host and are deliberately NOT constituents:
+# same branch and PASSING 2/2 on its control flight `2026-09-07_0853`. FIVE
+# candidates are deliberately NOT constituents - four executed NOTHING on this host and
+# one cannot be measured unattended:
 # `Contracts` (both cells career-only), `CrewReservationLive` (no spawned vessel
 # pids), `DisabledHoverEcho` (its one cell needs the OS pointer inside the game
 # window to measure a hover - it passed on the census and skipped on the first
@@ -56,7 +57,9 @@ kind = "seam"
 # on an idle recorder. Budget: the 540 s RunTests cap is the M-A5 deferred-step cap;
 # the census measured about 8 s of per-category batch overhead (baseline capture,
 # crash marker, results export) on top of cells that all finish in under 0.3 s, so
-# 34 constituents sit near 300 s. See runtime.budgetSeconds.
+# 33 constituents sit near 300 s (measured 242 s of batch time on the pinned flight
+# `2026-09-07_1511`, a 2.2x margin under the 540 s cap - thinner than any
+# single-category lane, and the reason a 34th constituent should go to a third lane). See runtime.budgetSeconds.
 steps = [
   { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
   { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
@@ -65,7 +68,7 @@ steps = [
 ]
 
 [dimensionsCovered]
-# Only the environment axes. The 34 constituents touch a dozen dimensions between
+# Only the environment axes. The 33 constituents touch a dozen dimensions between
 # them, but a dimension cell is claimed by a lane that asserts the product
 # behaviour the cell names, and a whole-tally pin over a category asserts that its
 # cells RAN, not what they proved. The per-category rows in the inventory say what

@@ -410,10 +410,10 @@ reason) is unchanged and still throws away the anti-vacuity guarantee.
 
 **THE FIRST TWO LANES NOW EXIST AND ARE LIVE-PROVEN, both 2026-09-07.**
 `LT-1-long-tail-flight` drives 33 categories in one FLIGHT boot over `gloops-airshow`
-plus the injected `all-synthetic` corpus - run `2026-09-07_1511`, PASS attempt 1,
+plus the injected `all-synthetic` corpus - run `2026-09-07_1511` (its second pinned flight; `_1502` red on the since-dropped DisabledHoverEcho pin), PASS attempt 1,
 297 s wall, `BATCH_COMPLETE v1 total=80 passed=54 failed=0 skipped=26
 category=multi:33 scene=FLIGHT` - and `LT-2-long-tail-spacecenter` drives 6 more at
-SPACECENTER over an empty store - run `2026-09-07_1516`, PASS attempt 1, 46 s,
+SPACECENTER over an empty store - run `2026-09-07_1516` (its second pinned flight; `_1508` red on the WarpToTime skip since fixed), PASS attempt 1, 46 s,
 `total=10 passed=7 failed=0 skipped=3 category=multi:6 scene=SPACECENTER`. Every
 verifier PASS or SKIPPED on both, and every per-constituent line pinned WHOLE, so
 `MultiCategoryBatchWiringGroupTests.INTERIM_PIN_IDS` is empty. Together they take the
@@ -789,9 +789,9 @@ stock-minimal` to reach a harness run.
   pin (`total=` attribute-exact, `failed=0` asserted, split a regex class) with a
   cell-by-cell predicted census in its own header. SIX HAVE NOW FLOWN AND ARE PINNED
   WHOLE, each PASS on attempt 1 with every verifier PASS or SKIPPED: H61
-  `2026-09-06_2010` (80 s, `total=10 passed=5 failed=0 skipped=5`), H63 `_2012` (56 s,
+  `2026-09-06_2010` (82 s, `total=10 passed=5 failed=0 skipped=5`), H63 `_2012` (58 s,
   `2/2/0/0`), H64 `_2013` (60 s, `1/1/0/0`), H65 `_2014` (63 s, `3/3/0/0`), H66 `_2015`
-  (73 s, `1/1/0/0`), H67 `_2016` (55 s, `1/1/0/0`) - and not one header prediction was
+  (74 s, `1/1/0/0`), H67 `_2016` (55 s, `1/1/0/0`) - and not one header prediction was
   refuted. `H62-coalescer-isolated` flew twice: `_1956` on gs1-two-stage-pad read
   `passed=0 skipped=2` (gs1's first stage lights the engine, so the one staging call
   separated nothing), and `_2017` on the derived `coalescer-pad` host read `2/2/0/0`
@@ -839,7 +839,7 @@ stock-minimal` to reach a harness run.
   `EvaTwiceFromSameCapsuleProducesTwoBranches` EXECUTED AND PASSED, `evaBranches=2`).
   **D1 `auto-record-first-mod-switch` IS THEREFORE CLOSED** - claimed by H68 and H69,
   each gated on its cell's own summary line rather than on a tally, and both lines are
-  now in a collected log. THE LANDED / ORBITING FOLLOW-UP LANES ARE NO LONGER OWED.
+  now in the runs' artifact logs (`harness/results/<run>_shots/KSP.log`, gitignored). THE LANDED / ORBITING FOLLOW-UP LANES ARE NO LONGER OWED.
   UNION ACROSS THE FOUR HOSTS: 8 of `AutoRecord`'s 10 cells now execute somewhere.
   TWO PIECES OF H61's RESIDUE SURVIVED EVEN THESE THREE, found by reading the cell
   bodies before the flights and both confirmed by them, and both are recorded so
@@ -858,7 +858,8 @@ stock-minimal` to reach a harness run.
   `TerminalState.Landed`); THE GUARD WAS WIDENED in `Source/` in the same wave to name
   the requirement it always meant, so the census measured a SKIP - `requires a crewed
   vessel FLYING inside an atmosphere, got ORBITING` - and the host requirement is now
-  stated by the product rather than inferred.
+  stated by the product rather than inferred. FLYING is necessary, not sufficient: the
+  body's 10 s settle wait and Landed terminal mean the forge must be sized FLYING low over terrain - low enough that the EVA kerbal reaches the ground inside the cell's 10 s settle wait and its terminal reads Landed, not Splashed; a just-airborne or hovering craft over the KSC grass, not a cruise-altitude one.
   A THIRD THING THE FLIGHTS PRODUCED, worth more than the tallies: the FIRST round
   (`_1609` H68, `_1611` H69) red on a RUNNER defect - the isolated batch's per-cell
   baseline restore handed a cell control before KSP's `onFlightReady` for the reloaded

@@ -13,7 +13,8 @@ ModuleDecouple), but its staging is the GS-1 flight's: stage 2 ignites the engin
 stage 1 fires the decoupler and the booster's chutes, stage 0 the pod chute. On the
 pad the cells' one staging call therefore ignites the engine and separates nothing,
 both cells `InGameAssert.Skip`, and H62's first census read
-`total=2 passed=0 failed=0 skipped=2` (run 2026-09-06_2258) - a vacuous batch.
+`total=2 passed=0 failed=0 skipped=2` (run 2026-09-06_1956, collected logs folder
+2026-09-06_2258_H62-coalescer-isolated) - a vacuous batch.
 
 THE DERIVATION. Take gs1-two-stage-pad's persistent.sfs byte for byte and swap the
 stage of exactly two parts of the `GS1 Auto-Chute Booster` VESSEL: `Decoupler.1`

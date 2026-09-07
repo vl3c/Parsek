@@ -12,7 +12,7 @@ tier = "nightly"
 # lets the interim `passed=[1-9][0-9]*` spelling below already reject every line the
 # ordinary path could print: its executable ceiling is 0.
 #
-# LIVE-PROVEN 2026-09-06, run `2026-09-06_2010` (PASS attempt 1, wall 80 s, every
+# LIVE-PROVEN 2026-09-06, run `2026-09-06_2010` (PASS attempt 1, wall 82 s, every
 # verifier PASS or SKIPPED). The `passed=` / `skipped=` split below was authored as a
 # REGEX CLASS, with the cell-by-cell prediction in this header written to be REFUTED
 # by the first census rather than confirmed by it. IT WAS NOT REFUTED: the census
@@ -148,7 +148,7 @@ count = { min = 0, max = 0 }
 # isolated member owes.
 #
 # EVIDENCE STANDING: MEASURED ONCE, run `2026-09-06_2010` (2026-09-06, PASS on
-# attempt 1, 80 s wall, every verifier PASS or SKIPPED), whose collected KSP.log
+# attempt 1, 82 s wall, every verifier PASS or SKIPPED), whose collected KSP.log
 # carries `BATCH_COMPLETE v1 total=10 passed=5 failed=0 skipped=5 category=AutoRecord
 # scene=FLIGHT` and `Using batch baseline slot ... for 10 restore-after-run test(s)`.
 # `total=10` is ATTRIBUTE-EXACT (ten `[InGameTest(Category = "AutoRecord")]`

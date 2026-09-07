@@ -2263,7 +2263,10 @@ namespace Parsek.InGameTests
                 // ON A SURFACE and asserts a Landed terminal. A kerbal let out of an
                 // orbiting capsule never settles, so an orbital host turned the
                 // cell into a timeout FAIL - a wrong host, not a defect. Only a
-                // crewed vessel FLYING inside an atmosphere can satisfy every wait.
+                // crewed vessel FLYING inside an atmosphere can satisfy every wait - and
+                // FLYING is necessary, not sufficient: the settle wait is 10 s and the
+                // terminal must read Landed (Splashed is distinct), so the host has to be
+                // low over terrain, not at cruise altitude over water.
                 InGameAssert.Skip(
                     $"requires a crewed vessel FLYING inside an atmosphere, got {vessel.situation}: " +
                     "the cell waits for the EVA kerbal to settle on a surface, which an orbital " +

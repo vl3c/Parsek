@@ -4486,11 +4486,13 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         #                                 non-zero.
         #   H70 `eva3-pad-3crew`        - the CREW half (the two-EVA branch cell), and the
         #                                 only host that can run it: H68 measured the same
-        #                                 cell SKIPPING in orbit, where the first kerbal
-        #                                 floats in front of the hatch.
+        #                                 cell SKIPPING in orbit (inferred, not logged:
+        #                                 two flights, two skip strings; the first kerbal
+        #                                 seems not to fall clear of the hatch).
         # WHAT THE FOUR MEASURED TOGETHER: 8 of `AutoRecord`'s 10 cells now execute
         # somewhere. The two that execute nowhere are `EvaKerbalGhostHasVesselSnapshot`
-        # (needs a crewed vessel FLYING inside an atmosphere) and
+        # (needs a crewed vessel FLYING low over terrain: the 10 s settle wait and the
+        # Landed terminal bound the host, a cruise-altitude craft would still red) and
         # `AutoRecordOnPostSwitch_GearToggle_*` (needs a LANDED craft carrying
         # `ModuleWheels.ModuleWheelDeployment`); both are HARVEST requirements, and H69
         # proved the second is not a situation problem.
@@ -5112,7 +5114,7 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # rather than this number.
         "RVR-6-rover-relay-logistics-host": 9,
         # H61 (`gs1-two-stage-pad`): 0 attribute-forced + 5 run-time. MEASURED off its
-        # census `2026-09-06_2010` (PASS attempt 1, wall 80 s, every verifier PASS or
+        # census `2026-09-06_2010` (PASS attempt 1, wall 82 s, every verifier PASS or
         # SKIPPED), which read `BATCH_COMPLETE v1 total=10 passed=5 failed=0 skipped=5
         # category=AutoRecord scene=FLIGHT`. The attribute floor is 0 because all ten
         # `AutoRecord` declarations are FLIGHT-scoped and the isolated filter admits
@@ -5171,7 +5173,8 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         #     called it a TEST-GUARD finding whose fix was to WIDEN THE GUARD. The guard
         #     was widened in `Source/` in the same wave, so the predicted FAIL is a
         #     MEASURED SKIP. The cell's residue is unchanged: it still needs a crewed
-        #     vessel FLYING inside an atmosphere, which no committed fixture is.
+        #     vessel FLYING low over terrain (10 s settle wait, Landed terminal), which
+        #     no committed fixture is.
         #   * REFUTATION 2 - `EvaTwiceFromSameCapsuleProducesTwoBranches` - "capsule hatch
         #     still obstructed after moving the first EVA kerbal clear; spawnEVA would
         #     refuse the second EVA, so the background-parent path is unreachable". The

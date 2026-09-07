@@ -313,8 +313,9 @@ class RoverRouteSpecFixtureSyncTests(unittest.TestCase):
              # census measured both skipping against a PRELAUNCH host. It reads NONE of
              # the recorded corpus either; the corpus's only roles in that lane are the
              # exact-5 `recordings.count` pin (anti-data-loss floor plus
-             # campaign-isolation ceiling) and the kill triple its presence forces into
-             # the driver. Same pairing obligation as the other live-reason consumers.
+             # campaign-isolation ceiling) and the kill triple its presence justifies as
+             # an idempotent guard in the driver (both H69 flights measured nothing live
+             # to stop). Same pairing obligation as the other live-reason consumers.
              "H69-autorecord-landed.toml")
 
     FIXTURE_PATH = "fixtures/saves/rover-route-recorded"
