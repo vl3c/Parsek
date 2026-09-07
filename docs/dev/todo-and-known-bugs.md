@@ -673,6 +673,31 @@ anchor pid). Covered by the re-pinned `IsPhaseAnchorEligible_*` theories, a new
 (`AirborneAnchor_RefusedByTheOrbitContract`) that drives the live orbit through the
 seam and skips naming its required context otherwise.
 
+**The airborne branch is still UNOBSERVED IN A FLIGHT, and there is now a lane for
+it: `M3-mission-phasing-airborne-anchor` (AUTHORED 2026-09-07, NEVER FLOWN).** The
+in-game cell skips on every committed fixture, and that is not an oversight: a census
+that walked every `harness/fixtures/saves/*/persistent.sfs` VESSEL node and computed
+its periapsis from its own `ORBIT { SMA, ECC, REF }` against the stock radius /
+atmosphereDepth of the body `REF` names found ZERO non-landed vessels with a closed
+orbit whose `PeA` sits below the floor. The corpus's only two `sit = SUB_ORBITAL` rows
+are one hyperbolic `Kerbal X Debris` (pid 1650504405, `ECC = 1.1123176466722873`) that
+the `ecc >= 1.0` filter rejects one gate EARLIER, so it can never reach the branch.
+`[[fixture.liveState]]` cannot stage one either - `savepatch.ENTRY_KEYS` is
+`(pid, resources, inventory, remove, fill)`, FLIGHTSTATE resources / inventory /
+whole-node removal only, and that boundary is the mechanism's safety argument. The lane
+therefore FLIES an airborne active vessel rather than staging one: `eva4_atmo_chute` is
+the only mission in `mlib` whose terminal phase (`EVA4_EVA_WINDOW`, entered under full
+canopy at 2100 m) leaves the active vessel airborne and alive, so M3 reuses EVA-4's
+measured flight verbatim and replaces its EVA tail with one
+`RunTests category=MissionPhasing` step. Its anti-vacuity instrument is the pair of
+mutually exclusive branch witnesses (required `skipped atmosphere-intersecting anchor`
+against forbidden `skipped landed anchor`) plus the matching pair of `SKIPPED:`
+witnesses, so a pod that reached the ground before the batch reds rather than passing on
+the surface branch. WHAT REMAINS: fly it and re-pin `passed=`/`skipped=` (predicted
+`total=4 passed=3 failed=0 skipped=1`) in the spec file. `IngameBatchWiringGroupTests.INTERIM_PIN_IDS`
+is NOT its register - that set is constrained to `GROUP`, discovered
+by `GROUP_ID_RE = ^H(?:[7-9]|[1-9][0-9]+)-`, which an `M3-` id does not match.
+
 ---
 
 ## RECORDER-NO-RECORDING-PRELAUNCH-ROLLOUT: a rolled-out craft that never leaves PRELAUNCH produces no recording [RAISED 2026-09-03 while reading `logs/2026-09-03_1955_rover-c-route-created`. NOT A DEFECT - filed so the next reader does not re-investigate]
