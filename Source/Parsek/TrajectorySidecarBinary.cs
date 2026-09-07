@@ -340,8 +340,15 @@ namespace Parsek
                         markDirty: true,
                         context: "TrajectorySidecarBinary.Read",
                         reconcileEmptySections: false);
+                    // markDirty: false - the heal repairs the DERIVED flat list in memory
+                    // (which is what stops anchor-local metres reaching playback and the
+                    // maxDist walk); the on-disk sidecar is left byte-identical so its
+                    // SidecarEpoch does not advance. A read that dirtied the file bumped
+                    // the epoch every committed route captured as proof-of-source, parking
+                    // the route in SourceChanged with no witnessed proof datum changed
+                    // (todo ROUTE-SOURCECHANGED-AT-LOAD-AFTER-SIDECAR-EPOCH-DRIFT).
                     healedMalformedFlatFallback = RecordingStore.TryHealMalformedFlatFallbackTrajectoryFromTrackSections(
-                        rec, allowRelativeSections: true);
+                        rec, allowRelativeSections: true, markDirty: false);
                 }
 
                 rec.RecordingFormatVersion = probe.FormatVersion;

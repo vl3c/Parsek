@@ -91,13 +91,15 @@ namespace Parsek.Tests
         /// A committed recording named <paramref name="vesselName"/> that ENDED before the
         /// recovery UT - the tier the live seam actually measured (`tier=most-recent-ended`).
         /// </summary>
-        private static void AddEndedRecording(string id, string vesselName, double startUt, double endUt)
+        private static void AddEndedRecording(
+            string id, string vesselName, double startUt, double endUt, string launchGuid = null)
         {
             var rec = new Recording
             {
                 RecordingId = id,
                 VesselName = vesselName,
                 PreLaunchFunds = 50000.0,
+                RecordedVesselGuid = launchGuid,
                 TerminalStateValue = TerminalState.Landed
             };
             rec.Points.Add(new TrajectoryPoint { ut = startUt, funds = 40000.0 });
@@ -169,8 +171,18 @@ namespace Parsek.Tests
             // The bundle argument, asserted rather than described: whatever
             // PickRecoveryRecordingId hands the funds leg is what the XP row must carry,
             // or ResurrectionRetirementEligibility retires half a recovery.
-            AddEndedRecording("rec-old", "Jumping Flea", 100.0, 200.0);
-            AddEndedRecording("rec-new", "Jumping Flea", 250.0, 300.0);
+            //
+            // BOTH RECORDINGS CARRY THE SAME LAUNCH GUID, and that is now load-bearing
+            // rather than decoration. This fixture is one launch recorded as two chained
+            // segments - which is what `rec-old` / `rec-new` of one craft means, and what
+            // the committed career fixture actually holds - and
+            // KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY stage 2 refuses the XP write when
+            // several survivors on a weak tier CANNOT be corroborated as one launch. Two
+            // guid-less same-name recordings are exactly that uncorroborated shape, so
+            // leaving the guid off here would assert the refusal, not the bundle property.
+            const string launchGuid = "cfb91da8fa6d4e8990e085548c983704";
+            AddEndedRecording("rec-old", "Jumping Flea", 100.0, 200.0, launchGuid);
+            AddEndedRecording("rec-new", "Jumping Flea", 250.0, 300.0, launchGuid);
 
             string fundsScope = LedgerOrchestrator.PickRecoveryRecordingId("Jumping Flea", 347.5);
             Assert.Equal("rec-new", fundsScope);

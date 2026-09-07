@@ -7532,8 +7532,8 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "V18T-depot-route-ts-arrival.toml":  "operator by the calibration discipline (V1/V2/V24W precedent); AUTHORED 2026-08-26, NEVER FLOWN, reading pending. THE SUITE'S FIRST ROUTE LANE and G1's first lane of any kind: a tracking-station observation of the committed Active GhostDriving SameBody route in the B27 harvest `depot-route-recorded`, arming NO mission loop because the ROUTE drives. Its anchor branch is genuinely unresolvable pre-flight - the header derives all THREE candidates (unlocked-faithful, single-rotation phase lock, and a VesselOrbital-dominant joint/zero-drift road whose anchor is not computable from the committed bytes at all) and the two forward jumps are chosen to be honest under every one of them, with the calibration recipe written down. So the reading run measures the anchor and round 2 re-pins; that is the discipline, not a debt. What IS gated on the first flight is anti-vacuity, three ways: `RevalidateSources ... transitioned=0` (the route did not flip to SourceChanged under the load-time optimizer - the one failure mode that would make this lane green and empty at once), `ghostDriving=[1-9]` and `routeMissions=[1-9]`. `[expectations.renderComposition]` is BARE and D10 `route-map-lines` is deliberately UNDECLARED (H35 CLAIM-IS-NOT-GATE): the headline facet `routeLineBuilds >= 1` would be the first non-zero reading of that census anywhere, and it gets declared in the commit that arms it, citing the run",
         "V25M-duna-park-player-loop.toml":   "operator by the calibration discipline (V8-iteration-1 precedent); AUTHORED 2026-08-26, NEVER FLOWN, reading pending. RE-AIM'S SECOND DEPARTURE CLASS - a heliocentric-parking departure, over `duna-park-recorded`, the path `ReaimClassifier`'s own exception comment names by fixture ('EXCEPTION (s15 Kerbal X #2)') and that no committed lane has driven. Unlike V18T its clock IS fully derivable and the header derives it end to end off the committed .prec bytes: classifier verdict (parking=True, via a replay of DetectRuns / the empty-cut scope gate / the ecc+sma admissibility gate), loiter cuts (ONE, destination-side, 43,963.92 s at the Duna capture, downstream of every window so all three map uncompressed), synodic 19,645,697.250367, span/synodic 1.185268 -> cadence = 2x synodic with PadAlignLaunch declined, k=142, D0 5,350,759,909.583645 and phaseAnchorUT 5,336,966,486.982761 - with the k shown robust to the seconds of scene time between LoadGame and the MissionConfig that stamps LoopAnchorUT. Operator tier is therefore the ordinary first-flight promotion call: the run confirms or refutes a written prediction rather than discovering one. The prediction is pinned as ONE conjunction regex over the ReaimDiag line and its exact inverse (the 'transfer departs from a heliocentric parking orbit' decline) is FORBIDDEN, so a refutation reds loudly instead of quietly measuring a faithful replay",
         "B32-interbody-route-scope.toml":    "operator by the calibration discipline; FLOWN 2026-09-02, ARMED-DISCIPLINE COMPLETE (reading run, pins tightened off it, armed re-flight PASS attempt 1, and a negative control that red PARSEK-FAIL(expectation) on exactly the seeded token). THE FIRST LANE ANYWHERE THAT HAS READ `ClassifyRouteScope = InterBody`, over the `interbody-route-recorded` harvest. It stays untagged because what it owed was an ordinary reading, not a human call, and that reading is in: the product change that made the verdict reachable (todo ROUTE-INTERBODY-SCOPE-NEVER-REACHABLE) landed in the same PR, the tokens are derived from the classifier source rather than predicted, and the two FORBIDS carry the pre-fix reading as a control the lane brings with it. Nothing is armed, so the flights confirmed without a promotion decision attached; the `[expectations.routes]` arming pass is the one still outstanding.",
-        "V26M-interbody-route-map-lines.toml": "operator by the calibration discipline; FLOWN 2026-09-02, ARMED-DISCIPLINE COMPLETE (reading run, pins tightened off it, armed re-flight PASS attempt 1, and a negative control that red PARSEK-FAIL(expectation) on exactly the seeded token). The RENDER-COMPOSITION half of G10 - the manifest census of an inter-body route line. It read `transferLegsDropped=0`, which is OUTCOME B of the two its header pre-registered: the filter RUNS but found no third-body leg, so G10's `never dropped a leg on a driven run` gap REMAINS OPEN. `[expectations.renderComposition]` stays DECLARED BARE; the arming pass is the human call and it is deliberately NOT taken here.",
-        "V26T-interbody-route-ts-arrival.toml": "operator by the calibration discipline; FLOWN 2026-09-02, ARMED-DISCIPLINE COMPLETE (reading run, pins tightened off it, armed re-flight PASS attempt 1, and a negative control that red PARSEK-FAIL(expectation) on exactly the seeded token). V18T's tracking-station grammar on the inter-body subject. It carries ONE genuinely open question the reading run must answer rather than pass: V18T's front-door tokens (`ghostDriving=[1-9]`, `routeMissions=[1-9]`) are deliberately NOT required, because this subject's Duna route has `loopAnchorUT = -1` and has never run a cycle, so whether a never-dispatched route enters the GhostDriving selection is unmeasured - and RUN 1 ANSWERED IT: `ghostDriving=1` and `routeMissions=1` both printed, so dispatch history is NOT a precondition for a route driving a tracking-station ghost, and both tokens are REQUIRED from the armed re-flight onward. What this lane still owes is the renderComposition arming pass.",
+        "V26M-interbody-route-map-lines.toml": "operator by the calibration discipline; FLOWN 2026-09-02, ARMED-DISCIPLINE COMPLETE (reading run, pins tightened off it, armed re-flight PASS attempt 1, and a negative control that red PARSEK-FAIL(expectation) on exactly the seeded token). The RENDER-COMPOSITION half of G10 - the manifest census of an inter-body route line. It read `transferLegsDropped=0`, which is OUTCOME B of the two its header pre-registered: the filter RUNS but found no third-body leg, so G10's `never dropped a leg on a driven run` gap REMAINS OPEN. `[expectations.renderComposition]` stayed DECLARED BARE at that point and the arming pass was left as the human call. THAT CALL WAS TAKEN 2026-09-07 (package P16, after reading run 3 `2026-09-06_2113` PASS attempt 1 matched run 1 facet for facet): the block is ARMED on `routeLineBuilds = {min = 2}` + `routeCoDrawViolations = {max = 0}` and nothing else - no `unevaluable` ceiling, because 1065 here against V26T's 6 on the SAME fixture says that census scales with the observed population rather than with the composition. The same run ALSO closed G10's leg-drop gap: `transferDropped=2` on three consecutive runs, now pinned as a literal. The armed re-flight and the negative control are OWED.",
+        "V26T-interbody-route-ts-arrival.toml": "operator by the calibration discipline; FLOWN 2026-09-02, ARMED-DISCIPLINE COMPLETE (reading run, pins tightened off it, armed re-flight PASS attempt 1, and a negative control that red PARSEK-FAIL(expectation) on exactly the seeded token). V18T's tracking-station grammar on the inter-body subject. It carries ONE genuinely open question the reading run must answer rather than pass: V18T's front-door tokens (`ghostDriving=[1-9]`, `routeMissions=[1-9]`) are deliberately NOT required, because this subject's Duna route has `loopAnchorUT = -1` and has never run a cycle, so whether a never-dispatched route enters the GhostDriving selection is unmeasured - and RUN 1 ANSWERED IT: `ghostDriving=1` and `routeMissions=1` both printed, so dispatch history is NOT a precondition for a route driving a tracking-station ghost, and both tokens are REQUIRED from the armed re-flight onward. The renderComposition arming pass this lane owed was TAKEN 2026-09-07 (package P16, after reading run 3 `2026-09-06_2115` PASS attempt 1): armed on `routeLineBuilds = {min = 2}` + `routeCoDrawViolations = {max = 0}`, deliberately symmetric with V26M and with no `unevaluable` ceiling on either. The armed re-flight and the negative control are OWED.",
     }
 
     def _specs(self):
@@ -8302,7 +8302,64 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # same block REPORT-ONLY with its own counters, and six of them
                        # read the exact inverse pair (`completedCycles 0` /
                        # `skippedCycles 1`) against this lane's gated `1` / `0`.
-                       "RVR-7-rover-relay-c-dispatch.toml"}
+                       "RVR-7-rover-relay-c-dispatch.toml",
+                       # RVR-20: the `[expectations.routes]` block, armed 2026-09-07 off
+                       # its OWN TWO report-only reading runs - `2026-09-06_2027` (the
+                       # first census, PASS attempt 1, wall 56 s, on the clean automation
+                       # DLL `db525f5efe422d51`) and `2026-09-07_0937` (PASS attempt 1,
+                       # wall 49 s, on `7c0bfee1b74d6716`). BOTH read
+                       # `routes count=1 dormant=0 stops=2 sourceRefs=3
+                       # completedCycles=0 skippedCycles=1 statuses={Paused:1}`
+                       # IDENTICALLY, so the arming re-pins NOTHING and moves no verdict
+                       # on the shape already flown - the S4.1 rule. The two runs' whole
+                       # `routes` facets agree field for field (`holdKinds
+                       # {DestinationFull:1}`, `connectionKinds {DockingPort:2}`,
+                       # `destinationVesselPids [90564594, 4280917262]`,
+                       # `codecRejects 0`) with ONE exception: `ids`, the route's
+                       # freshly-minted per-run guid, which no window declares because
+                       # this lane CREATES its route on every run.
+                       #
+                       # WHY THIS LANE, AND WHY IT IS NOT A SECOND RVR-7. RVR-7 gates the
+                       # COMPLETED half of these counters (`completedCycles=1
+                       # skippedCycles=0`) on a cycle that delivers; RVR-20 gates the
+                       # REFUSED half (`completedCycles=0 skippedCycles=1`) on the same
+                       # fixture, so between them BOTH outcomes of `ProcessLoopRoute`'s
+                       # cycle bookkeeping are load-bearing in the produced bytes. The
+                       # arming is worth more on this side: the whole claim of RVR-20 is
+                       # that NOTHING was written, and a log token can only assert the
+                       # absence of a line, where `skippedCycles=1` is the positive form
+                       # of that absence.
+                       #
+                       # DISCIPLINE COMPLETE 2026-09-07, the same day it was armed, on
+                       # the CLEAN automation DLL `7c0bfee1b74d6716` (Parsek C# from
+                       # `main` 1f7801cea, harness at 04a34b7c5 - the same build the
+                       # second reading run flew). ARMED RE-FLIGHT `2026-09-07_1006`:
+                       # PASS attempt 1, wall 67 s, every verifier PASS,
+                       # `expectations mismatches=0`, `saveParse status=PASS gating=True
+                       # blocks=['recordings.structure', 'routes'] armed=['routes']
+                       # routes=1 routeStatuses={'Paused': 1} mismatches=0`. NEGATIVE
+                       # CONTROL `2026-09-07_1007`, a throwaway copy under the id
+                       # `RVR-20-NEGCTL-rover-relay-c-destination-slots-full-tank-empty`
+                       # with EXACTLY ONE window inverted (`completedCycles =
+                       # { min = 0, max = 0 }` -> `{ min = 1 }`, the inversion the
+                       # arming note named in advance), written into the scratchpad,
+                       # deleted after the flight and NEVER COMMITTED: PARSEK-FAIL,
+                       # wall 49 s, `Classify verdict=PARSEK-FAIL reason=gating
+                       # save-structure expectations mismatch`, `saveParse status=FAIL
+                       # gating=True armed=['routes'] mismatches=1`, mismatch list
+                       # EXACTLY `['routes.completedCycles 0 < min 1']`. `logContracts`
+                       # stayed PASS on the control (`expectations mismatches=0`,
+                       # `analyzer red=0`), so the gate fired on the WINDOW IT NAMES
+                       # rather than on the block as a whole - the control's own
+                       # `routes` facet still read `completedCycles=0 skippedCycles=1
+                       # stops=2 sourceRefs=3 statuses={Paused:1}`, identical to the
+                       # armed run's but for the per-run route id. It could not share
+                       # the family's `rewind.supersedeRows` inversion, for V18T's and
+                       # RVR-7's recorded reason - that re-proves the shared evaluator,
+                       # where this block has a parse, a normalisation and a bucketing
+                       # step of its own between the bytes and that evaluator. Nothing
+                       # is owed.
+                       "RVR-20-rover-relay-c-destination-slots-full-tank-empty.toml"}
 
     def test_no_committed_spec_arms_gating(self):
         armed = []
@@ -8858,6 +8915,37 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
         # (byte-identical to HEAD after the revert, checked rather than assumed).
         # Not shared with any sibling: each armed lane inverts a window of its own.
         "V18T-depot-route-ts-arrival.toml",
+        # THE V26 INTER-BODY PAIR, ARMED 2026-09-07 (package P16, the G10 leg drop)
+        # off THREE report-only readings of the same five-lane set, the third of
+        # which (`2026-09-06_2113` V26M / `2026-09-06_2115` V26T, both PASS attempt
+        # 1) matched the first facet for facet on every key either block windows.
+        # BOTH ARM EXACTLY TWO WINDOWS AND NO MORE:
+        #   `routeLineBuilds = {min = 2}` - the anti-vacuity floor and the one
+        #     arithmetic the bare blocks refused to assert in advance (V18T's
+        #     measured 1 was a ONE-route subject; this fixture commits two, and both
+        #     lanes read 2 on runs 1 and 3).
+        #   `routeCoDrawViolations = {max = 0}` - the arbitration's own instrument,
+        #     and the counter this package moved: run 1 read 1024 (the cap) on V26M
+        #     over one finding, run 2 read 403, run 3 reads 0 on both lanes.
+        # WHAT IS DELIBERATELY NOT ARMED, and it is the same key on both so the pair
+        # stays symmetric: `unevaluable`. V26M reads 1065 (750 of them the
+        # seam-endpoint DECIMATION) against V26T's 6 on the SAME fixture, because
+        # the census scales with the observed population - a FLIGHT scene with 20
+        # vessels and a 40-tick map dwell against a TS boot. A ceiling on either
+        # would gate session length rather than composition, which is the V17M
+        # mistake in another costume. `dwells` / `cycles` are 0 by construction (no
+        # loop armed, no route has run a cycle), `ownershipChanges` is 0 correctly
+        # (no TracedPath ownership on this subject) and `requireSeamKinds` stays out
+        # because the seam census tracks which recordings the ghost pass walked,
+        # which run 3 measured to be EPOCH-DEPENDENT here (V26M
+        # `ghostLifecycle spawned=0` - no ghost was alive in its map window at all,
+        # where runs 1 and 2 each had one; filed as
+        # V26M-GHOST-SPAWN-IN-MAP-WINDOW-IS-EPOCH-DEPENDENT).
+        # OWED, and named so it is not mistaken for discharged: the ARMED RE-FLIGHT
+        # of both lanes and their negative control. The arming lands in this commit
+        # with its readings cited; the discipline is not complete until those fly.
+        "V26M-interbody-route-map-lines.toml",
+        "V26T-interbody-route-ts-arrival.toml",
     }
 
     def test_no_committed_spec_arms_render_composition_gating(self):
@@ -9436,13 +9524,26 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
         """The property both key-set pins exist to protect, stated once against the
         roster so a THIRD armed lane inherits it: an armed block whose every
         assertion is a ceiling passes green off a manifest that observed nothing.
-        A floor is a `min` on a count window or a `requireSeamKinds` list (a kind
-        that must be PRESENT); `unevaluable` is a ceiling by nature and never counts.
-        The grammar's `_validate_armed_empty` notch only refuses a block with NO
-        assertion key at all, so this is the sharper statement."""
+        A floor is a positive `min` on ANY count window except `unevaluable`, or a
+        `requireSeamKinds` list (a kind that must be PRESENT); `unevaluable` is a
+        ceiling by nature and never counts. The grammar's `_validate_armed_empty`
+        notch only refuses a block with NO assertion key at all, so this is the
+        sharper statement.
+
+        THE FLOOR SET IS DERIVED FROM `RENDER_COMPOSITION_WINDOW_KEYS` RATHER THAN
+        LISTED (2026-09-07, package P16). It was the literal pair ("dwells",
+        "cycles") from before the 2026-08-26 schema extension, which left the three
+        keys that extension added uncredited: V18T armed `routeLineBuilds = {min = 1}`
+        - a floor by every word of the property above - and passed this cell only
+        through its `requireSeamKinds`, and the V26 pair arms `routeLineBuilds =
+        {min = 2}` with no seam-kind list at all. Deriving keeps the property exact
+        (a `min` on a count the recorder writes 0 for on an empty manifest DOES red
+        there) and makes a future window key inherit it without an edit here."""
+        floor_keys = tuple(k for k in rendercompose.RENDER_COMPOSITION_WINDOW_KEYS
+                           if k != "unevaluable")
         for name in sorted(self.RENDERCOMPOSE_ARMED_SPECS):
             block = self._armed_block(name)
-            floors = [k for k in ("dwells", "cycles")
+            floors = [k for k in floor_keys
                       if isinstance(block.get(k), dict) and block[k].get("min", 0) > 0]
             floors += ["requireSeamKinds"] if block.get("requireSeamKinds") else []
             self.assertTrue(floors,
@@ -16316,3 +16417,285 @@ class PartShowcaseWindowSyncTests(unittest.TestCase):
         _, deltas = self._jumps()
         for d in deltas:
             self.assertGreater(d, 0.0, "a non-positive deltaSeconds would be refused")
+
+
+def _save_snapshot_scenarios_dir():
+    """harness/scenarios/, resolved from this file (lib/ is one level down)."""
+    return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "scenarios")
+
+
+class SaveSnapshotPolicyTests(unittest.TestCase):
+    """hlib.decide_save_snapshot: whether a finished run copies its produced
+    save into results/ (HARNESS-PRODUCED-SAVE-CLOBBERED-BY-SIBLING-RUN).
+
+    The default is SNAPSHOT ON EVERY VERDICT, so the cells that matter are the
+    refusals - each one is a way to lose forensic evidence, and each has to be a
+    deliberate, named reason rather than a silent skip."""
+
+    SPEC = {"id": "X"}
+
+    def _d(self, **kw):
+        args = {"verdict": hlib.VERDICT_PASS, "spec": self.SPEC,
+                "save_bytes": 10 * 1024 * 1024, "free_bytes": 500 * 1024 ** 3}
+        args.update(kw)
+        return hlib.decide_save_snapshot(**args)
+
+    def test_every_verdict_snapshots_by_default(self):
+        for verdict in (hlib.VERDICT_PASS, hlib.VERDICT_PARSEK_FAIL,
+                        hlib.VERDICT_INVALID, hlib.VERDICT_EXPECTED_FAIL):
+            d = self._d(verdict=verdict)
+            self.assertTrue(d.snapshot, "%s must snapshot: %s" % (verdict, d.reason))
+            self.assertTrue(d.reason.startswith("every-verdict-default"))
+            self.assertIn(verdict, d.reason,
+                          "the reason must name the verdict it preserved")
+
+    def test_a_run_that_staged_no_save_has_nothing_to_preserve(self):
+        d = self._d(save_present=False)
+        self.assertFalse(d.snapshot)
+        self.assertEqual("no-produced-save", d.reason)
+
+    def test_a_spec_can_opt_out(self):
+        spec = {"id": "X", hlib.SAVE_SNAPSHOT_SPEC_SECTION:
+                {hlib.SAVE_SNAPSHOT_SPEC_KEY: False}}
+        d = self._d(spec=spec)
+        self.assertFalse(d.snapshot)
+        self.assertTrue(d.reason.startswith("spec-opt-out"))
+
+    def test_an_explicit_true_and_an_absent_block_both_snapshot(self):
+        """Opt-OUT, not opt-in: only the literal False refuses. A spec author
+        must never have had to predict that a run would be worth keeping."""
+        spec = {"id": "X", hlib.SAVE_SNAPSHOT_SPEC_SECTION:
+                {hlib.SAVE_SNAPSHOT_SPEC_KEY: True}}
+        self.assertTrue(self._d(spec=spec).snapshot)
+        self.assertTrue(self._d(spec={"id": "X"}).snapshot)
+        self.assertTrue(self._d(spec=None).snapshot)
+        self.assertTrue(self._d(spec={"id": "X",
+                                      hlib.SAVE_SNAPSHOT_SPEC_SECTION: {}}).snapshot)
+
+    def test_a_runaway_save_is_refused_by_the_size_cap(self):
+        d = self._d(save_bytes=hlib.SAVE_SNAPSHOT_MAX_BYTES + 1)
+        self.assertFalse(d.snapshot)
+        self.assertTrue(d.reason.startswith("size-cap"))
+        # Exactly at the cap still copies (the cap is a ceiling, not a fence).
+        self.assertTrue(self._d(save_bytes=hlib.SAVE_SNAPSHOT_MAX_BYTES).snapshot)
+
+    def test_the_copy_never_takes_the_disk_below_the_floor(self):
+        """The harness stages fixtures onto the same volume: a snapshot that
+        filled it would red every later run for an unrelated reason."""
+        # Under the size cap, so this is the disk rule and not the cap.
+        save = hlib.SAVE_SNAPSHOT_MAX_BYTES // 2
+        d = self._d(save_bytes=save,
+                    free_bytes=hlib.SAVE_SNAPSHOT_FREE_DISK_FLOOR_BYTES + save - 1)
+        self.assertFalse(d.snapshot)
+        self.assertTrue(d.reason.startswith("free-disk-floor"), d.reason)
+        # One byte more of headroom and the copy runs.
+        self.assertTrue(self._d(
+            save_bytes=save,
+            free_bytes=hlib.SAVE_SNAPSHOT_FREE_DISK_FLOOR_BYTES + save).snapshot)
+
+    def test_an_unmeasurable_fact_is_admitted_not_refused(self):
+        """A None size / free-space reading means the shell could not stat, not
+        that the save is huge. Losing the snapshot is the expensive outcome; a
+        copy that then fails on a full disk is a Warn that leaves the verdict
+        alone."""
+        self.assertTrue(self._d(save_bytes=None).snapshot)
+        self.assertTrue(self._d(free_bytes=None).snapshot)
+        self.assertTrue(self._d(save_bytes=None, free_bytes=None).snapshot)
+
+    def test_the_structural_refusals_outrank_the_disk_facts(self):
+        """A run with no save must read no-produced-save, never a size or disk
+        reason - the reason is what an operator hunting a missing snapshot
+        reads."""
+        d = self._d(save_present=False, save_bytes=None, free_bytes=0)
+        self.assertEqual("no-produced-save", d.reason)
+
+
+class SaveSnapshotRetentionTests(unittest.TestCase):
+    """hlib.select_save_snapshot_dirs_to_prune: results/ is gitignored and
+    nothing else prunes it, and a save snapshot is tens of MB. Retention is PER
+    SCENARIO - the reason to keep one is that it is the newest evidence for ITS
+    scenario."""
+
+    def _rows(self, *specs):
+        # (dir_name, scenario_id, mtime) -- no size term; the window is a count.
+        return list(specs)
+
+    def test_nothing_to_prune_inside_the_window(self):
+        rows = self._rows(("a_save", "S1", 1.0), ("b_save", "S1", 2.0))
+        self.assertEqual([], hlib.select_save_snapshot_dirs_to_prune(
+            rows, keep_per_scenario=3))
+
+    def test_oldest_first_past_the_window(self):
+        rows = self._rows(("a_save", "S1", 1.0), ("b_save", "S1", 2.0),
+                          ("c_save", "S1", 3.0), ("d_save", "S1", 4.0))
+        self.assertEqual(["a_save", "b_save"],
+                         hlib.select_save_snapshot_dirs_to_prune(
+                             rows, keep_per_scenario=2))
+
+    def test_one_scenario_never_evicts_another(self):
+        """The whole reason retention is per scenario: a global newest-N window
+        would let a busy scenario delete the only copy another scenario has."""
+        rows = self._rows(("a_save", "BUSY", 5.0), ("b_save", "BUSY", 6.0),
+                          ("c_save", "BUSY", 7.0), ("d_save", "BUSY", 8.0),
+                          ("rare_save", "RARE", 1.0))
+        prune = hlib.select_save_snapshot_dirs_to_prune(rows, keep_per_scenario=2)
+        self.assertNotIn("rare_save", prune)
+        self.assertEqual(["a_save", "b_save"], prune)
+
+    def test_the_current_run_is_always_kept(self):
+        """The current run's snapshot is the newest of its scenario, so it heads
+        the window and the oldest falls out."""
+        rows = self._rows(("cur_save", "S1", 9.0), ("a_save", "S1", 8.0),
+                          ("b_save", "S1", 7.0))
+        prune = hlib.select_save_snapshot_dirs_to_prune(
+            rows, protect_name="cur_save", keep_per_scenario=2)
+        self.assertNotIn("cur_save", prune,
+                         "the run that just took its snapshot must never prune it")
+        self.assertEqual(["b_save"], prune,
+                         "the protected dir counts toward its scenario window")
+
+    def test_a_protected_dir_survives_even_when_the_window_is_already_full(self):
+        """The protection is absolute, not a tiebreak: a clock skew that dated
+        the current run behind its neighbours must not delete the snapshot the
+        run just took."""
+        rows = self._rows(("cur_save", "S1", 1.0), ("a_save", "S1", 8.0),
+                          ("b_save", "S1", 9.0))
+        prune = hlib.select_save_snapshot_dirs_to_prune(
+            rows, protect_name="cur_save", keep_per_scenario=2)
+        self.assertEqual([], prune)
+
+    def test_an_unattributable_dir_is_never_pruned_by_another_scenario(self):
+        """Deletion fails closed: a snapshot whose scenario could not be read
+        (no result JSON) buckets alone, so a busy neighbour budget can never
+        take it."""
+        rows = self._rows(("a_save", "S1", 1.0), ("b_save", "S1", 2.0),
+                          ("c_save", "S1", 3.0), ("orphan_save", "", 0.5))
+        prune = hlib.select_save_snapshot_dirs_to_prune(rows, keep_per_scenario=1)
+        self.assertNotIn("orphan_save", prune)
+        self.assertEqual(["a_save", "b_save"], prune)
+
+    def test_two_unattributable_dirs_do_not_share_a_bucket(self):
+        rows = self._rows(("o1_save", "", 1.0), ("o2_save", "", 2.0),
+                          ("o3_save", "", 3.0))
+        self.assertEqual([], hlib.select_save_snapshot_dirs_to_prune(
+            rows, keep_per_scenario=1))
+
+    def test_the_default_window_is_the_module_constant(self):
+        rows = self._rows(*[("s%d_save" % i, "S1", float(i))
+                            for i in range(hlib.SAVE_SNAPSHOT_KEEP_PER_SCENARIO + 1)])
+        prune = hlib.select_save_snapshot_dirs_to_prune(rows)
+        self.assertEqual(["s0_save"], prune)
+
+
+class StaleSaveSnapshotTmpSweepTests(unittest.TestCase):
+    """hlib.select_stale_save_snapshot_tmp_dirs_to_sweep: the copy lands in
+    <runId>_save.harness-tmp and is renamed, so a run KILLED mid-copy leaves a
+    tmp dir the per-scenario retention never sees (it does not end in _save) and
+    only a rerun of the same runId would overwrite. This sweep is its only
+    reaper, and it is NAME-gated so it can never take anything else."""
+
+    SUFFIX = hlib.SAVE_SNAPSHOT_DIR_SUFFIX + hlib.SAVE_SNAPSHOT_TMP_SUFFIX
+
+    def test_a_stale_tmp_dir_is_swept(self):
+        self.assertEqual(["r1" + self.SUFFIX],
+                         hlib.select_stale_save_snapshot_tmp_dirs_to_sweep(
+                             ["r1" + self.SUFFIX]))
+
+    def test_the_current_runs_own_tmp_dir_is_never_swept(self):
+        """It may be a copy IN PROGRESS -- the pass runs from the same run's
+        failure branch -- so the protection is unconditional."""
+        mine = "cur" + self.SUFFIX
+        names = [mine, "other" + self.SUFFIX]
+        self.assertEqual(["other" + self.SUFFIX],
+                         hlib.select_stale_save_snapshot_tmp_dirs_to_sweep(
+                             names, protect_name=mine))
+
+    def test_nothing_but_the_tmp_name_shape_is_ever_selected(self):
+        """The gate is the whole point: this runs over EVERY directory name
+        under results/, so a shots dir, a finished snapshot, a contact sheet or
+        a JSON must all be invisible to it."""
+        names = ["r1_save", "r1_shots", "r1.json", "contact-sheets",
+                 "r1_shots.harness-tmp", "r1_saves.harness-tmp",
+                 "_save.harness-tmp", "r1_save.harness-tmp.bak",
+                 "r1" + self.SUFFIX]
+        self.assertEqual(["r1" + self.SUFFIX],
+                         hlib.select_stale_save_snapshot_tmp_dirs_to_sweep(names))
+
+    def test_a_bare_suffix_with_no_run_id_is_not_swept(self):
+        """Deletion fails closed on a name that cannot have come from the
+        <runId> + suffix construction."""
+        self.assertEqual([], hlib.select_stale_save_snapshot_tmp_dirs_to_sweep(
+            [self.SUFFIX]))
+
+    def test_the_order_is_deterministic(self):
+        names = ["c" + self.SUFFIX, "a" + self.SUFFIX, "b" + self.SUFFIX]
+        self.assertEqual(["a" + self.SUFFIX, "b" + self.SUFFIX, "c" + self.SUFFIX],
+                         hlib.select_stale_save_snapshot_tmp_dirs_to_sweep(names))
+
+    def test_no_names_is_no_work(self):
+        self.assertEqual([], hlib.select_stale_save_snapshot_tmp_dirs_to_sweep([]))
+
+
+class HarvestSpecBlockValidationTests(unittest.TestCase):
+    """The optional [harvest] block (the produced-save snapshot opt-out) is
+    typed at validation: a spec that MEANT to opt out and misspelled the key
+    would otherwise find a snapshot in results/ and no explanation."""
+
+    def _spec(self, harvest):
+        spec = {
+            "schema": hlib.SCHEMA_VERSION, "id": "H-x", "tier": "daily",
+            "instanceProfile": "stock-minimal",
+            "fixture": {"saveTemplate": "fixtures/saves/fresh-career",
+                        "injectedRecordings": "none", "craft": []},
+            "driver": {"kind": "seam", "steps": [
+                {"cmd": "LoadGame", "args": {"save": "${runSave}", "name": "persistent"},
+                 "expect": "OK", "budget": 30},
+                {"cmd": "FlushAndQuit", "expect": "OK"}]},
+            "expectations": {"recordings": {"count": {"min": 0, "max": 0}},
+                             "logContracts": {"required": [], "forbidden": []},
+                             "allowedAnomalies": []},
+            "runtime": {"budgetSeconds": 600},
+            "retry": {"policy": "once"},
+            "expectedFail": {"bugId": ""},
+        }
+        if harvest is not None:
+            spec[hlib.SAVE_SNAPSHOT_SPEC_SECTION] = harvest
+        return spec
+
+    def _errors(self, harvest):
+        return [e for e in hlib.validate_spec(self._spec(harvest), {"schema": 1},
+                                              bug_ids=[]).errors
+                if e.startswith(hlib.SAVE_SNAPSHOT_SPEC_SECTION)]
+
+    def test_absent_and_boolean_blocks_validate(self):
+        self.assertEqual([], self._errors(None))
+        self.assertEqual([], self._errors({}))
+        self.assertEqual([], self._errors({hlib.SAVE_SNAPSHOT_SPEC_KEY: False}))
+        self.assertEqual([], self._errors({hlib.SAVE_SNAPSHOT_SPEC_KEY: True}))
+
+    def test_an_unknown_key_rejects(self):
+        errs = self._errors({"snapshotSave": False})
+        self.assertEqual(1, len(errs), errs)
+        self.assertIn("unknown key", errs[0])
+
+    def test_a_non_boolean_value_rejects(self):
+        errs = self._errors({hlib.SAVE_SNAPSHOT_SPEC_KEY: "false"})
+        self.assertEqual(1, len(errs), errs)
+        self.assertIn("must be a boolean", errs[0])
+
+    def test_no_committed_spec_declares_the_block(self):
+        """The default is SNAPSHOT, and no committed spec opts out. This cell is
+        the tripwire: if one ever does, the operator reading a missing snapshot
+        should find the opt-out named here rather than hunt run.py."""
+        declared = []
+        for path in sorted(glob.glob(os.path.join(_save_snapshot_scenarios_dir(),
+                                                  "*.toml"))):
+            with open(path, "rb") as fh:
+                spec = tomllib.load(fh)
+            if hlib.SAVE_SNAPSHOT_SPEC_SECTION in spec:
+                declared.append(os.path.basename(path))
+        self.assertEqual([], declared,
+                         "these specs declare [%s]; if that is deliberate, update "
+                         "this cell and harness/README.md"
+                         % hlib.SAVE_SNAPSHOT_SPEC_SECTION)

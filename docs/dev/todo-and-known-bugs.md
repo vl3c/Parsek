@@ -91,6 +91,331 @@ path with ~100 WARN lines per save. Writing empty sidecars for them in the injec
 put those lanes on the ordinary save path - and would also make them stop covering this
 carry-forward path live, so it is a trade to rule on, and it moves nothing in the
 `recordings=308 trees=278` pins either way.
+## ~~ROUTE-LINE-MEMBER-DROPS-CONTINUATION-SEGMENTS: the route overview line draws only each member's RUN HEAD recording, so every chain-continuation segment of the run is missing from the drawn path~~ [RAISED 2026-09-06 by the G10 leg-drop feasibility walk (`docs/dev/research/g10-leg-drop-subject.md`); FIXED 2026-09-06 on branch `g10-leg-drop`, and DISCHARGED 2026-09-07: the pins were interim regexes for two rounds and are now LITERALS on all three lanes, off three readings whose build and members lines are byte-identical. G10's leg-drop reading came with them and the roadmap block is CLOSED. Owed from here: the armed re-flight plus the negative control `B32X-legdrop-negative-control`]
+
+**THE SHAPE.** `RouteBackingMission.ComputeMemberRecordingIds` derives
+`Route.RecordingIds` as `StripSegMarker(node.HeadLegId)` over the kept selectable
+composition intervals. `MissionCompositionBuilder` builds one node set per RUN, walking
+the whole run through `MissionThroughLineBuilder.ContinuationSuccessor`
+(`MissionComposition.cs:150-158`) and keying every interval of it as `headLegId` or
+`headLegId + "/segN"` (:265-:295). Every one of those strips back to the RUN HEAD
+recording id, so a run of N chained recordings contributes exactly ONE id.
+
+`RouteTrajectoryLineRenderer.BuildRouteMemberLegs` then resolves each id through
+`RecordingStore.TryFindCommittedRecordingById` - one `Recording`, no chain walk - and
+builds legs from that recording's sidecar alone. So the drawn path is each run's HEAD and
+nothing else. `RouteBackingMission.cs:337-346` states the opposite intent in its own
+words: the route "widens `RecordingIds` / `SourceRefs` to cover the whole rendered path".
+The id set does cover it as a set of interval KEYS; the renderer reads the entries as
+whole recordings, and that is where the two diverge.
+
+**MEASURED, on both scopes (the mirror direction checked, per the asymmetry rule).**
+INTER-BODY, `interbody-route-recorded`: the Kerbin -> Duna route's member `d23e453b` is a
+174 s pad ascent (242 Kerbin samples); its continuation `36c7688b` (`chainIndex = 1`, same
+`chainId aab62918`) holds the actual 8.5 Ms journey - 628 Kerbin, 108 Sun, 664 Duna
+samples - and is named nowhere in `RECORDING_IDS`. SAME-BODY, `depot-route-recorded`:
+member `44129e52` is 238 samples; its continuation `a85a7ae0` (1324 samples, the
+rendezvous and dock approach) is likewise absent. So the drawn "route overview" is the
+launch plus whatever the DESTINATION vessel recorded separately.
+
+**WHY IT MATTERS BEYOND LEGIBILITY.** It is also why
+`FilterLegsToEndpointBodies` has never dropped a leg on a driven run
+(`transferDropped=0` on both of B32's routes): an interplanetary transfer always lands in
+a chain continuation, so the third-body legs the filter exists to drop are never built.
+The reading G10 wants is one member-resolution change away on the fixture already
+committed.
+
+**FIXED: a member id resolves to its through-line RUN.** `Display/RouteMemberRunExpansion.cs`
+expands each `Route.RecordingIds` entry to the ordered recordings of its continuation run and
+`RouteTrajectoryLineRenderer.BuildRouteMemberLegs` builds one group per SEGMENT, from that
+segment's own `Recording` (so the dock clip and the per-recording RELATIVE-frame dispatch are
+untouched). The walk is not a re-implementation: it reads
+`MissionThroughLineBuilder.Build`'s own `MemberLegIds` - the same `ContinuationSuccessor` walk
+the member-set producer uses - and takes the suffix from the member onward. It STOPS at the
+first segment that is not ERS-visible (a superseded / rewind-retired segment is never walked
+into), that `Route.CreationTreeRecordingIds` did not know at creation (fail-open on an empty
+snapshot, the `RouteRunCostCalculator` contract for the same set), or that
+`Route.ExcludedIntervalKeys` names WHOLE (a `<id>/segN` / `<id>@dockM` key is a sub-interval the
+renderer cannot cut and is not an exclusion here). `ComputeRouteSignature` folds every segment's
+id + content hash; the tree-scoped half of the expansion is memoized against the ERS list
+identity, since `DrawAll` runs on the map onPreCull hook. Contract:
+`design-map-ts-render-architecture.md` Appendix A.
+
+**BOTH MIRROR DIRECTIONS CHECKED, and the first one changed the fix.** (1) `CollectMemberBodies`
+feeds `ClassifyRouteScope`'s malformed-mixed-bodies cross-check from the resolved groups, so if
+the expansion's segments fed it too, ONE continuation on another body would classify a declared
+same-body route `MalformedMixedBodies` and hide a line that drew before. Groups therefore carry
+`isDeclaredMember` and only declared members feed it, making scope classification bit-identical
+to the head-only build (cell:
+`Build_SameBodyRoute_ContinuationOnAnotherBody_DoesNotTurnTheRouteMalformed`). (2) The
+round-trip stand-down in `FilterLegsToEndpointBodies` is unchanged and still fires on
+origin == destination - the expansion only adds legs to the same resolution. Measured on the
+same-body scope as well: `depot-route-recorded`'s route moves `groups=3 legs=5` ->
+`groups=4 legs=14` with `transferDropped=0`, i.e. it GAINS `a85a7ae0` and drops nothing.
+
+**MEASURED (headless, off the committed fixtures' own bytes;
+`Source/Parsek.Tests/RouteMemberRunExpansionTests.cs`).** `interbody-route-recorded`:
+`route=71a983a1` `members=4 groups=3 legs=3 transferDropped=0` -> `members=4 groups=4 legs=16
+transferDropped=2` (the two Sun-frame legs of `36c7688b`), and its same-fixture control
+`route=8f644e71` -> `groups=4 legs=17 transferDropped=0` (Kerbin + Mun only, nothing to drop).
+The declared member count never moves: the expansion only ADDS.
+
+**FLOWN 2026-09-06 (reading run 1, five lanes, all PASS attempt 1) AND IT MEASURED THE G10 LEG
+DROP.** B32 / V26M / V26T, identical: `Route line build: route=71a983a1 members=4 groups=4
+legs=16 transferDropped=2`, control `route=8f644e71 ... groups=4 legs=17 transferDropped=0`,
+`Route line members: route=71a983a1 heads=4 segments=3 groups=4 legs=16`, `Route line draw:
+enabled=True routesDrawn=2 legsDrawn=33 skippedOwned=0 malformed=0 other=0 deact=0 cache=2`,
+both scopes `InterBody basis=Endpoints`. V18T: `route=5420f805 ... groups=4 legs=14
+transferDropped=0`, `routesDrawn=1 legsDrawn=14`, renderComposition armed and PASS. H59
+unchanged.
+
+**THE ONE DEFECT THE FLIGHT FOUND, FIXED IN THE SAME BRANCH:
+ROUTE-LINE-EXPANDED-SEGMENT-CO-DRAWS-THE-GHOST-POLYLINE.** V26M / V26T raised
+`routeCoDrawViolations=1024` (the cap) over ONE distinct finding,
+`ROUTE_CODRAW_VIOLATION[71a983a1 recId=36c7688b...]` - the expanded continuation segment painted
+by BOTH the route line and the ghost polyline, with `skippedOwned=0`. Re-derived rather than
+assumed: the route draw pass ALREADY consulted ownership per GROUP recording id, so the escape
+is on the PUBLISHER side - `drewNonOrbitalLegRecordings` is published only on the ghost's
+current-element draw (the `if (anyDrawn)` block in `GhostTrajectoryPolylineRenderer.cs`), while a
+chain CONTINUATION segment is painted by the FORWARD RUN-LEG pass under its own recording id,
+which by design never publishes ownership. Ownership could therefore never answer for the
+population the expansion adds. Fix: the ghost path publishes a second PAINT surface on the ACTUAL
+draw of any leg (`paintedLegSpans` / `IsPaintingNonOrbitalLegSpan`) and the route line's
+no-double-draw arbitration consults it beside ownership. Ownership semantics are untouched:
+`drewNonOrbitalLegRecordings` stays the SOLE ownership source and the paint surface never hides a
+proto line. MIRROR DIRECTION: the same escape exists for a DECLARED member (a run head whose
+non-head leg is forward-painted), so the paint arm applies to every group rather than only to the
+population that raised it. The M-A7 `RC-ROUTE` rule is deliberately UNCHANGED - it caught a real
+violation and it stays the INSTRUMENT of the arbitration rather than its input.
+
+**READING RUN 2 (2026-09-06, five lanes, all PASS) CONFIRMED THE LEG DROP AND RE-CUT THE CO-DRAW
+FIX TWICE OVER.** Build / members lines unchanged (`71a983a1 members=4 groups=4 legs=16
+transferDropped=2`, control `8f644e71 ... legs=17 transferDropped=0`, `heads=4 segments=3`). Two
+findings against the first cut of the fix, both fixed in the same branch:
+
+1. *The paint set was frame-stamped, and "painted THIS FRAME" is the wrong question.*
+   `OnMapCameraPreCull` early-returns whenever the -50 decide walk did not run
+   (`pendingDrawsFrame != frame`), and the deactivation sweep lives INSIDE that pass - so on such
+   a frame nothing paints, nothing is hidden, last frame's mesh is still on screen, and a
+   frame-stamped set reads empty. Measured on V26M as `routeCoDrawViolations=403`, every one
+   `ROUTE_CODRAW_VIOLATION[71a983a1 recId=36c7688b8e5141f7809e2d4dbe9dc094]` at `ut=87625323.3`,
+   starting at frame 7272 - 50 frames after the last stand-down frame (7222). The paint surface is
+   now MESH MEMBERSHIP: added on the actual draw with the leg's recorded span, removed when the
+   mesh is hidden (the sweep), when the cache entry is released, when the legs are rebuilt, on a
+   scene load, on a cross-save flush and on Driver destroy. The frame stamp survives only as a
+   dead-renderer staleness guard.
+2. *Standing a whole group down punched a hole in the route path* (re-review F1). V26M read
+   `routesDrawn=2 legsDrawn=20 skippedOwned=1` on 5 of 7 frames against `legsDrawn=33` on the
+   rest: the stood-down group carried THIRTEEN legs while the ghost's mesh covered a part of it.
+   The paint arm is now PER LEG - a leg stands down only when a visible ghost mesh of the same
+   recording overlaps that leg's own recorded span (strict overlap, since adjacent legs share an
+   endpoint UT). The ownership arm stays whole-group because ownership carries no span; that
+   residual is filed as ROUTE-LINE-OWNERSHIP-ARM-IS-STILL-WHOLE-MEMBER below. `skippedOwned` now
+   counts LEGS on both arms, and `Route line draw:` carries an `ownedLegs=` / `paintedLegs=` tail.
+
+V26T (TRACKSTATION) read `legsDrawn=33 skippedOwned=0 routeCoDrawViolations=0` on every frame - no
+ghost paint there at all - and armed V18T (`legsDrawn=14`, violations 0) / H59 were unchanged.
+**READING RUN 3 (2026-09-06, `_2111` / `_2113` / `_2115` / `_2117` / `_2118`, all five lanes
+PASS attempt 1) CLOSED THE COUNT PINS AND MEASURED ONE THING THE PREDICTION DID NOT.** Build
+and members lines byte-identical for the THIRD time, `routeCoDrawViolations=0` on V26M and
+V26T, so every count on both `Route line build:` lines and both `Route line members:` lines
+is now a required LITERAL on B32 / V26M / V26T. What did NOT happen is the paint stand-down:
+V26M read `legsDrawn=33 skippedOwned=0 ownedLegs=0 paintedLegs=0` on all seven draw lines and
+its `ghostLifecycle` census read `spawned=0 spawnLines=0` - NO GHOST WAS ALIVE IN THE MAP-OPEN
+WINDOW, where runs 1 and 2 each had one painting `36c7688b`. That is a property of the epoch
+rather than of the arbitration (filed as V26M-GHOST-SPAWN-IN-MAP-WINDOW-IS-EPOCH-DEPENDENT
+below), so `legsDrawn` / `skippedOwned` stay regexes, the paint arm's live evidence remains
+run 2's diagnosis plus the xUnit cells, and the OWNERSHIP arm's live proof is H59's nine
+`skippedOwned=1 ownedLegs=1 paintedLegs=0` frames in the same set.
+
+**TWO REVIEW ITEMS FROM THE FIX'S OWN RE-REVIEW, CLOSED IN THE SAME BRANCH.** (F1) Both live
+wiring sites of the arbitration were unguarded - `ClearPaintedLegMesh` in the Driver's
+`RunDeactivationSweep`, and `DrawAll`'s consumption of both arms - because the behavioural
+cells drive a test-side replica (`ArbitrateGroup`) and a test-side paint seam
+(`SetLegPaintForTesting`, which calls the hide path itself), so deleting either left all
+cells green. `RouteLinePaintArbitrationSourceGateTests` pins both inside their enclosing
+method's brace-matched body over a length-preserving sanitized copy of the source (comments
+and string literals blanked), and each pin was mutation-verified - including two mutations
+that merely COMMENT the pinned line, which is what proves the sanitizer. (F2) `TryDrawLeg`'s
+map-line mode-flip DESTROYS the leg's VectorLine and the deactivation sweep cannot catch that
+(it only flips lines that are currently active), so the rebuild site now clears the leg's
+mesh membership itself; a successful draw re-adds it in the same pass. Same gate, third cell.
+
+**THREE REVIEW ITEMS CLOSED WITH IT.** (F1) `MissionThroughLineBuilder` has no shared visited set
+while `MissionComposition.cs:151-156` does, and `MissionStructure.cs:344-386` hands a Dock branch
+point's merged child to BOTH parents' `BranchChildIds` as `IsBranchContinuation` - so the merged
+run appeared in TWO through-lines while composition (the producer of `Route.RecordingIds`) keys
+it under one. `RouteMemberRunExpansion.RunClaimIndex` now re-applies composition's rule (first
+head wins, in composition's own root-then-DFS order, a later run truncated at its first claimed
+leg) before any suffix is taken (cells
+`BuildRunClaims_TwoHeadDockMerge_GivesTheMergedRunToOneHeadOnly` and
+`ExpandVisibleRun_TwoHeadDockMerge_WalksOnlyFromTheClaimingHead`, the first asserting agreement
+against composition's own walk). (F3) ONE `segments=` counter with one meaning - post-filter
+expanded segments built as groups, on `Route line members:`; the expander's pre-filter walk is
+reported as `walked=` on its own line, and `ApplyRouteFilters` no longer decrements a fresh tally
+below zero (`Dropped` is its own field). (F4) an empty tree id is no longer a cache key, so two
+id-less trees cannot share one claim index.
+
+---
+
+## V26M-GHOST-SPAWN-IN-MAP-WINDOW-IS-EPOCH-DEPENDENT: the V26M lane's map-open dwell sometimes holds a painting ghost and sometimes holds none, so its paint-arm reading is not reproducible from the step list [RAISED 2026-09-07 on branch `g10-leg-drop` from reading run 3. LANE/HARNESS item, NOT a product defect. OPEN, low priority]
+
+`V26M-interbody-route-map-lines` opens the flight map over `interbody-route-recorded` and
+dwells 40 ticks. On reading runs 1 and 2 (2026-09-06) a ghost of recording `36c7688b` was
+alive and PAINTING inside that window - which is what raised `routeCoDrawViolations=1024`,
+then 403, and what let the per-leg paint arm be observed live at `legsDrawn=20
+skippedOwned=1`. On reading run 3 (`2026-09-06_2113`, same spec, same fixture, same DLL
+family) the run's `ghostLifecycle` census reads `spawned=0 spawnLines=0` (two destroys at
+engine teardown, no spawns) and `paintedLegSpans` appears nowhere in the log, so all seven
+draw lines read `skippedOwned=0 ownedLegs=0 paintedLegs=0`.
+
+**WHY IT MATTERS AND WHAT IT DOES NOT MEAN.** It does not weaken the run's other readings:
+the BUILD side is independent of the ghost population and came back byte-identical for the
+third time, which is what the count pins rest on. What it costs is a LIVE exercise of the
+paint arm on demand - run 3 exercised it only headlessly - so a future regression in that arm
+would be caught by the xUnit cells and the source gates rather than by this lane. The
+OWNERSHIP arm has a reproducible live lane (H59, nine `ownedLegs=1` frames on every run).
+
+**WHAT IS NOT YET KNOWN:** which input decides it. The spec pins no clock motion and the
+fixture is fixed, so the candidates are the save's own UT against the ghost spawn policy's
+window, and frame timing inside the dwell. Diagnosing it means comparing the three runs'
+spawn-decision lines rather than guessing, and it is worth doing before anyone tries to arm
+a `paintedLegs`-bearing token on this lane. Do NOT widen a pin to absorb it: the two shapes
+are distinguishable on the draw line itself (`ownedLegs=` / `paintedLegs=`), and a lane that
+accepts both without saying which it saw is the vacuous reading this suite refuses.
+
+---
+
+## ROUTE-LINE-OWNERSHIP-ARM-IS-STILL-WHOLE-MEMBER: a route member whose phase the ghost OWNS has ALL of its legs stood down, including the ones the ghost's mesh does not cover [RAISED 2026-09-06 on branch `g10-leg-drop` while making the PAINT arm per-leg. Pre-existing M6 v1 behaviour, not a regression. OPEN, low priority]
+
+The route line's no-double-draw arbitration has two arms. The PAINT arm is per LEG (a leg stands
+down only when a visible ghost mesh of the same recording overlaps that leg's own recorded span).
+The OWNERSHIP arm is still per GROUP, because `drewNonOrbitalLegRecordings` carries no UT span -
+it answers "is the polyline the owner of this recording's non-orbital PHASE", which is the
+question `GhostMapPresence` asks to hide a proto orbit line, and widening it is explicitly out of
+bounds (Appendix A: it stays the SOLE ownership source).
+
+So when the ghost is FLYING a member (rather than forward-painting it), the route line drops that
+member's whole recorded path even though the ghost's mesh covers only the leg it is on. On a
+multi-leg member that is the same hole the paint arm just closed, on a different population.
+
+Not fixed here for two reasons: it is the shipped v1 behaviour that H59's ARMED census pinned
+(`routesDrawn=0 legsDrawn=0 skippedOwned=1` on a one-leg member, where the two granularities
+agree), and closing it means giving the ownership publish a span, i.e. touching the ownership
+contract for a cosmetic gap. The clean fix if it ever matters: publish the OWNING leg's span
+alongside the ownership id and route the ownership arm through the same span overlap. Any lane
+that reads it will show `ownedLegs=` greater than the legs the ghost's `Polyline frame: drawn=`
+count can account for.
+
+---
+
+## ~~ROUTE-SOURCECHANGED-AT-LOAD-AFTER-SIDECAR-EPOCH-DRIFT: every committed route whose member recording carries a payload-free TrackSection parks in `SourceChanged` on plain save load~~ [FOUND 2026-09-07 by the flight operator on a DLL built from `g10-leg-drop` at `3b1a9323a` (that branch merged with `origin/main`, i.e. PRs #1630 + #1634 + #1636 in). REGRESSION introduced by PR #1630. FIXED 2026-09-07 on branch `route-hash-drift`, headlessly bisected against `c753e94c2`]
+
+**Symptom.** At fixture load, verbatim:
+`Route 71a983a1 Active->SourceChanged reason=SupersedeStateVersion-bump/SourceChanged/sidecar-epoch-drift id=3700f40e`
+and `Route 8f644e71 Paused->SourceChanged ... id=5737c255` (`interbody-route-recorded`),
+`Route 5420f805 Active->SourceChanged ... id=0c8ec58d` (`depot-route-recorded`). Downstream
+`SelectGhostDrivingBackingMissions: ghostDriving=0 skippedByStatus=2`, no route ghosts in
+the tracking station, V26T and V18T red. The fixtures are unmodified in git; the SAME
+fixtures on the previous build (base `c753e94c2`) read `{"Active":1,"Paused":1}`.
+
+**Chain, one link at a time.**
+
+1. `RouteStore.FirstDifferingField` compares the route's captured `RouteSourceRef` against
+   a live one field by field and breaks on the FIRST mismatch. `sidecar-epoch` is compared
+   sixth, BEFORE `start-ut` / `end-ut` / `route-proof-hash`, so the named field is the only
+   one that moved: all three members' `routeProofHash` is `no-route-proof` and their
+   captured `sidecarEpoch` (4 / 3 / 5) is byte-equal to the `sidecarEpoch` in their own
+   committed `.prec` (pinned by `FixtureRouteMember_CapturedEpochAgreesWithTheSidecarAtRest`).
+2. So the epoch moved DURING the load. `FlushDirtyFiles: saved 3` fires in OnLoad
+   immediately before `RevalidateSources`, and the three saved ids are exactly the three
+   that logged `healed=true` on read: `0c8ec58d` (`prePoints=606 postPoints=601
+   preOrbitSegments=5 postOrbitSegments=4`), `efb9be71`, `a85a7ae0`. On the green build the
+   same three logged `healed=false` and a single recording (`a85a7ae0`) was flushed - by
+   something OTHER than the sidecar read path, which is measured inert over these bytes
+   (see RESIDUE below); that one flush is not attributed here and never bore on the
+   symptom, because `a85a7ae0` is in no route's `SOURCE_REFS`.
+   `SaveRecordingFiles` defaults to `incrementEpoch: true`, so each flush is `+1`.
+3. What dirtied them: `TrajectoryTextSidecarCodec.TryHealMalformedFlatFallbackTrajectoryFromTrackSections`
+   ended in `rec.MarkFilesDirty()`, and both READ paths
+   (`TrajectorySidecarBinary.Read`, `TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom`)
+   call it.
+4. Why it started firing: the heal is gated on
+   `HasCompleteTrackSectionPayloadForFlatSync`, and PR #1630 (`d3a4e4774`, site 2) taught
+   that predicate to SKIP a payload-free section instead of reading it as "this recording's
+   payload is incomplete". All three member recordings carry exactly one payload-free
+   0.02 s shell section, so the predicate flipped `false -> true` for them and the heal
+   became reachable. Measured headlessly through the production text read path:
+   at `c753e94c2` `completePayload=False filesDirty=False points=606/136/101`; at
+   `origin/main` `completePayload=True filesDirty=True points=601/135/100`. PR #1634 is
+   ruled out by construction - `EndpointRootPartUId` / `RootPartUId` / `LaunchGuid` are
+   deliberately NOT hashed (`RouteProofHasher`), and the drift field was not the hash.
+   PR #1636 touched no file under `Source/Parsek`.
+
+**What shipped.** The two READ paths pass `markDirty: false`; the heal keeps a `markDirty`
+parameter defaulting to `true` for write-side and repair callers. Reading a file must not
+rewrite it - that is the read path's OWN documented normalize-on-rewrite contract ("files
+no flow dirties stay byte-identical") - and the flat POINT list the heal rebuilds is
+DERIVED: it is re-derived on every read, and the write side re-derives it independently
+through `GetFlatFallbackPointsForWrite`, so persisting it bought nothing. PR #1630's intent
+is untouched: the in-memory recording still comes back with the Relative section's
+body-fixed samples in its flat list instead of anchor-local metres, which is what playback,
+`BackfillMaxDistance` and `IsIdleOnPad` read. No stored-hash migration: nothing about the
+comparison or the captured refs changed. The `markDirty: true` default is left with NO
+production caller and its doc-comment says so. Cells:
+`Source/Parsek.Tests/Logistics/RouteLoadTimeSidecarEpochTests.cs`, 21 (the three read-does-not-dirty
+cells and the three load-cycle cells confirmed RED with `markDirty: true` restored), plus the
+two mirror cells (a genuinely rewritten member still flips `SourceChanged`; a non-read caller
+still dirties) and the hash pin (a payload-free section, its removal, and a flat-list rewrite
+all leave `RouteProofHasher` output unchanged). The three added cells cover the read path the
+GAME takes: the other fixture-member cells read the readable `.prec.txt` MIRROR through the
+text codec, while production reads the binary `.prec` (PSK0) through
+`TrajectorySidecarBinary.Read`, which carries its OWN heal call site - so
+`FixtureRouteMember_BinaryReadPathDoesNotDirtyTheSidecar` loads the real binary bytes through
+`RecordingStore.LoadTrajectorySidecarForTesting` and asserts `FilesDirty=false` plus the
+heal's own `loadTimeHealKeepsSidecarEpoch` line (anti-vacuity: the heal is idempotent, so it
+cannot be re-run to prove it fired). Restoring `markDirty: true` at that call site reds
+exactly those three and nothing else - which is the coverage hole they close.
+
+**CONFIRMED IN FLIGHT, three lanes, 2026-09-06 on `f0deb8f6b`.** `V18T-depot-route-ts-arrival`
+(`2026-09-06_2250`, PASS attempt 1, wall 53 s): armed `[expectations.routes]` GATING PASS,
+`routeStatuses={'Active': 1}`, `ghostDriving=1`, one ghost vessel created, and the file-level
+half - zero `->SourceChanged`, zero `FlushDirtyFiles`, 21 `sidecar left byte-identical` lines.
+`V26T-interbody-route-ts-arrival` (`_2252`, PASS, 57 s): `{'Paused': 1, 'Active': 1}` - the
+fixture's deliberate pair intact - `ghostDriving=1`, two ghost vessels.
+`RVR-7-rover-relay-c-dispatch` (`_2254`, PASS, 51 s): armed routes `{'Paused': 1}`, dispatch
+unchanged, which is the mirror direction (this fixture ships three payload-free-section
+recordings, so a heal made INERT rather than quiet would show here). On all three the operator
+diffed the produced save's `Parsek/Recordings` against the committed fixture: BYTE-IDENTICAL
+(V18T 22/22 `.prec`) - the load rewrote nothing, which is the claim.
+
+**RESIDUE, not fixed here (NOTE) - AND IT IS INERT OVER THESE BYTES, MEASURED.** The read
+paths still call `EnsureCheckpointSectionsForTopLevelOrbitSegments(markDirty: true)` - the
+"legacy heal seam" the same comment sanctions. An earlier draft of this entry claimed it
+dirties `a85a7ae0` on every load; that was an attribution, not a measurement, and the
+measurement says otherwise on both halves:
+
+- **It does not fire.** Every committed `.prec` of both fixtures was read through the
+  PRODUCTION binary path (`RecordingStore.LoadTrajectorySidecarForTesting` ->
+  `TrajectorySidecarBinary.Read`, which runs this seam at `markDirty: true`) and came back
+  `FilesDirty=false`: 0/22 in `depot-route-recorded`, 0/45 in `interbody-route-recorded`.
+  Re-running the seam over the same recordings reports `AnyMutation=false Clipped=0
+  ReconciledEmptySections=0 Added=0 Resorted=0` under BOTH `reconcileEmptySections`
+  settings - for `a85a7ae0`, `SkippedExisting=9` and nothing else. The bridge only reaches
+  `MarkFilesDirty()` inside `if (stats.AnyMutation)`, so with no mutation there is no dirty.
+- **Even a firing seam could not flip THESE routes.** `RouteStore.RevalidateSources` walks
+  `route.SourceRefs` and nothing else - runs are not walked - and `a85a7ae0` appears in no
+  route's `SOURCE_REFS` in either fixture (the depot route's four are `44129e52`,
+  `8b036c83`, `0c8ec58d`, `70667ab4`; `a85a7ae0` and `efb9be71` are ordinary tree members).
+  A future route whose member set spans `[root..dock]` could pick one up, which is the
+  shape that would make this seam matter.
+
+It stays a NOTE rather than a fix because it predates this regression, changes the SECTION
+list rather than a derived list, and shifts section ordinals (so it also drives the
+annotation invalidation). Hypothesis form only: if a route is ever seen parking
+`SourceChanged` on a load where nothing healed, look here first.
+
+---
 
 ## ~~ROUTE-ENDPOINT-TRANSFER-DOCKED-DOMINANT-PARTNER: while a visitor is docked to a delivery destination and DOMINATES the merged vessel, the route now REBINDS to the visitor and follows it away after undock~~ [RAISED 2026-09-04 by the Fable review of PR #1627 (the endpoint-transfer ruling). DESIGN RESIDUE of that PR, not a defect it introduced blindly - the pre-#1627 behaviour was self-healing by accident. FIXED 2026-09-06 (P17) by mitigation (a) PLUS a resolver half the costing did not see was needed - (a) alone would not have worked. Sibling 1 is superseded; sibling 2 stays a NOTE]
 
@@ -423,6 +748,57 @@ anchor pid). Covered by the re-pinned `IsPhaseAnchorEligible_*` theories, a new
 `IsSurfaceAnchorSituation_*` theory, and an in-game `MissionPhasing` cell
 (`AirborneAnchor_RefusedByTheOrbitContract`) that drives the live orbit through the
 seam and skips naming its required context otherwise.
+
+**~~The airborne branch is still UNOBSERVED IN A FLIGHT~~ OBSERVED 2026-09-07 by
+`M3-mission-phasing-airborne-anchor`, run `2026-09-07_0934` (PASS attempt 1, wall 170 s,
+every verifier PASS, `expectations mismatches=0`), on the clean automation DLL sha256
+`7c0bfee1b74d6716` (`main` 1f7801cea).** The seam wrote the line this branch exists for,
+against a live pod hanging under its canopy:
+
+```
+TryGetVesselOrbit: skipped atmosphere-intersecting anchor pid=2905720181
+situation=FLYING peA=-598418.3 body=Kerbin atmosphere=yes atmosphereDepth=70000.0
+- an orbit that re-enters is not a phase reference
+```
+
+with the cell's own reading beside it (`[MissionPhasing] airborne orbit: situation=FLYING
+ecc=0.9948 period=553.85s peA=-598418.3 ...`), the mirror `skipped landed anchor` line
+ABSENT, and `BATCH_COMPLETE v1 total=4 passed=3 failed=0 skipped=1
+category=MissionPhasing scene=FLIGHT`. So stock did hand the solver a closed 553.85 s
+orbit for a craft on its way down, and the physical contract is what refused it - which is
+the whole claim of the #1629 fix, now made in a flight rather than in a unit test. Both
+refusal branches of the seam have now been observed live: the SURFACE one by RVR-9, the
+AIRBORNE one here. **Nothing remains on this follow-up.** The interim never-flown pins are
+re-pinned in the spec file (`passed=3 skipped=1`, `situation=FLYING`, `ecc=0.9948`,
+`period=5[0-9]{2}...`, `pid=2905720181`); `peA=` stays regexed on magnitude because it
+moves with wherever the mission's EVA window lands inside [700, 2100] m.
+
+WHY THE LANE HAD TO FLY ONE RATHER THAN STAGE ONE, kept because the census is reusable:
+the in-game cell skips on every committed fixture, and that is not an oversight - a census
+that walked every `harness/fixtures/saves/*/persistent.sfs` VESSEL node and computed
+its periapsis from its own `ORBIT { SMA, ECC, REF }` against the stock radius /
+atmosphereDepth of the body `REF` names found ZERO non-landed vessels with a closed
+orbit whose `PeA` sits below the floor. The corpus's only two `sit = SUB_ORBITAL` rows
+are one hyperbolic `Kerbal X Debris` (pid 1650504405, `ECC = 1.1123176466722873`) that
+the `ecc >= 1.0` filter rejects one gate EARLIER, so it can never reach the branch.
+`[[fixture.liveState]]` cannot stage one either - `savepatch.ENTRY_KEYS` is
+`(pid, resources, inventory, remove, fill)`, FLIGHTSTATE resources / inventory /
+whole-node removal only, and that boundary is the mechanism's safety argument. The lane
+therefore FLIES an airborne active vessel rather than staging one: `eva4_atmo_chute` is
+the only mission in `mlib` whose terminal phase (`EVA4_EVA_WINDOW`, entered under full
+canopy at 2100 m) leaves the active vessel airborne and alive, so M3 reuses EVA-4's
+measured flight verbatim and replaces its EVA tail with one
+`RunTests category=MissionPhasing` step. Its anti-vacuity instrument is the pair of
+mutually exclusive branch witnesses (required `skipped atmosphere-intersecting anchor`
+against forbidden `skipped landed anchor`) plus the matching pair of `SKIPPED:`
+witnesses, so a pod that reached the ground before the batch reds rather than passing on
+the surface branch. Both held on the flight, and the timing risk the spec named is now
+measured rather than argued: the mission handed off at 1592.9 m descending at 15.28 m/s,
+leaving ~104 s of game time, and the whole batch consumed 2.1 s of it.
+`IngameBatchWiringGroupTests.INTERIM_PIN_IDS` was never its register - that set is
+constrained to `GROUP`, discovered by `GROUP_ID_RE = ^H(?:[7-9]|[1-9][0-9]+)-`, which an
+`M3-` id does not match - so the re-pin landed in the spec file, which is where the
+convention put it.
 
 ---
 
@@ -1024,6 +1400,15 @@ the order above, plus one PREMISE CORRECTION that changed site 4's shape.
    which was blocked by the same shell and now substitutes the body-fixed samples into
    the flat list. Pinned by `DamagedFlatList_HealsOnLoad`.
 
+   **AMENDED 2026-09-07 (`route-hash-drift`): that read-side repair is IN MEMORY ONLY.**
+   As shipped here the heal also called `MarkFilesDirty()`, so the load rewrote the sidecar
+   and `SidecarEpoch` advanced on a plain load - which is a route's proof-of-source field,
+   and parked every route built on a repaired member in `SourceChanged`. Both read paths now
+   pass `markDirty: false`; the recording still comes back repaired, the FILE is left
+   byte-identical, and a later sanctioned rewrite normalizes it through the write-path
+   `GetFlatFallbackPointsForWrite` exactly as the read-path comment already promised. See
+   `ROUTE-SOURCECHANGED-AT-LOAD-AFTER-SIDECAR-EPOCH-DRIFT` at the top of this file.
+
    **The heal repairs the flat LIST only, not the number derived from it.** Nothing
    recomputes `MaxDistanceFromLaunch` on load, so a recording already on disk keeps the
    value it was finalized with - including the ~735 km carried by the two committed
@@ -1268,7 +1653,184 @@ scope. Walk: `docs/dev/research/g10-interbody-route-feasibility.md` (its blocker
 now historical; blocker 2, that no COMMITTED fixture carries an inter-body dock, is
 answered by the B32 harvest of the operator's `orbital supply route` save).
 
-## INTERBODY-SAVE-CARRIES-INV2-DOUBLE-COVER: three recordings in the operator's real play carry a checkpoint section that double-covers the two finer ones tiling the same span, and the producer's own guard against that shape is dated after the play [MEASURED 2026-09-02 by the B32 / V26M / V26T reading runs over the new `interbody-route-recorded` fixture. DEFECT in produced DATA; the analyzer is RIGHT and no fixture edit is proposed]
+## EMPTY-ABSOLUTE-SECTION-EXACT-SPAN-DUPLICATE-OF-ITS-CHECKPOINT: a frame-LESS `Absolute` TrackSection sits on exactly the span of the `OrbitalCheckpoint` section beside it, so INV2 reports the pair and nothing retires either [MEASURED 2026-09-07 on branch `inv2-checkpoint-retire`, through the production read path, on the three operator sidecars committed at `Source/Parsek.Tests/Fixtures/Inv2DoubleCoverResidue/`. DEFECT in produced DATA, split out of INTERBODY-SAVE-CARRIES-INV2-DOUBLE-COVER below. OPEN, no fix proposed here]
+
+**What was measured.** After `CheckpointDoubleCoverRetire` clears every
+checkpoint-vs-checkpoint overlap in those three recordings, four INV2 findings stand
+across them, and every one is the same shape: two sections on an identical
+`[startUT,endUT]`, one `ReferenceFrame.OrbitalCheckpoint` carrying the conic and one
+`ReferenceFrame.Absolute` carrying NOTHING - `frames`, `bodyFixedFrames` and
+`checkpoints` all empty.
+
+| recording | section pair | span |
+| --- | --- | --- |
+| `041770246...` | `[18]` Absolute (empty) + `[19]` checkpoint | `[6675562.0340952, 6676373.1069955891]` |
+| `36c7688b...` | `[22]` Absolute (empty) + `[23]` checkpoint | `[63901473.58333458, 68378174.685928717]` |
+| `36c7688b...` | `[30]` Absolute (empty) + `[31]` checkpoint | `[72258643.296207383, 72279764.818765983]` |
+| `58130506...` | `[18]` Absolute (empty) + `[19]` checkpoint | `[6646497.6471289583, 6647570.0420407793]` |
+
+Indices are as LOADED (pre-retire); on `58130506...` the retire drops sections 5 and 7,
+so the pair sits at `[16]`/`[17]` afterwards. Every one of these `Absolute` sections is
+`src = 0` (`TrackSectionSource.Active`). Pinned by
+`CheckpointDoubleCoverRetireTests.RealBytes_WhatStandsAfterwardsIsAlwaysAnEmptyAbsoluteExactSpanDuplicate`,
+which reds if a standing finding is ever a different shape.
+
+**Why the retire does not take them.** `CheckpointDoubleCoverRetire` is scoped to
+`OrbitalCheckpoint` sections by design: an `Absolute` section is a recorded surface, not
+a duplicate description, and is neither a candidate nor a coverer there
+(`InterleavedAbsoluteSections_AreUntouchedEvenWhenTheyCoverTheCheckpointSpan`). Widening
+it to any frame-less section of any reference frame is the obvious remedy and is NOT
+taken on this evidence: nothing here establishes what an empty `Absolute` section means
+to the recorder, the optimizer's environment classification or
+`boundaryDiscontinuityMeters`, and the producer that emits it has not been identified.
+
+**What closing this needs**, in order: find the producer - the span is exactly the
+packed/on-rails stretch the checkpoint section describes, and the empty section is
+`src = Active`, so the lead is the ACTIVE recorder's section close at the on-rails
+transition rather than the checkpoint bridge, but that has NOT been driven and the
+`src` value is the only evidence for it - then decide whether an empty `Absolute`
+section carries meaning for any consumer (the optimizer's environment classification
+and `boundaryDiscontinuityMeters` both read sections regardless of payload), and only
+then either fix the producer or widen the retire. The shared build-time containment dedupe in
+`harness/tools/build_duna_one_recorded.py` already drops frame-less shells, so the
+committed fixture corpus does not carry these and no lane is blocked by them.
+
+## ~~INTERBODY-SAVE-CARRIES-INV2-DOUBLE-COVER~~: three recordings in the operator's real play carry a coarse checkpoint envelope alongside a payload-less shell and a re-clip of itself, and the producer's own guard against that shape is dated after the play [MEASURED 2026-09-02 by the B32 / V26M / V26T reading runs over the new `interbody-route-recorded` fixture. DEFECT in produced DATA; the analyzer is RIGHT and no fixture edit is proposed. FIXED 2026-09-07 by the load-time retire below, for the checkpoint-vs-checkpoint half; what stands afterwards is a DIFFERENT population, split out as EMPTY-ABSOLUTE-SECTION-EXACT-SPAN-DUPLICATE-OF-ITS-CHECKPOINT]
+
+**FIX (2026-09-07): the retire path the entry's closing paragraph asked for, run
+once per load.** `CheckpointDoubleCoverRetire.FindRedundantCheckpointSections` is
+the pure decision and `TryRetireRedundantCheckpointSections` the applier;
+`ParsekScenario.OnLoad` calls `RetireCheckpointDoubleCoverOnLoad` on BOTH branches
+(the FLIGHT->FLIGHT scene-change branch and the cold-start branch), immediately
+after `LoadTimeSweep.Run()`.
+
+THE PREDICATE IS COVERAGE, in both halves, and both are checked before a section
+goes: (a) the retired section's whole `[startUT,endUT]` must lie inside the merged
+spans of the PAYLOAD-BEARING checkpoint sections that STAY, gap-free; (b) every
+`OrbitSegment` it carries must be carried IDENTICALLY, over its whole span, by
+those survivors. Half (b) is an exact test rather than an orbit-mechanics
+approximation because `OrbitSegmentCheckpointBridge.TryTrimOrbitSegmentToRange`
+moves `startUT`/`endUT` and copies every element verbatim, so a re-clip and its
+parent differ in exactly the two fields
+`OrbitSegmentConicNearlyEqualsIgnoringSpan` drops. Absolute and Relative sections
+are never candidates and never count as coverers; nor is a producer-flagged
+`isBoundarySeam` section. `UtTolerance = 1e-6` is the round-trip slop allowance and
+therefore the width of the gap the coverage walk will BRIDGE; both sides are pinned
+(`UtToleranceBoundary_AGapBelowTheToleranceIsBridged` at 5e-7,
+`..._AGapAboveTheToleranceIsRefused` at 2e-6).
+
+A PAYLOAD-LESS SHELL IS A CANDIDATE BUT NEVER A COVERER, and getting that wrong is
+what the first cut of this fix got wrong. The deference to
+`OrbitSegmentCheckpointBridge.ReconcileEmptySectionsAgainstPayloadCoverage` was
+misplaced: BOTH read paths gate it off (`reconcileEmptySections: false` at
+`TrajectorySidecarBinary.cs:338` and `TrajectoryTextSidecarCodec.cs:1476`, under
+the normalize-on-rewrite contract that a read leaves the file byte-identical), so
+at load nothing retires a shell. Half (b) is vacuous for a shell - it describes
+nothing, so there is nothing to lose - and the span half alone decides. It cannot
+COVER, though: two mutually-covering shells retire neither
+(`TwoShellsCoveringOnlyEachOther_RetireNeither`), because dropping one would be a
+decision taken on no evidence about the span.
+
+WHICH SIDE SURVIVES DEPENDS ON WHERE THE PAYLOAD IS, and on the MEASURED residue
+it is the ENVELOPE, not the finer tiling. The shape on disk is `[T0,T1]`
+payload-LESS shell + `[T0,T2]` envelope + `[T1,T2]` re-clip, so `{shell, re-clip}`
+does not cover `[T0,T2]` and the envelope stays while both narrower sections go -
+TWO drops per triple. Where a genuine payload-bearing TILING exists (both legs
+carrying the conic, a shape no measured recording has and which the suite covers as
+`SyntheticAllPayloadTriple_RetiresTheEnvelopeAndKeepsTheTiling`) the widest-first
+order retires the envelope and keeps the tiling instead. Where the sub-spans leave
+a GAP the envelope is the only cover for it and stays, and the contained sub-spans
+go; that is the harness dedupe's containment direction. Either way the union is
+still. A PARTIAL overlap is not repairable either way and is deliberately left
+alone, so INV2 keeps reporting it - a different defect. So is a covered span
+carrying a DIFFERENT conic: on an envelope + different-conic tile + same-conic tile
+the envelope and the different-conic tile both stay, only the same-conic re-clip
+goes, and INV2 stays red on the pair by design
+(`DifferentConicTile_KeepsTheEnvelopeAndTheTile_AndInv2StaysRed`).
+
+TWO POSTCONDITIONS, checked mechanically per recording rather than argued, both
+reverting the section list untouched (plus a Warn) on failure: the coverage union
+must be identical before and after, and the set of UTs at which
+`RecordingOptimizer.IsSplittableEnvOrBodyBoundary` calls a boundary splittable must
+be identical before and after. The second is not implied by the first - retiring a
+section changes which sections are ADJACENT, and the optimizer's graze walks
+accumulate duration across neighbouring same-class runs - so it is measured, not
+reasoned. It is paid only when there IS residue.
+
+PERSISTENCE DECISION: IN MEMORY, NO SIDECAR REWRITE, following PR #1637
+(`route-hash-drift`, 4f80b305b) verbatim. That PR established that a load-time heal
+must not `MarkFilesDirty()`: the next `FlushDirtyFiles` advances
+`Recording.SidecarEpoch`, which is a route's captured proof-of-source field, so
+every route over the recording parks in `SourceChanged/sidecar-epoch-drift` -
+permanently, since design 7.4 forbids auto-recovery - with no witnessed proof datum
+moved. The retire therefore clears the derived caches (`CachedStats`,
+`SegmentBodyDisplayLabel`) without the dirty flag. Re-deriving it on every load is
+free: the pass is idempotent, and a CLEAN recording costs one linear walk (the
+pre-scan returns as soon as it establishes no section starts before the running
+covered end, the necessary condition for any section to be covered by others). The
+next legitimate sidecar write carries it. `RouteProofHasher` reads only
+route-relevant metadata, never `TrackSections`, so the proof hash cannot move
+either - pinned by `RouteProofHashIsUnchangedByTheRetire`, which also asserts
+`FilesDirty == false` and an unmoved `SidecarEpoch`.
+
+MEASURED ON THE REAL BYTES, not on a restated shape. The three operator `.prec`
+sidecars are committed at `Source/Parsek.Tests/Fixtures/Inv2DoubleCoverResidue/`
+(from the `orbital supply route` save in the collect-logs snapshot
+`2026-08-19_0028_basic-ui-check`; binary v0, the only encoding
+`RecordingStore.DeserializeTrajectorySidecar` supports) and the `RealBytes_` cells
+drive them through `RecordingStore.LoadTrajectorySidecarForTesting` - the same path
+`SaveDirectoryLoader` and `ParsekScenario.OnLoad` use - then run the retire and the
+analyzer rule over the in-memory recording:
+
+| recording | sections | INV2 overlaps | dropped indices | union | splits | 2nd pass |
+| --- | --- | --- | --- | --- | --- | --- |
+| `041770246...` | 57 -> 55 | 3 -> 1 | 45 shell, 47 re-clip | same | same | 0 |
+| `36c7688b...` | 64 -> 62 | 4 -> 2 | 58 shell, 60 re-clip | same | same | 0 |
+| `58130506...` | 25 -> 23 | 3 -> 1 | 5 shell, 7 re-clip | same | same | 0 |
+
+IT DOES NOT MAKE THESE SAVES READ `RED=0`, and this entry does not claim it does.
+Every checkpoint-vs-checkpoint overlap goes; the one or two findings that STAND per
+recording are a different population - a frame-LESS `Absolute` section whose span
+exactly equals the checkpoint section beside it - split out as its own entry,
+`EMPTY-ABSOLUTE-SECTION-EXACT-SPAN-DUPLICATE-OF-ITS-CHECKPOINT`. That is asserted
+rather than assumed: the cell
+`RealBytes_WhatStandsAfterwardsIsAlwaysAnEmptyAbsoluteExactSpanDuplicate` reds if a
+standing finding is ever anything else.
+
+Cells: `CheckpointDoubleCoverRetireTests`, 36 - six `RealBytes_` cells (the three
+recordings x drop-set/union/splits/idempotence, and the standing-findings
+classification), the three MEASURED T0/T1/T2 triples restated in memory (two
+findings before, none after, union still, envelope kept, shell and re-clip gone),
+the SYNTHETIC all-payload triple (envelope goes, tiling stays, labelled synthetic),
+envelope-plus-two-tiles, an exact-span duplicate pair, three identical sections
+(two go, never all three), a gapped near-tiling, a PARTIAL overlap (never retired,
+finding stands), a single checkpoint, interleaved Absolute sections, a covered span
+carrying a DIFFERENT conic, a different-conic TILE (envelope and tile kept, re-clip
+goes, INV2 stays red), a seam-flagged section, a shell covered by payload (goes), a
+shell covered only by shells (stays), both `UtTolerance` boundary sides, determinism
+across repeated evaluation, a second pass dropping zero, the
+optimizer-split-decision invariance, the proof-hash / dirty-flag invariance, the two
+`RetireAcrossRecordings` log surfaces, the OnLoad wiring read from source on both
+branches, and a drive of the pure decision over the WHOLE committed fixture corpus
+(214 sidecars, 721 checkpoint sections) asserting the coverage union never moves.
+THE CORPUS DROP COUNT IS ZERO, by design and not by luck, and it stays zero with
+shells admitted: `duna-one-recorded`, `depot-route-recorded` and
+`interbody-route-recorded` were each repaired at BUILD time by the shared
+containment dedupe in `harness/tools/build_duna_one_recorded.py` - which already
+drops frame-less shells - with the before/after readings recorded in
+`test_saveparse.RECORDED_FIXTURES`, so the committed bytes are already clean and
+that cell is the tripwire in the other direction. No fixture byte is edited.
+
+WHAT THIS DOES NOT CLOSE: the producer question the entry raises about multi-pass
+accumulation WITHIN one session (a coarse envelope promoted, re-cut, re-promoted
+against the re-cut list) is untouched - anyone reopening it should still drive the
+SEQUENCE, not the snapshot. The retire is a repair, not a proof that nothing
+re-creates the shape; what it changes is that if something does, the next load
+removes it again. It also does not touch the empty-`Absolute` population above, nor
+the OFFLINE analyzer's reading of the unrepaired bytes on disk (the fixture builders
+and the harness `analyzer` verifier gate on that reading, and it must keep naming
+residue that is still there).
+
 
 **What red'd.** All three G10 lanes classified `PARSEK-FAIL subkind=analyzer` on
 `analyzer red topRule=INV2-NO-DOUBLE-COVER red=1 failNonBaselined=3`, which
@@ -1796,7 +2358,43 @@ in as many words (`PhaseLock APPLIED: ... cadence 90.079999999918186->95`). The 
 clock deliberately runs on the quantized cadence so the ghost's relaunch schedule sits on
 faithful windows; the route's own `DispatchInterval` stays the raw `N * span`. Intended.
 
-## ROUTE-DISPATCH-COST-FREE-ON-SNAPSHOTLESS-ROOT: a KSC route whose tree ROOT recording carries no `VesselSnapshot` dispatches for FREE in career [FOUND 2026-08-30 off the same `logs/2026-08-30_1106_rover-route` flight while diagnosing a `cost=0` Verbose line. LATENT CAREER DEFECT — the flight was SANDBOX so nothing was mischarged. FIXED 2026-09-01. **RE-OPENED 2026-09-01**: lane RVR-4's first flight measured the shipped fix as insufficient on the real tree. RE-FIXED 2026-09-02 (round 2 below); STILL UNFLOWN - the RVR-4 re-fly is what closes this]
+## ~~ROUTE-DISPATCH-COST-FREE-ON-SNAPSHOTLESS-ROOT: a KSC route whose tree ROOT recording carries no `VesselSnapshot` dispatches for FREE in career~~ [FOUND 2026-08-30 off the same `logs/2026-08-30_1106_rover-route` flight while diagnosing a `cost=0` Verbose line. LATENT CAREER DEFECT - the flight was SANDBOX so nothing was mischarged. FIXED 2026-09-01. **RE-OPENED 2026-09-01**: lane RVR-4's first flight measured the shipped fix as insufficient on the real tree. RE-FIXED 2026-09-02 (round 2 below). **FIXED AND LIVE-PROVEN ON THE MERGED BUILD 2026-09-07** - see the closing census]
+
+**CLOSED 2026-09-07 by lane `RVR-4-rover-route-career-cost`, run `2026-09-07_0938`
+(PASS attempt 1, wall 48 s, every verifier PASS, `expectations mismatches=0`, `analyzer
+red=0`), on the CLEAN automation DLL sha256 `7c0bfee1b74d6716` built from `main`
+1f7801cea.** That is the distinction this entry was waiting for: rounds 1 and 2 flew on
+follow-on DLLs built from the fix branch, and what stayed unproven was the round-2 fix AS
+MERGED. The measured chain, end to end, on that build:
+
+```
+FundsCost basis=launch-manifest route=4850abb0 source=cf8d06fc7bf74e1a82bc70fc79290847
+          snapshotSource=cf8d06fc7bf74e1a82bc70fc79290847 fallback=0
+          snapshotSurface=ghost cost=7410.0000023841858
+DispatchDebit: route 4850abb0 cycle=cycle-0 ut=1600 cost=7410.0000023841858 careerKsc=1
+Delivery: route 4850abb0 Career KSC funds debited: -7410.0000023841858
+LoopRoute: route 4850abb0 cycle=cycle-1 BLOCKED kind=FundsShort reason=funds-short
+          shortfall=3820.0000047683716 - emitted nothing, snapped lastObserved=32
+          skippedCycles=1
+```
+
+**`UNCOSTED` appears ZERO times in the 11,440-line log**, and `RouteCargoDebited` carries
+the stamp (`kscFundsCost=7410`). So the dispatch is COSTED, on the basis the round-2 fix
+introduced: `basis=launch-manifest` (the root's complete run manifest supplies the
+resource term), `snapshotSource == source` with `fallback=0` (the ROOT priced ITSELF - the
+member walk never opened), and `snapshotSurface=ghost` (the durable costing surface, which
+is the half of the round-2 fix this shape needs; the `crew-auto-unreserve` sweep had nulled
+`VesselSnapshot` before the dispatch, exactly as round 1 measured). The transport-subset
+half stays UNEXERCISED here and is asserted absent by the token's contiguous
+`fallback=0 snapshotSurface=ghost` run. `grep -c "skipping member"` is still 0 for the
+same reason it was in round 2: nothing fell back.
+
+Nothing is owed on this entry. The one ask of roadmap Tier C item 9 it still does not buy
+is the KSC RECOVERY CREDIT, and that is measured absent rather than untested
+(`EmitPendingRecoveryCredit: ... credit-skip zero-recovery (recoveryRows=0): cleared
+pending`) - it needs a recorded flight that ENDS in a KSC recovery, which no committed
+route fixture is. The `PatchFunds` guarded-uplift observation below is unchanged and stays
+report-only.
 
 **Evidence.** Every UI repaint logged `ComputeDispatchFundsCostForRoute: route fd6ee2ff source
 recording cf8d06fc... not in ERS or has no VesselSnapshot; cost=0`. The recording IS in ERS (a
@@ -1861,7 +2459,7 @@ snapshot the walk visited is proved mechanically rather than by the basis line a
 Unblocks Tier C item 9 of the supply-route coverage program (`autotest-roadmap.md`); that
 career lane is still unauthored and has never flown.
 
-### ROUND 2 - the 2026-09-01 fix was insufficient on the real tree (RE-OPENED 2026-09-01 by RVR-4 flight 1; RE-FIXED 2026-09-02, unflown)
+### ROUND 2 - the 2026-09-01 fix was insufficient on the real tree (RE-OPENED 2026-09-01 by RVR-4 flight 1; RE-FIXED 2026-09-02, LIVE-PROVEN ON THE MERGED BUILD 2026-09-07 by `2026-09-07_0938`)
 
 **What flew.** Lane `RVR-4-rover-route-career-cost`, first flight `2026-09-01_2204`
 (`harness/results/2026-09-01_2204_RVR-4-rover-route-career-cost_shots/KSP.log`). Verdict
@@ -2595,7 +3193,40 @@ own committed `RECORDING_TREE` bytes, reads Eligible with two stops (source B, d
 The defect is that the bytes were wrong and would have been load-bearing on any tree that did
 NOT root at KSC.
 
-## HARNESS-SUITE-REWRITES-TRACKED-DURATION-JSON: running the harness `lib` suite dirties the committed `harness/coverage/duration.json` [FOUND 2026-09-02 while running the suites for the origin-proof wave. OPEN, NOT FIXED BY DECISION - filed so the dirty file is recognised rather than investigated]
+## ~~HARNESS-SUITE-REWRITES-TRACKED-DURATION-JSON: running the harness `lib` suite dirties the committed `harness/coverage/duration.json`~~ [FOUND 2026-09-02 while running the suites for the origin-proof wave. FIXED 2026-09-06 as hygiene, on the operator's call to fix it rather than keep passing through it]
+
+**FIXED - by an injectable seam, not by weakening the cell.**
+`refresh_coverage_and_flake` and `load_all_results` now take optional
+`coverage_dir` / `results_dir` arguments defaulting to the module constants, and
+`DurationLedgerIoTests` drives the real read / merge / write path through those
+against a temp directory. What the class measures is UNCHANGED and in one place
+STRONGER: `test_the_real_committed_ledger_merges_instead_of_being_replaced`
+copies the REAL committed `duration.json` into the temp coverage dir and asserts
+every measured scenario survives a one-scenario refresh with its sample count
+intact - so the merge is still proved against production bytes, not a
+hand-written two-entry stub. A seam beats monkeypatching the globals: a cell that
+raises between patch and restore would leave every later cell pointed at a temp
+dir.
+
+Two cells pin the hygiene itself, so it cannot regress:
+`test_a_refresh_through_the_seams_leaves_the_committed_ledger_untouched`
+(sha256 before and after one full refresh) and a `tearDownClass` guard that
+compares the committed file's digest across the whole class and names the seams
+in its failure message. `git status` is clean after
+`cd harness && python -m unittest discover -s lib -q`.
+
+A note on the ORIGINAL diagnosis, kept because it is the interesting part: the
+mechanism below named `run.COVERAGE_DIR` as what the cell "reaches through", but
+the class had ALREADY redirected `run.COVERAGE_DIR` to a temp dir in `setUp`
+since 2026-07-26 (commit 657a03faf, months before this entry was filed). Measured
+on 2026-09-06 at `ddcca3292`: the full `lib` suite leaves
+`harness/coverage/duration.json` byte-identical AND mtime-identical. So the
+observed dirty file on 2026-09-02 came from something else that was never
+identified - most likely a real `run.py` invocation in that session, which writes
+the ledger by design. The filed mechanism was misattributed; the seam work above
+stands on its own as the guarantee that the SUITE can never be the cause.
+
+ORIGINAL ENTRY BELOW.
 
 `cd harness && python -m unittest discover -s lib -q` leaves
 `harness/coverage/duration.json` MODIFIED in `git status` every time. The writer is
@@ -7148,7 +7779,64 @@ of the seam steps closes the window, because the re-resume happens before any st
 can run.
 
 ---
-## HARNESS-PRODUCED-SAVE-CLOBBERED-BY-SIBLING-RUN: the machine lock serialises RUNS, not the produced save, so a finished green flight's output is destroyed by the next run that shares its `saveTemplate` leaf [FOUND 2026-08-12 while harvesting `eeloo-orbit-recorded` from `B21-eeloo-orbit`. A HARNESS LIFECYCLE GAP, not a Parsek defect - the lock is doing exactly what it says]
+## ~~HARNESS-PRODUCED-SAVE-CLOBBERED-BY-SIBLING-RUN: the machine lock serialises RUNS, not the produced save, so a finished green flight's output is destroyed by the next run that shares its `saveTemplate` leaf~~ [FOUND 2026-08-12 while harvesting `eeloo-orbit-recorded` from `B21-eeloo-orbit`. FIXED 2026-09-06 after it bit again the same week, with two sessions sharing the machine. A HARNESS LIFECYCLE GAP, not a Parsek defect - the lock was doing exactly what it says]
+
+**FIXED by OWNERSHIP, at the source.** `run.py` now copies the produced save into
+`results/<runId>_save/` as phase 10 of the run - after the verifier chain and
+collect-logs, and BEFORE the machine lock is released. Every finished run
+therefore owns its bytes, and a sibling's staging `rmtree` can no longer take the
+harvest source away. Naming mirrors the `*_shots` convention (the runId already
+carries the scenario id). The whole save directory goes: `persistent.sfs` plus
+the `Parsek/` sidecar tree.
+
+Extending the LOCK past run end was rejected: it would hold the machine for as
+long as a harvest might take, unbounded and unattended. Of the three options
+listed at the bottom of this entry, none was taken either - (a) a per-run save
+directory touches every consumer that resolves a produced save by leaf, (b)
+rename-on-supersede survives exactly one generation, and (c) a WARN makes the
+destruction visible without preventing it.
+
+Shape:
+- `hlib.decide_save_snapshot` (pure) - SNAPSHOT ON EVERY VERDICT by default; a
+  PARSEK-FAIL save is the only copy of the state that produced the failure. Named
+  refusals only: `no-produced-save`, `spec-opt-out` (`[harvest]
+  snapshotProducedSave = false`; no committed spec declares it, pinned by a
+  tripwire cell), `size-cap` (2 GiB), `free-disk-floor` (5 GiB). An UNMEASURABLE
+  disk fact is admitted, not refused.
+- `hlib.select_save_snapshot_dirs_to_prune` (pure) - retention keeps the newest 3
+  `*_save` dirs PER SCENARIO (a global window would let a busy scenario evict
+  another's only copy), always protecting the current run's; a snapshot whose
+  scenario cannot be read buckets alone, so deletion fails closed. Touches
+  nothing but `results/*_save/`.
+- `hlib.select_stale_save_snapshot_tmp_dirs_to_sweep` (pure) - the same retention
+  pass sweeps orphaned `results/<runId>_save.harness-tmp` dirs. Retention above
+  never sees them (they do not end in `_save`) and only a rerun of the SAME runId
+  would overwrite one, so a run killed mid-copy would otherwise leak a whole
+  save's worth of bytes forever. NAME-gated (`<runId>` + `_save` +
+  `.harness-tmp` exactly) and it spares the current run's own tmp name, since the
+  pass can run while that copy is still being written.
+- `run.py::_snapshot_produced_save` (shell) - copies to a `.harness-tmp` name and
+  renames, so a kill mid-copy leaves no partial directory a harvest would read as
+  whole. Failure-isolated: a copy failure is a Warn with `ran=false` and never
+  moves the verdict. Records `snapshot: {ran, path, bytes, files, reason}` in the
+  result JSON next to `collectLogs` and logs one `[Harness][Info][Snapshot]` line
+  either way.
+
+**The mitigation below is retired**, and `harvest_bdock_station.py --save-dir`
+now names the snapshot as the preferred source: chaining a `cp -r` into the same
+command as the run was always a race the run itself could win earlier, and now
+does. The instance save still works and is what to use when a run's
+`snapshot.reason` says the copy was skipped.
+
+Tests: `SaveSnapshotPolicyTests` + `SaveSnapshotRetentionTests` +
+`HarvestSpecBlockValidationTests` (pure, `harness/lib/test_hlib.py`) and
+`ProducedSaveSnapshotSmokeTests` (`harness/lib/test_run_smoke.py`), which drives
+the fake KSP end to end and asserts the copied files, the result-JSON block, a
+copy failure leaving the verdict intact, and retention pruning only same-scenario
+`_save` dirs. Docs: `harness/README.md` -> "The produced-save snapshot";
+`docs/dev/design-autotest-harness-core.md` phase 10.
+
+ORIGINAL ENTRY BELOW.
 
 **What happened.** `B21-eeloo-orbit` flew green twice on 2026-08-12. The FIRST green
 run, `2026-08-12_2003` (PASS attempt 1, wall 3,083 s, ~51 minutes of real flight), had
@@ -7534,7 +8222,7 @@ reading ranged), the four `RecordingOptimizerTests.CanAutoSplitIgnoringGhostTrig
 cells that pin the sub-floor side no flight can produce, and
 `SbrDwellCompatibilityTests`, which keeps the default provably inert for L3.
 
-## KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY: the recovery correlator matches by vessel NAME plus a UT tier, and the XP row makes a wrong pick irreversible [OPEN - **STAGE 1 LIVE-PROVEN 2026-09-02**, shipped headless 2026-08-28 (branch `kerbal-xp-guid-filter`), STAGE 2 OUTSTANDING but NO LONGER GATE-BLOCKED; filed 2026-08-20 with the correlation fix above. **A REPRO LANE WAS AUTHORED AND FLOWN, AND FOUND THE PRODUCED-SAVE SHORTCUT CANNOT REACH THE CORRELATOR: `harness/scenarios/L6-career-same-name-recover.toml`, reading run 1 `2026-09-02_1137` (INVALID(driver) MISSION-ASSERT-FAIL).** The idea was `science_bench_recover` flown a second time over `career-earned-pad` (L3's produced save, which already carries the pad craft's TWO chained same-name recordings under a different launch guid), so the recovery correlator would see two same-name candidates and stage 1's guid filter would resolve them live (expected `nameMatches>=3 guidDropped=2 survivors>=1`). The flight FLEW - landed, collected 2 experiments, recorded a third same-name recording - but TRANSMIT credited ZERO career science because L3 already banked that launchpad biome's science, so the mission's structural transmit->recover gate (`_sbr_transmit` needs a strictly positive pool rise; the schema forbids a floor below 0.001) failed the flight BEFORE recovery, the phase the correlator fires in. **THE BANKED-SCIENCE CONFLICT IS INTRINSIC TO REUSING A PRODUCED SAVE**, so this shortcut does not work. Closing stage 2 needs either a recover mission with NO transmit-science gate (none in the library today) or a purpose-built fixture carrying two same-name launches whose flight science is un-banked. **UNBLOCKED 2026-09-02 BY THE PURPOSE-BUILT FIXTURE** `harness/fixtures/saves/career-same-name-pad`: `harness/tools/build_career_same_name_pad.py` splices `C2CareerPostFix`'s RECORDING_TREE (the two chained same-name recordings, launch guid `f77e4207...`) into `career-science-pad`, the PRE-FLIGHT save L3 actually flies - two moments of one timeline, which is why those recordings' `preLaunchFunds = 500000` / `preLaunchScience = 100` are that host's live pools. The career therefore carries the prior launch with ZERO banked `Science` subjects, so the same mission transmits exactly as it does for L3; the host vessel's `pid` is re-stamped to `9b3c71e4...` so the filter has two conclusive mismatches to drop, while its craft-baked `persistentId` is deliberately left colliding at `2905720181` - the trap this entry names. The earned ledger is NOT copied (its rows credit the science the fixture must leave un-banked, and the recalc engine patches state from the ledger). Gated by `CareerSameNamePadFixtureDriftTests`. L6 now stages that fixture; its expected shape came back EXACTLY on reading run 2 (`2026-09-02_1328`, PASS attempt 1, 470 s): four identical pairs of `PickRecoveryRecordingId guid filter: ... dropped=2 remaining=2 reason=guid-conclusive-mismatch` + `PickRecoveryRecordingId: ... nameMatches=4 survivors=2 guidDropped=2 ... tier=most-recent-ended bracketTie=n/a pick=0d74e88c...`, with `Recovery kerbal XP recorded: ... rows=1 deduped=0 noAction=0` PRESENT (its first observation anywhere) and no refused line. **THE LIVE-PROOF GATE STAGE 2 WAS BLOCKED ON IS THEREFORE DISCHARGED**: the filter is proven active, dropping exactly the two prior-launch candidates, over every leg that picked, without disturbing a correct pick - and re-proven on two further flights the same day (`2026-09-02_1402` and `2026-09-02_1411`), which measured `guidDropped=2` identically while the flight's OWN recording count moved (see L6-RECOVER-DWELL-STRADDLES-SPLIT-FLOOR: an optimizer split floor against the mission's landed dwell, not a correlator behaviour). Stage 2 (the XP-leg `ambiguous-recovery-recording` refusal) is still NOT implemented - it is now merely unwritten rather than ungated]
+## KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY: the recovery correlator matches by vessel NAME plus a UT tier, and the XP row makes a wrong pick irreversible [OPEN - **STAGE 1 LIVE-PROVEN 2026-09-02**, shipped headless 2026-08-28 (branch `kerbal-xp-guid-filter`), STAGE 2 OUTSTANDING but NO LONGER GATE-BLOCKED; filed 2026-08-20 with the correlation fix above. **A REPRO LANE WAS AUTHORED AND FLOWN, AND FOUND THE PRODUCED-SAVE SHORTCUT CANNOT REACH THE CORRELATOR: `harness/scenarios/L6-career-same-name-recover.toml`, reading run 1 `2026-09-02_1137` (INVALID(driver) MISSION-ASSERT-FAIL).** The idea was `science_bench_recover` flown a second time over `career-earned-pad` (L3's produced save, which already carries the pad craft's TWO chained same-name recordings under a different launch guid), so the recovery correlator would see two same-name candidates and stage 1's guid filter would resolve them live (expected `nameMatches>=3 guidDropped=2 survivors>=1`). The flight FLEW - landed, collected 2 experiments, recorded a third same-name recording - but TRANSMIT credited ZERO career science because L3 already banked that launchpad biome's science, so the mission's structural transmit->recover gate (`_sbr_transmit` needs a strictly positive pool rise; the schema forbids a floor below 0.001) failed the flight BEFORE recovery, the phase the correlator fires in. **THE BANKED-SCIENCE CONFLICT IS INTRINSIC TO REUSING A PRODUCED SAVE**, so this shortcut does not work. Closing stage 2 needs either a recover mission with NO transmit-science gate (none in the library today) or a purpose-built fixture carrying two same-name launches whose flight science is un-banked. **UNBLOCKED 2026-09-02 BY THE PURPOSE-BUILT FIXTURE** `harness/fixtures/saves/career-same-name-pad`: `harness/tools/build_career_same_name_pad.py` splices `C2CareerPostFix`'s RECORDING_TREE (the two chained same-name recordings, launch guid `f77e4207...`) into `career-science-pad`, the PRE-FLIGHT save L3 actually flies - two moments of one timeline, which is why those recordings' `preLaunchFunds = 500000` / `preLaunchScience = 100` are that host's live pools. The career therefore carries the prior launch with ZERO banked `Science` subjects, so the same mission transmits exactly as it does for L3; the host vessel's `pid` is re-stamped to `9b3c71e4...` so the filter has two conclusive mismatches to drop, while its craft-baked `persistentId` is deliberately left colliding at `2905720181` - the trap this entry names. The earned ledger is NOT copied (its rows credit the science the fixture must leave un-banked, and the recalc engine patches state from the ledger). Gated by `CareerSameNamePadFixtureDriftTests`. L6 now stages that fixture; its expected shape came back EXACTLY on reading run 2 (`2026-09-02_1328`, PASS attempt 1, 470 s): four identical pairs of `PickRecoveryRecordingId guid filter: ... dropped=2 remaining=2 reason=guid-conclusive-mismatch` + `PickRecoveryRecordingId: ... nameMatches=4 survivors=2 guidDropped=2 ... tier=most-recent-ended bracketTie=n/a pick=0d74e88c...`, with `Recovery kerbal XP recorded: ... rows=1 deduped=0 noAction=0` PRESENT (its first observation anywhere) and no refused line. **THE LIVE-PROOF GATE STAGE 2 WAS BLOCKED ON IS THEREFORE DISCHARGED**: the filter is proven active, dropping exactly the two prior-launch candidates, over every leg that picked, without disturbing a correct pick - and re-proven on two further flights the same day (`2026-09-02_1402` and `2026-09-02_1411`), which measured `guidDropped=2` identically while the flight's OWN recording count moved (see L6-RECOVER-DWELL-STRADDLES-SPLIT-FLOOR: an optimizer split floor against the mission's landed dwell, not a correlator behaviour). **STAGE 2 IS NOW BUILT AND HEADLESS-PROVEN (branch `kerbal-xp-stage2`), WITH ITS OWN LIVE PROOF STILL OWED** - see the stage-2 section at the end of this entry for the predicate, what measurement changed it, and the lane shape the live proof needs]
 
 `LedgerOrchestrator.PickRecoveryRecordingId` matches candidate recordings by vessel NAME
 (`RecoveredVesselIdentity.MatchesName`, raw or localized) and then ranks them by a UT
@@ -7741,6 +8429,191 @@ shows the filter turning "weak tier" into "weak tier AND genuinely ambiguous". A
 tier-strength refusal without a flown filter would refuse the very recoveries the
 correlation fix captured, and `L4`'s `KerbalXp` facet would go vacuous again - the failure
 mode the recommendation's "What NOT to do" paragraph names.
+
+### STAGE 2 BUILT AND HEADLESS-PROVEN (branch `kerbal-xp-stage2`) - LIVE PROOF STILL OWED
+
+The XP leg refuses an ambiguous pick with `reason=ambiguous-recovery-recording`. Funds and
+science are untouched: they keep the stage-1 pick, because their rows are re-derived
+idempotently from the effective ledger on every recalc, so a mis-scoped one is wrong but
+REVISABLE - the asymmetry this entry is entirely about.
+
+**THE PREDICATE HAS THREE CLAUSES, NOT THE RECOMMENDATION'S TWO, AND THE THIRD CAME OUT OF
+A MEASUREMENT.** `RecoveryPickAmbiguity.Evaluate(survivors, tier)` calls a pick ambiguous
+when: (1) more than one candidate SURVIVED the stage-1 guid filter; (2) the winning tier is
+WEAK - `most-recent-ended` or `global-latest`, matching the recommendation's own naming, and
+`global-latest` is if anything the weaker of the two (it fires only when nothing brackets the
+recovery AND nothing ended before it, so the ordering has no relation to the recovery
+moment); AND (3) the survivors are NOT positively corroborated as ONE launch. `bracketing` is
+deliberately NOT weak even with several bracketing survivors: it is a positive temporal fact
+about the winner (it CONTAINS the recovery UT) rather than an ordering among candidates, and
+tier 1 already carries its own reasoned tie-break. A SINGLE survivor is never ambiguous on
+any tier.
+
+**Clause 3 is what keeps this from being the bare tier-strength refusal the "What NOT to do"
+paragraph forbids, and clauses 1+2 alone - the recommendation's literal wording - WOULD have
+gone vacuous.** Two independent measurements say so, and neither was predicted by the
+recommendation: the committed career fixture `Source/Parsek.Tests/Fixtures/C2CareerPostFix/`
+carries TWO chained `Jumping Flea` recordings under ONE launch guid `f77e4207...`, both ended
+before the recovery, so walking it through the real picker measures `survivors=2
+tier=most-recent-ended`; and the flown stage-1 proof (run `2026-09-02_1328`) measured
+`nameMatches=4 survivors=2 guidDropped=2 tier=most-recent-ended` with the XP row PRESENT. One
+launch is recorded as a CHAIN OF SEGMENTS, so more-than-one-survivor is the ORDINARY case,
+not the pathological one. Clause 3 separates the two: corroboration is POSITIVE (every
+survivor carries a KNOWN guid and they are all equal), and
+`VesselLaunchIdentity.RecordingsShareLaunch` is deliberately NOT the helper - it requires
+equal `persistentId`, which is craft-baked and reused on every launch, so it reads TRUE for
+two guid-less launches of one craft: exactly the shape stage 2 must catch, and exactly the
+trap `career-same-name-pad` was built around.
+
+**A REACHABLE SHAPE CHANGES BEHAVIOR, and it is named here rather than discovered later**
+(the same courtesy stage 1 paid the Real Spawn Control copy). A save whose recordings carry
+NO `RecordedVesselGuid` - captured before that field existed, and un-backfillable - and which
+holds MORE THAN ONE same-name recording ending before a recovery now leaves that recovery's
+XP unbooked, where it previously wrote a row against the latest-ending one. That is the
+predicate working rather than a regression: those survivors are genuinely uncorroborated, and
+`RecordingsShareLaunch` cannot help (its `persistentId` half is craft-baked and equal for
+every launch of the craft). The funds and science rows for such a recovery are still written
+and still scoped exactly as before. Two committed cells were updated for it, both of which
+MEANT one launch and had simply had no reason to say so:
+`LedgerRecoveryKerbalExperienceTests.Forward_ScopesTheRowToTheSameRecordingTheRecoveryFundsRowUses`
+now stamps its two chained segments with one launch guid, and
+`GameStateRecorderLedgerTests.PickRecoveryRecordingId_BracketTie_MovesAllThreeRecoveryLegsTogether`'s
+source-shape gate now pins the literal `PickRecoveryRecording` (a prefix of both spellings)
+so the picker split does not read as a leg leaving the correlator.
+
+**HOW NARROW THAT SHAPE ACTUALLY IS, dated rather than asserted.** The `recordedVesselGuid`
+key landed 2026-05-30 (`4990055c7`), which POSTDATES the generation-3 -> 4 schema bump of
+2026-05-20 (`a400bada6`). Everything older than the bump is rejected on load outright
+(`generation-older`), so a save that still loads can only be missing the guid on a
+GENERATION-4 recording written in that ten-day window - and any such recording that carries a
+`_vessel.craft` or `_ghost.craft` sidecar is backfilled from the snapshot's `pid` on the next
+`OnLoad` (`RecordingSidecarStore`). The un-backfillable case is therefore a gen-4 recording
+with NO snapshot at all. It stays named here because it is reachable, not because it is
+common.
+
+**AND THE REFUSED XP IS NEVER BOOKED LATER.** A refusal is a permanent decision about THAT
+recovery, matching the CHANGELOG wording: `RecalculateAndPatch` re-derives rows FROM the
+ledger, so with no row written there is nothing for any later recalc to re-derive, and the
+leg itself is reached only from the stock recovery event
+(`GameStateRecorder.OnVesselRecoveryProcessingForExperience`), which does not fire twice for
+one recovery. "Not sticky" (below) means only that a LATER, DIFFERENT recovery whose
+ambiguity has resolved writes normally - not that the refused one is picked up again.
+
+**Where it sits and what it logs.** `PickRecoveryRecordingId` now delegates to
+`PickRecoveryRecording`, which returns the id plus the POST-FILTER survivor list and the
+winning tier as a `RecoveryPickTier` (the tier tokens now have one source,
+`RecoveryPickAmbiguity.TierToken`, shared with the pick summary line). Only
+`TryRecordRecoveryKerbalExperience` reads the extra fields. The refusal line mirrors the
+existing `no-recovery-recording` fail-safe, at Info:
+`Recovery kerbal XP refused: vessel='X' ut=<t> kerbals=N reason=ambiguous-recovery-recording
+survivors=M nameMatches=P guidDropped=Q tier=<tier> corroboration=<c> wouldHavePicked=<id>
+survivorIds=<bounded list>`. `corroboration` is `unknown-launch-guid` or
+`distinct-known-launches`, so a live log says WHY rather than only that. NOT rate-limited and
+not deduped, because it cannot repeat: this method is reached ONLY from
+`GameStateRecorder.OnVesselRecoveryProcessingForExperience` (once per stock recovery event);
+`RecalculateAndPatch` re-derives rows FROM the ledger and never re-enters it. Nothing is
+sticky either - a later recovery whose ambiguity has resolved writes normally
+(`XpLeg_ARefusalIsNotSticky_ALaterResolvedRecoveryWrites`).
+
+**How a refusal reads on the ledger surfaces - it cannot be mistaken for drift.** The M-B2
+oracle (`harness/lib/oracle.py`) places kerbal experience DELIBERATELY OUT OF SCOPE v1 (its
+own comment: the facet records career-log ENTRIES, and there is no scalar for an
+expected-vs-parsed diff), so a missing XP row cannot classify `PARSEK-FAIL(ledger)` by
+construction, on any lane. In-game, `LedgerGroundTruthDiff.CompareKerbalCareerLogs` iterates
+the RECONSTRUCTION's entries and raises `PhantomInRecon` for entries the save lacks - an
+ABSENT row makes the recon credit FEWER entries, which that loop cannot flag at all; with no
+XP row anywhere the facet takes its no-entries exit and is not even counted
+(`FacetsCompared`). So an ambiguity refusal shows up as a QUIETER `KerbalXp` facet, never as
+a divergence, and never as a hard failure - which is the correct reading (the pre-P9a
+behavior, already accepted as a cost by the entry above), but it also means the refusal is
+INVISIBLE to both oracles and must be read off the log line instead.
+
+**THE WRITE SITES WERE AUDITED, AND TWO OF THEM DID NOT STAMP A GUID AT ALL** (found in
+pre-merge review of the stage-2 branch; the sentence below used to claim "every recording a
+current build writes carries a guid" on two data points). Walking every `new Recording` in
+`Source/Parsek` and every `RecordedVesselGuid =` assignment:
+
+- **Stamped at the write site from a live vessel:** `FlightRecorder.BuildCaptureRecording`
+  (the capture every commit path copies from; live `Vessel.id`, snapshot `pid` fallback), and
+  now `BackgroundRecorder`'s parent CONTINUATION and split CHILD, `ParsekFlight`'s
+  undock/EVA `activeChild` + `bgChild` pair (both branch paths),
+  `ParsekFlight.CreateBreakupChildRecording`, and
+  `ChainSegmentManager.StartUndockContinuation`. All route the decision through
+  `BackgroundRecorder.ResolveSplitRecordingLaunchGuid` (live guid first, own-snapshot `pid`
+  fallback) or read the live vessel directly.
+- **Copied from a source recording:** `Recording.DeepClone` /
+  `ApplyPersistenceArtifactsFrom`; the optimizer split tail
+  (`RecordingStore.Optimization.CopySplitIdentityFields`, `RecordingTreeSplitter`);
+  `SessionMerger`; `RewindInvoker`'s in-place Re-Fly fork; and now
+  `ParsekFlight.ApplyCapturedSplitStateToStandaloneRecording` +
+  `CommitGloopsRecorderData`, which both had a fully-stamped `CaptureAtStop` in hand and
+  simply were not copying that one field.
+- **Stamped indirectly by the recorder-start backstop**
+  (`Recording.AdoptRecordedVesselGuidIfEmpty`, called from `FlightRecorder.StartRecording`):
+  the always-tree root, the fresh-post-switch root, the merge continuation, and
+  `SwitchSegmentBuilder.CreateSwitchContinuationSegment` - the builder itself is pure and has
+  no vessel, and every production caller binds a live recorder to the new segment
+  immediately. A bind that FAILS leaves that segment guid-less and snapshot-less, which is
+  documented rather than fixed here: a segment whose recorder never bound records nothing.
+- **Deliberately not stamped:** `RewindInvoker`'s non-in-place placeholder provisional (the
+  fork-inheritance gate is a genuine guard, see the Re-Fly notes), and the scratch/probe
+  `Recording` objects that are never persisted (codec round-trip targets in `Analyzer/Rules`,
+  the finalization-cache context shims, id-only lookup keys in `SupersedeCommit` /
+  `UnfinishedFlightClassifier`).
+- **The one remaining unrecoverable blank:** a breakup child whose vessel was destroyed
+  during the coalescing window AND for which no snapshot was pre-captured. There is nothing
+  left to read an identity from; it is stamped `Destroyed` at the breakup UT.
+
+Why the BG parent continuation was the one that mattered: it is the SAME launch as the
+segment it continues and carries the SAME vessel name, and it captures no `VesselSnapshot`,
+so the load-time backfill had nothing to read and it stayed blank forever. A recovery of that
+craft then saw a MIXED survivor set - the stamped pre-split segment plus a blank continuation
+- which classifies `UnknownLaunchGuid` and made the XP leg refuse an ORDINARY single-launch
+recovery: the exact failure mode clause 3 exists to prevent, arriving through the writer
+instead of the predicate. The other sites were reachable by the backfill on the next
+`OnLoad`, so they were a live-session gap rather than a permanent one; they are stamped now
+so the live session and the post-reload session agree.
+
+**Headless cover:** `RecoveryPickAmbiguityTests` (24 cells) - the predicate on every branch
+(two unknown-guid survivors on a weak tier; the stage-1 win where a live guid collapses the
+set to one; several survivors of ONE launch; a MIXED known+unknown set, which is what a
+guid-less BG continuation chained to a stamped segment produced; two distinct known launches;
+`global-latest`; bracketing never ambiguous even with distinct launches; single survivor on
+every tier; degenerate inputs named rather than silent); the corroboration classifier
+including the `RecordingsShareLaunch` counter-proof and guid-format insensitivity; the
+bounded id formatter; the post-filter monotonicity rule (evaluating the PRE-filter set is
+ambiguous where the post-filter set is not); the picker's tier / survivor reporting; the XP
+leg end to end in both directions plus the funds-and-science-unaffected scope cell;
+`XpLeg_ChainedSegmentAndBgContinuation_AreCorroboratedAndTheRowIsWritten`, the WRITE-SITE
+mirror - a pre-split segment plus a continuation whose guid comes from the production
+resolver is corroborated and writes, and blanking that one field (what the site used to
+persist) refuses the same recovery as `corroboration=unknown-launch-guid`; and THE NEGATIVE
+PROOF - `CommittedCareerFixture_RecoveryPickIsNotAmbiguous` and
+`CommittedCareerFixture_XpRowIsStillWrittenThroughTheRealXpLeg`, which deserialize
+`C2CareerPostFix`'s committed RECORDING nodes through the production codec, drive the real
+picker at the fixture ledger's own recovery UT, assert the load-bearing shape
+(`survivors=2`, `tier=most-recent-ended`, weak) and then that the verdict is NOT ambiguous
+and the row is written to the id the fixture's ledger actually recorded. The write-site
+decision itself is pinned by three cells in `BackgroundSplitTests`
+(`SplitLaunchGuid_ParentContinuation_CarriesTheContinuedSegmentsLaunchGuid`,
+`SplitLaunchGuid_ParentContinuation_PrefersTheLiveVessel_WhenTheTwoDiverge` - the mirror
+direction, where the pid now carries a DIFFERENT launch and the live vessel must win because
+asserting "one launch" falsely is what lets an irreversible row through - and
+`SplitLaunchGuid_Child_CarriesItsOwnLiveGuid_NeverTheParents`).
+
+**LIVE PROOF STILL OWED, and the shape it needs is NOT the stage-1 shape.** `L6` cannot
+prove stage 2: its survivors are the flight's OWN two chained recordings under one known
+guid, so the refusal correctly does NOT fire there (and its continued absence from an L6 run
+is a useful over-fire control, not the proof). Stage 2's proof needs a recovery where the
+survivor set stays greater than one AFTER the filter and cannot be corroborated as one
+launch - i.e. two same-name launches whose RECORDINGS carry no `RecordedVesselGuid`, or
+carry conclusively different ones while the recovery seam supplies none. Every recording a
+current build writes carries a guid AT ITS WRITE SITE (see the writer audit below), so the
+fixture would have to strip or diverge them deliberately (the `career-same-name-pad` builder
+is the obvious host - it already splices a prior launch's RECORDING_TREE and already
+re-stamps identity fields). The lane is NOT
+authored here on purpose: naming the shape is stage 2's obligation, authoring and flying it
+is a separate decision, and the entry stays OPEN until it is flown.
 
 ## ~~ROUTE-CANDIDACY-GATED-ON-SEAL-NO-SEAM-PATH: a green two-vessel docking flight cannot produce a route-candidate tree, and no seam verb can seal one~~ [FOUND 2026-08-11 while wiring `H35-logistics-route-proof`. A CAPABILITY GAP in the automation surface, not a product defect - the seal policy itself is correct. **CLOSED 2026-08-30 by fix road (1)**: `SealSlot` and `RouteCommand` are both promoted out of `ReservedVerbs` and implemented against the production paths - see the closure note at the end of this entry]
 

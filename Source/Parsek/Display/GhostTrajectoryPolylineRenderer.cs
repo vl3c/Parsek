@@ -109,6 +109,69 @@ namespace Parsek.Display
         private static readonly HashSet<string> drewNonOrbitalLegRecordings =
             new HashSet<string>(StringComparer.Ordinal);
 
+        /// <summary>One VISIBLE ghost leg mesh: which leg of the cached set it is, and the recorded UT
+        /// span its points cover. The unit of <see cref="paintedLegSpans"/>.</summary>
+        internal struct PaintedLegSpan
+        {
+            public int legIndex;
+            public double startUT;
+            public double endUT;
+        }
+
+        /// <summary>
+        /// PAINTED-MESH set (NOT ownership): per recording, the legs whose Vectrosity mesh is CURRENTLY
+        /// VISIBLE, with the recorded UT span each one covers. Membership is the MESH fact, not a
+        /// per-frame draw stamp: a leg is added when it actually draws
+        /// (<c>OnMapCameraPreCull</c>) and removed when its mesh is hidden (the deactivation sweep),
+        /// when its cache entry is released, when its legs are rebuilt, on a scene load, on a cross-save
+        /// flush and when the Driver is destroyed. <see cref="paintedLegSpansMaintainedFrame"/> is a
+        /// STALENESS GUARD for a dead renderer (nothing has maintained this since the last flush), never
+        /// the membership rule.
+        ///
+        /// <para>WHY MESH MEMBERSHIP AND NOT "PAINTED THIS FRAME" (measured 2026-09-06, reading run 2):
+        /// the first cut cleared and re-stamped this set per frame inside the onPreCull draw pass. That
+        /// pass early-returns whenever the -50 LateUpdate decide walk did not run (<c>pendingDrawsFrame
+        /// != frame</c>), and the deactivation sweep lives INSIDE it - so on such a frame nothing paints,
+        /// nothing is hidden, last frame's meshes stay on screen, and a frame-stamped set reads "painting
+        /// nothing". The route line then drew a second identical line over a mesh that was still there:
+        /// V26M read <c>routeCoDrawViolations=403</c> starting 50 frames after the last stand-down frame,
+        /// all on one recording. "Painted" therefore means "the polyline HAS A VISIBLE MESH for this
+        /// recording", which is exactly what the co-draw probe measures.</para>
+        ///
+        /// <para>WHY IT IS NOT FOLDED INTO <see cref="drewNonOrbitalLegRecordings"/>: ownership answers
+        /// "is the polyline the owner of this recording's non-orbital PHASE" - the question
+        /// <c>GhostMapPresence</c> asks to hide a proto orbit line - and it is published ONLY on the
+        /// current-element draw (8e S3b: the SOLE ownership source, and it stays sole). A forward RUN
+        /// leg is another chain member's geometry drawn additively beside the head's and deliberately
+        /// never publishes ownership. The route overview line asks a THIRD question - "is the ghost
+        /// polyline showing this recording's geometry over THIS UT SPAN right now" - and for a chain
+        /// CONTINUATION segment (exactly what a route member run expands into) the answer is yes while
+        /// ownership is structurally false.</para>
+        ///
+        /// <para>NOT TO BE CONFUSED WITH <c>GhostMapPresence.NotePaintedRecordingLine</c>, which feeds a
+        /// same-named but different set: that one is TRACING-GATED, records the Driver's decide-walk
+        /// ENQUEUE INTENT (per recording, no spans, populated only while <c>mapRenderTracing</c> is on)
+        /// and is read only by the map-render probe's line-blink coverage guard. This set is ungated,
+        /// records the ACTUAL VISIBLE MESH with its span, and arbitrates a real draw.</para>
+        ///
+        /// <para>THE SPANS ARE WHAT MAKES THE ARBITRATION PER LEG: a route member the ghost paints only
+        /// partly must keep drawing its unpainted legs, or standing the member down whole punches a hole
+        /// in the route path (re-review F1). The route line skips a leg only when a visible mesh of the
+        /// same recording OVERLAPS that leg's own span.</para>
+        ///
+        /// <para>Ungated by tracing: it arbitrates a real draw, not a diagnostic. Cost is one list slot
+        /// per visible leg, written on the draw / sweep the pass already runs.</para>
+        /// </summary>
+        private static readonly Dictionary<string, List<PaintedLegSpan>> paintedLegSpans =
+            new Dictionary<string, List<PaintedLegSpan>>(StringComparer.Ordinal);
+        /// <summary>
+        /// Last frame the mesh-membership maintenance pass (<c>OnMapCameraPreCull</c>) ran, or -1 when
+        /// nothing has maintained the set since the last flush / scene load / Driver destroy. Read ONLY
+        /// as a dead-renderer staleness guard (see <see cref="ResolveLegPaintFromMesh"/>): membership
+        /// itself survives a bailed frame on purpose, because so does the mesh.
+        /// </summary>
+        private static int paintedLegSpansMaintainedFrame = -1;
+
         // --- Render-EVENT diff (map-render-event-logging): appear / disappear of a recording's drawn
         // polyline. The Driver already computes drewNonOrbitalLegRecordings (the current-element ownership
         // set) per frame and an actual-draw forward set per onPreCull; diffing each against the prior frame
@@ -448,11 +511,135 @@ namespace Parsek.Display
         }
 
         /// <summary>
+        /// PURE span overlap for the per-leg paint arbitration: do a VISIBLE ghost mesh's recorded span
+        /// [<paramref name="aStart"/>, <paramref name="aEnd"/>] and a route leg's recorded span
+        /// [<paramref name="bStart"/>, <paramref name="bEnd"/>] share any interior? STRICT on both ends
+        /// deliberately: adjacent legs of one recording share an endpoint UT exactly, and a touching
+        /// endpoint is not a second line over the same path. Unit-testable without Unity.
+        /// </summary>
+        internal static bool LegSpansOverlap(
+            double aStart, double aEnd, double bStart, double bEnd)
+            => aStart < bEnd && bStart < aEnd;
+
+        /// <summary>
+        /// PURE paint dispatch: is the ghost polyline showing a VISIBLE mesh over this route leg's span?
+        /// <paramref name="meshCoversSpan"/> is the mesh-membership answer; <paramref name="maintenanceRan"/>
+        /// is the dead-renderer staleness guard - false when nothing has maintained the membership set
+        /// since the last cross-save flush / scene load / Driver destroy, in which case no paint fact may
+        /// be read at all. NOTE what is deliberately NOT here: a per-frame stamp. Membership survives a
+        /// frame on which the draw pass bailed, because the mesh it describes survives that frame too -
+        /// that is the whole 2026-09-06 reading-run-2 finding. Unit-testable without Unity.
+        /// </summary>
+        internal static bool ResolveLegPaintFromMesh(bool meshCoversSpan, bool maintenanceRan)
+            => meshCoversSpan && maintenanceRan;
+
+        /// <summary>
+        /// True when the ghost polyline currently has a VISIBLE mesh for <paramref name="recordingId"/>
+        /// whose recorded span overlaps [<paramref name="legStartUT"/>, <paramref name="legEndUT"/>].
+        /// Read by <see cref="RouteTrajectoryLineRenderer"/>'s per-leg no-double-draw arbitration, which
+        /// runs later in the SAME onPreCull event; see <see cref="paintedLegSpans"/> for why this is a
+        /// separate question from ownership and why it is mesh membership rather than a frame stamp.
+        /// NOT an ownership signal: it never hides a proto orbit line.
+        /// </summary>
+        internal static bool IsPaintingNonOrbitalLegSpan(
+            string recordingId, double legStartUT, double legEndUT)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return false;
+            return ResolveLegPaintFromMesh(
+                PaintedMeshCoversSpan(recordingId, legStartUT, legEndUT),
+                paintedLegSpansMaintainedFrame >= 0);
+        }
+
+        /// <summary>Membership half of <see cref="IsPaintingNonOrbitalLegSpan"/>: does any VISIBLE leg
+        /// mesh recorded for <paramref name="recordingId"/> overlap the given span?</summary>
+        private static bool PaintedMeshCoversSpan(
+            string recordingId, double legStartUT, double legEndUT)
+        {
+            if (!paintedLegSpans.TryGetValue(recordingId, out List<PaintedLegSpan> spans)
+                || spans == null)
+                return false;
+            for (int i = 0; i < spans.Count; i++)
+                if (LegSpansOverlap(spans[i].startUT, spans[i].endUT, legStartUT, legEndUT))
+                    return true;
+            return false;
+        }
+
+        /// <summary>
+        /// Mesh-membership ADD: leg <paramref name="legIndex"/> of <paramref name="recordingId"/> just
+        /// painted, so its mesh is on screen until something hides it. Called from the ONE pass that
+        /// paints ghost legs. Re-drawing an already-member leg refreshes its span (a rebuilt leg can
+        /// cover a different range under the same index).
+        /// </summary>
+        private static void NotePaintedLegMesh(
+            string recordingId, int legIndex, double startUT, double endUT)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return;
+            if (!paintedLegSpans.TryGetValue(recordingId, out List<PaintedLegSpan> spans)
+                || spans == null)
+            {
+                spans = new List<PaintedLegSpan>(4);
+                paintedLegSpans[recordingId] = spans;
+            }
+            var span = new PaintedLegSpan { legIndex = legIndex, startUT = startUT, endUT = endUT };
+            for (int i = 0; i < spans.Count; i++)
+            {
+                if (spans[i].legIndex != legIndex) continue;
+                spans[i] = span;
+                return;
+            }
+            spans.Add(span);
+        }
+
+        /// <summary>
+        /// Mesh-membership REMOVE: leg <paramref name="legIndex"/> of <paramref name="recordingId"/> is
+        /// no longer visible (the deactivation sweep hid it). The recording's entry is dropped when its
+        /// last visible leg goes, so the dictionary never grows a tail of empty lists.
+        /// </summary>
+        private static void ClearPaintedLegMesh(string recordingId, int legIndex)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return;
+            if (!paintedLegSpans.TryGetValue(recordingId, out List<PaintedLegSpan> spans)
+                || spans == null)
+                return;
+            for (int i = 0; i < spans.Count; i++)
+            {
+                if (spans[i].legIndex != legIndex) continue;
+                spans.RemoveAt(i);
+                break;
+            }
+            if (spans.Count == 0) paintedLegSpans.Remove(recordingId);
+        }
+
+        /// <summary>
+        /// Mesh-membership REMOVE (whole recording): its lines were destroyed - the cache entry was
+        /// released, or the legs were rebuilt under new spans - so nothing of it is on screen.
+        /// </summary>
+        private static void ClearPaintedLegMeshes(string recordingId)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return;
+            paintedLegSpans.Remove(recordingId);
+        }
+
+        /// <summary>
+        /// Mesh-membership RESET: every line is gone or unmaintained (cross-save flush, scene load,
+        /// Driver destroy). Also disarms the staleness guard, so no paint fact can be read until the
+        /// draw pass runs again.
+        /// </summary>
+        private static void ResetPaintedLegMeshes()
+        {
+            paintedLegSpans.Clear();
+            paintedLegSpansMaintainedFrame = -1;
+        }
+
+        /// <summary>
         /// Did the Driver's ownership/paint PUBLISH SURFACE actually run on <paramref name="frame"/>?
         /// I.e. did the decide walk reach its epilogue - past the TRACKSTATION/FLIGHT scene gate, past
         /// <c>MapView.MapIsEnabled</c>, and past the controller-not-yet-awake defers - so that
-        /// <see cref="drewNonOrbitalLegRecordings"/>, the S0 paint set and
-        /// <c>RenderCompositionRecorder.NoteOwnershipPublish</c> all reflect THIS frame?
+        /// <see cref="drewNonOrbitalLegRecordings"/> and
+        /// <c>RenderCompositionRecorder.NoteOwnershipPublish</c> both reflect THIS frame? (The
+        /// painted-MESH set <see cref="paintedLegSpans"/> is deliberately NOT in that list: it is
+        /// membership rather than a per-frame publish, and it stays valid across a frame this walk
+        /// never ran, because the meshes do.)
         ///
         /// <para>NOT a new per-frame signal: it reads the EXISTING <c>pendingDrawsFrame</c> stamp, which
         /// the walk writes in its epilogue, after every early return, precisely so
@@ -461,9 +648,9 @@ namespace Parsek.Display
         ///
         /// <para>ORDERING, stated exactly because it is easy to get backwards: the stamp is written
         /// BEFORE <c>RenderCompositionRecorder.NoteOwnershipPublish</c> (~50 lines above it), with no
-        /// early return in between. That does not weaken the reuse, because THE PROBE'S ACTUAL INPUTS -
-        /// <see cref="drewNonOrbitalLegRecordings"/> and the S0 paint set - are populated DURING the
-        /// per-recording walk, i.e. before the stamp. The recorder publish below it is the M-A7
+        /// early return in between. That does not weaken the reuse, because THE PROBE'S ACTUAL INPUT -
+        /// <see cref="drewNonOrbitalLegRecordings"/> - is populated DURING the per-recording walk, i.e.
+        /// before the stamp. The recorder publish below it is the M-A7
         /// manifest's own diff, which the probe never reads. A true stamp therefore means the walk got
         /// past the gates and populated the sets this frame, which is exactly the question asked.</para>
         ///
@@ -488,7 +675,17 @@ namespace Parsek.Display
 
         /// <summary>
         /// M-A7 co-draw probe: is ANY cached ghost leg for <paramref name="recordingId"/> STILL SHOWING
-        /// a mesh right now - i.e. does it have a <c>VectorLine</c> whose <c>active</c> is true?
+        /// a mesh right now - i.e. does it have a <c>VectorLine</c> whose <c>active</c> is true - over
+        /// the route leg's own span [<paramref name="legStartUT"/>, <paramref name="legEndUT"/>]?
+        ///
+        /// <para>THE SPAN ARGUMENT IS PART OF THE MEASUREMENT, not a narrowing of it: since the
+        /// arbitration became per leg, a route member the ghost paints only PARTLY legitimately draws
+        /// its unpainted legs, and a recording-wide <c>active</c> read would report each of those
+        /// correct draws as a violation. Overlap is the same strict test the arbitration uses
+        /// (<see cref="LegSpansOverlap"/>), applied to the LIVE Vectrosity state rather than to the
+        /// maintained membership set - which is what keeps this an INSTRUMENT of the arbitration
+        /// instead of a restatement of it: a membership set that drifts from the meshes it mirrors
+        /// (a missed hide path) reds here.</para>
         ///
         /// <para>The <c>active</c> read ALONE is the measurement, deliberately. The route draw pass
         /// runs after the ghost path's deactivation sweep, so by the time this is asked, every leg the
@@ -510,7 +707,8 @@ namespace Parsek.Display
         /// RECORD can. Read-only; Unity-coupled (reads <c>VectorLine.active</c>), so it is called only
         /// from the live route draw path.</para>
         /// </summary>
-        internal static bool IsAnyLegActiveForRecording(string recordingId)
+        internal static bool IsAnyLegActiveForRecording(
+            string recordingId, double legStartUT, double legEndUT)
         {
             if (string.IsNullOrEmpty(recordingId)) return false;
             if (!polylineCache.TryGetValue(recordingId, out LegPolylineSet cached)) return false;
@@ -519,7 +717,8 @@ namespace Parsek.Display
             for (int i = 0; i < legs.Length; i++)
             {
                 LegPolyline leg = legs[i];
-                if (leg.vectorLine != null && leg.vectorLine.active) return true;
+                if (leg.vectorLine == null || !leg.vectorLine.active) continue;
+                if (LegSpansOverlap(leg.startUT, leg.endUT, legStartUT, legEndUT)) return true;
             }
             return false;
         }
@@ -635,6 +834,33 @@ namespace Parsek.Display
             if (inDrewSet) drewNonOrbitalLegRecordings.Add(recordingId);
             else drewNonOrbitalLegRecordings.Remove(recordingId);
         }
+
+        /// <summary>
+        /// Test-only seam mirroring <see cref="SetOwnershipPublishForTesting"/> for the PAINTED-MESH set
+        /// the onPreCull draw pass maintains (Unity-coupled, not reachable from xUnit): marks leg
+        /// <paramref name="legIndex"/> of <paramref name="recordingId"/> as having a visible mesh over
+        /// [<paramref name="startUT"/>, <paramref name="endUT"/>] (or hides it), so the route line's
+        /// per-leg no-double-draw arbitration can be exercised end-to-end over a forward-painted
+        /// continuation segment. Arms the maintenance stamp exactly as a real draw pass would.
+        /// Cleared by <see cref="Clear"/>.
+        /// </summary>
+        internal static void SetLegPaintForTesting(
+            string recordingId, int legIndex, double startUT, double endUT, bool visible)
+        {
+            if (string.IsNullOrEmpty(recordingId)) return;
+            if (paintedLegSpansMaintainedFrame < 0) paintedLegSpansMaintainedFrame = 0;
+            if (visible) NotePaintedLegMesh(recordingId, legIndex, startUT, endUT);
+            else ClearPaintedLegMesh(recordingId, legIndex);
+        }
+
+        /// <summary>
+        /// Test-only seam for the dead-renderer staleness guard: arms (<c>true</c>) or disarms
+        /// (<c>false</c>) the "something has maintained the painted-mesh set" stamp
+        /// <see cref="ResolveLegPaintFromMesh"/> reads. Disarming models a cross-save flush / scene
+        /// load / destroyed Driver without dropping the membership itself.
+        /// </summary>
+        internal static void SetPaintMaintenanceRanForTesting(bool ran)
+            => paintedLegSpansMaintainedFrame = ran ? 0 : -1;
 
         /// <summary>
         /// Test-only seam: injects a single 2-point polyline leg into the cache so the marker-ride fallback
@@ -1196,6 +1422,10 @@ namespace Parsek.Display
             // before overwriting so the GameObjects do not leak.
             if (polylineCache.TryGetValue(id, out var stale))
                 DestroyLegLines(stale.legs);
+            // Mesh-membership: the destroyed lines are off screen, and the rebuilt legs may carry
+            // different indices AND different spans - "rebuilt without it" is a hide path like any
+            // other. The next draw re-adds whatever actually paints.
+            ClearPaintedLegMeshes(id);
 
             var legs = BuildLegsForRecording(rec, surface, gapSampler);
             var legArray = legs.ToArray();
@@ -1282,6 +1512,9 @@ namespace Parsek.Display
             // Drop the marker hold for this recording so a reused RecordingId (supersede / delete +
             // re-add) never inherits a stale held on-line point.
             lastGoodOnLine.Remove(recordingId);
+            // Mesh-membership: this recording's lines are being destroyed, so nothing of it is on
+            // screen and the route line must stop standing down over it.
+            ClearPaintedLegMeshes(recordingId);
             if (polylineCache.Remove(recordingId))
             {
                 ParsekLog.Verbose(Tag,
@@ -1306,6 +1539,12 @@ namespace Parsek.Display
             // cross-save flush / test reset never leaves a stale ownership behind. It is re-cleared
             // every LateUpdate, so this is belt-and-suspenders in normal play and the reset hook in tests.
             drewNonOrbitalLegRecordings.Clear();
+            // The PAINTED-MESH set the route line's per-leg no-double-draw arbitration reads is
+            // membership, not a per-frame stamp, so this reset is LOAD-BEARING rather than
+            // belt-and-suspenders: the lines this save's meshes belong to are about to be destroyed, and
+            // a surviving entry would stand the next save's route line down over nothing. Disarming the
+            // maintenance stamp with it makes every paint fact unreadable until the draw pass runs again.
+            ResetPaintedLegMeshes();
             // Render-EVENT diff baselines: drop the previous-frame drawn sets on the same cross-save / test
             // reset lifecycle so a new save's first walk does not diff against a prior save's recordings (the
             // recordingIds collide across saves). Re-baselined on the next walk.
@@ -3295,7 +3534,17 @@ namespace Parsek.Display
             // (like stock) the line is recreated on flip. See RebuildLineForMode.
             int legWantMode = MapLineUses3D() ? 1 : 2;
             if (leg.vectorLine != null && leg.lineMode != legWantMode)
+            {
+                // Mesh-membership REMOVE (re-review F2): the rebuild DESTROYS this leg's line, so the
+                // mesh the route line's paint arm is standing down for is gone from here. A successful
+                // draw below re-adds it through NotePaintedLegMesh in the same pass; a draw that bails
+                // after this point (inflate failure, run-leg anchor reject) must not leave the route
+                // line deferring to a mesh that no longer exists. The deactivation sweep is NOT a
+                // substitute: it only flips lines that are currently ACTIVE, and the replacement line's
+                // initial active state is a Vectrosity detail this must not bet on.
+                ClearPaintedLegMesh(recordingId, legIndex);
                 leg.vectorLine = RebuildLineForMode(leg.vectorLine, m);
+            }
             if (leg.vectorLine == null)
                 leg.vectorLine = BuildLegVectorLine(recordingId, legIndex, m);
             leg.lineMode = legWantMode;
@@ -3924,6 +4173,9 @@ namespace Parsek.Display
                     GameEvents.onLevelWasLoaded.Remove(HandleLevelWasLoaded);
                     Camera.onPreCull -= OnMapCameraPreCull;
                     Camera.onPreCull -= OnRouteLinePreCull;
+                    // Dead renderer: nothing will maintain the painted-mesh membership from here, so no
+                    // paint fact may be read from it (the route line falls back to ownership alone).
+                    ResetPaintedLegMeshes();
                     ParsekLog.Verbose(DriverTag,
                         "GhostTrajectoryPolylineRenderer.Driver destroyed");
                 }
@@ -3992,6 +4244,11 @@ namespace Parsek.Display
                 precullDrawnFrame = -1;
                 pendingBridges.Clear();
                 pendingBridgeFrame = -1;
+                // Painted-mesh membership is per SCENE: the Vectrosity GameObjects the previous scene's
+                // meshes lived in do not survive the load, so every entry is now a claim about a mesh
+                // that is gone. Reset the set AND the maintenance stamp; the new scene's first completed
+                // draw pass re-establishes both.
+                ResetPaintedLegMeshes();
             }
 
             /// <summary>
@@ -4763,6 +5020,13 @@ namespace Parsek.Display
                 if (precullDrawnFrame == frame) return;  // already drew this frame
                 precullDrawnFrame = frame;
 
+                // PAINTED-MESH maintenance stamp (see paintedLegSpans): this is the ONE pass that both
+                // paints ghost legs and hides them (the deactivation sweep at its end), so it is the one
+                // pass that maintains mesh membership. The set is NOT cleared here - membership is the
+                // mesh fact, and the meshes outlive a frame on which this pass never ran. The stamp is
+                // read only as a dead-renderer guard.
+                paintedLegSpansMaintainedFrame = frame;
+
                 // Render-EVENT diff (map-render-event-logging): clear this frame's forward-render actual-draw
                 // set before the draw loops populate it; diffed against the previous frame at the end of this
                 // method to emit PolylineForwardArc appear/disappear EVENTs. Only touched when tracing is on.
@@ -4820,6 +5084,14 @@ namespace Parsek.Display
                     // array (set.legs is the same array reference the dict holds).
                     set.legs[p.legIndex] = leg;
                     if (legDrawn) drawn++;
+                    // PAINTED-MESH add (route-line per-leg no-double-draw arbitration): an ACTUAL draw of
+                    // ANY leg - current, boundary-overlap secondary, or forward RUN leg of a chain member
+                    // - puts this leg's mesh on screen, and it stays there until something hides it. The
+                    // leg's own recorded span goes in with it, so the route line can stand down exactly
+                    // the legs it would overpaint. Ownership is NOT touched here (a forward leg never owns
+                    // a phase); see paintedLegSpans for the split.
+                    if (legDrawn)
+                        NotePaintedLegMesh(p.recordingId, p.legIndex, leg.startUT, leg.endUT);
                     if (fwd)
                     {
                         if (legDrawn) runDrawn++;
@@ -5344,6 +5616,10 @@ namespace Parsek.Display
                         {
                             line.active = false;
                             deactivated++;
+                            // Mesh-membership REMOVE: this is the hide path for a leg that simply
+                            // stopped drawing, and it is the one that lets the route line take the
+                            // segment back over once the ghost leaves it.
+                            ClearPaintedLegMesh(kvp.Key, i);
                         }
                     }
                 }
