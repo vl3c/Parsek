@@ -57,9 +57,16 @@ M-A6 stack provisioner, M-B1 mission library, M-B2 ledger oracle, M-C1 seam verb
 batch 1, M-C2 EVA verbs. Status and per-module proof live in `autotest-status.md`.
 None of the items in this roadmap are blocked on a missing module.
 
-### Scenarios: 68 committed
+### Scenarios: 212 committed
 
-`ls harness/scenarios/*.toml` returns **68** files (re-derived 2026-08-04 at
+Re-derived 2026-09-07 at `cc1c4c573`: `ls harness/scenarios/*.toml` returns **212**
+files, the total `autotest-status.md`'s `## Test cases` header states and
+`AutotestStatusScenarioCountTests` pins against the committed files. The 68 below
+was the 2026-08-04 snapshot; the V / G / GS / W / L / RVR / H41-H60 waves took it
+from 68 to 212 between 2026-08-04 and 2026-09-07.
+
+`ls harness/scenarios/*.toml` returned **68** files when this section was last
+re-derived before that (2026-08-04 at
 `modded-compat-lane`; the count authority is `autotest-status.md`'s test-case
 tables, gated by `AutotestStatusScenarioCountTests`). The history below narrates
 the first waves and is kept as written: this baseline started at 38, #1358 took
@@ -70,41 +77,52 @@ EVA / CL / S0.x / H22-H25 / V1 / BDOCK waves and R14's MC-1/MC-2 took it from
 55 to 68. Adding a scenario is not the same as covering a cell. Re-derive
 these rather than editing them by memory; both numbers have moved many times.
 
-### Coverage: 108 of 242 registry cells (was 83 of 241 at the baseline)
+### Coverage: 159 of 247 registry cells (was 83 of 241 at the baseline, 108 of 242 on 2026-08-04)
 
-Re-derived 2026-08-04 at `modded-compat-lane` (commit `5439b2e1b`), replacing
-the stale 97/145 snapshot - the intervening EVA / CL / rewind waves had already
-moved D1, D9 and D14 without this section being re-run.
-`hlib.compute_coverage(specs, [], registry)` over the 68 committed specs and
-`harness/coverage/registry.toml` returns exactly:
+Re-derived 2026-09-07 at `cc1c4c573`, replacing the 2026-08-04 snapshot (108 of
+242; the registry has since grown by five values net: D6 +2, D9 +1, D10 +3, D16 -1). The
+command is unchanged: `hlib.compute_coverage(specs, [], registry)` over the 212
+committed specs and `harness/coverage/registry.toml` returns exactly:
 
 ```
-values 242   covered 108   uncovered 134   expectedFailValues 0   xpass 0
+values 247   covered 159   uncovered 88   expectedFailValues 0   xpass 0
 ```
 
-Per dimension (total / uncovered):
+Per dimension (total / uncovered), with the 2026-08-04 uncovered count kept in
+the last column so the delta stays legible:
 
-| Dim | Subject | Total | Uncovered |
-|---|---|---:|---:|
-| D1 | recording lifecycle | 18 | 7 |
-| D2 | sampling | 4 | 1 |
-| D3 | reference frames | 7 | 4 |
-| D4 | track sections / optimizer | 12 | 6 |
-| D5 | tree topology | 12 | 7 |
-| D6 | playback / ghosts | 16 | 11 |
-| D7 | part events / FX | 16 | 11 |
-| D8 | ledger / career | 18 | 6 |
-| D9 | rewind / re-fly | 16 | 4 |
-| D10 | logistics / routes | 20 | 12 |
-| D11 | missions abstraction | 18 | 10 |
-| D12 | crew | 10 | 8 |
-| D13 | spawn positioning | 11 | 7 |
-| D14 | bodies / scenes | 32 | 16 |
-| D15 | timeline | 1 | 1 |
-| D16 | storage / sidecars | 13 | 9 |
-| D17 | mod compatibility | 6 | 4 |
-| D18 | re-fly / interaction | 12 | 10 |
-| | | **242** | **134** |
+| Dim | Subject | Total | Uncovered | Was |
+|---|---|---:|---:|---:|
+| D1 | recording lifecycle | 18 | 7 | 7 |
+| D2 | sampling | 4 | 1 | 1 |
+| D3 | reference frames | 7 | 4 | 4 |
+| D4 | track sections / optimizer | 12 | 6 | 6 |
+| D5 | tree topology | 12 | 6 | 7 |
+| D6 | playback / ghosts | 18 | 9 | 11 |
+| D7 | part events / FX | 16 | 4 | 11 |
+| D8 | ledger / career | 18 | 0 | 6 |
+| D9 | rewind / re-fly | 17 | 1 | 4 |
+| D10 | logistics / routes | 23 | 1 | 12 |
+| D11 | missions abstraction | 18 | 6 | 10 |
+| D12 | crew | 10 | 5 | 8 |
+| D13 | spawn positioning | 11 | 7 | 7 |
+| D14 | bodies / scenes | 32 | 8 | 16 |
+| D15 | timeline | 1 | 1 | 1 |
+| D16 | storage / sidecars | 12 | 8 | 9 |
+| D17 | mod compatibility | 6 | 4 | 4 |
+| D18 | re-fly / interaction | 12 | 10 | 10 |
+| | | **247** | **88** | **134** |
+
+The cells still uncovered in four dimensions worth naming: D9 is down to
+`load-time-sweep` alone; D10 to `harvest-provenance` (this same commit adds the
+`docked-depot-origin` claim to `H57-route-start-docked-origin-landed`, which both
+this file and `autotest-status.md` had recorded as claimed on 2026-09-02 while the
+spec's `[dimensionsCovered]` still said nothing - `compute_coverage` read it as
+uncovered until now);
+D13 unchanged at `proximity-offset`, `bbox-block`, `ksc-exclusion`,
+`situation-correction`, `pid-dedup`, `terminal-orbit-safety`, `real-spawn-control`
+(the R8 residue, all self-skip-guarded); D17 unchanged at `persistent-rotation`,
+`better-time-warp`, `remotetech-commnet`, `making-history` (R14 residue).
 
 ### The headline
 
@@ -130,6 +148,14 @@ sub-2-point-drop              switch-segment-noop-discard
 
 (`stop-on-switch` is one of the two R2 phantom cells - it may leave this list by
 deletion rather than coverage.)
+
+**Re-derived 2026-09-07:** D1 is **7 of 18** - `auto-merge` left the list above
+(the other seven are exactly the current uncovered set) - and the D9 paragraph
+below is HISTORY: R3 closed by flight on 2026-07-29 (S4.1 and S1.5 both green
+unattended on their own rows, see R3), S4.1's `[expectations.rewind]` block was
+armed 2026-07-31, and the R7 / S4.x / GS-4 / H58 lanes since then carry the
+dimension, so D9 is **1 of 17 uncovered** (`load-time-sweep`, a unit-level
+sweep no lane drives) rather than 15 of 16 unproven.
 
 D9 is worse than its 8-uncovered row suggests. Seven further D9 cells are "covered"
 only by `S1.5-rewind-loop` and `S4.1-rewind-merge`, both `tier = "operator"`, both
@@ -290,16 +316,20 @@ mission profile, and no existing verb produces them.**
 
 ### Cause C: missing seam capability
 
-`TestCommandVerbs.cs` declares 19 implemented verbs and 11 reserved. The reserved set
-maps almost one to one onto the largest uncovered dimensions:
+`TestCommandVerbs.cs` declared 19 implemented verbs and 11 reserved when this was
+written. **At `cc1c4c573` (2026-09-07) `hlib.IMPLEMENTED_SEAM_VERBS` carries 31 and
+`RESERVED_SEAM_VERBS` 5** (`StopPlayback`, `StashSlot`, `FlySlot`,
+`CrashAfterJournalPhase`, `RunInvariantReport`); the struck rows below were
+promoted, each as a strict promotion with the wire token byte-identical. The
+reserved set mapped almost one to one onto the largest uncovered dimensions:
 
 | Reserved verb | Gates |
 |---|---|
-| `StartLoopPlayback` / `StopPlayback` / `EnterWatchMode` | D6 playback, D18 chains |
-| `SealSlot` / `StashSlot` / `FlySlot` | D9 `unfinished-flights-stash`, `seal-stash-fly` |
-| `RouteCommand` | D10 (12 uncovered) |
-| `MissionConfig` | D11 loop behaviour (10 uncovered) |
-| `SimulateStockSwitchClick` | D1 `switch-segment` / `switch-segment-noop-discard`, D5 `chain-continuation-switch`, D18 `committed-interaction-claiming` |
+| ~~`StartLoopPlayback`~~ / `StopPlayback` / ~~`EnterWatchMode`~~ | D6 playback, D18 chains. `StartLoopPlayback` + `EnterWatchMode` PROMOTED by the player-workflow lane (the third and fourth strict promotions; `EnterWatchMode` consumers GS-4 2026-08-27, W1 2026-08-28); `StopPlayback` stays reserved |
+| ~~`SealSlot`~~ / `StashSlot` / `FlySlot` | D9 `unfinished-flights-stash`, `seal-stash-fly`. `SealSlot` PROMOTED 2026-08-30 (`RVR-2` drove seal -> route create -> delivery 2026-09-01); `StashSlot` / `FlySlot` stay reserved |
+| ~~`RouteCommand`~~ | D10 (12 uncovered then, 1 on 2026-09-07). PROMOTED 2026-08-30 alongside `SealSlot`; the RVR-1..RVR-20 wave rode it |
+| ~~`MissionConfig`~~ | D11 loop behaviour (10 uncovered then, 6 on 2026-09-07). PROMOTED by the arrival-validation lane (the second strict promotion after R12's) |
+| ~~`SimulateStockSwitchClick`~~ | D1 `switch-segment` / `switch-segment-noop-discard`, D5 `chain-continuation-switch`, D18 `committed-interaction-claiming`. PROMOTED by R12 (2026-07-30, first consumer `S0.8-switch-click-segment`) |
 | `CrashAfterJournalPhase` | D9 `merge-journal`, `load-time-sweep` |
 | `RunInvariantReport` | analyzer-in-scene |
 
@@ -611,6 +641,16 @@ rather than retracting claims later. Cost: one edit to
 `harness/coverage/registry.toml` comments and values.
 
 **R3. Run S1.5 and S1.4's sibling S4.1 unattended. Two boots.**
+**CLOSED BY FLIGHT 2026-07-29** (annotated 2026-09-07 from `autotest-status.md`
+Operator item 4): both flew green unattended on their own rows - S4.1
+`2026-07-28_1639` (attempt 2) and `2026-07-29_1530` (attempt 1), S1.5
+`2026-07-29_1528` (attempt 2, its first execution ever). `LoadGame` focused
+`gloops-airshow`'s active vessel into FLIGHT and every verb EXECUTED, which is the
+measurement this item asked for. Both spec headers now carry the corrected premise
+(re-tiered `nightly` 2026-07-26), S4.1's `[expectations.rewind]` was armed
+2026-07-31 (`_1628` reading, `_1635` armed PASS, `_1637` negative control), and
+S4.1 flew five consecutive attempt-1 PASSes on 2026-07-30. The text below is kept
+as the record of the argument.
 **PARTLY OVERTAKEN**: #1357 re-tiered both to `nightly` on exactly this premise, and
 the 2026-07-28 fixture-corrected R1 run (`2026-07-28_1509`, PASS) resolved
 R1-EMPTY-PROVISIONAL as a fixture artifact, after which S4.1's `expectedFail` keys
@@ -732,6 +772,15 @@ stock-minimal` to reach a harness run.
 
 **R6. Drive the recording-lifecycle and classification batches.** Roughly 8 specs.
 
+**STANDING 2026-09-07** (re-derived from `autotest-ingame-category-inventory.md`,
+which is the per-category authority): DRIVEN - `SceneExitMerge` (H21),
+`TrajectoryMath` (H7), `Pipeline-Anchor` (H11), `SwitchSegment` (H12). STILL
+UNDRIVEN - the whole isolated set `AutoRecord` (10), `MergeDialog` (2),
+`RevertFlow` (1), `Coalescer` (2), `QuickloadResume` (3), plus the batch-reachable
+`Optimizer` (2), `BackgroundSeeder` (2), `Recording` (1) and `SwitchIntentPatch`
+(3). R6 therefore still exists as a unit: the isolated-lifecycle remainder (R5's
+seam is shipped, so these are spec work) and four small B-bucket categories.
+
 - Isolated (needs R5): `AutoRecord`, `SceneExitMerge`, `MergeDialog`, `RevertFlow`,
   `Coalescer`, `QuickloadResume`. Closes D1 `auto-record-first-mod-switch`,
   `commit-scene-exit`, `commit-revert-merge`; D5 `controlled-decoupled-child`,
@@ -818,9 +867,12 @@ Flight? Yes - five flown (three R7 + two re-confirmations), 53-68 s each.
   ~~`GhostAudio` (9)~~ CLOSED by wave-2's `H30`, ~~`MapPresence` (5)~~ CLOSED by
   wave-2's `H28`, `ReentryFx` (3), `Watch` (2). None of the remainder needs the
   reserved `StartLoopPlayback` / `EnterWatchMode` verbs.
-- D8: `LedgerGroundTruth` (1, needs a CAREER FLIGHT fixture - UNBLOCKED 2026-07-28,
-  R11 is closed by `career-pad-craft`),
-  `Contracts` (2), `StrategyLifecycle` (2), `Ledger` (4). `LedgerGroundTruth` is
+- D8: ~~`LedgerGroundTruth` (1, needs a CAREER FLIGHT fixture - UNBLOCKED 2026-07-28,
+  R11 is closed by `career-pad-craft`)~~ DRIVEN by L2 / L4 (3 declarations,
+  2026-08-17 on), `Contracts` (2), ~~`StrategyLifecycle` (2)~~ DRIVEN by L3 (10
+  declarations, 2026-08-18 on), ~~`Ledger` (4)~~ DRIVEN by H48 (2026-08-28, 4 of 4
+  execute). `Contracts` is the only D8 category still undriven (annotated
+  2026-09-07 from the inventory doc; D8 reads 0 of 18 uncovered). `LedgerGroundTruth` is
   Layer B of the non-circular ground-truth harness and is the cheapest large increase
   in ledger trust available.
 - ~~D12: `CrewReservation` (15).~~ CLOSED by wave-2's `H31` (b2-lko-craft, 14 of
@@ -888,9 +940,14 @@ M-C2 block so the row is pure measurement): `rewind` all-zero, `structure`
 branchPoints {}}`. That is the PRE-REWIND baseline, not stage B's windows -
 stage B rewinds across CL-1's crew loss, so its numbers must be read off stage
 B's own report-only flight (expected `supersedeRows >= 1`, `tombstones >= 1`)
-before arming, exactly as S4.1 just did; (b) `route` / `loop` stay RESERVED -
+before arming, exactly as S4.1 just did; (b) ~~`route` / `loop` stay RESERVED -
 their consumers do not exist (zero committed declarers), so no evaluator was
-built for them; (c) the analyzer-PR half (TrackSection frame/anchor +
+built for them~~ - UPDATED 2026-09-07: `route` SHIPPED 2026-09-02 as
+`[expectations.routes]` (PR #1603; declared by H58, H59, V18T, RVR-5, RVR-7;
+ARMED on RVR-7 2026-09-03 and demonstrated gating on V18T / V26T 2026-09-06),
+so what is open in (b) is the promotion of the report-only declarers, per the
+supply-route program's machinery register; `loop` stays RESERVED by choice with
+zero declarers; (c) the analyzer-PR half (TrackSection frame/anchor +
 per-recording body asserts over the analyzer's parsed model) - the .sfs surface
 deliberately does not carry those, they live in `.prec` sidecars the analyzer
 already parses.
@@ -2383,10 +2440,10 @@ Forensics live in `docs/dev/todo-and-known-bugs.md`; this is a pointer index onl
 | B4 `chuteDeployed` is still a commanded latch (known-gate 7, audit debt) | Same class that let B1 ship four months of green nightlies on a chute that never opened. B4's fixture carries the same `automateSafeDeploy = 0`. Needs its own diagnosis from a B4 recording before anyone concludes either way. |
 | INV2 double-cover recorder seam (known-gate 5) | Real Parsek defect, fixed in its own lane. |
 | The no-1x-coast certification cannot see coast warp-thrash (known-gate 8) | A real gap in an existing gate. Bounded for now by the machine-side thrash fast-fail. |
-| `autotest-status.md` EVA-2 rows contradict themselves | The EVA table says "STILL pending-fixture: `eva2-lko-crewed` does not exist yet" while the section header says all four EVA scenarios are LIVE-PROVEN, Operator item 2 says the fixture was forged and committed, the fixture exists on disk with 7 VESSEL nodes, the spec reads `tier = "daily"`, and `duration.json` carries a measured 57 s run. Not a system bug; a stale doc row that reads as a blocker. Deliberately NOT edited here to avoid colliding with concurrent sessions; filed as a todo. |
+| ~~`autotest-status.md` EVA-2 rows contradict themselves~~ (CLOSED, verified 2026-09-07: `grep "does not exist yet" docs/dev/autotest-status.md` returns nothing at `cc1c4c573`, and the EVA-2 row reads LIVE-PROVEN 2026-07-24) | Was: the EVA table said "STILL pending-fixture: `eva2-lko-crewed` does not exist yet" while the section header says all four EVA scenarios are LIVE-PROVEN, Operator item 2 says the fixture was forged and committed, the fixture exists on disk with 7 VESSEL nodes, the spec reads `tier = "daily"`, and `duration.json` carries a measured 57 s run. Not a system bug; a stale doc row that reads as a blocker. Deliberately NOT edited here to avoid colliding with concurrent sessions; filed as a todo. |
 | ~~The L6 recover lane's landed dwell straddles the optimizer's 5 s split floor~~ (CLOSED 2026-09-02, branch `l6-dwell-variants`) | Was: `L6-career-same-name-recover` committed 4, then 3, then 4 recordings on one fixture and one DLL, because the second half of its touchdown split (`recoverUT - touchdownSectionUT`) measured 5.34 / 4.82 / 5.88 s against `CanAutoSplitIgnoringGhostTriggers`'s 5.0 s both-halves floor - so no count pin could be exact and the lane could not be promoted. THE FLOOR STAYS (it is the hop guard); the INPUT is now controlled. `science_bench_recover` gained an optional `preRecoverDwellSeconds` (default 0.0 = the pre-change machine, replayed against `origin/main` rather than asserted), L6 declares 12.0 and pins its counts exactly, the new sibling `L6-career-same-name-natural-dwell` keeps the uncontrolled range as an A/B control, and the sub-floor side - which no hold can produce, since a hold only lengthens a tail - is pinned headlessly at the measured magnitudes by `RecordingOptimizerTests`. ALL THREE READING RUNS FLEW 2026-09-02: L6 long PASS with count=4 and every exact pin matched (realized tail 11.84 s, margin +6.84 s - the predicted landedUT-to-section offset was 3.4 s and MEASURED 0.50 s, wrong in the safe direction), the natural-dwell control PASS at a 5.70 s tail (0.70 s above the floor, so the natural band is now four points with one still below), and L3 PARSEK-FAIL on ONE token that is a landing-site biome roll rather than the dwell (L3-CREWREPORT-BIOME-PIN-DEPENDS-ON-LANDING-SITE; L3's timeline is unmoved, measured against the prior recovery run at 0.16-0.20 s). THE ARMED RUN AND ITS CONTROL THEN FLEW THE SAME EVENING: `_1847` PASS with mismatches=0 and an 11.66 s tail (second green on the exact pins), and the uncommitted `L6-negctl-long-dwell-namematches-three` PARSEK-FAIL on exactly the seeded token with zero forbids. Two greens plus a discriminating control = the armed discipline; what remains is the ordinary promotion call. Forensics: L6-RECOVER-DWELL-STRADDLES-SPLIT-FLOOR |
-| `harness/fixtures/saves/bdock-station-craft/` is an orphan | No spec LOADS it: no `saveTemplate` points at it. It IS named in a provenance comment at `BDOCK-1-station-interceptor.toml:97` (whose own `saveTemplate` is `bdock-station-pad`), and by `harness/tools/harvest_bdock_station.py` plus the design doc. Decide keep or delete - and if delete, drop that comment reference with it. |
-| `S1.5-rewind-loop.toml:3-8` and `S4.1-rewind-merge.toml:3-9` carry a SPACECENTER-host premise contradicted by the LoadRoute contract | Keeps two specs and up to 16 cells off every cadence. R3 settles it. |
+| `harness/fixtures/saves/bdock-station-craft/` is an orphan | No spec LOADS it: no `saveTemplate` points at it. It IS named in a provenance comment at `BDOCK-1-station-interceptor.toml:97` (whose own `saveTemplate` is `bdock-station-pad`), and by `harness/tools/harvest_bdock_station.py` plus the design doc. Decide keep or delete - and if delete, drop that comment reference with it. UPDATE 2026-09-07: still no `saveTemplate` points at it, but it is no longer reference-free on the test side - `harness/lib/test_saveparse.py` (`EXPECTED_SCENARIO_PRESENCE`) and `harness/fixtures/shared-ships.toml` both enumerate it, so a delete edits both plus the BDOCK-1 comment. The keep-or-delete call is still the operator's; the default is KEEP (it is the harvested provenance of `bdock-station-pad` and two suites pin it). |
+| ~~`S1.5-rewind-loop.toml:3-8` and `S4.1-rewind-merge.toml:3-9` carry a SPACECENTER-host premise contradicted by the LoadRoute contract~~ (CLOSED: both headers were rewritten 2026-07-26 with the corrected `LoadGame` premise, both re-tiered `nightly`, and R3 closed by flight 2026-07-29) | Was: kept two specs and up to 16 cells off every cadence. |
 
 ---
 
