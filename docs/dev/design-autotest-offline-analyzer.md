@@ -370,6 +370,20 @@ the LOADER-FAULT rule that turns loader parse failures into findings. Each is on
   only against physical sections, not checkpoint-vs-checkpoint), not a legitimate
   coarse/fine wrap, so no type-aware exemption is granted (see
   `docs/dev/todo-and-known-bugs.md` "Overlapping / duplicate TrackSections").
+  **The residue is repaired at LOAD, never exempted here (2026-09-07).** The rule is
+  unchanged, and deliberately: a save written before the producer's anti-double-cover
+  guard (`dd8b0272c`) keeps the coarse envelope alongside the finer sections that tile
+  it, and re-running the producer over such a save adds and clips nothing, so the shape
+  would otherwise red forever. `CheckpointDoubleCoverRetire` drops the redundant
+  checkpoint section IN MEMORY during `ParsekScenario.OnLoad`, under a coverage
+  predicate (the survivors must already carry the whole span AND the identical conic)
+  with the coverage union and the optimizer's split decisions both asserted unmoved.
+  So a save that used to analyze `RED=1` on this rule now analyzes clean in game -
+  the in-game `RecordingInvariants` category reuses these exact rules against the
+  loaded model - while the OFFLINE analyzer, which reads the sidecar bytes and never
+  runs `OnLoad`, still reports unrepaired bytes. That asymmetry is intended: the
+  offline reading is the one the fixture builders and the harness `analyzer` verifier
+  gate on, and it must keep naming residue that is still on disk.
 - **INV3 RELATIVE contract** (`RuleId INV3-RELATIVE-CONTRACT`). For a
   `ReferenceFrame.Relative` section: `anchorRecordingId` (non-loop) OR
   `anchorVesselId` (loop) must be present, and out-of-`[-90,90]`/`[-180,180]`
