@@ -15,6 +15,27 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~PARTEVENTTIMING-DEPLOYABLE-CELL-ASSERTS-THE-RETIRED-SNAP: `PartEventTiming_DeployableTransition_AppliesAtEventUt` asserted a deployable pose SNAPS at the event UT, which the S2 interpolation retired; the cell had never been driven and failed on the first batch that ran it~~ [FOUND 2026-09-07 by the first multi-category census (`LT-0-census-flight`, 38 categories in one boot: the only FAILED cell of 92 considered). TEST CONTRACT DRIFT, not a product defect - the single-category control flight failed identically and H36 proves the animated contract live. FIXED 2026-09-07 on branch `long-tail-batch`]
+
+**What the census read.** `BATCH_COMPLETE v1 total=2 passed=1 failed=1 skipped=0
+category=PartEventTiming scene=FLIGHT`, the failure being "Deployable should extend
+exactly at the authored DeployableExtended UT" right after
+`[GhostPartEvents] apply family=DeployableExtended ... applied=1`. The event WAS
+applied; what it applies is a transition. `ApplyDeployableStateWithOutcome(...,
+immediate: false)` arms `transitionActive`, records `transitionStartUT = evt.ut`, and
+writes the START fraction (elapsed 0 holds the stowed pose); `UpdateActiveDeployables`
+then advances it over `clipLengthSeconds * |target - start|` and writes the EXACT
+endpoint pose on completion. The cell was written for the pre-S2 snap and, because
+`PartEventTiming` was in the "not worth a boot" long tail, no batch had ever executed
+it since S2 shipped - the class of drift the multi-category contract exists to surface.
+
+**The fix** re-pins the cell to the shipped contract in both directions: at the
+event UT the cursor advances and the transition is ARMED but the pose still reads the
+start endpoint; half a clip later (`clipLengthSeconds` pinned to 3 s in the fixture so
+the UTs are the contract, not a constant) the pose is the exact midpoint; one clip
+later it is the exact endpoint pose and the transition is retired; the retract event
+at 210 mirrors all three. The LightToggle sibling cell already passed and is untouched.
+
 ## L2-STOCK-CREWHATCH-TEARDOWN-NRE-UNDER-A-ZERO-GATE: one `CrewHatchController.OnDestroy` NullReferenceException at FlushAndQuit red the strict-armed L2 lane once and did not reproduce [MEASURED 2026-09-06 by the full in-game census: run `2026-09-06_1910` (logs `2026-09-06_2211_L2-ledger-groundtruth-career`) PARSEK-FAIL(unity-exception) `unityExceptions.total 1 > maxTotal 0 (NullReferenceException=1)`; the re-fly `2026-09-06_2009` on the re-provisioned build PASS attempt 1 with total=0. STOCK NOISE, not a Parsek defect; filed as a known flake shape, NOT re-run away - the second reading is a fresh flight on a re-provisioned DLL]
 
 The one exception, verbatim from `logs/2026-09-06_2211_L2-ledger-groundtruth-career/KSP.log:12006`:
