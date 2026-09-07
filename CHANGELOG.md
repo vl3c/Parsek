@@ -10,6 +10,30 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Your kerbals' experience from a recovery is never booked against the wrong flight.**
+  When a craft is recovered, Parsek files the crew's experience against the flight they
+  just flew, and it finds that flight by name and by when it ended. Two flights of a craft
+  with the same name can therefore look alike, and Parsek already refuses to confuse them
+  whenever the game gives it enough to tell them apart - it does, for anything flown since
+  that check shipped. What is new is the case where it genuinely cannot tell: two
+  same-named flights, neither of them identifiable, and nothing but "which one ended more
+  recently" to choose between them. Parsek now leaves the experience unbooked in that
+  case and says so in the log, rather than guessing. It matters because this is the one
+  thing a recovery records that cannot be taken back later: funds and science are worked
+  out afresh every time, so a wrong guess there corrects itself, while experience is
+  written onto a kerbal's career record and stays. Nothing changes for an ordinary
+  recovery - a flight recorded in several segments is still one flight, and its crew's
+  experience is booked exactly as before - and the funds and the science from an
+  unidentifiable recovery are still paid in full. Keeping that first promise needed a fix
+  one step upstream, found while reviewing this change: when a craft sheds a piece while
+  Parsek is following it in the background, the surviving craft carries on into a new
+  segment, and that segment was not noting which launch it came from. A flight continued
+  that way looked half-identified - one segment named, the next anonymous - and would have
+  had its crew's experience withheld even though nothing about it was ambiguous. Every
+  place Parsek starts a recording now notes the launch as the recording is written instead
+  of leaving it to be filled in on the next load, so a session and the reload after it
+  agree about which flight is which.
+
 - **A duplicated stretch of orbit left in older recordings is now cleaned up when the save
   loads.** Parsek stores a coasting, unattended stretch of a flight as a compact orbit
   description rather than as thousands of sampled positions. An older version could write

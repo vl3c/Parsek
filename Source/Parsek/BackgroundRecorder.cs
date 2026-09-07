@@ -662,6 +662,11 @@ namespace Parsek
                 // is always Generation=0. Kept explicit so future cap bumps (e.g.
                 // MaxRecordingGeneration=2) just work without re-auditing this site.
                 string parentContRecId = System.Guid.NewGuid().ToString("N");
+                // Launch-unique identity for the continuation, resolved live-first. See
+                // ResolveSplitRecordingLaunchGuid for why the live vessel outranks the
+                // closed segment's stored guid. Read once so the log line below can show
+                // both inputs.
+                string liveParentGuid = AnchorDetector.TryReadLiveVesselGuid(parentVessel);
                 parentContRec = new Recording
                 {
                     RecordingId = parentContRecId,
@@ -681,11 +686,45 @@ namespace Parsek
                     // from the live post-split parent vessel. Captures the parts that
                     // stayed with the parent after the split, so a later destructive
                     // crash on the continuation can be detected via identity loss.
-                    Controllers = ControllerInfo.CaptureFromVessel(parentVessel)
+                    Controllers = ControllerInfo.CaptureFromVessel(parentVessel),
+                    // Launch-unique identity, stamped AT THE WRITE SITE rather than left to
+                    // the RecordingSidecarStore load-time backfill: the continuation captures
+                    // no VesselSnapshot (nothing below assigns one), so the backfill has
+                    // nothing to read and a continuation left blank here stays blank. A
+                    // guid-less continuation chained to a stamped pre-split segment is a
+                    // MIXED survivor set at the recovery correlator, which reads
+                    // corroboration=unknown-launch-guid and makes the KERBAL XP leg refuse an
+                    // ordinary single-launch recovery
+                    // (KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY stage 2).
+                    RecordedVesselGuid = ResolveSplitRecordingLaunchGuid(
+                        liveParentGuid, parentRec.RecordedVesselGuid)
                 };
                 bp.ChildRecordingIds.Insert(0, parentContRecId);
                 tree.AddOrReplaceRecording(parentContRec);
                 tree.BackgroundMap[parentPid] = parentContRecId;
+
+                // The guid decision is a state fact the correlator later reads, so it is
+                // logged with BOTH inputs. A conclusive divergence (the pid now carries a
+                // DIFFERENT launch than the segment being continued) is rare and worth a
+                // plain Info: the continuation follows the live vessel, and the chain then
+                // correctly reads as more than one launch.
+                if (VesselLaunchIdentity.GuidsConclusivelyDiffer(
+                        liveParentGuid, parentRec.RecordedVesselGuid))
+                {
+                    ParsekLog.Info("BgRecorder",
+                        $"Parent continuation launch guid diverges from the continued segment: " +
+                        $"recId={parentContRecId} parentRecId={parentRecordingId} " +
+                        $"live={liveParentGuid} parentRecGuid={parentRec.RecordedVesselGuid} " +
+                        $"stamped={parentContRec.RecordedVesselGuid} (live vessel wins)");
+                }
+                else
+                {
+                    ParsekLog.Verbose("BgRecorder",
+                        $"Parent continuation launch guid stamped: recId={parentContRecId} " +
+                        $"guid={parentContRec.RecordedVesselGuid ?? "(none)"} " +
+                        $"live={liveParentGuid ?? "(none)"} " +
+                        $"parentRecGuid={parentRec.RecordedVesselGuid ?? "(none)"}");
+                }
 
                 // Re-initialize tracking state for the parent continuation.
                 // Seed the continuation with the exact split-time pose so playback can
@@ -1176,13 +1215,25 @@ namespace Parsek
                     // at split moment. Forwarded by Recording copy/clone paths so a later
                     // BG go-on-rails identity-loss check can detect destructive crash.
                     child.Controllers = ControllerInfo.CaptureFromVessel(childVessel);
+                    // Launch-unique identity from the CHILD's own live vessel. A split child
+                    // is a NEW KSP vessel with a fresh Vessel.id, so the parent's guid is
+                    // never a valid answer here - inheriting it would assert that the child
+                    // and the parent are one launch, which is the opposite of what the split
+                    // just established. The fallback is the child's OWN snapshot `pid`, the
+                    // same value the RecordingSidecarStore load-time backfill would have read
+                    // (doing it here means the guid exists before the first save, which is
+                    // what the recovery correlator's corroboration needs).
+                    child.RecordedVesselGuid = ResolveSplitRecordingLaunchGuid(
+                        AnchorDetector.TryReadLiveVesselGuid(childVessel),
+                        VesselLaunchIdentity.TryReadVesselGuid(child.VesselSnapshot));
                     ParsekLog.Verbose("BgRecorder",
                         $"Captured snapshot for child vessel: pid={child.VesselPersistentId} " +
                         $"name='{child.VesselName}' hasSnapshot={child.VesselSnapshot != null} " +
                         $"startResources={child.StartResources?.Count ?? 0} type(s) " +
                         $"startInventory={child.StartInventory?.Count ?? 0} item(s) " +
                         $"startCrew={child.StartCrew?.Count ?? 0} trait(s) " +
-                        $"controllers={child.Controllers?.Count ?? 0} part(s)");
+                        $"controllers={child.Controllers?.Count ?? 0} part(s) " +
+                        $"launchGuid={child.RecordedVesselGuid ?? "(none)"}");
                 }
                 else
                 {
@@ -1223,6 +1274,44 @@ namespace Parsek
                         $"name='{child.VesselName}'");
                 }
             }
+        }
+
+        /// <summary>
+        /// The launch guid a recording created AT A BACKGROUND SPLIT carries. Pure; the two
+        /// live call sites differ only in what they pass.
+        ///
+        /// <para>
+        /// <b>Live-first, and that ordering is the point.</b>
+        /// <see cref="Recording.RecordedVesselGuid"/> names the launch of the vessel THIS
+        /// recording records, and a split recording records the vessel that exists after the
+        /// split. The parent CONTINUATION passes the live post-split parent vessel's guid
+        /// with the closed pre-split segment's stored guid as the fallback: in the ordinary
+        /// case they are the same value and the chain therefore reads as ONE launch, which
+        /// is what the recovery correlator's positive corroboration requires
+        /// (<c>RecoveryPickAmbiguity.ClassifySurvivorLaunches</c>). In the pid-reuse case
+        /// they differ, and the live vessel must win - stamping the continued segment's guid
+        /// onto a recording of a DIFFERENT launch would assert "one launch" falsely, and the
+        /// XP leg would then write an irreversible row against a wrong pick. Preferring the
+        /// stored guid is fail-open in exactly the direction stage 2 exists to close.
+        /// </para>
+        ///
+        /// <para>
+        /// The split CHILD is a NEW KSP vessel with a fresh <c>Vessel.id</c>, so it passes
+        /// its own live guid with its own snapshot's <c>pid</c> as the fallback and NEVER the
+        /// parent's - see the call site in <c>RegisterChildRecordingsFromSplit</c>.
+        /// </para>
+        ///
+        /// <para>
+        /// Returns null when neither input is usable (the recording then behaves exactly as
+        /// every pre-guid recording does: <c>VesselLaunchIdentity</c> degrades to pid-only).
+        /// </para>
+        /// </summary>
+        internal static string ResolveSplitRecordingLaunchGuid(
+            string liveVesselGuid, string fallbackGuid)
+        {
+            if (!string.IsNullOrEmpty(liveVesselGuid))
+                return liveVesselGuid;
+            return string.IsNullOrEmpty(fallbackGuid) ? null : fallbackGuid;
         }
 
         /// <summary>

@@ -8146,7 +8146,7 @@ reading ranged), the four `RecordingOptimizerTests.CanAutoSplitIgnoringGhostTrig
 cells that pin the sub-floor side no flight can produce, and
 `SbrDwellCompatibilityTests`, which keeps the default provably inert for L3.
 
-## KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY: the recovery correlator matches by vessel NAME plus a UT tier, and the XP row makes a wrong pick irreversible [OPEN - **STAGE 1 LIVE-PROVEN 2026-09-02**, shipped headless 2026-08-28 (branch `kerbal-xp-guid-filter`), STAGE 2 OUTSTANDING but NO LONGER GATE-BLOCKED; filed 2026-08-20 with the correlation fix above. **A REPRO LANE WAS AUTHORED AND FLOWN, AND FOUND THE PRODUCED-SAVE SHORTCUT CANNOT REACH THE CORRELATOR: `harness/scenarios/L6-career-same-name-recover.toml`, reading run 1 `2026-09-02_1137` (INVALID(driver) MISSION-ASSERT-FAIL).** The idea was `science_bench_recover` flown a second time over `career-earned-pad` (L3's produced save, which already carries the pad craft's TWO chained same-name recordings under a different launch guid), so the recovery correlator would see two same-name candidates and stage 1's guid filter would resolve them live (expected `nameMatches>=3 guidDropped=2 survivors>=1`). The flight FLEW - landed, collected 2 experiments, recorded a third same-name recording - but TRANSMIT credited ZERO career science because L3 already banked that launchpad biome's science, so the mission's structural transmit->recover gate (`_sbr_transmit` needs a strictly positive pool rise; the schema forbids a floor below 0.001) failed the flight BEFORE recovery, the phase the correlator fires in. **THE BANKED-SCIENCE CONFLICT IS INTRINSIC TO REUSING A PRODUCED SAVE**, so this shortcut does not work. Closing stage 2 needs either a recover mission with NO transmit-science gate (none in the library today) or a purpose-built fixture carrying two same-name launches whose flight science is un-banked. **UNBLOCKED 2026-09-02 BY THE PURPOSE-BUILT FIXTURE** `harness/fixtures/saves/career-same-name-pad`: `harness/tools/build_career_same_name_pad.py` splices `C2CareerPostFix`'s RECORDING_TREE (the two chained same-name recordings, launch guid `f77e4207...`) into `career-science-pad`, the PRE-FLIGHT save L3 actually flies - two moments of one timeline, which is why those recordings' `preLaunchFunds = 500000` / `preLaunchScience = 100` are that host's live pools. The career therefore carries the prior launch with ZERO banked `Science` subjects, so the same mission transmits exactly as it does for L3; the host vessel's `pid` is re-stamped to `9b3c71e4...` so the filter has two conclusive mismatches to drop, while its craft-baked `persistentId` is deliberately left colliding at `2905720181` - the trap this entry names. The earned ledger is NOT copied (its rows credit the science the fixture must leave un-banked, and the recalc engine patches state from the ledger). Gated by `CareerSameNamePadFixtureDriftTests`. L6 now stages that fixture; its expected shape came back EXACTLY on reading run 2 (`2026-09-02_1328`, PASS attempt 1, 470 s): four identical pairs of `PickRecoveryRecordingId guid filter: ... dropped=2 remaining=2 reason=guid-conclusive-mismatch` + `PickRecoveryRecordingId: ... nameMatches=4 survivors=2 guidDropped=2 ... tier=most-recent-ended bracketTie=n/a pick=0d74e88c...`, with `Recovery kerbal XP recorded: ... rows=1 deduped=0 noAction=0` PRESENT (its first observation anywhere) and no refused line. **THE LIVE-PROOF GATE STAGE 2 WAS BLOCKED ON IS THEREFORE DISCHARGED**: the filter is proven active, dropping exactly the two prior-launch candidates, over every leg that picked, without disturbing a correct pick - and re-proven on two further flights the same day (`2026-09-02_1402` and `2026-09-02_1411`), which measured `guidDropped=2` identically while the flight's OWN recording count moved (see L6-RECOVER-DWELL-STRADDLES-SPLIT-FLOOR: an optimizer split floor against the mission's landed dwell, not a correlator behaviour). Stage 2 (the XP-leg `ambiguous-recovery-recording` refusal) is still NOT implemented - it is now merely unwritten rather than ungated]
+## KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY: the recovery correlator matches by vessel NAME plus a UT tier, and the XP row makes a wrong pick irreversible [OPEN - **STAGE 1 LIVE-PROVEN 2026-09-02**, shipped headless 2026-08-28 (branch `kerbal-xp-guid-filter`), STAGE 2 OUTSTANDING but NO LONGER GATE-BLOCKED; filed 2026-08-20 with the correlation fix above. **A REPRO LANE WAS AUTHORED AND FLOWN, AND FOUND THE PRODUCED-SAVE SHORTCUT CANNOT REACH THE CORRELATOR: `harness/scenarios/L6-career-same-name-recover.toml`, reading run 1 `2026-09-02_1137` (INVALID(driver) MISSION-ASSERT-FAIL).** The idea was `science_bench_recover` flown a second time over `career-earned-pad` (L3's produced save, which already carries the pad craft's TWO chained same-name recordings under a different launch guid), so the recovery correlator would see two same-name candidates and stage 1's guid filter would resolve them live (expected `nameMatches>=3 guidDropped=2 survivors>=1`). The flight FLEW - landed, collected 2 experiments, recorded a third same-name recording - but TRANSMIT credited ZERO career science because L3 already banked that launchpad biome's science, so the mission's structural transmit->recover gate (`_sbr_transmit` needs a strictly positive pool rise; the schema forbids a floor below 0.001) failed the flight BEFORE recovery, the phase the correlator fires in. **THE BANKED-SCIENCE CONFLICT IS INTRINSIC TO REUSING A PRODUCED SAVE**, so this shortcut does not work. Closing stage 2 needs either a recover mission with NO transmit-science gate (none in the library today) or a purpose-built fixture carrying two same-name launches whose flight science is un-banked. **UNBLOCKED 2026-09-02 BY THE PURPOSE-BUILT FIXTURE** `harness/fixtures/saves/career-same-name-pad`: `harness/tools/build_career_same_name_pad.py` splices `C2CareerPostFix`'s RECORDING_TREE (the two chained same-name recordings, launch guid `f77e4207...`) into `career-science-pad`, the PRE-FLIGHT save L3 actually flies - two moments of one timeline, which is why those recordings' `preLaunchFunds = 500000` / `preLaunchScience = 100` are that host's live pools. The career therefore carries the prior launch with ZERO banked `Science` subjects, so the same mission transmits exactly as it does for L3; the host vessel's `pid` is re-stamped to `9b3c71e4...` so the filter has two conclusive mismatches to drop, while its craft-baked `persistentId` is deliberately left colliding at `2905720181` - the trap this entry names. The earned ledger is NOT copied (its rows credit the science the fixture must leave un-banked, and the recalc engine patches state from the ledger). Gated by `CareerSameNamePadFixtureDriftTests`. L6 now stages that fixture; its expected shape came back EXACTLY on reading run 2 (`2026-09-02_1328`, PASS attempt 1, 470 s): four identical pairs of `PickRecoveryRecordingId guid filter: ... dropped=2 remaining=2 reason=guid-conclusive-mismatch` + `PickRecoveryRecordingId: ... nameMatches=4 survivors=2 guidDropped=2 ... tier=most-recent-ended bracketTie=n/a pick=0d74e88c...`, with `Recovery kerbal XP recorded: ... rows=1 deduped=0 noAction=0` PRESENT (its first observation anywhere) and no refused line. **THE LIVE-PROOF GATE STAGE 2 WAS BLOCKED ON IS THEREFORE DISCHARGED**: the filter is proven active, dropping exactly the two prior-launch candidates, over every leg that picked, without disturbing a correct pick - and re-proven on two further flights the same day (`2026-09-02_1402` and `2026-09-02_1411`), which measured `guidDropped=2` identically while the flight's OWN recording count moved (see L6-RECOVER-DWELL-STRADDLES-SPLIT-FLOOR: an optimizer split floor against the mission's landed dwell, not a correlator behaviour). **STAGE 2 IS NOW BUILT AND HEADLESS-PROVEN (branch `kerbal-xp-stage2`), WITH ITS OWN LIVE PROOF STILL OWED** - see the stage-2 section at the end of this entry for the predicate, what measurement changed it, and the lane shape the live proof needs]
 
 `LedgerOrchestrator.PickRecoveryRecordingId` matches candidate recordings by vessel NAME
 (`RecoveredVesselIdentity.MatchesName`, raw or localized) and then ranks them by a UT
@@ -8353,6 +8353,191 @@ shows the filter turning "weak tier" into "weak tier AND genuinely ambiguous". A
 tier-strength refusal without a flown filter would refuse the very recoveries the
 correlation fix captured, and `L4`'s `KerbalXp` facet would go vacuous again - the failure
 mode the recommendation's "What NOT to do" paragraph names.
+
+### STAGE 2 BUILT AND HEADLESS-PROVEN (branch `kerbal-xp-stage2`) - LIVE PROOF STILL OWED
+
+The XP leg refuses an ambiguous pick with `reason=ambiguous-recovery-recording`. Funds and
+science are untouched: they keep the stage-1 pick, because their rows are re-derived
+idempotently from the effective ledger on every recalc, so a mis-scoped one is wrong but
+REVISABLE - the asymmetry this entry is entirely about.
+
+**THE PREDICATE HAS THREE CLAUSES, NOT THE RECOMMENDATION'S TWO, AND THE THIRD CAME OUT OF
+A MEASUREMENT.** `RecoveryPickAmbiguity.Evaluate(survivors, tier)` calls a pick ambiguous
+when: (1) more than one candidate SURVIVED the stage-1 guid filter; (2) the winning tier is
+WEAK - `most-recent-ended` or `global-latest`, matching the recommendation's own naming, and
+`global-latest` is if anything the weaker of the two (it fires only when nothing brackets the
+recovery AND nothing ended before it, so the ordering has no relation to the recovery
+moment); AND (3) the survivors are NOT positively corroborated as ONE launch. `bracketing` is
+deliberately NOT weak even with several bracketing survivors: it is a positive temporal fact
+about the winner (it CONTAINS the recovery UT) rather than an ordering among candidates, and
+tier 1 already carries its own reasoned tie-break. A SINGLE survivor is never ambiguous on
+any tier.
+
+**Clause 3 is what keeps this from being the bare tier-strength refusal the "What NOT to do"
+paragraph forbids, and clauses 1+2 alone - the recommendation's literal wording - WOULD have
+gone vacuous.** Two independent measurements say so, and neither was predicted by the
+recommendation: the committed career fixture `Source/Parsek.Tests/Fixtures/C2CareerPostFix/`
+carries TWO chained `Jumping Flea` recordings under ONE launch guid `f77e4207...`, both ended
+before the recovery, so walking it through the real picker measures `survivors=2
+tier=most-recent-ended`; and the flown stage-1 proof (run `2026-09-02_1328`) measured
+`nameMatches=4 survivors=2 guidDropped=2 tier=most-recent-ended` with the XP row PRESENT. One
+launch is recorded as a CHAIN OF SEGMENTS, so more-than-one-survivor is the ORDINARY case,
+not the pathological one. Clause 3 separates the two: corroboration is POSITIVE (every
+survivor carries a KNOWN guid and they are all equal), and
+`VesselLaunchIdentity.RecordingsShareLaunch` is deliberately NOT the helper - it requires
+equal `persistentId`, which is craft-baked and reused on every launch, so it reads TRUE for
+two guid-less launches of one craft: exactly the shape stage 2 must catch, and exactly the
+trap `career-same-name-pad` was built around.
+
+**A REACHABLE SHAPE CHANGES BEHAVIOR, and it is named here rather than discovered later**
+(the same courtesy stage 1 paid the Real Spawn Control copy). A save whose recordings carry
+NO `RecordedVesselGuid` - captured before that field existed, and un-backfillable - and which
+holds MORE THAN ONE same-name recording ending before a recovery now leaves that recovery's
+XP unbooked, where it previously wrote a row against the latest-ending one. That is the
+predicate working rather than a regression: those survivors are genuinely uncorroborated, and
+`RecordingsShareLaunch` cannot help (its `persistentId` half is craft-baked and equal for
+every launch of the craft). The funds and science rows for such a recovery are still written
+and still scoped exactly as before. Two committed cells were updated for it, both of which
+MEANT one launch and had simply had no reason to say so:
+`LedgerRecoveryKerbalExperienceTests.Forward_ScopesTheRowToTheSameRecordingTheRecoveryFundsRowUses`
+now stamps its two chained segments with one launch guid, and
+`GameStateRecorderLedgerTests.PickRecoveryRecordingId_BracketTie_MovesAllThreeRecoveryLegsTogether`'s
+source-shape gate now pins the literal `PickRecoveryRecording` (a prefix of both spellings)
+so the picker split does not read as a leg leaving the correlator.
+
+**HOW NARROW THAT SHAPE ACTUALLY IS, dated rather than asserted.** The `recordedVesselGuid`
+key landed 2026-05-30 (`4990055c7`), which POSTDATES the generation-3 -> 4 schema bump of
+2026-05-20 (`a400bada6`). Everything older than the bump is rejected on load outright
+(`generation-older`), so a save that still loads can only be missing the guid on a
+GENERATION-4 recording written in that ten-day window - and any such recording that carries a
+`_vessel.craft` or `_ghost.craft` sidecar is backfilled from the snapshot's `pid` on the next
+`OnLoad` (`RecordingSidecarStore`). The un-backfillable case is therefore a gen-4 recording
+with NO snapshot at all. It stays named here because it is reachable, not because it is
+common.
+
+**AND THE REFUSED XP IS NEVER BOOKED LATER.** A refusal is a permanent decision about THAT
+recovery, matching the CHANGELOG wording: `RecalculateAndPatch` re-derives rows FROM the
+ledger, so with no row written there is nothing for any later recalc to re-derive, and the
+leg itself is reached only from the stock recovery event
+(`GameStateRecorder.OnVesselRecoveryProcessingForExperience`), which does not fire twice for
+one recovery. "Not sticky" (below) means only that a LATER, DIFFERENT recovery whose
+ambiguity has resolved writes normally - not that the refused one is picked up again.
+
+**Where it sits and what it logs.** `PickRecoveryRecordingId` now delegates to
+`PickRecoveryRecording`, which returns the id plus the POST-FILTER survivor list and the
+winning tier as a `RecoveryPickTier` (the tier tokens now have one source,
+`RecoveryPickAmbiguity.TierToken`, shared with the pick summary line). Only
+`TryRecordRecoveryKerbalExperience` reads the extra fields. The refusal line mirrors the
+existing `no-recovery-recording` fail-safe, at Info:
+`Recovery kerbal XP refused: vessel='X' ut=<t> kerbals=N reason=ambiguous-recovery-recording
+survivors=M nameMatches=P guidDropped=Q tier=<tier> corroboration=<c> wouldHavePicked=<id>
+survivorIds=<bounded list>`. `corroboration` is `unknown-launch-guid` or
+`distinct-known-launches`, so a live log says WHY rather than only that. NOT rate-limited and
+not deduped, because it cannot repeat: this method is reached ONLY from
+`GameStateRecorder.OnVesselRecoveryProcessingForExperience` (once per stock recovery event);
+`RecalculateAndPatch` re-derives rows FROM the ledger and never re-enters it. Nothing is
+sticky either - a later recovery whose ambiguity has resolved writes normally
+(`XpLeg_ARefusalIsNotSticky_ALaterResolvedRecoveryWrites`).
+
+**How a refusal reads on the ledger surfaces - it cannot be mistaken for drift.** The M-B2
+oracle (`harness/lib/oracle.py`) places kerbal experience DELIBERATELY OUT OF SCOPE v1 (its
+own comment: the facet records career-log ENTRIES, and there is no scalar for an
+expected-vs-parsed diff), so a missing XP row cannot classify `PARSEK-FAIL(ledger)` by
+construction, on any lane. In-game, `LedgerGroundTruthDiff.CompareKerbalCareerLogs` iterates
+the RECONSTRUCTION's entries and raises `PhantomInRecon` for entries the save lacks - an
+ABSENT row makes the recon credit FEWER entries, which that loop cannot flag at all; with no
+XP row anywhere the facet takes its no-entries exit and is not even counted
+(`FacetsCompared`). So an ambiguity refusal shows up as a QUIETER `KerbalXp` facet, never as
+a divergence, and never as a hard failure - which is the correct reading (the pre-P9a
+behavior, already accepted as a cost by the entry above), but it also means the refusal is
+INVISIBLE to both oracles and must be read off the log line instead.
+
+**THE WRITE SITES WERE AUDITED, AND TWO OF THEM DID NOT STAMP A GUID AT ALL** (found in
+pre-merge review of the stage-2 branch; the sentence below used to claim "every recording a
+current build writes carries a guid" on two data points). Walking every `new Recording` in
+`Source/Parsek` and every `RecordedVesselGuid =` assignment:
+
+- **Stamped at the write site from a live vessel:** `FlightRecorder.BuildCaptureRecording`
+  (the capture every commit path copies from; live `Vessel.id`, snapshot `pid` fallback), and
+  now `BackgroundRecorder`'s parent CONTINUATION and split CHILD, `ParsekFlight`'s
+  undock/EVA `activeChild` + `bgChild` pair (both branch paths),
+  `ParsekFlight.CreateBreakupChildRecording`, and
+  `ChainSegmentManager.StartUndockContinuation`. All route the decision through
+  `BackgroundRecorder.ResolveSplitRecordingLaunchGuid` (live guid first, own-snapshot `pid`
+  fallback) or read the live vessel directly.
+- **Copied from a source recording:** `Recording.DeepClone` /
+  `ApplyPersistenceArtifactsFrom`; the optimizer split tail
+  (`RecordingStore.Optimization.CopySplitIdentityFields`, `RecordingTreeSplitter`);
+  `SessionMerger`; `RewindInvoker`'s in-place Re-Fly fork; and now
+  `ParsekFlight.ApplyCapturedSplitStateToStandaloneRecording` +
+  `CommitGloopsRecorderData`, which both had a fully-stamped `CaptureAtStop` in hand and
+  simply were not copying that one field.
+- **Stamped indirectly by the recorder-start backstop**
+  (`Recording.AdoptRecordedVesselGuidIfEmpty`, called from `FlightRecorder.StartRecording`):
+  the always-tree root, the fresh-post-switch root, the merge continuation, and
+  `SwitchSegmentBuilder.CreateSwitchContinuationSegment` - the builder itself is pure and has
+  no vessel, and every production caller binds a live recorder to the new segment
+  immediately. A bind that FAILS leaves that segment guid-less and snapshot-less, which is
+  documented rather than fixed here: a segment whose recorder never bound records nothing.
+- **Deliberately not stamped:** `RewindInvoker`'s non-in-place placeholder provisional (the
+  fork-inheritance gate is a genuine guard, see the Re-Fly notes), and the scratch/probe
+  `Recording` objects that are never persisted (codec round-trip targets in `Analyzer/Rules`,
+  the finalization-cache context shims, id-only lookup keys in `SupersedeCommit` /
+  `UnfinishedFlightClassifier`).
+- **The one remaining unrecoverable blank:** a breakup child whose vessel was destroyed
+  during the coalescing window AND for which no snapshot was pre-captured. There is nothing
+  left to read an identity from; it is stamped `Destroyed` at the breakup UT.
+
+Why the BG parent continuation was the one that mattered: it is the SAME launch as the
+segment it continues and carries the SAME vessel name, and it captures no `VesselSnapshot`,
+so the load-time backfill had nothing to read and it stayed blank forever. A recovery of that
+craft then saw a MIXED survivor set - the stamped pre-split segment plus a blank continuation
+- which classifies `UnknownLaunchGuid` and made the XP leg refuse an ORDINARY single-launch
+recovery: the exact failure mode clause 3 exists to prevent, arriving through the writer
+instead of the predicate. The other sites were reachable by the backfill on the next
+`OnLoad`, so they were a live-session gap rather than a permanent one; they are stamped now
+so the live session and the post-reload session agree.
+
+**Headless cover:** `RecoveryPickAmbiguityTests` (24 cells) - the predicate on every branch
+(two unknown-guid survivors on a weak tier; the stage-1 win where a live guid collapses the
+set to one; several survivors of ONE launch; a MIXED known+unknown set, which is what a
+guid-less BG continuation chained to a stamped segment produced; two distinct known launches;
+`global-latest`; bracketing never ambiguous even with distinct launches; single survivor on
+every tier; degenerate inputs named rather than silent); the corroboration classifier
+including the `RecordingsShareLaunch` counter-proof and guid-format insensitivity; the
+bounded id formatter; the post-filter monotonicity rule (evaluating the PRE-filter set is
+ambiguous where the post-filter set is not); the picker's tier / survivor reporting; the XP
+leg end to end in both directions plus the funds-and-science-unaffected scope cell;
+`XpLeg_ChainedSegmentAndBgContinuation_AreCorroboratedAndTheRowIsWritten`, the WRITE-SITE
+mirror - a pre-split segment plus a continuation whose guid comes from the production
+resolver is corroborated and writes, and blanking that one field (what the site used to
+persist) refuses the same recovery as `corroboration=unknown-launch-guid`; and THE NEGATIVE
+PROOF - `CommittedCareerFixture_RecoveryPickIsNotAmbiguous` and
+`CommittedCareerFixture_XpRowIsStillWrittenThroughTheRealXpLeg`, which deserialize
+`C2CareerPostFix`'s committed RECORDING nodes through the production codec, drive the real
+picker at the fixture ledger's own recovery UT, assert the load-bearing shape
+(`survivors=2`, `tier=most-recent-ended`, weak) and then that the verdict is NOT ambiguous
+and the row is written to the id the fixture's ledger actually recorded. The write-site
+decision itself is pinned by three cells in `BackgroundSplitTests`
+(`SplitLaunchGuid_ParentContinuation_CarriesTheContinuedSegmentsLaunchGuid`,
+`SplitLaunchGuid_ParentContinuation_PrefersTheLiveVessel_WhenTheTwoDiverge` - the mirror
+direction, where the pid now carries a DIFFERENT launch and the live vessel must win because
+asserting "one launch" falsely is what lets an irreversible row through - and
+`SplitLaunchGuid_Child_CarriesItsOwnLiveGuid_NeverTheParents`).
+
+**LIVE PROOF STILL OWED, and the shape it needs is NOT the stage-1 shape.** `L6` cannot
+prove stage 2: its survivors are the flight's OWN two chained recordings under one known
+guid, so the refusal correctly does NOT fire there (and its continued absence from an L6 run
+is a useful over-fire control, not the proof). Stage 2's proof needs a recovery where the
+survivor set stays greater than one AFTER the filter and cannot be corroborated as one
+launch - i.e. two same-name launches whose RECORDINGS carry no `RecordedVesselGuid`, or
+carry conclusively different ones while the recovery seam supplies none. Every recording a
+current build writes carries a guid AT ITS WRITE SITE (see the writer audit below), so the
+fixture would have to strip or diverge them deliberately (the `career-same-name-pad` builder
+is the obvious host - it already splices a prior launch's RECORDING_TREE and already
+re-stamps identity fields). The lane is NOT
+authored here on purpose: naming the shape is stage 2's obligation, authoring and flying it
+is a separate decision, and the entry stays OPEN until it is flown.
 
 ## ~~ROUTE-CANDIDACY-GATED-ON-SEAL-NO-SEAM-PATH: a green two-vessel docking flight cannot produce a route-candidate tree, and no seam verb can seal one~~ [FOUND 2026-08-11 while wiring `H35-logistics-route-proof`. A CAPABILITY GAP in the automation surface, not a product defect - the seal policy itself is correct. **CLOSED 2026-08-30 by fix road (1)**: `SealSlot` and `RouteCommand` are both promoted out of `ReservedVerbs` and implemented against the production paths - see the closure note at the end of this entry]
 
