@@ -10,6 +10,13 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- The automated test rig's `RunTests` command can now run several in-game test
+  categories in one game session (`category=A,B,C`), one after the other, each
+  printing its own tally line before a final combined one - the same shape the
+  unattended autorun already used. Malformed lists (an empty or repeated name) are
+  refused outright rather than quietly running everything. Test-tooling only; no
+  gameplay change.
+
 - **A mission whose flight-path file is missing is no longer deleted from the save.**
   The 2026-08-29 fix that stopped Parsek dropping a mission it could not write out
   carried the mission through from the previous save instead - but it also threw away

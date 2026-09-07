@@ -239,9 +239,13 @@ namespace Parsek.Tests
             // where that had to be recorded. A fourth arg moves it again; a THIRD arm
             // that quietly disappeared would drop back to 2 and red here.
             Assert.Contains("TryParseStrictArg(strictRaw, out strict)", body);
-            // Three independent reject arms, each terminal.
-            Assert.Equal(3, Count(body, "SetExecResult(\"REJECTED\""));
-            Assert.Equal(3, Count(body, "return;"));
+            // The fourth arm (2026-09-07): the comma-list category selector, parsed
+            // fail-closed BEFORE any dispatch so a malformed list (an empty token is
+            // the RunAll arm in disguise) is a terminal REJECTED, never a partial run.
+            Assert.Contains("TryParseCategorySelector(category, out selectorCategories, out selectorProblem)", body);
+            // Four independent reject arms, each terminal.
+            Assert.Equal(4, Count(body, "SetExecResult(\"REJECTED\""));
+            Assert.Equal(4, Count(body, "return;"));
             // The reject arms must precede the dispatch, or a fall-through would run the
             // batch anyway with the verdict overwritten by the later PendingVerdict.
             Assert.True(

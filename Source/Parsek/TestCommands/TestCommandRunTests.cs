@@ -25,6 +25,62 @@ namespace Parsek.TestCommands
         internal const string CategoryArgEmptyReason = "category-arg-empty";
 
         /// <summary>
+        /// Reject reason for a comma-list <c>category</c> selector with an empty token
+        /// (<c>A,,B</c>, a leading or trailing comma) or a repeated token (<c>A,A</c>).
+        /// </summary>
+        internal const string CategorySelectorMalformedReason = "category-selector-malformed";
+
+        /// <summary>
+        /// Splits the <c>category</c> arg into the categories one <c>RunTests</c> drives.
+        /// ABSENT (null) is the RunAll shape and yields an EMPTY list; a single token is
+        /// the single-category batch every pre-2026-09-07 spec drives; a comma list is
+        /// the MULTI-CATEGORY batch, run sequentially by the addon exactly as the M-A3
+        /// autorun driver runs its comma list (one RunCategory batch per token, each
+        /// emitting its own BATCH_COMPLETE line, then one category=multi:N aggregate).
+        ///
+        /// FAIL-CLOSED on shape. An empty token between commas is a typo that would
+        /// silently run ALL categories (RunCategory("") is the RunAll arm), and a
+        /// repeated token would run one category twice while the aggregate's
+        /// multi:N still counted it once - so both are rejected with
+        /// <see cref="CategorySelectorMalformedReason"/> and a problem string that names
+        /// the token. Tokens are trimmed, because the wire form is
+        /// <c>category=A, B</c> only if a spec author writes it that way and the
+        /// harness's own parser (hlib.parse_batch_selector_categories) trims too; the two
+        /// halves must agree on what a token is. An EMPTY or whitespace arg is not this
+        /// helper's case - <see cref="IsEmptyCategoryArg"/> rejects it first.
+        /// </summary>
+        internal static bool TryParseCategorySelector(
+            string raw, out List<string> categories, out string problem)
+        {
+            categories = new List<string>();
+            problem = null;
+            if (raw == null)
+                return true;
+            string[] parts = raw.Split(',');
+            for (int i = 0; i < parts.Length; i++)
+            {
+                string token = parts[i].Trim();
+                if (token.Length == 0)
+                {
+                    problem = "empty token at position " + (i + 1).ToString(CultureInfo.InvariantCulture);
+                    categories.Clear();
+                    return false;
+                }
+                for (int j = 0; j < categories.Count; j++)
+                {
+                    if (string.Equals(categories[j], token, System.StringComparison.Ordinal))
+                    {
+                        problem = "duplicate token " + token;
+                        categories.Clear();
+                        return false;
+                    }
+                }
+                categories.Add(token);
+            }
+            return true;
+        }
+
+        /// <summary>
         /// True when a <c>category</c> arg was WRITTEN but is empty or whitespace, which
         /// is a typo rather than an omission and must be rejected.
         ///
