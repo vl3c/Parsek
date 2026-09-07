@@ -106,18 +106,24 @@ id = "V3C-flight-arrival-companion"
 #   record). Re-reading run 3 attempt 1 (_0747, collected as
 #   logs/2026-08-08_1102_V3C-flight-arrival-companion) frame by frame around
 #   the seam refuted the ZONE WALL paragraph above on three counts:
-#   - THE CORRIDOR NEVER EXISTED: every dist[] sample coincides with a
-#     '[Zone] ... beyond visual range (...) but exempt during warp (orbital
-#     ghost)' line at render distances of 55.9-163.6 Mm. The trace fired
+#   - THE CORRIDOR NEVER EXISTED: every dist[] sample sits inside the 5 s
+#     window of a '[Zone] ... beyond visual range (...) but exempt during
+#     warp (orbital ghost)' line, with its nearest engine-frame-iter reading
+#     zone=Beyond, at render distances of 55.9-163.6 Mm. The trace fired
 #     because the #171 warp exemption (zone Beyond + warp > 1x + orbit
 #     segments) lifts the 120 km hide; that gate binds ONLY at 1x, and the
 #     x413 hidden-by-zone GuardSkips all sit in the 1x planning windows.
 #   - THE GATE AT THE SEAM WAS THE WARP HIDE: the seam (28,781,184.52,
 #     confirmed by this run's icon bounds=[24396029.0,28781184.5]) was
-#     crossed at 10,000x with GuardSkip reason=unit-member-warp-hidden (x46),
-#     from suppressGhosts = !mapViewEnabled && warp > 50x (WarpThresholds.
-#     GhostHide); engine-frame-iter read hs=F [out:none] for the whole coast,
-#     so nothing was positioned and neither instrument could run. A zone-relax
+#     crossed at 100,000x (UT slope 99,820 game-s per real second; the
+#     Checkpoint rate-change lines lag) with GuardSkip
+#     reason=unit-member-warp-hidden bracketing it (frames 40252 / 40312;
+#     x46 over the coast window), from suppressGhosts = !mapViewEnabled &&
+#     warp > 50x (WarpThresholds.GhostHide); engine-frame-iter read hs=T
+#     [out:vis=F zone=Beyond] through the seam second - the member had a
+#     state - and the GuardSkip returns before PositionFromOrbit, so nothing
+#     was positioned and neither instrument could run (hs=F begins only at
+#     the span-end destroy). A zone-relax
 #     aid would have changed nothing at that frame (option 2 not built);
 #     a to-the-second co-departure needs ~13 s launch timing and ~0.03 m/s
 #     velocity agreement against a 1,500 s margin and a 2.0 m/s burn cutoff
@@ -129,12 +135,14 @@ id = "V3C-flight-arrival-companion"
 #     seam instant at any distance. Hence the EnterMapView step below and the
 #     REQUIRED '[ReaimSeam] SEAM ... body=Duna' anti-vacuity token.
 #   RATE ARITHMETIC for reading the Tier-C verdict: the teleport threshold is
-#   max(1,000 km, (bodySpeed + 15 km/s) * dt * 4). At 10,000x and the instance's
-#   measured 60 fps (dt ~167 s) it is ~14.8 Mm, so the ~49 Mm seam jump raises
-#   loop-seam-teleport; at 100,000x (dt ~1,667 s) it is ~148 Mm and the jump
-#   reads as expected motion, so only the SEAM line reports it. _0747 crossed
-#   the seam at 10,000x (KSP's WarpTo ramp), so the GS-3 red is EXPECTED but
-#   depends on the ramp on the day; the SEAM line's jump= value is the
+#   max(1,000 km, (bodySpeed + 15 km/s) * dt * 4), and under rails warp KSP
+#   advances one 50 Hz physics tick per frame: dt = 200 s at 10,000x
+#   (threshold ~17.7 Mm with Duna at 7.1-7.9 km/s, so a ~47 Mm seam jump
+#   WOULD raise loop-seam-teleport) and 2,000 s at 100,000x (threshold
+#   ~177-183 Mm, the jump reads as expected motion and only the SEAM line
+#   reports it). Every seam crossing on record (_0747 and the three flights
+#   below) rode 100,000x, so the Tier-C raise is a PREDICTION for a slower
+#   crossing, not a measurement; the SEAM line's jump= value is the
 #   rate-independent measurement.
 #   READING RUN UNDER THE MAP-OPEN SHAPE (2026-09-07_1906, PASS attempt 1,
 #   wall 953 s, mission 893 s, MISSION-OK, every verifier PASS/SKIPPED; DLL
@@ -148,11 +156,12 @@ id = "V3C-flight-arrival-companion"
 #   prediction in the roadmap section held on every count: entermapview ok
 #   mapOpen=true; unit-member-warp-hidden x0 (was x46 on _0747); the #171
 #   exempt line x37 and dist[] x88 (was 25 / 56) with the ghost tracked to
-#   dist[Duna]=128 Mm one frame before the seam; hidden-by-zone x412 all in
+#   dist[Duna]=128 Mm 0.8 s before the seam (the last rate-limited sample);
+#   hidden-by-zone x412 all in
 #   the 1x planning windows (the zone gate at 1x is untouched by the map, as
 #   stated). loop-seam-teleport did NOT raise, by the rate arithmetic above:
-#   the seam frame's loop clock stepped 2,000 s (100,000x effective), so the
-#   threshold was ~177 Mm against the 47.4 Mm jump. Census: recordings 3
+#   the seam frame's loop clock stepped 2,000 s (100,000x, as on _0747), so
+#   the threshold was ~177 Mm against the 47.4 Mm jump. Census: recordings 3
 #   (injected + live DD1 + one JointBreak debris), trees 2, committedTrees 2,
 #   terminalStates Orbiting 2 / Destroyed 1, points total 582, anomalies none,
 #   analyzer red=0, ledger oracle PASS, structure clean.
@@ -163,8 +172,9 @@ id = "V3C-flight-arrival-companion"
 #   WHEN THE TELEPORT IS FIXED - which is the point: it is the regression
 #   target that flips when the option-3 work lands, at which time the token
 #   is inverted to the healthy class. loop-seam-teleport is TOLERATED (it is
-#   rate-dependent - a seam frame at <= 10,000x raises it, at 100,000x it
-#   does not - and the SEAM token already carries the reproduction); the
+#   rate-dependent - a seam frame at <= 10,000x is predicted to raise it, the
+#   100,000x frames every flight rode did not - and the SEAM token already
+#   carries the reproduction); the
 #   recordings count is pinned at 3 and the structure block is declared
 #   REPORT-ONLY with the observed integers.
 #   ARMED RE-FLIGHT (2026-09-07_1932, PASS attempt 1, wall 930 s, mission
@@ -225,9 +235,10 @@ steps = [
   # 4.65M window and ENDED before the ghost's cycle even began
   # (unit-span-clock-unresolved x694; zero [ReaimSeam] lines - vacuous for
   # the seam question). Jump the pad epoch to 23.0M so the pad-align machine
-  # targets the SAME 24.3M-family window the ghost replays, and the live
-  # craft flies alongside the engaged replay - the co-flight corridor that
-  # produced this spec's dist[] sampling (x56 on run 3).
+  # targets the SAME 24.3M-family window the ghost replays, so the live craft
+  # and the engaged replay ride the same cycle (run 3's dist[] sampling, x56,
+  # came from the warp exemption at 55-164 Mm, not from a corridor - see the
+  # 2026-09-07 header block).
   { cmd = "TimeJump", args = { ut = "23000000" },  expect = "OK", budget = 300 },
   # THE CO-LOCATION DECISION (2026-09-07, header ledger + roadmap section): open
   # the MAP before the mission phase and leave it open. With MapView.MapIsEnabled
@@ -407,7 +418,8 @@ D14 = ["scene-flight", "sandbox"]
 # (hlib.validate_spec rejects the misplaced form).
 # loop-seam-teleport is TOLERATED, not required: its raise is rate-dependent
 # (threshold max(1,000 km, (bodySpeed + 15 km/s) * dt * 4); a seam frame at
-# <= 10,000x raises it, the 100,000x frame _1906 rode did not), and the
+# <= 10,000x is predicted to raise it, the 100,000x frames every crossing on
+# record rode did not), and the
 # reproduction itself rides the required [ReaimSeam] SEAM defect-class token,
 # which is rate-independent. Tolerate-plus-require, per the header's GS-3 plan.
 allowedAnomalies = ["loop-seam-teleport"]
