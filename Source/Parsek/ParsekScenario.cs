@@ -1468,8 +1468,21 @@ namespace Parsek
         /// would list ids whose sidecars are gone, and the next load's orphan reap - which
         /// works the other way round, deleting files nothing references - would then be
         /// operating on a corpus that disagrees with the save. So a carried RECORDING is
-        /// kept only when the LIVE tree still has that id AND its trajectory sidecar is on
-        /// disk. Everything else is dropped, counted, and logged.</para>
+        /// kept only when the LIVE tree still has that id. Everything else is dropped,
+        /// counted, and logged.</para>
+        ///
+        /// <para><b>Why membership alone, not "membership AND a sidecar on disk".</b> A
+        /// deleted recording leaves the live tree, so membership already covers the
+        /// resurrection hazard. A recording that is still IN the live tree but has no
+        /// trajectory sidecar is not deleted data - it is exactly the sidecar fault this
+        /// carry exists to survive (the tree is unserializable BECAUSE that recording
+        /// cannot be written). Requiring the sidecar dropped precisely the faulted
+        /// recording, and when that recording was the root the carry was refused and the
+        /// whole tree was deleted at Error - the outcome the invariant above forbids. The
+        /// synthetic corpus's 34 metadata-only tree recordings reproduced it on every
+        /// save (H5 / S1.4 / S1.6 red from 2026-08-29). Keeping the metadata is strictly
+        /// better than dropping the tree: the recording loads as trajectory-missing,
+        /// plays nothing, and the player can still delete it.</para>
         ///
         /// <para><b>The topology has to follow the recordings.</b> Dropping RECORDING
         /// children alone leaves <c>rootRecordingId</c> / <c>activeRecordingId</c> /
@@ -1524,8 +1537,8 @@ namespace Parsek
                 {
                     ParsekLog.Warn("Scenario",
                         $"OnSave: refusing to carry forward tree id={liveTree.Id} - none of its "
-                        + $"{droppedRecordings} on-disk recording(s) still exist in the live tree with "
-                        + "sidecars on disk, so the carried node would resurrect deleted data");
+                        + $"{droppedRecordings} on-disk recording(s) still exist in the live tree, "
+                        + "so the carried node would resurrect deleted data");
                     return false;
                 }
 
@@ -1579,11 +1592,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Reconciliation predicate for one carried RECORDING node: the id must still be in
-        /// the live tree AND its trajectory sidecar must exist on disk. Either half missing
-        /// means the carried entry would describe data this save no longer has.
-        /// </summary>
-        /// <summary>
         /// Removes every BRANCH_POINT of a carried tree node that names a recording id
         /// outside <paramref name="keptIds"/>, in either its <c>parentId</c> or
         /// <c>childId</c> values. A branch point is a relation between recordings; with one
@@ -1635,36 +1643,19 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Testing seam for the sidecar-existence half of
-        /// <see cref="IsCarriedRecordingStillReal"/>. Production leaves it null and resolves
-        /// the real save-scoped path; xUnit sets it because
-        /// <c>RecordingPaths.ResolveSaveScopedPath</c> needs <c>KSPUtil.ApplicationRootPath</c>,
-        /// which throws outside KSP.
+        /// Reconciliation predicate for one carried RECORDING node: the id must still be in
+        /// the live tree. That is the whole test. Sidecar presence is deliberately NOT
+        /// consulted - see the "Why membership alone" paragraph on
+        /// <see cref="TryCarryForwardCommittedTreeNodeFromLoadedSave"/>: the carry runs
+        /// precisely when a live recording's sidecar cannot be written, so a sidecar
+        /// requirement drops the one recording the carry is for and deletes the tree
+        /// whenever that recording is the root. Pure over the tree; never touches disk.
         /// </summary>
-        internal static Func<string, bool> CarriedRecordingSidecarExistsOverrideForTesting;
-
         internal static bool IsCarriedRecordingStillReal(RecordingTree liveTree, string recordingId)
         {
             if (liveTree == null || string.IsNullOrEmpty(recordingId))
                 return false;
-            if (liveTree.Recordings == null || !liveTree.Recordings.ContainsKey(recordingId))
-                return false;
-            Func<string, bool> probe = CarriedRecordingSidecarExistsOverrideForTesting;
-            if (probe != null)
-                return probe(recordingId);
-            try
-            {
-                string precPath = RecordingPaths.ResolveSaveScopedPath(
-                    RecordingPaths.BuildTrajectoryRelativePath(recordingId));
-                return !string.IsNullOrEmpty(precPath) && System.IO.File.Exists(precPath);
-            }
-            catch
-            {
-                // Unresolvable path context: treat as absent rather than carrying an entry
-                // whose backing file cannot be confirmed. Degrades to the pre-fix drop,
-                // which is the safe direction.
-                return false;
-            }
+            return liveTree.Recordings != null && liveTree.Recordings.ContainsKey(recordingId);
         }
 
         internal static int TryRehydrateCommittedTreesAndMissionsFromDiskSave(

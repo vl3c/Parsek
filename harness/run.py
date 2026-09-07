@@ -2252,6 +2252,13 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
     # plus a category=multi:<count> AGGREGATE; resolve_batch_complete gates on the
     # aggregate union (failed==0 means EVERY category passed) and flags a missing
     # aggregate with per-category lines present as a defined fault (never a silent pass).
+    # A comma-list selector is COMMITTABLE since the 2026-09-07 multi-category
+    # amendment (validate_spec admits one on per-constituent whole pins), so this row
+    # is no longer reachable only through the batchVacuityOptOut escape. Nothing here
+    # changes for it: `_driven_category` returns the selector verbatim, and the row's
+    # own `multi` / `perCategoryCount` fields are what a reader needs to see that the
+    # gate was the aggregate rather than a single per-category line. The CONSTITUENTS
+    # are gated statically instead, at validation time, one whole pin each.
     driven_category = _driven_category(spec)
     batches = hlib.find_batch_complete_lines(log_text)
     sel = hlib.resolve_batch_complete(batches, driven_category)
@@ -2816,6 +2823,29 @@ def _stage_subkind_for(fu) -> str:
 
 
 def _driven_category(spec: Dict) -> Optional[str]:
+    """The spec's batch SELECTOR, verbatim - not necessarily one category.
+
+    Three shapes reach here and all three are returned unchanged, because the
+    selector string is what the seam consumes and what `hlib.resolve_batch_complete`
+    is written against: a single category (`"Watch"`), a comma list
+    (`"Watch,Unity,Bug289"`, admitted since the 2026-09-07 multi-category
+    amendment), and None when the spec owns no batch. `"all"` is a fourth shape the
+    seam accepts and `validate_spec` refuses on a batch-owning spec.
+
+    CONSUMERS MUST TREAT THIS AS A SELECTOR. The one consumer today is the
+    `batchComplete` verifier row, which passes it to `hlib.resolve_batch_complete`;
+    that function tests `is_multi_category_selector` itself and gates a comma list
+    on the `category=multi:<n>` AGGREGATE (union failed) after cross-checking the
+    aggregate's declared count against the per-category lines, so the row already
+    reports `multi=True perCategory=<n>` for such a spec with no change here.
+    Anything that ever needs the CATEGORIES rather than the selector must split it
+    with `hlib.parse_batch_selector_categories` rather than reading it as one name.
+    Nothing else in run.py reads the batch category: the coverage refresh keys off
+    `dimensionsCovered`, `hlib.spec_expects_live_recording` reads StartRecording /
+    SetSetting steps, `requires_batch` keys off the presence of a BATCH_COMPLETE
+    pattern, and the launch env forwards `driver.autorun.tests` verbatim - all four
+    are category-blind and therefore already multi-safe.
+    """
     driver = spec.get("driver", {}) or {}
     for step in driver.get("steps", []) or []:
         if step.get("cmd") == "RunTests":

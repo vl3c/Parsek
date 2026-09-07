@@ -57,13 +57,13 @@ M-A6 stack provisioner, M-B1 mission library, M-B2 ledger oracle, M-C1 seam verb
 batch 1, M-C2 EVA verbs. Status and per-module proof live in `autotest-status.md`.
 None of the items in this roadmap are blocked on a missing module.
 
-### Scenarios: 212 committed
+### Scenarios: 224 committed
 
-Re-derived 2026-09-07 at `cc1c4c573`: `ls harness/scenarios/*.toml` returns **212**
+Re-derived 2026-09-07 at the merge of #1646 (`e01d11f85`): `ls harness/scenarios/*.toml` returns **224**
 files, the total `autotest-status.md`'s `## Test cases` header states and
 `AutotestStatusScenarioCountTests` pins against the committed files. The 68 below
-was the 2026-08-04 snapshot; the V / GS / W / L / RVR / H41-H60 waves, among others, took it
-from 68 to 212 between 2026-08-04 and 2026-09-07.
+was the 2026-08-04 snapshot; the V / GS / W / L / RVR / H41-H70 / LT waves, among others, took it
+from 68 to 224 between 2026-08-04 and 2026-09-07.
 
 `ls harness/scenarios/*.toml` returned **68** files when this section was last
 re-derived before that (2026-08-04 at
@@ -77,15 +77,15 @@ EVA / CL / S0.x / H22-H25 / V1 / BDOCK waves and R14's MC-1/MC-2 took it from
 55 to 68. Adding a scenario is not the same as covering a cell. Re-derive
 these rather than editing them by memory; both numbers have moved many times.
 
-### Coverage: 159 of 247 registry cells (was 83 of 241 at the baseline, 108 of 242 on 2026-08-04)
+### Coverage: 162 of 247 registry cells (was 83 of 241 at the baseline, 108 of 242 on 2026-08-04)
 
-Re-derived 2026-09-07 at `cc1c4c573`, replacing the 2026-08-04 snapshot (108 of
+Re-derived 2026-09-07 at the merge of #1646 (`e01d11f85`), replacing the 2026-08-04 snapshot (108 of
 242; the registry has since grown by five values net: D6 +2, D9 +1, D10 +3, D16 -1). The
-command is unchanged: `hlib.compute_coverage(specs, [], registry)` over the 212
+command is unchanged: `hlib.compute_coverage(specs, [], registry)` over the 224
 committed specs and `harness/coverage/registry.toml` returns exactly:
 
 ```
-values 247   covered 159   uncovered 88   expectedFailValues 0   xpass 0
+values 247   covered 162   uncovered 85   expectedFailValues 0   xpass 0
 ```
 
 Per dimension (total / uncovered), with the 2026-08-04 uncovered count kept in
@@ -93,12 +93,12 @@ the last column so the delta stays legible:
 
 | Dim | Subject | Total | Uncovered | Was |
 |---|---|---:|---:|---:|
-| D1 | recording lifecycle | 18 | 7 | 7 |
+| D1 | recording lifecycle | 18 | 5 | 7 |
 | D2 | sampling | 4 | 1 | 1 |
 | D3 | reference frames | 7 | 4 | 4 |
 | D4 | track sections / optimizer | 12 | 6 | 6 |
 | D5 | tree topology | 12 | 6 | 7 |
-| D6 | playback / ghosts | 18 | 9 | 11 |
+| D6 | playback / ghosts | 18 | 8 | 11 |
 | D7 | part events / FX | 16 | 4 | 11 |
 | D8 | ledger / career | 18 | 0 | 6 |
 | D9 | rewind / re-fly | 17 | 1 | 4 |
@@ -111,7 +111,7 @@ the last column so the delta stays legible:
 | D16 | storage / sidecars | 12 | 8 | 9 |
 | D17 | mod compatibility | 6 | 4 | 4 |
 | D18 | re-fly / interaction | 12 | 10 | 10 |
-| | | **247** | **88** | **134** |
+| | | **247** | **85** | **134** |
 
 The cells still uncovered in four dimensions worth naming: D9 is down to
 `load-time-sweep` alone; D10 to `harvest-provenance` (this same commit adds the
@@ -149,8 +149,19 @@ sub-2-point-drop              switch-segment-noop-discard
 (`stop-on-switch` is one of the two R2 phantom cells - it may leave this list by
 deletion rather than coverage.)
 
-**Re-derived 2026-09-07:** D1 is **7 of 18** - `auto-merge` left the list above
-(the other seven are exactly the current uncovered set) - and the D9 paragraph
+That block is a DATED SNAPSHOT and is not re-derived here; the counts above it come
+from the coverage report and move only when it is re-run.
+`auto-record-first-mod-switch` has since LEFT it: `H68-autorecord-orbiting` and
+`H69-autorecord-landed` flew green on 2026-09-07 and claim it off the ORBITING and
+LANDED positive post-switch cells, each gated on the cell's own summary line
+(`mode=engine situation=ORBITING autoStartCount=1` / `situation=LANDED
+autoStartCount=1`). `commit-revert-merge` and `auto-merge` likewise left it with the
+R6 isolated wave on 2026-09-06 (H64, H67).
+
+**Re-derived 2026-09-07 (post-#1646):** D1 is **5 of 18** - `auto-merge` (H67),
+`commit-revert-merge` (H64, revert half) and `auto-record-first-mod-switch` (H68 /
+H69, above) left the list; the other five are exactly the current uncovered set - and
+the D9 paragraph
 below is HISTORY: R3 closed by flight on 2026-07-29 (S4.1 and S1.5 both green
 unattended on their own rows, see R3), S4.1's `[expectations.rewind]` block was
 armed 2026-07-31, and the R7 / S4.x / GS-6 / CL-3 lanes since then carry the
@@ -317,7 +328,7 @@ mission profile, and no existing verb produces them.**
 ### Cause C: missing seam capability
 
 `TestCommandVerbs.cs` declared 19 implemented verbs and 11 reserved when this was
-written. **At `cc1c4c573` (2026-09-07) `hlib.IMPLEMENTED_SEAM_VERBS` carries 31 and
+written. **At `e01d11f85` (2026-09-07) `hlib.IMPLEMENTED_SEAM_VERBS` carries 31 and
 `RESERVED_SEAM_VERBS` 5** (`StopPlayback`, `StashSlot`, `FlySlot`,
 `CrashAfterJournalPhase`, `RunInvariantReport`); the struck rows below were
 promoted, each as a strict promotion with the wire token byte-identical. The
@@ -405,19 +416,51 @@ stock. That is the whole of D17's blockage for 3 to 4 of its 6 cells.
 
 ### Cause E: missing harness machinery
 
-**One category per spec.** `hlib.SINGLE_BATCH_SELECTOR_RULE` (`hlib.py:691`, enforced
-at `hlib.py:2158-2190`) requires that a batch-owning spec drive exactly ONE
-`RunTests` step naming exactly ONE category. More than one step is an error; a
-multi-category selector (`"all"` or `"A,B"`) is an error. The rule applies to
-`driver.autorun.tests` as well, not just `driver.steps`. The stated reason is honest
-and narrow: the gating line for a multi-category run is the `category=multi:<n>`
-aggregate, whose tally sums the constituents, so "category B executed nothing" is not
-expressible on the current contract surface. There is a deliberate opt-out
-(`expectations.logContracts.batchVacuityOptOut` plus a required reason) but taking it
-throws away the anti-vacuity guarantee.
+**~~One category per spec.~~ CLOSED 2026-09-07 by the multi-category batch
+contract.** `hlib.SINGLE_BATCH_SELECTOR_RULE` used to require that a batch-owning
+spec drive exactly ONE `RunTests` step naming exactly ONE category: more than one
+step was an error, and so was any multi-category selector (`"all"` or `"A,B"`). The
+stated reason was honest and narrow - the gating line for a multi-category run is
+the `category=multi:<n>` aggregate, whose tally sums the constituents, so "category
+B executed nothing" was not expressible - and the consequence was that every
+category cost its own KSP boot, which is the tax that set the long-tail ceiling.
 
-Consequence: every category costs its own KSP boot. That is affordable at the scale
-of this roadmap (see COST) but it is the tax that sets the long-tail ceiling.
+A COMMA LIST is now admitted, on proof rather than on shape: validate_spec requires
+every constituent to carry its own whole `BATCH_COMPLETE` pin, probed against ONLY
+that constituent's own patterns (a sibling's pattern rejects those probes by
+category-token mismatch, i.e. for the wrong reason, which is the dodge the original
+refusal named). Nothing at run time changed - the multi-category driver already
+emitted one per-category line per constituent, and each required pattern is searched
+over the whole log independently - so the entire contract is static. The one-step
+rule stands, and `"all"` / an absent selector stay errors because their constituent
+set is decided at run time and cannot be enumerated from the spec. Full contract:
+`docs/dev/design-autotest-harness-core.md` -> "AMENDMENT 2026-09-07 - Multi-category
+batch contract"; test family `MultiCategoryBatchWiringGroupTests` in
+`harness/lib/test_hlib.py`; authoring guidance in `harness/README.md`. The
+deliberate opt-out (`expectations.logContracts.batchVacuityOptOut` plus a required
+reason) is unchanged and still throws away the anti-vacuity guarantee.
+
+**THE FIRST TWO LANES NOW EXIST AND ARE LIVE-PROVEN, both 2026-09-07.**
+`LT-1-long-tail-flight` drives 33 categories in one FLIGHT boot over `gloops-airshow`
+plus the injected `all-synthetic` corpus - run `2026-09-07_1511` (its second pinned flight; `_1502` red on the since-dropped DisabledHoverEcho pin), PASS attempt 1,
+297 s wall, `BATCH_COMPLETE v1 total=80 passed=54 failed=0 skipped=26
+category=multi:33 scene=FLIGHT` - and `LT-2-long-tail-spacecenter` drives 6 more at
+SPACECENTER over an empty store - run `2026-09-07_1516` (its second pinned flight; `_1508` red on the WarpToTime skip since fixed), PASS attempt 1, 46 s,
+`total=10 passed=7 failed=0 skipped=3 category=multi:6 scene=SPACECENTER`. Every
+verifier PASS or SKIPPED on both, and every per-constituent line pinned WHOLE, so
+`MultiCategoryBatchWiringGroupTests.INTERIM_PIN_IDS` is empty. Together they take the
+driven-category count from 70 of 112 to 106 of 112 (539 -> 607 declarations) in two
+boots. Status rows: `docs/dev/autotest-status.md`, "In-game MULTI-CATEGORY batch
+wiring, the long tail". Bucket detail: the inventory's A3 and B5 sections.
+
+What is NOT closed: six categories are still undriven, and every one names a HOST
+rather than a harness gap - `Contracts` (2) and `ResourceTopBar` (2) are career-only
+and want a `fresh-career` sibling of LT-2; `CrewReservationLive` (2) wants
+spawned-endpoint recordings in the corpus writer; `PartEventFX` (6) wants ghosts with
+resolvable FX parts; `RouteLiveAnchor` (1) wants a live station route; and
+`DisabledHoverEcho` (1) needs the OS pointer inside the game window, which no seam
+can place. The lanes' censuses measured each of those as executing nothing, which is
+why they are excluded by name rather than pinned as vacuous slices.
 
 **No structural save-content assertion.** The only assertion any spec can make about
 the produced recordings is `recordings.count`, a min/max integer window, and it is
@@ -687,8 +730,11 @@ Flight? No. Two seam boots.
 **R4. Drive the D1 finalization family. Five specs, five boots, no code.**
 **MOSTLY SHIPPED**: #1358 wired and flew `IncompleteBallistic` (H9),
 `FinalizeBackfill` (H10) and `RecordingFinalization` (H19), and #1367's H21 covers
-the scene-exit merge path via the isolated batch. Residual: `FinalizeLimbo` (2) and
-`Bug289` (2) are still undriven.
+the scene-exit merge path via the isolated batch. ~~Residual: `FinalizeLimbo` (2) and
+`Bug289` (2) are still undriven.~~ **FULLY SHIPPED 2026-09-07**: the last two are
+`LT-1-long-tail-flight` constituents and each executed WHOLE (2 of 2, zero skips) on
+run `2026-09-07_1511`. They were never blocked - both are zero-self-skip and
+FLIGHT-scene - only unpriced, which is precisely the long-tail tax R13 removed.
 
 `IncompleteBallistic` (8), `FinalizeBackfill` (7), `RecordingFinalization` (3),
 `FinalizeLimbo` (2), `Bug289` (2). All 22 are FLIGHT-scene and all are
@@ -772,24 +818,112 @@ stock-minimal` to reach a harness run.
 
 **R6. Drive the recording-lifecycle and classification batches.** Roughly 8 specs.
 
-**STANDING 2026-09-07** (re-derived from `autotest-ingame-category-inventory.md`,
-which is the per-category authority): DRIVEN - `SceneExitMerge` (H21),
-`TrajectoryMath` (H7), `Pipeline-Anchor` (H11), `SwitchSegment` (H12). STILL
-UNDRIVEN - the whole isolated set `AutoRecord` (10), `MergeDialog` (2),
-`RevertFlow` (1), `Coalescer` (2), `QuickloadResume` (3), plus the batch-reachable
-`Optimizer` (2), `BackgroundSeeder` (2), `Recording` (1) and `SwitchIntentPatch`
-(3). R6 therefore still exists as a unit: the isolated-lifecycle remainder (R5's
-seam is shipped, so these are spec work) and four small B-bucket categories.
+- ~~Isolated (needs R5): `AutoRecord`, `SceneExitMerge`, `MergeDialog`, `RevertFlow`,
+  `Coalescer`, `QuickloadResume`.~~ **AUTHORED 2026-09-06 - ALL SEVEN; SIX LIVE-PROVEN
+  THE SAME DAY.**
+  `SceneExitMerge` shipped earlier as R5's shakedown (`H21-scene-exit-merge-isolated`,
+  LIVE-PROVEN 2026-07-27); the rest are now committed as
+  `H61-autorecord-isolated`, `H62-coalescer-isolated`, `H63-merge-dialog-isolated`,
+  `H64-revert-flow-isolated`, `H65-quickload-resume-isolated`,
+  `H66-playback-control-isolated` and `H67-automerge-commit-isolated`. That is SEVEN
+  rather than the five this line listed: `PlaybackControl` and `AutoMergeCommit` were
+  in the same unlocked population and belong here. Every one was authored as an INTERIM
+  pin (`total=` attribute-exact, `failed=0` asserted, split a regex class) with a
+  cell-by-cell predicted census in its own header. SIX HAVE NOW FLOWN AND ARE PINNED
+  WHOLE, each PASS on attempt 1 with every verifier PASS or SKIPPED: H61
+  `2026-09-06_2010` (82 s, `total=10 passed=5 failed=0 skipped=5`), H63 `_2012` (58 s,
+  `2/2/0/0`), H64 `_2013` (60 s, `1/1/0/0`), H65 `_2014` (63 s, `3/3/0/0`), H66 `_2015`
+  (74 s, `1/1/0/0`), H67 `_2016` (55 s, `1/1/0/0`) - and not one header prediction was
+  refuted. `H62-coalescer-isolated` flew twice: `_1956` on gs1-two-stage-pad read
+  `passed=0 skipped=2` (gs1's first stage lights the engine, so the one staging call
+  separated nothing), and `_2017` on the derived `coalescer-pad` host read `2/2/0/0`
+  and is pinned whole. `IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS` is empty again. Status
+  rows: `docs/dev/autotest-status.md`, "In-game ISOLATED
+  batch wiring, R6 isolated half, H61-H67". Bucket detail:
+  `docs/dev/autotest-ingame-category-inventory.md`, "B6-ISO".
 
-- Isolated (needs R5): `AutoRecord`, `SceneExitMerge`, `MergeDialog`, `RevertFlow`,
-  `Coalescer`, `QuickloadResume`. Closes D1 `auto-record-first-mod-switch`,
-  `commit-scene-exit`, `commit-revert-merge`; D5 `controlled-decoupled-child`,
-  `crash-coalescing`; D9 `rewind-to-launch`.
-- Free today: `Optimizer` (D4 `env-body-split`, `surface-graze-suppression`),
+  **THE COVERAGE LINE ABOVE WAS WRONG IN TWO PLACES, and the authoring pass found it
+  by reading the cell bodies.** It used to read "Closes D1
+  `auto-record-first-mod-switch`, `commit-scene-exit`, `commit-revert-merge`; D5
+  `controlled-decoupled-child`, `crash-coalescing`; D9 `rewind-to-launch`". Corrected:
+  - D1 `auto-record-first-mod-switch` is NOT closed by `AutoRecord` on a PRELAUNCH
+    host. All three POSITIVE post-switch cells demand LANDED or ORBITING, so the only
+    one that executes is the negative `AutoRecordOnPostSwitch_NoOp_DoesNotStart`.
+    Closing it needs a LANDED host and an ORBITING host - two follow-up lanes.
+    BOTH FLEW GREEN 2026-09-07 (H69 LANDED, H68 ORBITING) and the value is now
+    CLOSED; the paragraph below carries the run ids and the gating cell lines.
+  - D5 `crash-coalescing` is NOT closed by `Coalescer`. Both its cells stage a
+    decoupler and assert on the resulting CONTROLLED child; neither crashes anything.
+  - D9 `rewind-to-launch` is NOT closed by `QuickloadResume`. That value names
+    Parsek's own rewind machinery; these cells drive KSP's F5/F9 backend, which has no
+    registry value. H65 claims nothing beyond D14.
+  What the wave claims: D1 `auto-record-launch` + `auto-record-eva`
+  (H61), `discard-rollback` (H63), `commit-revert-merge` (H64, revert half only),
+  `commit-scene-exit` + `auto-merge` (H67); D5 `controlled-decoupled-child` (H62);
+  D6 `spawn-at-end-pid-dedup` and D9 `fast-forward` (H66). All of these are now
+  backed by a green census rather than by the spec alone.
+  THE THREE CORRECTIONS ABOVE ALSO SURVIVED THE CENSUS: H61's three positive
+  post-switch cells each skipped naming their required situation against `got
+  PRELAUNCH`, so D1 `auto-record-first-mod-switch` is measured-open, not argued-open,
+  and the LANDED / ORBITING follow-up lanes are still owed.
+  **THE FOLLOW-UP LANES WERE AUTHORED 2026-09-07 AND ALL THREE FLEW GREEN THE SAME
+  DAY**, and there were THREE rather than the two named above - the third pays H61's
+  CREW skip, which this paragraph did not count as owed. Each changes exactly ONE
+  thing about H61, the fixture, so a census delta is attributable to the host alone.
+  Each PASS on attempt 1, every verifier PASS or SKIPPED, each pinned WHOLE:
+  `H68-autorecord-orbiting` over `gs2-orbital-stack`, run `2026-09-07_1618`, 74 s,
+  `total=10 passed=3 failed=0 skipped=7` (the ORBITING positive post-switch cell PASSED
+  - watch armed, real engine ignited, `mode=engine situation=ORBITING
+  autoStartCount=1`); `H69-autorecord-landed` over `rover-route-recorded`, run
+  `2026-09-07_1619`, 99 s, `10/4/0/6` (the LANDED one PASSED - rover nudged a metre,
+  `situation=LANDED autoStartCount=1`); and `H70-autorecord-pad-crew` over
+  `eva3-pad-3crew`, run `2026-09-07_1621`, 91 s, `10/5/0/5` (the never-executed
+  `EvaTwiceFromSameCapsuleProducesTwoBranches` EXECUTED AND PASSED, `evaBranches=2`).
+  **D1 `auto-record-first-mod-switch` IS THEREFORE CLOSED** - claimed by H68 and H69,
+  each gated on its cell's own summary line rather than on a tally, and both lines are
+  now in the runs' artifact logs (`harness/results/<run>_shots/KSP.log`, gitignored). THE LANDED / ORBITING FOLLOW-UP LANES ARE NO LONGER OWED.
+  UNION ACROSS THE FOUR HOSTS: 8 of `AutoRecord`'s 10 cells now execute somewhere.
+  TWO PIECES OF H61's RESIDUE SURVIVED EVEN THESE THREE, found by reading the cell
+  bodies before the flights and both confirmed by them, and both are recorded so
+  nobody re-plans them as host swaps. THEY ARE THE REMAINING TWO HOSTS THIS CATEGORY
+  IS OWED: (a) a DEPLOYABLE-GEAR HOST for `AutoRecordOnPostSwitch_GearToggle_*`, which
+  needs a part carrying `ModuleWheels.ModuleWheelDeployment` - the rover carries only
+  rolling wheel modules (`ModuleWheelBase` / `Brakes` / `Damage` / `Motor` /
+  `Steering` / `Suspension`), and H69 MEASURED the cell passing its LANDED situation
+  guard and skipping one guard later on `active landed vessel has no deployable
+  landing-gear module the canary can toggle`, so a LANDED host is NECESSARY BUT NOT
+  SUFFICIENT and closing it is a HARVEST requirement for a landed craft with
+  retractable gear or legs; (b) a FLYING-IN-ATMOSPHERE CREWED HOST for
+  `EvaKerbalGhostHasVesselSnapshot`, which no committed fixture is. H68 predicted that
+  cell would FAIL in orbit (the old guard skipped only PRELAUNCH / LANDED / SPLASHED
+  while the body waits on `WaitForActiveEvaSurfaceSettled` and asserts
+  `TerminalState.Landed`); THE GUARD WAS WIDENED in `Source/` in the same wave to name
+  the requirement it always meant, so the census measured a SKIP - `requires a crewed
+  vessel FLYING inside an atmosphere, got ORBITING` - and the host requirement is now
+  stated by the product rather than inferred. FLYING is necessary, not sufficient: the
+  body's 10 s settle wait and Landed terminal mean the forge must be sized FLYING low over terrain - low enough that the EVA kerbal reaches the ground inside the cell's 10 s settle wait and its terminal reads Landed, not Splashed; a just-airborne or hovering craft over the KSC grass, not a cruise-altitude one.
+  A THIRD THING THE FLIGHTS PRODUCED, worth more than the tallies: the FIRST round
+  (`_1609` H68, `_1611` H69) red on a RUNNER defect - the isolated batch's per-cell
+  baseline restore handed a cell control before KSP's `onFlightReady` for the reloaded
+  scene, whose `ParsekFlight` handler resets the post-switch watch. PAD hosts won that
+  race every time (H61, and H70 on both of its flights), so a green census had shipped
+  over it and only a same-category-different-host lane could see it. Fixed in `Source/`
+  and filed as `ISOLATED-RESTORE-HANDS-OFF-BEFORE-ONFLIGHTREADY`.
+- ~~Free today: `Optimizer` (D4 `env-body-split`, `surface-graze-suppression`),
   `BackgroundSeeder` (D4 `seed-event-split`), `Recording` (D5 `bg-on-rails`),
   `TrajectoryMath` (D2 `threshold-debounce`), `Pipeline-Anchor` (D3
   `relative-anchored-nonloop`, `relative-loop`, `boundary-seam`), `SwitchSegment` +
-  `SwitchIntentPatch` (the D1 switch-intent GATE layer, not a real switch).
+  `SwitchIntentPatch` (the D1 switch-intent GATE layer, not a real switch).~~
+  **ALL SIX ARE NOW DRIVEN.** `TrajectoryMath` (H7), `Pipeline-Anchor` (H11) and
+  `SwitchSegment` (H12) shipped with #1358. The remaining three plus
+  `SwitchIntentPatch` came in on 2026-09-07 as multi-category constituents:
+  `Optimizer` (2 of 2) and `Recording` (1 of 1) whole at SPACECENTER on
+  `LT-2-long-tail-spacecenter`, `BackgroundSeeder` 1 of 2 at FLIGHT on
+  `LT-1-long-tail-flight` (the seed cell wants stateful parts the 1-part pod host does
+  not carry), and `SwitchIntentPatch` 1 of 3 on each lane - LT-1 runs its FLIGHT cell,
+  LT-2 its KSC marker cell, and the TRACKSTATION cell still owes a TS lane. The
+  registry values above are NOT claimed off those runs: a whole-tally pin asserts the
+  cells RAN, not what they proved, and both lanes claim D14 only.
 
 Note on `Pipeline-Anchor`: analyzer rule `Inv3RelativeContract` already runs on every
 scenario's produced save, but it fires only on VIOLATIONS. It cannot prove the
@@ -852,21 +986,35 @@ Flight? Yes - five flown (three R7 + two re-confirmations), 53-68 s each.
   (`SpawnHealth`), so all 29 run in a FLIGHT batch. #1358 wired three of the eight -
   `SpawnRotation` (10, H8), `SpawnHealth` (3, H16), `EvaSpawnPosition` (2, H20) - and
   claimed `surface-orbit-reseed`, `three-cycle-abandon`, `terrain-correction`,
-  `trajectory-walkback`. REMAINING here: `TerrainClearance` (6),
+  `trajectory-walkback`. ~~REMAINING here: `TerrainClearance` (6),
   `SpawnTerminalOrbit` (3), `SpawnCollision` (2), `Spawner` (2), `Pipeline-Terrain`
   (1) - 14 tests, all FLIGHT, all on a fixture we own. Note every one of the five
   carries self-skip guards (see the inventory doc's bucket B4), which is why #1358
   left them: the batch would run and skip. Reading their guard preconditions and
-  choosing a fixture that satisfies them is the actual remaining work, and it is
-  still the cheapest whole-dimension close available.
+  choosing a fixture that satisfies them is the actual remaining work.~~
+  **ALL FIVE ARE NOW DRIVEN.** `TerrainClearance` went to `H43` in Phase-4 Wave 1
+  (6 of 6, 2026-08-28); the other four are `LT-1-long-tail-flight` constituents flown
+  2026-09-07 - `SpawnTerminalOrbit` 3 of 3, `SpawnCollision` 2 of 2 and
+  `Pipeline-Terrain` 1 of 1 all WHOLE, `Spawner` 1 of 2 (its residue wants autostrut
+  parts in range). The "the batch would run and skip" caution was right about the
+  guards and wrong about the yield: on `gloops-airshow` plus the injected corpus,
+  7 of those 8 cells executed. What kept them unwired was the boot price, not the
+  guards - which is the R13 tax, and it is gone.
 - D6: `GhostLifecycle` (15 of 17; the other 2 are TRACKSTATION-scene - no longer
   stranded, R12 SHIPPED `LoadGame scene=trackstation`, but they need a TRACKSTATION
   spec of their own, since a batch names one category - AND see the inventory
   doc's B4 correction: a full-body read measured ~11 of 17 unreachable on any
   committed fixture, so it is generator/product work, not the next spec),
   ~~`GhostAudio` (9)~~ CLOSED by wave-2's `H30`, ~~`MapPresence` (5)~~ CLOSED by
-  wave-2's `H28`, `ReentryFx` (3), `Watch` (2). None of the remainder needs the
-  reserved `StartLoopPlayback` / `EnterWatchMode` verbs.
+  wave-2's `H28`, ~~`ReentryFx` (3)~~ CLOSED by Phase-4 Wave 1's `H52` (3 of 3,
+  2026-08-28), ~~`Watch` (2)~~ CLOSED 2026-09-07 as an `LT-1-long-tail-flight`
+  constituent (2 of 2, whole, over the injected corpus). None of the remainder needs
+  the reserved `StartLoopPlayback` / `EnterWatchMode` verbs.
+  `GhostLifecycle` IS NOW DRIVEN TOO, as an LT-1 constituent, and the flight measured
+  `total=17 passed=2 failed=0 skipped=15` - BELOW the ~4-of-17 the body read
+  predicted, so the "generator/product work, not the next spec" verdict stands on a
+  number. Its 2 TRACKSTATION cells still want a TS lane, and a multi-category one is
+  now cheap.
 - D8: ~~`LedgerGroundTruth` (1, needs a CAREER FLIGHT fixture - UNBLOCKED 2026-07-28,
   R11 is closed by `career-pad-craft`)~~ DRIVEN by L2 / L4 (3 declarations,
   2026-08-17 on), `Contracts` (2), ~~`StrategyLifecycle` (2)~~ DRIVEN by L3 (10
@@ -1064,16 +1212,31 @@ WHAT R12 LEAVES BEHIND, each a separate follow-up and none of it a regression:
   `scene=trackstation`; each still needs its own spec.
 
 **R13. Widen `SINGLE_BATCH_SELECTOR_RULE` to N categories with N pinned tallies.**
-One harness PR.
+~~One harness PR.~~ **SHIPPED 2026-09-07, and its first two lanes are LIVE-PROVEN the
+same day.**
 
-The runner already emits per-category `BATCH_COMPLETE` lines plus a
-`category=multi:<n>` aggregate, and `hlib.resolve_batch_complete` already parses
-both. What is missing is teaching `batch_contract_vacuity_gap` to probe each named
-category against its own pinned tally, which is what the current rule's own comment
-says is "NOT expressible on this contract surface". Ranked HERE and not higher on
-purpose: it is an efficiency item, not an unlock. At one category per spec the whole
-undriven-category fan-out is roughly 89 boots, about 89 minutes, which the schedule
-can absorb. The reason to do it is the long tail, not the D1-D9 basics.
+The runner already emitted per-category `BATCH_COMPLETE` lines plus a
+`category=multi:<n>` aggregate, and `hlib.resolve_batch_complete` already parsed
+both. What was missing was teaching `batch_contract_vacuity_gap` to probe each named
+category against its own pinned tally, which is what the old rule's own comment
+said was "NOT expressible on this contract surface". DELIVERED as exactly that: the
+seam's `RunTests` accepts a comma list and drives it sequentially, and `validate_spec`
+admits such a spec only when every constituent carries its own whole
+`BATCH_COMPLETE` pin, probed against only that constituent's own patterns. Nothing at
+run time changed. Contract:
+`docs/dev/design-autotest-harness-core.md` -> "AMENDMENT 2026-09-07 - Multi-category
+batch contract"; test family `MultiCategoryBatchWiringGroupTests`.
+
+RANKED HERE AS AN EFFICIENCY ITEM RATHER THAN AN UNLOCK, and that was right about the
+mechanism and wrong about the size. The estimate was "at one category per spec the
+whole undriven-category fan-out is roughly 89 boots, about 89 minutes, which the
+schedule can absorb". What it actually bought: `LT-1-long-tail-flight` (33 categories,
+297 s) and `LT-2-long-tail-spacecenter` (6 categories, 46 s) took the driven-category
+count from 70 of 112 to 106 of 112 in TWO boots and 343 s. The fan-out never happened
+because nobody was going to spend 89 boots on one- and two-cell categories, which is
+what made the "efficiency item" framing understate it - the tail was not slow to
+drive, it was not worth driving.
+Flight? Two, both flown 2026-09-07 and green on attempt 1.
 
 **R14. Provision `modded-compat` and add one spec.** One provision run, one spec.
 
@@ -4236,6 +4399,17 @@ per-category lines, both parsed by `hlib.resolve_batch_complete`), but
 `batchVacuityOptOut` escape and discarding the anti-vacuity guarantee. This is why
 R13 is framed as widening the rule rather than "just use the existing form", and why
 R4's cost is honestly five specs and five boots rather than one.
+
+**STILL THE RIGHT CALL, AND SUPERSEDED 2026-09-07.** The rejection was correct for
+the form it rejected - `[driver.autorun]` batches taking the opt-out - and zero
+committed specs use that form today. What changed is the rule, not the escape: R13
+widened `SINGLE_BATCH_SELECTOR_RULE` to admit a comma list on a `driver.steps`
+`RunTests` step when every constituent carries its own whole `BATCH_COMPLETE` pin, so
+the family collapse this note called "for free" is now available at full anti-vacuity
+strength and WITHOUT the opt-out. `LT-1-long-tail-flight` and
+`LT-2-long-tail-spacecenter` are the first two lanes, both flown green 2026-09-07.
+The one thing the note got exactly right survives: the collapse was never free, and
+its price is one pinned tally per constituent measured off a census flight.
 
 **Corrected: "drive the `Logistics` category, 47 written tests, one 60 s boot."**
 38 of the 47 carry `AllowBatchExecution = false`, so only 9 are batch-reachable

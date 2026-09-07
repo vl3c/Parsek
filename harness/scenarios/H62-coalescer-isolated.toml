@@ -1,0 +1,152 @@
+schema = 1
+id = "H62-coalescer-isolated"
+tier = "nightly"
+# ROADMAP R6, ISOLATED HALF, LANE 2 OF 7. The two `Coalescer` cells drive a REAL
+# controlled-decoupled split: they start a live recording, stage the active vessel so
+# a second command-bearing half comes off a decoupler, and then read the recorder's
+# own decisions back off the log and off the tree.
+#
+# WHY IT NEEDS THE ISOLATED ARG. Both declarations are `AllowBatchExecution = false`
+# + `RestoreBatchFlightBaselineAfterExecution = true`, so the ordinary filter executes
+# ZERO and the isolated filter executes both - H21's shape exactly. The category is
+# WHOLLY batch-disabled, so the ordinary path's executable ceiling is 0: the line it
+# could print is `passed=0 skipped=2`, which the whole pin below rejects outright.
+#
+# LIVE-PROVEN 2026-09-06 on the SECOND flight: run `2026-09-06_2017`, PASS attempt 1,
+# 57 s wall, every verifier PASS/SKIPPED, `BATCH_COMPLETE v1 total=2 passed=2 failed=0
+# skipped=0 category=Coalescer scene=FLIGHT` with both cells PASSED in ~1.4 s each.
+# The FIRST flight (`2026-09-06_1956`, on gs1-two-stage-pad) read `passed=0 skipped=2`
+# and is what the `[fixture]` block below is about: the census refuted the host, not
+# the cells. The pin is now WHOLE and literal.
+description = "Drive the in-game Coalescer category through the ISOLATED batch entry point over a two-controller decoupler craft: stage a real controlled-decoupled child and assert the live seed residual decision and the ParentAnchorRecordingId stamp - two tests no unattended path could run before R5."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "isolated-batch", "coalescer", "controlled-decoupled-child", "R6", "H62"]
+
+[fixture]
+# `coalescer-pad` IS `gs1-two-stage-pad` WITH THE DECOUPLER MOVED INTO THE FIRST STAGE,
+# derived byte for byte by `harness/tools/build_coalescer_pad.py` (drift-gated by
+# `harness/lib/test_coalescer_pad.py`). The three guards the cells state are all met
+# by gs1's craft - and the first census proved that is not enough:
+#   1. `sit = PRELAUNCH` + `ModuleEngines` - both cells call
+#      `StageManager.ActivateNextStage()` ONCE and need that stage to actually fire.
+#      This is the `staging` requirement `IsolatedBatchWiringGroupTests` gates
+#      statically.
+#   2. `HasAtLeastTwoCommandModules(vessel)` - the skip reads "requires an active
+#      vessel with 2+ command modules/probe cores, got N". A controlled-decoupled
+#      CHILD is by definition the half that keeps a controller, so a single-pod craft
+#      produces DEBRIS and neither cell has a subject. The `GS1 Auto-Chute Booster`
+#      carries `mk1pod.v2` AND `probeCoreOcto2.v2` (two `ModuleCommand`).
+#   3. `HasDecouplerModule(vessel)` - the craft carries a `Decoupler.1`
+#      (`ModuleDecouple`), verified by reading its VESSEL block.
+# WHAT THE FIRST CENSUS FOUND (run `2026-09-06_1956`, collected logs folder
+# `2026-09-06_2258_H62-coalescer-isolated`, on gs1-two-stage-pad itself):
+# `total=2 passed=0 failed=0 skipped=2`, both cells skipping with "requires the next
+# stage to separate a controllable child". gs1's staging is the GS-1 FLIGHT's - stage
+# 2 lights the engine, stage 1 fires the decoupler and the booster chutes - so the
+# cells' single staging call ignited the engine on the pad and separated nothing. The
+# guards check for a decoupler's PRESENCE; what the cells need is a decoupler in the
+# NEXT stage, which no attribute and no static requirement can see. The derived host
+# swaps exactly two parts' `istg`/`sqor` (Decoupler.1 1 -> 2, liquidEngine2 2 -> 1)
+# and leaves `stg = 3`, so the first `ActivateNextStage()` now parts the pod (root,
+# stays active) from the booster (probe core + tank + engine + chutes) - a controlled
+# child sitting on the pad, engine unlit. Nothing else in the save differs from gs1.
+# `gloops-airshow` fails 1, 2 and 3; `b2-lko-craft` satisfies 1 and 3 but its 73-part
+# launcher's upper stage is not a second CONTROLLER, so it would take the debris path.
+#
+# SANDBOX, empty corpus, `injectedRecordings = "none"`: both cells build their own
+# tree from a live recording and reap it, and an injected corpus would only add store
+# noise to the parent-anchor walk.
+saveTemplate = "fixtures/saves/coalescer-pad"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# `autoRecordOnLaunch` pinned false for H21's reason: both cells guard on
+# `flight.IsRecording` and skip when a recording is ALREADY active, then start their
+# own with `StartRecording`. Auto-record fires on situation change / staging and
+# short-circuits on `isRecording`, so the ordering happens to be safe today - pinning
+# it false removes the race outright rather than resting on that ordering, and it
+# matters more here than usual because these cells STAGE, which is precisely the
+# trigger auto-record watches.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "Coalescer", isolated = "true" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# ONE TOKEN, and the roadmap's R6 entry claims TWO. R6 says `Coalescer` closes D5
+# `controlled-decoupled-child` AND `crash-coalescing`. Reading the two bodies refutes
+# the second: `ControlledChildBreakupSeed_LogsLiveResidualDecision` and
+# `ControlledChildBreakup_StampsParentAnchorContract` both stage a decoupler and
+# assert on the resulting CONTROLLED child - neither crashes anything, neither
+# destroys a part, and nothing in either body reaches the crash-coalescing path. So
+# only `controlled-decoupled-child` is claimed, and the roadmap line is corrected in
+# the same commit. Closing `crash-coalescing` needs a lane that actually crashes a
+# multi-part vessel; CL-1 / CL-2's pod-impact family is where that belongs.
+#
+# What the claim rests on, executed rather than decided: cell 1 asserts the live seed
+# residual decision line carries a numeric `seedLiveRootDist=` and
+# `propagatedResidual=` (explicitly rejecting `propagatedResidual=n/a`); cell 2
+# asserts the child recording's `ParentAnchorRecordingId` points at the FOCUSED
+# PARENT's recording at split time - the parent-anchored contract's producer side.
+D5  = ["controlled-decoupled-child"]
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# ZERO - the campaign-isolation assertion, as in H21 and H61. Both cells create a
+# real tree and reap it in a finally block; the isolated path restores a quickloaded
+# flight baseline after each; the batch teardown reverts persistent.sfs from the
+# pre-batch `.bak`. `coalescer-pad` stages an EMPTY corpus and injects nothing,
+# so a non-zero count means the restore contract did not hold rather than that a cell
+# leaked.
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# EVIDENCE STANDING: MEASURED, run `2026-09-06_2017` (PASS attempt 1, 57 s wall):
+# `total=2 passed=2 failed=0 skipped=0`, both cells PASSED. The first flight,
+# `2026-09-06_1956` on gs1-two-stage-pad, read `passed=0 skipped=2` (see the
+# fixture block above).
+#
+# `total=2` is ATTRIBUTE-EXACT (two `[InGameTest(Category = "Coalescer")]`
+# declarations, both FLIGHT-scoped, kept in sync by
+# `CommittedBatchTallySourceSyncTests`). `failed=0` is the ASSERTION; `passed=` and
+# `skipped=` are the measured literals.
+#
+# THE PREDICTION, written to be refuted: BOTH EXECUTE, `total=2 passed=2 failed=0
+# skipped=0`. Every one of each cell's six pre-flight guards is a property of this
+# host that can be read off its VESSEL block (active vessel present, idle, no pending
+# tree, 2+ command modules, a decoupler, `FlightInputHandler.state`), which is why
+# this lane's prediction is stronger than H61's. What NO save file settles is the
+# LIVE half: each cell carries one further skip deep in its body, after the stage
+# fires, for the case where the split does not produce the child the cell needs. That
+# is the census's actual product.
+#
+# The two non-tally tokens are both isolated-path-only: the seam echo (also the
+# stale-automation-DLL canary) and the baseline-slot line, whose literal 2 is DERIVED
+# as the count of restore-flagged declarations the isolated filter admits at FLIGHT.
+required  = [
+  "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=Coalescer scene=FLIGHT",
+  "runtests start category=Coalescer isolated=true",
+  "Using batch baseline slot .* for 2 restore-after-run test\\(s\\)",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# 1320 s worst case (660 LoadGame + 660 RunTests, both deferred verbs given
+# `required_step_wait(max(budget, 600))`); 1400 clears it so a seam TIMEOUT surfaces
+# as a retryable driver-INVALID rather than a harness KILL that prints no tally.
+# Two staging cells with one baseline restore each project to H21's measured ~100 s
+# wall.
+budgetSeconds = 1400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
