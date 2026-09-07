@@ -457,6 +457,75 @@ assumed, both errors waivable through the same opt-out:
   not expressible on this contract surface at all; and a pin naming one constituent
   rejected the other's probes for the wrong reason (category-token mismatch), which
   read as "no gap". Fail-closed until the aggregate grows a per-constituent surface.
+  **AMENDED 2026-09-07 - see "Multi-category batch contract" below. The comma list
+  is now ADMITTED on per-constituent proof; `"all"` and an absent selector stay
+  errors.**
+
+**AMENDMENT 2026-09-07 - Multi-category batch contract (the comma list).** The
+shape rule's second bullet is relaxed for the enumerable case. A batch-owning spec
+may name a comma list on its ONE `RunTests` step, and validate_spec admits it
+WITHOUT the opt-out if and only if, for EVERY constituent `C`:
+
+1. at least one `logContracts.required` pattern pins `category=C` literally AND a
+   literal `scene=` (i.e. `hlib.BatchTallyPin.statically_checkable`), and
+2. `hlib.batch_contract_vacuity_gap` returns None for `C` when handed **only the
+   patterns whose literal category is `C`**.
+
+Condition 2's filter is the whole amendment. The 2026-07-26 refusal was correct
+about the dodge it named: a pattern pinning `category=A` rejects every `B` probe by
+token mismatch - for the wrong reason - so probing the unfiltered required list
+would report every constituent non-vacuous the moment ANY sibling was pinned.
+Restricting each constituent's probe to that constituent's own patterns removes the
+dodge instead of removing the shape. What made this possible without new runner work
+is that the aggregate never had to grow a surface: the multi-category driver ALREADY
+emits one per-category `BATCH_COMPLETE` line per constituent before the aggregate,
+and `evaluate_expectations` searches every required pattern over the whole log
+independently, so N whole per-category pins are simply N independent contracts.
+
+`"all"` and an absent selector remain errors, and the reason differs in kind rather
+than degree: their constituent set is decided at run time by whatever the assembly
+declares, so "every constituent is pinned" is not a statement validation can
+evaluate at all. A comma list writes its constituents down.
+
+Malformed lists are rejected by name (`hlib.selector_has_malformed_tokens`): an
+EMPTY token (`"A,,B"`, a leading or trailing comma) because the parse would absorb
+it into a SHORTER constituent list than the author wrote - fewer categories demanded
+than the runner will batch, the unsafe direction - and a DUPLICATE token (`"A,A"`)
+because the runner would batch the category twice and print two `category=A` lines,
+so one pinned line leaves one of the two batches ungated. That is the two-`RunTests`
+-steps dodge in a different spelling.
+
+Pure surface: `hlib.parse_batch_selector_categories(selector) -> List[str]` (`[]`
+for absent/empty, `["all"]` for RunAll, stripped tokens in declaration order
+otherwise), `hlib.selector_has_malformed_tokens(selector) -> Optional[str]` (the
+reason, truthy exactly when malformed), and
+`hlib.resolve_batch_tally_pins_by_category(required_patterns) -> Dict[str,
+BatchTallyPin]` (one pin per literal category; the aggregate and any non-literal
+`category=` are excluded). `resolve_batch_tally_pin` is UNCHANGED and stays the
+single-category resolver: it merges first-literal-wins across every pattern, which
+on a comma-list spec would fuse constituent A's `total=` with constituent B's
+`scene=` into a pin describing no line the runner prints. A multi spec must use the
+by-category resolver, and every repo-wide sweep that reads a pin does.
+
+Run time is unchanged and needed no change: `run.py::_driven_category` returns the
+SELECTOR verbatim, `hlib.resolve_batch_complete` already gates a multi selector on
+the aggregate's union `failed` after cross-checking `multi:<n>` against the
+per-category line count, and the `batchComplete` verifier row already reports
+`multi=True perCategory=<n>`. The CONSTITUENTS are gated statically, at validation
+time, one whole pin each.
+
+Test surface: `MultiCategoryBatchWiringGroupTests` in `harness/lib/test_hlib.py` is
+the third wiring family (membership DISCOVERED from disk by comma-list selector,
+compared for set equality with its GROUP table). Per member and per constituent it
+asserts the derived total, the pinned total, a whole pin unless the member is in
+`INTERIM_PIN_IDS`, a NON-ZERO executable floor at the spec's scene and batch mode,
+uniqueness within the spec, and no two members sharing a `(scene, category)` pair.
+The executable floor is the cell the family exists for: a constituent that is wholly
+scene-ineligible or wholly batch-disabled at the boot scene contributes `passed=0`
+to a still-green aggregate, which is the B10 class one level down and invisible at
+run time - the per-category line is present and honest. The three wiring families
+(ordinary H-series, isolated, multi) are disjoint, each keyed off the spec's own
+selector or batch mode rather than off an id prefix.
 
 **Detection is PER-PATTERN, not per-line.** `evaluate_expectations` applies each
 required pattern with `re.search` over the WHOLE log INDEPENDENTLY, so two patterns

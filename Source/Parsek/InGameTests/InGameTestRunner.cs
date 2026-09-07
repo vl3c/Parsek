@@ -68,6 +68,14 @@ namespace Parsek.InGameTests
     public class InGameTestRunner
     {
         private const string Tag = "TestRunner";
+
+        /// <summary>
+        /// The tag every BATCH_COMPLETE line is logged under. The M-A2 seam's
+        /// multi-category driver logs the category=multi:N aggregate through this so it
+        /// carries the same <c>[Parsek][INFO][TestRunner]</c> prefix the autorun driver's
+        /// aggregate does and the BAT-001 log contract / hlib's batch parser read it.
+        /// </summary>
+        internal const string BatchCompleteLogTag = Tag;
         internal const string DefaultBatchSkipReason =
             "Single-run only — excluded from Run All / Run category because it performs a destructive scene transition. Run it from the row play button in a disposable session.";
         internal const string DefaultBatchRestoreNote =

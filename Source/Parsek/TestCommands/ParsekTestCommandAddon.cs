@@ -137,6 +137,23 @@ namespace Parsek.TestCommands
         // mid-batch once RunTests is wired.
         private InGameTestRunner ownedRunner = null;
 
+        // Multi-category RunTests state (2026-09-07). A comma-list `category=` selector
+        // is driven the way TestRunnerShortcut.AutorunMultiCategoryDriver drives the
+        // autorun comma list: one RunCategory batch per token, SEQUENTIALLY, each
+        // emitting its own BATCH_COMPLETE line, then one category=multi:N aggregate.
+        // The sequencing lives in the two-phase completion pump rather than a
+        // coroutine: the pump already polls the owned runner every frame while the
+        // RunTests id holds the FIFO head, and it runs BEFORE the batch-running gate,
+        // so the next token starts in the same Update in which the previous batch is
+        // seen to have settled and no queued command can slip in between tokens.
+        // multiCategoryCurrent is null for a single-category or RunAll batch, which
+        // keeps every pre-existing RunTests path byte-identical.
+        private string multiCategoryCurrent;
+        private readonly List<string> multiCategoryPending = new List<string>();
+        private bool multiCategoryIsolated;
+        private int multiCategoryCount;
+        private AutorunHooks.MultiCategoryBatchTally multiCategoryTally;
+
         // Head deferral tracking: the id currently deferring at the FIFO head and when it
         // began, so a never-satisfiable head converts to TIMEOUT once its budget expires.
         private string deferHeadId;
@@ -823,7 +840,40 @@ namespace Parsek.TestCommands
 
             if (completionVerb == "RunTests")
             {
-                if (ownedRunner == null || !ownedRunner.IsRunning)
+                if (ownedRunner != null && !ownedRunner.IsRunning && multiCategoryCurrent != null)
+                {
+                    // Multi-category: the token that just settled is folded first, then
+                    // either the next token is dispatched (still pending, same
+                    // completion budget) or the aggregate line closes the sequence.
+                    FoldSettledMultiCategoryBatch();
+                    if (multiCategoryPending.Count > 0)
+                    {
+                        string next = multiCategoryPending[0];
+                        multiCategoryPending.RemoveAt(0);
+                        multiCategoryCurrent = next;
+                        ownedRunner.ResetResults();
+                        WarnIfCategoryMatchesNoTests(next);
+                        ParsekLog.Info(Tag,
+                            $"runtests multi-category next category={next} "
+                            + $"remaining={multiCategoryPending.Count.ToString(CultureInfo.InvariantCulture)} "
+                            + $"isolated={Bool(multiCategoryIsolated)}");
+                        ownedRunner.RunBatchSelector(next, multiCategoryIsolated);
+                        return;
+                    }
+                    AutorunHooks.MultiCategoryBatchTally tally = multiCategoryTally;
+                    ParsekLog.Info(InGameTestRunner.BatchCompleteLogTag, InGameTestRunner.FormatBatchCompleteLine(
+                        tally.Total, tally.Passed, tally.Failed, tally.Skipped,
+                        $"multi:{tally.Batches.ToString(CultureInfo.InvariantCulture)}",
+                        HighLogic.LoadedScene.ToString()));
+                    payload = TestCommandRunTests.BuildResultPayload(tally.Passed, tally.Failed, tally.Skipped);
+                    verdict = "OK";
+                    done = true;
+                    ParsekLog.Info(Tag,
+                        $"runtests complete passed={tally.Passed} failed={tally.Failed} skipped={tally.Skipped} "
+                        + $"multi={tally.Batches} results={TestCommandRunTests.ResultsFileName}");
+                    ClearMultiCategoryState();
+                }
+                else if (ownedRunner == null || !ownedRunner.IsRunning)
                 {
                     int passed = ownedRunner != null ? ownedRunner.Passed : 0;
                     int failed = ownedRunner != null ? ownedRunner.Failed : 0;
@@ -918,6 +968,10 @@ namespace Parsek.TestCommands
             mergeAnswerApplied = false;
             mergeAnswerResult = null;
             mergeAnswerDrivePending = false;
+            // A multi-category RunTests that ends by TIMEOUT or by a completion
+            // exception must not leave its token queue armed for the next RunTests to
+            // inherit; the sequence is over the moment the two-phase state is.
+            ClearMultiCategoryState();
             // The TimeJump completion fields (jumpTargetUt / jumpStartUt /
             // jumpSettleFramesRemaining) are not cleared here: they are re-armed wholesale at
             // the start of every TimeJumpImpl Execute (sibling partial), so a stale value can
@@ -1747,6 +1801,34 @@ namespace Parsek.TestCommands
                 return;
             }
 
+            // Multi-category selector (2026-09-07): `category=A,B,C` runs the tokens
+            // sequentially. Parsed fail-closed BEFORE anything is dispatched, so a
+            // malformed list (an empty token would be the RunAll arm in disguise) is a
+            // terminal REJECTED rather than a partial run.
+            List<string> selectorCategories;
+            string selectorProblem;
+            if (!TestCommandRunTests.TryParseCategorySelector(category, out selectorCategories, out selectorProblem))
+            {
+                ParsekLog.Warn(Tag,
+                    $"runtests rejected category={category} "
+                    + $"reason={TestCommandRunTests.CategorySelectorMalformedReason} problem={selectorProblem}");
+                SetExecResult("REJECTED", null,
+                    $"{TestCommandRunTests.CategorySelectorMalformedReason} {selectorProblem}");
+                return;
+            }
+            string selector = category;
+            ClearMultiCategoryState();
+            if (selectorCategories.Count > 1)
+            {
+                multiCategoryCurrent = selectorCategories[0];
+                multiCategoryPending.AddRange(selectorCategories.GetRange(1, selectorCategories.Count - 1));
+                multiCategoryIsolated = isolated;
+                multiCategoryCount = selectorCategories.Count;
+                // The first token is dispatched through the very same line as a
+                // single-category batch below; the pump dispatches the rest.
+                category = multiCategoryCurrent;
+            }
+
             // Career-ledger B.4. UNCONDITIONAL assignment, including the absent-arg
             // `false`: that is what makes the flag per-scenario instead of sticky for the
             // rest of the process. This is the ONLY writer of `true` in the product; the
@@ -1761,12 +1843,74 @@ namespace Parsek.TestCommands
             if (ownedRunner == null)
                 ownedRunner = new InGameTestRunner(this);
 
+            if (multiCategoryCurrent != null)
+            {
+                // The reference driver resets before EVERY token, including the first:
+                // the H3 line's `total` counts every test whose Status is not NotRun on
+                // the whole runner, so a prior batch on this same owned runner would
+                // leak into token 1's per-category line (the fold is category-filtered
+                // and would not, leaving the aggregate and the line disagreeing).
+                ownedRunner.ResetResults();
+                WarnIfCategoryMatchesNoTests(multiCategoryCurrent);
+            }
             ownedRunner.RunBatchSelector(category, isolated);
 
             ParsekLog.Info(Tag,
-                $"runtests start category={category ?? "all"} isolated={Bool(isolated)} "
-                + $"strict={Bool(strict)}");
+                $"runtests start category={selector ?? "all"} isolated={Bool(isolated)} "
+                + $"strict={Bool(strict)}"
+                + (multiCategoryCurrent != null
+                    ? $" multi={multiCategoryCount.ToString(CultureInfo.InvariantCulture)}"
+                    : string.Empty));
             SetExecResult(PendingVerdict, null, null);
+        }
+
+        private void ClearMultiCategoryState()
+        {
+            multiCategoryCurrent = null;
+            multiCategoryPending.Clear();
+            multiCategoryIsolated = false;
+            multiCategoryCount = 0;
+            multiCategoryTally = new AutorunHooks.MultiCategoryBatchTally();
+        }
+
+        // Mirrors the autorun driver's per-token warning: a token matching zero
+        // discovered tests still runs (an empty RunCategory batch prints
+        // `total=0`), and the spec's per-category pin is what reds it; the warning
+        // names the token so the log reads as a selector typo rather than a mystery.
+        private void WarnIfCategoryMatchesNoTests(string cat)
+        {
+            int discovered = 0;
+            IReadOnlyList<InGameTestInfo> tests = ownedRunner.Tests;
+            for (int i = 0; i < tests.Count; i++)
+                if (string.Equals(tests[i].Category, cat, StringComparison.Ordinal))
+                    discovered++;
+            if (discovered == 0)
+                ParsekLog.Warn(Tag, $"runtests multi-category token '{cat}' matched 0 discovered tests");
+        }
+
+        // Reads the just-settled token's union counts off the runner's tests NOW,
+        // before the next token's ResetResults wipes them (the autorun driver's
+        // [M-A3 FIX 1] ordering), and folds them into the running aggregate.
+        private void FoldSettledMultiCategoryBatch()
+        {
+            int considered = 0, passed = 0, failed = 0, skipped = 0;
+            IReadOnlyList<InGameTestInfo> tests = ownedRunner.Tests;
+            for (int i = 0; i < tests.Count; i++)
+            {
+                InGameTestInfo t = tests[i];
+                if (!string.Equals(t.Category, multiCategoryCurrent, StringComparison.Ordinal))
+                    continue;
+                if (t.Status != TestStatus.NotRun) considered++;
+                if (t.Status == TestStatus.Passed) passed++;
+                else if (t.Status == TestStatus.Failed) failed++;
+                else if (t.Status == TestStatus.Skipped) skipped++;
+            }
+            multiCategoryTally = AutorunHooks.AccumulateCategoryBatch(
+                multiCategoryTally, considered, passed, failed, skipped);
+            ParsekLog.Info(Tag,
+                $"runtests multi-category token settled category={multiCategoryCurrent} "
+                + $"considered={considered} passed={passed} failed={failed} skipped={skipped} "
+                + $"batches={multiCategoryTally.Batches}/{multiCategoryCount}");
         }
 
         // ----- CommitTree / DiscardTree (P5.5, C1) -----
