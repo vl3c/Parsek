@@ -4468,6 +4468,26 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # `gloops-airshow` (the bare capsule) for the two that only need a real vessel
         # to exist, and `gs2-orbital-stack` for the one that needs an ORBITING host.
         "H61-autorecord-isolated": ("AutoRecord", 10),
+        # THREE MORE `AutoRecord` HOSTS, authored 2026-09-07 and never flown. They are the
+        # follow-up lanes H61's own census asked for BY NAME: its five run-time skips are
+        # four SITUATION properties and one CREW property of `gs1-two-stage-pad`, all
+        # declared in `MEASURED_SKIPPED` below, and closing them is a HOST requirement
+        # rather than a product change. The tally derivation is ATTRIBUTE-level and
+        # therefore the identical `("AutoRecord", 10)` for all four - an eleventh cell
+        # moves every one of them in the same commit - and only the host differs, which is
+        # the point: any census delta is attributable to the host alone.
+        #   H68 `gs2-orbital-stack`     - the ORBITING half (the orbital post-switch cell).
+        #   H69 `rover-route-recorded`  - the LANDED half (the landed-motion cell), and a
+        #                                 RECORDED host, so it is the family's second
+        #                                 member after RVR-1 / H56 whose count pin is
+        #                                 non-zero.
+        #   H70 `eva3-pad-3crew`        - the CREW half (the two-EVA branch cell).
+        # ALL THREE ARE INTERIM (see INTERIM_PIN_IDS) and NONE is partly batch-disabled:
+        # `AutoRecord` is wholly `AllowBatchExecution = false`, so the ordinary path's
+        # executable ceiling stays zero for every host.
+        "H68-autorecord-orbiting": ("AutoRecord", 10),
+        "H69-autorecord-landed": ("AutoRecord", 10),
+        "H70-autorecord-pad-crew": ("AutoRecord", 10),
         "H62-coalescer-isolated": ("Coalescer", 2),
         "H63-merge-dialog-isolated": ("MergeDialog", 2),
         "H64-revert-flow-isolated": ("RevertFlow", 1),
@@ -4912,7 +4932,50 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     # (the same save with the decoupler moved into the first stage) it measured
     # `total=2 passed=2 failed=0 skipped=0` on run `2026-09-06_2017` and is pinned
     # whole. The set is EMPTY again; the obligation above is what a new member owes.
-    INTERIM_PIN_IDS: set = set()
+    #
+    # NON-EMPTY AGAIN 2026-09-07 - THREE AT ONCE, and all three drive the SAME category on
+    # THREE DIFFERENT HOSTS. `H68-autorecord-orbiting`, `H69-autorecord-landed` and
+    # `H70-autorecord-pad-crew` re-fly H61's ten `AutoRecord` cells over
+    # `gs2-orbital-stack`, `rover-route-recorded` and `eva3-pad-3crew` respectively. They
+    # are interim for the reason H39 / H40 / RVR-1 were rather than H38's: the split turns
+    # on run-time `InGameAssert.Skip` guards that read LIVE state no attribute and no save
+    # file settles - a reflection arm into `ParsekFlight.OnVesselSwitchComplete`, a walk
+    # for an un-ignited `ModuleEngines` or a `ModuleRCS` with non-empty `thrustForces`, a
+    # walk for a `ModuleWheels.ModuleWheelDeployment`, `TryBuildSyntheticKeepVesselTree`
+    # against a live vessel, and (H70) SIX ordered escape hatches inside the two-EVA cell.
+    #
+    # WHAT DEFENDS THEM MEANWHILE, and it is the H55 / H56 argument unchanged: `AutoRecord`
+    # is WHOLLY batch-disabled, so the ordinary path's executable ceiling is ZERO and the
+    # plain `passed=[1-9][0-9]*` spelling already rejects every line it could print (swept
+    # by test_an_interim_pin_still_rejects_the_ordinary_paths_executable_ceiling at one
+    # iteration - passed=0, the vacuous line). What an interim `passed=` genuinely cannot
+    # say is WHICH cells passed, and on these three that is the whole product - H70's
+    # `passed=5` would be satisfied by exactly the five H61 already runs. So each spec pins
+    # a REQUIRED CELL TOKEN for the one cell it exists for: `Post-switch orbital
+    # auto-record:` (H68), `Post-switch landed-motion auto-record:` (H69) and
+    # `EvaTwiceFromSameCapsuleProducesTwoBranches:` (H70), each written by its cell only
+    # after that cell's assertions have held.
+    #
+    # ONE OF THE THREE CARRIES A PREDICTED **FAIL** RATHER THAN A PREDICTED SKIP, which is
+    # unusual enough to record here as well as in the spec. H68's header predicts that
+    # `EvaKerbalGhostHasVesselSnapshot` EXECUTES on an ORBITING host - its guard skips only
+    # on PRELAUNCH / LANDED / SPLASHED - and then reds, because its body calls
+    # `WaitForActiveEvaSurfaceSettled(crew, 10f)` (which `InGameAssert.Fail`s on timeout)
+    # and asserts `TerminalState.Landed`, neither of which a kerbal EVA'd from a ~100 km
+    # orbit can satisfy. If that happens it is a TEST-GUARD finding - the guard implements
+    # "a mid-flight crewed vessel" as "not one of the three settled situations", which
+    # admits ORBITING by omission - and the fix is to widen the guard, not to change the
+    # host. `failed=0` stays a literal on all three precisely so a finding reds.
+    #
+    # WHAT EACH OWES, the standing obligation: the first census measures the split, the
+    # spec's pin is replaced whole, a MEASURED_SKIPPED entry is added if the run-time
+    # guards push `skipped` above the attribute floor of 0, and the id LEAVES this set in
+    # the same commit.
+    INTERIM_PIN_IDS: set = {
+        "H68-autorecord-orbiting",
+        "H69-autorecord-landed",
+        "H70-autorecord-pad-crew",
+    }
 
     # id -> measured `skipped=` for members whose RUN-TIME InGameAssert.Skip guards
     # push the split above the attribute-derived floor. The attributes give a FLOOR
@@ -5566,6 +5629,56 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         "AutoMergeCommit": "orbiting",
     }
 
+    # spec id -> the requirement THAT LANE's host is held to, consulted BEFORE
+    # FIXTURE_REQUIREMENTS. Empty is its healthy state; every entry needs a reason.
+    #
+    # WHY A PER-SPEC LAYER EXISTS AT ALL, and it is narrower than "the table was
+    # inconvenient". FIXTURE_REQUIREMENTS is keyed per CATEGORY and states what that
+    # category's cells need of a host - a claim about SOURCE, re-derived from the method
+    # bodies by test_the_requirement_table_agrees_with_what_the_cells_actually_do. That
+    # works while a category's cells agree with each other about the host. `AutoRecord`
+    # is the first committed category where they DO NOT: its ten cells demand PRELAUNCH
+    # (the launch cell and, through `LandedOrSplashed`, the two #526 canaries), LANDED
+    # (two post-switch cells), ORBITING (one post-switch cell) and NOT-LANDED-OR-PRELAUNCH
+    # (the EVA-ghost cell), and NO SINGLE HOST satisfies that set. H61's census is the
+    # measurement, not an argument: `total=10 passed=5 failed=0 skipped=5`, with four of
+    # the five skips naming a situation the host was not in.
+    #
+    # SO THE CATEGORY ROW STAYS AND IS STILL TRUE. `AutoRecord` -> `staging` says its
+    # cells reach `StageManager.ActivateNextStage()`, which they do, and the source-derived
+    # gate keeps checking exactly that. What an override says is a DIFFERENT thing: which
+    # SLICE of the category THIS lane's host can fly. The staging cell is then PREDICTED TO
+    # SKIP in that lane's header rather than pretended away, which is the honest shape - a
+    # per-spec override may NOT be used to escape a requirement a host should satisfy.
+    #
+    # THE RULE AN ENTRY IS HELD TO (asserted by
+    # test_each_fixture_requirement_override_is_necessary_and_declared):
+    #   * the key must be a GROUP member;
+    #   * the value must be a requirement `_fixture_flight_problems` implements;
+    #   * it must DIFFER from the category row (an equal row is a no-op that hides drift);
+    #   * the host must FAIL the category requirement - an override on a host that
+    #     satisfies both is decoration hiding a fit;
+    #   * and the host must PASS the override, which is what the real cell asserts.
+    # A future override that is a TIGHTENING rather than a substitution (host satisfies
+    # both, the lane wants the stricter one) would fail the fourth rule, and generalising
+    # it is a deliberate decision to take then, not a check to delete now.
+    FIXTURE_REQUIREMENT_OVERRIDES = {
+        # `gs2-orbital-stack` is ORBITING, so it fails `staging` on the situation half
+        # while carrying 41 PART nodes and 2 `ModuleEngines`. Reuses the class the R6 wave
+        # added for `AutoMergeCommit` rather than inventing one; the lane's subject
+        # (`AutoRecordOnPostSwitch_OrbitalEngineOrRcs_*`) demands ORBITING by name.
+        "H68-autorecord-orbiting": "orbiting",
+        # `rover-route-recorded`'s active vessel `B` is a LANDED rover with NO
+        # `ModuleEngines` at all, so it fails `staging` on both halves. `landed` is added
+        # below in the same commit; the lane's subject
+        # (`AutoRecordOnPostSwitch_LandedMotion_*`) demands LANDED by name.
+        "H69-autorecord-landed": "landed",
+        # NOT LISTED, deliberately: `H70-autorecord-pad-crew`. `eva3-pad-3crew` is
+        # PRELAUNCH with 8 `ModuleEngines`, so it satisfies the category row as it stands
+        # and an entry here would be the no-op the rule above forbids. H61 is likewise
+        # unlisted for the same reason.
+    }
+
     @staticmethod
     def _active_vessel_block(sfs_path):
         """``(block, index)`` for the save's ACTIVE vessel, or ``(None, reason)``."""
@@ -5626,6 +5739,39 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
                 problems.append(
                     "active vessel (index %d) declares no PART nodes - there is "
                     "nothing to record and commit" % idx)
+            return problems
+        if requirement == "landed":
+            # THE THIRD SITUATION CLASS, added 2026-09-07 with `H69-autorecord-landed`,
+            # and it is the SURFACE mirror of `orbiting` rather than a copy of `staging`
+            # with one word changed. Two `AutoRecord` cells state it as a product fact -
+            # `AutoRecordOnPostSwitch_LandedMotion_*` induces real motion and then asserts
+            # the vessel is STILL LANDED afterwards, and
+            # `AutoRecordOnPostSwitch_GearToggle_*` refuses anything else by name - so a
+            # host in any other situation does not merely skip them, it makes the
+            # post-switch surface trigger unobservable.
+            #
+            # WHY IT IS NOT `staging` WITH A DIFFERENT SITUATION: `staging` also demands a
+            # `ModuleEngines`, which is a claim about the STAGE MANAGER and nothing a
+            # landed post-switch canary reads. `rover-route-recorded`'s rover carries
+            # none, and asserting one here would red a correct spec.
+            #
+            # WHAT IT DELIBERATELY DOES NOT CHECK, because a save file cannot prove it:
+            # `ModuleWheels.ModuleWheelDeployment`, the part
+            # `AutoRecordOnPostSwitch_GearToggle_*`'s own helper walks for. A landed host
+            # WITHOUT deployable gear still flies the landed-motion cell, so encoding the
+            # wheel module here would refuse a host that is right for the lane's actual
+            # subject. That gap is stated as a PREDICTED SKIP in H69's header instead,
+            # which is where a claim this predicate cannot make belongs.
+            if "sit = LANDED" not in vessel:
+                problems.append("active vessel (index %d) is not LANDED" % idx)
+            # A real craft on the surface. Deliberately the same PART floor `orbiting` and
+            # `loaded-vessel` apply, and for the same reason: a landed EVA kerbal or a
+            # part-less SpaceObject satisfies the situation and nothing else the cells need
+            # (both cells' first guard is `vessel.isEVA || vesselType == EVA`).
+            if not re.search(r"^\t\t\tPART\s*$", vessel, flags=re.M):
+                problems.append(
+                    "active vessel (index %d) declares no PART nodes - there is nothing "
+                    "for the post-switch surface canary to move" % idx)
             return problems
         if requirement == "logistics":
             # (a) A real craft to snapshot. `VesselSpawner.TryBackupSnapshot` has
@@ -5898,6 +6044,22 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # reads back), so a silently-weakened predicate would produce a red that looks
         # exactly like a Parsek defect.
         ("orbiting", "gs1-two-stage-pad", "ORBITING"),
+        # LANDED, wrong situation - the control the 2026-09-07 wave owes for ITS new
+        # requirement class, and the exact mirror of the `orbiting` row above.
+        # `gs1-two-stage-pad`'s active vessel is a real 15-part crewed craft with PART
+        # nodes, so it clears everything `landed` asserts EXCEPT the situation, and must
+        # still be rejected. Without this row, dropping the LANDED branch to "make H69 pass
+        # on any host" would go unnoticed - and the cell it guards asserts the vessel is
+        # STILL LANDED after the induced motion, so a silently-weakened predicate would
+        # produce a red that looks exactly like a Parsek defect.
+        ("landed", "gs1-two-stage-pad", "LANDED"),
+        # STAGING, on the rover H69 flies, and the row exists so the OVERRIDE cannot be
+        # read as "the category row was wrong". `rover-route-recorded`'s active vessel is a
+        # LANDED rover with NO `ModuleEngines`, so it fails `staging` on BOTH halves; this
+        # row pins the ENGINE half, which is the one no other control on a landed host
+        # exercises (`bdock-recorded` pins the PRELAUNCH half on an engine-BEARING craft).
+        # Together the two rows keep both halves of `staging` alive.
+        ("staging", "rover-route-recorded", "ModuleEngines"),
         # LOADED-VESSEL, wrong active-vessel TYPE. `mun-orbit-recorded`'s active vessel
         # is a real craft, so the PART floor alone would accept every committed fixture
         # and the class would be a tautology; this row runs the requirement over a save
@@ -6012,6 +6174,27 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
                          "requirement has inherited another one")
         self.assertNotEqual([], self._fixture_flight_problems(gs2, "staging"),
                             "gs2-orbital-stack is ORBITING and must FAIL `staging`")
+        # And the FIFTH class, added 2026-09-07, must be mutually exclusive with BOTH
+        # situation classes in BOTH directions. `rover-route-recorded`'s active vessel is a
+        # LANDED 17-part rover, so the three hosts are a three-way negative control set:
+        # each passes exactly one of `staging` / `orbiting` / `landed` and fails the other
+        # two. A predicate that collapsed any pair (or dropped a situation check) shows up
+        # as one of these six assertions flipping.
+        rover = os.path.join(HARNESS_ROOT, "fixtures", "saves",
+                             "rover-route-recorded", "persistent.sfs")
+        self.assertEqual([], self._fixture_flight_problems(rover, "landed"),
+                         "rover-route-recorded's active vessel is a LANDED 17-part rover "
+                         "and must PASS `landed` - if it does not, that requirement has "
+                         "inherited another one")
+        self.assertNotEqual([], self._fixture_flight_problems(rover, "staging"),
+                            "rover-route-recorded is LANDED with no ModuleEngines and "
+                            "must FAIL `staging`")
+        self.assertNotEqual([], self._fixture_flight_problems(rover, "orbiting"),
+                            "rover-route-recorded is LANDED and must FAIL `orbiting`")
+        self.assertNotEqual([], self._fixture_flight_problems(gs1, "landed"),
+                            "gs1-two-stage-pad is PRELAUNCH and must FAIL `landed`")
+        self.assertNotEqual([], self._fixture_flight_problems(gs2, "landed"),
+                            "gs2-orbital-stack is ORBITING and must FAIL `landed`")
 
     def test_an_unknown_requirement_fails_closed(self):
         # FAIL-CLOSED: a typo in FIXTURE_REQUIREMENTS, or a category routed to a
@@ -6148,11 +6331,63 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
             "FIXTURE_REQUIREMENTS, so nobody has stated what their cells need of a "
             "host: %s. Read the category's bodies and add a row - do NOT default it "
             "to `staging`, which is a specific claim about StageManager" % missing)
-        unknown = sorted(set(self.FIXTURE_REQUIREMENTS.values())
-                         - {"staging", "logistics", "loaded-vessel", "orbiting"})
+        implemented = {"staging", "logistics", "loaded-vessel", "orbiting", "landed"}
+        unknown = sorted(set(self.FIXTURE_REQUIREMENTS.values()) - implemented)
         self.assertEqual([], unknown,
                          "FIXTURE_REQUIREMENTS names requirement(s) with no "
                          "implementation in _fixture_flight_problems: %s" % unknown)
+        # The override table is fail-closed on the same two axes, checked here so a typo
+        # in either table reds in one place. (The per-entry RULES - differs from the
+        # category row, host fails that row, host passes the override - are the next cell.)
+        stray = sorted(set(self.FIXTURE_REQUIREMENT_OVERRIDES) - set(self.GROUP))
+        self.assertEqual([], stray,
+                         "FIXTURE_REQUIREMENT_OVERRIDES names spec ids that are not GROUP "
+                         "members, so the entries are silently inert: %s" % stray)
+        unknown_over = sorted(set(self.FIXTURE_REQUIREMENT_OVERRIDES.values())
+                              - implemented)
+        self.assertEqual([], unknown_over,
+                         "FIXTURE_REQUIREMENT_OVERRIDES names requirement(s) with no "
+                         "implementation in _fixture_flight_problems: %s" % unknown_over)
+
+    def test_each_fixture_requirement_override_is_necessary_and_declared(self):
+        # THE OVERRIDE LAYER'S OWN GATE. A per-spec override is a real weakening surface:
+        # left unchecked it is the one place in this class where "my fixture does not fit
+        # the requirement" can be answered by editing a table instead of by reading the
+        # cells. So every entry must EARN itself, and the rules are the ones stated on
+        # FIXTURE_REQUIREMENT_OVERRIDES:
+        #   (1) it must DIFFER from the category row - an equal entry is a no-op that
+        #       hides later drift in the row it duplicates;
+        #   (2) the host must genuinely FAIL the category row - an override on a host that
+        #       satisfies both is decoration hiding a fit, and the category row should have
+        #       been used;
+        #   (3) the host must PASS the override - the same thing the real cell asserts,
+        #       restated here so this cell is self-contained rather than dependent on it.
+        # A future override that is a TIGHTENING (host satisfies both, the lane wants the
+        # stricter class) fails rule 2 BY DESIGN: generalising this cell is a deliberate
+        # decision to take at that point, not a check to delete in passing.
+        for sid, requirement in sorted(self.FIXTURE_REQUIREMENT_OVERRIDES.items()):
+            with self.subTest(spec=sid):
+                category = self.GROUP[sid][0]
+                category_requirement = self.FIXTURE_REQUIREMENTS[category]
+                self.assertNotEqual(
+                    category_requirement, requirement,
+                    "%s overrides %r to the same value the category row already carries, "
+                    "so the entry does nothing but shadow it - delete the row"
+                    % (sid, category))
+                template = (self.specs[sid].get("fixture", {}) or {}).get(
+                    "saveTemplate", "")
+                sfs = os.path.join(HARNESS_ROOT, template, "persistent.sfs")
+                self.assertTrue(os.path.isfile(sfs), "%s: %s missing" % (sid, sfs))
+                self.assertNotEqual(
+                    [], self._fixture_flight_problems(sfs, category_requirement),
+                    "%s overrides the %r requirement to %r, but its host %s SATISFIES the "
+                    "category requirement as it stands - so the override is hiding a fit "
+                    "rather than describing a slice. Drop the row and let the category "
+                    "table hold." % (sid, category_requirement, requirement, template))
+                self.assertEqual(
+                    [], self._fixture_flight_problems(sfs, requirement),
+                    "%s's host %s does not satisfy the %r requirement it is overridden to"
+                    % (sid, template, requirement))
 
     def test_the_budget_clears_the_deferred_worst_case(self):
         # An isolated batch's plausible failure is a slow or wedged quickload, and a
@@ -6208,7 +6443,13 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
                 self.assertTrue(os.path.isfile(sfs),
                                 "%s names fixture %r but %s does not exist"
                                 % (sid, template, sfs))
-                requirement = self.FIXTURE_REQUIREMENTS[self.GROUP[sid][0]]
+                # PER-SPEC OVERRIDE FIRST, category row second. See
+                # FIXTURE_REQUIREMENT_OVERRIDES for why the layer exists and what an entry
+                # is held to; the override table is itself gated by
+                # test_each_fixture_requirement_override_is_necessary_and_declared, so
+                # consulting it here cannot become an escape hatch.
+                requirement = self.FIXTURE_REQUIREMENT_OVERRIDES.get(
+                    sid, self.FIXTURE_REQUIREMENTS[self.GROUP[sid][0]])
                 self.assertEqual(
                     [], self._fixture_flight_problems(sfs, requirement),
                     "%s's fixture %s cannot fly this category under the %r "

@@ -813,6 +813,31 @@ stock-minimal` to reach a harness run.
   post-switch cells each skipped naming their required situation against `got
   PRELAUNCH`, so D1 `auto-record-first-mod-switch` is measured-open, not argued-open,
   and the LANDED / ORBITING follow-up lanes are still owed.
+  **THE FOLLOW-UP LANES ARE NOW AUTHORED (2026-09-07) AND NOT YET FLOWN**, and there
+  are THREE rather than the two named above - the third pays H61's CREW skip, which
+  this paragraph did not count as owed. Each changes exactly ONE thing about H61, the
+  fixture, so a census delta is attributable to the host alone:
+  `H68-autorecord-orbiting` over `gs2-orbital-stack` (the ORBITING positive
+  post-switch cell - arm the watch, ignite a real engine, assert one auto-start line
+  with NO situation change), `H69-autorecord-landed` over `rover-route-recorded` (the
+  LANDED one - nudge the rover a metre and assert the same while it stays LANDED), and
+  `H70-autorecord-pad-crew` over `eva3-pad-3crew` (the never-executed
+  `EvaTwiceFromSameCapsuleProducesTwoBranches`, the background-parent EVA branch gate).
+  D1 `auto-record-first-mod-switch` is CLAIMED by H68 and H69, each gated on its cell's
+  own summary line rather than on a tally; the value stays measured-open until one of
+  them flies green, per the CLAIM-IS-NOT-GATE rule below.
+  TWO PIECES OF H61's RESIDUE SURVIVE EVEN THESE THREE, found by reading the cell
+  bodies rather than on a flight, and both are recorded so nobody re-plans them as
+  host swaps: (a) `AutoRecordOnPostSwitch_GearToggle_*` needs a part carrying
+  `ModuleWheels.ModuleWheelDeployment`, and the rover carries only rolling wheel
+  modules (`ModuleWheelBase` / `Brakes` / `Damage` / `Motor` / `Steering` /
+  `Suspension`), so a LANDED host is NECESSARY BUT NOT SUFFICIENT and closing it is a
+  HARVEST requirement for a landed craft with retractable gear or legs; (b)
+  `EvaKerbalGhostHasVesselSnapshot` cannot be bought by any committed host, because its
+  guard skips only PRELAUNCH / LANDED / SPLASHED while its body waits on
+  `WaitForActiveEvaSurfaceSettled` and asserts `TerminalState.Landed` - H68 therefore
+  predicts a FAIL there, and if it reds the fix is to WIDEN THE GUARD (which admits
+  ORBITING by omission), not to change the host.
 - ~~Free today: `Optimizer` (D4 `env-body-split`, `surface-graze-suppression`),
   `BackgroundSeeder` (D4 `seed-event-split`), `Recording` (D5 `bg-on-rails`),
   `TrajectoryMath` (D2 `threshold-debounce`), `Pipeline-Anchor` (D3

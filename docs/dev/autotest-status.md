@@ -1095,7 +1095,7 @@ moon lane.
 | Machine lock (multi-agent exclusivity) | ONE lockfile `<umbrella>/automation/.ksp-machine.lock` arbitrating `run.py` AND `provision.py`, replacing the two mutually-blind per-instance locks (`.harness-run.lock` / `.provision.lock`) | SHIPPED 2026-08-02. Closes four leaks found by a full audit of the pre-existing three-tier lock: (1) **provision-under-run** - the two locks never read each other, so a routine `provision.py --profile stock-minimal` could run DEPLOY (overwriting `Parsek.dll`, settings, MM cache) during the harness's pre-launch or post-exit window, when the coarse EC-1 "any KSP alive" probe passes; DEMONSTRATED live during the audit (a provision logged `lock decision=acquired-free` 21 minutes into a held run lock). (2) **per-attempt scope** - acquire/release sat inside `run_attempt`, leaving the lock free between a selection's scenarios; a sibling arriving in any gap killed every remaining scenario with non-retryable `INVALID(instance-locked)`. Now held for the whole invocation, with a timestamp heartbeat at each scenario boundary, and ADMIT moved under it (the DLL-hash check could previously be invalidated by a concurrent provision between check and launch). (3) **non-atomic acquire** - read-decide-write with no `O_EXCL`; two racers could both reclaim the same stale lock and both launch. Now an atomic exclusive create with a single bounded reclaim retry that refuses rather than loops. (4) **no wall-clock expiry** - the `timestamp` field was written and read by nothing, so a hard-killed holder whose pid Windows recycled wedged the instance permanently with no `--force`; now pid-liveness OR a 4h lease, with the liveness probe failing CLOSED and release re-reading to confirm ownership. Granularity is the MACHINE, not the instance dir, because the monopolised resources are machine-global (kRPC 50000/50001, one GPU) - a per-instance key let two profiles both acquire and both bind 50000, where the loser's bind fails soft and its mission drives the WINNER's game (a false-PASS path). Fail-fast on contention preserved (design edge 7 / EC-10); `--dry-run`, the unit suites, `collect-logs.py` and `dotnet build` deliberately do NOT take it. Coverage: the lock WIRING (the shell half) had ZERO cells before this - `test_run_smoke.py` on main never referenced `acquire_run_lock` / `release_run_lock` - and now has 28 driving real lockfile I/O, plus 18 in a dedicated `provision/test_machinelock.py` that drives the shared protocol directly (so the loser-of-a-race branches, and provision's half, are covered on their own terms rather than only through run.py); the pure `provlib` decision already had 7 cells (5 `LockTests` + 2 `LockfileReleaseTests`) and now has 22. 68 lock cells total, counted mechanically. HARDENED 2026-08-02 by two independent clean reviews, which found the first cut did NOT deliver its headline guarantee: (a) `provision.py` had a SECOND, weaker acquire whose `FileExistsError` branch unconditionally `os.replace`d the lockfile - reachable with no stale lock at all, so a provision starting alongside a run overwrote the run's live lock and DEPLOYed over its instance; (b) `run.py`'s reclaim called a bare `os.remove` on whatever was at the path, so two racers that both judged the same stale lock both proceeded - the loser deleted the WINNER's fresh lock and both held (reproduced with a PoC by the reviewer). Both are closed by extracting ONE shared protocol (`harness/provision/machinelock.py`): winning is decided solely by the exclusive create, and a stale lock is reclaimed by atomic rename to a pid-unique quarantine followed by a BYTE COMPARE against what was judged - a mismatch means a fresh holder appeared, which is restored and refused. A THIRD review round (of the fix itself) confirmed both originals dead and found three more in the same "unverified write to the lock path" family, all now closed and each pinned by a cell in the new `provision/test_machinelock.py`: two correlated read failures compared `None == None`, "verified", and deleted a LIVE holder's lock (a single AV/backup hold spans both reads); the empty file that exists between a winner's exclusive create and the close of its write parsed as "no lock" and was reclaimable (safe on Windows only by the winner's open handle blocking the rename - a platform accident, so the guard is now in the protocol and holds on POSIX too); and the restore path could `os.replace` over a third party that had legitimately won the briefly-free path, so it is now an exclusive create that stands down. The heartbeat's re-verify was moved BEFORE its swap - checking after the write is worthless, since by then the reclaimer's lock is already overwritten and the read only ever shows our own. Also from review: a failed heartbeat is now FATAL to the selection (it previously warned and kept flying unlocked beside whoever reclaimed it), the heartbeat preserves `startedIso` so a refusal reports when the hold BEGAN, and the lease moved 4h -> 8h because the worst committed spec (BDOCK-1, 6900s x 2 attempts) left only ~10 minutes of margin - now pinned by `LeaseCoversWorstCaseScenarioTests` so a future budget rise reds here instead of in a night flight. LIVE-PROVEN 2026-08-02 with a real foreign holder process: `run.py` refuses naming holder pid/worktree/selection/since, `provision.py` aborts `EC-10`, and the holder's lockfile is byte-identical afterwards. Suites green after merging main: lib 1163 / provision 236 / missions 1111. KNOWN CONSTRAINT: the key is the umbrella root, so "machine-wide" holds by convention for the documented sibling layout, not by construction (`--umbrella-root` / `--instance-dir` can decouple it) - filed under DEV-INSTANCE-UNLOCKED. **The deferred residual R8 "`_ksp_running_against` coarseness" (`design-autotest-stack-setup.md:740`, NOT the roadmap's R8) must not narrow the zombie probe without re-reading `harness/README.md`**: that probe is a second, independent guard on port 50000 and the GPU |
 | Tier runner (agent-requested, on demand) | One command flies a whole tier and leaves a classified outcome: `harness/tools/tier_runner.py --tier {daily|nightly|operator}`, invoked by an agent when the operator requests a tier run (`run-tier` project skill, `.claude/skills/run-tier/SKILL.md`) | SHIPPED 2026-08-05. **REFRAMED 2026-08-05** to the agent-requested model the operator asked for ("run them by type"): the Task Scheduler registration script was REMOVED (git history keeps it), the `run-tier` skill was added, and `cadence_runner.py` / `test_cadence_runner.py` / `results/cadence/` / `PARSEK_CADENCE_RUNPY_ARGS` were renamed to `tier_runner.py` / `test_tier_runner.py` / `results/tier-runs/` / `PARSEK_TIER_RUNPY_ARGS`. **NOTHING IS SCHEDULED.** The rename is MECHANICAL - identifiers, paths and the `[Cadence]`->`[TierRun]` log prefix only, no decision or policy changed - so the live proof below still stands for the current code. The runner owns ONLY what run.py cannot: an `ES_SYSTEM_REQUIRED` wake hold (a multi-hour tier nobody is sitting with is otherwise suspended ~2 min in, mid-flight), an advisory lock/KSP preflight that SKIPS rather than queues (a run.py refusal would stamp one junk `INVALID(instance-locked)` result JSON per selected spec - 46 for the nightly tier - into `results/` and the contact-sheet index), outcome classification into GREEN / RED / NEEDS-PROVISION / LOCKED / NO-SELECTION with the verdict tally and any KILLED called out, a one-line-per-invocation `results/tier-runs/history.txt` skim surface, and 60-day rotation of its OWN logs only. It NEVER provisions (which worktree's DLL the instance carries is a human call) and never re-runs a finding. `--tier` is a `choices=` set because run.py's own `--tier` silently selects ZERO on a typo and exits 0 - a walk-away run that reads green having flown nothing. LIVE-PROVEN 2026-08-05: a full `--tier daily` invocation flew end to end through the pre-rename runner and classified GREEN, history line `2026-08-05T07:07:59Z tier=daily outcome=GREEN exit=0 PASS=22`. Exit codes 0/1/2/3/4. Pure decisions unit-tested in `harness/lib/test_tier_runner.py` (69 cells). Tier spec counts on 2026-08-05: daily 22 / nightly 46 / operator 11. Mechanics + the review recipe: `harness/README.md` -> "Running a tier on request (agent-driven)" |
 
-## Test cases (all 220 committed scenarios)
+## Test cases (all 223 committed scenarios)
 
 LIVE-PROVEN = at least one fully-unattended PASS with every verifier green.
 The "Parsek surface verified" column is the reason the case exists.
@@ -2984,6 +2984,89 @@ bodies rather than the R6 entry:
   different mechanism with a different failure mode and has no registry value. Nothing
   beyond D14 is claimed, and D1 `auto-record-launch` is deliberately left to H61 even
   though the mid-recording cell asserts on it as SETUP.
+
+### In-game ISOLATED batch wiring, the AutoRecord host set: H68-H70, AUTHORED NOT FLOWN (3)
+
+THE FOLLOW-UP LANES H61's OWN CENSUS ASKED FOR, authored 2026-09-07. H61 flew green on
+2026-09-06 (`total=10 passed=5 failed=0 skipped=5`) and EXECUTED 5 OF 10; its five
+run-time skips are declared in `MEASURED_SKIPPED` and are four SITUATION properties plus
+one CREW property of `gs1-two-stage-pad`, not one of them a product claim. So the residue
+is a HOST requirement, and these three lanes buy it from hosts the repo already owns:
+`gs2-orbital-stack` (ORBITING), `rover-route-recorded` (LANDED) and `eva3-pad-3crew`
+(3 crew on the pad). Each changes exactly ONE thing about H61 - the fixture - so any
+census delta is attributable to the host alone; the category, the isolated arg, the batch
+and the token shapes are H61's step for step. `total=10` is attribute-exact and shared by
+all four lanes (an eleventh `AutoRecord` cell moves every one of them in the same commit),
+`failed=0` is a literal, and every `passed=` / `skipped=` is a REGEX CLASS with a
+cell-by-cell prediction in the spec's own header, written to be refuted. All three are
+declared in `IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS` and each pins a REQUIRED CELL
+TOKEN for the one cell it exists for, because an interim `passed=` says how MANY cells
+passed and nothing about WHICH - and on H70 the count alone would be satisfied by exactly
+the five H61 already runs.
+
+WHAT THE SET CLOSES: D1 `auto-record-first-mod-switch`, which H61 explicitly declines and
+the roadmap records as measured-open. All three POSITIVE post-switch cells demand a
+situation a pad host is not in, so the only one H61 runs is the NEGATIVE no-op, and a
+negative case is not the token. H68 claims it off the ORBITING positive cell and H69 off
+the LANDED one; the two are different triggers (engine / sustained RCS with NO situation
+change, versus surface motion) on the same watch, so neither subsumes the other. Both
+claims are gated by the cell's own summary line rather than by a tally.
+
+TWO FINDINGS THE AUTHORING PASS PRODUCED BY READING THE CELL BODIES, both recorded here
+rather than discovered on a flight:
+
+- **A LANDED host is NECESSARY BUT NOT SUFFICIENT for
+  `AutoRecordOnPostSwitch_GearToggle_StartsExactlyOnce`.** It passes its situation guard on
+  `rover-route-recorded` and then skips ONE GUARD LATER, inside `TryToggleLandingGear`,
+  which walks for a part carrying `ModuleWheels.ModuleWheelDeployment`. The rover's
+  committed modules are `ModuleWheelBase` / `Brakes` / `Damage` / `Motor` / `Steering` /
+  `Suspension` - rover wheels roll, they do not deploy. Closing that cell is a HARVEST
+  requirement for a landed craft with retractable gear or legs, which no committed fixture
+  carries. H69's header pins the expected skip STRING so the census distinguishes "wrong
+  situation" from "right situation, missing part".
+- **`EvaKerbalGhostHasVesselSnapshot`'s guard admits a host its assertions cannot
+  satisfy.** It skips on PRELAUNCH / LANDED / SPLASHED only, so an ORBITING host PASSES -
+  and then its body calls `WaitForActiveEvaSurfaceSettled(crew, 10f)`, which
+  `InGameAssert.Fail`s on timeout, and asserts `TerminalState.Landed`. A kerbal EVA'd from
+  a ~100 km orbit satisfies neither. **H68 THEREFORE PREDICTS A FAIL, NOT A SKIP**, and
+  says so in its own header rather than pinning around it: if the cell reds it is a
+  TEST-GUARD finding (the guard implements "a mid-flight crewed vessel" as "not one of the
+  three settled situations", which admits ORBITING by omission) and the fix is to widen the
+  guard, not to change the host. `failed=0` stays a literal on all three lanes precisely so
+  a finding reds.
+
+A WIRING CHANGE THE SET FORCED, and it is the first per-SPEC layer in this class:
+**`FIXTURE_REQUIREMENT_OVERRIDES`**, consulted before the per-CATEGORY
+`FIXTURE_REQUIREMENTS`, plus a fifth requirement class `landed` (active vessel
+`sit = LANDED` with PART nodes). `AutoRecord` is the first committed category whose own
+cells DISAGREE about the host - PRELAUNCH, LANDED, ORBITING and not-landed-or-prelaunch
+all appear across its ten - so no single host satisfies the set and the category row
+(`AutoRecord` -> `staging`) is true about the SOURCE while being wrong about any
+particular lane. The row therefore STAYS, the source-derived staging gate keeps checking
+it, and the override says only which SLICE a given host can fly, with the staging cell
+predicted to SKIP in that lane's header rather than pretended away. The override table is
+itself gated: an entry must name a GROUP member, name an implemented requirement, DIFFER
+from the category row, sit on a host that genuinely FAILS that row, and sit on a host that
+PASSES the override. `landed` carries two positive controls of its own (it must REJECT
+`gs1-two-stage-pad` for the PRELAUNCH reason; `staging` must REJECT the rover for the
+ENGINE reason) and joins a three-way mutual-exclusion cell over gs1 / gs2 / the rover.
+
+| Test case | Tier | Parsek surface verified | Blocker |
+|---|---|---|---|
+| H68-autorecord-orbiting | nightly | H61's ten `AutoRecord` cells over the 41-part ORBITING crewed Kerbal X at ~100 km LKO. Buys the ORBITING positive post-switch cell (arm the watch by reflection, ignite a real `ModuleEngines` - 2 aboard, 9 `ModuleRCS` as the fallback branch - and assert exactly one post-switch auto-start line WITH NO SITUATION CHANGE), plus the first orbital EVA auto-record any unattended lane has driven and the 2-crew two-EVA branch cell. Ordinary path executes 0 of 10 | AUTHORED 2026-09-07, NEVER FLOWN. Interim pin (`total=10` / `failed=0` literal, split a regex class); predicted 5 execute / 5 skip. **CARRIES A PREDICTED FAIL**, named in its header: `EvaKerbalGhostHasVesselSnapshot` passes its PRELAUNCH/LANDED/SPLASHED guard on an orbiting host and then cannot satisfy `WaitForActiveEvaSurfaceSettled` or `TerminalState.Landed`. If it reds, widen the cell's guard - do not change the host. Fixture requirement overridden to `orbiting` |
+| H69-autorecord-landed | nightly | The same ten cells over `rover-route-recorded`, a 17-part UNCREWED LANDED rover on the Runway. Buys the LANDED positive post-switch cell (nudge the rover a metre with `Vessel.SetPosition`, assert exactly one post-switch auto-start line with the vessel STILL LANDED) and runs both #526 transient canaries from LANDED rather than PRELAUNCH - including the Real Spawn Control one, which H70 structurally cannot run. Ordinary path executes 0 of 10 | AUTHORED 2026-09-07, NEVER FLOWN. Interim pin; predicted 4 execute / 6 skip. The gear-toggle cell is predicted to skip ANYWAY on the missing `ModuleWheelDeployment` (see the finding above). Every EVA and launch cell skips: the rover is uncrewed and carries no `ModuleEngines`. Driver is H61's plus RVR-1's KILL TRIPLE (`StopRecording` / `DiscardTree` / `autoRecordOnLaunch=false`), load-bearing because this recorded host resumes a promotion-stub recording ~1 s into the scene and SIX of the ten cells skip on `flight.IsRecording`. Recordings count pinned EXACTLY at the staged 5. Fixture requirement overridden to the new `landed` class |
+| H70-autorecord-pad-crew | nightly | The same ten cells over the 86-part PRELAUNCH Kerbal X carrying Valentina, Bob and Bill - the host H61's own header names as the one that would buy its CREW skip. Buys `EvaTwiceFromSameCapsuleProducesTwoBranches`, which nothing has ever executed: the background-parent EVA branch gate (EVA one kerbal, let KSP park the capsule's recording into the tree BackgroundMap, walk that kerbal 12 m clear, switch back, EVA a second and assert `path=background-parent` with no dropped recorder data). Ordinary path executes 0 of 10 | AUTHORED 2026-09-07, NEVER FLOWN. Interim pin; predicted 5 execute / 5 skip - the same COUNT as H61 with a different MEMBERSHIP, which is why the cell token is pinned rather than left to `passed=`. A SIBLING, NOT A REPLACEMENT, exactly as H61 predicted: the host's three LAUNCH CLAMPS carry `RealSpawnControl_WarpToRecordingEnd_OnPad_*`'s own skip, so the swap trades one cell for another. The launch cell is unaffected - `WaitForLaunchAutoRecordStart` releases the clamps before it waits, and a craft that then fails to lift off classifies to a Skip. No fixture-requirement override: this host satisfies `staging` as it stands |
+
+TIER: all three `nightly`, beside H61 and the rest of the isolated family. Budgets are
+1400 s each, which clears the 1320 s deferred worst case (660 LoadGame + 660 RunTests,
+both given `required_step_wait(max(budget, 600))`) so a seam TIMEOUT surfaces as a
+retryable driver-INVALID rather than a harness KILL that prints no tally. COST, bracketed
+by measurements rather than guessed: H61 took 80 s wall for this exact ten-cell batch on a
+15-part craft, H21 measured ~15 s per launch-and-restore cycle on a 73-part launcher, and
+H56 took 140 s for a SIX-cell batch on the recorded rover where every restore carries a
+five-recording corpus. The 86-part H70 and the corpus-carrying H69 are the two to watch;
+both project well inside the 540 s `RunTests` cap, and if a census ever times out INSIDE
+the batch the fix is to split the category by situation, not to raise a schema ceiling.
 
 ### In-game MULTI-CATEGORY batch wiring, the long tail: LT-1 + LT-2, both LIVE-PROVEN (2)
 

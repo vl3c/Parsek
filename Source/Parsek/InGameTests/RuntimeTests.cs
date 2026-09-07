@@ -2255,6 +2255,21 @@ namespace Parsek.InGameTests
                     "before the live recorder can rebind to the kerbal");
                 yield break;
             }
+            if (vessel.situation != Vessel.Situations.FLYING)
+            {
+                // The OTHER half of the same requirement, found by H68's authoring pass
+                // (2026-09-07): the guard above admitted ORBITING / SUB_ORBITAL /
+                // ESCAPING / DOCKED, but the body waits for the EVA kerbal to SETTLE
+                // ON A SURFACE and asserts a Landed terminal. A kerbal let out of an
+                // orbiting capsule never settles, so an orbital host turned the
+                // cell into a timeout FAIL - a wrong host, not a defect. Only a
+                // crewed vessel FLYING inside an atmosphere can satisfy every wait.
+                InGameAssert.Skip(
+                    $"requires a crewed vessel FLYING inside an atmosphere, got {vessel.situation}: " +
+                    "the cell waits for the EVA kerbal to settle on a surface, which an orbital " +
+                    "EVA never does");
+                yield break;
+            }
             if (flight.IsRecording)
             {
                 InGameAssert.Skip("requires an idle crewed vessel (recording already active)");
