@@ -17,14 +17,16 @@ namespace Parsek.Tests
                 flightGlobalsReady: true,
                 activeVesselPresent: true,
                 currentFlightInstanceId: previousFlightInstanceId,
-                previousFlightInstanceId: previousFlightInstanceId));
+                previousFlightInstanceId: previousFlightInstanceId,
+                flightReadyEventObserved: true));
 
             Assert.True(QuickloadResumeHelpers.IsReloadedFlightReady(
                 GameScenes.FLIGHT,
                 flightGlobalsReady: true,
                 activeVesselPresent: true,
                 currentFlightInstanceId: -1123806,
-                previousFlightInstanceId: previousFlightInstanceId));
+                previousFlightInstanceId: previousFlightInstanceId,
+                flightReadyEventObserved: true));
         }
 
         [Fact]
@@ -35,7 +37,8 @@ namespace Parsek.Tests
                 flightGlobalsReady: true,
                 activeVesselPresent: false,
                 currentFlightInstanceId: 42,
-                previousFlightInstanceId: 0));
+                previousFlightInstanceId: 0,
+                flightReadyEventObserved: true));
         }
 
         [Fact]
@@ -46,7 +49,8 @@ namespace Parsek.Tests
                 flightGlobalsReady: true,
                 activeVesselPresent: true,
                 currentFlightInstanceId: 42,
-                previousFlightInstanceId: 0));
+                previousFlightInstanceId: 0,
+                flightReadyEventObserved: true));
         }
 
         [Fact]
@@ -57,7 +61,8 @@ namespace Parsek.Tests
                 flightGlobalsReady: false,
                 activeVesselPresent: true,
                 currentFlightInstanceId: 42,
-                previousFlightInstanceId: 0));
+                previousFlightInstanceId: 0,
+                flightReadyEventObserved: true));
         }
 
         [Fact]
@@ -68,7 +73,31 @@ namespace Parsek.Tests
                 flightGlobalsReady: true,
                 activeVesselPresent: true,
                 currentFlightInstanceId: 0,
-                previousFlightInstanceId: 0));
+                previousFlightInstanceId: 0,
+                flightReadyEventObserved: true));
+        }
+
+        [Fact]
+        public void IsReloadedFlightReady_RequiresTheFlightReadyEvent()
+        {
+            // FlightGlobals.ready precedes GameEvents.onFlightReady by up to several
+            // hundred milliseconds on an orbital or landed reload, and ParsekFlight's
+            // handler for the event resets the post-switch auto-record watch. Every
+            // other half true, the event not yet seen: NOT ready (H68 / H69).
+            Assert.False(QuickloadResumeHelpers.IsReloadedFlightReady(
+                GameScenes.FLIGHT,
+                flightGlobalsReady: true,
+                activeVesselPresent: true,
+                currentFlightInstanceId: 42,
+                previousFlightInstanceId: 0,
+                flightReadyEventObserved: false));
+            Assert.True(QuickloadResumeHelpers.IsReloadedFlightReady(
+                GameScenes.FLIGHT,
+                flightGlobalsReady: true,
+                activeVesselPresent: true,
+                currentFlightInstanceId: 42,
+                previousFlightInstanceId: 0,
+                flightReadyEventObserved: true));
         }
 
         [Fact]

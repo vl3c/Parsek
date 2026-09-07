@@ -1,0 +1,411 @@
+schema = 1
+id = "H70-autorecord-pad-crew"
+tier = "nightly"
+# =====================================================================================
+# THE SAME TEN `AutoRecord` CELLS AS H61, ON A THREE-CREW PAD HOST. LIVE-PROVEN
+# 2026-09-07, run `2026-09-07_1621` (PASS attempt 1, wall 91 s, every verifier PASS or
+# SKIPPED), measuring `BATCH_COMPLETE v1 total=10 passed=5 failed=0 skipped=5
+# category=AutoRecord scene=FLIGHT` - the predicted line EXACTLY, with EVERY PREDICTION
+# IN THIS HEADER CONFIRMED cell for cell. The lane's reason to exist,
+# `EvaTwiceFromSameCapsuleProducesTwoBranches`, EXECUTED AND PASSED for the first time
+# anywhere: `source='Kerbal X' first='Valentina Kerman' second='Bob Kerman'
+# evaBranches=2`. None of its six escape hatches fired.
+#
+# IT FLEW TWICE, AND BOTH FLIGHTS PASSED WITH THE IDENTICAL TALLY - which is itself a
+# measurement rather than a formality. Flight 1 (`2026-09-07_1612`) read the same
+# `10/5/0/5` on the PRE-FIX DLL, where the ORBITING (H68) and LANDED (H69) siblings both
+# red on a runner defect: the isolated batch's per-cell baseline restore handed the next
+# cell control about 160 ms after the reload's level-load, while KSP's
+# `GameEvents.onFlightReady` for the RELOADED scene fired about 130 ms INTO that cell, and
+# `ParsekFlight`'s handler for that event resets the post-switch watch (`Post-switch
+# auto-record disarmed: ... reason=flight ready reset`). THIS PAD HOST WON THAT RACE ON
+# BOTH FLIGHTS and H61's pad host had won it on 2026-09-06, which is exactly why the
+# defect survived a green census and surfaced only when the host set widened - a
+# same-category, different-host lane is the instrument that found it. Filed as
+# `ISOLATED-RESTORE-HANDS-OFF-BEFORE-ONFLIGHTREADY` and fixed in `Source/`
+# (`ParsekFlight.FlightReadyObserved` plus the `QuickloadResumeHelpers` readiness
+# predicates). The pin below cites FLIGHT 2, on the fixed DLL, because a pin should name
+# the build the suite ships.
+#
+# H61 flies this category over `gs1-two-stage-pad` and went green on 2026-09-06
+# (`2026-09-06_2010`, `total=10 passed=5 failed=0 skipped=5`). One of its five measured
+# skips is a CREW property rather than a situation one:
+#   * `EvaTwiceFromSameCapsuleProducesTwoBranches` - "requires at least two crew in the
+#     active vessel, got 1"
+# and H61's own header names the host that would buy it, in so many words: "`eva3-pad-3crew`
+# is the obvious candidate ... deliberately left to a follow-up lane rather than swapped in
+# here, because this host is the one that satisfies the other nine."
+#
+# THIS IS THAT FOLLOW-UP LANE. It changes exactly one thing about H61: the fixture.
+# `H68-autorecord-orbiting` and `H69-autorecord-landed` buy the situation half of the same
+# residue.
+#
+# -------------------------------------------------------------------------------------
+# WHY IT IS A SIBLING RATHER THAN A REPLACEMENT FOR H61, and H61's header already says it:
+# swapping this host in "trades one cell for another rather than closing the lane".
+# `eva3-pad-3crew` carries THREE LAUNCH CLAMPS, and
+# `RealSpawnControl_WarpToRecordingEnd_OnPad_DoesNotAutoStartLaunchRecording` carries an
+# explicit `ActiveVesselHasLaunchClamps()` skip whose own comment says why: a clamped pad
+# craft never leaves PRELAUNCH, so a forward time-jump produces no active-vessel situation
+# transition for the suppression path to skip, and the cell's `skipCount` assertion would
+# fail for an environmental reason rather than a product regression. So this lane pays one
+# cell (the RSC canary) to buy another (the two-EVA branch cell), which is why H61 keeps
+# its unclamped host and this lane is added beside it rather than in place of it.
+#
+# -------------------------------------------------------------------------------------
+# WHAT THIS LANE BUYS, and it is ONE cell nothing has ever executed.
+#
+# `EvaTwiceFromSameCapsuleProducesTwoBranches` is the regression gate for the
+# background-parent EVA branch path: EVA one kerbal, let KSP auto-switch focus to it (which
+# parks the capsule's recording into the tree BackgroundMap), walk that kerbal 12 m clear of
+# the hatch, switch BACK to the capsule, disarm the post-switch watch so the capsule stays
+# idle-but-active, then EVA a SECOND kerbal and assert the branch was created through
+# `path=background-parent` rather than through an orphan auto-record. It also asserts NO
+# recorder data was dropped and that the second recorder started against a valid tree
+# recording. That is the shape of the original reproducer (the first kerbal had walked away
+# to plant a flag before the user EVA'd the second), and no committed lane has run it.
+#
+# THE HOST IS THE REPRODUCER'S OWN SHAPE. `eva3-pad-3crew` is a PRELAUNCH Kerbal X with
+# Valentina, Bob and Bill aboard - the same fixture `EVA-3-multi-kerbal` flies - so the
+# EVA / auto-switch / walk-clear / switch-back sequence happens on the pad, where KSP's
+# hatch obstruction check and its focus hand-off behave the way the bug report describes.
+# H68 also satisfies the 2-crew guard, in ORBIT, where the walk-clear step has no committed
+# precedent; between the two this is the surer host and H68 is the interesting one.
+# THE CENSUS SETTLED THAT PAIR, and not the way "surer" suggests: this host PASSED the
+# cell, and H68 SKIPPED it on `capsule hatch still obstructed after moving the first EVA
+# kerbal clear` - in microgravity the first kerbal floats where `MoveVesselClearOfAnchor`
+# put it instead of falling away, so `spawnEVA` refuses the second EVA. The pad is not the
+# surer host for this cell, it is the ONLY committed one, and H70 is therefore the sole
+# claimant rather than a redundant second.
+#
+# -------------------------------------------------------------------------------------
+# WHAT THIS LANE DOES **NOT** BUY:
+#   * D1 `auto-record-first-mod-switch`. Same as H61: all three POSITIVE post-switch cells
+#     want LANDED or ORBITING, so the only one that executes here is the NEGATIVE
+#     `AutoRecordOnPostSwitch_NoOp_DoesNotStart`, and a negative case is not the token.
+#     H68 and H69 are where it is claimed.
+#   * `EvaKerbalGhostHasVesselSnapshot`, whose PRELAUNCH/LANDED/SPLASHED skip refuses any
+#     pad host by construction - H61 measured that skip and this lane reproduces it.
+#   * `RealSpawnControl_WarpToRecordingEnd_OnPad_*`, per the clamp argument above.
+# =====================================================================================
+description = "LIVE-PROVEN 2026-09-07, run 2026-09-07_1621 (PASS attempt 1, wall 91 s), total=10 passed=5 failed=0 skipped=5 - the predicted line exactly, every prediction confirmed cell for cell, and EvaTwiceFromSameCapsuleProducesTwoBranches EXECUTED AND PASSED for the first time anywhere (source='Kerbal X' first='Valentina Kerman' second='Bob Kerman' evaBranches=2, none of its six escape hatches fired). H61's ten AutoRecord cells over eva3-pad-3crew, the 86-part PRELAUNCH Kerbal X carrying Valentina, Bob and Bill - the host H61's own header names as the one that would buy its CREW skip. THE HEADLINE IS ONE CELL NOTHING HAS EVER EXECUTED: EvaTwiceFromSameCapsuleProducesTwoBranches, which H61's census measured skipping with 'requires at least two crew in the active vessel, got 1'. It is the regression gate for the background-parent EVA branch path - EVA one kerbal, let KSP auto-switch focus to it (parking the capsule's recording into the tree BackgroundMap), walk that kerbal 12 m clear of the hatch, switch back to the capsule, keep it idle-but-active, then EVA a SECOND kerbal and assert the branch came through `path=background-parent` rather than an orphan auto-record, with no dropped recorder data. That is the original reproducer's shape and this host is the original reproducer's shape. IT IS A SIBLING RATHER THAN A REPLACEMENT FOR H61, exactly as H61's header predicted: eva3-pad-3crew carries THREE LAUNCH CLAMPS, and RealSpawnControl_WarpToRecordingEnd_OnPad_* carries an explicit ActiveVesselHasLaunchClamps() skip (a clamped craft never produces the launch situation transition whose suppression the cell asserts), so the swap trades one cell for another. The launch cell is unaffected: WaitForLaunchAutoRecordStart calls ReleaseLaunchClampsOnActiveVessel() before it waits, and a craft that then fails to lift off classifies to a Skip rather than a Fail. PREDICTED 5 EXECUTE / 5 SKIP - the same count as H61 with a different membership, which is the point - AND MEASURED AS EXACTLY THAT: the five predicted executions passed (the two-EVA cell, launch, EVA-from-pad, the post-switch no-op, the FF canary) and the five predicted skips named the five predicted reasons, the Real Spawn Control cell on the CLAMP string rather than a situation string. This lane flew twice and read the identical tally on both the pre-fix and the fixed DLL, unlike its ORBITING and LANDED siblings, which red on the ISOLATED-RESTORE-HANDS-OFF-BEFORE-ONFLIGHTREADY runner defect a pad host wins the race against; the pin cites the second, fixed-DLL flight. The recordings count is pinned {0,0} as the campaign-isolation assertion."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "isolated-batch", "auto-record", "eva", "crew", "R6", "H70"]
+
+[fixture]
+# `eva3-pad-3crew`, the `EVA-3-multi-kerbal` host, and the ONLY committed fixture with
+# three crew aboard a PRELAUNCH craft. Active vessel index 1 of 2: the 86-part `Kerbal X`,
+# `type = Ship`, `sit = PRELAUNCH`, SANDBOX, with Valentina Kerman, Bob Kerman and Bill
+# Kerman in its crewed parts.
+#
+# READ OFF THE COMMITTED BYTES, one line per thing a cell reads or is refused by:
+#   * `sit = PRELAUNCH` + 8 `ModuleEngines` - the `staging` fixture requirement in full, so
+#     this lane needs NO override (H68 and H69 do). `AutoRecordOnLaunch_StartsExactlyOnce`
+#     throttles to 1, calls `StageManager.ActivateNextStage()` and waits 30 s for the craft
+#     to leave PRELAUNCH.
+#   * 3 CREW IN PARTS - `CountCrewInParts(vessel) >= 2` is the guard
+#     `EvaTwiceFromSameCapsuleProducesTwoBranches` refuses on, and the cell needs a SECOND
+#     `TryGetEvaSource` hit after the first kerbal has left, which three aboard makes
+#     comfortable rather than marginal.
+#   * 3 LAUNCH CLAMPS, and they cut both ways, which is why they are stated rather than
+#     glossed:
+#       - `RealSpawnControl_WarpToRecordingEnd_OnPad_*` SKIPS on them by its own guard.
+#         That is the price of this host and it is paid deliberately (see the header).
+#       - `AutoRecordOnLaunch_*` is NOT affected: `WaitForLaunchAutoRecordStart` calls
+#         `ReleaseLaunchClampsOnActiveVessel()` as its FIRST statement, "so a clamped pad
+#         craft can actually lift off". Its timeout then classifies through
+#         `ClassifyLaunchWaitTimeout` into `SkipNoThrust` / `SkipNeverLiftedOff` rather
+#         than a Fail, so even a TWR surprise on an 86-part stack costs a skip, not a red.
+#       - `TimelineFastForward_OnPad_*` carries NO clamp guard, and reading its body says
+#         why that is correct rather than an oversight: it counts the FORWARD suppression
+#         ARM lines and asserts zero auto-record starts, and it reads `skipCount` without
+#         asserting on it. The RSC cell is the one whose `skipCount` assertion needs the
+#         transition.
+#   * 86 PART nodes - the largest host in the isolated family. See the runtime block for
+#     why that does not threaten the budget.
+#
+# `injectedRecordings = "none"` and an EMPTY corpus (0 `.prec` sidecars), which is what
+# makes the `{0, 0}` count pin below a real assertion rather than a formality.
+saveTemplate = "fixtures/saves/eva3-pad-3crew"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# H61's SHAPE, WITH ONE ADDITION, and the addition is `verboseLogging` rather than
+# anything that touches the batch.
+#
+# WHY THE `autoRecordOnLaunch = false` PIN STAYS - H61's reasoning, which holds unchanged
+# because the cells are the same cells: this lane tests auto-record, so pinning the flag
+# false looks like it would disable the subject. It does not. EVERY `AutoRecord` cell that
+# needs a flag ON sets that flag ITSELF inside a `try` and restores the captured original
+# in `finally` - `AutoRecordOnLaunch_*` sets `autoRecordOnLaunch`, `AutoRecordOnEvaFromPad_*`
+# sets `autoRecordOnEva`, `EvaTwiceFromSameCapsuleProducesTwoBranches` sets
+# `autoRecordOnEva` too, the post-switch cells set
+# `autoRecordOnFirstModificationAfterSwitch`, and both #526 canaries set
+# `autoRecordOnLaunch`. So the driver's pin cannot reach any cell's subject. What it DOES
+# buy is a KNOWN IDLE start: six of the ten cells carry an `if (flight.IsRecording)
+# InGameAssert.Skip(...)` guard, and a load-time auto-record firing on scene entry would
+# self-skip them for an environmental reason that looks exactly like a product defect.
+#
+# `verboseLogging = true` is REQUIRED, not cosmetic. The runner writes each cell's per-test
+# `SKIPPED: <name> - <reason>` line at VERBOSE (`InGameTestRunner.cs:3610`), and this
+# lane's whole product is a cell-by-cell roster: it matters WHICH of
+# `EvaTwiceFromSameCapsuleProducesTwoBranches`'s SIX run-time escape hatches fires if the
+# cell does not execute to completion, because they call for opposite fixes (KSP never
+# auto-switched vs the hatch is still obstructed vs the capsule would not settle idle). A
+# bare `skipped=N` cannot be turned into a roster afterwards, and inferring a name from a
+# count is the guess `MEASURED_SKIPPED` exists to forbid.
+#
+# NOTE on the recording-rules suppression, same as H61: `hlib.spec_expects_live_recording`
+# reads the DRIVER (a StartRecording step, or an `autoRecordOnLaunch = true` pin) and so
+# returns False here, suppressing REC-001/REC-003 even though this run genuinely records
+# from inside the test bodies. That is a suppression, so it can only under-detect; the
+# BATCH_COMPLETE pin is the real gate.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "RunTests",   args = { category = "AutoRecord", isolated = "true" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# THE SAME TWO D1 TOKENS H61 CLAIMS, on the same two cells, because the same two cells are
+# predicted to execute here - and NOT the third.
+#
+#  - `auto-record-launch`: `AutoRecordOnLaunch_StartsExactlyOnce` stages the real craft,
+#    waits for it to leave the pad, and asserts EXACTLY ONE `Auto-record started (` line
+#    plus a non-null `ActiveRecordingId`.
+#  - `auto-record-eva`: `AutoRecordOnEvaFromPad_StartsExactlyOnce` drives
+#    `FlightEVA.spawnEVA` on a real crew member and asserts exactly one
+#    `Auto-record started (EVA from pad)` line and that focus moved to the kerbal.
+#
+# BOTH ARE ALREADY CLAIMED BY H61 on its own host, so neither is new coverage; they are
+# stated because this lane's executing population genuinely includes them and dropping the
+# rows would misdescribe what the batch does. The lane's REASON to exist -
+# `EvaTwiceFromSameCapsuleProducesTwoBranches` - has NO registry value of its own, so it is
+# gated by a REQUIRED cell token below rather than by a dimension row. Inventing a value
+# for it would be a registry change, which is a separate decision from wiring a lane.
+#
+#  - `auto-record-first-mod-switch` is NOT claimed, for H61's reason exactly: all three
+#    POSITIVE post-switch cells want LANDED or ORBITING and only the NEGATIVE no-op one
+#    executes on a pad. H68 and H69 claim it.
+#
+# SANDBOX on a FLIGHT-scene pad craft (D14).
+#
+# NOT CLAIMED, deliberately: D9 `fast-forward`, even though the FF canary executes. Its
+# SUBJECT is auto-record SUPPRESSION - it asserts the FF does not start a bogus recording -
+# so the fast-forward is the fixture and not the measurement. H66 owns that value, off a
+# cell that asserts the playback and the spawn. Same ruling H61 made.
+D1  = ["auto-record-launch", "auto-record-eva"]
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (the H7 lesson, restated by H21 and H61): run.py reads
+# `expectations.allowedAnomalies` as a BARE key, and a bare key written AFTER an
+# `[expectations.<sub>]` header is TOML-scoped to that sub-table and never read.
+# `hlib.validate_spec` rejects the misplaced form, so this must stay ahead of the
+# sub-tables.
+allowedAnomalies = []
+
+[expectations.recordings]
+# ZERO, AND IT DOUBLES AS THE CAMPAIGN-ISOLATION ASSERTION - H61's row unchanged, because
+# what it asserts is a property of the ISOLATED PATH rather than of the host. Every
+# executing cell creates a real live recording (a launch tree, one or TWO EVA branches, a
+# synthetic keep-vessel tree); each cell restores a quickloaded flight baseline afterwards
+# and the batch teardown then reverts persistent.sfs from the clean `.bak`
+# `CaptureBatchBaseline` wrote before the marker. `eva3-pad-3crew` stages an EMPTY corpus
+# (0 `.prec` sidecars) and injects nothing, so the produced save must carry no recordings
+# at all. A non-zero count does not mean "a cell leaked" - it means the isolated path's
+# restore contract did not hold, which is exactly the property R5 is betting on and should
+# red loudly. THIS LANE LEANS ON IT HARDER THAN H61 DOES: the two-EVA cell is the only
+# committed cell that creates TWO branches and switches focus twice inside one restore
+# window.
+# (`test_each_pins_the_recordings_count_its_fixture_implies` requires this exact {0, 0} for
+# an empty-corpus template; a window would accept a leaked tree or a failed baseline
+# revert.)
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# EVIDENCE STANDING: MEASURED TWICE, both PASS, both `total=10 passed=5 failed=0
+# skipped=5`. The pin cites run `2026-09-07_1621` (PASS on attempt 1, 91 s wall, every
+# verifier PASS or SKIPPED, on the DLL carrying the `onFlightReady` readiness fix); run
+# `2026-09-07_1612` earlier the same day read the identical line on the pre-fix DLL,
+# because a PRELAUNCH host wins the restore race that red H68 and H69. Both collected
+# logs carry `Using batch baseline slot ... for 10 restore-after-run test(s)`.
+# `total=10` is ATTRIBUTE-EXACT and source-synced; `failed=0` is the ASSERTION;
+# `passed=5` and `skipped=5` are MEASURED LITERALS, and because the attribute floor for
+# skipped is 0 the 5 is declared in `IsolatedBatchWiringGroupTests.MEASURED_SKIPPED` with
+# its per-cell derivation. The id has LEFT `INTERIM_PIN_IDS` in the same commit.
+# Re-measure rather than re-guess: four of the five skips are SITUATION properties of
+# `eva3-pad-3crew` and the fifth is its launch clamps.
+#
+# DERIVED, NOT GUESSED. The commands, so the next reader re-runs them rather than trusting
+# this block:
+#   hlib.derive_batch_tally(decls, "AutoRecord", "FLIGHT", isolated=True)
+#     -> total=10  scene_skipped=0  batch_skipped=0  executable=10
+#   hlib.derive_batch_tally(decls, "AutoRecord", "FLIGHT")
+#     -> total=10  scene_skipped=0  batch_skipped=10  executable=0
+#   restore-flagged declarations admitted at FLIGHT -> 10
+#
+#  - `total=10` is ATTRIBUTE-EXACT and shared with H61 / H68 / H69, so an eleventh
+#    `AutoRecord` declaration moves all four in the same commit
+#    (`CommittedBatchTallySourceSyncTests`).
+#  - THE INTERIM `passed=` SPELLING IT REPLACES was the plain `[1-9][0-9]*`, sufficient
+#    while it stood: `AutoRecord` is WHOLLY batch-disabled, so the ORDINARY path's
+#    executable ceiling is ZERO and the only line it could print is `passed=0`, which both
+#    that spelling and the anti-vacuity gate reject. The whole pin is strictly stronger,
+#    and on THIS lane the difference is the one the header warned about: `passed=5` alone
+#    would have been satisfied by exactly the five H61 already runs, which is why the cell
+#    token below was pinned from the authoring pass onward and remains the real gate.
+#
+# -------------------------------------------------------------------------------------
+# THE PREDICTION, CELL BY CELL, WRITTEN TO BE REFUTED. FIVE EXECUTE, FIVE SKIP - the same
+# COUNT as H61 with a different MEMBERSHIP, which is the lane's whole point.
+#
+#   EXECUTE
+#     1. EvaTwiceFromSameCapsuleProducesTwoBranches (:2488) - THE LANE'S REASON TO EXIST.
+#        Non-EVA + `CountCrewInParts >= 2` (3 aboard) + a resolvable `FlightEVA` + a crewed
+#        part with an airlock, all satisfied by the host. SIX further exits exist and EVERY
+#        ONE IS A SKIP rather than a Fail, which is why this cell can cost a skip but not a
+#        red: KSP never auto-switching focus to the first kerbal; the first kerbal not being
+#        the active vessel afterwards; `TrySetActiveVesselForTest` refusing the switch back;
+#        the capsule not settling idle (post-switch watch still armed, or a recording
+#        resumed); no second `TryGetEvaSource` hit; the hatch still obstructed after the
+#        12 m walk-clear. Pinned as a REQUIRED cell token below.
+#     2. AutoRecordOnLaunch_StartsExactlyOnce (:2037) - PRELAUNCH + 8 engines + idle. The
+#        clamps are released by the wait itself; an 86-part stack that still failed to lift
+#        off inside 30 s classifies to `SkipNeverLiftedOff`.
+#     3. AutoRecordOnEvaFromPad_StartsExactlyOnce (:2118) - crewed non-EVA + idle + a
+#        resolvable `FlightEVA` and airlock.
+#     4. AutoRecordOnPostSwitch_NoOp_DoesNotStart (:2944) - the only post-switch cell with
+#        no situation guard.
+#     5. TimelineFastForward_OnPad_DoesNotAutoStartLaunchRecording (:14139) - idle + non-EVA
+#        + a main body + PRELAUNCH. NO clamp guard (see the fixture block for why that is
+#        correct rather than an oversight). Its remaining risk is
+#        `TryBuildSyntheticKeepVesselTree`, a live-builder guard on an 86-part snapshot.
+#
+#   SKIP
+#     6. EvaKerbalGhostHasVesselSnapshot (:2215) - the explicit PRELAUNCH / LANDED /
+#        SPLASHED skip: "requires a mid-flight crewed vessel - EVA from PRELAUNCH
+#        auto-seals the kerbal recording as Landed before the live recorder can rebind to
+#        the kerbal". H61 measured this exact string.
+#     7. AutoRecordOnPostSwitch_LandedMotion_StartsExactlyOnce (:2657) - needs LANDED.
+#     8. AutoRecordOnPostSwitch_OrbitalEngineOrRcs_StartsExactlyOnce (:2754) - needs
+#        ORBITING.
+#     9. AutoRecordOnPostSwitch_GearToggle_StartsExactlyOnce (:2854) - needs LANDED.
+#    10. RealSpawnControl_WarpToRecordingEnd_OnPad_DoesNotAutoStartLaunchRecording (:14248)
+#        - passes the situation guard and skips on the NEXT one,
+#        `ActiveVesselHasLaunchClamps()`. THE CENSUS SHOULD SHOW THE CLAMP STRING, not a
+#        situation string; that is the difference between "this host is clamped" (the
+#        prediction, and the price of the swap) and something else moving.
+#
+# So the predicted line is `total=10 passed=5 failed=0 skipped=5`. Four of the five skips
+# are SITUATION properties and one is a PART property (the clamps); none is a product
+# claim.
+#
+# -------------------------------------------------------------------------------------
+# THE CENSUS CONFIRMED IT CELL FOR CELL, run `2026-09-07_1621`:
+# `total=10 passed=5 failed=0 skipped=5`, the predicted line exactly. The five predicted
+# executions PASSED - `TimelineFastForward_OnPad_*` (297 ms),
+# `AutoRecordOnEvaFromPad_StartsExactlyOnce` (665 ms), `AutoRecordOnLaunch_*` (1.5 s, so
+# the 86-part stack DID lift off inside the wait after the clamps were released),
+# `AutoRecordOnPostSwitch_NoOp_DoesNotStart` (1.5 s) and, THE LANE'S REASON TO EXIST,
+# `EvaTwiceFromSameCapsuleProducesTwoBranches` (1.4 s), which wrote
+# `EvaTwiceFromSameCapsuleProducesTwoBranches: source='Kerbal X' first='Valentina Kerman'
+# second='Bob Kerman' evaBranches=2 activeRec=...`. NONE of its six escape hatches fired:
+# KSP auto-switched focus, the walk-clear cleared the hatch, the capsule settled idle and
+# the second `TryGetEvaSource` hit. The five `SKIPPED:` lines name the five predicted
+# cells on the five predicted reasons, verbatim:
+#   * `RealSpawnControl_WarpToRecordingEnd_OnPad_DoesNotAutoStartLaunchRecording - active
+#     pad vessel has launch clamps holding it on the pad; it never produces a launch
+#     situation transition during the warp, so the time-jump transient suppression path
+#     cannot be exercised on this craft` - THE CLAMP STRING, not a situation string,
+#     which is the distinction this header asked the census to draw. The price of the
+#     swap is paid exactly where H61's header predicted it would be, and H69 runs that
+#     cell on its unclamped landed host.
+#   * `AutoRecordOnPostSwitch_GearToggle_StartsExactlyOnce - requires a LANDED active
+#     vessel for the post-switch gear-toggle canary, got PRELAUNCH`
+#   * `AutoRecordOnPostSwitch_LandedMotion_StartsExactlyOnce - requires a LANDED active
+#     vessel for the post-switch landed-motion canary, got PRELAUNCH` (H69 measured it
+#     PASSING)
+#   * `AutoRecordOnPostSwitch_OrbitalEngineOrRcs_StartsExactlyOnce - requires an ORBITING
+#     active vessel for the post-switch orbital canary, got PRELAUNCH` (H68 measured it
+#     PASSING)
+#   * `EvaKerbalGhostHasVesselSnapshot - requires a mid-flight crewed vessel - EVA from
+#     PRELAUNCH auto-seals the kerbal recording as Landed before the live recorder can
+#     rebind to the kerbal`
+#
+# WHAT THE CENSUS SETTLES ABOUT THE HOST SET: 8 of `AutoRecord`'s 10 cells now execute
+# somewhere across H61 / H68 / H69 / H70, and this lane owns the eighth on its own. The
+# two that execute NOWHERE are `EvaKerbalGhostHasVesselSnapshot` (needs a crewed vessel
+# FLYING low over terrain - low enough that the EVA kerbal reaches the ground inside the cell's 10 s settle wait and its terminal reads Landed, not Splashed; a just-airborne or hovering craft over the KSC grass, not a cruise-altitude one - no committed fixture) and
+# `AutoRecordOnPostSwitch_GearToggle_*` (needs a LANDED craft carrying
+# `ModuleWheels.ModuleWheelDeployment` - H69 proved the situation guard is not the binding
+# one). Both are HARVEST requirements rather than product claims.
+#
+# -------------------------------------------------------------------------------------
+# THE FOUR TOKENS, and what each rests on:
+#  - The BATCH_COMPLETE line, now pinned WHOLE off the census:
+#    `total=10 passed=5 failed=0 skipped=5`.
+#  - `runtests start category=AutoRecord isolated=true` - emitted by
+#    `ParsekTestCommandAddon.RunTestsImpl` on the exact step this driver sends, so it is
+#    reachable by construction. It is also the CANARY for the provisioning trap: the
+#    harness flies the `automation/stock-minimal` instance, NOT the one `dotnet build`
+#    deploys to, so its ABSENCE means a stale `Parsek.dll` rather than a Parsek regression.
+#  - `Using batch baseline slot ... for 10 restore-after-run test(s)` - emitted ONLY by
+#    `InGameTestRunner.PrepareBatchFlightRestoreExecution`, which `RunCategory` never
+#    calls, so it proves the ISOLATED entry point INDEPENDENTLY of the tally. The literal
+#    10 is DERIVED and must stay a literal: a `[0-9]+` there is satisfied by a batch that
+#    admitted a different population.
+#  - THE CELL TOKEN, which is what an interim `passed=` cannot give, and here it carries
+#    more weight than on either sibling: this lane exists for ONE cell that has never run,
+#    that cell has no registry value, and an interim `passed=5` would be satisfied by the
+#    same five H61 already runs. `EvaTwiceFromSameCapsuleProducesTwoBranches:` is written
+#    only AFTER the cell has asserted the second branch came through `path=background-parent`,
+#    that no recorder data was dropped, and that the second recorder started against a valid
+#    tree recording. The crew names are regexed (KSP's roster order is not a fixture
+#    guarantee) but `evaBranches=` is pinned to at least 2, which is the assertion in a
+#    number. THE CENSUS MEASURED `first='Valentina Kerman' second='Bob Kerman'
+#    evaBranches=2`, and the name classes STAY classes for the reason above: the roster
+#    order KSP hands the cell is not a property this fixture pins.
+required  = [
+  "runtests start category=AutoRecord isolated=true",
+  "Using batch baseline slot .* for 10 restore-after-run test\\(s\\)",
+  "BATCH_COMPLETE v1 total=10 passed=5 failed=0 skipped=5 category=AutoRecord scene=FLIGHT",
+  "EvaTwiceFromSameCapsuleProducesTwoBranches: source='.*' first='.*' second='.*' evaBranches=(?:[2-9]|[1-9][0-9]+)",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# Budget arithmetic (M-A5 S8), H61's shape unchanged: `LoadGame` is ITSELF in
+# `hlib.DEFERRED_SEAM_VERBS`, so run.py gives EVERY deferred step
+# `required_step_wait(max(step budget, SEAM_FALLBACK_DEFERRAL_SECONDS=600))` = 660 s
+# regardless of the declared budget. Worst case is 660 + 660 = 1320, and 1400 clears it so
+# a genuine seam TIMEOUT surfaces as a retryable driver-INVALID rather than a harness KILL
+# that prints no tally. Enforced by
+# `IsolatedBatchWiringGroupTests.test_the_budget_clears_the_deferred_worst_case`.
+#
+# IS 1400 ENOUGH FOR THE LARGEST HOST IN THE FAMILY? MEASURED: 91 s WALL on run
+# `2026-09-07_1621` (and the same order on flight 1), against the ~150 s of batch the
+# projection below allowed for - so the part-count scaling argument was conservative
+# rather than wrong. The projection is kept because it is what sizes the next host.
+# This is an 86-part craft where H61's
+# was 15, and the ten quickload baseline restores are the cost that scales with part count.
+# The bracketing measurements: H61 took 80 s WALL for this exact ten-cell batch on 15
+# parts; H21 measured a two-cell isolated batch at 29.6 s of batch time inside a 101 s wall
+# on a 73-PART launcher, i.e. ~15 s per launch-and-restore cycle at roughly this size. Ten
+# such cycles project to ~150 s of batch, and the two-EVA cell adds its own waits (a 10 s
+# branch wait, a 10 s focus wait, two 0.5 s settles, then the second branch wait). That is
+# well inside the 540 s `RunTests` cap (`hlib.MAX_DEFERRED_STEP_BUDGET_SECONDS`, a schema
+# ceiling rather than a preference) with room for the difference between 73 and 86 parts.
+# If a census ever times out INSIDE the batch, the fix is to split the category across two
+# lanes by situation, not to raise that number.
+budgetSeconds = 1400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

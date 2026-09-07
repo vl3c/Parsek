@@ -131,6 +131,15 @@ sub-2-point-drop              switch-segment-noop-discard
 (`stop-on-switch` is one of the two R2 phantom cells - it may leave this list by
 deletion rather than coverage.)
 
+That block is a DATED SNAPSHOT and is not re-derived here; the counts above it come
+from the coverage report and move only when it is re-run.
+`auto-record-first-mod-switch` has since LEFT it: `H68-autorecord-orbiting` and
+`H69-autorecord-landed` flew green on 2026-09-07 and claim it off the ORBITING and
+LANDED positive post-switch cells, each gated on the cell's own summary line
+(`mode=engine situation=ORBITING autoStartCount=1` / `situation=LANDED
+autoStartCount=1`). `commit-revert-merge` and `auto-merge` likewise left it with the
+R6 isolated wave on 2026-09-06 (H64, H67).
+
 D9 is worse than its 8-uncovered row suggests. Seven further D9 cells are "covered"
 only by `S1.5-rewind-loop` and `S4.1-rewind-merge`, both `tier = "operator"`, both
 excluded from every cadence, neither ever run. **15 of 16 D9 cells therefore have no
@@ -799,6 +808,8 @@ stock-minimal` to reach a harness run.
     host. All three POSITIVE post-switch cells demand LANDED or ORBITING, so the only
     one that executes is the negative `AutoRecordOnPostSwitch_NoOp_DoesNotStart`.
     Closing it needs a LANDED host and an ORBITING host - two follow-up lanes.
+    BOTH FLEW GREEN 2026-09-07 (H69 LANDED, H68 ORBITING) and the value is now
+    CLOSED; the paragraph below carries the run ids and the gating cell lines.
   - D5 `crash-coalescing` is NOT closed by `Coalescer`. Both its cells stage a
     decoupler and assert on the resulting CONTROLLED child; neither crashes anything.
   - D9 `rewind-to-launch` is NOT closed by `QuickloadResume`. That value names
@@ -813,6 +824,49 @@ stock-minimal` to reach a harness run.
   post-switch cells each skipped naming their required situation against `got
   PRELAUNCH`, so D1 `auto-record-first-mod-switch` is measured-open, not argued-open,
   and the LANDED / ORBITING follow-up lanes are still owed.
+  **THE FOLLOW-UP LANES WERE AUTHORED 2026-09-07 AND ALL THREE FLEW GREEN THE SAME
+  DAY**, and there were THREE rather than the two named above - the third pays H61's
+  CREW skip, which this paragraph did not count as owed. Each changes exactly ONE
+  thing about H61, the fixture, so a census delta is attributable to the host alone.
+  Each PASS on attempt 1, every verifier PASS or SKIPPED, each pinned WHOLE:
+  `H68-autorecord-orbiting` over `gs2-orbital-stack`, run `2026-09-07_1618`, 74 s,
+  `total=10 passed=3 failed=0 skipped=7` (the ORBITING positive post-switch cell PASSED
+  - watch armed, real engine ignited, `mode=engine situation=ORBITING
+  autoStartCount=1`); `H69-autorecord-landed` over `rover-route-recorded`, run
+  `2026-09-07_1619`, 99 s, `10/4/0/6` (the LANDED one PASSED - rover nudged a metre,
+  `situation=LANDED autoStartCount=1`); and `H70-autorecord-pad-crew` over
+  `eva3-pad-3crew`, run `2026-09-07_1621`, 91 s, `10/5/0/5` (the never-executed
+  `EvaTwiceFromSameCapsuleProducesTwoBranches` EXECUTED AND PASSED, `evaBranches=2`).
+  **D1 `auto-record-first-mod-switch` IS THEREFORE CLOSED** - claimed by H68 and H69,
+  each gated on its cell's own summary line rather than on a tally, and both lines are
+  now in the runs' artifact logs (`harness/results/<run>_shots/KSP.log`, gitignored). THE LANDED / ORBITING FOLLOW-UP LANES ARE NO LONGER OWED.
+  UNION ACROSS THE FOUR HOSTS: 8 of `AutoRecord`'s 10 cells now execute somewhere.
+  TWO PIECES OF H61's RESIDUE SURVIVED EVEN THESE THREE, found by reading the cell
+  bodies before the flights and both confirmed by them, and both are recorded so
+  nobody re-plans them as host swaps. THEY ARE THE REMAINING TWO HOSTS THIS CATEGORY
+  IS OWED: (a) a DEPLOYABLE-GEAR HOST for `AutoRecordOnPostSwitch_GearToggle_*`, which
+  needs a part carrying `ModuleWheels.ModuleWheelDeployment` - the rover carries only
+  rolling wheel modules (`ModuleWheelBase` / `Brakes` / `Damage` / `Motor` /
+  `Steering` / `Suspension`), and H69 MEASURED the cell passing its LANDED situation
+  guard and skipping one guard later on `active landed vessel has no deployable
+  landing-gear module the canary can toggle`, so a LANDED host is NECESSARY BUT NOT
+  SUFFICIENT and closing it is a HARVEST requirement for a landed craft with
+  retractable gear or legs; (b) a FLYING-IN-ATMOSPHERE CREWED HOST for
+  `EvaKerbalGhostHasVesselSnapshot`, which no committed fixture is. H68 predicted that
+  cell would FAIL in orbit (the old guard skipped only PRELAUNCH / LANDED / SPLASHED
+  while the body waits on `WaitForActiveEvaSurfaceSettled` and asserts
+  `TerminalState.Landed`); THE GUARD WAS WIDENED in `Source/` in the same wave to name
+  the requirement it always meant, so the census measured a SKIP - `requires a crewed
+  vessel FLYING inside an atmosphere, got ORBITING` - and the host requirement is now
+  stated by the product rather than inferred. FLYING is necessary, not sufficient: the
+  body's 10 s settle wait and Landed terminal mean the forge must be sized FLYING low over terrain - low enough that the EVA kerbal reaches the ground inside the cell's 10 s settle wait and its terminal reads Landed, not Splashed; a just-airborne or hovering craft over the KSC grass, not a cruise-altitude one.
+  A THIRD THING THE FLIGHTS PRODUCED, worth more than the tallies: the FIRST round
+  (`_1609` H68, `_1611` H69) red on a RUNNER defect - the isolated batch's per-cell
+  baseline restore handed a cell control before KSP's `onFlightReady` for the reloaded
+  scene, whose `ParsekFlight` handler resets the post-switch watch. PAD hosts won that
+  race every time (H61, and H70 on both of its flights), so a green census had shipped
+  over it and only a same-category-different-host lane could see it. Fixed in `Source/`
+  and filed as `ISOLATED-RESTORE-HANDS-OFF-BEFORE-ONFLIGHTREADY`.
 - ~~Free today: `Optimizer` (D4 `env-body-split`, `surface-graze-suppression`),
   `BackgroundSeeder` (D4 `seed-event-split`), `Recording` (D5 `bg-on-rails`),
   `TrajectoryMath` (D2 `threshold-debounce`), `Pipeline-Anchor` (D3
