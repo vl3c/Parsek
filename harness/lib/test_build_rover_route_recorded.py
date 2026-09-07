@@ -304,7 +304,19 @@ class RoverRouteSpecFixtureSyncTests(unittest.TestCase):
              "H56-route-dock-capture-landed.toml",
              "H57-route-start-docked-origin-landed.toml",
              "H58-route-rewind-to-launch.toml",
-             "H59-surface-route-map-lines.toml")
+             "H59-surface-route-map-lines.toml",
+             # H69 is the SECOND spec on H56's footing, and the difference from H56 is
+             # worth separating: H56 boots these bytes for a live property its cells then
+             # USE (a LANDED rover to couple a spawned partner against); H69 boots them
+             # for a live property its cells are GATED ON - `sit = LANDED` is the
+             # situation two `AutoRecord` post-switch canaries demand by name, and H61's
+             # census measured both skipping against a PRELAUNCH host. It reads NONE of
+             # the recorded corpus either; the corpus's only roles in that lane are the
+             # exact-5 `recordings.count` pin (anti-data-loss floor plus
+             # campaign-isolation ceiling) and the kill triple its presence justifies as
+             # an idempotent guard in the driver (both H69 flights measured nothing live
+             # to stop). Same pairing obligation as the other live-reason consumers.
+             "H69-autorecord-landed.toml")
 
     FIXTURE_PATH = "fixtures/saves/rover-route-recorded"
     FIXTURE_LITERAL = '"%s"' % FIXTURE_PATH

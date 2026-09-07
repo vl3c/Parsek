@@ -15,6 +15,28 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~ISOLATED-RESTORE-HANDS-OFF-BEFORE-ONFLIGHTREADY: the isolated batch's baseline restore returned on `FlightGlobals.ready`, up to several hundred milliseconds before `GameEvents.onFlightReady`, whose Parsek handler disarms the post-switch auto-record watch - so the next cell's arm was wiped 128 ms in~~ [FOUND 2026-09-07 by the first flights of H68 (`2026-09-07_1609`) and H69 (`_1611`): every post-switch AutoRecord cell on the ORBITING and LANDED hosts timed out with `armed=False baselineCaptured=False`, while the PRELAUNCH hosts (H61, H70) had always won the same race. TEST-RUNNER DEFECT, not a product one. FIXED 2026-09-07 on branch `autorecord-hosts`]
+
+**The timeline, from `runlogs` of the H68 first flight:** `Running: AutoRecordOnPostSwitch_NoOp`
+at 19:10:14.591, `Post-switch auto-record armed` at .593, `Post-switch watch decision ...
+suppression=PackedOrOnRails` at .594, then at .719 `[OnFlightReady]` and
+`Post-switch auto-record disarmed: reason=flight ready reset`, then the 3 s timeout. The
+restore that preceded the cell had returned at .432 (`PerformBetweenRunCleanup: end`):
+`QuickloadResumeHelpers.WaitForFlightReady` waits for `FlightGlobals.ready` plus a NEW
+`ParsekFlight` instance, and both were true ~300 ms before `FlightDriver` fired the
+event (decompiled: `FlightGlobals.ready` is set well before `GameEvents.onFlightReady.Fire()`).
+An orbital or landed reload takes longer between the two than a pad reload, which is
+why the race had never been seen by H21 / R7a / H38-H41 / H55-H57 / H61-H67.
+
+**The fix:** `ParsekFlight.FlightReadyObserved` (set first thing in `OnFlightReady`, before
+its early returns) is a fourth condition of `IsReloadedFlightReady`, so
+`WaitForFlightReady` - the shared post-reload wait used by the isolated restore, the
+quickload-resume cells and the revert-flow cell - holds until the new flight instance
+has seen the event. Unit cell `IsReloadedFlightReady_RequiresTheFlightReadyEvent`; the
+re-flights `2026-09-07_1618` (H68, 3/0/7) and `_1619` (H69, 4/0/6) PASSED attempt 1 with
+every post-switch cell executing.
+
+## ~~WARPTOTIME-CELL-VERDICT-DEPENDED-ON-BATCH-ORDER: `WarpToTime_ResolvePlan_LiveScene` measured its two resolutions and then SKIPPED when no rewind target was present, so the same cell read PASSED after 17 other categories and SKIPPED after 3~~ [FOUND 2026-09-07 by LT-2's first pinned flight (`2026-09-07_1509`, skipped where the empty-store census `_0854` had passed). TEST DETERMINISM, not a product defect. FIXED 2026-09-07 on branch `long-tail-batch`]
 ## ~~WARPTOTIME-CELL-VERDICT-DEPENDED-ON-BATCH-ORDER: `WarpToTime_ResolvePlan_LiveScene` measured its two resolutions and then SKIPPED when no rewind target was present, so the same cell read PASSED after 17 other categories and SKIPPED after 3~~ [FOUND 2026-09-07 by LT-2's first pinned flight (`2026-09-07_1508`, skipped where the empty-store census `_0854` had passed). TEST DETERMINISM, not a product defect. FIXED 2026-09-07 on branch `long-tail-batch`]
 
 The cell asserts a far-future date resolves ForwardOnly and that UT 0 resolves to a

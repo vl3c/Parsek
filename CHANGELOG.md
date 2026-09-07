@@ -10,6 +10,16 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- The automated test rig no longer starts the next in-game test before the game has
+  finished bringing a reloaded flight back up. Between tests that restore a saved
+  flight, the rig waited for the flight globals to read ready, which happens some
+  hundreds of milliseconds before the game's own flight-ready event; Parsek resets its
+  post-switch auto-record watch on that event, so a test that armed the watch in that
+  window had it wiped from under it. On a launch-pad craft the event happened to land
+  first; on an orbiting or landed craft it never did, and every post-switch test on
+  those hosts failed. The rig now also waits for the event itself. Test-tooling only;
+  no gameplay change.
+
 - The automated test rig's `RunTests` command can now run several in-game test
   categories in one game session (`category=A,B,C`), one after the other, each
   printing its own tally line before a final combined one - the same shape the

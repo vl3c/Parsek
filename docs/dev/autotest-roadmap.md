@@ -57,13 +57,13 @@ M-A6 stack provisioner, M-B1 mission library, M-B2 ledger oracle, M-C1 seam verb
 batch 1, M-C2 EVA verbs. Status and per-module proof live in `autotest-status.md`.
 None of the items in this roadmap are blocked on a missing module.
 
-### Scenarios: 221 committed
+### Scenarios: 224 committed
 
-Re-derived 2026-09-07 at the merge of #1645 (`78102108d`): `ls harness/scenarios/*.toml` returns **221**
+Re-derived 2026-09-07 at the merge of #1646 (`e01d11f85`): `ls harness/scenarios/*.toml` returns **224**
 files, the total `autotest-status.md`'s `## Test cases` header states and
 `AutotestStatusScenarioCountTests` pins against the committed files. The 68 below
-was the 2026-08-04 snapshot; the V / GS / W / L / RVR / H41-H67 / LT waves, among others, took it
-from 68 to 221 between 2026-08-04 and 2026-09-07.
+was the 2026-08-04 snapshot; the V / GS / W / L / RVR / H41-H70 / LT waves, among others, took it
+from 68 to 224 between 2026-08-04 and 2026-09-07.
 
 `ls harness/scenarios/*.toml` returned **68** files when this section was last
 re-derived before that (2026-08-04 at
@@ -77,15 +77,15 @@ EVA / CL / S0.x / H22-H25 / V1 / BDOCK waves and R14's MC-1/MC-2 took it from
 55 to 68. Adding a scenario is not the same as covering a cell. Re-derive
 these rather than editing them by memory; both numbers have moved many times.
 
-### Coverage: 161 of 247 registry cells (was 83 of 241 at the baseline, 108 of 242 on 2026-08-04)
+### Coverage: 162 of 247 registry cells (was 83 of 241 at the baseline, 108 of 242 on 2026-08-04)
 
-Re-derived 2026-09-07 at the merge of #1645 (`78102108d`), replacing the 2026-08-04 snapshot (108 of
+Re-derived 2026-09-07 at the merge of #1646 (`e01d11f85`), replacing the 2026-08-04 snapshot (108 of
 242; the registry has since grown by five values net: D6 +2, D9 +1, D10 +3, D16 -1). The
-command is unchanged: `hlib.compute_coverage(specs, [], registry)` over the 221
+command is unchanged: `hlib.compute_coverage(specs, [], registry)` over the 224
 committed specs and `harness/coverage/registry.toml` returns exactly:
 
 ```
-values 247   covered 161   uncovered 86   expectedFailValues 0   xpass 0
+values 247   covered 162   uncovered 85   expectedFailValues 0   xpass 0
 ```
 
 Per dimension (total / uncovered), with the 2026-08-04 uncovered count kept in
@@ -93,7 +93,7 @@ the last column so the delta stays legible:
 
 | Dim | Subject | Total | Uncovered | Was |
 |---|---|---:|---:|---:|
-| D1 | recording lifecycle | 18 | 6 | 7 |
+| D1 | recording lifecycle | 18 | 5 | 7 |
 | D2 | sampling | 4 | 1 | 1 |
 | D3 | reference frames | 7 | 4 | 4 |
 | D4 | track sections / optimizer | 12 | 6 | 6 |
@@ -111,7 +111,7 @@ the last column so the delta stays legible:
 | D16 | storage / sidecars | 12 | 8 | 9 |
 | D17 | mod compatibility | 6 | 4 | 4 |
 | D18 | re-fly / interaction | 12 | 10 | 10 |
-| | | **247** | **86** | **134** |
+| | | **247** | **85** | **134** |
 
 The cells still uncovered in four dimensions worth naming: D9 is down to
 `load-time-sweep` alone; D10 to `harvest-provenance` (this same commit adds the
@@ -149,9 +149,19 @@ sub-2-point-drop              switch-segment-noop-discard
 (`stop-on-switch` is one of the two R2 phantom cells - it may leave this list by
 deletion rather than coverage.)
 
-**Re-derived 2026-09-07 (post-#1645):** D1 is **6 of 18** - `auto-merge` (H67) and
-`commit-revert-merge` (H64, revert half) left the list above; the other six are
-exactly the current uncovered set - and the D9 paragraph
+That block is a DATED SNAPSHOT and is not re-derived here; the counts above it come
+from the coverage report and move only when it is re-run.
+`auto-record-first-mod-switch` has since LEFT it: `H68-autorecord-orbiting` and
+`H69-autorecord-landed` flew green on 2026-09-07 and claim it off the ORBITING and
+LANDED positive post-switch cells, each gated on the cell's own summary line
+(`mode=engine situation=ORBITING autoStartCount=1` / `situation=LANDED
+autoStartCount=1`). `commit-revert-merge` and `auto-merge` likewise left it with the
+R6 isolated wave on 2026-09-06 (H64, H67).
+
+**Re-derived 2026-09-07 (post-#1646):** D1 is **5 of 18** - `auto-merge` (H67),
+`commit-revert-merge` (H64, revert half) and `auto-record-first-mod-switch` (H68 /
+H69, above) left the list; the other five are exactly the current uncovered set - and
+the D9 paragraph
 below is HISTORY: R3 closed by flight on 2026-07-29 (S4.1 and S1.5 both green
 unattended on their own rows, see R3), S4.1's `[expectations.rewind]` block was
 armed 2026-07-31, and the R7 / S4.x / GS-6 / CL-3 lanes since then carry the
@@ -318,7 +328,7 @@ mission profile, and no existing verb produces them.**
 ### Cause C: missing seam capability
 
 `TestCommandVerbs.cs` declared 19 implemented verbs and 11 reserved when this was
-written. **At `78102108d` (2026-09-07) `hlib.IMPLEMENTED_SEAM_VERBS` carries 31 and
+written. **At `e01d11f85` (2026-09-07) `hlib.IMPLEMENTED_SEAM_VERBS` carries 31 and
 `RESERVED_SEAM_VERBS` 5** (`StopPlayback`, `StashSlot`, `FlySlot`,
 `CrashAfterJournalPhase`, `RunInvariantReport`); the struck rows below were
 promoted, each as a strict promotion with the wire token byte-identical. The
@@ -840,6 +850,8 @@ stock-minimal` to reach a harness run.
     host. All three POSITIVE post-switch cells demand LANDED or ORBITING, so the only
     one that executes is the negative `AutoRecordOnPostSwitch_NoOp_DoesNotStart`.
     Closing it needs a LANDED host and an ORBITING host - two follow-up lanes.
+    BOTH FLEW GREEN 2026-09-07 (H69 LANDED, H68 ORBITING) and the value is now
+    CLOSED; the paragraph below carries the run ids and the gating cell lines.
   - D5 `crash-coalescing` is NOT closed by `Coalescer`. Both its cells stage a
     decoupler and assert on the resulting CONTROLLED child; neither crashes anything.
   - D9 `rewind-to-launch` is NOT closed by `QuickloadResume`. That value names
@@ -854,6 +866,49 @@ stock-minimal` to reach a harness run.
   post-switch cells each skipped naming their required situation against `got
   PRELAUNCH`, so D1 `auto-record-first-mod-switch` is measured-open, not argued-open,
   and the LANDED / ORBITING follow-up lanes are still owed.
+  **THE FOLLOW-UP LANES WERE AUTHORED 2026-09-07 AND ALL THREE FLEW GREEN THE SAME
+  DAY**, and there were THREE rather than the two named above - the third pays H61's
+  CREW skip, which this paragraph did not count as owed. Each changes exactly ONE
+  thing about H61, the fixture, so a census delta is attributable to the host alone.
+  Each PASS on attempt 1, every verifier PASS or SKIPPED, each pinned WHOLE:
+  `H68-autorecord-orbiting` over `gs2-orbital-stack`, run `2026-09-07_1618`, 74 s,
+  `total=10 passed=3 failed=0 skipped=7` (the ORBITING positive post-switch cell PASSED
+  - watch armed, real engine ignited, `mode=engine situation=ORBITING
+  autoStartCount=1`); `H69-autorecord-landed` over `rover-route-recorded`, run
+  `2026-09-07_1619`, 99 s, `10/4/0/6` (the LANDED one PASSED - rover nudged a metre,
+  `situation=LANDED autoStartCount=1`); and `H70-autorecord-pad-crew` over
+  `eva3-pad-3crew`, run `2026-09-07_1621`, 91 s, `10/5/0/5` (the never-executed
+  `EvaTwiceFromSameCapsuleProducesTwoBranches` EXECUTED AND PASSED, `evaBranches=2`).
+  **D1 `auto-record-first-mod-switch` IS THEREFORE CLOSED** - claimed by H68 and H69,
+  each gated on its cell's own summary line rather than on a tally, and both lines are
+  now in the runs' artifact logs (`harness/results/<run>_shots/KSP.log`, gitignored). THE LANDED / ORBITING FOLLOW-UP LANES ARE NO LONGER OWED.
+  UNION ACROSS THE FOUR HOSTS: 8 of `AutoRecord`'s 10 cells now execute somewhere.
+  TWO PIECES OF H61's RESIDUE SURVIVED EVEN THESE THREE, found by reading the cell
+  bodies before the flights and both confirmed by them, and both are recorded so
+  nobody re-plans them as host swaps. THEY ARE THE REMAINING TWO HOSTS THIS CATEGORY
+  IS OWED: (a) a DEPLOYABLE-GEAR HOST for `AutoRecordOnPostSwitch_GearToggle_*`, which
+  needs a part carrying `ModuleWheels.ModuleWheelDeployment` - the rover carries only
+  rolling wheel modules (`ModuleWheelBase` / `Brakes` / `Damage` / `Motor` /
+  `Steering` / `Suspension`), and H69 MEASURED the cell passing its LANDED situation
+  guard and skipping one guard later on `active landed vessel has no deployable
+  landing-gear module the canary can toggle`, so a LANDED host is NECESSARY BUT NOT
+  SUFFICIENT and closing it is a HARVEST requirement for a landed craft with
+  retractable gear or legs; (b) a FLYING-IN-ATMOSPHERE CREWED HOST for
+  `EvaKerbalGhostHasVesselSnapshot`, which no committed fixture is. H68 predicted that
+  cell would FAIL in orbit (the old guard skipped only PRELAUNCH / LANDED / SPLASHED
+  while the body waits on `WaitForActiveEvaSurfaceSettled` and asserts
+  `TerminalState.Landed`); THE GUARD WAS WIDENED in `Source/` in the same wave to name
+  the requirement it always meant, so the census measured a SKIP - `requires a crewed
+  vessel FLYING inside an atmosphere, got ORBITING` - and the host requirement is now
+  stated by the product rather than inferred. FLYING is necessary, not sufficient: the
+  body's 10 s settle wait and Landed terminal mean the forge must be sized FLYING low over terrain - low enough that the EVA kerbal reaches the ground inside the cell's 10 s settle wait and its terminal reads Landed, not Splashed; a just-airborne or hovering craft over the KSC grass, not a cruise-altitude one.
+  A THIRD THING THE FLIGHTS PRODUCED, worth more than the tallies: the FIRST round
+  (`_1609` H68, `_1611` H69) red on a RUNNER defect - the isolated batch's per-cell
+  baseline restore handed a cell control before KSP's `onFlightReady` for the reloaded
+  scene, whose `ParsekFlight` handler resets the post-switch watch. PAD hosts won that
+  race every time (H61, and H70 on both of its flights), so a green census had shipped
+  over it and only a same-category-different-host lane could see it. Fixed in `Source/`
+  and filed as `ISOLATED-RESTORE-HANDS-OFF-BEFORE-ONFLIGHTREADY`.
 - ~~Free today: `Optimizer` (D4 `env-body-split`, `surface-graze-suppression`),
   `BackgroundSeeder` (D4 `seed-event-split`), `Recording` (D5 `bg-on-rails`),
   `TrajectoryMath` (D2 `threshold-debounce`), `Pipeline-Anchor` (D3
