@@ -7732,6 +7732,12 @@ SAVE_SNAPSHOT_FREE_DISK_FLOOR_BYTES = 5 * 1024 * 1024 * 1024
 # a spec author never has to have predicted that a run would be worth keeping.
 SAVE_SNAPSHOT_SPEC_SECTION = "harvest"
 SAVE_SNAPSHOT_SPEC_KEY = "snapshotProducedSave"
+# The two directory-name suffixes the snapshot owns, canonical HERE so the pure
+# sweep below and the shell that creates the directories cannot drift apart
+# (run.py aliases both). The copy lands in <runId>_save.harness-tmp and is
+# renamed to <runId>_save, so the final name is never a partial directory.
+SAVE_SNAPSHOT_DIR_SUFFIX = "_save"
+SAVE_SNAPSHOT_TMP_SUFFIX = ".harness-tmp"
 
 
 @dataclass
@@ -7827,3 +7833,41 @@ def select_save_snapshot_dirs_to_prune(
                 kept += 1
     prune.sort()
     return [name for _mtime, name in prune]
+
+
+def select_stale_save_snapshot_tmp_dirs_to_sweep(
+        names: Sequence[str],
+        protect_name: Optional[str] = None) -> List[str]:
+    """Which ``results/<runId>_save.harness-tmp`` dirs the retention pass removes.
+
+    The copy lands in a tmp name and is renamed, so no partial directory can be
+    read as a whole save. The cost is that a run KILLED mid-copy (budget
+    watchdog, Ctrl-C, a crash) leaves its tmp dir behind forever: the per
+    scenario retention above only sees ``*_save`` names, and only a later run
+    that reproduced the SAME runId would overwrite it. This sweep is that
+    orphan's only reaper.
+
+    "Stale" is simply "not the current run's". No age term, and none is needed:
+    the machine lock makes runs mutually exclusive machine-wide, so any OTHER
+    run's tmp dir cannot be a copy in progress -- it is the residue of a run
+    that already ended. ``protect_name`` is the current run's tmp dir name and
+    is never returned even when it exists (the pass can run while that copy is
+    still being written, e.g. from the failure branch).
+
+    ``names`` may be every directory name under results/; the gate is the NAME
+    pattern, so a ``_shots`` dir, a result JSON, a contact sheet or anything
+    else can never be selected. A name must be exactly
+    ``<nonempty runId>`` + ``_save`` + ``.harness-tmp``. Returned sorted, so the
+    log line and the deletion order are deterministic.
+    """
+    suffix = SAVE_SNAPSHOT_DIR_SUFFIX + SAVE_SNAPSHOT_TMP_SUFFIX
+    out = []
+    for name in names:
+        if not name.endswith(suffix):
+            continue
+        if len(name) <= len(suffix):  # a bare "_save.harness-tmp", no runId
+            continue
+        if protect_name is not None and name == protect_name:
+            continue
+        out.append(name)
+    return sorted(out)

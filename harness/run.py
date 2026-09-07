@@ -3527,8 +3527,16 @@ def _prune_shots_dirs(protect_name: str, logger: HarnessLogger) -> None:
 # the directory name.
 # ---------------------------------------------------------------------------
 
-SAVE_SNAPSHOT_DIR_SUFFIX = "_save"
+# Aliases, not copies: the pure sweep gates on these exact suffixes, so one
+# definition (hlib) has to be the source for both halves.
+SAVE_SNAPSHOT_DIR_SUFFIX = hlib.SAVE_SNAPSHOT_DIR_SUFFIX
+SAVE_SNAPSHOT_TMP_SUFFIX = hlib.SAVE_SNAPSHOT_TMP_SUFFIX
 
+# The placeholder written before the copy is attempted, and the record an
+# instance-locked / invalid-spec row keeps: reason "not-attempted" says the
+# phase never got to run at all, which is a different fact from a refusal
+# (no-produced-save, spec-opt-out, size-cap, free-disk-floor) or a failure
+# (copy-failed <ExcType>).
 _EMPTY_SNAPSHOT: Dict = {"ran": False, "path": None, "bytes": 0, "files": 0,
                          "reason": "not-attempted"}
 
@@ -3578,9 +3586,11 @@ def _snapshot_produced_save(run_id: str, spec: Dict, verdict: str,
                         % (run_id, decision.reason))
             return snap
         dst = os.path.join(RESULTS_DIR, "%s%s" % (run_id, SAVE_SNAPSHOT_DIR_SUFFIX))
-        tmp = dst + ".harness-tmp"
+        tmp = dst + SAVE_SNAPSHOT_TMP_SUFFIX
         # Copy into a tmp name and rename, so a run killed mid-copy leaves no
         # PARTIAL directory that a later harvest would read as the whole save.
+        # The tmp dir it DOES leave is reaped by the stale-tmp sweep in
+        # _prune_save_snapshot_dirs on any later run.
         shutil.rmtree(tmp, ignore_errors=True)
         shutil.rmtree(dst, ignore_errors=True)
         shutil.copytree(src, tmp)
@@ -3604,7 +3614,8 @@ def _snapshot_produced_save(run_id: str, spec: Dict, verdict: str,
                                 "the harvest source is the instance save again, "
                                 "verdict unaffected" % (run_id, type(exc).__name__, exc))
         shutil.rmtree(os.path.join(RESULTS_DIR,
-                                   "%s%s.harness-tmp" % (run_id, SAVE_SNAPSHOT_DIR_SUFFIX)),
+                                   "%s%s%s" % (run_id, SAVE_SNAPSHOT_DIR_SUFFIX,
+                                               SAVE_SNAPSHOT_TMP_SUFFIX)),
                       ignore_errors=True)
     # Retention in its OWN try (mirroring the shots pass): a copy that failed
     # for want of disk is exactly when pruning matters most.
@@ -3634,15 +3645,23 @@ def _scenario_id_of_snapshot_dir(name: str) -> str:
 def _prune_save_snapshot_dirs(protect_name: str, logger: HarnessLogger) -> None:
     """Remove ``results/*_save`` dirs past the PER-SCENARIO keep window
     (hlib.select_save_snapshot_dirs_to_prune; the current run's dir is always
-    kept). Touches nothing but ``results/*_save`` directories."""
+    kept), and sweep orphaned ``results/*_save.harness-tmp`` dirs left by a run
+    killed mid-copy (hlib.select_stale_save_snapshot_tmp_dirs_to_sweep; the
+    current run's own tmp name is never swept). Touches nothing but those two
+    name shapes directly under results/."""
     if not os.path.isdir(RESULTS_DIR):
         return
     entries = []
+    all_dir_names = []
     for name in os.listdir(RESULTS_DIR):
-        if not name.endswith(SAVE_SNAPSHOT_DIR_SUFFIX):
-            continue
         path = os.path.join(RESULTS_DIR, name)
         if not os.path.isdir(path):
+            continue
+        # Every directory name goes to the tmp sweep; the NAME pattern is the
+        # gate there, so a _shots dir or a contact-sheet folder can never be
+        # selected.
+        all_dir_names.append(name)
+        if not name.endswith(SAVE_SNAPSHOT_DIR_SUFFIX):
             continue
         try:
             mtime = os.path.getmtime(path)
@@ -3661,6 +3680,28 @@ def _prune_save_snapshot_dirs(protect_name: str, logger: HarnessLogger) -> None:
                                 "(keep newest %d per scenario): %s"
                     % (len(prune), hlib.SAVE_SNAPSHOT_KEEP_PER_SCENARIO,
                        ", ".join(prune[:5]) + (" ..." if len(prune) > 5 else "")))
+    # The stale-tmp sweep. Retention above never sees these names (they do not
+    # end in _save), and only a later run reproducing the SAME runId would
+    # overwrite one, so without this pass a mid-copy kill leaks a whole save's
+    # worth of bytes permanently.
+    tmp_protect = protect_name + SAVE_SNAPSHOT_TMP_SUFFIX
+    stale_tmp = hlib.select_stale_save_snapshot_tmp_dirs_to_sweep(
+        all_dir_names, protect_name=tmp_protect)
+    swept = []
+    for name in stale_tmp:
+        target = os.path.join(RESULTS_DIR, name)
+        # Belt-and-braces, same shape as above: only ever a
+        # *_save.harness-tmp directory directly under results/.
+        if not name.endswith(SAVE_SNAPSHOT_DIR_SUFFIX + SAVE_SNAPSHOT_TMP_SUFFIX) \
+                or not os.path.isdir(target):
+            continue
+        shutil.rmtree(target, ignore_errors=True)
+        swept.append(name)
+    if swept:
+        logger.info("Snapshot", "retention swept %d stale save-snapshot tmp dir(s) "
+                                "(a run killed mid-copy leaves one): %s"
+                    % (len(swept),
+                       ", ".join(swept[:5]) + (" ..." if len(swept) > 5 else "")))
 
 
 _contact_sheet_module = None

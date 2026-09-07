@@ -587,7 +587,11 @@ _(unreleased — entries accumulate here per commit)_
   permanent test fixture read from there. Every outcome is kept, including failures - a
   failed flight's save is the only record of what went wrong. Old copies are trimmed to
   the newest three per test so the disk stays bounded, and a copy that fails is noted
-  and otherwise ignored: it can never change whether a flight passed.
+  and otherwise ignored: it can never change whether a flight passed. The copy is
+  made under a temporary name and renamed once it is complete, so a flight killed
+  part way through leaves nothing that could be mistaken for a whole save; the
+  half-finished folder it does leave behind is cleared away by the next flight's
+  trim pass, which by name can only ever touch these save copies.
 - **Running the test suite can no longer rewrite the committed timing record.** The
   cells that guard the cross-run duration ledger now work on a copy of it in a scratch
   folder instead of reaching for the real file through a global, and two of them check

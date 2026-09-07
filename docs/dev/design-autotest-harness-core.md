@@ -139,14 +139,17 @@ delivers the plan's daily cadence.
    |             KSP.log + parsek-test-results.txt                |
    |  7. CLASSIFY hlib.classify_verdict(...) -> Verdict           |
    |  8. On non-PASS: collect-logs.py <scenarioId> snapshot       |
-   |  9. WRITE   harness/results/<runId>.json + summary line;     |
-   |             retry once if hlib.should_retry says so          |
+   |  9. WRITE   harness/results/<runId>.json + summary line      |
    | 10. SNAPSHOT copy the produced save into results/<runId>_    |
    |             save/, BEFORE the machine lock is released       |
    |             (hlib.decide_save_snapshot; per-scenario         |
-   |             retention). Verdict-neutral.                     |
+   |             retention + stale-tmp sweep). Verdict-neutral.   |
    +--------------------------------------------------------------+
             |
+            |  retry once if hlib.should_retry says so: the decision
+            |  is taken by run_with_retry AFTER the whole attempt
+            |  returns, so attempt 1 keeps its own snapshot and its
+            |  own results/<runId>_save/ dir
             v
    harness/coverage.py  (reads all specs + all results + registry)
             |
@@ -637,6 +640,25 @@ byte-identical across machines). `reason` is always populated - on a skip it
 names which policy branch refused (`no-produced-save`, `spec-opt-out`,
 `size-cap`, `free-disk-floor`) and on a failed copy it reads `copy-failed
 <ExcType>`. Verdict-neutral by construction.
+
+One further reason is `not-attempted`, and it means the phase never ran at all
+rather than that a policy branch refused. Two row shapes carry it permanently:
+the `INVALID(instance-locked)` row (`_write_instance_locked_result`) and the
+invalid-spec row (`_write_invalid_spec_result`) - neither ever reached staging,
+so neither has an instance directory to copy from. It is also what a normally
+finishing run's record holds for the moment between the durable verdict write
+and the copy (the placeholder is written FIRST for exactly that reason), so a
+result JSON left behind by a process killed in phase 10 reads `not-attempted`
+too. A consumer telling "no snapshot exists" from "the copy was refused" must
+read `not-attempted` as the former.
+
+Phase 10 also sweeps orphaned `results/<runId>_save.harness-tmp` dirs
+(`hlib.select_stale_save_snapshot_tmp_dirs_to_sweep`). The copy lands in a tmp
+name and is renamed, so a run killed mid-copy leaves no partial `_save` dir - it
+leaves a tmp dir instead, which the per-scenario retention never sees (it does
+not end in `_save`) and which only a rerun of the same runId would overwrite.
+The sweep is NAME-gated and spares the current run's own tmp name, so a copy in
+progress is never taken out from under itself.
 
 `verifiers.expectations.observed` is the MEASURED counterpart of the evaluated
 `[expectations.*]` facets, mirroring the spec block shape
@@ -1838,7 +1860,8 @@ to the per-response-line poll (one summary line, not one per poll).
   on a copy failure `Warn` "produced-save snapshot FAILED run=<id> (<exc>); the
   harvest source is the instance save again, verdict unaffected". Retention:
   `Info` "retention pruned <n> old save snapshot(s) (keep newest <k> per
-  scenario): <names>".
+  scenario): <names>", and for the orphan sweep `Info` "retention swept <n>
+  stale save-snapshot tmp dir(s) (a run killed mid-copy leaves one): <names>".
 - **RETRY**: `Info` "retry scenario=<id> attempt=2 reason=<first-verdict>" or
   `Info` "no retry (policy=<p> verdict=<V>)".
 - **COVERAGE** (`coverage.py`): `Info`

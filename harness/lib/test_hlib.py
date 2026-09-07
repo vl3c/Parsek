@@ -16207,6 +16207,55 @@ class SaveSnapshotRetentionTests(unittest.TestCase):
         self.assertEqual(["s0_save"], prune)
 
 
+class StaleSaveSnapshotTmpSweepTests(unittest.TestCase):
+    """hlib.select_stale_save_snapshot_tmp_dirs_to_sweep: the copy lands in
+    <runId>_save.harness-tmp and is renamed, so a run KILLED mid-copy leaves a
+    tmp dir the per-scenario retention never sees (it does not end in _save) and
+    only a rerun of the same runId would overwrite. This sweep is its only
+    reaper, and it is NAME-gated so it can never take anything else."""
+
+    SUFFIX = hlib.SAVE_SNAPSHOT_DIR_SUFFIX + hlib.SAVE_SNAPSHOT_TMP_SUFFIX
+
+    def test_a_stale_tmp_dir_is_swept(self):
+        self.assertEqual(["r1" + self.SUFFIX],
+                         hlib.select_stale_save_snapshot_tmp_dirs_to_sweep(
+                             ["r1" + self.SUFFIX]))
+
+    def test_the_current_runs_own_tmp_dir_is_never_swept(self):
+        """It may be a copy IN PROGRESS -- the pass runs from the same run's
+        failure branch -- so the protection is unconditional."""
+        mine = "cur" + self.SUFFIX
+        names = [mine, "other" + self.SUFFIX]
+        self.assertEqual(["other" + self.SUFFIX],
+                         hlib.select_stale_save_snapshot_tmp_dirs_to_sweep(
+                             names, protect_name=mine))
+
+    def test_nothing_but_the_tmp_name_shape_is_ever_selected(self):
+        """The gate is the whole point: this runs over EVERY directory name
+        under results/, so a shots dir, a finished snapshot, a contact sheet or
+        a JSON must all be invisible to it."""
+        names = ["r1_save", "r1_shots", "r1.json", "contact-sheets",
+                 "r1_shots.harness-tmp", "r1_saves.harness-tmp",
+                 "_save.harness-tmp", "r1_save.harness-tmp.bak",
+                 "r1" + self.SUFFIX]
+        self.assertEqual(["r1" + self.SUFFIX],
+                         hlib.select_stale_save_snapshot_tmp_dirs_to_sweep(names))
+
+    def test_a_bare_suffix_with_no_run_id_is_not_swept(self):
+        """Deletion fails closed on a name that cannot have come from the
+        <runId> + suffix construction."""
+        self.assertEqual([], hlib.select_stale_save_snapshot_tmp_dirs_to_sweep(
+            [self.SUFFIX]))
+
+    def test_the_order_is_deterministic(self):
+        names = ["c" + self.SUFFIX, "a" + self.SUFFIX, "b" + self.SUFFIX]
+        self.assertEqual(["a" + self.SUFFIX, "b" + self.SUFFIX, "c" + self.SUFFIX],
+                         hlib.select_stale_save_snapshot_tmp_dirs_to_sweep(names))
+
+    def test_no_names_is_no_work(self):
+        self.assertEqual([], hlib.select_stale_save_snapshot_tmp_dirs_to_sweep([]))
+
+
 class HarvestSpecBlockValidationTests(unittest.TestCase):
     """The optional [harvest] block (the produced-save snapshot opt-out) is
     typed at validation: a spec that MEANT to opt out and misspelled the key

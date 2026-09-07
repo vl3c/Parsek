@@ -3814,9 +3814,21 @@ def _raise_artifact_boom(*args, **kwargs):
 
 def _copytree_boom_into_results(dst_prefix, real_copytree):
     """A copytree that fails ONLY for a destination under results/, so the
-    injected fault hits the save snapshot and leaves fixture staging alone."""
+    injected fault hits the save snapshot and leaves fixture staging alone.
+
+    It lands ONE FILE in the destination before raising, which is the whole
+    point: the real shutil.copytree fails PART WAY through too, and a fault that
+    raised before any byte moved would leave nothing behind whether the code
+    copied into a tmp name or straight into results/<runId>_save/. With a
+    half-written destination, the cell that asserts no <runId>_save dir survives
+    a failed copy can only pass under tmp+rename -- mutation-checked by pointing
+    _snapshot_produced_save's copytree at the final dir and watching it red."""
     def _copytree(src, dst, *args, **kwargs):
         if os.path.abspath(dst).startswith(os.path.abspath(dst_prefix)):
+            os.makedirs(dst, exist_ok=True)
+            with open(os.path.join(dst, "persistent.sfs"), "w",
+                      encoding="utf-8") as fh:
+                fh.write("half-written by the injected fault\n")
             raise OSError("boom (injected save-snapshot copy failure)")
         return real_copytree(src, dst, *args, **kwargs)
     return _copytree
@@ -3830,8 +3842,9 @@ class ProducedSaveSnapshotSmokeTests(unittest.TestCase):
     output seconds after the machine lock is released. run.py now copies it into
     results/<runId>_save/ inside the lock. These cells assert the copy happened
     with the staged save's files in it, that the result JSON carries the block,
-    that a copy failure leaves the verdict alone, and that retention removes only
-    *_save dirs of the SAME scenario."""
+    that a copy failure leaves the verdict alone, that retention removes only
+    *_save dirs of the SAME scenario, and that the stale-tmp sweep reaps a
+    mid-copy orphan while sparing the current run's own tmp dir."""
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="parsek-harness-savesnap-")
@@ -3927,7 +3940,14 @@ class ProducedSaveSnapshotSmokeTests(unittest.TestCase):
     def test_a_copy_failure_never_changes_the_verdict(self):
         """Verdict-neutrality, the same contract the artifact step carries: an
         injected copytree failure degrades to a Warn with ran=False, and the
-        attempt still reads PASS with no half-copied directory left behind."""
+        attempt still reads PASS with no half-copied directory left behind.
+
+        The injected fault writes a FILE into its destination and then raises
+        (like the real copytree, which fails part way through), so the
+        "no <runId>_save dir" assertion below is a real discriminator: a
+        straight copy into the final name would leave that half-written
+        directory standing and red this cell. tmp+rename is what makes it
+        pass."""
         orig = shutil.copytree
         shutil.copytree = _copytree_boom_into_results(run.RESULTS_DIR, orig)
         try:
@@ -3938,9 +3958,12 @@ class ProducedSaveSnapshotSmokeTests(unittest.TestCase):
         self.assertFalse(result["snapshot"]["ran"])
         self.assertTrue(result["snapshot"]["reason"].startswith("copy-failed"))
         self.assertIsNone(result["snapshot"]["path"])
-        self.assertFalse(os.path.isdir(self._snap_dir(result)))
-        self.assertFalse(os.path.isdir(self._snap_dir(result) + ".harness-tmp"),
-                         "a failed copy must leave no partial directory")
+        self.assertFalse(os.path.isdir(self._snap_dir(result)),
+                         "the half-written destination must not survive as the "
+                         "final <runId>_save dir")
+        self.assertFalse(
+            os.path.isdir(self._snap_dir(result) + run.SAVE_SNAPSHOT_TMP_SUFFIX),
+            "a failed copy must leave no partial directory")
         self.assertIn("[Warn][Snapshot]", self._log_body())
 
     def test_retention_prunes_only_same_scenario_save_dirs(self):
@@ -3981,6 +4004,58 @@ class ProducedSaveSnapshotSmokeTests(unittest.TestCase):
         self.assertTrue(os.path.isdir(bystander))
         self.assertTrue(os.path.isfile(
             os.path.join(run.RESULTS_DIR, "old0_SMOKE-fake.json")))
+
+    def test_a_stale_tmp_dir_from_another_run_is_swept(self):
+        """A run KILLED mid-copy leaves <runId>_save.harness-tmp behind: the
+        per-scenario retention never sees it (it does not end in _save) and only
+        a rerun of the SAME runId would overwrite it. The next run's prune pass
+        sweeps it, and touches nothing else in results/."""
+        os.makedirs(run.RESULTS_DIR, exist_ok=True)
+        stale = os.path.join(run.RESULTS_DIR,
+                             "old9_SMOKE-fake%s%s" % (run.SAVE_SNAPSHOT_DIR_SUFFIX,
+                                                      run.SAVE_SNAPSHOT_TMP_SUFFIX))
+        os.makedirs(stale, exist_ok=True)
+        with open(os.path.join(stale, "persistent.sfs"), "w", encoding="utf-8") as fh:
+            fh.write("half-written by a killed run\n")
+        # Bystanders the NAME gate must never select.
+        shots = os.path.join(run.RESULTS_DIR, "old9_SMOKE-fake_shots")
+        os.makedirs(shots, exist_ok=True)
+        shots_tmp = os.path.join(run.RESULTS_DIR,
+                                 "old9_SMOKE-fake_shots%s" % run.SAVE_SNAPSHOT_TMP_SUFFIX)
+        os.makedirs(shots_tmp, exist_ok=True)
+        json_path = os.path.join(run.RESULTS_DIR, "old9_SMOKE-fake.json")
+        with open(json_path, "w", encoding="utf-8") as fh:
+            json.dump({"schema": hlib.SCHEMA_VERSION, "scenarioId": "SMOKE-fake"}, fh)
+
+        result, _ = self._run("pass")
+        self.assertTrue(result["snapshot"]["ran"], result["snapshot"]["reason"])
+        self.assertFalse(os.path.isdir(stale), "the orphaned tmp dir must be swept")
+        self.assertIn("retention swept", self._log_body())
+        self.assertIn(os.path.basename(stale), self._log_body())
+        self.assertTrue(os.path.isdir(shots))
+        self.assertTrue(os.path.isdir(shots_tmp),
+                        "only *_save.harness-tmp is in scope")
+        self.assertTrue(os.path.isfile(json_path))
+        self.assertTrue(os.path.isdir(self._snap_dir(result)))
+
+    def test_the_current_runs_own_tmp_dir_is_never_swept(self):
+        """The pass can run while THIS run's copy is still being written (the
+        failure branch reaches it), so the current run's tmp name is protected
+        unconditionally. Driven against the prune pass directly, which is the
+        only way to hold a mid-copy tmp dir still."""
+        os.makedirs(run.RESULTS_DIR, exist_ok=True)
+        protect = "now_SMOKE-fake%s" % run.SAVE_SNAPSHOT_DIR_SUFFIX
+        mine_tmp = os.path.join(run.RESULTS_DIR,
+                                protect + run.SAVE_SNAPSHOT_TMP_SUFFIX)
+        other_tmp = os.path.join(run.RESULTS_DIR,
+                                 "old9_SMOKE-fake%s%s" % (run.SAVE_SNAPSHOT_DIR_SUFFIX,
+                                                          run.SAVE_SNAPSHOT_TMP_SUFFIX))
+        for d in (mine_tmp, other_tmp):
+            os.makedirs(d, exist_ok=True)
+        run._prune_save_snapshot_dirs(protect, self.logger)
+        self.assertTrue(os.path.isdir(mine_tmp),
+                        "a copy in progress must never be swept out from under itself")
+        self.assertFalse(os.path.isdir(other_tmp))
 
     def test_an_early_refusal_run_records_no_produced_save(self):
         """An admission-drift run never staged a save, so there is nothing of its

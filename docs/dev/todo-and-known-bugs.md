@@ -7468,6 +7468,13 @@ Shape:
   another's only copy), always protecting the current run's; a snapshot whose
   scenario cannot be read buckets alone, so deletion fails closed. Touches
   nothing but `results/*_save/`.
+- `hlib.select_stale_save_snapshot_tmp_dirs_to_sweep` (pure) - the same retention
+  pass sweeps orphaned `results/<runId>_save.harness-tmp` dirs. Retention above
+  never sees them (they do not end in `_save`) and only a rerun of the SAME runId
+  would overwrite one, so a run killed mid-copy would otherwise leak a whole
+  save's worth of bytes forever. NAME-gated (`<runId>` + `_save` +
+  `.harness-tmp` exactly) and it spares the current run's own tmp name, since the
+  pass can run while that copy is still being written.
 - `run.py::_snapshot_produced_save` (shell) - copies to a `.harness-tmp` name and
   renames, so a kill mid-copy leaves no partial directory a harvest would read as
   whole. Failure-isolated: a copy failure is a Warn with `ran=false` and never

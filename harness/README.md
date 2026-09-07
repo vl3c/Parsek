@@ -222,13 +222,29 @@ Each run records `snapshot: {ran, path, bytes, files, reason}` in its result
 JSON next to `collectLogs`, and logs one `[Harness][Info][Snapshot]` line either
 way.
 
+One more `reason` is not a refusal: `not-attempted` means the phase never ran.
+It is what the `INVALID(instance-locked)` and invalid-spec rows carry (neither
+reached staging, so neither has an instance to copy from), and what a result
+JSON holds if the process died between the durable verdict write and the copy.
+Read it as "no snapshot exists", never as "the copy was refused".
+
 **Retention is per scenario:** `hlib.select_save_snapshot_dirs_to_prune` keeps
 the newest 3 `*_save` dirs PER SCENARIO (a global window would let a busy
 scenario evict another scenario's only copy), always protecting the current
 run's. A snapshot whose scenario cannot be read from its result JSON buckets
-alone and is never pruned by a neighbour's budget. The pass touches nothing but
-`results/*_save/`. Snapshots are gitignored; a fixture harvested from one is
-what gets committed.
+alone and is never pruned by a neighbour's budget. Snapshots are gitignored; a
+fixture harvested from one is what gets committed.
+
+The same pass sweeps orphaned `results/<runId>_save.harness-tmp` dirs
+(`hlib.select_stale_save_snapshot_tmp_dirs_to_sweep`). The copy lands in that
+tmp name and is renamed, so a killed run leaves no partial `_save` dir to
+mis-harvest - but the tmp dir it does leave is invisible to the retention window
+above (it does not end in `_save`) and only a rerun of the same runId would ever
+overwrite it, so without this sweep it leaks a whole save's worth of bytes
+forever. It is NAME-gated (`<runId>` + `_save` + `.harness-tmp` exactly) and
+spares the current run's own tmp name, since the pass can run while that copy is
+still being written. Between the two, the retention pass touches nothing under
+`results/` but `*_save/` and `*_save.harness-tmp/`.
 
 ## The machine lock (only one run at a time, machine-wide)
 
