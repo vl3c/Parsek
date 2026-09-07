@@ -467,13 +467,32 @@ branchPoints   = { Dock = { min = 2, max = 2 }, Undock = { min = 2, max = 2 } }
 # a codec that dropped the skip counter, or a cycle that half-delivered and then recorded
 # itself as skipped, is invisible to `logContracts` and reds here.
 #
-# OWED, and stated rather than assumed discharged: the ARMED RE-FLIGHT and this lane's OWN
-# negative control. It cannot share the family's `rewind.supersedeRows` inversion (that
-# re-proves the shared evaluator), and V18T / RVR-7 both record why a `routes` window needs
-# a `routes` inversion - this block has a parse, a normalisation and a bucketing step of
-# its own between the bytes and that evaluator. The natural inversion here is
-# `completedCycles = { min = 1 }`, which asserts the delivery this lane exists to prove
-# does NOT happen.
+# **DISCIPLINE COMPLETE 2026-09-07, THE SAME DAY IT WAS ARMED**, and finished on the CLEAN
+# automation DLL sha256 `7c0bfee1b74d6716` (Parsek C# from `main` 1f7801cea, harness at
+# 04a34b7c5 - the same build READING 2 flew):
+#   * ARMED RE-FLIGHT `2026-09-07_1006`: PASS attempt 1, wall 67 s, EVERY VERIFIER PASS,
+#     `expectations status=PASS mismatches=0`, and `saveParse status=PASS gating=True
+#     blocks=['recordings.structure', 'routes'] armed=['routes'] routes=1
+#     routeStatuses={'Paused': 1} mismatches=0`. The block is load-bearing and green.
+#   * NEGATIVE CONTROL `2026-09-07_1007`, a throwaway copy of this spec under the id
+#     `RVR-20-NEGCTL-rover-relay-c-destination-slots-full-tank-empty` carrying EXACTLY ONE
+#     inverted window - `completedCycles = { min = 0, max = 0 }` -> `completedCycles =
+#     { min = 1 }`, the inversion this comment named in advance - written into the
+#     scratchpad, deleted after the flight and NEVER COMMITTED: PARSEK-FAIL, wall 49 s,
+#     `Classify verdict=PARSEK-FAIL reason=gating save-structure expectations mismatch`,
+#     `saveParse status=FAIL gating=True armed=['routes'] mismatches=1`, and the mismatch
+#     list EXACTLY `['routes.completedCycles 0 < min 1']`.
+# `logContracts` STAYED PASS ON THE CONTROL (`expectations status=PASS mismatches=0`, with
+# `analyzer red=0` and every other verifier PASS), so the gate fired on the WINDOW IT NAMES
+# rather than on the block as a whole or on collateral log drift: the control's own `routes`
+# facet still read `count=1 dormant=0 stops=2 sourceRefs=3 completedCycles=0
+# skippedCycles=1 statuses={Paused:1} holdKinds={DestinationFull:1}`, identical to the armed
+# run's but for the per-run route id. One window inverted, one mismatch, nothing else moved.
+#
+# It could not share the family's `rewind.supersedeRows` inversion (that re-proves the
+# shared evaluator), and V18T / RVR-7 both record why a `routes` window needs a `routes`
+# inversion - this block has a parse, a normalisation and a bucketing step of its own
+# between the bytes and that evaluator. Nothing is owed.
 gating          = true
 count           = { min = 1, max = 1 }
 dormant         = { min = 0, max = 0 }

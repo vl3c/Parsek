@@ -658,7 +658,13 @@ _(unreleased — entries accumulate here per commit)_
   delivered: until now only the absence of lines in the log said so, and a count of skipped
   cycles says it positively. Its sibling lane already holds the opposite case - a run that
   does deliver - to the same standard, so between them both outcomes are now checked
-  against what the saved game actually contains.
+  against what the saved game actually contains. **That new hard check has since been
+  proven in both directions on the same build**: the lane was re-run with the check
+  enforcing and passed with nothing to report, and a deliberately broken copy of it - one
+  number inverted to claim a cycle HAD completed, run once and then thrown away rather than
+  kept - failed on exactly that one number and on nothing else, with every other check
+  including the log ones still passing. So the check is known to fire, and to fire on the
+  number it names rather than on the block around it.
 
 - **Two test lanes now pin the rule for a supply route whose destination craft is
   gone: it moves to the craft standing on the spot, but never to the craft that was

@@ -8006,12 +8006,35 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # absence of a line, where `skippedCycles=1` is the positive form
                        # of that absence.
                        #
-                       # OWED: the armed re-flight and this lane's OWN negative control
-                       # (`completedCycles = { min = 1 }` is the natural inversion). It
-                       # cannot share the family's `rewind.supersedeRows` inversion, for
-                       # V18T's and RVR-7's recorded reason - that re-proves the shared
-                       # evaluator, where this block has a parse, a normalisation and a
-                       # bucketing step of its own between the bytes and that evaluator.
+                       # DISCIPLINE COMPLETE 2026-09-07, the same day it was armed, on
+                       # the CLEAN automation DLL `7c0bfee1b74d6716` (Parsek C# from
+                       # `main` 1f7801cea, harness at 04a34b7c5 - the same build the
+                       # second reading run flew). ARMED RE-FLIGHT `2026-09-07_1006`:
+                       # PASS attempt 1, wall 67 s, every verifier PASS,
+                       # `expectations mismatches=0`, `saveParse status=PASS gating=True
+                       # blocks=['recordings.structure', 'routes'] armed=['routes']
+                       # routes=1 routeStatuses={'Paused': 1} mismatches=0`. NEGATIVE
+                       # CONTROL `2026-09-07_1007`, a throwaway copy under the id
+                       # `RVR-20-NEGCTL-rover-relay-c-destination-slots-full-tank-empty`
+                       # with EXACTLY ONE window inverted (`completedCycles =
+                       # { min = 0, max = 0 }` -> `{ min = 1 }`, the inversion the
+                       # arming note named in advance), written into the scratchpad,
+                       # deleted after the flight and NEVER COMMITTED: PARSEK-FAIL,
+                       # wall 49 s, `Classify verdict=PARSEK-FAIL reason=gating
+                       # save-structure expectations mismatch`, `saveParse status=FAIL
+                       # gating=True armed=['routes'] mismatches=1`, mismatch list
+                       # EXACTLY `['routes.completedCycles 0 < min 1']`. `logContracts`
+                       # stayed PASS on the control (`expectations mismatches=0`,
+                       # `analyzer red=0`), so the gate fired on the WINDOW IT NAMES
+                       # rather than on the block as a whole - the control's own
+                       # `routes` facet still read `completedCycles=0 skippedCycles=1
+                       # stops=2 sourceRefs=3 statuses={Paused:1}`, identical to the
+                       # armed run's but for the per-run route id. It could not share
+                       # the family's `rewind.supersedeRows` inversion, for V18T's and
+                       # RVR-7's recorded reason - that re-proves the shared evaluator,
+                       # where this block has a parse, a normalisation and a bucketing
+                       # step of its own between the bytes and that evaluator. Nothing
+                       # is owed.
                        "RVR-20-rover-relay-c-destination-slots-full-tank-empty.toml"}
 
     def test_no_committed_spec_arms_gating(self):
