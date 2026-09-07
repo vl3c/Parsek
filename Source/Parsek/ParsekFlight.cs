@@ -11967,8 +11967,21 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// True once <c>GameEvents.onFlightReady</c> has fired for THIS ParsekFlight
+        /// instance. Read by the in-game test runner's reload-readiness wait: KSP sets
+        /// <c>FlightGlobals.ready</c> some hundreds of milliseconds BEFORE
+        /// <c>FlightDriver</c> fires the event, and the handler below resets the
+        /// post-switch auto-record watch ("flight ready reset"), so a batch cell that
+        /// starts in that window and arms the watch has it wiped from under it (H68 /
+        /// H69, 2026-09-07: the orbital and landed hosts lost every post-switch cell to
+        /// a 128 ms race the pad host happened to win). Set before every early return.
+        /// </summary>
+        internal bool FlightReadyObserved { get; private set; }
+
         void OnFlightReady()
         {
+            FlightReadyObserved = true;
             Log("Flight ready. Checking for pending recordings...");
             ParsekLog.RecState("OnFlightReady", CaptureRecorderState());
 

@@ -481,7 +481,8 @@ namespace Parsek.InGameTests.Helpers
                     FlightGlobals.ready,
                     FlightGlobals.ActiveVessel != null,
                     currentFlightInstanceId,
-                    previousFlightInstanceId))
+                    previousFlightInstanceId,
+                    flight != null && flight.FlightReadyObserved))
                     yield break;
                 yield return null;
             }
@@ -493,7 +494,8 @@ namespace Parsek.InGameTests.Helpers
                 $"WaitForFlightReady timed out after {timeoutSeconds:F0}s " +
                 $"(scene={HighLogic.LoadedScene}, flightReady={FlightGlobals.ready}, activeVessel={activeVesselName}, " +
                 $"parsekFlight={(timedOutFlight != null ? timedOutFlight.GetInstanceID().ToString() : "null")}, " +
-                $"expectedDifferentFrom={previousFlightInstanceId})");
+                $"expectedDifferentFrom={previousFlightInstanceId}, " +
+                $"onFlightReadyObserved={(timedOutFlight != null && timedOutFlight.FlightReadyObserved)})");
         }
 
         internal static bool IsReloadedFlightReady(
@@ -501,17 +503,25 @@ namespace Parsek.InGameTests.Helpers
             bool flightGlobalsReady,
             bool activeVesselPresent,
             int currentFlightInstanceId,
-            int previousFlightInstanceId)
+            int previousFlightInstanceId,
+            bool flightReadyEventObserved)
         {
             // Unity GetInstanceID() uses non-zero values for valid objects; 0 is
             // the local sentinel for "no ParsekFlight instance".
             bool replacedFlight = currentFlightInstanceId != 0
                 && (previousFlightInstanceId == 0
                     || currentFlightInstanceId != previousFlightInstanceId);
+            // flightReadyEventObserved: FlightGlobals.ready goes true before
+            // FlightDriver fires GameEvents.onFlightReady, and ParsekFlight's handler
+            // for that event resets per-scene state (the post-switch auto-record
+            // watch among it). A reload is not "ready" for the next cell until the
+            // NEW ParsekFlight instance has seen the event, or the cell's first
+            // frames race the reset (H68 / H69, 2026-09-07).
             return loadedScene == GameScenes.FLIGHT
                 && flightGlobalsReady
                 && activeVesselPresent
-                && replacedFlight;
+                && replacedFlight
+                && flightReadyEventObserved;
         }
 
         /// <summary>
