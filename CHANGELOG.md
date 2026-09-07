@@ -8,6 +8,24 @@ All notable changes to Parsek are documented here.
 
 _(unreleased — entries accumulate here per commit)_
 
+### Changed
+
+- **Automated testing: the looped re-aim arrival seam is now observable by the companion
+  lane, with no product change.** The `V3C-flight-arrival-companion` harness lane flies a
+  fresh Duna mission beside a looped re-aim replay so the flight engine can sample the
+  ghost's Sun->Duna handoff. Its earlier flights concluded the handoff instant was hidden by
+  the 120 km ghost visual range. Re-reading the collected log showed the gate that actually
+  hid it was the flight-view high-warp ghost hide (above 50x), which the game's map view
+  already lifts, while the existing warp exemption lifts the visual-range hide. The lane now
+  opens the map view before its mission and requires the seam trace line, so a run that
+  never reached the seam reads as a mismatch instead of a clean bill. The two alternatives
+  the lane had named (a to-the-second co-departure, an automation-only zone-relax hook) are
+  recorded as not achievable and not needed in `docs/dev/autotest-roadmap.md`. Flown three times the same evening, the lane
+  observed the handoff for the first time from an unattended run - a jump of about
+  one Duna sphere-of-influence radius at the seam, the 2026-06-15 defect reproduced -
+  and is now live-proven and armed on that reproduction, so it reds when the defect
+  is fixed.
+
 ### Fixed
 
 - The automated test rig no longer starts the next in-game test before the game has
