@@ -2985,6 +2985,67 @@ bodies rather than the R6 entry:
   beyond D14 is claimed, and D1 `auto-record-launch` is deliberately left to H61 even
   though the mid-recording cell asserts on it as SETUP.
 
+### In-game MULTI-CATEGORY batch wiring, the long tail: LT-1 + LT-2, both LIVE-PROVEN (2)
+
+THE THIRD BATCH-WIRING FAMILY, opened 2026-09-07. The ordinary family (H7-H20 and
+friends) and the isolated family (H21, H38-H41, H55-H67) both drive exactly ONE named
+category per boot, because `hlib.SINGLE_BATCH_SELECTOR_RULE` refused a comma list: the
+gating line for such a run is the `category=multi:<n>` aggregate, and an aggregate
+cannot express "constituent B executed nothing". The M-A5 amendment dated 2026-09-07
+admits a comma list on PROOF instead of on shape - every constituent must carry its
+own whole `BATCH_COMPLETE` pin, probed against only that constituent's own patterns -
+so the anti-vacuity guarantee is now per CONSTITUENT rather than per spec. Nothing at
+run time changed; the seam's `RunTests` accepts the list and drives it sequentially,
+and the runner already printed one per-category line per constituent. Contract:
+`docs/dev/design-autotest-harness-core.md` -> "AMENDMENT 2026-09-07 - Multi-category
+batch contract"; authoring guidance in `harness/README.md`; test family
+`MultiCategoryBatchWiringGroupTests` in `harness/lib/test_hlib.py`, whose GROUP table
+names each lane's constituents with attribute-exact totals and whose per-constituent
+cells re-derive them from `Source/Parsek`. The three families are a partition, keyed
+off each spec's own selector rather than off an id prefix, and a disjointness cell
+sweeps the committed set to keep it one.
+
+WHAT THE FAMILY BUYS: the inventory's bucket B5, "too small to justify a dedicated
+boot". Roughly thirty categories hold one or two cells each, and at one boot per
+category none of them was ever worth wiring. These two lanes drive 37 distinct
+categories in TWO boots, 343 s of wall between them.
+
+Both flew 2026-09-07, PASS on attempt 1, every verifier PASS or SKIPPED, and every
+per-category pin matched token for token. Neither is interim:
+`MultiCategoryBatchWiringGroupTests.INTERIM_PIN_IDS` is empty.
+
+The lanes were authored off a CENSUS rather than off a derivation, and the census is
+what decided membership. A scratch FLIGHT run (`2026-09-07_0840`, 386 s, 38 candidate
+categories, 92 cells) measured 54 passed / 1 failed / 37 skipped, and two SPACECENTER
+scratch runs (`_0847` with the corpus injected, `_0854` with nothing injected) decided
+LT-2's fixture. FOUR CANDIDATES EXECUTED NOTHING and are deliberately not constituents
+rather than pinned as vacuous slices: `Contracts` (both cells career-only),
+`CrewReservationLive` (no spawned vessel pids), `PartEventFX` (no FX infos on the
+corpus ghosts) and `RouteLiveAnchor` (no supply route at a live station). Two more are
+excluded for a stated host reason: `DisabledHoverEcho` needs the OS pointer inside the
+game window, which no seam can place, and `ResourceTopBar` / `GhostMapOrbits` have no
+executable slice at SPACECENTER. Each is named in the inventory's B5 note with the host
+that would buy it.
+
+TWO TEST-SIDE FINDINGS came out of the census, both fixed in the same branch and both
+in cells no batch had ever run. `PartEventTiming`'s deployable cell asserted the
+pre-S2 snap contract and FAILED; it is re-pinned to the shipped animated contract and
+measured 2 of 2 on the control flight `2026-09-07_0854`. `WarpToTime`'s cell skipped
+AFTER taking its measurement, which made its result order-dependent; it is now
+order-independent and passes.
+
+| Test case | Tier | Parsek surface verified | Blocker |
+|---|---|---|---|
+| LT-1-long-tail-flight | nightly | THIRTY-THREE in-game categories in ONE FLIGHT boot over `gloops-airshow` + the injected `all-synthetic` corpus (274 recordings, count pinned exactly, so the store-reading constituents - `RecordingStore`, `TerminalOrbit`, `RewindSaves`, `Structure`, `IdentityLoss`, `Watch` - walk real bytes rather than passing vacuously over an empty store). LIVE-PROVEN 2026-09-07, run `2026-09-07_1511`: PASS attempt 1, 297 s wall, every verifier PASS or SKIPPED. Aggregate `BATCH_COMPLETE v1 total=80 passed=54 failed=0 skipped=26 category=multi:33 scene=FLIGHT`, and all 33 per-category lines pinned WHOLE alongside it, each `failed=0` a literal. Twenty-four constituents executed their category whole with zero skips; the nine partial slices carry their skip reasons in the spec header (GhostLifecycle 15, TestCommands 3, SwitchIntentPatch 2, and one each for BackgroundSeeder, GhostMapOrbits, MissionPhasing, Spawner, Structure, TestRunnerIsolation). Claims D14 `sandbox` + `scene-flight` only: a whole-tally pin asserts that a category's cells RAN, not what they proved | None - LIVE-PROVEN, pin whole |
+| LT-2-long-tail-spacecenter | nightly | The SPACECENTER slice of the same tail: SIX categories in one boot over `fresh-sandbox` with `injectedRecordings = "none"`, so `DecideLoadRoute` takes the `NoVesselSpaceCenter` route (H45 / H48's door) and every pinned line reads `scene=SPACECENTER`. The EMPTY store is the point rather than an economy: `Optimizer`'s two cells run `RunOptimizationPass` over the live store and SKIP whenever a committed recording is present, which the `_0847` census measured and the `_0854` census disproved. LIVE-PROVEN 2026-09-07, run `2026-09-07_1516`: PASS attempt 1, 46 s wall, every verifier PASS or SKIPPED. Aggregate `BATCH_COMPLETE v1 total=10 passed=7 failed=0 skipped=3 category=multi:6 scene=SPACECENTER`, all six per-category lines pinned WHOLE. `Optimizer` (2), `Recording` (1), `ResourceReconciliation` (1) and `WarpToTime` (1) execute whole; `TestRunnerIsolation` skips 1 and `SwitchIntentPatch` 2, both scene residue named in the header. Claims D14 `sandbox` + `scene-ksc` | None - LIVE-PROVEN, pin whole |
+
+THE STORE SPLIT BETWEEN THE TWO LANES IS DELIBERATE and is the one authoring decision
+worth carrying forward: a store-READING constituent needs the corpus or it passes over
+nothing (the inventory's fourth trap), and a store-MUTATING constituent needs an empty
+store or it self-skips. The two requirements are irreconcilable in one boot, so they
+are two lanes rather than one, and each names in its header which constituents put it
+on that side.
+
 ### Modded-compat instance (D17), R14 (2)
 
 The second provisioned instance, `automation/modded-compat` (profile

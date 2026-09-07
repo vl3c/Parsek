@@ -1,4 +1,4 @@
-# In-game test category inventory (all 111 categories)
+# In-game test category inventory (all 112 categories)
 
 Machine-derived from `Source/Parsek` by `hlib.parse_ingame_test_declarations` +
 `hlib.derive_batch_tally`. Do NOT hand-edit the table: re-derive it. The generator
@@ -93,11 +93,11 @@ Two limits of this table, stated so nobody over-reads it:
 |---|---|---|---|---|---|---|---|---|
 | `AutoMergeCommit` | 1 | 0 | 0 | 0 | 1 | 1 | H67-automerge-commit-isolated (ISOLATED, LIVE-PROVEN 2026-09-06, run `2026-09-06_2016`: PASS attempt 1, 55 s wall, every verifier PASS or SKIPPED, `BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=AutoMergeCommit scene=FLIGHT` pinned whole. EXECUTED 1 of 1. H21's scene-exit seam with `autoMerge` FLIPPED ON, over the ORBITING `gs2-orbital-stack`: stock save-and-exit out of FLIGHT commits SILENTLY and at FULL FIDELITY, keeping the committed leaf's `VesselSnapshot` and spawn-at-end eligibility. The host is DICTATED by the cell, whose own skip says only an ORBITING vessel produces the stable-terminal shape `CommitTreeSceneExit` preserves a snapshot for - which is why this lane added the `orbiting` fixture-requirement class. All six guards were settled by host + driver as predicted, so the census rode entirely on the assertions and they held) | A |
 | `AutoRecord` | 10 | 0 | 0 | 0 | 10 | 10 | H61-autorecord-isolated (ISOLATED, LIVE-PROVEN 2026-09-06, run `2026-09-06_2010`: PASS attempt 1, 80 s wall, every verifier PASS or SKIPPED, `BATCH_COMPLETE v1 total=10 passed=5 failed=0 skipped=5 category=AutoRecord scene=FLIGHT` pinned whole, `skipped=5` declared in `MEASURED_SKIPPED`. EXECUTED 5 of 10, so this is a SLICE and the category stays in bucket B on `Logistics`' precedent. The largest isolated batch in the suite, over the crewed PRELAUNCH `gs1-two-stage-pad`: launch auto-record starting exactly once, deferred EVA auto-record after a real `FlightEVA.spawnEVA`, the post-switch watch's negative case, and the two #526 pad-transient canaries. The spec header's PREDICTED 5-execute / 5-skip census held CELL FOR CELL. RESIDUE, all HOST properties and none a product claim: `AutoRecordOnPostSwitch_LandedMotion_*` and `AutoRecordOnPostSwitch_GearToggle_*` want a LANDED host, `AutoRecordOnPostSwitch_OrbitalEngineOrRcs_*` an ORBITING one, `EvaKerbalGhostHasVesselSnapshot` a MID-FLIGHT crewed one, and `EvaTwiceFromSameCapsuleProducesTwoBranches` a host with 2+ crew - `eva3-pad-3crew` would buy the last, but its launch clamps carry `RealSpawnControl_WarpToRecordingEnd_OnPad_*`'s own skip, so it trades a cell rather than closing the lane. Claims D1 `auto-record-launch` + `auto-record-eva` only: `auto-record-first-mod-switch` is NOT claimed, and the census MEASURED why - the only post-switch cell that executes here is the negative one) | B |
-| `BackgroundSeeder` | 2 | 2 | 0 | 0 | 0 | 2 | - | B |
-| `Bug289` | 2 | 2 | 0 | 0 | 0 | 0 | - | B |
+| `BackgroundSeeder` | 2 | 2 | 0 | 0 | 0 | 2 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 1 of 2; the residue is the seed cell, which wants stateful parts the 1-part pod host does not carry) | B |
+| `Bug289` | 2 | 2 | 0 | 0 | 0 | 0 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 2 of 2 - the whole category at FLIGHT with zero skips) | A |
 | `ClawCouple` | 2 | 2 | 0 | 0 | 0 | 2 | H42 (flown 2026-08-28, executes 2 of 2) | A |
 | `Coalescer` | 2 | 0 | 0 | 0 | 2 | 2 | H62-coalescer-isolated (ISOLATED, flown 2026-09-06, executes 2 of 2 - LIVE-PROVEN on its second flight `2026-09-06_2017`, `total=2 passed=2 failed=0 skipped=0` pinned whole; the first flight on `gs1-two-stage-pad` read `passed=0 skipped=2` because gs1's first stage lights the engine, so the host is now the derived `coalescer-pad`, gs1 with the decoupler moved into the first stage. A REAL controlled-decoupled split over a host carrying PRELAUNCH + an engine + 2 command modules + a decoupler IN THE NEXT STAGE: the live seed residual decision line with numeric `seedLiveRootDist=` / `propagatedResidual=`, and the child's `ParentAnchorRecordingId` stamped at the focused parent at split time. Both cells executed as predicted once the stage order matched. Claims D5 `controlled-decoupled-child` only - `crash-coalescing` is NOT claimed, because neither cell crashes anything) | A |
-| `ContinuationIntegrity` | 2 | 2 | 2 | 2 | 0 | 0 | - | B |
+| `ContinuationIntegrity` | 2 | 2 | 2 | 2 | 0 | 0 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 2 of 2 - the whole category at FLIGHT with zero skips) | A |
 | `Contracts` | 2 | 2 | 0 | 0 | 0 | 2 | - | B |
 | `CrewReservation` | 15 | 14 | 6 | 5 | 0 | 12 | H31 | A |
 | `CrewReservationLive` | 2 | 2 | 2 | 2 | 0 | 2 | - | B |
@@ -106,19 +106,19 @@ Two limits of this table, stated so nobody over-reads it:
 | `Diagnostics` | 6 | 6 | 3 | 3 | 0 | 1 | H27 | A |
 | `EvaSpawnPosition` | 2 | 2 | 0 | 0 | 0 | 2 | H20 | A |
 | `FinalizeBackfill` | 7 | 7 | 0 | 0 | 0 | 0 | H10 | A |
-| `FinalizeLimbo` | 2 | 2 | 0 | 0 | 0 | 2 | - | B |
-| `Flight` | 2 | 2 | 0 | 0 | 0 | 1 | - | B |
+| `FinalizeLimbo` | 2 | 2 | 0 | 0 | 0 | 2 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 2 of 2 - the whole category at FLIGHT with zero skips) | A |
+| `Flight` | 2 | 2 | 0 | 0 | 0 | 1 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 2 of 2 - the whole category at FLIGHT with zero skips) | A |
 | `FlightIntegration` | 4 | 4 | 0 | 0 | 0 | 0 | H17 | A |
-| `ForwardRender` | 1 | 1 | 0 | 0 | 0 | 0 | - | B |
+| `ForwardRender` | 1 | 1 | 0 | 0 | 0 | 0 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 1 of 1 - the whole category at FLIGHT with zero skips) | A |
 | `GameActionsHealth` | 4 | 4 | 4 | 4 | 0 | 3 | B10 / L1 | B |
 | `GhostAudio` | 9 | 8 | 3 | 2 | 0 | 1 | H30 | A |
 | `GhostChains` | 4 | 4 | 4 | 4 | 0 | 4 | H50 (flown 2026-08-28, executes 4 of 4) | A |
-| `GhostLifecycle` | 17 | 15 | 0 | 2 | 0 | 17 | - (see the 2026-08-29 note) | B |
+| `GhostLifecycle` | 17 | 15 | 0 | 2 | 0 | 17 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 2 of 17 - see the 2026-08-29 note, whose ~4-of-17 prediction this MEASURES at 2. The 15 skips are no active ghosts / loop units / overlap recordings in this scene; the S1.4 playback lane owns that surface) | B |
 | `GhostMap` | 25 | 16 | 0 | 9 | 0 | 11 | S1.6, H44 (TRACKSTATION slice, flown 2026-08-28, executes 9 of 25 - the WHOLE TS slice, zero run-time skips) | B |
-| `GhostMapOrbits` | 2 | 2 | 1 | 1 | 0 | 1 | - | B |
+| `GhostMapOrbits` | 2 | 2 | 1 | 1 | 0 | 1 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 1 of 2; the map cell wants ghost map vessels, which no unattended FLIGHT batch arms). NOT an LT-2 constituent: its SPACECENTER slice measured the same skip on the census | B |
 | `GhostPlayback` | 42 | 41 | 1 | 1 | 1 | 12 | S1.4 | B |
 | `GhostVisuals` | 4 | 4 | 3 | 3 | 0 | 0 | H15 | A |
-| `IdentityLoss` | 3 | 3 | 0 | 0 | 0 | 3 | - | B |
+| `IdentityLoss` | 3 | 3 | 0 | 0 | 0 | 3 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 3 of 3 - the whole category at FLIGHT with zero skips) | A |
 | `IncompleteBallistic` | 11 | 11 | 0 | 0 | 0 | 0 | H9 | A |
 | `KSP` | 6 | 6 | 4 | 4 | 0 | 0 | H13 | A |
 | `KspApiSanity` | 5 | 5 | 3 | 3 | 0 | 3 | H24 | A |
@@ -132,20 +132,20 @@ Two limits of this table, stated so nobody over-reads it:
 | `MapRender` | 22 | 21 | 0 | 0 | 1 | 14 | S1.7 | B |
 | `MapView` | 4 | 3 | 3 | 4 | 0 | 2 | H47 (flown 2026-08-28, executes 4 of 4) | A |
 | `MergeDialog` | 2 | 0 | 0 | 0 | 2 | 2 | H63-merge-dialog-isolated (ISOLATED, LIVE-PROVEN 2026-09-06, run `2026-09-06_2012`: PASS attempt 1, 56 s wall, every verifier PASS or SKIPPED, `BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=MergeDialog scene=FLIGHT` pinned whole. EXECUTED 2 of 2. The merge popup's own two branches driven in place over a FABRICATED pending tree - Discard clears it, deferred Merge commits it through the real `Merge to Timeline` path - which is a different seam from H21's, where a real stock scene exit spawns the same popup. Boots `gloops-airshow`: neither cell stages or spawns, so the requirement is `loaded-vessel`. Neither REFLECTION guard fired, so the merge-dialog helpers and `ParsekScenario.Instance` both resolve at run time on KSP 1.12.5) | A |
-| `MissionPhasing` | 4 | 4 | 0 | 0 | 0 | 2 | - | B |
+| `MissionPhasing` | 4 | 4 | 0 | 0 | 0 | 2 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 3 of 4; the residue wants an airborne vessel) | B |
 | `Missions` | 13 | 7 | 6 | 0 | 0 | 9 | M1, H54 (FLIGHT slice, flown 2026-08-28, executes **3 of 13** - see the archetype note below) | B |
-| `Optimizer` | 2 | 0 | 2 | 0 | 0 | 2 | - | B |
+| `Optimizer` | 2 | 0 | 2 | 0 | 0 | 2 | LT-2-long-tail-spacecenter (MULTI, flown 2026-09-07, executes 2 of 2 - the whole category at SPACECENTER with zero skips. Its cells mutate the live store and skip whenever a committed recording is present, which is why that lane injects NOTHING) | A |
 | `PartEventFX` | 6 | 6 | 0 | 0 | 0 | 6 | - | B |
 | `PartEventFidelity` | 5 | 5 | 0 | 0 | 0 | 5 | H37 | A |
-| `PartEventTiming` | 2 | 2 | 0 | 0 | 0 | 0 | - | B |
+| `PartEventTiming` | 2 | 2 | 0 | 0 | 0 | 0 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 2 of 2 - the whole category at FLIGHT with zero skips; its deployable cell asserted the retired pre-S2 snap on the census and is re-pinned to the shipped animated contract) | A |
 | `Periodicity` | 13 | 1 | 9 | 0 | 3 | 5 | M2 | B |
 | `Pipeline-Anchor` | 7 | 7 | 0 | 0 | 0 | 0 | H11 | A |
-| `Pipeline-Anchor-BubbleEntry` | 2 | 2 | 0 | 0 | 0 | 0 | - | B |
-| `Pipeline-AnchorPropagate` | 1 | 1 | 0 | 0 | 0 | 0 | - | B |
-| `Pipeline-Frame` | 1 | 1 | 0 | 0 | 0 | 0 | - | B |
-| `Pipeline-Outlier` | 1 | 1 | 0 | 0 | 0 | 0 | - | B |
+| `Pipeline-Anchor-BubbleEntry` | 2 | 2 | 0 | 0 | 0 | 0 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 2 of 2 - the whole category at FLIGHT with zero skips) | A |
+| `Pipeline-AnchorPropagate` | 1 | 1 | 0 | 0 | 0 | 0 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 1 of 1 - the whole category at FLIGHT with zero skips) | A |
+| `Pipeline-Frame` | 1 | 1 | 0 | 0 | 0 | 0 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 1 of 1 - the whole category at FLIGHT with zero skips) | A |
+| `Pipeline-Outlier` | 1 | 1 | 0 | 0 | 0 | 0 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 1 of 1 - the whole category at FLIGHT with zero skips) | A |
 | `Pipeline-Smoothing` | 4 | 4 | 0 | 0 | 0 | 1 | H18 | A |
-| `Pipeline-Terrain` | 1 | 1 | 0 | 0 | 0 | 1 | - | B |
+| `Pipeline-Terrain` | 1 | 1 | 0 | 0 | 0 | 1 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 1 of 1 - the whole category at FLIGHT with zero skips) | A |
 | `PlaybackControl` | 1 | 0 | 0 | 0 | 1 | 1 | H66-playback-control-isolated (ISOLATED, LIVE-PROVEN 2026-09-06, run `2026-09-06_2015`: PASS attempt 1, 73 s wall - the most expensive per cell in the wave - every verifier PASS or SKIPPED, `BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=PlaybackControl scene=FLIGHT` pinned whole. EXECUTED 1 of 1. Commits a synthetic keep-vessel tree over `gloops-airshow`, fast-forwards the timeline into playback past the 15 s `RewindToLaunchLeadTimeSeconds` lead, and asserts the spawn happens EXACTLY ONCE and is not replaced by a second pid - checked immediately and again after a duplicate-prevention wait. Claims D9 `fast-forward` and D6 `spawn-at-end-pid-dedup`; the unsettled guard - whether `TryBuildSyntheticKeepVesselTree` succeeds unattended, which nothing had ever run - did NOT fire) | A |
 | `PlaybackFidelity` | 7 | 7 | 0 | 0 | 0 | 7 | H36 | A |
 | `PreParsekBackup` | 4 | 4 | 4 | 4 | 0 | 4 | PPB-1 | A |
@@ -153,19 +153,19 @@ Two limits of this table, stated so nobody over-reads it:
 | `ReFlyWorldPreservation` | 6 | 6 | 0 | 0 | 0 | 6 | S4.2 | A |
 | `ReStockCompat` | 9 | 9 | 0 | 0 | 0 | 9 | MC-2-restock-compat (`modded-compat` instance profile, LIVE-PROVEN 2026-08-04 run `2026-08-04_2011`, PASS attempt 1, tally pinned WHOLE at `total=9 passed=8 failed=0 skipped=1`; the one skip is `ReStockAloneNormalScanNonEmpty`'s inverse gate, which Waterfall's presence on that profile closes by design. This row read `-` until 2026-09-06 and was simply stale - the spec has driven the category since 2026-08-04) | B |
 | `RecordedSignals` | 3 | 3 | 1 | 1 | 0 | 2 | H33 | A |
-| `Recording` | 1 | 0 | 1 | 0 | 0 | 0 | - | B |
+| `Recording` | 1 | 0 | 1 | 0 | 0 | 0 | LT-2-long-tail-spacecenter (MULTI, flown 2026-09-07, executes 1 of 1 - the whole category at SPACECENTER with zero skips) | A |
 | `RecordingFinalization` | 3 | 3 | 0 | 0 | 0 | 0 | H19 | A |
 | `RecordingInvariants` | 2 | 2 | 0 | 0 | 0 | 0 | H5 | B |
-| `RecordingStore` | 2 | 2 | 2 | 2 | 0 | 0 | - | B |
+| `RecordingStore` | 2 | 2 | 2 | 2 | 0 | 0 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 2 of 2 - the whole category at FLIGHT with zero skips over the injected 274-recording corpus) | A |
 | `ReentryFx` | 3 | 3 | 0 | 0 | 0 | 1 | H52 (flown 2026-08-28, executes 3 of 3) | A |
-| `RenderComposition` | 1 | 1 | 0 | 0 | 0 | 1 | - | B |
-| `ResourceManifest` | 1 | 1 | 0 | 0 | 0 | 0 | - | B |
-| `ResourceReconciliation` | 1 | 0 | 1 | 0 | 0 | 0 | - | B |
+| `RenderComposition` | 1 | 1 | 0 | 0 | 0 | 1 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 1 of 1 - the whole category at FLIGHT with zero skips) | A |
+| `ResourceManifest` | 1 | 1 | 0 | 0 | 0 | 0 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 1 of 1 - the whole category at FLIGHT with zero skips) | A |
+| `ResourceReconciliation` | 1 | 0 | 1 | 0 | 0 | 0 | LT-2-long-tail-spacecenter (MULTI, flown 2026-09-07, executes 1 of 1 - the whole category at SPACECENTER with zero skips) | A |
 | `ResourceTopBar` | 2 | 0 | 2 | 0 | 0 | 2 | - | B |
 | `RevertFlow` | 1 | 0 | 0 | 0 | 1 | 1 | H64-revert-flow-isolated (ISOLATED, LIVE-PROVEN 2026-09-06, run `2026-09-06_2013`: PASS attempt 1, 60 s wall, every verifier PASS or SKIPPED, `BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=RevertFlow scene=FLIGHT` pinned whole. EXECUTED 1 of 1. The first committed spec anywhere to drive STOCK REVERT TO LAUNCH: over `gs1-two-stage-pad` it records, stages off the pad, invokes KSP's own revert through the `FlightDriver` reflection surface, and asserts Parsek soft-unstashes the live tree with NO merge dialog. The fifth guard - whether the `FlightDriver` revert surface resolves on this KSP build, never exercised at run time anywhere before - did NOT fire, so the probe is live against KSP 1.12.5. Claims D1 `commit-revert-merge` with a stated honest limit: this is the REVERT half only) | A |
-| `RevertVesselStrip` | 1 | 1 | 0 | 0 | 0 | 1 | - | B |
+| `RevertVesselStrip` | 1 | 1 | 0 | 0 | 0 | 1 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 1 of 1 - the whole category at FLIGHT with zero skips) | A |
 | `Rewind` | 38 | 26 | 6 | 0 | 6 | 24 | R7a / R7c | A |
-| `RewindSaves` | 1 | 1 | 1 | 1 | 0 | 1 | - | B |
+| `RewindSaves` | 1 | 1 | 1 | 1 | 0 | 1 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 1 of 1 - the whole category at FLIGHT with zero skips over the injected corpus) | A |
 | `RouteDockCapture` | 6 | 0 | 0 | 0 | 6 | 6 | H55 (ISOLATED, GREEN run 2 2026-09-01 `total=6 passed=6 failed=0 skipped=0`, nightly; run 1 `passed=1 failed=5` - RED on an authoring defect in the cells' own partner rig, which carried no `ModuleCommand` part so the undocked half was debris and no split branch, hence no route-window completion, was created; rigs re-rooted on a probe core, and run 2 pins the whole tally. The ordinary path executes 0 of 6, so the isolated arg is the only way to run any of it. Pins `total=6` exactly, `failed=0` asserted, plus one REQUIRED token per cell) + H56 (ISOLATED, AUTHORED 2026-09-02, NEVER FLOWN - the SAME six cells on a SECOND host, `rover-route-recorded`, whose active vessel is a 17-part LANDED rover instead of H55's PRELAUNCH pad rig. Two products H55 structurally cannot buy: the origin-proof probe's non-PRELAUNCH branch, which decides roadmap Tier B item 4, and the SURFACE flavor of the five capture cells. Driver, batch and token shapes are H55's step for step so a census delta is attributable to the host alone; `total=6` is shared and attribute-exact, so a seventh cell reds BOTH members, and the `passed=`/`skipped=` split is interim until its first census) | B |
 | `RouteEscrowContention` | 2 | 0 | 0 | 0 | 2 | 2 | H60 (ISOLATED, LIVE-PROVEN 2026-09-02 `2026-09-02_1314` PASS attempt 1, `total=2 passed=2 failed=0 skipped=0` pinned whole, nightly - roadmap Tier C item 10, two STORED routes contending for ONE physical source through the production `RouteOrchestrator.Tick`. A MULTI-STOP holder route reserves its SUMMED pickup manifest at dispatch, fires only its first window, and the still-held second window blocks a competitor on the competitor's OWN crossing with the M6 `source-reserved:` token; the holder's second window then releases AND debits in the same instant, so the competitor stays blocked on unchanged numbers with the cause flipped `escrow` -> `physical` - the reserve/release PRE-IMAGE invariant driven live. A second cell drives the only release that DOES free a competitor: `RouteStore.RemoveRoute` on the holder mid-cycle. Its own category, not two more `RouteDockCapture` or `Logistics` cells, precisely so those categories' pinned `total=6` / `total=47` do not move. Pins `total=2 passed=2 failed=0 skipped=0` WHOLE, plus eight phase tokens - six production `[Route]` lines and one `EscrowContention:` summary per cell, with the measured `raw=11 netted=5` / `raw=5 netted=5` pair carrying the pre-image invariant. ARMED DISCIPLINE COMPLETE the same day: armed re-flight `2026-09-02_1339` PASS attempt 1 on the whole pin with `mismatches=[]`, and a negative control - cell 1's `causeAfterWindow` flipped `physical` -> `escrow` - red on exactly that one token with zero forbids, so the pin discriminates rather than merely passes. The two runs drew different source pids and read identical amounts. D10 `multi-origin-escrow` is CLAIMED off the completed discipline, as a third owner contributing the ORCHESTRATOR-driven form H38's and H40's hand-reserved cell cannot reach) | A |
 | `RouteLifecycle` | 8 | 8 | 8 | 8 | 0 | 8 | RVR-3 (flown once 2026-09-01, `total=6 passed=4 failed=2`; the two failures were CONTRACT DRIFT - see the triage note - and the category is now 8 cells pinning BOTH halves of the armed-pause state machine. Pins `total=8` exactly with `passed=`/`skipped=` interim, `failed=0` asserted, plus a REQUIRED PASS token per resolution cell, and declares no render-composition expectations block, which is what keeps the five crossing cells from self-skipping) | B |
@@ -179,36 +179,42 @@ Two limits of this table, stated so nobody over-reads it:
 | `Settings` | 5 | 4 | 3 | 4 | 0 | 2 | H46 (flown 2026-08-28, executes 4 of 5; the 5th is TRACKSTATION-scoped) | B |
 | `SnapshotBaseline` | 7 | 7 | 0 | 0 | 0 | 7 | H32 | A |
 | `SoiCrossingPlayback` | 3 | 3 | 0 | 0 | 0 | 3 | S1.8 | A |
-| `SpawnCollision` | 2 | 2 | 0 | 0 | 0 | 2 | - | B |
+| `SpawnCollision` | 2 | 2 | 0 | 0 | 0 | 2 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 2 of 2 - the whole category at FLIGHT with zero skips) | A |
 | `SpawnHealth` | 3 | 3 | 3 | 3 | 0 | 0 | H16 | A |
 | `SpawnRotation` | 10 | 10 | 0 | 0 | 0 | 0 | H8 | A |
-| `SpawnTerminalOrbit` | 3 | 3 | 0 | 0 | 0 | 3 | - | B |
-| `Spawner` | 2 | 2 | 0 | 0 | 0 | 1 | - | B |
+| `SpawnTerminalOrbit` | 3 | 3 | 0 | 0 | 0 | 3 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 3 of 3 - the whole category at FLIGHT with zero skips) | A |
+| `Spawner` | 2 | 2 | 0 | 0 | 0 | 1 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 1 of 2; the residue wants autostrut parts in range) | B |
 | `StockUiOverlay` | 6 | 0 | 6 | 0 | 0 | 6 | H45 (flown 2026-08-28, executes 4 of 6; the 2 Mission Control cells want an OFFERED contract) | A |
-| `StockWarpLimits` | 1 | 1 | 0 | 0 | 0 | 0 | - | B |
+| `StockWarpLimits` | 1 | 1 | 0 | 0 | 0 | 0 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 1 of 1 - the whole category at FLIGHT with zero skips) | A |
 | `StrategyLifecycle` | 10 | 0 | 10 | 0 | 0 | 10 | L3 | A |
-| `Structure` | 2 | 2 | 2 | 2 | 0 | 2 | - | B |
-| `SwitchIntentPatch` | 3 | 1 | 1 | 1 | 0 | 0 | - | B |
+| `Structure` | 2 | 2 | 2 | 2 | 0 | 2 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 1 of 2 over the injected corpus; the residue wants committed routes) | B |
+| `SwitchIntentPatch` | 3 | 1 | 1 | 1 | 0 | 0 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 1 of 3 at FLIGHT - its KSC and TS cells scene-skip) + LT-2-long-tail-spacecenter (MULTI, flown 2026-09-07, executes 1 of 3 at SPACECENTER - the KSC marker patch cell; its FLIGHT and TS cells scene-skip there). Union 2 of 3: the TS cell needs a TRACKSTATION lane | B |
 | `SwitchSegment` | 6 | 6 | 0 | 0 | 0 | 0 | H12 | A |
-| `TerminalOrbit` | 2 | 2 | 2 | 2 | 0 | 2 | - | B |
+| `TerminalOrbit` | 2 | 2 | 2 | 2 | 0 | 2 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 2 of 2 - the whole category at FLIGHT with zero skips over the injected corpus) | A |
 | `TerrainClearance` | 6 | 6 | 0 | 0 | 0 | 6 | H43 (flown 2026-08-28, executes 6 of 6) | A |
-| `TestCommands` | 4 | 3 | 1 | 1 | 0 | 3 | - | B |
-| `TestRunner` | 2 | 2 | 2 | 2 | 0 | 0 | - | B |
-| `TestRunnerIsolation` | 2 | 1 | 2 | 1 | 0 | 1 | - | B |
+| `TestCommands` | 4 | 3 | 1 | 1 | 0 | 3 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 1 of 4; the three skips are the career-only research cell, the MAINMENU cell, and the file-channel round trip only an operator drives) | B |
+| `TestRunner` | 2 | 2 | 2 | 2 | 0 | 0 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 2 of 2 - the whole category at FLIGHT with zero skips) | A |
+| `TestRunnerIsolation` | 2 | 1 | 2 | 1 | 0 | 1 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 1 of 2 at FLIGHT - the SPACECENTER cell scene-skips) + LT-2-long-tail-spacecenter (MULTI, flown 2026-09-07, executes 1 of 2 at SPACECENTER - the in-memory-restore gate cell self-skips pending its own green run) | B |
 | `TrackingStation` | 10 | 0 | 0 | 9 | 1 | 3 | H23 | A |
 | `TrajectoryMath` | 8 | 8 | 8 | 8 | 0 | 0 | H7 | A |
 | `TreeIntegrity` | 4 | 4 | 4 | 4 | 0 | 3 | H49 (flown 2026-08-28, executes 4 of 4) | A |
 | `UiComplexityMode` | 4 | 4 | 0 | 0 | 0 | 4 | H22 | A |
-| `Unity` | 4 | 4 | 4 | 4 | 0 | 1 | - | B |
-| `WarpToTime` | 1 | 0 | 1 | 0 | 0 | 1 | - | B |
-| `Watch` | 2 | 2 | 0 | 0 | 0 | 0 | - | B |
+| `Unity` | 4 | 4 | 4 | 4 | 0 | 1 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 4 of 4 - the whole category at FLIGHT with zero skips) | A |
+| `WarpToTime` | 1 | 0 | 1 | 0 | 0 | 1 | LT-2-long-tail-spacecenter (MULTI, flown 2026-09-07, executes 1 of 1 - the whole category at SPACECENTER with zero skips; the census found its cell skipping AFTER taking its measurement, so the result was order-dependent, and it is now order-independent) | A |
+| `Watch` | 2 | 2 | 0 | 0 | 0 | 0 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 2 of 2 - the whole category at FLIGHT with zero skips over the injected corpus) | A |
 | `WaterfallCompat` | 8 | 8 | 0 | 0 | 0 | 7 | MC-1-waterfall-compat (`modded-compat` instance profile, LIVE-PROVEN 2026-08-04 run `2026-08-04_2008`, PASS attempt 1, tally pinned WHOLE at `total=8 passed=7 failed=0 skipped=1`; the one skip is `WaterfallGateClosedOnStockInstall`'s inverse gate, which the profile's real Waterfall install closes by design. This row read `-` until 2026-09-06 and was simply stale - the spec has driven the category since 2026-08-04) | B |
 
 ## Triage
 
-Totals, re-derived: **112 categories / 621 declarations**. Buckets **A 36 categories
-(240 declarations)**, **B 76 categories (381 declarations)**, **C 0 categories (0
-declarations)**. The 107th is `AutoMergeCommit` (R4, the AUTOMERGE-ON-BY-DEFAULT
+Totals, re-derived: **112 categories / 621 declarations**. Buckets **A 80 categories
+(338 declarations)**, **B 32 categories (283 declarations)**, **C 0 categories (0
+declarations)** - all three re-derived mechanically 2026-09-07 by counting the table's
+rows per Bucket cell and summing their Decls column, which is also how the bucket
+section headers below are derived. The bucket numbers in this line had drifted
+further than any other count in the doc (they read A 36 / 240 and B 76 / 381 while
+the table already said A 52 / 291 and B 60 / 330), for the standing reason: a
+hand-maintained total beside a machine-derived table rots toward understatement.
+The 107th is `AutoMergeCommit` (R4, the AUTOMERGE-ON-BY-DEFAULT
 wave; the 106th is `DisabledHoverEcho`, landed the same week): the plan-§7
 autoMerge=ON scene-exit cell, batch-disabled and restore-backed exactly like the two
 `SceneExitMerge` cells it mirrors, and in bucket **B** because no committed spec
@@ -301,9 +307,28 @@ Tier B item-4 subject the roadmap wrote as a manual flight and H56's probe retir
 ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE, fixed in the same commit as these cells, so
 nothing has ever exercised the fixed producer live.
 
-Driven by a committed spec: **70 of 112 categories**, covering **538 of 620
-declarations** (re-derived mechanically 2026-09-06: count the table rows whose
+Driven by a committed spec: **106 of 112 categories**, covering **607 of 621
+declarations** (re-derived mechanically 2026-09-07: count the table rows whose
 Driven-by cell is not `-`, and sum their Decls column).
+
+**THE 2026-09-07 MULTI-CATEGORY WAVE MOVED THAT NUMBER FURTHER THAN ANY WAVE BEFORE
+IT: 70 -> 106 categories and 539 -> 607 declarations in two boots.**
+`LT-1-long-tail-flight` drives 33 categories at FLIGHT over `gloops-airshow` plus the
+injected corpus (run `2026-09-07_1511`, 297 s, `total=80 passed=54 failed=0
+skipped=26 category=multi:33`) and `LT-2-long-tail-spacecenter` drives 6 at
+SPACECENTER over an empty store (run `2026-09-07_1516`, 46 s, `total=10 passed=7
+failed=0 skipped=3 category=multi:6`); `TestRunnerIsolation` and `SwitchIntentPatch`
+are in both, so the distinct addition is 37 categories and 85 declarations. Both are
+pinned WHOLE per constituent - the aggregate gates the run, but the anti-vacuity
+probe is per category, so a constituent that executed nothing reds by name. Twenty-
+eight of the 37 were driven WHOLE at their lane's boot and move to bucket **A**; the
+other nine are slices and stay in **B** with their residue named in the row.
+
+SIX CATEGORIES REMAIN UNDRIVEN, and they are exactly the census exclusions listed in
+the B5 note below: `Contracts` (2), `CrewReservationLive` (2), `PartEventFX` (6),
+`RouteLiveAnchor` (1), `ResourceTopBar` (2) and `DisabledHoverEcho` (1) - 14
+declarations. None is a harness gap; each names a HOST or an input surface the two
+lanes' fixtures do not carry.
 
 TWO CORRECTIONS ARE FOLDED INTO THOSE NUMBERS, and they are worth naming because the
 prose below is a history that had drifted from its own table. (1) The sentence read
@@ -364,9 +389,13 @@ one), all four are batch-allowed, and all four carry a run-time `InGameAssert.Sk
 naming the missing context - which is why PPB-2's honest pin is `passed=2 skipped=2`
 while PPB-1's is `passed=4 skipped=0`.
 
-`RenderComposition` (1 declaration, M-A7) is the 105th category and moves the DRIVEN
-numbers not at all: it ships undriven, in bucket B, waiting on the `renderCompose`
-verifier row's lanes (Phase 3+ of `design-autotest-render-composition.md`). The one
+`RenderComposition` (1 declaration, M-A7) is the 105th category. It shipped undriven
+and in bucket B, waiting on the `renderCompose` verifier row's lanes (Phase 3+ of
+`design-autotest-render-composition.md`); DRIVEN AND IN BUCKET A SINCE 2026-09-07, as
+an `LT-1-long-tail-flight` constituent that executed its one cell. That does not
+deliver the `renderCompose` lanes - LT-1 declares no render-composition expectations
+block and claims no RC-* rule; what it proves is that the well-formedness gate
+described below RUNS unattended on a corpus-backed FLIGHT boot. The one
 cell is a WELL-FORMEDNESS gate - it force-arms the render-composition recorder, lets
 the live flight scene drive the real capture path, exports, and asserts the manifest
 parses with every section present and record counts matching the export payload. It
@@ -580,18 +609,33 @@ contributes nothing, and 4 of the 22 are not scene skips at all):
 | `MapRender` | FLIGHT | 0 | 1 | 1 |
 | `GameActionsHealth` | SPACECENTER | 0 | 0 | 0 |
 
-The constraint that shapes every decision below: `hlib.SINGLE_BATCH_SELECTOR_RULE`
-makes a batch-owning spec drive exactly ONE `RunTests` step naming exactly ONE
-category, because the anti-vacuity probe is built for a single named category and a
+The constraint that used to shape every decision below: `hlib.SINGLE_BATCH_SELECTOR_RULE`
+made a batch-owning spec drive exactly ONE `RunTests` step naming exactly ONE
+category, because the anti-vacuity probe was built for a single named category and a
 `category=multi:<n>` aggregate cannot express "constituent B executed nothing". So
-one wired category costs one KSP boot per cadence. Wiring all 74 undriven categories
-would mean 89 boots. The question is never "can this category run in a batch" but
-"is what it executes worth a boot".
+one wired category cost one KSP boot per cadence, and wiring all 74 undriven
+categories then in the table would have meant 89 boots.
 
-### Bucket A - wired now (52 categories, 290 declarations)
+**AMENDED 2026-09-07.** A comma list is admitted when every constituent carries its
+own whole `BATCH_COMPLETE` pin, probed against only that constituent's own patterns,
+so the anti-vacuity guarantee is per CONSTITUENT and the sentence above no longer
+prices the tail. One boot per SCENE now, not one per category: `LT-1` took 33
+categories in 297 s and `LT-2` took 6 more in 46 s. The one-step rule stands, and
+`"all"` stays an error because its constituent set is decided at run time. The
+question is still "is what it executes worth a boot", but a boot now buys a whole
+bucket rather than one row.
 
-Two sub-classes, admitted on DIFFERENT grounds. Conflating them is how the isolated
-spec would end up pinned against the wrong derivation.
+### Bucket A - wired now (80 categories, 338 declarations)
+
+Three sub-classes, admitted on DIFFERENT grounds. Conflating them is how a spec would
+end up pinned against the wrong derivation.
+
+THE HEADER COUNT IS RE-DERIVED FROM THE TABLE; THE THREE SUB-CLASS PARENTHETICALS ARE
+NOT AND DO NOT SUM TO IT. A1's and A2's are hand counts that predate several waves
+(A2's own note says so at length), and re-deriving either needs an
+ordinary-vs-isolated-vs-multi marker the table does not carry. A3's is exact because
+its two lanes are the whole of it. Read the header for bucket A's size and the table
+for any category's standing.
 
 **A1 - the ordinary batch path (28 categories, 168 declarations).** Fourteen shipped
 as one wave, `H7`-`H20`, tier `nightly`, over the committed `gloops-airshow`
@@ -884,7 +928,37 @@ rather than replaced with a guess.
 | `H39-logistics-isolated-bdock` | Logistics | 47 declared, 46 admitted | The same 46 cells over `bdock-recorded` - the FIRST time the restore-flagged Logistics declarations run against a non-empty recording store (two committed trees, 19 recordings, one dock window). Pays two of H38's five missing-recorded-subject skips, and is the fixture-axis negative control on H38: the census delta says which of its 39 passes were RIG properties rather than universal ones - measured, 5 of them. FLOWN 3x 2026-08-28, pinned whole `47/34/0/13` with count 21; its census-2 recordings-floor red is half of how the tree-deletion data loss was found |
 | `H40-logistics-isolated-depot-route` | Logistics | 47 declared, 46 admitted | The same 46 cells over `depot-route-recorded`, the suite's ONLY committed Active GhostDriving route (four `SOURCE_REF` rows carrying `routeProofHash`, a Dock and an Undock branch point, 22 recordings). The axis it adds is ROUTE-PRESENT vs ROUTE-ABSENT: every route-reading cell in the category has until now executed only against state a test forged in-body. Carries the `RevalidateSources ... routes=1 transitioned=0` anti-vacuity token, tightened to `reason=OnLoad` by the census (the authored wildcard also matched on the route-less host). FLOWN 3x 2026-08-28, pinned whole `47/35/0/12` with count 22. It adds ZERO distinct declarations over `H38 ∪ H39` - its value is the execution context plus the nine-cell destination-headroom test-defect family its census 1 exposed against a 720/720 tank |
 
-### Bucket B - wireable, but needs something first (60 categories, 330 declarations)
+**A3 - the MULTI-CATEGORY batch path (28 categories, 2 specs), opened 2026-09-07.**
+Neither of A1's derivation nor A2's isolated arg: these categories are admitted
+because ONE boot drove each of them WHOLE, alongside three dozen siblings, through
+the seam's comma-list `RunTests` selector. `LT-1-long-tail-flight` contributes 24
+(`Bug289`, `ContinuationIntegrity`, `FinalizeLimbo`, `Flight`, `ForwardRender`,
+`IdentityLoss`, `PartEventTiming`, the four small `Pipeline-*`, `RecordingStore`,
+`RenderComposition`, `ResourceManifest`, `RevertVesselStrip`, `RewindSaves`,
+`SpawnCollision`, `SpawnTerminalOrbit`, `StockWarpLimits`, `TerminalOrbit`,
+`TestRunner`, `Unity`, `Watch`) and `LT-2-long-tail-spacecenter` contributes 4
+(`Optimizer`, `Recording`, `ResourceReconciliation`, `WarpToTime`).
+
+THE ADMISSION SHAPE IS THE SAME ONE A1 AND A2 USE, applied per constituent rather
+than per spec: the lane pinned that category's whole `BATCH_COMPLETE` line off a
+measured census, and the lane drove the category WHOLE at its own boot with zero
+skips. The nine constituents that executed a SLICE stay in bucket **B** on
+`Logistics`' standing precedent, with their residue named in the table row -
+`BackgroundSeeder`, `GhostLifecycle`, `GhostMapOrbits`, `MissionPhasing`, `Spawner`,
+`Structure`, `SwitchIntentPatch`, `TestCommands` and `TestRunnerIsolation`.
+
+WHAT A WHOLE-TALLY PIN OVER A CONSTITUENT DOES NOT BUY, stated because 33 pins in one
+spec look like a lot of coverage: the pin asserts that the category's cells RAN and
+that none failed. It asserts nothing about which product behaviour they proved, which
+is why both lanes claim only D14 environment values and leave every behaviour cell to
+the lane that drives the behaviour. The per-category rows above say what each covers.
+
+| Spec | Scene | Constituents | Measured aggregate |
+|---|---|---|---|
+| `LT-1-long-tail-flight` | FLIGHT (`gloops-airshow` + `all-synthetic`, 274 pinned) | 33 | `total=80 passed=54 failed=0 skipped=26 category=multi:33`, run `2026-09-07_1511`, 297 s |
+| `LT-2-long-tail-spacecenter` | SPACECENTER (`fresh-sandbox`, nothing injected) | 6 | `total=10 passed=7 failed=0 skipped=3 category=multi:6`, run `2026-09-07_1516`, 46 s |
+
+### Bucket B - wireable, but needs something first (32 categories, 283 declarations)
 
 Not one list but six reasons, and the reason is what decides whether it is worth
 doing.
@@ -956,8 +1030,18 @@ looks like for one category at a time. The vessel-less fixture the rest need
 already exists (`fresh-career` / `fresh-sandbox`, as `B10` / `L1` / `M2` use), so the
 fixture is not the blocker - the yield is. Every one of them is either a single test
 or heavily self-skip-guarded (`StockUiOverlay` has a self-skip in all 6 members,
-`Ledger` in all 4), so a boot each buys very little. Worth revisiting as a group if a
-multi-category batch contract is ever designed; not worth eight boots now.
+`Ledger` in all 4), so a boot each buys very little. ~~Worth revisiting as a group if
+a multi-category batch contract is ever designed; not worth eight boots now.~~
+
+**REVISITED AS A GROUP 2026-09-07, WHICH IS EXACTLY WHAT THAT SENTENCE ASKED FOR.**
+`LT-2-long-tail-spacecenter` takes four of the seven in ONE boot (`Optimizer` 2,
+`Recording` 1, `ResourceReconciliation` 1, `WarpToTime` 1, all whole, 46 s), and
+`Ledger` (H48) and `StockUiOverlay` (H45) had already been driven by the Phase-4
+wave. `ResourceTopBar` is the one left, and its blocker is not the yield after all:
+its cells are career-only and the currency bar is hidden in the sandbox host LT-2
+boots, so it wants a `fresh-career` sibling lane rather than a boot of its own. The
+prediction that the group would be cheap once a multi-category contract existed held
+exactly: seven boots became one, and the residue is a fixture question.
 
 **B4 - self-skip guards whose preconditions the committed fixtures do not obviously
 meet.** The large categories live here: `Logistics` (47 declarations, of which
@@ -1076,6 +1160,18 @@ bearing part:
   leaving it flagged. What this note buys is that the next person to read "should
   not be wired next" knows the premise moved. The row above is marked accordingly.
 
+  MEASURED 2026-09-07, and the 2026-08-04 verdict is confirmed on the number that
+  mattered. `LT-1-long-tail-flight` carried `GhostLifecycle` as one of 33
+  constituents on `gloops-airshow` + `all-synthetic` - the exact host pair the read
+  was taken against - and measured `total=17 passed=2 failed=0 skipped=15`. The read
+  predicted a realistic yield of ~4 of 17; the truth is 2, so the category is if
+  anything LESS wireable than the paragraph claimed, and "should not be wired next"
+  now stands on a measurement rather than on a body read. The clause (b) flag is
+  UNTOUCHED by this: `duna-one-recorded` is a different host, and nothing here
+  re-derives the mission-loop question. What the multi-category contract changes is
+  only the COST of carrying the category - two executed cells no longer owe a boot of
+  their own, which is why the row is driven and still bucket **B**.
+
 ~~The honest next wave is therefore bucket B6 below (`LogContracts` 10,
 `GhostAudio` 9, `Diagnostics` 6, `MapPresence` 5, `LocalizedName` 3 - all
 read 2026-08-04 with high predicted execution on committed fixtures), plus
@@ -1094,30 +1190,42 @@ the 14 are honest vacuous passes for the same empty-dict reason - converting
 them to Skips is filed product work, and doing it will move H31's pin
 deliberately.
 
-**B5 - too small to justify a dedicated boot.** The long tail: `Bug289` (2),
-`ContinuationIntegrity` (2), `MissionPhasing` (4), `PartEventTiming` (2),
-`Pipeline-Frame` (1), `Pipeline-Outlier` (1), `Pipeline-Terrain` (1),
-`Pipeline-AnchorPropagate` (1), `ForwardRender` (1), `ResourceManifest` (1),
-`StockWarpLimits` (1), `RouteLiveAnchor` (1), `LedgerGroundTruth` (2) and similar.
-Several are zero-self-skip and would pass immediately; they are simply not worth a
-KSP boot each at one or two tests. They are the strongest argument for a future
-multi-category batch contract, and the honest answer today is "not worth wiring",
-not "cannot be wired".
+**B5 - ~~too small to justify a dedicated boot~~ CLOSED 2026-09-07 BY THE
+MULTI-CATEGORY CONTRACT AND ITS FIRST TWO LANES.** This bucket held the long tail -
+`Bug289` (2), `ContinuationIntegrity` (2), `MissionPhasing` (4), `PartEventTiming`
+(2), the four small `Pipeline-*` (1 each), `ForwardRender` (1), `ResourceManifest`
+(1), `StockWarpLimits` (1) and roughly thirty more like them - on the reasoning that
+each was zero-self-skip and would pass immediately but was simply not worth a KSP
+boot at one or two tests, and that the honest answer was "not worth wiring" rather
+than "cannot be wired". The contract that paragraph called for exists
+(`docs/dev/design-autotest-harness-core.md` -> "AMENDMENT 2026-09-07 -
+Multi-category batch contract"), and the lanes have FLOWN: `LT-1-long-tail-flight`
+(33 categories at FLIGHT, run `2026-09-07_1511`, 297 s) and
+`LT-2-long-tail-spacecenter` (6 at SPACECENTER, run `2026-09-07_1516`, 46 s), both
+PASS attempt 1 with every constituent pinned whole. Twenty-eight of the tail moved
+to bucket **A3**; nine are driven as slices and stay in **B** with a named residue.
 
-**THAT CONTRACT NOW EXISTS (2026-09-07).** A spec's one `RunTests` step may name a
-comma list, admitted when every constituent carries its own whole `BATCH_COMPLETE`
-pin probed against only that constituent's own patterns; the runner already printed
-one per-category line per constituent, so nothing at run time changed. The argument
-this paragraph made is therefore answered: this bucket costs ONE boot per SCENE, not
-one per category. Contract:
-`docs/dev/design-autotest-harness-core.md` -> "AMENDMENT 2026-09-07 - Multi-category
-batch contract". Two lanes are being AUTHORED against a census flight,
-`LT-1-long-tail-flight` and `LT-2-long-tail-spacecenter`; NEITHER HAS FLOWN, the
-`MultiCategoryBatchWiringGroupTests` table is empty until each lane's split is
-measured, and the split is what decides which of the categories above a given lane
-can actually carry (a constituent with zero executable tests at the lane's boot
-scene is refused by that family's executable-floor cell, not silently carried behind
-a green aggregate). Nothing in this bucket is claimed as covered yet.
+**WHAT REMAINS IN B5 IS THE CENSUS EXCLUSIONS, and every one names a HOST rather
+than a harness gap.** They were candidates on the scratch censuses
+(`2026-09-07_0840` at FLIGHT over 38 candidates, `_0847` / `_0854` at SPACECENTER)
+and were left out because pinning a slice that executes nothing is exactly the
+vacuous batch the contract refuses:
+
+| Excluded category | Decls | Why no lane carries it | What would buy it |
+|---|---|---|---|
+| `DisabledHoverEcho` | 1 | Its one cell measures an IMGUI hover, which needs the OS pointer inside the game window. It PASSED on the census and SKIPPED on the first pinned flight - nothing in the seam can place the pointer, so its result is not reproducible unattended | Nothing available; it is an interactive-only cell |
+| `Contracts` | 2 | Both cells are career-only and executed nothing on the sandbox hosts | A CAREER host, i.e. a career-fixture sibling lane |
+| `ResourceTopBar` | 2 | Career-only: the currency bar is hidden in sandbox, so both cells skip at SPACECENTER | The same career-host lane as `Contracts` |
+| `CrewReservationLive` | 2 | Both cells short-circuit on `spawnedCount == 0`, and no committed asset carries a non-zero `SpawnedVesselPersistentId` (see B1 - this is the same corpus-writer gap that keeps `SpawnHealth`'s third cell inert) | Spawned-endpoint recordings in the corpus writer |
+| `PartEventFX` | 6 | No FX infos resolve on the corpus ghosts: they carry no engine / chute / light parts in this scene | A host whose ghosts have resolvable FX parts |
+| `RouteLiveAnchor` | 1 | Needs a supply route at a LIVE station, which neither lane's fixture has | A recorded route host, i.e. the `Logistics` family's recorded fixtures |
+
+Two of the six are one lane away, and they are the same lane: `Contracts` and
+`ResourceTopBar` are both career-only and both SPACECENTER-shaped, so a
+`fresh-career` sibling of LT-2 carries them together. The other four are fixture or
+generator work already tracked elsewhere in this doc (B1 for `CrewReservationLive`,
+B4 for `PartEventFX`, the Logistics harvest requirement for `RouteLiveAnchor`) and
+`DisabledHoverEcho` is not automatable at all.
 
 **B6 - ~~THE NEXT WAVE~~ CLOSED 2026-08-05: all seven wired.** `KspApiSanity` /
 `Serialization` shipped 2026-08-04 as H24 / H25; the remaining five shipped
