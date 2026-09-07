@@ -2814,6 +2814,17 @@ autorun mirror `PARSEK_AUTORUN_ISOLATED=1`, and the hlib companion
 shakedown; the other 12 unlocked categories are now spec-authoring work under
 R6 / R7 / R10 rather than blocked.
 
+ONE FAMILY-WIDE READINESS FIX, 2026-09-07: the per-cell baseline restore used to hand the
+next cell control before KSP had fired `GameEvents.onFlightReady` for the RELOADED scene -
+about 160 ms after the level-load, against an event roughly 130 ms later - so any cell
+that armed state a flight-ready handler resets could have that state wiped underneath it
+(`ParsekFlight`'s handler resets the post-switch auto-record watch). `QuickloadResumeHelpers`'
+`IsReloadedFlightReady` / `WaitForFlightReady` now also require `ParsekFlight
+.FlightReadyObserved`, so no isolated cell starts before the new flight instance has seen
+the event. It was found by H68 / H69, not by H21 or H61: PAD hosts happened to win the
+race and ORBITING / LANDED ones lost it every time, which is the argument for flying one
+category on several hosts. Todo entry `ISOLATED-RESTORE-HANDS-OFF-BEFORE-ONFLIGHTREADY`.
+
 | Test case | Tier | Parsek surface verified | Blocker |
 |---|---|---|---|
 | H21-scene-exit-merge-isolated | nightly | A real recording, a real launch, a real stock save-and-exit out of FLIGHT, and both branches of the pre-transition merge dialog - D1 commit-scene-exit + discard-rollback, EXECUTED rather than decided. The two `SceneExitMerge` cells are `AllowBatchExecution = false` + `RestoreBatchFlightBaselineAfterExecution = true`, so the ordinary path runs ZERO of them | LIVE-PROVEN 2026-07-27, 101 s, PASS attempt 1: `total=2 passed=2 failed=0 skipped=0 category=SceneExitMerge scene=FLIGHT` matched token for token, alongside both isolated-path-only tokens. The batch itself was 29.6 s. Both open questions came back favourable: the launcher clears 80 m inside the 30 s deadline, and the post-test quickload returns the vessel to FLIGHT in PRELAUNCH so test A's guard does not fire. Not a degenerate pass - the log carries the full sequence including `User chose: Tree Discard` and `User chose: Tree Merge` |
@@ -2975,7 +2986,8 @@ bodies rather than the R6 entry:
   that executes here is the negative `AutoRecordOnPostSwitch_NoOp_DoesNotStart`, and a
   negative case is not the token. Closing it needs a LANDED host and an ORBITING host.
   CONFIRMED BY THE CENSUS: all three skipped, each naming its required situation and
-  `got PRELAUNCH`.
+  `got PRELAUNCH`. **CLOSED 2026-09-07 by H68 (ORBITING) and H69 (LANDED)** - see the
+  AutoRecord host set below.
 - **`Coalescer` does NOT close D5 `crash-coalescing`.** Both its cells stage a
   decoupler and assert on the resulting CONTROLLED child; neither crashes anything.
   Only `controlled-decoupled-child` is claimed.
@@ -2985,9 +2997,51 @@ bodies rather than the R6 entry:
   beyond D14 is claimed, and D1 `auto-record-launch` is deliberately left to H61 even
   though the mid-recording cell asserts on it as SETUP.
 
-### In-game ISOLATED batch wiring, the AutoRecord host set: H68-H70, AUTHORED NOT FLOWN (3)
+### In-game ISOLATED batch wiring, the AutoRecord host set: H68-H70, all LIVE-PROVEN (3)
 
-THE FOLLOW-UP LANES H61's OWN CENSUS ASKED FOR, authored 2026-09-07. H61 flew green on
+ALL THREE FLEW GREEN 2026-09-07, the day after they were authored, each PASS on attempt 1
+with every verifier PASS or SKIPPED, and each now pins its measured tally whole with its
+run-time skips declared in `IsolatedBatchWiringGroupTests.MEASURED_SKIPPED`:
+`H68-autorecord-orbiting` run `2026-09-07_1618` (74 s, `BATCH_COMPLETE v1 total=10
+passed=3 failed=0 skipped=7 category=AutoRecord scene=FLIGHT`), `H69-autorecord-landed`
+run `2026-09-07_1619` (99 s, `total=10 passed=4 failed=0 skipped=6`) and
+`H70-autorecord-pad-crew` run `2026-09-07_1621` (91 s, `total=10 passed=5 failed=0
+skipped=5`). `INTERIM_PIN_IDS` is empty again. H69 and H70 confirmed their headers CELL
+FOR CELL and STRING FOR STRING; H68 was refuted twice and both refutations are recorded
+below.
+
+**WHAT THE FOUR-HOST SET MEASURED TOGETHER: 8 of `AutoRecord`'s 10 cells now execute
+somewhere** (H61 5, H68 3, H69 4, H70 5, overlapping). The two that execute NOWHERE are
+`EvaKerbalGhostHasVesselSnapshot` - which needs a crewed vessel FLYING inside an
+atmosphere, per the guard as WIDENED in this wave, and no committed fixture is one (a
+forge or a derived in-flight save) - and `AutoRecordOnPostSwitch_GearToggle_*`, which
+needs a LANDED craft carrying `ModuleWheels.ModuleWheelDeployment` (retractable gear or
+legs), which none carries. Both are HARVEST requirements; neither is a product claim.
+D1 `auto-record-first-mod-switch` is now CLOSED, off H68's orbital positive post-switch
+cell (`mode=engine situation=ORBITING autoStartCount=1`) and H69's landed one
+(`situation=LANDED autoStartCount=1`).
+
+**THE FIRST FLIGHTS FOUND A RUNNER DEFECT, AND IT IS THE WAVE'S MOST USEFUL PRODUCT.**
+Round 1 (`_1609` H68, `_1611` H69, `_1612` H70) read H70 PASS with the identical 5/0/5,
+while H68 and H69 red with every post-switch cell timing out on
+`WaitForPostSwitchBaselineCapture timed out after 3s (armed=False, ...)`. The isolated
+batch's per-cell baseline restore handed the next cell control about 160 ms after the
+reload's level-load, while KSP's `GameEvents.onFlightReady` for the RELOADED scene fired
+about 130 ms INTO that cell - and `ParsekFlight`'s handler for that event resets the
+post-switch watch (`Post-switch auto-record disarmed: ... reason=flight ready reset`),
+wiping the arm the cell had just made. THE PAD HOSTS WON THAT RACE EVERY TIME (H61 on
+2026-09-06, H70 on both of its flights), so a green census had already shipped over it and
+only a same-category, different-host lane could see it. Fixed in `Source/`:
+`ParsekFlight.FlightReadyObserved` is set when the event fires, and
+`QuickloadResumeHelpers.IsReloadedFlightReady` / `WaitForFlightReady` now require it, so
+no cell starts before the new flight instance has seen `onFlightReady`. Filed as
+`ISOLATED-RESTORE-HANDS-OFF-BEFORE-ONFLIGHTREADY`; every pin cites the second flight, on
+the fixed DLL. One consequence worth keeping: on the broken build H69's gear-toggle cell
+FAILED at the arm wait rather than reaching `TryToggleLandingGear`, so the finding that
+lane was authored to record was observable only once the race was closed.
+
+THE AUTHORING RATIONALE, kept because it is what the census was read against. H61 flew
+green on
 2026-09-06 (`total=10 passed=5 failed=0 skipped=5`) and EXECUTED 5 OF 10; its five
 run-time skips are declared in `MEASURED_SKIPPED` and are four SITUATION properties plus
 one CREW property of `gs1-two-stage-pad`, not one of them a product claim. So the residue
@@ -2997,23 +3051,24 @@ is a HOST requirement, and these three lanes buy it from hosts the repo already 
 census delta is attributable to the host alone; the category, the isolated arg, the batch
 and the token shapes are H61's step for step. `total=10` is attribute-exact and shared by
 all four lanes (an eleventh `AutoRecord` cell moves every one of them in the same commit),
-`failed=0` is a literal, and every `passed=` / `skipped=` is a REGEX CLASS with a
-cell-by-cell prediction in the spec's own header, written to be refuted. All three are
-declared in `IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS` and each pins a REQUIRED CELL
-TOKEN for the one cell it exists for, because an interim `passed=` says how MANY cells
-passed and nothing about WHICH - and on H70 the count alone would be satisfied by exactly
-the five H61 already runs.
+`failed=0` is a literal, and every `passed=` / `skipped=` was authored as a REGEX CLASS
+with a cell-by-cell prediction in the spec's own header, written to be refuted - all three
+are now MEASURED LITERALS. Each also pins a REQUIRED CELL TOKEN for the one cell it exists
+for, because an interim `passed=` says how MANY cells passed and nothing about WHICH - and
+on H70 the count alone would have been satisfied by exactly the five H61 already runs.
+All three cell tokens matched.
 
-WHAT THE SET CLOSES: D1 `auto-record-first-mod-switch`, which H61 explicitly declines and
-the roadmap records as measured-open. All three POSITIVE post-switch cells demand a
-situation a pad host is not in, so the only one H61 runs is the NEGATIVE no-op, and a
-negative case is not the token. H68 claims it off the ORBITING positive cell and H69 off
-the LANDED one; the two are different triggers (engine / sustained RCS with NO situation
-change, versus surface motion) on the same watch, so neither subsumes the other. Both
-claims are gated by the cell's own summary line rather than by a tally.
+WHAT THE SET CLOSES, now measured rather than claimed: D1 `auto-record-first-mod-switch`,
+which H61 explicitly declines and the roadmap recorded as measured-open. All three
+POSITIVE post-switch cells demand a situation a pad host is not in, so the only one H61
+runs is the NEGATIVE no-op, and a negative case is not the token. H68 claims it off the
+ORBITING positive cell and H69 off the LANDED one - both PASSED - and the two are
+different triggers (engine / sustained RCS with NO situation change, versus surface
+motion) on the same watch, so neither subsumes the other. Both claims are gated by the
+cell's own summary line rather than by a tally.
 
-TWO FINDINGS THE AUTHORING PASS PRODUCED BY READING THE CELL BODIES, both recorded here
-rather than discovered on a flight:
+TWO FINDINGS THE AUTHORING PASS PRODUCED BY READING THE CELL BODIES, both recorded before
+the flight and both now settled by it:
 
 - **A LANDED host is NECESSARY BUT NOT SUFFICIENT for
   `AutoRecordOnPostSwitch_GearToggle_StartsExactlyOnce`.** It passes its situation guard on
@@ -3022,18 +3077,33 @@ rather than discovered on a flight:
   committed modules are `ModuleWheelBase` / `Brakes` / `Damage` / `Motor` / `Steering` /
   `Suspension` - rover wheels roll, they do not deploy. Closing that cell is a HARVEST
   requirement for a landed craft with retractable gear or legs, which no committed fixture
-  carries. H69's header pins the expected skip STRING so the census distinguishes "wrong
-  situation" from "right situation, missing part".
-- **`EvaKerbalGhostHasVesselSnapshot`'s guard admits a host its assertions cannot
-  satisfy.** It skips on PRELAUNCH / LANDED / SPLASHED only, so an ORBITING host PASSES -
-  and then its body calls `WaitForActiveEvaSurfaceSettled(crew, 10f)`, which
+  carries. H69's header pinned the expected skip STRING so the census could distinguish
+  "wrong situation" from "right situation, missing part". **CONFIRMED VERBATIM** on run
+  `2026-09-07_1619`: `active landed vessel has no deployable landing-gear module the canary
+  can toggle`, not a situation string.
+- **`EvaKerbalGhostHasVesselSnapshot`'s guard admitted a host its assertions could not
+  satisfy.** It skipped on PRELAUNCH / LANDED / SPLASHED only, so an ORBITING host PASSED
+  the guard - and then its body calls `WaitForActiveEvaSurfaceSettled(crew, 10f)`, which
   `InGameAssert.Fail`s on timeout, and asserts `TerminalState.Landed`. A kerbal EVA'd from
-  a ~100 km orbit satisfies neither. **H68 THEREFORE PREDICTS A FAIL, NOT A SKIP**, and
-  says so in its own header rather than pinning around it: if the cell reds it is a
-  TEST-GUARD finding (the guard implements "a mid-flight crewed vessel" as "not one of the
-  three settled situations", which admits ORBITING by omission) and the fix is to widen the
-  guard, not to change the host. `failed=0` stays a literal on all three lanes precisely so
-  a finding reds.
+  a ~100 km orbit satisfies neither. **H68 THEREFORE PREDICTED A FAIL, NOT A SKIP**, and
+  said so in its own header rather than pinning around it. **THE GUARD WAS WIDENED IN
+  `Source/` IN THE SAME WAVE** to name the requirement it always meant, so the predicted
+  FAIL is a MEASURED SKIP: `requires a crewed vessel FLYING inside an atmosphere, got
+  ORBITING: the cell waits for the EVA kerbal to settle on a surface, which an orbital EVA
+  never does`. The cell's residue is unchanged and no committed fixture closes it.
+  `failed=0` stayed a literal on all three lanes throughout, which is what would have red
+  the other outcome.
+- **A THIRD FINDING, produced by the flight rather than by reading: an ORBITAL host cannot
+  run `EvaTwiceFromSameCapsuleProducesTwoBranches` at all.** H68 predicted it would execute
+  (Valentina and Bob aboard, and the crew guard was satisfied); it took the LAST of its six
+  escape hatches instead - `capsule hatch still obstructed after moving the first EVA
+  kerbal clear; spawnEVA would refuse the second EVA, so the background-parent path is
+  unreachable`. In microgravity the first kerbal floats where `MoveVesselClearOfAnchor` put
+  it rather than falling away, so KSP's obstruction check refuses the second EVA. Every
+  exit in that cell is a Skip, so the refutation cost a skip and not a red. **H70 bought
+  the cell instead** and is the ONLY committed host that can: `source='Kerbal X'
+  first='Valentina Kerman' second='Bob Kerman' evaBranches=2`, the first execution of that
+  cell anywhere.
 
 A WIRING CHANGE THE SET FORCED, and it is the first per-SPEC layer in this class:
 **`FIXTURE_REQUIREMENT_OVERRIDES`**, consulted before the per-CATEGORY
@@ -3053,9 +3123,9 @@ ENGINE reason) and joins a three-way mutual-exclusion cell over gs1 / gs2 / the 
 
 | Test case | Tier | Parsek surface verified | Blocker |
 |---|---|---|---|
-| H68-autorecord-orbiting | nightly | H61's ten `AutoRecord` cells over the 41-part ORBITING crewed Kerbal X at ~100 km LKO. Buys the ORBITING positive post-switch cell (arm the watch by reflection, ignite a real `ModuleEngines` - 2 aboard, 9 `ModuleRCS` as the fallback branch - and assert exactly one post-switch auto-start line WITH NO SITUATION CHANGE), plus the first orbital EVA auto-record any unattended lane has driven and the 2-crew two-EVA branch cell. Ordinary path executes 0 of 10 | AUTHORED 2026-09-07, NEVER FLOWN. Interim pin (`total=10` / `failed=0` literal, split a regex class); predicted 5 execute / 5 skip. **CARRIES A PREDICTED FAIL**, named in its header: `EvaKerbalGhostHasVesselSnapshot` passes its PRELAUNCH/LANDED/SPLASHED guard on an orbiting host and then cannot satisfy `WaitForActiveEvaSurfaceSettled` or `TerminalState.Landed`. If it reds, widen the cell's guard - do not change the host. Fixture requirement overridden to `orbiting` |
-| H69-autorecord-landed | nightly | The same ten cells over `rover-route-recorded`, a 17-part UNCREWED LANDED rover on the Runway. Buys the LANDED positive post-switch cell (nudge the rover a metre with `Vessel.SetPosition`, assert exactly one post-switch auto-start line with the vessel STILL LANDED) and runs both #526 transient canaries from LANDED rather than PRELAUNCH - including the Real Spawn Control one, which H70 structurally cannot run. Ordinary path executes 0 of 10 | AUTHORED 2026-09-07, NEVER FLOWN. Interim pin; predicted 4 execute / 6 skip. The gear-toggle cell is predicted to skip ANYWAY on the missing `ModuleWheelDeployment` (see the finding above). Every EVA and launch cell skips: the rover is uncrewed and carries no `ModuleEngines`. Driver is H61's plus RVR-1's KILL TRIPLE (`StopRecording` / `DiscardTree` / `autoRecordOnLaunch=false`), load-bearing because this recorded host resumes a promotion-stub recording ~1 s into the scene and SIX of the ten cells skip on `flight.IsRecording`. Recordings count pinned EXACTLY at the staged 5. Fixture requirement overridden to the new `landed` class |
-| H70-autorecord-pad-crew | nightly | The same ten cells over the 86-part PRELAUNCH Kerbal X carrying Valentina, Bob and Bill - the host H61's own header names as the one that would buy its CREW skip. Buys `EvaTwiceFromSameCapsuleProducesTwoBranches`, which nothing has ever executed: the background-parent EVA branch gate (EVA one kerbal, let KSP park the capsule's recording into the tree BackgroundMap, walk that kerbal 12 m clear, switch back, EVA a second and assert `path=background-parent` with no dropped recorder data). Ordinary path executes 0 of 10 | AUTHORED 2026-09-07, NEVER FLOWN. Interim pin; predicted 5 execute / 5 skip - the same COUNT as H61 with a different MEMBERSHIP, which is why the cell token is pinned rather than left to `passed=`. A SIBLING, NOT A REPLACEMENT, exactly as H61 predicted: the host's three LAUNCH CLAMPS carry `RealSpawnControl_WarpToRecordingEnd_OnPad_*`'s own skip, so the swap trades one cell for another. The launch cell is unaffected - `WaitForLaunchAutoRecordStart` releases the clamps before it waits, and a craft that then fails to lift off classifies to a Skip. No fixture-requirement override: this host satisfies `staging` as it stands |
+| H68-autorecord-orbiting | nightly | H61's ten `AutoRecord` cells over the 41-part ORBITING crewed Kerbal X at ~100 km LKO. BUYS the ORBITING positive post-switch cell (arm the watch by reflection, ignite a real `ModuleEngines` - 2 aboard, 9 `ModuleRCS` as the fallback branch - and assert exactly one post-switch auto-start line WITH NO SITUATION CHANGE) plus the first orbital EVA auto-record any unattended lane has driven. Ordinary path executes 0 of 10 | LIVE-PROVEN 2026-09-07, run `2026-09-07_1618`, PASS attempt 1, wall 74 s, every verifier PASS or SKIPPED. `BATCH_COMPLETE v1 total=10 passed=3 failed=0 skipped=7 category=AutoRecord scene=FLIGHT`, pinned whole; `skipped=7` in `MEASURED_SKIPPED`. EXECUTED: the orbital post-switch cell (`mode=engine situation=ORBITING autoStartCount=1` - the D1 `auto-record-first-mod-switch` claim, measured), the orbital EVA auto-record, and the post-switch no-op. **TWO PREDICTIONS REFUTED**, which is what they were written for: (1) `EvaKerbalGhostHasVesselSnapshot` was predicted to FAIL - its guard was WIDENED in `Source/` in the same wave, so it is now a measured skip naming `requires a crewed vessel FLYING inside an atmosphere, got ORBITING`; (2) `EvaTwiceFromSameCapsuleProducesTwoBranches` was predicted to execute and instead skipped on `capsule hatch still obstructed after moving the first EVA kerbal clear` - in microgravity the first kerbal does not fall away from the hatch, so H70 owns that cell. The other five skips are situation properties. First flight `_1609` red on the `onFlightReady` runner race (see above). Fixture requirement overridden to `orbiting` |
+| H69-autorecord-landed | nightly | The same ten cells over `rover-route-recorded`, a 17-part UNCREWED LANDED rover on the Runway. BUYS the LANDED positive post-switch cell (nudge the rover a metre with `Vessel.SetPosition`, assert exactly one post-switch auto-start line with the vessel STILL LANDED) and runs both #526 transient canaries from LANDED rather than PRELAUNCH - including the Real Spawn Control one, which H70 structurally cannot run. Ordinary path executes 0 of 10 | LIVE-PROVEN 2026-09-07, run `2026-09-07_1619`, PASS attempt 1, wall 99 s, every verifier PASS or SKIPPED. `total=10 passed=4 failed=0 skipped=6` - THE PREDICTED LINE EXACTLY, every prediction confirmed cell for cell and string for string; pinned whole, `skipped=6` in `MEASURED_SKIPPED`. EXECUTED: the landed post-switch cell (`vessel='B' situation=LANDED autoStartCount=1` - the D1 claim on a surface host), the post-switch no-op, and both #526 canaries. The gear-toggle cell skipped ANYWAY on the missing `ModuleWheelDeployment`, printing that exact string rather than a situation one (see the finding above) - a LANDED host is necessary, not sufficient. Every EVA and launch cell skipped: the rover is uncrewed and carries no `ModuleEngines`. Driver is H61's plus RVR-1's KILL TRIPLE (`StopRecording` / `DiscardTree` / `autoRecordOnLaunch=false`), load-bearing because this recorded host resumes a promotion-stub recording ~1 s into the scene and SIX of the ten cells skip on `flight.IsRecording`. Recordings count pinned EXACTLY at the staged 5 and met. First flight `_1611` red on the `onFlightReady` runner race, where the gear-toggle cell FAILED at the arm wait instead of reaching its helper. Fixture requirement overridden to the new `landed` class |
+| H70-autorecord-pad-crew | nightly | The same ten cells over the 86-part PRELAUNCH Kerbal X carrying Valentina, Bob and Bill - the host H61's own header names as the one that would buy its CREW skip. Buys `EvaTwiceFromSameCapsuleProducesTwoBranches`, which nothing has ever executed: the background-parent EVA branch gate (EVA one kerbal, let KSP park the capsule's recording into the tree BackgroundMap, walk that kerbal 12 m clear, switch back, EVA a second and assert `path=background-parent` with no dropped recorder data). Ordinary path executes 0 of 10 | LIVE-PROVEN 2026-09-07, run `2026-09-07_1621`, PASS attempt 1, wall 91 s, every verifier PASS or SKIPPED. `total=10 passed=5 failed=0 skipped=5` - the predicted line exactly, the same COUNT as H61 with a different MEMBERSHIP (which is why the cell token was pinned rather than left to `passed=`); pinned whole, `skipped=5` in `MEASURED_SKIPPED`. **THE TWO-EVA CELL EXECUTED AND PASSED for the first time anywhere**: `source='Kerbal X' first='Valentina Kerman' second='Bob Kerman' evaBranches=2`, none of its six escape hatches fired - and H68 measured the same cell SKIPPING in orbit, so this is the only committed host that can run it. Also passed: launch, EVA-from-pad, the post-switch no-op and the FF canary. A SIBLING, NOT A REPLACEMENT, exactly as H61 predicted: the host's three LAUNCH CLAMPS carry `RealSpawnControl_WarpToRecordingEnd_OnPad_*`'s own skip, and the census printed the CLAMP string rather than a situation one. The launch cell was unaffected - it passed in 1.5 s, so the 86-part stack lifted off after `WaitForLaunchAutoRecordStart` released the clamps. Flew twice (`_1612` and `_1621`) and read the IDENTICAL line on the pre-fix and fixed DLL, because a pad host wins the `onFlightReady` restore race that red H68 and H69; the pin cites the fixed-DLL flight. No fixture-requirement override: this host satisfies `staging` as it stands |
 
 TIER: all three `nightly`, beside H61 and the rest of the isolated family. Budgets are
 1400 s each, which clears the 1320 s deferred worst case (660 LoadGame + 660 RunTests,
@@ -3067,6 +3137,11 @@ H56 took 140 s for a SIX-cell batch on the recorded rover where every restore ca
 five-recording corpus. The 86-part H70 and the corpus-carrying H69 are the two to watch;
 both project well inside the 540 s `RunTests` cap, and if a census ever times out INSIDE
 the batch the fix is to split the category by situation, not to raise a schema ceiling.
+MEASURED: 74 s (H68, 41 parts), 99 s (H69, 17 parts on the recorded corpus) and 91 s (H70,
+86 parts), against H61's 80 s on 15 parts. Part count is plainly NOT what drives the wall
+here - the 86-part host came in under the 17-part recorded one, because a self-skipping
+cell costs microseconds and a five-recording corpus costs every restore. All three are far
+inside the projections above, which are kept because they are what sizes the next host.
 
 ### In-game MULTI-CATEGORY batch wiring, the long tail: LT-1 + LT-2, both LIVE-PROVEN (2)
 

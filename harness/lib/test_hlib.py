@@ -4468,7 +4468,10 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # `gloops-airshow` (the bare capsule) for the two that only need a real vessel
         # to exist, and `gs2-orbital-stack` for the one that needs an ORBITING host.
         "H61-autorecord-isolated": ("AutoRecord", 10),
-        # THREE MORE `AutoRecord` HOSTS, authored 2026-09-07 and never flown. They are the
+        # THREE MORE `AutoRecord` HOSTS, authored 2026-09-07 and LIVE-PROVEN the same
+        # day (H68 `2026-09-07_1618` 10/3/0/7, H69 `_1619` 10/4/0/6, H70 `_1621`
+        # 10/5/0/5, each PASS on attempt 1; all three pinned whole with their run-time
+        # skips in `MEASURED_SKIPPED`). They are the
         # follow-up lanes H61's own census asked for BY NAME: its five run-time skips are
         # four SITUATION properties and one CREW property of `gs1-two-stage-pad`, all
         # declared in `MEASURED_SKIPPED` below, and closing them is a HOST requirement
@@ -4481,10 +4484,19 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         #                                 RECORDED host, so it is the family's second
         #                                 member after RVR-1 / H56 whose count pin is
         #                                 non-zero.
-        #   H70 `eva3-pad-3crew`        - the CREW half (the two-EVA branch cell).
-        # ALL THREE ARE INTERIM (see INTERIM_PIN_IDS) and NONE is partly batch-disabled:
-        # `AutoRecord` is wholly `AllowBatchExecution = false`, so the ordinary path's
-        # executable ceiling stays zero for every host.
+        #   H70 `eva3-pad-3crew`        - the CREW half (the two-EVA branch cell), and the
+        #                                 only host that can run it: H68 measured the same
+        #                                 cell SKIPPING in orbit, where the first kerbal
+        #                                 floats in front of the hatch.
+        # WHAT THE FOUR MEASURED TOGETHER: 8 of `AutoRecord`'s 10 cells now execute
+        # somewhere. The two that execute nowhere are `EvaKerbalGhostHasVesselSnapshot`
+        # (needs a crewed vessel FLYING inside an atmosphere) and
+        # `AutoRecordOnPostSwitch_GearToggle_*` (needs a LANDED craft carrying
+        # `ModuleWheels.ModuleWheelDeployment`); both are HARVEST requirements, and H69
+        # proved the second is not a situation problem.
+        # NONE is partly batch-disabled: `AutoRecord` is wholly
+        # `AllowBatchExecution = false`, so the ordinary path's executable ceiling stays
+        # zero for every host.
         "H68-autorecord-orbiting": ("AutoRecord", 10),
         "H69-autorecord-landed": ("AutoRecord", 10),
         "H70-autorecord-pad-crew": ("AutoRecord", 10),
@@ -4971,11 +4983,37 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     # spec's pin is replaced whole, a MEASURED_SKIPPED entry is added if the run-time
     # guards push `skipped` above the attribute floor of 0, and the id LEAVES this set in
     # the same commit.
-    INTERIM_PIN_IDS: set = {
-        "H68-autorecord-orbiting",
-        "H69-autorecord-landed",
-        "H70-autorecord-pad-crew",
-    }
+    #
+    # EMPTY AGAIN 2026-09-07 - ALL THREE DISCHARGED THE DAY AFTER THEY WERE AUTHORED,
+    # each pinning its measured tally whole with its run-time skips declared below:
+    #   H68 `2026-09-07_1618`, wall 74 s - total=10 passed=3 failed=0 skipped=7
+    #   H69 `2026-09-07_1619`, wall 99 s - total=10 passed=4 failed=0 skipped=6
+    #   H70 `2026-09-07_1621`, wall 91 s - total=10 passed=5 failed=0 skipped=5
+    # each PASS on attempt 1 with every verifier PASS or SKIPPED.
+    #
+    # IT TOOK TWO FLIGHTS EACH, AND THE FIRST ROUND FOUND A RUNNER DEFECT RATHER THAN A
+    # PRODUCT ONE - the thing this wave leaves behind that is worth more than its
+    # tallies. Flights `_1609` (H68) and `_1611` (H69) red with every post-switch cell
+    # timing out on `WaitForPostSwitchBaselineCapture timed out after 3s (armed=False,
+    # baselineCaptured=False, readyAt=NaN, ...)`: the isolated batch's per-cell baseline
+    # restore handed the next cell control about 160 ms after the reload's level-load,
+    # while KSP's `GameEvents.onFlightReady` for the RELOADED scene fired about 130 ms
+    # INTO that cell, and `ParsekFlight`'s handler for it resets the post-switch watch
+    # (`Post-switch auto-record disarmed: ... reason=flight ready reset`), wiping the arm
+    # the cell had just made. THE PAD HOSTS WON THAT RACE EVERY TIME - H61 on 2026-09-06
+    # and H70 on both of its flights, which is why its two censuses read the identical
+    # line - so the defect survived a green census and became observable only when the
+    # same category flew on a second and third host. Fixed in `Source/`
+    # (`ParsekFlight.FlightReadyObserved`, plus `QuickloadResumeHelpers`'
+    # `IsReloadedFlightReady` / `WaitForFlightReady` requiring it, so no cell starts
+    # before the new flight instance has seen the event); filed as
+    # `ISOLATED-RESTORE-HANDS-OFF-BEFORE-ONFLIGHTREADY`. Every pin below cites the SECOND
+    # flight, on the fixed DLL.
+    #
+    # THE HEADER PREDICTIONS: H69 and H70 held cell for cell and string for string; H68
+    # was REFUTED TWICE, which is what writing a prediction down is for. Both refutations
+    # are recorded in its MEASURED_SKIPPED entry below and in the spec's own header.
+    INTERIM_PIN_IDS: set = set()
 
     # id -> measured `skipped=` for members whose RUN-TIME InGameAssert.Skip guards
     # push the split above the attribute-derived floor. The attributes give a FLOOR
@@ -5104,6 +5142,109 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # every one of the five is a property of `gs1-two-stage-pad`, so a host swap
         # moves this number.
         "H61-autorecord-isolated": 5,
+        # H68 (`gs2-orbital-stack`): 0 attribute-forced + 7 run-time. MEASURED off its
+        # census `2026-09-07_1618` (PASS attempt 1, wall 74 s, every verifier PASS or
+        # SKIPPED), which read `BATCH_COMPLETE v1 total=10 passed=3 failed=0 skipped=7
+        # category=AutoRecord scene=FLIGHT`. The attribute floor is 0 for every AutoRecord
+        # host: all ten declarations are FLIGHT-scoped and the isolated filter admits every
+        # one, so all seven are run-time `InGameAssert.Skip` guards.
+        #
+        # THE SEVEN, named because the run's own `SKIPPED:` lines name them (this lane pins
+        # `verboseLogging = true` for exactly that reason; a count is never inferred into a
+        # name here). FIVE were predicted by the spec header and TWO REFUTE it:
+        #   * `RealSpawnControl_WarpToRecordingEnd_OnPad_*` - "requires a landed/prelaunch
+        #     vessel for the Real Spawn Control pad transient canary (situation=ORBITING)"
+        #   * `TimelineFastForward_OnPad_*` - "requires a landed/prelaunch vessel for the
+        #     FF pad transient canary (situation=ORBITING)"
+        #   * `AutoRecordOnLaunch_StartsExactlyOnce` - "requires a PRELAUNCH active vessel,
+        #     got ORBITING"
+        #   * `AutoRecordOnPostSwitch_GearToggle_StartsExactlyOnce` - "requires a LANDED
+        #     active vessel for the post-switch gear-toggle canary, got ORBITING"
+        #   * `AutoRecordOnPostSwitch_LandedMotion_StartsExactlyOnce` - "requires a LANDED
+        #     active vessel for the post-switch landed-motion canary, got ORBITING"
+        #   * REFUTATION 1 - `EvaKerbalGhostHasVesselSnapshot` - "requires a crewed vessel
+        #     FLYING inside an atmosphere, got ORBITING: the cell waits for the EVA kerbal
+        #     to settle on a surface, which an orbital EVA never does". The header
+        #     predicted a **FAIL** here (the old guard skipped only PRELAUNCH / LANDED /
+        #     SPLASHED, admitting ORBITING by omission, while the body waits on
+        #     `WaitForActiveEvaSurfaceSettled` and asserts `TerminalState.Landed`) and
+        #     called it a TEST-GUARD finding whose fix was to WIDEN THE GUARD. The guard
+        #     was widened in `Source/` in the same wave, so the predicted FAIL is a
+        #     MEASURED SKIP. The cell's residue is unchanged: it still needs a crewed
+        #     vessel FLYING inside an atmosphere, which no committed fixture is.
+        #   * REFUTATION 2 - `EvaTwiceFromSameCapsuleProducesTwoBranches` - "capsule hatch
+        #     still obstructed after moving the first EVA kerbal clear; spawnEVA would
+        #     refuse the second EVA, so the background-parent path is unreachable". The
+        #     header predicted this cell would EXECUTE in orbit (2 crew aboard) and named
+        #     the walk-clear step as the one with no committed precedent. It has none
+        #     because it does not work there: in microgravity the first kerbal floats where
+        #     `MoveVesselClearOfAnchor` put it instead of falling away. As the header also
+        #     said, every exit in that cell is a Skip rather than a Fail, so the refutation
+        #     cost a skip and not a red. H70 measured the same cell PASSING on the pad.
+        # Re-measure rather than re-guess: five are situation properties of
+        # `gs2-orbital-stack`, one is a guard property and one is physics.
+        "H68-autorecord-orbiting": 7,
+        # H69 (`rover-route-recorded`): 0 attribute-forced + 6 run-time. MEASURED off its
+        # census `2026-09-07_1619` (PASS attempt 1, wall 99 s, every verifier PASS or
+        # SKIPPED), which read `BATCH_COMPLETE v1 total=10 passed=4 failed=0 skipped=6
+        # category=AutoRecord scene=FLIGHT` - the spec header's predicted line exactly.
+        #
+        # THE SIX, from the run's own `SKIPPED:` lines, and every one predicted:
+        #   * `AutoRecordOnEvaFromPad_StartsExactlyOnce` - "active vessel 'B' has no crewed
+        #     part with an airlock" (the rover is uncrewed)
+        #   * `AutoRecordOnLaunch_StartsExactlyOnce` - "requires a PRELAUNCH active vessel,
+        #     got LANDED"
+        #   * `AutoRecordOnPostSwitch_GearToggle_StartsExactlyOnce` - "active landed vessel
+        #     has no deployable landing-gear module the canary can toggle". THE FINDING
+        #     THIS LANE WAS AUTHORED TO MEASURE, in the exact string its header predicted:
+        #     the cell PASSES the LANDED situation guard and skips ONE GUARD LATER inside
+        #     `TryToggleLandingGear`, which walks for `ModuleWheels.ModuleWheelDeployment`
+        #     and finds only rolling rover-wheel modules. A LANDED host is NECESSARY but
+        #     NOT SUFFICIENT, and closing the cell is a HARVEST requirement for a landed
+        #     craft with retractable gear or legs. (On the PRE-FIX flight `_1611` this cell
+        #     FAILED at the post-switch arm wait instead, so the finding was observable
+        #     only once the `onFlightReady` race was closed.)
+        #   * `AutoRecordOnPostSwitch_OrbitalEngineOrRcs_StartsExactlyOnce` - "requires an
+        #     ORBITING active vessel for the post-switch orbital canary, got LANDED"
+        #   * `EvaKerbalGhostHasVesselSnapshot` - "requires a mid-flight crewed vessel -
+        #     EVA from LANDED auto-seals the kerbal recording as Landed before the live
+        #     recorder can rebind to the kerbal"
+        #   * `EvaTwiceFromSameCapsuleProducesTwoBranches` - "requires at least two crew in
+        #     the active vessel, got 0"
+        # Re-measure rather than re-guess: five are host properties (situation x2, crew x2,
+        # no deployable gear) and the sixth is the missing airlock; none is a product claim.
+        "H69-autorecord-landed": 6,
+        # H70 (`eva3-pad-3crew`): 0 attribute-forced + 5 run-time. MEASURED off its census
+        # `2026-09-07_1621` (PASS attempt 1, wall 91 s, every verifier PASS or SKIPPED),
+        # which read `BATCH_COMPLETE v1 total=10 passed=5 failed=0 skipped=5
+        # category=AutoRecord scene=FLIGHT` - the header's predicted line exactly, and the
+        # SAME COUNT as H61 with a DIFFERENT MEMBERSHIP, which is the lane's whole point.
+        # Flight `2026-09-07_1612` on the pre-fix DLL read the identical line, because a
+        # PRELAUNCH host wins the restore race that red H68 and H69.
+        #
+        # THE FIVE, from the run's own `SKIPPED:` lines, and every one predicted:
+        #   * `RealSpawnControl_WarpToRecordingEnd_OnPad_*` - "active pad vessel has launch
+        #     clamps holding it on the pad; it never produces a launch situation transition
+        #     during the warp, so the time-jump transient suppression path cannot be
+        #     exercised on this craft". THE CLAMP STRING rather than a situation string,
+        #     which is the distinction the header asked the census to draw: this is the
+        #     price of the host swap H61's header predicted, and H69 runs that cell on its
+        #     unclamped landed host.
+        #   * `AutoRecordOnPostSwitch_GearToggle_StartsExactlyOnce` - "requires a LANDED
+        #     active vessel ... got PRELAUNCH"
+        #   * `AutoRecordOnPostSwitch_LandedMotion_StartsExactlyOnce` - the same, got
+        #     PRELAUNCH (H69 measured it PASSING)
+        #   * `AutoRecordOnPostSwitch_OrbitalEngineOrRcs_StartsExactlyOnce` - "requires an
+        #     ORBITING active vessel ... got PRELAUNCH" (H68 measured it PASSING)
+        #   * `EvaKerbalGhostHasVesselSnapshot` - "requires a mid-flight crewed vessel -
+        #     EVA from PRELAUNCH auto-seals the kerbal recording as Landed before the live
+        #     recorder can rebind to the kerbal"
+        # WHAT IT BOUGHT, which no tally states: `EvaTwiceFromSameCapsuleProducesTwoBranches`
+        # EXECUTED AND PASSED for the first time anywhere (`evaBranches=2`, none of its six
+        # escape hatches fired), so 8 of AutoRecord's 10 cells now execute somewhere across
+        # H61 / H68 / H69 / H70. Re-measure rather than re-guess: four of the five skips are
+        # situation properties of `eva3-pad-3crew` and the fifth is its launch clamps.
+        "H70-autorecord-pad-crew": 5,
     }
 
     @classmethod

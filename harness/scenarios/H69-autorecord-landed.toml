@@ -2,8 +2,33 @@ schema = 1
 id = "H69-autorecord-landed"
 tier = "nightly"
 # =====================================================================================
-# THE SAME TEN `AutoRecord` CELLS AS H61, ON A LANDED HOST. AUTHORED 2026-09-07,
-# NEVER FLOWN.
+# THE SAME TEN `AutoRecord` CELLS AS H61, ON A LANDED HOST. LIVE-PROVEN 2026-09-07,
+# run `2026-09-07_1619` (PASS attempt 1, wall 99 s, every verifier PASS or SKIPPED),
+# measuring `BATCH_COMPLETE v1 total=10 passed=4 failed=0 skipped=6 category=AutoRecord
+# scene=FLIGHT` - the predicted line EXACTLY, and EVERY PREDICTION IN THIS HEADER HELD,
+# cell for cell and string for string. The one that mattered is the gear-toggle cell: it
+# skipped where this header said it would, ONE GUARD LATER than H61's situation refusal,
+# on `active landed vessel has no deployable landing-gear module the canary can toggle`.
+#
+# IT TOOK TWO FLIGHTS, AND THE FIRST FOUND A RUNNER DEFECT RATHER THAN A PRODUCT ONE.
+# Flight 1 (`2026-09-07_1611`) read `total=10 passed=2 failed=3 skipped=5`, with all
+# THREE post-switch cells dying on `WaitForPostSwitchBaselineCapture timed out after 3s
+# (armed=False, baselineCaptured=False, readyAt=NaN, isRecording=False,
+# activeVessel='B')`. The isolated batch's per-cell baseline restore handed the next cell
+# control about 160 ms after the reload's level-load, while KSP's
+# `GameEvents.onFlightReady` for the RELOADED scene fired about 130 ms INTO that cell -
+# and `ParsekFlight`'s handler for that event resets the post-switch watch
+# (`Post-switch auto-record disarmed: ... reason=flight ready reset`), wiping the arm the
+# cell had just made. The PAD hosts (H61, H70) happened to win that race; this LANDED
+# host and the ORBITING H68 lost it every time, which is why the defect survived H61's
+# green census and surfaced only when the host set widened. FIXED in `Source/`:
+# `ParsekFlight.FlightReadyObserved` is set when the event fires, and
+# `QuickloadResumeHelpers.IsReloadedFlightReady` / `WaitForFlightReady` now require it
+# too, so no cell starts before the new flight instance has seen `onFlightReady`. Filed
+# as `ISOLATED-RESTORE-HANDS-OFF-BEFORE-ONFLIGHTREADY`. The pin below is FLIGHT 2, on the
+# fixed DLL. NOTE what flight 1 also shows: on the broken build the gear-toggle cell
+# FAILED at the arm wait rather than reaching `TryToggleLandingGear`, so the finding this
+# lane was authored to record was only observable once the race was closed.
 #
 # H61 flies this category over `gs1-two-stage-pad` and went green on 2026-09-06
 # (`2026-09-06_2010`, `total=10 passed=5 failed=0 skipped=5`). Its census MEASURED its own
@@ -31,9 +56,15 @@ tier = "nightly"
 #   `Vessel.SetPosition` and asserts EXACTLY ONE `Auto-record started (post-switch ...)`
 #   line while the vessel stays LANDED.
 #
+# CONFIRMED BY THE CENSUS (`2026-09-07_1619`): the cell PASSED and wrote `Post-switch
+# landed-motion auto-record: vessel='B' situation=LANDED autoStartCount=1`, so D1
+# `auto-record-first-mod-switch` is claimed off a measured line rather than off this
+# paragraph.
+#
 # DOES NOT BUY, AND THIS IS A FINDING THE AUTHORING PASS PRODUCED RATHER THAN A
-# CONVENIENCE: `AutoRecordOnPostSwitch_GearToggle_StartsExactlyOnce` is PREDICTED TO SKIP
-# HERE ANYWAY, one guard later than it did on H61. Its situation guard (LANDED) is
+# CONVENIENCE - NOW MEASURED RATHER THAN PREDICTED:
+# `AutoRecordOnPostSwitch_GearToggle_StartsExactlyOnce` SKIPPED HERE ANYWAY, one guard
+# later than it did on H61. Its situation guard (LANDED) is
 # satisfied; its helper `TryToggleLandingGear` then walks the active vessel for a part
 # carrying `ModuleWheels.ModuleWheelDeployment` and skips with "active landed vessel has
 # no deployable landing-gear module the canary can toggle" when it finds none. THE
@@ -41,6 +72,10 @@ tier = "nightly"
 # `ModuleWheelBrakes`, `ModuleWheelDamage`, `ModuleWheelMotor`, `ModuleWheelSteering` and
 # `ModuleWheelSuspension` - ROVER wheels, which roll but do not DEPLOY. `Deployment` is
 # the landing-gear / landing-leg module and no part on this rover carries it.
+# THE CENSUS PRINTED THAT EXACT STRING - `active landed vessel has no deployable
+# landing-gear module the canary can toggle`, not a situation string - which is the
+# difference this lane was authored to measure: "this host is the wrong situation" (H61's
+# reading) versus "this host is the right situation and still lacks the part".
 # So "a LANDED host" is NECESSARY but not SUFFICIENT for that cell, and closing it needs a
 # landed craft with retractable GEAR or LEGS - which no committed fixture has. That is a
 # HARVEST requirement, recorded here and in the status row rather than discovered on the
@@ -62,7 +97,7 @@ tier = "nightly"
 # clamped craft never produces the launch situation transition whose suppression it
 # asserts. So the two pad-crew and landed lanes are complements rather than duplicates.
 # =====================================================================================
-description = "AUTHORED 2026-09-07, NEVER FLOWN. H61's ten AutoRecord cells over rover-route-recorded, whose active vessel `B` is a 17-part UNCREWED LANDED rover on the Runway - the LANDED host H61's census named twice in its own skip roster. THE HEADLINE IS D1 auto-record-first-mod-switch on a surface host: AutoRecordOnPostSwitch_LandedMotion_StartsExactlyOnce arms the post-switch watch by reflection, asserts the recorder stays idle through the baseline and comparison waits, nudges the rover a metre with Vessel.SetPosition and asserts EXACTLY ONE post-switch auto-start line with the vessel still LANDED. THE AUTHORING PASS ALSO PRODUCED A FINDING, recorded rather than flown into: the SECOND landed cell, AutoRecordOnPostSwitch_GearToggle_*, is predicted to skip here anyway, one guard later - TryToggleLandingGear needs a part carrying ModuleWheels.ModuleWheelDeployment, and this rover's committed modules are ModuleWheelBase / Brakes / Damage / Motor / Steering / Suspension, i.e. rover wheels that roll but do not deploy. A LANDED host is necessary but not sufficient for that cell; closing it is a HARVEST requirement for a landed craft with retractable gear or legs, which no committed fixture carries. The lane also runs both #526 transient canaries from LANDED rather than PRELAUNCH (their guard is PRELAUNCH-or-landed/splashed) and, unlike H70, runs the Real Spawn Control one at all - this host has no launch clamps. Every EVA and launch cell skips: the rover is UNCREWED (0 crew in parts) and carries no ModuleEngines. PREDICTED 4 EXECUTE / 6 SKIP, written to be refuted. The driver is H61's plus RVR-1's kill triple, which is load-bearing on a recorded host: this save carries two committed trees and the committed-tree restore path resumes a promotion-stub recording about 1 s into the scene, before any step can run, and six of the ten cells skip on `flight.IsRecording`. total=10 is attribute-exact, failed=0 is a literal, passed=/skipped= are a regex class until the first census, and the recordings count is pinned EXACTLY at the staged 5 - the anti-data-loss floor and the campaign-isolation ceiling in one row."
+description = "LIVE-PROVEN 2026-09-07, run 2026-09-07_1619 (PASS attempt 1, wall 99 s), total=10 passed=4 failed=0 skipped=6 - the predicted line exactly, with every prediction in the header confirmed cell for cell and string for string. H61's ten AutoRecord cells over rover-route-recorded, whose active vessel `B` is a 17-part UNCREWED LANDED rover on the Runway - the LANDED host H61's census named twice in its own skip roster. THE HEADLINE IS D1 auto-record-first-mod-switch on a surface host, and it is now measured: AutoRecordOnPostSwitch_LandedMotion_StartsExactlyOnce armed the post-switch watch by reflection, held the recorder idle through the baseline and comparison waits, nudged the rover a metre with Vessel.SetPosition and asserted EXACTLY ONE post-switch auto-start line with the vessel still LANDED (`situation=LANDED autoStartCount=1`). THE AUTHORING PASS ALSO PRODUCED A FINDING, recorded rather than flown into and then CONFIRMED VERBATIM: the SECOND landed cell, AutoRecordOnPostSwitch_GearToggle_*, skipped here anyway, one guard later - TryToggleLandingGear needs a part carrying ModuleWheels.ModuleWheelDeployment, and this rover's committed modules are ModuleWheelBase / Brakes / Damage / Motor / Steering / Suspension, i.e. rover wheels that roll but do not deploy. The census printed that exact string rather than a situation string. A LANDED host is necessary but not sufficient for that cell; closing it is a HARVEST requirement for a landed craft with retractable gear or legs, which no committed fixture carries. The lane also ran both #526 transient canaries from LANDED rather than PRELAUNCH (their guard is PRELAUNCH-or-landed/splashed) and, unlike H70, ran the Real Spawn Control one at all - this host has no launch clamps. Every EVA and launch cell skipped: the rover is UNCREWED (0 crew in parts) and carries no ModuleEngines. The first flight (2026-09-07_1611) red on a RUNNER defect this host exposed and the pad hosts hid - the isolated restore handed a cell control before KSP's onFlightReady for the reloaded scene, whose handler resets the post-switch watch - filed as ISOLATED-RESTORE-HANDS-OFF-BEFORE-ONFLIGHTREADY and fixed before flight 2. The driver is H61's plus RVR-1's kill triple, load-bearing on a recorded host: this save carries two committed trees and the committed-tree restore path resumes a promotion-stub recording about 1 s into the scene, before any step can run, and six of the ten cells skip on `flight.IsRecording`. The recordings count is pinned EXACTLY at the staged 5 - the anti-data-loss floor and the campaign-isolation ceiling in one row."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "isolated-batch", "auto-record", "landed", "recorded-fixture",
         "R6", "H69"]
@@ -219,7 +254,8 @@ allowedAnomalies = []
 # synthetic keep-vessel trees); if any of it leaks into the produced save, the per-test
 # baseline restore did not hold - which is the property the isolated path rests on.
 #
-# WHY 5 EXACTLY AND NOT A WINDOW, even though this lane has never flown: RVR-1 MEASURED
+# WHY 5 EXACTLY AND NOT A WINDOW, decided BEFORE this lane had flown and CONFIRMED by its
+# census (`2026-09-07_1619` met the row): RVR-1 MEASURED
 # `recordings.count = 5` on these bytes on both of its flights (`2026-09-01_2008` and
 # `2026-09-01_2043`) and H56 pinned and then flew the same 5 - i.e. the staged set exactly,
 # with NO load-time optimizer split. The split is a property of the BYTES, not of which
@@ -231,11 +267,17 @@ allowedAnomalies = []
 count = { min = 5, max = 5 }
 
 [expectations.logContracts]
-# EVIDENCE STANDING: AUTHORED, INTERIM, NEVER FLOWN. `total=` is attribute-derived and
-# source-synced; the `passed=` / `skipped=` split is a REGEX CLASS until the first census
-# measures it, and the id is declared in `IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS`
-# to carry that obligation. `failed=0` is a LITERAL: a reading run may legitimately
-# discover a SKIP, but a cell that FAILS is a finding either way.
+# EVIDENCE STANDING: MEASURED ONCE ON THE FIXED DLL, run `2026-09-07_1619` (PASS on
+# attempt 1, 99 s wall, every verifier PASS or SKIPPED), whose collected KSP.log carries
+# `BATCH_COMPLETE v1 total=10 passed=4 failed=0 skipped=6 category=AutoRecord
+# scene=FLIGHT` and `Using batch baseline slot ... for 10 restore-after-run test(s)`.
+# `total=10` is ATTRIBUTE-EXACT and source-synced; `failed=0` is the ASSERTION, and it is
+# what red'd flight 1 (`passed=2 failed=3 skipped=5` on the pre-fix DLL) rather than
+# letting a runner race read as a smaller census; `passed=4` and `skipped=6` are MEASURED
+# LITERALS, and because the attribute floor for skipped is 0 the 6 is declared in
+# `IsolatedBatchWiringGroupTests.MEASURED_SKIPPED` with its per-cell derivation. The id
+# has LEFT `INTERIM_PIN_IDS` in the same commit. Re-measure rather than re-guess: five of
+# the six skips are properties of `rover-route-recorded` and the sixth is a guard.
 #
 # DERIVED, NOT GUESSED. The commands, so the next reader re-runs them rather than
 # trusting this block:
@@ -248,10 +290,11 @@ count = { min = 5, max = 5 }
 #  - `total=10` is ATTRIBUTE-EXACT and shared with H61 / H68 / H70, so an eleventh
 #    `AutoRecord` declaration moves all four in the same commit
 #    (`CommittedBatchTallySourceSyncTests`).
-#  - THE INTERIM `passed=` SPELLING IS THE PLAIN `[1-9][0-9]*`, and that is CORRECT here
-#    rather than lazy: `AutoRecord` is WHOLLY batch-disabled, so the ORDINARY path's
+#  - THE INTERIM `passed=` SPELLING IT REPLACES was the plain `[1-9][0-9]*`, sufficient
+#    while it stood: `AutoRecord` is WHOLLY batch-disabled, so the ORDINARY path's
 #    executable ceiling is ZERO and the only line it could print is `passed=0`, which both
-#    this spelling and the anti-vacuity gate reject.
+#    that spelling and the anti-vacuity gate reject. The whole pin is strictly stronger -
+#    it also rejects any drift in the measured split.
 #  - scene=FLIGHT is this fixture's Focusable route, MEASURED by RVR-1 / RVR-2 / RVR-3 /
 #    H56 on this exact template.
 #
@@ -307,6 +350,38 @@ count = { min = 5, max = 5 }
 # are HOST properties (situation x2, crew x2, no deployable gear); none is a product claim.
 #
 # -------------------------------------------------------------------------------------
+# THE CENSUS CONFIRMED IT CELL FOR CELL, run `2026-09-07_1619`:
+# `total=10 passed=4 failed=0 skipped=6`, the predicted line exactly. All four predicted
+# executions PASSED - `RealSpawnControl_WarpToRecordingEnd_OnPad_*` (258 ms),
+# `TimelineFastForward_OnPad_*` (187 ms), `AutoRecordOnPostSwitch_LandedMotion_*` (6.1 s,
+# writing `Post-switch landed-motion auto-record: vessel='B' situation=LANDED
+# autoStartCount=1`) and `AutoRecordOnPostSwitch_NoOp_DoesNotStart` (6.5 s) - and the six
+# `SKIPPED:` lines name the six predicted cells on the six predicted reasons, verbatim
+# (`verboseLogging = true` is what makes this roster exist):
+#   * `AutoRecordOnEvaFromPad_StartsExactlyOnce - active vessel 'B' has no crewed part
+#     with an airlock`
+#   * `AutoRecordOnLaunch_StartsExactlyOnce - requires a PRELAUNCH active vessel, got
+#     LANDED`
+#   * `AutoRecordOnPostSwitch_GearToggle_StartsExactlyOnce - active landed vessel has no
+#     deployable landing-gear module the canary can toggle` - THE FINDING, in the exact
+#     words this header predicted. Not a situation string: the host is the RIGHT
+#     situation and still lacks the part, so closing that cell is a HARVEST requirement.
+#   * `AutoRecordOnPostSwitch_OrbitalEngineOrRcs_StartsExactlyOnce - requires an ORBITING
+#     active vessel for the post-switch orbital canary, got LANDED` (H68's subject, and
+#     H68 measured it PASSING)
+#   * `EvaKerbalGhostHasVesselSnapshot - requires a mid-flight crewed vessel - EVA from
+#     LANDED auto-seals the kerbal recording as Landed before the live recorder can
+#     rebind to the kerbal`
+#   * `EvaTwiceFromSameCapsuleProducesTwoBranches - requires at least two crew in the
+#     active vessel, got 0` (H70 measured it PASSING on the pad)
+#
+# WHAT THE CENSUS SETTLES ABOUT THE HOST SET: 8 of `AutoRecord`'s 10 cells now execute
+# somewhere across H61 / H68 / H69 / H70. The two that execute NOWHERE are the two named
+# above as harvest requirements - `AutoRecordOnPostSwitch_GearToggle_*` (a LANDED craft
+# carrying `ModuleWheels.ModuleWheelDeployment`) and `EvaKerbalGhostHasVesselSnapshot` (a
+# crewed vessel FLYING inside an atmosphere, per the widened guard H68's census reads).
+#
+# -------------------------------------------------------------------------------------
 # THE SIX TOKENS, and what each rests on:
 #  - `loadgame complete scene=FLIGHT ...` - the B10 fail-open guard: this fixture's
 #    Focusable route really is FLIGHT, and a lane that booted elsewhere would print a
@@ -322,7 +397,8 @@ count = { min = 5, max = 5 }
 #    calls, so it proves the ISOLATED entry point INDEPENDENTLY of the tally. The literal
 #    10 is DERIVED and must stay a literal: a `[0-9]+` there is satisfied by a batch that
 #    admitted a different population.
-#  - The BATCH_COMPLETE line, interim.
+#  - The BATCH_COMPLETE line, now pinned WHOLE off the census:
+#    `total=10 passed=4 failed=0 skipped=6`.
 #  - THE CELL TOKEN, which is what an interim `passed=` cannot give: an interim class says
 #    how MANY cells passed and nothing about WHICH, and this lane's reason to exist is ONE
 #    named cell. `Post-switch landed-motion auto-record:` is written only after the cell
@@ -339,7 +415,7 @@ required  = [
   "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
   "runtests start category=AutoRecord isolated=true",
   "Using batch baseline slot .* for 10 restore-after-run test\\(s\\)",
-  "BATCH_COMPLETE v1 total=10 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=AutoRecord scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=10 passed=4 failed=0 skipped=6 category=AutoRecord scene=FLIGHT",
   "Post-switch landed-motion auto-record: vessel='.*' situation=LANDED autoStartCount=1",
   "flushandquit: save suppressed \\(batch baseline already restored\\)",
 ]
@@ -354,7 +430,9 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 # that prints no tally. Enforced by
 # `IsolatedBatchWiringGroupTests.test_the_budget_clears_the_deferred_worst_case`.
 #
-# IS 1400 ENOUGH ON A RECORDED HOST? Two measurements bracket it. H61 took 80 s WALL for
+# IS 1400 ENOUGH ON A RECORDED HOST? MEASURED: 99 s WALL on run `2026-09-07_1619`, well
+# inside the bracket the authoring pass projected. The bracket, kept because it is what
+# sizes a future host: H61 took 80 s WALL for
 # this exact ten-cell batch on an EMPTY-corpus pad craft; H56 took 140 s for a SIX-cell
 # batch on THESE bytes, where every quickload restore carries a five-recording corpus, and
 # RVR-1 measured 179 s over 38 restores on the same save. Ten restores with a corpus
