@@ -7,7 +7,8 @@ tooltip resolves its widget rects); H71 drives it here. The two `StockUiOverlay`
 Mission Control cells were the second intended customer (H45 measured them skipping
 for want of an OFFERED contract), but the 2026-09-07 census read them skipping on
 this host too, "rows=9, contractRows=0": the offered rows populate only with the
-Mission Control building UI open, which no seam verb drives. The first multi-category census (LT-2, 2026-09-07) read both
+Mission Control building UI open, which no seam verb drives. The first
+multi-category census (LT-2, 2026-09-07) read both
 `ResourceTopBar` cells skipping on `fresh-sandbox` - "career-only", "no funds/science
 currency widget present" - and no committed career save boots to the Space Center
 WITH contracts on offer: `fresh-career` and `strategy-career` are vessel-less but

@@ -12,7 +12,9 @@ CAREER dev save down to a deterministic clean-slate KSC. Source template: the de
 install `test career` save (KSP 1.12.5), reset per the M-B3 operator checklist in
 `docs/dev/todo-and-known-bugs.md`.
 
-Each fixture is `persistent.sfs` + `persistent.loadmeta` + `AddOns/DistantObject/Settings.cfg`.
+Each fixture is `persistent.sfs` + `persistent.loadmeta` + `AddOns/DistantObject/Settings.cfg`
+(the two derived-by-construction fixtures, `coalescer-pad` and `career-earned-ksc`, carry no
+`AddOns/`; nothing in the harness reads it).
 No craft in flight, no active/offered contracts, no completed milestones, no unlocked
 tech beyond the mode default `start` node, all facilities at level 0, no Parsek footprint
 (no `Parsek/` dir, no `ParsekScenario` SCENARIO node, no `ParsekSettings` custom-param),
@@ -370,7 +372,9 @@ two cells are career-only AND Space-Center-scoped and no committed career booted
 the Space Center (H71 drives them here). The nine Offered contracts were meant to
 reach the two `StockUiOverlay` Mission Control cells as well, but the census read
 them skipping here exactly as on H45 ("rows=9, contractRows=0"): the offered rows
-populate only with the Mission Control building UI open, which no seam verb drives. Drift-gated by
+populate only with the Mission Control building UI open, which no seam verb drives.
+Like `coalescer-pad`, it carries no `AddOns/` directory: the xUnit base has none, and
+nothing in the harness requires it (H71 flew green without it). Drift-gated by
 `harness/lib/test_career_earned_ksc.py` (`--check` byte identity, shape, and the pad
 sibling's ledger extending this one by exactly its accept row).
 

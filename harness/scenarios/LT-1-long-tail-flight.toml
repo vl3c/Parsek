@@ -15,8 +15,8 @@ tier = "nightly"
 # categories, 386 s wall, 92 cells): 54 passed, 1 FAILED, 37 skipped. The one
 # failure was PartEventTiming's deployable cell asserting the pre-S2 snap - test
 # drift in a cell no batch had ever run, re-pinned to the animated contract in the
-# same branch and PASSING 2/2 on its control flight `2026-09-07_0853`. SEVEN of
-# the 38 candidates are NOT constituents here. Five moved to hosts that execute more
+# same branch and PASSING 2/2 on its control flight `2026-09-07_0853`. EIGHT of
+# the 38 candidates are NOT constituents here. Six moved to hosts that execute more
 # of them on the 2026-09-07 second census (CEN-1/3/4, scratch, not committed):
 # `Contracts` and `TestCommands` to LT-3 on the `career-earned-pad` career (both
 # career-only cells execute there; here Contracts executed nothing and TestCommands
@@ -45,7 +45,7 @@ tags = ["ingame-batch", "multi-category", "long-tail", "LT-1"]
 [fixture]
 # gloops-airshow (1-part crewed pod, PRELAUNCH) with the synthetic corpus injected:
 # the store-reading constituents (RecordingStore, TerminalOrbit, RewindSaves,
-# Structure's mission cell, IdentityLoss, Watch) read the 274 committed recordings
+# IdentityLoss, Watch) read the 274 committed recordings
 # rather than passing vacuously over an empty store, which is why this lane carries
 # S1.4 / H14's count pin. Categories that mutate the store (Optimizer) are LT-2's,
 # on an EMPTY store, for exactly the opposite reason.
