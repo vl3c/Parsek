@@ -1100,7 +1100,7 @@ moon lane.
 LIVE-PROVEN = at least one fully-unattended PASS with every verifier green.
 The "Parsek surface verified" column is the reason the case exists.
 
-### Live-proven (127)
+### Live-proven (128)
 
 | Test case | Tier | Parsek surface verified | Coverage cells |
 |---|---|---|---|
