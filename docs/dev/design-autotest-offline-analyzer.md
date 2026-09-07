@@ -370,6 +370,38 @@ the LOADER-FAULT rule that turns loader parse failures into findings. Each is on
   only against physical sections, not checkpoint-vs-checkpoint), not a legitimate
   coarse/fine wrap, so no type-aware exemption is granted (see
   `docs/dev/todo-and-known-bugs.md` "Overlapping / duplicate TrackSections").
+  **The checkpoint-vs-checkpoint half of the residue is repaired at LOAD, never exempted
+  here (2026-09-07).** The rule is unchanged, and deliberately: a save written before the
+  producer's anti-double-cover guard (`dd8b0272c`) keeps a coarse `OrbitalCheckpoint`
+  envelope `[T0,T2]` alongside a payload-LESS shell `[T0,T1]` and a re-clip `[T1,T2]`,
+  and re-running the producer over such a save adds and clips nothing - both read paths
+  also gate its empty-shell reconcile off (`reconcileEmptySections: false` in
+  `TrajectorySidecarBinary.cs` and `TrajectoryTextSidecarCodec.cs`) - so the shape would
+  otherwise red forever. `CheckpointDoubleCoverRetire` drops the shell and the re-clip IN
+  MEMORY during `ParsekScenario.OnLoad`, under a coverage predicate (the survivors must
+  already carry the whole span AND, where the candidate carries one, the identical conic;
+  a shell is a candidate but never a coverer) with the coverage union and the optimizer's
+  split decisions both asserted unmoved.
+
+  What it measurably does, on the three operator sidecars committed at
+  `Source/Parsek.Tests/Fixtures/Inv2DoubleCoverResidue/` and driven through the
+  production read path by `CheckpointDoubleCoverRetireTests.RealBytes_*`:
+
+  | recording | sections | INV2 overlaps | dropped section indices |
+  | --- | --- | --- | --- |
+  | `041770246...` | 57 -> 55 | 3 -> 1 | 45 (shell), 47 (re-clip) |
+  | `36c7688b...` | 64 -> 62 | 4 -> 2 | 58 (shell), 60 (re-clip) |
+  | `58130506...` | 25 -> 23 | 3 -> 1 | 5 (shell), 7 (re-clip) |
+
+  So the pass does NOT make such a save analyze `RED=0` in game. Every
+  checkpoint-vs-checkpoint overlap goes; what stands is a different population, pinned by
+  `RealBytes_WhatStandsAfterwardsIsAlwaysAnEmptyAbsoluteExactSpanDuplicate`: a frame-LESS
+  `Absolute` section whose span exactly equals the checkpoint section beside it (todo
+  `EMPTY-ABSOLUTE-SECTION-EXACT-SPAN-DUPLICATE-OF-ITS-CHECKPOINT`). Separately, the
+  OFFLINE analyzer reads the sidecar bytes and never runs `OnLoad`, so it still reports
+  the retired sections too. That asymmetry is intended: the offline reading is the one
+  the fixture builders and the harness `analyzer` verifier gate on, and it must keep
+  naming residue that is still on disk.
 - **INV3 RELATIVE contract** (`RuleId INV3-RELATIVE-CONTRACT`). For a
   `ReferenceFrame.Relative` section: `anchorRecordingId` (non-loop) OR
   `anchorVesselId` (loop) must be present, and out-of-`[-90,90]`/`[-180,180]`

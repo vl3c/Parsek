@@ -2702,6 +2702,45 @@ namespace Parsek
         }
 
         /// <summary>
+        /// One-shot in-memory retire of checkpoint double-cover residue on the committed
+        /// recordings (todo INTERBODY-SAVE-CARRIES-INV2-DOUBLE-COVER).
+        ///
+        /// <para>Saves written before <c>dd8b0272c</c> carry a coarse OrbitalCheckpoint
+        /// envelope [T0,T2] alongside the finer sections [T0,T1] + [T1,T2] that tile it.
+        /// The producer's anti-double-cover guard is PREVENTIVE - re-running it over such a
+        /// save adds and clips nothing - and its empty-shell reconcile only retires
+        /// payload-LESS sections, so the envelope survives forever and the analyzer's
+        /// INV2-NO-DOUBLE-COVER reds the save. <see cref="CheckpointDoubleCoverRetire"/>
+        /// drops the redundant section in memory; nothing is marked dirty, so no sidecar is
+        /// rewritten and no route's captured SidecarEpoch moves (the rule PR #1637 set for
+        /// the load-time flat-list heal). The pass is idempotent and costs one linear walk
+        /// per clean recording, so re-deriving it on every load is the whole persistence
+        /// story.</para>
+        ///
+        /// <para>Reads <see cref="RecordingStore.CommittedRecordings"/> raw ([ERS-exempt]:
+        /// this file is on <c>scripts/ers-els-audit-allowlist.txt</c>). Deliberately NOT
+        /// ERS-filtered - the residue is a data defect in the bytes, and a superseded
+        /// recording still on disk carries and re-emits it exactly like a visible one.</para>
+        ///
+        /// <para>Best-effort: a throw here must not abort an OnLoad that has already loaded
+        /// the ledger and the recordings.</para>
+        /// </summary>
+        private void RetireCheckpointDoubleCoverOnLoad()
+        {
+            try
+            {
+                CheckpointDoubleCoverRetire.RetireAcrossRecordings(
+                    RecordingStore.CommittedRecordings);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Error("Scenario",
+                    "RetireCheckpointDoubleCoverOnLoad failed (recordings left as loaded): "
+                    + ex.Message);
+            }
+        }
+
+        /// <summary>
         /// OnLoad crash-reconcile finisher for the in-game test runner's campaign
         /// isolation. Mirrors the re-fly marker + OnLoad-finisher idiom: a
         /// <see cref="TestBatchMarker"/> persisted into persistent.sfs before a
@@ -4019,6 +4058,9 @@ namespace Parsek
                     LoadTimeSweep.Run();
                     RefreshPendingQuickloadTrimScope();
 
+                    loadPhase = "checkpoint-double-cover-retire";
+                    RetireCheckpointDoubleCoverOnLoad();
+
                     loadPhase = "test-batch-reconcile";
                     RunTestBatchCrashReconcile();
 
@@ -4385,6 +4427,9 @@ namespace Parsek
                 loadPhase = "load-time-sweep";
                 LoadTimeSweep.Run();
                 RefreshPendingQuickloadTrimScope();
+
+                loadPhase = "checkpoint-double-cover-retire";
+                RetireCheckpointDoubleCoverOnLoad();
 
                 loadPhase = "test-batch-reconcile";
                 RunTestBatchCrashReconcile();

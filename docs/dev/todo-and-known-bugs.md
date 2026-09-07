@@ -1577,7 +1577,184 @@ scope. Walk: `docs/dev/research/g10-interbody-route-feasibility.md` (its blocker
 now historical; blocker 2, that no COMMITTED fixture carries an inter-body dock, is
 answered by the B32 harvest of the operator's `orbital supply route` save).
 
-## INTERBODY-SAVE-CARRIES-INV2-DOUBLE-COVER: three recordings in the operator's real play carry a checkpoint section that double-covers the two finer ones tiling the same span, and the producer's own guard against that shape is dated after the play [MEASURED 2026-09-02 by the B32 / V26M / V26T reading runs over the new `interbody-route-recorded` fixture. DEFECT in produced DATA; the analyzer is RIGHT and no fixture edit is proposed]
+## EMPTY-ABSOLUTE-SECTION-EXACT-SPAN-DUPLICATE-OF-ITS-CHECKPOINT: a frame-LESS `Absolute` TrackSection sits on exactly the span of the `OrbitalCheckpoint` section beside it, so INV2 reports the pair and nothing retires either [MEASURED 2026-09-07 on branch `inv2-checkpoint-retire`, through the production read path, on the three operator sidecars committed at `Source/Parsek.Tests/Fixtures/Inv2DoubleCoverResidue/`. DEFECT in produced DATA, split out of INTERBODY-SAVE-CARRIES-INV2-DOUBLE-COVER below. OPEN, no fix proposed here]
+
+**What was measured.** After `CheckpointDoubleCoverRetire` clears every
+checkpoint-vs-checkpoint overlap in those three recordings, four INV2 findings stand
+across them, and every one is the same shape: two sections on an identical
+`[startUT,endUT]`, one `ReferenceFrame.OrbitalCheckpoint` carrying the conic and one
+`ReferenceFrame.Absolute` carrying NOTHING - `frames`, `bodyFixedFrames` and
+`checkpoints` all empty.
+
+| recording | section pair | span |
+| --- | --- | --- |
+| `041770246...` | `[18]` Absolute (empty) + `[19]` checkpoint | `[6675562.0340952, 6676373.1069955891]` |
+| `36c7688b...` | `[22]` Absolute (empty) + `[23]` checkpoint | `[63901473.58333458, 68378174.685928717]` |
+| `36c7688b...` | `[30]` Absolute (empty) + `[31]` checkpoint | `[72258643.296207383, 72279764.818765983]` |
+| `58130506...` | `[18]` Absolute (empty) + `[19]` checkpoint | `[6646497.6471289583, 6647570.0420407793]` |
+
+Indices are as LOADED (pre-retire); on `58130506...` the retire drops sections 5 and 7,
+so the pair sits at `[16]`/`[17]` afterwards. Every one of these `Absolute` sections is
+`src = 0` (`TrackSectionSource.Active`). Pinned by
+`CheckpointDoubleCoverRetireTests.RealBytes_WhatStandsAfterwardsIsAlwaysAnEmptyAbsoluteExactSpanDuplicate`,
+which reds if a standing finding is ever a different shape.
+
+**Why the retire does not take them.** `CheckpointDoubleCoverRetire` is scoped to
+`OrbitalCheckpoint` sections by design: an `Absolute` section is a recorded surface, not
+a duplicate description, and is neither a candidate nor a coverer there
+(`InterleavedAbsoluteSections_AreUntouchedEvenWhenTheyCoverTheCheckpointSpan`). Widening
+it to any frame-less section of any reference frame is the obvious remedy and is NOT
+taken on this evidence: nothing here establishes what an empty `Absolute` section means
+to the recorder, the optimizer's environment classification or
+`boundaryDiscontinuityMeters`, and the producer that emits it has not been identified.
+
+**What closing this needs**, in order: find the producer - the span is exactly the
+packed/on-rails stretch the checkpoint section describes, and the empty section is
+`src = Active`, so the lead is the ACTIVE recorder's section close at the on-rails
+transition rather than the checkpoint bridge, but that has NOT been driven and the
+`src` value is the only evidence for it - then decide whether an empty `Absolute`
+section carries meaning for any consumer (the optimizer's environment classification
+and `boundaryDiscontinuityMeters` both read sections regardless of payload), and only
+then either fix the producer or widen the retire. The shared build-time containment dedupe in
+`harness/tools/build_duna_one_recorded.py` already drops frame-less shells, so the
+committed fixture corpus does not carry these and no lane is blocked by them.
+
+## ~~INTERBODY-SAVE-CARRIES-INV2-DOUBLE-COVER~~: three recordings in the operator's real play carry a coarse checkpoint envelope alongside a payload-less shell and a re-clip of itself, and the producer's own guard against that shape is dated after the play [MEASURED 2026-09-02 by the B32 / V26M / V26T reading runs over the new `interbody-route-recorded` fixture. DEFECT in produced DATA; the analyzer is RIGHT and no fixture edit is proposed. FIXED 2026-09-07 by the load-time retire below, for the checkpoint-vs-checkpoint half; what stands afterwards is a DIFFERENT population, split out as EMPTY-ABSOLUTE-SECTION-EXACT-SPAN-DUPLICATE-OF-ITS-CHECKPOINT]
+
+**FIX (2026-09-07): the retire path the entry's closing paragraph asked for, run
+once per load.** `CheckpointDoubleCoverRetire.FindRedundantCheckpointSections` is
+the pure decision and `TryRetireRedundantCheckpointSections` the applier;
+`ParsekScenario.OnLoad` calls `RetireCheckpointDoubleCoverOnLoad` on BOTH branches
+(the FLIGHT->FLIGHT scene-change branch and the cold-start branch), immediately
+after `LoadTimeSweep.Run()`.
+
+THE PREDICATE IS COVERAGE, in both halves, and both are checked before a section
+goes: (a) the retired section's whole `[startUT,endUT]` must lie inside the merged
+spans of the PAYLOAD-BEARING checkpoint sections that STAY, gap-free; (b) every
+`OrbitSegment` it carries must be carried IDENTICALLY, over its whole span, by
+those survivors. Half (b) is an exact test rather than an orbit-mechanics
+approximation because `OrbitSegmentCheckpointBridge.TryTrimOrbitSegmentToRange`
+moves `startUT`/`endUT` and copies every element verbatim, so a re-clip and its
+parent differ in exactly the two fields
+`OrbitSegmentConicNearlyEqualsIgnoringSpan` drops. Absolute and Relative sections
+are never candidates and never count as coverers; nor is a producer-flagged
+`isBoundarySeam` section. `UtTolerance = 1e-6` is the round-trip slop allowance and
+therefore the width of the gap the coverage walk will BRIDGE; both sides are pinned
+(`UtToleranceBoundary_AGapBelowTheToleranceIsBridged` at 5e-7,
+`..._AGapAboveTheToleranceIsRefused` at 2e-6).
+
+A PAYLOAD-LESS SHELL IS A CANDIDATE BUT NEVER A COVERER, and getting that wrong is
+what the first cut of this fix got wrong. The deference to
+`OrbitSegmentCheckpointBridge.ReconcileEmptySectionsAgainstPayloadCoverage` was
+misplaced: BOTH read paths gate it off (`reconcileEmptySections: false` at
+`TrajectorySidecarBinary.cs:338` and `TrajectoryTextSidecarCodec.cs:1476`, under
+the normalize-on-rewrite contract that a read leaves the file byte-identical), so
+at load nothing retires a shell. Half (b) is vacuous for a shell - it describes
+nothing, so there is nothing to lose - and the span half alone decides. It cannot
+COVER, though: two mutually-covering shells retire neither
+(`TwoShellsCoveringOnlyEachOther_RetireNeither`), because dropping one would be a
+decision taken on no evidence about the span.
+
+WHICH SIDE SURVIVES DEPENDS ON WHERE THE PAYLOAD IS, and on the MEASURED residue
+it is the ENVELOPE, not the finer tiling. The shape on disk is `[T0,T1]`
+payload-LESS shell + `[T0,T2]` envelope + `[T1,T2]` re-clip, so `{shell, re-clip}`
+does not cover `[T0,T2]` and the envelope stays while both narrower sections go -
+TWO drops per triple. Where a genuine payload-bearing TILING exists (both legs
+carrying the conic, a shape no measured recording has and which the suite covers as
+`SyntheticAllPayloadTriple_RetiresTheEnvelopeAndKeepsTheTiling`) the widest-first
+order retires the envelope and keeps the tiling instead. Where the sub-spans leave
+a GAP the envelope is the only cover for it and stays, and the contained sub-spans
+go; that is the harness dedupe's containment direction. Either way the union is
+still. A PARTIAL overlap is not repairable either way and is deliberately left
+alone, so INV2 keeps reporting it - a different defect. So is a covered span
+carrying a DIFFERENT conic: on an envelope + different-conic tile + same-conic tile
+the envelope and the different-conic tile both stay, only the same-conic re-clip
+goes, and INV2 stays red on the pair by design
+(`DifferentConicTile_KeepsTheEnvelopeAndTheTile_AndInv2StaysRed`).
+
+TWO POSTCONDITIONS, checked mechanically per recording rather than argued, both
+reverting the section list untouched (plus a Warn) on failure: the coverage union
+must be identical before and after, and the set of UTs at which
+`RecordingOptimizer.IsSplittableEnvOrBodyBoundary` calls a boundary splittable must
+be identical before and after. The second is not implied by the first - retiring a
+section changes which sections are ADJACENT, and the optimizer's graze walks
+accumulate duration across neighbouring same-class runs - so it is measured, not
+reasoned. It is paid only when there IS residue.
+
+PERSISTENCE DECISION: IN MEMORY, NO SIDECAR REWRITE, following PR #1637
+(`route-hash-drift`, 4f80b305b) verbatim. That PR established that a load-time heal
+must not `MarkFilesDirty()`: the next `FlushDirtyFiles` advances
+`Recording.SidecarEpoch`, which is a route's captured proof-of-source field, so
+every route over the recording parks in `SourceChanged/sidecar-epoch-drift` -
+permanently, since design 7.4 forbids auto-recovery - with no witnessed proof datum
+moved. The retire therefore clears the derived caches (`CachedStats`,
+`SegmentBodyDisplayLabel`) without the dirty flag. Re-deriving it on every load is
+free: the pass is idempotent, and a CLEAN recording costs one linear walk (the
+pre-scan returns as soon as it establishes no section starts before the running
+covered end, the necessary condition for any section to be covered by others). The
+next legitimate sidecar write carries it. `RouteProofHasher` reads only
+route-relevant metadata, never `TrackSections`, so the proof hash cannot move
+either - pinned by `RouteProofHashIsUnchangedByTheRetire`, which also asserts
+`FilesDirty == false` and an unmoved `SidecarEpoch`.
+
+MEASURED ON THE REAL BYTES, not on a restated shape. The three operator `.prec`
+sidecars are committed at `Source/Parsek.Tests/Fixtures/Inv2DoubleCoverResidue/`
+(from the `orbital supply route` save in the collect-logs snapshot
+`2026-08-19_0028_basic-ui-check`; binary v0, the only encoding
+`RecordingStore.DeserializeTrajectorySidecar` supports) and the `RealBytes_` cells
+drive them through `RecordingStore.LoadTrajectorySidecarForTesting` - the same path
+`SaveDirectoryLoader` and `ParsekScenario.OnLoad` use - then run the retire and the
+analyzer rule over the in-memory recording:
+
+| recording | sections | INV2 overlaps | dropped indices | union | splits | 2nd pass |
+| --- | --- | --- | --- | --- | --- | --- |
+| `041770246...` | 57 -> 55 | 3 -> 1 | 45 shell, 47 re-clip | same | same | 0 |
+| `36c7688b...` | 64 -> 62 | 4 -> 2 | 58 shell, 60 re-clip | same | same | 0 |
+| `58130506...` | 25 -> 23 | 3 -> 1 | 5 shell, 7 re-clip | same | same | 0 |
+
+IT DOES NOT MAKE THESE SAVES READ `RED=0`, and this entry does not claim it does.
+Every checkpoint-vs-checkpoint overlap goes; the one or two findings that STAND per
+recording are a different population - a frame-LESS `Absolute` section whose span
+exactly equals the checkpoint section beside it - split out as its own entry,
+`EMPTY-ABSOLUTE-SECTION-EXACT-SPAN-DUPLICATE-OF-ITS-CHECKPOINT`. That is asserted
+rather than assumed: the cell
+`RealBytes_WhatStandsAfterwardsIsAlwaysAnEmptyAbsoluteExactSpanDuplicate` reds if a
+standing finding is ever anything else.
+
+Cells: `CheckpointDoubleCoverRetireTests`, 36 - six `RealBytes_` cells (the three
+recordings x drop-set/union/splits/idempotence, and the standing-findings
+classification), the three MEASURED T0/T1/T2 triples restated in memory (two
+findings before, none after, union still, envelope kept, shell and re-clip gone),
+the SYNTHETIC all-payload triple (envelope goes, tiling stays, labelled synthetic),
+envelope-plus-two-tiles, an exact-span duplicate pair, three identical sections
+(two go, never all three), a gapped near-tiling, a PARTIAL overlap (never retired,
+finding stands), a single checkpoint, interleaved Absolute sections, a covered span
+carrying a DIFFERENT conic, a different-conic TILE (envelope and tile kept, re-clip
+goes, INV2 stays red), a seam-flagged section, a shell covered by payload (goes), a
+shell covered only by shells (stays), both `UtTolerance` boundary sides, determinism
+across repeated evaluation, a second pass dropping zero, the
+optimizer-split-decision invariance, the proof-hash / dirty-flag invariance, the two
+`RetireAcrossRecordings` log surfaces, the OnLoad wiring read from source on both
+branches, and a drive of the pure decision over the WHOLE committed fixture corpus
+(214 sidecars, 721 checkpoint sections) asserting the coverage union never moves.
+THE CORPUS DROP COUNT IS ZERO, by design and not by luck, and it stays zero with
+shells admitted: `duna-one-recorded`, `depot-route-recorded` and
+`interbody-route-recorded` were each repaired at BUILD time by the shared
+containment dedupe in `harness/tools/build_duna_one_recorded.py` - which already
+drops frame-less shells - with the before/after readings recorded in
+`test_saveparse.RECORDED_FIXTURES`, so the committed bytes are already clean and
+that cell is the tripwire in the other direction. No fixture byte is edited.
+
+WHAT THIS DOES NOT CLOSE: the producer question the entry raises about multi-pass
+accumulation WITHIN one session (a coarse envelope promoted, re-cut, re-promoted
+against the re-cut list) is untouched - anyone reopening it should still drive the
+SEQUENCE, not the snapshot. The retire is a repair, not a proof that nothing
+re-creates the shape; what it changes is that if something does, the next load
+removes it again. It also does not touch the empty-`Absolute` population above, nor
+the OFFLINE analyzer's reading of the unrepaired bytes on disk (the fixture builders
+and the harness `analyzer` verifier gate on that reading, and it must keep naming
+residue that is still there).
+
 
 **What red'd.** All three G10 lanes classified `PARSEK-FAIL subkind=analyzer` on
 `analyzer red topRule=INV2-NO-DOUBLE-COVER red=1 failNonBaselined=3`, which
