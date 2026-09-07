@@ -10347,15 +10347,20 @@ those files).**
    both EVA fixtures were forged headlessly and committed, the fixture exists at
    `harness/fixtures/saves/eva2-lko-crewed/` with 7 VESSEL nodes, the spec reads
    `tier = "daily"`, and `harness/coverage/duration.json` carries a measured 57 s run.
-   Fix: correct the two stale rows to match the rest of the file.
+   Fix: correct the two stale rows to match the rest of the file. ~~RESOLVED~~ - verified
+   2026-09-07: the contradicting row no longer exists in `autotest-status.md`.
 2. `harness/fixtures/saves/bdock-station-craft/` is an orphan: no spec LOADS it (no
    `saveTemplate` points at it). It IS named in a provenance comment at
    `BDOCK-1-station-interceptor.toml:97`, whose own `saveTemplate` is
    `bdock-station-pad`, and by `harness/tools/harvest_bdock_station.py` plus the
    design doc. Decide keep or delete; if delete, drop that comment reference with it.
-3. `S1.5-rewind-loop.toml:3-8` and `S4.1-rewind-merge.toml:3-9` state a "gloops
+   (2026-09-07: `harness/lib/test_saveparse.py` and `harness/fixtures/shared-ships.toml`
+   now enumerate it too, so a delete edits both; still no `saveTemplate` loads it.
+   Operator call still open; default KEEP.)
+3. ~~`S1.5-rewind-loop.toml:3-8` and `S4.1-rewind-merge.toml:3-9` state a "gloops
    SPACECENTER host" premise that the `LoadRoute` contract contradicts. Correct the
-   comment or replace it with an R3 measurement.
+   comment or replace it with an R3 measurement.~~ RESOLVED: both headers were rewritten
+   2026-07-26 (re-tiered `nightly`) and R3 closed by flight 2026-07-29.
 
 ---
 

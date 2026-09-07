@@ -296,11 +296,19 @@ steps = [
 ]
 
 [dimensionsCovered]
-# NOTHING CLAIMED. The lane has never flown and the CLAIM-IS-NOT-GATE rule
-# (autotest-roadmap.md, "Trust and fail-open risks", item 5) applies exactly as it did to
-# the whole RVR wave. The row it would earn is D10 `docked-depot-origin` - the one row
-# H55 and H56 explicitly could NOT earn, because on both of them the producer never
-# reached its Captured branch. It is claimed in the commit that reads a green census.
+# D10 `docked-depot-origin` CLAIMED 2026-09-07, off the armed census `2026-09-02_1428`
+# (PASS, `total=2 passed=2 failed=0 skipped=0`, zero FAILURE SITE lines) and its
+# negative control `H57-NEGCTL-P6-treeproof-no` (PARSEK-FAIL(expectation), exactly one
+# unmet token, zero forbids), re-asserted whole at `total=3` on `2026-09-06_1650` and
+# `2026-09-06_2021`. The claim was RECORDED in autotest-status.md and the roadmap on
+# 2026-09-02 but never written here, so `hlib.compute_coverage` read the cell as
+# uncovered for five days; this line makes the two agree. The gate that earns it is
+# the in-cell `StartDockedOriginPersist:` round trip pinned below plus the whole tally.
+# Before it flew the block read: NOTHING CLAIMED, on the CLAIM-IS-NOT-GATE rule
+# (autotest-roadmap.md, "Trust and fail-open risks", item 5) - the row is the one H55
+# and H56 explicitly could NOT earn, because on both the producer never reached its
+# Captured branch.
+D10 = ["docked-depot-origin"]
 #
 # NO D14 ROW: the boot facts (`sandbox`, `scene-flight`) ride RVR-1's row on this same
 # host, and re-claiming a covered row inflates the coverage count without gating a new
