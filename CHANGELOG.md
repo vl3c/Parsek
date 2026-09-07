@@ -573,6 +573,24 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Dev
 
+- **The rule that stops a mission from timing itself against a craft that is on its way
+  back down now has a test that actually watches it happen.** Parsek refuses to time a
+  repeating mission against another craft's orbit unless that orbit clears the
+  atmosphere, and the refusal has two halves: one for a craft sitting on the ground, one
+  for a craft in the air or still climbing. Only the ground half had ever been seen in a
+  real game - the air half was reasoned about, covered by unit tests, and never once
+  reached in a flight, because every saved game the suite tests against is either parked
+  in a clean orbit or landed, and no test-only trick can put a craft in the air (the one
+  that edits saved games is deliberately limited to fuel and cargo). So the new test
+  FLIES one: it reuses the existing parachute flight, which ends with the capsule hanging
+  under its canopy, and runs the mission-timing checks at that moment instead of sending
+  the kerbal out. That capsule carries exactly the kind of orbit the rule exists to
+  reject - the game reports a perfectly good repeating orbit for anything near the
+  ground, and following it would take the craft hundreds of kilometres underground - so
+  the refusal is forced to happen for real. The test fails if the capsule is on the
+  ground by the time the checks run, rather than quietly passing on the wrong half.
+  Written, not yet flown. Test tooling and docs only; no gameplay change.
+
 - **A test can now stage a delivery target whose cargo racks are completely full, so
   the last untested way a supply run can be turned away is finally reachable.** A run
   is refused if EITHER the destination's tank has no room OR its cargo slots do - and
