@@ -5,9 +5,9 @@ using System.Globalization;
 namespace Parsek
 {
     /// <summary>
-    /// Load-time retire path for a payload-bearing OrbitalCheckpoint TrackSection whose
-    /// span AND whose conic are both already carried by other checkpoint sections of the
-    /// same recording.
+    /// Load-time retire path for an OrbitalCheckpoint TrackSection whose span - and, when
+    /// it carries one, whose conic - is already carried by other checkpoint sections of
+    /// the same recording.
     ///
     /// <para>WHY THIS EXISTS SEPARATELY FROM THE PRODUCER.
     /// <see cref="OrbitSegmentCheckpointBridge"/>'s anti-double-cover guard is PREVENTIVE:
@@ -15,23 +15,39 @@ namespace Parsek
     /// [X,Y] + [Y,Z]. Driven over a save written before that guard landed it reports
     /// added=0 clipped=0 skippedCovered=0, so residue already on disk survives every
     /// producer re-run and the analyzer's INV2-NO-DOUBLE-COVER reds the save forever. Its
-    /// empty-shell reconcile only retires PAYLOAD-LESS sections; the envelope and the
-    /// re-clip both carry a conic and both survive it. This class is the missing retire
-    /// path for exactly that population.</para>
+    /// empty-shell reconcile WOULD retire the payload-less half, but both read paths gate
+    /// that off (<c>reconcileEmptySections: false</c> in
+    /// <c>TrajectorySidecarBinary.Read</c> and
+    /// <c>TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom</c>), so at load nothing
+    /// retires anything. This class is the missing retire path for the whole shape.</para>
     ///
     /// <para>THE PREDICATE IS COVERAGE, NEVER TRUNCATION. A section is retired only when
     /// the sections that stay behind already carry (a) its whole UT span and (b) the
     /// identical conic over that whole span. Both halves are checked; a partial overlap,
     /// an uncovered remainder, or a differing conic all mean "keep". So the recording's
     /// coverage union cannot move and no orbital payload is lost - the retired section is
-    /// a duplicate description of a span the survivors already describe the same way.</para>
+    /// a duplicate description of a span the survivors already describe the same way, or
+    /// a shell that described nothing.</para>
     ///
-    /// <para>WHICH SIDE SURVIVES: the FINER TILING. Candidates are tested widest-first, so
-    /// the coarse envelope [T0,T2] is tested against {[T0,T1], [T1,T2]} and retired, and
-    /// the two tiles are then tested against a set that no longer contains the envelope
-    /// and are kept. Keeping the tiling (rather than the envelope) preserves every section
-    /// boundary the recording had, which is what the optimizer, the map polyline and KSC
-    /// playback read.</para>
+    /// <para>WHICH SIDE SURVIVES depends on which sections carry payload, and on the
+    /// MEASURED residue it is the ENVELOPE. The shape on disk in the three
+    /// <c>orbital supply route</c> recordings is [T0,T1] payload-LESS shell + [T0,T2]
+    /// envelope + [T1,T2] re-clip. A shell is a candidate but never a COVERER, so the
+    /// envelope's span is not covered by {shell, re-clip} and it stays, while both the
+    /// re-clip (span and conic inside the envelope) and the shell (span inside the
+    /// envelope, no conic to lose) go. Where a genuine payload-bearing TILING exists -
+    /// [T0,T1] and [T1,T2] both carrying the conic - the widest-first order retires the
+    /// envelope and keeps the tiling instead. Either way the coverage union is still and
+    /// no boundary that describes anything is lost.</para>
+    ///
+    /// <para>WHAT IT DOES NOT CLEAR. The three measured recordings each keep one or two
+    /// INV2 findings after the pass, and they are a DIFFERENT population: a frame-LESS
+    /// <c>Absolute</c> section exactly duplicating the span of the checkpoint section
+    /// beside it. Absolute sections are never candidates and never coverers here, by
+    /// design, so those stand and are filed separately
+    /// (todo EMPTY-ABSOLUTE-SECTION-EXACT-SPAN-DUPLICATE-OF-ITS-CHECKPOINT). Nor is a
+    /// PARTIAL overlap repairable in either direction; it is left alone and keeps
+    /// reporting. This pass does not make a residue save analyze RED=0.</para>
     ///
     /// <para>IN MEMORY ONLY. The applier never calls <see cref="Recording.MarkFilesDirty"/>:
     /// dirtying at load makes the next FlushDirtyFiles advance
@@ -49,6 +65,17 @@ namespace Parsek
         // values produced by the SAME segment after an "R" round trip, and a re-clip
         // copies every element verbatim (OrbitSegmentCheckpointBridge.TryTrimOrbitSegmentToRange
         // moves startUT/endUT and nothing else).
+        //
+        // WHAT IT BUYS AND WHAT IT COSTS, at the boundary. It is a round-trip slop
+        // allowance, so it is the width of the gap the coverage walk will BRIDGE: a hole
+        // of 5e-7 s between two survivors reads as covered and the candidate is retired; a
+        // hole of 2e-6 s does not and the candidate stays. Both directions are pinned
+        // (UtToleranceBoundary_* cells). At UT ~ 7.2e7 (the measured 36c7688b recording) a
+        // double's ULP is ~1.5e-8 s, so 1e-6 is ~70 ULP - wide enough for a decimal round
+        // trip, and roughly seven orders of magnitude below the smallest real coverage gap
+        // the analyzer has ever reported (hundreds of seconds; see
+        // Inv2NoDoubleCover.UncoveredSpanToleranceSeconds = 8.0). It is also the minimum
+        // span a section must have to be a candidate at all.
         private const double UtTolerance = 1e-6;
 
         /// <summary>
@@ -77,7 +104,7 @@ namespace Parsek
             var candidates = new List<int>();
             for (int i = 0; i < sections.Count; i++)
             {
-                if (IsRetirableCheckpointSection(sections[i]))
+                if (IsRetireCandidateSection(sections[i]))
                     candidates.Add(i);
             }
             if (candidates.Count < 2)
@@ -85,7 +112,10 @@ namespace Parsek
 
             // Widest span first so an envelope is tested before the tiles that cover it;
             // highest index first among equal spans so an exact-span duplicate pair keeps
-            // its first occurrence.
+            // its first occurrence. The order is a preference, not a guarantee: a section
+            // is only ever dropped when the ones STILL kept cover it, so an envelope over
+            // a shell + a re-clip survives its own turn (a shell covers nothing) and the
+            // two narrower sections go instead.
             candidates.Sort((a, b) =>
             {
                 double spanA = sections[a].endUT - sections[a].startUT;
@@ -231,28 +261,55 @@ namespace Parsek
         // --- predicate helpers ----------------------------------------------------
 
         /// <summary>
-        /// A retire candidate: an OrbitalCheckpoint section carrying a conic and NO
-        /// per-frame payload, over a non-degenerate finite span, that its producer has not
-        /// flagged as a bookkeeping seam.
+        /// A retire CANDIDATE: an OrbitalCheckpoint section with no per-frame payload,
+        /// over a non-degenerate finite span, that its producer has not flagged as a
+        /// bookkeeping seam. Both populations qualify - one carrying a conic, and a
+        /// payload-LESS shell carrying nothing at all.
         ///
         /// <para>Absolute / Relative sections are excluded by the reference frame, and an
         /// OrbitalCheckpoint section that somehow carries frames or bodyFixedFrames is
-        /// excluded too - those are the recorded surfaces, never a duplicate description.
-        /// A payload-LESS checkpoint shell is also excluded: retiring those is
-        /// <see cref="OrbitSegmentCheckpointBridge.ReconcileEmptySectionsAgainstPayloadCoverage"/>'s
-        /// job, and this pass deliberately does not overlap it.</para>
+        /// excluded too - those are the recorded surfaces, never a duplicate
+        /// description.</para>
+        ///
+        /// <para>WHY THE SHELL IS A CANDIDATE HERE RATHER THAN THE PRODUCER'S PROBLEM.
+        /// <see cref="OrbitSegmentCheckpointBridge.ReconcileEmptySectionsAgainstPayloadCoverage"/>
+        /// is the empty-shell owner on the WRITE path, but both READ paths gate it off:
+        /// <c>TrajectorySidecarBinary.Read</c> and
+        /// <c>TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom</c> each call
+        /// <c>EnsureCheckpointSectionsForTopLevelOrbitSegments(..., reconcileEmptySections:
+        /// false)</c>, under the normalize-on-rewrite contract that a read must leave the
+        /// file byte-identical. So at load nothing retires a shell, and on the measured
+        /// residue the shell is HALF the reported overlap: the triple on disk is
+        /// <c>[T0,T1]</c> shell + <c>[T0,T2]</c> envelope + <c>[T1,T2]</c> re-clip, and
+        /// dropping only the re-clip leaves INV2 reporting shell-vs-envelope. Admitting
+        /// the shell is what makes the pass finish the job it starts.</para>
         /// </summary>
-        private static bool IsRetirableCheckpointSection(TrackSection section)
+        private static bool IsRetireCandidateSection(TrackSection section)
         {
             return section.referenceFrame == ReferenceFrame.OrbitalCheckpoint
                 && !section.isBoundarySeam
                 && (section.frames == null || section.frames.Count == 0)
                 && (section.bodyFixedFrames == null || section.bodyFixedFrames.Count == 0)
-                && section.checkpoints != null
-                && section.checkpoints.Count > 0
                 && IsFinite(section.startUT)
                 && IsFinite(section.endUT)
                 && section.endUT > section.startUT + UtTolerance;
+        }
+
+        /// <summary>
+        /// A COVERER: a candidate that actually carries a conic. A payload-less shell
+        /// describes nothing, so it can never stand in for a section that is dropped -
+        /// letting one cover would let two mutually-covering shells retire a real span's
+        /// only description, and would let a shell "cover" an envelope's conic.
+        ///
+        /// <para>Consequence, deliberately: a shell covered ONLY by other shells is not
+        /// retirable and INV2 keeps reporting that pair. Nothing in the measured residue
+        /// is that shape.</para>
+        /// </summary>
+        private static bool IsCoveringCheckpointSection(TrackSection section)
+        {
+            return IsRetireCandidateSection(section)
+                && section.checkpoints != null
+                && section.checkpoints.Count > 0;
         }
 
         /// <summary>
@@ -305,14 +362,19 @@ namespace Parsek
 
         /// <summary>
         /// True when [section.startUT, section.endUT] lies wholly inside the merged spans
-        /// of the still-kept candidates, with no gap.
+        /// of the still-kept PAYLOAD-BEARING candidates, with no gap. Shells do not count
+        /// (see <see cref="IsCoveringCheckpointSection"/>).
         /// </summary>
         private static bool SpanCoveredByKept(
             IReadOnlyList<TrackSection> sections, int index, HashSet<int> kept)
         {
             var spans = new List<(double Start, double End)>();
             foreach (int k in kept)
+            {
+                if (!IsCoveringCheckpointSection(sections[k]))
+                    continue;
                 spans.Add((sections[k].startUT, sections[k].endUT));
+            }
             return RangeCovered(spans, sections[index].startUT, sections[index].endUT);
         }
 
@@ -324,11 +386,17 @@ namespace Parsek
         /// a re-clip differs from its parent only in startUT/endUT (the bridge's trim
         /// copies every element verbatim), so "same conic ignoring the span" is an exact
         /// test, not an orbit-mechanics approximation.</para>
+        ///
+        /// <para>A payload-LESS shell carries no conic, so this half is vacuously true for
+        /// it and the span half alone decides. That is correct rather than a loophole: a
+        /// shell describes nothing, so there is nothing to lose.</para>
         /// </summary>
         private static bool ConicsCoveredByKept(
             IReadOnlyList<TrackSection> sections, int index, HashSet<int> kept)
         {
             List<OrbitSegment> segments = sections[index].checkpoints;
+            if (segments == null)
+                return true;
             for (int i = 0; i < segments.Count; i++)
             {
                 OrbitSegment segment = segments[i];
@@ -342,6 +410,8 @@ namespace Parsek
                 var spans = new List<(double Start, double End)>();
                 foreach (int k in kept)
                 {
+                    if (!IsCoveringCheckpointSection(sections[k]))
+                        continue;
                     List<OrbitSegment> others = sections[k].checkpoints;
                     if (others == null)
                         continue;

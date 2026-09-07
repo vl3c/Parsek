@@ -13,18 +13,23 @@ _(unreleased — entries accumulate here per commit)_
 - **A duplicated stretch of orbit left in older recordings is now cleaned up when the save
   loads.** Parsek stores a coasting, unattended stretch of a flight as a compact orbit
   description rather than as thousands of sampled positions. An older version could write
-  the same stretch twice - once as one long piece and again as the two shorter pieces that
-  together make it up - so the flight claimed the same minutes of its own timeline more
-  than once. Newer versions refuse to write that shape, but nothing removed it from
-  flights that already had it, and the recording checker rightly reported those flights as
-  faulty forever. Loading a save now drops the redundant copy, keeping the finer pieces so
-  no boundary of the flight is lost. It only drops a piece when the pieces that remain
-  already describe exactly the same minutes with exactly the same orbit, so nothing about
-  where the ghost flies, what the map draws, or how the flight is split changes - and a
-  stretch that only partly overlaps another, which is a different fault, is left alone and
-  still reported. The cleanup happens in memory and does not rewrite the flight's file, so
-  supply routes built on that flight keep running (the same rule as the in-memory
-  trajectory repair below).
+  the same stretch three times over - once as one long piece, once as a shorter piece cut
+  out of it, and once as an empty placeholder that describes nothing at all - so the
+  flight claimed the same minutes of its own timeline more than once. Newer versions
+  refuse to write that shape, but nothing removed it from flights that already had it, and
+  the recording checker rightly reported those flights as faulty forever. Loading a save
+  now drops the redundant copies. It keeps whichever pieces are needed to describe every
+  minute the flight covered, and only drops a piece when the pieces that remain already
+  describe exactly the same minutes with exactly the same orbit (an empty placeholder
+  describes nothing, so it only has to sit inside a piece that stays). Nothing about where
+  the ghost flies, what the map draws, or how the flight is split changes, and a stretch
+  that only partly overlaps another, or one that describes a genuinely different orbit, is
+  a different fault: left alone, and still reported. The cleanup happens in memory and does
+  not rewrite the flight's file, so supply routes built on that flight keep running (the
+  same rule as the in-memory trajectory repair below). Measured on the three affected
+  flights in the test campaign's own save: each loses two pieces and two of its reported
+  faults, and what remains in each is a separate fault of a different kind, filed in the
+  developer notes rather than claimed fixed here.
 
 - **A supply route's map line now draws the whole journey, not just the launch.** A route
   remembers the flights that back it, but it remembered each one by its FIRST recording

@@ -16,15 +16,26 @@ namespace Parsek.Tests
     ///
     /// <para>The producer's anti-double-cover guard is preventive only, so a save written
     /// before it landed keeps a coarse OrbitalCheckpoint envelope [T0,T2] alongside the
-    /// finer sections [T0,T1] + [T1,T2] that tile it, and INV2-NO-DOUBLE-COVER reds it
+    /// two narrower sections [T0,T1] + [T1,T2] beside it, and INV2-NO-DOUBLE-COVER reds it
     /// forever. These cells pin <see cref="CheckpointDoubleCoverRetire"/>: what it drops,
     /// what it refuses to touch, that the coverage union and the optimizer's split
     /// decisions and a route's proof hash all stay put, and that a second pass drops
     /// nothing.</para>
     ///
-    /// <para>The three T0/T1/T2 triples are the MEASURED values from the todo entry's
-    /// table (the `interbody-route-recorded` recordings 041770246..., 36c7688b... and
-    /// 58130506...), not invented ones.</para>
+    /// <para>THE MEASURED SHAPE IS NOT AN ALL-PAYLOAD TRIPLE, and the difference decides
+    /// which side survives. In all three of the operator's recordings the [T0,T1] leg is a
+    /// payload-LESS shell (no ORBIT_SEGMENT), so the envelope's span is NOT covered by a
+    /// payload-bearing tiling: the ENVELOPE stays, and both the shell and the [T1,T2]
+    /// re-clip go. The all-payload triple - where the envelope goes and the tiling stays -
+    /// is a synthetic shape this suite also covers, labelled as such
+    /// (<see cref="SyntheticAllPayloadTriple_RetiresTheEnvelopeAndKeepsTheTiling"/>).</para>
+    ///
+    /// <para>The T0/T1/T2 values below are the MEASURED ones from the todo entry's table,
+    /// and the <c>RealBytes_</c> cells do not use them at all: they drive the three
+    /// operator `.prec` sidecars committed under `Fixtures/Inv2DoubleCoverResidue/`
+    /// through the production read path
+    /// (<see cref="RecordingStore.LoadTrajectorySidecarForTesting"/>, the path
+    /// `SaveDirectoryLoader` and OnLoad both use).</para>
     /// </summary>
     [Collection("Sequential")]
     public class CheckpointDoubleCoverRetireTests : IDisposable
@@ -98,11 +109,51 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// The residue shape from the entry, bracketed by per-frame sections the way the
-        /// real recordings bracket it: [n] T0..T1, [n+1] T0..T2 (the coarse envelope),
-        /// [n+2] T1..T2 - all three OrbitalCheckpoint / src=Checkpoint.
+        /// A payload-LESS OrbitalCheckpoint shell: the shape the bridge opens and never
+        /// closes with a segment. Exactly what sections 45 / 58 / 5 of the three operator
+        /// recordings are (conics=0 frames=0 bodyFixedFrames=0, src=Checkpoint).
         /// </summary>
-        private static Recording TripleResidue(string id, double t0, double t1, double t2)
+        private static TrackSection Shell(double startUT, double endUT)
+        {
+            TrackSection shell = OrbitSegmentCheckpointBridge.BuildOpenCheckpointSection(startUT);
+            shell.endUT = endUT;
+            return shell;
+        }
+
+        /// <summary>
+        /// THE MEASURED residue shape, bracketed by per-frame sections the way the real
+        /// recordings bracket it: [n] T0..T1 payload-LESS SHELL, [n+1] T0..T2 (the coarse
+        /// envelope, carrying the conic), [n+2] T1..T2 (a re-clip of the same conic) -
+        /// all three OrbitalCheckpoint / src=Checkpoint.
+        ///
+        /// <para>Read off the committed sidecars, not invented: the `RealBytes_` cells
+        /// drive the same three files and reach the same drop set, so this in-memory shape
+        /// is a restatement of the bytes rather than a second source of truth.</para>
+        /// </summary>
+        private static Recording MeasuredTripleResidue(string id, double t0, double t1, double t2)
+        {
+            return new Recording
+            {
+                RecordingId = id,
+                TrackSections = new List<TrackSection>
+                {
+                    Physical(t0 - 10.0, t0),
+                    Shell(t0, t1),
+                    Checkpoint(Conic(t0, t2)),
+                    Checkpoint(Conic(t1, t2)),
+                    Physical(t2, t2 + 10.0)
+                },
+                OrbitSegments = new List<OrbitSegment>()
+            };
+        }
+
+        /// <summary>
+        /// SYNTHETIC, and labelled so: an all-payload triple, where [T0,T1] and [T1,T2]
+        /// both carry the conic and genuinely TILE the envelope. No recording measured for
+        /// this entry has this shape; it exists to pin the other branch of the predicate
+        /// (envelope goes, tiling stays).
+        /// </summary>
+        private static Recording SyntheticAllPayloadTriple(string id, double t0, double t1, double t2)
         {
             return new Recording
             {
@@ -154,48 +205,50 @@ namespace Parsek.Tests
 
         [Theory]
         [MemberData(nameof(MeasuredTriples))]
-        public void MeasuredTriple_RedsInv2BeforeRetire_AndGreenAfter(
+        public void MeasuredTriple_ClearsBothCheckpointOverlaps(
             string id, double t0, double t1, double t2)
         {
-            Recording rec = TripleResidue(id, t0, t1, t2);
-            Assert.NotEmpty(Inv2Overlaps(rec));
+            Recording rec = MeasuredTripleResidue(id, t0, t1, t2);
+            // TWO findings on this shape, not one: shell-vs-envelope AND envelope-vs-reclip.
+            Assert.Equal(2, Inv2Overlaps(rec).Count);
 
             List<(double, double)> before = Union(rec);
             int dropped = CheckpointDoubleCoverRetire.TryRetireRedundantCheckpointSections(rec);
 
-            Assert.Equal(1, dropped);
+            Assert.Equal(2, dropped);
             Assert.Empty(Inv2Overlaps(rec));
             Assert.Equal(before, Union(rec));
         }
 
         [Theory]
         [MemberData(nameof(MeasuredTriples))]
-        public void MeasuredTriple_RetiresTheEnvelope_AndKeepsTheFinerTiling(
+        public void MeasuredTriple_KeepsTheEnvelope_BecauseAShellCoversNothing(
             string id, double t0, double t1, double t2)
         {
-            Recording rec = TripleResidue(id, t0, t1, t2);
+            Recording rec = MeasuredTripleResidue(id, t0, t1, t2);
             CheckpointDoubleCoverRetire.TryRetireRedundantCheckpointSections(rec);
 
             List<TrackSection> checkpoints = rec.TrackSections
                 .Where(s => s.referenceFrame == ReferenceFrame.OrbitalCheckpoint)
                 .ToList();
 
-            Assert.Equal(2, checkpoints.Count);
+            // The ENVELOPE is the survivor here, the opposite of the all-payload triple:
+            // {shell, re-clip} does not cover [T0,T2] because a shell is never a coverer.
+            Assert.Single(checkpoints);
             Assert.Equal(t0, checkpoints[0].startUT);
-            Assert.Equal(t1, checkpoints[0].endUT);
-            Assert.Equal(t1, checkpoints[1].startUT);
-            Assert.Equal(t2, checkpoints[1].endUT);
+            Assert.Equal(t2, checkpoints[0].endUT);
+            Assert.Single(checkpoints[0].checkpoints);
 
             // The per-frame brackets are untouched, in place and in order.
             Assert.Equal(ReferenceFrame.Absolute, rec.TrackSections[0].referenceFrame);
-            Assert.Equal(ReferenceFrame.Absolute, rec.TrackSections[3].referenceFrame);
-            Assert.Equal(4, rec.TrackSections.Count);
+            Assert.Equal(ReferenceFrame.Absolute, rec.TrackSections[2].referenceFrame);
+            Assert.Equal(3, rec.TrackSections.Count);
         }
 
         [Fact]
-        public void MeasuredTriple_LogsOneSummaryLineNamingTheDroppedSpan()
+        public void MeasuredTriple_LogsOneSummaryLineNamingTheDroppedSpans()
         {
-            Recording rec = TripleResidue("041770246260406ab85b59495eb51f45",
+            Recording rec = MeasuredTripleResidue("041770246260406ab85b59495eb51f45",
                 6737626.584, 6737631.955, 6738050.344);
             logLines.Clear();
 
@@ -205,9 +258,157 @@ namespace Parsek.Tests
                 l.Contains("[RecordingStore]")
                 && l.Contains("Checkpoint double-cover retired:")
                 && l.Contains("rec=041770246260406ab85b59495eb51f45")
-                && l.Contains("dropped=1")
-                && l.Contains("kept=4")
+                && l.Contains("dropped=2")
+                && l.Contains("kept=3")
                 && l.Contains("6738050.344"));
+        }
+
+        [Fact]
+        public void SyntheticAllPayloadTriple_RetiresTheEnvelopeAndKeepsTheTiling()
+        {
+            // SYNTHETIC shape, not the measured one: with both legs carrying the conic the
+            // tiling DOES cover the envelope, so the envelope is what goes.
+            Recording rec = SyntheticAllPayloadTriple("synthetic-all-payload", 100.0, 150.0, 400.0);
+            List<(double, double)> before = Union(rec);
+
+            Assert.Equal(1, CheckpointDoubleCoverRetire.TryRetireRedundantCheckpointSections(rec));
+
+            List<TrackSection> checkpoints = rec.TrackSections
+                .Where(s => s.referenceFrame == ReferenceFrame.OrbitalCheckpoint)
+                .ToList();
+            Assert.Equal(2, checkpoints.Count);
+            Assert.Equal(100.0, checkpoints[0].startUT);
+            Assert.Equal(150.0, checkpoints[0].endUT);
+            Assert.Equal(150.0, checkpoints[1].startUT);
+            Assert.Equal(400.0, checkpoints[1].endUT);
+            Assert.Equal(before, Union(rec));
+            Assert.Empty(Inv2Overlaps(rec));
+        }
+
+        // --- the real operator bytes -------------------------------------------
+
+        /// <summary>
+        /// The three operator `.prec` sidecars, committed verbatim from the
+        /// `orbital supply route` save (the collect-logs snapshot
+        /// `2026-08-19_0028_basic-ui-check`). Binary v0, the only encoding
+        /// <see cref="RecordingStore.DeserializeTrajectorySidecar"/> supports, so this
+        /// drives the SAME read path as `SaveDirectoryLoader` and `ParsekScenario.OnLoad`.
+        ///
+        /// <para>Every number here was MEASURED through that path, not predicted:
+        /// sections before/after, the dropped section indices, the INV2 overlap count
+        /// before/after, and the count of findings that STAND afterwards.</para>
+        /// </summary>
+        public static IEnumerable<object[]> RealBytes()
+        {
+            //                          id                            sectionsBefore after drop[0] drop[1] inv2Before after
+            yield return new object[] { "041770246260406ab85b59495eb51f45", 57, 55, 45, 47, 3, 1 };
+            yield return new object[] { "36c7688b8e5141f7809e2d4dbe9dc094", 64, 62, 58, 60, 4, 2 };
+            yield return new object[] { "58130506e8f84025b78a95d2497534ab", 25, 23, 5, 7, 3, 1 };
+        }
+
+        internal static string ResidueFixtureDir()
+        {
+            return Path.Combine(RepoRoot(), "Source", "Parsek.Tests",
+                "Fixtures", "Inv2DoubleCoverResidue");
+        }
+
+        internal static Recording LoadResidueFixture(string id)
+        {
+            string path = Path.Combine(ResidueFixtureDir(), id + ".prec");
+            Assert.True(File.Exists(path), "residue fixture must exist at " + path);
+            var rec = new Recording { RecordingId = id };
+            Assert.True(RecordingStore.LoadTrajectorySidecarForTesting(path, rec),
+                "the production read path must accept " + path);
+            return rec;
+        }
+
+        [Theory]
+        [MemberData(nameof(RealBytes))]
+        public void RealBytes_RetireDropsTheShellAndTheReclip_AndTheUnionAndSplitsStayPut(
+            string id, int sectionsBefore, int sectionsAfter,
+            int dropIndexShell, int dropIndexReclip, int inv2Before, int inv2After)
+        {
+            Recording rec = LoadResidueFixture(id);
+            Assert.Equal(sectionsBefore, rec.TrackSections.Count);
+            Assert.Equal(inv2Before, Inv2Overlaps(rec).Count);
+
+            // The two sections the pass must drop, read off the loaded bytes: a
+            // payload-less shell and a re-clip, both OrbitalCheckpoint.
+            TrackSection shell = rec.TrackSections[dropIndexShell];
+            TrackSection reclip = rec.TrackSections[dropIndexReclip];
+            Assert.Equal(ReferenceFrame.OrbitalCheckpoint, shell.referenceFrame);
+            Assert.Equal(ReferenceFrame.OrbitalCheckpoint, reclip.referenceFrame);
+            Assert.Empty(shell.checkpoints);
+            Assert.Single(reclip.checkpoints);
+
+            List<(double, double)> unionBefore = Union(rec);
+            List<double> splitBefore = CheckpointDoubleCoverRetire.SplittableBoundaryUTs(rec);
+            Assert.Equal(new List<int> { dropIndexShell, dropIndexReclip },
+                CheckpointDoubleCoverRetire.FindRedundantCheckpointSections(rec.TrackSections));
+
+            Assert.Equal(2, CheckpointDoubleCoverRetire.TryRetireRedundantCheckpointSections(rec));
+
+            Assert.Equal(sectionsAfter, rec.TrackSections.Count);
+            Assert.Equal(unionBefore, Union(rec));
+            Assert.Equal(splitBefore, CheckpointDoubleCoverRetire.SplittableBoundaryUTs(rec));
+            Assert.Equal(inv2After, Inv2Overlaps(rec).Count);
+
+            // Idempotent on the real bytes too.
+            Assert.Equal(0, CheckpointDoubleCoverRetire.TryRetireRedundantCheckpointSections(rec));
+        }
+
+        /// <summary>
+        /// WHAT STANDS AFTER THE PASS, on the real bytes, and why the entry must NOT claim
+        /// the save analyzes clean: every remaining INV2 overlap is a frame-LESS
+        /// <c>Absolute</c> section whose span exactly equals the checkpoint section beside
+        /// it. That is a different population - Absolute sections are never candidates and
+        /// never coverers here - filed as
+        /// EMPTY-ABSOLUTE-SECTION-EXACT-SPAN-DUPLICATE-OF-ITS-CHECKPOINT. This cell exists
+        /// so the claim stays measured: if a later change clears them, it reds here.
+        /// </summary>
+        [Theory]
+        [MemberData(nameof(RealBytes))]
+        public void RealBytes_WhatStandsAfterwardsIsAlwaysAnEmptyAbsoluteExactSpanDuplicate(
+            string id, int sectionsBefore, int sectionsAfter,
+            int dropIndexShell, int dropIndexReclip, int inv2Before, int inv2After)
+        {
+            _ = sectionsBefore;
+            _ = sectionsAfter;
+            _ = dropIndexShell;
+            _ = dropIndexReclip;
+            _ = inv2Before;
+
+            Recording rec = LoadResidueFixture(id);
+            CheckpointDoubleCoverRetire.TryRetireRedundantCheckpointSections(rec);
+
+            List<Finding> standing = Inv2Overlaps(rec);
+            Assert.Equal(inv2After, standing.Count);
+            Assert.NotEmpty(standing);
+
+            foreach (Finding finding in standing)
+            {
+                // Each standing finding names one span; find the sections that carry it.
+                List<TrackSection> onThatSpan = rec.TrackSections
+                    .Where(s => finding.Message.Contains(
+                        s.startUT.ToString("R", CultureInfo.InvariantCulture))
+                        && finding.Message.Contains(
+                            s.endUT.ToString("R", CultureInfo.InvariantCulture)))
+                    .ToList();
+
+                Assert.Equal(2, onThatSpan.Count);
+                TrackSection abs = Assert.Single(onThatSpan
+                    .Where(s => s.referenceFrame == ReferenceFrame.Absolute));
+                TrackSection cp = Assert.Single(onThatSpan
+                    .Where(s => s.referenceFrame == ReferenceFrame.OrbitalCheckpoint));
+
+                // The Absolute one is EMPTY - it is a shell of a different reference frame,
+                // which is exactly why this pass does not touch it.
+                Assert.Empty(abs.frames);
+                Assert.Empty(abs.bodyFixedFrames);
+                Assert.Empty(abs.checkpoints);
+                Assert.Equal(cp.startUT, abs.startUT);
+                Assert.Equal(cp.endUT, abs.endUT);
+            }
         }
 
         // --- the shapes it must NOT touch -------------------------------------
@@ -274,24 +475,60 @@ namespace Parsek.Tests
             Assert.Equal(before, Spans(rec));
         }
 
+        /// <summary>
+        /// A shell covered by a payload-bearing section IS retired here, because the
+        /// producer's own reconcile is gated off on both READ paths
+        /// (`reconcileEmptySections: false` in `TrajectorySidecarBinary.Read` and
+        /// `TrajectoryTextSidecarCodec.DeserializeTrajectoryFrom`), so nothing else retires
+        /// it at load. Dropping it is lossless in the strongest sense: it described
+        /// nothing.
+        /// </summary>
         [Fact]
-        public void PayloadLessCheckpointShell_IsLeftToTheProducersEmptyShellReconcile()
+        public void PayloadLessCheckpointShell_IsRetiredWhenAPayloadBearingSectionCoversIt()
         {
-            TrackSection shell = OrbitSegmentCheckpointBridge.BuildOpenCheckpointSection(100.0);
-            shell.endUT = 200.0;
-
             var rec = new Recording
             {
                 RecordingId = "shell",
                 TrackSections = new List<TrackSection>
                 {
                     Checkpoint(Conic(100.0, 200.0)),
-                    shell
+                    Shell(100.0, 200.0)
+                }
+            };
+            List<(double, double)> before = Union(rec);
+
+            Assert.Equal(new List<int> { 1 },
+                CheckpointDoubleCoverRetire.FindRedundantCheckpointSections(rec.TrackSections));
+            Assert.Equal(1, CheckpointDoubleCoverRetire.TryRetireRedundantCheckpointSections(rec));
+            Assert.Single(rec.TrackSections);
+            Assert.Single(rec.TrackSections[0].checkpoints);
+            Assert.Equal(before, Union(rec));
+            Assert.Empty(Inv2Overlaps(rec));
+        }
+
+        /// <summary>
+        /// A shell is a CANDIDATE but never a COVERER, so two mutually-covering shells
+        /// retire neither: with nothing payload-bearing behind them, dropping one would be
+        /// a decision taken on no evidence about the span. INV2 keeps reporting the pair,
+        /// correctly. Nothing in the measured residue is this shape.
+        /// </summary>
+        [Fact]
+        public void TwoShellsCoveringOnlyEachOther_RetireNeither()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "shell-pair",
+                TrackSections = new List<TrackSection>
+                {
+                    Shell(100.0, 200.0),
+                    Shell(100.0, 200.0)
                 }
             };
 
             Assert.Empty(CheckpointDoubleCoverRetire.FindRedundantCheckpointSections(rec.TrackSections));
             Assert.Equal(0, CheckpointDoubleCoverRetire.TryRetireRedundantCheckpointSections(rec));
+            Assert.Equal(2, rec.TrackSections.Count);
+            Assert.NotEmpty(Inv2Overlaps(rec));
         }
 
         [Fact]
@@ -330,6 +567,85 @@ namespace Parsek.Tests
             };
 
             Assert.Empty(CheckpointDoubleCoverRetire.FindRedundantCheckpointSections(rec.TrackSections));
+        }
+
+        /// <summary>
+        /// The DIFFERENT-CONIC TILE, spelled out because the outcome is defensible but not
+        /// obvious: envelope [100,300] carrying conic A, tile [100,200] carrying a
+        /// DIFFERENT conic B, tile [200,300] carrying A again. The envelope stays (B does
+        /// not cover its conic over [100,200]), the same-conic tile goes (a genuine
+        /// re-clip), the different-conic tile stays - so the union is still, no payload is
+        /// lost, and INV2 GOES ON REPORTING the envelope-vs-B overlap. That is correct:
+        /// two different conics over one span is a producer question this pass must not
+        /// paper over.
+        /// </summary>
+        [Fact]
+        public void DifferentConicTile_KeepsTheEnvelopeAndTheTile_AndInv2StaysRed()
+        {
+            var rec = new Recording
+            {
+                RecordingId = "different-conic-tile",
+                TrackSections = new List<TrackSection>
+                {
+                    Checkpoint(Conic(100.0, 300.0)),
+                    Checkpoint(Conic(100.0, 200.0, sma: 1234567.0)),
+                    Checkpoint(Conic(200.0, 300.0))
+                }
+            };
+            List<(double, double)> before = Union(rec);
+
+            Assert.Equal(new List<int> { 2 },
+                CheckpointDoubleCoverRetire.FindRedundantCheckpointSections(rec.TrackSections));
+            Assert.Equal(1, CheckpointDoubleCoverRetire.TryRetireRedundantCheckpointSections(rec));
+
+            Assert.Equal(2, rec.TrackSections.Count);
+            Assert.Equal(100.0, rec.TrackSections[0].startUT);
+            Assert.Equal(300.0, rec.TrackSections[0].endUT);
+            Assert.Equal(1234567.0, rec.TrackSections[1].checkpoints[0].semiMajorAxis);
+            Assert.Equal(before, Union(rec));
+            Assert.NotEmpty(Inv2Overlaps(rec));
+        }
+
+        // --- the UtTolerance boundary -----------------------------------------
+
+        /// <summary>
+        /// A shell [0,200] over two payload sections separated by <paramref name="gap"/>.
+        /// The gap is the only variable, so the cell measures exactly what UtTolerance
+        /// buys: a hole narrower than it reads as covered.
+        /// </summary>
+        private static Recording GappedCoverOfAShell(double gap)
+        {
+            return new Recording
+            {
+                RecordingId = "ut-tolerance",
+                TrackSections = new List<TrackSection>
+                {
+                    Shell(0.0, 200.0),
+                    Checkpoint(Conic(0.0, 100.0)),
+                    Checkpoint(Conic(100.0 + gap, 200.0))
+                }
+            };
+        }
+
+        [Fact]
+        public void UtToleranceBoundary_AGapBelowTheToleranceIsBridged()
+        {
+            // 5e-7 < UtTolerance (1e-6): covered, so the shell goes.
+            Recording rec = GappedCoverOfAShell(5e-7);
+            Assert.Equal(new List<int> { 0 },
+                CheckpointDoubleCoverRetire.FindRedundantCheckpointSections(rec.TrackSections));
+        }
+
+        [Fact]
+        public void UtToleranceBoundary_AGapAboveTheToleranceIsRefused()
+        {
+            // 2e-6 > UtTolerance (1e-6): a real hole, so nothing is retired and INV2 keeps
+            // reporting. The two cells together pin the constant from both sides; a change
+            // to UtTolerance reds one of them.
+            Recording rec = GappedCoverOfAShell(2e-6);
+            Assert.Empty(CheckpointDoubleCoverRetire.FindRedundantCheckpointSections(rec.TrackSections));
+            Assert.Equal(0, CheckpointDoubleCoverRetire.TryRetireRedundantCheckpointSections(rec));
+            Assert.Equal(3, rec.TrackSections.Count);
         }
 
         // --- the other retirable shapes ---------------------------------------
@@ -431,8 +747,8 @@ namespace Parsek.Tests
         [Fact]
         public void SecondPassDropsZero()
         {
-            Recording rec = TripleResidue("idempotent", 100.0, 150.0, 400.0);
-            Assert.Equal(1, CheckpointDoubleCoverRetire.TryRetireRedundantCheckpointSections(rec));
+            Recording rec = MeasuredTripleResidue("idempotent", 100.0, 150.0, 400.0);
+            Assert.Equal(2, CheckpointDoubleCoverRetire.TryRetireRedundantCheckpointSections(rec));
 
             logLines.Clear();
             Assert.Equal(0, CheckpointDoubleCoverRetire.TryRetireRedundantCheckpointSections(rec));
@@ -443,7 +759,7 @@ namespace Parsek.Tests
         [Fact]
         public void TheDecisionIsDeterministicAcrossRepeatedEvaluation()
         {
-            Recording rec = TripleResidue("deterministic", 100.0, 150.0, 400.0);
+            Recording rec = MeasuredTripleResidue("deterministic", 100.0, 150.0, 400.0);
             List<int> first = CheckpointDoubleCoverRetire.FindRedundantCheckpointSections(rec.TrackSections);
             for (int i = 0; i < 5; i++)
             {
@@ -484,7 +800,7 @@ namespace Parsek.Tests
         [Fact]
         public void RouteProofHashIsUnchangedByTheRetire()
         {
-            Recording rec = TripleResidue("route-source", 100.0, 150.0, 400.0);
+            Recording rec = MeasuredTripleResidue("route-source", 100.0, 150.0, 400.0);
             rec.RouteConnectionWindows = new List<RouteConnectionWindow>
             {
                 new RouteConnectionWindow
@@ -503,7 +819,7 @@ namespace Parsek.Tests
             Assert.NotEqual(RouteProofHasher.NoRouteProofSentinel, before);
             int sidecarEpochBefore = rec.SidecarEpoch;
 
-            Assert.Equal(1, CheckpointDoubleCoverRetire.TryRetireRedundantCheckpointSections(rec));
+            Assert.Equal(2, CheckpointDoubleCoverRetire.TryRetireRedundantCheckpointSections(rec));
 
             Assert.Equal(before, RouteProofHasher.ComputeRouteProofHashFromRecording(rec));
             // The whole persistence decision in one assertion: nothing is dirtied, so the
@@ -526,18 +842,18 @@ namespace Parsek.Tests
                     Checkpoint(Conic(100.0, 200.0))
                 }
             };
-            Recording dirty = TripleResidue("dirty", 1000.0, 1100.0, 1400.0);
+            Recording dirty = MeasuredTripleResidue("dirty", 1000.0, 1100.0, 1400.0);
 
             logLines.Clear();
             int retired = CheckpointDoubleCoverRetire.RetireAcrossRecordings(
                 new List<Recording> { clean, dirty });
 
-            Assert.Equal(1, retired);
+            Assert.Equal(2, retired);
             Assert.Contains(logLines, l =>
                 l.Contains("Checkpoint double-cover retire pass:")
                 && l.Contains("recordings=2")
                 && l.Contains("affected=1")
-                && l.Contains("droppedSections=1"));
+                && l.Contains("droppedSections=2"));
             Assert.DoesNotContain(logLines, l => l.Contains("rec=clean"));
         }
 
