@@ -62,7 +62,7 @@ None of the items in this roadmap are blocked on a missing module.
 Re-derived 2026-09-07 at `cc1c4c573`: `ls harness/scenarios/*.toml` returns **212**
 files, the total `autotest-status.md`'s `## Test cases` header states and
 `AutotestStatusScenarioCountTests` pins against the committed files. The 68 below
-was the 2026-08-04 snapshot; the V / G / GS / W / L / RVR / H41-H60 waves took it
+was the 2026-08-04 snapshot; the V / GS / W / L / RVR / H41-H60 waves, among others, took it
 from 68 to 212 between 2026-08-04 and 2026-09-07.
 
 `ls harness/scenarios/*.toml` returned **68** files when this section was last
@@ -153,7 +153,7 @@ deletion rather than coverage.)
 (the other seven are exactly the current uncovered set) - and the D9 paragraph
 below is HISTORY: R3 closed by flight on 2026-07-29 (S4.1 and S1.5 both green
 unattended on their own rows, see R3), S4.1's `[expectations.rewind]` block was
-armed 2026-07-31, and the R7 / S4.x / GS-4 / H58 lanes since then carry the
+armed 2026-07-31, and the R7 / S4.x / GS-6 / CL-3 lanes since then carry the
 dimension, so D9 is **1 of 17 uncovered** (`load-time-sweep`, a unit-level
 sweep no lane drives) rather than 15 of 16 unproven.
 
@@ -943,8 +943,10 @@ B's own report-only flight (expected `supersedeRows >= 1`, `tombstones >= 1`)
 before arming, exactly as S4.1 just did; (b) ~~`route` / `loop` stay RESERVED -
 their consumers do not exist (zero committed declarers), so no evaluator was
 built for them~~ - UPDATED 2026-09-07: `route` SHIPPED 2026-09-02 as
-`[expectations.routes]` (PR #1603; declared by H58, H59, V18T, RVR-5, RVR-7;
-ARMED on RVR-7 2026-09-03 and demonstrated gating on V18T / V26T 2026-09-06),
+`[expectations.routes]` (PR #1603; declared by 21 specs - H58, H59, V18T, RVR-5,
+RVR-7, B32, V26M, V26T and the RVR-8..RVR-20 matrix; ARMED on exactly three at
+HEAD: RVR-7 (2026-09-03), RVR-20 and V18T, whose armed block passed gating with
+zero mismatches on its 2026-09-06 re-flight; V26T's block is report-only),
 so what is open in (b) is the promotion of the report-only declarers, per the
 supply-route program's machinery register; `loop` stays RESERVED by choice with
 zero declarers; (c) the analyzer-PR half (TrackSection frame/anchor +
@@ -2445,7 +2447,7 @@ Forensics live in `docs/dev/todo-and-known-bugs.md`; this is a pointer index onl
 | B4 `chuteDeployed` is still a commanded latch (known-gate 7, audit debt) | Same class that let B1 ship four months of green nightlies on a chute that never opened. B4's fixture carries the same `automateSafeDeploy = 0`. Needs its own diagnosis from a B4 recording before anyone concludes either way. |
 | INV2 double-cover recorder seam (known-gate 5) | Real Parsek defect, fixed in its own lane. |
 | The no-1x-coast certification cannot see coast warp-thrash (known-gate 8) | A real gap in an existing gate. Bounded for now by the machine-side thrash fast-fail. |
-| ~~`autotest-status.md` EVA-2 rows contradict themselves~~ (CLOSED, verified 2026-09-07: `grep "does not exist yet" docs/dev/autotest-status.md` returns nothing at `cc1c4c573`, and the EVA-2 row reads LIVE-PROVEN 2026-07-24) | Was: the EVA table said "STILL pending-fixture: `eva2-lko-crewed` does not exist yet" while the section header says all four EVA scenarios are LIVE-PROVEN, Operator item 2 says the fixture was forged and committed, the fixture exists on disk with 7 VESSEL nodes, the spec reads `tier = "daily"`, and `duration.json` carries a measured 57 s run. Not a system bug; a stale doc row that reads as a blocker. Deliberately NOT edited here to avoid colliding with concurrent sessions; filed as a todo. |
+| ~~`autotest-status.md` EVA-2 rows contradict themselves~~ (CLOSED, verified 2026-09-07: the contradicting row is gone - the only `does not exist yet` left in `docs/dev/autotest-status.md` at `cc1c4c573` is the `eva2-lko-crewed` fixture row's own "Row corrected 2026-07-29" note quoting the old text - and the EVA-2 row reads LIVE-PROVEN 2026-07-24) | Was: the EVA table said "STILL pending-fixture: `eva2-lko-crewed` does not exist yet" while the section header says all four EVA scenarios are LIVE-PROVEN, Operator item 2 says the fixture was forged and committed, the fixture exists on disk with 7 VESSEL nodes, the spec reads `tier = "daily"`, and `duration.json` carries a measured 57 s run. Not a system bug; a stale doc row that reads as a blocker. Deliberately NOT edited here to avoid colliding with concurrent sessions; filed as a todo. |
 | ~~The L6 recover lane's landed dwell straddles the optimizer's 5 s split floor~~ (CLOSED 2026-09-02, branch `l6-dwell-variants`) | Was: `L6-career-same-name-recover` committed 4, then 3, then 4 recordings on one fixture and one DLL, because the second half of its touchdown split (`recoverUT - touchdownSectionUT`) measured 5.34 / 4.82 / 5.88 s against `CanAutoSplitIgnoringGhostTriggers`'s 5.0 s both-halves floor - so no count pin could be exact and the lane could not be promoted. THE FLOOR STAYS (it is the hop guard); the INPUT is now controlled. `science_bench_recover` gained an optional `preRecoverDwellSeconds` (default 0.0 = the pre-change machine, replayed against `origin/main` rather than asserted), L6 declares 12.0 and pins its counts exactly, the new sibling `L6-career-same-name-natural-dwell` keeps the uncontrolled range as an A/B control, and the sub-floor side - which no hold can produce, since a hold only lengthens a tail - is pinned headlessly at the measured magnitudes by `RecordingOptimizerTests`. ALL THREE READING RUNS FLEW 2026-09-02: L6 long PASS with count=4 and every exact pin matched (realized tail 11.84 s, margin +6.84 s - the predicted landedUT-to-section offset was 3.4 s and MEASURED 0.50 s, wrong in the safe direction), the natural-dwell control PASS at a 5.70 s tail (0.70 s above the floor, so the natural band is now four points with one still below), and L3 PARSEK-FAIL on ONE token that is a landing-site biome roll rather than the dwell (L3-CREWREPORT-BIOME-PIN-DEPENDS-ON-LANDING-SITE; L3's timeline is unmoved, measured against the prior recovery run at 0.16-0.20 s). THE ARMED RUN AND ITS CONTROL THEN FLEW THE SAME EVENING: `_1847` PASS with mismatches=0 and an 11.66 s tail (second green on the exact pins), and the uncommitted `L6-negctl-long-dwell-namematches-three` PARSEK-FAIL on exactly the seeded token with zero forbids. Two greens plus a discriminating control = the armed discipline; what remains is the ordinary promotion call. Forensics: L6-RECOVER-DWELL-STRADDLES-SPLIT-FLOOR |
 | `harness/fixtures/saves/bdock-station-craft/` is an orphan | No spec LOADS it: no `saveTemplate` points at it. It IS named in a provenance comment at `BDOCK-1-station-interceptor.toml:97` (whose own `saveTemplate` is `bdock-station-pad`), and by `harness/tools/harvest_bdock_station.py` plus the design doc. Decide keep or delete - and if delete, drop that comment reference with it. UPDATE 2026-09-07: still no `saveTemplate` points at it, but it is no longer reference-free on the test side - `harness/lib/test_saveparse.py` (`EXPECTED_SCENARIO_PRESENCE`) and `harness/fixtures/shared-ships.toml` both enumerate it, so a delete edits both plus the BDOCK-1 comment. The keep-or-delete call is still the operator's; the default is KEEP (it is the harvested provenance of `bdock-station-pad` and two suites pin it). |
 | ~~`S1.5-rewind-loop.toml:3-8` and `S4.1-rewind-merge.toml:3-9` carry a SPACECENTER-host premise contradicted by the LoadRoute contract~~ (CLOSED: both headers were rewritten 2026-07-26 with the corrected `LoadGame` premise, both re-tiered `nightly`, and R3 closed by flight 2026-07-29) | Was: kept two specs and up to 16 cells off every cadence. |
