@@ -20,7 +20,11 @@ _(unreleased — entries accumulate here per commit)_
   opens the map view before its mission and requires the seam trace line, so a run that
   never reached the seam reads as a mismatch instead of a clean bill. The two alternatives
   the lane had named (a to-the-second co-departure, an automation-only zone-relax hook) are
-  recorded as not achievable and not needed in `docs/dev/autotest-roadmap.md`.
+  recorded as not achievable and not needed in `docs/dev/autotest-roadmap.md`. Flown three times the same evening, the lane
+  observed the handoff for the first time from an unattended run - a jump of about
+  one Duna sphere-of-influence radius at the seam, the 2026-06-15 defect reproduced -
+  and is now live-proven and armed on that reproduction, so it reds when the defect
+  is fixed.
 
 ### Fixed
 

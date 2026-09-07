@@ -136,11 +136,57 @@ id = "V3C-flight-arrival-companion"
 #   the seam at 10,000x (KSP's WarpTo ramp), so the GS-3 red is EXPECTED but
 #   depends on the ramp on the day; the SEAM line's jump= value is the
 #   rate-independent measurement.
+#   READING RUN UNDER THE MAP-OPEN SHAPE (2026-09-07_1906, PASS attempt 1,
+#   wall 953 s, mission 893 s, MISSION-OK, every verifier PASS/SKIPPED; DLL
+#   built from this branch at origin/main 31dd5764a + docs, deployed hash
+#   dfa0cc19...3252 re-asserted before launch). THE SEAM WAS OBSERVED, FOR THE
+#   FIRST TIME BY ANY UNATTENDED RUN:
+#     [ReaimSeam] SEAM member=0 seg#3->4 body=Duna loopUT 9126287->9128287
+#       jump=47431188m (prevPos->thisPos discontinuity)
+#   47.43 Mm at the Sun->Duna handoff = 0.990 x Duna's SOI radius
+#   (47,921,949 m): the 2026-06-15 transform teleport, reproduced. The
+#   prediction in the roadmap section held on every count: entermapview ok
+#   mapOpen=true; unit-member-warp-hidden x0 (was x46 on _0747); the #171
+#   exempt line x37 and dist[] x88 (was 25 / 56) with the ghost tracked to
+#   dist[Duna]=128 Mm one frame before the seam; hidden-by-zone x412 all in
+#   the 1x planning windows (the zone gate at 1x is untouched by the map, as
+#   stated). loop-seam-teleport did NOT raise, by the rate arithmetic above:
+#   the seam frame's loop clock stepped 2,000 s (100,000x effective), so the
+#   threshold was ~177 Mm against the 47.4 Mm jump. Census: recordings 3
+#   (injected + live DD1 + one JointBreak debris), trees 2, committedTrees 2,
+#   terminalStates Orbiting 2 / Destroyed 1, points total 582, anomalies none,
+#   analyzer red=0, ledger oracle PASS, structure clean.
+#   ARMED OFF THAT RUN'S BYTES (the GS-3 inversion, tolerate-plus-require):
+#   the required SEAM token now pins seg#3->4 and the DEFECT CLASS
+#   jump=[1-9][0-9]{6,}m (>= 1,000 km, the same floor the Tier-C instrument
+#   uses; healthy recorded seams measure 7-10 km on S1.8), so this lane REDS
+#   WHEN THE TELEPORT IS FIXED - which is the point: it is the regression
+#   target that flips when the option-3 work lands, at which time the token
+#   is inverted to the healthy class. loop-seam-teleport is TOLERATED (it is
+#   rate-dependent - a seam frame at <= 10,000x raises it, at 100,000x it
+#   does not - and the SEAM token already carries the reproduction); the
+#   recordings count is pinned at 3 and the structure block is declared
+#   REPORT-ONLY with the observed integers.
+#   ARMED RE-FLIGHT (2026-09-07_1932, PASS attempt 1, wall 930 s, mission
+#   876 s; DLL rebuilt after the origin/main merge, deployed hash 433291dc...
+#   743da re-asserted): SEAM member=0 seg#3->4 body=Duna loopUT
+#   9126127->9128127 jump=47523736m (0.992 x SOI; 0.2% from the reading's
+#   47,431,188 m), unit-member-warp-hidden x0, exempt x36, dist[] x85,
+#   hidden-by-zone x410, anomalies none, census identical to the integer
+#   (recordings 3, trees 2, committedTrees 2, Orbiting 2 / Destroyed 1,
+#   JointBreak 1). The armed windows hold against a run they were not
+#   written from.
+#   NEGATIVE CONTROL (2026-09-07_1955, PARSEK-FAIL(expectation), wall 930 s): the required jump
+#   class was inverted to the healthy one (jump=[0-9]{1,6}m) and flown; the
+#   seam reproduced (jump=47525840m) so the token MISSED and the run red on
+#   exactly that expectation with every sibling row green, proving the pin
+#   discriminates the defect class from a healthy seam. Reverted in the
+#   same change; the committed token is the defect-class one above.
 # =====================================================================================
 tier = "operator"
-description = "COMPANION FLIGHT: the flown B17 pad-align Duna mission flies a fresh DD1 while the injected looped-interplanetary recording replays ENGAGED re-aim alongside, with the MAP OPEN for the whole flight (EnterMapView before the mission phase) so the flight engine keeps the far loop ghost positioned through the Sun->Duna seam instant under rails warp (map view lifts the >50x warp hide, the #171 warp exemption lifts the 120 km zone hide - the 2026-09-07 co-location decision, roadmap section). ghostRenderTracing + the loop-seam-teleport Tier-C instrument armed; the [ReaimSeam] SEAM body=Duna line is REQUIRED (anti-vacuity), and the known ~62-deg handoff teleport is the EXPECTED red on this reading run when the seam frame rides <= 10,000x."
+description = "COMPANION FLIGHT: the flown B17 pad-align Duna mission flies a fresh DD1 while the injected looped-interplanetary recording replays ENGAGED re-aim alongside, with the MAP OPEN for the whole flight (EnterMapView before the mission phase) so the flight engine keeps the far loop ghost positioned through the Sun->Duna seam instant under rails warp (map view lifts the >50x warp hide, the #171 warp exemption lifts the 120 km zone hide - the 2026-09-07 co-location decision, roadmap section). ghostRenderTracing + the loop-seam-teleport Tier-C instrument armed; ARMED 2026-09-07 off reading run 2026-09-07_1906 (PASS attempt 1, wall 953 s), which observed the seam for the first time from any unattended run: [ReaimSeam] SEAM member=0 seg#3->4 body=Duna jump=47431188m, 0.990 x Duna's SOI radius - the 2026-06-15 teleport reproduced. The required token pins that DEFECT CLASS (jump >= 1,000 km; the GS-3 inversion: this lane reds when the teleport is fixed), loop-seam-teleport is tolerated because its raise is rate-dependent (silent at the 100,000x the seam frame rode), the recordings census is pinned at 3."
 instanceProfile = "stock-minimal"
-tags = ["V3", "flight-arrival", "companion", "reaim", "interplanetary", "pending-flight", "reading-iteration"]
+tags = ["V3", "flight-arrival", "companion", "reaim", "interplanetary", "flown", "armed"]
 
 [fixture]
 # Stamped by FORGE-b17-duna-pad + harvest_bdock_station.py --target-name
@@ -359,12 +405,28 @@ D14 = ["scene-flight", "sandbox"]
 # PLACEMENT IS LOAD-BEARING: allowedAnomalies must precede every
 # [expectations.<sub>] header or TOML scopes it into the sub-table
 # (hlib.validate_spec rejects the misplaced form).
-allowedAnomalies = []
+# loop-seam-teleport is TOLERATED, not required: its raise is rate-dependent
+# (threshold max(1,000 km, (bodySpeed + 15 km/s) * dt * 4); a seam frame at
+# <= 10,000x raises it, the 100,000x frame _1906 rode did not), and the
+# reproduction itself rides the required [ReaimSeam] SEAM defect-class token,
+# which is rate-independent. Tolerate-plus-require, per the header's GS-3 plan.
+allowedAnomalies = ["loop-seam-teleport"]
 
 [expectations.recordings]
-# Injected synthetic recording + the live flight's main recording + debris;
-# generous reading window (the exact census gets pinned from this run).
-count = { min = 2, max = 6 }
+# PINNED off _1906: the injected synthetic recording + the live DD1's main
+# recording + its one JointBreak debris (the hot-staged booster) = 3.
+count = { min = 3, max = 3 }
+
+[expectations.recordings.structure]
+# REPORT-ONLY (gating stays false): the observed integers from _1906, so a
+# drift in the topology is reported without gating a lane whose contract is
+# the seam token. Arming waits for a second matching reading, per the
+# saveParse discipline.
+trees          = { min = 2, max = 2 }
+committedTrees = { min = 2, max = 2 }
+recordings     = { min = 3, max = 3 }
+terminalStates = { Orbiting = { min = 2, max = 2 }, Destroyed = { min = 1, max = 1 } }
+branchPoints   = { JointBreak = { min = 1, max = 1 } }
 
 [expectations.rewind]
 # REPORT-ONLY on the reading run.
@@ -394,7 +456,12 @@ required  = [
   # that never reached the seam surface (the V3F/V3R/_0747 lesson) reads as a
   # mismatch here instead of a clean bill. The jump= value on the matched line
   # is the rate-independent seam measurement.
-  "\\[ReaimSeam\\] SEAM member=0 seg#[0-9]+->[0-9]+ body=Duna",
+  # ARMED 2026-09-07 off _1906's own line (seg#3->4, jump=47431188m): the DEFECT
+  # CLASS is pinned (jump >= 1,000 km = seven or more digits; healthy recorded
+  # seams measure 7-10 km on S1.8), so this token FLIPS when the teleport is
+  # fixed - invert it to jump=[0-9]{1,6}m at that time. It is also the
+  # negative-control token (see header).
+  "\\[ReaimSeam\\] SEAM member=0 seg#3->4 body=Duna loopUT [0-9]+->[0-9]+ jump=[1-9][0-9]{6,}m",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",

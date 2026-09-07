@@ -2653,6 +2653,25 @@ predicts zero `unit-member-warp-hidden` GuardSkips during the coast, `engine-fra
 still shows `hs=F`, the cause is a third gate this reading did not name, and the lane
 stays a finding about reach.
 
+**Measured the same evening, three flights, the claim held on every count.** Reading run
+`2026-09-07_1906` (PASS attempt 1, wall 953 s): `entermapview ok mapOpen=true`;
+`unit-member-warp-hidden` x0 (was x46); the exempt line x37 and `dist[]` x88 (was 25 /
+56) with the ghost tracked to `dist[Duna]=128 Mm` one frame before the handoff; and ONE
+`[ReaimSeam] SEAM member=0 seg#3->4 body=Duna loopUT 9126287->9128287 jump=47431188m`
+line - a 47.43 Mm transform discontinuity at the Sun->Duna seam, 0.990 x Duna's SOI
+radius, which is the 2026-06-15 teleport reproduced by an unattended run for the first
+time. `loop-seam-teleport` did NOT raise, by the rate arithmetic above: the seam frame's
+loop clock stepped 2,000 s (100,000x effective), so the threshold was ~177 Mm. The
+armed re-flight `2026-09-07_1932` (PASS attempt 1, wall 930 s) repeated it at
+`jump=47523736m` (0.2% apart) with an identical census, and the negative control
+`2026-09-07_1955` (PARSEK-FAIL(expectation)) inverted the required jump class to the healthy one and red on
+exactly that token with every sibling row green. V3C is LIVE-PROVEN and ARMED as the
+GS-3 regression target: its required token pins the DEFECT CLASS (`jump` >= 1,000 km),
+so the lane reds when the teleport is fixed - the flip the option-3 work is measured by.
+The departure seam stays a gap of a different kind than this section guessed: the
+pad-align epoch jump lands the live craft at UT 24,439,497, 43 ks AFTER D0, so no frame
+is rendered at that instant at all; it is jumped over, not crossed at 1x.
+
 ### The induction caveat (why classes must be flown, not argued)
 
 The moon-to-moon program is the standing exhibit: THREE render behaviors nobody
