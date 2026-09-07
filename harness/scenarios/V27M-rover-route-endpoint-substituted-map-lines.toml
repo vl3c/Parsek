@@ -1,0 +1,369 @@
+schema = 1
+id = "V27M-rover-route-endpoint-substituted-map-lines"
+# =====================================================================================
+# G3b AT A RENDER SURFACE: THE ROUTE'S DESTINATION VESSEL IS GONE, ANOTHER CRAFT STANDS
+# 2 m FROM THE SPOT, THE ROUTE REBINDS ITS STOP ONTO IT AT DISPATCH - AND THEN THE FLIGHT
+# MAP, THE ROUTE OVERVIEW LINE AND THE KSC SURFACE RESOLUTION ARE READ.
+#
+# WHAT G3b ASKED, verbatim from the roadmap gap register: `RouteEndpointResolver` prefers
+# the recorded PID and falls back to ONE nearest compatible stock vessel within
+# `RouteOrchestrator.SurfaceProximityRadiusMeters` = 500 m; that fallback is headlessly
+# unit-tested and reached by a delivery test, "but no loop, map or render lane has ever
+# exercised it, so 'the ghost renders at the SUBSTITUTED endpoint' is untested at the
+# surface". It was deferred INTO G1 because it needs the route ghost driver, the status
+# gate and the route clock G1 stands up.
+#
+# WHAT HAS HAPPENED SINCE, so this lane measures only what is still open:
+#   * The FALLBACK ITSELF is driven and gated at the DISPATCH / DELIVERY surface by
+#     RVR-18 (`2026-09-03_2011` pre-ruling, `_2153` on the endpoint-transfer ruling,
+#     `2026-09-06_2007` no-regression), whose measured chain is
+#         Endpoint proximity transport excluded: skipped=1 reason=route-own-transport
+#         Endpoint proximity step: resolved=1 pid=2875537755 reason=- body=Kerbin
+#         Route endpoint transferred: route=... stop=0 role=destination
+#             from=2123618197/'<unknown>' to=2875537755/'A' step=proximity distance=2.0x
+#         Endpoint resolved: step=root-part rootPartUId=3962694490 pid=2875537755
+#     and RVR-19 gates the mirror refusal (`resolved=0 ... reason=no-candidate-after-
+#     transport-exclusion` -> `BLOCKED kind=EndpointLost`). Both are on THIS fixture.
+#   * The RENDER SURFACES for a same-body SURFACE route are measured by H59 on the same
+#     tree with the endpoint PRESENT (`2026-09-02_0947` census, `_1038` armed re-flight,
+#     `2026-09-06_2218` latest): `Route line build: ... members=2 groups=1 legs=1
+#     transferDropped=0`, `Route line draw: ... routesDrawn=1 legsDrawn=1`, the FLIGHT
+#     ghost polyline `Polyline frame: scene=FLIGHT drawn=1`, and on the KSC host
+#     `KSC SURFACE playback resolved: recording=... body=Kerbin branch=absolute`.
+#
+# WHAT IS STILL OPEN, and it is a CLASS question rather than a token: what does a render
+# surface do with a route whose STOP has been rebound to a different vessel? A code
+# reading says "nothing" - `RouteEndpointResolver.TryResolveEndpoint` has six callers,
+# five in `LiveRouteRuntimeEnvironment` (dispatch / delivery) and one in the Logistics
+# window, and neither `RouteTrajectoryLineRenderer` nor `RouteBackingMission` /
+# `RouteGhostDriverSelector` calls it, so every render surface reads the RECORDING and the
+# rebind touches only the persisted `RouteStop.Endpoint`. Under confirmation criterion
+# (c) a code reading is not a class answer until a run has measured it, and no run has
+# put a rebound route in front of a map. This lane is that run.
+#
+# THE SUBJECT, from the committed bytes rather than by assumption. `rover-route-recorded`
+# carries the sealed tree `73e50f1e...` (5 committed recordings; RVR-2's exact floor) and
+# three surface craft at the KSC flats:
+#     2123618197  "rover fuel 0"  PRELAUNCH  Probe  lat -0.04868  lon -74.72451   <- the
+#                 recorded destination; REMOVED from FLIGHTSTATE by the liveState patch
+#     2875537755  "A"             LANDED     Rover  lat  0.00561  lon -74.72623   <- the
+#                 substitute the proximity step picks (RVR-18 measured distance=2.0x m,
+#                 live world positions; the great-circle stand-in over the committed
+#                 lat / lon reads 1.03 m - both are ~498 m inside the 500 m radius)
+#     313889796   "B"             LANDED     Rover  lat  0.00535  lon -74.72464   <- the
+#                 route's own transport, excluded by `reason=route-own-transport`
+# The liveState block is RVR-18's verbatim (endpoint removed, `A`'s inventory cleared so
+# the inventory half of the manifest has slots), so the dispatch chain is a KNOWN shape
+# and nothing about the substitution is new here.
+#
+# THE ORDER OF OPERATIONS IS THE MEASUREMENT. H59 opens the map BEFORE its jump and reads
+# the route line with the endpoint present; this lane opens the map only AFTER the
+# `TimeJump ut=1600` that carries the dispatch (RVR-2 / H59 measured `DispatchDebit ...
+# ut=1600` on these bytes under `activate`), so by construction every `Route line build`
+# / `Route line draw` / `Polyline frame` / KSC line in the log post-dates the
+# `Route endpoint transferred` line. The evaluator is regex-only and cannot order tokens;
+# the drive script orders them instead, and the SaveGame the KSC boot reloads is taken
+# after the rebind, so the KSC half renders from a save whose STOP already names `A`.
+#
+# WHAT THE READING RUN GATES (nothing new): the verb round-trips, the create / activate
+# gate, the map-open pair, the KSC boot and `[Parsek][ERROR]` absent. `[expectations.
+# routes]` is REPORT-ONLY and `[expectations.renderComposition]` is bare so both censuses
+# are read on this lane's own bytes before anything is armed (the V18T / V26 discipline:
+# reading -> pins off the run -> armed re-flight -> negative control inverting a RENDER
+# token). The candidate armed tokens, written down BEFORE the flight so the arming is a
+# comparison and not a fit:
+#   (i)   `Route endpoint transferred: route=[0-9a-f]{8} stop=0 role=destination
+#          from=2123618197/'<unknown>' to=2875537755/'A' step=proximity distance=...` -
+#          the rebind happened in THIS run (RVR-18's own token, re-used).
+#   (ii)  `SelectGhostDrivingBackingMissions: ghostDriving=1 skippedByStatus=0
+#          skippedNull=0 totalRoutes=1` - the rebound route still ghost-drives.
+#   (iii) `Route line build: route=[0-9a-f]{8} members=2 groups=1 legs=1
+#          transferDropped=0` and `Route line draw: enabled=True routesDrawn=1
+#          legsDrawn=1 ...` - the overview line is H59's line to the leg, i.e. the rebind
+#          moved no geometry (the line is built from the member RECORDINGS).
+#   (iv)  `Polyline frame: scene=FLIGHT drawn=1 ...` - the ghost polyline draws.
+#   (v)   `KSC SURFACE playback resolved: recording=... body=Kerbin branch=absolute` and
+#          H59's KSC eligibility line - the surface resolution on the second host, from
+#          the post-rebind save.
+#   (vi)  `[expectations.routes]`: `destinationVesselPids = ["2875537755"]` (the rebind
+#          PERSISTED, RVR-18's flipping facet) alongside the shape windows.
+# WHAT NO TOKEN CAN SAY: the ghost's rendered arrival is at the RECORDED endpoint and not
+# at `A` - the two are 2 m apart and no log line reads a ghost position against a live
+# vessel. The class answer this lane can deliver is structural and measured together:
+# the rebind is persisted (vi) AND every render line is byte-identical to the endpoint-
+# present reading (iii)-(v), which is what "the render surfaces read the recording, the
+# rebind touches only the STOP" looks like in a log. If (iii) comes back with a different
+# leg count, or (ii) reads `skippedByStatus=1`, the code reading above was wrong and the
+# roadmap's G3b entry gets a finding instead of a closure.
+#
+# THE STATUS AT THE READING EPOCH IS ITSELF A READING. Under `activate` (not `send-once`)
+# the cycle that dispatches at 1600 delivers into `A` and the NEXT cycle may block
+# `DestinationFull` (RVR-18 measured `cycle=cycle-1 BLOCKED kind=DestinationFull` on the
+# send-once shape); `RouteStatusPolicy.GhostDriving` is TRUE for `DestinationFull` and
+# FALSE for `Paused`, so the census line (ii) is the token that says which. H59's own
+# reading on the endpoint-present shape ended `statuses {Active: 1}`.
+#
+# ID: V27 is reserved in the roadmap's gap register (this lane's commit adds the
+# reservation), `M` because the host observed is the player flight map; the KSC boot is
+# H59's second-host reading carried along, not a `K` lane. No open PR claims a V27 id
+# (checked 2026-09-07 against `gh pr list`).
+# =====================================================================================
+#
+# -------------------------------------------------------------------------------------
+# THE READING RUN (`2026-09-07_1858`, 66 s, DLL sha256 `0beaa01bca1431ad`) READ EVERY
+# CANDIDATE TOKEN EXACTLY AS WRITTEN ABOVE, and classified PARSEK-FAIL on ONE token that was
+# an authoring defect: `[Stage] liveState patched ...` is a HARNESS log line and never
+# reaches KSP.log (the patch itself ran - `Endpoint proximity step: resolved=1
+# pid=2875537755` proves the recorded destination was gone). It is dropped; every other
+# required token matched, zero forbids hit, analyzer / logValidate / anomalySweep PASS.
+#
+# WHAT THE LOG READ, in the order the drive script forced:
+#     routecommand complete action=create ... name='V27M Substituted Endpoint' status=Paused
+#     SelectGhostDrivingBackingMissions: ghostDriving=0 skippedByStatus=1 ... totalRoutes=1
+#     routecommand complete action=activate ... statusBefore=Paused status=Active
+#     SelectGhostDrivingBackingMissions: ghostDriving=1 skippedByStatus=0 skippedNull=0 totalRoutes=1
+#     [Mission] Mission loop units rebuilt (signature changed): committed=5 routeMissions=1
+#     -- TimeJump ut=1600 --
+#     Endpoint proximity transport excluded: skipped=1 reason=route-own-transport body=Kerbin
+#     Endpoint proximity step: resolved=1 pid=2875537755 reason=- body=Kerbin
+#     Route endpoint transferred: route=8067297c stop=0 role=destination
+#         from=2123618197/'<unknown>' to=2875537755/'A' step=proximity distance=2.00 body=Kerbin
+#     Endpoint resolved: step=root-part rootPartUId=3962694490 pid=2875537755 reason=-   (x2)
+#     DispatchDebit: route 8067297c cycle=cycle-0 ut=1600 cost=0 careerKsc=0
+#     Delivery: route 8067297c cycle=cycle-0 resources=1 inventoryUnits=3/3 ... partial=0
+#     -- EnterMapView --
+#     Route scope: route=8067297c origin=Kerbin destination=Kerbin scope=SameBody basis=Endpoints
+#     Route line members: route=8067297c heads=2 segments=2 groups=1 legs=1
+#     Route line build: route=8067297c members=2 groups=1 legs=1 transferDropped=0
+#     Route line draw: enabled=True routesDrawn=0 legsDrawn=0 skippedOwned=1 malformed=0
+#         other=0 deact=0 cache=1 frame=... ownedLegs=1 paintedLegs=0                  (x4)
+#     Route line draw: ... skippedOwned=1 ... ownedLegs=0 paintedLegs=1                (x1)
+#     Polyline frame: scene=FLIGHT drawn=1 warp=1x suppressed=0 hidden=0 ...           (x2)
+#     -- ExitMapView, SaveGame, KSC boot --
+#     ParsekKSC initialized, 5 committed recordings, 5 eligible for KSC ghost playback
+#     [KSCGhost] Eligible breakdown: looping=0 terminal(Landed=3, <null>=1, Docked=1) ineligible((none))
+#     KSC SURFACE playback resolved: recording=cf8d06fc... body=Kerbin branch=absolute  (x3)
+# and the produced save: `routes count=1 statuses={Active: 1} completedCycles=1
+# skippedCycles=0 holdKinds={} sourceRefs=2 stops=1 destinationVesselPids=['2875537755']`.
+#
+# TWO THINGS THE READING CORRECTS IN THE CANDIDATE LIST, both recorded rather than edited
+# away. (1) Candidate (iii) predicted H59's `routesDrawn=1 legsDrawn=1` draw line. It never
+# printed: every draw frame of the map session reads `routesDrawn=0 legsDrawn=0
+# skippedOwned=1 ... ownedLegs=1 paintedLegs=0` (or `paintedLegs=1` on the one frame the
+# ghost's mesh painted it). That is the RC-ROUTE ownership handoff, and it is the
+# consequence of THIS lane's ordering: H59 opens the map BEFORE its dispatch and catches
+# one frame in which the overview line still draws its own leg; this lane opens the map
+# with the route ghost already mid-cycle, so the ghost polyline owns the route's single
+# leg for the whole session and the overview line correctly defers. The BUILD line is
+# H59's to the leg (`members=2 groups=1 legs=1 transferDropped=0`), which is the geometry
+# claim; the draw line is pinned as measured, and the pin is the handoff rather than a
+# self-drawn line. (2) `[expectations.renderComposition]` stays BARE and is not armed:
+# `ExportRenderManifest` runs after the KSC boot, so the manifest is the SPACECENTER
+# scene's (`scene=SPACECENTER`, `routeLineBuilds=0`, `routeCoDrawViolations=0`, planUnits 1,
+# unevaluable 3 with the same three single-epoch reasons every route lane reads). The
+# FLIGHT-map evidence lives in the log tokens above, not in this manifest; H59 carries the
+# identical shape and the identical bare block for the identical reason.
+#
+# THE CLASS ANSWER, MEASURED: after a persisted endpoint substitution (`destinationVesselPids`
+# reads the NEW pid) the route still ghost-drives (`ghostDriving=1`, status `Active` at the
+# end of the run), the overview line is built from the member recordings with the same
+# member / group / leg counts as the endpoint-present reading, the flight-scene ghost
+# polyline draws, and the KSC host resolves the landed members' surface playback from the
+# post-rebind save with nothing skipped - i.e. NO render surface consulted the rebound
+# endpoint, exactly as the caller walk predicted, and the rebind lives only in the STOP.
+# The ghost's arrival stays at the RECORDED endpoint, 2.00 m from `A` (the transfer line's
+# own distance), which no token reads and this lane does not claim.
+#
+# ARMED 2026-09-07 off that run: every line above is a required token (run-local route id
+# regexed, distance to two decimals regexed), the mirror refusals and the KSC skips are
+# forbidden, and `[expectations.routes]` is GATING with the measured shape plus
+# `destinationVesselPids = ["2875537755"]` (the RVR-18 facet that flips if the rebind ever
+# stops persisting). Armed re-flight and negative control (a RENDER token inverted -
+# `Route line build ... legs=1` seeded to `legs=7`, reverted) are recorded in the
+# description and the status row.
+tier = "operator"
+instanceProfile = "stock-minimal"
+description = "AUTHORED 2026-09-07; READING RUN `2026-09-07_1858` (66 s) read every candidate token and classified PARSEK-FAIL only on a harness-side `[Stage]` line that never reaches KSP.log (authoring defect, dropped); ARMED the same day off that run with `[expectations.routes]` GATING: armed re-flight `2026-09-07_1902` PASS attempt 1 with zero mismatches, negative control `2026-09-07_1903` (`Route line build ... legs=1` seeded to `legs=7`, reverted) `PARSEK-FAIL(expectation)` on exactly that one token; D10 `route-endpoint-rebind-render` declared in the same commit (H35 CLAIM-IS-NOT-GATE). G3b at a render surface: `rover-route-recorded` with the route's recorded destination vessel (pid 2123618197) REMOVED from FLIGHTSTATE and `A` (pid 2875537755) standing 2 m away, so the dispatch at `TimeJump ut=1600` walks `RouteEndpointResolver` past the pid step to the 500 m surface-proximity fallback and REBINDS the STOP onto `A` (RVR-18's measured chain), and only THEN is the flight map opened and the route overview line, the ghost polyline and the KSC surface resolution read. The class question is whether any render surface consults the rebound endpoint; the code reading says none does (the resolver's six callers are all dispatch / delivery / Logistics-window) and this lane is where that becomes a measured class answer or a finding. Nothing armed on the reading run; candidate armed tokens listed in the header."
+tags = ["V27M", "route", "route-map-lines", "surface-endpoint", "endpoint-resolve",
+        "surface-proximity", "endpoint-transfer", "live-state", "landed", "map-view",
+        "recorded-fixture", "G3b"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/rover-route-recorded"
+injectedRecordings = "none"
+craft              = []
+
+# RVR-18's liveState block verbatim: the recorded destination is removed so the pid step
+# misses; `A` keeps its tanks and gets an empty inventory so the manifest fits once.
+[[fixture.liveState]]
+pid    = 2123618197
+remove = true
+
+[[fixture.liveState]]
+pid       = 2875537755
+inventory = "clear"
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                    expect = "OK" },
+  { cmd = "DiscardTree",                                                      expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "mapRenderTracing",   value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "showRouteLines",     value = "true" }, expect = "OK" },
+  { cmd = "SealSlot",     args = { tree = "73e50f1e3aa24c299919016cd9e92269" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "create", tree = "73e50f1e3aa24c299919016cd9e92269", name = "V27M Substituted Endpoint" }, expect = "OK", budget = 120 },
+  { cmd = "RouteCommand", args = { action = "activate", route = "V27M Substituted Endpoint" }, expect = "OK", budget = 120 },
+  # The dispatch, the proximity walk and the rebind all happen inside this jump (RVR-2 /
+  # H59 / RVR-18 all measured the dispatch at ut=1600 on these bytes). The map is opened
+  # only after it, so every render line in the log post-dates the transfer.
+  { cmd = "TimeJump",     args = { ut = "1600" },                             expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "EnterMapView",                                                     expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "ExitMapView",                                                      expect = "OK", budget = 120 },
+  { cmd = "SaveGame",     args = { name = "persistent" },                     expect = "OK", budget = 120 },
+  { cmd = "StopRecording",                                                    expect = "OK" },
+  { cmd = "DiscardTree",                                                      expect = "OK" },
+  # H59's second host, carried along: the KSC boot reloads the SaveGame taken above, whose
+  # STOP already names `A`, and resolves the landed members' surface playback from it.
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "ExportRenderManifest",                                             expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+D10 = ["route-endpoint-rebind-render"]
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# RVR-2's anti-data-loss floor, exact at 5: removing a FLIGHTSTATE vessel touches no
+# RECORDING node (RVR-18 pins the same 5 on the same patch).
+count = { min = 5, max = 5 }
+
+[expectations.logContracts]
+required  = [
+  "loadgame complete scene=FLIGHT save=.* game-loaded=true expected=Flight",
+  "sealslot complete mode=tree tree=73e50f1e3aa24c299919016cd9e92269 total=4 sealed=0 remaining=0 alreadySealed=True",
+  "routecommand complete action=create tree=73e50f1e3aa24c299919016cd9e92269 route=.* name='V27M Substituted Endpoint' status=Paused",
+  "routecommand complete action=activate route=.* name='V27M Substituted Endpoint' match=.* statusBefore=Paused status=Active",
+  # ---- the rebind (RVR-18's chain, on this run's own bytes) ----
+  "Endpoint proximity transport excluded: skipped=1 reason=route-own-transport body=Kerbin",
+  "Endpoint proximity step: resolved=1 pid=2875537755 reason=- body=Kerbin",
+  "Route endpoint transferred: route=[0-9a-f]{8} stop=0 role=destination from=2123618197/'<unknown>' to=2875537755/'A' step=proximity distance=[0-9]+\\.[0-9]{2} body=Kerbin at ut=",
+  "Endpoint resolved: step=root-part rootPartUId=3962694490 pid=2875537755 reason=-",
+  "Delivery: route [0-9a-f]{8} cycle=cycle-0 resources=1 inventoryUnits=3/3 inventoryUnitsSkipped=0 partial=0",
+  # ---- the route still ghost-drives after it ----
+  "SelectGhostDrivingBackingMissions: ghostDriving=1 skippedByStatus=0 skippedNull=0 totalRoutes=1",
+  "\\[Mission\\] Mission loop units rebuilt \\(signature changed\\): committed=5 routeMissions=1",
+  # ---- the flight map, opened only after the rebind ----
+  "entermapview ok mapOpen=true already=false",
+  "Route scope: route=[0-9a-f]{8} origin=Kerbin destination=Kerbin scope=SameBody basis=Endpoints",
+  "Route line members: route=[0-9a-f]{8} heads=2 segments=2 groups=1 legs=1",
+  "Route line build: route=[0-9a-f]{8} members=2 groups=1 legs=1 transferDropped=0",
+  "Route line draw: enabled=True routesDrawn=0 legsDrawn=0 skippedOwned=1 malformed=0 other=0 deact=0 cache=1 frame=[0-9]+ ownedLegs=1 paintedLegs=0",
+  "Polyline frame: scene=FLIGHT drawn=1 warp=1x suppressed=0 hidden=0",
+  "exitmapview ok mapOpen=false already=false",
+  # ---- the KSC host, from the post-rebind save ----
+  "loadgame complete scene=SPACECENTER save=.* game-loaded=true expected=SpaceCenter",
+  "ParsekKSC initialized, 5 committed recordings, 5 eligible for KSC ghost playback",
+  "\\[KSCGhost\\] Eligible breakdown: looping=0 terminal\\(Landed=3, <null>=1, Docked=1\\) ineligible\\(\\(none\\)\\)",
+  "KSC SURFACE playback resolved: recording=.* body=Kerbin branch=absolute",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "routecommand rejected",
+  "timejump refused reason=backward-jump",
+  # the mirror refusal (RVR-19's shape) must not fire: `A` is a candidate here
+  "Endpoint proximity step: resolved=0",
+  "reason=no-candidate-after-transport-exclusion",
+  "BLOCKED kind=EndpointLost",
+  "Route line draw: .* malformed=[1-9]",
+  "Route line draw: .* other=[1-9]",
+  "KSC point skipped: recording=.* body=",
+  "KSC segment skipped: beforeBody=",
+]
+
+# GATING since the armed re-flight: the measured shape of the reading run's produced save,
+# plus the identity facet that flips if the rebind ever stops persisting.
+[expectations.routes]
+gating                = true
+count                 = { min = 1, max = 1 }
+dormant               = { min = 0, max = 0 }
+stops                 = { min = 1, max = 1 }
+sourceRefs            = { min = 2, max = 2 }
+completedCycles       = { min = 1, max = 1 }
+skippedCycles         = { min = 0, max = 0 }
+statuses              = { Active = { min = 1, max = 1 } }
+originBodies          = { Kerbin = { min = 1, max = 1 } }
+destinationBodies     = { Kerbin = { min = 1, max = 1 } }
+destinationVesselPids = ["2875537755"]
+
+# Bare by measurement, not by omission: the export runs from the SPACECENTER scene and reads
+# `routeLineBuilds=0` there (header, correction 2); the flight-map evidence is the log.
+[expectations.renderComposition]
+
+[runtime]
+budgetSeconds = 3000
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

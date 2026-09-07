@@ -650,6 +650,20 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Dev
 
+- **Roadmap gaps G1 (route-driven rendering) and G3b (the surface endpoint fallback at
+  a render surface) are closed on measured runs.** The tracking-station route lane
+  (`V18T`) now gates the route-owned cadence and the docked station endpoint off four
+  byte-identical logs of its own earlier flights (armed re-flight and two negative
+  controls on 2026-09-07), and corrects its own record of which phase-lock branch the
+  route takes (joint-best-fit arriving at the single-rotation numbers, not a
+  single-rotation lock). A new lane (`V27M`) removes a surface route's destination
+  vessel, lets the dispatch rebind the stop onto the craft standing 2 m away, and only
+  then opens the map: the stop names the new vessel while every render surface still
+  draws from the recordings, which is the class answer the gap was waiting on. The G1
+  roadmap entry is reconciled against what had already flown (three of its five
+  subjects were gated green weeks earlier under wording that still said
+  "unmeasured"). Harness and docs only; no gameplay change.
+
 - **A finished test flight now keeps its own copy of the save it produced, so a second
   session on the same machine can no longer destroy it.** Two flights that start from
   the same save template share one save folder inside the test install, and each new
