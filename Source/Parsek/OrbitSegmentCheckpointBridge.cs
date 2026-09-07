@@ -1152,6 +1152,38 @@ namespace Parsek
                 && FieldNearlyEqual(a.angularVelocity.z, b.angularVelocity.z, VectorTolerance);
         }
 
+        /// <summary>
+        /// <see cref="OrbitSegmentNearlyEquals"/> with the UT span excluded: true when two
+        /// segments describe the SAME conic about the same body, whatever spans they claim.
+        ///
+        /// <para>Exact, not approximate, for the population it exists for: clipping a
+        /// segment goes through <see cref="TryTrimOrbitSegmentToRange"/>, which moves
+        /// startUT/endUT and copies every element verbatim - so a re-clip and its parent
+        /// differ in exactly the two fields this comparison drops. Consumed by
+        /// <see cref="CheckpointDoubleCoverRetire"/> to prove a retired checkpoint section
+        /// loses no orbital payload.</para>
+        /// </summary>
+        internal static bool OrbitSegmentConicNearlyEqualsIgnoringSpan(
+            OrbitSegment a, OrbitSegment b)
+        {
+            return FieldNearlyEqual(a.inclination, b.inclination, ScalarTolerance)
+                && FieldNearlyEqual(a.eccentricity, b.eccentricity, ScalarTolerance)
+                && FieldNearlyEqual(a.semiMajorAxis, b.semiMajorAxis, DistanceTolerance)
+                && FieldNearlyEqual(a.longitudeOfAscendingNode, b.longitudeOfAscendingNode, ScalarTolerance)
+                && FieldNearlyEqual(a.argumentOfPeriapsis, b.argumentOfPeriapsis, ScalarTolerance)
+                && FieldNearlyEqual(a.meanAnomalyAtEpoch, b.meanAnomalyAtEpoch, ScalarTolerance)
+                && FieldNearlyEqual(a.epoch, b.epoch, UtTolerance)
+                && a.bodyName == b.bodyName
+                && a.isPredicted == b.isPredicted
+                && FieldNearlyEqual(a.orbitalFrameRotation.x, b.orbitalFrameRotation.x, VectorTolerance)
+                && FieldNearlyEqual(a.orbitalFrameRotation.y, b.orbitalFrameRotation.y, VectorTolerance)
+                && FieldNearlyEqual(a.orbitalFrameRotation.z, b.orbitalFrameRotation.z, VectorTolerance)
+                && FieldNearlyEqual(a.orbitalFrameRotation.w, b.orbitalFrameRotation.w, VectorTolerance)
+                && FieldNearlyEqual(a.angularVelocity.x, b.angularVelocity.x, VectorTolerance)
+                && FieldNearlyEqual(a.angularVelocity.y, b.angularVelocity.y, VectorTolerance)
+                && FieldNearlyEqual(a.angularVelocity.z, b.angularVelocity.z, VectorTolerance);
+        }
+
         private static bool NearlyEqual(double a, double b, double tolerance)
         {
             return Math.Abs(a - b) <= tolerance;

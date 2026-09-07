@@ -429,16 +429,71 @@ terminalStates = { Landed = { min = 5 }, Docked = { min = 2 } }
 branchPoints   = { Dock = { min = 2, max = 2 }, Undock = { min = 2, max = 2 } }
 
 [expectations.routes]
-# REPORT-ONLY. Authored as a DERIVATION from RVR-13's armed-baseline shape; the
-# 2026-09-06 census then read EVERY window exactly as declared - `count=1 dormant=0
-# stops=2 sourceRefs=3 completedCycles=0 skippedCycles=1 statuses={Paused:1}`, plus
-# `holdKinds={DestinationFull:1}` and `connectionKinds={DockingPort:2}` which this block
-# does not declare. So a blocked cycle does skip rather than complete, and
-# `blocked-then-paused` does leave the route `Paused`, on measured bytes.
+# **ARMED 2026-09-07** (`gating = true`), on the standing rule that arming follows
+# report-only READING runs whose facets match the declared windows - and this block has
+# now had TWO, which is what the authored version of this comment said it was waiting
+# for. Authored as a DERIVATION from RVR-13's armed-baseline shape; both censuses then
+# read EVERY window exactly as declared.
 #
-# **STILL NOT ARMED, AND THAT IS DELIBERATE.** Arming is an operator decision taken after
-# TWO agreeing report-only reading runs; this is ONE. Whoever arms it adds the
-# `ARMED_ALLOWLIST` entry in the same commit.
+#   READING 1  `2026-09-06_2027`  PASS attempt 1, wall 56 s, DLL `db525f5efe422d51`
+#   READING 2  `2026-09-07_0937`  PASS attempt 1, wall 49 s, DLL `7c0bfee1b74d6716`
+#
+# BOTH READ, IDENTICALLY: `count=1 dormant=0 stops=2 sourceRefs=3 completedCycles=0
+# skippedCycles=1 statuses={Paused:1}`. The two runs' whole `routes` facets are identical
+# field for field - including `holdKinds={DestinationFull:1}`,
+# `connectionKinds={DockingPort:2}`, `destinationBodies={Kerbin:2}`,
+# `destinationVesselPids=[90564594, 4280917262]`, `originBodies={Kerbin:1}`,
+# `codecRejects=0`, `unparsed=0`, `dismissedCandidates=0`, `promptedCandidates=0` - with
+# ONE field differing, `ids`, which is the route's freshly-minted guid
+# (`2d3bc55267794d8da47f0dda5ff0e3fe` then `2b28cb7684e14d0fbaad7aba02d3acab`). This lane
+# CREATES its route on every run, so a per-run id is the correct reading and no window
+# declares it. Two different automation DLLs, two different route ids, one identical
+# count payload: that is a determinism statement about the counters, not a coincidence.
+#
+# **NOT ONE WINDOW MOVED IN THE ARMING EDIT** - the seven assertions below are byte-for-
+# byte what the report-only version declared, which is the S4.1 rule ("arming must not
+# smuggle in a re-pinned window") and is checkable against the diff. The spec is
+# registered in `ARMED_ALLOWLIST` in `harness/lib/test_hlib.py` in the same commit, and
+# the sibling `[expectations.recordings.structure]` block stays REPORT-ONLY - one block
+# per arming decision, RVR-7's shape verbatim.
+#
+# WHAT THE ARMING BUYS, and it is the mirror of RVR-7's. RVR-7 gates the COMPLETED half
+# of the same four counters (`completedCycles=1 skippedCycles=0`); this lane gates the
+# REFUSED half (`completedCycles=0 skippedCycles=1`) on the same fixture, so between them
+# both outcomes of `ProcessLoopRoute`'s cycle bookkeeping are load-bearing in the produced
+# BYTES rather than only in the log. That matters here more than on a delivering lane: the
+# whole claim of this scenario is that NOTHING was written, and a log token can only
+# assert the absence of a line. `skippedCycles=1` is the positive form of that absence -
+# a codec that dropped the skip counter, or a cycle that half-delivered and then recorded
+# itself as skipped, is invisible to `logContracts` and reds here.
+#
+# **DISCIPLINE COMPLETE 2026-09-07, THE SAME DAY IT WAS ARMED**, and finished on the CLEAN
+# automation DLL sha256 `7c0bfee1b74d6716` (Parsek C# from `main` 1f7801cea, harness at
+# 04a34b7c5 - the same build READING 2 flew):
+#   * ARMED RE-FLIGHT `2026-09-07_1006`: PASS attempt 1, wall 67 s, EVERY VERIFIER PASS,
+#     `expectations status=PASS mismatches=0`, and `saveParse status=PASS gating=True
+#     blocks=['recordings.structure', 'routes'] armed=['routes'] routes=1
+#     routeStatuses={'Paused': 1} mismatches=0`. The block is load-bearing and green.
+#   * NEGATIVE CONTROL `2026-09-07_1007`, a throwaway copy of this spec under the id
+#     `RVR-20-NEGCTL-rover-relay-c-destination-slots-full-tank-empty` carrying EXACTLY ONE
+#     inverted window - `completedCycles = { min = 0, max = 0 }` -> `completedCycles =
+#     { min = 1 }`, the inversion this comment named in advance - written into the
+#     scratchpad, deleted after the flight and NEVER COMMITTED: PARSEK-FAIL, wall 49 s,
+#     `Classify verdict=PARSEK-FAIL reason=gating save-structure expectations mismatch`,
+#     `saveParse status=FAIL gating=True armed=['routes'] mismatches=1`, and the mismatch
+#     list EXACTLY `['routes.completedCycles 0 < min 1']`.
+# `logContracts` STAYED PASS ON THE CONTROL (`expectations status=PASS mismatches=0`, with
+# `analyzer red=0` and every other verifier PASS), so the gate fired on the WINDOW IT NAMES
+# rather than on the block as a whole or on collateral log drift: the control's own `routes`
+# facet still read `count=1 dormant=0 stops=2 sourceRefs=3 completedCycles=0
+# skippedCycles=1 statuses={Paused:1} holdKinds={DestinationFull:1}`, identical to the armed
+# run's but for the per-run route id. One window inverted, one mismatch, nothing else moved.
+#
+# It could not share the family's `rewind.supersedeRows` inversion (that re-proves the
+# shared evaluator), and V18T / RVR-7 both record why a `routes` window needs a `routes`
+# inversion - this block has a parse, a normalisation and a bucketing step of its own
+# between the bytes and that evaluator. Nothing is owed.
+gating          = true
 count           = { min = 1, max = 1 }
 dormant         = { min = 0, max = 0 }
 stops           = { min = 2, max = 2 }

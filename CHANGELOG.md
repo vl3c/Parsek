@@ -34,6 +34,27 @@ _(unreleased — entries accumulate here per commit)_
   of leaving it to be filled in on the next load, so a session and the reload after it
   agree about which flight is which.
 
+- **A duplicated stretch of orbit left in older recordings is now cleaned up when the save
+  loads.** Parsek stores a coasting, unattended stretch of a flight as a compact orbit
+  description rather than as thousands of sampled positions. An older version could write
+  the same stretch three times over - once as one long piece, once as a shorter piece cut
+  out of it, and once as an empty placeholder that describes nothing at all - so the
+  flight claimed the same minutes of its own timeline more than once. Newer versions
+  refuse to write that shape, but nothing removed it from flights that already had it, and
+  the recording checker rightly reported those flights as faulty forever. Loading a save
+  now drops the redundant copies. It keeps whichever pieces are needed to describe every
+  minute the flight covered, and only drops a piece when the pieces that remain already
+  describe exactly the same minutes with exactly the same orbit (an empty placeholder
+  describes nothing, so it only has to sit inside a piece that stays). Nothing about where
+  the ghost flies, what the map draws, or how the flight is split changes, and a stretch
+  that only partly overlaps another, or one that describes a genuinely different orbit, is
+  a different fault: left alone, and still reported. The cleanup happens in memory and does
+  not rewrite the flight's file, so supply routes built on that flight keep running (the
+  same rule as the in-memory trajectory repair below). Measured on the three affected
+  flights in the test campaign's own save: each loses two pieces and two of its reported
+  faults, and what remains in each is a separate fault of a different kind, filed in the
+  developer notes rather than claimed fixed here.
+
 - **A supply route's map line now draws the whole journey, not just the launch.** A route
   remembers the flights that back it, but it remembered each one by its FIRST recording
   segment, and a long flight is split into several as it crosses environments. So the line
@@ -593,7 +614,9 @@ _(unreleased — entries accumulate here per commit)_
   memory when a game loads, which used to make every reloaded route free again, and
   it now falls back to the copy kept for ghost rendering. A route that still cannot
   be priced honestly says so in the log instead of quietly charging nothing, or
-  charging a wrong part-less price.
+  charging a wrong part-less price. This has now been played through on the shipping
+  build rather than only on the branch that fixed it: a career supply run was priced,
+  charged, and then correctly refused a second dispatch it could no longer afford.
 
 ### Dev
 
@@ -638,7 +661,17 @@ _(unreleased — entries accumulate here per commit)_
   ground, and following it would take the craft hundreds of kilometres underground - so
   the refusal is forced to happen for real. The test fails if the capsule is on the
   ground by the time the checks run, rather than quietly passing on the wrong half.
-  Written, not yet flown. Test tooling and docs only; no gameplay change.
+  **It has now been flown, and the refusal happened exactly as reasoned**: the capsule
+  was hanging under its canopy at 1,593 m coming down at 15 m/s, the game offered a
+  perfectly good repeating orbit for it whose low point sits 598 km below the ground, and
+  the rule turned that orbit away rather than timing a mission against it. The
+  ground-craft half of the same rule correctly stood aside on the same run, which is what
+  proves the two halves are telling each craft apart rather than refusing everything. Every
+  number the test was written against came back right, down to the shape of the orbit and
+  the length of its period, so nothing had to be corrected afterwards. The whole check took
+  two seconds of the roughly hundred the capsule had left before touching down, which was
+  the one thing that could have gone wrong and now has a measurement instead of an
+  argument. Test tooling and docs only; no gameplay change.
 
 - **A test can now stage a delivery target whose cargo racks are completely full, so
   the last untested way a supply run can be turned away is finally reachable.** A run
@@ -660,7 +693,23 @@ _(unreleased — entries accumulate here per commit)_
   racks, the fuel stayed where it was rather than being part-delivered, the source craft
   was not touched at all, and the target ended the run with the same empty tank and six
   full slots it started with. Everything the lane predicted from the source held on the
-  first run, with nothing to correct afterwards.
+  first run, with nothing to correct afterwards. **The lane has now been run a second
+  time and its reading of the saved game has been promoted to a hard check.** The two runs
+  were on different builds, days apart, and produced the same tally of what the save
+  records about the supply run - one route, two stops, one cycle skipped, none completed,
+  the route left paused - agreeing on every count and differing only in the run's own
+  freshly generated route identifier. That tally is now something the test fails on rather
+  than merely reports, which matters most for a lane whose whole claim is that nothing was
+  delivered: until now only the absence of lines in the log said so, and a count of skipped
+  cycles says it positively. Its sibling lane already holds the opposite case - a run that
+  does deliver - to the same standard, so between them both outcomes are now checked
+  against what the saved game actually contains. **That new hard check has since been
+  proven in both directions on the same build**: the lane was re-run with the check
+  enforcing and passed with nothing to report, and a deliberately broken copy of it - one
+  number inverted to claim a cycle HAD completed, run once and then thrown away rather than
+  kept - failed on exactly that one number and on nothing else, with every other check
+  including the log ones still passing. So the check is known to fire, and to fire on the
+  number it names rather than on the block around it.
 
 - **Two test lanes now pin the rule for a supply route whose destination craft is
   gone: it moves to the craft standing on the spot, but never to the craft that was

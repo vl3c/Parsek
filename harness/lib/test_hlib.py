@@ -7978,7 +7978,64 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # same block REPORT-ONLY with its own counters, and six of them
                        # read the exact inverse pair (`completedCycles 0` /
                        # `skippedCycles 1`) against this lane's gated `1` / `0`.
-                       "RVR-7-rover-relay-c-dispatch.toml"}
+                       "RVR-7-rover-relay-c-dispatch.toml",
+                       # RVR-20: the `[expectations.routes]` block, armed 2026-09-07 off
+                       # its OWN TWO report-only reading runs - `2026-09-06_2027` (the
+                       # first census, PASS attempt 1, wall 56 s, on the clean automation
+                       # DLL `db525f5efe422d51`) and `2026-09-07_0937` (PASS attempt 1,
+                       # wall 49 s, on `7c0bfee1b74d6716`). BOTH read
+                       # `routes count=1 dormant=0 stops=2 sourceRefs=3
+                       # completedCycles=0 skippedCycles=1 statuses={Paused:1}`
+                       # IDENTICALLY, so the arming re-pins NOTHING and moves no verdict
+                       # on the shape already flown - the S4.1 rule. The two runs' whole
+                       # `routes` facets agree field for field (`holdKinds
+                       # {DestinationFull:1}`, `connectionKinds {DockingPort:2}`,
+                       # `destinationVesselPids [90564594, 4280917262]`,
+                       # `codecRejects 0`) with ONE exception: `ids`, the route's
+                       # freshly-minted per-run guid, which no window declares because
+                       # this lane CREATES its route on every run.
+                       #
+                       # WHY THIS LANE, AND WHY IT IS NOT A SECOND RVR-7. RVR-7 gates the
+                       # COMPLETED half of these counters (`completedCycles=1
+                       # skippedCycles=0`) on a cycle that delivers; RVR-20 gates the
+                       # REFUSED half (`completedCycles=0 skippedCycles=1`) on the same
+                       # fixture, so between them BOTH outcomes of `ProcessLoopRoute`'s
+                       # cycle bookkeeping are load-bearing in the produced bytes. The
+                       # arming is worth more on this side: the whole claim of RVR-20 is
+                       # that NOTHING was written, and a log token can only assert the
+                       # absence of a line, where `skippedCycles=1` is the positive form
+                       # of that absence.
+                       #
+                       # DISCIPLINE COMPLETE 2026-09-07, the same day it was armed, on
+                       # the CLEAN automation DLL `7c0bfee1b74d6716` (Parsek C# from
+                       # `main` 1f7801cea, harness at 04a34b7c5 - the same build the
+                       # second reading run flew). ARMED RE-FLIGHT `2026-09-07_1006`:
+                       # PASS attempt 1, wall 67 s, every verifier PASS,
+                       # `expectations mismatches=0`, `saveParse status=PASS gating=True
+                       # blocks=['recordings.structure', 'routes'] armed=['routes']
+                       # routes=1 routeStatuses={'Paused': 1} mismatches=0`. NEGATIVE
+                       # CONTROL `2026-09-07_1007`, a throwaway copy under the id
+                       # `RVR-20-NEGCTL-rover-relay-c-destination-slots-full-tank-empty`
+                       # with EXACTLY ONE window inverted (`completedCycles =
+                       # { min = 0, max = 0 }` -> `{ min = 1 }`, the inversion the
+                       # arming note named in advance), written into the scratchpad,
+                       # deleted after the flight and NEVER COMMITTED: PARSEK-FAIL,
+                       # wall 49 s, `Classify verdict=PARSEK-FAIL reason=gating
+                       # save-structure expectations mismatch`, `saveParse status=FAIL
+                       # gating=True armed=['routes'] mismatches=1`, mismatch list
+                       # EXACTLY `['routes.completedCycles 0 < min 1']`. `logContracts`
+                       # stayed PASS on the control (`expectations mismatches=0`,
+                       # `analyzer red=0`), so the gate fired on the WINDOW IT NAMES
+                       # rather than on the block as a whole - the control's own
+                       # `routes` facet still read `completedCycles=0 skippedCycles=1
+                       # stops=2 sourceRefs=3 statuses={Paused:1}`, identical to the
+                       # armed run's but for the per-run route id. It could not share
+                       # the family's `rewind.supersedeRows` inversion, for V18T's and
+                       # RVR-7's recorded reason - that re-proves the shared evaluator,
+                       # where this block has a parse, a normalisation and a bucketing
+                       # step of its own between the bytes and that evaluator. Nothing
+                       # is owed.
+                       "RVR-20-rover-relay-c-destination-slots-full-tank-empty.toml"}
 
     def test_no_committed_spec_arms_gating(self):
         armed = []
