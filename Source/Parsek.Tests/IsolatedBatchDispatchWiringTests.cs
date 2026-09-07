@@ -248,7 +248,7 @@ namespace Parsek.Tests
             // Every exit of the two-phase state clears the token queue.
             string clear = StripComments(Between(
                 ReadSource("TestCommands", "ParsekTestCommandAddon.cs"),
-                "private void ClearTwoPhase()", "private void "));
+                "private void ClearTwoPhase()", "// The TimeJump completion fields"));
             Assert.Contains("ClearMultiCategoryState();", clear);
         }
 
