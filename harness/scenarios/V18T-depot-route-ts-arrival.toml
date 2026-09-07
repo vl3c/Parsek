@@ -532,6 +532,23 @@ count = { min = 20, max = 30 }
 #   "Route line draw: enabled=True routesDrawn=[1-9]" - the per-frame draw summary, and
 #       the token that separates BUILT from DRAWN. Rate-limited at 2.0 s on a shared key;
 #       again only the first emission is required.
+#       WHAT THAT TOKEN NOW RIDES ON (2026-09-07, package P16 - a PREDICTION NOTE, not a
+#       re-pin; no value in this file moves): `routesDrawn` counts routes that drew at
+#       least ONE leg, and the route line now stands a leg down when the ghost polyline
+#       either OWNS that member's phase or has a VISIBLE MESH over that leg's own recorded
+#       span. The paint arm is per LEG, so a partly-painted member still draws its
+#       unpainted legs and this token cannot go to zero for a partial overlap. The
+#       stand-down is also STICKY ACROSS A BAILED FRAME by design: membership is the mesh
+#       fact - added on an actual draw, removed on hide / rebuild / release / scene load /
+#       flush - so a frame on which the ghost's decide walk never ran no longer flips the
+#       arbitration back on over a mesh that is still on screen. ON THIS SUBJECT THE
+#       EXPOSURE IS NIL, AND THAT IS MEASURED: all three reading-run-3 draw lines read
+#       `routesDrawn=1 legsDrawn=14 skippedOwned=0 ... ownedLegs=0 paintedLegs=0` (run
+#       `2026-09-06_2117`, PASS attempt 1, the armed renderComposition block green with
+#       zero mismatches), i.e. the TS host painted no ghost leg over this route at all.
+#       The note exists so a FUTURE red on this token is read as "the ghost took the legs"
+#       before it is read as "the route line broke" - the two are distinguishable on that
+#       same line, through the `ownedLegs=` / `paintedLegs=` split.
 # THE TS SCENE CHAIN (H23's pins verbatim, as V14T uses them):
 #   the two loadgame lines - the R12 trackstation BRANCH was taken and the load COMPLETED
 #       against the TrackingStation expected scene. Falsifiable: this fixture has a

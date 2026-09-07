@@ -577,7 +577,13 @@ namespace Parsek
                 ChainBranch = 1, // parallel branch — ghost-only, never spawns
                 GhostVisualSnapshot = ghostSnapshot,
                 RecordingId = Guid.NewGuid().ToString("N"),
-                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion
+                RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion,
+                // Launch-unique identity from the live undock partner. Stamped here rather
+                // than left to the load-time backfill: that backfill CAN reach this recording
+                // (through its GhostVisualSnapshot arm) but only on the next OnLoad, so the
+                // whole live session would otherwise run a committed recording with no launch
+                // identity while the vessel that owns it is in hand right here.
+                RecordedVesselGuid = AnchorDetector.TryReadLiveVesselGuid(otherVessel)
             };
             contRec.Points.Add(seedPoint);
             contRec.ContinuationBoundaryIndex = 0; // Bug #95: entire recording is continuation data

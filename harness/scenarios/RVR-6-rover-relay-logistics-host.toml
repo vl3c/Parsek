@@ -5,9 +5,24 @@ tier = "nightly"
 # THE FOURTH RECORDED `Logistics` HOST, AND THE FIRST THREE-TREE FOREST ANY ISOLATED
 # BATCH HAS EVER BOOTED.
 #
-# **NEVER FLOWN. AUTHORED 2026-09-02.** `total=47` is attribute-exact and `failed=0` is a
-# literal; the SPLIT is an interim regex class and the id sits in
-# `IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS` until the first census measures it.
+# **LIVE-PROVEN 2026-09-02: census `2026-09-02_2234`, PASS attempt 1, wall 189 s, every
+# verifier PASS, analyzer `red=0`.** The tally is MEASURED AND WHOLE at `total=47
+# passed=38 failed=0 skipped=9` and the id has LEFT
+# `IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS`; the full reading, and what the 38/9
+# split bought against RVR-1's 39/8, is under `[expectations.logContracts]`. (This
+# paragraph said "NEVER FLOWN. AUTHORED 2026-09-02" until 2026-09-06 - the pin was
+# re-taken off the census and this header was not; the prose below is kept as authored
+# because its cell-by-cell hypothesis is the record of what was predicted.)
+#
+# **RE-FLOWN GREEN 2026-09-06** (`2026-09-06_2023`, PASS attempt 1, wall 188 s, every
+# verifier PASS, `analyzer red=0`, `expectations mismatches=0` at the measured
+# `recordings.count = 9`, `BATCH_COMPLETE v1 total=47 passed=38 failed=0 skipped=9
+# category=Logistics scene=FLIGHT` unchanged token for token), on the clean automation DLL
+# `db525f5efe422d51` (`main` e4704e749) that carries PR #1630's undock BG-child fix. THAT
+# IS WHAT THE RE-FLY WAS FOR: this fixture ships the damaged children the fix was written
+# against, and the reading is that they still LOAD and still analyze `FAIL=0 WARN=2 INFO=0
+# RED=0` (the two INV11-EMPTY-SECTION rows named below) after the producer changed. The
+# fix does not rewrite committed bytes, and this lane proves it did not need to.
 #
 # -------------------------------------------------------------------------------------
 # WHAT IT ADDS TO H39 / H40 / RVR-1, WHICH IS THE ONLY QUESTION THAT MATTERS FOR A
@@ -131,7 +146,7 @@ tier = "nightly"
 # other vessel" may find a LOADED one here where every previous host offered only
 # unloaded or spawned candidates. That is a census question, not a risk.
 # =====================================================================================
-description = "AUTHORED 2026-09-02, NEVER FLOWN. The isolated Logistics batch (46 admitted cells, 38 of them restore-after-run) over rover-relay-recorded - the FOURTH recorded host and the first THREE-TREE, NINE-RECORDING, TWO-WINDOW forest any isolated batch has booted. What it adds over H39/H40/RVR-1, whose attribute-level tally it shares exactly (total=47): TWO target-branch route windows with cross-tree partners rather than one, so every RouteProof walk has more than one subject for the first time; three committed trees rather than one or two; a committed corpus that is INELIGIBLE as it stands (RVR-5's subject - one designed refusal, plus the OPEN identity-hash defect LOGISTICS-INVENTORY-IDENTITY-HASH-BREAKS-ON-A-LIVE-CARGO-MOVE), so a Logistics cell that assumes the corpus is promotable has a host that refutes it; a drained partner vessel at LiquidFuel 0/400; and two other real rovers inside physics range at 336 m and 983 m. The SECOND product is the anti-data-loss floor: this is the largest committed corpus any isolated batch has subjected to 38 interleaved quickloads, and the count row is the only instrument pointed at it (the H39 census-2 lesson, which is how QUICKLOAD-OVER-COMMITTED-RESTORE-OVERLAP-DELETES-TREE-ON-SAVE was found). total=47 is attribute-exact and failed=0 is a literal; the split is INTERIM until the first census, and the interim pin's WHICH-CELLS gap is discharged by two REQUIRED cell tokens - RouteProof_ActiveAsTargetDockWindow_HasEndpointProof and RouteProof_CrossTreeCommittedPartner_HasEndpointProof, both of which RVR-1 measured PASSING on the only other target-branch host."
+description = "LIVE-PROVEN 2026-09-02 (census 2026-09-02_2234, PASS attempt 1, wall 189 s, every verifier PASS, analyzer red=0, tally whole at total=47 passed=38 failed=0 skipped=9) and RE-FLOWN GREEN 2026-09-06 (2026-09-06_2023, PASS attempt 1, wall 188 s, same tally token for token, recordings.count=9) on the DLL carrying PR #1630's undock BG-child fix - the reading being that this fixture's deliberately damaged children still load and still analyze FAIL=0 WARN=2 RED=0 afterwards. The isolated Logistics batch (46 admitted cells, 38 of them restore-after-run) over rover-relay-recorded - the FOURTH recorded host and the first THREE-TREE, NINE-RECORDING, TWO-WINDOW forest any isolated batch has booted. What it adds over H39/H40/RVR-1, whose attribute-level tally it shares exactly (total=47): TWO target-branch route windows with cross-tree partners rather than one, so every RouteProof walk has more than one subject for the first time; three committed trees rather than one or two; a committed corpus that is INELIGIBLE as it stands (RVR-5's subject - one designed refusal, plus the OPEN identity-hash defect LOGISTICS-INVENTORY-IDENTITY-HASH-BREAKS-ON-A-LIVE-CARGO-MOVE), so a Logistics cell that assumes the corpus is promotable has a host that refutes it; a drained partner vessel at LiquidFuel 0/400; and two other real rovers inside physics range at 336 m and 983 m. The SECOND product is the anti-data-loss floor: this is the largest committed corpus any isolated batch has subjected to 38 interleaved quickloads, and the count row is the only instrument pointed at it (the H39 census-2 lesson, which is how QUICKLOAD-OVER-COMMITTED-RESTORE-OVERLAP-DELETES-TREE-ON-SAVE was found). total=47 is attribute-exact and failed=0 is a literal; the split is INTERIM until the first census, and the interim pin's WHICH-CELLS gap is discharged by two REQUIRED cell tokens - RouteProof_ActiveAsTargetDockWindow_HasEndpointProof and RouteProof_CrossTreeCommittedPartner_HasEndpointProof, both of which RVR-1 measured PASSING on the only other target-branch host."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "isolated-batch", "logistics", "route-proof", "recorded-fixture",
         "RVR-6"]

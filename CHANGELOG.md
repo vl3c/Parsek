@@ -40,6 +40,88 @@ _(unreleased — entries accumulate here per commit)_
   as an empty flight you can delete yourself, and never takes the mission down with it.
   Found by the automated in-game census, where every save of the synthetic test corpus
   reproduced it.
+- **Your kerbals' experience from a recovery is never booked against the wrong flight.**
+  When a craft is recovered, Parsek files the crew's experience against the flight they
+  just flew, and it finds that flight by name and by when it ended. Two flights of a craft
+  with the same name can therefore look alike, and Parsek already refuses to confuse them
+  whenever the game gives it enough to tell them apart - it does, for anything flown since
+  that check shipped. What is new is the case where it genuinely cannot tell: two
+  same-named flights, neither of them identifiable, and nothing but "which one ended more
+  recently" to choose between them. Parsek now leaves the experience unbooked in that
+  case and says so in the log, rather than guessing. It matters because this is the one
+  thing a recovery records that cannot be taken back later: funds and science are worked
+  out afresh every time, so a wrong guess there corrects itself, while experience is
+  written onto a kerbal's career record and stays. Nothing changes for an ordinary
+  recovery - a flight recorded in several segments is still one flight, and its crew's
+  experience is booked exactly as before - and the funds and the science from an
+  unidentifiable recovery are still paid in full. Keeping that first promise needed a fix
+  one step upstream, found while reviewing this change: when a craft sheds a piece while
+  Parsek is following it in the background, the surviving craft carries on into a new
+  segment, and that segment was not noting which launch it came from. A flight continued
+  that way looked half-identified - one segment named, the next anonymous - and would have
+  had its crew's experience withheld even though nothing about it was ambiguous. Every
+  place Parsek starts a recording now notes the launch as the recording is written instead
+  of leaving it to be filled in on the next load, so a session and the reload after it
+  agree about which flight is which.
+
+- **A duplicated stretch of orbit left in older recordings is now cleaned up when the save
+  loads.** Parsek stores a coasting, unattended stretch of a flight as a compact orbit
+  description rather than as thousands of sampled positions. An older version could write
+  the same stretch three times over - once as one long piece, once as a shorter piece cut
+  out of it, and once as an empty placeholder that describes nothing at all - so the
+  flight claimed the same minutes of its own timeline more than once. Newer versions
+  refuse to write that shape, but nothing removed it from flights that already had it, and
+  the recording checker rightly reported those flights as faulty forever. Loading a save
+  now drops the redundant copies. It keeps whichever pieces are needed to describe every
+  minute the flight covered, and only drops a piece when the pieces that remain already
+  describe exactly the same minutes with exactly the same orbit (an empty placeholder
+  describes nothing, so it only has to sit inside a piece that stays). Nothing about where
+  the ghost flies, what the map draws, or how the flight is split changes, and a stretch
+  that only partly overlaps another, or one that describes a genuinely different orbit, is
+  a different fault: left alone, and still reported. The cleanup happens in memory and does
+  not rewrite the flight's file, so supply routes built on that flight keep running (the
+  same rule as the in-memory trajectory repair below). Measured on the three affected
+  flights in the test campaign's own save: each loses two pieces and two of its reported
+  faults, and what remains in each is a separate fault of a different kind, filed in the
+  developer notes rather than claimed fixed here.
+
+- **A supply route's map line now draws the whole journey, not just the launch.** A route
+  remembers the flights that back it, but it remembered each one by its FIRST recording
+  segment, and a long flight is split into several as it crosses environments. So the line
+  drawn on the map and in the tracking station showed the pad ascent and whatever the
+  destination station recorded on its own, and left out everything in between - on the
+  Kerbin to Duna route in the test campaign, an 8.5 million second journey. The line now
+  follows each flight through all of its segments. A cross-planet route still stops drawing
+  its recorded transfer between the two planets, on purpose (that stretch is re-aimed for
+  every launch window, so drawing the recorded one would show a path that never flies
+  again) - the difference is that there is now a transfer there to leave out, where before
+  there was nothing at all. Nothing else about a route changes: the same flights back it,
+  the line still stops at the docking moment, and a leg the route was told to leave out, or
+  one that a rewind replaced, stays out. Flying it in the test campaign found a second thing
+  to fix: on the middle stretch of a journey the route line and the replaying ghost's own
+  trajectory line were both drawing the same segment, one over the other. The route line
+  already stood down for a segment the ghost was flying; it now also stands down for one the
+  ghost is drawing ahead of itself, which is how a chained flight's later segments appear -
+  and it keeps standing down for as long as the ghost's line is actually on screen, not only
+  on the frames the ghost redraws it, which is how the doubled line kept coming back after a
+  few seconds. It stands down over exactly the stretch the ghost is showing: the rest of that
+  flight's path, and the rest of the route, keep drawing - including the case where zooming
+  the map far enough out makes the game rebuild the ghost's line from scratch, which throws
+  its old one away: the route line now takes that stretch back at once instead of leaving a
+  gap where neither line draws. And when two craft dock, the merged flight that follows
+  belongs to one of them: the line now agrees with the rest of Parsek about which one.
+
+- **Loading a save no longer stops your supply routes.** Parsek repairs a known defect in
+  older recordings while reading them - a trajectory whose flat point list was written in
+  the wrong frame - and until now that repair also rewrote the recording's file. A route
+  watches the files of the flights it was built from and stops itself if one of them
+  changes, because a changed flight means the delivery it proved may never have happened;
+  a stopped route has to be recreated by hand. So merely loading a save could stop every
+  route built on a repaired flight, even though nothing about the delivery had changed.
+  The repair now happens in memory only, leaving the file exactly as it was, and routes
+  load in the state you left them. A flight that genuinely changes - a rewind, a re-fly,
+  a merge - still stops the routes built on it, as before.
+
 - **A supply route no longer follows the wrong craft home when something is parked at its
   destination.** Dock any ship to a base and the game merges the two into one vessel,
   keeping the name and id of whichever half it considers dominant - which is often the
@@ -562,9 +644,64 @@ _(unreleased — entries accumulate here per commit)_
   memory when a game loads, which used to make every reloaded route free again, and
   it now falls back to the copy kept for ghost rendering. A route that still cannot
   be priced honestly says so in the log instead of quietly charging nothing, or
-  charging a wrong part-less price.
+  charging a wrong part-less price. This has now been played through on the shipping
+  build rather than only on the branch that fixed it: a career supply run was priced,
+  charged, and then correctly refused a second dispatch it could no longer afford.
 
 ### Dev
+
+- **A finished test flight now keeps its own copy of the save it produced, so a second
+  session on the same machine can no longer destroy it.** Two flights that start from
+  the same save template share one save folder inside the test install, and each new
+  flight wipes that folder before it launches. The only thing stopping two flights from
+  overlapping is a machine-wide lock, and that lock is let go the moment a flight ENDS -
+  which is exactly the moment its output starts being useful. So a colleague's next
+  flight, seconds later, deleted the previous one's result; measured at nine seconds
+  once, and the giveaway was that the wiped save described a rocket still sitting on the
+  pad for a flight that had reached orbit. It cost a wrong diagnosis and about fifty
+  minutes of real flying. Each flight now copies its finished save into its own results
+  folder while it still holds the lock, and the tools that turn a flight's save into a
+  permanent test fixture read from there. Every outcome is kept, including failures - a
+  failed flight's save is the only record of what went wrong. Old copies are trimmed to
+  the newest three per test so the disk stays bounded, and a copy that fails is noted
+  and otherwise ignored: it can never change whether a flight passed. The copy is
+  made under a temporary name and renamed once it is complete, so a flight killed
+  part way through leaves nothing that could be mistaken for a whole save; the
+  half-finished folder it does leave behind is cleared away by the next flight's
+  trim pass, which by name can only ever touch these save copies.
+- **Running the test suite can no longer rewrite the committed timing record.** The
+  cells that guard the cross-run duration ledger now work on a copy of it in a scratch
+  folder instead of reaching for the real file through a global, and two of them check
+  the real file is untouched, byte for byte, before and after. What the cells prove is
+  unchanged and in one place stronger: one of them now merges against the real
+  committed numbers rather than a hand-written stub.
+- **The rule that stops a mission from timing itself against a craft that is on its way
+  back down now has a test that actually watches it happen.** Parsek refuses to time a
+  repeating mission against another craft's orbit unless that orbit clears the
+  atmosphere, and the refusal has two halves: one for a craft sitting on the ground, one
+  for a craft in the air or still climbing. Only the ground half had ever been seen in a
+  real game - the air half was reasoned about, covered by unit tests, and never once
+  reached in a flight, because every saved game the suite tests against is either parked
+  in a clean orbit or landed, and no test-only trick can put a craft in the air (the one
+  that edits saved games is deliberately limited to fuel and cargo). So the new test
+  FLIES one: it reuses the existing parachute flight, which ends with the capsule hanging
+  under its canopy, and runs the mission-timing checks at that moment instead of sending
+  the kerbal out. That capsule carries exactly the kind of orbit the rule exists to
+  reject - the game reports a perfectly good repeating orbit for anything near the
+  ground, and following it would take the craft hundreds of kilometres underground - so
+  the refusal is forced to happen for real. The test fails if the capsule is on the
+  ground by the time the checks run, rather than quietly passing on the wrong half.
+  **It has now been flown, and the refusal happened exactly as reasoned**: the capsule
+  was hanging under its canopy at 1,593 m coming down at 15 m/s, the game offered a
+  perfectly good repeating orbit for it whose low point sits 598 km below the ground, and
+  the rule turned that orbit away rather than timing a mission against it. The
+  ground-craft half of the same rule correctly stood aside on the same run, which is what
+  proves the two halves are telling each craft apart rather than refusing everything. Every
+  number the test was written against came back right, down to the shape of the orbit and
+  the length of its period, so nothing had to be corrected afterwards. The whole check took
+  two seconds of the roughly hundred the capsule had left before touching down, which was
+  the one thing that could have gone wrong and now has a measurement instead of an
+  argument. Test tooling and docs only; no gameplay change.
 
 - **A test can now stage a delivery target whose cargo racks are completely full, so
   the last untested way a supply run can be turned away is finally reachable.** A run
@@ -581,8 +718,28 @@ _(unreleased — entries accumulate here per commit)_
   go quietly wrong is a hard stop before the game even starts: no such part in the save,
   no cargo rack on that craft, or nothing free to fill. A new lane stages the target
   with an empty tank and full racks and expects the whole run to be held, with the fuel
-  NOT delivered, which is what the code says happens. That lane has not been flown yet -
-  it is written from the source and gets re-checked against the first real run.
+  NOT delivered, which is what the code says happens. **It has now been run for real and
+  that is exactly what happened**: the whole delivery was turned away over the full cargo
+  racks, the fuel stayed where it was rather than being part-delivered, the source craft
+  was not touched at all, and the target ended the run with the same empty tank and six
+  full slots it started with. Everything the lane predicted from the source held on the
+  first run, with nothing to correct afterwards. **The lane has now been run a second
+  time and its reading of the saved game has been promoted to a hard check.** The two runs
+  were on different builds, days apart, and produced the same tally of what the save
+  records about the supply run - one route, two stops, one cycle skipped, none completed,
+  the route left paused - agreeing on every count and differing only in the run's own
+  freshly generated route identifier. That tally is now something the test fails on rather
+  than merely reports, which matters most for a lane whose whole claim is that nothing was
+  delivered: until now only the absence of lines in the log said so, and a count of skipped
+  cycles says it positively. Its sibling lane already holds the opposite case - a run that
+  does deliver - to the same standard, so between them both outcomes are now checked
+  against what the saved game actually contains. **That new hard check has since been
+  proven in both directions on the same build**: the lane was re-run with the check
+  enforcing and passed with nothing to report, and a deliberately broken copy of it - one
+  number inverted to claim a cycle HAD completed, run once and then thrown away rather than
+  kept - failed on exactly that one number and on nothing else, with every other check
+  including the log ones still passing. So the check is known to fire, and to fire on the
+  number it names rather than on the block around it.
 
 - **Two test lanes now pin the rule for a supply route whose destination craft is
   gone: it moves to the craft standing on the spot, but never to the craft that was

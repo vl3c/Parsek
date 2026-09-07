@@ -4841,6 +4841,11 @@ namespace Parsek
 
             rec.VesselSnapshot = captured.VesselSnapshot;
             rec.GhostVisualSnapshot = captured.GhostVisualSnapshot;
+            // The capture already carries the launch guid (FlightRecorder stamps it in
+            // BuildCaptureRecording); forwarding it here means the standalone fallback
+            // recording does not have to wait for the load-time snapshot backfill to learn
+            // which launch it recorded.
+            rec.RecordedVesselGuid = captured.RecordedVesselGuid;
             rec.VesselDestroyed = captured.VesselDestroyed;
             rec.VesselSituation = captured.VesselSituation;
             rec.DistanceFromLaunch = captured.DistanceFromLaunch;
@@ -5764,6 +5769,21 @@ namespace Parsek
             activeChild.Controllers = ControllerInfo.CaptureFromVessel(activeVessel);
             bgChild.Controllers = ControllerInfo.CaptureFromVessel(backgroundVessel);
 
+            // Same boundary, same reason, for the launch-unique identity: EACH child is
+            // stamped from ITS OWN live vessel (never the other half's, and never the
+            // parent's), falling back to that child's own snapshot `pid` - the value the
+            // load-time backfill would read one save later. The active child would also pick
+            // one up from the recorder-start backstop; the background child has no such path,
+            // and a guid-less segment chained to a stamped one is the MIXED survivor set the
+            // recovery correlator cannot corroborate
+            // (KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY stage 2).
+            activeChild.RecordedVesselGuid = BackgroundRecorder.ResolveSplitRecordingLaunchGuid(
+                AnchorDetector.TryReadLiveVesselGuid(activeVessel),
+                VesselLaunchIdentity.TryReadVesselGuid(activeChild.VesselSnapshot));
+            bgChild.RecordedVesselGuid = BackgroundRecorder.ResolveSplitRecordingLaunchGuid(
+                AnchorDetector.TryReadLiveVesselGuid(backgroundVessel),
+                VesselLaunchIdentity.TryReadVesselGuid(bgChild.VesselSnapshot));
+
             // Set ChildBranchPointId on parent recording
             if (parentRecording != null)
                 parentRecording.ChildBranchPointId = bp.Id;
@@ -6031,6 +6051,15 @@ namespace Parsek
             // live split-moment vessel (background-parent EVA branch path).
             activeChild.Controllers = ControllerInfo.CaptureFromVessel(activeVessel);
             bgChild.Controllers = ControllerInfo.CaptureFromVessel(backgroundVessel);
+
+            // Launch-unique identity, same contract as the sibling split path above: each
+            // child from its OWN live vessel, snapshot `pid` as the fallback.
+            activeChild.RecordedVesselGuid = BackgroundRecorder.ResolveSplitRecordingLaunchGuid(
+                AnchorDetector.TryReadLiveVesselGuid(activeVessel),
+                VesselLaunchIdentity.TryReadVesselGuid(activeChild.VesselSnapshot));
+            bgChild.RecordedVesselGuid = BackgroundRecorder.ResolveSplitRecordingLaunchGuid(
+                AnchorDetector.TryReadLiveVesselGuid(backgroundVessel),
+                VesselLaunchIdentity.TryReadVesselGuid(bgChild.VesselSnapshot));
 
             string previousActiveRecordingId = activeTree.ActiveRecordingId;
             string previousParentChildBranchPointId = parentRecording.ChildBranchPointId;
@@ -7652,7 +7681,11 @@ namespace Parsek
                 // vessel. Null when the vessel was destroyed during the coalescing
                 // window (no controllable identity to lose anyway — the breakup child
                 // already carries TerminalStateValue=Destroyed in that path).
-                Controllers = ControllerInfo.CaptureFromVessel(vessel)
+                Controllers = ControllerInfo.CaptureFromVessel(vessel),
+                // Launch-unique identity from the same live breakup-moment vessel. Null when
+                // it was destroyed during the coalescing window; the snapshot-seeded fallback
+                // below covers that case whenever a snapshot exists at all.
+                RecordedVesselGuid = AnchorDetector.TryReadLiveVesselGuid(vessel)
             };
             // Stamp the parent-anchor contract on the new child Recording. The breakup
             // branch point's ParentRecordingIds list can have multiple parents in
@@ -7729,6 +7762,21 @@ namespace Parsek
                     ParsekLog.Info("Coalescer",
                         $"CreateBreakupChildRecording: using pre-captured trajectory point for pid={pid} (vessel destroyed)");
                 }
+            }
+
+            // Destroyed-vessel arms: the live read above returned nothing, so take the guid
+            // from whichever snapshot was seeded (its top-level `pid` IS the Vessel.id) -
+            // the same value the load-time backfill reads, applied before the first save.
+            // The no-vessel-AND-no-snapshot arm keeps no launch identity at all; there is
+            // nothing left to read it from, and that child is stamped Destroyed at the
+            // breakup UT with no trajectory of its own.
+            if (childRec.AdoptRecordedVesselGuidIfEmpty(
+                    VesselLaunchIdentity.TryReadVesselGuid(childRec.VesselSnapshot)
+                    ?? VesselLaunchIdentity.TryReadVesselGuid(childRec.GhostVisualSnapshot)))
+            {
+                ParsekLog.Verbose("Coalescer",
+                    $"CreateBreakupChildRecording: launch guid taken from the seeded snapshot " +
+                    $"for pid={pid} recId={childRecId} guid={childRec.RecordedVesselGuid}");
             }
 
             tree.AddOrReplaceRecording(childRec);
@@ -17037,6 +17085,9 @@ namespace Parsek
                 rec.VesselSnapshot = captureAtStop.VesselSnapshot;
                 rec.StampTerminalState(captureAtStop.TerminalStateValue, "CommitGloopsRecording");
                 rec.TerminalPosition = captureAtStop.TerminalPosition;
+                // The capture carries the launch guid already - forward it rather than
+                // leaving this ghost-only recording to the load-time snapshot backfill.
+                rec.RecordedVesselGuid = captureAtStop.RecordedVesselGuid;
                 rec.Controllers = captureAtStop.Controllers != null
                     ? new List<ControllerInfo>(captureAtStop.Controllers)
                     : null;
