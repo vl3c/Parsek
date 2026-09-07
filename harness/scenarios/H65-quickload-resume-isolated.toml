@@ -1,0 +1,172 @@
+schema = 1
+id = "H65-quickload-resume-isolated"
+tier = "nightly"
+# ROADMAP R6, ISOLATED HALF, LANE 5 OF 7, and THE ONLY MEMBER OF THIS WAVE WHOSE
+# CATEGORY IS ONLY PARTLY BATCH-DISABLED. That single fact changes what the tally can
+# prove and is why the pin below is spelled differently from its six siblings.
+#
+# THE ARITHMETIC, derived from the attributes and re-derived by
+# `IsolatedBatchWiringGroupTests` rather than trusted from this comment:
+#   * `QuickloadResume` has THREE declarations, all FLIGHT-scoped.
+#   * TWO are `AllowBatchExecution = false` + `RestoreBatchFlightBaselineAfterExecution
+#     = true` - `BridgeSurvivesSceneTransition` (:12914) and
+#     `Quickload_MidRecording_ResumesSameActiveRecordingId` (:13124). Both drive KSP's
+#     stock PROGRAMMATIC quickload backend, which is why their authors excluded them
+#     from the ordinary batch.
+#   * ONE is `AllowBatchExecution = true` with NO restore flag -
+#     `ReentrancyGuard_ClearedAfterRestore` (:14017), an ordinary in-process assertion
+#     on `restoringActiveTree`.
+# So ordinary executable = 1, isolated executable = 3, and the arg buys the two real
+# quickload cells. The id is therefore declared in
+# `IsolatedBatchWiringGroupTests.PARTLY_BATCH_DISABLED_IDS`, alongside R7a and the
+# Logistics family, with that arithmetic as its stated reason.
+#
+# WHAT THAT COSTS THE PIN, and it is the whole reason this header is longer than
+# H62's. A run that silently LOST the isolated arg would print a line with
+# `passed <= 1`. The plain interim spelling `passed=[1-9][0-9]*` ACCEPTS `passed=1`
+# and would therefore read GREEN on exactly that failure. So while the split was
+# INTERIM the floor was pinned ABOVE the ordinary path's executable ceiling:
+# `passed=(?:[2-9]|[1-9][0-9]+)`, i.e. at least 2 - the same move H38 made when its
+# ordinary ceiling was 8, swept over the whole 0..1 range by
+# `test_an_interim_pin_still_rejects_the_ordinary_paths_executable_ceiling`. The
+# derivation is KEPT because it is what decides the spelling if this split ever has to
+# go loose again; the census has since measured `passed=3`, so the pin is a LITERAL
+# and clears the ceiling by construction rather than by a floor.
+#
+# LIVE-PROVEN 2026-09-06, run `2026-09-06_2014` (PASS attempt 1, wall 63 s, every
+# verifier PASS or SKIPPED). All three cells executed and passed - `total=3 passed=3
+# failed=0 skipped=0`, no `SKIPPED:` line - so the pin below is whole, and it is
+# STILL above the ordinary path's executable ceiling of 1 by construction rather than
+# by the interim floor spelling it replaces.
+description = "Drive the in-game QuickloadResume category through the ISOLATED batch entry point over a PRELAUNCH pad craft: the DontDestroyOnLoad bridge surviving a real stock quicksave/quickload, and a mid-recording F5/F9 resuming the SAME activeRecordingId - two tests no unattended path could run before R5, plus the ordinary reentrancy-guard cell."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "isolated-batch", "quickload-resume", "R6", "H65"]
+
+[fixture]
+# `gs1-two-stage-pad`, required by the SECOND cell rather than by the category as a
+# whole. `Quickload_MidRecording_ResumesSameActiveRecordingId` takes one of two paths:
+# if a recording is already live it uses it, otherwise it demands `sit = PRELAUNCH`
+# ("requires either an already-live launched recording or an idle PRELAUNCH vessel"),
+# sets `autoRecordOnLaunch = true` ITSELF, waits for the stock stage manager, throttles
+# to 1 and calls `StageManager.ActivateNextStage()`, then asserts the craft LEFT
+# PRELAUNCH before F5. On an engineless host that assertion fails rather than skips.
+# That is the `staging` requirement (PRELAUNCH + `ModuleEngines` on the ACTIVE vessel)
+# and it is what `IsolatedBatchWiringGroupTests::test_the_fixture_can_actually_fly_the
+# _category` gates; `gloops-airshow` fails it.
+#
+# The other two cells need almost nothing of the host - `BridgeSurvivesSceneTransition`
+# quicksaves and quickloads a DISPOSABLE uniquely-named slot (never the player's
+# `quicksave`) and deletes it in `finally`, and the reentrancy cell is pure - so the
+# host is chosen by the one cell that constrains it.
+#
+# SANDBOX, empty corpus, `injectedRecordings = "none"`.
+saveTemplate = "fixtures/saves/gs1-two-stage-pad"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# `autoRecordOnLaunch` pinned false, and the mid-recording cell sets it back to TRUE
+# itself inside its `try` (restoring the captured original in `finally`), so the pin
+# cannot reach that cell's subject. What it buys is the branch SELECTION: with
+# auto-record off, the cell reliably takes its idle-PRELAUNCH path and drives the
+# launch it is written around, instead of inheriting whatever recording a load-time
+# auto-record happened to start. The first cell's guard chain is likewise cleaner from
+# a known-idle flight.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "QuickloadResume", isolated = "true" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+# NOTHING BEYOND D14, AND THE RESTRAINT IS THE POINT.
+#
+# The roadmap's R6 entry lists D9 `rewind-to-launch` against this block. Reading the
+# three bodies refutes it for this category: `rewind-to-launch` names PARSEK's rewind
+# feature (`FastForwardToRecording` / `RewindToLaunchLeadTimeSeconds` and the RP
+# machinery), and none of these cells touches it. What they drive is KSP's OWN F5/F9
+# quicksave/quickload backend, which is a different mechanism with a different failure
+# mode, and D9 has no value for it. The registry growth rule applies if the family
+# ever wants one; it is not borrowed here, and the roadmap line is corrected in the
+# same commit.
+#
+# ALSO NOT CLAIMED: D1 `auto-record-launch`, even though the mid-recording cell really
+# does assert `autoStartCount == 1` after staging. There it is SETUP - the cell needs a
+# live recording to quickload across, and the auto-record path is how it gets one -
+# whereas H61's `AutoRecordOnLaunch_StartsExactlyOnce` has that line as its whole
+# subject. Leaving the token to H61 keeps the coverage map's owner honest.
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# ZERO, and this lane earns the campaign-isolation reading twice over: the second cell
+# creates a live recording AND drives a stock quicksave/quickload cycle over the top of
+# it, which is the exact shape that produced
+# QUICKLOAD-OVER-COMMITTED-RESTORE-OVERLAP-DELETES-TREE-ON-SAVE on H39/H40's census
+# runs. `gs1-two-stage-pad` stages an EMPTY corpus and injects nothing, so the produced
+# save must carry no recordings; a non-zero count means the per-test baseline restore
+# or the batch teardown did not hold.
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# EVIDENCE STANDING: MEASURED ONCE, run `2026-09-06_2014` (2026-09-06, PASS on
+# attempt 1, 63 s wall, every verifier PASS or SKIPPED), whose collected KSP.log
+# carries `BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0
+# category=QuickloadResume scene=FLIGHT` and `Using batch baseline slot ... for 2
+# restore-after-run test(s)` - the derived 2, not the category total of 3.
+#
+# `total=3` is ATTRIBUTE-EXACT and counts the batch-FILTERED cell too
+# (`BATCH_COMPLETE`'s total is `allTests.Count(Status != NotRun)` over the single
+# batch), which is why total is 3 on BOTH paths and cannot be the discriminator here.
+# `failed=0` is the assertion. `passed=3` and `skipped=0` are MEASURED LITERALS; the
+# split sits exactly on the attribute floor of 0 skips, so NO `MEASURED_SKIPPED` entry
+# is owed. (While interim, `passed=` was a FLOOR OF 2 rather than the plain interim
+# class, for the reason set out at the top of this file: the ordinary path's executable
+# ceiling is 1 and a plain floor would accept the line a run that lost the arg prints.
+# The literal 3 clears that ceiling outright.)
+#
+# THE PREDICTION, written to be refuted, WAS CONFIRMED: ALL THREE EXECUTE, `total=3
+# passed=3 failed=0 skipped=0`.
+#   * `ReentrancyGuard_ClearedAfterRestore` (:14017) carries no guards at all.
+#   * `BridgeSurvivesSceneTransition` (:12914) carries no `InGameAssert.Skip` either -
+#     it asserts the singletons are non-null and then drives the quicksave/quickload.
+#     Its failure mode is a FAIL, not a skip.
+#   * `Quickload_MidRecording_ResumesSameActiveRecordingId` (:13124) is the one with
+#     real guards, and the host plus the driver settle every one that a save file can:
+#     active vessel present, non-EVA, and (on the idle branch the driver's pin selects)
+#     PRELAUNCH with `ParsekSettings.Current` available.
+# WHAT NO SAVE SETTLES, and what the census was actually for: whether the 15-part craft
+# clears PRELAUNCH inside `WaitForLaunchAutoRecordStart`'s 30 s deadline, and whether a
+# real F5/F9 round trip mid-recording resumes the same `ActiveRecordingId`. The second
+# is the product claim; the first is the environment it needs. BOTH CAME BACK
+# FAVOURABLE: `skipped=0` means the timing guard did not fire on this host, and
+# `failed=0` over three executed cells means the resume assertion held.
+#
+# The literal 2 in the baseline-slot token is DERIVED and is NOT the category total:
+# the runner prints `ordered.Count(t => t.RestoreBatchFlightBaselineAfterExecution)`
+# over the ADMITTED batch, and only two of the three declarations carry the flag.
+# Pinning 3 there would red a correct run - the R7a lesson, applied.
+required  = [
+  "BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=QuickloadResume scene=FLIGHT",
+  "runtests start category=QuickloadResume isolated=true",
+  "Using batch baseline slot .* for 2 restore-after-run test\\(s\\)",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# 1320 s worst case (660 + 660); 1400 clears it. Two of the three cells perform a REAL
+# stock quickload on top of the isolated path's own per-test baseline restore, so this
+# lane costs four full FLIGHT scene loads at minimum - the most scene churn per cell in
+# the wave. MEASURED at 63 s wall on run `2026-09-06_2014`, so the scene churn is real
+# but cheap on a 15-part craft and the budget is not the binding constraint.
+budgetSeconds = 1400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

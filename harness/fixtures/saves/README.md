@@ -467,6 +467,19 @@ run the same verify in-process, re-run the splice over the current `fresh-career
 asserting byte-identity, re-derive BOTH band bounds from the stock numbers, and check
 the spec still stages this fixture and pins the closed tally.
 
+## coalescer-pad (GAME Mode = SANDBOX, 1 VESSEL, derived from gs1-two-stage-pad)
+
+`gs1-two-stage-pad`'s `persistent.sfs` and `persistent.loadmeta` byte for byte, except
+that the `GS1 Auto-Chute Booster`'s `Decoupler.1` moves from inverse stage 1 to 2 and
+its `liquidEngine2` from 2 to 1 (`sqor` swapped the same way), so the FIRST
+`ActivateNextStage()` on the pad fires the decoupler and separates the probe-core
+booster as a CONTROLLED child while the engine stays unlit. That is what the two
+in-game `Coalescer` cells need from their single staging call; on gs1 itself the first
+stage lights the engine and both cells skip (H62's first census, 2026-09-06, read
+`passed=0 skipped=2`). Built and drift-gated by `harness/tools/build_coalescer_pad.py`
+(`--check`) and `harness/lib/test_coalescer_pad.py`; no `Ships/VAB` overlay because the
+lane launches nothing through kRPC. Host of `H62-coalescer-isolated`.
+
 ## fresh-science (GAME Mode = SCIENCE_SANDBOX)
 
 Science pool only: `ResearchAndDevelopment sci = 100`, no Funding / Reputation /

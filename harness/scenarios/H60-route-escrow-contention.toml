@@ -288,11 +288,19 @@ required  = [
   # ---- PHASE 2, blocked (escrow-caused). B's OWN crossing, carrying the M6 hold token
   #      whose final segment is the HOLDER's player-visible name (route A is stored, so
   #      TryGetReservingRoute resolves the Name rather than the short-id fallback). The
-  #      pattern STOPS at `shortfall=0`: the next character in the production line is an
+  #      pattern STOPS at `shortfall=3`: the next character in the production line is an
   #      em dash, which is the product's own existing text and is left alone rather than
   #      matched. The source vessel name stays `[^:]*` (census read `Logi Cargo Rig`) so
-  #      a fixture re-harvest cannot red this lane for an unrelated reason ----
-  "LoopRoute: route escrowB- cycle=cycle-0 BLOCKED kind=OriginLacksCargo reason=source-reserved:[0-9]+:[^:]*:LiquidFuel:Parsek Escrow Holder In-Game shortfall=0",
+  #      a fixture re-harvest cannot red this lane for an unrelated reason.
+  #      RE-PINNED 2026-09-06: the census read `shortfall=0` because of
+  #      ROUTE-HOLD-SHORTFALL-DROPPED (the hold dropped the measured short one frame
+  #      after PickupSourcesHaveCargo computed it; fixed 2026-09-03). The number is now
+  #      the real short and it is DERIVED, not measured only: B needs 8, netted
+  #      availability under A's reserve is 5 (the raw=11 netted=5 line below), so 3.
+  #      Run `2026-09-06_1908` (collected logs `2026-09-06_2209_H60-route-escrow-contention`)
+  #      red on the stale `shortfall=0` and read exactly `shortfall=3` here; the re-flight
+  #      `2026-09-06_1949` on this pin PASSED attempt 1 ----
+  "LoopRoute: route escrowB- cycle=cycle-0 BLOCKED kind=OriginLacksCargo reason=source-reserved:[0-9]+:[^:]*:LiquidFuel:Parsek Escrow Holder In-Game shortfall=3",
   # HALF ONE OF THE INVARIANCE EVIDENCE: raw 11 covers B's need of 8, netted 5 does not,
   # and the difference is exactly route A's un-fired window (6). Every number here is a
   # cell literal or derives from one - see the header's per-amount justification.

@@ -732,10 +732,52 @@ stock-minimal` to reach a harness run.
 
 **R6. Drive the recording-lifecycle and classification batches.** Roughly 8 specs.
 
-- Isolated (needs R5): `AutoRecord`, `SceneExitMerge`, `MergeDialog`, `RevertFlow`,
-  `Coalescer`, `QuickloadResume`. Closes D1 `auto-record-first-mod-switch`,
-  `commit-scene-exit`, `commit-revert-merge`; D5 `controlled-decoupled-child`,
-  `crash-coalescing`; D9 `rewind-to-launch`.
+- ~~Isolated (needs R5): `AutoRecord`, `SceneExitMerge`, `MergeDialog`, `RevertFlow`,
+  `Coalescer`, `QuickloadResume`.~~ **AUTHORED 2026-09-06 - ALL SEVEN; SIX LIVE-PROVEN
+  THE SAME DAY.**
+  `SceneExitMerge` shipped earlier as R5's shakedown (`H21-scene-exit-merge-isolated`,
+  LIVE-PROVEN 2026-07-27); the rest are now committed as
+  `H61-autorecord-isolated`, `H62-coalescer-isolated`, `H63-merge-dialog-isolated`,
+  `H64-revert-flow-isolated`, `H65-quickload-resume-isolated`,
+  `H66-playback-control-isolated` and `H67-automerge-commit-isolated`. That is SEVEN
+  rather than the five this line listed: `PlaybackControl` and `AutoMergeCommit` were
+  in the same unlocked population and belong here. Every one was authored as an INTERIM
+  pin (`total=` attribute-exact, `failed=0` asserted, split a regex class) with a
+  cell-by-cell predicted census in its own header. SIX HAVE NOW FLOWN AND ARE PINNED
+  WHOLE, each PASS on attempt 1 with every verifier PASS or SKIPPED: H61
+  `2026-09-06_2010` (82 s, `total=10 passed=5 failed=0 skipped=5`), H63 `_2012` (58 s,
+  `2/2/0/0`), H64 `_2013` (60 s, `1/1/0/0`), H65 `_2014` (63 s, `3/3/0/0`), H66 `_2015`
+  (74 s, `1/1/0/0`), H67 `_2016` (55 s, `1/1/0/0`) - and not one header prediction was
+  refuted. `H62-coalescer-isolated` flew twice: `_1956` on gs1-two-stage-pad read
+  `passed=0 skipped=2` (gs1's first stage lights the engine, so the one staging call
+  separated nothing), and `_2017` on the derived `coalescer-pad` host read `2/2/0/0`
+  and is pinned whole. `IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS` is empty again. Status
+  rows: `docs/dev/autotest-status.md`, "In-game ISOLATED
+  batch wiring, R6 isolated half, H61-H67". Bucket detail:
+  `docs/dev/autotest-ingame-category-inventory.md`, "B6-ISO".
+
+  **THE COVERAGE LINE ABOVE WAS WRONG IN TWO PLACES, and the authoring pass found it
+  by reading the cell bodies.** It used to read "Closes D1
+  `auto-record-first-mod-switch`, `commit-scene-exit`, `commit-revert-merge`; D5
+  `controlled-decoupled-child`, `crash-coalescing`; D9 `rewind-to-launch`". Corrected:
+  - D1 `auto-record-first-mod-switch` is NOT closed by `AutoRecord` on a PRELAUNCH
+    host. All three POSITIVE post-switch cells demand LANDED or ORBITING, so the only
+    one that executes is the negative `AutoRecordOnPostSwitch_NoOp_DoesNotStart`.
+    Closing it needs a LANDED host and an ORBITING host - two follow-up lanes.
+  - D5 `crash-coalescing` is NOT closed by `Coalescer`. Both its cells stage a
+    decoupler and assert on the resulting CONTROLLED child; neither crashes anything.
+  - D9 `rewind-to-launch` is NOT closed by `QuickloadResume`. That value names
+    Parsek's own rewind machinery; these cells drive KSP's F5/F9 backend, which has no
+    registry value. H65 claims nothing beyond D14.
+  What the wave claims: D1 `auto-record-launch` + `auto-record-eva`
+  (H61), `discard-rollback` (H63), `commit-revert-merge` (H64, revert half only),
+  `commit-scene-exit` + `auto-merge` (H67); D5 `controlled-decoupled-child` (H62);
+  D6 `spawn-at-end-pid-dedup` and D9 `fast-forward` (H66). All of these are now
+  backed by a green census rather than by the spec alone.
+  THE THREE CORRECTIONS ABOVE ALSO SURVIVED THE CENSUS: H61's three positive
+  post-switch cells each skipped naming their required situation against `got
+  PRELAUNCH`, so D1 `auto-record-first-mod-switch` is measured-open, not argued-open,
+  and the LANDED / ORBITING follow-up lanes are still owed.
 - Free today: `Optimizer` (D4 `env-body-split`, `surface-graze-suppression`),
   `BackgroundSeeder` (D4 `seed-event-split`), `Recording` (D5 `bg-on-rails`),
   `TrajectoryMath` (D2 `threshold-debounce`), `Pipeline-Anchor` (D3
