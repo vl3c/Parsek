@@ -55,7 +55,6 @@ namespace Parsek.Tests
             HighLogic.SaveFolder = originalSaveFolder;
             HighLogic.LoadedScene = originalScene;
             ParsekScenario.PersistentSavePathOverrideForTesting = null;
-            ParsekScenario.CarriedRecordingSidecarExistsOverrideForTesting = null;
             RecordingStore.SkipSidecarCurrencyCheckForTesting = false;
             RecordingStore.ClearDurableCommittedRecordingIdHint();
             for (int i = 0; i < cleanupFiles.Count; i++)
@@ -91,9 +90,6 @@ namespace Parsek.Tests
 
             RecordingTree tree = MakeUnserializableTree("tree-x", "Mun Program", "rec-x");
             RecordingStore.AddCommittedTreeForTesting(tree);
-            // The reconciliation keeps a carried RECORDING only when its sidecar is on
-            // disk; outside KSP the real probe cannot resolve a path, so declare it.
-            ParsekScenario.CarriedRecordingSidecarExistsOverrideForTesting = _ => true;
             ParsekScenario.PersistentSavePathOverrideForTesting =
                 WriteTempPersistentSfs(("tree-x", "Mun Program", "rec-x"));
 
@@ -109,6 +105,15 @@ namespace Parsek.Tests
             Assert.Equal("rec-x", treeNodes[0].GetNodes("RECORDING")[0].GetValue("recordingId"));
             Assert.Contains(logLines, l =>
                 l.Contains("[Scenario]") && l.Contains("carried forward last-known-good"));
+            // THE H5 REGRESSION (2026-09-06): rec-x is the ROOT and has no sidecar on disk
+            // (it was never written - the exact shape of the synthetic corpus's 34
+            // metadata-only tree recordings, and of any real recording whose .prec is
+            // lost). Reconciliation used to require the sidecar, drop rec-x, refuse the
+            // carry for its dangling root and delete the tree at Error. Membership alone
+            // keeps it, and this is the end-to-end proof through the real predicate with
+            // no testing seam: there is no sidecar override left to declare.
+            Assert.DoesNotContain(logLines, l => l.Contains("[ERROR]"));
+            Assert.DoesNotContain(logLines, l => l.Contains("resurrect deleted data"));
         }
 
         // The honest failure mode: nothing on disk to carry forward. The tree is still
@@ -122,7 +127,6 @@ namespace Parsek.Tests
 
             RecordingStore.AddCommittedTreeForTesting(
                 MakeUnserializableTree("tree-y", "Minmus Program", "rec-y"));
-            ParsekScenario.CarriedRecordingSidecarExistsOverrideForTesting = _ => true;
             // On-disk save carries a DIFFERENT tree, so there is no node for tree-y.
             ParsekScenario.PersistentSavePathOverrideForTesting =
                 WriteTempPersistentSfs(("tree-other", "Other", "rec-other"));
@@ -195,14 +199,13 @@ namespace Parsek.Tests
         // catches: THE RESURRECTION. The on-disk node is older than memory, so carried
         // verbatim it re-lists recordings the player has since deleted - ids whose
         // sidecars are gone, leaving the save disagreeing with the corpus the next load's
-        // orphan reap works against. Only recordings the LIVE tree still has AND whose
-        // sidecars are on disk may be carried.
+        // orphan reap works against. Only recordings the LIVE tree still has may be
+        // carried; a deleted recording has left the live tree, which is the whole test.
         [Fact]
         public void CarryForward_DropsRecordingsTheLiveTreeNoLongerHas()
         {
             var live = new RecordingTree { Id = "tree-r", TreeName = "Reconciled", RootRecordingId = "rec-keep" };
             live.AddOrReplaceRecording(new Recording { RecordingId = "rec-keep", TreeId = "tree-r" });
-            ParsekScenario.CarriedRecordingSidecarExistsOverrideForTesting = _ => true;
 
             ConfigNode source = BuildParsekNode("tree-r", "Reconciled", "rec-keep", "rec-deleted");
             var target = new ConfigNode("ParsekScenario");
@@ -217,16 +220,20 @@ namespace Parsek.Tests
             Assert.Equal("rec-keep", recs[0].GetValue("recordingId"));
         }
 
-        // The other half: the id is still in the live tree but its sidecar is gone, so
-        // carrying it would describe data this save no longer has.
+        // NOT the other half. The id is still in the live tree but its sidecar is gone.
+        // This used to DROP the recording ("data this save no longer has"), and that was
+        // the H5 regression: the carry runs precisely because a live recording's sidecar
+        // cannot be written, so requiring the sidecar dropped the very recording the carry
+        // exists for - and refused the whole tree whenever it was the root. A live
+        // recording is carried whether or not its trajectory file exists.
         [Fact]
-        public void CarryForward_DropsRecordingsWhoseSidecarsAreGone()
+        public void CarryForward_KeepsLiveRecordingsWhoseSidecarsAreGone()
         {
             var live = new RecordingTree { Id = "tree-s", TreeName = "Sidecars", RootRecordingId = "rec-a" };
             live.AddOrReplaceRecording(new Recording { RecordingId = "rec-a", TreeId = "tree-s" });
             live.AddOrReplaceRecording(new Recording { RecordingId = "rec-b", TreeId = "tree-s" });
-            ParsekScenario.CarriedRecordingSidecarExistsOverrideForTesting =
-                id => string.Equals(id, "rec-a", StringComparison.Ordinal);
+            // No sidecar exists for either id in this process (nothing was written), and
+            // the predicate must not care.
 
             ConfigNode source = BuildParsekNode("tree-s", "Sidecars", "rec-a", "rec-b");
             var target = new ConfigNode("ParsekScenario");
@@ -234,10 +241,12 @@ namespace Parsek.Tests
             Assert.True(ParsekScenario.TryCarryForwardCommittedTreeNodeFromLoadedSave(
                 target, source, live, out int carried, out int dropped));
 
-            Assert.Equal(1, carried);
-            Assert.Equal(1, dropped);
-            Assert.Equal("rec-a",
-                target.GetNodes("RECORDING_TREE")[0].GetNodes("RECORDING")[0].GetValue("recordingId"));
+            Assert.Equal(2, carried);
+            Assert.Equal(0, dropped);
+            ConfigNode[] recs = target.GetNodes("RECORDING_TREE")[0].GetNodes("RECORDING");
+            Assert.Equal(2, recs.Length);
+            Assert.Equal("rec-a", recs[0].GetValue("recordingId"));
+            Assert.Equal("rec-b", recs[1].GetValue("recordingId"));
         }
 
         // Reconciled down to nothing: a husk is not worth writing and would itself read
@@ -247,7 +256,6 @@ namespace Parsek.Tests
         {
             var live = new RecordingTree { Id = "tree-e", TreeName = "Empty", RootRecordingId = "rec-live" };
             live.AddOrReplaceRecording(new Recording { RecordingId = "rec-live", TreeId = "tree-e" });
-            ParsekScenario.CarriedRecordingSidecarExistsOverrideForTesting = _ => true;
 
             ConfigNode source = BuildParsekNode("tree-e", "Empty", "rec-gone-1", "rec-gone-2");
             var target = new ConfigNode("ParsekScenario");
@@ -272,7 +280,6 @@ namespace Parsek.Tests
         {
             var live = new RecordingTree { Id = "tree-dr", TreeName = "DanglingRoot", RootRecordingId = "rec-child" };
             live.AddOrReplaceRecording(new Recording { RecordingId = "rec-child", TreeId = "tree-dr" });
-            ParsekScenario.CarriedRecordingSidecarExistsOverrideForTesting = _ => true;
 
             // On disk the tree is rooted at a recording the live tree no longer has.
             ConfigNode source = BuildParsekNode("tree-dr", "DanglingRoot", "rec-root-gone", "rec-child");
@@ -296,7 +303,6 @@ namespace Parsek.Tests
         {
             var live = new RecordingTree { Id = "tree-da", TreeName = "DanglingActive", RootRecordingId = "rec-root" };
             live.AddOrReplaceRecording(new Recording { RecordingId = "rec-root", TreeId = "tree-da" });
-            ParsekScenario.CarriedRecordingSidecarExistsOverrideForTesting = _ => true;
 
             ConfigNode source = BuildParsekNode("tree-da", "DanglingActive", "rec-root", "rec-active-gone");
             ConfigNode diskTree = source.GetNodes("RECORDING_TREE")[0];
@@ -322,7 +328,6 @@ namespace Parsek.Tests
             var live = new RecordingTree { Id = "tree-bp", TreeName = "BranchPoints", RootRecordingId = "rec-root" };
             live.AddOrReplaceRecording(new Recording { RecordingId = "rec-root", TreeId = "tree-bp" });
             live.AddOrReplaceRecording(new Recording { RecordingId = "rec-kept", TreeId = "tree-bp" });
-            ParsekScenario.CarriedRecordingSidecarExistsOverrideForTesting = _ => true;
 
             ConfigNode source = BuildParsekNode("tree-bp", "BranchPoints", "rec-root", "rec-kept", "rec-gone");
             ConfigNode diskTree = source.GetNodes("RECORDING_TREE")[0];
@@ -406,20 +411,19 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void IsCarriedRecordingStillReal_RequiresBothHalves()
+        public void IsCarriedRecordingStillReal_IsLiveTreeMembershipOnly()
         {
             var live = new RecordingTree { Id = "t", RootRecordingId = "rec-1" };
             live.AddOrReplaceRecording(new Recording { RecordingId = "rec-1", TreeId = "t" });
 
-            ParsekScenario.CarriedRecordingSidecarExistsOverrideForTesting = _ => true;
+            // Membership is the whole predicate: no sidecar was ever written for rec-1 in
+            // this process, and it is still real.
             Assert.True(ParsekScenario.IsCarriedRecordingStillReal(live, "rec-1"));
             Assert.False(ParsekScenario.IsCarriedRecordingStillReal(live, "rec-absent"));
 
-            ParsekScenario.CarriedRecordingSidecarExistsOverrideForTesting = _ => false;
-            Assert.False(ParsekScenario.IsCarriedRecordingStillReal(live, "rec-1"));
-
             Assert.False(ParsekScenario.IsCarriedRecordingStillReal(null, "rec-1"));
             Assert.False(ParsekScenario.IsCarriedRecordingStillReal(live, null));
+            Assert.False(ParsekScenario.IsCarriedRecordingStillReal(live, ""));
         }
 
         // ==================================================================

@@ -15530,9 +15530,18 @@ namespace Parsek.InGameTests
         }
 
         [InGameTest(Category = "PartEventTiming", Scene = GameScenes.FLIGHT,
-            Description = "Deployable part events swap ghost transforms exactly at their authored UT boundaries")]
+            Description = "Deployable part events ARM their transition exactly at the authored UT, are interior half a clip later, and land on the exact endpoint pose one clip after it")]
         public void PartEventTiming_DeployableTransition_AppliesAtEventUt()
         {
+            // CONTRACT (S2, the deployable interpolation H36 proves live): a recorded
+            // deploy / retract event does not SNAP the pose. At the event's UT the
+            // transition is armed and the pose still reads the start endpoint; the
+            // per-frame UpdateActiveDeployables pass then moves it over
+            // clipLengthSeconds * |target - start| and writes the EXACT endpoint pose
+            // when the clip completes. This cell used to assert a snap at the event UT
+            // and had never been driven by any batch; the first census that ran it
+            // (2026-09-07, LT-0-census-flight) read it FAILED against the shipped
+            // contract, so it now pins the animated one and the snap it retired.
             var ghostRoot = new GameObject("ParsekTest_DeployableTimingGhost");
             runner.TrackForCleanup(ghostRoot);
 
@@ -15582,10 +15591,15 @@ namespace Parsek.InGameTests
                     [202u] = new DeployableGhostInfo
                     {
                         partPersistentId = 202u,
+                        // Pinned rather than left at the unreadable-clip default so the
+                        // UTs below are the contract, not a constant's current value.
+                        clipLengthSeconds = 3f,
                         transforms = new List<DeployableTransformState> { deployableState }
                     }
                 }
             };
+            DeployableGhostInfo info = state.deployableInfos[202u];
+            Vector3 midPos = Vector3.Lerp(deployableState.stowedPos, deployableState.deployedPos, 0.5f);
 
             GhostPlaybackLogic.ApplyPartEvents(902, rec, 199.9, state);
             InGameAssert.IsTrue(deployableHost.transform.localPosition == deployableState.stowedPos,
@@ -15596,30 +15610,58 @@ namespace Parsek.InGameTests
                 "Part-event cursor should not advance before the first deployable event fires");
 
             GhostPlaybackLogic.ApplyPartEvents(902, rec, 200.0, state);
-            InGameAssert.IsTrue(deployableHost.transform.localPosition == deployableState.deployedPos,
-                "Deployable should extend exactly at the authored DeployableExtended UT");
-            InGameAssert.IsTrue(deployableHost.transform.localRotation == deployableState.deployedRot,
-                "Deployable rotation should switch to the deployed pose at the authored extend UT");
-            InGameAssert.IsTrue(deployableHost.transform.localScale == deployableState.deployedScale,
-                "Deployable scale should switch to the deployed pose at the authored extend UT");
             InGameAssert.AreEqual(1, state.partEventIndex,
-                "Part-event cursor should advance after the deployable extend event fires");
+                "Part-event cursor should advance when the deployable extend event fires");
+            InGameAssert.IsTrue(info.transitionActive,
+                "The extend event must ARM a transition at its authored UT");
+            InGameAssert.IsTrue(deployableHost.transform.localPosition == deployableState.stowedPos,
+                "At the event UT itself (elapsed 0) the pose still reads the stowed endpoint - the event arms the clip, it does not snap");
+
+            GhostPlaybackLogic.UpdateActiveDeployables(state, 201.5);
+            InGameAssert.IsTrue((deployableHost.transform.localPosition - midPos).magnitude < 1e-4f,
+                "Half a 3 s clip after the event the pose must be the exact midpoint, got " +
+                deployableHost.transform.localPosition + " expected " + midPos);
+            InGameAssert.IsTrue(info.transitionActive,
+                "A half-finished transition must still be active");
+
+            GhostPlaybackLogic.UpdateActiveDeployables(state, 203.0);
+            InGameAssert.IsTrue(deployableHost.transform.localPosition == deployableState.deployedPos,
+                "One clip after the extend event the pose must be the EXACT deployed position, not a lerp result");
+            InGameAssert.IsTrue(deployableHost.transform.localRotation == deployableState.deployedRot,
+                "One clip after the extend event the rotation must be the exact deployed pose");
+            InGameAssert.IsTrue(deployableHost.transform.localScale == deployableState.deployedScale,
+                "One clip after the extend event the scale must be the exact deployed pose");
+            InGameAssert.IsFalse(info.transitionActive,
+                "A completed transition must be retired");
 
             GhostPlaybackLogic.ApplyPartEvents(902, rec, 209.9, state);
+            GhostPlaybackLogic.UpdateActiveDeployables(state, 209.9);
             InGameAssert.IsTrue(deployableHost.transform.localPosition == deployableState.deployedPos,
                 "Deployable should remain extended between the authored extend and retract events");
             InGameAssert.AreEqual(1, state.partEventIndex,
                 "Part-event cursor should not advance before the authored retract UT");
 
             GhostPlaybackLogic.ApplyPartEvents(902, rec, 210.0, state);
-            InGameAssert.IsTrue(deployableHost.transform.localPosition == deployableState.stowedPos,
-                "Deployable should retract exactly at the authored DeployableRetracted UT");
-            InGameAssert.IsTrue(deployableHost.transform.localRotation == deployableState.stowedRot,
-                "Deployable rotation should switch back to the stowed pose at the authored retract UT");
-            InGameAssert.IsTrue(deployableHost.transform.localScale == deployableState.stowedScale,
-                "Deployable scale should switch back to the stowed pose at the authored retract UT");
             InGameAssert.AreEqual(2, state.partEventIndex,
-                "Part-event cursor should advance after the deployable retract event fires");
+                "Part-event cursor should advance when the deployable retract event fires");
+            InGameAssert.IsTrue(info.transitionActive,
+                "The retract event must ARM a transition at its authored UT");
+            InGameAssert.IsTrue(deployableHost.transform.localPosition == deployableState.deployedPos,
+                "At the retract event UT itself the pose still reads the deployed endpoint");
+
+            GhostPlaybackLogic.UpdateActiveDeployables(state, 211.5);
+            InGameAssert.IsTrue((deployableHost.transform.localPosition - midPos).magnitude < 1e-4f,
+                "Half a clip into the retract the pose must be the exact midpoint again (the mirror direction)");
+
+            GhostPlaybackLogic.UpdateActiveDeployables(state, 213.0);
+            InGameAssert.IsTrue(deployableHost.transform.localPosition == deployableState.stowedPos,
+                "One clip after the retract event the pose must be the EXACT stowed position");
+            InGameAssert.IsTrue(deployableHost.transform.localRotation == deployableState.stowedRot,
+                "One clip after the retract event the rotation must be the exact stowed pose");
+            InGameAssert.IsTrue(deployableHost.transform.localScale == deployableState.stowedScale,
+                "One clip after the retract event the scale must be the exact stowed pose");
+            InGameAssert.IsFalse(info.transitionActive,
+                "A completed retract transition must be retired");
         }
 
         // ======================= ResourceManifest (Phase 11) =======================
@@ -15722,8 +15764,18 @@ namespace Parsek.InGameTests
             }
             else
             {
-                InGameAssert.Skip("no rewind target present (or already at game start) — " +
-                    "rewind-reachability assertion not applicable");
+                // NOT a skip. The far-future ForwardOnly resolution and the defined-kind
+                // resolution of UT 0 above are the cell's measurements and have already
+                // held; only the rewind-reachability HALF is inapplicable without a rewind
+                // target or with the clock still at game start. Skipping here made the
+                // cell's verdict depend on what earlier categories in the same batch had
+                // left in the store (it PASSED on the 2026-09-07 census after 17 other
+                // categories and SKIPPED on LT-2's first pinned flight after 3), so the
+                // inapplicable half is logged and the measured half stands as the PASS.
+                ParsekLog.Verbose("TestRunner",
+                    "WarpToTime_ResolvePlan_LiveScene: rewind-reachability half not applicable " +
+                    $"(anyRewindSave={anyRewindSave} careerStartAvailable={careerStartAvailable} now={now:F1}); " +
+                    $"UT-0 plan kind={startPlan.Kind}");
             }
         }
 

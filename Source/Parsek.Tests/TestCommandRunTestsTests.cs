@@ -95,6 +95,52 @@ namespace Parsek.Tests
 
         // --- The `category` arg: ABSENT is RunAll, WRITTEN-but-empty is a typo ---
 
+        // ---- multi-category selector (2026-09-07) ----
+
+        [Fact]
+        public void TryParseCategorySelector_AbsentIsTheRunAllShape()
+        {
+            Assert.True(TestCommandRunTests.TryParseCategorySelector(null, out var cats, out var problem));
+            Assert.Empty(cats);
+            Assert.Null(problem);
+        }
+
+        [Fact]
+        public void TryParseCategorySelector_SingleTokenIsTheSingleCategoryBatch()
+        {
+            Assert.True(TestCommandRunTests.TryParseCategorySelector("KSP", out var cats, out _));
+            Assert.Equal(new[] { "KSP" }, cats);
+        }
+
+        [Fact]
+        public void TryParseCategorySelector_CommaListKeepsOrderAndTrims()
+        {
+            Assert.True(TestCommandRunTests.TryParseCategorySelector("Bug289, Watch ,Unity", out var cats, out _));
+            Assert.Equal(new[] { "Bug289", "Watch", "Unity" }, cats);
+        }
+
+        [Theory]
+        [InlineData("A,,B", "empty token at position 2")]
+        [InlineData("A,", "empty token at position 2")]
+        [InlineData(",A", "empty token at position 1")]
+        [InlineData("A, ,B", "empty token at position 2")]
+        [InlineData("A,B,A", "duplicate token A")]
+        public void TryParseCategorySelector_RejectsMalformedListsNamingTheToken(string raw, string expectedProblem)
+        {
+            // An empty token would dispatch RunCategory("") - the RunAll arm in
+            // disguise - and a duplicate would run a category twice under an
+            // aggregate that counts it once; both are terminal REJECTED, never a run.
+            Assert.False(TestCommandRunTests.TryParseCategorySelector(raw, out var cats, out var problem));
+            Assert.Empty(cats);
+            Assert.Equal(expectedProblem, problem);
+        }
+
+        [Fact]
+        public void CategorySelectorMalformedReason_IsTheDocumentedToken()
+        {
+            Assert.Equal("category-selector-malformed", TestCommandRunTests.CategorySelectorMalformedReason);
+        }
+
         [Fact]
         public void IsEmptyCategoryArg_AbsentIsNotEmpty()
         {
