@@ -1493,7 +1493,8 @@ THE B-RANGE ROSTER, because it is now full enough that the next author cannot
 pick a free id by eye: **B27** G1 (`B27-station-route`), **B28** G2 moon-to-parent
 (`B28-laythe-jool-return`, FLOWN 2026-08-20 and committed), **B29** G2
 planet-to-Kerbin (`B29-jool-kerbin-return`, AUTHORED 2026-08-26 and committed,
-NEVER FLOWN), **B30** G4 (`B30-mun-minmus-transfer`). **B31 remains reserved for
+NEVER FLOWN when written; flight 3 PASS attempt 1 MISSION-OK 2026-08-27,
+`2026-08-27_1709`), **B30** G4 (`B30-mun-minmus-transfer`). **B31 remains reserved for
 a Kerbin -> Duna SETUP flight, DEMOTED from "the lane B29 needs" to a
 when-wanted breadth point.** **B32** G10 (`B32-interbody-route`, a
 harvest-plus-builder stamp like B27, not a flight).
