@@ -1,0 +1,73 @@
+schema = 1
+id = "LT-3-long-tail-career-flight"
+tier = "nightly"
+# THE CAREER SLICE OF THE LONG TAIL. Two categories whose cells are career-only and
+# so executed nothing (Contracts) or 1 of 4 (TestCommands) on LT-1's sandbox host:
+# `Contracts` (the contract-offer / ledger-credit runtime cells) and `TestCommands`
+# (whose research cell needs a career R&D). Both run here as one multi-category
+# batch on the `career-earned-pad` career - the L4 ledger host: an earned ledger,
+# two committed recordings, one Active contract spliced by D8 and a crewed pod on
+# the pad - measured on the 2026-09-07 second census (scratch CEN-1, run
+# `2026-09-07_2007`, 6 candidate categories): Contracts 2 of 2, TestCommands 2 of 4.
+#
+# THE TWO TESTCOMMANDS SKIPS ARE MEASURED AND NAMED: the MAINMENU cell scene-skips
+# in FLIGHT, and `FlightChannelRoundTrip_PendingOperator` is the file-channel
+# round trip only an operator drives (its skip text says so). The four categories
+# the census read as executing NOTHING on this host are deliberately not
+# constituents: `CrewReservationLive` (no spawned vessel pids), `StockUiOverlay`
+# (its cells are SPACECENTER-scoped - H45 owns them), `ResourceTopBar` (the same;
+# H71 owns the SPACECENTER slice on the vessel-less sibling `career-earned-ksc`)
+# and `Missions` (1 of 13 here against 3 of 13 on H54 and 2 of 13 on LT-4).
+# FLOWN (first flight): run `2026-09-07_2035`, PASS attempt 1, wall 64 s, every per-constituent
+# line above matched verbatim and every verifier PASS or REPORT.
+description = "Run the two career-only long-tail in-game categories (Contracts, TestCommands) as one multi-category batch at FLIGHT on the career-earned-pad career, every constituent pinned whole."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "multi-category", "long-tail", "career", "LT-3"]
+
+[fixture]
+# The L4 ledger host, unchanged: no injection (its ledger payload is the point, and
+# an injected corpus would re-home nothing but would move the count pin).
+saveTemplate = "fixtures/saves/career-earned-pad"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "Contracts,TestCommands" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["career", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The two committed recordings the career carries (L4 pins the same 2).
+count = { min = 2, max = 2 }
+
+[expectations.logContracts]
+# ANTI-VACUITY, PER CONSTITUENT: one whole literal line per category, the measured
+# census line, plus the aggregate whose counts are the sums. `failed=0` on every
+# line is the assertion.
+required  = [
+  "runtests start category=Contracts,TestCommands isolated=false strict=false multi=2",
+  "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=Contracts scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=4 passed=2 failed=0 skipped=2 category=TestCommands scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=6 passed=4 failed=0 skipped=2 category=multi:2 scene=FLIGHT",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+budgetSeconds = 900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

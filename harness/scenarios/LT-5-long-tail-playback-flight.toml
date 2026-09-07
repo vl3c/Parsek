@@ -1,0 +1,75 @@
+schema = 1
+id = "LT-5-long-tail-playback-flight"
+tier = "nightly"
+# THE PLAYBACK SLICE OF THE LONG TAIL. Two categories whose cells read ACTIVE GHOSTS
+# - ghosts spawned and playing when the batch runs - which LT-1's host never has (its
+# corpus is injected but nothing is playing at the batch UT): `PartEventFX` (the FX
+# infos resolved on active ghosts' engine / chute / light parts; nothing executed on
+# LT-1) and `GhostLifecycle` (active ghost, loop-unit and overlap cells; 2 of 17 on
+# LT-1). Host: `gloops-airshow` with the `part-showcase` preset (S1.9's 243 showcase
+# recordings, one per part family, all playing from UT 50) and a TimeJump to UT 55
+# so the showcase ghosts are spawned and mid-playback when the batch runs. Measured
+# on the 2026-09-07 second census (scratch CEN-3, run `2026-09-07_2008`, 6 candidate
+# categories): PartEventFX 1 of 6 (`LightInfosValid`), GhostLifecycle 4 of 17.
+#
+# THE SKIPS THAT REMAIN ARE MEASURED AND NAMED: PartEventFX's engine / chute /
+# fairing / decoupler FX cells want an active ghost with that part family's FX
+# resolved at the batch UT (the showcase ghosts are static parts; only the light
+# family resolves), and GhostLifecycle's loop-unit and overlap cells want a loop
+# recording (M1 owns loop units) or two overlapping recordings of one vessel.
+# `GhostMapOrbits`, `SpawnCollision` and `PartEventTiming` read the same on this
+# host as on LT-1 and stay there (the family's no-overlap rule).
+# FLOWN (first flight): run `2026-09-07_2037`, PASS attempt 1, wall 72 s, every per-constituent
+# line above matched verbatim and every verifier PASS or REPORT.
+description = "Run the two active-ghost long-tail in-game categories (PartEventFX, GhostLifecycle) as one multi-category batch at FLIGHT over the playing part-showcase corpus, every constituent pinned whole."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "multi-category", "long-tail", "playback", "LT-5"]
+
+[fixture]
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "part-showcase"
+craft = []
+
+[driver]
+kind = "seam"
+# TimeJump to UT 55: the showcase recordings start at UT 50 (S1.9), so at 55 every
+# showcase ghost is spawned and five seconds into playback when RunTests fires.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "TimeJump",   args = { ut = "55" },                                 expect = "OK", budget = 120 },
+  { cmd = "RunTests",   args = { category = "PartEventFX,GhostLifecycle" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The injected showcase corpus, unchanged (S1.9 pins the same 243).
+count = { min = 243, max = 243 }
+
+[expectations.logContracts]
+# ANTI-VACUITY, PER CONSTITUENT: one whole literal line per category, the measured
+# census line, plus the aggregate whose counts are the sums. `failed=0` on every
+# line is the assertion.
+required  = [
+  "runtests start category=PartEventFX,GhostLifecycle isolated=false strict=false multi=2",
+  "BATCH_COMPLETE v1 total=6 passed=1 failed=0 skipped=5 category=PartEventFX scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=17 passed=4 failed=0 skipped=13 category=GhostLifecycle scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=23 passed=5 failed=0 skipped=18 category=multi:2 scene=FLIGHT",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+budgetSeconds = 1000
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
