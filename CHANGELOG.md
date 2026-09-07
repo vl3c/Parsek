@@ -10,6 +10,22 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Your kerbals' experience from a recovery is never booked against the wrong flight.**
+  When a craft is recovered, Parsek files the crew's experience against the flight they
+  just flew, and it finds that flight by name and by when it ended. Two flights of a craft
+  with the same name can therefore look alike, and Parsek already refuses to confuse them
+  whenever the game gives it enough to tell them apart - it does, for anything flown since
+  that check shipped. What is new is the case where it genuinely cannot tell: two
+  same-named flights, neither of them identifiable, and nothing but "which one ended more
+  recently" to choose between them. Parsek now leaves the experience unbooked in that
+  case and says so in the log, rather than guessing. It matters because this is the one
+  thing a recovery records that cannot be taken back later: funds and science are worked
+  out afresh every time, so a wrong guess there corrects itself, while experience is
+  written onto a kerbal's career record and stays. Nothing changes for an ordinary
+  recovery - a flight recorded in several segments is still one flight, and its crew's
+  experience is booked exactly as before - and the funds and the science from an
+  unidentifiable recovery are still paid in full.
+
 - **A supply route's map line now draws the whole journey, not just the launch.** A route
   remembers the flights that back it, but it remembered each one by its FIRST recording
   segment, and a long flight is split into several as it crosses environments. So the line

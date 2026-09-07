@@ -1933,22 +1933,30 @@ namespace Parsek.Tests
             // ONE correlator all three legs resolve through, not in any single leg.
             //
             // The pin's job is "all three legs route through the one picker" - so it
-            // asserts each leg's METHOD BODY references PickRecoveryRecordingId, and
-            // NOTHING about the argument list or the indentation. An exact-call-text pin
-            // reds on a false alarm the moment a sibling branch changes a leg's argument
-            // spelling (e.g. the science leg taking an identity struct), and the obvious
-            // "fix" for a false alarm is to delete the assertion - which is how a real
-            // gate gets lost. Comment-stripped so the many <see cref="..."/> mentions in
-            // the doc-comments cannot satisfy it.
-            Assert.Contains("PickRecoveryRecordingId",
+            // asserts each leg's METHOD BODY references the correlator, and NOTHING about
+            // the argument list or the indentation. An exact-call-text pin reds on a false
+            // alarm the moment a sibling branch changes a leg's argument spelling (e.g. the
+            // science leg taking an identity struct), and the obvious "fix" for a false
+            // alarm is to delete the assertion - which is how a real gate gets lost.
+            // Comment-stripped so the many <see cref="..."/> mentions in the doc-comments
+            // cannot satisfy it.
+            //
+            // THE LITERAL IS `PickRecoveryRecording`, NOT `PickRecoveryRecordingId`, and the
+            // difference is deliberate: KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY stage 2
+            // split the picker into the id-returning overload (funds, science) and the
+            // full-result `PickRecoveryRecording` the XP leg needs for the ambiguity check,
+            // and the id overload DELEGATES to it. The shorter literal is a prefix of both
+            // spellings, so it still catches the thing this gate exists to catch - a leg
+            // that stops routing through the one correlator - while surviving the split.
+            Assert.Contains("PickRecoveryRecording",
                 LedgerOrchestratorMethodBody(
                     "private static string ResolveKscScienceRecordingId("));
-            Assert.Contains("PickRecoveryRecordingId",
+            Assert.Contains("PickRecoveryRecording",
                 LedgerOrchestratorMethodBody(
                     "internal static int TryRecordRecoveryKerbalExperience("));
             // The funds leg does not call it - it hands it to the pairing helper as the
             // picker delegate, which is the same routing by another shape.
-            Assert.Contains("PickRecoveryRecordingId",
+            Assert.Contains("PickRecoveryRecording",
                 LedgerOrchestratorMethodBody(
                     "private static bool TryAddVesselRecoveryFundsAction("));
 
