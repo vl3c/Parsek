@@ -589,6 +589,49 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Dev
 
+- **A finished test flight now keeps its own copy of the save it produced, so a second
+  session on the same machine can no longer destroy it.** Two flights that start from
+  the same save template share one save folder inside the test install, and each new
+  flight wipes that folder before it launches. The only thing stopping two flights from
+  overlapping is a machine-wide lock, and that lock is let go the moment a flight ENDS -
+  which is exactly the moment its output starts being useful. So a colleague's next
+  flight, seconds later, deleted the previous one's result; measured at nine seconds
+  once, and the giveaway was that the wiped save described a rocket still sitting on the
+  pad for a flight that had reached orbit. It cost a wrong diagnosis and about fifty
+  minutes of real flying. Each flight now copies its finished save into its own results
+  folder while it still holds the lock, and the tools that turn a flight's save into a
+  permanent test fixture read from there. Every outcome is kept, including failures - a
+  failed flight's save is the only record of what went wrong. Old copies are trimmed to
+  the newest three per test so the disk stays bounded, and a copy that fails is noted
+  and otherwise ignored: it can never change whether a flight passed. The copy is
+  made under a temporary name and renamed once it is complete, so a flight killed
+  part way through leaves nothing that could be mistaken for a whole save; the
+  half-finished folder it does leave behind is cleared away by the next flight's
+  trim pass, which by name can only ever touch these save copies.
+- **Running the test suite can no longer rewrite the committed timing record.** The
+  cells that guard the cross-run duration ledger now work on a copy of it in a scratch
+  folder instead of reaching for the real file through a global, and two of them check
+  the real file is untouched, byte for byte, before and after. What the cells prove is
+  unchanged and in one place stronger: one of them now merges against the real
+  committed numbers rather than a hand-written stub.
+- **The rule that stops a mission from timing itself against a craft that is on its way
+  back down now has a test that actually watches it happen.** Parsek refuses to time a
+  repeating mission against another craft's orbit unless that orbit clears the
+  atmosphere, and the refusal has two halves: one for a craft sitting on the ground, one
+  for a craft in the air or still climbing. Only the ground half had ever been seen in a
+  real game - the air half was reasoned about, covered by unit tests, and never once
+  reached in a flight, because every saved game the suite tests against is either parked
+  in a clean orbit or landed, and no test-only trick can put a craft in the air (the one
+  that edits saved games is deliberately limited to fuel and cargo). So the new test
+  FLIES one: it reuses the existing parachute flight, which ends with the capsule hanging
+  under its canopy, and runs the mission-timing checks at that moment instead of sending
+  the kerbal out. That capsule carries exactly the kind of orbit the rule exists to
+  reject - the game reports a perfectly good repeating orbit for anything near the
+  ground, and following it would take the craft hundreds of kilometres underground - so
+  the refusal is forced to happen for real. The test fails if the capsule is on the
+  ground by the time the checks run, rather than quietly passing on the wrong half.
+  Written, not yet flown. Test tooling and docs only; no gameplay change.
+
 - **A test can now stage a delivery target whose cargo racks are completely full, so
   the last untested way a supply run can be turned away is finally reachable.** A run
   is refused if EITHER the destination's tank has no room OR its cargo slots do - and

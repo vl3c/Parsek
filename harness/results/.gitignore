@@ -9,6 +9,11 @@ summary.txt
 *.claim
 # V3 always-collect artifacts + contact sheets (generated per run; never committed).
 *_shots/
+# The run's own copy of the produced save (run.py _snapshot_produced_save). Tens
+# of MB per run, bounded by the per-scenario retention pass; a fixture harvested
+# from one IS committed, under harness/fixtures/saves/ - the snapshot never is.
+*_save/
+*_save.harness-tmp/
 *.html
 *.html.tmp.*
 # Tier-runner output: per-invocation dated logs + the history.txt skim surface
