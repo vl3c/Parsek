@@ -6530,10 +6530,11 @@ namespace Parsek
 
         internal static bool TryHealMalformedFlatFallbackTrajectoryFromTrackSections(
             Recording rec,
-            bool allowRelativeSections = false)
+            bool allowRelativeSections = false,
+            bool markDirty = true)
         {
             return TrajectoryTextSidecarCodec.TryHealMalformedFlatFallbackTrajectoryFromTrackSections(
-                rec, allowRelativeSections);
+                rec, allowRelativeSections, markDirty);
         }
 
         internal static int RebuildOrbitSegmentsFromTrackSections(

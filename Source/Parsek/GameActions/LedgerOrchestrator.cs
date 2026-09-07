@@ -3968,6 +3968,16 @@ namespace Parsek
         /// refusal is logged with the kerbal count so an unowned recovery is visible as a
         /// positive fact rather than as silence.
         /// </para>
+        ///
+        /// <para>
+        /// <b>KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY stage 2: an AMBIGUOUS pick refuses
+        /// too</b>, with <c>reason=ambiguous-recovery-recording</c>. This is the only leg that
+        /// does so. The predicate and its rationale live in <see cref="RecoveryPickAmbiguity"/>;
+        /// the short form is that a funds or science row is re-derived idempotently on every
+        /// recalc (wrong but revisable) while this row appends career-log entries through a
+        /// facade with no remove counterpart (wrong and unreachable). Stage 1's guid filter
+        /// runs first and is what turns "weak tier" into "weak tier AND genuinely ambiguous".
+        /// </para>
         /// </summary>
         /// <returns>
         /// Number of input events that end the call WITH a ledger row - rows written plus
@@ -3988,12 +3998,47 @@ namespace Parsek
             string utText = ut.ToString("F1", CultureInfo.InvariantCulture);
             string countText = experienceEvents.Count.ToString(CultureInfo.InvariantCulture);
 
-            string recordingId = PickRecoveryRecordingId(identity, ut);
+            var picked = PickRecoveryRecording(identity, ut);
+            string recordingId = picked.RecordingId;
             if (string.IsNullOrEmpty(recordingId))
             {
                 ParsekLog.Info(Tag,
                     $"Recovery kerbal XP refused: {identity.FormatForLog()} ut={utText} " +
                     $"kerbals={countText} reason=no-recovery-recording");
+                return 0;
+            }
+
+            // KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY stage 2. The XP row is the
+            // IRREVERSIBLE one, so it is the only leg that refuses a pick nothing
+            // determines: more than one candidate survived the stage-1 launch-guid filter,
+            // the winner was chosen by a weak EndUT-ordering tier, AND the survivors are
+            // not positively corroborated as one launch. That third clause is what keeps
+            // this from being the bare tier-strength refusal the entry's "What NOT to do"
+            // paragraph forbids: most-recent-ended over TWO survivors is what the ordinary
+            // single-launch career recovery measurably produces (its chained segments), and
+            // refusing that would empty L4's KerbalXp facet. See RecoveryPickAmbiguity.
+            //
+            // ONCE PER RECOVERY, not once per recalc: this method is reached only from
+            // GameStateRecorder.OnVesselRecoveryProcessingForExperience, which fires on the
+            // stock recovery event. RecalculateAndPatch re-derives rows FROM the ledger and
+            // never re-enters here, so the refusal cannot repeat for one recovery and needs
+            // no rate limiting - the same reason the no-recovery-recording line above is a
+            // plain Info. A LATER recovery whose ambiguity has resolved (a candidate
+            // retired, or guids became known) writes its row normally: nothing here is
+            // sticky.
+            var ambiguity = RecoveryPickAmbiguity.Evaluate(picked.Survivors, picked.Tier);
+            if (ambiguity.IsAmbiguous)
+            {
+                ParsekLog.Info(Tag,
+                    $"Recovery kerbal XP refused: {identity.FormatForLog()} ut={utText} " +
+                    $"kerbals={countText} reason={RecoveryPickAmbiguity.AmbiguousReason} " +
+                    $"survivors={ambiguity.SurvivorCount.ToString(CultureInfo.InvariantCulture)} " +
+                    $"nameMatches={picked.NameMatchCount.ToString(CultureInfo.InvariantCulture)} " +
+                    $"guidDropped={picked.GuidDropped.ToString(CultureInfo.InvariantCulture)} " +
+                    $"tier={RecoveryPickAmbiguity.TierToken(ambiguity.Tier)} " +
+                    $"corroboration={RecoveryPickAmbiguity.CorroborationToken(ambiguity.Corroboration)} " +
+                    $"wouldHavePicked={recordingId} " +
+                    $"survivorIds={RecoveryPickAmbiguity.FormatSurvivorIds(picked.Survivors)}");
                 return 0;
             }
 
@@ -4655,8 +4700,47 @@ namespace Parsek
 
         internal static string PickRecoveryRecordingId(RecoveredVesselIdentity identity, double ut)
         {
+            return PickRecoveryRecording(identity, ut).RecordingId;
+        }
+
+        /// <summary>
+        /// The picker's FULL result: the chosen recording id plus the two facts only the
+        /// KERBAL XP leg consumes - the post-filter survivor set and the tier that chose
+        /// among it.
+        ///
+        /// <para>
+        /// KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY stage 2 needs both, because "the pick
+        /// is genuinely ambiguous" is a statement about the SET the tier walked, not about
+        /// the winner alone. The funds and science legs keep calling
+        /// <see cref="PickRecoveryRecordingId"/> and see no behavior change whatever: their
+        /// rows are re-derived idempotently from the effective ledger on every recalc, so a
+        /// mis-scoped one is wrong but REVISABLE, and refusing them would drop a real payout
+        /// to buy safety they do not need. That asymmetry is the whole argument of the entry.
+        /// </para>
+        ///
+        /// <para>
+        /// <see cref="RecoveryPickResult.Survivors"/> is the POST-filter list by
+        /// construction - the same list the tier walk below iterates. Handing out the
+        /// name-match set instead would let a consumer reason about candidates
+        /// <see cref="FilterRecoveryCandidatesByLaunchGuid"/> dropped, which is exactly the
+        /// monotonicity break the filter's safety argument forbids.
+        /// </para>
+        /// </summary>
+        internal static RecoveryPickResult PickRecoveryRecording(
+            RecoveredVesselIdentity identity, double ut)
+        {
             var recordings = RecordingStore.CommittedRecordings;
-            if (recordings == null) return null;
+            if (recordings == null)
+            {
+                return new RecoveryPickResult
+                {
+                    RecordingId = null,
+                    Tier = RecoveryPickTier.None,
+                    Survivors = new List<Recording>(),
+                    NameMatchCount = 0,
+                    GuidDropped = 0
+                };
+            }
 
             int skippedZombieNotCommitted = 0;
 
@@ -4800,12 +4884,22 @@ namespace Parsek
                         $"skippedZombieNotCommitted={skippedZombieNotCommitted} tier=none " +
                         $"pick=<null> (only zombie provisionals matched; payout left untagged)");
                 }
-                return null;
+                return new RecoveryPickResult
+                {
+                    RecordingId = null,
+                    Tier = RecoveryPickTier.None,
+                    Survivors = candidates,
+                    NameMatchCount = nameMatches.Count,
+                    GuidDropped = guidDropped
+                };
             }
 
-            string tier = bracketPick != null ? "bracketing"
-                        : mostRecentEnded != null ? "most-recent-ended"
-                        : "global-latest";
+            RecoveryPickTier pickTier = bracketPick != null ? RecoveryPickTier.Bracketing
+                                      : mostRecentEnded != null ? RecoveryPickTier.MostRecentEnded
+                                      : RecoveryPickTier.GlobalLatest;
+            // ONE spelling of the tier tokens, shared with the stage-2 refusal line, so a
+            // rename cannot desynchronize the two greps a live proof reads.
+            string tier = RecoveryPickAmbiguity.TierToken(pickTier);
             // The tie decision rides the existing tier line rather than a second line:
             // one grep per pick, and the token is meaningless off tier 1 by construction.
             string bracketTie = bracketingSessionProvisional != null ? "session-provisional"
@@ -4823,7 +4917,14 @@ namespace Parsek
                 $"sessionProvisionalAdmitted={admittedSessionProvisional != null} " +
                 $"tier={tier} bracketTie={bracketTie} pick={pick.RecordingId}");
 
-            return pick.RecordingId;
+            return new RecoveryPickResult
+            {
+                RecordingId = pick.RecordingId,
+                Tier = pickTier,
+                Survivors = candidates,
+                NameMatchCount = nameMatches.Count,
+                GuidDropped = guidDropped
+            };
         }
 
         /// <summary>

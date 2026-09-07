@@ -139,10 +139,17 @@ delivers the plan's daily cadence.
    |             KSP.log + parsek-test-results.txt                |
    |  7. CLASSIFY hlib.classify_verdict(...) -> Verdict           |
    |  8. On non-PASS: collect-logs.py <scenarioId> snapshot       |
-   |  9. WRITE   harness/results/<runId>.json + summary line;     |
-   |             retry once if hlib.should_retry says so          |
+   |  9. WRITE   harness/results/<runId>.json + summary line      |
+   | 10. SNAPSHOT copy the produced save into results/<runId>_    |
+   |             save/, BEFORE the machine lock is released       |
+   |             (hlib.decide_save_snapshot; per-scenario         |
+   |             retention + stale-tmp sweep). Verdict-neutral.   |
    +--------------------------------------------------------------+
             |
+            |  retry once if hlib.should_retry says so: the decision
+            |  is taken by run_with_retry AFTER the whole attempt
+            |  returns, so attempt 1 keeps its own snapshot and its
+            |  own results/<runId>_save/ dir
             v
    harness/coverage.py  (reads all specs + all results + registry)
             |
@@ -691,9 +698,36 @@ guessing.
   },
   "expectedFail": { "bugId": "", "matched": false },
   "kspExit": { "code": 0, "killed": false },
-  "collectLogs": { "ran": false, "path": null }
+  "collectLogs": { "ran": false, "path": null },
+  "snapshot": { "ran": true, "path": "<runId>_save", "bytes": 0, "files": 0, "reason": "every-verdict-default verdict=PASS" }
 }
 ```
+
+`snapshot` (phase 10) is the run's own copy of the produced save. `path` is the
+BASENAME under `results/` (same rule as `artifacts.shotsDir`: the record stays
+byte-identical across machines). `reason` is always populated - on a skip it
+names which policy branch refused (`no-produced-save`, `spec-opt-out`,
+`size-cap`, `free-disk-floor`) and on a failed copy it reads `copy-failed
+<ExcType>`. Verdict-neutral by construction.
+
+One further reason is `not-attempted`, and it means the phase never ran at all
+rather than that a policy branch refused. Two row shapes carry it permanently:
+the `INVALID(instance-locked)` row (`_write_instance_locked_result`) and the
+invalid-spec row (`_write_invalid_spec_result`) - neither ever reached staging,
+so neither has an instance directory to copy from. It is also what a normally
+finishing run's record holds for the moment between the durable verdict write
+and the copy (the placeholder is written FIRST for exactly that reason), so a
+result JSON left behind by a process killed in phase 10 reads `not-attempted`
+too. A consumer telling "no snapshot exists" from "the copy was refused" must
+read `not-attempted` as the former.
+
+Phase 10 also sweeps orphaned `results/<runId>_save.harness-tmp` dirs
+(`hlib.select_stale_save_snapshot_tmp_dirs_to_sweep`). The copy lands in a tmp
+name and is renamed, so a run killed mid-copy leaves no partial `_save` dir - it
+leaves a tmp dir instead, which the per-scenario retention never sees (it does
+not end in `_save`) and which only a rerun of the same runId would overwrite.
+The sweep is NAME-gated and spares the current run's own tmp name, so a copy in
+progress is never taken out from under itself.
 
 `verifiers.expectations.observed` is the MEASURED counterpart of the evaluated
 `[expectations.*]` facets, mirroring the spec block shape
@@ -853,6 +887,13 @@ Two DISTINCT stores, deliberately not merged:
   at it. Rationale: `collect-logs.py` is the established, git-ignored home for bulk
   state; duplicating that into `harness/results/` would bloat the durable store
   and fight the existing convention.
+- **The produced-save snapshot** -> `results/<runId>_save/`, and this one DOES
+  live under `harness/results/` rather than in the collect-logs tree. It is not a
+  diagnostic dump but the run's OWNED copy of its output, taken inside the
+  machine lock so the harvest source cannot be rewritten (phase 10); a
+  collect-logs snapshot runs only on non-PASS, and a PASS is precisely the run
+  whose save a fixture is harvested from. Bounded by a per-scenario retention
+  window rather than left to grow.
 
 ## Behavior
 
@@ -917,7 +958,19 @@ in-KSP `parsek-test-commands.lock`. Reasons:
 
 So the harness run lock is the PRIMARY guard (acquired pre-stage, released at run
 end or reclaimed if the holder pid is dead), and the seam lock remains the SECOND
-line of defense inside KSP (the addon stands down on a live foreign pid). Both use
+line of defense inside KSP (the addon stands down on a live foreign pid).
+
+**What the lock deliberately does NOT cover, and the phase that closes it.** The
+lock serialises RUNS and is released when a run ENDS - which is exactly when the
+produced save's useful life begins, since the save directory is the
+`saveTemplate` LEAF and every scenario sharing that leaf shares it. The next
+sibling run's staging `rmtree` destroys the finished run's output seconds later.
+Extending the lock past run end is not the fix (it would hold the machine for as
+long as a harvest might take, unbounded and unattended); OWNERSHIP is. Phase 10
+copies the produced save into `results/<runId>_save/` while the lock is still
+held, so every finished run owns its bytes and a harvest reads a directory
+nothing else can rewrite. See `HARNESS-PRODUCED-SAVE-CLOBBERED-BY-SIBLING-RUN`
+and `harness/README.md` -> "The produced-save snapshot". Both use
 the same tested `acquire_lock` logic. KSP itself can only run one instance safely,
 so a live run lock plus KSP holding the instance files is the real mutual
 exclusion; the lock file makes the refusal fast and explicit instead of a
@@ -1871,6 +1924,13 @@ to the per-response-line poll (one summary line, not one per poll).
   "collect-logs failed: <reason>; snapshot degraded".
 - **RESULT**: `Info` "result written <path>"; on write failure `Error`
   "result write failed: <reason>; emitted to stdout+log".
+- **SNAPSHOT** (phase 10): `Info` "produced-save snapshot run=<id> result=copied
+  bytes=<n> files=<n> reason=<r> path=<abs>" or "... result=skipped reason=<r>";
+  on a copy failure `Warn` "produced-save snapshot FAILED run=<id> (<exc>); the
+  harvest source is the instance save again, verdict unaffected". Retention:
+  `Info` "retention pruned <n> old save snapshot(s) (keep newest <k> per
+  scenario): <names>", and for the orphan sweep `Info` "retention swept <n>
+  stale save-snapshot tmp dir(s) (a run killed mid-copy leaves one): <names>".
 - **RETRY**: `Info` "retry scenario=<id> attempt=2 reason=<first-verdict>" or
   `Info` "no retry (policy=<p> verdict=<V>)".
 - **COVERAGE** (`coverage.py`): `Info`

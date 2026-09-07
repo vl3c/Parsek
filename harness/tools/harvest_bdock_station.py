@@ -47,7 +47,16 @@ carry. Default OFF: every pad/orbital START-state fixture stays Parsek-clean
 exactly as before.
 
 Usage:
-    # After a forge run, the produced save is at
+    # PREFERRED: harvest from the run's OWN snapshot, which run.py copies out of
+    # the instance before releasing the machine lock. It cannot be overwritten by
+    # a sibling run, unlike the instance save (see the produced-save clobber race
+    # in the todo doc). The path is results/<runId>_save/, and the runId is the
+    # one in results/<runId>.json (its "snapshot" block names the dir).
+    python harness/tools/harvest_bdock_station.py \
+        --save-dir harness/results/<runId>_save
+    # The live instance save still works, and is what to use when the snapshot
+    # was skipped (the run's snapshot.reason says why). It is a RACE: a sibling
+    # run staging the same saveTemplate leaf deletes it.
     #   <ksp-instance>/saves/bdock-forge-base/
     python harness/tools/harvest_bdock_station.py --save-dir <path-to-produced-save>
     # or point at the instance root + the run-save name:
@@ -585,8 +594,10 @@ def build_parser() -> argparse.ArgumentParser:
                     "committed fixture: prune Parsek state, normalize the title, "
                     "write to harness/fixtures/saves/<target-name>.")
     p.add_argument("--save-dir", default=None,
-                   help="path to the FORGE-produced save directory "
-                        "(<ksp-instance>/saves/bdock-forge-base)")
+                   help="path to the produced save directory. Prefer the run's "
+                        "own snapshot, harness/results/<runId>_save (clobber-proof); "
+                        "the live <ksp-instance>/saves/bdock-forge-base also works "
+                        "but a sibling run can delete it")
     p.add_argument("--instance", default=None,
                    help="KSP instance root (alternative to --save-dir; joined with "
                         "saves/<run-save>)")

@@ -14,6 +14,17 @@ tier = "nightly"
 # 3-tree / 10-recording corpus. Flown on automation DLL sha256 `2f9309f5e3487257`
 # (`main` + PR #1621).
 #
+# **RE-FLOWN GREEN 2026-09-06** (`2026-09-06_2026`, PASS attempt 1, wall 51 s, every
+# verifier PASS, `analyzer red=0`, `expectations mismatches=0`, `saveParse` PASS reading
+# `routes count=1 stops=2 sourceRefs=3 completedCycles=1 statuses={Paused:1}`), on the
+# clean automation DLL `db525f5efe422d51` (`main` e4704e749) carrying PR #1630's undock
+# BG-child fix. THE READING: this fixture ships three recordings carrying the payload-free
+# `TrackSection` the fix was written against (`5c847692...`, `ec4bf428...`, `a597f168...`,
+# named in `Inv11EmptyTrackSection`'s own corpus note), and after the producer changed they
+# still load, the dispatch still delivers, and the analyzer still reads `FAIL=0 WARN=4
+# INFO=0 RED=0` - the four INV11-EMPTY-SECTION rows and nothing else. The fix rewrites no
+# committed byte, and this lane is the evidence the old ones need none.
+#
 # THE FIRST CENSUS (`2026-09-02_2245`) CLASSIFIED PARSEK-FAIL ON FIVE AUTHORING
 # MISPREDICTIONS AND NOTHING ELSE: the route was created, dispatched and delivered on
 # that flight too. Every token is now a MEASURED line. The header below is kept as

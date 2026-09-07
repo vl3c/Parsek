@@ -2077,8 +2077,17 @@ adds the inclined-and-eccentric MOON target the way Moho did for planets), plus
 deep-space return shapes. Breadth work; schedule opportunistically behind
 G1-G5.
 
-**G10 - INTER-BODY route composition** (`B32-interbody-route` subject stamp,
-lanes `V26M`/`V26T`). G1 stood up the route front door on a SAME-BODY route
+**G10 - INTER-BODY route composition - CLOSED 2026-09-07** on five readings of
+`transferDropped=2` (runs 1 and 2 of 2026-09-06, run 3 `2026-09-06_2111` /
+`_2113` / `_2115`, the armed run `_2207` / `_2210`, and the armed re-flight
+`_2334` V26T / `_2338` B32 on the merged base - all PASS attempt 1), with the
+counts pinned as literals on B32 / V26M / V26T, a negative control that red on
+exactly the flipped token, and the new coverage value `route-transfer-leg-drop`
+claimed UNCONDITIONAL. The closing measurement and what it did NOT
+prove are at the end of this block; everything between is the trail, kept because
+two of its diagnoses were corrected by later runs and the corrections are only
+legible beside what they corrected. (`B32-interbody-route` subject stamp,
+lanes `V26M`/`V26T`.) G1 stood up the route front door on a SAME-BODY route
 (`depot-route-recorded`, V18T armed - the suite's first armed route lane), but
 every route mechanism that is route-SPECIFIC in the render engages only
 inter-body: `ClassifyRouteScope = InterBody` has never been read live,
@@ -2188,6 +2197,185 @@ has `loopAnchorUT = -1` and has never run a cycle, so V26T deliberately did not 
 V18T's front-door tokens - and the run ANSWERED it: `ghostDriving=1` and `routeMissions=1`
 both printed, so dispatch history is not a precondition for a route driving a
 tracking-station ghost. Both tokens are required from the re-flight onward.
+
+**THE LEG-DROP READING IS BLOCKED ON A PRODUCT SEAM, NOT ON A SUBJECT (established
+2026-09-06, branch `g10-leg-drop`; full walk in
+`docs/dev/research/g10-leg-drop-subject.md`). The paragraph above that says closing it
+"needs a subject whose transfer stretch was recorded in the PHYSICS frame, which no
+committed fixture carries" is WRONG on both halves and is kept only so the correction is
+legible.** B32's own fixture carries such a stretch: `interbody-route-recorded`'s
+recording `36c7688b...` holds TWO consecutive runs of 50 and 52 Sun-body non-orbital
+samples over UT 68378174.7 - 68378313.4, ~4.0 Ms inside the Duna route's dock clip
+72353218.8, and `duna-park-recorded` / `duna-one-recorded` / `duna-direct-recorded` /
+`mun-minmus-recorded` each carry a three-body recording as well. The identification of
+`5ca48c99` as "the transfer member" was also wrong: it is the Probe leg.
+
+WHAT ACTUALLY BLOCKS IT. `Route.RecordingIds` names composition RUN HEADS -
+`ComputeMemberRecordingIds` collects `StripSegMarker(node.HeadLegId)`, and
+`MissionCompositionBuilder` walks a whole run through `ContinuationSuccessor` and keys
+every interval of it as `headLegId` or `headLegId + "/segN"`. The route line resolves each
+id through `RecordingStore.TryFindCommittedRecordingById`, i.e. to ONE recording, so every
+chain-CONTINUATION segment of a member run is invisible to it. An interplanetary transfer
+is always in a continuation, so `transferDropped=0` is structural on any chained subject,
+not a property of this save. On B32's subject the Kerbin -> Duna line therefore draws a
+174 s pad ascent plus the depot's Duna legs and omits the 8.5 Ms journey. Not inter-body
+specific: `depot-route-recorded`'s member `44129e52` (238 pts) hides its continuation
+`a85a7ae0` (1324 pts) the same way. Filed as
+ROUTE-LINE-MEMBER-DROPS-CONTINUATION-SEGMENTS.
+
+THE ORDER OF WORK, and it is not the order this entry assumed. (1) Rule on that defect
+first. Resolving a member id to its through-line RUN makes the ALREADY COMMITTED
+`interbody-route-recorded` drop 1-2 Sun legs with no new flight and no new fixture - it
+re-pins `members` / `groups` / `legs` on B32 / V26M / V26T, so it is a lane re-flight, and
+G10 closes on the subject it already has. G10 must NOT be closed by a fixture built around
+the defect. (2) ONLY IF the run-head member set is ruled INTENDED does this need an
+operator save, and then the requirement is exact: **one id in the route's `RECORDING_IDS`
+must resolve to a recording whose OWN sidecar carries >= 2 consecutive non-orbital samples
+on a body that is neither the earliest-leg body nor the latest-leg body, at a UT before
+the recorded dock.** Two shapes satisfy it, primary first:
+
+  * UNBROKEN RUN HEAD. Fly a Kerbin -> Duna supply transport with NO scene exit and NO
+    vessel switch between launch and the last Sun-SOI correction burn (time warp is fine;
+    a scene exit starts a chain continuation and moves the samples out of the head). Burn
+    at least one mid-course correction while in the Sun's SOI - that is what mints
+    Sun-frame physics samples outside every `OrbitSegment` - then capture at Duna, dock at
+    a pre-placed depot, undock (mints the proof window), seal, create the route.
+  * SEPARATE-VESSEL MEMBER. Any run head in the tree, starting before the dock UT and not
+    rooted at the terminal undock child, whose own recording sits on a third body - e.g. a
+    lander dropped from the transport that flies at Ike on a Kerbin -> Duna route. Cheaper
+    to record than an unbroken 8.5 Ms run head, harder to fly.
+
+  HARVEST GATE either way, asserted before the save is a subject: every id in the created
+  route's `RECORDING_IDS` is checked against its own `.prec.txt`, and at least one must
+  show >= 2 consecutive `body = <third body>` samples below the dock UT. `orbital supply
+  route CLEAN` (3 proof windows, ZERO `ROUTE` nodes, so candidacy is alive) is the closest
+  starting campaign, but as harvested today it fails that gate for the same run-head
+  reason.
+
+**STEP (1) IS DONE AND THE RULING WENT THE OTHER WAY (2026-09-06, branch
+`g10-leg-drop`): ROUTES RIDE THE LOOP, SO A ROUTE'S MEMBERS ARE RUNS.** The run-head member
+set is NOT intended, the operator save specified below is therefore NOT needed for G10, and
+everything after this paragraph is kept only as the spec for the case that was ruled against.
+The route line now expands each member id to its whole continuation run
+(`Display/RouteMemberRunExpansion.cs`, reusing `MissionThroughLineBuilder`'s own
+`MemberLegIds` walk; contract in `design-map-ts-render-architecture.md` Appendix A) and
+builds one group per segment, ERS-visibility-bounded, gated on
+`Route.CreationTreeRecordingIds` and on whole-recording `ExcludedIntervalKeys`, with the dock
+clip and the per-recording RELATIVE dispatch unchanged. Measured HEADLESS against the
+committed fixture's own bytes (`RouteMemberRunExpansionTests`, which drives the real
+`SaveDirectoryLoader` model + `RouteCodec` route): `route=71a983a1` moves
+`members=4 groups=3 legs=3 transferDropped=0` -> `members=4 groups=4 legs=16
+transferDropped=2`, and its Paused sibling `route=8f644e71` -> `groups=4 legs=17
+transferDropped=0` (Kerbin + Mun only, so nothing to drop - the same-fixture control).
+`depot-route-recorded`'s same-body route moves `groups=3 legs=5` -> `groups=4 legs=14`,
+`transferDropped=0`, the mirror direction: it GAINS its hidden 1324-point continuation and
+drops nothing.
+
+**WHAT THE READING NOW COSTS: one re-flight of B32 / V26M / V26T, no new fixture and no new
+subject.** Their `Route line build:` / `Route line draw:` count pins are converted to INTERIM
+regexes with a header note in each spec (`members=4` stays pinned - the declared member set is
+untouched; `transferDropped` is left unpinned because it IS the reading), so no lane reds on a
+count that must move. H59 and V18T are NOT touched and are NOT expected to move: neither
+subject can be chained - `rover-route-recorded`'s two trees carry no through-line longer than
+one leg (checked by building the view over the fixture, not by grepping `chainIndex`), and
+V18T pins no counts at all (its `routeLineBuilds = { min = 1 }` window is a build-count floor,
+which the expansion does not change). G10's leg-drop reading is taken when the re-flight logs
+`transferDropped=[1-9]` on `71a983a1`; the operator save below stays unbuilt.
+
+**THE LEG DROP IS MEASURED (reading run 1, 2026-09-06; B32 / V26M / V26T / V18T / H59 all PASS
+attempt 1): `Route line build: route=71a983a1 members=4 groups=4 legs=16 transferDropped=2`**,
+identical on all three route lanes and matching the headless prediction exactly, with the
+same-fixture control `route=8f644e71 ... groups=4 legs=17 transferDropped=0`, `Route line
+members: route=71a983a1 heads=4 segments=3 groups=4 legs=16` and `Route line draw: ...
+routesDrawn=2 legsDrawn=33 skippedOwned=0`. `FilterLegsToEndpointBodies` has therefore now
+dropped a leg on a DRIVEN run - the reading this block was opened for - and the two controls
+held as predicted (V18T `route=5420f805 ... groups=4 legs=14 transferDropped=0`,
+`routesDrawn=1 legsDrawn=14`; H59 unchanged).
+
+**THE BLOCK STAYS OPEN UNTIL THE ARMED RUN AFTER THE CO-DRAW FIX.** The same run raised
+`routeCoDrawViolations=1024` (the cap) on V26M / V26T over ONE distinct finding -
+`ROUTE_CODRAW_VIOLATION[71a983a1 recId=36c7688b...]`, the expanded segment painted by BOTH the
+route line and the ghost polyline while `skippedOwned=0` - filed and fixed in the same branch as
+ROUTE-LINE-EXPANDED-SEGMENT-CO-DRAWS-THE-GHOST-POLYLINE (the ghost's forward run-leg pass paints
+a continuation segment under its own id without publishing ownership; the route line now stands
+down on OWNED or PAINTED). That fix moves `skippedOwned` and `legsDrawn` in the map scene, so the
+three lanes' count pins stay INTERIM.
+
+**READING RUN 2 (2026-09-06, same five lanes, all PASS) HELD THE LEG DROP AND RED THE FIRST CUT
+OF THE CO-DRAW FIX ON ITS OWN INSTRUMENT.** Build / members lines byte-identical to run 1. V26M:
+`routesDrawn=2 legsDrawn=33 skippedOwned=0` on 2 frames and `legsDrawn=20 skippedOwned=1` on 5
+(f6746-7222) - so the new arm fired, and the group it stood down carried THIRTEEN legs. V26T
+(TRACKSTATION) painted nothing at all (`legsDrawn=33 skippedOwned=0`, violations 0). But V26M
+read `routeCoDrawViolations=403` (down from the 1024 cap, still the single recording `36c7688b`),
+every one at frame 7272 onward - FIFTY frames after the last stand-down frame, i.e. the route
+line resuming while the ghost's mesh was still on screen. Both are fixed in the same branch: the
+paint surface is MESH MEMBERSHIP rather than a per-frame stamp (the ghost's draw pass and its
+deactivation sweep share one early return, so a bailed frame leaves the mesh up while a stamped
+set reads empty), and the paint arm is PER LEG against each leg's own recorded span, so a partly
+painted member keeps drawing its uncovered legs. `skippedOwned` now counts LEGS and the draw line
+carries an `ownedLegs=` / `paintedLegs=` split. V18T (armed, `legsDrawn=14`, violations 0) and
+H59 (armed, 12 draw lines) were unaffected on both runs.
+
+**READING RUN 3 FLEW 2026-09-06 (`_2111` B32 / `_2113` V26M / `_2115` V26T / `_2117` V18T /
+`_2118` H59, ALL PASS ATTEMPT 1) AND THE BLOCK IS CLOSED ON IT.** The leg drop is measured on
+THREE consecutive runs with byte-identical build and members lines - `route=71a983a1 members=4
+groups=4 legs=16 transferDropped=2` against the same-fixture control `8f644e71 members=4
+groups=4 legs=17 transferDropped=0`, `heads=4 segments=3` on both, both routes `scope=InterBody
+basis=Endpoints`, and no `Route member run stop:` line anywhere. Those counts are now PINNED AS
+LITERALS on all three lanes (interim regexes for two rounds, because the fix was still moving
+under them), which turns `FilterLegsToEndpointBodies` dropping a leg from a reading into a GATE.
+`routeCoDrawViolations=0` on both V26M and V26T, down from 1024 and then 403. New coverage value
+`route-transfer-leg-drop`, one cell across all three lanes, claimed CONDITIONAL ON THE ARMED
+RE-FLIGHT at that point (the H59 `route-map-lines-surface` precedent) and made UNCONDITIONAL by
+the armed round below; V26M and V26T arm `[expectations.renderComposition]` on
+`routeLineBuilds = {min = 2}` + `routeCoDrawViolations = {max = 0}` in the same commit.
+
+WHAT RUN 3 DID **NOT** PROVE, stated because the prediction said it would. The paint arm's
+stand-down did not fire on any frame: V26M read `legsDrawn=33 skippedOwned=0 ownedLegs=0
+paintedLegs=0` on all seven draw lines, and its `ghostLifecycle` census reads `spawned=0
+spawnLines=0` - NO GHOST WAS ALIVE IN THE MAP-OPEN WINDOW AT ALL, where runs 1 and 2 each had
+one (the same recording `36c7688b` both times). Ghost presence in that window is
+EPOCH-DEPENDENT rather than guaranteed by the step list, so run 3's zero is a statement about
+the ghost population and not about the arbitration; filed as
+V26M-GHOST-SPAWN-IN-MAP-WINDOW-IS-EPOCH-DEPENDENT. The paint arm's live evidence on this package
+is therefore reading run 2's diagnosis (where it DID fire, and fired wrong twice - which is what
+produced the two defects the fix removes) plus the xUnit cells that drive the per-leg
+arbitration and the mesh-membership contract directly, with two source gates pinning the live
+wiring sites those cells cannot see. The OWNERSHIP arm did fire live in the same set: H59 read
+`skippedOwned=1 ownedLegs=1 paintedLegs=0` on nine of its thirteen draw frames. V18T
+(`routesDrawn=1 legsDrawn=14`, gated block green, zero mismatches) and H59 held as controls on
+all three runs.
+
+**THE ARMED ROUND FLEW AND THE CLAIM IS DISCHARGED.** First pass on branch tip `3b1a9323a`:
+B32 `2026-09-06_2207` PASS attempt 1 (wall 71 s) and V26M `_2210` PASS attempt 1 (60 s), both on
+the whole pin with `renderComposition` armed; the negative control
+`B32X-legdrop-negative-control` (uncommitted, supervisor scratchpad, `_2214`) red
+`PARSEK-FAIL(expectation)` on EXACTLY the one seeded token, verbatim `logContracts.required not
+matched: Route line build: route=71a983a1 members=4 groups=4 legs=16 transferDropped=0`, one
+mismatch, zero forbids, analyzer green. V26T `_2212` and V18T `_2216` red in that same round AND
+NOT ON THIS BLOCK'S CLAIM: `main` at that moment carried
+ROUTE-SOURCECHANGED-AT-LOAD-AFTER-SIDECAR-EPOCH-DRIFT, so every committed route parked
+`SourceChanged` at load and the unmet tokens were the ghost-driving ones (`ghostDriving=[1-9]`,
+`routeMissions=[1-9]`, `created [1-9][0-9]* ghost vessel\(s\)`, plus V18T's
+`skippedByStatus=[1-9]` forbid) with saveParse reading `routes.statuses.Active 0 < min 1`. The
+BUILD lines in those red runs are byte-identical to every green one's, which is the reading that
+the drift never touched the leg-drop counter. PR #1637 fixed it (the load-time flat-list heal no
+longer rewrites the sidecar, so the epoch a route captured as proof-of-source stops moving), and
+after merging `origin/main` at `4f80b305b` into this branch the round re-flew GREEN:
+V26T `2026-09-06_2334` PASS attempt 1 (54 s, every verifier PASS, `routes count=2
+statuses={Active: 1, Paused: 1}`, `ghostDriving=1 skippedByStatus=1`, renderCompose
+`routeLineBuilds=2 routeCoDrawViolations=0`), the V18T control `_2337_a2` PASS
+(`flakedThenPassed` - attempt 1 INVALID on the known driver `LoadGame` REJECTED race, not a
+product signal; `legs=14 transferDropped=0`, `legsDrawn=14`, armed `[expectations.routes]`
+GATING PASS, 21 `sidecar left byte-identical` lines, ZERO `->SourceChanged`), and B32 `_2338`
+PASS attempt 1 (55 s, both `scope=InterBody basis=Endpoints` lines, the same two build lines).
+
+STILL OPEN AFTER THIS BLOCK, and no part of it: `DispatchWindowPeriod != 0` synodic cadence is
+unmeasured and unmeasurable by design since the scope fix (the field is informational), no
+dispatch has been driven on an inter-body route, the ownership arm is still whole-member
+(ROUTE-LINE-OWNERSHIP-ARM-IS-STILL-WHOLE-MEMBER), and V26M's paint-arm stand-down remains
+epoch-dependent rather than guaranteed by the step list
+(V26M-GHOST-SPAWN-IN-MAP-WINDOW-IS-EPOCH-DEPENDENT).
 
 **THE OPERATOR SAVE SPECIFICATION for B32** (write it once, fly it by hand; the
 seam cannot create this and no driven lane can either, because route candidacy is
@@ -3166,7 +3354,10 @@ gated behind the ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE probe (todo) before any
     CORRECTED in place by the census: that row names a route whose cargo IS
     inventory, and RVR-12 refuses for want of it and moves nothing.
     **THE ONE OPEN CELL - DESTINATION SLOTS FULL, TANK EMPTY - IS CLOSED AS OF
-    2026-09-06: THE FILL MODE EXISTS AND RVR-20 IS AUTHORED (NOT FLOWN).** The cell
+    2026-09-06: THE FILL MODE EXISTS, RVR-20 IS AUTHORED, AND IT HAS NOW FLOWN
+    GREEN (`2026-09-06_2027`, PASS attempt 1, wall 56 s, every verifier PASS and
+    `expectations mismatches=0` on the FIRST census, DLL `db525f5efe422d51`). THE
+    MATRIX HAS NO OPEN CELL LEFT.** The cell
     exercises `FirstShortToken`'s INVENTORY branch on this fixture, where every
     committed lane refuses on the RESOURCE half and the inventory half is therefore
     unobservable by construction. WHAT THIS ENTRY USED TO SAY, kept because the
@@ -3199,15 +3390,30 @@ gated behind the ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE probe (todo) before any
     every occupied slot and refuses a wrong one pre-boot. A SECOND HARVEST is therefore
     no longer needed for this cell. `RVR-20-rover-relay-c-destination-slots-full-tank-empty`
     stages the tank EMPTY (400 of headroom against a 200 manifest, so the resource walk
-    cannot refuse) and all six slots FULL, and PREDICTS - from source, not from a
+    cannot refuse) and all six slots FULL, and PREDICTED - from source, not from a
     flight - that the WHOLE cycle holds `DestinationFull` with a `stored-part:` detail
     and the fitting fuel line refused along with the items, because
     `isPartial = anyResourcePartial || anyInventoryPartial` and
     `HasCapacityForAllStops` treats a partial plan as the failure condition. It is the
     MIRROR of RVR-14, which measured a fitting INVENTORY half refused because the
-    resource half was short. NOT FLOWN: the supervisor flies it after provisioning and
-    re-pins from the census, and the two tokens the prediction cannot reach (which part
-    the shortfall names, and `stop=`) are regexed and said to be so in the header.
+    resource half was short.
+    **THE CENSUS MEASURED EXACTLY THAT, AND MISPREDICTED NOTHING.** The whole cycle
+    held (`destination FULL stop=1 short=stored-part:evaChute`, `hold recorded
+    kind=DestinationFull detail=stored-part:evaChute`, `BLOCKED ...
+    reason=stored-part:evaChute`, then `blocked-then-paused`), the fuel did NOT
+    deliver, the produced save reads rover A still at LiquidFuel `0 / 400` with six of
+    six slots occupied while rover B is untouched at `200 / 400`, and `skippedCycles=1`
+    against `completedCycles=0`. Nothing was debited: no `Delivery write:`, `Origin
+    debit:` or `Inventory remove` in 11,444 log lines. The two tokens the prediction
+    could not reach are now MEASURED LITERALS - the shortfall names `evaChute` (the
+    same first manifest item RVR-16 measured on the other fixture) and `stop=1` (rover
+    A is the two-stop route's capacity-walk index 1) - while `cMin=` and the route id
+    stay regexed, `cMin` being a property of the clock. ONE REVIEW POINT IS RECORDED
+    WITH IT: the SLOT probe is the breaker rather than the volume gate one line ahead
+    of it in the same loop, because `ProbeInventoryUnitsThatFit` admits every item here
+    (vessel-summed budget 2 x `packedVolumeLimit = 60` = 120 against a staged occupancy
+    of 85, and nothing is consumed before the loop breaks, so each item meets the full
+    35 of headroom).
     **WHAT THE MATRIX IS CALIBRATED AGAINST**: RVR-7's `[expectations.routes]` block
     is ARMED in the same commit (`gating = true`, registered in `ARMED_ALLOWLIST`)
     off its two agreeing report-only reading runs. Every matrix lane declares that

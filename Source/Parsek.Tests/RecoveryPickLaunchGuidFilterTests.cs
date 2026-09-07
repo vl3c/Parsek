@@ -32,7 +32,10 @@ namespace Parsek.Tests
     ///
     /// <para>
     /// Stage 2 - refusing the XP write on an ambiguous filtered set decided by a WEAK tier -
-    /// is deliberately NOT implemented and NOT tested here. See the todo entry.
+    /// now exists and lives in <see cref="RecoveryPickAmbiguityTests"/>. It is deliberately
+    /// not retested here: these cells pin the FILTER, a correlator change felt on all three
+    /// recovery legs, while stage 2 is an XP-leg policy. Keeping the two files apart is the
+    /// same separation the entry demanded of the two landings.
     /// </para>
     /// </summary>
     [Collection("Sequential")]
