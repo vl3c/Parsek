@@ -57,7 +57,8 @@ Everything the harness fetches or generates lives UNDER `harness/`:
   exclusive-create, never reaped) so two CONCURRENT invocations cannot both take
   a free id: a second run of one scenario inside the same minute
   takes `_run2` and run.py Warns naming both ids -- it never overwrites an
-  earlier run's result JSON, `_shots` dir or contact sheet. `_a<N>` is a
+  earlier run's result JSON, `_shots` dir, `_save` snapshot or contact sheet.
+  `_a<N>` is a
   different axis: the `[retry] policy` re-flying ONE run, which deliberately
   shares the stem and is distinguished by the attempt suffix.
 - Caches + scratch (gitignored): `provision/.cache/` (release zips, the
@@ -171,6 +172,63 @@ python tools/contact_sheet.py                # all sheets + index
 python tools/contact_sheet.py --run-id <id>  # one run's sheet + index
 python tools/contact_sheet.py --index-only   # just the index
 ```
+
+## The produced-save snapshot (harvest from here, not from the instance)
+
+Every attempt also copies its PRODUCED SAVE into
+
+```
+results/<runId>_save/
+```
+
+before the machine lock is released. It is the whole save directory verbatim -
+`persistent.sfs` plus the `Parsek/` sidecar tree (Recordings, Saves, GameState,
+RewindPoints) - and the naming mirrors `*_shots` (the runId already carries the
+scenario id, so it is not spelled twice).
+
+**Why it exists.** The produced save lives at `<instance>/saves/<saveTemplate
+leaf>`, and the leaf is shared by every scenario staging from the same template.
+`stage_fixture` `rmtree`s it as its first destructive act, and the machine lock
+is released when a run ENDS - exactly when the produced save's useful life
+begins. So the next sibling run destroys the finished run's output within
+seconds (measured: 9 s), silently, and the harvest that follows describes a
+pad-bound vessel for a flight that reached orbit. That cost one wrong diagnosis
+and a ~51-minute flight before the snapshot existed
+(`HARNESS-PRODUCED-SAVE-CLOBBERED-BY-SIBLING-RUN` in the todo doc).
+
+**HARVEST FROM THE SNAPSHOT.** Every `--save-dir` consumer
+(`tools/harvest_bdock_station.py` and the `tools/build_*_recorded.py` wrappers
+around it) takes an arbitrary directory, so point it at the snapshot:
+
+```
+python tools/harvest_bdock_station.py --save-dir results/<runId>_save \
+    --target-name <fixture> --expect-situation ORBITING
+```
+
+The older advice - chain `cp -r <instance>/saves/<leaf> <snapshot>` into the same
+command as the run - is retired: run.py now does that itself, inside the lock,
+which is earlier than any chained command can be. The instance save still works
+and is what to use when a run's `snapshot.reason` says the copy was skipped; it
+is just the racy source.
+
+**Every verdict is snapshotted** (`hlib.decide_save_snapshot`), including
+PARSEK-FAIL - a failing save is the only copy of the state that produced the
+failure. The refusals are named, never silent: `no-produced-save` (an early
+refusal that never staged), `spec-opt-out` (a spec declaring `[harvest]
+snapshotProducedSave = false`; no committed spec does), `size-cap` (a runaway
+save over 2 GiB), `free-disk-floor` (the copy would leave the volume under 5
+GiB). A copy that fails is a Warn with `ran=false` and NEVER moves the verdict.
+Each run records `snapshot: {ran, path, bytes, files, reason}` in its result
+JSON next to `collectLogs`, and logs one `[Harness][Info][Snapshot]` line either
+way.
+
+**Retention is per scenario:** `hlib.select_save_snapshot_dirs_to_prune` keeps
+the newest 3 `*_save` dirs PER SCENARIO (a global window would let a busy
+scenario evict another scenario's only copy), always protecting the current
+run's. A snapshot whose scenario cannot be read from its result JSON buckets
+alone and is never pruned by a neighbour's budget. The pass touches nothing but
+`results/*_save/`. Snapshots are gitignored; a fixture harvested from one is
+what gets committed.
 
 ## The machine lock (only one run at a time, machine-wide)
 
@@ -334,12 +392,15 @@ Permanent by design, and NOT to be pruned by any automation: `results/*.json`,
 historical record, and they are small (text).
 
 Automatically bounded: `results/<runId>_shots/` (run.py keeps the newest 40 dirs
-/ 2 GiB - the only heavy artifacts), and `results/tier-runs/*.log` (the runner
+/ 2 GiB - the only heavy artifacts), `results/<runId>_save/` (the produced-save
+snapshots; newest 3 PER SCENARIO), and `results/tier-runs/*.log` (the runner
 rotates its OWN logs at 60 days; it never touches anything else, and never
 `history.txt`).
 
 Safe to prune by hand if the disk ever demands it: old `_shots/` dirs and old
-`<ts>_harness.log` files. **Never delete `results/*.claim`** - the run-id stakes
+`<ts>_harness.log` files. A `_save/` dir may be deleted once its fixture is
+harvested and committed - but check first, because it is the ONLY surviving copy
+of that run's produced save. **Never delete `results/*.claim`** - the run-id stakes
 are exclusive-create and load-bearing (see the ownership boundary above);
 deleting one lets a future run overwrite an earlier run's records.
 

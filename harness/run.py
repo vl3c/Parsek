@@ -3511,6 +3511,158 @@ def _prune_shots_dirs(protect_name: str, logger: HarnessLogger) -> None:
                        ", ".join(prune[:5]) + (" ..." if len(prune) > 5 else "")))
 
 
+# ---------------------------------------------------------------------------
+# Produced-save snapshot (HARNESS-PRODUCED-SAVE-CLOBBERED-BY-SIBLING-RUN).
+#
+# The produced save is <instance>/saves/<saveTemplate leaf>, and the leaf is
+# shared by every scenario staging from the same template. Staging rmtree's it
+# (stage_fixture, step 1) and the machine lock is released when a run ENDS --
+# so a sibling session's next run destroys the finished run's output within
+# seconds, and the harvest then describes a pad-bound vessel for a flight that
+# reached orbit. This step gives every finished run its OWN copy of the bytes,
+# taken inside the lock, so nothing can rewrite them afterwards.
+#
+# Naming follows the *_shots convention exactly: results/<runId>_save/. The
+# runId already carries the scenario id, so no second copy of it is spelled into
+# the directory name.
+# ---------------------------------------------------------------------------
+
+SAVE_SNAPSHOT_DIR_SUFFIX = "_save"
+
+_EMPTY_SNAPSHOT: Dict = {"ran": False, "path": None, "bytes": 0, "files": 0,
+                         "reason": "not-attempted"}
+
+
+def _dir_file_count(path: str) -> int:
+    total = 0
+    for _root, _dirs, files in os.walk(path):
+        total += len(files)
+    return total
+
+
+def _snapshot_produced_save(run_id: str, spec: Dict, verdict: str,
+                            instance_dir: Optional[str],
+                            run_save_name: Optional[str],
+                            logger: HarnessLogger) -> Dict:
+    """Copy this run's produced save into ``results/<runId>_save/``.
+
+    Runs after the verifier chain and collect-logs and BEFORE the machine lock
+    is released, which is the whole point: the lock is what keeps a sibling out
+    of the instance, and the produced save's useful life starts the moment it is
+    dropped. Failure-isolated by construction -- a copy that fails is a Warn and
+    ``ran=False``; it never moves the verdict.
+    """
+    snap = dict(_EMPTY_SNAPSHOT)
+    try:
+        src = None
+        if instance_dir and run_save_name:
+            src = os.path.join(instance_dir, "saves", run_save_name)
+        present = bool(src) and os.path.isdir(src)
+        save_bytes = None
+        free_bytes = None
+        if present:
+            try:
+                save_bytes = _dir_size_bytes(src)
+            except OSError:
+                save_bytes = None
+            try:
+                os.makedirs(RESULTS_DIR, exist_ok=True)
+                free_bytes = shutil.disk_usage(RESULTS_DIR).free
+            except OSError:
+                free_bytes = None
+        decision = hlib.decide_save_snapshot(verdict, spec, save_bytes, free_bytes,
+                                             save_present=present)
+        snap["reason"] = decision.reason
+        if not decision.snapshot:
+            logger.info("Snapshot", "produced-save snapshot run=%s result=skipped reason=%s"
+                        % (run_id, decision.reason))
+            return snap
+        dst = os.path.join(RESULTS_DIR, "%s%s" % (run_id, SAVE_SNAPSHOT_DIR_SUFFIX))
+        tmp = dst + ".harness-tmp"
+        # Copy into a tmp name and rename, so a run killed mid-copy leaves no
+        # PARTIAL directory that a later harvest would read as the whole save.
+        shutil.rmtree(tmp, ignore_errors=True)
+        shutil.rmtree(dst, ignore_errors=True)
+        shutil.copytree(src, tmp)
+        os.rename(tmp, dst)
+        snap["ran"] = True
+        # The BASENAME, not the absolute path -- same rule as artifacts.shotsDir:
+        # the record must be byte-identical across machines, and the dir is
+        # always directly under harness/results/. The absolute path goes in the
+        # log line, which is where an operator reads it from.
+        snap["path"] = os.path.basename(dst)
+        snap["bytes"] = _dir_size_bytes(dst)
+        snap["files"] = _dir_file_count(dst)
+        logger.info("Snapshot", "produced-save snapshot run=%s result=copied bytes=%d "
+                                "files=%d reason=%s path=%s"
+                    % (run_id, snap["bytes"], snap["files"], snap["reason"], dst))
+    except Exception as exc:  # noqa: BLE001 - failure isolation by design
+        snap["ran"] = False
+        snap["path"] = None
+        snap["reason"] = "copy-failed %s" % type(exc).__name__
+        logger.warn("Snapshot", "produced-save snapshot FAILED run=%s (%s: %s); "
+                                "the harvest source is the instance save again, "
+                                "verdict unaffected" % (run_id, type(exc).__name__, exc))
+        shutil.rmtree(os.path.join(RESULTS_DIR,
+                                   "%s%s.harness-tmp" % (run_id, SAVE_SNAPSHOT_DIR_SUFFIX)),
+                      ignore_errors=True)
+    # Retention in its OWN try (mirroring the shots pass): a copy that failed
+    # for want of disk is exactly when pruning matters most.
+    try:
+        _prune_save_snapshot_dirs("%s%s" % (run_id, SAVE_SNAPSHOT_DIR_SUFFIX), logger)
+    except Exception as exc:  # noqa: BLE001 - failure isolation by design
+        logger.warn("Snapshot", "save-snapshot retention FAILED run=%s (%s: %s); "
+                                "verdict unaffected" % (run_id, type(exc).__name__, exc))
+    return snap
+
+
+def _scenario_id_of_snapshot_dir(name: str) -> str:
+    """The scenario a ``<runId>_save`` dir belongs to, read from that run's own
+    result JSON. Authoritative rather than parsed out of the run-id grammar; an
+    unreadable / absent record returns "" and the retention pass then buckets
+    the dir alone, so it is never pruned by another scenario's budget."""
+    run_id = name[:-len(SAVE_SNAPSHOT_DIR_SUFFIX)]
+    try:
+        with open(os.path.join(RESULTS_DIR, "%s.json" % run_id), "r",
+                  encoding="utf-8") as fh:
+            sid = json.load(fh).get("scenarioId")
+        return sid if isinstance(sid, str) else ""
+    except (OSError, ValueError):
+        return ""
+
+
+def _prune_save_snapshot_dirs(protect_name: str, logger: HarnessLogger) -> None:
+    """Remove ``results/*_save`` dirs past the PER-SCENARIO keep window
+    (hlib.select_save_snapshot_dirs_to_prune; the current run's dir is always
+    kept). Touches nothing but ``results/*_save`` directories."""
+    if not os.path.isdir(RESULTS_DIR):
+        return
+    entries = []
+    for name in os.listdir(RESULTS_DIR):
+        if not name.endswith(SAVE_SNAPSHOT_DIR_SUFFIX):
+            continue
+        path = os.path.join(RESULTS_DIR, name)
+        if not os.path.isdir(path):
+            continue
+        try:
+            mtime = os.path.getmtime(path)
+        except OSError:
+            continue
+        entries.append((name, _scenario_id_of_snapshot_dir(name), mtime))
+    prune = hlib.select_save_snapshot_dirs_to_prune(entries, protect_name=protect_name)
+    for name in prune:
+        target = os.path.join(RESULTS_DIR, name)
+        # Belt-and-braces: only ever a *_save directory directly under results/.
+        if not name.endswith(SAVE_SNAPSHOT_DIR_SUFFIX) or not os.path.isdir(target):
+            continue
+        shutil.rmtree(target, ignore_errors=True)
+    if prune:
+        logger.info("Snapshot", "retention pruned %d old save snapshot(s) "
+                                "(keep newest %d per scenario): %s"
+                    % (len(prune), hlib.SAVE_SNAPSHOT_KEEP_PER_SCENARIO,
+                       ", ".join(prune[:5]) + (" ..." if len(prune) > 5 else "")))
+
+
 _contact_sheet_module = None
 
 
@@ -3668,6 +3820,11 @@ def _finish_result(spec, profile, attempt, started, start_wall, runtime, verdict
                          "matched": verdict.expected_fail_matched},
         "kspExit": {"code": exit_code, "killed": killed},
         "collectLogs": collect,
+        # The run's own copy of the produced save (results/<runId>_save/).
+        # Written FIRST as the placeholder for the same reason as artifacts
+        # below -- the verdict must be durable before a multi-MB copy runs --
+        # then enriched and re-written.
+        "snapshot": dict(_EMPTY_SNAPSHOT),
         # V3 additive key: what the always-collect step snapshotted. Written
         # FIRST as the empty placeholder so the VERDICT is durable before the
         # (possibly slow) artifact copy runs (review MINOR 4: a Ctrl-C or a
@@ -3676,6 +3833,10 @@ def _finish_result(spec, profile, attempt, started, start_wall, runtime, verdict
         "artifacts": dict(_EMPTY_ARTIFACTS),
     }
     write_result(result, logger)
+    # HARNESS-PRODUCED-SAVE-CLOBBERED-BY-SIBLING-RUN: take the run's own copy of
+    # the produced save while the machine lock is still held. Verdict-neutral.
+    result["snapshot"] = _snapshot_produced_save(run_id, spec, verdict.verdict,
+                                                 instance_dir, run_save_name, logger)
     # V3 always-collect: the light UNCONDITIONAL artifact snapshot (KSP.log +
     # run-window screenshots into results/<runId>_shots/), verdict-neutral.
     result["artifacts"] = _collect_run_artifacts(run_id, instance_dir, start_wall, logger)
@@ -3744,15 +3905,19 @@ def write_result(result: Dict, logger: HarnessLogger,
 # ---------------------------------------------------------------------------
 
 
-def load_all_results() -> List[Dict]:
+def load_all_results(results_dir: Optional[str] = None) -> List[Dict]:
+    """Every schema-valid result record under ``results_dir`` (default: the
+    module's RESULTS_DIR). The parameter is the INJECTABLE seam the duration
+    ledger's I/O tests read through -- see refresh_coverage_and_flake."""
     out = []
-    if not os.path.isdir(RESULTS_DIR):
+    results_root = RESULTS_DIR if results_dir is None else results_dir
+    if not os.path.isdir(results_root):
         return out
-    for name in sorted(os.listdir(RESULTS_DIR)):
+    for name in sorted(os.listdir(results_root)):
         if not name.endswith(".json"):
             continue
         try:
-            with open(os.path.join(RESULTS_DIR, name), "r", encoding="utf-8") as fh:
+            with open(os.path.join(results_root, name), "r", encoding="utf-8") as fh:
                 obj = json.load(fh)
         except (OSError, ValueError):
             continue
@@ -3817,19 +3982,34 @@ def read_duration_ledger(path: str, logger: HarnessLogger) -> Tuple[Dict, bool]:
 
 
 def refresh_coverage_and_flake(specs: Sequence[Dict], registry: Dict,
-                               logger: HarnessLogger) -> None:
-    results = load_all_results()
+                               logger: HarnessLogger,
+                               coverage_dir: Optional[str] = None,
+                               results_dir: Optional[str] = None) -> None:
+    """Recompute coverage / flake / the duration ledger from the results store.
+
+    ``coverage_dir`` and ``results_dir`` are INJECTABLE seams, defaulting to the
+    module's COVERAGE_DIR / RESULTS_DIR. They exist for one reason: the duration
+    ledger is the ONE COMMITTED artifact this function writes, so its I/O tests
+    must drive the real read / merge / write path against a COPY of the
+    committed bytes without touching the tracked file. A suite run that leaves
+    harness/coverage/duration.json modified smuggles a rewritten ledger into an
+    unrelated commit, which can clobber a sample another branch added. An
+    injected directory beats monkeypatching the module globals: a cell that dies
+    between patch and restore would leave every later cell pointed at a temp dir.
+    """
+    coverage_root = COVERAGE_DIR if coverage_dir is None else coverage_dir
+    results = load_all_results(results_dir)
     report = hlib.compute_coverage(specs, results, registry)
-    os.makedirs(COVERAGE_DIR, exist_ok=True)
-    write_text_atomic(os.path.join(COVERAGE_DIR, "coverage.json"),
+    os.makedirs(coverage_root, exist_ok=True)
+    write_text_atomic(os.path.join(coverage_root, "coverage.json"),
                       json.dumps(hlib.coverage_to_json_obj(report),
                                  sort_keys=True, indent=2) + "\n")
-    write_text_atomic(os.path.join(COVERAGE_DIR, "coverage.txt"),
+    write_text_atomic(os.path.join(coverage_root, "coverage.txt"),
                       hlib.coverage_to_txt(report))
 
     # Flake: per scenario (v1 stage = "run"), a rolling window of attempt outcomes.
     prior = {}
-    flake_path = os.path.join(COVERAGE_DIR, "flake.json")
+    flake_path = os.path.join(coverage_root, "flake.json")
     if os.path.isfile(flake_path):
         try:
             with open(flake_path, "r", encoding="utf-8") as fh:
@@ -3873,7 +4053,7 @@ def refresh_coverage_and_flake(specs: Sequence[Dict], registry: Dict,
     # scenario's n=5 record to a per-checkout n=1 -- which disarms the very
     # regression warn the ledger exists for. hlib.merge_durations unions the
     # committed SAMPLES with this run's new PASS values.
-    duration_path = os.path.join(COVERAGE_DIR, "duration.json")
+    duration_path = os.path.join(coverage_root, "duration.json")
     prior_durations, ledger_ok = read_duration_ledger(duration_path, logger)
     if ledger_ok:
         fresh_samples = hlib.duration_samples(results)
@@ -4331,6 +4511,7 @@ def _write_instance_locked_result(spec, holder_note, runtime, logger) -> None:
                          "matched": False},
         "kspExit": {"code": None, "killed": False},
         "collectLogs": {"ran": False, "path": None},
+        "snapshot": dict(_EMPTY_SNAPSHOT),
         "artifacts": dict(_EMPTY_ARTIFACTS),
     }
     write_result(result, logger)
@@ -4365,6 +4546,7 @@ def _write_invalid_spec_result(spec, errors, runtime, logger) -> None:
                          "matched": False},
         "kspExit": {"code": None, "killed": False},
         "collectLogs": {"ran": False, "path": None},
+        "snapshot": dict(_EMPTY_SNAPSHOT),
         "artifacts": dict(_EMPTY_ARTIFACTS),
     }
     write_result(result, logger)
