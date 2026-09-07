@@ -57,7 +57,7 @@ M-A6 stack provisioner, M-B1 mission library, M-B2 ledger oracle, M-C1 seam verb
 batch 1, M-C2 EVA verbs. Status and per-module proof live in `autotest-status.md`.
 None of the items in this roadmap are blocked on a missing module.
 
-### Scenarios: 224 committed
+### Scenarios: 225 committed
 
 Re-derived 2026-09-07 at the merge of #1646 (`e01d11f85`): `ls harness/scenarios/*.toml` returns **224**
 files, the total `autotest-status.md`'s `## Test cases` header states and
@@ -77,7 +77,7 @@ EVA / CL / S0.x / H22-H25 / V1 / BDOCK waves and R14's MC-1/MC-2 took it from
 55 to 68. Adding a scenario is not the same as covering a cell. Re-derive
 these rather than editing them by memory; both numbers have moved many times.
 
-### Coverage: 162 of 247 registry cells (was 83 of 241 at the baseline, 108 of 242 on 2026-08-04)
+### Coverage: 163 of 248 registry cells (was 83 of 241 at the baseline, 108 of 242 on 2026-08-04, 162 of 247 on 2026-09-07 before G1 / G3b closed)
 
 Re-derived 2026-09-07 at the merge of #1646 (`e01d11f85`), replacing the 2026-08-04 snapshot (108 of
 242; the registry has since grown by five values net: D6 +2, D9 +1, D10 +3, D16 -1). The
@@ -1652,6 +1652,16 @@ Kerbal X #2)" and whose admissibility doc quotes this recording's own ecc and sm
 - and no committed lane has ever driven it. `V25T` / `V25K` / `V25W` are reserved
 alongside and unused.
 
+**V27 IS RESERVED HERE AND NEW (2026-09-07), ACROSS ALL ITS SUFFIXES**, on the same
+rule. The first committed V27 lane is `V27M-rover-route-endpoint-substituted-map-lines`
+(authored, flown and armed 2026-09-07; status row in `autotest-status.md`), the lane
+that closes G3b: `rover-route-recorded` with the route's recorded destination vessel
+removed from FLIGHTSTATE, so the dispatch rebinds the STOP through the surface-proximity
+fallback BEFORE the flight map is opened. `M` because the host observed is the player
+flight map (the KSC boot it carries is H59's second-host reading, not a `K` lane).
+`V27T` / `V27K` / `V27W` are reserved alongside and unused. V26 was the last number in
+use before it (G10, closed).
+
 THE B-RANGE ROSTER, because it is now full enough that the next author cannot
 pick a free id by eye: **B27** G1 (`B27-station-route`), **B28** G2 moon-to-parent
 (`B28-laythe-jool-return`, FLOWN 2026-08-20 and committed), **B29** G2
@@ -1786,6 +1796,89 @@ partially read.
 (c) **D10 `route-map-lines` is still UNDECLARED**, exactly as the amendment
 above requires. It gets declared in the commit that arms `routeLineBuilds`,
 citing the run - not in the commit that first draws a line.
+
+**STATUS 2026-09-07: G1 IS CLOSED, and the reconciliation that closes it is the
+part worth reading, because three sentences above had been overtaken by flights
+before anyone wrote the closure down.** They are kept verbatim so the corrections
+stay legible: the amendment's "the five things G1 measures are unchanged and still
+unmeasured" and "D10 `route-map-lines` stays UNDECLARED", and (b)/(c) above ("the
+route overview line is MEASURED but NOT gated", "D10 is still UNDECLARED"). Per
+subject, with the run that measures it:
+
+- **(1) the route front door** - MEASURED AND GATED on V18T from its first arming:
+  `SelectGhostDrivingBackingMissions: ghostDriving=[1-9]`, `TS startup loop units:
+  .*routeMissions=[1-9]`, `RevalidateSources ... routes=1 transitioned=0` and the TS
+  host's `created N ghost vessel(s)` (armed `2026-08-26_2015`, re-flown green
+  `2026-09-02_1013`, `2026-09-06_2250`, `_2337_a2`, `2026-09-07_1852`). Also gated on
+  the FLIGHT host by H59 (`Mission loop units rebuilt ... routeMissions=1`, route
+  created in-run) and on the inter-body subject by V26T. Closed.
+- **(2) the `RouteStatusPolicy.GhostDriving` gate** - MEASURED AND GATED on V18T
+  as the forbid `skippedByStatus=[1-9]`, which fired as a real detector on
+  `2026-09-06_2216` (ROUTE-SOURCECHANGED-AT-LOAD-AFTER-SIDECAR-EPOCH-DRIFT, the
+  regression this lane caught and then confirmed fixed on `_2250`); H59 gates the
+  positive `skippedByStatus=0` literal. Closed.
+- **(3) the route-owned cadence** - the dispatch half was gated first on the SAME-BODY
+  SURFACE subject (RVR-9 `2026-09-03_1829` / `2026-09-06_2020`: `cadence=162.74`,
+  `LoopRoute(multi) ... dispatch fired`, three phase-lock forbids; RVR-7 the same
+  dispatch line), and the RENDER half is now gated on the depot subject by V18T
+  ROUND 2 (2026-09-07): the recipe the spec wrote for itself was run against four
+  byte-identical logs and pins `PhaseLock APPLIED ... method=joint-best-fit cadence
+  16058.021895760137->21549.4251830898 ... zeroDrift=yes firstLaunch=22969.671921541973
+  ... scheduleWithinTol=yes`, the `MissionLoopUnit` line with that cadence and
+  `phaseAnchor=22969.671921541973`, `BuildMission ... loopInterval=16058.001895760137
+  loopAnchorUT=-1 ... anchor floored to spanEnd` (the floored anchor) and the
+  `LoopRoute` clock line carrying the same cadence / anchor and
+  `dockUT=17478.248634212287` - the route clock and the render clock as one number
+  read two ways. Armed re-flight `2026-09-07_1852` PASS attempt 1; negative control
+  `2026-09-07_1853` red on exactly the `method=joint-best-fit` token. THE BRANCH
+  READING IS CORRECTED WITH IT: the spec's H-B ("single-rotation phase lock") had
+  the numbers right and the method wrong - the extraction emits BOTH the Rotation and
+  the Depot's VesselOrbital constraint, the fixed-cadence solve drops Rotation on a
+  354.6 s residual, and the zero-drift reschedule lands on the same first launch and
+  minimum interval; H-C's road, H-B's numbers, H-A ruled out. NOT claimed: a dispatch
+  across the phase-locked dock instant on the depot subject (cycle 0 at 39027.67 is
+  already counted observed by the fixture, cycle 1 at 60577.10 is past both jumps).
+  Closed on the two subjects together.
+- **(4) the route overview line** - MEASURED, GATED AND DECLARED since 2026-08-26:
+  `[expectations.renderComposition]` on V18T is `gating = true` with
+  `routeLineBuilds {min = 1}` (negative control `2026-08-26_2017_a2` red exactly
+  `routeLineBuilds 1 < min 5`), and D10 `route-map-lines` is CLAIMED by V18T; H59
+  claims `route-map-lines-surface` (flight map, same-body surface route) and
+  B32 / V26M / V26T claim `route-map-lines-inter-body` and `route-transfer-leg-drop`
+  (G10). Closed.
+- **(5) the dock / station endpoint** - gated on V18T ROUND 2, and the paragraph
+  above that called the arrival truth "THE FAITHFUL FALLBACK AT A STATION ENDPOINT"
+  is corrected by the measurement rather than confirmed by it. With
+  `mapRenderTracing` on, `PhaseFactory.EmitFailClosedDecisionTraceIfEnabled` runs the
+  classifier on every chain build and passes `hasLiveVesselArrivalAnchor: false` by
+  construction, so the `moving-target-station` reason is unreachable on a flight and
+  four logs carry zero `fail-closed-to-faithful` lines; what the docked member
+  actually does is render through the ORDINARY recorded chain, verbatim, to the
+  recorded dock - pinned as the TS orbit-source line (`rec=a85a7ae0... source=Segment
+  orbitSource=visible-segment terminal=Docked terminalBody=Kerbin`), the factory
+  chain (`phases=13 reaimed=False ... faithfulFallback=False`) and the
+  `PhaseChainAssembled surface=ProtoOrbitLine ... faithfulFallback=False` trace, with
+  `fail-closed-to-faithful .*producer=moving-target-station` FORBIDDEN as a standing
+  guard that flips the day a producer starts signalling the anchor. Negative control
+  `2026-09-07_1857` red on exactly the flipped `faithfulFallback=False` token. Nothing
+  reads the Depot's CURRENT position, and the lane does not claim it; the sentence
+  above that it is NOT "the ghost renders at the station's current position" stands,
+  and the "faithful fallback" half is retired - the fallback path is not what runs.
+  Closed.
+
+Career-vs-sandbox through `IsCareer && IsKscOrigin` stays a reading owed to the
+career program (RVR-4 / RVR-17), not to this gap. **V18M stays RESERVED AND UNFLOWN,
+and G1 closes without it**: its only distinct content would be a same-body ORBITAL
+route line on the player flight map, and the one axis it would add - map host versus
+tracking station on the same subject - measured zero when V26M / V26T read it on the
+inter-body subject (byte-identical build and draw lines on both hosts; see the D10
+`route-map-lines-inter-body` registry note). It is a when-wanted breadth point,
+not a blocker; do not renumber it. The FLIGHT variant of B27 (a station route
+created in-run through `SealSlot` / `RouteCommand`) likewise stays deferred as a
+separate piece of work: every route-specific mechanism it would exercise is now
+gated on either the harvest (V18T) or the in-run surface routes (H59, RVR-2..20).
+G3b, deferred into this entry, is closed by `V27M-rover-route-endpoint-substituted-
+map-lines` - see the G3 entry.
 
 **G2 - Return legs (moon -> its parent; planet -> Kerbin).** A supply run is a
 round trip and every committed loop subject is outbound. The return direction
@@ -1937,6 +2030,49 @@ load-bearing because the halves have different owners:
   This is ROUTE FRONT-DOOR work and it is **DEFERRED WITH G1**: it needs the
   route ghost driver, the status gate and the route clock that G1 stands up
   first, and measuring it through a mission loop would measure the wrong door.
+  **CLOSED 2026-09-07 by `V27M-rover-route-endpoint-substituted-map-lines`**, and the
+  class answer is not the one the sentence above reached for. Two things had moved
+  before the lane existed: the fallback ITSELF was driven and gated at the
+  dispatch / delivery surface by RVR-18 (`2026-09-03_2011`, `_2153` on the
+  endpoint-transfer ruling, `2026-09-06_2007`: transport excluded, proximity step
+  resolves `A` at 2.00 m, `Route endpoint transferred ... step=proximity`, the
+  rebind persisted to `rootPartUId` so the next walk stops at step one) with RVR-19
+  gating the mirror refusal, and a caller walk found `RouteEndpointResolver.
+  TryResolveEndpoint` reached only from `LiveRouteRuntimeEnvironment` (dispatch /
+  delivery) and the Logistics window - never from `RouteTrajectoryLineRenderer`,
+  `RouteBackingMission` or `RouteGhostDriverSelector`. Under criterion (c) that
+  reading needed a run, and V27M is it: RVR-18's liveState patch (recorded
+  destination removed, `A` 2.00 m away) on H59's drive shape, with the map opened
+  only AFTER the `TimeJump ut=1600` that carries the dispatch and the rebind, so
+  every draw / polyline / KSC line post-dates the transfer by construction (the
+  `Route line build` line does NOT - it fires once at route creation, and the
+  pre-PR review caught the spec claiming otherwise; see below). Reading run
+  `2026-09-07_1858` read every pre-registered candidate token (one harness-side
+  `[Stage]` line was an authoring defect and was dropped); armed re-flight `2026-09-07_1902`
+  PASS attempt 1 with `[expectations.routes]` GATING on `destinationVesselPids =
+  ["2875537755"]`; negative controls `2026-09-07_1903` (the inverted `Route line
+  build ... legs=1` token - regex liveness, since that line is create-time) and
+  `2026-09-07_1924` (the inverted post-rebind draw token `ownedLegs=1`), each red on
+  exactly its one seeded token. MEASURED: the rebind is persisted (the STOP names
+  the NEW pid) AND the route still ghost-drives (`ghostDriving=1`, status `Active`
+  at the end of the run) AND the overview line built at creation from the member
+  recordings (H59's counts to the leg, `members=2 groups=1 legs=1
+  transferDropped=0`) is NOT rebuilt by the rebind - `ComputeRouteSignature` folds
+  member ids, content hashes, `RecordedDockUT`, origin body and stop BODIES, never
+  the stop pid, so no rebuild fires and every post-map draw frame is a cache hit
+  (`cache=1 ownedLegs=1`) - AND the flight-scene ghost polyline draws AND the KSC host
+  resolves every landed member from the post-rebind save with nothing skipped. So
+  "the ghost renders at the SUBSTITUTED endpoint" is FALSE as a product statement
+  and was never the design: no render surface consults the rebound endpoint; the
+  ghost renders the RECORDED arrival (2.00 m from `A` on this subject, which no
+  token reads and the lane does not claim) and the rebind lives only in the STOP
+  the delivery writes into. One shape reading came with it: because the map opens
+  with the route ghost already mid-cycle, the overview line's single leg is OWNED
+  by the ghost polyline for the whole session (`routesDrawn=0 ... skippedOwned=1
+  ownedLegs=1 paintedLegs=0`), where H59 - map opened before the dispatch - catches
+  one self-drawn frame first; the RC-ROUTE handoff, pinned as measured. Registry
+  D10 gains `route-endpoint-rebind-render`, claimed by V27M, declared in the arming
+  commit (H35 CLAIM-IS-NOT-GATE).
 
 **WHAT THE LENS IS FOR THIS CLASS, per confirmation criterion (a).** Below
 atmosphere there is NO CONIC, so the proto orbit line is NOT the lens - pinning

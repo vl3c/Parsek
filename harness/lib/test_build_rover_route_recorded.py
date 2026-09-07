@@ -305,6 +305,11 @@ class RoverRouteSpecFixtureSyncTests(unittest.TestCase):
              "H57-route-start-docked-origin-landed.toml",
              "H58-route-rewind-to-launch.toml",
              "H59-surface-route-map-lines.toml",
+             # V27M (2026-09-07) boots these bytes on RVR-18's liveState patch (recorded
+             # destination removed, `A` inventory cleared) and H59's drive shape, so the
+             # endpoint REBIND happens before the map opens; it reads the corpus through the
+             # route line, the ghost polyline and the KSC surface resolution (roadmap G3b).
+             "V27M-rover-route-endpoint-substituted-map-lines.toml",
              # H69 is the SECOND spec on H56's footing, and the difference from H56 is
              # worth separating: H56 boots these bytes for a live property its cells then
              # USE (a LANDED rover to couple a spawned partner against); H69 boots them

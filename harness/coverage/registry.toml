@@ -250,12 +250,31 @@ values = ["rewind-to-launch", "fast-forward", "rewind-to-separation", "refly-gat
 # discipline complete: census `2026-09-02_1314` PASS, armed re-flight `_1339` PASS attempt
 # 1 on the whole pin with `mismatches=[]`, and a negative control red on exactly one token
 # with zero forbids. Two runs, two different source-pid pairs, identical pinned amounts.
+# "route-endpoint-rebind-render" (added 2026-09-07 with V27M-rover-route-endpoint-substituted-
+# map-lines, per the growth rule; closes roadmap gap G3b): a route whose destination STOP was
+# REBOUND by `RouteEndpointResolver`'s 500 m surface-proximity fallback (the recorded vessel
+# removed, a compatible craft 2.00 m away, RVR-18's measured chain) observed at THREE render
+# surfaces AFTER the rebind - the flight-map route overview line (built once at creation,
+# NOT rebuilt by the rebind, drawn from cache), the flight-scene ghost polyline, and the KSC
+# surface resolution from the post-rebind save. DISTINCT from RVR-18
+# (which gates the rebind at the dispatch / delivery surface and opens no map) and from H59
+# (the same render surfaces with the endpoint PRESENT) on the axis the growth rule cares
+# about: the question no lane could answer - does any render surface consult the rebound
+# endpoint - and the MEASURED answer is no: `destinationVesselPids` reads the NEW pid while
+# the overview line built at creation from the member recordings (H59's counts to the leg,
+# `members=2 groups=1 legs=1 transferDropped=0`) is never rebuilt by the rebind (the route
+# signature excludes the stop pid) and draws from cache, the ghost polyline draws, and the
+# KSC host resolves every landed member with nothing skipped. The gating tokens are the
+# transfer line plus the build / draw / polyline / KSC lines in one run with
+# `[expectations.routes]` GATING on the new pid; two negative controls inverted the build
+# line's leg count and the post-rebind draw line's `ownedLegs`.
 values = ["candidate-detection", "ksc-origin", "docked-depot-origin", "dock-producer",
           "claw-producer", "delivery", "pickup", "mixed-direction", "resource-cargo",
           "inventory-cargo", "harvest-provenance", "multi-stop", "multi-origin-escrow",
           "round-trip-pair", "inter-body-nth-window", "dispatch-cadence", "hold-reasons",
           "destination-full-gate", "route-map-lines", "route-map-lines-surface",
-          "route-map-lines-inter-body", "route-transfer-leg-drop", "route-x-rewind"]
+          "route-map-lines-inter-body", "route-transfer-leg-drop", "route-x-rewind",
+          "route-endpoint-rebind-render"]
 
 [D11]  # missions / periodicity / re-aim
 values = ["default-mission", "leg-trim", "whole-mission-loop", "self-overlap", "clone",
