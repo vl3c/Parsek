@@ -92,7 +92,7 @@ Two limits of this table, stated so nobody over-reads it:
 | Category | Decls | Exec FLIGHT | Exec SPACECENTER | Exec TRACKSTATION | Batch-disabled | Members with self-skip | Driven by | Bucket |
 |---|---|---|---|---|---|---|---|---|
 | `AutoMergeCommit` | 1 | 0 | 0 | 0 | 1 | 1 | H67-automerge-commit-isolated (ISOLATED, LIVE-PROVEN 2026-09-06, run `2026-09-06_2016`: PASS attempt 1, 55 s wall, every verifier PASS or SKIPPED, `BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=AutoMergeCommit scene=FLIGHT` pinned whole. EXECUTED 1 of 1. H21's scene-exit seam with `autoMerge` FLIPPED ON, over the ORBITING `gs2-orbital-stack`: stock save-and-exit out of FLIGHT commits SILENTLY and at FULL FIDELITY, keeping the committed leaf's `VesselSnapshot` and spawn-at-end eligibility. The host is DICTATED by the cell, whose own skip says only an ORBITING vessel produces the stable-terminal shape `CommitTreeSceneExit` preserves a snapshot for - which is why this lane added the `orbiting` fixture-requirement class. All six guards were settled by host + driver as predicted, so the census rode entirely on the assertions and they held) | A |
-| `AutoRecord` | 10 | 0 | 0 | 0 | 10 | 10 | H61-autorecord-isolated (ISOLATED, LIVE-PROVEN 2026-09-06, run `2026-09-06_2010`: PASS attempt 1, 80 s wall, every verifier PASS or SKIPPED, `BATCH_COMPLETE v1 total=10 passed=5 failed=0 skipped=5 category=AutoRecord scene=FLIGHT` pinned whole, `skipped=5` declared in `MEASURED_SKIPPED`. EXECUTED 5 of 10, so this is a SLICE and the category stays in bucket B on `Logistics`' precedent. The largest isolated batch in the suite, over the crewed PRELAUNCH `gs1-two-stage-pad`: launch auto-record starting exactly once, deferred EVA auto-record after a real `FlightEVA.spawnEVA`, the post-switch watch's negative case, and the two #526 pad-transient canaries. The spec header's PREDICTED 5-execute / 5-skip census held CELL FOR CELL. RESIDUE, all HOST properties and none a product claim: `AutoRecordOnPostSwitch_LandedMotion_*` and `AutoRecordOnPostSwitch_GearToggle_*` want a LANDED host, `AutoRecordOnPostSwitch_OrbitalEngineOrRcs_*` an ORBITING one, `EvaKerbalGhostHasVesselSnapshot` a MID-FLIGHT crewed one, and `EvaTwiceFromSameCapsuleProducesTwoBranches` a host with 2+ crew - `eva3-pad-3crew` would buy the last, but its launch clamps carry `RealSpawnControl_WarpToRecordingEnd_OnPad_*`'s own skip, so it trades a cell rather than closing the lane. Claims D1 `auto-record-launch` + `auto-record-eva` only: `auto-record-first-mod-switch` is NOT claimed, and the census MEASURED why - the only post-switch cell that executes here is the negative one) | B |
+| `AutoRecord` | 10 | 0 | 0 | 0 | 10 | 10 | H61-autorecord-isolated (ISOLATED, LIVE-PROVEN 2026-09-06, run `2026-09-06_2010`: PASS attempt 1, 82 s wall, every verifier PASS or SKIPPED, `BATCH_COMPLETE v1 total=10 passed=5 failed=0 skipped=5 category=AutoRecord scene=FLIGHT` pinned whole, `skipped=5` declared in `MEASURED_SKIPPED`. EXECUTED 5 of 10, so this is a SLICE and the category stays in bucket B on `Logistics`' precedent. The largest isolated batch in the suite, over the crewed PRELAUNCH `gs1-two-stage-pad`: launch auto-record starting exactly once, deferred EVA auto-record after a real `FlightEVA.spawnEVA`, the post-switch watch's negative case, and the two #526 pad-transient canaries. The spec header's PREDICTED 5-execute / 5-skip census held CELL FOR CELL. RESIDUE, all HOST properties and none a product claim: `AutoRecordOnPostSwitch_LandedMotion_*` and `AutoRecordOnPostSwitch_GearToggle_*` want a LANDED host, `AutoRecordOnPostSwitch_OrbitalEngineOrRcs_*` an ORBITING one, `EvaKerbalGhostHasVesselSnapshot` a MID-FLIGHT crewed one, and `EvaTwiceFromSameCapsuleProducesTwoBranches` a host with 2+ crew - `eva3-pad-3crew` would buy the last, but its launch clamps carry `RealSpawnControl_WarpToRecordingEnd_OnPad_*`'s own skip, so it trades a cell rather than closing the lane. Claims D1 `auto-record-launch` + `auto-record-eva` only: `auto-record-first-mod-switch` is NOT claimed, and the census MEASURED why - the only post-switch cell that executes here is the negative one) | B |
 | `BackgroundSeeder` | 2 | 2 | 0 | 0 | 0 | 2 | - | B |
 | `Bug289` | 2 | 2 | 0 | 0 | 0 | 0 | - | B |
 | `ClawCouple` | 2 | 2 | 0 | 0 | 0 | 2 | H42 (flown 2026-08-28, executes 2 of 2) | A |
@@ -131,7 +131,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `MapPresence` | 5 | 5 | 3 | 3 | 0 | 2 | H28 | A |
 | `MapRender` | 22 | 21 | 0 | 0 | 1 | 14 | S1.7 | B |
 | `MapView` | 4 | 3 | 3 | 4 | 0 | 2 | H47 (flown 2026-08-28, executes 4 of 4) | A |
-| `MergeDialog` | 2 | 0 | 0 | 0 | 2 | 2 | H63-merge-dialog-isolated (ISOLATED, LIVE-PROVEN 2026-09-06, run `2026-09-06_2012`: PASS attempt 1, 56 s wall, every verifier PASS or SKIPPED, `BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=MergeDialog scene=FLIGHT` pinned whole. EXECUTED 2 of 2. The merge popup's own two branches driven in place over a FABRICATED pending tree - Discard clears it, deferred Merge commits it through the real `Merge to Timeline` path - which is a different seam from H21's, where a real stock scene exit spawns the same popup. Boots `gloops-airshow`: neither cell stages or spawns, so the requirement is `loaded-vessel`. Neither REFLECTION guard fired, so the merge-dialog helpers and `ParsekScenario.Instance` both resolve at run time on KSP 1.12.5) | A |
+| `MergeDialog` | 2 | 0 | 0 | 0 | 2 | 2 | H63-merge-dialog-isolated (ISOLATED, LIVE-PROVEN 2026-09-06, run `2026-09-06_2012`: PASS attempt 1, 58 s wall, every verifier PASS or SKIPPED, `BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=MergeDialog scene=FLIGHT` pinned whole. EXECUTED 2 of 2. The merge popup's own two branches driven in place over a FABRICATED pending tree - Discard clears it, deferred Merge commits it through the real `Merge to Timeline` path - which is a different seam from H21's, where a real stock scene exit spawns the same popup. Boots `gloops-airshow`: neither cell stages or spawns, so the requirement is `loaded-vessel`. Neither REFLECTION guard fired, so the merge-dialog helpers and `ParsekScenario.Instance` both resolve at run time on KSP 1.12.5) | A |
 | `MissionPhasing` | 4 | 4 | 0 | 0 | 0 | 2 | - | B |
 | `Missions` | 13 | 7 | 6 | 0 | 0 | 9 | M1, H54 (FLIGHT slice, flown 2026-08-28, executes **3 of 13** - see the archetype note below) | B |
 | `Optimizer` | 2 | 0 | 2 | 0 | 0 | 2 | - | B |
@@ -146,7 +146,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `Pipeline-Outlier` | 1 | 1 | 0 | 0 | 0 | 0 | - | B |
 | `Pipeline-Smoothing` | 4 | 4 | 0 | 0 | 0 | 1 | H18 | A |
 | `Pipeline-Terrain` | 1 | 1 | 0 | 0 | 0 | 1 | - | B |
-| `PlaybackControl` | 1 | 0 | 0 | 0 | 1 | 1 | H66-playback-control-isolated (ISOLATED, LIVE-PROVEN 2026-09-06, run `2026-09-06_2015`: PASS attempt 1, 73 s wall - the most expensive per cell in the wave - every verifier PASS or SKIPPED, `BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=PlaybackControl scene=FLIGHT` pinned whole. EXECUTED 1 of 1. Commits a synthetic keep-vessel tree over `gloops-airshow`, fast-forwards the timeline into playback past the 15 s `RewindToLaunchLeadTimeSeconds` lead, and asserts the spawn happens EXACTLY ONCE and is not replaced by a second pid - checked immediately and again after a duplicate-prevention wait. Claims D9 `fast-forward` and D6 `spawn-at-end-pid-dedup`; the unsettled guard - whether `TryBuildSyntheticKeepVesselTree` succeeds unattended, which nothing had ever run - did NOT fire) | A |
+| `PlaybackControl` | 1 | 0 | 0 | 0 | 1 | 1 | H66-playback-control-isolated (ISOLATED, LIVE-PROVEN 2026-09-06, run `2026-09-06_2015`: PASS attempt 1, 74 s wall - the most expensive per cell in the wave - every verifier PASS or SKIPPED, `BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=PlaybackControl scene=FLIGHT` pinned whole. EXECUTED 1 of 1. Commits a synthetic keep-vessel tree over `gloops-airshow`, fast-forwards the timeline into playback past the 15 s `RewindToLaunchLeadTimeSeconds` lead, and asserts the spawn happens EXACTLY ONCE and is not replaced by a second pid - checked immediately and again after a duplicate-prevention wait. Claims D9 `fast-forward` and D6 `spawn-at-end-pid-dedup`; the unsettled guard - whether `TryBuildSyntheticKeepVesselTree` succeeds unattended, which nothing had ever run - did NOT fire) | A |
 | `PlaybackFidelity` | 7 | 7 | 0 | 0 | 0 | 7 | H36 | A |
 | `PreParsekBackup` | 4 | 4 | 4 | 4 | 0 | 4 | PPB-1 | A |
 | `QuickloadResume` | 3 | 1 | 0 | 0 | 2 | 1 | H65-quickload-resume-isolated (ISOLATED, LIVE-PROVEN 2026-09-06, run `2026-09-06_2014`: PASS attempt 1, 63 s wall, every verifier PASS or SKIPPED, `BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=QuickloadResume scene=FLIGHT` pinned whole. EXECUTED 3 of 3, i.e. the WHOLE category on the isolated path. KSP's stock PROGRAMMATIC quickload backend over `gs1-two-stage-pad`: the `DontDestroyOnLoad` bridge surviving a real quicksave / quickload on a disposable slot, and a mid-recording F5/F9 resuming the SAME `activeRecordingId`. The R6 wave's ONLY partly-batch-disabled member - ordinary executes 1, isolated executes 3 - so it is declared in `PARTLY_BATCH_DISABLED_IDS`; while interim its `passed=` was a FLOOR OF 2, since the plain `[1-9][0-9]*` spelling would accept `passed=1`, the exact line a run that lost the isolated arg prints, and the measured literal 3 now clears that ceiling by construction. Its baseline-slot literal is 2, not the category total 3: only two of the three declarations carry the restore flag. Claims nothing beyond D14 - D9 `rewind-to-launch` names Parsek's own rewind machinery, not KSP's F5/F9) | A |
@@ -301,7 +301,7 @@ Tier B item-4 subject the roadmap wrote as a manual flight and H56's probe retir
 ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE, fixed in the same commit as these cells, so
 nothing has ever exercised the fixed producer live.
 
-Driven by a committed spec: **70 of 112 categories**, covering **538 of 620
+Driven by a committed spec: **70 of 112 categories**, covering **539 of 621
 declarations** (re-derived mechanically 2026-09-06: count the table rows whose
 Driven-by cell is not `-`, and sum their Decls column).
 
@@ -319,8 +319,8 @@ isolated wave (H61-H67) then adds the remaining seven - `AutoRecord` (10),
 move the DRIVEN numbers. SIX THEN FLEW GREEN THE SAME DAY, which moves the BUCKET
 numbers but NOT the driven ones: `MergeDialog`, `RevertFlow`, `QuickloadResume`,
 `PlaybackControl` and `AutoMergeCommit` each drove their category WHOLE at their boot
-and are now **A** (bucket A 46 -> 51 categories, 280 -> 288 declarations; bucket B 66
--> 61 and 340 -> 332, both re-derived by counting rows per bucket letter and summing
+and are now **A** (bucket A 46 -> 52 categories, 281 -> 291 declarations; bucket B 66
+-> 60 and 340 -> 330, both re-derived by counting rows per bucket letter and summing
 their Decls column). `AutoRecord` executed 5 of 10 and stays **B** as a slice.
 
 THE LESSON, since this is not the first doc-count drift the suite has recorded: a
@@ -588,7 +588,7 @@ one wired category costs one KSP boot per cadence. Wiring all 74 undriven catego
 would mean 89 boots. The question is never "can this category run in a batch" but
 "is what it executes worth a boot".
 
-### Bucket A - wired now (52 categories, 290 declarations)
+### Bucket A - wired now (52 categories, 291 declarations)
 
 Two sub-classes, admitted on DIFFERENT grounds. Conflating them is how the isolated
 spec would end up pinned against the wrong derivation.
@@ -862,10 +862,11 @@ Logistics analogue of H21's engineless host, and a new positive control runs `st
 over a recorded host and requires REJECTION so the PRELAUNCH check cannot be deleted to
 make these lanes pass.
 
-FIVE MORE CATEGORIES JOINED A2 ON 2026-09-06, from the R6 isolated wave: `MergeDialog`
-(H63), `RevertFlow` (H64), `QuickloadResume` (H65), `PlaybackControl` (H66) and
-`AutoMergeCommit` (H67), each flown once that day, PASS on attempt 1, each driving its
-category WHOLE with zero skips and each pinned whole in the same commit. Four are
+SIX MORE CATEGORIES JOINED A2 ON 2026-09-06, from the R6 isolated wave: `MergeDialog`
+(H63), `RevertFlow` (H64), `QuickloadResume` (H65), `PlaybackControl` (H66),
+`AutoMergeCommit` (H67) and, on its second flight over the derived `coalescer-pad`
+host, `Coalescer` (H62) - each PASS on attempt 1, each driving its category WHOLE
+with zero skips and each pinned whole in the same commit. Four are
 H21's shape (wholly batch-disabled, ordinary ceiling 0); `QuickloadResume` is H38's
 (ordinary 1, isolated 3) and is declared in `PARTLY_BATCH_DISABLED_IDS`. The sixth
 member of that wave to fly, `AutoRecord` (H61), executed 5 of its 10 and stays in

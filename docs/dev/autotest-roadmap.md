@@ -745,9 +745,9 @@ stock-minimal` to reach a harness run.
   pin (`total=` attribute-exact, `failed=0` asserted, split a regex class) with a
   cell-by-cell predicted census in its own header. SIX HAVE NOW FLOWN AND ARE PINNED
   WHOLE, each PASS on attempt 1 with every verifier PASS or SKIPPED: H61
-  `2026-09-06_2010` (80 s, `total=10 passed=5 failed=0 skipped=5`), H63 `_2012` (56 s,
+  `2026-09-06_2010` (82 s, `total=10 passed=5 failed=0 skipped=5`), H63 `_2012` (58 s,
   `2/2/0/0`), H64 `_2013` (60 s, `1/1/0/0`), H65 `_2014` (63 s, `3/3/0/0`), H66 `_2015`
-  (73 s, `1/1/0/0`), H67 `_2016` (55 s, `1/1/0/0`) - and not one header prediction was
+  (74 s, `1/1/0/0`), H67 `_2016` (55 s, `1/1/0/0`) - and not one header prediction was
   refuted. `H62-coalescer-isolated` flew twice: `_1956` on gs1-two-stage-pad read
   `passed=0 skipped=2` (gs1's first stage lights the engine, so the one staging call
   separated nothing), and `_2017` on the derived `coalescer-pad` host read `2/2/0/0`

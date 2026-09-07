@@ -18,7 +18,7 @@ tier = "nightly"
 # + `RestoreBatchFlightBaselineAfterExecution = true`: ordinary executes 0, isolated
 # executes 2. WHOLLY batch-disabled, so the ordinary path's ceiling is 0.
 #
-# LIVE-PROVEN 2026-09-06, run `2026-09-06_2012` (PASS attempt 1, wall 56 s, every
+# LIVE-PROVEN 2026-09-06, run `2026-09-06_2012` (PASS attempt 1, wall 58 s, every
 # verifier PASS or SKIPPED). Both cells executed and passed - `total=2 passed=2
 # failed=0 skipped=0`, no `SKIPPED:` line at all - so neither reflection guard fired
 # and the pin below is whole.
@@ -96,7 +96,7 @@ count = { min = 0, max = 0 }
 
 [expectations.logContracts]
 # EVIDENCE STANDING: MEASURED ONCE, run `2026-09-06_2012` (2026-09-06, PASS on
-# attempt 1, 56 s wall, every verifier PASS or SKIPPED), whose collected KSP.log
+# attempt 1, 58 s wall, every verifier PASS or SKIPPED), whose collected KSP.log
 # carries `BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0
 # category=MergeDialog scene=FLIGHT` and `Using batch baseline slot ... for 2
 # restore-after-run test(s)`.
@@ -130,7 +130,7 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 [runtime]
 # 1320 s worst case (660 + 660); 1400 clears it. This is the cheapest lane of the
 # seven - no staging, no launch, a 1-part host - so the two baseline restores dominate
-# and H21's measured ~100 s wall was the expectation. MEASURED at 56 s wall on run
+# and H21's measured ~100 s wall was the expectation. MEASURED at 58 s wall on run
 # `2026-09-06_2012`, the cheapest of the six R6 lanes that have flown, which is what
 # the derivation predicted.
 budgetSeconds = 1400

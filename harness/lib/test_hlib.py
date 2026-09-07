@@ -4588,7 +4588,7 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
         # rather than this number.
         "RVR-6-rover-relay-logistics-host": 9,
         # H61 (`gs1-two-stage-pad`): 0 attribute-forced + 5 run-time. MEASURED off its
-        # census `2026-09-06_2010` (PASS attempt 1, wall 80 s, every verifier PASS or
+        # census `2026-09-06_2010` (PASS attempt 1, wall 82 s, every verifier PASS or
         # SKIPPED), which read `BATCH_COMPLETE v1 total=10 passed=5 failed=0 skipped=5
         # category=AutoRecord scene=FLIGHT`. The attribute floor is 0 because all ten
         # `AutoRecord` declarations are FLIGHT-scoped and the isolated filter admits
