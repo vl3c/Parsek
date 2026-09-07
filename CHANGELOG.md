@@ -569,7 +569,9 @@ _(unreleased — entries accumulate here per commit)_
   memory when a game loads, which used to make every reloaded route free again, and
   it now falls back to the copy kept for ghost rendering. A route that still cannot
   be priced honestly says so in the log instead of quietly charging nothing, or
-  charging a wrong part-less price.
+  charging a wrong part-less price. This has now been played through on the shipping
+  build rather than only on the branch that fixed it: a career supply run was priced,
+  charged, and then correctly refused a second dispatch it could no longer afford.
 
 ### Dev
 
@@ -614,7 +616,17 @@ _(unreleased — entries accumulate here per commit)_
   ground, and following it would take the craft hundreds of kilometres underground - so
   the refusal is forced to happen for real. The test fails if the capsule is on the
   ground by the time the checks run, rather than quietly passing on the wrong half.
-  Written, not yet flown. Test tooling and docs only; no gameplay change.
+  **It has now been flown, and the refusal happened exactly as reasoned**: the capsule
+  was hanging under its canopy at 1,593 m coming down at 15 m/s, the game offered a
+  perfectly good repeating orbit for it whose low point sits 598 km below the ground, and
+  the rule turned that orbit away rather than timing a mission against it. The
+  ground-craft half of the same rule correctly stood aside on the same run, which is what
+  proves the two halves are telling each craft apart rather than refusing everything. Every
+  number the test was written against came back right, down to the shape of the orbit and
+  the length of its period, so nothing had to be corrected afterwards. The whole check took
+  two seconds of the roughly hundred the capsule had left before touching down, which was
+  the one thing that could have gone wrong and now has a measurement instead of an
+  argument. Test tooling and docs only; no gameplay change.
 
 - **A test can now stage a delivery target whose cargo racks are completely full, so
   the last untested way a supply run can be turned away is finally reachable.** A run
@@ -636,7 +648,17 @@ _(unreleased — entries accumulate here per commit)_
   racks, the fuel stayed where it was rather than being part-delivered, the source craft
   was not touched at all, and the target ended the run with the same empty tank and six
   full slots it started with. Everything the lane predicted from the source held on the
-  first run, with nothing to correct afterwards.
+  first run, with nothing to correct afterwards. **The lane has now been run a second
+  time and its reading of the saved game has been promoted to a hard check.** The two runs
+  were on different builds, days apart, and produced the same tally of what the save
+  records about the supply run - one route, two stops, one cycle skipped, none completed,
+  the route left paused - agreeing on every count and differing only in the run's own
+  freshly generated route identifier. That tally is now something the test fails on rather
+  than merely reports, which matters most for a lane whose whole claim is that nothing was
+  delivered: until now only the absence of lines in the log said so, and a count of skipped
+  cycles says it positively. Its sibling lane already holds the opposite case - a run that
+  does deliver - to the same standard, so between them both outcomes are now checked
+  against what the saved game actually contains.
 
 - **Two test lanes now pin the rule for a supply route whose destination craft is
   gone: it moves to the craft standing on the spot, but never to the craft that was

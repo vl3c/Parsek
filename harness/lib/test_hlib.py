@@ -7978,7 +7978,41 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # same block REPORT-ONLY with its own counters, and six of them
                        # read the exact inverse pair (`completedCycles 0` /
                        # `skippedCycles 1`) against this lane's gated `1` / `0`.
-                       "RVR-7-rover-relay-c-dispatch.toml"}
+                       "RVR-7-rover-relay-c-dispatch.toml",
+                       # RVR-20: the `[expectations.routes]` block, armed 2026-09-07 off
+                       # its OWN TWO report-only reading runs - `2026-09-06_2027` (the
+                       # first census, PASS attempt 1, wall 56 s, on the clean automation
+                       # DLL `db525f5efe422d51`) and `2026-09-07_0937` (PASS attempt 1,
+                       # wall 49 s, on `7c0bfee1b74d6716`). BOTH read
+                       # `routes count=1 dormant=0 stops=2 sourceRefs=3
+                       # completedCycles=0 skippedCycles=1 statuses={Paused:1}`
+                       # IDENTICALLY, so the arming re-pins NOTHING and moves no verdict
+                       # on the shape already flown - the S4.1 rule. The two runs' whole
+                       # `routes` facets agree field for field (`holdKinds
+                       # {DestinationFull:1}`, `connectionKinds {DockingPort:2}`,
+                       # `destinationVesselPids [90564594, 4280917262]`,
+                       # `codecRejects 0`) with ONE exception: `ids`, the route's
+                       # freshly-minted per-run guid, which no window declares because
+                       # this lane CREATES its route on every run.
+                       #
+                       # WHY THIS LANE, AND WHY IT IS NOT A SECOND RVR-7. RVR-7 gates the
+                       # COMPLETED half of these counters (`completedCycles=1
+                       # skippedCycles=0`) on a cycle that delivers; RVR-20 gates the
+                       # REFUSED half (`completedCycles=0 skippedCycles=1`) on the same
+                       # fixture, so between them BOTH outcomes of `ProcessLoopRoute`'s
+                       # cycle bookkeeping are load-bearing in the produced bytes. The
+                       # arming is worth more on this side: the whole claim of RVR-20 is
+                       # that NOTHING was written, and a log token can only assert the
+                       # absence of a line, where `skippedCycles=1` is the positive form
+                       # of that absence.
+                       #
+                       # OWED: the armed re-flight and this lane's OWN negative control
+                       # (`completedCycles = { min = 1 }` is the natural inversion). It
+                       # cannot share the family's `rewind.supersedeRows` inversion, for
+                       # V18T's and RVR-7's recorded reason - that re-proves the shared
+                       # evaluator, where this block has a parse, a normalisation and a
+                       # bucketing step of its own between the bytes and that evaluator.
+                       "RVR-20-rover-relay-c-destination-slots-full-tank-empty.toml"}
 
     def test_no_committed_spec_arms_gating(self):
         armed = []

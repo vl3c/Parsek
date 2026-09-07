@@ -2,21 +2,69 @@ schema = 1
 id = "M3-mission-phasing-airborne-anchor"
 tier = "nightly"
 # =====================================================================================
-# THE AIRBORNE HALF OF THE PHASE-ANCHOR CONTRACT, LIVE. NEVER FLOWN - every token below
-# marked PREDICTION is exactly that.
+# THE AIRBORNE HALF OF THE PHASE-ANCHOR CONTRACT, LIVE.
+#
+# **LIVE-PROVEN 2026-09-07 ON ITS FIRST FLIGHT: run `2026-09-07_0934`, PASS attempt 1,
+# wall 170 s, EVERY VERIFIER PASS** - `batchComplete` PASS (`category=MissionPhasing
+# failed=0`), `expectations mismatches=0`, `analyzer red=0`, `anomalySweep hits=[]`,
+# `logValidate` PASS, `mission` MISSION-OK, `testResults failures=0`, `saveParse` REPORT
+# reading a produced save with 0 recordings and 0 trees. Flown on the clean automation
+# DLL sha256 `7c0bfee1b74d6716` (`main` 1f7801cea). EVERY PREDICTION IN THIS FILE HELD:
+# `passed=3 failed=0 skipped=1` exactly as derived, `situation=FLYING`, `ecc=0.9948` to
+# the fourth decimal, `period=553.85s` against the derived 554, `peA=-598418.3` against
+# the derived -598 km, and `pid=2905720181` - the fixture's own ship persistentId,
+# retained. NOTHING was re-pinned because a prediction was wrong; the tokens below are
+# TIGHTENED onto the measurements, which is a different act and is recorded as such.
+#
+# THE MEASURED CENSUS, in the order the log wrote it (lines 12028-12039, then 12372):
+#   [MissionPhasing] airborne orbit: situation=FLYING ecc=0.9948 period=553.85s
+#                    peA=-598418.3 body=Kerbin atmosphere=True atmosphereDepth=70000.0
+#   TryGetVesselOrbit: skipped atmosphere-intersecting anchor pid=2905720181
+#                    situation=FLYING peA=-598418.3 body=Kerbin atmosphere=yes
+#                    atmosphereDepth=70000.0 - an orbit that re-enters is not a phase
+#                    reference
+#   SKIPPED: MissionPhasingInGameTests.LandedAnchor_EmitsNoVesselOrbitalConstraint -
+#                    needs a LANDED / SPLASHED / PRELAUNCH active vessel to stand in for
+#                    the surface anchor (situation=FLYING)
+#   [MissionPhasing] active vessel is not an eligible phase anchor (onSurface=False
+#                    orbitReenters=True situation=FLYING); fail-closed contract verified
+#   BATCH_COMPLETE v1 total=4 passed=3 failed=0 skipped=1 category=MissionPhasing
+#                    scene=FLIGHT
+#
+# ONE READING THIS FILE HAD BACKWARDS, and it costs nothing but is recorded so the next
+# reader does not re-derive it: the RATE-KEY note below predicted
+# `TryGetVesselOrbit_ResolvesActiveVessel` would claim the `vessel-orbit-airborne-anchor`
+# key first and rate-limit the airborne cell. The runner ran
+# `AirborneAnchor_RefusedByTheOrbitContract` FIRST, so the seam line was written by the
+# cell under test and it is `ResolvesActiveVessel` that was rate-limited (no second seam
+# line at 12039, only its own Info line). The expectation - ONE occurrence, satisfied by
+# a `re.search` - was right for the wrong reason. Cell order is the runner's, not this
+# lane's, so neither ordering is pinned.
+#
+# WHY THE WALL WAS 170 s AND NOT THE 700-900 s A BUDGET READING SUGGESTS. The 900 s
+# mission budget and the 1920 s scenario budget are CAPS, not estimates. The mission
+# itself took 113.0 s of wall clock at 1.00 game-second per wall-second with ZERO warp
+# commands - PRELAUNCH 0.02 s, ASCENT 9.26 s, COAST 41.31 s, DESCENT 62.23 s,
+# EVA-WINDOW 0.001 s (`_mission.json` `warpUtilisation`) - because a Jumping Flea hop to
+# a 19,647 m apoapsis and back under canopy is a two-minute flight flown in real time.
+# The remaining ~57 s is KSP boot, the LoadGame, three SetSetting round trips, the batch
+# and the quit. The batch itself is the cheapest step in the run: 2.1 s wall end to end
+# (12:36:55.209 dispatch -> 12:36:57.327 BATCH_COMPLETE), of which the four cells used
+# 1.4 ms + 0.1 ms + 0.3 ms and one skip.
 #
 # WHAT IT PROVES. PR #1629 replaced the situation list in
 # `FlightGlobalsBodyInfo.TryGetVesselOrbit` with a PHYSICAL test,
 # `MissionPeriodicity.IsPhaseAnchorEligible(orbit.PeA, refBody.atmosphere,
 # refBody.atmosphereDepth)`: a live vessel is a mission PHASE anchor only when its
 # periapsis clears the atmosphere (or 0 on an airless body). The seam has TWO refusal
-# branches and only ONE of them has ever been observed in game:
+# branches, and as of 2026-09-07 BOTH have been observed in game:
 #   * the SURFACE branch, `TryGetVesselOrbit: skipped landed anchor pid=...
 #     situation=... landedOrSplashed=... - a surface pseudo-orbit is not a phase
 #     reference`, live-proven by RVR-9 (2026-09-03, re-flown 2026-09-06);
 #   * the AIRBORNE branch, `TryGetVesselOrbit: skipped atmosphere-intersecting anchor
 #     pid=... situation=... peA=... body=... atmosphere=yes|no atmosphereDepth=... - an
-#     orbit that re-enters is not a phase reference`, WHICH NO RUN HAS EVER PRODUCED.
+#     orbit that re-enters is not a phase reference`, WHICH NO RUN HAD EVER PRODUCED
+#     BEFORE THIS LANE FLEW.
 # The in-game cell `AirborneAnchor_RefusedByTheOrbitContract`
 # (`MissionPhasingInGameTests.cs`, category `MissionPhasing`) asserts that branch
 # against a LIVE vessel and `InGameAssert.Skip`s when the active vessel is not airborne,
@@ -76,46 +124,74 @@ tier = "nightly"
 # and the situation is FLYING, so `IsSurfaceAnchorSituation` declines and the AIRBORNE
 # branch is the one that fires.
 #
-# THE TIMING MARGIN IS THE ONE REAL RISK AND IT IS SIZED. The batch starts at ~2100 m
-# with the craft descending at canopy rate (EVA-4 measured its own tail - EvaExit with a
-# 500 m standoff floor plus a 420 s EvaChuteDeploy - fitting inside this same descent),
-# so there are hundreds of seconds of game time before touchdown against four `void`
-# cells. If the pod DOES reach the ground first, the batch takes the LANDED branch
-# instead, and this spec forbids that line character for character rather than passing
-# on the wrong evidence.
+# THE TIMING MARGIN WAS THE ONE REAL RISK, AND IT IS NOW MEASURED RATHER THAN SIZED.
+# The authored version of this paragraph cited EVA-4's `standoffFloorAltMeters = 500` and
+# its `EvaChuteDeploy` budget of 420 as if they were measurements of the descent; they
+# are a KNOB and a BUDGET, and a budget is a cap on how long a step may take, never a
+# reading of how long it does. What EVA-4 actually MEASURED of this craft under canopy is
+# narrower and is the right citation: the full canopy brakes the pod from -223 m/s to
+# -23 m/s in ~5.6 s at the 2500 m full-deploy trigger (flight 2, 2026-07-24), and its
+# computed full-canopy touchdown rate is ~8-9 m/s.
+#
+# THIS FLIGHT SETTLES IT OUTRIGHT. The mission handed off at 1592.9 m with a descent rate
+# of -15.28 m/s (`_mission.json`: `evaWindowReached value=1592.9082687635673`,
+# `evaWindowDescentRate value=-15.28361694603116`, both inside the [700, 2100] band and
+# the 25 m/s cap), so the pod had ~104 s of game time left before touchdown even holding
+# that rate constant - and the whole batch, dispatch to `BATCH_COMPLETE`, consumed 2.1 s
+# of it. That is roughly 50x margin, against four cells whose own execution totals under
+# 2 ms. If the pod DOES reach the ground first on some future run, the batch takes the
+# LANDED branch instead, and this spec forbids that line character for character rather
+# than passing on the wrong evidence.
 #
 # -------------------------------------------------------------------------------------
-# WHAT IS PINNED AND WHICH TOKENS ARE PREDICTIONS.
-#   MEASURED FROM COMMITTED BYTES / SOURCE (not predictions):
+# WHAT IS PINNED, AND WHICH PINS THE FLIGHT MOVED.
+#   MEASURED FROM COMMITTED BYTES / SOURCE, and unchanged by the flight:
 #     * `total=4` - `hlib.derive_batch_tally(decls, "MissionPhasing", "FLIGHT")` reads
 #       total=4, scene_skipped=0, batch_skipped=0, executable=4 off the four
 #       `[InGameTest(Category = "MissionPhasing")]` attributes. Kept in step by
 #       `CommittedBatchTallySourceSyncTests`.
 #     * `atmosphereDepth=70000.0` and `body=Kerbin` - stock constants.
 #     * every literal quoted from the emitting call site, character for character.
-#   PREDICTIONS, to be re-pinned off the first flight:
-#     * `passed=3` `skipped=1`. The batch is expected to read
-#       `BATCH_COMPLETE v1 total=4 passed=3 failed=0 skipped=1 category=MissionPhasing
-#       scene=FLIGHT`: cells 1, 2 and 4 pass and `LandedAnchor_...` skips because the
-#       active vessel is NOT on the surface. Pinned here as `passed=[1-9][0-9]*` /
-#       `skipped=[0-9]+` per the never-flown convention (`total=` exact, the rest
-#       regexed). `IngameBatchWiringGroupTests.INTERIM_PIN_IDS` is NOT the register for
-#       this id: that set is constrained `INTERIM_PIN_IDS <= GROUP` and GROUP is
-#       DISCOVERED by `GROUP_ID_RE = ^H(?:[7-9]|[1-9][0-9]+)-`, which an `M3-` id does
-#       not match. Re-pin here, in this file, after the flight.
-#     * `situation=FLYING` is the prediction; the token is written
-#       `(?:FLYING|SUB_ORBITAL)` because the CONTRACT DOES NOT READ THE SITUATION - it
-#       reads PeA - and the cell's own Description names both shapes. It cannot widen to
-#       a surface situation: those return one branch earlier with the OTHER message,
+#   TIGHTENED ONTO THE 2026-09-07 MEASUREMENT (the interim never-flown regexes are gone):
+#     * `passed=3 failed=0 skipped=1`, was `passed=[1-9][0-9]*` / `skipped=[0-9]+`. The
+#       derivation said cells 1, 2 and 4 pass and `LandedAnchor_...` skips because the
+#       active vessel is NOT on the surface; the batch read exactly that.
+#       `IngameBatchWiringGroupTests.INTERIM_PIN_IDS` was never this id's register - that
+#       set is constrained `INTERIM_PIN_IDS <= GROUP` and GROUP is DISCOVERED by
+#       `GROUP_ID_RE = ^H(?:[7-9]|[1-9][0-9]+)-`, which an `M3-` id does not match - so
+#       the re-pin lands here, in this file, which is where the convention put it.
+#     * `situation=FLYING`, was `(?:FLYING|SUB_ORBITAL)`, at all three producers. This is
+#       a FIXTURE PROPERTY, not a run-to-run reading, which is why it can be pinned: the
+#       lane's premise is a pod hanging under a canopy in Kerbin's atmosphere, and stock
+#       reports `FLYING` for that. `SUB_ORBITAL` was carried only because the CONTRACT
+#       DOES NOT READ THE SITUATION - it reads PeA - and the cell's Description names
+#       both shapes; a run that somehow read `SUB_ORBITAL` here would be flying a
+#       different profile and should red rather than pass quietly. It still cannot widen
+#       to a surface situation: those return one branch earlier with the OTHER message,
 #       which is forbidden below.
-#     * `peA=-<digits>.<digit>` - negative by the derivation above, magnitude not pinned
-#       (it moves with the altitude the batch happens to start at).
-#     * `ecc=0.9<3 digits>` - 0.9948 derived; the last digits move with the frame.
-#     * `period=` is NOT pinned at all: 554 s is a derivation, not a measurement.
-#     * `pid=` is REGEXED. The fixture's ship persistentId is 2905720181 (read out of
-#       `b1-pad-craft/persistent.sfs`), and the pod is expected to keep it through
-#       staging, but whether a jettisoning vessel retains its persistentId is not this
-#       lane's claim and a wrong guess would red it for nothing.
+#     * `ecc=0\.9948`, was `ecc=0\.9[0-9]{3}`. Derived 0.9948 and measured 0.9948 - the
+#       extreme-eccentricity ellipse stock keeps on anything near the surface, which is
+#       set by the pod's radius and surface rotation rather than by the frame.
+#     * `period=5[0-9]{2}\.[0-9]{2}s`, was unpinned entirely (554 s was a derivation).
+#       Measured 553.85 s, so the hundreds digit is now asserted: it is `2 * pi *
+#       sqrt(a^3/mu)` on the same a the eccentricity fixes, and a period outside 500-599
+#       would mean a different orbit. The two decimals are `F2` and stay open.
+#   STILL REGEXED, DELIBERATELY:
+#     * `peA=-[0-9]+\.[0-9]` - the SIGN is the contract (a periapsis below the floor is
+#       what the branch refuses) and the magnitude is not. Measured -598418.3 against a
+#       derived -598 km, but it moves with the altitude the batch happens to start at,
+#       which is wherever the mission's EVA window lands inside [700, 2100] m.
+#   PINNED LITERAL, AND WHY THE AUTHORED CAUTION WAS UNNECESSARY:
+#     * `pid=2905720181`, was `pid=[0-9]+`. The authored note hedged on "whether a
+#       jettisoning vessel retains its persistentId" - but THIS CRAFT JETTISONS NOTHING.
+#       `b1-pad-craft`'s ship is eight parts with no decoupler of any kind (`mk1pod.v2`,
+#       `parachuteSingle`, two `GooExperiment`, `solidBooster.sm.v2` and three
+#       `basicFin`), so the spent Flea stays attached through the whole hop and there is
+#       no staging event for a pid to survive. The census then measured the retention
+#       directly: the seam line reads the fixture's own ship persistentId. Note this is
+#       NOT a launch-identity claim (`persistentId` is craft-baked, not launch-unique);
+#       it is the assertion that the batch ran against the fixture's vessel and not some
+#       other one.
 #
 # THE ANTI-VACUITY HALF, and it is deliberately NOT the two forbids the brief names.
 #   THE STRONG INSTRUMENT is the pair of MUTUALLY EXCLUSIVE branch witnesses:
@@ -155,10 +231,10 @@ tier = "nightly"
 # `plan_unmet_mission_tail` SKIPS it and the batch never runs against a pod that is not
 # where this lane says it is. An unmet mission is driver-INVALID, never PARSEK-FAIL.
 # =====================================================================================
-description = "NEVER FLOWN. The AIRBORNE half of the phase-anchor contract shipped by PR #1629, live: TryGetVesselOrbit refuses an active vessel whose orbit re-enters, emitting 'skipped atmosphere-intersecting anchor ... - an orbit that re-enters is not a phase reference' - the one branch of that seam no run has ever produced (RVR-9 live-proved the SURFACE branch on 2026-09-03 and re-proved it 2026-09-06). The in-game cell AirborneAnchor_RefusedByTheOrbitContract asserts it against a live vessel and InGameAssert.Skips on every fixture in the suite, because a census of every committed persistent.sfs found ZERO non-landed vessels with a closed orbit whose periapsis sits below the body floor (the only two sit = SUB_ORBITAL rows are one hyperbolic Kerbal X Debris, ECC 1.1123, which the ecc >= 1 filter rejects before the branch). [[fixture.liveState]] cannot supply one either - savepatch is FLIGHTSTATE resources / inventory / node-removal only, by a boundary that is its whole safety argument - and a new fixture would need an operator hand-flight or a builder authoring an orbit no KSP flight produced. So the lane FLIES one: eva4_atmo_chute is the ONLY mission in mlib whose terminal phase leaves the active vessel airborne and alive (EVA4_EVA_WINDOW, entered under full canopy at evaWindowMaxAltMeters 2100), and this spec keeps EVA-4's measured flight and replaces its EVA tail with ONE RunTests category=MissionPhasing step. At that moment the pod carries the e ~0.9948 extreme-eccentricity ellipse stock keeps on anything near the surface - a closed orbit with a finite ~554 s period and PeA about -598 km - so stock would hand a solver a usable number and the contract is what refuses it. The anti-vacuity instrument is a pair of MUTUALLY EXCLUSIVE branch witnesses (required 'skipped atmosphere-intersecting anchor' against forbidden 'skipped landed anchor'), a pair of mutually exclusive SKIP witnesses (required SKIPPED: LandedAnchor_... against forbidden SKIPPED: AirborneAnchor_..., whose three skip routes are all the lane failing its own premise), and the cell's own [MissionPhasing] airborne orbit: line, which only an un-skipped cell can write and which prints atmosphere=True where the seam prints atmosphere=yes. PhaseLock APPLIED and method=single-vessel-orbital are forbidden too but are WEAK here and are not the gate: this run has no mission, route or loop unit, so nothing could emit them even with the contract removed. total=4 is attribute-exact (hlib.derive_batch_tally reads total=4 executable=4 for MissionPhasing at FLIGHT); passed=3 skipped=1 is a PREDICTION regexed per the never-flown convention and to be re-pinned here after the first flight."
+description = "LIVE-PROVEN 2026-09-07 ON ITS FIRST FLIGHT: run 2026-09-07_0934, PASS attempt 1, wall 170 s, EVERY VERIFIER PASS (batchComplete PASS category=MissionPhasing failed=0, expectations mismatches=0, analyzer red=0, anomalySweep hits=[], logValidate PASS, mission MISSION-OK, testResults failures=0), on the clean automation DLL sha256 7c0bfee1b74d6716 (main 1f7801cea). THE AIRBORNE HALF OF THE PHASE-ANCHOR CONTRACT shipped by PR #1629 is now OBSERVED IN A FLIGHT: TryGetVesselOrbit refuses an active vessel whose orbit re-enters, emitting 'skipped atmosphere-intersecting anchor pid=2905720181 situation=FLYING peA=-598418.3 body=Kerbin atmosphere=yes atmosphereDepth=70000.0 - an orbit that re-enters is not a phase reference' - the one branch of that seam no run had ever produced (RVR-9 live-proved the SURFACE branch on 2026-09-03 and re-proved it 2026-09-06). EVERY PREDICTION HELD AND NOTHING WAS CORRECTED: BATCH_COMPLETE v1 total=4 passed=3 failed=0 skipped=1 category=MissionPhasing scene=FLIGHT, situation=FLYING, ecc=0.9948 against the derived 0.9948, period=553.85s against the derived 554, peA=-598418.3 against the derived -598 km, and the fixture ship pid retained. Six interim never-flown regexes are TIGHTENED onto those measurements (passed=/skipped= exact, situation= literal at all three producers, ecc= literal, period= pinned to its hundreds digit, pid= literal); peA= stays regexed on magnitude because it moves with wherever the EVA window lands inside [700, 2100] m. The in-game cell AirborneAnchor_RefusedByTheOrbitContract asserts the branch against a live vessel and InGameAssert.Skips on every fixture in the suite, because a census of every committed persistent.sfs found ZERO non-landed vessels with a closed orbit whose periapsis sits below the body floor (the only two sit = SUB_ORBITAL rows are one hyperbolic Kerbal X Debris, ECC 1.1123, which the ecc >= 1 filter rejects before the branch). [[fixture.liveState]] cannot supply one either - savepatch is FLIGHTSTATE resources / inventory / node-removal only, by a boundary that is its whole safety argument - and a new fixture would need an operator hand-flight or a builder authoring an orbit no KSP flight produced. So the lane FLIES one: eva4_atmo_chute is the ONLY mission in mlib whose terminal phase leaves the active vessel airborne and alive (EVA4_EVA_WINDOW, entered under full canopy at evaWindowMaxAltMeters 2100), and this spec keeps EVA-4s measured flight and replaces its EVA tail with ONE RunTests category=MissionPhasing step. The flight handed off at 1592.9 m descending at 15.28 m/s, so the pod had ~104 s of game time left and the whole batch consumed 2.1 s of it - roughly 50x margin, which settles the one real risk this lane carried. The 170 s wall against a 1920 s budget is not a surprise either: the budgets are CAPS, and the mission is a 113.0 s real-time flight (ASCENT 9.26 s, COAST 41.31 s, DESCENT 62.23 s, zero warp commands) plus ~57 s of boot, load, settings and quit. At the moment the batch ran the pod carried the e ~0.9948 extreme-eccentricity ellipse stock keeps on anything near the surface - a closed orbit with a finite 553.85 s period and PeA -598418.3 m - so stock would hand a solver a usable number and the contract is what refuses it. The anti-vacuity instrument is a pair of MUTUALLY EXCLUSIVE branch witnesses (required skipped atmosphere-intersecting anchor against forbidden skipped landed anchor), a pair of mutually exclusive SKIP witnesses (required SKIPPED: LandedAnchor_... against forbidden SKIPPED: AirborneAnchor_..., whose three skip routes are all the lane failing its own premise), and the cell's own [MissionPhasing] airborne orbit: line, which only an un-skipped cell can write and which prints atmosphere=True where the seam prints atmosphere=yes; all four held. PhaseLock APPLIED and method=single-vessel-orbital are forbidden too but are WEAK here and are not the gate: this run has no mission, route or loop unit, so nothing could emit them even with the contract removed. total=4 is attribute-exact (hlib.derive_batch_tally reads total=4 executable=4 for MissionPhasing at FLIGHT)."
 instanceProfile = "stock-minimal"
 tags = ["mission-phasing", "phase-anchor", "airborne-anchor", "orbit-contract",
-        "ingame-batch", "M3", "never-flown"]
+        "ingame-batch", "M3"]
 
 [fixture]
 # REUSED, no new fixture and no forge run: the committed `b1-pad-craft` template, the
@@ -194,11 +270,13 @@ mission = "eva4_atmo_chute"
 # tokens are absent and the lane reds having proven nothing.
 #
 # THE RATE KEY IS WHY ONE OCCURRENCE IS THE RIGHT EXPECTATION. Two cells call the seam
-# for the SAME pid: `TryGetVesselOrbit_ResolvesActiveVessel` takes its fail-closed
-# branch first and claims the key, then `AirborneAnchor_RefusedByTheOrbitContract`
-# calls it again and is rate-limited. The required token is a `re.search` over the log
-# body, so one emission satisfies it; the cell's own Info line is what proves the second
-# cell ran.
+# for the SAME pid, so whichever runs first claims the
+# `vessel-orbit-airborne-anchor.<pid>` key and the other is rate-limited. The authored
+# note here predicted `TryGetVesselOrbit_ResolvesActiveVessel` would go first; the
+# 2026-09-07 flight ran `AirborneAnchor_RefusedByTheOrbitContract` first, so the seam
+# line was written by the cell under test. EITHER ORDER SATISFIES THE TOKEN and neither
+# is pinned - cell order is the runner's, not this lane's. What proves the second cell
+# ran is its OWN Info line (required token 4), not the seam line.
 steps = [
   { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
   { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
@@ -276,9 +354,12 @@ allowedAnomalies = []
 count = { min = 0, max = 0 }
 
 [expectations.logContracts]
-# EVIDENCE STANDING: PREDICTED, NOT MEASURED. Nothing below has been seen in a live run.
-# The header states which tokens are derivable and which are guesses; re-pin the guesses
-# here, in this file, off the first flight.
+# EVIDENCE STANDING: MEASURED. Every token below was read out of run `2026-09-07_0934`'s
+# own KSP.log, on the clean automation DLL sha256 `7c0bfee1b74d6716`. The interim
+# never-flown regexes (`passed=[1-9][0-9]*`, `skipped=[0-9]+`, `(?:FLYING|SUB_ORBITAL)`,
+# an unpinned `period=`, `ecc=0\.9[0-9]{3}`, `pid=[0-9]+`) are gone; the header's "WHAT IS
+# PINNED" section says which moved and why each is a fixture property rather than a
+# run-to-run reading. `peA=` stays regexed on magnitude, deliberately.
 required  = [
   # ---- 1. THE BATCH RAN, AND IT IS THE RIGHT BATCH ---------------------------------
   # total=4 is ATTRIBUTE-EXACT and is the token `CommittedBatchTallySourceSyncTests`
@@ -286,9 +367,9 @@ required  = [
   # "FLIGHT")` reads total=4, scene_skipped=0, batch_skipped=0, executable=4 - all four
   # cells declare `Scene = GameScenes.FLIGHT` and none sets AllowBatchExecution=false.
   # scene=FLIGHT is LOAD-BEARING: at any other scene all four scene-skip and the lane
-  # would prove nothing. passed= / skipped= are the never-flown regexes; the PREDICTION
-  # is passed=3 skipped=1. failed=0 is the assertion.
-  "BATCH_COMPLETE v1 total=4 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=MissionPhasing scene=FLIGHT",
+  # would prove nothing. passed=3 / skipped=1 are RE-PINNED off the 2026-09-07 flight,
+  # which read the derived tally exactly; failed=0 is the assertion.
+  "BATCH_COMPLETE v1 total=4 passed=3 failed=0 skipped=1 category=MissionPhasing scene=FLIGHT",
 
   # ---- 2. THE HEADLINE: the branch no run has ever entered --------------------------
   # Quoted from the emitting call site, `FlightGlobalsBodyInfo.TryGetVesselOrbit`
@@ -296,21 +377,29 @@ required  = [
   # rendering of the bool - the CELL below prints `True` for the same field, which is
   # what keeps the two required tokens from being satisfiable by one line.
   # `atmosphereDepth=70000.0` is Kerbin's stock value through `ToString("F1")`.
-  "TryGetVesselOrbit: skipped atmosphere-intersecting anchor pid=[0-9]+ situation=(?:FLYING|SUB_ORBITAL) peA=-[0-9]+\\.[0-9] body=Kerbin atmosphere=yes atmosphereDepth=70000\\.0 - an orbit that re-enters is not a phase reference",
+  # MEASURED 2026-09-07: pid=2905720181 situation=FLYING peA=-598418.3. The pid is now
+  # LITERAL (the craft carries no decoupler, so nothing is ever jettisoned and the
+  # fixture's ship persistentId is the only one this batch can see) and the situation
+  # too; peA stays regexed on magnitude because it moves with the batch's start altitude.
+  "TryGetVesselOrbit: skipped atmosphere-intersecting anchor pid=2905720181 situation=FLYING peA=-[0-9]+\\.[0-9] body=Kerbin atmosphere=yes atmosphereDepth=70000\\.0 - an orbit that re-enters is not a phase reference",
 
   # ---- 3. THE CELL RAN UN-SKIPPED --------------------------------------------------
   # `AirborneAnchor_RefusedByTheOrbitContract`'s own Info line, written only AFTER all
   # three of its Skip guards have declined to fire. It is the token that separates "the
   # branch happened to be reachable" from "the cell asserted the contract against it".
-  # ecc is `F4` and period `F2`; period is not pinned (554 s is a derivation).
-  "\\[MissionPhasing\\] airborne orbit: situation=(?:FLYING|SUB_ORBITAL) ecc=0\\.9[0-9]{3} period=[0-9]+\\.[0-9]{2}s peA=-[0-9]+\\.[0-9] body=Kerbin atmosphere=True atmosphereDepth=70000\\.0",
+  # ecc is `F4` and period `F2`. MEASURED 2026-09-07: ecc=0.9948 (the derived value to
+  # the fourth decimal, so it is pinned literal) and period=553.85s against a derived
+  # 554 - the period is now pinned to its hundreds digit, which is the same statement
+  # about `a` the eccentricity makes, with the F2 tail left open.
+  "\\[MissionPhasing\\] airborne orbit: situation=FLYING ecc=0\\.9948 period=5[0-9]{2}\\.[0-9]{2}s peA=-[0-9]+\\.[0-9] body=Kerbin atmosphere=True atmosphereDepth=70000\\.0",
 
   # ---- 4. THE SECOND CELL AGREES, FROM THE OTHER END -------------------------------
   # `TryGetVesselOrbit_ResolvesActiveVessel` classifies the SAME vessel through the
   # same pure predicates and takes its fail-closed branch. `orbitReenters=True` with
   # `onSurface=False` is that cell's independent reading of the situation this lane
   # exists to create.
-  "\\[MissionPhasing\\] active vessel is not an eligible phase anchor \\(onSurface=False orbitReenters=True situation=(?:FLYING|SUB_ORBITAL)\\); fail-closed contract verified",
+  # MEASURED 2026-09-07, with the situation now literal for the same reason as above.
+  "\\[MissionPhasing\\] active vessel is not an eligible phase anchor \\(onSurface=False orbitReenters=True situation=FLYING\\); fail-closed contract verified",
 
   # ---- 5. THE MIRROR CELL SKIPPED, AND SAID WHY ------------------------------------
   # `InGameTestRunner.RecordSkip` writes `SKIPPED: {Type.Name}.{Method.Name} - {reason}`.

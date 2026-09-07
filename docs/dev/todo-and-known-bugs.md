@@ -673,9 +673,32 @@ anchor pid). Covered by the re-pinned `IsPhaseAnchorEligible_*` theories, a new
 (`AirborneAnchor_RefusedByTheOrbitContract`) that drives the live orbit through the
 seam and skips naming its required context otherwise.
 
-**The airborne branch is still UNOBSERVED IN A FLIGHT, and there is now a lane for
-it: `M3-mission-phasing-airborne-anchor` (AUTHORED 2026-09-07, NEVER FLOWN).** The
-in-game cell skips on every committed fixture, and that is not an oversight: a census
+**~~The airborne branch is still UNOBSERVED IN A FLIGHT~~ OBSERVED 2026-09-07 by
+`M3-mission-phasing-airborne-anchor`, run `2026-09-07_0934` (PASS attempt 1, wall 170 s,
+every verifier PASS, `expectations mismatches=0`), on the clean automation DLL sha256
+`7c0bfee1b74d6716` (`main` 1f7801cea).** The seam wrote the line this branch exists for,
+against a live pod hanging under its canopy:
+
+```
+TryGetVesselOrbit: skipped atmosphere-intersecting anchor pid=2905720181
+situation=FLYING peA=-598418.3 body=Kerbin atmosphere=yes atmosphereDepth=70000.0
+- an orbit that re-enters is not a phase reference
+```
+
+with the cell's own reading beside it (`[MissionPhasing] airborne orbit: situation=FLYING
+ecc=0.9948 period=553.85s peA=-598418.3 ...`), the mirror `skipped landed anchor` line
+ABSENT, and `BATCH_COMPLETE v1 total=4 passed=3 failed=0 skipped=1
+category=MissionPhasing scene=FLIGHT`. So stock did hand the solver a closed 553.85 s
+orbit for a craft on its way down, and the physical contract is what refused it - which is
+the whole claim of the #1629 fix, now made in a flight rather than in a unit test. Both
+refusal branches of the seam have now been observed live: the SURFACE one by RVR-9, the
+AIRBORNE one here. **Nothing remains on this follow-up.** The interim never-flown pins are
+re-pinned in the spec file (`passed=3 skipped=1`, `situation=FLYING`, `ecc=0.9948`,
+`period=5[0-9]{2}...`, `pid=2905720181`); `peA=` stays regexed on magnitude because it
+moves with wherever the mission's EVA window lands inside [700, 2100] m.
+
+WHY THE LANE HAD TO FLY ONE RATHER THAN STAGE ONE, kept because the census is reusable:
+the in-game cell skips on every committed fixture, and that is not an oversight - a census
 that walked every `harness/fixtures/saves/*/persistent.sfs` VESSEL node and computed
 its periapsis from its own `ORBIT { SMA, ECC, REF }` against the stock radius /
 atmosphereDepth of the body `REF` names found ZERO non-landed vessels with a closed
@@ -693,10 +716,13 @@ measured flight verbatim and replaces its EVA tail with one
 mutually exclusive branch witnesses (required `skipped atmosphere-intersecting anchor`
 against forbidden `skipped landed anchor`) plus the matching pair of `SKIPPED:`
 witnesses, so a pod that reached the ground before the batch reds rather than passing on
-the surface branch. WHAT REMAINS: fly it and re-pin `passed=`/`skipped=` (predicted
-`total=4 passed=3 failed=0 skipped=1`) in the spec file. `IngameBatchWiringGroupTests.INTERIM_PIN_IDS`
-is NOT its register - that set is constrained to `GROUP`, discovered
-by `GROUP_ID_RE = ^H(?:[7-9]|[1-9][0-9]+)-`, which an `M3-` id does not match.
+the surface branch. Both held on the flight, and the timing risk the spec named is now
+measured rather than argued: the mission handed off at 1592.9 m descending at 15.28 m/s,
+leaving ~104 s of game time, and the whole batch consumed 2.1 s of it.
+`IngameBatchWiringGroupTests.INTERIM_PIN_IDS` was never its register - that set is
+constrained to `GROUP`, discovered by `GROUP_ID_RE = ^H(?:[7-9]|[1-9][0-9]+)-`, which an
+`M3-` id does not match - so the re-pin landed in the spec file, which is where the
+convention put it.
 
 ---
 
@@ -2079,7 +2105,43 @@ in as many words (`PhaseLock APPLIED: ... cadence 90.079999999918186->95`). The 
 clock deliberately runs on the quantized cadence so the ghost's relaunch schedule sits on
 faithful windows; the route's own `DispatchInterval` stays the raw `N * span`. Intended.
 
-## ROUTE-DISPATCH-COST-FREE-ON-SNAPSHOTLESS-ROOT: a KSC route whose tree ROOT recording carries no `VesselSnapshot` dispatches for FREE in career [FOUND 2026-08-30 off the same `logs/2026-08-30_1106_rover-route` flight while diagnosing a `cost=0` Verbose line. LATENT CAREER DEFECT — the flight was SANDBOX so nothing was mischarged. FIXED 2026-09-01. **RE-OPENED 2026-09-01**: lane RVR-4's first flight measured the shipped fix as insufficient on the real tree. RE-FIXED 2026-09-02 (round 2 below); STILL UNFLOWN - the RVR-4 re-fly is what closes this]
+## ~~ROUTE-DISPATCH-COST-FREE-ON-SNAPSHOTLESS-ROOT: a KSC route whose tree ROOT recording carries no `VesselSnapshot` dispatches for FREE in career~~ [FOUND 2026-08-30 off the same `logs/2026-08-30_1106_rover-route` flight while diagnosing a `cost=0` Verbose line. LATENT CAREER DEFECT - the flight was SANDBOX so nothing was mischarged. FIXED 2026-09-01. **RE-OPENED 2026-09-01**: lane RVR-4's first flight measured the shipped fix as insufficient on the real tree. RE-FIXED 2026-09-02 (round 2 below). **FIXED AND LIVE-PROVEN ON THE MERGED BUILD 2026-09-07** - see the closing census]
+
+**CLOSED 2026-09-07 by lane `RVR-4-rover-route-career-cost`, run `2026-09-07_0938`
+(PASS attempt 1, wall 48 s, every verifier PASS, `expectations mismatches=0`, `analyzer
+red=0`), on the CLEAN automation DLL sha256 `7c0bfee1b74d6716` built from `main`
+1f7801cea.** That is the distinction this entry was waiting for: rounds 1 and 2 flew on
+follow-on DLLs built from the fix branch, and what stayed unproven was the round-2 fix AS
+MERGED. The measured chain, end to end, on that build:
+
+```
+FundsCost basis=launch-manifest route=4850abb0 source=cf8d06fc7bf74e1a82bc70fc79290847
+          snapshotSource=cf8d06fc7bf74e1a82bc70fc79290847 fallback=0
+          snapshotSurface=ghost cost=7410.0000023841858
+DispatchDebit: route 4850abb0 cycle=cycle-0 ut=1600 cost=7410.0000023841858 careerKsc=1
+Delivery: route 4850abb0 Career KSC funds debited: -7410.0000023841858
+LoopRoute: route 4850abb0 cycle=cycle-1 BLOCKED kind=FundsShort reason=funds-short
+          shortfall=3820.0000047683716 - emitted nothing, snapped lastObserved=32
+          skippedCycles=1
+```
+
+**`UNCOSTED` appears ZERO times in the 11,440-line log**, and `RouteCargoDebited` carries
+the stamp (`kscFundsCost=7410`). So the dispatch is COSTED, on the basis the round-2 fix
+introduced: `basis=launch-manifest` (the root's complete run manifest supplies the
+resource term), `snapshotSource == source` with `fallback=0` (the ROOT priced ITSELF - the
+member walk never opened), and `snapshotSurface=ghost` (the durable costing surface, which
+is the half of the round-2 fix this shape needs; the `crew-auto-unreserve` sweep had nulled
+`VesselSnapshot` before the dispatch, exactly as round 1 measured). The transport-subset
+half stays UNEXERCISED here and is asserted absent by the token's contiguous
+`fallback=0 snapshotSurface=ghost` run. `grep -c "skipping member"` is still 0 for the
+same reason it was in round 2: nothing fell back.
+
+Nothing is owed on this entry. The one ask of roadmap Tier C item 9 it still does not buy
+is the KSC RECOVERY CREDIT, and that is measured absent rather than untested
+(`EmitPendingRecoveryCredit: ... credit-skip zero-recovery (recoveryRows=0): cleared
+pending`) - it needs a recorded flight that ENDS in a KSC recovery, which no committed
+route fixture is. The `PatchFunds` guarded-uplift observation below is unchanged and stays
+report-only.
 
 **Evidence.** Every UI repaint logged `ComputeDispatchFundsCostForRoute: route fd6ee2ff source
 recording cf8d06fc... not in ERS or has no VesselSnapshot; cost=0`. The recording IS in ERS (a
@@ -2144,7 +2206,7 @@ snapshot the walk visited is proved mechanically rather than by the basis line a
 Unblocks Tier C item 9 of the supply-route coverage program (`autotest-roadmap.md`); that
 career lane is still unauthored and has never flown.
 
-### ROUND 2 - the 2026-09-01 fix was insufficient on the real tree (RE-OPENED 2026-09-01 by RVR-4 flight 1; RE-FIXED 2026-09-02, unflown)
+### ROUND 2 - the 2026-09-01 fix was insufficient on the real tree (RE-OPENED 2026-09-01 by RVR-4 flight 1; RE-FIXED 2026-09-02, LIVE-PROVEN ON THE MERGED BUILD 2026-09-07 by `2026-09-07_0938`)
 
 **What flew.** Lane `RVR-4-rover-route-career-cost`, first flight `2026-09-01_2204`
 (`harness/results/2026-09-01_2204_RVR-4-rover-route-career-cost_shots/KSP.log`). Verdict
