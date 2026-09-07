@@ -205,6 +205,43 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Evaluate_MixedKnownAndUnknownGuids_IsAmbiguous()
+        {
+            // SHAPE (e), AT THE PREDICATE AND NOT ONLY AT THE CLASSIFIER. One survivor
+            // carries a known launch guid and the other carries none, so nothing corroborates
+            // the set as one launch - unknown is never "same" - and the winner is still
+            // decided by an EndUT ordering. Fail-closed, exactly as a set of two unknowns is.
+            //
+            // This is not a hypothetical mix: it is what a background split used to write.
+            // The pre-split segment carries the recorder's guid and the parent CONTINUATION
+            // carried none (it captures no VesselSnapshot, so the load-time backfill had
+            // nothing to read), which made a chain of ONE launch read as uncorroborated and
+            // refused an ordinary recovery. Both background write sites now stamp the guid -
+            // see BackgroundRecorder.ResolveSplitRecordingLaunchGuid and
+            // XpLeg_ChainedSegmentAndBgContinuation_AreCorroboratedAndTheRowIsWritten.
+            var survivors = new List<Recording>
+            {
+                Rec("rec-seg-0", "Hopper", 100.0, 500.0, GuidA),
+                Rec("rec-seg-1", "Hopper", 500.0, 900.0, null),
+            };
+
+            var result = RecoveryPickAmbiguity.Evaluate(
+                survivors, RecoveryPickTier.MostRecentEnded);
+
+            Assert.True(result.IsAmbiguous);
+            Assert.Equal(RecoveryPickAmbiguity.AmbiguousReason, result.Reason);
+            Assert.Equal(2, result.SurvivorCount);
+            Assert.Equal(SurvivorLaunchCorroboration.UnknownLaunchGuid, result.Corroboration);
+
+            // Order-independent: the unknown one first says the same thing.
+            var flipped = RecoveryPickAmbiguity.Evaluate(
+                new List<Recording> { survivors[1], survivors[0] },
+                RecoveryPickTier.MostRecentEnded);
+            Assert.True(flipped.IsAmbiguous);
+            Assert.Equal(SurvivorLaunchCorroboration.UnknownLaunchGuid, flipped.Corroboration);
+        }
+
+        [Fact]
         public void Evaluate_GlobalLatestIsWeakToo()
         {
             // The recommendation names both weak tiers ("most-recent-ended or global-latest
@@ -505,6 +542,59 @@ namespace Parsek.Tests
             Assert.Equal(
                 "rec-seg-1",
                 Ledger.Actions.Single(a => a.Type == GameActionType.KerbalExperience).RecordingId);
+        }
+
+        [Fact]
+        public void XpLeg_ChainedSegmentAndBgContinuation_AreCorroboratedAndTheRowIsWritten()
+        {
+            // THE MIRROR OF THE WRITE-SITE FIX. A background split closes the pre-split
+            // segment and opens a parent CONTINUATION under the same vessel name - one
+            // launch, two recordings, so an ordinary later recovery reaches a weak tier with
+            // two survivors. The continuation's guid comes from the production resolver, with
+            // the live read empty so the cell exercises the INHERITANCE arm (the arm that
+            // used to be missing entirely).
+            var preSplit = AddRec("rec-pre-split", "Hopper", 100.0, 500.0, GuidA);
+            var continuation = AddRec(
+                "rec-continuation", "Hopper", 500.0, 900.0,
+                BackgroundRecorder.ResolveSplitRecordingLaunchGuid(
+                    null, preSplit.RecordedVesselGuid));
+            Assert.Equal(GuidA, continuation.RecordedVesselGuid);
+
+            var identity = RecoveredVesselIdentity.FromRawName("Hopper", GuidA);
+            var picked = LedgerOrchestrator.PickRecoveryRecording(identity, 1000.0);
+
+            // The load-bearing shape: two survivors on a weak tier, i.e. clauses 1 and 2 of
+            // the predicate both hold and only corroboration keeps the row.
+            Assert.Equal(2, picked.SurvivorCount);
+            Assert.Equal(RecoveryPickTier.MostRecentEnded, picked.Tier);
+            Assert.Equal(
+                SurvivorLaunchCorroboration.OneKnownLaunch,
+                RecoveryPickAmbiguity.Evaluate(picked.Survivors, picked.Tier).Corroboration);
+
+            int rows = LedgerOrchestrator.TryRecordRecoveryKerbalExperience(
+                new List<GameStateEvent> { XpEvent("Jebediah Kerman", 1000.0) },
+                identity, 1000.0);
+
+            Assert.Equal(1, rows);
+            Assert.Equal(
+                "rec-continuation",
+                Ledger.Actions.Single(a => a.Type == GameActionType.KerbalExperience).RecordingId);
+            Assert.DoesNotContain(logLines, l => l.Contains("reason=ambiguous-recovery-recording"));
+
+            // AND THE PRE-FIX SHAPE, so the cell proves the write site is what saves this
+            // recovery rather than something else in the chain: blank the continuation's guid
+            // - what a snapshot-less continuation used to persist - and the SAME recovery is
+            // refused as a mixed, uncorroborated set.
+            Ledger.Clear();
+            logLines.Clear();
+            continuation.RecordedVesselGuid = null;
+
+            Assert.Equal(0, LedgerOrchestrator.TryRecordRecoveryKerbalExperience(
+                new List<GameStateEvent> { XpEvent("Bill Kerman", 1000.0) },
+                identity, 1000.0));
+            Assert.Contains(logLines, l =>
+                l.Contains("reason=ambiguous-recovery-recording") &&
+                l.Contains("corroboration=unknown-launch-guid"));
         }
 
         [Fact]

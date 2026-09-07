@@ -200,6 +200,116 @@ namespace Parsek.Tests
 
         #endregion
 
+        #region Split-recording launch guid (KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY stage 2)
+
+        // The two recordings a background split writes used to leave RecordedVesselGuid
+        // blank and rely on the RecordingSidecarStore load-time backfill, which reads a
+        // VesselSnapshot's `pid`. The parent CONTINUATION captures no snapshot at all, so
+        // that backfill has nothing to read and the continuation stayed guid-less - a MIXED
+        // survivor set (the stamped pre-split segment plus a blank continuation) at the
+        // recovery correlator, which reads corroboration=unknown-launch-guid and makes the
+        // KERBAL XP leg refuse an ORDINARY single-launch recovery. These cells pin the
+        // decision the two write sites now make.
+
+        private const string SplitLaunchGuidParent = "aaaaaaaaaaaa4aaaaaaaaaaaaaaaaaaa";
+        private const string SplitLaunchGuidChild = "bbbbbbbbbbbb4bbbbbbbbbbbbbbbbbbb";
+
+        [Fact]
+        public void SplitLaunchGuid_ParentContinuation_CarriesTheContinuedSegmentsLaunchGuid()
+        {
+            // The ordinary split: the live post-split parent vessel IS the launch the closed
+            // segment recorded, so both inputs agree and the continuation joins the chain
+            // under one guid. The second case is the live read coming back empty (a vessel
+            // whose Unity id is unavailable): the continued segment's stored guid is the
+            // fallback, so the continuation still carries one.
+            Assert.Equal(
+                SplitLaunchGuidParent,
+                BackgroundRecorder.ResolveSplitRecordingLaunchGuid(
+                    liveVesselGuid: SplitLaunchGuidParent,
+                    fallbackGuid: SplitLaunchGuidParent));
+
+            Assert.Equal(
+                SplitLaunchGuidParent,
+                BackgroundRecorder.ResolveSplitRecordingLaunchGuid(
+                    liveVesselGuid: null,
+                    fallbackGuid: SplitLaunchGuidParent));
+
+            // And the chain of the two reads as ONE launch, which is the property the
+            // recovery correlator's positive corroboration needs.
+            var preSplit = new Recording
+            {
+                RecordingId = "rec_pre_split",
+                VesselName = "Hopper",
+                RecordedVesselGuid = SplitLaunchGuidParent
+            };
+            var continuation = new Recording
+            {
+                RecordingId = "rec_continuation",
+                VesselName = "Hopper",
+                RecordedVesselGuid = BackgroundRecorder.ResolveSplitRecordingLaunchGuid(
+                    null, preSplit.RecordedVesselGuid)
+            };
+            Assert.Equal(
+                SurvivorLaunchCorroboration.OneKnownLaunch,
+                RecoveryPickAmbiguity.ClassifySurvivorLaunches(
+                    new List<Recording> { preSplit, continuation }));
+        }
+
+        [Fact]
+        public void SplitLaunchGuid_ParentContinuation_PrefersTheLiveVessel_WhenTheTwoDiverge()
+        {
+            // THE MIRROR DIRECTION. persistentId is craft-baked, so the pid the continuation
+            // is keyed on can end up carrying a DIFFERENT launch than the segment being
+            // continued. RecordedVesselGuid names the launch of the vessel a recording
+            // actually records, so the live vessel wins: stamping the continued segment's
+            // guid there would assert "one launch" about two, and the XP leg would then write
+            // an irreversible row against a pick nothing determined.
+            Assert.Equal(
+                SplitLaunchGuidChild,
+                BackgroundRecorder.ResolveSplitRecordingLaunchGuid(
+                    liveVesselGuid: SplitLaunchGuidChild,
+                    fallbackGuid: SplitLaunchGuidParent));
+        }
+
+        [Fact]
+        public void SplitLaunchGuid_Child_CarriesItsOwnLiveGuid_NeverTheParents()
+        {
+            // A split child is a NEW KSP vessel with a fresh Vessel.id. The live call site
+            // passes the CHILD's own live guid with the CHILD's own snapshot `pid` as the
+            // fallback - the same value the load-time backfill would have read - and never
+            // the parent's, so the child never claims the parent's launch.
+            Assert.Equal(
+                SplitLaunchGuidChild,
+                BackgroundRecorder.ResolveSplitRecordingLaunchGuid(
+                    liveVesselGuid: SplitLaunchGuidChild,
+                    fallbackGuid: null));
+
+            // Snapshot-only fallback (live read unavailable, snapshot captured).
+            Assert.Equal(
+                SplitLaunchGuidChild,
+                BackgroundRecorder.ResolveSplitRecordingLaunchGuid(
+                    liveVesselGuid: null,
+                    fallbackGuid: SplitLaunchGuidChild));
+
+            // Neither input usable: null, which is exactly what every pre-guid recording
+            // carries. VesselLaunchIdentity degrades to pid-only there rather than fabricating
+            // an identity - the parent's guid is never substituted.
+            Assert.Null(BackgroundRecorder.ResolveSplitRecordingLaunchGuid(null, null));
+            Assert.Null(BackgroundRecorder.ResolveSplitRecordingLaunchGuid("", ""));
+
+            // The pure child factory itself stamps no guid (it has no live vessel), so the
+            // live registration path is the only place a child's guid can come from.
+            var (_, children) = BackgroundRecorder.BuildBackgroundSplitBranchData(
+                "parent_rec", "tree_1", 750.0, BranchPointType.JointBreak,
+                100, new List<(uint pid, string name, bool hasController)>
+                {
+                    (300, "Hopper Debris", false)
+                });
+            Assert.Null(Assert.Single(children).RecordedVesselGuid);
+        }
+
+        #endregion
+
         #region ShouldStopDebrisRecording — Pure Logic
 
         [Fact]

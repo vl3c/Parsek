@@ -8166,6 +8166,24 @@ now stamps its two chained segments with one launch guid, and
 source-shape gate now pins the literal `PickRecoveryRecording` (a prefix of both spellings)
 so the picker split does not read as a leg leaving the correlator.
 
+**HOW NARROW THAT SHAPE ACTUALLY IS, dated rather than asserted.** The `recordedVesselGuid`
+key landed 2026-05-30 (`4990055c7`), which POSTDATES the generation-3 -> 4 schema bump of
+2026-05-20 (`a400bada6`). Everything older than the bump is rejected on load outright
+(`generation-older`), so a save that still loads can only be missing the guid on a
+GENERATION-4 recording written in that ten-day window - and any such recording that carries a
+`_vessel.craft` or `_ghost.craft` sidecar is backfilled from the snapshot's `pid` on the next
+`OnLoad` (`RecordingSidecarStore`). The un-backfillable case is therefore a gen-4 recording
+with NO snapshot at all. It stays named here because it is reachable, not because it is
+common.
+
+**AND THE REFUSED XP IS NEVER BOOKED LATER.** A refusal is a permanent decision about THAT
+recovery, matching the CHANGELOG wording: `RecalculateAndPatch` re-derives rows FROM the
+ledger, so with no row written there is nothing for any later recalc to re-derive, and the
+leg itself is reached only from the stock recovery event
+(`GameStateRecorder.OnVesselRecoveryProcessingForExperience`), which does not fire twice for
+one recovery. "Not sticky" (below) means only that a LATER, DIFFERENT recovery whose
+ambiguity has resolved writes normally - not that the refused one is picked up again.
+
 **Where it sits and what it logs.** `PickRecoveryRecordingId` now delegates to
 `PickRecoveryRecording`, which returns the id plus the POST-FILTER survivor list and the
 winning tier as a `RecoveryPickTier` (the tier tokens now have one source,
@@ -8195,21 +8213,78 @@ a divergence, and never as a hard failure - which is the correct reading (the pr
 behavior, already accepted as a cost by the entry above), but it also means the refusal is
 INVISIBLE to both oracles and must be read off the log line instead.
 
-**Headless cover:** `RecoveryPickAmbiguityTests` (22 cells) - the predicate on every branch
+**THE WRITE SITES WERE AUDITED, AND TWO OF THEM DID NOT STAMP A GUID AT ALL** (found in
+pre-merge review of the stage-2 branch; the sentence below used to claim "every recording a
+current build writes carries a guid" on two data points). Walking every `new Recording` in
+`Source/Parsek` and every `RecordedVesselGuid =` assignment:
+
+- **Stamped at the write site from a live vessel:** `FlightRecorder.BuildCaptureRecording`
+  (the capture every commit path copies from; live `Vessel.id`, snapshot `pid` fallback), and
+  now `BackgroundRecorder`'s parent CONTINUATION and split CHILD, `ParsekFlight`'s
+  undock/EVA `activeChild` + `bgChild` pair (both branch paths),
+  `ParsekFlight.CreateBreakupChildRecording`, and
+  `ChainSegmentManager.StartUndockContinuation`. All route the decision through
+  `BackgroundRecorder.ResolveSplitRecordingLaunchGuid` (live guid first, own-snapshot `pid`
+  fallback) or read the live vessel directly.
+- **Copied from a source recording:** `Recording.DeepClone` /
+  `ApplyPersistenceArtifactsFrom`; the optimizer split tail
+  (`RecordingStore.Optimization.CopySplitIdentityFields`, `RecordingTreeSplitter`);
+  `SessionMerger`; `RewindInvoker`'s in-place Re-Fly fork; and now
+  `ParsekFlight.ApplyCapturedSplitStateToStandaloneRecording` +
+  `CommitGloopsRecorderData`, which both had a fully-stamped `CaptureAtStop` in hand and
+  simply were not copying that one field.
+- **Stamped indirectly by the recorder-start backstop**
+  (`Recording.AdoptRecordedVesselGuidIfEmpty`, called from `FlightRecorder.StartRecording`):
+  the always-tree root, the fresh-post-switch root, the merge continuation, and
+  `SwitchSegmentBuilder.CreateSwitchContinuationSegment` - the builder itself is pure and has
+  no vessel, and every production caller binds a live recorder to the new segment
+  immediately. A bind that FAILS leaves that segment guid-less and snapshot-less, which is
+  documented rather than fixed here: a segment whose recorder never bound records nothing.
+- **Deliberately not stamped:** `RewindInvoker`'s non-in-place placeholder provisional (the
+  fork-inheritance gate is a genuine guard, see the Re-Fly notes), and the scratch/probe
+  `Recording` objects that are never persisted (codec round-trip targets in `Analyzer/Rules`,
+  the finalization-cache context shims, id-only lookup keys in `SupersedeCommit` /
+  `UnfinishedFlightClassifier`).
+- **The one remaining unrecoverable blank:** a breakup child whose vessel was destroyed
+  during the coalescing window AND for which no snapshot was pre-captured. There is nothing
+  left to read an identity from; it is stamped `Destroyed` at the breakup UT.
+
+Why the BG parent continuation was the one that mattered: it is the SAME launch as the
+segment it continues and carries the SAME vessel name, and it captures no `VesselSnapshot`,
+so the load-time backfill had nothing to read and it stayed blank forever. A recovery of that
+craft then saw a MIXED survivor set - the stamped pre-split segment plus a blank continuation
+- which classifies `UnknownLaunchGuid` and made the XP leg refuse an ORDINARY single-launch
+recovery: the exact failure mode clause 3 exists to prevent, arriving through the writer
+instead of the predicate. The other sites were reachable by the backfill on the next
+`OnLoad`, so they were a live-session gap rather than a permanent one; they are stamped now
+so the live session and the post-reload session agree.
+
+**Headless cover:** `RecoveryPickAmbiguityTests` (24 cells) - the predicate on every branch
 (two unknown-guid survivors on a weak tier; the stage-1 win where a live guid collapses the
-set to one; several survivors of ONE launch; two distinct known launches; `global-latest`;
-bracketing never ambiguous even with distinct launches; single survivor on every tier;
-degenerate inputs named rather than silent); the corroboration classifier including the
-`RecordingsShareLaunch` counter-proof and guid-format insensitivity; the bounded id
-formatter; the post-filter monotonicity rule (evaluating the PRE-filter set is ambiguous
-where the post-filter set is not); the picker's tier / survivor reporting; the XP leg end to
-end in both directions plus the funds-and-science-unaffected scope cell; and THE NEGATIVE
+set to one; several survivors of ONE launch; a MIXED known+unknown set, which is what a
+guid-less BG continuation chained to a stamped segment produced; two distinct known launches;
+`global-latest`; bracketing never ambiguous even with distinct launches; single survivor on
+every tier; degenerate inputs named rather than silent); the corroboration classifier
+including the `RecordingsShareLaunch` counter-proof and guid-format insensitivity; the
+bounded id formatter; the post-filter monotonicity rule (evaluating the PRE-filter set is
+ambiguous where the post-filter set is not); the picker's tier / survivor reporting; the XP
+leg end to end in both directions plus the funds-and-science-unaffected scope cell;
+`XpLeg_ChainedSegmentAndBgContinuation_AreCorroboratedAndTheRowIsWritten`, the WRITE-SITE
+mirror - a pre-split segment plus a continuation whose guid comes from the production
+resolver is corroborated and writes, and blanking that one field (what the site used to
+persist) refuses the same recovery as `corroboration=unknown-launch-guid`; and THE NEGATIVE
 PROOF - `CommittedCareerFixture_RecoveryPickIsNotAmbiguous` and
 `CommittedCareerFixture_XpRowIsStillWrittenThroughTheRealXpLeg`, which deserialize
 `C2CareerPostFix`'s committed RECORDING nodes through the production codec, drive the real
 picker at the fixture ledger's own recovery UT, assert the load-bearing shape
 (`survivors=2`, `tier=most-recent-ended`, weak) and then that the verdict is NOT ambiguous
-and the row is written to the id the fixture's ledger actually recorded.
+and the row is written to the id the fixture's ledger actually recorded. The write-site
+decision itself is pinned by three cells in `BackgroundSplitTests`
+(`SplitLaunchGuid_ParentContinuation_CarriesTheContinuedSegmentsLaunchGuid`,
+`SplitLaunchGuid_ParentContinuation_PrefersTheLiveVessel_WhenTheTwoDiverge` - the mirror
+direction, where the pid now carries a DIFFERENT launch and the live vessel must win because
+asserting "one launch" falsely is what lets an irreversible row through - and
+`SplitLaunchGuid_Child_CarriesItsOwnLiveGuid_NeverTheParents`).
 
 **LIVE PROOF STILL OWED, and the shape it needs is NOT the stage-1 shape.** `L6` cannot
 prove stage 2: its survivors are the flight's OWN two chained recordings under one known
@@ -8218,9 +8293,10 @@ is a useful over-fire control, not the proof). Stage 2's proof needs a recovery 
 survivor set stays greater than one AFTER the filter and cannot be corroborated as one
 launch - i.e. two same-name launches whose RECORDINGS carry no `RecordedVesselGuid`, or
 carry conclusively different ones while the recovery seam supplies none. Every recording a
-current build writes carries a guid, so the fixture would have to strip or diverge them
-deliberately (the `career-same-name-pad` builder is the obvious host - it already splices a
-prior launch's RECORDING_TREE and already re-stamps identity fields). The lane is NOT
+current build writes carries a guid AT ITS WRITE SITE (see the writer audit below), so the
+fixture would have to strip or diverge them deliberately (the `career-same-name-pad` builder
+is the obvious host - it already splices a prior launch's RECORDING_TREE and already
+re-stamps identity fields). The lane is NOT
 authored here on purpose: naming the shape is stage 2's obligation, authoring and flying it
 is a separate decision, and the entry stays OPEN until it is flown.
 
