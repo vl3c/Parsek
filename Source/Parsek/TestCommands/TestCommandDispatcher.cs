@@ -198,6 +198,11 @@ namespace Parsek.TestCommands
 
         // ----- DeleteRecording (the Recordings-table per-row delete; additive) -----
         void DeleteRecording(ParsedCommand cmd);
+
+        // ----- ListHandles (R10 runtime-handle plumbing; additive, read-only) -----
+        // Enumerates one live handle family so a later step can name a member the spec
+        // author could not have known in advance.
+        void ListHandles(ParsedCommand cmd);
     }
 
     /// <summary>The scene/state a verb requires before it may execute.</summary>
@@ -337,6 +342,17 @@ namespace Parsek.TestCommands
                 // and the lane it exists for deletes AT THE KSC, with KSC ghosts alive,
                 // where a RequiresFlight row would defer to its budget and TIMEOUT.
                 ["DeleteRecording"] = VerbSceneRequirement.RequiresGameLoaded,
+                // ListHandles. NOT AnyScene, unlike its read-only siblings RecordingState
+                // and ExportRenderManifest: two of the three families are walks of
+                // SAVE-scoped state (ParsekScenario.Instance and the committed store),
+                // which exist only once a game is loaded, so an AnyScene row would answer
+                // an honest-looking empty list at the main menu and a spec would read that
+                // as "there are no rewind points". RequiresGameLoaded is exactly the wait
+                // that makes the empty answer meaningful. It is NOT RequiresFlight either:
+                // the active family answers with an empty tree outside a live FLIGHT
+                // rather than deferring, since "no live tree" is a true observation and
+                // deferring would hold the FIFO head to the budget in every KSC scene.
+                ["ListHandles"] = VerbSceneRequirement.RequiresGameLoaded,
             };
 
         /// <summary>
@@ -522,6 +538,18 @@ namespace Parsek.TestCommands
                         return DispatchResult.Reject("load-in-flight");
                     if (state.MergeJournalInFlight)
                         return DispatchResult.Reject("merge-journal-in-flight");
+                    break;
+
+                case "ListHandles":
+                    // Deliberately NO extra guards - the one read-only member of this
+                    // block. It carries neither load-in-flight nor merge-journal-in-flight
+                    // (the reason those exist is a mutation racing a store swap or a
+                    // journal rewrite, and this verb performs none) and no
+                    // recording-active guard (RecordingState and ExportRenderManifest
+                    // carry none either). The worst a mid-load or mid-journal call can
+                    // produce is a list that is true of the instant it was taken, which is
+                    // all any observation ever promises. The case is spelled out rather
+                    // than left to fall through so the absence reads as a decision.
                     break;
 
                 case "PlantFlag":

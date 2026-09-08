@@ -61,6 +61,49 @@ def load_spec(name):
         return tomllib.load(fh)
 
 
+def strip_cs_line_comment(line):
+    """One C# source line with its trailing ``//`` comment removed, QUOTE-AWARE.
+
+    Quote-aware because a naive cut would also truncate a legitimate literal
+    containing ``//`` (a URL, a path). The mirror below needs this because the C#
+    verb initializer is heavily commented and its PROSE quotes UI button names
+    ("Watch", "Warp to...", "R"), which a literal scan over the raw text would
+    read as members of the set."""
+    i = 0
+    in_str = False
+    while i < len(line):
+        ch = line[i]
+        if in_str:
+            if ch == "\\":
+                i += 2
+                continue
+            if ch == '"':
+                in_str = False
+        elif ch == '"':
+            in_str = True
+        elif ch == "/" and line[i + 1:i + 2] == "/":
+            return line[:i]
+        i += 1
+    return line
+
+
+def cs_initializer_literals(text, field_name):
+    """The string literals of ONE C# collection-initializer block, in source order.
+
+    Located by the field's `new HashSet<string>` head and bounded by its own
+    `{` .. `};`, so a later initializer in the same file cannot bleed in. Comments
+    are stripped per line FIRST (see strip_cs_line_comment) rather than matched
+    around, because commented-out or merely quoted names are not members."""
+    marker = "%s = new HashSet<string>" % field_name
+    start = text.index(marker)
+    open_brace = text.index("{", start + len(marker))
+    close_brace = text.index("};", open_brace)
+    out = []
+    for raw in text[open_brace + 1:close_brace].splitlines():
+        out.extend(re.findall(r'"([^"\\]*)"', strip_cs_line_comment(raw)))
+    return out
+
+
 def walk_parsek_sources():
     """(relpath, text) for every .cs file in the mod assembly that mentions
     InGameTest.
@@ -1020,12 +1063,33 @@ class SpecValidationRejectTests(unittest.TestCase):
         # promotion from an addition, and that catches a half-done one (a name added to
         # IMPLEMENTED and left in RESERVED moves the first number without the second).
         # 31 / 5 after DeleteRecording, an ADDITION (the first number moves alone).
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 31)
+        # 32 / 5 after R10's ListHandles, an ADDITION for the same reason: the reserved
+        # envelope never carried an enumeration verb, so only the first number moves.
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 32)
         self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 5)
         # Disjointness, asserted rather than assumed: Classify checks Implemented
         # first in the C# mirror, so a leftover reserved row would be invisible.
         self.assertEqual(
             set(), set(hlib.IMPLEMENTED_SEAM_VERBS) & set(hlib.RESERVED_SEAM_VERBS))
+
+    def test_the_implemented_verb_tuple_mirrors_the_c_sharp_initializer(self):
+        """Reads OUTSIDE harness/, like CommittedBatchTallySourceSyncTests, and for
+        the same reason: hlib's tuple is DOCUMENTED as mirroring
+        TestCommandVerbs.ImplementedVerbs "exactly", and until now the only thing
+        maintaining that was a hand-written comment beside a count. The count cell
+        above catches an omission but not a MISSPELLING (a verb the C# does not
+        implement answers REJECTED not-implemented-v1 after a whole KSP boot) and
+        not a reordering of the mirror the comments promise. Path derivation is
+        PARSEK_SOURCE_DIR, the same one that gate uses."""
+        path = os.path.join(PARSEK_SOURCE_DIR, "TestCommands", "TestCommandVerbs.cs")
+        self.assertTrue(os.path.isfile(path),
+                        "the C# verb table moved; this mirror is vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            text = fh.read()
+        self.assertEqual(list(hlib.IMPLEMENTED_SEAM_VERBS),
+                         cs_initializer_literals(text, "ImplementedVerbs"),
+                         "hlib.IMPLEMENTED_SEAM_VERBS must equal the C# "
+                         "ImplementedVerbs initializer as an ORDERED list")
 
     def test_ma7_export_render_manifest_implemented_not_reserved(self):
         # M-A7: ExportRenderManifest is a NEW implemented verb (never in the RESERVED
@@ -1284,6 +1348,82 @@ class SpecValidationRejectTests(unittest.TestCase):
         self.assertFalse(
             any("DeleteRecording" in e for e in v.errors),
             "DeleteRecording wrongly flagged: %s" % (list(v.errors),))
+
+    def test_list_handles_verb_is_implemented_additively(self):
+        # R10. ADDITIVE, never a promotion: implemented, not reserved, and the reserved
+        # set is untouched by it (the two counts above pin the arithmetic).
+        self.assertIn("ListHandles", hlib.IMPLEMENTED_SEAM_VERBS)
+        self.assertNotIn("ListHandles", hlib.RESERVED_SEAM_VERBS)
+        # Single-phase (a synchronous walk of in-memory state): rides the 60 s
+        # default, never the 540 s deferred cap.
+        self.assertNotIn("ListHandles", hlib.DEFERRED_SEAM_VERBS)
+        self.assertNotIn("ListHandles", hlib.DISPATCH_DEFERRAL_BUDGET_SECONDS)
+        self.assertEqual(60.0, hlib.dispatch_deferral_budget("ListHandles"))
+        # Both role tables answer for it explicitly (the totality cells enforce that a
+        # row EXISTS; this pins WHICH answer). `inert` is the answer a read-only
+        # enumeration must have, and it is the only implemented verb since
+        # RecordingState / MissionMark to earn it.
+        self.assertEqual(hlib.TAIL_ROLE_INERT,
+                         hlib.SEAM_VERB_TAIL_ROLE["ListHandles"])
+        self.assertEqual(hlib.POST_MISSION_ROLE_RECORDING,
+                         hlib.SEAM_VERB_POST_MISSION_ROLE["ListHandles"])
+
+    def test_list_handles_kind_is_required_and_closed(self):
+        # The REQUIRED half, which is what makes this row different from the three
+        # other VERB_SCOPED_CLOSED_ARGS entries (all optional with a C#-side default).
+        def m_absent(s):
+            s.get("expectations", {}).pop("ledger", None)
+            s["driver"]["steps"].insert(1, {"cmd": "ListHandles", "expect": "OK"})
+        v = self._reject(m_absent)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("args.kind" in e and "REQUIRES" in e for e in v.errors),
+                        "a kind-less ListHandles must be rejected: %s" % (list(v.errors),))
+
+        # A present, valid kind validates clean.
+        def m_ok(s):
+            s.get("expectations", {}).pop("ledger", None)
+            s["driver"]["steps"].insert(
+                1, {"cmd": "ListHandles", "args": {"kind": "rewindpoints"},
+                    "expect": "OK"})
+        v = self._reject(m_ok)
+        self.assertFalse(any("ListHandles" in e or "args.kind" in e for e in v.errors),
+                         "ListHandles kind=rewindpoints wrongly flagged: %s"
+                         % (list(v.errors),))
+
+        # WRONG CASE: the seam's parse is case-sensitive, so `RewindPoints` would be a
+        # typed REJECTED that costs a whole boot to learn.
+        def m_case(s):
+            s.get("expectations", {}).pop("ledger", None)
+            s["driver"]["steps"].insert(
+                1, {"cmd": "ListHandles", "args": {"kind": "RewindPoints"},
+                    "expect": "OK"})
+        v = self._reject(m_case)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("args.kind" in e and "RewindPoints" in e for e in v.errors),
+                        "a case-variant kind VALUE must be rejected: %s" % (list(v.errors),))
+
+        # Case-variant KEY: forwarded verbatim and silently ignored by the C# lookup.
+        def m_key(s):
+            s.get("expectations", {}).pop("ledger", None)
+            s["driver"]["steps"].insert(
+                1, {"cmd": "ListHandles", "args": {"Kind": "rewindpoints"},
+                    "expect": "OK"})
+        v = self._reject(m_key)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("args.Kind" in e for e in v.errors),
+                        "a case-variant kind KEY must be rejected: %s" % (list(v.errors),))
+
+        # WRONG VERB: only ListHandles reads it, so the arg would be inert elsewhere.
+        def m_verb(s):
+            s.get("expectations", {}).pop("ledger", None)
+            s["driver"]["steps"].insert(
+                1, {"cmd": "RecordingState", "args": {"kind": "rewindpoints"},
+                    "expect": "OK"})
+        v = self._reject(m_verb)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("args.kind" in e and "ListHandles" in e for e in v.errors),
+                        "kind= on a non-ListHandles verb must be rejected: %s"
+                        % (list(v.errors),))
 
     def test_logistics_verbs_are_not_two_phase_deferred(self):
         # Both are SINGLE-phase: the seal (plus its persist) and the
@@ -8295,6 +8435,16 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # It owes a flight, not a human call: after one, the branch token gets pinned,
         # the {1,2} recordings range tightens, and the saveParse blocks it correctly
         # ships WITHOUT get authored from measured facets. Nothing armed.
+        # R10's first consumer. Operator tier is the ordinary first-flight promotion
+        # call, not a human debt: the lane is a READING RUN over a fixture whose three
+        # RewindPoints are already on disk, and the two things it must establish are
+        # measurements (does the enumeration read count=3, and does a rewind driven
+        # against a HARVESTED RewindPoint reach the same post-load tokens S1.5 proved
+        # on an INJECTED one). Nothing armed; D9 / D18 deliberately unclaimed until the
+        # reading says otherwise, which is what keeps this off the tag.
+        "RH-1-live-rp-handle-rewind.toml":
+            "operator by the reading-run discipline (V1/V2/V24W precedent); AUTHORED "
+            "2026-09-08, NEVER FLOWN, reading pending. Owes a flight, not a human call",
         "S0.10-automerge-limbo-warm-exit.toml":
             "operator by the reading-run discipline (V1/V2/V24W precedent); AUTHORED "
             "2026-08-29, NEVER FLOWN, reading pending. Owes a flight, not a human call",
@@ -11438,7 +11588,7 @@ class IngameCategoryInventoryDocTests(unittest.TestCase):
         # 105 -> 106 with `DisabledHoverEcho` (the greyed-button hover explainer's
         # live IMGUI cell; deliberately its OWN category rather than `Settings`,
         # whose BATCH_COMPLETE tally H46 pins from a flown run), 106 -> 107 with
-        # `AutoMergeCommit` (R4, the plan-§7 autoMerge=ON scene-exit cell).
+        # `AutoMergeCommit` (R4, the plan section 7 autoMerge=ON scene-exit cell).
         # 107 -> 108 with `PreParsekBackup` (PPB-1 / PPB-2, both live-proven 2026-08-29).
         # 108 -> 109 with `RouteLifecycle` (RVR-3, 2026-08-30): the supply-route
         # send-once / pause lifecycle driven against the production
@@ -17906,3 +18056,582 @@ class HarvestSpecBlockValidationTests(unittest.TestCase):
                          "these specs declare [%s]; if that is deliberate, update "
                          "this cell and harness/README.md"
                          % hlib.SAVE_SNAPSHOT_SPEC_SECTION)
+
+
+# ---------------------------------------------------------------------------
+# R10 runtime handles: the pure half (design-autotest-harness-core.md ->
+# "Runtime handles: payload capture and ${step.field} substitution").
+# ---------------------------------------------------------------------------
+
+
+class HandleCaptureCodecTests(unittest.TestCase):
+    """percent_decode + capture_step_payload: what a captured payload IS."""
+
+    def test_percent_decode_inverts_run_py_encode_value(self):
+        # The load-bearing property. encode_value is the harness's own codec and
+        # the seam's mirror; a decode that is not its exact inverse would put a
+        # mangled id back on the wire and the run would fail against an object it
+        # named correctly.
+        for raw in ("rp_72ebafb509b943b6a353fa86eb3a4225", "Kerbal X", "a=b",
+                    # House style is plain ASCII, so the non-ASCII round-trip
+                    # case is written as an escape; it is still a multi-byte
+                    # UTF-8 codepoint, which is what the codec is probed on.
+                    "100%", "  leading", "unicode-\u00e9", "line\tbreak"):
+            with self.subTest(raw=raw):
+                self.assertEqual(raw, hlib.percent_decode(run.encode_value(raw)))
+
+    def test_percent_decode_is_tolerant_of_malformed_escapes(self):
+        # A capture runs on EVERY OK step of every run, so a malformed payload must
+        # degrade to a literal a reader can see, never crash the drive loop.
+        for bad in ("a%", "a%2", "a%ZZb", "%GG"):
+            with self.subTest(bad=bad):
+                self.assertEqual(bad, hlib.percent_decode(bad))
+
+    def test_capture_drops_exactly_the_four_envelope_keys(self):
+        fields = {"id": "0003", "cmd": "ListHandles", "verdict": "OK", "seq": "7",
+                  "kind": "rewindpoints", "count": "3",
+                  "rp0": "rp_72ebafb509b943b6a353fa86eb3a4225", "rp0ut": "382.7"}
+        captured = hlib.capture_step_payload(fields)
+        self.assertEqual({"kind", "count", "rp0", "rp0ut"}, set(captured))
+        self.assertEqual("rp_72ebafb509b943b6a353fa86eb3a4225", captured["rp0"])
+
+    def test_ut_and_msg_are_captured_like_any_other_key(self):
+        # Deliberate (design): a ${x.ut} is a legitimate TimeJump input and a
+        # refusal reason is a legitimate thing to fold into a later step. Only the
+        # four ENVELOPE keys are dropped.
+        captured = hlib.capture_step_payload(
+            {"id": "0002", "cmd": "RecordingState", "verdict": "OK",
+             "ut": "8951.79", "msg": "some%20reason"})
+        self.assertEqual({"ut": "8951.79", "msg": "some reason"}, captured)
+
+    def test_capture_of_an_empty_or_absent_line_is_an_empty_map(self):
+        self.assertEqual({}, hlib.capture_step_payload(None))
+        self.assertEqual({}, hlib.capture_step_payload({}))
+        self.assertEqual({}, hlib.capture_step_payload(
+            {"id": "0001", "cmd": "FlushAndQuit", "verdict": "OK", "seq": "1"}))
+
+
+class HandleRefGrammarTests(unittest.TestCase):
+    """find_handle_refs / find_malformed_handle_tokens: the reference grammar."""
+
+    def test_a_reference_is_found_whole_and_partial_and_repeated(self):
+        self.assertEqual([("${h.rp0}", "h", "rp0")],
+                         hlib.find_handle_refs("${h.rp0}"))
+        self.assertEqual([("${h.rp0}", "h", "rp0")],
+                         hlib.find_handle_refs("prefix-${h.rp0}-suffix"))
+        self.assertEqual([("${h.rp0}", "h", "rp0"), ("${h.rp1}", "h", "rp1")],
+                         hlib.find_handle_refs("${h.rp0},${h.rp1}"))
+
+    def test_a_step_id_is_a_legal_ref(self):
+        self.assertEqual([("${0003.rp0}", "0003", "rp0")],
+                         hlib.find_handle_refs("${0003.rp0}"))
+
+    def test_run_save_is_not_a_handle_ref_and_is_not_malformed(self):
+        # ${runSave} keeps its own meaning and is the ONLY dot-less form. If this
+        # ever regressed, run.py's oldest substitution would start reporting the
+        # boot step as an unresolved handle.
+        self.assertEqual([], hlib.find_handle_refs(hlib.RUN_SAVE_TOKEN))
+        self.assertEqual([], hlib.find_malformed_handle_tokens(hlib.RUN_SAVE_TOKEN))
+
+    def test_non_strings_carry_no_references(self):
+        for value in (3, 3.5, True, None, ["${h.rp0}"]):
+            with self.subTest(value=value):
+                self.assertEqual([], hlib.find_handle_refs(value))
+                self.assertEqual([], hlib.find_malformed_handle_tokens(value))
+
+    def test_malformed_tokens_are_named_by_their_specific_fault(self):
+        cases = {
+            "${h.rp0": "unclosed",
+            "${}": "empty reference",
+            "${nodot}": "dot-less",
+            "${.rp0}": "empty <ref>",
+            "${h.}": "empty <field>",
+            "${h h.rp0}": "must be a label",
+        }
+        for value, needle in cases.items():
+            with self.subTest(value=value):
+                found = hlib.find_malformed_handle_tokens(value)
+                self.assertEqual(1, len(found), found)
+                self.assertIn(needle, found[0][1])
+
+    def test_a_well_formed_reference_is_never_reported_malformed(self):
+        # Handle references are TEMPLATES: several per value, and partial within
+        # one, are all legal. ${runSave} is deliberately NOT in this value -- it is
+        # not a template (see the cell below), so mixing it in here would pin the
+        # opposite rule.
+        self.assertEqual([], hlib.find_malformed_handle_tokens(
+            "rp=${handles.rp0} id=${0002.tree}"))
+
+    def test_an_embedded_run_save_is_malformed_but_a_whole_value_one_is_not(self):
+        # ${runSave} is substituted by WHOLE-VALUE EQUALITY (`if v ==
+        # RUN_SAVE_TOKEN` in run.py), never in place, so an embedded one is never
+        # replaced and reaches the seam as literal text -- the one ${} shape this
+        # scan exists to stop, and the one it used to wave through by skipping the
+        # token wherever it appeared.
+        self.assertEqual([], hlib.find_malformed_handle_tokens(hlib.RUN_SAVE_TOKEN))
+        for embedded in ("pre-%s" % hlib.RUN_SAVE_TOKEN,
+                         "%s-post" % hlib.RUN_SAVE_TOKEN,
+                         "save=%s id=${0002.tree}" % hlib.RUN_SAVE_TOKEN):
+            with self.subTest(embedded=embedded):
+                found = hlib.find_malformed_handle_tokens(embedded)
+                self.assertEqual([hlib.RUN_SAVE_TOKEN], [t for t, _r in found])
+                self.assertIn("WHOLE value", found[0][1])
+
+
+class HandleSubstitutionTests(unittest.TestCase):
+    """substitute_handle_refs / _step_args / _mission_params."""
+
+    STORE = {"handles": {"rp0": "rp_72ebafb509b943b6a353fa86eb3a4225", "count": "3"},
+             "0003": {"rp0": "rp_72ebafb509b943b6a353fa86eb3a4225"}}
+
+    def test_one_reference_resolves_and_reports_itself(self):
+        out, subs, unres = hlib.substitute_handle_refs("${handles.rp0}", self.STORE)
+        self.assertEqual("rp_72ebafb509b943b6a353fa86eb3a4225", out)
+        self.assertEqual([{"ref": "${handles.rp0}",
+                           "value": "rp_72ebafb509b943b6a353fa86eb3a4225"}], subs)
+        self.assertEqual([], unres)
+
+    def test_a_partial_and_repeated_reference_substitutes_in_place(self):
+        out, subs, unres = hlib.substitute_handle_refs(
+            "n=${handles.count}/${handles.count}", self.STORE)
+        self.assertEqual("n=3/3", out)
+        self.assertEqual(2, len(subs))
+        self.assertEqual([], unres)
+
+    def test_a_step_id_ref_resolves_from_the_same_store(self):
+        out, _s, unres = hlib.substitute_handle_refs("${0003.rp0}", self.STORE)
+        self.assertEqual("rp_72ebafb509b943b6a353fa86eb3a4225", out)
+        self.assertEqual([], unres)
+
+    def test_an_unknown_field_is_unresolved_and_names_what_was_there(self):
+        _out, subs, unres = hlib.substitute_handle_refs("${handles.nope}", self.STORE)
+        self.assertEqual([], subs)
+        self.assertEqual(1, len(unres))
+        self.assertEqual("${handles.nope}", unres[0]["ref"])
+        self.assertIn("rp0", unres[0]["reason"])
+
+    def test_an_unknown_ref_is_unresolved(self):
+        _out, _subs, unres = hlib.substitute_handle_refs("${nobody.rp0}", self.STORE)
+        self.assertEqual(1, len(unres))
+        self.assertIn("did not run", unres[0]["reason"])
+
+    def test_the_two_unresolved_causes_carry_DIFFERENT_kinds(self):
+        # THE ROW run.py's stage-ownership rule keys off. Both rows read
+        # "unresolved" in prose, but only ONE of them is the consumer's own fault:
+        # a no-payload miss means an EARLIER step refused, and blaming the consumer
+        # there would replace that step's RETRYABLE refusal subkind with the
+        # non-retryable driver-unresolved-handle. The `reason` sentence is for a
+        # human; `kind` is the field a caller may branch on.
+        _o, _s, field_miss = hlib.substitute_handle_refs("${handles.nope}", self.STORE)
+        self.assertEqual(hlib.UNRESOLVED_HANDLE_NO_SUCH_FIELD, field_miss[0]["kind"])
+        _o, _s, payload_miss = hlib.substitute_handle_refs("${nobody.rp0}", self.STORE)
+        self.assertEqual(hlib.UNRESOLVED_HANDLE_NO_PAYLOAD, payload_miss[0]["kind"])
+        self.assertNotEqual(hlib.UNRESOLVED_HANDLE_NO_SUCH_FIELD,
+                            hlib.UNRESOLVED_HANDLE_NO_PAYLOAD)
+
+    def test_both_wrappers_propagate_the_kind(self):
+        # The kind must survive the two wrappers run.py actually calls, or the
+        # ownership rule reads an absent key and falls back to the wrong branch.
+        _o, _s, step_unres = hlib.substitute_step_args(
+            {"rp": "${handles.nope}", "other": "${nobody.rp0}"}, self.STORE)
+        self.assertEqual({("rp", hlib.UNRESOLVED_HANDLE_NO_SUCH_FIELD),
+                          ("other", hlib.UNRESOLVED_HANDLE_NO_PAYLOAD)},
+                         {(r["arg"], r["kind"]) for r in step_unres})
+        _o, _s, param_unres = hlib.substitute_mission_params(
+            {"a": "${handles.nope}", "b": ["${nobody.rp0}"]}, self.STORE)
+        self.assertEqual({("a", hlib.UNRESOLVED_HANDLE_NO_SUCH_FIELD),
+                          ("b.0", hlib.UNRESOLVED_HANDLE_NO_PAYLOAD)},
+                         {(r["arg"], r["kind"]) for r in param_unres})
+
+    def test_an_empty_store_resolves_nothing(self):
+        for store in (None, {}):
+            with self.subTest(store=store):
+                _o, _s, unres = hlib.substitute_handle_refs("${handles.rp0}", store)
+                self.assertEqual(1, len(unres))
+                # An empty store is the no-payload cause, never no-such-field.
+                self.assertEqual(hlib.UNRESOLVED_HANDLE_NO_PAYLOAD, unres[0]["kind"])
+
+    def test_step_args_without_references_are_returned_untouched(self):
+        # THE BYTE-IDENTICAL GUARANTEE for every pre-R10 spec: no reference means
+        # no substitution rows and an equal arg table.
+        args = {"save": hlib.RUN_SAVE_TOKEN, "name": "persistent", "budget": 300}
+        out, subs, unres = hlib.substitute_step_args(args, self.STORE)
+        self.assertEqual(args, out)
+        self.assertEqual([], subs)
+        self.assertEqual([], unres)
+
+    def test_step_args_rows_carry_the_arg_key(self):
+        out, subs, unres = hlib.substitute_step_args(
+            {"rp": "${handles.rp0}", "slot": "1"}, self.STORE)
+        self.assertEqual({"rp": "rp_72ebafb509b943b6a353fa86eb3a4225", "slot": "1"}, out)
+        self.assertEqual([{"arg": "rp", "ref": "${handles.rp0}",
+                           "value": "rp_72ebafb509b943b6a353fa86eb3a4225"}], subs)
+        self.assertEqual([], unres)
+
+    def test_step_args_unresolved_rows_carry_the_arg_key_and_reason(self):
+        _out, subs, unres = hlib.substitute_step_args(
+            {"rp": "${handles.nope}"}, self.STORE)
+        self.assertEqual([], subs)
+        self.assertEqual("rp", unres[0]["arg"])
+        self.assertEqual("${handles.nope}", unres[0]["ref"])
+
+    def test_mission_params_walk_strings_recursively_and_leave_numbers_alone(self):
+        params = {"rewindPointId": "${handles.rp0}", "rewindSlot": 1,
+                  "nested": {"a": "${handles.count}", "b": True},
+                  "list": ["${handles.count}", 2.5]}
+        out, subs, unres = hlib.substitute_mission_params(params, self.STORE)
+        self.assertEqual("rp_72ebafb509b943b6a353fa86eb3a4225", out["rewindPointId"])
+        self.assertEqual(1, out["rewindSlot"])
+        self.assertEqual("3", out["nested"]["a"])
+        self.assertIs(True, out["nested"]["b"])
+        self.assertEqual(["3", 2.5], out["list"])
+        self.assertEqual([], unres)
+        self.assertEqual({"rewindPointId", "nested.a", "list.0"},
+                         {r["arg"] for r in subs})
+
+    def test_mission_params_without_references_are_returned_untouched(self):
+        params = {"throttle": 1.0, "name": "Kerbal X", "flags": [True, False]}
+        out, subs, unres = hlib.substitute_mission_params(params, self.STORE)
+        self.assertEqual(params, out)
+        self.assertEqual([], subs)
+        self.assertEqual([], unres)
+
+
+class HandleRefStaticValidationTests(unittest.TestCase):
+    """The STATIC tier primitives: every fault a TOML author can make.
+
+    Exercised on hlib primitives directly (handle_ref_step_index /
+    handle_ref_fault) as well as through validate_spec below, because the two must
+    agree: validate_spec is what saves the boot and the primitives are what
+    run.py's own resolution reads."""
+
+    def _steps(self):
+        return [
+            {"cmd": "LoadGame", "args": {"save": hlib.RUN_SAVE_TOKEN}, "expect": "OK"},
+            {"cmd": "ListHandles", "args": {"kind": "rewindpoints"},
+             "label": "handles", "expect": "OK"},
+            {"cmd": "InvokeRewind", "args": {"rp": "${handles.rp0}"}, "expect": "OK"},
+        ]
+
+    def test_a_label_and_a_step_id_name_the_same_step(self):
+        steps = self._steps()
+        labels = {"handles": 1}
+        self.assertEqual(1, hlib.handle_ref_step_index("handles", labels, len(steps)))
+        self.assertEqual(1, hlib.handle_ref_step_index("0002", labels, len(steps)))
+        self.assertIsNone(hlib.handle_ref_step_index("nope", labels, len(steps)))
+
+    def test_a_sound_reference_has_no_fault(self):
+        self.assertEqual("", hlib.handle_ref_fault("handles", 2, self._steps(),
+                                                   {"handles": 1}))
+
+    def test_forward_and_self_references_are_faults(self):
+        steps = self._steps()
+        self.assertIn("not EARLIER",
+                      hlib.handle_ref_fault("handles", 1, steps, {"handles": 1}))
+        self.assertIn("not EARLIER",
+                      hlib.handle_ref_fault("handles", 0, steps, {"handles": 1}))
+
+    def test_a_non_ok_referenced_step_is_a_fault(self):
+        steps = self._steps()
+        steps[1]["expect"] = "REJECTED"
+        self.assertIn("only a verdict=OK step captures",
+                      hlib.handle_ref_fault("handles", 2, steps, {"handles": 1}))
+
+    def test_a_mission_step_reference_is_a_fault(self):
+        steps = self._steps()
+        steps[1] = {"phase": "mission", "expect": "MISSION-OK"}
+        self.assertIn("mission-phase step",
+                      hlib.handle_ref_fault("0002", 2, steps, {}))
+
+    def test_an_unknown_ref_is_a_fault(self):
+        self.assertIn("names no step label",
+                      hlib.handle_ref_fault("nope", 2, self._steps(), {}))
+
+
+class HandleSpecValidationTests(unittest.TestCase):
+    """validate_spec end to end over the R10 rules (the boot-saving half)."""
+
+    def setUp(self):
+        self.reg = load_registry()
+        self.base = load_spec("B10-career-passive-safety.toml")
+        self.base.get("expectations", {}).pop("ledger", None)
+
+    def _v(self, mutate):
+        spec = copy.deepcopy(self.base)
+        mutate(spec)
+        return hlib.validate_spec(spec, self.reg)
+
+    def _with_handles(self, spec, ref="${handles.rp0}", label="handles"):
+        """LoadGame -> ListHandles(label) -> InvokeRewind(ref) -> the spec's tail."""
+        step = {"cmd": "ListHandles", "args": {"kind": "rewindpoints"}, "expect": "OK"}
+        if label is not None:
+            step["label"] = label
+        spec["driver"]["steps"].insert(1, step)
+        spec["driver"]["steps"].insert(
+            2, {"cmd": "InvokeRewind", "args": {"rp": ref, "slot": "0"},
+                "expect": "OK", "budget": 300})
+
+    def test_the_first_consumer_shape_validates(self):
+        v = self._v(lambda s: self._with_handles(s))
+        self.assertTrue(v.ok, "the RH-1 shape must validate: %s" % (list(v.errors),))
+
+    def test_a_step_id_reference_validates(self):
+        v = self._v(lambda s: self._with_handles(s, ref="${0002.rp0}", label=None))
+        self.assertTrue(v.ok, "a step-id reference must validate: %s" % (list(v.errors),))
+
+    def test_an_unknown_label_is_spec_invalid(self):
+        v = self._v(lambda s: self._with_handles(s, ref="${nosuchlabel.rp0}"))
+        self.assertFalse(v.ok)
+        self.assertTrue(any("args.rp" in e and "names no step label" in e
+                            for e in v.errors), list(v.errors))
+
+    def test_a_forward_reference_is_spec_invalid(self):
+        def m(s):
+            self._with_handles(s)
+            # Move the producer AFTER the consumer.
+            steps = s["driver"]["steps"]
+            steps[1], steps[2] = steps[2], steps[1]
+        v = self._v(m)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("not EARLIER" in e for e in v.errors), list(v.errors))
+
+    def test_a_reference_to_a_non_ok_step_is_spec_invalid(self):
+        def m(s):
+            self._with_handles(s)
+            s["driver"]["steps"][1]["expect"] = "REJECTED"
+        v = self._v(m)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("only a verdict=OK step captures" in e for e in v.errors),
+                        list(v.errors))
+
+    def test_a_malformed_token_is_spec_invalid(self):
+        for bad in ("${handles.rp0", "${handles.}", "${nodot}"):
+            with self.subTest(bad=bad):
+                v = self._v(lambda s, b=bad: self._with_handles(s, ref=b))
+                self.assertFalse(v.ok)
+                self.assertTrue(any("malformed ${} token" in e for e in v.errors),
+                                list(v.errors))
+
+    def test_run_save_in_a_step_arg_is_still_legal(self):
+        # The regression guard for the oldest substitution in the harness: the
+        # malformed-token scan must never flag a WHOLE-VALUE ${runSave}, which is
+        # the shape every committed spec's LoadGame save arg uses. (The embedded
+        # shape is a fault, and has its own cell below; this arg is whole-value.)
+        def m(s):
+            self._with_handles(s)
+            s["driver"]["steps"][2]["args"]["save"] = hlib.RUN_SAVE_TOKEN
+        v = self._v(m)
+        self.assertTrue(v.ok, list(v.errors))
+
+    def test_an_embedded_run_save_is_spec_invalid(self):
+        # run.py substitutes ${runSave} on WHOLE-VALUE EQUALITY (`if v ==
+        # RUN_SAVE_TOKEN`), never in place, so an embedded one is never replaced
+        # and reaches the seam as the literal text `pre-${runSave}` -- the exact
+        # failure the malformed-token scan exists to stop, previously waved
+        # through because the scan skipped the token wherever it appeared.
+        for bad in ("pre-%s" % hlib.RUN_SAVE_TOKEN,
+                    "%s-suffix" % hlib.RUN_SAVE_TOKEN,
+                    "%s-${handles.rp0}" % hlib.RUN_SAVE_TOKEN):
+            with self.subTest(bad=bad):
+                v = self._v(lambda s, b=bad: self._with_handles(s, ref=b))
+                self.assertFalse(v.ok)
+                self.assertTrue(any("malformed ${} token" in e
+                                    and "WHOLE value" in e for e in v.errors),
+                                list(v.errors))
+
+    def test_an_embedded_run_save_in_mission_params_is_spec_invalid(self):
+        # The missionParams half of the same rule: string leaves are walked by the
+        # same scan, so a spec cannot smuggle the literal past validation by
+        # putting it in a mission param instead of a step arg.
+        spec = copy.deepcopy(load_spec("B1-pad-hop.toml"))
+        spec["driver"].setdefault("missionParams", {})["saveName"] = (
+            "pre-%s" % hlib.RUN_SAVE_TOKEN)
+        v = hlib.validate_spec(spec, self.reg)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("missionParams.saveName" in e and "WHOLE value" in e
+                            for e in v.errors), list(v.errors))
+
+    def test_a_self_reference_is_spec_invalid(self):
+        # A step naming its OWN label: the payload it would read is the response to
+        # the very line the reference is being substituted into, which cannot exist
+        # yet. Caught by the same "must be EARLIER" rule as a forward reference, and
+        # pinned separately because a self-reference is the shape an author reaches
+        # by copying a label onto the consumer instead of the producer.
+        def m(s):
+            self._with_handles(s, ref="${self.rp0}")
+            s["driver"]["steps"][2][hlib.STEP_LABEL_KEY] = "self"
+        v = self._v(m)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("args.rp" in e and "not EARLIER" in e
+                            for e in v.errors), list(v.errors))
+
+    def test_a_label_on_a_mission_phase_step_is_spec_invalid(self):
+        # A mission step writes NOTHING to the seam channel, so it has no response
+        # payload and nothing can ever reference it. Rejected at the label rather
+        # than at the reference, so the author is told where the mistake is.
+        spec = copy.deepcopy(load_spec("B1-pad-hop.toml"))
+        steps = spec["driver"]["steps"]
+        mi = next(i for i, st in enumerate(steps) if st.get("phase") == "mission")
+        steps[mi][hlib.STEP_LABEL_KEY] = "flight"
+        v = hlib.validate_spec(spec, self.reg)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("driver.steps[%d].%s" % (mi, hlib.STEP_LABEL_KEY) in e
+                            and "no response payload" in e for e in v.errors),
+                        list(v.errors))
+
+    def test_a_bad_label_grammar_is_spec_invalid(self):
+        for bad in ("0handles", "has space", "", 7):
+            with self.subTest(bad=bad):
+                v = self._v(lambda s, b=bad: s["driver"]["steps"].insert(
+                    1, {"cmd": "RecordingState", "label": b, "expect": "OK"}))
+                self.assertFalse(v.ok)
+                self.assertTrue(any(".label" in e for e in v.errors), list(v.errors))
+
+    def test_a_duplicate_label_is_spec_invalid(self):
+        def m(s):
+            s["driver"]["steps"].insert(
+                1, {"cmd": "RecordingState", "label": "dup", "expect": "OK"})
+            s["driver"]["steps"].insert(
+                2, {"cmd": "RecordingState", "label": "dup", "expect": "OK"})
+        v = self._v(m)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("already declared" in e for e in v.errors), list(v.errors))
+
+    def test_a_label_named_runsave_is_spec_invalid(self):
+        v = self._v(lambda s: s["driver"]["steps"].insert(
+            1, {"cmd": "RecordingState", "label": "runSave", "expect": "OK"}))
+        self.assertFalse(v.ok)
+        self.assertTrue(any("reserved" in e for e in v.errors), list(v.errors))
+
+    def test_every_committed_spec_label_satisfies_the_grammar(self):
+        # Program-wide, not an assertion about the one new lane: if a committed
+        # spec ever carried a label this validator rejects, the sweep cells would
+        # be pinning a set that cannot boot.
+        for path in sorted(glob.glob(os.path.join(SCENARIOS_DIR, "*.toml"))):
+            with open(path, "rb") as fh:
+                spec = tomllib.load(fh)
+            steps = (spec.get("driver", {}) or {}).get("steps", []) or []
+            for i, step in enumerate(steps):
+                label = (step or {}).get(hlib.STEP_LABEL_KEY)
+                if label is None:
+                    continue
+                with self.subTest(spec=os.path.basename(path), step=i):
+                    self.assertIsInstance(label, str)
+                    self.assertTrue(hlib.HANDLE_LABEL_RE.match(label),
+                                    "%s step %d label %r" % (path, i, label))
+
+
+class HandleMissionParamStaticValidationTests(unittest.TestCase):
+    """The missionParams half of the STATIC tier (the harness -> mission bridge)."""
+
+    def setUp(self):
+        self.reg = load_registry()
+        self.base = load_spec("B1-pad-hop.toml")
+
+    def _v(self, mutate):
+        spec = copy.deepcopy(self.base)
+        mutate(spec)
+        return hlib.validate_spec(spec, self.reg)
+
+    def _insert_producer(self, spec, at=1, label="handles"):
+        spec["driver"]["steps"].insert(
+            at, {"cmd": "ListHandles", "args": {"kind": "rewindpoints"},
+                 "label": label, "expect": "OK"})
+
+    def test_a_param_reference_to_an_earlier_seam_step_validates(self):
+        def m(s):
+            self._insert_producer(s)
+            s["driver"].setdefault("missionParams", {})["rewindPointId"] = "${handles.rp0}"
+        v = self._v(m)
+        self.assertFalse(any("missionParams.rewindPointId" in e for e in v.errors),
+                         list(v.errors))
+
+    def test_a_param_reference_to_a_step_after_the_mission_is_spec_invalid(self):
+        # The consumer index for a param is the MISSION step's: params are
+        # substituted immediately before spawn_mission, so a producer that runs
+        # after the handoff can never have answered.
+        def m(s):
+            steps = s["driver"]["steps"]
+            mi = next(i for i, st in enumerate(steps) if st.get("phase") == "mission")
+            self._insert_producer(s, at=mi + 1)
+            s["driver"].setdefault("missionParams", {})["rewindPointId"] = "${handles.rp0}"
+        v = self._v(m)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("missionParams.rewindPointId" in e and "not EARLIER" in e
+                            for e in v.errors), list(v.errors))
+
+    def test_an_unknown_param_reference_is_spec_invalid(self):
+        def m(s):
+            s["driver"].setdefault("missionParams", {})["rewindPointId"] = "${nope.rp0}"
+        v = self._v(m)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("missionParams.rewindPointId" in e and
+                            "names no step label" in e for e in v.errors),
+                        list(v.errors))
+
+    def test_a_malformed_param_token_is_spec_invalid(self):
+        def m(s):
+            s["driver"].setdefault("missionParams", {})["rewindPointId"] = "${handles.rp0"
+        v = self._v(m)
+        self.assertFalse(v.ok)
+        self.assertTrue(any("missionParams.rewindPointId" in e and
+                            "malformed ${} token" in e for e in v.errors),
+                        list(v.errors))
+
+
+class UnresolvedHandleClassificationTests(unittest.TestCase):
+    """The RUNTIME tier's verdict: INVALID(driver-unresolved-handle), NON-retryable
+    -- and, since the M1 review finding, WHEN that subkind is the right one to name.
+
+    It is the right one for a no-such-field miss ONLY: there, nothing earlier failed,
+    so the consumer is the whole fault and no retry can help. A no-payload miss is a
+    CONSEQUENCE of an earlier step's refusal / timeout, which has its own (retryable)
+    subkind; claiming this one there both blames the wrong step and cancels the retry
+    that step's own rule granted. The cells below pin both halves."""
+
+    def _classify(self, subkind):
+        driver = {"valid": False, "stage_subkind": subkind}
+        return hlib.classify_verdict(driver, {}, {}, 1, "once")
+
+    def test_the_subkind_classifies_invalid_and_non_retryable(self):
+        v = self._classify(hlib.DRIVER_UNRESOLVED_HANDLE_SUBKIND)
+        self.assertEqual(hlib.VERDICT_INVALID, v.verdict)
+        self.assertEqual(hlib.DRIVER_UNRESOLVED_HANDLE_SUBKIND, v.subkind)
+        self.assertFalse(v.retryable,
+                         "a second boot cannot grow a field the verb does not emit")
+        self.assertFalse(hlib.should_retry(v, 1, "once"))
+
+    def test_every_other_driver_stage_subkind_stays_retryable(self):
+        # The carve-out must be exactly one subkind wide: an over-broad edit here
+        # would silently stop retrying the timing faults retry exists for.
+        for subkind in ("driver-stage", "driver-verdict-mismatch", "seam-timeout"):
+            with self.subTest(subkind=subkind):
+                v = self._classify(subkind)
+                self.assertTrue(v.retryable)
+                self.assertTrue(hlib.should_retry(v, 1, "once"))
+
+    def test_the_subkind_is_absent_from_the_retryable_set(self):
+        self.assertNotIn(hlib.DRIVER_UNRESOLVED_HANDLE_SUBKIND,
+                         hlib.RETRYABLE_INVALID_SUBKINDS)
+
+    def test_the_two_unresolved_kinds_are_distinct_vocabulary(self):
+        # run.py branches on these, so a collapse would silently restore the
+        # swallowed-refusal behaviour with every test still green.
+        self.assertNotEqual(hlib.UNRESOLVED_HANDLE_NO_SUCH_FIELD,
+                            hlib.UNRESOLVED_HANDLE_NO_PAYLOAD)
+        self.assertNotIn(hlib.DRIVER_UNRESOLVED_HANDLE_SUBKIND,
+                         (hlib.UNRESOLVED_HANDLE_NO_SUCH_FIELD,
+                          hlib.UNRESOLVED_HANDLE_NO_PAYLOAD))
+
+    def test_the_refusal_a_no_payload_miss_defers_to_stays_retryable(self):
+        # WHAT the deferral is worth, on the pure side. A refused producer is the
+        # canonical no-payload cause; the fake seam's kind-less ListHandles answers
+        # `kind-arg-missing`, which is deliberately absent from the refusal map, so
+        # the driver stage falls back to the coarse driver-verdict-mismatch. That
+        # subkind IS retryable -- which is exactly the retry the pre-fix override
+        # cancelled by asserting driver-unresolved-handle over it.
+        self.assertEqual("", hlib.classify_seam_refusal_subkind("kind-arg-missing"))
+        v = self._classify("driver-verdict-mismatch")
+        self.assertEqual(hlib.VERDICT_INVALID, v.verdict)
+        self.assertTrue(v.retryable)
+        self.assertTrue(hlib.should_retry(v, 1, "once"))

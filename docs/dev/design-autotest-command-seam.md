@@ -572,8 +572,9 @@ dangling-hint WARN as the rationale), so NO committed fixture can ever be the su
 one remaining road is for a lane to produce its own subject in-run - `StartRecording` ->
 `CommitTree`, which does write the quicksave (`FlightRecorder.CaptureRewindSave` runs at
 every non-promotion recording start) - and that road was closed too: a fresh tree's id is a
-runtime `Guid`, the harness has exactly one spec-side substitution (`${runSave}`, and no
-step can consume a prior step's payload), and on any host that already carries committed
+runtime `Guid`, the harness had exactly one spec-side substitution (`${runSave}`; no
+step could consume a prior step's payload until R10's `${step.field}` capture, see
+`#### ListHandles`), and on any host that already carries committed
 trees the auto-select then refuses `ambiguous-tree`. GS-4 escapes only because its host
 fixture has ZERO committed trees, so its mission's own launch leaves exactly one. This
 keyword is that gap and nothing else; it is what makes `H58-route-rewind-to-launch` a lane
@@ -1163,6 +1164,100 @@ read-back of Parsek's own store, never a kerbal claim).
 **First consumer.** `S0.11-ksc-table-delete`: V22K's boot into SPACECENTER with the loop
 member rendered, a short dwell, `DeleteRecording index=1`, a longer dwell - pinning the
 KSC host's reindex line with the deleted index literal.
+
+#### ListHandles (additive; the R10 handle-list verb)
+
+**What it closes.** Until R10 nothing a driven run could read named a LIVE object. Every
+verb that addresses one - `InvokeRewind rp=`, `SealSlot rp=`, `SimulateStockSwitchClick
+pid=`, `DeleteRecording index=` - took an id the spec author had to know in advance, and a
+live id is a fresh `Guid` (RewindPoints, recordings, trees) or a launch-assigned
+`persistentId` (vessels). S1.5's own header names the wall exactly: "a seam channel
+exposing the live RewindPoint id (InvokeRewind matches RewindPointId EXACTLY and live ids
+are fresh GUIDs ...; RecordingState's payload is recording/tree/points/scene only)". The
+harness half of the answer is the `${step.field}` substitution in
+`design-autotest-harness-core.md` ("Runtime handles"); this verb is the seam half: an
+OBSERVATION verb whose payload is a flat, index-suffixed enumeration of one handle
+family, so a later step can name a member by `${<step>.rp0}` and the harness carries the
+live id onto the wire.
+
+**Why a new verb rather than a wider `RecordingState`.** `RecordingState` is a
+FLIGHT-flavoured four-field snapshot that eleven committed lanes and the R1 mission
+machine read by exact key; widening it would put an unbounded list on every one of those
+lines and every one of those readers. A list verb with a REQUIRED `kind=` keeps each
+family on its own bounded line and leaves the four-field payload byte-identical. It is
+the `ExportRenderManifest` shape: ADDITIVE (31 -> 32 implemented, reserved unchanged at
+5), never in the reserved envelope, read-only with respect to the game world.
+
+**Contract.** `RequiresGameLoaded` (`ParsekScenario.Instance` and the committed store
+exist in every loaded scene; the `active` family answers with an empty tree outside a
+live FLIGHT rather than deferring). SINGLE-PHASE (a synchronous walk of in-memory state),
+so it rides the 60 s default budget, which only ever bounds the game-not-loaded defer.
+No side effects, so every refusal is `REJECTED` and there is no `ERROR` terminal.
+
+| arg | values | meaning |
+|---|---|---|
+| `kind` | `rewindpoints` \| `committed` \| `active` | REQUIRED. Which handle family to enumerate. Fail-closed, case-sensitive (the `LoadGame scene=` rule): absent is `REJECTED kind-arg-missing`, anything else is `REJECTED kind-arg-invalid kind=<raw>`. Mirrored in `hlib.VERB_SCOPED_CLOSED_ARGS` so a typo is INVALID(spec-invalid) before a boot. |
+
+**Payload grammar.** Every value is `InvariantCulture` and percent-encoded on the wire
+like every other payload; keys are `<family><i>` and `<family><i><attr>` with `i`
+zero-based in a DEFINED order, so a spec can name the first / the newest member without
+knowing its id. Each family carries `count=<total>` and `truncated=<bool>`: the payload
+is CAPPED (16 rewind points x 8 slots, 32 committed recordings, 16 background members)
+because a seam line is a single wire token list, and `truncated=true` is the reader's
+signal that `count` exceeds what was enumerated - never a silent cut.
+
+- `kind=rewindpoints count=<n> truncated=<b> rp<i>=<RewindPointId> rp<i>ut=<UT>
+  rp<i>provisional=<b> rp<i>corrupted=<b> rp<i>slots=<m> rp<i>slot<j>=<OriginChildRecordingId>
+  rp<i>slot<j>open=<b>` in `ParsekScenario.RewindPoints` list order (append order, so
+  `rp<count-1>` is the newest). `open` is true iff the slot's EFFECTIVE tip
+  (`ChildSlot.EffectiveRecordingId` over `RecordingSupersedes`, the SealSlot lookup)
+  resolves to a committed recording that is not `MergeState.Immutable`; an unresolvable
+  tip reads `open=false`, since nothing could be invoked or sealed through it. The
+  family's single `truncated` flag covers BOTH caps (a slot cut cannot show in `count`,
+  so it raises the flag too), and `rp<i>slots` always reports the untruncated total.
+- `kind=committed count=<n> truncated=<b> rec<i>=<RecordingId> rec<i>tree=<TreeId>
+  rec<i>pid=<VesselPersistentId> rec<i>spawnedPid=<SpawnedVesselPersistentId or 0>
+  rec<i>name=<vessel name> rec<i>spawned=<b> rec<i>state=<MergeState>` walking
+  `RecordingStore.CommittedTrees` in list order and each tree's recordings
+  ordinal-sorted by id (a dictionary walk has no order contract). Two pids per row on
+  purpose: `pid` is the craft-baked `persistentId`, reused by every launch of the same
+  craft, while `spawnedPid` is the KSP-unique pid of the really-spawned vessel (0 until a
+  spawn). This is the family a D18 `committed-interaction-claiming` lane reads, and
+  `rec<i>spawnedPid` (never `rec<i>pid`) is the `SimulateStockSwitchClick pid=` a
+  committed-spawned-clone switch needs.
+- `kind=active tree=<TreeId or empty> activeRec=<RecordingId or empty> activePid=<pid or 0>
+  bg=<n> truncated=<b> bg<i>pid=<pid> bg<i>rec=<RecordingId>` from the live
+  `ParsekFlight` tree's `BackgroundMap`, members sorted by pid ascending. This is the
+  family the D5 `chain-continuation-switch` lane reads: `bg<i>pid` is the switch target
+  the consume site's bg-member-continuation route requires
+  (`activeTree.BackgroundMap.ContainsKey(newPid)`, ParsekFlight `TryConsumeStockActionIntent`).
+
+**Observability.** One Info line per call, `listhandles kind=<k> count=<n>
+truncated=<b>` (a refusal logs `listhandles rejected reason=<r> kind=<raw>` at Warn, the
+way every other verb's refusal does). The enumerated ids themselves are NOT in
+KSP.log (the pump's `exec id=<id> verdict=OK` line carries no payload): they live in
+the response channel `parsek-test-responses.txt`, which the harness collects with the
+run, and in the harness's own `captured` / `substituted` log lines and result-record
+rows. The consumer verb's log is what puts the ACTED-ON id into KSP.log (`invokerewind
+start rp=<id> slot=<n>` and `Re-Fly (Rewind-to-Separation) StartInvoke: sess=<s>
+rp=<id>` for the first consumer), so the identity proof is the response line's `rp0=`
+against those two, measured on `2026-09-08_0844_RH-1-live-rp-handle-rewind`.
+
+**Pure decision.** `TestCommandListHandles` (`ParseKind`, the three `Build*Payload`
+builders over plain DTO rows, the caps as named constants), xUnit-covered in
+`TestCommandListHandlesTests.cs`. The partial `ParsekTestCommandAddon.ListHandles.cs`
+only walks the live objects into DTOs. ERS note: the walk reads `CommittedTrees`, the
+un-audited tree surface SealSlot already walks, never the audited flat lists.
+
+**Role tables.** `SEAM_VERB_TAIL_ROLE`: `inert` (RecordingState's reason: a read that
+changes nothing, safe on an unmet tail). `SEAM_VERB_POST_MISSION_ROLE`: `recording` (its
+OK is a read-back of Parsek's own store).
+
+**First consumer.** `RH-1-live-rp-handle-rewind`: `bdock-recorded` (three harvested
+RewindPoints with real `Guid` ids and their quicksaves on disk, three
+`CommittedProvisional` slot tips), `ListHandles kind=rewindpoints` labelled `handles`,
+then `InvokeRewind rp=${handles.rp0} slot=<the open slot>` - the first driven rewind
+whose target id was never written into a spec.
 
 ## Behavior
 

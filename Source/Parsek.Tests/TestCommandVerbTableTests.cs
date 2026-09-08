@@ -44,6 +44,7 @@ namespace Parsek.Tests
         [InlineData("RouteCommand")]
         [InlineData("ExportRenderManifest")]
         [InlineData("DeleteRecording")]
+        [InlineData("ListHandles")]
         public void ImplementedVerbs_ClassifyImplemented(string verb)
         {
             Assert.Equal(TestCommandVerbClass.Implemented, TestCommandVerbs.Classify(verb));
@@ -116,7 +117,9 @@ namespace Parsek.Tests
             // direction.
             // DeleteRecording is ADDITIVE (30 -> 31; reserved unchanged at 5): the
             // reserved envelope never carried a recording-deletion verb.
-            Assert.Equal(31, TestCommandVerbs.ImplementedVerbNames.Count);
+            // ListHandles is ADDITIVE for the same reason (31 -> 32; reserved unchanged
+            // at 5): the reserved envelope never carried a handle-enumeration verb.
+            Assert.Equal(32, TestCommandVerbs.ImplementedVerbNames.Count);
             Assert.Equal(5, TestCommandVerbs.ReservedVerbNames.Count);
         }
 

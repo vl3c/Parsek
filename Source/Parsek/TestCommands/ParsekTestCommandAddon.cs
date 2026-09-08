@@ -1224,6 +1224,13 @@ namespace Parsek.TestCommands
         // TryComplete* counterpart in TryCompleteTwoPhaseCore.
         void ITestCommandExecutor.DeleteRecording(ParsedCommand cmd) => DeleteRecordingImpl(cmd);
 
+        // ListHandles (R10): the body lives in the sibling
+        // ParsekTestCommandAddon.ListHandles.cs partial. Single-phase - a synchronous walk
+        // of in-memory state is a final answer the instant it is taken - so there is no
+        // TryComplete* counterpart in TryCompleteTwoPhaseCore, and read-only, so no
+        // terminal it can produce is an ERROR.
+        void ITestCommandExecutor.ListHandles(ParsedCommand cmd) => ListHandlesImpl(cmd);
+
         private void InvokeExecutor(ParsedCommand cmd)
         {
             // Batch-baseline latch clear (finding 1). Any verb that can change state a
@@ -1274,6 +1281,7 @@ namespace Parsek.TestCommands
                 case "SealSlot": exec.SealSlot(cmd); break;
                 case "RouteCommand": exec.RouteCommand(cmd); break;
                 case "DeleteRecording": exec.DeleteRecording(cmd); break;
+                case "ListHandles": exec.ListHandles(cmd); break;
                 default:
                     // Unreachable: DecideDispatch rejects unknown/reserved verbs before Execute.
                     SetExecResult("ERROR", null, "unknown-command");

@@ -196,10 +196,17 @@ class Cl3ShapeTests(unittest.TestCase):
              mlib.CL3_LOOP_POINTS, mlib.CL3_LOOP_CLOSED))
         # The eight phase NAMES are R1's eight surviving names, verbatim, so a
         # reader comparing the two lanes' logs is comparing like with like.
+        #
+        # R1_RESOLVE joins ASCENT / COMMIT in the excluded set (R10). Not a rename
+        # and not a reorder: CL-3 keeps the STATIC rewind target its fixture bakes
+        # (`rewindPointId = "rp_cl_root"`, an INJECTED id whose whole point is that
+        # the lane knows it in advance), so a runtime resolve has nothing to do
+        # here. Same ground the other two are excluded on - a phase this lane can
+        # never enter would be a give-up path nobody can read.
         self.assertEqual(
             mlib.CL3_PHASES,
             tuple(p for p in mlib.R1_PHASES
-                  if p not in (mlib.R1_ASCENT, mlib.R1_COMMIT)))
+                  if p not in (mlib.R1_ASCENT, mlib.R1_COMMIT, mlib.R1_RESOLVE)))
 
     def test_there_is_no_ascent_or_commit_surface_on_this_lane(self):
         """The cut has to be a real absence, not a phase that exists and is

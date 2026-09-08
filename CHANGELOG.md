@@ -10,6 +10,68 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Automated testing: a driven run can now act on an object it discovered at runtime,
+  instead of only on ids someone typed into a test file first.** Every automated test
+  script names what it acts on in advance, and until now that was the whole vocabulary:
+  the rig substituted exactly one token (the run's save name) and read a command's reply
+  for its pass/fail verdict only, never for the contents. Anything a running game creates
+  fresh - a rewind point, a recording, a spawned craft, a background craft the game
+  assigned an id to at launch - therefore could not be named by any test at all. Rewind
+  is the sharpest case: the command matches a rewind point's id exactly and live ids are
+  freshly minted, so the only rewinds the suite could drive were the ones whose ids a
+  fixture had baked in. Three pieces close it, and a reference that cannot resolve is
+  loud rather than silent. (a) The rig now captures a command's reply fields into a
+  per-run store and substitutes `${<step>.<field>}` references out of it into later
+  commands and into a mission's parameters; a step earns a name with a new `label` key,
+  and a reference that cannot possibly resolve - malformed, naming no earlier step,
+  pointing forward, or pointing at a step that is not expected to succeed - is refused
+  before the game is even launched (`INVALID(spec-invalid)`), while one that resolves to
+  a field the reply did not carry stops the run at that step with the new non-retryable
+  `INVALID(driver-unresolved-handle)` rather than putting the literal `${...}` text on
+  the wire. The pure decisions are `hlib.capture_step_payload`, `substitute_step_args`,
+  `substitute_mission_params`, `find_handle_refs`, `find_malformed_handle_tokens`,
+  `handle_ref_fault` and `percent_decode`; `run.py` logs one `captured` line per reply
+  that carried any field and one `substituted` line per reference, and each run's result file gains optional
+  `captured` / `substitutions` / `unresolvedHandle` step rows (and `paramSubstitutions`
+  on the mission row) so the id a run listed and the id it acted on can be matched
+  mechanically afterwards. (b) The mission library gained the runtime-computed half of
+  the same idea: `mlib.seam_handle_from_payload` reads one field out of a command reply,
+  and the rewind mission machine grew a RESOLVE phase that, when no rewind point was
+  handed to it, lists the live ones and picks the newest or the oldest per a new
+  `rewindPointSelect` parameter before rewinding. Handed an id as before, it emits
+  byte-identical actions. (The roadmap's older wording said the mission side was
+  hardcoded to one command; re-reading it showed the arbitrary-verb readback already
+  existed, so what was actually missing was only this computed half.) (c) A new
+  `ListHandles` command on the test seam is what those references read: one required
+  `kind=` of `rewindpoints`, `committed` or `active`, a flat numbered enumeration per
+  family, capped with an explicit `count` and `truncated` so a long list is never
+  silently cut, read-only, and refused outright on a missing or misspelled `kind` rather
+  than guessing. It brings the seam to 32 implemented commands with the five reserved
+  ones unchanged, and it leaves every existing command's reply byte-identical -
+  deliberately a new command rather than a wider `RecordingState`, which eleven lanes and
+  the rewind mission machine read by exact key. Covered by `HandleCaptureCodecTests`,
+  `HandleRefGrammarTests`, `HandleSubstitutionTests`, `HandleRefStaticValidationTests`,
+  `HandleSpecValidationTests`, `HandleMissionParamStaticValidationTests` and
+  `UnresolvedHandleClassificationTests` (`harness/lib/test_hlib.py`), by
+  `RuntimeHandleSmokeTests` (`test_run_smoke.py`, which drives a captured field onto the
+  wire, an unknown field to the new subkind and an unknown label to zero boots against a
+  fake game), by `R1SeamHandleReadTests` / `R1SelectRewindPointKeyTests` /
+  `R1ResolvePhaseTests` / `R1ResolveByteIdenticalRegressionTests` / `R1ResolveParamTests`
+  (`harness/missions/lib/test_r1_rewind.py`) plus the resolve-path shell cell in
+  `test_shells.py`, and by 35 cases in
+  `Source/Parsek.Tests/TestCommandListHandlesTests.cs`. The first lane to use all three
+  is `RH-1-live-rp-handle-rewind`, which lists a recorded fixture's three real rewind
+  points and then rewinds through the first of them with `rp = "${handles.rp0}"` - the
+  first driven rewind whose target id was never written into a test file. It flew the
+  same day: the first reading run was refused because that fixture boots with a live
+  recorder (a fixture property; the harness had already put the listed id on the wire;
+  the run's automatic retry boot was refused the same way), and with a stop-recording
+  step ahead of the rewind the second run passed at the first attempt (`2026-09-08_0844_RH-1-live-rp-handle-rewind`), the listed id, the substituted
+  value and the rewind's own log naming the same rewind point. Contracts:
+  `docs/dev/design-autotest-harness-core.md` -> "Runtime handles: payload capture and
+  `${step.field}` substitution (R10)" and `design-autotest-command-seam.md` ->
+  "#### ListHandles". Test-tooling only; no gameplay change (PR #1653).
+
 - **Automated testing: the looped re-aim arrival seam is now observable by the companion
   lane, with no product change.** The `V3C-flight-arrival-companion` harness lane flies a
   fresh Duna mission beside a looped re-aim replay so the flight engine can sample the

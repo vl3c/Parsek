@@ -300,6 +300,18 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     # (a synchronous list mutation whose Removing / Removed notifications fan out
     # inside the call, verified by read-back), so it rides the 60 s default budget.
     "DeleteRecording",
+    # ListHandles, the R10 handle-list verb. ADDITIVE (31 -> 32 implemented, reserved
+    # unchanged at 5): the reserved envelope never carried an enumeration verb. It is
+    # the SEAM half of the runtime-handle path whose harness half is the ${step.field}
+    # substitution above - an OBSERVATION verb whose payload is a flat, index-suffixed
+    # enumeration of ONE handle family (`kind=` picks it), so a later step can name a
+    # member by ${<step>.rp0} and the harness carries the LIVE id onto the wire.
+    # Not a widened RecordingState: that verb's four-field payload is read by exact key
+    # by eleven committed lanes and the R1 machine, and putting an unbounded list on it
+    # would land on every one of those readers. SINGLE-PHASE (a synchronous walk of
+    # in-memory state), so it rides the 60 s default budget, which only ever bounds its
+    # game-not-loaded dispatch defer.
+    "ListHandles",
 )
 
 # The M-A7 export verb, named once. Referenced by the verb/block coupling rule in
@@ -781,6 +793,12 @@ SEAM_VERB_TAIL_ROLE: Dict[str, str] = {
     # chain siblings' linkage) - DiscardTree's exact reasoning: driving it on an unmet
     # run would delete the forensics the collect-logs snapshot exists to preserve.
     "DeleteRecording": TAIL_ROLE_WORLD_MUTATING,
+    # ListHandles is `inert` for RecordingState's reason exactly: it walks in-memory
+    # state and answers, changing nothing in the game, the save or the career, so it is
+    # safe on an unmet tail. It is SKIPPED there anyway - not because it is dangerous
+    # but because an enumeration taken on a run that is already terminally INVALID
+    # observes nothing anyone will act on.
+    "ListHandles": TAIL_ROLE_INERT,
 }
 
 # ---------------------------------------------------------------------------
@@ -915,6 +933,10 @@ SEAM_VERB_POST_MISSION_ROLE: Dict[str, str] = {
     # index-keyed hosts were told", a read-back of PARSEK's own store - a claim about a
     # feature under test, never about a kerbal's physical in-world state.
     "DeleteRecording": POST_MISSION_ROLE_RECORDING,
+    # ListHandles is `recording`: its OK is a read-back of Parsek's OWN store (which
+    # RewindPoints / committed recordings / background members exist), never a claim
+    # about a kerbal's physical in-world state, which is the whole content of `outcome`.
+    "ListHandles": POST_MISSION_ROLE_RECORDING,
 }
 
 
@@ -1003,6 +1025,364 @@ RUN_SAVE_TOKEN = "${runSave}"
 # Findings-list precedence marker (design S2): a rule id with this prefix is a
 # fixture-authoring/baseline meta-finding, never a real Parsek defect.
 BASELINE_RULE_PREFIX = "BASELINE-"
+
+
+# ---------------------------------------------------------------------------
+# R10 runtime handles: payload capture and ${step.field} substitution
+# (design-autotest-harness-core.md -> "Runtime handles").
+#
+# The one missing data path is runtime -> spec. Every seam verb that addresses a
+# LIVE object (InvokeRewind rp=, SealSlot rp=, SimulateStockSwitchClick pid=,
+# DeleteRecording index=) took an id the TOML author had to know in advance, and a
+# live id is a fresh Guid or a launch-assigned pid. R10 captures an OK step's
+# response payload and lets a LATER step name a field of it.
+#
+# Everything below is pure. run.py owns the store's lifetime (per ATTEMPT, so a
+# retry starts empty) and the file I/O; hlib owns every decision, including both
+# tiers of the never-a-literal-on-the-wire rule: a spec-authorable fault is caught
+# by validate_spec before any boot, and a runtime miss stops the step's line from
+# being written at all. A runtime miss carries a `kind` naming its CAUSE, because
+# the two causes are owed different verdicts: no-such-field (the verb answered OK
+# and emits no such key) is DRIVER_UNRESOLVED_HANDLE_SUBKIND at the consumer, while
+# no-payload (an earlier step refused / never answered) leaves the driver subkind to
+# that step's own refusal, which has its own retry rule.
+# ---------------------------------------------------------------------------
+
+# The step-level key that names a step for later reference. Preferred over the
+# index-derived harness id because inserting a step renumbers every later id while
+# a label is stable.
+STEP_LABEL_KEY = "label"
+
+# Label grammar. Deliberately NARROWER than the reference grammar's ref slot: a
+# label must start with a LETTER so it can never be confused with a harness step
+# id ("0001"), which is the other thing a ref may name.
+HANDLE_LABEL_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
+
+# ${<ref>.<field>} where <ref> is a step label OR a harness step id and <field> is
+# one payload key. `${runSave}` keeps its own meaning and is the ONLY dot-less
+# form, so it can never match here.
+HANDLE_REF_RE = re.compile(r"\$\{([A-Za-z0-9][A-Za-z0-9_-]*)\.([A-Za-z0-9_]+)\}")
+
+# The four envelope keys of a seam response line. They describe the EXCHANGE, not
+# the object the verb answered about, so they are never captured as handle fields
+# (a `${x.verdict}` would be a spec saying something the harness already knows).
+SEAM_RESPONSE_ENVELOPE_KEYS: Tuple[str, ...] = ("id", "cmd", "verdict", "seq")
+
+# The runtime tier's INVALID subkind: the referenced step answered OK but its
+# payload carries no such field. NON-retryable and deliberately absent from
+# RETRYABLE_INVALID_SUBKINDS -- a second boot cannot grow a field the verb does
+# not emit, so a retry would only spend another KSP launch to learn the same thing.
+DRIVER_UNRESOLVED_HANDLE_SUBKIND = "driver-unresolved-handle"
+
+# The two CAUSES an unresolved reference can have, carried as `kind` on every
+# unresolved row. The distinction is load-bearing, not cosmetic:
+#   no-such-field  the referenced step answered OK and its payload simply carries
+#                  no such key. Nothing earlier failed, so the CONSUMER owns the
+#                  driver stage and DRIVER_UNRESOLVED_HANDLE_SUBKIND is correct.
+#   no-payload     the referenced step captured nothing -- it refused, timed out,
+#                  or never ran. That step's OWN outcome already maps to a subkind
+#                  (its refusal / mismatch / timeout, retryable per its own rule),
+#                  so blaming the consumer would REPLACE a retryable subkind with
+#                  this non-retryable one and bury the fault that actually
+#                  happened. run.py therefore owns the stage only for no-such-field.
+UNRESOLVED_HANDLE_NO_SUCH_FIELD = "no-such-field"
+UNRESOLVED_HANDLE_NO_PAYLOAD = "no-payload"
+
+
+def percent_decode(value: str) -> str:
+    """Decode one percent-encoded seam payload value (the inverse of run.py's
+    ``encode_value`` / the C# ``TestCommandProtocol.Encode``): ``%XX`` is one raw
+    BYTE and the accumulated bytes are decoded as UTF-8.
+
+    TOLERANT, on mlib.decode_seam_value's precedent: a truncated or non-hex escape
+    and a non-UTF-8 byte run both return the input UNCHANGED rather than raising.
+    A capture runs on every OK step of every run, so a malformed payload must
+    degrade to a literal a reader can see, never crash the drive loop."""
+    text = str(value or "")
+    if "%" not in text:
+        return text
+    try:
+        raw = text.encode("ascii")
+    except UnicodeEncodeError:
+        return text
+    out = bytearray()
+    i = 0
+    while i < len(raw):
+        ch = raw[i]
+        if ch == 0x25:  # '%'
+            if i + 2 >= len(raw):
+                return text
+            try:
+                out.append(int(raw[i + 1:i + 3].decode("ascii"), 16))
+            except ValueError:
+                return text
+            i += 3
+            continue
+        out.append(ch)
+        i += 1
+    try:
+        return out.decode("utf-8")
+    except UnicodeDecodeError:
+        return text
+
+
+def find_handle_refs(value) -> List[Tuple[str, str, str]]:
+    """Every well-formed ``${ref.field}`` in ``value`` as ``(token, ref, field)``,
+    in occurrence order. A non-string, or a string with no reference, gives [].
+
+    References may appear several per value and PARTIALLY inside one (the value is
+    a template, not an alias), which is why this returns tokens rather than a
+    single match."""
+    if not isinstance(value, str):
+        return []
+    return [(m.group(0), m.group(1), m.group(2))
+            for m in HANDLE_REF_RE.finditer(value)]
+
+
+def find_malformed_handle_tokens(value) -> List[Tuple[str, str]]:
+    """Every ``${...}`` in ``value`` that is NEITHER a whole-value ``${runSave}``
+    NOR a well-formed handle reference, as ``(token, reason)``.
+
+    Exists because the failure this whole contract prevents is a literal
+    ``${...}`` reaching the wire: a typo'd token that simply did not match
+    HANDLE_REF_RE would otherwise be forwarded verbatim and the seam would resolve
+    an object named ``${handles.rp0}``. Reasons are named rather than pooled so a
+    spec author reads WHICH mistake was made.
+
+    ``${runSave}`` is legal ONLY as the WHOLE value, because that is the only shape
+    its substitution has: run.py replaces a step arg on whole-value equality
+    (``if v == RUN_SAVE_TOKEN``) rather than by search-and-replace, so an EMBEDDED
+    one is never substituted and reaches the wire as the literal text. Accepting it
+    here would leave the one ``${...}`` shape this scan exists to stop."""
+    if not isinstance(value, str):
+        return []
+    out: List[Tuple[str, str]] = []
+    i = 0
+    while True:
+        start = value.find("${", i)
+        if start < 0:
+            return out
+        end = value.find("}", start)
+        if end < 0:
+            out.append((value[start:], "unclosed ${ (no closing brace)"))
+            return out
+        token = value[start:end + 1]
+        i = end + 1
+        inner = token[2:-1]
+        if token == RUN_SAVE_TOKEN:
+            if value == RUN_SAVE_TOKEN:
+                continue
+            out.append((token,
+                        "%s is substituted only as a WHOLE value (run.py replaces "
+                        "the arg on whole-value equality, never in place), so an "
+                        "embedded one reaches the wire verbatim"
+                        % RUN_SAVE_TOKEN))
+            continue
+        if HANDLE_REF_RE.fullmatch(token):
+            continue
+        if not inner:
+            out.append((token, "empty reference"))
+        elif "." not in inner:
+            out.append((token, "dot-less form; the only dot-less token is %s"
+                        % RUN_SAVE_TOKEN))
+        else:
+            ref, _, field = inner.partition(".")
+            if not ref:
+                out.append((token, "empty <ref> before the dot"))
+            elif not field:
+                out.append((token, "empty <field> after the dot"))
+            else:
+                out.append((token,
+                            "<ref> must be a label matching %s or a harness step "
+                            "id, and <field> must be [A-Za-z0-9_]+"
+                            % HANDLE_LABEL_RE.pattern))
+
+
+def capture_step_payload(parsed_fields: Optional[Dict[str, str]]) -> Dict[str, str]:
+    """The capturable payload of ONE parsed seam response line: every field except
+    the four envelope keys, percent-DECODED.
+
+    ``ut`` and ``msg`` are captured like any other key -- a ``${x.ut}`` is a
+    legitimate TimeJump input, and a refusal reason is a legitimate thing to fold
+    into a later step. The CALLER decides whether the step qualifies (only a
+    verdict=OK step captures at all): a refusal's payload is diagnostic, not a
+    handle source."""
+    if not parsed_fields:
+        return {}
+    return {k: percent_decode(v) for k, v in parsed_fields.items()
+            if k not in SEAM_RESPONSE_ENVELOPE_KEYS}
+
+
+def substitute_handle_refs(value, store: Optional[Dict[str, Dict[str, str]]]):
+    """Resolve every ``${ref.field}`` in one value against ``store``
+    (ref -> field map). Returns ``(new_value, substitutions, unresolved)``.
+
+    ``substitutions`` rows are ``{"ref": token, "value": resolved}``;
+    ``unresolved`` rows are ``{"ref": token, "kind": ..., "reason": ...}``, where
+    ``kind`` is UNRESOLVED_HANDLE_NO_SUCH_FIELD or UNRESOLVED_HANDLE_NO_PAYLOAD.
+    The ``kind`` is what lets the CALLER decide who owns the driver stage (see the
+    constants' comment); ``reason`` stays the human sentence and is never parsed.
+    A value carrying an unresolved reference is still returned with its RESOLVABLE
+    tokens replaced, but the caller must treat a non-empty ``unresolved`` as
+    terminal: the contract is that no ``${...}`` text ever reaches the wire.
+
+    A non-string value passes through untouched (a TOML int budget is not a
+    template), which is what keeps every pre-R10 arg table byte-identical."""
+    if not isinstance(value, str):
+        return value, [], []
+    refs = find_handle_refs(value)
+    if not refs:
+        return value, [], []
+    table = store or {}
+    subs: List[Dict[str, str]] = []
+    unresolved: List[Dict[str, str]] = []
+    out = value
+    for token, ref, field in refs:
+        fields = table.get(ref)
+        if fields is None:
+            unresolved.append({"ref": token,
+                               "kind": UNRESOLVED_HANDLE_NO_PAYLOAD,
+                               "reason": "no captured payload for %r (the step "
+                                         "either did not run or did not answer OK)"
+                                         % ref})
+            continue
+        if field not in fields:
+            unresolved.append({"ref": token,
+                               "kind": UNRESOLVED_HANDLE_NO_SUCH_FIELD,
+                               "reason": "%r answered OK but its payload has no "
+                                         "field %r (fields: %s)"
+                                         % (ref, field,
+                                            ",".join(fields) or "<none>")})
+            continue
+        resolved = fields[field]
+        out = out.replace(token, resolved)
+        subs.append({"ref": token, "value": resolved})
+    return out, subs, unresolved
+
+
+def substitute_step_args(args: Optional[Dict], store: Optional[Dict[str, Dict[str, str]]]):
+    """``substitute_handle_refs`` over one step's arg table. Returns
+    ``(new_args, substitutions, unresolved)`` where each row additionally carries
+    ``arg`` (the arg key), which is what the result record's ``substitutions``
+    list and the ``substituted ...`` log line are built from."""
+    out: Dict = {}
+    subs: List[Dict[str, str]] = []
+    unresolved: List[Dict[str, str]] = []
+    for key, value in (args or {}).items():
+        new_value, s, u = substitute_handle_refs(value, store)
+        out[key] = new_value
+        for row in s:
+            subs.append({"arg": str(key), "ref": row["ref"], "value": row["value"]})
+        for row in u:
+            unresolved.append({"arg": str(key), "ref": row["ref"],
+                               "kind": row["kind"], "reason": row["reason"]})
+    return out, subs, unresolved
+
+
+def substitute_mission_params(params, store: Optional[Dict[str, Dict[str, str]]],
+                              _path: str = ""):
+    """``substitute_handle_refs`` over a ``[driver.missionParams]`` block, walking
+    dicts and lists RECURSIVELY and touching STRING leaves only.
+
+    Numbers and bools pass through untouched: they are tuning values, never
+    templates, and coercing one would silently change a mission's parsed params.
+    Each row's ``arg`` is the dotted path to the leaf (``rewindPointId``,
+    ``slots.0``), so a substitution row names something a spec author can find."""
+    subs: List[Dict[str, str]] = []
+    unresolved: List[Dict[str, str]] = []
+    if isinstance(params, dict):
+        out_d: Dict = {}
+        for key, value in params.items():
+            child = "%s.%s" % (_path, key) if _path else str(key)
+            out_d[key], s, u = substitute_mission_params(value, store, child)
+            subs.extend(s)
+            unresolved.extend(u)
+        return out_d, subs, unresolved
+    if isinstance(params, list):
+        out_l: List = []
+        for idx, value in enumerate(params):
+            child = "%s.%d" % (_path, idx) if _path else str(idx)
+            new_value, s, u = substitute_mission_params(value, store, child)
+            out_l.append(new_value)
+            subs.extend(s)
+            unresolved.extend(u)
+        return out_l, subs, unresolved
+    new_value, s, u = substitute_handle_refs(params, store)
+    for row in s:
+        subs.append({"arg": _path, "ref": row["ref"], "value": row["value"]})
+    for row in u:
+        unresolved.append({"arg": _path, "ref": row["ref"], "kind": row["kind"],
+                           "reason": row["reason"]})
+    return new_value, subs, unresolved
+
+
+def handle_ref_step_index(ref: str, step_labels: Dict[str, int],
+                          step_count: int) -> Optional[int]:
+    """The zero-based step index a ``<ref>`` names -- a declared label first, then
+    the index-derived harness id -- or None when it names neither.
+
+    Label wins over id by construction rather than by tie-break: a label cannot
+    start with a digit (HANDLE_LABEL_RE), so the two namespaces are disjoint."""
+    if ref in step_labels:
+        return step_labels[ref]
+    for i in range(step_count):
+        if step_id_for_index(i) == ref:
+            return i
+    return None
+
+
+def _walk_mission_param_strings(params, _path: str = "") -> List[Tuple[str, str]]:
+    """Every STRING leaf of a missionParams block as ``(dotted path, value)``.
+
+    The read-only twin of ``substitute_mission_params``' walk: validate_spec needs
+    the same leaves the substitution will touch, and deriving them from one shape
+    definition is what keeps the STATIC tier from validating a set of leaves the
+    RUNTIME tier does not substitute (or the reverse)."""
+    out: List[Tuple[str, str]] = []
+    if isinstance(params, dict):
+        for key, value in params.items():
+            child = "%s.%s" % (_path, key) if _path else str(key)
+            out.extend(_walk_mission_param_strings(value, child))
+        return out
+    if isinstance(params, list):
+        for idx, value in enumerate(params):
+            child = "%s.%d" % (_path, idx) if _path else str(idx)
+            out.extend(_walk_mission_param_strings(value, child))
+        return out
+    if isinstance(params, str):
+        out.append((_path, params))
+    return out
+
+
+def handle_ref_fault(ref: str, consumer_index: int, steps: Sequence[Dict],
+                     step_labels: Dict[str, int]) -> str:
+    """The STATIC fault in one ``<ref>`` read at ``consumer_index``, or "" when the
+    reference is sound. One definition, used for both step args and missionParams,
+    so the two consumers cannot drift on which references are legal.
+
+    ``consumer_index`` is the index the reference must be strictly EARLIER than:
+    the consuming step's own index for a step arg, the MISSION step's index for a
+    missionParams leaf. The four faults are the four a TOML author can make, and
+    every one of them is a KSP boot saved."""
+    target = handle_ref_step_index(ref, step_labels, len(steps))
+    if target is None:
+        return ("%r names no step label and no harness step id in this spec"
+                % ref)
+    if target >= consumer_index:
+        return ("%r names driver.steps[%d], which is not EARLIER than this "
+                "reference; a payload exists only once its step has answered"
+                % (ref, target))
+    ref_step = steps[target] or {}
+    if ref_step.get("phase") == "mission":
+        return ("%r names driver.steps[%d], a mission-phase step: it writes "
+                "nothing to the seam channel and has no response payload"
+                % (ref, target))
+    expect = ref_step.get("expect", "OK")
+    if expect != "OK":
+        return ("%r names driver.steps[%d] whose expect is %r; only a verdict=OK "
+                "step captures a payload, so this reference can never resolve"
+                % (ref, target, expect))
+    return ""
 
 
 # ---------------------------------------------------------------------------
@@ -1516,12 +1896,26 @@ SWITCHCLICK_SITE_VALUES: Tuple[str, ...] = ("map", "ts", "ksc")
 RUNTESTS_STRICT_KEY = "strict"
 RUNTESTS_STRICT_VALUES: Tuple[str, ...] = ("true", "false")
 
+# R10 `ListHandles kind=`: WHICH handle family to enumerate. Closed and
+# case-sensitive like the three above (`TestCommandListHandles.ParseKind` is the
+# LoadGame `scene=` parse verbatim), and additionally REQUIRED - it is the only
+# closed arg in this table with no default on either side. The seam answers
+# `REJECTED kind-arg-missing` when it is absent and `REJECTED kind-arg-invalid`
+# on any other spelling, so all three faults (a case-variant KEY, the arg on a
+# verb that does not read it, a value outside the set) plus the absence cost a
+# whole KSP boot to discover unless they are caught here. The REQUIRED half is
+# enforced separately in validate_spec, because this table models CLOSED values
+# and a missing key is not a value.
+LISTHANDLES_KIND_KEY = "kind"
+LISTHANDLES_KIND_VALUES: Tuple[str, ...] = ("rewindpoints", "committed", "active")
+
 # arg key -> (the ONLY verb that reads it, its closed value set). Iterated by
-# validate_spec, so a third such arg is one row rather than a third copied block.
+# validate_spec, so a fourth such arg is one row rather than a fourth copied block.
 VERB_SCOPED_CLOSED_ARGS: Dict[str, Tuple[str, Tuple[str, ...]]] = {
     LOADGAME_SCENE_KEY: ("LoadGame", LOADGAME_SCENE_VALUES),
     SWITCHCLICK_SITE_KEY: ("SimulateStockSwitchClick", SWITCHCLICK_SITE_VALUES),
     RUNTESTS_STRICT_KEY: ("RunTests", RUNTESTS_STRICT_VALUES),
+    LISTHANDLES_KIND_KEY: ("ListHandles", LISTHANDLES_KIND_VALUES),
 }
 
 
@@ -3346,6 +3740,44 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
                     "driver.steps[0] LoadGame save=%r must be '%s' or runSaveName %r"
                     % (save_arg, RUN_SAVE_TOKEN, run_save_name))
 
+    # R10 STATIC tier, pass 1 of 2: collect the step LABELS a ${ref.field} may name.
+    # A separate pass because a reference must resolve against the WHOLE label set to
+    # tell "no such label" (a typo) from "a label declared LATER" (a forward
+    # reference); reading them inline would report every forward reference as unknown
+    # and send the author looking for a missing step.
+    step_labels: Dict[str, int] = {}
+    for i, step in enumerate(steps):
+        step = step or {}
+        if STEP_LABEL_KEY not in step:
+            continue
+        label = step.get(STEP_LABEL_KEY)
+        if step.get("phase") == "mission":
+            errors.append(
+                "driver.steps[%d].%s: a mission-phase step writes nothing to the seam "
+                "channel and has no response payload, so nothing can ever reference it"
+                % (i, STEP_LABEL_KEY))
+            continue
+        if not isinstance(label, str) or not HANDLE_LABEL_RE.match(label):
+            errors.append(
+                "driver.steps[%d].%s: %r must match %s (a label is the stable name a "
+                "${label.field} reference uses; it must start with a LETTER so it can "
+                "never collide with a harness step id)"
+                % (i, STEP_LABEL_KEY, label, HANDLE_LABEL_RE.pattern))
+            continue
+        if label == "runSave":
+            errors.append(
+                "driver.steps[%d].%s: %r is reserved -- %s is the run-save token and "
+                "is the only dot-less ${} form"
+                % (i, STEP_LABEL_KEY, label, RUN_SAVE_TOKEN))
+            continue
+        if label in step_labels:
+            errors.append(
+                "driver.steps[%d].%s: %r is already declared by driver.steps[%d]; a "
+                "label must be unique per spec or a reference is ambiguous"
+                % (i, STEP_LABEL_KEY, label, step_labels[label]))
+            continue
+        step_labels[label] = i
+
     run_tests_steps = 0
     run_tests_selector: Optional[str] = None
     mission_step_indices: List[int] = []
@@ -3447,6 +3879,32 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
                     "is fail-closed and CASE-SENSITIVE, so any other spelling is a "
                     "typed REJECTED that costs a whole KSP boot to discover."
                     % (i, arg_key, raw, " or ".join(repr(v) for v in allowed)))
+        # R10: `kind=` is REQUIRED on ListHandles, which is what makes it different
+        # from every other row in VERB_SCOPED_CLOSED_ARGS (those are optional args
+        # with a defined default on the C# side). The seam REJECTS a kind-less call
+        # `kind-arg-missing`, so without this the omission costs a whole KSP boot.
+        if cmd == "ListHandles" and LISTHANDLES_KIND_KEY not in step_args:
+            errors.append(
+                "driver.steps[%d].args.%s: ListHandles REQUIRES it (one of %s). The "
+                "verb enumerates ONE handle family and has no default family, so the "
+                "seam answers REJECTED kind-arg-missing."
+                % (i, LISTHANDLES_KIND_KEY,
+                   " or ".join(repr(v) for v in LISTHANDLES_KIND_VALUES)))
+        # R10 STATIC tier, pass 2 of 2: every ${ref.field} in this step's args must
+        # be well-formed AND name an EARLIER seam step that expects OK. A fault here
+        # would otherwise put a literal ${...} on the wire, where the seam resolves an
+        # object with that name and REJECTS it after a whole boot.
+        for arg_key, arg_value in sorted(step_args.items(),
+                                         key=lambda kv: str(kv[0])):
+            for token, reason in find_malformed_handle_tokens(arg_value):
+                errors.append(
+                    "driver.steps[%d].args.%s: %r is a malformed ${} token (%s); a "
+                    "token that does not parse is forwarded VERBATIM to the seam"
+                    % (i, arg_key, token, reason))
+            for _token, ref, _field in find_handle_refs(arg_value):
+                fault = handle_ref_fault(ref, i, steps, step_labels)
+                if fault:
+                    errors.append("driver.steps[%d].args.%s: %s" % (i, arg_key, fault))
         if cmd in RESERVED_SEAM_VERBS:
             errors.append("driver.steps[%d].cmd: %r is RESERVED, not v1-drivable" % (i, cmd))
         elif cmd not in IMPLEMENTED_SEAM_VERBS:
@@ -3789,6 +4247,21 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
         # schema only when it is injected (see _validate_mission_params).
         mission_schema = (mission_schemas or {}).get(mission) if isinstance(mission, str) else None
         errors.extend(_validate_mission_params(driver.get("missionParams", {}) or {}, mission_schema))
+        # R10 STATIC tier over [driver.missionParams]. Same two checks as a step arg,
+        # with the consumer index being the MISSION step's: params are substituted
+        # immediately before spawn_mission, so any seam step BEFORE the handoff is a
+        # legal source and any step after it (or the handoff itself) is not.
+        mission_index = mission_step_indices[0] if mission_step_indices else len(steps)
+        for path, value in _walk_mission_param_strings(driver.get("missionParams", {}) or {}):
+            for token, reason in find_malformed_handle_tokens(value):
+                errors.append(
+                    "driver.missionParams.%s: %r is a malformed ${} token (%s); a "
+                    "token that does not parse is handed to the mission VERBATIM"
+                    % (path, token, reason))
+            for _token, ref, _field in find_handle_refs(value):
+                fault = handle_ref_fault(ref, mission_index, steps, step_labels)
+                if fault:
+                    errors.append("driver.missionParams.%s: %s" % (path, fault))
     else:
         # A mission-kind step only belongs under an autopilot driver.
         for mi in mission_step_indices:
@@ -6355,7 +6828,12 @@ def classify_verdict(driver: Dict, verifiers: Dict, expected_fail: Dict,
         base = V(VERDICT_PARSEK_FAIL, "batch-crashed", "post-boot self-exit aborted the batch")
     elif not driver.get("valid", True):
         subkind = driver.get("stage_subkind", "driver-stage")
-        base = V(VERDICT_INVALID, subkind, "driver stage failed", retryable=True)
+        # R10 carve-out: an unresolved ${step.field} is the ONE driver-stage failure a
+        # retry cannot change. Every other one is a timing / gate / world-state fault a
+        # second boot might clear; this one says the verb answered OK and does not emit
+        # that field, which is a property of the build, not of the run.
+        base = V(VERDICT_INVALID, subkind, "driver stage failed",
+                 retryable=(subkind != DRIVER_UNRESOLVED_HANDLE_SUBKIND))
     elif verifiers.get("batch_expected", False) and not verifiers.get("batch_present", True):
         base = V(VERDICT_PARSEK_FAIL, "batch-crashed", "expected BATCH_COMPLETE absent")
     elif verifiers.get("tooling_invalid", False):

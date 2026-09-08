@@ -73,8 +73,13 @@ max = 1000
 # The InvokeRewind target. REQUIRED: ParsekTestCommandAddon.InvokeRewindImpl
 # matches RewindPoint.RewindPointId EXACTLY and answers REJECTED unknown-rp
 # otherwise, so an absent id can only ever produce a rejected verb. mlib's
-# R1Params carries "" / -1 UNREAD sentinels so the machine ALSO fails closed on
-# frame 1 (`rewind-target-unresolved`) if a future caller bypasses this schema.
+# R1Params carries a -1 UNREAD sentinel on the SLOT so the machine ALSO fails
+# closed on frame 1 (`rewind-target-unresolved`) if a future caller bypasses this
+# schema. The ID no longer carries one (R10): an EMPTY rewindPointId is the legal
+# spelling of "resolve it at runtime" - the RESOLVE phase issues
+# `ListHandles kind=rewindpoints` and folds the selected member's live Guid into
+# InvokeRewind. Still `required = true`, because a spec must SAY which of the two
+# modes it wants rather than getting one by omission.
 [params.rewindPointId]
 required = true
 type = "string"
@@ -83,6 +88,24 @@ type = "string"
 required = true
 type = "int"
 min = 0
+
+# WHICH member of the ListHandles enumeration the RESOLVE phase picks. Read ONLY
+# when rewindPointId is empty; ignored otherwise. "last" (the default) is
+# rp<count-1> - RewindPoints are in APPEND order, so that is the NEWEST, the one a
+# just-flown ascent authored. "first" is rp0. Any other spelling is a frame-1
+# give-up, never a silent fallback to a member the author did not choose.
+[params.rewindPointSelect]
+required = false
+type = "string"
+
+# RESOLVE's frame bound, sized like the other post-ascent phases above and for the
+# same reason (a game-time budget cannot bound a phase whose clock may run
+# backward).
+[params.resolveFrames]
+required = false
+type = "int"
+min = 1
+max = 10000
 
 # FRAME budgets for the post-ascent phases. Frames, NOT game seconds: past the
 # rewind the game clock runs BACKWARD, so a `ut - phase_entry_ut` budget can never
