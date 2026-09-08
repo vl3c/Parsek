@@ -624,6 +624,48 @@ lose the run-happened evidence; it only moves it out of the findings list.
   on every save that carries it without gating a lane; promote to FAIL when the two
   relay fixtures are re-harvested. Adding the rule does NOT bump `AnalyzerVersion`
   (that moves only on an `.analysis.json` schema change).
+- **INV12 split-closed slot** (`RuleId INV12-SPLIT-CLOSED-SLOT`). A chain whose
+  HEAD is `CommittedProvisional` while its terminal-carrying TIP is `Immutable`.
+  That pair is the on-disk residue of
+  OPTIMIZER-SPLIT-DROPS-MERGESTATE-AND-CLOSES-AN-OPEN-REFLY-SLOT (fixed 2026-09-08,
+  PR #1658): `MergeDialog.MergeCommit` promotes a re-flyable slot's tip to
+  `CommittedProvisional` and only THEN runs `RecordingStore.RunOptimizationPass()`;
+  when the phase-change split cut the just-promoted recording,
+  `RecordingOptimizer.TransferTerminalFieldsToSecondHalf` moved the terminal onto a
+  brand-new chain TIP but not the `MergeState`, and `Recording.MergeState` defaults
+  to `Immutable`. Open/closed is read from that tip
+  (`UnfinishedFlightClassifier.IsSlotEffectiveTipOpen`), so the slot silently closed,
+  drew no Unfinished Flights row, and `RewindPointReaper` deleted its rewind-point
+  quicksave permanently. One finding per chain, naming chain, head, tip, both
+  MergeStates, both terminals and the member count. Pure over the model, so it is in
+  the in-game H5 subset too. CitedContract:
+  `RecordingOptimizer.TransferTerminalFieldsToSecondHalf` /
+  `UnfinishedFlightClassifier.IsSlotEffectiveTipOpen`.
+
+  **Why the rule is chain-shaped and not RewindPoint-shaped.** The damage destroys
+  the evidence a slot-keyed rule would need: the reaper removes the RP, so the
+  harvested subject (`harness/fixtures/saves/refly-a-recorded`) carries no
+  `REWIND_POINTS` node at all. The offline model does not load scenario RewindPoints
+  in any case (see INV9). The chain HEAD/TIP pair is the surviving witness, and it is
+  sufficient: `MergeState.CommittedProvisional` is written only by
+  `RecordingStore.ApplyRewindProvisionalMergeStates` over RewindPoint slot tips, so a
+  `CommittedProvisional` HEAD IS a slot origin whether or not the RP still exists.
+  Chains whose tip is superseded are excluded - after a Re-Fly merge the slot's
+  effective tip is the fork, not this chain.
+
+  **WARN, not FAIL, and `RED=` stays 0 on it.** The producer no longer emits the
+  shape (the carry landed 2026-09-08), so a FAIL would gate on history rather than on
+  a live defect; saves that predate the fix legitimately carry it and there is no
+  migration; and baselining is structurally unavailable on the harness path (verifier
+  and CI fixture floor both run `BaselineMode.Forbid`, where a `baseline.cfg` beside
+  the save is itself a FAIL). Since the harness runs the analyzer over every produced
+  save, a WARN here is the standing regression net for a future producer that starts
+  closing slots again. Promote to FAIL if a produced save from a current build ever
+  carries it - that would itself be the regression. Adding the rule does NOT bump
+  `AnalyzerVersion` (same terms as INV11). Corpus reading on the day it shipped:
+  `refly-a-recorded` WARNs exactly once (`head=32ca5546... CommittedProvisional /
+  SubOrbital`, `tip=8da7c2c2... Immutable / Destroyed`, `RED=0`) and `bdock-recorded`
+  is silent.
 
 ### Fixture versioning
 

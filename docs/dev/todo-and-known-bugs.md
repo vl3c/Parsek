@@ -211,6 +211,19 @@ sidecars deleted in the finally block); it skips when a re-fly session is live, 
 `RunOptimizationSplitPass` deliberately defers the split of the active provisional
 recording. `Rewind`'s tally moved 38 -> 39: R7a `passed=16 -> 17`, R7c `skipped=32 -> 33`.
 
+Standing regression net across saves, added 2026-09-09: the analyzer rule
+`INV12-SPLIT-CLOSED-SLOT` (`Source/Parsek/Analyzer/Rules/Inv12SplitClosedSlot.cs`,
+registered in both `InvariantRegistry.AllRules` and `InGamePureCoreRules`, so the
+in-game `RecordingInvariants` category runs it too) WARNs on the shape's on-disk
+residue - a chain whose HEAD is `CommittedProvisional` and whose terminal-carrying TIP
+is `Immutable`. Chain-shaped rather than RewindPoint-shaped because the damage DESTROYS
+the RP: the harvested subject `refly-a-recorded` has no `REWIND_POINTS` node at all.
+WARN, not FAIL, and `RED=` stays 0: no current build produces the shape, pre-fix saves
+legitimately carry it with no migration, and baselining is unavailable on the
+`BaselineMode.Forbid` harness path. Corpus reading: `refly-a-recorded` WARNs once
+(`head=32ca5546... CP/SubOrbital`, `tip=8da7c2c2... Immutable/Destroyed`, `RED=0`),
+`bdock-recorded` silent.
+
 No committed harness spec pins `reason=sealedTipClosed`.
 
 ## REFLY-QUALIFY-AND-TIP-WALKS-DISAGREE-ACROSS-SWITCH-CONTINUATIONS: "does this slot qualify" and "is its tip open" are answered over DIFFERENT recording sets, so a slot whose flight continued through a `VesselSwitchContinuation` can qualify on one walk and resolve its tip on another [FOUND 2026-09-08 while forensically reading session `2026-09-08_2317_refly-a-manual`; NOT the cause of that session's closure and not fixed with it]

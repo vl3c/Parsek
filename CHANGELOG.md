@@ -10,6 +10,21 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Automated testing: the recording analyzer now names a re-fly slot that was
+  closed by a split rather than by anyone sealing it.** When the optimizer used to cut
+  a flight in two it moved the flight's ending onto the later half without the flag
+  that says the half is still re-flyable, and everything that asks "can this be flown
+  again" reads the later half - so the answer silently became no and the rewind point
+  was deleted. The producer was fixed, but saves written before the fix carry the
+  damage forever, and the only trace left is the pair of halves: an open earlier half
+  followed by a sealed one that holds the ending. The analyzer now reports that pair
+  on any save it reads, one line per flight, naming both halves and both states. It
+  reports rather than fails: no current build produces the shape, older saves
+  legitimately carry it, and the run's red flag stays clear. Since every automated run
+  analyzes the save it produced, this is the standing net for a future change that
+  starts closing slots again. Read on the corpus the day it shipped: the harvested save
+  of the original session reports it once, and the docking fixture is silent.
+
 - **Automated testing: the optimizer-split regression that silently closed a re-fly
   slot now has an in-game cell that drives the real optimizer pass.** The fix that
   carries a recording's merge state onto the half the terminal moves to was proven
