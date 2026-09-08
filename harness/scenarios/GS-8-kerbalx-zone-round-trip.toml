@@ -108,7 +108,7 @@ id = "GS-8-kerbalx-zone-round-trip"
 #
 # ROUND 2 FLOWN GREEN, `2026-09-08_1225_GS-8-kerbalx-zone-round-trip`: PASS attempt 1,
 # 645 s wall, every verifier PASS/SKIPPED/REPORT, expectations mismatches=0 on all
-# 22 required tokens, ghostLifecycle spawned=8 spawnLines=8 destroyLines=8
+# 21 required tokens, ghostLifecycle spawned=8 spawnLines=8 destroyLines=8
 # unbalanced=0 malformed=0 - the census of run 1 repeated exactly. The ladder,
 # measured on the parent: `Physics->Visual dist=10000m`, `Mesh torn down ...
 # renderDist=55004m`, the prewarm rebuild at 57679 m, `Visual->Beyond dist=120006m`,
@@ -122,7 +122,7 @@ id = "GS-8-kerbalx-zone-round-trip"
 # THREE-RUN DISCIPLINE DISCHARGED THE SAME DAY: armed re-flight
 # `2026-09-08_1239_GS-8-kerbalx-zone-round-trip` PASS attempt 1 (645 s wall,
 # `ghostLifecycle status=PASS gating=True armed=['ghostLifecycle'] spawned=8/8/8
-# unbalanced=0`, all 22 tokens matched); negative control `2026-09-08_1249` with the
+# unbalanced=0`, all 21 tokens matched); negative control `2026-09-08_1249` with the
 # single mutation `spawned = { min = 9 }` (uncommitted, reverted in place) red
 # PARSEK-FAIL(ghost-lifecycle) attempt 1 on exactly that window with every other
 # verifier green - so the armed gate reds on ITSELF and on nothing else.
@@ -137,9 +137,15 @@ id = "GS-8-kerbalx-zone-round-trip"
 #     refusals until `watchEntryRetryFrames`, then the playback wait runs unwatched and
 #     the `enterwatchmode complete` + rebuild tokens red - re-pin the lead earlier;
 #   - the watch window closes (the recording ends before the lead): same red, re-pin;
-#   - the shared 5 s rate limit swallows the Beyond crossing line because a booster
-#     transition landed inside the window: impossible by timing (boosters are gone by
-#     ~+80 s) and would leave `Mesh torn down` as the surviving witness.
+#   - the shared 5 s rate limit (`RenderingZoneManager`, key `zone-transition`)
+#     swallows a required zone line. This is NOT impossible: both green logs print
+#     `Beyond->Physics dist=1m | suppressed=1`, so one zone line WAS swallowed inside
+#     the window, and the collider is the probe child's own tier entry (`Ghost #7
+#     "Kerbal X Probe" visuals rebuilt (... entered visible distance tier)` 2 ms later
+#     on the same frame), not a booster. The required tokens survive because the parent
+#     is index 0 and is iterated first, which is an ORDER dependency: an engine
+#     iteration-order change would red this lane (a false negative, never a false
+#     pass), and `Mesh torn down` on its per-index key stays the safe witness.
 # =====================================================================================
 tier = "operator"
 description = "Zone round trip: staged Kerbal X ascent with a longer core burn, committed, Rewound-to-Launch, replayed UNWATCHED past the 120 km visual range from a pad watcher (Visual->Beyond transition, mesh torn down), then WATCHED late so the render reference re-centres on the ghost (visuals rebuilt, Beyond->Physics), with the ghost-lifecycle balance holding across the round trip."

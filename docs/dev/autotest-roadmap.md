@@ -3441,7 +3441,7 @@ first spawn frame (hold-then-retry, never a single eager ask).
    **DONE 2026-09-08: `GS-8-kerbalx-zone-round-trip` is FLOWN GREEN AND ARMED.**
    Four flights in one afternoon: reading run `2026-09-08_1119` (PARSEK-FAIL on
    the late watch, and the measurement that the mesh hide is the 50 km distance
-   LOD, not the 120 km zone step), round 2 `_1225` (PASS attempt 1, all 22 tokens,
+   LOD, not the 120 km zone step), round 2 `_1225` (PASS attempt 1, all 21 tokens,
    the ladder measured at 10000 m / 55004 m torn down / 120006 m Beyond / watch
    rebuild `watch mode requested` / `Beyond->Physics dist=1m`), armed re-flight
    `_1239` (PASS, gate live) and negative control `_1249` (`spawned = {min 9}`,

@@ -20648,28 +20648,30 @@ def evaluate_m3_assertions(frames, params: M3Params, phases_reached=(),
 # object with no parachute, and it reaches the ground without the machine doing
 # anything further.
 #
-# THE CRASH HAS TO HAPPEN FAR FROM THE PAD, and that is the ONE constraint the
-# phase graph is shaped by. An earlier revision diverged at the LAST BOOSTER DROP
-# (cut there, never throttle up), which left the stack falling back within
-# 330-374 m of the pad - measured on runs 2026-09-08_1130 / _1157_a2 and
-# 2026-09-08_1302 / _1331_a2. A fragment landed AT the launch site trips KSP's own
-# pre-flight gate: `PreFlightTests.LaunchSiteClear.Test()` reads persistent.sfs
-# through `ShipConstruction.FindVesselsLandedAt(flightState, siteName, ...)`,
-# raises the obstruction dialog and WAITS FOR A HUMAN, so kRPC's `LaunchVessel`
-# yields on `WaitForVesselPreFlightChecks` forever - from ANY scene, the Space
-# Center and the post-crash FLIGHT scene alike. THE SCENE WAS NEVER THE BLOCKER:
-# GS-4's own post-rewind WATCHER-LAUNCH is a kRPC launch issued from SPACECENTER
-# and has worked on every GS-4 / GS-6 flight, because the rewind restores a clean
-# pad. Falling from the core-discard apoapsis (~60 km) puts the impact 50 km or
-# more downrange instead, which is what keeps the pad clear for TEMP-LAUNCH.
+# THE CRASH HAPPENS FAR FROM THE PAD, and the history of that choice matters more
+# than the choice. An earlier revision diverged at the LAST BOOSTER DROP (cut
+# there, never throttle up), which left the stack falling back within 330-374 m
+# of the pad - measured on runs 2026-09-08_1130 / _1157_a2 and 2026-09-08_1302 /
+# _1331_a2 - and the launch that followed hung. The first hypothesis was the pad
+# (KSP's `PreFlightTests.LaunchSiteClear.Test()` waiting on an obstruction dialog
+# nobody dismisses). Moving the cut to the core discard (73 km downrange, runs
+# 2026-09-08_1429 / _1503_a2) REFUTED it: only the launch clamps sat at the pad and
+# the launch hung the same way (`LaunchSiteClear` waves Debris through anyway).
+# The blocker is the ROSTER, in the crew paragraph below. The far crash is KEPT
+# because it is the shape every green flight flew and the shape GS-7's tokens are
+# cut to, not because the pad needs it; the scene was never the blocker either
+# (TEMP-LAUNCH is the kRPC launch GS-4's post-rewind WATCHER-LAUNCH issues from
+# SPACECENTER on every flight).
 #
 # THE DISARM PRECEDES THE IMPACT, and it is FATAL rather than advisory. When the
 # stack breaks up KSP hands the active vessel to a SURVIVING FRAGMENT, and with
 # `autoRecordOnLaunch` still armed Parsek opens a NEW recording tree on it
 # (measured: `StartRecording: clearing stale chain state without active tree`,
 # on a fragment whose tree was then purged when it died in turn). The exit gate
-# this lane pins reads `hasActiveTree=false`, so a fragment recording can refuse
-# the exit outright, and either way it pollutes the very save the spec's log
+# this lane pins reads the tree state (`hasActiveTree=false hasPendingTree=true` on
+# the stash shape, `hasActiveTree=true hasPendingTree=false` on the pending-split
+# shape), so a fragment recording can refuse the exit outright, and either way it
+# pollutes the very save the spec's log
 # contracts read. IMPACT-AUTORECORD-OFF therefore sends the SAME SetSetting pair
 # the post-rewind AUTORECORD-OFF phase sends, on the frame after the tree id is
 # captured and before the fall; a non-OK is FATAL for that phase's reason exactly.
@@ -20709,8 +20711,13 @@ def evaluate_m3_assertions(frames, params: M3Params, phases_reached=(),
 # sets `preFlightChecksComplete`. The recorded Kerbal X carries the RC-L01
 # `probeStackLarge` (`minimumCrew = 0`) and launches unattended, which is why the
 # throwaway is IT and TEMP-READY reads the ROLLOUT's expected name and situations
-# back. GS-4's own post-rewind watcher launch is unaffected: the rewind restores
-# the roster before it runs.
+# back. THE REWIND DOES NOT REFILL THE POOL (measured on GS-7 round 4, runs
+# 2026-09-08_1627 / _a2: throwaway launched, rewind complete, then the Flea hung on
+# the identical `NoControlSources` line): the `parsek_rw_*` quicksave carries the
+# crew aboard the recorded craft, the strip reserves them and the ledger keeps them
+# dead, and `CrewReservationManager.ReserveCrewIn` hires the stand-in GS-4's Flea
+# flies on only for LIVING reserved crew. A spec that turns this profile on must
+# therefore also name a probe-cored `watcherCraftName`.
 # There is no save-and-reload leg: nothing between the arrival's in-memory commit
 # and the rewind ever reads a .sfs, because the rewind is commanded in the SAME
 # process the commit landed in.
@@ -22251,7 +22258,7 @@ def kxrw_decide(state: KxrwState,
                     # break-up hands active-vessel to a surviving fragment, and
                     # with `autoRecordOnLaunch` still armed Parsek opens a second
                     # recording tree on it - which can refuse the exit this lane
-                    # depends on (`hasActiveTree=false`) and pollutes the save the
+                    # depends on (the gate pins the tree state) and pollutes the save the
                     # spec's log contracts read. It could not have gone out any
                     # EARLIER: the same setting is what started this flight's own
                     # recording at the PRELAUNCH click.
@@ -22435,8 +22442,8 @@ def kxrw_decide(state: KxrwState,
     # A SURVIVING FRAGMENT INHERITS ACTIVE-VESSEL when the stack comes apart, and
     # with `autoRecordOnLaunch` still armed Parsek starts a recording on it
     # (measured: `StartRecording: clearing stale chain state without active tree`).
-    # That second tree can refuse this lane's own exit (the gate reads
-    # `hasActiveTree=false`) and lands in the save the spec's log contracts read,
+    # That second tree can refuse this lane's own exit (the gate pins the tree
+    # state, both crash shapes) and lands in the save the spec's log contracts read,
     # so the disarm is a PRECONDITION of everything below it rather than a
     # courtesy. It cannot run any earlier: the same setting is what auto-started
     # this flight's recording at the PRELAUNCH click.
@@ -22621,8 +22628,9 @@ def kxrw_decide(state: KxrwState,
     # because only that check's own callback sets `preFlightChecksComplete`. The
     # recorded Kerbal X carries the RC-L01 `probeStackLarge` (`minimumCrew = 0`),
     # so it is a control source with an empty manifest and launches unattended.
-    # GS-4's post-rewind WATCHER-LAUNCH is untouched by this: the rewind restores
-    # the roster before that launch runs.
+    # The rewind does NOT refill the pool (GS-7 round 4, runs 2026-09-08_1627 /
+    # _a2: the Flea hung on the same line after a completed rewind), so the
+    # post-rewind WATCHER-LAUNCH needs a probe-cored `watcherCraftName` too.
     #
     # SO THE PHASE REUSES THE ROLLOUT'S OWN DECLARATIONS - `craft_name`, its
     # expected vessel name, its situations and its debounce - because it launches

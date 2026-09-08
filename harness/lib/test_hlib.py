@@ -11310,11 +11310,12 @@ class GhostLifecycleVerifierWiringTests(unittest.TestCase):
         #     than at teardown. See SHOWCASE-LOOPFLAG-STRIPPED-AT-LOAD in
         #     docs/dev/todo-and-known-bugs.md.
         "S1.9-part-showcase-render.toml",
-        # The ghost-replay Tier A derivatives (2026-09-08), each REPORT-ONLY on
-        # authoring with GS-4's window shape: GS-7 declares spawned {min 7}
-        # (parent + six boosters; the crash profile never discards the core, so
-        # no probe child) and GS-8 spawned {min 8} (GS-4's census - the longer
-        # burn adds distance, not recordings). Both keep requireBalanced because
+        # The ghost-replay Tier A derivatives (2026-09-08), authored REPORT-ONLY
+        # with GS-4's window shape and ARMED the same day (see the armed roster):
+        # GS-7 declares spawned {min 8} (parent + six boosters + the probe child
+        # the far-crash profile discards before the fall) and GS-8 spawned {min 8}
+        # (GS-4's census - the longer burn adds distance, not recordings). Both
+        # keep requireBalanced because
         # the balance IS the claim each lane makes about its round trip (the
         # explosion hold's derender, the zone teardown/rebuild); arming follows
         # the reading runs through GHOSTLIFE_ARMED_SPECS.

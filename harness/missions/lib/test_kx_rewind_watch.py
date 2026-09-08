@@ -1861,14 +1861,15 @@ class ImpactProfileTests(unittest.TestCase):
 
     THE ASCENT IS NOT PART OF THE BRANCH, and that is the shape the measured
     flights bought. An earlier revision diverged at the LAST BOOSTER DROP (cut
-    there, never throttle up) and the stack fell back within 330-374 m of the pad;
-    a fragment landed AT the launch site trips KSP's own
-    `PreFlightTests.LaunchSiteClear.Test()`, which reads persistent.sfs through
-    `ShipConstruction.FindVesselsLandedAt` and waits on a dialog nobody dismisses -
-    so kRPC's `LaunchVessel` yields on `WaitForVesselPreFlightChecks` forever, from
-    EVERY scene. The profile therefore runs the ordinary ascent, discards the
-    fueled core the ordinary way, and lets the unpowered pod stack fall from ~60 km
-    onto ground 50 km or more downrange.
+    there, never throttle up) and the stack fell back within 330-374 m of the pad,
+    and the launch that followed hung; the pad hypothesis (KSP's
+    `PreFlightTests.LaunchSiteClear.Test()` waiting on an obstruction dialog) was
+    REFUTED by the far crash of runs 2026-09-08_1429 / _1503_a2, which hung the
+    same way with only the clamps at the pad - the blocker is the post-crash EMPTY
+    ROSTER, answered by probe-cored launches. The profile keeps the far shape
+    because it is the shape every green flight flew: it runs the ordinary ascent,
+    discards the fueled core the ordinary way, and lets the unpowered pod stack
+    fall from ~60 km onto ground 50 km or more downrange.
 
     THE PRODUCT FACTS THE REST OF THE BRANCH IS SHAPED BY. Parsek does NOT commit a
     tree in flight once the active vessel is destroyed:
@@ -1971,11 +1972,13 @@ class ImpactProfileTests(unittest.TestCase):
         self.assertEqual([], [a for a in acts if a.seam_verb])
 
     def test_the_last_drop_throttles_back_up_with_the_key_on_too(self):
-        """THE MEASURED CONSTRAINT, as a one-frame pin. MUTATION: restore the old
-        branch (cut here, no throttle-up, straight to TREE-STATE) and the stack
-        falls back onto the pad - after which KSP's LaunchSiteClear pre-flight
-        check blocks every later kRPC launch, in every scene, which is what killed
-        runs 2026-09-08_1130 / _1157_a2 and _1302 / _1331_a2."""
+        """THE FLOWN SHAPE, as a one-frame pin. MUTATION: restore the old branch
+        (cut here, no throttle-up, straight to TREE-STATE) and the stack falls
+        back within 330-374 m of the pad (runs 2026-09-08_1130 / _1157_a2 and
+        _1302 / _1331_a2), the slow near-vertical impact whose crash shape
+        (`type=Breakup, cause=CRASH`, the stash path) GS-7's tokens are NOT cut
+        to. Those runs hung on the roster, not the pad (see the class docstring);
+        the pin keeps the far shape the green flights measured."""
         st, acts = self._to_last_drop(**self.IMPACT)
         self.assertEqual([mlib.ACTION_ACTIVATE_STAGE, mlib.ACTION_SET_THROTTLE],
                          kinds(acts))

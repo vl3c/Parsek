@@ -166,7 +166,7 @@ id = "GS-7-kerbalx-crash-watch-hold"
 #   auto-commit (`recordings=8 spawnable=0`); `listhandles kind=committed count=8`. It
 #   also measured two `Debris TTL expired, ending recording` lines (expiry=125.6) -
 #   the unpowered stack kept its boosters in the physics bubble past the 60 s TTL, the
-#   first flight anywhere to reach that exit. The far profile forfeits that reading
+#   first of this lane's flights to reach that exit. The far profile forfeits that reading
 #   (the powered ascent leaves the boosters behind, as GS-4's does); D5
 #   `staging-debris-ttl` is therefore OBSERVED here, not claimed, and the close-crash
 #   variant is the cheap lane for it once the pad-clearance obstruction has a driver
@@ -203,8 +203,9 @@ id = "GS-7-kerbalx-crash-watch-hold"
 #   ROUND 5 `2026-09-08_1711`, THE READING RUN: MISSION-OK attempt 1, 766 s wall,
 #   PARSEK-FAIL(expectations) on exactly ONE of the 31 required tokens, the
 #   `childBpId=<hex>` guess (re-cut above to the measured `childBpId=null,
-#   supersedes=0`). MEASURED, end to end: GS-4's ascent (drops at UT 30.24 / 60.80 /
-#   62.98, core discard at 65.12 with the `Kerbal X Probe` child), the disarm at UT
+#   supersedes=0`). MEASURED, end to end: GS-4's ascent (the three launch clamps at
+#   UT 30.24, booster drops at 60.80 / 62.98 / 65.12, the core discard at 118.56 with
+#   the `Kerbal X Probe` child seeded at 119.08), the disarm at UT
 #   139.5, the 208 s fall to impact at UT 348.44 with the parent 73,174 m from the
 #   pad (`type=JointBreak, cause=DECOUPLE, debris=8`), `FinalizeTreeRecordings`
 #   `terminal=Destroyed` on the parent (1370 points), the probe (703) and all six
