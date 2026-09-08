@@ -1,0 +1,32 @@
+version = 1
+recordingSchemaGeneration = 4
+recordingId = rec_c54a110cecb542e5b848e4e9d7fbd920
+sidecarEpoch = 2
+sectionAuthoritative = False
+ORBIT_SEGMENT
+{
+	startUT = 131.87999999999366
+	endUT = 429.42600986837704
+	inc = 0.555539398833677
+	ecc = 0.893206983053325
+	sma = 367696.9313312702
+	lan = 27.011978562394518
+	argPe = 180.165646721043
+	mna = 2.050233950620993
+	epoch = 131.87999999999366
+	body = Kerbin
+	isPredicted = True
+	ofrX = 0.7959841
+	ofrY = 0.00173805992
+	ofrZ = 0.00403801445
+	ofrW = 0.6053016
+}
+PART_EVENT
+{
+	ut = 131.85999999999365
+	pid = 1592830016
+	type = 6
+	part = liquidEngine2-2.v2
+	value = 0
+	midx = 0
+}

@@ -43,6 +43,15 @@
 "eva2-lko-crewed" = ["Kerbal X"]
 "eva3-pad-3crew" = ["Kerbal X"]
 "gs1-two-stage-pad" = ["GS1 Auto-Chute Booster", "Kerbal X"]
+# RF-9's produced save, harvested. The row is INHERITED rather than chosen: the
+# fixture is a copy of what a `gs1-two-stage-pad` run left behind, so its
+# `Ships/VAB` held the same two craft and the harvester dropped them as already
+# library-owned. It launches NEITHER today - the lanes that will read it are seam
+# lanes over its committed recordings - but the row keeps the staged save identical
+# to the one the flight produced, which is the whole claim a harvested fixture
+# makes. Dropping it would make a future `launch_vessel` lane over this host fail
+# on a missing file rather than on anything it was written to measure.
+"refly-autopilot-recorded" = ["GS1 Auto-Chute Booster", "Kerbal X"]
 "gs2-orbital-stack" = ["GS1 Auto-Chute Booster", "Kerbal X"]
 # The FORGE-logi-pad harvest, and the row restores what the harvest dropped: the forge
 # ran over `bdock-forge-base`, whose four library craft arrive through THIS overlay

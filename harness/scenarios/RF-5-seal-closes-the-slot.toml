@@ -86,12 +86,20 @@ steps = [
   # deferral budget beyond the dispatch default; 120 matches the tree-mode calls V27M and
   # H58 already drive.
   { cmd = "SealSlot",     args = { rp = "${handles.rp0}", slot = "1" },         expect = "OK", budget = 120 },
-  # IDEMPOTENCE, one step and free: the verb answers OK with `alreadySealed=true` on a
-  # slot that is already closed. A seal that ERRORed on re-application would be a
-  # different verb from the one the design describes.
-  { cmd = "SealSlot",     args = { rp = "${handles.rp0}", slot = "1" },         expect = "OK", budget = 120 },
-  # THE REAP RUNS ON THE NEXT OnLoad - see the header. This reload is what makes the
-  # count below a measurement of the disk rather than of the response.
+  # RE-PINNED BY READING RUN 1 (2026-09-09), WHICH REFUTED THIS STEP'S PREMISE. It was
+  # written as an IDEMPOTENCE probe - the verb answering OK with alreadySealed=true on a
+  # slot that is already closed - resting on the header reading that slot-mode calls the
+  # two-argument TrySeal and so does not run the reaper. THE FLIGHT SAYS OTHERWISE: the
+  # first seal reaped the point INSIDE THE SAME CALL, one line before its own
+  # `sealslot complete`, so a second seal on that id can only answer `unknown-rp`.
+  # The step is KEPT AND INVERTED rather than deleted, because the rejection is now the
+  # strongest available proof that the point really left the STORE: an enumeration count
+  # can be read two ways, `unknown-rp` cannot. The comments-are-hypotheses rule paying
+  # for itself - the source reading was the hypothesis, the flight is the evidence.
+  { cmd = "SealSlot",     args = { rp = "${handles.rp0}", slot = "1" },         expect = "REJECTED", budget = 120 },
+  # THE REAP RAN INSIDE THE SEAL ITSELF (reading run 1), so what this reload measures
+  # now is that the point did not COME BACK - still worth its own step, and what the
+  # count below reads off the disk rather than off a response.
   { cmd = "LoadGame",     args = { save = "${runSave}", name = "persistent" },  expect = "OK", budget = 300 },
   { cmd = "StopRecording",                                                      expect = "OK" },
   { cmd = "ListHandles",  args = { kind = "rewindpoints" }, label = "after",    expect = "OK" },
@@ -114,7 +122,9 @@ count = { min = 2, max = 30 }
 [expectations.logContracts]
 # THE THREE-STEP ARGUMENT, each step a different surface:
 #   the seal happened      `sealslot complete mode=slot ... alreadySealed=False`
-#   it was idempotent      `sealslot complete mode=slot ... alreadySealed=True`
+#   what it DID            `Sealed slot=1 ... mergeState=CommittedProvisional->Immutable
+#                           terminal=Orbiting reaperImpact=willReap reaped=1`
+#   the point left the store `sealslot rejected reason=unknown-rp` on a second call
 #   the point left disk    `reaped=1 remaining=2` AND a re-enumeration reading `count=2`
 # The last pair is deliberately redundant: the summary proves the sweep took one, the
 # count proves nothing came back, and the two fail differently (a reaper that logged a
@@ -122,7 +132,8 @@ count = { min = 2, max = 30 }
 required = [
   "listhandles kind=rewindpoints count=3 truncated=false",
   "sealslot complete mode=slot rp=\\S+ slot=1 tip=\\S+ alreadySealed=False",
-  "sealslot complete mode=slot rp=\\S+ slot=1 tip=\\S+ alreadySealed=True",
+  "Sealed slot=1 rec=\\S+ bp=\\S+ rp=\\S+ tip=\\S+ mergeState=CommittedProvisional->Immutable terminal=Orbiting reaperImpact=willReap reaped=1",
+  "sealslot rejected reason=unknown-rp rp=\\S+",
   "ReapOrphanedRPs: reaped=1 remaining=2",
   "listhandles kind=rewindpoints count=2 truncated=false",
 ]
@@ -132,7 +143,8 @@ forbidden = [
   # the selector's own reject reasons, and `sealslot refused` is the handler declining to
   # flip a tip it could resolve - both are ERRORs or WARNs this lane must not produce, and
   # both are what a wrong `rp=` + `slot=` pair would produce first.
-  "sealslot rejected",
+  "sealslot rejected reason=unknown-slot",
+  "sealslot rejected reason=bad-",
   "sealslot refused",
   "sealslot tip-unresolvable",
   # The seal must take exactly ONE point, not the family.

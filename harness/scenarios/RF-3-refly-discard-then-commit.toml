@@ -162,13 +162,25 @@ forbidden = [
   "reason=sealedTipClosed",
 ]
 
-# REPORT-ONLY, DERIVED: three points in, one discard reaps none, two merges reap two, so
-# one survives. Two merges append at least two supersede rows onto a fixture that carries
-# zero. Nobody dies.
+# REPORT-ONLY. RE-PINNED FROM READING RUN 1 (2026-09-09): three points in, one discard
+# reaps none, two merges reap two, so one survives (MEASURED: rewindPoints=1), and two
+# merges append at least two supersede rows onto a fixture that carries zero (MEASURED:
+# supersedeRows=2).
+#
+# `tombstones` WAS THE ONE DERIVED WINDOW THAT WAS WRONG, and it is worth the paragraph
+# because RF-2 measured ZERO over the same fixture and the same two merges. It was
+# authored "nobody dies" from reading the lane rather than the SUBTREE: tombstone rows
+# are built by `SupersedeCommit.CommitTombstones` for in-scope kerbal-death actions in
+# whatever the merge supersedes, so the count is a property of WHICH slot is merged and
+# not of how many merges there are. This lane merges the SAME slot twice (the discard,
+# then the commit) and RF-2 merges two different points; run 1 measured FIVE here and
+# RF-2 measured none. Pinned as a floor rather than at 5 on one sample, and the
+# asymmetry with RF-2 is recorded rather than explained - which of the two subtrees
+# carries the deaths is a reading nobody has taken.
 [expectations.rewind]
 rewindPoints  = { min = 1, max = 1 }
 supersedeRows = { min = 2 }
-tombstones    = { max = 0 }
+tombstones    = { min = 1 }
 
 [runtime]
 # Budget arithmetic: LoadGame x3 1980 + SetSetting x5 600 + StopRecording x3 360 +

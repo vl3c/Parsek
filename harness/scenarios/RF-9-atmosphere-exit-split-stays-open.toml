@@ -121,14 +121,56 @@ id = "RF-9-atmosphere-exit-split-stays-open"
 #   open whatever else it did.
 #
 # =====================================================================================
-# STATUS: NEVER FLOWN. Authored 2026-09-09 against the post-#1658 / post-#1659 DLL
-# (deployed automation hash cd8ddb6b691e3fb8, carrying `MergeState carried with
-# terminal=` and the render fix's `IsSegmentExcludedFromOrbitOwnership` /
+# STATUS: READING RUN 1 FLOWN 2026-09-09 (`2026-09-08_2250_RF-9-atmosphere-exit-split-
+# stays-open`), attempt 1, wall 234 s, on the post-#1658 / post-#1659 DLL (deployed
+# automation hash cd8ddb6b691e3fb8, verified to carry `MergeState carried with terminal=`
+# and the render fix's `IsSegmentExcludedFromOrbitOwnership` /
 # `FillPredictedTailFromConics` / `ResolveMapPresenceChainSegments` /
-# `map-presence chain-tip segments: head=` in both encodings). Every window below is
-# DERIVED - from GS-4's four flights for the ascent and the recording census, from
-# the seed for the slot and the split, from RF-1 for the re-fly chain. Nothing is
-# armed. The first reading run re-pins the counts off its own bytes.
+# `map-presence chain-tip segments: head=` in both encodings).
+#
+# THE EXPERIMENT WORKED ON ITS FIRST FLIGHT, and the four lines that say so are worth
+# quoting in full because together they are the thing no lane in this suite had ever
+# produced:
+#   `CommitTree promoted rec=e51773dd... vessel='Kerbal X' slot=0
+#    rp=rp_f4b07982... reason=crashed to CommittedProvisional`
+#   `Split candidate (PersistedPhaseChange): rec=e51773dd... sec=7 splitUT=172.98
+#    prev=Atmospheric next=ExoBallistic`
+#   `SplitAtSection: split e51773dd... at UT=173.0 (first: 560 pts/7 sections,
+#    second: 12 pts/1 sections, ...)`
+#   `ReapOrphanedRPs: reaped=0 remaining=1`      (AFTER the split, three times over)
+# THE CORRELATION THE HEADER SAID A REGEX COULD NOT MAKE IS CONFIRMED BY READING: the
+# promoted recording and the split recording are the SAME id, `e51773dd`. So this run
+# reproduced the sealing defect's exact precondition - a promoted slot whose own
+# recording the optimizer then cut at an Atmospheric -> ExoBallistic boundary - and the
+# slot STAYED OPEN across it. On a pre-#1658 DLL those same four lines end
+# `reason=sealedTipClosed` and `Reaped rp=`. All three forbidden patterns held; the
+# re-fly then ran through slot 0 (`Invocation complete: ... slot=0
+# activePid=3620499050`) and merged.
+#
+# A SECOND, UNPLANNED READING: the PROBE half was promoted and split too
+# (`f392943c`, slot 1, `reason=crashed`, split at UT=173.06), so the run exercises the
+# carried MergeState on BOTH slots of the point rather than on one.
+#
+# THE MISSION VARIANT WORKED FIRST TIME: MISSION-OK, phases ROLLOUT -> ASCENT -> the
+# three booster drops -> CORE-CUT -> CORE-DISCARD -> COAST -> COAST-EXIT -> DONE, and
+# every seam step after it answered OK, InvokeRewind and AnswerMergeDialog included.
+#
+# ONE GATING MISMATCH, AND IT WAS THE SPEC'S: `recordings.count 11 > max 10`, a window
+# DERIVED from GS-4's census of 8 without allowing for this lane's own two optimizer
+# splits and the re-fly's fork. Re-pinned to exactly 11 with the arithmetic written
+# down. ONE REPORT-ONLY MISMATCH, and it was the more instructive: `tombstones 8 > max
+# 0`. The original window read the moment of the scene exit (the crew are alive and
+# coasting) and not what the finalizer then does with it - the extrapolated tail runs
+# the crewed pod to a predicted impact, which is the very branch that makes the slot
+# qualify `reason=crashed`, and the deaths that come with it are what the re-fly's
+# supersede tombstones. A zero there would have meant the lane did NOT take its own
+# subject's branch.
+#
+# MEASURED SAVE SHAPE (report-only): `rewindPoints=1 supersedeRows=2 tombstones=8
+# rewindRetirements=0`; structure `trees=1 committedTrees=1 recordings=11
+# terminalStates{Destroyed 10, SubOrbital 1} branchPoints{JointBreak 5}`; points total
+# 1218, largest 560. Nothing is armed: one sample is one sample, and the arming
+# discipline is S4.1's - reading run, armed run, negative control.
 # =====================================================================================
 tier = "operator"
 description = "The sealing defect's shape flown live: the Kerbal X's probe-cored core is discarded INSIDE the atmosphere (authoring a RewindPoint), the crewed top stack then coasts OUT through 70 km and the scene exits while it is still climbing - so the committed focus recording spans an Atmospheric -> ExoBallistic boundary, the optimizer splits it, and the promoted slot must stay open across that split and be re-flyable."
@@ -242,12 +284,16 @@ D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# GS-4 measures EXACTLY 8 on this craft and this ascent (the parent, the probe-cored
-# core, and six radial boosters). This lane flies the same staging plan, so 8 is the
-# derived answer - widened both ways because the higher apoapsis changes where the
-# boosters land and a debris piece that leaves the bubble may or may not be recorded.
-# The reading run measures the real count; do not widen further blindly.
-count = { min = 6, max = 10 }
+# RE-PINNED FROM READING RUN 1's OWN BYTES: 11, EXACTLY, and every term of it is
+# accounted for rather than accepted. GS-4 measures 8 on this craft and this staging
+# plan (the parent, the probe-cored core, six radial boosters) and pins that exactly
+# across four flights; this lane adds THREE, all of them consequences of its own
+# subject: the optimizer split the parent (`e51773dd` -> 560 pts + 12 pts) and split the
+# probe (`f392943c` -> 189 + 13), and the re-fly left its own fork. 8 + 2 + 1 = 11.
+# The commit itself still logs `recordings=8`, which is the count BEFORE the pass.
+# Pinned exactly, on GS-4's ground: a census that moves on this profile is a fact worth
+# a red, and the arithmetic above says which term moved.
+count = { min = 11, max = 11 }
 
 [expectations.logContracts]
 # FIVE GROUPS.
@@ -316,24 +362,36 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]",
 #       the sweep ran; a count of 1 in the .sfs proves the object survived it.
 #   supersedeRows = { min = 1 }  the re-fly merged, so `SupersedeCommit.AppendRelations`
 #       wrote at least one row.
-#   tombstones = { max = 0 }  nobody dies where this lane looks: the crew ride the top
-#       stack, which is still coasting when the scene exits, and the re-fly's own fork
-#       is what the merge supersedes. A nonzero here would mean the re-fly killed them.
+#   tombstones = { min = 1 }  RE-PINNED, and the original window was WRONG IN THE MOST
+#       instructive way. It was authored as "nobody dies where this lane looks: the crew
+#       ride the top stack, which is still coasting when the scene exits" - true of the
+#       moment the scene changes and FALSE of what the finalizer then does with it. The
+#       extrapolated tail runs the crewed pod to a PREDICTED IMPACT and stamps
+#       `Destroyed`, which is the very branch that makes the slot qualify
+#       `reason=crashed`; the deaths that come with it are exactly what
+#       `SupersedeCommit.CommitTombstones` builds rows for when the re-fly supersedes
+#       that subtree. Reading run 1 measured EIGHT. So a zero here would have meant the
+#       slot did NOT qualify through the crashed branch - the opposite of the lane's
+#       subject. Left as `{ min = 1 }` rather than pinned at 8 on one sample; the armed
+#       re-flight is where a count is pinned.
 [expectations.rewind]
 rewindPoints  = { min = 1, max = 1 }
 supersedeRows = { min = 1 }
-tombstones    = { max = 0 }
+tombstones    = { min = 1 }
 
-# REPORT-ONLY. GS-4's structure row with the terminals left OPEN at the bottom: this
-# lane's top stack ends above the atmosphere rather than inside it, so which of
-# Destroyed / SubOrbital it stamps is exactly the thing the reading run measures (see
-# the group-4 alternation). `branchPoints` is GS-4's - three booster pairs and the
-# core - and is a fact about the staging plan rather than about this profile.
+# REPORT-ONLY. The terminals were left OPEN until the reading run because which of
+# Destroyed / SubOrbital the top stack stamps is what decides the group-4 alternation.
+# RUN 1 ANSWERED IT: `Destroyed 10, SubOrbital 1`, so the finalizer DID extrapolate the
+# tail to a predicted impact and the lane takes the seed's `crashed` branch. Pinned as
+# floors rather than exactly, because the 10 is a census of debris the split arithmetic
+# above already gates. `branchPoints` is GS-4's - three booster pairs and the core -
+# and is a fact about the staging plan rather than about this profile (run 1: 5).
 [expectations.recordings.structure]
 trees          = { min = 1, max = 1 }
 committedTrees = { min = 1, max = 1 }
-recordings     = { min = 6 }
+recordings     = { min = 11, max = 11 }
 branchPoints   = { JointBreak = { min = 4 } }
+terminalStates = { Destroyed = { min = 8 }, SubOrbital = { min = 1 } }
 
 [runtime]
 # Budget arithmetic (M-A5 S8). run.py waits max(step_budget, 600) + 60 for a DEFERRED

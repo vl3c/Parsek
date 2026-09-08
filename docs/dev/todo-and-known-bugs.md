@@ -15,6 +15,70 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## RF4-BDOCK-RECORDED-CANNOT-REWIND-TO-LAUNCH: the lane borrowed H58's verb pair across FIXTURES, and its host carries no launch quicksave at all [MEASURED 2026-09-09 by RF-4's reading run. A LANE finding, not a product defect. OPEN, with the fix identified]
+
+RF-4 drives H58's `InvokeRewindToLaunch` pair - bare -> REJECTED `ambiguous-tree`, then
+`tree=latest` -> OK - over `bdock-recorded`. Reading run 1 got the first half exactly
+right and then:
+
+    invokerewindtolaunch target resolved tree=8c677bba... resolvedBy=LatestKeyword
+    invokerewindtolaunch refused: rewind-gate No rewind save available tree=8c677bba... rec=5157d655...
+
+verdict INVALID (driver-gate), attempt 1 and 2.
+
+THE CAUSE IS THE HOST, AND IT WAS KNOWABLE BEFORE THE FLIGHT: `bdock-recorded` carries
+ZERO `rewindSave` hints and no `Parsek/Saves/` directory, so no tree in it can be rewound
+to launch by any argument. H58 passes the same pair because it runs on
+`rover-route-recorded`, which does carry the payload - the pair was borrowed across
+fixtures, and "the verb pair works" was read as a property of the verb rather than of the
+save. This is the program-wide-claim rule in miniature: a claim about a lane needs a data
+point from THAT lane's host.
+
+THE FIX IS AVAILABLE AND IS NOT A RE-PIN. `refly-autopilot-recorded` (harvested
+2026-09-09 from RF-9's produced save) is the only candidate host in the corpus that
+carries BOTH a live RewindPoint and a rewind-to-launch quicksave, which is exactly what
+RF-4's two acts need. Three things land together on the day it is taken:
+
+1. `build_refly_autopilot_recorded.restore_rewind_payload` is run, so the fixture keeps
+   `Parsek/Saves/parsek_rw_*.sfs` and its `rewindSave` hint.
+2. `CommittedFixtureRewindSaveTests` is amended - its own docstring already names this
+   exception ("a spec that drives the verb against a fixture-committed rewind save must
+   re-check both halves here") - and the drift test's
+   `test_the_live_rewind_point_is_here_and_the_launch_save_is_not` is inverted with it.
+3. RF-4's Act 2 loses the `ambiguous-tree` half: the new host has ONE committed tree, so
+   the bare call resolves rather than refusing. That is a real loss of a negative control
+   and the honest replacement is a second lane or a second tree, not a pretence.
+
+Until then RF-4 stays as authored and RED, because a lane re-pinned to expect the refusal
+would assert that rewind-to-launch does not work, which is the opposite of its subject.
+
+## RF8-NO-WATCHABLE-GHOST-DURING-A-REFLY-ON-BDOCK: exactly one candidate has a ghost on the right body and the watch RANGE gate declines it [MEASURED 2026-09-09 by RF-8's reading run. OPEN, cause named, subject unreached]
+
+RF-8 arms both render tracers, invokes a re-fly and then asks for watch mode on a
+committed sibling. `EnterWatchMode` refused:
+
+    enterwatchmode rejected reason=no-watchable-ghost committed=22 tree=(any)
+    candidates=[0 ghost=F body=F range=F],...,[9 ghost=T body=T range=F],...
+
+so of 22 committed recordings exactly ONE (index 9) has a live ghost on the matching
+body, and it fails the RANGE gate. The other 21 have no ghost at all at that clock.
+Verdict INVALID (driver-gate): the step expects OK, so the lane never reached its own
+forbidden `no-watchable-ghost` clause.
+
+WHAT IS AND IS NOT ESTABLISHED. Established: during a live re-fly on `bdock-recorded` a
+ghost DOES resolve and IS body-matched, so the refusal is the distance cutoff rather than
+an absent subject - which is a better answer than the seed session had. NOT established:
+whether any clock on this host puts that ghost inside the cutoff. `range=F` is a function
+of where the re-flown vessel sits after the RP restore and where the ghost is at the
+current UT, and nobody has measured the two positions.
+
+NEXT STEP, and it is an experiment rather than a re-pin: read the candidate's own
+trajectory out of the fixture, pick a UT where it is near the RP's restore position, and
+drive a `TimeJump` to it before asking for watch (RF-2 and RF-3 already prove `TimeJump`
+is accepted with a session live). If no such UT exists, RF-8's subject has no host and
+the honest move is to say so and retire the lane - the same conclusion RF7M-DEFECT-B
+reached from the other direction.
+
 ## ~~RF-FORBID-EM-DASH-CANNOT-MATCH: a forbidden pattern quoting the C# `already committed/fork - not re-deriving MergeState` line with an ASCII HYPHEN can never match, because the source writes an EM DASH~~ FIXED 2026-09-09
 
 FOUND while authoring RF-9's own forbidden list against the source rather than against a

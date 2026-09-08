@@ -593,6 +593,49 @@ Two further things a future re-harvest must not lose, both asserted by the build
   either shape, re-fly the lanes against that DLL - do not re-pin the fixture to whatever
   the new bytes say.
 
+### refly-autopilot-recorded (GAME Mode = SANDBOX, 2 real vessels + asteroids)
+
+`refly-a-recorded`'s FIXED-BEHAVIOUR TWIN, landed 2026-09-09. Produced by
+`RF-9-atmosphere-exit-split-stays-open` run `2026-09-08_2258` (PASS attempt 1, on the
+post-#1658 / post-#1659 DLL, deployed hash `cd8ddb6b691e3fb8`), harvested with
+`--keep-parsek` and finished by `harness/tools/build_refly_autopilot_recorded.py`;
+shape pinned in `RECORDED_FIXTURES`, gated by
+`harness/lib/test_refly_autopilot_recorded.py`.
+
+**IT IS HERE FOR THE PAIR, and the pair is the whole regression floor for PR #1658.**
+The seed and this save are the same flight shape - a crewed Kerbal X whose probe-cored
+core comes off inside the atmosphere, whose top stack then coasts out through 70 km and
+is left there when the scene exits, so the optimizer splits the promoted recording at
+the Atmospheric -> ExoBallistic boundary - with opposite outcomes frozen on disk:
+
+    refly-a-recorded   (pre-fix)   TIP 8da7c2c2  chainIndex 1  NO mergeState key
+    refly-autopilot    (post-fix)  TIP a76c3839  chainIndex 1  mergeState = CommittedProvisional
+
+and this one carries it TWICE, on the pod chain and on the probe chain, which is both
+slots of one RewindPoint rather than one. The drift test reads the SIBLING fixture too,
+so a re-harvest that healed the defect copy cannot leave this one asserting against
+nothing.
+
+**AND IT IS REPRODUCIBLE, WHICH IS THE OTHER HALF OF WHY IT EXISTS.**
+`refly-a-recorded` is an evening an operator flew by hand and can never fly identically
+again; this is the output of a committed spec plus a committed mission profile, so
+re-harvesting it is a command rather than a session. That matters for the render lanes:
+RF-7M / RF-7T read the seed's predicted tail today, and this save carries the same shape
+(`a76c3839`, two `isPredicted` segments) on a flight anyone can re-fly.
+
+Two things a lane author must know before choosing it:
+
+- **Its RewindPoint SURVIVED** (`rp_404ea488`, quicksave on disk) - the difference the
+  fix makes - so unlike the seed this host CAN be re-flown.
+- **It carries NO rewind-to-LAUNCH save.** The produced save had one and the harvest
+  keeps it out, because `CommittedFixtureRewindSaveTests` forbids the payload in any
+  fixture until a lane drives `InvokeRewindToLaunch` against it. RF-4 is that lane and is
+  not re-hosted yet; `build_refly_autopilot_recorded.restore_rewind_payload` is the
+  documented route back to it, to be run in the same change as the lane and the gate's
+  amendment. RF-4's 2026-09-09 reading run died on this exact gap over `bdock-recorded`
+  (`invokerewindtolaunch refused: rewind-gate No rewind save available`), so the
+  combination is known to be needed and known to be missing everywhere else.
+
 ### rover-route-recorded (GAME Mode = SANDBOX, 3 real vessels + 8 asteroids)
 
 The supply-route lane host (RVR-1 / RVR-2 / RVR-3), landed 2026-08-30. Harvested from a

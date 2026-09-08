@@ -3264,6 +3264,75 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         #   The three KERBAL_SLOTS are all `permanentlyGone = True`: the crew died
         #     in the pod's PREDICTED impact, which is a downstream consequence of
         #     the extrapolated tail rather than incidental save state.
+        # --- THE FIXED-BEHAVIOUR TWIN of refly-a-recorded --------------------
+        # PROVENANCE: refly-autopilot-recorded <- RF-9-atmosphere-exit-split-stays-open,
+        # run 2026-09-08_2258, PASS attempt 1 on the post-#1658 / post-#1659 DLL
+        # (deployed hash cd8ddb6b691e3fb8), --keep-parsek, finished by
+        # `harness/tools/build_refly_autopilot_recorded.py`.
+        #
+        # THE PAIR IS THE POINT, and the two fixtures are only fully legible against
+        # each other. Same craft (the probe-cored Kerbal X), same staging plan, same
+        # optimizer split at the atmosphere exit - and opposite outcomes on disk:
+        #
+        #   refly-a-recorded   (pre-#1658)  TIP 8da7c2c2  chainIndex 1  NO mergeState
+        #   refly-autopilot    (post-#1658) TIP a76c3839  chainIndex 1  mergeState =
+        #                                                              CommittedProvisional
+        #
+        # So this fixture is the REGRESSION FLOOR for the sealing fix, readable with no
+        # flight at all, and it carries the pair TWICE: the pod chain
+        # (HEAD 4a7739f6 / TIP a76c3839) and the probe chain (HEAD 490f0f52 /
+        # TIP 99ae6e58), which is both slots of one RewindPoint rather than one.
+        # `harness/lib/test_refly_autopilot_recorded.py` states that cell by cell and
+        # reads the SIBLING fixture too, so a re-harvest that healed the defect copy
+        # cannot leave this one asserting a fix against nothing.
+        #
+        # AND IT IS REPRODUCIBLE, which the seed is not: the seed is an evening an
+        # operator flew by hand, this is `python run.py --id RF-9-...`.
+        #
+        # OTHER MEASURED BYTES:
+        #   tree c3dfd02c0bdb4f7e9fc53bfc1de00768, 11 recordings, pointCount total
+        #     1200 (largest 560 = the pod HEAD, and the two 12-point TIPs are the
+        #     post-split tails the atmosphere exit produced).
+        #   `terminalStates` SUMS TO 11: Destroyed 10 (the pod and probe TIPs, six
+        #     ascent debris, the superseded pod HEAD's own chain and the re-fly fork),
+        #     SubOrbital 1 (the probe HEAD). The Destroyed count is downstream of the
+        #     scene-exit finalizer extrapolating the coasting stack to a PREDICTED
+        #     impact - which is the very branch that makes the slot qualify
+        #     `reason=crashed`, so a fixture reading all-SubOrbital would be a
+        #     different experiment.
+        #   `tombstones` is 8 and is NOT incidental: the crew ride the pod, the
+        #     predicted impact kills them, and the re-fly's supersede tombstones those
+        #     death actions. RF-9's own `[expectations.rewind]` window was authored as
+        #     `{max = 0}` on exactly the wrong reading and re-pinned from this run.
+        #   `supersedes` is 2 rows, both retiring into the re-fly fork
+        #     `rec_c54a110c` at UT 131.88 - the pod HEAD and the pod TIP, which is what
+        #     superseding a SPLIT chain looks like.
+        #   `rewind_points` is 1 and its quicksave is on disk: unlike its sibling, this
+        #     fixture's point SURVIVED the commit, because the fix kept the slot open.
+        #     `Parsek/Saves/` is deliberately absent - see the drift test.
+        #   53 sidecar files over 11 recordings.
+        "refly-autopilot-recorded": {
+            "trees": 1, "committedTrees": 1, "recordings": 11,
+            "supersedes": 2, "tombstones": 8, "rewind_points": 1,
+            "rewind_retirements": 0,
+            "terminalStates": {"SubOrbital": 1, "Destroyed": 10},
+            "branchPoints": {"JointBreak": 5},
+            # 42, NOT 55: the two chain TIPs are chainIndex 1 and reuse their heads'
+            # `_vessel.craft`, and the re-fly fork carries no trajectory of its own.
+            "minAuthoritativeSidecars": 42,
+            "recordingIds": ["26c2df0f06ec4d06ab8ba872e2c09517",
+                             "490f0f52563240c7b56e1fd5b44b56dd",
+                             "4a7739f6cc074185a82cbd10ccaeb01d",
+                             "59a22eed188d4f239e1fcf1f4134ba5b",
+                             "84aa298709b8452fa0847f6b521878c0",
+                             "97bacc077bc64ad2b329082a691dbe99",
+                             "99ae6e587bd74328a8ab70f7bb434ad6",
+                             "a76c38394cbd4f7b9053d656fc80d134",
+                             "ad7dc90a949a4dd2abdfcfad79146f17",
+                             "e1d48f8ca8c944bbb364153f8a99e7c6",
+                             "rec_c54a110cecb542e5b848e4e9d7fbd920"],
+            "schemaGeneration": 4,
+        },
         "refly-a-recorded": {
             "trees": 1, "committedTrees": 1, "recordings": 10,
             "supersedes": 1, "tombstones": 0, "rewind_points": 0,

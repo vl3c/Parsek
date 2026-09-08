@@ -3695,6 +3695,40 @@ match, which reads exactly like a pass on every run. Same silence-is-not-success
 the RF-7M defect-(B) tokens, arrived at from the opposite direction. Both lanes now forbid
 the fragment `not re-deriving MergeState`; filed as RF-FORBID-EM-DASH-CANNOT-MATCH.
 
+**THE PROGRAM FLEW OUT ON 2026-09-09**, every lane against the merged-main DLL
+(deployed automation hash `cd8ddb6b691e3fb8`, verified to carry both fixes' literals
+in both encodings). SEVEN GREEN, one RED BY FINDING, two INVALID with named causes:
+
+| Lane | Verdict | Run | What the run added |
+|---|---|---|---|
+| RF-9 | PASS (2 runs) | `2026-09-08_2250`, `_2258` | The sealing defect's precondition reproduced live and the fix holding across it. Two spec-side re-pins |
+| RF-1 | PASS (2 runs) | `2026-09-08_2146`, `RF-1-confirm` | The same DERIVED save-parse windows landing twice, which is what arming asks for |
+| RF-7M | PASS | `2026-09-08_2302` | Confirmation on merged main; green since the fix |
+| RF-7T | PASS | RF-7T re-flight | Confirmation on merged main, no re-pin ever needed |
+| RF-2 | PASS | `RF-2` | The reaper's per-point scope: `rewindPoints=1` of three, `supersedeRows=2` |
+| RF-3 | PASS | `RF-3` | `tombstones` re-pinned 0 -> `{min=1}`; RF-2 measured 0 over the same host and the asymmetry is recorded, not explained |
+| RF-5 | PASS after refutation | `RF-5` | The idempotence premise refuted: the slot-mode seal reaps INSIDE its own call. Step inverted, `Sealed slot=` added as the lane's best line |
+| RF-6 | PARSEK-FAIL (finding) | `RF-6` | Byte-identical tally on the fixed DLL: the four failures are NOT the sealing defect |
+| RF-4 | INVALID | `RF-4` | `bdock-recorded` carries no rewind-to-launch save at all; the H58 verb pair was borrowed across FIXTURES |
+| RF-8 | INVALID | `RF-8` | A ghost DOES resolve during a live re-fly and is body-matched; the watch RANGE gate declines it |
+
+**THE TWO INVALIDS ARE THE SAME SHAPE**, and it is worth naming: both are lanes whose
+SUBJECT is unreachable on `bdock-recorded`, and in both cases the reading run measured
+the reason rather than leaving it to be guessed. RF-4's fix is identified and costed
+(re-host onto `refly-autopilot-recorded`, restore the launch payload, amend
+`CommittedFixtureRewindSaveTests`, and accept the loss of the `ambiguous-tree` negative
+control that a single-tree host implies). RF-8's needs an experiment first - which UT, if
+any, puts the one body-matched ghost inside the watch cutoff. Neither was re-pinned to
+expect its own refusal: a lane that asserts the verb does not work has stopped measuring
+its subject.
+
+**THE FIXTURE THE PROGRAM PRODUCED.** `refly-autopilot-recorded` is RF-9's produced save,
+and it is the fixed-behaviour twin of `refly-a-recorded`: same craft, same staging plan,
+same optimizer split, opposite outcome on disk (`mergeState = CommittedProvisional` on
+both chain TIPs where the seed has no key at all). It is also REPRODUCIBLE, which the seed
+is not - re-harvesting it is `python run.py --id RF-9-...` rather than an operator's
+evening - so it is the natural host for any future render lane over a predicted tail.
+
 **THE TWO FIXES.** Neither is in this program's scope. PR #1658
 (`refly-continuation`) MERGED to main on 2026-09-08 as `a783879aa`, after the three
 reading runs above - so they flew a pre-fix DLL, and since that fix emits no new log
