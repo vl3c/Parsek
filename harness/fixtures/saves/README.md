@@ -533,7 +533,7 @@ gate is taught to accept a no-pools template when the manifest is empty (expecte
 block is removed from `L1-passive-sandbox` (it then runs as a pure recording-invariants
 passivity proof). ~~Left at `pending-fixture` until that is resolved.~~ RESOLVED - it is `tier = "daily"` and live-proven (see the status paragraph below).
 
-## Recorded-state fixtures - where they ARE documented, and two that are here
+## Recorded-state fixtures - where they ARE documented, and five that are here
 
 This file's scope is the FILE-CONSTRUCTED career/fresh templates above. The
 RECORDED-state fixtures (harvest `--keep-parsek`, where the committed RECORDING is the
@@ -544,15 +544,54 @@ omission: the pin and the prose sit in the same place, so a re-harvest that move
 shape reds against the paragraph describing it. Do not restate a recorded fixture's shape
 here; a second copy of a moving list is a second thing to leave stale.
 
-FOUR ENTRIES SIT HERE ANYWAY, each for its own reason. `rover-route-recorded`,
+FIVE ENTRIES SIT HERE ANYWAY, each for its own reason. `rover-route-recorded`,
 `rover-relay-recorded` and `rover-relay-c-recorded` are POINTERS worth keeping, because
 the naming rule they rest on can destroy an operator's own save if it is ever forgotten -
 and because the two relays' reasons to exist are things no structural facet can express
 (one carries ZERO origin proofs, the other TWO that name the WRONG origin).
 `rover-route-career` is not a harvest at all - it is file-constructed from two committed
 inputs, exactly like everything above this section - so it belongs to this file's scope
-even though its payload is recorded. No entry restates a shape `RECORDED_FIXTURES`
-already pins.
+even though its payload is recorded. `refly-a-recorded` is here because of a LIMITATION a
+lane author must meet before choosing it and that no facet states: its RewindPoint is
+gone, so it cannot re-fly. No entry restates a shape `RECORDED_FIXTURES` already pins.
+
+### refly-a-recorded (GAME Mode = SANDBOX, 2 real vessels + 5 asteroids)
+
+The RE-FLY CONTINUATION host (RF-7M / RF-7T), landed 2026-09-08. Harvested from the
+operator's own MANUAL Re-Fly session on the DEV instance, collected into the umbrella
+`logs/2026-09-08_2317_refly-a-manual/` (save `re-fly-a`) against DLL commit `2effc9d49`
+(main at the time); finished by `harness/tools/build_refly_a_recorded.py`, shape pinned in
+`RECORDED_FIXTURES` and wired into the suite by
+`harness/lib/test_build_refly_a_recorded.py`.
+
+**THE SEED SESSION, because the fixture is only legible against it.** A crewed "Kerbal X
+With Probe" launched; the probe decoupled at UT 189.32 into a two-slot RewindPoint (slot 0
+the pod, slot 1 the probe). The scene exited at UT 1078.5 with the pod ALIVE and
+SUB-ORBITAL, so the finalizer extrapolated a re-entry tail - two `isPredicted` orbit
+segments to an impact at UT 2348.5 - and stamped `terminal = Destroyed`. The commit
+promoted slot 0 to `CommittedProvisional` (`IsUnfinishedFlight=true ... reason=crashed`),
+and 230 ms later, inside the same commit, the optimizer's phase-change split at UT 191.04
+moved the terminal onto a NEW chain tip without its `MergeState`. The slot read
+`reason=sealedTipClosed` from then on, its Unfinished Flights row never drew, and after
+the probe's re-fly merged, `ReapOrphanedRPs: reaped=1` deleted the RewindPoint quicksave.
+
+**IT CANNOT RE-FLY, AND THAT IS WHY THIS ENTRY EXISTS.** The RP was reaped before the
+save was collected, so a lane needing a live RewindPoint must fly one (the RF-1
+`gs1_auto_chute_booster` sibling-down variant) or inject one of the three xUnit rewind
+presets. What this fixture serves instead is everything that can be read WITHOUT one: the
+map / TS render lanes over a predicted tail, and any load-time or classification lane.
+
+Two further things a future re-harvest must not lose, both asserted by the builder's
+`--check` rather than left to this prose:
+
+- **It carries the corpus's only `RECORDING_SUPERSEDES` row** (the probe's re-fly,
+  `d096297d` -> `rec_d4b696...`), live on both sides. The two free-play Duna strips each
+  DROPPED an orphan supersede row; this one must survive.
+- **It is a DEFECT fixture, so healing is a red, not an improvement.** Its chain tip
+  carrying no `mergeState` key and its predicted segments having a subsurface periapsis
+  are what RF-1 and RF-7 are authored against. If a re-harvest against a fixed DLL loses
+  either shape, re-fly the lanes against that DLL - do not re-pin the fixture to whatever
+  the new bytes say.
 
 ### rover-route-recorded (GAME Mode = SANDBOX, 3 real vessels + 8 asteroids)
 
