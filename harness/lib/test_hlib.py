@@ -8193,7 +8193,6 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # question with a named outcome, not an operator debt - if it fires the run
         # is driver-INVALID and report-only, and the re-argument belongs in the
         # spec's flight ledger.
-        "B29-jool-kerbin-return.toml":      "tier=operator by the calibration discipline (the B18-B28 family's tier) at its earliest point, NOT debt; AUTHORED 2026-08-26 and NEVER FLOWN, every window derived rather than measured, so what is owed is the first flight and not a human call",
         # The V19 pair, tier=operator by the same calibration discipline and for
         # the same reason as every V lane before them: their windows were DERIVED
         # from B28's harvested bytes and the first run was a calibration reading.
@@ -8231,8 +8230,6 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # where the KSC-host question becomes either a closed payoff or a cited
         # limitation, and under roadmap confirmation criterion (c) no limitation
         # may be written up before that run exists.
-        "V20M-jool-kerbin-player-loop.toml": "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; AUTHORED 2026-08-27 off `kerbin-return-recorded` and NOT YET FLOWN - the flight-map half of the suite's first KERBIN-ARRIVAL loop pair, reading-run posture with nothing armed; what is open is the FLIGHT itself, not a human review call",
-        "V20T-jool-kerbin-ts-arrival.toml":  "tier=operator by the calibration discipline (derived windows, first run is a calibration reading), NOT debt; AUTHORED 2026-08-27 off `kerbin-return-recorded` and NOT YET FLOWN - the Tracking-Station half of the same pair, reading-run posture with nothing armed and the TS init-walk reading pre-registered in both directions; what is open is the FLIGHT itself, not a human review call",
         # W1: the GS-4 follow-up the ghost-derender lane deliberately did not carry
         # (`docs/dev/todo-and-known-bugs.md` -> GS4-WATCH-DISTANCE-CUTOFF). Same
         # posture as the V20 pair above: tier=operator by the calibration discipline,
@@ -8410,7 +8407,6 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # exactly: GS-6 is authored and registered but has not flown, so it cannot
         # sit on a cadence. Its debt is the READING RUN, carried by the
         # `pending-flight` tag and its own status row - not an operator-REVIEW debt.
-        "GS-6-part-event-applier-sweep.toml": "FLOWN GREEN 2026-09-02 (four runs: 1420/1505/1524 readings + the armed re-flight, plus two negative controls); operator tier is now the cadence PROMOTION call, not debt",
         # The FIFTH forge, same mechanism again: it stamps gs2-orbital-stack by
         # flying the live-proven forge_lko ascent with the new parkAttached=true,
         # which skips the SEPARATE phase so the stack is parked ATTACHED. Its
@@ -8660,7 +8656,6 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # measurements), arming is the post-reading call.
         "V3F-flight-arrival-faithful.toml": "operator by the calibration discipline; FLOWN 2026-08-07 PASS attempt 1 - the reading run measured the hidden-by-zone gate (vacuous for seams, decisive as a finding); keeps the knob mode-discrimination gate",
         "V3R-flight-arrival-reaim.toml":    "operator by the calibration discipline; FLOWN 2026-08-07 PASS attempt 1 - expected red did not occur for the measured structural reason (hidden-by-zone); the GS-3 flip moved to V3C; keeps the ENGAGED mode gate",
-        "V3C-flight-arrival-companion.toml": "reading-run instrument (calibration discipline); SIX runs flown 2026-08-07/08 (runs 1-2: cycle misalignment then trace reached; runs 3-5: the 800 cap closed the encounter, run 3 PASS); the co-location decision was taken 2026-09-07 off the _0747 log (the seam was hidden by the >50x warp hide, not the zone gate; map view lifts it), so the spec opens the map before the mission and REQUIRES the [ReaimSeam] SEAM body=Duna DEFECT-CLASS token; FLOWN 2026-09-07 (reading _1906, armed re-flight _1932, negative control 2026-09-07_1955): the ~47.4 Mm handoff teleport is reproduced and pinned, the lane is LIVE-PROVEN and ARMED as the GS-3 regression target; stays operator because each flight costs ~950 s and the seam token reds by design when the option-3 fix lands",
         # tier=operator by PROMOTION POLICY, not debt, on the same ground as GS-1:
         # both are unflown and both consume a fixture the forge above has yet to
         # produce, so neither can sit on a cadence. Promotion is a later human
@@ -8721,8 +8716,6 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # what the run reads. Neither is `pending-operator` because neither owes
         # outstanding HUMAN work - what they owe is a flight, and the derivation each
         # header carries is what makes that flight readable rather than a fishing trip.
-        "V18T-depot-route-ts-arrival.toml":  "operator by the calibration discipline (V1/V2/V24W precedent); AUTHORED 2026-08-26, NEVER FLOWN, reading pending. THE SUITE'S FIRST ROUTE LANE and G1's first lane of any kind: a tracking-station observation of the committed Active GhostDriving SameBody route in the B27 harvest `depot-route-recorded`, arming NO mission loop because the ROUTE drives. Its anchor branch is genuinely unresolvable pre-flight - the header derives all THREE candidates (unlocked-faithful, single-rotation phase lock, and a VesselOrbital-dominant joint/zero-drift road whose anchor is not computable from the committed bytes at all) and the two forward jumps are chosen to be honest under every one of them, with the calibration recipe written down. So the reading run measures the anchor and round 2 re-pins; that is the discipline, not a debt. What IS gated on the first flight is anti-vacuity, three ways: `RevalidateSources ... transitioned=0` (the route did not flip to SourceChanged under the load-time optimizer - the one failure mode that would make this lane green and empty at once), `ghostDriving=[1-9]` and `routeMissions=[1-9]`. `[expectations.renderComposition]` is BARE and D10 `route-map-lines` is deliberately UNDECLARED (H35 CLAIM-IS-NOT-GATE): the headline facet `routeLineBuilds >= 1` would be the first non-zero reading of that census anywhere, and it gets declared in the commit that arms it, citing the run",
-        "V25M-duna-park-player-loop.toml":   "operator by the calibration discipline (V8-iteration-1 precedent); AUTHORED 2026-08-26, NEVER FLOWN, reading pending. RE-AIM'S SECOND DEPARTURE CLASS - a heliocentric-parking departure, over `duna-park-recorded`, the path `ReaimClassifier`'s own exception comment names by fixture ('EXCEPTION (s15 Kerbal X #2)') and that no committed lane has driven. Unlike V18T its clock IS fully derivable and the header derives it end to end off the committed .prec bytes: classifier verdict (parking=True, via a replay of DetectRuns / the empty-cut scope gate / the ecc+sma admissibility gate), loiter cuts (ONE, destination-side, 43,963.92 s at the Duna capture, downstream of every window so all three map uncompressed), synodic 19,645,697.250367, span/synodic 1.185268 -> cadence = 2x synodic with PadAlignLaunch declined, k=142, D0 5,350,759,909.583645 and phaseAnchorUT 5,336,966,486.982761 - with the k shown robust to the seconds of scene time between LoadGame and the MissionConfig that stamps LoopAnchorUT. Operator tier is therefore the ordinary first-flight promotion call: the run confirms or refutes a written prediction rather than discovering one. The prediction is pinned as ONE conjunction regex over the ReaimDiag line and its exact inverse (the 'transfer departs from a heliocentric parking orbit' decline) is FORBIDDEN, so a refutation reds loudly instead of quietly measuring a faithful replay",
         "B32-interbody-route-scope.toml":    "operator by the calibration discipline; FLOWN 2026-09-02, ARMED-DISCIPLINE COMPLETE (reading run, pins tightened off it, armed re-flight PASS attempt 1, and a negative control that red PARSEK-FAIL(expectation) on exactly the seeded token). THE FIRST LANE ANYWHERE THAT HAS READ `ClassifyRouteScope = InterBody`, over the `interbody-route-recorded` harvest. It stays untagged because what it owed was an ordinary reading, not a human call, and that reading is in: the product change that made the verdict reachable (todo ROUTE-INTERBODY-SCOPE-NEVER-REACHABLE) landed in the same PR, the tokens are derived from the classifier source rather than predicted, and the two FORBIDS carry the pre-fix reading as a control the lane brings with it. Nothing is armed, so the flights confirmed without a promotion decision attached; the `[expectations.routes]` arming pass is the one still outstanding.",
         "V26M-interbody-route-map-lines.toml": "operator by the calibration discipline; FLOWN 2026-09-02, ARMED-DISCIPLINE COMPLETE (reading run, pins tightened off it, armed re-flight PASS attempt 1, and a negative control that red PARSEK-FAIL(expectation) on exactly the seeded token). The RENDER-COMPOSITION half of G10 - the manifest census of an inter-body route line. It read `transferLegsDropped=0`, which is OUTCOME B of the two its header pre-registered: the filter RUNS but found no third-body leg, so G10's `never dropped a leg on a driven run` gap REMAINS OPEN. `[expectations.renderComposition]` stayed DECLARED BARE at that point and the arming pass was left as the human call. THAT CALL WAS TAKEN 2026-09-07 (package P16, after reading run 3 `2026-09-06_2113` PASS attempt 1 matched run 1 facet for facet): the block is ARMED on `routeLineBuilds = {min = 2}` + `routeCoDrawViolations = {max = 0}` and nothing else - no `unevaluable` ceiling, because 1065 here against V26T's 6 on the SAME fixture says that census scales with the observed population rather than with the composition. The same run ALSO closed G10's leg-drop gap: `transferDropped=2` on three consecutive runs, now pinned as a literal. The armed re-flight and the negative control are OWED.",
         "V26T-interbody-route-ts-arrival.toml": "operator by the calibration discipline; FLOWN 2026-09-02, ARMED-DISCIPLINE COMPLETE (reading run, pins tightened off it, armed re-flight PASS attempt 1, and a negative control that red PARSEK-FAIL(expectation) on exactly the seeded token). V18T's tracking-station grammar on the inter-body subject. It carries ONE genuinely open question the reading run must answer rather than pass: V18T's front-door tokens (`ghostDriving=[1-9]`, `routeMissions=[1-9]`) are deliberately NOT required, because this subject's Duna route has `loopAnchorUT = -1` and has never run a cycle, so whether a never-dispatched route enters the GhostDriving selection is unmeasured - and RUN 1 ANSWERED IT: `ghostDriving=1` and `routeMissions=1` both printed, so dispatch history is NOT a precondition for a route driving a tracking-station ghost, and both tokens are REQUIRED from the armed re-flight onward. The renderComposition arming pass this lane owed was TAKEN 2026-09-07 (package P16, after reading run 3 `2026-09-06_2115` PASS attempt 1): armed on `routeLineBuilds = {min = 2}` + `routeCoDrawViolations = {max = 0}`, deliberately symmetric with V26M and with no `unevaluable` ceiling on either. The armed re-flight and the negative control are OWED.",
@@ -8830,6 +8823,21 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "H40-logistics-isolated-depot-route.toml",
         "H41-logistics-grapple-isolated.toml",
     )
+    # 2026-09-08: the same call for the seven calibration-discipline lanes whose
+    # three-run discipline (readings, armed re-flight, negative control) was already
+    # discharged and whose only open item was the cadence. The operator chose nightly
+    # for all seven, B29 (~36 min) and V3C (~15 min) included. Their REVIEWED_UNTAGGED
+    # entries left with them for the reason the 2026-08-29 comment gives: a nightly
+    # lane that never writes the token is in neither population.
+    TIER_PROMOTED_2026_09_08 = (
+        "V18T-depot-route-ts-arrival.toml",
+        "V20M-jool-kerbin-player-loop.toml",
+        "V20T-jool-kerbin-ts-arrival.toml",
+        "V25M-duna-park-player-loop.toml",
+        "B29-jool-kerbin-return.toml",
+        "V3C-flight-arrival-companion.toml",
+        "GS-6-part-event-applier-sweep.toml",
+    )
 
     def test_the_tier_promoted_specs_left_both_inventories(self):
         """The promotion is an OPERATOR DECISION, so it is pinned rather than
@@ -8842,14 +8850,16 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
             nobody is waiting on;
           * the `pending-operator` tag appearing on one of them, which would assert
             outstanding human work against a call that has been made."""
-        for name in self.TIER_PROMOTED_2026_08_29:
+        promoted = ([(n, "2026-08-29") for n in self.TIER_PROMOTED_2026_08_29] +
+                    [(n, "2026-09-08") for n in self.TIER_PROMOTED_2026_09_08])
+        for name, when in promoted:
             with self.subTest(spec=name):
                 spec = load_spec(name)
                 self.assertEqual(
                     "nightly", spec.get("tier"),
                     "%s was promoted to the nightly cadence by operator decision on "
-                    "2026-08-29; a change back is a new operator decision and needs "
-                    "its own record here and in docs/dev/autotest-status.md" % name)
+                    "%s; a change back is a new operator decision and needs "
+                    "its own record here and in docs/dev/autotest-status.md" % (name, when))
                 self.assertNotIn(name, self.REVIEWED_UNTAGGED,
                                  "%s is nightly and mentions no PENDING-OPERATOR, so it is not a member of either population this class tracks" % name)
                 self.assertNotIn("pending-operator", spec.get("tags") or [],

@@ -199,7 +199,7 @@ id = "GS-6-part-event-applier-sweep"
 # OWED: the re-fly of the fixed craft, whose job is a census of the five families
 # that have never once been measured - Gear*, Converter*, FairingJettisoned,
 # LightOn/Off on real lamps, and EngineIgnited on the EFFECTS-node Ant.
-tier = "operator"
+tier = "nightly"  # PROMOTED 2026-09-08 by operator decision (was "operator", the calibration discipline; the three-run discipline is discharged, see the status row)
 description = "Part-event applier sweep: a scripted part-event timeline (RCS, deployable antenna, engine throttle) fired during a recorded Kerbal X flight, committed, Rewound-to-Launch and WATCHED, with the applier's per-family [GhostPartEvents] apply lines gated per family against the replay."
 instanceProfile = "stock-minimal"
 tags = ["GS6", "part-events", "ghost-render", "applier", "rewind-to-launch", "watch-mode", "ghost-lifecycle"]
