@@ -930,7 +930,7 @@ namespace Parsek
                 {
                     missionRowsWarned = true;
                     ParsekLog.Warn(Tag,
-                        "StockUiOverlay: MissionControl row contract lookup failed — contract overlays disabled for rows whose UIListItem.Data is neither a MissionSelection nor a Contract");
+                        "StockUiOverlay: MissionControl row contract lookup failed - contract overlays disabled for rows whose UIListItem.Data is neither a MissionSelection nor a Contract");
                 }
             }
             catch (Exception ex)

@@ -3360,7 +3360,7 @@ already exist rather than as categories to wire.
 AXIS AT 112 OF 112 CATEGORIES, and it closed three of those four residue rows too.**
 Both "not a host question" readings were bounds on the layer that had been looked at.
 `CrewReservationLive` became LT-4's fourth constituent at 2 of 2: the corpus writer
-still authors no spawned pid, but three RECORDED fixtures carry one and the census had
+still authors no spawned pid, but 22 RECORDED fixtures carry one (`depot-route-recorded` three) and the census had
 asked only injected corpora and careers (CEN-9 `2026-09-08_1029` on
 `depot-route-recorded`, CEN-10 `_1030` on `bdock-recorded`). `DisabledHoverEcho` became
 LT-1's 31st at 1 of 1: no seam verb can move the OS pointer, but the test process runs

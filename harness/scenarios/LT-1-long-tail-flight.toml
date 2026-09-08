@@ -34,8 +34,10 @@ tier = "nightly"
 # (no autostrut parts in range),
 # SwitchIntentPatch 2 (its KSC and TS cells scene-skip),
 # TestRunnerIsolation 1 (the SPACECENTER cell). LT-2 takes the SPACECENTER slices.
-# FLOWN (the 31-constituent re-pin): run `2026-09-08_1041`, PASS attempt 1, wall 292 s,
-# every per-constituent line above matched verbatim and every verifier PASS or REPORT.
+# FLOWN (the 31-constituent re-pin): run `2026-09-08_1041`, PASS attempt 1, wall 292 s;
+# re-flown after the hover cell bound its cursor placement to the game's own process
+# window: run `2026-09-08_1114`, PASS attempt 1. Both: every per-constituent line above
+# matched verbatim and every verifier PASS or REPORT.
 description = "Run the 31 long-tail in-game categories as one multi-category batch at FLIGHT over the injected synthetic corpus, every constituent pinned whole."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "multi-category", "long-tail", "LT-1"]

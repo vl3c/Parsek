@@ -161,8 +161,29 @@ namespace Parsek.InGameTests
                     return new CursorPlacement(false, "not Windows: " + Environment.OSVersion.Platform, 0, 0);
                 try
                 {
-                    IntPtr window = NativeMethods.FindWindowW(null, "Kerbal Space Program");
-                    string source = "title";
+                    // This process's own main window first: a title lookup would find
+                    // whichever KSP instance was created first (the dev instance sits outside
+                    // the harness machine lock and may be open alongside a nightly), and the
+                    // foreground window may be anything at all.
+                    // On a harness-launched instance MainWindowHandle reads zero (measured on
+                    // LT-1 run 2026-09-08_1114, which placed through the title lookup), so the
+                    // title fallback is the path that carries the nightly; the process handle
+                    // is what protects an operator with a second KSP open.
+                    IntPtr window = IntPtr.Zero;
+                    string source = "process";
+                    try
+                    {
+                        window = System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle;
+                    }
+                    catch (Exception)
+                    {
+                        window = IntPtr.Zero;
+                    }
+                    if (window == IntPtr.Zero)
+                    {
+                        window = NativeMethods.FindWindowW(null, "Kerbal Space Program");
+                        source = "title";
+                    }
                     if (window == IntPtr.Zero)
                     {
                         window = NativeMethods.GetForegroundWindow();
@@ -179,7 +200,8 @@ namespace Parsek.InGameTests
                     var target = new NativeMethods.POINT { X = width / 2, Y = ProbeButtonHeightPx / 2 };
                     if (!NativeMethods.ClientToScreen(window, ref target))
                         return new CursorPlacement(false, "ClientToScreen failed", 0, 0);
-                    NativeMethods.GetCursorPos(out NativeMethods.POINT previous);
+                    if (!NativeMethods.GetCursorPos(out NativeMethods.POINT previous))
+                        return new CursorPlacement(false, "GetCursorPos failed", 0, 0);
                     if (!NativeMethods.SetCursorPos(target.X, target.Y))
                         return new CursorPlacement(false, "SetCursorPos refused", 0, 0);
                     return new CursorPlacement(true,

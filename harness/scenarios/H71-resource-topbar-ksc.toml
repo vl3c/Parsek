@@ -25,9 +25,10 @@ tier = "nightly"
 # row-contract lookup was fixed - stock stores a MissionSelection wrapper, not the
 # Contract, in the row - and both now pass wherever a contract is on offer),
 # `CrewReservationLive` 0 of 2 (no spawned vessels; LT-4 carries it).
-# FLOWN (2-of-2 re-pin): run `2026-09-08_1038`, PASS attempt 1, wall 46 s, the pinned
-# line matched verbatim, one ERROR line (the carve-out) and no other, every verifier
-# PASS or REPORT.
+# FLOWN (2-of-2 re-pin): run `2026-09-08_1038`, PASS attempt 1, wall 46 s; re-flown after
+# the guard branch gained its reputation assertions: run `2026-09-08_1113`, PASS attempt 1,
+# wall 51 s. Both: the pinned line matched verbatim, one ERROR line (the carve-out) and no
+# other, every verifier PASS or REPORT.
 description = "Run the in-game ResourceTopBar category unattended at the Space Center of a vessel-less earned career, both cells executing, pinned whole."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "resource-topbar", "career", "H71"]

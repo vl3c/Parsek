@@ -107,7 +107,8 @@ _(unreleased — entries accumulate here per commit)_
   The crew-reservation tests need a save that remembers a craft Parsek itself put back
   in the world; that was written off as impossible because the generated test saves
   cannot make one, but the saves captured from real recorded flights already carry
-  three, so those tests now run on a recorded supply-route save. The hover test needs
+  them (22 of them do; the recorded supply-route save has three), so those tests now
+  run on that save. The hover test needs
   the mouse pointer inside the game window, which nothing driving the game from outside
   can arrange; the test now moves the pointer over its own button for the measurement
   and puts it back afterwards, and falls back to its old skip anywhere that is not

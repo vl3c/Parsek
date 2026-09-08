@@ -315,7 +315,7 @@ Driven-by cell is not `-`, and sum their Decls column).
 2026-09-07 wave had declared NOT host questions, and both readings were wrong in the
 same way - each named a bound on the wrong layer. `CrewReservationLive` (2) went to
 `LT-4-long-tail-route-flight` as a fourth constituent: the corpus writer still cannot
-author a spawned endpoint, but three RECORDED fixtures already carry one, and the
+author a spawned endpoint, but 22 RECORDED fixtures already carry one (`depot-route-recorded` three, `bdock-recorded` five, `interbody-route-recorded` ten, every `*-orbit-recorded` one to three), and the
 census had only ever asked injected and career hosts (CEN-9, run `2026-09-08_1029`, 2
 of 2 on `depot-route-recorded`; CEN-10, `_1030`, the same on `bdock-recorded`).
 `DisabledHoverEcho` (1) became `LT-1-long-tail-flight`'s 31st constituent: no seam
@@ -1442,7 +1442,7 @@ driven as slices and stay in **B**.
 **THE OTHER TWO CLOSED ON 2026-09-08, and the "what would buy it" column was wrong
 about both in the same direction: it named the layer it had looked at.**
 `CrewReservationLive` did not need spawned-endpoint recordings in the corpus writer -
-three RECORDED fixtures already carry a surviving spawned pid, and the census had
+22 RECORDED fixtures already carry a surviving spawned pid (`depot-route-recorded` three of them), and the census had
 asked only injected corpora and careers (CEN-9 `2026-09-08_1029`, CEN-10 `_1030`); it
 is LT-4's fourth constituent at 2 of 2. `DisabledHoverEcho` did not need "nothing
 available" - no HARNESS verb can move the OS pointer, but the test process runs inside
@@ -1455,7 +1455,7 @@ because each item is a bound on a lane that already exists:**
 
 | Residue | Where it sits | Why no lane reaches it | What would buy it |
 |---|---|---|---|
-| ~~`CrewReservationLive` (2 cells)~~ | CLOSED 2026-09-08: LT-4 drives 2 of 2 | ~~0 of 2 on every host tried~~ - and every host tried was an INJECTED corpus or a career. Three RECORDED fixtures carry a surviving non-zero `SpawnedVesselPersistentId`; CEN-9 (`2026-09-08_1029`) read 2 of 2 on `depot-route-recorded` and CEN-10 (`_1030`) the same on `bdock-recorded` | Bought by asking a recorded store, not by the corpus writer (B1) |
+| ~~`CrewReservationLive` (2 cells)~~ | CLOSED 2026-09-08: LT-4 drives 2 of 2 | ~~0 of 2 on every host tried~~ - and every host tried was an INJECTED corpus or a career. 22 RECORDED fixtures carry a surviving non-zero `SpawnedVesselPersistentId`; CEN-9 (`2026-09-08_1029`) read 2 of 2 on `depot-route-recorded` and CEN-10 (`_1030`) the same on `bdock-recorded` | Bought by asking a recorded store, not by the corpus writer (B1) |
 | ~~`DisabledHoverEcho` (1 cell)~~ | CLOSED 2026-09-08: LT-1 drives 1 of 1 | ~~Needs the OS pointer inside the game window; unattended it skips~~ - true of the SEAM and false of the test process, which runs inside that window. The cell now parks the pointer over its own probe button (`user32.SetCursorPos`, restored afterwards) and degrades to the old skip on any non-Windows or no-window path. CEN-12 (`2026-09-08_1035`) read 1 of 1 | Bought by the cell placing the pointer itself |
 | ~~The two `StockUiOverlay` Mission Control cells~~ | CLOSED 2026-09-08: H45 drives 6 of 6 | ~~The offered rows populate only with the Mission Control BUILDING UI open~~ - a PRODUCT DEFECT read as a UI state. `rows=9` said the building UI was open and nine rows were walked; what failed was the lookup. Stock stores a `MissionControl.MissionSelection` in `UIListItem.Data` and Parsek cast it `as Contract`, so the contract overlays had never decorated a row on KSP 1.12.5. Fixed in `StockUiOverlayController.ExtractMissionControlRowContract`; CEN-11 (`2026-09-08_1034`) read 6 of 6 with `MissionControl decorated contractCount=1` | Bought by the fix; the lane moved to `career-earned-ksc` for the Offered rows |
 | ~~`TopBarReflectsLedgerAfterRecalc`~~ | CLOSED 2026-09-08: H71 drives 2 of 2 | ~~Needs a career whose ledger reconstruction lands at or below the live pools~~ - unbuildable, not unbuilt: seed == live on every seeded career, so the cell's own probe credit always runs above live and CEN-8 measured the identical skip on `fresh-career`. The clamped branch is the shipped drawdown guard, and the cell now ASSERTS it (live pools hold, zero change events) instead of skipping past it. Its ERROR carve-out for the probe's own `Science reconcile dump (post-walk)` line is unchanged | Bought by asserting the guard rather than by a fixture |

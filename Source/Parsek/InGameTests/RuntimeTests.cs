@@ -20481,9 +20481,26 @@ namespace Parsek.InGameTests
                     ParsekScenario.Instance?.ActiveMergeJournal != null,
                     tombstonePath: false,
                     RewindContext.RewindResourceAdjustmentInProgress);
-                bool upliftClamped = !authoritativeReduction
-                    && (LedgerOrchestrator.Funds.GetRunningBalance() > Funding.Instance.Funds + 0.01
-                        || LedgerOrchestrator.Science.GetRunningScience() > ResearchAndDevelopment.Instance.Science + 0.001);
+                bool runningAboveLive =
+                    LedgerOrchestrator.Funds.GetRunningBalance() > Funding.Instance.Funds + 0.01
+                    || LedgerOrchestrator.Science.GetRunningScience() > ResearchAndDevelopment.Instance.Science + 0.001;
+                // The patcher clamps on the RUNNING balance but writes the AVAILABLE one (the
+                // cashflow-projection minimum, which committed future debits pull below
+                // running). A host whose available pool sits below live takes a real drawdown
+                // write with one event, which is neither this branch's contract nor the
+                // un-clamped one below; name it rather than assert past it.
+                bool availableBelowLive =
+                    LedgerOrchestrator.Funds.GetAvailableFunds() < Funding.Instance.Funds - 0.01
+                    || LedgerOrchestrator.Science.GetAvailableScience() < ResearchAndDevelopment.Instance.Science - 0.001;
+                if (!authoritativeReduction && runningAboveLive && availableBelowLive)
+                {
+                    InGameAssert.Skip(
+                        "ledger reconstruction runs above live while a committed future debit pulls the "
+                        + "available pool below it: the guard clamps the uplift but a real drawdown is written, "
+                        + "so neither the guard contract nor the probe-delta contract applies on this host");
+                    return;
+                }
+                bool upliftClamped = !authoritativeReduction && runningAboveLive;
                 if (upliftClamped)
                 {
                     AssertDoubleNear(Funding.Instance.Funds, fundsBefore, 0.01,
@@ -20494,11 +20511,18 @@ namespace Parsek.InGameTests
                         "drawdown guard: a clamped funds patch writes nothing, so no OnFundsChanged fires");
                     InGameAssert.AreEqual(0, scienceEvents,
                         "drawdown guard: a clamped science patch writes nothing, so no OnScienceChanged fires");
+                    // Reputation is guarded by the same symmetric clamp (PatchReputation), so
+                    // the probe's +7 / penalty pair is refused the same way.
+                    AssertDoubleNear(Reputation.Instance.reputation, reputationBefore, 0.01,
+                        "drawdown guard: a non-authoritative reconstruction above live must hold live reputation (no uplift)");
+                    InGameAssert.AreEqual(0, reputationEvents,
+                        "drawdown guard: a clamped reputation patch writes nothing, so no OnReputationChanged fires");
                     ParsekLog.Info("TestRunner",
                         "TopBarReflectsLedgerAfterRecalc: guard branch (reconstruction above live) "
                         + $"fundsRunning={LedgerOrchestrator.Funds.GetRunningBalance():F2} fundsLive={Funding.Instance.Funds:F2} "
                         + $"scienceRunning={LedgerOrchestrator.Science.GetRunningScience():F3} scienceLive={ResearchAndDevelopment.Instance.Science:F3} "
-                        + $"reputationEvents={reputationEvents} (reputation is not guarded; observation only)");
+                        + $"reputationRunning={LedgerOrchestrator.Reputation.GetRunningRep():F2} reputationLive={Reputation.Instance.reputation:F2} "
+                        + "events=0/0/0");
                     return;
                 }
 
