@@ -2,8 +2,8 @@ schema = 1
 id = "GS-7-kerbalx-crash-watch-hold"
 # =====================================================================================
 # THE WATCHED EXPLOSION HOLD: fly GS-4's staged Kerbal X ascent to its core discard,
-# then instead of committing let the unpowered pod stack fall 50 km downrange into
-# the ground, commit through a Space Center hop, Rewind-to-Launch, put the probe-cored
+# then instead of committing let the unpowered pod stack fall 70 km or more downrange
+# into the ground, commit through a Space Center hop, Rewind-to-Launch, put the probe-cored
 # GS1 Auto-Chute Booster on the pad and WATCH the replay all the way into the impact - so the one
 # watch-mode behaviour the whole V-family declined to claim runs under a live camera:
 # the watched ghost's terminal explosion, the 5 s watch hold that follows it, the
@@ -23,14 +23,14 @@ id = "GS-7-kerbalx-crash-watch-hold"
 # finalized `terminal=SubOrbital` at the seam commit (`FinalizeTreeRecordings ...
 # vessel='Kerbal X Probe' ... terminal=SubOrbital`, e.g. `2026-08-28_1855`), so its
 # ghost ends `stale past-end ghost (no longer held)` with no explosion to hold on. The
-# booster debris cannot be pinned either: across twelve archived Kerbal X replays
+# booster debris cannot be pinned either: across thirteen archived Kerbal X replays
 # (GS-4 `2026-08-27_2145` / `_2204`, `2026-08-28_0051` / `_1527` / `_1544` / `_1550`
 # / `_1855`, GS-6 `2026-09-02_1420` / `_1505` / `_1524` / `_1542` / `_1551` / `_1601`)
 # the pair-1 and pair-2 boosters end by `parent-anchored debris outside relative
 # coverage at endpoint` on most flights and by an endpoint explosion on some, with no
 # index behaving the same way twice in a row, and the pair-3 boosters explode 1.2 s
 # after their ghosts spawn (`Early debris completion ... explosionUT=66.7x` on all
-# twelve), a window no watch entry can be timed into. The only ghost whose terminal
+# thirteen), a window no watch entry can be timed into. The only ghost whose terminal
 # can be MADE Destroyed deterministically is the parent itself, which is the roadmap
 # entry's own second suggestion: "a crash-landing profile whose multi-part breakup
 # also claims D5 crash-coalescing".
@@ -154,8 +154,16 @@ id = "GS-7-kerbalx-crash-watch-hold"
 #     AUTORECORD-OFF phase re-sends it and is a no-op.
 #
 # =====================================================================================
-# 3. STATUS: TWO ROUNDS FLOWN, NEITHER GREEN, BOTH MEASURED - and the third round is
-# the first flight of the far-crash profile above.
+# 3. STATUS: FLOWN GREEN AND ARMED 2026-09-08, seven flights in one day. Rounds 1-4
+# located the blocker (the roster, not the pad or the scene), round 5 is the reading
+# run, and the two flights that discharge the arming discipline are recorded at the
+# end of this section: ARMED RE-FLIGHT `2026-09-08_1728` (PASS attempt 1, 767 s
+# wall, ghostLifecycle status=PASS gating=True spawned=8/8/8 unbalanced=0, all 31
+# tokens) and NEGATIVE CONTROL `2026-09-08_1741` (`destroyedReasons.forbidden =
+# ["watch hold expired"]` added uncommitted and reverted in place: PARSEK-FAIL
+# (ghost-lifecycle) attempt 1 on exactly that clause, `forbidden destroy reason
+# 'watch hold expired' matched 1 MeshDestroyed line(s)`, every other verifier green,
+# all 31 tokens still matched). The round-by-round record follows.
 #   ROUND 1 `2026-09-08_1130_GS-7-kerbalx-crash-watch-hold` (+ retry `_1157_a2`), the
 #   close-crash profile with the throwaway launch from the Space Center: INVALID
 #   (autopilot-flake, mission budget expired). Everything up to the launch worked and
@@ -190,7 +198,7 @@ id = "GS-7-kerbalx-crash-watch-hold"
 #   That is what turned the search from the pad to the ROSTER: every kerbal `state =
 #   Missing`, an empty manifest, and the Mk1 pod's `minimumCrew = 1` failing
 #   `NoControlSources`. Round 4 launched the Kerbal X (probe core aboard) instead.
-#   ROUND 4 `2026-09-08_1627` (+ `_a2`), the crewless Kerbal X throwaway: INVALID
+#   ROUND 4 `2026-09-08_1552` (+ retry `_1627_a2`), the crewless Kerbal X throwaway: INVALID
 #   again, but one launch further. MEASURED on both attempts: the throwaway launched
 #   (`Mk1-3 Command Pod holds 3 crew, but only 0 are available`, then `Kerbal X
 #   loaded!`), TEMP-READY settled, `InvokeRewindToLaunch` answered `rewound=true`
@@ -236,9 +244,16 @@ id = "GS-7-kerbalx-crash-watch-hold"
 #   both shapes print (code fact 4); `Active vessel destroyed in tree mode`, the stash
 #   lines, the coalescer's `cause=CRASH` verdict and the `Vessel was destroyed during
 #   recording` death stamp are OBSERVED, shape-dependent, and no longer required; the
-#   exit-gate token accepts both tree states. Every token from the rewind onward is
-#   still a first-flight pin.
-# Pre-flight risks for round 5, each with the line that would name it on a red run:
+#   exit-gate token accepts both tree states. Every token from the rewind onward was
+#   a first-flight pin until round 5 measured them and rounds 6-7 (the armed re-flight
+#   and the negative control, above) matched all 31 again.
+#   OBSERVATION, not gated: the armed re-flight `_1728` carries
+#   `NullReferenceException: 1` in its report-only `unityExceptions` row where the
+#   reading run carried 0 and the control 3; GS-8's three runs each carry 1 as well,
+#   so it reads as a fixture-level artefact rather than a crash-profile one, and it is
+#   the standing reason roadmap Tier B item 9 (arming `unityExceptions`) exists.
+# Pre-flight risks recorded before round 5, each with the line that would name it on
+# a red run (none fired on rounds 5-7):
 #   - the stack SURVIVES the impact (a bounce that leaves the pod intact): the machine
 #     never observes a loss and flakes on `impactCoastFrames` / `flightMaxSeconds` -
 #     driver-INVALID, never PARSEK-FAIL, per mission-vs-Parsek orthogonality;
@@ -246,7 +261,7 @@ id = "GS-7-kerbalx-crash-watch-hold"
 #     discard, then a 3-4 min fall): the same named flake, re-tuned by raising it;
 #   - the crash debris children surviving finalize as multi-point recordings (the
 #     `recordings.count` floor is 8 = parent + 6 boosters + probe for exactly this
-#     reason; a higher measured count is re-pinned, not widened);
+#     reason; the floor stayed a floor, see the count block for why);
 #   - the watched parent retiring under the camera by some path other than the hold
 #     (the required `reason=watch hold expired` token is what reds on it, and that red
 #     would be the product finding this lane exists to make visible);
@@ -257,7 +272,7 @@ id = "GS-7-kerbalx-crash-watch-hold"
 #     Booster`.
 # =====================================================================================
 tier = "operator"
-description = "Watched explosion hold: GS-4's staged Kerbal X ascent through its core discard, then the unpowered pod stack ridden 50 km downrange into the ground, committed through a Space Center hop (autoMerge commit on arrival, a crewless throwaway pad launch of the probe-cored Kerbal X from the Space Center), Rewound-to-Launch and WATCHED from the probe-cored GS1 Auto-Chute Booster through its replayed impact - the 5 s Destroyed-terminal watch hold, its retarget scan and its `watch hold expired` derender gated, plus the recorder's own destroyed-in-split verdict for the crash coalescer."
+description = "Watched explosion hold: GS-4's staged Kerbal X ascent through its core discard, then the unpowered pod stack ridden 70 km or more downrange into the ground, committed through a Space Center hop (autoMerge commit on arrival, a crewless throwaway pad launch of the probe-cored Kerbal X from the Space Center), Rewound-to-Launch and WATCHED from the probe-cored GS1 Auto-Chute Booster through its replayed impact - the 5 s Destroyed-terminal watch hold, its retarget scan and its `watch hold expired` derender gated, plus the recorder's own destroyed-in-split verdict for the crash coalescer."
 instanceProfile = "stock-minimal"
 tags = ["GS7", "rewind-to-launch", "watch-mode", "ghost-render", "explosion-hold", "crash-coalescing", "ghost-lifecycle"]
 
@@ -293,7 +308,8 @@ launchSite       = "LaunchPad"
 # NOT the Jumping Flea (GS-4 / GS-8): its Mk1 pod needs a kerbal and the crash leaves
 # none (header code fact 3). The Booster's Octo2 probe core launches it empty.
 watcherCraftName = "GS1 Auto-Chute Booster"
-# THE ONE KEY THAT IS THE LANE. Omitted = GS-4's 23-phase graph exactly; true = the
+# THE ONE KEY THAT IS THE LANE. Omitted = GS-4's flown 22-phase graph exactly (23
+# with the other opt-in, PART-SWEEP, which GS-4 also skips); true = the
 # impact branch described in the header (mlib.kxrw_decide, `impactProfile`): after
 # TREE-STATE the machine disarms auto-record and falls instead of committing.
 impactProfile = true
@@ -328,7 +344,7 @@ D1 = ["auto-record-launch"]
 #   the far profile (see STATUS).
 D5 = ["controlled-decoupled-child", "crash-coalescing"]
 # `basic-playback` / `mesh-lifecycle-derender` <- the MeshSpawned / MeshDestroyed
-#   tokens plus the ghostLifecycle declaration (report-only until armed).
+#   tokens plus the ghostLifecycle declaration (ARMED, see the block).
 # `watch-mode-retarget-explosion-hold` <- THE cell: `Watch hold started for #<i>: 5s
 #   terminal=Destroyed`, the `FindNextWatchTarget` retarget scan for the watched index,
 #   `Stock FXMonger.Explode for ghost #<i> "Kerbal X"`, `Watch hold expired for #<i>`,
@@ -453,9 +469,10 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 # outside relative coverage at endpoint`, 2 x `playback completed`, 2 x `stale
 # past-end ghost (no longer held)`, 1 x `watch hold expired`) - the same 8-ghost
 # census GS-4 / GS-8 arm on, one crash ending instead of a suborbital one. The
-# roster entry in `GHOSTLIFE_ARMED_SPECS` records the armed re-flight and the
-# negative control (`destroyedReasons.forbidden = ["watch hold expired"]`, the one
-# reason this lane exists to produce, reverted after the red). requireBalanced is
+# armed re-flight `2026-09-08_1728` (PASS, gate live) and the negative control
+# `2026-09-08_1741` (`destroyedReasons.forbidden = ["watch hold expired"]`, the one
+# reason this lane exists to produce, red on exactly that clause, reverted) are
+# recorded in the STATUS section above and in `GHOSTLIFE_ARMED_SPECS`. requireBalanced is
 # the derender tripwire GS-4 established.
 [expectations.ghostLifecycle]
 gating = true

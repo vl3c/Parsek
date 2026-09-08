@@ -11075,9 +11075,12 @@ class GhostLifecycleVerifierWiringTests(unittest.TestCase):
         # (MISSION-OK attempt 1, PARSEK-FAIL on one re-cut logContract token only;
         # ghostLifecycle spawned=8 spawnLines=8 destroyLines=8 unbalanced=0 with
         # `watch hold expired` among the eight reasons) - the same 8-ghost census
-        # GS-4 / GS-8 arm on, ending in a watched crash. ARMED RE-FLIGHT and the
-        # negative control (`destroyedReasons.forbidden = ["watch hold expired"]`)
-        # are recorded in the spec's STATUS section by the arming pass's own flights.
+        # GS-4 / GS-8 arm on, ending in a watched crash. ARMED RE-FLIGHT
+        # `2026-09-08_1728` PASS attempt 1 with the gate live (ghostLifecycle
+        # status=PASS gating=True spawned=8/8/8 unbalanced=0); NEGATIVE CONTROL
+        # `2026-09-08_1741` (`destroyedReasons.forbidden = ["watch hold expired"]`,
+        # uncommitted, reverted) red PARSEK-FAIL(ghost-lifecycle) attempt 1 on
+        # exactly that clause with every other verifier green.
         "GS-7-kerbalx-crash-watch-hold.toml",
         # ARMED 2026-09-08 off two readings of the identical census: reading run 1
         # `2026-09-08_1119_GS-8-kerbalx-zone-round-trip` (PARSEK-FAIL on the late

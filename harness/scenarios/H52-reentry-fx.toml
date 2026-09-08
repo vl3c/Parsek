@@ -121,7 +121,7 @@ count = { min = 0, max = 0 }
 #    digits (the cell asserts strictly above the 2000/s legacy ceiling) and the
 #    particle system must be playing.
 required  = ["BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=ReentryFx scene=FLIGHT",
-             "\\[ReentryFx\\] Bug538_ReentryFireDensity: live reentry fire particle system driven on Kerbin: emissionRate=(?:[2-9][0-9]{3}|[1-9][0-9]{4,})/s expectedRate=[0-9]+/s legacyCeiling=2000/s lastIntensity=[0-9.]+ fireThreshold=[0-9.]+ playing=true"]
+             "\\[ReentryFx\\] Bug538_ReentryFireDensity: live reentry fire particle system driven on Kerbin: emissionRate=(?:200[1-9]|20[1-9][0-9]|2[1-9][0-9]{2}|[3-9][0-9]{3}|[1-9][0-9]{4,})/s expectedRate=[0-9]+/s legacyCeiling=2000/s lastIntensity=[0-9.]+ fireThreshold=[0-9.]+ playing=true"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 [runtime]

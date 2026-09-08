@@ -471,7 +471,12 @@ max = 10000
 # at least one committed recording, re-probing under a fresh wire tag until it
 # does. It bounds a REREAD, not a scene change - ExitToSpaceCenter already
 # answered OK, so the scene moved; what this waits on is the arrival's auto-commit
-# landing in the store, which is the one thing that OK does not say.
+# landing in the store, which is the one thing that OK does not say. The gate is
+# `count >= 1`, an ABSOLUTE floor rather than a delta: it is a commit proof only
+# over a save that starts with zero committed recordings (GS-7's
+# `gs1-two-stage-pad` does; a spec turning this profile on over a save that
+# already holds committed recordings would pass the gate before the arrival's
+# auto-commit landed, and needs a pre-exit baseline read of its own).
 [params.scCommittedFrames]
 required = false
 type = "int"

@@ -65,7 +65,9 @@ harness/scenarios/*.toml` returns **234** files, the total `autotest-status.md`'
 `## Test cases` header states and `AutotestStatusScenarioCountTests` pins against
 the committed files (230 at `de5ac6112` after #1648 V27M, #1650 LT-3 / LT-4 / LT-5 /
 H71 and #1653 RH-1; the four added the same day are CI-1, CI-2, GS-7 and GS-8, all
-live-proven, 0 committed-not-yet-green). The 68 below was the 2026-08-04 snapshot;
+live-proven; 133 live-proven in that doc's own table, 0 committed-not-yet-green;
+tiers: 125 nightly, 25 daily, 84 operator, parsed from the specs' `tier` keys). The 68
+below was the 2026-08-04 snapshot;
 the V / GS / W / L / RVR / H41-H71 / LT / RH / CI waves, among others, took it from 68
 to 234 between 2026-08-04 and 2026-09-08.
 
@@ -108,8 +110,9 @@ committed specs and `harness/coverage/registry.toml` returns exactly:
 values 248   covered 163   uncovered 85   expectedFailValues 0   xpass 0
 ```
 
-Per dimension (total / uncovered), with the 2026-08-04 uncovered count kept in
-the last column so the delta stays legible:
+Per dimension (total / uncovered) for the CURRENT derivation above (234 specs,
+170 of 248; the retained `de5ac6112` block directly above it is history), with the
+2026-08-04 uncovered count kept in the last column so the delta stays legible:
 
 | Dim | Subject | Total | Uncovered | Was |
 |---|---|---:|---:|---:|
@@ -148,8 +151,10 @@ D13 unchanged at `proximity-offset`, `bbox-block`, `ksc-exclusion`,
 
 Read with the register below. Sixty-six percent of the declared surface is gated
 and every committed lane has a green run; the residue is UNEVEN, and each thin
-dimension is thin for a different reason. Covered / total per dimension at
-`de5ac6112`, with what closing the rest takes:
+dimension is thin for a different reason. Covered / total per dimension,
+re-derived 2026-09-08 on `ghost-replay-tier-a` after the merge of origin/main (234
+specs; the D5 / D6 / D18 rows moved since `de5ac6112`), with what closing the rest
+takes:
 
 | Dim | Subject | Covered | What the residue is, and what closes it |
 |---|---|---:|---|
@@ -160,15 +165,15 @@ dimension is thin for a different reason. Covered / total per dimension at
 | D7 | part events / FX | 12 / 16 | `chute-cut`, `bays` (GS-6 residues, need a descent variant and a ServiceBay tail), `engine-fx-effects`, `inventory-place-remove` (Tier 4 producer). |
 | D14 | bodies / scenes | 24 / 32 | Tylo / Bop / Pol (G9), `atmosphere`, `situation`, `warp-1x`, `warp-phys`, `scene-editor`: breadth, behind everything else. |
 | D11 | missions abstraction | 12 / 18 | `default-mission`, `leg-trim`, `whole-mission-loop`, `clone`, `station-phase-lock`, `s4-arrival-restitch`: Missions-tab semantics that need seam verbs equivalent to the tab's buttons (`MissionConfig` exists; the rest do not). |
-| D6 | playback / ghosts | 10 / 18 | Register item 3 (Tier A: retarget + explosion hold, zone transitions, reentry FX at the replay surface) takes the cells that have subjects; `loop-period-modes`, `self-overlap`, `overlap-expiry-soft-caps`, `attitude-preservation` need loop-cycle instruments (Tier C); `commnet-relay` is vacuous until a generator writes `AntennaSpecs`. |
+| D6 | playback / ghosts | 13 / 18 | Register item 3 took the three cells that had subjects on 2026-09-08 (`watch-mode-retarget-explosion-hold`, `zone-transitions`, `reentry-fx`; the reentry replay surface stays open as Tier A item 3's second half); `loop-period-modes`, `self-overlap`, `overlap-expiry-soft-caps`, `attitude-preservation` need loop-cycle instruments (Tier C); `commnet-relay` is vacuous until a generator writes `AntennaSpecs`. |
 | D4 | track sections / optimizer | 6 / 12 | A CLAIM GAP of the H57 kind: `Optimizer` executes whole on LT-2 but `hysteresis`, `env-body-split`, `surface-graze-suppression`, `tail-trim`, `seed-event-split`, `split-at-ut` have no cell-level gating token. Same fix as the D3 / D6 claim pass in register item 3. |
-| D5 | tree topology | 6 / 12 | `chain-continuation-switch` (register item 2, in flight), `staging-debris-ttl` / `-promotion` (Tier A item 5), `dock-merge-same-tree` (Tier 4), `crash-coalescing` (a crash-landing profile; Tier A item 2's second shape), `bg-on-rails` (`Recording` executes whole on LT-2, claim gap). |
+| D5 | tree topology | 8 / 12 | `staging-debris-ttl` / `-promotion` (Tier A item 5, sized as two lanes), `dock-merge-same-tree` (Tier 4), `bg-on-rails` (`Recording` executes whole on LT-2, claim gap); `chain-continuation-switch` (CI-1) and `crash-coalescing` (GS-7) closed 2026-09-08. |
 | D12 | crew | 5 / 10 | `tombstone-rep-penalty` and `stand-ins` wait on R12 Stage B (now unblocked by R10); `reservation-auto-hire`, `missed-endut-auto-free`, `crew-swap` are career-lane work and Tier 4 machinery. |
 | D3 | reference frames | 3 / 7 | A claim gap: `Pipeline-Anchor` executes whole on H11; `absolute`, `relative-anchored-nonloop`, `relative-loop`, `boundary-seam` need the test-to-cell mapping confirmed and one token each (register item 3, part 0). |
 | D13 | spawn positioning | 4 / 11 | Where a REAL spawn lands (terrain clearance, KSC exclusion, collision, orbit safety): the in-game tests exist and self-skip on every committed fixture. Generator / fixture work (R8 residue), not spec work. |
 | D16 | storage / sidecars | 4 / 12 | Formats, safe-write, path validation. Already covered headlessly by xUnit; the registry asks for a driven lane. Low product risk; several cells could close through one save-parse lane. |
 | D17 | mod compatibility | 2 / 6 | `better-time-warp`, `making-history` have the instance and no spec (R14 residue); `persistent-rotation`, `remotetech-commnet` are source-blocked. |
-| D18 | re-fly / interaction | 2 / 12 | THE LARGEST RESIDUE and the interaction surface of the v0.9 headline feature: what happens when the player spawns a ghost as a real vessel, docks with it, and how chains link afterwards. Register item 2 (in flight) claims `committed-interaction-claiming` and `chain-tip-original-pid`; the other eight (`ghost-conversion-quicksave`, `intermediate-spawn-suppression`, `cross-tree-chain-linking`, `ghost-extension-past-endut`, `background-event-claims`, `chain-terminated-destruction-recovery`, `chain-state-rederived`, `loop-first-run-is-real`) need the same spawn-in-run driving item 2 has to build, so they are its natural follow-on wave. |
+| D18 | re-fly / interaction | 4 / 12 | THE LARGEST RESIDUE and the interaction surface of the v0.9 headline feature: what happens when the player spawns a ghost as a real vessel, docks with it, and how chains link afterwards. Register item 2 (in flight) claims `committed-interaction-claiming` and `chain-tip-original-pid`; the other eight (`ghost-conversion-quicksave`, `intermediate-spawn-suppression`, `cross-tree-chain-linking`, `ghost-extension-past-endut`, `background-event-claims`, `chain-terminated-destruction-recovery`, `chain-state-rederived`, `loop-first-run-is-real`) need the same spawn-in-run driving item 2 has to build, so they are its natural follow-on wave. CI-2 closed `committed-interaction-claiming` and `chain-tip-original-pid` on 2026-09-08. |
 | D2 | sampling | 3 / 4 | `proximity-cadence-bg` (R1 residue: grep an archived B-lane log first). |
 | D15 | timeline | 0 / 1 | `timeline-projection`, one cell, no subject yet. |
 

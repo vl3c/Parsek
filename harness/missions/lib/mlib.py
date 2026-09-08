@@ -20765,10 +20765,11 @@ KXRW_RECORDER_IDLE = "RECORDER-IDLE"
 # THE DISARM RUNS FIRST, BEFORE THE FALL: a surviving fragment inherits the active
 # vessel on break-up and, with `autoRecordOnLaunch` still armed, opens a recording
 # tree of its own in the save the spec's log contracts read. THE TEMPORARY LAUNCH
-# RUNS LAST, from the SPACE CENTER, on a pad the far-downrange crash left clear -
-# `PreFlightTests.LaunchSiteClear` is what a near-pad crash would block, in every
-# scene - and it launches the RECORDED craft rather than the watcher, because the
-# post-crash roster is all-Missing and only a `minimumCrew = 0` command module
+# RUNS LAST, from the SPACE CENTER (the scene was never the blocker, and neither
+# was the pad: `LaunchSiteClear` waves the clamps through as Debris, see the
+# section header), and it launches the RECORDED craft rather than the watcher,
+# because the post-crash roster is all-Missing and only a `minimumCrew = 0` command
+# module
 # still passes `PreFlightTests.NoControlSources`. See the header.
 KXRW_IMPACT_AUTORECORD_OFF = "IMPACT-AUTORECORD-OFF"
 KXRW_IMPACT_COAST = "IMPACT-COAST"
@@ -22133,9 +22134,10 @@ def kxrw_decide(state: KxrwState,
         # Last pair away: throttle back up and keep climbing on the core. THE
         # IMPACT PROFILE DOES THE SAME, and that is the whole point of where it
         # diverges: a lane that cut here left the stack falling back within 330 m
-        # of the pad, and a fragment landed at the launch site blocks KSP's own
-        # `PreFlightTests.LaunchSiteClear` - so every later kRPC launch, from any
-        # scene, waits on an obstruction dialog nobody is there to dismiss.
+        # of the pad in a slow near-vertical impact (`type=Breakup, cause=CRASH`,
+        # the stash path), which is NOT the crash shape GS-7's tokens are cut to.
+        # The launch hangs those runs met were the empty post-crash roster, not the
+        # pad (the section header has the refutation).
         actions.append(Action(ACTION_SET_THROTTLE, p.launch_throttle))
         return _kxrw_enter(st, KXRW_ASCENT, snapshot.ut), actions
 
@@ -22642,12 +22644,13 @@ def kxrw_decide(state: KxrwState,
     # IT IS LAUNCHED FROM THE SPACE CENTER, which is GS-4's own proven post-rewind
     # launch: WATCHER-LAUNCH issues the identical kRPC call from SPACECENTER and it
     # has worked on every GS-4 / GS-6 flight. What blocks such a launch is not the
-    # SCENE but an OBSTRUCTED PAD - `PreFlightTests.LaunchSiteClear.Test()` reads
-    # persistent.sfs through `ShipConstruction.FindVesselsLandedAt` and waits on a
-    # dialog nobody is there to dismiss, so `LaunchVessel` yields on
-    # `WaitForVesselPreFlightChecks` forever, from FLIGHT as well as from here.
-    # This profile keeps the pad clear by crashing 50 km or more downrange (the
-    # unchanged core gate is what buys that); see the section header.
+    # SCENE and not the PAD (`LaunchSiteClear` waves the clamps through as Debris;
+    # the far crash of runs 2026-09-08_1429 / _1503_a2 hung with nothing else at
+    # the pad) but the CREW: a fatal crash leaves the roster empty, KSP's
+    # `NoControlSources` raises its dialog for any `minimumCrew = 1` pod, and
+    # `LaunchVessel` yields on `WaitForVesselPreFlightChecks` forever. Hence the
+    # probe-cored recorded craft here and a probe-cored watcher after the rewind;
+    # see the section header.
     if state.phase == KXRW_TEMP_LAUNCH:
         # ONE click, on the phase's first frame - WATCHER-LAUNCH's shape exactly.
         st = replace(state, temp_launch_commanded=True, temp_ready_streak=0)
@@ -22851,7 +22854,10 @@ def kxrw_decide(state: KxrwState,
                 "with no live vessel in FLIGHT there is nothing to watch the replay "
                 "from. A name that reads as an #autoLOC_* token means the craft "
                 "file's `ship =` line is a localization key, so declare it as "
-                "watcherExpectedVesselName"
+                "watcherExpectedVesselName. On the impact profile the measured "
+                "cause is an EMPTY ROSTER after the crash (KSP's NoControlSources "
+                "dialog holds kRPC's LaunchVessel forever): watcherCraftName must "
+                "be a probe-cored craft (a command module with minimumCrew = 0)"
                 % (KXRW_WATCHER_READY, p.watcher_expected_vessel_name,
                    list(p.watcher_ready_situations), p.watcher_launch_frames,
                    p.watcher_craft_name, st.watcher_ready_vessel_name or "",

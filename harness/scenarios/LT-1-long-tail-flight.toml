@@ -125,7 +125,7 @@ required  = [
   # THE WATCH CONSTITUENT'S OWN CELL-LEVEL LINES (claim pass 2026-09-08). Both are
   # written AFTER the cell's assertions (`WatchAutoFollowFollowsSupersedeForkRuntimeTest.cs`,
   # `WatchCoverageRetiredEligibilityRuntimeTest.cs`), so neither can print on a
-  # skipped or failed cell, and both were MEASURED on run `2026-09-07_1808`. They
+  # skipped or failed cell, and both were MEASURED on the collect-logs snapshot `2026-09-07_1808` (a `../logs/` folder, not a results run) and on the results runs `2026-09-08_1041` / `_1114`. They
   # sharpen the tally pin above (the two assertions ran, not just the cells) and
   # CLAIM NOTHING: the first proves the live `FindNextWatchTarget` wiring resolves a
   # superseded chain-next through `ParsekScenario.RecordingSupersedes` to its fork

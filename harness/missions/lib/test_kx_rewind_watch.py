@@ -1880,9 +1880,11 @@ class ImpactProfileTests(unittest.TestCase):
     the rewind can be commanded at all - which is GS-4's own post-rewind launch, a
     kRPC call issued from SPACECENTER onto a clear pad. And when the stack breaks up
     KSP hands active-vessel to a SURVIVING FRAGMENT: with `autoRecordOnLaunch` still
-    armed Parsek opens a second recording tree on it, which can refuse the exit
-    (`hasActiveTree=false`) and lands in the save the spec's log contracts read, so
-    the disarm runs BEFORE the fall.
+    armed Parsek opens a second recording tree on it, which flips the exit gate's
+    pinned tree-state token (the spec accepts `hasActiveTree=false
+    hasPendingTree=true` and `hasActiveTree=true hasPendingTree=false`, the two
+    measured crash shapes, and a fragment tree is neither) and lands in the save
+    the spec's log contracts read, so the disarm runs BEFORE the fall.
 
     The compatibility statement lives in HappyPathTests (neither opt-in declared ->
     none of these phases is entered and the graph is the pre-profile one); the
@@ -2615,6 +2617,19 @@ class ImpactProfileTests(unittest.TestCase):
                          rows["treeCommittedAtSpaceCenter"].detail["exitResult"])
         self.assertIsNone(rows["treeCommittedAtSpaceCenter"].detail["count"])
         self.assertEqual(0, rows["treeCommittedAtSpaceCenter"].detail["probes"])
+
+        # The exit conjunct on its own: a count that reads fine over an exit
+        # that never answered OK is NOT a commit proof. MUTATION: drop
+        # `exit_result == "OK"` from the row and this fixture passes it.
+        count_without_exit = dataclasses.replace(
+            machine(**self.IMPACT), tree_id="t_kx",
+            sc_exit_result="TIMEOUT", committed_handle_count=3)
+        rows = {r.name: r for r in
+                mlib.evaluate_kxrw_assertions([], p, count_without_exit)}
+        self.assertFalse(rows["treeCommittedAtSpaceCenter"].met)
+        self.assertEqual(3, rows["treeCommittedAtSpaceCenter"].value)
+        self.assertEqual("TIMEOUT",
+                         rows["treeCommittedAtSpaceCenter"].detail["exitResult"])
 
     def test_the_non_impact_rows_are_untouched_by_the_profile(self):
         """THE COMPATIBILITY STATEMENT FOR THE ROWS: with the key omitted the eight

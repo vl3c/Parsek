@@ -198,7 +198,11 @@ watchEntryRetryFrames = 700
 [dimensionsCovered]
 # CLAIM-IS-NOT-GATE. Every value below is backed by a REQUIRED token in this spec's
 # own logContracts.
+# `auto-record-launch` <- `Auto-record started (PRELAUNCH|...)` + `Recording started`.
 D1 = ["auto-record-launch"]
+# `controlled-decoupled-child` <- `ProcessBreakupEvent: controlled child created:
+#   pid=` + `Controllable split children:` (the core discard's probe child,
+#   IsDebris=false with a parent anchor).
 D5 = ["controlled-decoupled-child"]
 # `zone-transitions` <- THE cell, as MEASURED on run 1: `Zone transition: ...
 #   Physics->Visual dist=10002m` (the 10 km fidelity step; it printed cleanly on run
@@ -209,7 +213,14 @@ D5 = ["controlled-decoupled-child"]
 #   back in, from the re-centred reference).
 # `basic-playback` / `mesh-lifecycle-derender` <- the lifecycle pair + the balance.
 D6 = ["basic-playback", "mesh-lifecycle-derender", "zone-transitions"]
+# `rewind-to-launch` <- `Rewind-to-Launch initiated to UT` + `invokerewindtolaunch
+#   complete rec=`.
 D9 = ["rewind-to-launch"]
+# `kerbin` / `sandbox` <- the `gs1-two-stage-pad` sandbox fixture every token above
+#   is flown on; `scene-flight` <- the MeshSpawned / Zone transition tokens (FLIGHT
+#   only); `scene-ksc` <- the rewind's SPACECENTER terminal (`invokerewindtolaunch
+#   complete` answers from the settled Space Center); `scene-map` <- `entermapview ok`
+#   / `exitmapview ok`.
 D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc", "scene-map"]
 
 [expectations]
@@ -279,12 +290,16 @@ requireBalanced = true
 supersedeRows = { max = 0 }
 tombstones    = { max = 0 }
 
+# REPORT-ONLY, re-pinned to the measurement: all three flights (`_1225`, `_1239`,
+# `_1249`) parsed branchPoints={JointBreak: 5} (three drops + the core discard + one
+# more the longer burn adds) and terminalStates={SubOrbital: 2, Destroyed: 6} (the
+# pod and the probe suborbital, the six boosters destroyed on unload).
 [expectations.recordings.structure]
 trees          = { min = 1, max = 1 }
 committedTrees = { min = 1, max = 1 }
 recordings     = { min = 8 }
-branchPoints   = { JointBreak = { min = 4 } }
-terminalStates = { SubOrbital = { min = 2 }, Destroyed = { min = 4 } }
+branchPoints   = { JointBreak = { min = 5 } }
+terminalStates = { SubOrbital = { min = 2 }, Destroyed = { min = 6 } }
 
 [runtime]
 # GS-4's 2400 plus the longer recorded span (~+150 s of flight, spent again in real
