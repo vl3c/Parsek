@@ -1058,14 +1058,24 @@ This section states which surface owns it.
   piece. A predicted tail on a body whose gravitational parameter the provider
   cannot resolve fails CLOSED to the leg path, so it still draws.
 
-**The recorded/predicted boundary.** The finalizer's anchor reseed can move a tail
-segment's `startUT` a fraction of a second BEFORE the last recorded sample (measured
-0.400 s). Once the coast is orbit-owned, the recorded samples inside that overlap
-are covered by the arc, and the leg run breaks there - which is the same tiling the
-recorded case already uses. The predicted descent leg therefore starts at the
-coast's end UT and no chord is drawn across the coast. When the coast is NOT
-orbit-owned (unknown gravitational parameter), the tail fill covers coast and
-descent as one continuous leg instead; that is a degradation in shape, never a hole.
+**The recorded/predicted boundary.** The finalizer's anchor reseed moves a tail
+segment's `startUT` BACKWARDS onto the last recorded sample. Measured on the session's
+sidecar: the coast's original start was UT 1078.453 and the reseed moved it 0.400 s
+back to UT 1078.0528, which is EXACTLY the last recorded sample's UT - not a fraction
+of a second before it. There is therefore no overlap span, only a shared endpoint.
+
+`IsInsideAnyOrbitalInterval` is inclusive at both ends, so once the coast is
+orbit-owned that shared last sample is claimed by the arc and dropped from the
+recorded leg. The recorded leg consequently ends at the PREVIOUS sample - one sample
+interval (~3 s on this flight) before the arc starts. That hole is real, and it is
+below `GapFillMinSeconds = 15`, so nothing bridges it; at the 540 km altitude where it
+falls it is invisible, which is why it is stated here rather than fixed. The predicted
+descent leg starts at the coast's end UT, so no chord is drawn across the coast. When
+the coast is NOT orbit-owned (unknown gravitational parameter), the tail fill covers
+coast and descent as one continuous leg instead; that is a degradation in shape, never
+a hole. Both boundary shapes - the shared-endpoint one measured here, and a coast whose
+`startUT` falls strictly BEFORE the last recorded sample - are pinned as fixture rows in
+`GhostTrajectoryPolylineBuildTests`.
 
 `TrajectoryMath.TryGetOrbitWindowForMapDisplay` deliberately MERGES a recorded
 conic with an element-equivalent predicted continuation (its expansion runs through

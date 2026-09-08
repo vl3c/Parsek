@@ -1,4 +1,4 @@
-﻿# Changelog
+# Changelog
 
 All notable changes to Parsek are documented here.
 
@@ -41,7 +41,10 @@ _(unreleased — entries accumulate here per commit)_
   lookup now follows the chain to its effective tip, so the ghost is seeded from the orbit
   the flight actually had, including its predicted continuation tail. Only the segment
   lookup moved: a recording playing back inside its own recorded span keeps the position
-  source it had, and the single-position fallback stays the last resort.
+  source it had, and the single-position fallback stays the last resort. The lookup is
+  memoized, and the memo is now dropped when a Re-Fly merge replaces part of the chain as
+  well as when the recording list changes, so the ghost cannot keep following a half of the
+  flight that a merge has just superseded.
 - **The map marker no longer risks placing a ghost inside a planet during a docking or
   rendezvous section.** The flight-map fallback marker read a recording's stored
   coordinates without checking the section's reference frame; in a docking-relative section
@@ -62,8 +65,11 @@ _(unreleased — entries accumulate here per commit)_
   is drawn as a trajectory line sampled from the conic itself, so the two tile the tail with
   no gap and no double line. A non-predicted below-surface conic is untouched, and a body
   whose gravitational parameter is unavailable falls back to drawing the whole tail as a
-  line rather than nothing. The polyline build summary now reports `predictedTailPts=` /
-  `predictedTailSegs=`.
+  line rather than nothing. The orbit-shape solve behind that decision now reports failure
+  rather than an answer when it does not converge - for a narrow band of positions near the
+  low point of a very stretched orbit it could not converge and used to hand back a number
+  that was simply wrong - and a solve that cannot answer takes the same fall back to drawing
+  a line. The polyline build summary now reports `predictedTailPts=` / `predictedTailSegs=`.
 
 - **Automated testing: two ghost-replay lanes now gate what a watcher actually sees
   when a replayed flight crashes and when it flies out of visual range.** The

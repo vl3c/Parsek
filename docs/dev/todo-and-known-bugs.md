@@ -1,4 +1,4 @@
-﻿# TODO & Known Bugs
+# TODO & Known Bugs
 
 Older entries archived alongside this file:
 
@@ -47,6 +47,18 @@ feeds the cover, the arc selector, the bridge search and the Director's chain as
 they cannot drift apart. Contract:
 `docs/dev/design-map-ts-render-architecture.md`, "Predicted continuation tails on the map".
 
+Review follow-up: `TrajectoryMath.TrySolveEllipticEccentricAnomaly` had no convergence
+check, and Newton seeded at `M + e sin M` is not globally convergent - at `e = 0.9948` (the
+surface-rotation ellipse of every landed or prelaunch vessel) 68 of 200000 mean anomalies
+in `|M| < 0.084` ended with residuals up to 1e9 and effectively random radii, which
+`TryGetConicRadiusAtUT` reported as SUCCESS and `IsConicSpanAboveSurface` then believed.
+It now gates on the residual (`EllipticKeplerResidualTolerance = 1e-9`) and reports
+failure, so an unanswerable span reads NOT orbit-owned and the piece falls to the traced-leg
+path, which always draws. Not routed through `BallisticExtrapolator.TwoBodyOrbit`'s
+eccentricity dispatch: that solver returns its best estimate rather than a failure at its
+iteration cap, so a residual gate would still be needed, and borrowing it would tie this
+headless-pure helper to a stock-parity contract it does not share.
+
 ## ~~PREDICTED-TAIL-CHAIN-HEAD-RESOLVES-MAP-PRESENCE-WITH-NO-SEGMENTS: an optimizer split moves every conic onto the TIP, so the HEAD answers hasOrbitSegments=False and the ghost is re-sourced to an ellipse it never flew~~ FIXED 2026-09-08
 
 Defect (B) of the same session. At auto-commit the optimizer env-split the pod at the
@@ -71,6 +83,14 @@ resort. Mirror direction checked: the TS marker VETO
 "does a conic cover this UT, so a live proto icon already shows the ghost" - and widening
 it to the chain would REMOVE a marker, so it deliberately stays on the recording's own
 segments.
+
+Review follow-up: `GhostMapPresence.chainTipSegmentsCache` memoizes that walk, and was
+keyed on `RecordingStore.StateVersion` alone. `EffectiveTipRecordingId` also depends on
+`RecordingSupersedes`, which `SupersedeCommit.AppendRelations` mutates with a
+`SupersedeStateVersion` bump and NO store bump, so a Re-Fly merge left the memo serving the
+pre-supersede tip for the rest of the session. The key is now the composite
+`(StateVersion, SupersedeStateVersion)` pair, mirroring the ERS / retired-set caches in
+`EffectiveState`.
 
 ## PREDICTED-TAIL-CHAIN-HEAD-HOLDS-MAP-PRESENCE: routing the segment lookup to the effective tip does not restore presence at a UT NEITHER member's conics cover
 

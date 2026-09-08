@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -3170,6 +3170,14 @@ namespace Parsek.Tests
         private const double TailImpactUT = 2348.5488254909719;
         private const double TailMeanAnomalyAtImpact = 6.1056670826845894;
         private const double LastRecordedUT = 1078.4528338768353;
+        // The MEASURED reseed shape: the finalizer moved the coast's startUT 0.400 s BACK from
+        // its original 1078.453 onto the last recorded sample, so the two are the SAME UT. The
+        // row above (last sample 0.4 s AFTER the coast start) is the other boundary shape.
+        private const double MeasuredLastRecordedUT = TailCoastStartUT;
+        // Recorder cadence on the exo leg of the measured flight, in seconds. It sets the size of
+        // the one-sample boundary hole the inclusive interval test leaves behind, so it has to be
+        // a real cadence rather than "however many points the loop felt like".
+        private const double TailExoSampleIntervalSeconds = 3.0;
 
         private static bool KerbinSurface(
             string bodyName, out GhostTrajectoryPolylineRenderer.BodySurfaceInfo info)
@@ -3232,12 +3240,19 @@ namespace Parsek.Tests
         }
 
         /// <summary>
-        /// The measured shape: recorded ascent + exo climb ending at UT 1078.45, then a predicted
-        /// coast and a predicted ballistic descent with zero points of their own. The coast
-        /// starts 0.4 s BEFORE the last recorded sample - the finalizer's anchor reseed - so the
-        /// fixture also exercises the recorded/predicted overlap.
+        /// Recorded ascent + exo climb ending at <paramref name="lastRecordedUT"/>, then a
+        /// predicted coast and a predicted ballistic descent with zero points of their own.
+        /// <para>
+        /// Two boundary shapes, both real (see the design doc's "recorded/predicted boundary"):
+        /// the DEFAULT row ends the recorded track at UT 1078.45, i.e. 0.4 s AFTER the coast's
+        /// startUT, so the last sample sits strictly inside the coast interval; the MEASURED row
+        /// (<see cref="MeasuredLastRecordedUT"/>) ends it exactly ON the coast's startUT, which
+        /// is what the session's sidecar actually carries after the finalizer's anchor reseed
+        /// moved the coast start 0.400 s back onto the last sample.
+        /// </para>
         /// </summary>
-        private static Recording MakePredictedTailRecording(bool predicted = true)
+        private static Recording MakePredictedTailRecording(
+            bool predicted = true, double lastRecordedUT = LastRecordedUT)
         {
             var rec = new Recording { RecordingId = "rec-predicted-tail" };
             var ascent = new List<TrajectoryPoint>();
@@ -3259,11 +3274,17 @@ namespace Parsek.Tests
                 sampleRateHz = 10f
             });
 
+            // Sampled at the flight's real exo cadence, so the boundary hole the inclusive
+            // orbital-interval test leaves is one REAL sample interval rather than an artefact
+            // of a fixed point count.
             var exo = new List<TrajectoryPoint>();
-            for (int i = 0; i <= 29; i++)
+            int exoCount = Math.Max(
+                1, (int)Math.Round((lastRecordedUT - 190.0) / TailExoSampleIntervalSeconds));
+            for (int i = 0; i <= exoCount; i++)
             {
-                double ut = 190.0 + (LastRecordedUT - 190.0) * i / 29.0;
-                exo.Add(MakePoint(ut, 0.0 + i * 0.01, -74.0, 70038.0 + i * 15700.0));
+                double t = i / (double)exoCount;
+                double ut = 190.0 + (lastRecordedUT - 190.0) * t;
+                exo.Add(MakePoint(ut, t * 0.29, -74.0, 70038.0 + t * (540710.0 - 70038.0)));
             }
             rec.TrackSections.Add(new TrackSection
             {
@@ -3271,7 +3292,7 @@ namespace Parsek.Tests
                 referenceFrame = ReferenceFrame.Absolute,
                 source = TrackSectionSource.Active,
                 startUT = 190.0,
-                endUT = LastRecordedUT,
+                endUT = lastRecordedUT,
                 frames = exo,
                 checkpoints = new List<OrbitSegment>(),
                 bodyFixedFrames = null,
@@ -3343,6 +3364,62 @@ namespace Parsek.Tests
                     string.Join(", ", spans.ConvertAll(sp => string.Format(
                         System.Globalization.CultureInfo.InvariantCulture,
                         "{0:F1}-{1:F1}", sp.startUT, sp.endUT)))));
+        }
+
+        [Fact]
+        public void PredictedTail_MeasuredReseedShape_LeavesAtMostOneSampleIntervalAtTheBoundary()
+        {
+            // SECOND FIXTURE ROW, and the one the sidecar actually carries: the reseed moved the
+            // coast's startUT 0.400 s BACK from 1078.453 onto the last recorded sample, so the
+            // two share an endpoint. IsInsideAnyOrbitalInterval is inclusive at both ends, so
+            // that shared sample is claimed by the arc and dropped from the recorded leg, which
+            // therefore ends one sample interval early. Pinning the SIZE of that hole is what
+            // stops it growing silently if the boundary rule is ever reworked.
+            var rec = MakePredictedTailRecording(lastRecordedUT: MeasuredLastRecordedUT);
+            Assert.Equal(TailCoastStartUT, rec.TrackSections[1].endUT, 9);
+
+            var legs = GhostTrajectoryPolylineRenderer.BuildLegsForRecording(
+                rec, KerbinSurface, ConicSampler);
+            var arcIndices = GhostTrajectoryPolylineRenderer.SelectForwardArcSegmentIndices(
+                rec.OrbitSegments,
+                forwardWindowStartUT: MeasuredLastRecordedUT,
+                forwardStopUT: TailImpactUT + 50.0,
+                headUT: 200.0,
+                surface: KerbinSurface);
+
+            // The recorded side stops at the last sample the arc did NOT claim.
+            double recordedEnd = double.NegativeInfinity;
+            for (int i = 0; i < legs.Count; i++)
+            {
+                if (legs[i].endUT <= TailCoastStartUT && legs[i].endUT > recordedEnd)
+                    recordedEnd = legs[i].endUT;
+            }
+            Assert.True(recordedEnd > 0.0, "the recorded track must still produce a leg");
+            double boundaryHole = TailCoastStartUT - recordedEnd;
+            Assert.True(boundaryHole > 0.0,
+                "the shared last sample IS dropped by the inclusive interval test, so the hole "
+                + "is real rather than zero; got " + boundaryHole);
+            Assert.True(boundaryHole <= TailExoSampleIntervalSeconds * 1.05,
+                string.Format(
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    "the recorded/predicted boundary hole must be at most ONE sample interval "
+                    + "({0:F2}s); got {1:F2}s",
+                    TailExoSampleIntervalSeconds, boundaryHole));
+            // And it stays under the gap-fill floor, which is why nothing bridges it.
+            Assert.True(boundaryHole < GhostTrajectoryPolylineRenderer.GapFillMinSeconds);
+
+            // The coverage contract over the tail itself is unchanged by the shared endpoint.
+            var spans = new List<(double startUT, double endUT)>();
+            for (int i = 0; i < legs.Count; i++) spans.Add((legs[i].startUT, legs[i].endUT));
+            for (int i = 0; i < arcIndices.Count; i++)
+            {
+                var seg = rec.OrbitSegments[arcIndices[i]];
+                spans.Add((seg.startUT, seg.endUT));
+            }
+            Assert.True(
+                LargestHole(spans, TailCoastStartUT, TailImpactUT)
+                    <= GhostTrajectoryPolylineRenderer.GapFillMinSeconds,
+                "the measured-shape tail must still be covered over [coastStart, impact]");
         }
 
         [Fact]

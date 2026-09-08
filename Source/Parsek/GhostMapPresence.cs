@@ -4970,9 +4970,16 @@ namespace Parsek
         }
 
         // Memo for the LIVE chain-tip walk: the walker scans the committed list and the tree
-        // topology, and the resolver runs per recording per frame. Keyed on the store's
-        // StateVersion so any committed-list mutation invalidates it wholesale.
+        // topology, and the resolver runs per recording per frame.
+        //
+        // COMPOSITE KEY, mirroring the ERS / retired-set caches in EffectiveState. The memoized
+        // value is EffectiveState.EffectiveTipRecordingId, which depends on BOTH the committed
+        // list (RecordingStore.StateVersion) and the supersede table
+        // (ParsekScenario.SupersedeStateVersion). SupersedeCommit.AppendRelations mutates
+        // RecordingSupersedes and bumps ONLY the supersede version, so a StateVersion-only key
+        // would serve a pre-supersede tip for the rest of the session.
         private static int chainTipSegmentsCacheVersion = -1;
+        private static int chainTipSegmentsCacheSupersedeVersion = -1;
         private static readonly Dictionary<string, string> chainTipSegmentsCache =
             new Dictionary<string, string>(StringComparer.Ordinal);
 
@@ -4993,10 +5000,13 @@ namespace Parsek
                 || string.IsNullOrEmpty(rec.RecordingId))
                 return false;
 
-            if (chainTipSegmentsCacheVersion != RecordingStore.StateVersion)
+            int liveSupersedeVersion = ParsekScenario.Instance?.SupersedeStateVersion ?? 0;
+            if (chainTipSegmentsCacheVersion != RecordingStore.StateVersion
+                || chainTipSegmentsCacheSupersedeVersion != liveSupersedeVersion)
             {
                 chainTipSegmentsCache.Clear();
                 chainTipSegmentsCacheVersion = RecordingStore.StateVersion;
+                chainTipSegmentsCacheSupersedeVersion = liveSupersedeVersion;
             }
 
             if (!chainTipSegmentsCache.TryGetValue(rec.RecordingId, out string tipId))

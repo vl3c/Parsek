@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using Xunit;
 
@@ -181,6 +181,165 @@ namespace Parsek.Tests
             Assert.Equal(-900000.0 * (1.0 - 1.4), r, 3);
         }
 
+        // --- the fail-closed Kepler solve -------------------------------------
+        //
+        // e = 0.9948 is the surface-rotation ellipse of EVERY landed or prelaunch vessel, not an
+        // exotic input. Newton seeded at M + e sin M is not globally convergent there: near
+        // periapsis 1 - e cos E approaches zero, one step throws the estimate arbitrarily far
+        // from the root, and the rest of the iterations wander. Measured over 200000 mean
+        // anomalies in |M| < 0.084, 68 ended with residuals up to 1e9 and effectively random
+        // radii, which TryGetConicRadiusAtUT reported as SUCCESS.
+
+        private const double ExtremeEcc = 0.9948;
+
+        /// <summary>
+        /// Independent reference solve by bisection. <c>E - e sin E</c> is strictly increasing on
+        /// <c>[-pi, pi]</c> for <c>e &lt; 1</c>, so bisection cannot diverge - which is exactly
+        /// the property the production Newton solve lacks and the reason this cell does not
+        /// simply re-run the same algorithm and compare it to itself.
+        /// </summary>
+        private static double ReferenceEccentricAnomaly(double m, double ecc)
+        {
+            double lo = -Math.PI;
+            double hi = Math.PI;
+            for (int i = 0; i < 200; i++)
+            {
+                double mid = 0.5 * (lo + hi);
+                if (mid - ecc * Math.Sin(mid) < m) lo = mid;
+                else hi = mid;
+            }
+            return 0.5 * (lo + hi);
+        }
+
+        /// <summary>
+        /// What the solve returned BEFORE the residual gate: the same Newton loop with no
+        /// convergence check. Used only to classify a refusal - a refusal whose estimate is
+        /// finite is one the old code reported as success with a wrong radius, which is the
+        /// regression class the gate closes.
+        /// </summary>
+        private static double UngatedNewtonEccentricAnomaly(double meanAnomaly, double ecc)
+        {
+            double m = meanAnomaly % (2.0 * Math.PI);
+            if (m > Math.PI) m -= 2.0 * Math.PI;
+            if (m < -Math.PI) m += 2.0 * Math.PI;
+            double e = m + ecc * Math.Sin(m);
+            for (int i = 0; i < 64; i++)
+            {
+                double f = e - ecc * Math.Sin(e) - m;
+                double fp = 1.0 - ecc * Math.Cos(e);
+                if (Math.Abs(fp) < 1e-15) break;
+                double step = f / fp;
+                e -= step;
+                if (Math.Abs(step) < 1e-13) break;
+            }
+            return e;
+        }
+
+        private static OrbitSegment EccentricProbe(double sma, double meanAnomaly, double spanUT)
+        {
+            return new OrbitSegment
+            {
+                startUT = 0.0,
+                endUT = spanUT,
+                bodyName = "Kerbin",
+                semiMajorAxis = sma,
+                eccentricity = ExtremeEcc,
+                meanAnomalyAtEpoch = meanAnomaly,
+                epoch = 0.0
+            };
+        }
+
+        [Fact]
+        public void ConicRadius_ExtremeEccentricityNearPeriapsis_IsConvergedOrRefused()
+        {
+            const double sma = 700000.0;
+            const int samples = 20000;
+            int refused = 0;
+
+            for (int i = 0; i <= samples; i++)
+            {
+                double m = -0.1 + 0.2 * i / samples;
+                OrbitSegment seg = EccentricProbe(sma, m, 1.0);
+
+                if (!TrajectoryMath.TryGetConicRadiusAtUT(
+                        seg, KerbinGravParameter, 0.0, out double radius))
+                {
+                    refused++;
+                    continue;
+                }
+
+                double expected = sma * (1.0 - ExtremeEcc
+                    * Math.Cos(ReferenceEccentricAnomaly(m, ExtremeEcc)));
+                Assert.True(
+                    Math.Abs(radius - expected) <= 1e-6 * expected,
+                    string.Format(
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        "TryGetConicRadiusAtUT reported SUCCESS with a non-converged radius at "
+                        + "M={0:R}, e={1:R}: got {2:R} m, reference {3:R} m",
+                        m, ExtremeEcc, radius, expected));
+            }
+
+            Assert.True(refused > 0,
+                "the sweep must actually cross the divergent band, or it pins nothing; "
+                + "no mean anomaly in [-0.1, 0.1] was refused");
+        }
+
+        [Fact]
+        public void ConicSpanAboveSurface_NonConvergedSolve_IsNotOrbitOwned()
+        {
+            // FAIL-CLOSED, the whole point of the residual gate: a span the solver cannot answer
+            // for must read "not orbit-owned" so the piece falls to the traced-leg path, which
+            // always draws. sma is sized so the conic clears Kerbin at EVERY anomaly (periapsis
+            // radius 2.6e6 m against a 6e5 m body), so a false verdict here can only come from
+            // the refusal and never from geometry.
+            const double sma = 5.0e8;
+            Assert.True(sma * (1.0 - ExtremeEcc) > KerbinRadius + 10.0);
+
+            // The mean-anomaly step the span covers. Small enough that both endpoints stay on the
+            // same side of periapsis, so ConicSpanContainsPeriapsis cannot be the cause either.
+            const double spanMeanAnomaly = 1e-3;
+            double meanMotion = Math.Sqrt(KerbinGravParameter / (sma * sma * sma));
+            double spanUT = spanMeanAnomaly / meanMotion;
+
+            // The mean anomaly must be refused AND have a FINITE ungated estimate: that is the
+            // exact class the gate exists for - before it, the helper reported SUCCESS with a
+            // finite wrong radius. A refusal that only comes from an infinite estimate was
+            // already caught by the pre-existing finiteness check and would prove nothing.
+            double badM = double.NaN;
+            for (int i = 0; i <= 20000 && double.IsNaN(badM); i++)
+            {
+                double m = 0.02 + 0.065 * i / 20000.0;
+                if (TrajectoryMath.TryGetConicRadiusAtUT(
+                        EccentricProbe(sma, m, spanUT), KerbinGravParameter, 0.0, out _))
+                    continue;
+                double ungated = UngatedNewtonEccentricAnomaly(m, ExtremeEcc);
+                if (!double.IsNaN(ungated) && !double.IsInfinity(ungated)) badM = m;
+            }
+            Assert.False(double.IsNaN(badM),
+                "no refused mean anomaly with a finite ungated estimate found in [0.02, 0.085]; "
+                + "the assertions below would prove nothing");
+
+            OrbitSegment diverging = EccentricProbe(sma, badM, spanUT);
+            Assert.False(
+                TrajectoryMath.IsConicSpanAboveSurface(diverging, KerbinGravParameter, KerbinRadius),
+                "a span whose Kepler solve did not converge must read NOT above-surface (leg-owned)");
+
+            // CONTROL, same elements and same span length at a mean anomaly the solver DOES
+            // answer: the geometry really is above the surface, so the false above is the gate.
+            double goodM = double.NaN;
+            for (int i = 0; i <= 20000 && double.IsNaN(goodM); i++)
+            {
+                double m = 0.02 + 0.065 * i / 20000.0;
+                OrbitSegment probe = EccentricProbe(sma, m, spanUT);
+                if (TrajectoryMath.TryGetConicRadiusAtUT(probe, KerbinGravParameter, 0.0, out _)
+                    && TrajectoryMath.TryGetConicRadiusAtUT(probe, KerbinGravParameter, spanUT, out _))
+                    goodM = m;
+            }
+            Assert.False(double.IsNaN(goodM));
+            Assert.True(TrajectoryMath.IsConicSpanAboveSurface(
+                EccentricProbe(sma, goodM, spanUT), KerbinGravParameter, KerbinRadius));
+        }
+
         // =====================================================================
         // 2. Defect (B): map presence resolves segments from the chain's tip
         // =====================================================================
@@ -334,6 +493,68 @@ namespace Parsek.Tests
                 out _, out _);
 
             Assert.Equal(TrackingStationGhostSourceForTest.StateVector, source);
+        }
+
+        [Fact]
+        public void MapPresenceChainTipMemo_ReResolvesOnASupersedeOnlyBump()
+        {
+            // The live chain-tip walk is memoized, and its value is EffectiveTipRecordingId,
+            // which depends on the supersede table as well as the committed list.
+            // SupersedeCommit.AppendRelations mutates RecordingSupersedes and bumps ONLY
+            // SupersedeStateVersion - RecordingStore.StateVersion does not move - so a
+            // StateVersion-only memo key served the pre-supersede tip for the rest of the
+            // session. The key is composite, mirroring the ERS / retired-set caches.
+            RegisterSplitChain(out Recording head, out Recording tip);
+
+            // The fork the tip will be superseded by. Registered BEFORE the first resolve, so the
+            // committed-list bump it causes cannot be what invalidates the memo below.
+            var fork = new Recording
+            {
+                RecordingId = "rec_fork",
+                VesselName = "rec_fork",
+                MergeState = MergeState.Immutable
+            };
+            fork.Points.Add(Point(1000.0, 300000.0, 1500.0));
+            fork.Points.Add(Point(3000.0, 300000.0, 1500.0));
+            fork.OrbitSegments.Add(new OrbitSegment
+            {
+                startUT = 1000.0,
+                endUT = 3000.0,
+                bodyName = "Kerbin",
+                semiMajorAxis = 1234567.0,
+                eccentricity = 0.1,
+                epoch = 1000.0,
+                isPredicted = false
+            });
+            RecordingStore.AddCommittedInternal(fork);
+
+            var scenario = new ParsekScenario();
+            ParsekScenario.SetInstanceForTesting(scenario);
+
+            int cachedIndex = -1;
+            TrackingStationGhostSourceForTest first = Resolve(
+                head, 1500.0, ref cachedIndex, out OrbitSegment firstSegment, out _);
+            Assert.Equal(TrackingStationGhostSourceForTest.Segment, first);
+            Assert.Equal(TailSma, firstSegment.semiMajorAxis, 3);
+
+            // Supersede the tip. This is the AppendRelations shape: one row plus a supersede-only
+            // version bump.
+            int storeVersionBefore = RecordingStore.StateVersion;
+            scenario.RecordingSupersedes.Add(new RecordingSupersedeRelation
+            {
+                RelationId = "rsr_test",
+                OldRecordingId = tip.RecordingId,
+                NewRecordingId = fork.RecordingId,
+                UT = 1200.0
+            });
+            scenario.BumpSupersedeStateVersion();
+            Assert.Equal(storeVersionBefore, RecordingStore.StateVersion);
+
+            int cachedIndex2 = -1;
+            TrackingStationGhostSourceForTest second = Resolve(
+                head, 1500.0, ref cachedIndex2, out OrbitSegment secondSegment, out _);
+            Assert.Equal(TrackingStationGhostSourceForTest.Segment, second);
+            Assert.Equal(1234567.0, secondSegment.semiMajorAxis, 3);
         }
 
         // The production enum is internal to GhostMapPresence; mirror only the two values the

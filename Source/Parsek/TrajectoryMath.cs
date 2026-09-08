@@ -1342,6 +1342,38 @@ namespace Parsek
             return true;
         }
 
+        /// <summary>
+        /// Residual tolerance on Kepler's equation, <c>|E - e sin E - M|</c>, that
+        /// <see cref="TrySolveEllipticEccentricAnomaly"/> must reach before it reports success.
+        /// A converged Newton solve lands near machine precision, so this is a divergence
+        /// detector rather than an accuracy budget.
+        /// </summary>
+        internal const double EllipticKeplerResidualTolerance = 1e-9;
+
+        /// <summary>
+        /// PURE: solve Kepler's equation for the eccentric anomaly. FAIL-CLOSED.
+        ///
+        /// Newton seeded at <c>M + e sin M</c> converges in a handful of iterations across the
+        /// eccentricities this file's callers usually see, but it is NOT globally convergent:
+        /// near periapsis at high eccentricity the derivative <c>1 - e cos E</c> approaches zero,
+        /// one step throws the estimate arbitrarily far from the root, and the remaining
+        /// iterations wander. Measured at <c>e = 0.9948</c> - the surface-rotation ellipse of
+        /// every landed or prelaunch vessel, not an exotic input - 68 of 200000 mean anomalies in
+        /// <c>|M| &lt; 0.084</c> ended with residuals up to 1e9 and effectively random radii.
+        ///
+        /// Returning that estimate made <see cref="TryGetConicRadiusAtUT"/> answer true with a
+        /// garbage radius, which <see cref="IsConicSpanAboveSurface"/> then turned into a silent
+        /// ownership decision - including handing a descent to the orbit line. The residual check
+        /// below is therefore a GATE, not a diagnostic: a non-converged solve reports failure, the
+        /// span test answers false ("not orbit-owned"), and the tail falls to the traced-leg path,
+        /// which always draws. Unknown costs shape, never a hole.
+        ///
+        /// Deliberately NOT routed through <c>BallisticExtrapolator.TwoBodyOrbit</c>'s
+        /// eccentricity dispatch: that solver exists to reproduce stock <c>Orbit</c> bit for bit,
+        /// it returns its BEST ESTIMATE rather than a failure when its iteration cap is reached,
+        /// so a residual gate would still be needed here, and borrowing it would tie this
+        /// headless-pure helper to a stock-parity contract it does not share.
+        /// </summary>
         private static bool TrySolveEllipticEccentricAnomaly(
             double meanAnomaly, double ecc, out double eccentricAnomaly)
         {
@@ -1360,7 +1392,10 @@ namespace Parsek
                 if (Math.Abs(step) < 1e-13) break;
             }
             eccentricAnomaly = e;
-            return !double.IsNaN(e) && !double.IsInfinity(e);
+            if (double.IsNaN(e) || double.IsInfinity(e)) return false;
+            // Residual against the WRAPPED m: that is the equation the loop actually solved.
+            double residual = Math.Abs(e - ecc * Math.Sin(e) - m);
+            return residual < EllipticKeplerResidualTolerance;
         }
 
         private static bool TrySolveHyperbolicAnomaly(
