@@ -209,7 +209,11 @@ than the xUnit sibling can: its RP is authored `SessionProvisional = false`, so
 flag. Synthetic and self-cleaning (own tree, own RP list, own quicksave-delete hook,
 sidecars deleted in the finally block); it skips when a re-fly session is live, because
 `RunOptimizationSplitPass` deliberately defers the split of the active provisional
-recording. `Rewind`'s tally moved 38 -> 39: R7a `passed=16 -> 17`, R7c `skipped=32 -> 33`.
+recording, and on a save that already holds committed recordings (the pass would rewrite
+those in place; `PersistenceSplitOptimizerTest`'s precedent). `Rewind`'s tally moved
+38 -> 39: R7a `passed=16 -> 17`, R7c `skipped=32 -> 33`. FLOWN GREEN TWICE 2026-09-09,
+runs `2026-09-08_2314` and `2026-09-08_2328_R7a-rewind-session-absent`, the cell
+executing and passing on both with zero `optsplit*` residue in either produced save.
 
 Standing regression net across saves, added 2026-09-09: the analyzer rule
 `INV12-SPLIT-CLOSED-SLOT` (`Source/Parsek/Analyzer/Rules/Inv12SplitClosedSlot.cs`,
@@ -218,11 +222,18 @@ in-game `RecordingInvariants` category runs it too) WARNs on the shape's on-disk
 residue - a chain whose HEAD is `CommittedProvisional` and whose terminal-carrying TIP
 is `Immutable`. Chain-shaped rather than RewindPoint-shaped because the damage DESTROYS
 the RP: the harvested subject `refly-a-recorded` has no `REWIND_POINTS` node at all.
-WARN, not FAIL, and `RED=` stays 0: no current build produces the shape, pre-fix saves
-legitimately carry it with no migration, and baselining is unavailable on the
-`BaselineMode.Forbid` harness path. Corpus reading: `refly-a-recorded` WARNs once
-(`head=32ca5546... CP/SubOrbital`, `tip=8da7c2c2... Immutable/Destroyed`, `RED=0`),
-`bdock-recorded` silent.
+THE SHAPE IS AMBIGUOUS and the finding says so: `UnfinishedFlightSealHandler` flips only
+the TIP to `Immutable` and nothing demotes the HEAD, so an ordinary Seal on a split slot
+writes the same bytes, and there is no on-disk discriminator. WARN, not FAIL, and `RED=`
+stays 0, chiefly for that reason - a FAIL would red a correct state a player reaches by
+clicking a button - and beyond it because no current build produces the damaged half,
+pre-fix saves legitimately carry it with no migration, and baselining is unavailable on
+the `BaselineMode.Forbid` harness path. What it still buys: a lane that seals nothing and
+starts printing the line has regressed the carry. Corpus reading over all 57 committed
+fixture saves: exactly one carries the shape - `refly-a-recorded`, WARNing once
+(`head=32ca5546... CP/SubOrbital`, `tip=8da7c2c2... Immutable/Destroyed`, `RED=0`);
+`bdock-recorded` is the only other save carrying `mergeState = CommittedProvisional` at
+all and is silent.
 
 No committed harness spec pins `reason=sealedTipClosed`.
 

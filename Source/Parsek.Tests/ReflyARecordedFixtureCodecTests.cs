@@ -33,12 +33,25 @@ namespace Parsek.Tests
     /// </para>
     ///
     /// <para>
-    /// FIXTURE LOCATION. `refly-a-recorded` lands on `main` with PR #1660 (branch
-    /// `refly-lanes`). Until it merges the only copy is in that branch's worktree, so the
-    /// candidate list below tries the IN-REPO path FIRST and falls back to the sibling
-    /// worktree; when #1660 merges the fallback becomes dead weight and can be deleted
-    /// without touching an assertion. Absent both, every cell SKIPS with the path it
-    /// looked for - a missing fixture must not read as a passing test.
+    /// FIXTURE LOCATION, AND THE HONEST LIMIT OF THIS FILE UNTIL #1660 LANDS.
+    /// `refly-a-recorded` lands on `main` with PR #1660 (branch `refly-lanes`). Until it
+    /// merges the only copy is in that branch's worktree, so the candidate list below
+    /// tries the IN-REPO path FIRST and falls back to the sibling worktree; when #1660
+    /// merges the fallback becomes dead weight and can be deleted without touching an
+    /// assertion.
+    /// </para>
+    ///
+    /// <para>
+    /// With the fixture absent from BOTH paths every cell here is INERT: it writes a
+    /// `SKIP:` line naming the paths it tried and returns, which xUnit records as a PASS
+    /// that asserted nothing. That is deliberate rather than ideal - this suite has no
+    /// conditional-skip primitive, and a hard assert would red CI on every machine that
+    /// is not this one - but it must not be mistaken for coverage. On `ubuntu-latest`,
+    /// where no sibling worktree exists, THESE SIX CELLS PROVE NOTHING until the fixture
+    /// is committed; a green `tests` check is not evidence that they ran. They become
+    /// load-bearing automatically the moment #1660 puts the fixture on the in-repo path,
+    /// because that path is tried first. A resolved run echoes the directory it read, so
+    /// the two states are distinguishable in the test output.
     /// </para>
     /// </summary>
     [Collection("Sequential")]

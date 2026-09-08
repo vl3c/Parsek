@@ -647,25 +647,46 @@ lose the run-happened evidence; it only moves it out of the findings list.
   harvested subject (`harness/fixtures/saves/refly-a-recorded`) carries no
   `REWIND_POINTS` node at all. The offline model does not load scenario RewindPoints
   in any case (see INV9). The chain HEAD/TIP pair is the surviving witness, and it is
-  sufficient: `MergeState.CommittedProvisional` is written only by
-  `RecordingStore.ApplyRewindProvisionalMergeStates` over RewindPoint slot tips, so a
-  `CommittedProvisional` HEAD IS a slot origin whether or not the RP still exists.
-  Chains whose tip is superseded are excluded - after a Re-Fly merge the slot's
-  effective tip is the fork, not this chain.
+  sufficient: `MergeState.CommittedProvisional` is MINTED for a slot origin only by
+  `RecordingStore.ApplyRewindProvisionalMergeStates` over RewindPoint slot tips (the
+  other writers - `RecordingOptimizer.MergeInto`, the split carry itself,
+  `UnfinishedFlightStashHandler`, `ParsekScenario.HydrationRepair` - PROPAGATE an
+  existing one rather than mint it), so a `CommittedProvisional` HEAD traces back to a
+  slot origin whether or not the RP still exists. Chains whose tip is superseded are
+  excluded - after a Re-Fly merge the slot's effective tip is the fork, not this
+  chain. Chains are keyed on `(ChainId, ChainBranch)`, as `Inv7TreeTopology` keys
+  them, because the tip walk being modelled refuses to cross a branch.
 
-  **WARN, not FAIL, and `RED=` stays 0 on it.** The producer no longer emits the
-  shape (the carry landed 2026-09-08), so a FAIL would gate on history rather than on
-  a live defect; saves that predate the fix legitimately carry it and there is no
+  **THE SHAPE IS AMBIGUOUS, and the finding says so.** An ordinary player Seal
+  produces the same pair on a correct post-fix save: `UnfinishedFlightSealHandler`
+  flips ONLY the slot's effective chain TIP to `Immutable`, and nothing anywhere
+  demotes the HEAD that `ApplyRewindProvisionalMergeStates` promoted (a grep of every
+  `MergeState =` writer in `Source/Parsek` finds no head demotion at all).
+  `LoadTimeSweep`'s missing-quicksave conclusion and the M-A2 `SealSlot` seam verb
+  close a slot the same tip-only way. There is no on-disk discriminator - a seal is
+  stored as nothing but the tip's `MergeState`, and `Recording` carries no seal
+  marker - so on a chain of two or more segments the defect's residue and a sealed
+  slot are the same bytes. The message names both readings rather than asserting the
+  defect.
+
+  **WARN, not FAIL, and `RED=` stays 0 on it.** Because of that ambiguity above all:
+  a FAIL would red every save carrying a sealed multi-segment slot, which is a correct
+  state a player reaches by clicking a button and which R7c's own payload produces.
+  Beyond it: the defect's producer no longer emits the shape (the carry landed
+  2026-09-08); saves that predate the fix legitimately carry that half and there is no
   migration; and baselining is structurally unavailable on the harness path (verifier
   and CI fixture floor both run `BaselineMode.Forbid`, where a `baseline.cfg` beside
-  the save is itself a FAIL). Since the harness runs the analyzer over every produced
-  save, a WARN here is the standing regression net for a future producer that starts
-  closing slots again. Promote to FAIL if a produced save from a current build ever
-  carries it - that would itself be the regression. Adding the rule does NOT bump
-  `AnalyzerVersion` (same terms as INV11). Corpus reading on the day it shipped:
-  `refly-a-recorded` WARNs exactly once (`head=32ca5546... CommittedProvisional /
-  SubOrbital`, `tip=8da7c2c2... Immutable / Destroyed`, `RED=0`) and `bdock-recorded`
-  is silent.
+  the save is itself a FAIL). What it buys despite the ambiguity: the harness runs the
+  analyzer over every produced save, so a lane that seals nothing and starts printing
+  this line has regressed the carry. Do NOT promote it to FAIL without an on-disk
+  discriminator for the seal, which today does not exist. Adding the rule does NOT
+  bump `AnalyzerVersion` (same terms as INV11). Corpus reading on the day it shipped,
+  over all 57 committed saves under `harness/fixtures/saves/`: exactly one carries the
+  shape - the harvested `refly-a-recorded`, which WARNs once
+  (`head=32ca5546... CommittedProvisional / SubOrbital`,
+  `tip=8da7c2c2... Immutable / Destroyed`, `RED=0`). `bdock-recorded` is the only
+  other save carrying `mergeState = CommittedProvisional` at all (3 rows) and is
+  silent; the remaining 55 carry none.
 
 ### Fixture versioning
 

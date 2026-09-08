@@ -167,10 +167,12 @@ count = { min = 0, max = 0 }
 #    `skipped` even though nothing about the FLIGHT slice changed - the token
 #    counts the whole category, and the new cell scene-skips here. Derived, not
 #    guessed: `hlib.derive_batch_tally(decls, "Rewind", "FLIGHT", isolated=True)`
-#    returns total=38 scene_skipped=6 batch_skipped=0 executable=32. The isolated
-#    argument is REQUIRED to reproduce: this spec drives RunTests with
+#    returned total=38 scene_skipped=6 batch_skipped=0 executable=32 AT THAT TIME;
+#    it returns total=39 ... executable=33 since the 2026-09-09 move recorded below.
+#    The isolated argument is REQUIRED to reproduce: this spec drives RunTests with
 #    isolated = "true", and the call WITHOUT it models the ordinary entry point and
-#    returns batch_skipped=6 executable=26, which is not the path R7a flies.
+#    returns batch_skipped=6 executable=27 (26 before the 2026-09-09 move), which is
+#    not the path R7a flies.
 #    MOVED 38 -> 39 on 2026-09-09 by the re-fly regression-net wave, which added ONE
 #    FLIGHT-scoped Rewind cell (OptimizerSplitOfPromotedSlotKeepsSlotOpen,
 #    Source/Parsek/InGameTests/OptimizerSplitKeepsPromotedSlotOpenTest.cs) - the

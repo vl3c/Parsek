@@ -26,29 +26,45 @@ namespace Parsek.Analyzer.Rules
     // (harness/fixtures/saves/refly-a-recorded) carries no REWIND_POINTS node at all.
     // AnalyzerModel does not load scenario RewindPoints either (see Inv9RewindPoint's
     // class comment). The chain HEAD/TIP pair is the surviving witness and the one the
-    // model can read: MergeState.CommittedProvisional is written only by
-    // RecordingStore.ApplyRewindProvisionalMergeStates over RewindPoint slot tips, so a
-    // CommittedProvisional HEAD IS a slot origin whether or not the RP still exists.
+    // model can read. MergeState.CommittedProvisional is MINTED FOR A SLOT ORIGIN only by
+    // RecordingStore.ApplyRewindProvisionalMergeStates (:1260 / :1290) over RewindPoint
+    // slot tips; the other writers PROPAGATE an existing one rather than mint it
+    // (RecordingOptimizer.MergeInto :866 and the split carry :1407,
+    // UnfinishedFlightStashHandler :85 re-opening a tip, ParsekScenario.HydrationRepair).
+    // So a CommittedProvisional HEAD traces back to a slot origin whether or not the RP
+    // still exists.
     //
-    // SEVERITY: WARN, deliberately, and the RED= header token must stay 0 on it
-    // (AnalysisReport.IsRed reads only non-baselined FAIL / STALE-FIXTURE). Three
-    // reasons, the same shape as INV11's:
-    //   1. The producer no longer emits it. The carry landed 2026-09-08, so every save
-    //      written by a current build is clean by construction. A FAIL would gate on
-    //      HISTORY rather than on a live defect.
-    //   2. Saves that predate the fix legitimately carry it, and there is no migration
-    //      (the format contract forbids one). A player's pre-fix save reads the shape
-    //      forever; the reap already happened and no rule can undo it.
-    //   3. Baselining is structurally unavailable on the harness path: the harness
+    // THE SHAPE IS AMBIGUOUS, AND THAT IS WHY IT IS ONLY A REPORT. An ordinary player
+    // Seal produces THE SAME PAIR on a correct post-fix save:
+    // UnfinishedFlightSealHandler.cs:97 flips ONLY the slot's effective chain TIP to
+    // Immutable, and nothing anywhere demotes the HEAD that
+    // ApplyRewindProvisionalMergeStates promoted (a grep of every `MergeState =` writer in
+    // Source/Parsek finds no head demotion at all). LoadTimeSweep.cs:362's
+    // missing-quicksave conclusion and the M-A2 SealSlot seam verb close a slot the same
+    // tip-only way. There is NO on-disk discriminator: a seal is STORED as nothing but the
+    // tip's MergeState, and Recording carries no seal marker. So on a chain of two or more
+    // segments, "the split-carry defect's residue" and "a slot somebody sealed" are the
+    // same bytes, and the finding says so rather than asserting the defect.
+    //
+    // SEVERITY: WARN, and the RED= header token must stay 0 on it (AnalysisReport.IsRed
+    // reads only non-baselined FAIL / STALE-FIXTURE). Four reasons:
+    //   1. The ambiguity above. A FAIL would red every save carrying a sealed
+    //      multi-segment slot, which is a correct state a player reaches by clicking a
+    //      button, and R7c's own payload produces it.
+    //   2. The defect's producer no longer emits it. The carry landed 2026-09-08, so no
+    //      current build creates the damaged half of the ambiguity.
+    //   3. Saves that predate the fix legitimately carry that half, and there is no
+    //      migration (the format contract forbids one). The reap already happened and no
+    //      rule can undo it.
+    //   4. Baselining is structurally unavailable on the harness path: the harness
     //      verifier and the CI fixture floor both run BaselineMode.Forbid, where a
     //      baseline.cfg beside the save is itself a FAIL.
-    // WARN names the damage on every save that carries it - the harness runs the
-    // analyzer over every produced save, so this is the standing regression net for a
-    // future producer that starts closing slots again - without gating a lane. Promote
-    // to FAIL only if a produced save from a current build ever carries it, which would
-    // itself be the regression.
+    // What it buys despite the ambiguity: the harness runs the analyzer over every
+    // produced save, so a lane that seals nothing and starts printing this line has
+    // regressed the carry. Do NOT promote it to FAIL without an on-disk discriminator for
+    // the seal, which today does not exist.
     //
-    // ONE FINDING PER CHAIN, not per member: the pair is the damage.
+    // ONE FINDING PER CHAIN, not per member: the pair is the subject.
     //
     // Pure over the model; reads Recordings and SupersedeRelations only. Adding this
     // rule does NOT bump AnalyzerVersion (that moves only on an .analysis.json schema
@@ -68,20 +84,30 @@ namespace Parsek.Analyzer.Rules
             if (model?.Recordings == null)
                 return findings;
 
-            // Chain id -> members, in the model's own order. Recordings with no ChainId
-            // are unsplit and cannot carry the shape.
+            // (ChainId, ChainBranch) -> members, in the model's own order. Recordings with
+            // no ChainId are unsplit and cannot carry the shape.
+            //
+            // ChainBranch is part of the key because the tip walk this rule models REFUSES
+            // to cross branches (EffectiveState.cs:1115 / :1166 both skip a candidate whose
+            // ChainBranch differs), ChainSegmentManager.cs:577 really does write
+            // ChainBranch = 1 for ghost-only parallel continuations, and the sibling rule
+            // Inv7TreeTopology keys on the same pair. Grouping on ChainId alone would let a
+            // branch-0 head pair with a branch-1 member no slot ever reads, and would hide
+            // the real branch-0 tip behind it.
             var chains = new Dictionary<string, List<Recording>>(StringComparer.Ordinal);
             var chainOrder = new List<string>();
             foreach (Recording rec in model.Recordings)
             {
                 if (rec == null || string.IsNullOrEmpty(rec.ChainId))
                     continue;
+                string key = rec.ChainId + "\u0000"
+                    + rec.ChainBranch.ToString(CultureInfo.InvariantCulture);
                 List<Recording> members;
-                if (!chains.TryGetValue(rec.ChainId, out members))
+                if (!chains.TryGetValue(key, out members))
                 {
                     members = new List<Recording>();
-                    chains[rec.ChainId] = members;
-                    chainOrder.Add(rec.ChainId);
+                    chains[key] = members;
+                    chainOrder.Add(key);
                 }
                 members.Add(rec);
             }
@@ -99,9 +125,9 @@ namespace Parsek.Analyzer.Rules
                 }
             }
 
-            foreach (string chainId in chainOrder)
+            foreach (string chainKey in chainOrder)
             {
-                List<Recording> members = chains[chainId];
+                List<Recording> members = chains[chainKey];
                 if (members.Count < 2)
                     continue; // unsplit: nothing carried anywhere
 
@@ -130,17 +156,23 @@ namespace Parsek.Analyzer.Rules
                     VerdictLevel.Warn,
                     head.RecordingId,
                     -1,
-                    Inv("INV12 split-closed-slot chain={0} head={1} headMergeState={2} "
-                        + "headTerminal={3} tip={4} tipIndex={5} tipMergeState=Immutable "
-                        + "tipTerminal={6} members={7} - the terminal moved to the tip without "
-                        + "its MergeState, so every open/closed read on this slot answers closed",
-                        chainId,
+                    Inv("INV12 split-closed-slot chain={0} branch={1} head={2} "
+                        + "headMergeState={3} headTerminal={4} tip={5} tipIndex={6} "
+                        + "tipMergeState={7} tipTerminal={8} members={9} - this slot reads "
+                        + "CLOSED because its terminal-carrying tip is Immutable while its "
+                        + "head is still open; either the terminal moved to the tip without "
+                        + "its MergeState (the pre-2026-09-08 optimizer-split carry defect) "
+                        + "or somebody sealed the slot, and nothing on disk tells the two "
+                        + "apart",
+                        head.ChainId ?? "<none>",
+                        head.ChainBranch,
                         head.RecordingId ?? "<no-id>",
                         head.MergeState,
                         head.TerminalStateValue.HasValue
                             ? head.TerminalStateValue.Value.ToString() : "<none>",
                         tip.RecordingId ?? "<no-id>",
                         tip.ChainIndex,
+                        tip.MergeState,
                         tip.TerminalStateValue.Value,
                         members.Count),
                     "RecordingOptimizer.TransferTerminalFieldsToSecondHalf"));

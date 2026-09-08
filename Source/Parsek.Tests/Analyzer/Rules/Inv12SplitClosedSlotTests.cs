@@ -21,7 +21,7 @@ namespace Parsek.Tests.Analyzer.Rules
 
         private static Recording Rec(
             string id, int chainIndex, MergeState mergeState, TerminalState? terminal,
-            string chainId = ChainId)
+            string chainId = ChainId, int chainBranch = 0)
         {
             return new Recording
             {
@@ -29,6 +29,7 @@ namespace Parsek.Tests.Analyzer.Rules
                 VesselName = id,
                 ChainId = chainId,
                 ChainIndex = chainIndex,
+                ChainBranch = chainBranch,
                 MergeState = mergeState,
                 TerminalStateValue = terminal,
             };
@@ -76,6 +77,10 @@ namespace Parsek.Tests.Analyzer.Rules
             Assert.Contains("tipMergeState=Immutable", f.Message);
             Assert.Contains("tipTerminal=Destroyed", f.Message);
             Assert.Contains("chain=" + ChainId, f.Message);
+            Assert.Contains("branch=0", f.Message);
+            // The message must state the ambiguity rather than assert the defect:
+            // an ordinary Seal writes the same bytes (see the rule's class comment).
+            Assert.Contains("or somebody sealed the slot", f.Message);
             Assert.False(string.IsNullOrEmpty(f.CitedContract));
         }
 
@@ -266,6 +271,68 @@ namespace Parsek.Tests.Analyzer.Rules
 
             Finding f = Assert.Single(Run(model));
             Assert.Equal("head", f.Target);
+        }
+
+        // ---------- The ambiguity, pinned ------------------------------------
+
+        [Fact]
+        public void SealedSlot_HeadStaysCommittedProvisional_ProducesTheSameShape_AndIsReportedAsAmbiguous()
+        {
+            // NOT a false positive to be fixed - a structural collision, pinned so nobody
+            // "tightens" the rule into asserting the defect. UnfinishedFlightSealHandler
+            // flips ONLY the slot's effective chain TIP to Immutable and no code path
+            // anywhere demotes the HEAD, so a player who seals a slot whose recording was
+            // split leaves EXACTLY the bytes the pre-2026-09-08 carry defect left. There
+            // is no on-disk discriminator: a seal is stored as nothing but the tip's
+            // MergeState.
+            var model = Model(new[]
+            {
+                Rec("sealed_head", 0, MergeState.CommittedProvisional, null),
+                Rec("sealed_tip", 1, MergeState.Immutable, TerminalState.Landed),
+            });
+
+            Finding f = Assert.Single(Run(model));
+            Assert.Equal(VerdictLevel.Warn, f.Level);
+            Assert.Contains("either the terminal moved to the tip without its MergeState", f.Message);
+            Assert.Contains("or somebody sealed the slot", f.Message);
+            Assert.Contains("nothing on disk tells the two apart", f.Message);
+        }
+
+        // ---------- Chain branches -------------------------------------------
+
+        [Fact]
+        public void AHeadAndATipOnDifferentChainBranches_AreNotPaired()
+        {
+            // The tip walk this rule models refuses to cross ChainBranch
+            // (EffectiveState skips a candidate whose ChainBranch differs), and
+            // ChainSegmentManager writes ChainBranch = 1 for ghost-only parallel
+            // continuations. Keying on ChainId alone would pair these two and report a
+            // slot nobody reads.
+            var model = Model(new[]
+            {
+                Rec("b0_head", 0, MergeState.CommittedProvisional, null, chainBranch: 0),
+                Rec("b1_tip", 1, MergeState.Immutable, TerminalState.Destroyed, chainBranch: 1),
+            });
+
+            Assert.Empty(Run(model));
+        }
+
+        [Fact]
+        public void EachChainBranchIsEvaluatedOnItsOwn()
+        {
+            // Branch 0 carries the shape; branch 1 of the SAME ChainId is a healthy split.
+            // One finding, and it names branch 0.
+            var model = Model(new[]
+            {
+                Rec("b0_head", 0, MergeState.CommittedProvisional, null, chainBranch: 0),
+                Rec("b0_tip", 1, MergeState.Immutable, TerminalState.Destroyed, chainBranch: 0),
+                Rec("b1_head", 0, MergeState.CommittedProvisional, null, chainBranch: 1),
+                Rec("b1_tip", 1, MergeState.CommittedProvisional, TerminalState.Landed, chainBranch: 1),
+            });
+
+            Finding f = Assert.Single(Run(model));
+            Assert.Equal("b0_head", f.Target);
+            Assert.Contains("branch=0", f.Message);
         }
 
         [Fact]

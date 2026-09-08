@@ -16,28 +16,34 @@ _(unreleased — entries accumulate here per commit)_
   later half of the split flight carries no merge-state line at all, and the whole
   problem is that an absent line means "sealed" when the code reads it back. A drift
   test over the same bytes cannot see that, because there is nothing there to drift.
-  Six checks now load the save the way the game does and pin what it decodes to - the
+  Five checks now load the save the way the game does and pin what it decodes to - the
   earlier half open, the later half sealed, the ending and the two predicted
   continuation arcs on the later half, the two halves one chain cut at one instant, and
-  the new analyzer report firing on the decoded result. A seventh records the loss
+  the new analyzer report firing on the decoded result. A sixth records the loss
   itself: the save has no rewind point left anywhere, which is why the report has to be
-  keyed on the pair of halves rather than on the slot. The checks name the save they
-  read and stand down, saying where they looked, when it is not present.
+  keyed on the pair of halves rather than on the slot. Stated plainly because it is a
+  real limit: the save itself is not in this branch yet, and until it lands all six
+  checks stand down and pass without asserting anything - they name the places they
+  looked, and they become load-bearing on their own the moment the save is committed.
 
-- **Automated testing: the recording analyzer now names a re-fly slot that was
-  closed by a split rather than by anyone sealing it.** When the optimizer used to cut
+- **Automated testing: the recording analyzer now reports a re-fly slot that reads
+  closed while the flight it belongs to is still open.** When the optimizer used to cut
   a flight in two it moved the flight's ending onto the later half without the flag
   that says the half is still re-flyable, and everything that asks "can this be flown
   again" reads the later half - so the answer silently became no and the rewind point
   was deleted. The producer was fixed, but saves written before the fix carry the
   damage forever, and the only trace left is the pair of halves: an open earlier half
-  followed by a sealed one that holds the ending. The analyzer now reports that pair
-  on any save it reads, one line per flight, naming both halves and both states. It
-  reports rather than fails: no current build produces the shape, older saves
-  legitimately carry it, and the run's red flag stays clear. Since every automated run
-  analyzes the save it produced, this is the standing net for a future change that
-  starts closing slots again. Read on the corpus the day it shipped: the harvested save
-  of the original session reports it once, and the docking fixture is silent.
+  followed by a closed one that holds the ending. The analyzer now reports that pair on
+  any save it reads, one line per flight, naming both halves and both states. The
+  report is careful about what it claims, because the same pair is also what an
+  ordinary sealed slot looks like: sealing closes the later half and leaves the earlier
+  one open, exactly like the fault did, and nothing stored on disk separates the two.
+  So the line offers both readings rather than announcing a defect, and it reports
+  rather than fails - failing would flag a correct state a player reaches by clicking a
+  button. What it is still worth: every automated run analyzes the save it produced, so
+  a run that seals nothing and starts printing this line has lost the fix again. Read
+  across all 57 saved games the test suite ships: exactly one carries the pair, the
+  harvested save of the original session, and it is the only one that reports.
 
 - **Automated testing: the optimizer-split regression that silently closed a re-fly
   slot now has an in-game cell that drives the real optimizer pass.** The fix that
@@ -52,8 +58,11 @@ _(unreleased — entries accumulate here per commit)_
   than the headless sibling can, because its rewind point is authored past the session
   flag that short-circuits the eligibility check. It cleans up after itself, sidecars
   included, and stands down with a named reason while a re-fly session is live, since
-  the pass deliberately defers that split. `R7a-rewind-session-absent` moves to
-  `total=39 passed=17` and `R7c-rewind-spacecenter` to `total=39 skipped=33`.
+  the pass deliberately defers that split, and stands down the same way on a save that
+  already holds committed recordings, since the pass it drives would rewrite those in
+  place and no in-game teardown can undo that. `R7a-rewind-session-absent` moves to
+  `total=39 passed=17` and `R7c-rewind-spacecenter` to `total=39 skipped=33`; R7a was
+  flown twice to measure it, the new check executing and passing on both runs.
 
 - **`collect-logs.py` no longer copies a render manifest that belongs to a different
   session.** The manifest lives at the KSP root like the test-results file, but nothing
