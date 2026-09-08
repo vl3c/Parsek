@@ -66,9 +66,12 @@ tier = "operator"
 # `rec11pid=3620499050 rec11spawnedPid=0`; the post-jump row read
 # `rec11pid=3620499050 rec11spawnedPid=3620499050` - spawned pid equal to the original
 # pid, the D18 claim in one line. The 22nd recording is the re-fly provisional
-# (`rec_93ca...`, Kerbal X Probe): RH-1 retired it EMPTY at merge, but here the jump
-# advanced it, so the merge kept it (`provisional=rec_93ca... mergeState=Immutable
-# terminalKind=InFlight`) and the count is 22, re-pinned. Measured facets: trees=2,
+# (`rec_93ca...`, Kerbal X Probe), which the merge keeps on this fixture WITH OR
+# WITHOUT the jump (`provisional=rec_93ca... mergeState=Immutable terminalKind=InFlight`;
+# the review re-read RH-1's run 2 and it kept its own provisional the same way, 22
+# recordings under a `{2,30}` window, zero `retired-empty-provisional` lines) - the
+# prediction of 21 was a miscount of RH-1's produced save, not a jump effect. Count
+# re-pinned to 22. Measured facets: trees=2,
 # committedTrees=2, recordings=22, branchPoints Dock=1 JointBreak=10 Undock=1,
 # terminalStates Destroyed=7 Docked=1 Orbiting=6 - the structure block below is ARMED
 # on them. ARMED RE-FLIGHT `2026-09-08_1105_CI-2-refly-claim-tip-pid`: PASS attempt 1,
@@ -122,7 +125,13 @@ steps = [
 # CLAIM-IS-NOT-GATE: both D18 values are backed by REQUIRED tokens, all OBSERVED on
 # reading run 1 (`2026-09-08_1100_CI-2-refly-claim-tip-pid`):
 #   `committed-interaction-claiming` <- `claimed by tree=... via MERGE` + the chain-built
-#       line + the chain ghost creation for the claimed pid.
+#       line + the chain ghost creation for the claimed pid. Scope, stated: this is the
+#       walker's CLAIM decision and the map-level chain ghost. The catalog's "station
+#       despawned" half did not run here because the claimed vessel was not loaded
+#       after the rewind (`Chain vessel pid=3620499050 not loaded in scene - nothing to
+#       ghost`, `Strip stripped=[]`); the in-scene despawn / ghost conversion of a LIVE
+#       claimed vessel is unexercised by this lane (it is closer to the separate
+#       `ghost-conversion-quicksave` cell, still uncovered).
 #   `chain-tip-original-pid`         <- `Chain tip spawn: pid=3620499050 ...
 #       preserveIdentity=true` + `preserving vessel identity (chain-tip spawn)` +
 #       `Chain tip spawn complete: ... pid=3620499050`.
@@ -135,10 +144,10 @@ D18 = ["committed-interaction-claiming", "chain-tip-original-pid"]
 allowedAnomalies = []
 
 [expectations.recordings]
-# MEASURED 22 on reading run 1 (predicted 21): the fixture's 21 plus the re-fly
-# provisional, which the jump advanced so the merge kept it as a real recording (RH-1,
-# with no jump, retired it empty). The tip spawns create no recording. This is the
-# lane's numeric guard against a jump that spawned nothing.
+# MEASURED 22 on all three runs (predicted 21, a miscount): the fixture's 21 plus the
+# re-fly provisional the merge keeps on this fixture, jump or no jump (RH-1's run 2
+# reads the same 22). The tip spawns create no recording, so this count guards the
+# MERGE shape, not the jump; the jump's own guard is the tip-spawn token pair above.
 count = { min = 22, max = 22 }
 
 [expectations.recordings.structure]

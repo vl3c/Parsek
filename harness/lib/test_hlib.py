@@ -8444,9 +8444,10 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # reading says otherwise, which is what keeps this off the tag.
         "CI-2-refly-claim-tip-pid.toml":
             "operator by the reading-run discipline (RH-1's precedent, same fixture): "
-            "AUTHORED 2026-09-08 for the chain-interaction wave, the two D18 ghost-chain "
-            "cells on the catalog's definition. NEVER FLOWN, reading pending; owes a "
-            "flight, not a human call",
+            "the two D18 ghost-chain cells on the catalog's definition. LIVE-PROVEN "
+            "2026-09-08 (reading _1100, armed _1105 PASS, negative control _1106); "
+            "stays operator because it rewinds and jumps a harvested docking fixture, "
+            "the discipline's own reason, not a tag",
         "RH-1-live-rp-handle-rewind.toml":
             "operator by the reading-run discipline (V1/V2/V24W precedent); AUTHORED "
             "2026-09-08, NEVER FLOWN, reading pending. Owes a flight, not a human call",
@@ -9302,7 +9303,7 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        "CI-1-eva-switch-bg-member.toml",
                        # CI-2: `structure` armed 2026-09-08 off its own reading run
                        # `2026-09-08_1100_CI-2-refly-claim-tip-pid` (trees {2,3}, committed
-                       # 2, recordings 22 incl. the jump-advanced re-fly provisional,
+                       # 2, recordings 22 incl. the re-fly provisional the merge keeps,
                        # branchPoints Dock 1 / Undock 1 / JointBreak 10, terminals as measured).
                        "CI-2-refly-claim-tip-pid.toml",
                        "V27M-rover-route-endpoint-substituted-map-lines.toml",  # routes, armed 2026-09-07 off `2026-09-07_1858`

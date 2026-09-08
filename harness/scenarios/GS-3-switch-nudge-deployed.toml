@@ -310,8 +310,9 @@ D1 = ["switch-segment", "commit-scene-exit", "auto-merge"]
 #
 # `chain-continuation-switch` <- CLAIMED 2026-09-08 (the chain-interaction wave) off
 #   the REQUIRED `route=bg-member-continuation` line plus the `created ...
-#   parentRecId=<32-hex> ... branchPointId=<dashed Guid>` shape and the ARMED
-#   `branchPoints.VesselSwitchContinuation` window. The earlier refusal here read the
+#   parentRecId=<32-hex> ... branchPointId=<dashed Guid>` shape (this spec's structure
+#   block stays REPORT-ONLY; the armed `branchPoints.VesselSwitchContinuation` window
+#   is CI-1's). The earlier refusal here read the
 #   value as a ChainId link; the D5 dimension is "tree / chain topology" and this value
 #   names the topology a switch leaves behind - a continuation branch attached UNDER
 #   the live-tree member the switch landed on. The ChainId chain

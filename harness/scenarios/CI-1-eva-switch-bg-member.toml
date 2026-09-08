@@ -202,13 +202,13 @@ forbidden = [
 # verb (LoadGame) and max(step_budget, dispatch_budget + 60) for the rest:
 #   LoadGame                  max(300,600)+60 = 660
 #   SetSetting x3             3 x 120         = 360
-#   StartRecording            max(60, scene-wait+60): the scene-wait budget; 120 booked
+#   StartRecording            max(60, 180+60)  = 240   (its dispatch budget is 180)
 #   EvaExit                   max(120,120+60) = 180
 #   ListHandles               max(60, 60+60)  = 120   (SINGLE-PHASE)
 #   SimulateStockSwitchClick  max(120, 60+60) = 120
 #   StopRecording             max(60, 60+60)  = 120
-#   FlushAndQuit              max(60, 60+60)  = 120   -> sum 1800
-# The ceiling must EXCEED that sum so no step-wait is capped. 2100 clears it by 300.
+#   FlushAndQuit              max(60, 60+60)  = 120   -> sum 1920
+# The ceiling must EXCEED that sum so no step-wait is capped. 2100 clears it by 180.
 # On the happy path the wall clock is ~3 minutes; this ceiling governs the defer path.
 budgetSeconds = 2100
 
