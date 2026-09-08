@@ -10436,7 +10436,8 @@ those files).**
    design doc. Decide keep or delete; if delete, drop that comment reference with it.
    (2026-09-07: `harness/lib/test_saveparse.py` and `harness/fixtures/shared-ships.toml`
    now enumerate it too, so a delete edits both; still no `saveTemplate` loads it.
-   Operator call still open; default KEEP.)
+   Operator call still open; default KEEP.) DECIDED 2026-09-08: KEEP - it is the
+   clean operator-build base `bdock-station-pad` was stamped from; no change needed.
 3. ~~`S1.5-rewind-loop.toml:3-8` and `S4.1-rewind-merge.toml:3-9` state a "gloops
    SPACECENTER host" premise that the `LoadRoute` contract contradicts. Correct the
    comment or replace it with an R3 measurement.~~ RESOLVED: both headers were rewritten

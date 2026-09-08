@@ -193,7 +193,7 @@ id = "V3C-flight-arrival-companion"
 #   discriminates the defect class from a healthy seam. Reverted in the
 #   same change; the committed token is the defect-class one above.
 # =====================================================================================
-tier = "operator"
+tier = "nightly"  # PROMOTED 2026-09-08 by operator decision (was "operator", the calibration discipline; the three-run discipline is discharged, see the status row)
 description = "COMPANION FLIGHT: the flown B17 pad-align Duna mission flies a fresh DD1 while the injected looped-interplanetary recording replays ENGAGED re-aim alongside, with the MAP OPEN for the whole flight (EnterMapView before the mission phase) so the flight engine keeps the far loop ghost positioned through the Sun->Duna seam instant under rails warp (map view lifts the >50x warp hide, the #171 warp exemption lifts the 120 km zone hide - the 2026-09-07 co-location decision, roadmap section). ghostRenderTracing + the loop-seam-teleport Tier-C instrument armed; ARMED 2026-09-07 off reading run 2026-09-07_1906 (PASS attempt 1, wall 953 s), which observed the seam for the first time from any unattended run: [ReaimSeam] SEAM member=0 seg#3->4 body=Duna jump=47431188m, 0.990 x Duna's SOI radius - the 2026-06-15 teleport reproduced. The required token pins that DEFECT CLASS (jump >= 1,000 km; the GS-3 inversion: this lane reds when the teleport is fixed), loop-seam-teleport is tolerated because its raise is rate-dependent (silent at the 100,000x the seam frame rode), the recordings census is pinned at 3."
 instanceProfile = "stock-minimal"
 tags = ["V3", "flight-arrival", "companion", "reaim", "interplanetary", "flown", "armed"]
