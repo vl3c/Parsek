@@ -1,4 +1,4 @@
-# Changelog
+﻿# Changelog
 
 All notable changes to Parsek are documented here.
 
@@ -9,6 +9,22 @@ All notable changes to Parsek are documented here.
 _(unreleased — entries accumulate here per commit)_
 
 ### Changed
+
+- **A flight that left the scene mid-air now draws its predicted continuation on the
+  map instead of ending in empty space.** When a recording is finalized at scene exit the
+  extrapolator appends the rest of the flight as predicted orbit segments - a coast to
+  atmosphere entry, then the ballistic fall to impact - carrying no trajectory samples of
+  their own. Every one of those conics has a periapsis below the ground by construction,
+  which is exactly the shape the map deliberately refuses to draw as an orbit line (a
+  recorded descent is drawn from its recorded samples instead), and a tail has no recorded
+  samples underneath it, so nothing drew it: a measured re-fly session lost 21 minutes of
+  coast and the whole descent, the line simply stopping at 540 km. The clipped COAST is now
+  drawn as an orbit arc when its own span stays above the surface, and the ballistic DESCENT
+  is drawn as a trajectory line sampled from the conic itself, so the two tile the tail with
+  no gap and no double line. A non-predicted below-surface conic is untouched, and a body
+  whose gravitational parameter is unavailable falls back to drawing the whole tail as a
+  line rather than nothing. The polyline build summary now reports `predictedTailPts=` /
+  `predictedTailSegs=`.
 
 - **Automated testing: two ghost-replay lanes now gate what a watcher actually sees
   when a replayed flight crashes and when it flies out of visual range.** The

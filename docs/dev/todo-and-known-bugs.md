@@ -1,4 +1,4 @@
-# TODO & Known Bugs
+﻿# TODO & Known Bugs
 
 Older entries archived alongside this file:
 
@@ -14,6 +14,38 @@ Older entries archived alongside this file:
 When referencing prior item numbers from source comments or plans, consult the relevant archive file.
 
 ---
+
+## ~~PREDICTED-BALLISTIC-TAIL-IS-DRAWN-BY-NOTHING-ON-THE-MAP: a scene-exit continuation tail is excluded from the orbit line by its subsurface periapsis and has no recorded samples to fall back on, so neither surface draws it~~ FIXED 2026-09-08
+
+Forensics: manual Re-Fly session `2026-09-08_2317_refly-a-manual` (dev instance, main
+2effc9d49), `KSP.log` 28889 lines. `IncompleteBallisticSceneExitFinalizer` appended two
+`isPredicted = True` `ORBIT_SEGMENT`s to the pod covering UT 1078.05 -> 2186.58 (coast,
+clipped at atmosphere entry) and 2186.58 -> 2348.55 (ballistic descent to impact), both
+with zero points. Both were drawn by nothing.
+
+Defect (A), fixed here.
+`Display/GhostTrajectoryPolylineRenderer.cs:3269-3277` (`IsOrbitSegmentBelowSurface`),
+consulted by `ComputeOrbitalCoverIntervals` (`:3301`), `SelectForwardArcSegmentIndices`
+(`:3384`) and `AnyAboveSurfaceConicStartsAtOrAfter` (`:2339`), drops every conic whose
+periapsis is below the body radius - which every re-entry conic is by construction. The
+design intends such a segment to be drawn as a traced LEG from the recorded descent
+samples (`:3341-3343`), with `FillFramelessGapsFromConics` (`:2933`) re-sampling the
+conic into the frameless gap; but that filler is INTERIOR ONLY (`:2934-2937` walks
+consecutive recorded pairs), so a tail after the last recorded point has no bracketing
+sample and is never reached. Session census: `runArcs+=0` on all 96 render runs of the two
+tail-bearing recordings; `excluded 3 below-surface orbit segments from cover
+rec=8da7c2c2` (KSP.log:20566) with `Polyline legs: ... 0:[191.0-1078.1 ...]` and nothing
+after it. NOT Re-Fly specific - the probe origin `d096297d` loses its tail identically.
+
+Fix: `IsPredictedTailOrbitOwnedConic` re-admits a PREDICTED subsurface-periapsis conic to
+orbit ownership when its OWN span never reaches the surface
+(`TrajectoryMath.IsConicSpanAboveSurface`: a periapsis-inside-span test plus a two-endpoint
+Kepler radius test), and `FillPredictedTailFromConics` samples the remaining predicted tail
+conics - the ones that DO reach the ground - into the leg stream through the existing
+`ConicGapSampler` seam. One combined predicate (`IsSegmentExcludedFromOrbitOwnership`) now
+feeds the cover, the arc selector, the bridge search and the Director's chain assembler so
+they cannot drift apart. Contract:
+`docs/dev/design-map-ts-render-architecture.md`, "Predicted continuation tails on the map".
 
 ## DISCARDTREE-CANNOT-IDLE-A-COMMITTED-TREE-RESTORE-HOST: on a save whose committed tree is restorable for a spawned vessel, `StopRecording` + `DiscardTree` frees the recorder for about 7 ms before the restore re-arms and promotes it again, so every in-game cell that guards on an idle recorder skips `recording already active` [MEASURED 2026-09-07 by the second in-game census over `mun-landing-recorded` (scratch CEN-5, and CEN-7 with a 12-step `RecordingState` dwell inserted between `DiscardTree` and `RunTests`): all ten `AutoRecord` cells skipped identically on both. A HOST PROPERTY of the seam, not a product defect - no coverage is lost, so this is filed to be known rather than fixed]
 
