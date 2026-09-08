@@ -1121,14 +1121,17 @@ above) with `verdict=OK`, every payload field except the four envelope keys `id`
 declares one, its `label`. `ut` and `msg` are captured like any other key (a `${x.ut}`
 is a legitimate `TimeJump` input). A non-OK step captures NOTHING: a refusal's payload is
 diagnostic, not a handle source, and a reference to it is unresolvable by definition.
-The store is per attempt (a retry starts empty) and lives only in `drive_seam`'s
-`DriveResult`; the result record carries what was captured (below).
+The store is per attempt (a retry starts empty) and is a local of `drive_seam`;
+`DriveResult` carries only the per-step rows and the unresolved-handle record, and the
+result record carries what was captured (below).
 
 **The reference grammar.** `${<ref>.<field>}` where `<ref>` is a step `label`
 (`[A-Za-z][A-Za-z0-9_-]*`, unique per spec, not `runSave`) or a harness step id
 (`0001`..), and `<field>` is `[A-Za-z0-9_]+`. References may appear anywhere inside a
 string arg value, several per value, whole or partial; `${runSave}` keeps its own
-meaning and is the only dot-less form. A step declares a label with a top-level `label`
+meaning, is the only dot-less form, and is legal ONLY as a whole value (run.py
+substitutes it by whole-value equality, so an embedded `pre-${runSave}` would reach the
+wire as a literal - `find_malformed_handle_tokens` names it as a fault instead). A step declares a label with a top-level `label`
 key (`{ cmd = "ListHandles", label = "handles", args = { kind = "rewindpoints" } }`);
 labels are preferred over numeric ids because step ids are index-derived and an inserted
 step renumbers every later one. Substituted values are re-encoded by `encode_value` on
@@ -1144,23 +1147,34 @@ in two tiers and neither passes the `${...}` text through:
    to a step whose `expect` is not `OK`, a duplicate or ill-formed `label`, and a
    `label` on a mission step. These are the faults a TOML author can make and every one
    is a boot saved.
-2. RUNTIME (`drive_seam`, at the step -> `INVALID(driver-unresolved-handle)`): the
-   referenced step answered OK but its payload has no such field (`hlib.substitute_step_args`
-   returns the unresolved reference). The step line is NOT written, the KSP process tree is
-   brought down (the same kill path the budget watchdog uses, but recorded under the
-   driver stage, not as `KILLED`), and the driver stage classifies INVALID with the new
-   subkind, NON-retryable (a second boot cannot grow a field the verb does not emit).
-   The result row for the step records the failing reference and reason.
+2. RUNTIME (`drive_seam`, at the step): `hlib.substitute_step_args` returns the
+   unresolved reference with a `kind`. Either way the step line is NOT written, the KSP
+   process tree is brought down (the same kill path the budget watchdog uses, but
+   recorded under the driver stage, not as `KILLED`), and the step row plus
+   `verifiers.unresolvedHandle` record the failing reference, reason and kind. The
+   driver-stage SUBKIND depends on the kind:
+   - `no-such-field` - the referenced step answered OK but its payload has no such
+     field: `INVALID(driver-unresolved-handle)`, NON-retryable (a second boot cannot
+     grow a field the verb does not emit).
+   - `no-payload` - the referenced step never answered OK (refused, timed out, or was
+     skipped on an unmet tail): the consumer is unresolvable as a CONSEQUENCE, so the
+     stage keeps the mapping `_stage_subkind_for` gives the FIRST unmet step (the
+     refusal's own subkind, retryable by its own rule), never the consequence's.
 
-**Observability.** `drive_seam` logs one `Drive` line per capture (`captured id=<id>
-label=<l> fields=<k1,k2,...>`) and one per substitution (`substituted id=<id> arg=<k>
-ref=${...} value=<v>`), and the result record's driver step rows gain two OPTIONAL keys,
-`captured` (the decoded field map) and `substitutions` (a list of `{arg, ref, value}`),
-present only when non-empty so every pre-R10 record stays byte-identical. The mission
+**Observability.** `drive_seam` logs one `Drive` line per NON-EMPTY capture
+(`captured id=<id> label=<l> fields=<k1,k2,...>`; every real seam OK reply carries at
+least `ut`, so live logs show one per step, while a payload-less fake reply logs none)
+and one per substitution (`substituted id=<id> arg=<k> ref=${...} value=<v>`), and the
+result record's driver step rows gain three OPTIONAL keys, `captured` (the decoded field
+map), `substitutions` (a list of `{arg, ref, value}`) and `unresolvedHandle`, present
+only when non-empty so every pre-R10 record stays byte-identical
+(`test_a_step_that_captures_and_substitutes_nothing_keeps_its_old_row`). The mission
 step's row carries `paramSubstitutions` under the same rule. A run's proof that the id
 it acted on IS the id it listed is therefore mechanical: the `substituted ... value=` line
-against the seam's own `exec id=... verdict=OK` payload line and the consumer verb's log
-(`StartInvoke: ... rp=<id>` for the first consumer).
+against the response channel's own `id=<id> cmd=ListHandles verdict=OK ... rp0=<id>`
+line (`parsek-test-responses.txt`, collected with the run; the KSP.log `exec id=<id>
+verdict=OK` line carries NO payload) and the consumer verb's log (`invokerewind start
+rp=<id>` and `StartInvoke: ... rp=<id>` for the first consumer).
 
 **The mission bridge, both directions.** Harness -> mission: string values in
 `[driver.missionParams]` are substituted from the capture store immediately before

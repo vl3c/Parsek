@@ -31,7 +31,7 @@ _(unreleased — entries accumulate here per commit)_
   the wire. The pure decisions are `hlib.capture_step_payload`, `substitute_step_args`,
   `substitute_mission_params`, `find_handle_refs`, `find_malformed_handle_tokens`,
   `handle_ref_fault` and `percent_decode`; `run.py` logs one `captured` line per reply
-  and one `substituted` line per reference, and each run's result file gains optional
+  that carried any field and one `substituted` line per reference, and each run's result file gains optional
   `captured` / `substitutions` / `unresolvedHandle` step rows (and `paramSubstitutions`
   on the mission row) so the id a run listed and the id it acted on can be matched
   mechanically afterwards. (b) The mission library gained the runtime-computed half of
@@ -64,9 +64,9 @@ _(unreleased — entries accumulate here per commit)_
   points and then rewinds through the first of them with `rp = "${handles.rp0}"` - the
   first driven rewind whose target id was never written into a test file. It flew the
   same day: the first reading run was refused because that fixture boots with a live
-  recorder (a fixture property; the harness had already put the listed id on the wire),
-  and with a stop-recording step ahead of the rewind the second run passed at the first
-  attempt (`2026-09-08_0844_RH-1-live-rp-handle-rewind`), the listed id, the substituted
+  recorder (a fixture property; the harness had already put the listed id on the wire;
+  the run's automatic retry boot was refused the same way), and with a stop-recording
+  step ahead of the rewind the second run passed at the first attempt (`2026-09-08_0844_RH-1-live-rp-handle-rewind`), the listed id, the substituted
   value and the rewind's own log naming the same rewind point. Contracts:
   `docs/dev/design-autotest-harness-core.md` -> "Runtime handles: payload capture and
   `${step.field}` substitution (R10)" and `design-autotest-command-seam.md` ->

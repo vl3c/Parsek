@@ -1186,11 +1186,13 @@ class DriveResult:
         # harness log.
         self.tail_skip_opted_out = False
         # R10: the reference that could NOT be resolved at its step / at the mission
-        # spawn ({"id", "ref", "reason"}), or None. Set INSTEAD of `killed`: the KSP
-        # tree is brought down through the same kill path, but the attempt is recorded
-        # under the DRIVER stage (INVALID driver-unresolved-handle, non-retryable), not
-        # as a watchdog KILLED -- a KILLED would outrank the driver subkind in
-        # classify_verdict and mask the actual fault.
+        # spawn ({"id", "ref", "kind", "reason"}), or None. Set INSTEAD of `killed`:
+        # the KSP tree is brought down through the same kill path, but the attempt is
+        # recorded under the DRIVER stage, not as a watchdog KILLED -- a KILLED would
+        # outrank the driver subkind in classify_verdict and mask the actual fault.
+        # WHICH driver subkind is keyed on `kind` (run_verifiers' R10 block): a
+        # no-such-field miss is the non-retryable driver-unresolved-handle, while a
+        # no-payload miss defers to the earlier step's own (retryable) refusal.
         self.unresolved_handle: Optional[Dict[str, str]] = None
         # HARNESS-MIDMISSION-COMMIT-BYPASS: what the mission subprocess wrote into the
         # seam channel on its own account (route 1). REPORT-ONLY -- see hlib's section
@@ -1378,16 +1380,26 @@ def _drive_mission_step(result: DriveResult, step: Dict, step_id: str, step_inde
     if param_unresolved:
         miss = param_unresolved[0]
         result.unresolved_handle = {"id": step_id, "ref": miss["ref"],
-                                    "reason": miss["reason"]}
+                                    "kind": miss["kind"], "reason": miss["reason"]}
+        # Same ownership rule as the step-arg path (run_verifiers' R10 block): the
+        # consumer owns the subkind only when NOTHING earlier failed. A no-payload
+        # miss means the producer refused / never answered, and on every reachable
+        # no-payload shape that producer is a PRE-mission step, so `pre_met` is False
+        # and run_verifiers names its refusal through _stage_subkind_for BEFORE it
+        # ever reads this row's subkind. `driver-stage` is the retryable generic that
+        # keeps the row honest in the event it is read anyway.
+        row_subkind = (hlib.DRIVER_UNRESOLVED_HANDLE_SUBKIND
+                       if miss["kind"] == hlib.UNRESOLVED_HANDLE_NO_SUCH_FIELD
+                       else "driver-stage")
         result.mission_step = {"id": step_id, "phase": "mission", "expect": expect,
                                "missionVerdict": None, "met": False,
-                               "subkind": hlib.DRIVER_UNRESOLVED_HANDLE_SUBKIND,
+                               "subkind": row_subkind,
                                "unresolvedHandle": dict(miss)}
         logger.warn("Mission",
-                    "unresolved handle in missionParams.%s ref=%s: %s; NO subprocess "
-                    "spawned -> INVALID %s (non-retryable)"
-                    % (miss["arg"], miss["ref"], miss["reason"],
-                       hlib.DRIVER_UNRESOLVED_HANDLE_SUBKIND))
+                    "unresolved handle in missionParams.%s ref=%s kind=%s: %s; NO "
+                    "subprocess spawned -> INVALID (driver stage subkind %s)"
+                    % (miss["arg"], miss["ref"], miss["kind"], miss["reason"],
+                       row_subkind))
         result.killed_pids = runtime.kill_tree(proc)
         logger.info("Mission", "kill complete pids=%s" % result.killed_pids)
         return True
@@ -1621,15 +1633,19 @@ def drive_seam(spec: Dict, instance_dir: str, run_save_name: str, proc,
             # process tree comes down through the watchdog's own kill path, but
             # `result.killed` stays FALSE -- KILLED outranks driver-INVALID in
             # classify_verdict and would mask the reference that actually failed.
+            # WHICH subkind the attempt ends up under is decided in run_verifiers off
+            # the row's `kind`, not here: a no-payload miss must not overwrite the
+            # EARLIER step's own (retryable) refusal subkind.
             miss = unresolved[0]
             record_step["unresolvedHandle"] = dict(miss)
             result.unresolved_handle = {"id": step_id, "ref": miss["ref"],
+                                        "kind": miss["kind"],
                                         "reason": miss["reason"]}
             logger.warn("Drive",
-                        "unresolved handle at step=%d id=%s cmd=%s arg=%s ref=%s: %s; "
-                        "the command line is NOT written -> INVALID %s (non-retryable)"
-                        % (i, step_id, verb, miss["arg"], miss["ref"], miss["reason"],
-                           hlib.DRIVER_UNRESOLVED_HANDLE_SUBKIND))
+                        "unresolved handle at step=%d id=%s cmd=%s arg=%s ref=%s "
+                        "kind=%s: %s; the command line is NOT written -> INVALID"
+                        % (i, step_id, verb, miss["arg"], miss["ref"], miss["kind"],
+                           miss["reason"]))
             result.killed_pids = runtime.kill_tree(proc)
             logger.info("Drive", "kill complete pids=%s" % result.killed_pids)
             return result
@@ -2315,13 +2331,29 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
                                outcome_unmet.verdict, outcome_unmet.msg or "-",
                                "mission-outcome" if is_flight_outcome
                                else "driver:%s" % outcome_driver_subkind)))
-    # R10: an unresolved ${step.field} OWNS the driver stage. It is asserted here
-    # rather than left to _stage_subkind_for because the step whose line was never
-    # written simply has no response, which that mapper reads as the generic
-    # `driver-stage` -- and that subkind is RETRYABLE, which this fault is not.
+    # R10: an unresolved ${step.field} always invalidates the driver stage, but it
+    # OWNS the subkind only when it is the FIRST thing that went wrong.
+    #   no-such-field: the producer answered OK and simply emits no such key. Its own
+    #     row is met, so _stage_subkind_for would read the never-written consumer as
+    #     the generic `driver-stage` -- RETRYABLE, which this fault is not (a second
+    #     boot cannot grow a field the verb does not emit). Asserted here.
+    #   no-payload: the producer REFUSED / timed out / never ran, so an earlier row is
+    #     already unmet and _stage_subkind_for(first_unmet) has mapped its own
+    #     refusal. Overwriting that would blame the consumer for the producer's fault
+    #     AND turn a retryable refusal into a non-retryable verdict, so the mapping
+    #     stands. The step row and the verifier row below still name the reference.
     if drive.unresolved_handle is not None:
         driver_valid = False
-        stage_subkind = hlib.DRIVER_UNRESOLVED_HANDLE_SUBKIND
+        if (drive.unresolved_handle.get("kind")
+                == hlib.UNRESOLVED_HANDLE_NO_SUCH_FIELD):
+            stage_subkind = hlib.DRIVER_UNRESOLVED_HANDLE_SUBKIND
+        elif not stage_subkind:
+            # no-payload with nothing else already blamed. Reachable only where the
+            # producer's own stage is NON-gating (a post-mission step on a MISSION-OK
+            # run), so name that step's outcome; the unresolved subkind is the last
+            # resort so an INVALID driver stage is never left unnamed.
+            stage_subkind = (_stage_subkind_for(ev.first_unmet)
+                             or hlib.DRIVER_UNRESOLVED_HANDLE_SUBKIND)
         detail["unresolvedHandle"] = dict(drive.unresolved_handle)
     detail["driverValidity"] = {
         "status": "PASS" if driver_valid else ("SKIPPED" if killed else "FAIL"),

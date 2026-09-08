@@ -5569,6 +5569,25 @@ class RuntimeHandleSmokeTests(unittest.TestCase):
             "listhandles kind=rewindpoints count=1 truncated=false"]
         return spec
 
+    def _refused_producer_spec(self):
+        """The same shape with the producer's REQUIRED `kind=` arg dropped, so the
+        fake seam answers `REJECTED kind-arg-missing` exactly as the real one does.
+
+        Built by hand because a kind-less ListHandles is a STATIC fault validate_spec
+        refuses: run_attempt does not validate (the admission tier above it does), so
+        driving it here is the only way to reach the runtime shape a REFUSED producer
+        makes -- every reference validate_spec admits names a step that expects OK, so
+        no admissible spec can produce it.
+
+        The log pin goes with the arg: the fake writes the `listhandles` line only on
+        the OK path, and this leg is about the SUBKIND, not a contract row (which is
+        SKIPPED on an invalid driver anyway)."""
+        spec = self._handle_spec()
+        spec["id"] = "SMOKE-handles-refused"
+        spec["driver"]["steps"][1]["args"] = {}
+        spec["expectations"]["logContracts"]["required"] = []
+        return spec
+
     def _mission_handle_spec(self):
         """The harness -> mission bridge: a pre-mission ListHandles feeds a
         missionParams value, substituted immediately before spawn_mission."""
@@ -5676,6 +5695,67 @@ class RuntimeHandleSmokeTests(unittest.TestCase):
         verdict = hlib.Verdict(result["verdict"], result["subkind"], False, "")
         self.assertFalse(hlib.should_retry(verdict, 1, "once"),
                          "a second boot cannot grow a field the verb does not emit")
+
+    def test_the_unresolved_row_names_the_no_such_field_cause(self):
+        # The kind is what run_verifiers branches on, so it must be in the durable
+        # record on BOTH surfaces a reader has: the step row and the verifier row.
+        result, _ = self._run(self._handle_spec(ref="${handles.nosuchfield}"))
+        self.assertEqual(hlib.UNRESOLVED_HANDLE_NO_SUCH_FIELD,
+                         self._step_row(result, "InvokeRewind")["unresolvedHandle"]["kind"])
+        self.assertEqual(hlib.UNRESOLVED_HANDLE_NO_SUCH_FIELD,
+                         result["verifiers"]["unresolvedHandle"]["kind"])
+
+    # ---- the REFUSED-producer control (the swallowed-refusal regression) --
+
+    def test_a_refused_producer_keeps_its_own_retryable_subkind(self):
+        """THE M1 REGRESSION. When the producer REFUSES, the consumer becomes
+        unresolvable as a CONSEQUENCE -- and the record must still blame the
+        refusal, not the consumer.
+
+        Before the fix, run_verifiers asserted driver-unresolved-handle for BOTH
+        unresolved causes. That subkind is deliberately non-retryable (a second boot
+        cannot grow a field a verb does not emit), so a REFUSAL -- which IS
+        retryable, and whose real cause is one step earlier -- was reported under the
+        consumer's name and never retried. The rule is now keyed on the row's kind:
+        no-payload leaves the stage to _stage_subkind_for(first_unmet).
+
+        `kind-arg-missing` is deliberately absent from _SEAM_REFUSAL_SUBKINDS, so the
+        mapping falls back to the coarse driver-verdict-mismatch -- retryable."""
+        result, _ = self._run(self._refused_producer_spec())
+        self.assertEqual(hlib.VERDICT_INVALID, result["verdict"])
+        self.assertEqual("driver-verdict-mismatch", result["subkind"],
+                         "the PRODUCER's refusal owns the stage, not the consumer")
+        self.assertNotEqual(hlib.DRIVER_UNRESOLVED_HANDLE_SUBKIND, result["subkind"])
+        # Retryable, both ways it is asked: should_retry over the recorded subkind,
+        # and classify_verdict's own flag for the same driver stage (the retry the
+        # swallowed refusal used to lose).
+        self.assertTrue(hlib.should_retry(
+            hlib.Verdict(result["verdict"], result["subkind"], True, ""), 1, "once"))
+        classified = hlib.classify_verdict(
+            {"valid": False, "stage_subkind": result["subkind"]}, {}, {}, 1, "once")
+        self.assertEqual(result["subkind"], classified.subkind)
+        self.assertTrue(classified.retryable)
+        # Still NOT a KILLED: the driver stage is what the record blames.
+        self.assertFalse(result["kspExit"]["killed"])
+        # The contract that has to hold on EVERY unresolved path: no literal ${} on
+        # the wire, and nothing after the unresolved step is driven.
+        lines = self._commands_written()
+        self.assertFalse(any("${" in l for l in lines),
+                         "a literal ${} must never reach the channel: %s" % lines)
+        self.assertFalse(any("cmd=InvokeRewind" in l for l in lines),
+                         "the unresolved step's line must NOT be written: %s" % lines)
+        self.assertFalse(any("cmd=FlushAndQuit" in l for l in lines),
+                         "no later step may run after an unresolved handle: %s" % lines)
+        # ... and the reference is still RECORDED, under the no-payload cause, so the
+        # consequence is auditable even though it is not what the verdict blames.
+        self.assertEqual("${handles.rp0}",
+                         result["verifiers"]["unresolvedHandle"]["ref"])
+        self.assertEqual(hlib.UNRESOLVED_HANDLE_NO_PAYLOAD,
+                         result["verifiers"]["unresolvedHandle"]["kind"])
+        self.assertEqual(hlib.UNRESOLVED_HANDLE_NO_PAYLOAD,
+                         self._step_row(result, "InvokeRewind")["unresolvedHandle"]["kind"])
+        # The producer's own row shows WHY there was no payload.
+        self.assertEqual("REJECTED", self._step_row(result, "ListHandles")["verdict"])
 
     # ---- the static negative control -------------------------------------
 

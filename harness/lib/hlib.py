@@ -1040,8 +1040,12 @@ BASELINE_RULE_PREFIX = "BASELINE-"
 # Everything below is pure. run.py owns the store's lifetime (per ATTEMPT, so a
 # retry starts empty) and the file I/O; hlib owns every decision, including both
 # tiers of the never-a-literal-on-the-wire rule: a spec-authorable fault is caught
-# by validate_spec before any boot, and a runtime miss (the verb answered OK but
-# emits no such field) is DRIVER_UNRESOLVED_HANDLE_SUBKIND at the step.
+# by validate_spec before any boot, and a runtime miss stops the step's line from
+# being written at all. A runtime miss carries a `kind` naming its CAUSE, because
+# the two causes are owed different verdicts: no-such-field (the verb answered OK
+# and emits no such key) is DRIVER_UNRESOLVED_HANDLE_SUBKIND at the consumer, while
+# no-payload (an earlier step refused / never answered) leaves the driver subkind to
+# that step's own refusal, which has its own retry rule.
 # ---------------------------------------------------------------------------
 
 # The step-level key that names a step for later reference. Preferred over the
@@ -1069,6 +1073,20 @@ SEAM_RESPONSE_ENVELOPE_KEYS: Tuple[str, ...] = ("id", "cmd", "verdict", "seq")
 # RETRYABLE_INVALID_SUBKINDS -- a second boot cannot grow a field the verb does
 # not emit, so a retry would only spend another KSP launch to learn the same thing.
 DRIVER_UNRESOLVED_HANDLE_SUBKIND = "driver-unresolved-handle"
+
+# The two CAUSES an unresolved reference can have, carried as `kind` on every
+# unresolved row. The distinction is load-bearing, not cosmetic:
+#   no-such-field  the referenced step answered OK and its payload simply carries
+#                  no such key. Nothing earlier failed, so the CONSUMER owns the
+#                  driver stage and DRIVER_UNRESOLVED_HANDLE_SUBKIND is correct.
+#   no-payload     the referenced step captured nothing -- it refused, timed out,
+#                  or never ran. That step's OWN outcome already maps to a subkind
+#                  (its refusal / mismatch / timeout, retryable per its own rule),
+#                  so blaming the consumer would REPLACE a retryable subkind with
+#                  this non-retryable one and bury the fault that actually
+#                  happened. run.py therefore owns the stage only for no-such-field.
+UNRESOLVED_HANDLE_NO_SUCH_FIELD = "no-such-field"
+UNRESOLVED_HANDLE_NO_PAYLOAD = "no-payload"
 
 
 def percent_decode(value: str) -> str:
@@ -1122,14 +1140,20 @@ def find_handle_refs(value) -> List[Tuple[str, str, str]]:
 
 
 def find_malformed_handle_tokens(value) -> List[Tuple[str, str]]:
-    """Every ``${...}`` in ``value`` that is NEITHER ``${runSave}`` NOR a
-    well-formed handle reference, as ``(token, reason)``.
+    """Every ``${...}`` in ``value`` that is NEITHER a whole-value ``${runSave}``
+    NOR a well-formed handle reference, as ``(token, reason)``.
 
     Exists because the failure this whole contract prevents is a literal
     ``${...}`` reaching the wire: a typo'd token that simply did not match
     HANDLE_REF_RE would otherwise be forwarded verbatim and the seam would resolve
     an object named ``${handles.rp0}``. Reasons are named rather than pooled so a
-    spec author reads WHICH mistake was made."""
+    spec author reads WHICH mistake was made.
+
+    ``${runSave}`` is legal ONLY as the WHOLE value, because that is the only shape
+    its substitution has: run.py replaces a step arg on whole-value equality
+    (``if v == RUN_SAVE_TOKEN``) rather than by search-and-replace, so an EMBEDDED
+    one is never substituted and reaches the wire as the literal text. Accepting it
+    here would leave the one ``${...}`` shape this scan exists to stop."""
     if not isinstance(value, str):
         return []
     out: List[Tuple[str, str]] = []
@@ -1146,6 +1170,13 @@ def find_malformed_handle_tokens(value) -> List[Tuple[str, str]]:
         i = end + 1
         inner = token[2:-1]
         if token == RUN_SAVE_TOKEN:
+            if value == RUN_SAVE_TOKEN:
+                continue
+            out.append((token,
+                        "%s is substituted only as a WHOLE value (run.py replaces "
+                        "the arg on whole-value equality, never in place), so an "
+                        "embedded one reaches the wire verbatim"
+                        % RUN_SAVE_TOKEN))
             continue
         if HANDLE_REF_RE.fullmatch(token):
             continue
@@ -1187,10 +1218,13 @@ def substitute_handle_refs(value, store: Optional[Dict[str, Dict[str, str]]]):
     (ref -> field map). Returns ``(new_value, substitutions, unresolved)``.
 
     ``substitutions`` rows are ``{"ref": token, "value": resolved}``;
-    ``unresolved`` rows are ``{"ref": token, "reason": ...}``. A value carrying an
-    unresolved reference is still returned with its RESOLVABLE tokens replaced,
-    but the caller must treat a non-empty ``unresolved`` as terminal: the contract
-    is that no ``${...}`` text ever reaches the wire.
+    ``unresolved`` rows are ``{"ref": token, "kind": ..., "reason": ...}``, where
+    ``kind`` is UNRESOLVED_HANDLE_NO_SUCH_FIELD or UNRESOLVED_HANDLE_NO_PAYLOAD.
+    The ``kind`` is what lets the CALLER decide who owns the driver stage (see the
+    constants' comment); ``reason`` stays the human sentence and is never parsed.
+    A value carrying an unresolved reference is still returned with its RESOLVABLE
+    tokens replaced, but the caller must treat a non-empty ``unresolved`` as
+    terminal: the contract is that no ``${...}`` text ever reaches the wire.
 
     A non-string value passes through untouched (a TOML int budget is not a
     template), which is what keeps every pre-R10 arg table byte-identical."""
@@ -1207,12 +1241,14 @@ def substitute_handle_refs(value, store: Optional[Dict[str, Dict[str, str]]]):
         fields = table.get(ref)
         if fields is None:
             unresolved.append({"ref": token,
+                               "kind": UNRESOLVED_HANDLE_NO_PAYLOAD,
                                "reason": "no captured payload for %r (the step "
                                          "either did not run or did not answer OK)"
                                          % ref})
             continue
         if field not in fields:
             unresolved.append({"ref": token,
+                               "kind": UNRESOLVED_HANDLE_NO_SUCH_FIELD,
                                "reason": "%r answered OK but its payload has no "
                                          "field %r (fields: %s)"
                                          % (ref, field,
@@ -1239,7 +1275,7 @@ def substitute_step_args(args: Optional[Dict], store: Optional[Dict[str, Dict[st
             subs.append({"arg": str(key), "ref": row["ref"], "value": row["value"]})
         for row in u:
             unresolved.append({"arg": str(key), "ref": row["ref"],
-                               "reason": row["reason"]})
+                               "kind": row["kind"], "reason": row["reason"]})
     return out, subs, unresolved
 
 
@@ -1275,7 +1311,8 @@ def substitute_mission_params(params, store: Optional[Dict[str, Dict[str, str]]]
     for row in s:
         subs.append({"arg": _path, "ref": row["ref"], "value": row["value"]})
     for row in u:
-        unresolved.append({"arg": _path, "ref": row["ref"], "reason": row["reason"]})
+        unresolved.append({"arg": _path, "ref": row["ref"], "kind": row["kind"],
+                           "reason": row["reason"]})
     return new_value, subs, unresolved
 
 

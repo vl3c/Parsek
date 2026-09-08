@@ -1298,8 +1298,8 @@ DELIVERED as all three, with one correction to (b) found while reading the code.
 First consumer `RH-1-live-rp-handle-rewind` (committed 2026-09-08, tier operator,
 fixture `bdock-recorded`): `ListHandles kind=rewindpoints` labelled `handles`, then
 `InvokeRewind rp=${handles.rp0} slot=1` - the first driven rewind whose target id was
-never written into a spec. LIVE-PROVEN the same day: reading run 1 (`2026-09-08_0838`)
-red on `InvokeRewind REJECTED recording-active` because `bdock-recorded` boots by
+never written into a spec. LIVE-PROVEN the same day: reading run 1 (`2026-09-08_0838`,
+plus its automatic retry boot `_0841_..._a2`, refused identically) red on `InvokeRewind REJECTED recording-active` because `bdock-recorded` boots by
 promoting its committed tip into a live recorder - a fixture property, found AFTER the
 harness had logged `substituted ... value=rp_72ebafb509b943b6a353fa86eb3a4225` and put
 that id on the wire; a `StopRecording` step (R1's own order) fixed it and reading run 2

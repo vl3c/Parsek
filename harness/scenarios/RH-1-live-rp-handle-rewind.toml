@@ -57,11 +57,15 @@ id = "RH-1-live-rp-handle-rewind"
 # proof is mechanical and lives in the run's own artifacts (design "Runtime handles"
 # -> Observability): the harness log's `substituted id=0005 arg=rp
 # ref=${handles.rp0} value=<id>` line, the result JSON's `substitutions` row on the
-# InvokeRewind step and `captured` map on the ListHandles step, and the seam's own
-# `exec id=... verdict=OK ... rp0=<id>` payload line, all naming the same id as the
-# `StartInvoke: ... rp=<id>` the class below matches.
+# InvokeRewind step and `captured` map on the ListHandles step, and the response
+# channel's own `id=... cmd=ListHandles verdict=OK ... rp0=<id>` line (the KSP.log
+# `exec id=... verdict=OK` line carries no payload), all naming the same id as the
+# `invokerewind start rp=<id>` and `StartInvoke: ... rp=<id>` lines the class below
+# matches.
 #
-# READING RUN 1 (2026-09-08, `2026-09-08_0838_RH-1-live-rp-handle-rewind`): the R10
+# READING RUN 1 (2026-09-08, `2026-09-08_0838_RH-1-live-rp-handle-rewind`, and its
+# automatic retry boot `2026-09-08_0841_RH-1-live-rp-handle-rewind_a2`, refused the
+# same way - the driver-INVALID was retryable and `policy = "once"` spent it): the R10
 # subject held on the first boot - ListHandles enumerated the three points with
 # `rp0slot1open=true` exactly as derived above, the harness logged `substituted
 # id=0004 arg=rp ref=${handles.rp0} value=rp_72ebafb509b943b6a353fa86eb3a4225`, and
