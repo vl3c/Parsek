@@ -1,0 +1,292 @@
+schema = 1
+id = "RF-7M-predicted-tail-map-render"
+# =====================================================================================
+# THE RE-FLY CONTINUATION PROGRAM, LANE 7M. THE PREDICTED TAIL NOTHING DREW.
+#
+# THIS LANE IS AUTHORED TO RED ON TODAY'S DLL. That is not a defect in the lane: it is a
+# MEASURED REPRODUCTION of a defect found in the operator's own session, pinned on the
+# exact tokens the defect moves, so that the fix's next flight is a one-line verdict
+# rather than another forensic read. Read the STATUS block at the end before flying it.
+#
+# WHAT THE SUBJECT IS. A recording that leaves the scene mid-flight gets a PREDICTED
+# CONTINUATION TAIL appended by `IncompleteBallisticSceneExitFinalizer`: `OrbitSegment`s
+# with `isPredicted = true` carrying ZERO trajectory points, running from the last recorded
+# sample to the extrapolated terminal. The fixture's pod carries two, [1078.0528338768356,
+# 2186.5751775686945] (the coast, clipped at atmosphere entry) and [2186.5751775686945,
+# 2348.5488254909719] (the ballistic descent to impact). The session that produced them
+# measured that tail drawn by NOTHING on the map: 21 minutes of coast and the whole descent
+# simply absent, two traced legs ending dead in empty space at UT 1078.1 / 540 km.
+#
+# TWO INDEPENDENT CAUSES, and the lane gates on both because either alone would leave the
+# player looking at the same nothing.
+#
+#   (A) THE FORWARD-ARC PASS DROPS THE CONIC ON GEOMETRY.
+#       `GhostTrajectoryPolylineRenderer.IsOrbitSegmentBelowSurface` (`:3269-3277`) is
+#       `sma * (1 - ecc) < bodyRadius`, and every predicted re-entry conic has a subsurface
+#       periapsis by construction - this fixture's are 590,845.4455 m against Kerbin's
+#       600,000, i.e. 9,154.55 m inside the planet. Its three consumers
+#       (`ComputeOrbitalCoverIntervals` `:3301`, `SelectForwardArcSegmentIndices` `:3384`,
+#       `HasForwardArcCandidate` `:2339`) all drop it. The design intends such a conic to
+#       be drawn instead as a traced LEG from recorded descent samples (`:3341-3343`), and
+#       the compensating `FillFramelessGapsFromConics` (`:2933`) only fills gaps BETWEEN
+#       TWO CONSECUTIVE RECORDED POINTS (`:2934-2937`). A TAIL has no bracketing point
+#       after it, so it is neither arc nor leg nor gap fill.
+#       MEASURED: `excluded 3 below-surface orbit segments from cover
+#       rec=8da7c2c2a6d84505b4bc121fdb9f528f -> descent leg [191.0,1078.1]`, and
+#       `runArcs+=0` on ALL 49 render runs of the pod chain across the whole session.
+#
+#   (B) MAP PRESENCE RESOLVES ITS SEGMENTS FROM THE CHAIN HEAD.
+#       An ordinary optimizer environment split cut this flight into HEAD (32ca5546,
+#       [32.94, 191.04], ZERO segments) and TIP (8da7c2c2, [191.04, 2348.55], all three).
+#       Source resolution read the HEAD, answered `hasOrbitSegments=False` at every tick,
+#       both segment-seeded ghost sources failed, and the pod was re-sourced
+#       `orbitSource=state-vector-fallback` - an instantaneous UT-191 ellipse it never flew
+#       (sma 654,813, ecc 0.435), which lived 51 ms and was then destroyed. In the final
+#       scene it got no map presence at all (`reason=no-state-vector-point ...
+#       suppressed=4386`). So the surface that is SUPPOSED to own a predicted tail - the
+#       proto orbit line, whose selectors have NO `isPredicted` filter anywhere - never got
+#       a chance to draw it.
+#
+# NEITHER IS RE-FLY-SPECIFIC, and the lane says so rather than overclaiming: the probe
+# lineage in the same save loses its own extrapolated tail to (A) identically. The pod is
+# where the operator noticed it because the pod's hole is 21 minutes long.
+#
+# =====================================================================================
+# WHY A FIXTURE AND NOT A FLIGHT. Nothing in the mission library produces a predicted tail
+# on purpose, and nothing could cheaply: it needs a vessel ALIVE on a VACUUM coast at scene
+# exit, which every committed profile either lands or leaves in a stable orbit. The seed
+# save carries the whole shape already - two predicted segments with the real elements, on
+# a two-member chain - so it is harvested rather than synthesised. `refly-a-recorded`'s
+# entry in `RECORDED_FIXTURES` and its builder's `--check` post-conditions assert BOTH
+# defect shapes cell by cell, and state what to do if a re-harvest ever heals one (re-fly
+# this lane against that DLL; do not re-pin the fixture).
+#
+# THE CLOCK IS A BUILDER EDIT AND IT IS LOAD-BEARING. As harvested the save's FLIGHTSTATE
+# UT was 11,336.09, more than 9,000 s past the predicted impact; every surface here is a
+# FORWARD one and `TimeJump` is forward-only, so the tail was unreachable. The builder
+# re-points the clock to 1100.0 - 21.55 s past the TIP's last recorded sample, inside the
+# first predicted segment - so the recorded span is behind and the rest of the coast plus
+# the whole descent are ahead. `build_refly_a_recorded._verify_clock` re-derives that
+# RELATIONSHIP rather than comparing the number, so a moved tail reds rather than leaving
+# this lane asserting over an empty window.
+#
+# =====================================================================================
+# THE SHAPE IS V27M's, NOT V18T's, and that choice is the forensics' own.
+# V18T gates on a manifest census, and `RenderCompositionManifest` carries NO position and
+# no arc census (`TransitionRecord` has neither, by inspection) - so there is nothing there
+# to gate this on. V27M gates on exact log tokens with an explicit comment saying why its
+# `[expectations.renderComposition]` is bare. Same situation, same answer: the block below
+# is bare BY MEASUREMENT, and the geometric proof lives in the log tokens.
+#
+# THE TRACERS ARE ARMED, unlike the session that found this. `mapRenderTracing` was turned
+# OFF at 23:05:17, before the seed flight began, so `icon-jump` and `line-blink` have ZERO
+# occurrences in it and Tier-B / Tier-C anomaly truth is simply absent. Arming both here
+# costs nothing and adds the one thing the default-verbose lines cannot give: a measurement
+# of whether what IS drawn is drawn stably.
+#
+# ANTI-VACUITY, three independent tokens per the V18T lesson: the ghost host must exist
+# (`Polyline build: rec=<TIP>`), the chain must build a conic phase
+# (`assembled chain ... conic=[1-9]`), and the arc census must be positive
+# (`runArcs+=[1-9]`). A lane that read `runArcs+=0` and called itself green is the exact
+# failure mode this list is designed against.
+#
+# =====================================================================================
+# STATUS: NEVER FLOWN. `tier = "operator"`.
+#
+# EXPECTED READING-RUN VERDICT ON MAIN: PARSEK-FAIL(expectations), REPRODUCING both defects
+# on these tokens -
+#   required not matched:  Render run: rec=32ca5546... runArcs\+=[1-9]
+#   required not matched:  assembled chain rec=32ca5546... conic=[1-9]
+#   forbidden matched:     excluded 3 below-surface orbit segments from cover rec=8da7c2c2...
+#   forbidden matched:     orbitSource=state-vector-fallback
+#   forbidden matched:     hasOrbitSegments=False
+# A red on exactly those five is the REPRODUCTION and is the lane working. A red on
+# anything else is a finding for `docs/dev/todo-and-known-bugs.md`.
+#
+# PR #1659 (`refly-render-tail`) carries the fix and its design section is
+# `docs/dev/design-map-ts-render-architecture.md` -> "Predicted continuation tails on the
+# map". It adds exactly ONE new log line (`map-presence chain-tip segments: head=... tip=...
+# tipSegments=... headSegments=...`, Verbose on-change); everything else it changes is
+# visible through the tokens already pinned here, which is why this lane needs no edit when
+# it lands. The new line is deliberately NOT required below: pinning a token that cannot
+# exist on the DLL the reading run flies would make the reproduction unreadable.
+# =====================================================================================
+tier = "operator"
+description = "Reproduction lane: the pod's PREDICTED continuation tail on the flight map. Over the refly-a-recorded harvest with both render tracers armed, the map is opened inside the predicted coast and again inside the ballistic descent, gating on the forward-arc census, the chain's conic phase and the ghost's orbit source - the five tokens the 2026-09-08 session measured as absent or wrong."
+instanceProfile = "stock-minimal"
+tags = ["RF-7M", "render", "map", "predicted-tail", "ballistic-extrapolation",
+        "scene-exit-finalization", "chain", "kerbin", "sandbox", "reading-run",
+        "reproduction"]
+
+[fixture]
+# The harvest of the operator's 2026-09-08 Re-Fly session. Boots into FLIGHT on the
+# PRELAUNCH pad craft (activeVessel 1 of 7), clock re-pointed to UT 1100.0 by the builder.
+# Its RewindPoint was REAPED by the continuation defect before the save was collected, so
+# NOTHING here can re-fly - which this lane does not need and the fixture README states.
+saveTemplate       = "fixtures/saves/refly-a-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+# V27M's opening verbatim: stop whatever the boot promoted, discard it, and pin
+# autoRecordOnLaunch off, so nothing this lane records competes with the committed corpus
+# it is here to read.
+steps = [
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "persistent" },   expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                       expect = "OK" },
+  { cmd = "DiscardTree",                                                         expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "mapRenderTracing",   value = "true" }, expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  # Two spacers before the map opens: `IsLineBlink` raises if two seam events land within
+  # eight visual frames, so pacing is what keeps the Tier-C reading honest rather than
+  # noisy (V27M's own comment).
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  # --- READING 1: inside the predicted COAST (clock is already at UT 1100) -------------
+  { cmd = "EnterMapView",                                                        expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  { cmd = "ExitMapView",                                                         expect = "OK" },
+  # --- READING 2: inside the ballistic DESCENT ------------------------------------------
+  # 2300 is 113.45 s past the descent segment's start (2186.5752) and 48.55 s short of the
+  # extrapolated impact (2348.5488), so the clock sits inside the SECOND predicted segment
+  # with the terminal still ahead. Forward-only, and comfortably forward of 1100.
+  { cmd = "TimeJump",     args = { ut = "2300" },                                expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  { cmd = "EnterMapView",                                                        expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  { cmd = "ExitMapView",                                                         expect = "OK" },
+  { cmd = "FlushAndQuit",                                                        expect = "OK" },
+]
+
+[dimensionsCovered]
+# NOTHING BEYOND THE HOST, and on a reproduction lane that is the only honest setting: a
+# dimension claim says a value was EXERCISED AND OBSERVED, and this lane is authored on the
+# expectation that its subject is NOT observed on the DLL it first flies. The registry has
+# no value for a predicted continuation tail on any axis; proposing one belongs in the
+# commit that reads a GREEN off the fixed build, together with `non-orbital-polyline` and
+# `ghost-map-presence` off the tokens below.
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-map"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The fixture's ten, exactly. This lane records nothing (`DiscardTree` + autoRecord off)
+# and neither creates nor removes a recording, so an exact pin is the anti-vacuity: a
+# drifted count means the boot mutated the corpus and every token below reads a different
+# world than the one the fixture pins.
+count = { min = 10, max = 10 }
+
+[expectations.logContracts]
+# THE IDS ARE SPELLED IN FULL because they are FIXTURE bytes, not runtime ones: the pod's
+# chain HEAD and TIP are committed and `RECORDED_FIXTURES` pins both. KSP.log carries the
+# whole 32-hex id, so these are literals rather than classes.
+#
+#   `Polyline build: rec=<TIP>`  ANTI-VACUITY 1: the renderer reached the tail-bearing
+#       recording at all. Present today (`legs=1 (... excludedBelowSurfaceSegs=3
+#       gapFilled=30)`), so it is the token that separates "the lane read nothing" from
+#       "the lane read a defect".
+#   `Render run: rec=<HEAD> ... runArcs+=[1-9]`  THE HEADLINE. The census is emitted on the
+#       CHAIN HEAD's id with `members=2 segs=2`, not on the tip's - measured. It read
+#       `runArcs+=0` on all 49 of the pod chain's render runs in the seed session, so this
+#       is the token defect (A) moves.
+#   `assembled chain rec=<HEAD> ... conic=[1-9]`  the Director's own statement that it
+#       built a conic phase for the pod. `conic=0` today, which is defect (A) again seen
+#       from the composition side rather than the draw side.
+#   `Polyline frame: scene=FLIGHT drawn=[1-9]`  ANTI-VACUITY 2: something was drawn in the
+#       flight map at all.
+required = [
+  "Polyline build: rec=8da7c2c2a6d84505b4bc121fdb9f528f",
+  "Render run: rec=32ca55469ac1400da66fcebb3c791d65 .* runArcs\\+=[1-9]",
+  "assembled chain rec=32ca55469ac1400da66fcebb3c791d65 .* conic=[1-9]",
+  "Polyline frame: scene=FLIGHT drawn=[1-9]",
+]
+# THE FORBIDDEN LIST IS THE DEFECT, TOKEN BY TOKEN. Each is quoted from the seed KSP.log
+# and each names one mechanism:
+#   `excluded 3 below-surface ...`   defect (A)'s producer, with the COUNT pinned: three
+#       of three segments dropped, including the two predicted ones. A fix that re-admits
+#       the predicted pair would read `excluded 1` and this clause would clear while the
+#       recorded checkpoint conic stays correctly excluded (FIX #27 untouched).
+#   `orbitSource=state-vector-fallback`  defect (B)'s outcome: the pod re-sourced onto an
+#       instantaneous ellipse it never flew.
+#   `hasOrbitSegments=False`  defect (B)'s cause: the question answered over the HEAD.
+#   `Anchor leg SKIPPED ... after=seg1`  the builder knowing a following segment exists and
+#       declining anyway - the clearest single line that the tail was seen and dropped.
+#   `icon-jump` / `line-blink`  the two Tier-C tracer anomalies, armed here and simply
+#       absent from the seed session. They are forbidden rather than merely unrequired
+#       because a fix that DRAWS the tail badly is a different failure from one that draws
+#       it, and only these two can tell them apart.
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "excluded 3 below-surface orbit segments from cover rec=8da7c2c2a6d84505b4bc121fdb9f528f",
+  "orbitSource=state-vector-fallback",
+  "hasOrbitSegments=False",
+  "Anchor leg SKIPPED .*rec=8da7c2c2a6d84505b4bc121fdb9f528f.*after=seg1",
+  "icon-jump",
+  "line-blink",
+]
+
+# REPORT-ONLY, and pinned to the fixture's own committed bytes: this lane must not change
+# them. One supersede row (the probe's re-fly, the corpus's only one), no RewindPoint (the
+# continuation defect reaped it before the save was collected), no tombstones.
+[expectations.rewind]
+rewindPoints  = { max = 0 }
+supersedeRows = { min = 1, max = 1 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 10, max = 10 }
+terminalStates = { SubOrbital = { min = 1, max = 1 }, Destroyed = { min = 8, max = 8 }, Orbiting = { min = 1, max = 1 } }
+branchPoints   = { JointBreak = { min = 5, max = 5 } }
+
+# `[expectations.renderComposition]` IS NOT DECLARED AT ALL, which is a step past V27M's
+# "bare by measurement" and rests on the same reading plus one mechanical fact.
+# `RenderCompositionManifest` carries no position, no velocity and no arc census
+# (`TransitionRecord` has none of them), so nothing in it could gate a geometric claim -
+# that is V27M's argument and it holds here. What settles it is that DECLARING the block,
+# even bare, obliges the lane to drive `ExportRenderManifest` immediately before teardown
+# (`RenderComposeVerifierWiringTests.test_every_declarer_exports_immediately_before_
+# teardown`), and this lane never arms the recorder, so that verb would REJECT. A declared
+# block whose own export cannot run is worse than no block: it spends a step to prove
+# nothing and makes the lane's tail read as if a census were being taken.
+
+[runtime]
+# Budget arithmetic (M-A5 S8): LoadGame 660 + StopRecording 120 + DiscardTree 120 +
+# SetSetting x4 480 + RecordingState x22 2640 + EnterMapView x2 360 + ExitMapView x2 240 +
+# TimeJump (deferred) 660 + FlushAndQuit 120 = 5400. 5700 clears it by 300. The real wall
+# clock is one boot plus ~40 s of dwell.
+budgetSeconds = 5700
+
+[retry]
+policy = "once"
+
+[expectedFail]
+# EMPTY EVEN THOUGH THIS LANE IS EXPECTED TO RED, and that is deliberate rather than an
+# oversight. An `expectedFail` bugId would demote every failure of its subkind under one
+# id - including a SECOND, unrelated expectation defect this lane might surface - and the
+# reproduction is only worth anything while its red is legible token by token. The
+# expectation is recorded in the STATUS block above, where a human reads it, and in the
+# status doc's row; it is not encoded as a mask.
+bugId = ""

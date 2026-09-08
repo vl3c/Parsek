@@ -1,0 +1,203 @@
+schema = 1
+id = "RF-2-two-reflies-in-sequence"
+# =====================================================================================
+# THE RE-FLY CONTINUATION PROGRAM, LANE 2. TWO RE-FLIES IN ONE RUN, and the reaper's
+# SCOPE: a merge must reap the point whose slots all closed and LEAVE ITS SIBLINGS ALONE.
+#
+# WHAT WAS ASKED FOR, AND WHAT IS ACTUALLY REACHABLE - stated first, because the
+# substitution is the most important thing in this file.
+#
+# The lane was commissioned as "re-fly slot A of one RewindPoint, merge, assert the point
+# SURVIVES because slot B is still open, then re-fly slot B and assert it reaps only now".
+# THAT SHAPE HAS NO SUBJECT TODAY, and the reason is a property of the corpus rather than
+# a gap in this lane:
+#
+#   - Every committed RewindPoint in the tree has EXACTLY ONE OPEN SLOT. All three of
+#     `bdock-recorded`'s carry slot 0 with no `mergeState` key (Immutable, closed) and
+#     slot 1 `CommittedProvisional` (open); all three injected xUnit presets
+#     (`rewind-b9`, `rewind-crew-loss`, `refly-world-preservation`) are the same
+#     two-sibling shape with only the non-focus child promoted. Not one is a coincidence:
+#     `UnfinishedFlightClassifier.TryQualify` opens a slot for a CRASHED tip regardless
+#     of focus and for a stable non-focus leaf that is unconcluded, and the focus slot's
+#     own stable terminal SEALS the engagement.
+#   - Producing two open slots in one point therefore needs BOTH halves crashed or both
+#     unconcluded, which no committed mission flies and no committed generator stamps.
+#     Reaching it means a fourth xUnit fixture preset plus its `run.py` / `hlib` wiring -
+#     a change worth making, and not one to smuggle into a lane whose subject is the
+#     reaper's scope rather than the fixture library.
+#
+# SO THE AXIS MOVES FROM SLOTS TO POINTS, and the measurement is the same one:
+# `bdock-recorded` carries THREE RewindPoints. This lane re-flies the open slot of the
+# FIRST, merges, and asserts that exactly ONE point was reaped and TWO REMAIN; then
+# re-flies the open slot of what is now the first, merges, and asserts one more reaped and
+# ONE remaining. `RewindPointReaper.ReapOrphanedRPs` sweeps EVERY point on every OnLoad,
+# so a reaper that read eligibility per-sweep instead of per-point would take all three on
+# the first merge - which is exactly the failure `remaining=2` names.
+#
+# THE FULL-SLOT VERSION STAYS OPEN, and the cheapest route to it is written down here so
+# the next author does not re-derive it: a `rewind-both-open` generator = `RewindB9Fixture`
+# with `.WithMergeState(MergeState.CommittedProvisional)` on BOTH children and a Destroyed
+# terminal on each, one `run.py` preset row and one `hlib.INJECTED_RECORDINGS` entry. It
+# would also be the first fixture able to drive `AnswerMergeDialog choice="seal"`, whose
+# three-button dialog needs a slot that is still open after the merge (see RF-5).
+#
+# =====================================================================================
+# THE ID CHAIN IS READ TWICE, AND THAT IS THE SECOND SUBJECT.
+#
+# `ListHandles kind=rewindpoints` walks `ParsekScenario.RewindPoints` in APPEND order, so
+# `rp0` is the OLDEST surviving point. The lane labels the FIRST enumeration `handles` and
+# the SECOND `handles2`, and drives `${handles.rp0}` then `${handles2.rp0}`: after the
+# first merge reaps the oldest, `handles2.rp0` is a DIFFERENT point, and the spec never
+# spells either id. That is the property the pins below assert as a count
+# (`count=3` then `count=2`) rather than as an identity - RH-1's header carries the
+# argument for why pinning the literal id would assert the opposite of the claim.
+#
+# The two `LoadGame` / `StopRecording` pairs are RH-1's live-proven precondition, not
+# ceremony: `AnswerMergeDialog` only answers OK once the scene has LEFT flight, and
+# `InvokeRewind` is a RequiresFlight verb whose dispatch guard REJECTs `recording-active`
+# over the recorder the boot promotes off the committed tip. RH-1 reading run 1 spent a
+# whole flight learning that.
+#
+# =====================================================================================
+# STATUS: NEVER FLOWN. `tier = "operator"` while calibrating. Nothing armed; the
+# save-parse blocks are report-only by omission and their windows are DERIVED from the
+# fixture's committed bytes (three points, three CommittedProvisional recordings, zero
+# supersede rows) rather than measured.
+# =====================================================================================
+tier = "operator"
+description = "Two re-flies in one run over the bdock-recorded harvest: rewind the open slot of the oldest RewindPoint and merge, asserting exactly one point reaps and TWO remain, then rewind the open slot of the next and merge, asserting one more reaps and ONE remains - the reaper's per-point scope, and two runtime-handle enumerations whose ids the spec never spells."
+instanceProfile = "stock-minimal"
+tags = ["RF-2", "rewind", "refly", "rp-disk-reaper", "supersede", "runtime-handles",
+        "kerbin", "sandbox", "reading-run"]
+
+[fixture]
+# RH-1's host, for RH-1's reasons: `activeVessel = 1` over ten VESSEL nodes so the boot
+# lands in FLIGHT (what the RequiresFlight verbs need), three harvested RewindPoints with
+# real Guid ids and their quicksaves on disk, and one open slot each. NOTHING is injected:
+# the ids and the eligibility are the harvest's own.
+saveTemplate       = "fixtures/saves/bdock-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # The reap decision and the classifier verdict behind it are Verbose; without this the
+  # only thing readable would be the summary line.
+  { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },  expect = "OK" },
+  { cmd = "StopRecording",                                                          expect = "OK" },
+  # --- RE-FLY ONE -------------------------------------------------------------------
+  { cmd = "ListHandles",       args = { kind = "rewindpoints" }, label = "handles",  expect = "OK" },
+  { cmd = "InvokeRewind",      args = { rp = "${handles.rp0}", slot = "1" },         expect = "OK", budget = 300 },
+  # THE RE-FLY IS FLOWN, NOT MERELY OPENED, and that is CI-2's lesson rather than a
+  # flourish. A provisional that never recorded anything is retired by the leaf prune and
+  # `MergeDialog.TryCommitReFlySupersede` then answers `refused-unflown-provisional` /
+  # `concluded-no-supersede` with ZERO rows and no journal - BY DESIGN, and a lane whose
+  # subject is what a merge does to a RewindPoint must not sit on that route. CI-2 proved
+  # `TimeJump` is accepted with a re-fly session live (`timejump start target=8960 ...` ->
+  # `timejump complete reachedUT=8960.1`) and that `AnswerMergeDialog` still finds the
+  # conclusion dialog afterwards. 500 is ~117 s past rp0's UT 382.73 and stays well short
+  # of the tree's Dock branch point at 8949.27, so this lane does NOT drag CI-2's
+  # chain-tip spawn into its own measurement.
+  { cmd = "TimeJump",          args = { ut = "500" },                                expect = "OK", budget = 120 },
+  { cmd = "AnswerMergeDialog", args = { choice = "merge" },                          expect = "OK", budget = 120 },
+  # --- RE-FLY TWO, over what the first merge left ------------------------------------
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "StopRecording",                                                          expect = "OK" },
+  { cmd = "ListHandles",       args = { kind = "rewindpoints" }, label = "handles2", expect = "OK" },
+  { cmd = "InvokeRewind",      args = { rp = "${handles2.rp0}", slot = "1" },        expect = "OK", budget = 300 },
+  # rp1's UT is 693.29, so the jump target has to clear it: `TimeJump` is FORWARD-ONLY
+  # and 500 would REJECT `backward-jump`. 800 is ~107 s past it, the same margin as the
+  # first act's, and still short of the Dock branch point.
+  { cmd = "TimeJump",          args = { ut = "800" },                                expect = "OK", budget = 120 },
+  { cmd = "AnswerMergeDialog", args = { choice = "merge" },                          expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                          expect = "OK" },
+  { cmd = "FlushAndQuit",                                                            expect = "OK" },
+]
+
+[dimensionsCovered]
+# BASICS ONLY until the reading run. What it earns: `rewind-to-separation` / `refly-gate`
+# off the two StartInvoke pairs, `supersede-relation` off the two merges' relation rows,
+# and `rp-disk-reaper` off the two reap summaries - which would make this the first lane
+# to claim the reaper from a MERGE rather than from a scene-exit sweep over a point
+# nobody flew.
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# RH-1's window verbatim and for its reason: the fixture stages 19 sidecars and what two
+# rewinds plus two merges leave is what the reading measures. The floor is the
+# anti-vacuity half.
+count = { min = 2, max = 30 }
+
+[expectations.logContracts]
+# THE COUNTS ARE THE LANE. Four numbers carry the whole assertion and each is only
+# reachable in the intended world:
+#
+#   `listhandles ... count=3`   the enumeration saw all three points before anything ran.
+#   `reaped=1 remaining=2`      the FIRST merge closed exactly one point's last open slot
+#                               and the sweep left its two siblings standing. A reaper
+#                               that scoped eligibility to the sweep rather than to the
+#                               point would read `reaped=3 remaining=0` here, and that is
+#                               the failure this lane exists to catch.
+#   `listhandles ... count=2`   the second enumeration, over what the first merge left.
+#                               It is also the proof that `${handles2.rp0}` resolved to a
+#                               DIFFERENT point: rp0 of a two-member list after the oldest
+#                               was deleted cannot be the id the first rewind used.
+#   `reaped=1 remaining=1`      the second merge, same scope.
+#
+# `Reaped rp=\S+ bp=\S+ slots=2` is required once as the per-point line (presence-only
+# matching cannot count it; the two summaries above carry the arithmetic).
+required = [
+  "listhandles kind=rewindpoints count=3 truncated=false",
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=.* rp=rp_[0-9a-f]{32}",
+  "Invocation complete",
+  "ConsumePostLoad: restoring bundle with route-retire cutoffUT=",
+  "Reaped rp=\\S+ bp=\\S+ slots=2",
+  "ReapOrphanedRPs: reaped=1 remaining=2",
+  "listhandles kind=rewindpoints count=2 truncated=false",
+  "ReapOrphanedRPs: reaped=1 remaining=1",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # THE FAILURE THE LANE IS SHAPED AGAINST, as its own token: a sweep that took every
+  # point at once. Forbidden as well as absent from `required` because presence-only
+  # matching cannot express "this summary must not appear" any other way.
+  "ReapOrphanedRPs: reaped=3",
+  "ReapOrphanedRPs: reaped=[0-9]+ remaining=0",
+  # The seed session's closure tokens, carried across the RF family as a standing guard.
+  # Neither should be reachable here (nothing on this path splits a promoted recording),
+  # and if one fires it names the defect PR #1658 fixes.
+  "reason=sealedTipClosed",
+]
+
+# REPORT-ONLY. DERIVED from the fixture's committed bytes, not measured:
+#   rewindPoints  the harvest carries 3 and two merges reap two, so 1 survives.
+#   supersedeRows the fixture carries ZERO (it is a pre-merge world - see
+#                 RECORDED_FIXTURES); each merge appends at least one row for the
+#                 superseded subtree, so >= 2 after both.
+#   tombstones    nobody dies: `CommitTombstones` only builds rows for in-scope kerbal
+#                 deaths and neither re-fly is flown to a crash.
+[expectations.rewind]
+rewindPoints  = { min = 1, max = 1 }
+supersedeRows = { min = 2 }
+tombstones    = { max = 0 }
+
+[runtime]
+# Budget arithmetic (M-A5 S8), deferred verbs at max(step,600)+60 and the rest at
+# max(step, 60+60):
+#   LoadGame x2 1320 + SetSetting x3 360 + StopRecording x2 240 + ListHandles x2 240
+#   + InvokeRewind x2 1320 + TimeJump x2 (deferred) 1320 + AnswerMergeDialog x2 360
+#   + RecordingState 120 + FlushAndQuit 120 = 5400. 5700 clears it by 300.
+budgetSeconds = 5700
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

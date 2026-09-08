@@ -1,0 +1,172 @@
+schema = 1
+id = "RF-8-ghost-during-refly"
+# =====================================================================================
+# THE RE-FLY CONTINUATION PROGRAM, LANE 8. WHAT THE PLAYER SEES WHILE RE-FLYING.
+#
+# A re-fly puts the player back in the cockpit at the separation, with the committed
+# SIBLING - the half that already flew - alongside them as a ghost. Two things must be true
+# for that to be watchable, and NO LANE ASSERTS EITHER during a live re-fly session:
+#
+#   1. THE SIBLING'S GHOST RENDERS. It is a committed recording, the re-fly is live, and
+#      the whole point of Rewind-to-Separation is to fly against what happened.
+#   2. THE LIVE VESSEL DOES NOT GHOST ITSELF. The recording being re-flown is superseded
+#      by the attempt in progress; spawning a ghost of the vessel the player is flying is
+#      the paradox `GhostSuppressionDuringReFly` exists to prevent - and that in-game cell
+#      is one of the TWELVE that have never executed (RF-6's header).
+#
+# NO REWIND LANE ARMS A RENDER TRACER TODAY. `ghostRenderTracing` is armed only by
+# GS-4/6/7/8, all of which are rewind-to-LAUNCH lanes with no session; `mapRenderTracing`
+# by no rewind lane at all; `EnterWatchMode` and `EnterMapView` by no rewind lane at all.
+# So the entire visual half of the headline feature is unobserved. This lane is the first
+# look, and it is deliberately a LOOK: `[expectations.ghostLifecycle]` is declared
+# REPORT-ONLY, because a lifecycle window authored before anything measured one is a
+# description of a guess.
+#
+# =====================================================================================
+# THE ORDER IS THE EXPERIMENT.
+#
+#   InvokeRewind          arms the session and puts the scene at the separation.
+#   TimeJump              flies the attempt far enough that the sibling ghost has a reason
+#                         to be positioned somewhere - a re-fly frozen at t=0 would show a
+#                         ghost coincident with the live vessel and prove nothing about
+#                         either half. CI-2 measured `TimeJump` accepted under a live
+#                         session; 500 is ~117 s past rp0's UT 382.73.
+#   EnterWatchMode        the camera follows the SIBLING's ghost. `index` and `tree` are
+#                         both optional and both deliberately omitted: the verb picks a
+#                         watchable ghost itself and REJECTs `no-watchable-ghost` with a
+#                         `candidates=` diagnostic when there is none - which is a far more
+#                         useful failure than a wrong index, because it prints what WAS
+#                         available.
+#   EnterMapView          the second surface, where the sibling's committed trajectory and
+#                         the live re-fly must both be legible.
+#
+# THE PARADOX HALF IS ASSERTED AS AN ABSENCE, and it has to be: a ghost that was correctly
+# NOT spawned emits nothing. What CAN be pinned is the suppression's own token when it
+# fires and the anomaly tokens if the render goes wrong, so the forbidden list carries the
+# two Tier-C tracer anomalies and the ERROR surface, and the required list carries the
+# positive half (a ghost was created, watch mode entered, the map drew something).
+#
+# =====================================================================================
+# STATUS: NEVER FLOWN. `tier = "operator"`. NOTHING ARMED - `ghostLifecycle` is declared
+# with no `gating` key precisely so the first run MEASURES a lifecycle rather than being
+# judged against one. GS-4's own header records that a lifecycle block is armed only after
+# a reading run whose facets match the declared windows; this lane has no facets yet.
+# =====================================================================================
+tier = "operator"
+description = "Reading run: what renders DURING a live re-fly. Rewind the open slot of the oldest bdock-recorded RewindPoint, fly the attempt with a TimeJump, then enter watch mode on the committed sibling's ghost and open the map - the first lane to arm either render tracer with a re-fly session live, with ghostLifecycle declared report-only."
+instanceProfile = "stock-minimal"
+tags = ["RF-8", "rewind", "refly", "ghost", "watch-mode", "map", "render-tracing",
+        "runtime-handles", "kerbin", "sandbox", "reading-run"]
+
+[fixture]
+# bdock-recorded: 19 committed recordings, so the flight scene has plenty for the ghost
+# engine to hold slots for while the session is open, and three RewindPoints whose ids the
+# run reads at runtime. S4.3 chose its host for the same property (a POPULATED scene) and
+# had to inject one; this harvest carries it.
+saveTemplate       = "fixtures/saves/bdock-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "mapRenderTracing",   value = "true" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  { cmd = "StopRecording",                                                        expect = "OK" },
+  { cmd = "ListHandles",    args = { kind = "rewindpoints" }, label = "handles",  expect = "OK" },
+  { cmd = "InvokeRewind",   args = { rp = "${handles.rp0}", slot = "1" },         expect = "OK", budget = 300 },
+  { cmd = "TimeJump",       args = { ut = "500" },                                expect = "OK", budget = 120 },
+  # Pacing before each visual step: `IsLineBlink` raises if two seam events land within
+  # eight visual frames, which would make the Tier-C reading noise rather than truth.
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "EnterWatchMode",                                                       expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "EnterMapView",                                                         expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "RecordingState",                                                       expect = "OK" },
+  { cmd = "ExitMapView",                                                          expect = "OK" },
+  # The session is concluded rather than abandoned, so the run leaves a save a later lane
+  # can read and the merge tail is exercised once more on this host.
+  { cmd = "AnswerMergeDialog", args = { choice = "merge" },                       expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                         expect = "OK" },
+]
+
+[dimensionsCovered]
+# BASICS ONLY. What the reading run earns: D6 `ghost-map-presence` and
+# `mesh-lifecycle-derender` off the ghost tokens, and D14 `scene-map`. NOT claimed in
+# advance, because whether a sibling ghost renders at all during a live session is the
+# thing being measured - the whole reason this lane exists is that nobody knows.
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-map"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 2, max = 30 }
+
+[expectations.logContracts]
+# THE POSITIVE HALF: a ghost exists, the camera took it, and the map drew something. Each
+# is a different subsystem, so a run that satisfied only one has told us where it broke.
+#
+# `enterwatchmode complete ... watching=true` is the verb's own OK line; the `recId=` field
+# names WHICH ghost the camera took, which is what the reading run records for the
+# lifecycle window a later arming would use.
+required = [
+  "listhandles kind=rewindpoints count=3 truncated=false",
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=.* rp=rp_[0-9a-f]{32}",
+  "Invocation complete",
+  "timejump complete reachedUT=50[0-9]",
+  "Created ghost vessel ",
+  "enterwatchmode complete .*watching=true",
+  "Polyline frame: scene=FLIGHT drawn=[1-9]",
+  "answermergedialog choice=merge result=committed",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # The verb's own refusal, which carries a `candidates=` diagnostic. Forbidden rather
+  # than merely unrequired because "no watchable ghost during a re-fly" is a FINDING, not
+  # a driver accident - it would mean the sibling the player is supposed to fly against
+  # was not renderable at all.
+  "no-watchable-ghost",
+  # The two Tier-C anomalies, armed here for the first time on a rewind lane. A ghost that
+  # renders BADLY during a re-fly is a different defect from one that does not render, and
+  # only these two can separate them.
+  "icon-jump",
+  "line-blink",
+  # The seed session's closure token, carried across the RF family as a standing guard.
+  "reason=sealedTipClosed",
+]
+
+# REPORT-ONLY BY OMISSION OF `gating`, and that is the point of the lane rather than a
+# concession. Every window below is a WIDE first-look bound whose only job is to make the
+# reading run's measured facets land somewhere legible; none is a claim. GS-4's header
+# states the arming discipline this follows: a lifecycle block is armed only after a
+# reading run whose facets match, and this lane has no facets yet.
+[expectations.ghostLifecycle]
+
+[runtime]
+# LoadGame 660 + SetSetting x4 480 + StopRecording 120 + ListHandles 120 +
+# InvokeRewind 660 + TimeJump 660 + RecordingState x15 1800 + EnterWatchMode 180 +
+# EnterMapView 180 + ExitMapView 120 + AnswerMergeDialog 180 + FlushAndQuit 120 = 5280.
+# 5600 clears it by 320.
+budgetSeconds = 5600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

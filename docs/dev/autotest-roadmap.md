@@ -467,7 +467,7 @@ and are kept so the remaining work is legible against the original list:
 | `Recording` | 1 | D5 `bg-on-rails` |
 | ~~`SwitchSegment`~~ | 6 | DRIVEN since #1358 by `H12` (live-proven 2026-07-27). D1 `switch-segment` gate layer |
 | `SwitchIntentPatch` | 3 | D1 switch-intent arming (partly TRACKSTATION) |
-| `Rewind` | 31 of 37 | D9 `seal-stash-fly`, `unfinished-flights-stash`, `rp-disk-reaper`, `revert-during-refly-dialog`, `tombstones`, `merge-journal`, `terminal-kind-classify`, `read-back-guard` |
+| `Rewind` | 31 of **38** (written 37 until 2026-09-09; the recovery-bundle wave added one SPACECENTER cell on 2026-08-20 and this row was not re-derived - see the re-fly continuation program) | D9 `seal-stash-fly`, `unfinished-flights-stash`, `rp-disk-reaper`, `revert-during-refly-dialog`, `tombstones`, `merge-journal`, `terminal-kind-classify`, `read-back-guard` |
 | `GhostLifecycle` | 15 of 17 | D6 `loop-period-modes`, `self-overlap`, `overlap-expiry-soft-caps` (the other 2 are `Scene = TRACKSTATION`, so this is one of the 7 partly-stranded categories) |
 | ~~`GhostAudio`~~ | 9 | DRIVEN since wave-2 by `H30` (live-proven 2026-08-04; needed the W2-SHIP-VOLUME-ZERO provision fix). D6 `ghost-audio` |
 | ~~`MapPresence`~~ | 5 | DRIVEN since wave-2 by `H28` (live-proven 2026-08-04). D6 `ghost-map-presence`; `commnet-relay` NOT closed - its only cell is vacuous under every committed asset (no generator writes AntennaSpecs; see W2-VACUOUS-CELLS) |
@@ -1271,8 +1271,12 @@ What shipped:
   R7-SESSION-BATCH-ISOLATION in `todo-and-known-bugs.md`.
 
 What R7 did NOT close, and why: `unfinished-flights-stash` (the only cell that
-would carry it skips - `ScenarioWriter` emits no `mergeState`, so nothing can
-satisfy `IsUnfinishedFlight`); `tombstones`, `merge-journal`,
+would carry it skipped AT THE TIME because `ScenarioWriter` emitted no
+`mergeState`. CORRECTED 2026-09-09: that is CLOSED, as R7-FIXTURE-GAPS gap 2
+- `RecordingBuilder.WithMergeState` exists and `ScenarioWriter.BuildRecording`
+stamps the key, which is how the `rewind-b9` booster is CommittedProvisional at
+all and how R7c unblocked `UnfinishedFlightsRenderingAndNoHide`. Kept as the
+record of what R7 itself could not close, not as a live blocker); `tombstones`, `merge-journal`,
 `terminal-kind-classify` (these need a FLOWN re-fly, which is CL-3's shape, not a
 seam-only spec). Two permanent fixture gaps blocking five of the 37 are filed as
 R7-FIXTURE-GAPS.
@@ -3540,6 +3544,108 @@ per flight), then item 2 (the long-declined D6 cell), then Tier C item 10 +
 its dependent loop lane (item 12) as one arc. Tier B rides operator judgment -
 item 6's design call costs nothing and should be taken early; Tier D is
 filler between calibration flights.
+
+---
+
+## The re-fly continuation program (RF-1..RF-8)
+
+Added 2026-09-09, after the first Rewind-to-Separation session an operator ever
+flew BY HAND end to end and collected: `logs/2026-09-08_2317_refly-a-manual`,
+save `re-fly-a`, DLL `2effc9d49`. It found two defects the whole automated suite
+had walked past, and the program exists so neither can come back unseen.
+
+**OBJECTIVE.** Cover the two halves of Rewind-to-Separation nothing measures
+today: whether a slot that SHOULD stay open does, and whether what a re-fly
+leaves behind is RENDERED. Those are different subsystems with one shared
+subject, and the seed session failed at both.
+
+**THE SEED SESSION.** A crewed "Kerbal X With Probe" launched; the probe
+decoupled at UT 189.32 into a two-slot RewindPoint (slot 0 the pod, slot 1 the
+probe). The scene exited at UT 1078.5 with the pod ALIVE and SUB-ORBITAL, so the
+scene-exit finalizer extrapolated a re-entry tail - two `isPredicted`
+`OrbitSegment`s running to an impact at UT 2348.5 - and stamped
+`terminal = Destroyed`. That is the DESIGNED outcome and it is the operator's
+friend: `TerminalKindClassifier` maps `Destroyed -> Crashed`, which qualifies
+regardless of focus, and the commit duly promoted slot 0 to
+`CommittedProvisional` (`IsUnfinishedFlight=true ... reason=crashed`).
+
+Then, 230 ms later and inside the SAME commit, `MergeDialog.MergeCommit` reached
+`RecordingStore.RunOptimizationPass()` and a phase-change split cut the promoted
+recording at UT 191.04 into a HEAD and a brand-new chain TIP.
+`RecordingOptimizer.TransferTerminalFieldsToSecondHalf` moves the TERMINAL to the
+tip and does not move the `MergeState`; open/closed is read from the TIP
+(`UnfinishedFlightClassifier.IsSlotEffectiveTipOpen`), and a fresh recording is
+born `Immutable`. So the slot read `reason=sealedTipClosed`, its Unfinished
+Flights row never drew, the first-commit guard then cemented it, and after the
+probe's re-fly merged, `ReapOrphanedRPs: reaped=1` deleted the RewindPoint
+quicksave for good. A recoverable open slot became permanently unrecoverable.
+
+Separately and for unrelated reasons, that pod's predicted tail was drawn by
+NOTHING on the map. Two causes: the polyline's forward-arc pass drops any conic
+whose periapsis is below the body radius (every predicted re-entry conic, by
+construction), and the compensating gap filler only fills BETWEEN two recorded
+points, which a tail has none after; and map-presence source resolution read the
+chain HEAD, which has zero segments after the split, so the ghost was re-sourced
+`orbitSource=state-vector-fallback` onto an instantaneous ellipse it never flew.
+Session-wide: `runArcs+=0` on all 96 render runs of the two tail-bearing
+recordings.
+
+**THE LANE REGISTER**, and what each MEASURES rather than what each drives:
+
+| Lane | Host | What it measures |
+|---|---|---|
+| RF-1 | `gs1-two-stage-pad`, flown | That a non-focus half still airborne at scene exit keeps its slot OPEN and its FLIGHT-AUTHORED RewindPoint alive - and that the slot can then actually be re-flown. GS-1's assertion inverted on the same craft |
+| RF-2 | `bdock-recorded` | The reaper's PER-POINT scope across two merges in one run: one point reaps, its two siblings stand |
+| RF-3 | `bdock-recorded` | That a DISCARD costs nothing - proven by re-invoking the same rewind, not by grepping state |
+| RF-4 | `bdock-recorded` | Rewind-to-LAUNCH over a tree a rewind-to-SEPARATION already forked: the supersede rollback preserves the sealed fork |
+| RF-5 | `bdock-recorded` | The opposite direction: `SealSlot` closes a slot on purpose and the point reaps by design. First consumer of the verb's `rp=` + `slot=` form |
+| RF-6 | `bdock-recorded` | The twelve session-gated in-game `Rewind` cells, executing for the first time anywhere, by ordering `RunTests` after `InvokeRewind` |
+| RF-7M / RF-7T | `refly-a-recorded` | The predicted continuation tail on the flight map and in the Tracking Station. REPRODUCTIONS: authored to red on main on the exact defect tokens |
+| RF-8 | `bdock-recorded` | What renders DURING a live re-fly - the sibling's ghost in watch mode and on the map, with both tracers armed for the first time on any rewind lane |
+
+**TWO LIMITATIONS, structural rather than unfinished.**
+
+1. **No seam path drives an F9 mid re-fly.** `TestCommandDispatcher` refuses
+   `LoadGame` with `recording-active` while a recorder is live, and the in-game
+   `F5MidReFlyResume` cell simulates the sweep step for the same reason.
+   `S4.4-refly-quicksave-mid-session` records it verbatim as a HARNESS
+   limitation, not a product finding, and pins the reject as a required token.
+   No RF lane reloads a live session; RF-6 reaches the same surface from inside
+   the game instead.
+2. **The seed's RewindPoint is gone.** The continuation defect reaped it before
+   the save was collected, so the harvested fixture `refly-a-recorded` carries
+   `REWIND_POINTS` empty and CANNOT re-fly. It serves the render lanes and any
+   load-time or classification lane; anything needing a live point either flies
+   one (RF-1) or reads one out of `bdock-recorded`. The fixture README states
+   this where a lane author will meet it.
+
+**THE TWO FIXES.** Neither is in this program's scope and both are open at the
+time of writing: PR #1658 (`refly-continuation`) carries the open bit across an
+optimizer split - `second.MergeState = original.MergeState` beside the terminal
+move, plus the more-open-wins mirror in `MergeInto` - and emits no new log token,
+so no RF lane moves when it lands. The `refly-render-tail` branch draws the
+predicted tail and routes chain map presence through
+`EffectiveState.EffectiveTipRecordingId`; its design section is
+`design-map-ts-render-architecture.md` -> "Predicted continuation tails on the
+map", and it adds exactly one new Verbose line, which RF-7M and RF-7T
+deliberately do NOT require - a token that cannot exist on the DLL the reading
+run flies would make the reproduction unreadable.
+
+**TWO CORRECTIONS TO THIS DOCUMENT, found while inventorying the surface.**
+
+- The `Rewind` category is **38** declarations, not 37. The count moved on
+  2026-08-20 when the recovery-bundle wave added one SPACECENTER-scoped cell;
+  R7a's and R7c's pinned tallies were re-derived to `total=38` at the time and
+  the coverage table above was not. `hlib.parse_ingame_test_declarations` over
+  `Source/Parsek` is the authority and `CommittedBatchTallySourceSyncTests`
+  keeps the pins in step with it.
+- **`RecordingBuilder.WithMergeState` EXISTS**, so the R7 paragraph saying
+  `unfinished-flights-stash` cannot be satisfied because "`ScenarioWriter` emits
+  no `mergeState`" is stale. It was added as R7-FIXTURE-GAPS gap 2:
+  `Generators/RecordingBuilder.cs:431` declares it and
+  `ScenarioWriter.BuildRecording` stamps the key. Three committed generators use
+  it today, which is how `rewind-b9`'s booster is `CommittedProvisional` at all;
+  R7c's own status row records the cell being unblocked by exactly that fix.
 
 ---
 

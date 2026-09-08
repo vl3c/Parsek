@@ -1,0 +1,183 @@
+schema = 1
+id = "RF-7T-predicted-tail-ts-render"
+# =====================================================================================
+# THE RE-FLY CONTINUATION PROGRAM, LANE 7T. THE SAME PREDICTED TAIL, IN THE TRACKING
+# STATION. RF-7M's sibling, and the half the seed session has ZERO evidence for.
+#
+# READ RF-7M's HEADER FIRST. It carries the whole derivation - the two independent causes
+# (A) the forward-arc pass dropping every subsurface-periapsis conic, and (B) map presence
+# resolving `hasOrbitSegments` from the chain HEAD, which has none - and the fixture's
+# provenance. Nothing here restates it.
+#
+# WHY A SEPARATE LANE RATHER THAN A TAIL ON RF-7M. Two reasons, and the second is the one
+# that matters:
+#   1. `grep -c "scene=TRACKSTATION"` over the seed session's KSP.log returns ZERO. The
+#      operator never opened the Tracking Station, so every token below is DERIVED from
+#      source and NOT measured, where RF-7M's are quoted verbatim from a log. Mixing a
+#      measured reproduction with a derived one in a single lane would make a red
+#      ambiguous: "the tail is still not drawn" and "this spec guessed a TS token wrong"
+#      would be the same result.
+#   2. The TS reads through a DIFFERENT scene host. `ParsekTrackingStation.cs` contains no
+#      `isPredicted` reference at all and delegates ghost creation to the same
+#      `GhostMapPresence` lifecycle, so defect (B) SHOULD reproduce identically there -
+#      but "should" is exactly the word a lane exists to remove. The fix's design section
+#      claims one seam and no per-scene copy ("the flight-map path and the Tracking Station
+#      path share `ResolveMapPresenceGhostSource`"); this lane is what turns that claim
+#      into a measurement, in both directions.
+#
+# =====================================================================================
+# THE ROUTE INTO THE TRACKING STATION, and its one hard precondition.
+#
+# `LoadGame` takes an optional `scene = "trackstation"`, and its dispatch guard REJECTs
+# `recording-active`. The fixture's boot promotes nothing this lane keeps (the opening
+# `StopRecording` / `DiscardTree` pair is V27M's), but the guard reads the LIVE recorder at
+# the moment of the call, so the second `StopRecording` before the TS load is not
+# redundant - it is the same precondition RH-1 spent a whole flight discovering, applied
+# at the second boot.
+#
+# THE CLOCK SURVIVES THE RELOAD, which is what makes the TS reading a reading at all. The
+# builder re-points the fixture to UT 1100.0 (inside the first predicted segment) and the
+# `SaveGame` before the TS load writes whatever UT the flight leg reached, so the TS opens
+# with the tail still ahead. Without that the TS would show a recording whose whole span
+# is in the past and the forward surfaces would have nothing to draw - RF-7M's header
+# carries the argument.
+#
+# =====================================================================================
+# STATUS: NEVER FLOWN. `tier = "operator"`.
+#
+# EXPECTED READING-RUN VERDICT ON MAIN: PARSEK-FAIL(expectations), reproducing defect (B)
+# in the Tracking Station on `orbitSource=state-vector-fallback` and `hasOrbitSegments=
+# False`. What this lane will ALSO settle, and what no existing evidence answers: whether
+# the TS draws anything at all for a chain whose tail lives on the tip, i.e. whether the
+# `Ghost TS entry` / polyline tokens below are the right names. A red on THOSE is a
+# SPEC-SIDE finding to re-pin from the run's own log, not a product defect - and telling
+# the two apart is why the TS half is its own lane.
+#
+# PR #1659 (`refly-render-tail`) carries the fix; its design section is
+# `docs/dev/design-map-ts-render-architecture.md` -> "Predicted continuation tails on the
+# map". Its one new log line is deliberately not required here, for RF-7M's reason.
+# =====================================================================================
+tier = "operator"
+description = "RF-7M's Tracking Station half: the same predicted continuation tail read from the TS scene, where the seed session has zero evidence. Gates on the shared GhostMapPresence source resolution (defect B) and on the TS drawing something for a chain whose segments live on its tip."
+instanceProfile = "stock-minimal"
+tags = ["RF-7T", "render", "tracking-station", "predicted-tail",
+        "ballistic-extrapolation", "chain", "kerbin", "sandbox", "reading-run",
+        "reproduction"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/refly-a-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "persistent" },   expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                       expect = "OK" },
+  { cmd = "DiscardTree",                                                         expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "ghostRenderTracing", value = "true" }, expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "mapRenderTracing",   value = "true" }, expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
+  # Persist the armed settings and the re-pointed clock into the save the TS load reads.
+  { cmd = "SaveGame",     args = { name = "persistent" },                        expect = "OK" },
+  # LoadGame's guard reads the LIVE recorder at the moment of the call, not the setting.
+  { cmd = "StopRecording",                                                       expect = "OK" },
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "persistent", scene = "trackstation" }, expect = "OK", budget = 300 },
+  # TS dwell. Twenty polls at the seam's cadence is ~20 s of scene time, which is what the
+  # map-presence resolver needs to run its per-recording pass and what the tracers need to
+  # have something to compare frames against.
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  { cmd = "FlushAndQuit",                                                        expect = "OK" },
+]
+
+[dimensionsCovered]
+# Host properties only, on RF-7M's argument. `scene-ts` is a property of the boot and holds
+# the moment the TS load lands, which is the one thing here that is not conditional on the
+# subject being drawn.
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ts"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 10, max = 10 }
+
+[expectations.logContracts]
+# THE SCENE MARKER IS THE ANTI-VACUITY. `loadgame complete ... scene=TRACKSTATION` is what
+# separates a run that measured the TS from a run that never left flight and reported
+# green on the two shared tokens by accident. It is REQUIRED first for that reason.
+#
+# THE TWO PRESENCE TOKENS are the TS side of defect (B) and are DERIVED, not measured: the
+# seed never opened this scene. `map-presence-` is matched as a PREFIX class rather than a
+# full line because the seed's own variants differ by branch
+# (`map-presence-initial-create` / `map-presence-pending-create`) and this lane must not
+# guess which one the TS host takes - what it asserts is that the resolver RAN for the
+# pod's chain HEAD, which is the recording defect (B) is about.
+required = [
+  "loadgame complete .*scene=TRACKSTATION",
+  "map-presence-\\S+: rec=32ca55469ac1400da66fcebb3c791d65",
+]
+# Defect (B)'s two tokens, forbidden exactly as in RF-7M. If the TS host really does share
+# `ResolveMapPresenceGhostSource` then a fix that clears them in the flight map clears them
+# here too, and a fix that clears only one has a per-scene copy the design says it must not
+# have - which is the mirror-direction check this lane exists to make.
+#
+# The tracer anomalies are forbidden for RF-7M's reason. `icon-jump` is measured in the
+# orbit's own reference-body frame, so a TS ghost re-sourced onto an instantaneous ellipse
+# is exactly the shape it is built to catch.
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "orbitSource=state-vector-fallback",
+  "hasOrbitSegments=False",
+  "icon-jump",
+  "line-blink",
+]
+
+# REPORT-ONLY and pinned to the fixture's committed bytes, exactly as RF-7M: this lane
+# reads, it does not write.
+[expectations.rewind]
+rewindPoints  = { max = 0 }
+supersedeRows = { min = 1, max = 1 }
+tombstones    = { max = 0 }
+
+[expectations.recordings.structure]
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 10, max = 10 }
+terminalStates = { SubOrbital = { min = 1, max = 1 }, Destroyed = { min = 8, max = 8 }, Orbiting = { min = 1, max = 1 } }
+branchPoints   = { JointBreak = { min = 5, max = 5 } }
+
+# `[expectations.renderComposition]` is NOT declared, for RF-7M's two reasons: the manifest
+# carries no geometry a claim about a drawn tail could rest on, and declaring the block
+# would oblige an `ExportRenderManifest` this lane's un-armed recorder must refuse.
+
+[runtime]
+# LoadGame x2 1320 + StopRecording x2 240 + DiscardTree 120 + SetSetting x4 480 +
+# SaveGame 120 + RecordingState x20 2400 + FlushAndQuit 120 = 4800. 5100 clears it by 300.
+budgetSeconds = 5100
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

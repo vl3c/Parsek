@@ -8444,6 +8444,41 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
             "2026-09-08 (reading _1100, armed _1105 PASS, negative control _1106); "
             "stays operator because it rewinds and jumps a harvested docking fixture, "
             "the discipline's own reason, not a tag",
+        # THE RE-FLY CONTINUATION PROGRAM (RF-1..RF-8, authored 2026-09-09). All nine
+        # are `operator` by the READING-RUN discipline, none owes a human call, and
+        # the three lanes below whose reading is EXPECTED TO RED say so in their own
+        # STATUS blocks rather than through a tag: a `pending-operator` on a lane
+        # waiting for a PRODUCT FIX would be the tag meaning something it does not.
+        # What each owes is a flight, and after the two fix PRs land, a re-flight.
+        "RF-1-continuation-stays-open.toml":
+            "operator by the reading-run discipline; AUTHORED 2026-09-09, NEVER "
+            "FLOWN. Owes a flight, not a human call",
+        "RF-2-two-reflies-in-sequence.toml":
+            "operator by the reading-run discipline; AUTHORED 2026-09-09, NEVER "
+            "FLOWN. Owes a flight, not a human call",
+        "RF-3-refly-discard-then-commit.toml":
+            "operator by the reading-run discipline; AUTHORED 2026-09-09, NEVER "
+            "FLOWN. Owes a flight, not a human call",
+        "RF-4-rewind-to-launch-after-merge.toml":
+            "operator by the reading-run discipline; AUTHORED 2026-09-09, NEVER "
+            "FLOWN. Owes a flight, not a human call",
+        "RF-5-seal-closes-the-slot.toml":
+            "operator by the reading-run discipline; AUTHORED 2026-09-09, NEVER "
+            "FLOWN. First consumer of SealSlot's rp= + slot= form. Owes a flight",
+        "RF-6-rewind-category-live-session.toml":
+            "operator by the reading-run discipline; AUTHORED 2026-09-09, NEVER "
+            "FLOWN, INTERIM tally pin. Owes a flight, not a human call",
+        "RF-7M-predicted-tail-map-render.toml":
+            "operator by the reading-run discipline; AUTHORED 2026-09-09, NEVER "
+            "FLOWN. A REPRODUCTION lane, expected to RED on main until PR #1659 "
+            "lands - that is the lane working, not a debt owed to a human",
+        "RF-7T-predicted-tail-ts-render.toml":
+            "operator by the reading-run discipline; AUTHORED 2026-09-09, NEVER "
+            "FLOWN. RF-7M's Tracking Station half, same expectation",
+        "RF-8-ghost-during-refly.toml":
+            "operator by the reading-run discipline; AUTHORED 2026-09-09, NEVER "
+            "FLOWN. Declares ghostLifecycle report-only with NO windows, which is "
+            "what the reading run is for. Owes a flight",
         "RH-1-live-rp-handle-rewind.toml":
             "operator by the reading-run discipline (V1/V2/V24W precedent); AUTHORED "
             "2026-09-08, NEVER FLOWN, reading pending. Owes a flight, not a human call",
@@ -11324,6 +11359,16 @@ class GhostLifecycleVerifierWiringTests(unittest.TestCase):
         # the reading runs through GHOSTLIFE_ARMED_SPECS.
         "GS-7-kerbalx-crash-watch-hold.toml",
         "GS-8-kerbalx-zone-round-trip.toml",
+        # THE FIRST DECLARER WITH A LIVE RE-FLY SESSION (RF-8, 2026-09-09), and
+        # declared with NO WINDOWS AT ALL. Every other member arrived carrying a
+        # spawned floor derived from a sibling lane's census; this one has no
+        # sibling - no rewind lane has ever armed a render tracer, entered watch
+        # mode or opened the map with a session live, so there is no census to
+        # derive from and authoring one would be a description of a guess. The
+        # bare block exists so the run RECORDS a lifecycle; windows and arming
+        # follow the reading run through GHOSTLIFE_ARMED_SPECS, on GS-4's
+        # discipline.
+        "RF-8-ghost-during-refly.toml",
     }
 
     def test_ghost_lifecycle_declarers_are_the_recorded_roster(self):
