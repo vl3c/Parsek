@@ -225,7 +225,8 @@ remains is, in order:
    proved - each needs one cell-level gating token, the H57 lesson in reverse.
    CLAIM HALF DONE 2026-09-08: H52 gained a post-assertion line in the Bug538 cell
    and claims D6 `reentry-fx` off it (the FX-driver half; the rendered-replay half
-   is Tier A item 3); H11's seven bodies were read and earn NO D3 cell (stubbed
+   is Tier A item 3), measured live the same day on `2026-09-08_1108_H52-reentry-fx`
+   (PASS attempt 1, `emissionRate=2102/s ... playing=true`); H11's seven bodies were read and earn NO D3 cell (stubbed
    resolver, test-seam anchors - see the corrections section); LT-1 pins the two
    `Watch` post-assertion lines and claims nothing, the retarget / explosion-hold
    cell being live watch behaviour those cells never exercise.
@@ -3243,7 +3244,8 @@ first spawn frame (hold-then-retry, never a single eager ask).
 3. **Reentry FX** (D6 `reentry-fx` UNCOVERED): a B4-shaped reentry profile
    rewound + watched, FX arm/disarm lines pinned during the replay.
    HALF-CLOSED 2026-09-08 by the claim pass: `H52-reentry-fx` now claims the cell
-   off the Bug538 cell's post-assertion line, which proves the FX DRIVER
+   off the Bug538 cell's post-assertion line (measured on run
+   `2026-09-08_1108_H52-reentry-fx`, PASS attempt 1), which proves the FX DRIVER
    (`UpdateReentryFx` on a live `TryBuildReentryFx` particle system, live Kerbin
    atmosphere, synthetic ghost root) and NOT a rendered replay. The replay half -
    a committed reentry watched re-entering with the lazy-build line pinned during

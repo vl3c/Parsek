@@ -52,9 +52,16 @@ tier = "nightly"
 # D6 `reentry-fx` claim below is therefore the FX-logic half, stated as such; the
 # rendered-replay half is the ghost-replay program's Tier A item 3 (a reentry profile
 # rewound and watched), which stays open on that program's register.
-# DERIVED, not yet measured: the line was added 2026-09-08 and this lane's next
-# flight is what earns the claim in `lastGreen` terms; the two archived H52 logs
-# (`2026-08-28_2226`, `2026-09-06_1900`) predate the line and cannot carry it.
+# MEASURED the same day: run `2026-09-08_1108_H52-reentry-fx`, PASS attempt 1, 50 s
+# wall, expectations mismatches=0 with the new token live, the line reading
+#     emissionRate=2102/s expectedRate=2102/s legacyCeiling=2000/s
+#     lastIntensity=0.453 fireThreshold=0.020 playing=true
+# - the driver settled 102/s above the legacy ceiling inside the cell's 1.5 s
+# realtime window on this host, which is why the digits class starts at 2000 and
+# not higher. Mutation control on that log: removing the line leaves the regex with
+# zero matches, so a skipped or failed cell (which never prints it) reds the lane.
+# The two older archived H52 logs (`2026-08-28_2226`, `2026-09-06_1900`) predate
+# the line and cannot carry it.
 description = "Run the in-game ReentryFx category unattended: the lazy ghost-root FX build, the doubled fire-density emission range, and the speed gate matching the reentry-potential floor, all against live atmospheric parameters."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "phase4-wave1", "reentry-fx", "H52"]
