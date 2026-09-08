@@ -10,6 +10,21 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Automated testing: one in-game cell now watches a predicted continuation tail reach
+  a draw decision against a live body.** The three existing in-game checks named for this
+  render assert the segment SELECTOR's input window, and all three would have passed on
+  the session where the tail was drawn by nothing - the loss happened downstream. The new
+  `MapRender` cell synthesizes the tail against whatever body the scene is at, sized from
+  that body's own radius and atmosphere depth so the coast clips at atmosphere entry and
+  the descent terminates on the surface, then reads the two surfaces that actually decide
+  what is on screen: it requires the built trajectory legs plus the selected forward arcs
+  to cover the whole tail, and requires no drawn tail point to lie inside the body within
+  the scene's own float-grid tolerance. It stands down with a named reason when the scene
+  offers no usable body. `S1.7-maprender-parity`'s batch tally moves to `total=23` with
+  the pass / skip split on the never-flown digits-class convention until the next green
+  flight re-measures it; the flown 2026-07-26 line is kept verbatim beside it so the pin
+  does not overwrite the measurement.
+
 - **A flight the recording optimizer split in two no longer shows a map orbit it never
   flew.** When the optimizer cuts one flight at an environment boundary, the earlier half
   keeps the trajectory samples and the later half keeps every orbit. Map presence was

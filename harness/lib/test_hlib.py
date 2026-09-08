@@ -15622,9 +15622,22 @@ S17_MEASURED_REAIM_LINE = (
     "[Parsek][INFO][TestRunner] ReaimedLoop_SynthOracle: pid=3494681962"
     " recordedLAN=0 reaimedLAN=70 | synthDev=0m synthTol=2726m (ZERO) |"
     " faithfulDev=1319093m faithfulTol=2701m (FLAGGED)")
-S17_MEASURED_BATCH_LINE = (
+# The 2026-07-26_1021 flight's own tally, kept verbatim as the archived measurement.
+S17_FLOWN_BATCH_LINE = (
     "[Parsek][INFO][TestRunner] BATCH_COMPLETE v1 total=22 passed=21 failed=0"
     " skipped=1 category=MapRender scene=FLIGHT")
+# 2026-09-08 INTERIM. PredictedTailMapRenderInGameTest was added to the MapRender
+# category, so the source now declares total=23 and the flown line above can no
+# longer satisfy the spec's pin. `total=` stays LITERAL (it is derivable from the
+# [InGameTest] attributes); passed= and skipped= became a digits class because the
+# new cell's pass/skip split is decided at run time by its own InGameAssert.Skip
+# guards and this branch may not fly. The line below is therefore the SHAPE the pin
+# now accepts, NOT a measurement - S17_FLOWN_BATCH_LINE is the measurement. Replace
+# both with the next green S1.7 flight's line and restore the literal pin.
+S17_INTERIM_BATCH_LINE = (
+    "[Parsek][INFO][TestRunner] BATCH_COMPLETE v1 total=23 passed=22 failed=0"
+    " skipped=1 category=MapRender scene=FLIGHT")
+S17_MEASURED_BATCH_LINE = S17_INTERIM_BATCH_LINE
 # The runner's accounting for the single skip.
 S17_MEASURED_BATCH_SKIP_LINE = (
     "[Parsek][INFO][TestRunner] Batch execution skipped 1 single-run-only test(s)")
@@ -15684,8 +15697,13 @@ class MapRenderParityScenarioTests(unittest.TestCase):
                  "category=MapRender scene=FLIGHT", "an all-skip batch"),
                 ("BATCH_COMPLETE v1 total=22 passed=20 failed=0 skipped=2 "
                  "category=MapRender scene=FLIGHT", "a test that flipped to Skip"),
-                ("BATCH_COMPLETE v1 total=23 passed=22 failed=0 skipped=1 "
+                ("BATCH_COMPLETE v1 total=22 passed=21 failed=0 skipped=1 "
+                 "category=MapRender scene=FLIGHT",
+                 "the pre-2026-09-08 tally, i.e. a MapRender test removed"),
+                ("BATCH_COMPLETE v1 total=24 passed=23 failed=0 skipped=1 "
                  "category=MapRender scene=FLIGHT", "a newly added MapRender test"),
+                ("BATCH_COMPLETE v1 total=23 passed=22 failed=1 skipped=0 "
+                 "category=MapRender scene=FLIGHT", "a failing test"),
                 ("BATCH_COMPLETE v1 total=22 passed=21 failed=0 skipped=1 "
                  "category=MapRender scene=TRACKSTATION", "a FLIGHT/TS host change")):
             self.assertIsNone(re.search(pat, bad), "%s must NOT match" % (why,))
