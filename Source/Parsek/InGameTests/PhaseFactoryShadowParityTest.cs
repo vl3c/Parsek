@@ -49,7 +49,11 @@ namespace Parsek.InGameTests
                     CelestialBody b = FlightGlobals.GetBodyByName(bodyName);
                     if (b == null)
                         return false;
-                    info = new GhostTrajectoryPolylineRenderer.BodySurfaceInfo { radius = b.Radius };
+                    info = new GhostTrajectoryPolylineRenderer.BodySurfaceInfo
+                    {
+                        radius = b.Radius,
+                        gravParameter = b.gravParameter
+                    };
                     return true;
                 };
 

@@ -85,7 +85,7 @@ namespace Parsek.MapRender
             {
                 OrbitSegment seg = orbitSegs[i];
                 if (seg.endUT <= seg.startUT) continue;
-                if (GhostTrajectoryPolylineRenderer.IsOrbitSegmentBelowSurface(seg, surface)) continue; // → traced (FIX #27)
+                if (GhostTrajectoryPolylineRenderer.IsSegmentExcludedFromOrbitOwnership(seg, surface)) continue; // -> traced (FIX #27; a predicted orbit-owned tail conic stays StockConic)
                 double s = Math.Max(seg.startUT, windowStartUT);
                 double e = Math.Min(seg.endUT, windowEndUT);
                 if (e <= s) continue; // not in window

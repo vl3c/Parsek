@@ -37,13 +37,25 @@ tier = "daily"
 # The single skip is fully accounted for and is NOT a parity test standing down:
 # MapRenderHighWarpCanaryInGameTest carries AllowBatchExecution = false, and the
 # runner logs it by name as `Batch execution skipped 1 single-run-only test(s)`.
-# There are ZERO scene-eligibility skips - all 22 MapRender tests are Scene =
-# FLIGHT, so unlike S1.6 (9 of its 11 skips were TRACKSTATION-scoped) this category
-# loses nothing to the FLIGHT host, and `scene=FLIGHT` is pinned so a host change
-# is still visible. RE-PINNING: adding, removing or re-scoping a MapRender test
-# moves these numbers and reds this scenario - that is the point. Re-derive from
-# the BATCH_COMPLETE line of a green flight and update the required pattern AND
-# this block together.
+# There are ZERO scene-eligibility skips - every MapRender test is Scene = FLIGHT,
+# so unlike S1.6 (9 of its 11 skips were TRACKSTATION-scoped) this category loses
+# nothing to the FLIGHT host, and `scene=FLIGHT` is pinned so a host change is
+# still visible. RE-PINNING: adding, removing or re-scoping a MapRender test moves
+# these numbers and reds this scenario - that is the point. Re-derive from the
+# BATCH_COMPLETE line of a green flight and update the required pattern AND this
+# block together.
+#
+# 2026-09-08 INTERIM PIN. PredictedTailMapRenderInGameTest was added for the
+# predicted-continuation-tail render contract (see
+# docs/dev/design-map-ts-render-architecture.md, "Predicted continuation tails on
+# the map"), so the source now declares total=23 = 0 scene-skipped + 1
+# batch-skipped + 22 executable. `total=` is pinned EXACTLY, as the one token
+# derivable from the [InGameTest] attributes; passed= and skipped= are the
+# never-flown convention (a digits class with failed=0 still pinned literally)
+# because the new cell's pass/skip split is decided at run time by its own
+# InGameAssert.Skip guards - it stands down when the scene has no usable body -
+# and this branch is not permitted to fly. RE-MEASURE both halves off the
+# BATCH_COMPLETE line of the next green S1.7 flight and restore the literal pin.
 #
 # The measurement lines, transcribed from the archived 1015 log (identical in shape
 # on 1021, whose expectations verifier matched all three patterns):
@@ -251,7 +263,7 @@ count = { min = 274, max = 274 }
 # All are ParsekLog.Info, so they survive with verbose off.
 required = [
   "BATCH_COMPLETE v1 .* failed=0\\b",
-  "BATCH_COMPLETE v1 total=22 passed=21 failed=0 skipped=1 category=MapRender scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=23 passed=[1-9][0-9]* failed=0 skipped=[1-9][0-9]* category=MapRender scene=FLIGHT",
   "\\[Parsek\\]\\[INFO\\]\\[TestRunner\\] MultiBodyConcurrent Kerbin: pid=\\d+ body=Kerbin sampled=True skip=\\(none\\) hasMeas=True maxDev=[0-9.]+m tol=[0-9.]+m over=False",
   "\\[Parsek\\]\\[INFO\\]\\[TestRunner\\] MultiBodyConcurrent Mun: pid=\\d+ body=Mun sampled=True skip=\\(none\\) hasMeas=True maxDev=[0-9.]+m tol=[0-9.]+m over=False",
   "\\[Parsek\\]\\[INFO\\]\\[TestRunner\\] ReaimedLoop_SynthOracle: pid=\\d+ recordedLAN=\\d+ reaimedLAN=\\d+ \\| synthDev=\\d+m synthTol=\\d+m \\(ZERO\\) \\| faithfulDev=\\d+m faithfulTol=\\d+m \\(FLAGGED\\)",

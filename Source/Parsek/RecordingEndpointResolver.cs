@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Parsek
 {
@@ -233,7 +234,8 @@ namespace Parsek
             out double argumentOfPeriapsis,
             out double meanAnomalyAtEpoch,
             out double epoch,
-            out string bodyName)
+            out string bodyName,
+            IReadOnlyList<OrbitSegment> chainTipSegments = null)
         {
             return TryGetEndpointAlignedOrbitSeed(
                 traj,
@@ -245,7 +247,8 @@ namespace Parsek
                 out meanAnomalyAtEpoch,
                 out epoch,
                 out bodyName,
-                out _);
+                out _,
+                chainTipSegments);
         }
 
         internal static bool TryGetEndpointAlignedOrbitSeed(
@@ -258,7 +261,8 @@ namespace Parsek
             out double meanAnomalyAtEpoch,
             out double epoch,
             out string bodyName,
-            out EndpointOrbitSeedDiagnostics diagnostics)
+            out EndpointOrbitSeedDiagnostics diagnostics,
+            IReadOnlyList<OrbitSegment> chainTipSegments = null)
         {
             inclination = 0.0;
             eccentricity = 0.0;
@@ -312,12 +316,21 @@ namespace Parsek
                 segEpoch = 0.0;
                 segBodyName = null;
 
-                if (traj.OrbitSegments == null)
+                // PREDICTED-TAIL defect B: on a chain HEAD every conic (including the
+                // scene-exit predicted tail) lives on the TIP, so the recording's OWN list is
+                // empty and the endpoint seed fell through to the state vector. Fall back to the
+                // caller-supplied EFFECTIVE-TIP list; null / empty keeps the pre-2026-09-08
+                // behaviour exactly, and a recording with its own segments never consults it.
+                IReadOnlyList<OrbitSegment> walkSegments =
+                    traj.OrbitSegments != null && traj.OrbitSegments.Count > 0
+                        ? (IReadOnlyList<OrbitSegment>)traj.OrbitSegments
+                        : chainTipSegments;
+                if (walkSegments == null)
                     return false;
 
-                for (int i = traj.OrbitSegments.Count - 1; i >= 0; i--)
+                for (int i = walkSegments.Count - 1; i >= 0; i--)
                 {
-                    OrbitSegment seg = traj.OrbitSegments[i];
+                    OrbitSegment seg = walkSegments[i];
                     if (!string.Equals(seg.bodyName, endpointBody, StringComparison.Ordinal)
                         || seg.semiMajorAxis <= 0.0)
                     {

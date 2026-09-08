@@ -4919,6 +4919,124 @@ namespace Parsek
                 terminalMapPresenceRegion);
         }
 
+        /// <summary>
+        /// Seam for <see cref="ResolveMapPresenceChainSegments"/>: given a trajectory that carries
+        /// no orbit segments of its own, resolve its chain's EFFECTIVE TIP and that tip's segment
+        /// list. The live implementation walks
+        /// <see cref="EffectiveState.EffectiveTipRecordingId(string, IReadOnlyList{RecordingSupersedeRelation})"/>
+        /// (HEAD -&gt; chain -&gt; TIP -&gt; supersede -&gt; fork); xUnit injects a synthetic one.
+        /// </summary>
+        internal delegate bool MapPresenceChainTipResolver(
+            IPlaybackTrajectory traj, out string tipRecordingId, out List<OrbitSegment> tipSegments);
+
+        /// <summary>
+        /// PURE (PREDICTED-TAIL defect B, 2026-09-08): which orbit-segment list answers map
+        /// presence for this recording?
+        ///
+        /// An ordinary optimizer environment split cuts one flight into HEAD + TIP and the
+        /// scene-exit predicted tail lands on the TIP. Map-presence source resolution reads the
+        /// recording it was handed, so a HEAD answered <c>hasOrbitSegments=False</c> at every tick,
+        /// both segment-seeded ghost sources failed, and the ghost was re-sourced
+        /// <c>orbitSource=state-vector-fallback</c> - an instantaneous ellipse the vessel never
+        /// flew. This resolves the SEGMENT LOOKUP through the chain's effective tip.
+        ///
+        /// Strictly additive: a recording with segments of its own NEVER consults the tip, so every
+        /// non-chain recording is byte-identical. Callers must keep every OTHER branch
+        /// (<c>considerStateVector</c>, the skip-reason split) on the recording's OWN
+        /// <c>HasOrbitSegments</c> - widening those would retire a HEAD's own state-vector ghost
+        /// inside its own recorded span.
+        /// </summary>
+        internal static List<OrbitSegment> ResolveMapPresenceChainSegments(
+            IPlaybackTrajectory traj,
+            MapPresenceChainTipResolver resolveChainTip,
+            out string tipRecordingId,
+            out int tipSegmentCount)
+        {
+            tipRecordingId = null;
+            tipSegmentCount = 0;
+            if (traj == null) return null;
+
+            List<OrbitSegment> own = traj.OrbitSegments;
+            if (own != null && own.Count > 0) return own;
+            if (resolveChainTip == null) return own;
+
+            if (!resolveChainTip(traj, out string tipId, out List<OrbitSegment> tipSegments))
+                return own;
+            if (tipSegments == null || tipSegments.Count == 0) return own;
+
+            tipRecordingId = tipId;
+            tipSegmentCount = tipSegments.Count;
+            return tipSegments;
+        }
+
+        // Memo for the LIVE chain-tip walk: the walker scans the committed list and the tree
+        // topology, and the resolver runs per recording per frame.
+        //
+        // COMPOSITE KEY, mirroring the ERS / retired-set caches in EffectiveState. The memoized
+        // value is EffectiveState.EffectiveTipRecordingId, which depends on BOTH the committed
+        // list (RecordingStore.StateVersion) and the supersede table
+        // (ParsekScenario.SupersedeStateVersion). SupersedeCommit.AppendRelations mutates
+        // RecordingSupersedes and bumps ONLY the supersede version, so a StateVersion-only key
+        // would serve a pre-supersede tip for the rest of the session.
+        private static int chainTipSegmentsCacheVersion = -1;
+        private static int chainTipSegmentsCacheSupersedeVersion = -1;
+        private static readonly Dictionary<string, string> chainTipSegmentsCache =
+            new Dictionary<string, string>(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Live <see cref="MapPresenceChainTipResolver"/>. Only a CHAIN MEMBER consults the walker -
+        /// a standalone recording with no segments has no tip to hop to and must not pay the scan.
+        /// [ERS-exempt] rationale: this file is already allowlisted; the tip walk itself routes
+        /// through <see cref="EffectiveState"/>, which is the supersede authority.
+        /// </summary>
+        private static bool ResolveLiveChainTipSegments(
+            IPlaybackTrajectory traj, out string tipRecordingId, out List<OrbitSegment> tipSegments)
+        {
+            tipRecordingId = null;
+            tipSegments = null;
+
+            var rec = traj as Recording;
+            if (rec == null || string.IsNullOrEmpty(rec.ChainId)
+                || string.IsNullOrEmpty(rec.RecordingId))
+                return false;
+
+            int liveSupersedeVersion = ParsekScenario.Instance?.SupersedeStateVersion ?? 0;
+            if (chainTipSegmentsCacheVersion != RecordingStore.StateVersion
+                || chainTipSegmentsCacheSupersedeVersion != liveSupersedeVersion)
+            {
+                chainTipSegmentsCache.Clear();
+                chainTipSegmentsCacheVersion = RecordingStore.StateVersion;
+                chainTipSegmentsCacheSupersedeVersion = liveSupersedeVersion;
+            }
+
+            if (!chainTipSegmentsCache.TryGetValue(rec.RecordingId, out string tipId))
+            {
+                IReadOnlyList<RecordingSupersedeRelation> supersedes =
+                    ParsekScenario.Instance?.RecordingSupersedes;
+                tipId = EffectiveState.EffectiveTipRecordingId(rec.RecordingId, supersedes);
+                chainTipSegmentsCache[rec.RecordingId] = tipId ?? string.Empty;
+            }
+
+            if (string.IsNullOrEmpty(tipId)
+                || string.Equals(tipId, rec.RecordingId, StringComparison.Ordinal))
+                return false;
+
+            IReadOnlyList<Recording> committed = RecordingStore.CommittedRecordings;
+            if (committed == null) return false;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                Recording candidate = committed[i];
+                if (candidate == null) continue;
+                if (!string.Equals(candidate.RecordingId, tipId, StringComparison.Ordinal)) continue;
+                if (candidate.OrbitSegments == null || candidate.OrbitSegments.Count == 0)
+                    return false;
+                tipRecordingId = tipId;
+                tipSegments = candidate.OrbitSegments;
+                return true;
+            }
+            return false;
+        }
+
         internal static TrackingStationGhostSource ResolveMapPresenceGhostSource(
             IPlaybackTrajectory traj,
             bool isSuppressed,
@@ -5122,10 +5240,36 @@ namespace Parsek
 
             string checkpointFallbackDetail = null;
             string checkpointFallbackRejectReason = null;
-            if (traj.HasOrbitSegments)
+
+            // PREDICTED-TAIL defect B: the SEGMENT LOOKUP (only) resolves through the chain's
+            // effective tip, so a HEAD whose optimizer split moved every conic onto the TIP can
+            // still reach the segment-seeded ghost sources instead of falling to
+            // state-vector-fallback. Everything below keeps reading traj.HasOrbitSegments.
+            List<OrbitSegment> mapSegments = ResolveMapPresenceChainSegments(
+                traj,
+                ResolveLiveChainTipSegments,
+                out string chainTipRecordingId,
+                out int chainTipSegmentCount);
+            bool hasMapSegments = mapSegments != null && mapSegments.Count > 0;
+            if (!string.IsNullOrEmpty(chainTipRecordingId))
+            {
+                ParsekLog.VerboseOnChange(
+                    Tag,
+                    string.Format(ic, "map-presence-chain-tip-{0}", recId),
+                    chainTipRecordingId,
+                    string.Format(ic,
+                        "map-presence chain-tip segments: head={0} tip={1} tipSegments={2} "
+                        + "headSegments={3}",
+                        recId,
+                        chainTipRecordingId,
+                        chainTipSegmentCount,
+                        traj.OrbitSegments?.Count ?? 0));
+            }
+
+            if (hasMapSegments)
             {
                 OrbitSegment? currentSegment =
-                    TrajectoryMath.FindOrbitSegmentForMapDisplay(traj.OrbitSegments, currentUT);
+                    TrajectoryMath.FindOrbitSegmentForMapDisplay(mapSegments, currentUT);
                 if (currentSegment.HasValue)
                 {
                     segment = currentSegment.Value;
@@ -10489,6 +10633,14 @@ namespace Parsek
             out string bodyName,
             out GhostProtoOrbitSeedDiagnostics diagnostics)
         {
+            // PREDICTED-TAIL defect B: the endpoint seed walks the recording's OWN segments, and a
+            // chain HEAD has none - the scene-exit predicted tail lives on the TIP. Hand it the
+            // effective tip's list so `endpoint-segment` can seed the ghost instead of the resolver
+            // falling through to `state-vector-fallback`. Null for every non-chain recording.
+            List<OrbitSegment> seedChainTipSegments = ResolveMapPresenceChainSegments(
+                traj, ResolveLiveChainTipSegments, out string seedTipId, out _);
+            if (string.IsNullOrEmpty(seedTipId)) seedChainTipSegments = null;
+
             if (RecordingEndpointResolver.TryGetEndpointAlignedOrbitSeed(
                 traj,
                 out inclination,
@@ -10499,7 +10651,8 @@ namespace Parsek
                 out meanAnomalyAtEpoch,
                 out epoch,
                 out bodyName,
-                out RecordingEndpointResolver.EndpointOrbitSeedDiagnostics endpointDiagnostics))
+                out RecordingEndpointResolver.EndpointOrbitSeedDiagnostics endpointDiagnostics,
+                seedChainTipSegments))
             {
                 diagnostics = new GhostProtoOrbitSeedDiagnostics
                 {

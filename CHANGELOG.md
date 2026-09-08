@@ -10,6 +10,67 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **`collect-logs.py` no longer copies a render manifest that belongs to a different
+  session.** The manifest lives at the KSP root like the test-results file, but nothing
+  clears it between runs, so a bundle collected with the recorder inert carried a
+  fourteen-day-old manifest from another save and read as that session's evidence. It is
+  now copied only when its own `saveName` header names the save being collected, and the
+  skip prints the manifest's declared save and its modification time.
+
+- **Automated testing: one in-game cell now watches a predicted continuation tail reach
+  a draw decision against a live body.** The three existing in-game checks named for this
+  render assert the segment SELECTOR's input window, and all three would have passed on
+  the session where the tail was drawn by nothing - the loss happened downstream. The new
+  `MapRender` cell synthesizes the tail against whatever body the scene is at, sized from
+  that body's own radius and atmosphere depth so the coast clips at atmosphere entry and
+  the descent terminates on the surface, then reads the two surfaces that actually decide
+  what is on screen: it requires the built trajectory legs plus the selected forward arcs
+  to cover the whole tail, and requires no drawn tail point to lie inside the body within
+  the scene's own float-grid tolerance. It stands down with a named reason when the scene
+  offers no usable body. `S1.7-maprender-parity`'s batch tally moves to `total=23` with
+  the pass / skip split on the never-flown digits-class convention until the next green
+  flight re-measures it; the flown 2026-07-26 line is kept verbatim beside it so the pin
+  does not overwrite the measurement.
+
+- **A flight the recording optimizer split in two no longer shows a map orbit it never
+  flew.** When the optimizer cuts one flight at an environment boundary, the earlier half
+  keeps the trajectory samples and the later half keeps every orbit. Map presence was
+  resolved from the earlier half alone, found no orbit there, and fell back to seeding the
+  ghost from a single instantaneous position - drawing an ellipse the craft never flew, and
+  in the measured session eventually drawing no icon or orbit line at all. The segment
+  lookup now follows the chain to its effective tip, so the ghost is seeded from the orbit
+  the flight actually had, including its predicted continuation tail. Only the segment
+  lookup moved: a recording playing back inside its own recorded span keeps the position
+  source it had, and the single-position fallback stays the last resort. The lookup is
+  memoized, and the memo is now dropped when a Re-Fly merge replaces part of the chain as
+  well as when the recording list changes, so the ghost cannot keep following a half of the
+  flight that a merge has just superseded.
+- **The map marker no longer risks placing a ghost inside a planet during a docking or
+  rendezvous section.** The flight-map fallback marker read a recording's stored
+  coordinates without checking the section's reference frame; in a docking-relative section
+  those three numbers are metre offsets from the partner craft, not latitude / longitude /
+  altitude. It now reads the section's body-fixed shadow, and draws no marker at all when
+  there is none, rather than a marker in the wrong place. No case of it firing was observed.
+
+- **A flight that left the scene mid-air now draws its predicted continuation on the
+  map instead of ending in empty space.** When a recording is finalized at scene exit the
+  extrapolator appends the rest of the flight as predicted orbit segments - a coast to
+  atmosphere entry, then the ballistic fall to impact - carrying no trajectory samples of
+  their own. Every one of those conics has a periapsis below the ground by construction,
+  which is exactly the shape the map deliberately refuses to draw as an orbit line (a
+  recorded descent is drawn from its recorded samples instead), and a tail has no recorded
+  samples underneath it, so nothing drew it: a measured re-fly session lost 21 minutes of
+  coast and the whole descent, the line simply stopping at 540 km. The clipped COAST is now
+  drawn as an orbit arc when its own span stays above the surface, and the ballistic DESCENT
+  is drawn as a trajectory line sampled from the conic itself, so the two tile the tail with
+  no gap and no double line. A non-predicted below-surface conic is untouched, and a body
+  whose gravitational parameter is unavailable falls back to drawing the whole tail as a
+  line rather than nothing. The orbit-shape solve behind that decision now reports failure
+  rather than an answer when it does not converge - for a narrow band of positions near the
+  low point of a very stretched orbit it could not converge and used to hand back a number
+  that was simply wrong - and a solve that cannot answer takes the same fall back to drawing
+  a line. The polyline build summary now reports `predictedTailPts=` / `predictedTailSegs=`.
+
 - **Automated testing: two ghost-replay lanes now gate what a watcher actually sees
   when a replayed flight crashes and when it flies out of visual range.** The
   rewind-and-watch mission gained an opt-in crash profile (`impactProfile`): after

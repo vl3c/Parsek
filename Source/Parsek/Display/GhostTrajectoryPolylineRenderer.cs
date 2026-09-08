@@ -72,6 +72,16 @@ namespace Parsek.Display
         {
             /// <summary>Body radius (metres).</summary>
             public double radius;
+
+            /// <summary>
+            /// Body gravitational parameter (GM, m^3/s^2). Zero / NaN = unknown, which is
+            /// what an older test provider that only fills <see cref="radius"/> leaves here.
+            /// Only the PREDICTED-tail re-admission
+            /// (<see cref="IsPredictedTailOrbitOwnedConic"/>) reads it, and it fails closed
+            /// on an unknown value, so a provider that does not fill it keeps the pre-2026-09-08
+            /// behaviour exactly.
+            /// </summary>
+            public double gravParameter;
         }
 
         /// <summary>
@@ -2336,7 +2346,7 @@ namespace Parsek.Display
                 if (s.endUT <= s.startUT) continue;
                 if (s.startUT < ut - 1.0) continue;
                 if (s.startUT >= windowStopUT) continue;
-                if (IsOrbitSegmentBelowSurface(s, surface)) continue;
+                if (IsSegmentExcludedFromOrbitOwnership(s, surface)) continue;
                 return true;
             }
             return false;
@@ -2949,7 +2959,7 @@ namespace Parsek.Display
                     if (seg.endUT <= seg.startUT) continue;
                     if (!string.Equals(seg.bodyName, p.bodyName, StringComparison.Ordinal)) continue;
                     if (seg.startUT >= q.ut || seg.endUT <= p.ut) continue; // no overlap with the gap
-                    if (!IsOrbitSegmentBelowSurface(seg, surface)) continue;
+                    if (!IsSegmentExcludedFromOrbitOwnership(seg, surface)) continue;
                     segIdx = s;
                     break;
                 }
@@ -2981,6 +2991,84 @@ namespace Parsek.Display
             return inserted;
         }
 
+        /// <summary>Minimum span (seconds) of a predicted TAIL conic worth sampling into a leg.</summary>
+        internal const double PredictedTailFillMinSeconds = 1.0;
+
+        /// <summary>Max synthetic points sampled per predicted TAIL conic (endpoints included).</summary>
+        internal const int PredictedTailFillMaxPointsPerSegment = 48;
+
+        /// <summary>
+        /// PURE predicted-TAIL fill (2026-09-08). <see cref="FillFramelessGapsFromConics"/> is
+        /// strictly INTERIOR - it walks consecutive recorded pairs, so a conic that starts after
+        /// the LAST recorded sample has no bracketing point and is never sampled. A scene-exit
+        /// continuation tail is exactly that shape (predicted conics, zero points), so before this
+        /// pass it was neither arc (dropped by the subsurface-periapsis predicate) nor leg (no gap
+        /// to fill) and drew nothing at all.
+        ///
+        /// Samples every PREDICTED segment that (a) ends after the last recorded sample and
+        /// (b) is NOT orbit-owned (<see cref="IsSegmentExcludedFromOrbitOwnership"/> true, i.e. the
+        /// ballistic descent that reaches the ground; an orbit-owned coast is drawn as a forward
+        /// arc and must not also be chorded here). Endpoints are INCLUSIVE so the run has at least
+        /// two points and starts exactly at the conic's own start. RENDER-time only - the
+        /// recording's lists are never touched; points are appended to the build stream copy.
+        /// Returns the number of points inserted (the caller re-sorts when &gt; 0). No-op without a
+        /// sampler or a surface provider, so the xUnit default and any unknown body are unchanged.
+        /// </summary>
+        internal static int FillPredictedTailFromConics(
+            List<TrajectoryPoint> pts, Recording rec, BodySurfaceProvider surface,
+            ConicGapSampler sampler, out int tailSegments)
+        {
+            tailSegments = 0;
+            if (pts == null || rec == null || rec.OrbitSegments == null
+                || sampler == null || surface == null)
+                return 0;
+
+            // The last recorded sample. An empty recorded stream is legal (a tail-only recording),
+            // in which case every predicted segment is a tail.
+            double lastRecordedUT = double.NegativeInfinity;
+            for (int i = 0; i < pts.Count; i++)
+                if (pts[i].ut > lastRecordedUT) lastRecordedUT = pts[i].ut;
+
+            int inserted = 0;
+            for (int s = 0; s < rec.OrbitSegments.Count; s++)
+            {
+                var seg = rec.OrbitSegments[s];
+                if (!seg.isPredicted) continue;
+                if (seg.endUT <= seg.startUT) continue;
+                if (string.IsNullOrEmpty(seg.bodyName)) continue;
+                if (seg.endUT <= lastRecordedUT) continue;
+                // An orbit-owned predicted conic (the clipped coast) is drawn as an arc.
+                if (!IsSegmentExcludedFromOrbitOwnership(seg, surface)) continue;
+
+                double from = System.Math.Max(seg.startUT, lastRecordedUT);
+                double to = seg.endUT;
+                if (to - from < PredictedTailFillMinSeconds) continue;
+
+                int interior = (int)System.Math.Min(
+                    PredictedTailFillMaxPointsPerSegment - 2,
+                    System.Math.Floor((to - from) / 7.0));
+                if (interior < 0) interior = 0;
+                int total = interior + 2; // inclusive endpoints
+                int before = inserted;
+                for (int k = 0; k < total; k++)
+                {
+                    double ut = total == 1 ? from : from + (to - from) * k / (total - 1);
+                    if (!sampler(seg, ut, out double lat, out double lon, out double alt)) break;
+                    pts.Add(new TrajectoryPoint
+                    {
+                        ut = ut,
+                        latitude = lat,
+                        longitude = lon,
+                        altitude = alt,
+                        bodyName = seg.bodyName,
+                    });
+                    inserted++;
+                }
+                if (inserted > before) tailSegments++;
+            }
+            return inserted;
+        }
+
         internal static List<LegPolyline> BuildLegsForRecording(
             Recording rec, BodySurfaceProvider surface = null, ConicGapSampler gapSampler = null)
         {
@@ -3000,7 +3088,7 @@ namespace Parsek.Display
                 {
                     var seg = rec.OrbitSegments[i];
                     if (seg.endUT <= seg.startUT) continue;
-                    if (IsOrbitSegmentBelowSurface(seg, surface))
+                    if (IsSegmentExcludedFromOrbitOwnership(seg, surface))
                         excludedBelowSurfaceSegments++;
                 }
             }
@@ -3058,7 +3146,14 @@ namespace Parsek.Display
             // recorded conic's own shape so the landing descent renders curved instead of a long
             // linear chord. Build-time only; the recording is never touched.
             int gapFilled = FillFramelessGapsFromConics(pts, rec, surface, gapSampler);
-            if (gapFilled > 0)
+
+            // PREDICTED-TAIL fill: the scene-exit continuation conics that reach the ground carry
+            // no recorded samples and sit AFTER the last one, so the interior filler above cannot
+            // see them. Sampling them here is what makes the tail a leg the Driver's retained
+            // forward pass can draw. Batch-counted, reported in the one build summary below.
+            int tailFilled = FillPredictedTailFromConics(
+                pts, rec, surface, gapSampler, out int tailSegments);
+            if (gapFilled > 0 || tailFilled > 0)
                 pts.Sort((a, b) => a.ut.CompareTo(b.ut));
 
             var run = new List<TrajectoryPoint>();
@@ -3094,10 +3189,11 @@ namespace Parsek.Display
             ParsekLog.VerboseRateLimited(Tag,
                 "polyline-build:" + rec.RecordingId,
                 () => string.Format(System.Globalization.CultureInfo.InvariantCulture,
-                    "Polyline build: rec={0} legs={1} (sectionPts={2} flatPts={3} skippedRelNoBodyFixed={4} excludedBelowSurfaceSegs={5} gapFilled={6})",
+                    "Polyline build: rec={0} legs={1} (sectionPts={2} flatPts={3} skippedRelNoBodyFixed={4} excludedBelowSurfaceSegs={5} gapFilled={6} predictedTailPts={7} predictedTailSegs={8})",
                     rec.RecordingId,
                     legs.Count, sectionPointCount, flatPointCount,
-                    skippedRelativeWithoutBodyFixed, excludedBelowSurfaceSegments, gapFilled));
+                    skippedRelativeWithoutBodyFixed, excludedBelowSurfaceSegments, gapFilled,
+                    tailFilled, tailSegments));
 
             // FIX #27 one-shot: when the cover excluded degenerate
             // below-surface segments, the descent samples they used to drop
@@ -3277,6 +3373,52 @@ namespace Parsek.Display
         }
 
         /// <summary>
+        /// Pure (PREDICTED-TAIL, 2026-09-08): is this a PREDICTED continuation conic that the
+        /// orbit line should own DESPITE a subsurface periapsis? True only when the segment is
+        /// <c>isPredicted</c>, <see cref="IsOrbitSegmentBelowSurface"/> would drop it, and its
+        /// own <c>[startUT, endUT]</c> span never reaches the body surface
+        /// (<see cref="TrajectoryMath.IsConicSpanAboveSurface"/>) - i.e. the scene-exit
+        /// finalizer's COAST, clipped at atmosphere entry, whose conic only dives underground
+        /// far past its own end.
+        ///
+        /// Why the <c>isPredicted</c> gate is the right axis and not a hidden flag dependency:
+        /// FIX #27 excludes a below-surface conic so the RECORDED descent samples underneath it
+        /// draw as a leg. A predicted tail carries ZERO points, so there is nothing to fall back
+        /// on and the exclusion draws nothing at all. The distinguishing property is "no recorded
+        /// coverage exists for this span", and on the producer side that is exactly the predicted
+        /// suffix. A NON-predicted subsurface conic is therefore untouched, which keeps the Duna
+        /// descent hole fixed.
+        ///
+        /// Fails CLOSED (returns false, so the segment stays leg-owned) when the surface provider
+        /// is missing, the body is unknown, or its gravitational parameter is unset - a provider
+        /// that fills only <c>radius</c> keeps the pre-fix behaviour byte-for-byte.
+        /// </summary>
+        internal static bool IsPredictedTailOrbitOwnedConic(
+            OrbitSegment segment, BodySurfaceProvider surface)
+        {
+            if (!segment.isPredicted) return false;
+            if (surface == null) return false;
+            if (string.IsNullOrEmpty(segment.bodyName)) return false;
+            if (!surface(segment.bodyName, out BodySurfaceInfo info)) return false;
+            return TrajectoryMath.IsConicSpanAboveSurface(
+                segment, info.gravParameter, info.radius);
+        }
+
+        /// <summary>
+        /// Pure: the ONE predicate every orbit-ownership consumer asks - is this segment kept OUT
+        /// of orbit-owned rendering (cover interval, forward arc, seam-bridge target)? That is
+        /// <see cref="IsOrbitSegmentBelowSurface"/> minus the predicted-tail re-admission of
+        /// <see cref="IsPredictedTailOrbitOwnedConic"/>. Callers must use this rather than
+        /// calling <c>IsOrbitSegmentBelowSurface</c> directly, so the cover, the arc selector and
+        /// the bridge search cannot drift apart (a segment that is arc-drawn but absent from the
+        /// cover would be double-drawn as a chord).
+        /// </summary>
+        internal static bool IsSegmentExcludedFromOrbitOwnership(
+            OrbitSegment segment, BodySurfaceProvider surface)
+            => IsOrbitSegmentBelowSurface(segment, surface)
+                && !IsPredictedTailOrbitOwnedConic(segment, surface);
+
+        /// <summary>
         /// Computes the union of every OrbitSegment's [startUT, endUT]
         /// interval. Points whose UT falls inside the union are dropped
         /// from the polyline at filter time (the orbit-arc covers them).
@@ -3298,7 +3440,7 @@ namespace Parsek.Display
             {
                 var s = segments[i];
                 if (s.endUT <= s.startUT) continue;
-                if (IsOrbitSegmentBelowSurface(s, surface)) continue;
+                if (IsSegmentExcludedFromOrbitOwnership(s, surface)) continue;
                 intervals.Add((s.startUT, s.endUT));
             }
             return intervals;
@@ -3381,7 +3523,7 @@ namespace Parsek.Display
                 // The CURRENT arc (icon's element) is drawn by stock; never forward-draw it.
                 if (headUT >= seg.startUT && headUT < seg.endUT) continue;
                 // Below-surface descent conic -> drawn as a forward leg, not an arc.
-                if (IsOrbitSegmentBelowSurface(seg, surface)) continue;
+                if (IsSegmentExcludedFromOrbitOwnership(seg, surface)) continue;
                 // Overlap the half-open forward window.
                 if (seg.startUT < forwardStopUT && seg.endUT > forwardWindowStartUT)
                     indices.Add(i);
@@ -5736,7 +5878,11 @@ namespace Parsek.Display
                     return false;
                 info = new BodySurfaceInfo
                 {
-                    radius = body.Radius
+                    radius = body.Radius,
+                    // PREDICTED-TAIL: the span-above-surface test needs GM to propagate the
+                    // conic's mean anomaly to its own endpoints. Unset (a provider that fills
+                    // only the radius) fails that test closed, keeping the pre-fix behaviour.
+                    gravParameter = body.gravParameter
                 };
                 return true;
             }
@@ -6206,7 +6352,7 @@ namespace Parsek.Display
                             {
                                 var s = segs[si];
                                 if (s.endUT <= s.startUT) continue;
-                                if (IsOrbitSegmentBelowSurface(s, surface)) continue;
+                                if (IsSegmentExcludedFromOrbitOwnership(s, surface)) continue;
                                 // Full-loop closed orbits are RUN BOUNDARIES (playtest-8 star fix):
                                 // they are never drawn by the run, so bridging into one both violates
                                 // the stop-before-the-repeating-ellipse rule and (pre-fix) sampled a

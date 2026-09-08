@@ -1025,3 +1025,117 @@ or `TracedPathTreatment`.
   only the current leg. That is the v1 behaviour, unchanged by this pass; making it per-leg needs
   a span on the ownership publish. Filed as ROUTE-LINE-OWNERSHIP-ARM-IS-STILL-WHOLE-MEMBER in
   `docs/dev/todo-and-known-bugs.md`.
+
+### Predicted continuation tails on the map (2026-09-08)
+
+A recording that leaves the scene mid-flight gets a PREDICTED continuation tail
+appended by `IncompleteBallisticSceneExitFinalizer`: one or more
+`OrbitSegment`s with `isPredicted = true`, carrying ZERO trajectory points, that
+run from the last recorded sample to the extrapolated terminal (typically a coast
+clipped at atmosphere entry, then a ballistic descent to impact). Session
+`2026-09-08_2317_refly-a-manual` measured that tail drawn by NOTHING on the map.
+This section states which surface owns it.
+
+**Who owns which piece.**
+
+- The RECORDED span is unchanged: the polyline owns every recorded sample not
+  claimed by an above-surface `OrbitSegment`, and the proto orbit line owns the
+  above-surface conics. FIX #27 is untouched - a NON-predicted conic whose
+  periapsis is below the body radius stays out of the orbital cover so its
+  recorded descent samples draw as a leg.
+- A PREDICTED tail conic whose own `[startUT, endUT]` span never reaches the body
+  radius (the clipped coast) is ORBIT-OWNED: it enters the orbital cover, it is a
+  forward-arc candidate, and it is a seam-bridge target, even though its periapsis
+  is subsurface. It has no recorded samples to fall back on, so the FIX #27 leg
+  compensation cannot apply to it; excluding it draws nothing at all.
+- A PREDICTED tail conic whose span DOES reach the body radius (the ballistic
+  descent) is POLYLINE-owned and is drawn as a traced LEG, sampled from the conic
+  itself through the same `ConicGapSampler` seam the interior gap fill uses. Its
+  points are synthesized at render time; the recording's own lists are never
+  touched.
+- The gate is geometric, not flag-only: `isPredicted` selects WHICH population may
+  be re-admitted to orbit ownership, and the span-above-surface test decides the
+  piece. A predicted tail on a body whose gravitational parameter the provider
+  cannot resolve fails CLOSED to the leg path, so it still draws.
+
+**The recorded/predicted boundary.** The finalizer's anchor reseed moves a tail
+segment's `startUT` BACKWARDS onto the last recorded sample. Measured on the session's
+sidecar: the coast's original start was UT 1078.453 and the reseed moved it 0.400 s
+back to UT 1078.0528, which is EXACTLY the last recorded sample's UT - not a fraction
+of a second before it. There is therefore no overlap span, only a shared endpoint.
+
+`IsInsideAnyOrbitalInterval` is inclusive at both ends, so once the coast is
+orbit-owned that shared last sample is claimed by the arc and dropped from the
+recorded leg. The recorded leg consequently ends at the PREVIOUS sample - one sample
+interval (~3 s on this flight) before the arc starts. That hole is real, and it is
+below `GapFillMinSeconds = 15`, so nothing bridges it; at the 540 km altitude where it
+falls it is invisible, which is why it is stated here rather than fixed. The predicted
+descent leg starts at the coast's end UT, so no chord is drawn across the coast. When
+the coast is NOT orbit-owned (unknown gravitational parameter), the tail fill covers
+coast and descent as one continuous leg instead; that is a degradation in shape, never
+a hole. Both boundary shapes - the shared-endpoint one measured here, and a coast whose
+`startUT` falls strictly BEFORE the last recorded sample - are pinned as fixture rows in
+`GhostTrajectoryPolylineBuildTests`.
+
+`TrajectoryMath.TryGetOrbitWindowForMapDisplay` deliberately MERGES a recorded
+conic with an element-equivalent predicted continuation (its expansion runs through
+`ExpandEquivalentOrbitWindow`, which does not compare `isPredicted`), because a
+reseeded tail IS the same conic continuing and one arc is the correct picture.
+The two neighbouring helpers keep the guard for different reasons and must not be
+"made consistent" with it: `CoalesceSameOrbitFragments` REWRITES the recording, and
+`TryExpandStoredSingleSegmentWindow` must identify one AUTHORED fragment from a
+stored window. Pinned by `TrajectoryMathMapDisplayWindowTests`.
+
+**A CHAIN resolves map presence from its EFFECTIVE TIP, never from the HEAD alone.**
+An ordinary optimizer environment split cuts one flight into HEAD + TIP, and the
+appended tail lands on the TIP. Map-presence source resolution reads the
+recording it is handed, so a HEAD with zero segments answered `hasOrbitSegments=False`
+at every tick, both segment-seeded ghost sources failed, and the pod was re-sourced
+`orbitSource=state-vector-fallback` - an instantaneous ellipse it never flew.
+The segment lookup inside `GhostMapPresence.ResolveMapPresenceGhostSource` and the
+endpoint seed in `RecordingEndpointResolver.TryGetEndpointAlignedOrbitSeed`
+therefore resolve their segment list through `EffectiveState.EffectiveTipRecordingId`
+(`ResolveMapPresenceChainSegments`), which walks HEAD -> chain -> TIP -> supersede
+-> fork. Three constraints on that routing, each load-bearing:
+
+- It is SEGMENT-LOOKUP ONLY. `considerStateVector` and every skip-reason branch
+  keep reading the recording's OWN `HasOrbitSegments`, so a HEAD inside its own
+  recorded span still resolves through the state-vector path exactly as before.
+  Widening those too would silently retire the HEAD's own map ghost.
+- It is ADDITIVE. A recording that already has segments never consults the tip, so
+  every non-chain recording is byte-identical.
+- `state-vector-fallback` stays the fallback of last resort, unchanged. It is now
+  reached only when neither the recording nor its effective tip offers a segment
+  covering the UT.
+
+The routing is mirrored on both consumers of the same resolution: the flight-map
+path and the Tracking Station path share `ResolveMapPresenceGhostSource`, and the
+KSC path shares `RecordingEndpointResolver`, so there is one seam and no
+per-scene copy. One Verbose line per (recording, tip) change names head, tip and
+the segment count found.
+
+**Residual, stated rather than papered over.** Routing the segment lookup through
+the effective tip does not by itself restore map presence at a UT that NEITHER
+member's segments cover - in the measured session the HEAD's ghost sat at UT 191.1,
+between the HEAD's end and the TIP's first conic at UT 216.7, and still resolves to
+the state-vector path there. Whether a chain should hand map presence to its TIP's
+own ghost at that point is a chain-visibility question, filed as
+PREDICTED-TAIL-CHAIN-HEAD-HOLDS-MAP-PRESENCE in `docs/dev/todo-and-known-bugs.md`.
+
+**Defect sites this section closes** (line numbers as measured on main c3d844ebe):
+
+- `Display/GhostTrajectoryPolylineRenderer.cs:3269-3277`
+  (`IsOrbitSegmentBelowSurface`) consulted by `ComputeOrbitalCoverIntervals`
+  (`:3301`), `SelectForwardArcSegmentIndices` (`:3384`) and
+  `AnyAboveSurfaceConicStartsAtOrAfter` (`:2339`); the compensating
+  `FillFramelessGapsFromConics` (`:2933-2937`) is interior-only, so a tail after
+  the last recorded point is neither arc nor leg.
+- `GhostMapPresence.ResolveMapPresenceGhostSource` and
+  `RecordingEndpointResolver.TryGetLastMatchingSegment` (`:318`) both read the
+  handed recording's own `OrbitSegments`, which on a chain HEAD is empty.
+
+**Ownership is unchanged by all of this.** `drewNonOrbitalLegRecordings` is still
+published only on an ACTUAL draw, the forward pass is still purely additive and
+publishes nothing, and the icon floor / `ghostsWithSuppressedIcon` /
+`IsIconSuppressed` fallback is untouched. No new `MapRenderTrace` stamp site is
+added.

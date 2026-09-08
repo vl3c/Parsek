@@ -15,6 +15,120 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~PREDICTED-BALLISTIC-TAIL-IS-DRAWN-BY-NOTHING-ON-THE-MAP: a scene-exit continuation tail is excluded from the orbit line by its subsurface periapsis and has no recorded samples to fall back on, so neither surface draws it~~ FIXED 2026-09-08
+
+Forensics: manual Re-Fly session `2026-09-08_2317_refly-a-manual` (dev instance, main
+2effc9d49), `KSP.log` 28889 lines. `IncompleteBallisticSceneExitFinalizer` appended two
+`isPredicted = True` `ORBIT_SEGMENT`s to the pod covering UT 1078.05 -> 2186.58 (coast,
+clipped at atmosphere entry) and 2186.58 -> 2348.55 (ballistic descent to impact), both
+with zero points. Both were drawn by nothing.
+
+Defect (A), fixed here.
+`Display/GhostTrajectoryPolylineRenderer.cs:3269-3277` (`IsOrbitSegmentBelowSurface`),
+consulted by `ComputeOrbitalCoverIntervals` (`:3301`), `SelectForwardArcSegmentIndices`
+(`:3384`) and `AnyAboveSurfaceConicStartsAtOrAfter` (`:2339`), drops every conic whose
+periapsis is below the body radius - which every re-entry conic is by construction. The
+design intends such a segment to be drawn as a traced LEG from the recorded descent
+samples (`:3341-3343`), with `FillFramelessGapsFromConics` (`:2933`) re-sampling the
+conic into the frameless gap; but that filler is INTERIOR ONLY (`:2934-2937` walks
+consecutive recorded pairs), so a tail after the last recorded point has no bracketing
+sample and is never reached. Session census: `runArcs+=0` on all 96 render runs of the two
+tail-bearing recordings; `excluded 3 below-surface orbit segments from cover
+rec=8da7c2c2` (KSP.log:20566) with `Polyline legs: ... 0:[191.0-1078.1 ...]` and nothing
+after it. NOT Re-Fly specific - the probe origin `d096297d` loses its tail identically.
+
+Fix: `IsPredictedTailOrbitOwnedConic` re-admits a PREDICTED subsurface-periapsis conic to
+orbit ownership when its OWN span never reaches the surface
+(`TrajectoryMath.IsConicSpanAboveSurface`: a periapsis-inside-span test plus a two-endpoint
+Kepler radius test), and `FillPredictedTailFromConics` samples the remaining predicted tail
+conics - the ones that DO reach the ground - into the leg stream through the existing
+`ConicGapSampler` seam. One combined predicate (`IsSegmentExcludedFromOrbitOwnership`) now
+feeds the cover, the arc selector, the bridge search and the Director's chain assembler so
+they cannot drift apart. Contract:
+`docs/dev/design-map-ts-render-architecture.md`, "Predicted continuation tails on the map".
+
+Review follow-up: `TrajectoryMath.TrySolveEllipticEccentricAnomaly` had no convergence
+check, and Newton seeded at `M + e sin M` is not globally convergent - at `e = 0.9948` (the
+surface-rotation ellipse of every landed or prelaunch vessel) 68 of 200000 mean anomalies
+in `|M| < 0.084` ended with residuals up to 1e9 and effectively random radii, which
+`TryGetConicRadiusAtUT` reported as SUCCESS and `IsConicSpanAboveSurface` then believed.
+It now gates on the residual (`EllipticKeplerResidualTolerance = 1e-9`) and reports
+failure, so an unanswerable span reads NOT orbit-owned and the piece falls to the traced-leg
+path, which always draws. Not routed through `BallisticExtrapolator.TwoBodyOrbit`'s
+eccentricity dispatch: that solver returns its best estimate rather than a failure at its
+iteration cap, so a residual gate would still be needed, and borrowing it would tie this
+headless-pure helper to a stock-parity contract it does not share.
+
+## ~~PREDICTED-TAIL-CHAIN-HEAD-RESOLVES-MAP-PRESENCE-WITH-NO-SEGMENTS: an optimizer split moves every conic onto the TIP, so the HEAD answers hasOrbitSegments=False and the ghost is re-sourced to an ellipse it never flew~~ FIXED 2026-09-08
+
+Defect (B) of the same session. At auto-commit the optimizer env-split the pod at the
+atmosphere-exit boundary (KSP.log:17549, `splitUT=191.04 prev=Atmospheric
+next=ExoBallistic`): HEAD `32ca5546` kept 272 points and 0 segments, TIP `8da7c2c2` took
+129 points and all 3 segments including both predicted ones. Map-presence source
+resolution ran only on the HEAD and never once names the TIP, so every line read
+`hasOrbitSegments=False` (KSP.log:18839, 18852, 27343), both segment-seeded ghost sources
+failed, and the pod was created with `orbitSource=state-vector-fallback` (KSP.log:20132) -
+the instantaneous UT-191 ellipse (sma 654813, ecc 0.435) it never flew, since it burned
+again after 191 and reached 540 km. In the final scene it got no map presence at all
+(`reason=no-state-vector-point ... suppressed=4386`).
+
+Fix: `GhostMapPresence.ResolveMapPresenceChainSegments` resolves the SEGMENT LOOKUP (only)
+through `EffectiveState.EffectiveTipRecordingId`, and the endpoint seed
+(`RecordingEndpointResolver.TryGetLastMatchingSegment`, `:318`) takes the effective tip's
+list when the recording's own is empty. `considerStateVector` and every skip-reason branch
+still read the recording's OWN `HasOrbitSegments`, so a HEAD inside its own recorded span
+keeps its state-vector ghost, and `state-vector-fallback` stays the fallback of last
+resort. Mirror direction checked: the TS marker VETO
+(`ParsekTrackingStation.ClassifyAtmosphericMarkerSkip`, `:892`) asks the opposite question -
+"does a conic cover this UT, so a live proto icon already shows the ghost" - and widening
+it to the chain would REMOVE a marker, so it deliberately stays on the recording's own
+segments.
+
+Review follow-up: `GhostMapPresence.chainTipSegmentsCache` memoizes that walk, and was
+keyed on `RecordingStore.StateVersion` alone. `EffectiveTipRecordingId` also depends on
+`RecordingSupersedes`, which `SupersedeCommit.AppendRelations` mutates with a
+`SupersedeStateVersion` bump and NO store bump, so a Re-Fly merge left the memo serving the
+pre-supersede tip for the rest of the session. The key is now the composite
+`(StateVersion, SupersedeStateVersion)` pair, mirroring the ERS / retired-set caches in
+`EffectiveState`.
+
+## PREDICTED-TAIL-CHAIN-HEAD-HOLDS-MAP-PRESENCE: routing the segment lookup to the effective tip does not restore presence at a UT NEITHER member's conics cover
+
+Residual of the fix above, stated rather than papered over. In the measured session the
+HEAD's ghost sat at UT 191.1 - between the HEAD's own end (191.04) and the TIP's first
+conic (216.70) - and still resolves through the state-vector path there, because no
+segment on either member covers that UT. Whether a chain should hand map presence to the
+TIP's own ghost once the playhead passes the HEAD's end is a chain-VISIBILITY question,
+not a segment-lookup one: in the same session the flight-scene engine had the TIP visible
+and driven (`[i=1 rec=8da7c2c2 ... endUT=2348.5][out:vis=T ...]`, KSP.log:20211) while
+map-presence resolution never ran for it at all.
+
+Fix: unknown - needs a reading of which member the map-presence lifecycle pass selects for
+a chain and why the TIP never entered the pending-create queue. Not scheduled.
+
+## ~~PARSEKUI-MAP-MARKER-READS-RAW-LATLONALT-WITH-NO-FRAME-DISPATCH (latent, never observed firing)~~ FIXED 2026-09-08
+
+`ParsekUI.TryComputeGhostWorldPosition` (`ParsekUI.cs:2443-2513`) interpolated `rec.Points`
+and called `body.GetWorldSurfacePosition(lat, lon, alt)` at `:2512` with no
+`TrackSection.referenceFrame` resolution - `ParsekUI.cs` contained zero occurrences of
+`Relative` or `referenceFrame`. In a RELATIVE section those fields are anchor-local metre
+offsets, so the marker would land deep inside the planet. It did not fire in the measured
+session (`skippedRelNoBodyFixed=0` everywhere, the pod's sections all Absolute), and every
+other render-side lat/lon/alt reader already dispatches. Now dispatched through the pure
+`ResolveMapMarkerFrameSource`: a Relative section uses its body-fixed shadow, and a
+Relative section without one REFUSES with
+`MapMarkerPositionFailureReason.RelativeFrameWithoutBodyFixed` rather than clamping.
+
+## ~~COLLECT-LOGS-COPIED-A-STALE-RENDER-MANIFEST~~ FIXED 2026-09-08
+
+`scripts/collect-logs.py` copied `parsek-render-manifest.txt` unconditionally. The
+2026-09-08 bundle therefore carried a 2026-08-25 file from save `s15 (SANDBOX)` while
+KSP.log:227 said `[RenderManifest] inert: PARSEK_RENDER_MANIFEST=(unset)` - an artifact
+that reads as this session's and is not. The copy is now gated on the manifest's own
+`saveName` header matching the collected save, and prints why it skipped otherwise.
+
+---
+
 ## ~~OPTIMIZER-SPLIT-DROPS-MERGESTATE-AND-CLOSES-AN-OPEN-REFLY-SLOT: the optimizer's phase-change split moves a recording's terminal to a brand-new chain TIP but not its `MergeState`, and open/closed is read from the TIP, so a slot promoted to `CommittedProvisional` seconds earlier in the SAME commit reads closed and the reaper deletes its rewind-point quicksave~~ [FORENSICS 2026-09-08 over session `2026-09-08_2317_refly-a-manual` (`.forensics-continuation.md`, every claim cited to `KSP.log:N` in that folder's 28889-line log). FIXED 2026-09-08]
 
 Five steps, all inside one commit plus the next:

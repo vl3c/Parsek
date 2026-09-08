@@ -1265,5 +1265,206 @@ namespace Parsek
             meanAnomalyShiftRadians = shift;
             return true;
         }
+
+        /// <summary>
+        /// Minimum clearance (metres) above the body radius for
+        /// <see cref="IsConicSpanAboveSurface"/> to call a conic span "above the surface".
+        /// A ballistic descent segment ENDS at the surface by construction, so its endpoint
+        /// radius evaluates to the body radius plus rounding; with no margin that reads as
+        /// above-surface and the descent would be handed to the orbit line instead of the
+        /// traced leg. The margin therefore biases toward the LEG path, which always draws.
+        /// </summary>
+        internal const double ConicSurfaceClearanceMeters = 1.0;
+
+        /// <summary>
+        /// PURE: the orbital radius (metres from the body centre) of an
+        /// <see cref="OrbitSegment"/>'s conic at one UT, from the stored Kepler elements plus
+        /// the body's gravitational parameter. Elliptic (ecc &lt; 1, sma &gt; 0) and hyperbolic
+        /// (ecc &gt; 1, sma &lt; 0) branches; parabolic and degenerate elements return false.
+        ///
+        /// No reference frame is involved - radius depends only on sma / ecc / mEp / epoch - so
+        /// this is safe headless and never touches Planetarium (unlike
+        /// <c>BallisticExtrapolator.TwoBodyOrbit</c>, whose segment I/O crosses the stock element
+        /// frame). <c>meanAnomalyAtEpoch</c> is RADIANS per the OrbitSegment unit contract.
+        /// </summary>
+        internal static bool TryGetConicRadiusAtUT(
+            OrbitSegment segment, double gravParameter, double ut, out double radius)
+        {
+            radius = 0.0;
+            double sma = segment.semiMajorAxis;
+            double ecc = segment.eccentricity;
+            if (double.IsNaN(sma) || double.IsInfinity(sma) || sma == 0.0) return false;
+            if (double.IsNaN(ecc) || double.IsInfinity(ecc) || ecc < 0.0) return false;
+            if (double.IsNaN(ut) || double.IsInfinity(ut)) return false;
+
+            if (!TryGetConicMeanAnomalyAtUT(segment, gravParameter, ut, out double meanAnomaly))
+                return false;
+
+            if (ecc < 1.0)
+            {
+                if (sma <= 0.0) return false;
+                if (!TrySolveEllipticEccentricAnomaly(meanAnomaly, ecc, out double eccentricAnomaly))
+                    return false;
+                radius = sma * (1.0 - ecc * Math.Cos(eccentricAnomaly));
+            }
+            else if (ecc > 1.0)
+            {
+                if (sma >= 0.0) return false;
+                if (!TrySolveHyperbolicAnomaly(meanAnomaly, ecc, out double hyperbolicAnomaly))
+                    return false;
+                radius = sma * (1.0 - ecc * Math.Cosh(hyperbolicAnomaly));
+            }
+            else
+            {
+                // Parabolic: the stored element set cannot express it.
+                return false;
+            }
+
+            return !double.IsNaN(radius) && !double.IsInfinity(radius) && radius > 0.0;
+        }
+
+        /// <summary>
+        /// PURE: mean anomaly (radians) of a segment's conic at one UT.
+        /// <c>M = mEp + n * (ut - epoch)</c> with <c>n = sqrt(mu / |sma|^3)</c>.
+        /// </summary>
+        internal static bool TryGetConicMeanAnomalyAtUT(
+            OrbitSegment segment, double gravParameter, double ut, out double meanAnomaly)
+        {
+            meanAnomaly = 0.0;
+            double absSma = Math.Abs(segment.semiMajorAxis);
+            if (double.IsNaN(absSma) || double.IsInfinity(absSma) || absSma <= 0.0) return false;
+            if (double.IsNaN(gravParameter) || double.IsInfinity(gravParameter) || gravParameter <= 0.0)
+                return false;
+            double meanMotion = Math.Sqrt(gravParameter / (absSma * absSma * absSma));
+            double m = segment.meanAnomalyAtEpoch + meanMotion * (ut - segment.epoch);
+            if (double.IsNaN(m) || double.IsInfinity(m)) return false;
+            meanAnomaly = m;
+            return true;
+        }
+
+        /// <summary>
+        /// Residual tolerance on Kepler's equation, <c>|E - e sin E - M|</c>, that
+        /// <see cref="TrySolveEllipticEccentricAnomaly"/> must reach before it reports success.
+        /// A converged Newton solve lands near machine precision, so this is a divergence
+        /// detector rather than an accuracy budget.
+        /// </summary>
+        internal const double EllipticKeplerResidualTolerance = 1e-9;
+
+        /// <summary>
+        /// PURE: solve Kepler's equation for the eccentric anomaly. FAIL-CLOSED.
+        ///
+        /// Newton seeded at <c>M + e sin M</c> converges in a handful of iterations across the
+        /// eccentricities this file's callers usually see, but it is NOT globally convergent:
+        /// near periapsis at high eccentricity the derivative <c>1 - e cos E</c> approaches zero,
+        /// one step throws the estimate arbitrarily far from the root, and the remaining
+        /// iterations wander. Measured at <c>e = 0.9948</c> - the surface-rotation ellipse of
+        /// every landed or prelaunch vessel, not an exotic input - 68 of 200000 mean anomalies in
+        /// <c>|M| &lt; 0.084</c> ended with residuals up to 1e9 and effectively random radii.
+        ///
+        /// Returning that estimate made <see cref="TryGetConicRadiusAtUT"/> answer true with a
+        /// garbage radius, which <see cref="IsConicSpanAboveSurface"/> then turned into a silent
+        /// ownership decision - including handing a descent to the orbit line. The residual check
+        /// below is therefore a GATE, not a diagnostic: a non-converged solve reports failure, the
+        /// span test answers false ("not orbit-owned"), and the tail falls to the traced-leg path,
+        /// which always draws. Unknown costs shape, never a hole.
+        ///
+        /// Deliberately NOT routed through <c>BallisticExtrapolator.TwoBodyOrbit</c>'s
+        /// eccentricity dispatch: that solver exists to reproduce stock <c>Orbit</c> bit for bit,
+        /// it returns its BEST ESTIMATE rather than a failure when its iteration cap is reached,
+        /// so a residual gate would still be needed here, and borrowing it would tie this
+        /// headless-pure helper to a stock-parity contract it does not share.
+        /// </summary>
+        private static bool TrySolveEllipticEccentricAnomaly(
+            double meanAnomaly, double ecc, out double eccentricAnomaly)
+        {
+            // Wrap into [-pi, pi] so the Newton seed is always near the root.
+            double m = meanAnomaly % (2.0 * Math.PI);
+            if (m > Math.PI) m -= 2.0 * Math.PI;
+            if (m < -Math.PI) m += 2.0 * Math.PI;
+            double e = m + ecc * Math.Sin(m);
+            for (int i = 0; i < 64; i++)
+            {
+                double f = e - ecc * Math.Sin(e) - m;
+                double fp = 1.0 - ecc * Math.Cos(e);
+                if (Math.Abs(fp) < 1e-15) break;
+                double step = f / fp;
+                e -= step;
+                if (Math.Abs(step) < 1e-13) break;
+            }
+            eccentricAnomaly = e;
+            if (double.IsNaN(e) || double.IsInfinity(e)) return false;
+            // Residual against the WRAPPED m: that is the equation the loop actually solved.
+            double residual = Math.Abs(e - ecc * Math.Sin(e) - m);
+            return residual < EllipticKeplerResidualTolerance;
+        }
+
+        private static bool TrySolveHyperbolicAnomaly(
+            double meanAnomaly, double ecc, out double hyperbolicAnomaly)
+        {
+            hyperbolicAnomaly = 0.0;
+            double h = Math.Abs(meanAnomaly) < 1.0
+                ? meanAnomaly / (ecc - 1.0)
+                : Math.Sign(meanAnomaly) * Math.Log(2.0 * Math.Abs(meanAnomaly) / ecc + 1.8);
+            if (double.IsNaN(h) || double.IsInfinity(h)) return false;
+            for (int i = 0; i < 128; i++)
+            {
+                double f = ecc * Math.Sinh(h) - h - meanAnomaly;
+                double fp = ecc * Math.Cosh(h) - 1.0;
+                if (Math.Abs(fp) < 1e-15) break;
+                double step = f / fp;
+                h -= step;
+                if (double.IsNaN(h) || double.IsInfinity(h)) return false;
+                if (Math.Abs(step) < 1e-13) break;
+            }
+            hyperbolicAnomaly = h;
+            return true;
+        }
+
+        /// <summary>
+        /// PURE: does a segment's conic stay above <paramref name="bodyRadius"/> over its OWN
+        /// <c>[startUT, endUT]</c> span? True only when no periapsis passage falls strictly
+        /// inside the span AND both endpoint radii clear the surface by
+        /// <see cref="ConicSurfaceClearanceMeters"/>. With no periapsis inside the span the
+        /// radius has no interior minimum, so its minimum IS an endpoint - which is what makes
+        /// the two-endpoint test sufficient rather than a sampling heuristic.
+        ///
+        /// Returns FALSE on any unusable input (unknown gravitational parameter, degenerate
+        /// elements, empty span). Every caller treats false as "not orbit-owned", so the
+        /// unknown case fails closed to the traced-leg path, which always draws.
+        /// </summary>
+        internal static bool IsConicSpanAboveSurface(
+            OrbitSegment segment, double gravParameter, double bodyRadius)
+        {
+            if (double.IsNaN(bodyRadius) || double.IsInfinity(bodyRadius) || bodyRadius <= 0.0)
+                return false;
+            if (segment.endUT <= segment.startUT) return false;
+            if (!TryGetConicMeanAnomalyAtUT(segment, gravParameter, segment.startUT, out double m0))
+                return false;
+            if (!TryGetConicMeanAnomalyAtUT(segment, gravParameter, segment.endUT, out double m1))
+                return false;
+            if (ConicSpanContainsPeriapsis(m0, m1, segment.eccentricity)) return false;
+            if (!TryGetConicRadiusAtUT(segment, gravParameter, segment.startUT, out double r0))
+                return false;
+            if (!TryGetConicRadiusAtUT(segment, gravParameter, segment.endUT, out double r1))
+                return false;
+            double floor = bodyRadius + ConicSurfaceClearanceMeters;
+            return r0 > floor && r1 > floor;
+        }
+
+        /// <summary>
+        /// PURE: does a periapsis passage fall strictly inside the mean-anomaly interval
+        /// <c>(m0, m1)</c>? Periapsis sits at <c>M = 0</c>, repeating every 2*pi on a closed
+        /// orbit and occurring exactly once on a hyperbola.
+        /// </summary>
+        internal static bool ConicSpanContainsPeriapsis(double m0, double m1, double ecc)
+        {
+            if (m1 <= m0) return false;
+            if (ecc >= 1.0) return m0 < 0.0 && m1 > 0.0;
+            double twoPi = 2.0 * Math.PI;
+            if (m1 - m0 >= twoPi) return true;
+            // First multiple of 2*pi strictly greater than m0.
+            double k = Math.Floor(m0 / twoPi) + 1.0;
+            return k * twoPi < m1;
+        }
     }
 }
