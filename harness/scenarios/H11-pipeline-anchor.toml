@@ -53,6 +53,34 @@ steps = [
 # NOT claimed and why: D3 (stubbed resolver, see above); parent-anchored-debris (no
 # debris recording is built); any D5 topology token (the dock and suppressed-subtree
 # cells assert anchor GEOMETRY through a PutAnchorForTesting seam, not tree structure).
+#
+# THE TEST-BY-TEST MAPPING, read from the seven bodies on 2026-09-08 (the roadmap's
+# "Corrections ... UNVERIFIED" entry had flagged that the withdrawal above rested on
+# the category name, not on a per-cell read). Every cell confirms the withdrawal:
+#   Pipeline_Anchor_LiveSeparation   two synthetic recordings with ONE ABSOLUTE
+#                                    section each, resolved through the re-fly
+#                                    `RenderSessionState.RebuildFromMarker` TEST
+#                                    OVERLOAD with an injected live-position closure;
+#                                    the live body call is `GetWorldSurfacePosition`
+#                                    for the predicted offset. It asserts the anchor
+#                                    EPSILON, and its `[Pipeline-Anchor]` Info line is
+#                                    written BEFORE the tolerance assert, so it is not
+#                                    gating-grade either. Not D3 `absolute` (no
+#                                    Absolute-frame PLAYBACK runs).
+#   Pipeline_Anchor_RelativeBoundary }
+#   Pipeline_Anchor_OrbitalCheckpoint} `RunPhase6PerSourceFixture`: installs
+#   Pipeline_Anchor_SOI              } `AnchorPropagator.ResolverOverrideForTesting`
+#   Pipeline_Anchor_Loop             } (a constant-offset stub) for the run; the
+#                                    source enum member is the only thing that varies.
+#                                    Not `relative-anchored-nonloop` / `relative-loop`
+#                                    / `boundary-seam`: no TrackSection of any of
+#                                    those frames is resolved, let alone played back.
+#   Pipeline_Anchor_Dock             } seed via `RenderSessionState.PutAnchorForTesting`
+#   Pipeline_Anchor_SuppressedSubtree} then `AnchorPropagator.Run` with a null surface
+#                                    lookup; graph-walk arithmetic, no frame, no body.
+# So no cell-level token exists that could earn a D3 cell here, and none is pinned:
+# CLAIM-IS-NOT-GATE forbids claiming a cell a token cannot earn. The three D3 cells
+# stay UNCOVERED until a lane plays back a recording carrying each frame.
 D14 = ["sandbox", "scene-flight"]
 
 [expectations]

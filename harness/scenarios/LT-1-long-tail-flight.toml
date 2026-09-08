@@ -121,6 +121,22 @@ required  = [
   "BATCH_COMPLETE v1 total=4 passed=4 failed=0 skipped=0 category=Unity scene=FLIGHT",
   "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=Watch scene=FLIGHT",
   "BATCH_COMPLETE v1 total=57 passed=50 failed=0 skipped=7 category=multi:30 scene=FLIGHT",
+  # THE WATCH CONSTITUENT'S OWN CELL-LEVEL LINES (claim pass 2026-09-08). Both are
+  # written AFTER the cell's assertions (`WatchAutoFollowFollowsSupersedeForkRuntimeTest.cs`,
+  # `WatchCoverageRetiredEligibilityRuntimeTest.cs`), so neither can print on a
+  # skipped or failed cell, and both were MEASURED on run `2026-09-07_1808`. They
+  # sharpen the tally pin above (the two assertions ran, not just the cells) and
+  # CLAIM NOTHING: the first proves the live `FindNextWatchTarget` wiring resolves a
+  # superseded chain-next through `ParsekScenario.RecordingSupersedes` to its fork
+  # over SYNTHETIC recordings and a fake ghost state, the second that
+  # `IsGhostCoverageRetired` reads `ghostStates[index].anchorRetiredThisFrame`. No
+  # registry cell names either fact; D6 `watch-mode-retarget-explosion-hold` is
+  # LIVE watch behaviour after entry (a camera on a ghost, its explosion, the 3-5 s
+  # hold and what the hold retargets to), which these no-camera cells never
+  # exercise - that cell belongs to the flown GS-7 lane. CLAIM-IS-NOT-GATE, applied
+  # in the no-claim direction.
+  "\\[WatchTest\\] WatchAutoFollowFollowsSupersedeFork: live wiring resolved supersede correctly",
+  "\\[WatchTest\\] WatchCoverageRetiredEligibility: live IsGhostCoverageRetired read confirmed \\(retired=true, live=false, absent=false\\)",
 ]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 

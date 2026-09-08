@@ -57,13 +57,14 @@ M-A6 stack provisioner, M-B1 mission library, M-B2 ledger oracle, M-C1 seam verb
 batch 1, M-C2 EVA verbs. Status and per-module proof live in `autotest-status.md`.
 None of the items in this roadmap are blocked on a missing module.
 
-### Scenarios: 225 committed
+### Scenarios: 230 committed
 
-Re-derived 2026-09-07 at the merge of #1646 (`e01d11f85`): `ls harness/scenarios/*.toml` returns **224**
+Re-derived 2026-09-08 on `ghost-replay-tier-a`: `ls harness/scenarios/*.toml` returns **230**
 files, the total `autotest-status.md`'s `## Test cases` header states and
-`AutotestStatusScenarioCountTests` pins against the committed files. The 68 below
+`AutotestStatusScenarioCountTests` pins against the committed files (224 at the
+2026-09-07 re-derivation, at the merge of #1646 `e01d11f85`). The 68 below
 was the 2026-08-04 snapshot; the V / GS / W / L / RVR / H41-H70 / LT waves, among others, took it
-from 68 to 224 between 2026-08-04 and 2026-09-07.
+from 68 to 230 between 2026-08-04 and 2026-09-08.
 
 `ls harness/scenarios/*.toml` returned **68** files when this section was last
 re-derived before that (2026-08-04 at
@@ -77,15 +78,15 @@ EVA / CL / S0.x / H22-H25 / V1 / BDOCK waves and R14's MC-1/MC-2 took it from
 55 to 68. Adding a scenario is not the same as covering a cell. Re-derive
 these rather than editing them by memory; both numbers have moved many times.
 
-### Coverage: 163 of 248 registry cells (was 83 of 241 at the baseline, 108 of 242 on 2026-08-04, 162 of 247 on 2026-09-07 before G1 / G3b closed)
+### Coverage: 164 of 248 registry cells (was 83 of 241 at the baseline, 108 of 242 on 2026-08-04, 162 of 247 on 2026-09-07 before G1 / G3b closed, 163 of 248 on 2026-09-08 before the ghost-replay claim pass)
 
-Re-derived 2026-09-07 at the merge of #1646 (`e01d11f85`), replacing the 2026-08-04 snapshot (108 of
-242; the registry has since grown by five values net: D6 +2, D9 +1, D10 +3, D16 -1). The
-command is unchanged: `hlib.compute_coverage(specs, [], registry)` over the 224
-committed specs and `harness/coverage/registry.toml` returns exactly:
+Re-derived 2026-09-08 on `ghost-replay-tier-a` after the claim pass (H52 claims D6
+`reentry-fx`), replacing the 2026-09-07 snapshot. The command is unchanged:
+`hlib.compute_coverage(specs, [], registry)` over the 230 committed specs and
+`harness/coverage/registry.toml` returns exactly:
 
 ```
-values 247   covered 162   uncovered 85   expectedFailValues 0   xpass 0
+values 248   covered 164   uncovered 84   expectedFailValues 0   xpass 0
 ```
 
 Per dimension (total / uncovered), with the 2026-08-04 uncovered count kept in
@@ -98,11 +99,11 @@ the last column so the delta stays legible:
 | D3 | reference frames | 7 | 4 | 4 |
 | D4 | track sections / optimizer | 12 | 6 | 6 |
 | D5 | tree topology | 12 | 6 | 7 |
-| D6 | playback / ghosts | 18 | 8 | 11 |
+| D6 | playback / ghosts | 18 | 7 | 11 |
 | D7 | part events / FX | 16 | 4 | 11 |
 | D8 | ledger / career | 18 | 0 | 6 |
 | D9 | rewind / re-fly | 17 | 1 | 4 |
-| D10 | logistics / routes | 23 | 1 | 12 |
+| D10 | logistics / routes | 24 | 1 | 12 |
 | D11 | missions abstraction | 18 | 6 | 10 |
 | D12 | crew | 10 | 5 | 8 |
 | D13 | spawn positioning | 11 | 7 | 7 |
@@ -111,7 +112,7 @@ the last column so the delta stays legible:
 | D16 | storage / sidecars | 12 | 8 | 9 |
 | D17 | mod compatibility | 6 | 4 | 4 |
 | D18 | re-fly / interaction | 12 | 10 | 10 |
-| | | **247** | **85** | **134** |
+| | | **248** | **84** | **134** |
 
 The cells still uncovered in four dimensions worth naming: D9 is down to
 `load-time-sweep` alone; D10 to `harvest-provenance` (this same commit adds the
@@ -222,6 +223,12 @@ remains is, in order:
    (H11) and `Watch` (LT-1) already execute whole, but their D6 / D3 cells stay
    unclaimed because a whole-tally pin asserts the cells RAN, not what they
    proved - each needs one cell-level gating token, the H57 lesson in reverse.
+   CLAIM HALF DONE 2026-09-08: H52 gained a post-assertion line in the Bug538 cell
+   and claims D6 `reentry-fx` off it (the FX-driver half; the rendered-replay half
+   is Tier A item 3); H11's seven bodies were read and earn NO D3 cell (stubbed
+   resolver, test-seam anchors - see the corrections section); LT-1 pins the two
+   `Watch` post-assertion lines and claims nothing, the retarget / explosion-hold
+   cell being live watch behaviour those cells never exercise.
 4. **Ghost-replay Tier B item 6, the vanished-RewindPoint design call**: costs
    nothing and the roadmap says to take it early; then items 7-9 (rewind-to-launch
    x Re-Fly, repeat-rewind idempotence, arming `unityExceptions` on GS-4 / W1 -
@@ -3235,6 +3242,15 @@ first spawn frame (hold-then-retry, never a single eager ask).
    ghostlife vocabulary.
 3. **Reentry FX** (D6 `reentry-fx` UNCOVERED): a B4-shaped reentry profile
    rewound + watched, FX arm/disarm lines pinned during the replay.
+   HALF-CLOSED 2026-09-08 by the claim pass: `H52-reentry-fx` now claims the cell
+   off the Bug538 cell's post-assertion line, which proves the FX DRIVER
+   (`UpdateReentryFx` on a live `TryBuildReentryFx` particle system, live Kerbin
+   atmosphere, synthetic ghost root) and NOT a rendered replay. The replay half -
+   a committed reentry watched re-entering with the lazy-build line pinned during
+   playback - is what this item still names; it needs a reentry-shaped profile
+   the kx machine does not fly (the Kerbal X pod stack is suborbital at commit and
+   never re-enters inside the recorded span), so it stays open here rather than
+   being flown on the GS-4 template.
 4. **Zone transitions** (D6 `zone-transitions` UNCOVERED): place the watcher
    so the replay crosses the 120 km visual range; the engine-teardown
    MeshDestroyed emit (added with GS-4's review round) plus the zone tracer's
@@ -4864,10 +4880,17 @@ UNVERIFIED in this pass, flagged rather than asserted:
 - **`modded-compat.toml` mod presence in the dev GameData.** One analysis reported
   every `devSourcedMods` entry present. Not re-checked here. Verify before scheduling
   R14.
-- **Whether `Pipeline-Anchor`'s 7 tests map to D3 `relative-anchored-nonloop` /
+- ~~**Whether `Pipeline-Anchor`'s 7 tests map to D3 `relative-anchored-nonloop` /
   `relative-loop` / `boundary-seam` one-for-one.** The category name and test names
   suggest it strongly; the mapping was not read test by test. Confirm before pinning
-  the R6 claims.
+  the R6 claims.~~ READ TEST BY TEST 2026-09-08 (the claim pass in front of ghost-replay
+  Tier A): they do NOT. Four cells (`RelativeBoundary`, `OrbitalCheckpoint`, `SOI`,
+  `Loop`) run under `AnchorPropagator.ResolverOverrideForTesting`, two (`Dock`,
+  `SuppressedSubtree`) seed anchors through `RenderSessionState.PutAnchorForTesting`,
+  and `LiveSeparation` asserts an epsilon over the re-fly `RebuildFromMarker` test
+  overload on two one-section ABSOLUTE recordings, logging its line before the assert.
+  No TrackSection of any D3 frame is played back, so no D3 cell can be claimed from
+  H11; the mapping is recorded in the spec's `[dimensionsCovered]` comment.
 - **Whether the Kerbal X upper stage carries deployable solar panels**, which would
   make D7 `panels-antennas-radiators` free on B11-B14 via a `Part event:
   DeployableExtended` token. Check an archived recording or log before claiming.
