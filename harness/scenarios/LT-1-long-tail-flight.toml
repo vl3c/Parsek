@@ -1,12 +1,12 @@
 schema = 1
 id = "LT-1-long-tail-flight"
 tier = "nightly"
-# THE LONG TAIL, ONE BOOT. Thirty in-game categories that were never driven
+# THE LONG TAIL, ONE BOOT. Thirty-one in-game categories that were never driven
 # because each is too small to justify its own KSP boot (the inventory's bucket B5,
 # the roadmap's "Cause E: one category per spec") - run as ONE multi-category
 # batch through the seam's comma-list RunTests selector. The runner batches each
 # constituent in turn and prints its own BATCH_COMPLETE line, then the
-# category=multi:30 aggregate; the contract that makes that honest is per
+# category=multi:31 aggregate; the contract that makes that honest is per
 # constituent, not per aggregate: every category below pins its own whole line,
 # so a constituent that executes nothing reds by name (hlib's
 # SINGLE_BATCH_SELECTOR_RULE as amended 2026-09-07).
@@ -15,20 +15,18 @@ tier = "nightly"
 # categories, 386 s wall, 92 cells): 54 passed, 1 FAILED, 37 skipped. The one
 # failure was PartEventTiming's deployable cell asserting the pre-S2 snap - test
 # drift in a cell no batch had ever run, re-pinned to the animated contract in the
-# same branch and PASSING 2/2 on its control flight `2026-09-07_0853`. EIGHT of
-# the 38 candidates are NOT constituents here. Six moved to hosts that execute more
-# of them on the 2026-09-07 second census (CEN-1/3/4, scratch, not committed):
-# `Contracts` and `TestCommands` to LT-3 on the `career-earned-pad` career (both
+# same branch and PASSING 2/2 on its control flight `2026-09-07_0853`. SEVEN of
+# the 38 candidates are NOT constituents here, and every one of them executes somewhere
+# else since the 2026-09-07/08 second census (CEN-1..CEN-12, scratch, not committed):
+# `Contracts` and `TestCommands` in LT-3 on the `career-earned-pad` career (both
 # career-only cells execute there; here Contracts executed nothing and TestCommands
-# 1 of 4), `GhostLifecycle` and `PartEventFX` to LT-5 over the part-showcase corpus
+# 1 of 4), `GhostLifecycle` and `PartEventFX` in LT-5 over the part-showcase corpus
 # with playback armed (4 of 17 and 1 of 6 instead of 2 of 17 and nothing),
-# `Structure` and `RouteLiveAnchor` to LT-4 on a recorded supply route (Structure's
-# route cell and the live-anchor cell both need a committed route). Two are
-# constituents NOWHERE: `CrewReservationLive` (no spawned vessel pids on any
-# seam-driven host) and `DisabledHoverEcho` (its one cell needs the OS pointer
-# inside the game window to measure a hover - it passed on the census and skipped
-# on the first pinned flight, and nothing in the seam can place the pointer).
-# Pinning either here would be exactly the vacuous slice the contract refuses.
+# `Structure`, `RouteLiveAnchor` and `CrewReservationLive` in LT-4 on a recorded supply
+# route (a committed route and real-spawned recordings, which no injected corpus has).
+# `DisabledHoverEcho` IS a constituent since 2026-09-08: its one cell parks the OS
+# pointer over its own probe button for the measurement (census CEN-12, 1 of 1), where
+# it used to skip whenever the pointer sat outside the game window.
 #
 # THE SKIPS THAT REMAIN ARE MEASURED AND NAMED, and the whole pin carries every one
 # of them: BackgroundSeeder 1 (no stateful parts to seed on the 1-part pod), GhostMapOrbits 1
@@ -36,9 +34,11 @@ tier = "nightly"
 # (no autostrut parts in range),
 # SwitchIntentPatch 2 (its KSC and TS cells scene-skip),
 # TestRunnerIsolation 1 (the SPACECENTER cell). LT-2 takes the SPACECENTER slices.
-# FLOWN (the 30-constituent re-pin): run `2026-09-07_2030`, PASS attempt 1, wall 292 s, every per-constituent
-# line above matched verbatim and every verifier PASS or REPORT.
-description = "Run the 30 long-tail in-game categories as one multi-category batch at FLIGHT over the injected synthetic corpus, every constituent pinned whole."
+# FLOWN (the 31-constituent re-pin): run `2026-09-08_1041`, PASS attempt 1, wall 292 s;
+# re-flown after the hover cell bound its cursor placement to the game's own process
+# window: run `2026-09-08_1114`, PASS attempt 1. Both: every per-constituent line above
+# matched verbatim and every verifier PASS or REPORT.
+description = "Run the 31 long-tail in-game categories as one multi-category batch at FLIGHT over the injected synthetic corpus, every constituent pinned whole."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "multi-category", "long-tail", "LT-1"]
 
@@ -59,18 +59,18 @@ kind = "seam"
 # on an idle recorder. Budget: the 540 s RunTests cap is the M-A5 deferred-step cap;
 # the census measured about 8 s of per-category batch overhead (baseline capture,
 # crash marker, results export) on top of cells that all finish in under 0.3 s, so
-# 30 constituents sit near 270 s (measured 242 s of batch time on the 33-constituent
+# 31 constituents sit near 280 s (measured 242 s of batch time on the 33-constituent
 # pinned flight `2026-09-07_1511`, a 2.2x margin under the 540 s cap - thinner than
-# any single-category lane, and the reason a 31st constituent should go to another lane). See runtime.budgetSeconds.
+# any single-category lane, and the reason a 32nd constituent should go to another lane). See runtime.budgetSeconds.
 steps = [
   { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
   { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
-  { cmd = "RunTests",   args = { category = "BackgroundSeeder,Bug289,ContinuationIntegrity,FinalizeLimbo,Flight,ForwardRender,GhostMapOrbits,IdentityLoss,MissionPhasing,PartEventTiming,Pipeline-Anchor-BubbleEntry,Pipeline-AnchorPropagate,Pipeline-Frame,Pipeline-Outlier,Pipeline-Terrain,RecordingStore,RenderComposition,ResourceManifest,RevertVesselStrip,RewindSaves,SpawnCollision,SpawnTerminalOrbit,Spawner,StockWarpLimits,SwitchIntentPatch,TerminalOrbit,TestRunner,TestRunnerIsolation,Unity,Watch" }, expect = "OK", budget = 540 },
+  { cmd = "RunTests",   args = { category = "BackgroundSeeder,Bug289,ContinuationIntegrity,DisabledHoverEcho,FinalizeLimbo,Flight,ForwardRender,GhostMapOrbits,IdentityLoss,MissionPhasing,PartEventTiming,Pipeline-Anchor-BubbleEntry,Pipeline-AnchorPropagate,Pipeline-Frame,Pipeline-Outlier,Pipeline-Terrain,RecordingStore,RenderComposition,ResourceManifest,RevertVesselStrip,RewindSaves,SpawnCollision,SpawnTerminalOrbit,Spawner,StockWarpLimits,SwitchIntentPatch,TerminalOrbit,TestRunner,TestRunnerIsolation,Unity,Watch" }, expect = "OK", budget = 540 },
   { cmd = "FlushAndQuit",                                                     expect = "OK" },
 ]
 
 [dimensionsCovered]
-# Only the environment axes. The 30 constituents touch a dozen dimensions between
+# Only the environment axes. The 31 constituents touch a dozen dimensions between
 # them, but a dimension cell is claimed by a lane that asserts the product
 # behaviour the cell names, and a whole-tally pin over a category asserts that its
 # cells RAN, not what they proved. The per-category rows in the inventory say what
@@ -89,10 +89,11 @@ count = { min = 274, max = 274 }
 # measured census line (PartEventTiming from its post-fix control flight), plus the
 # aggregate whose counts are the sums. `failed=0` on every line is the assertion.
 required  = [
-  "runtests start category=BackgroundSeeder,Bug289,ContinuationIntegrity,FinalizeLimbo,Flight,ForwardRender,GhostMapOrbits,IdentityLoss,MissionPhasing,PartEventTiming,Pipeline-Anchor-BubbleEntry,Pipeline-AnchorPropagate,Pipeline-Frame,Pipeline-Outlier,Pipeline-Terrain,RecordingStore,RenderComposition,ResourceManifest,RevertVesselStrip,RewindSaves,SpawnCollision,SpawnTerminalOrbit,Spawner,StockWarpLimits,SwitchIntentPatch,TerminalOrbit,TestRunner,TestRunnerIsolation,Unity,Watch isolated=false strict=false multi=30",
+  "runtests start category=BackgroundSeeder,Bug289,ContinuationIntegrity,DisabledHoverEcho,FinalizeLimbo,Flight,ForwardRender,GhostMapOrbits,IdentityLoss,MissionPhasing,PartEventTiming,Pipeline-Anchor-BubbleEntry,Pipeline-AnchorPropagate,Pipeline-Frame,Pipeline-Outlier,Pipeline-Terrain,RecordingStore,RenderComposition,ResourceManifest,RevertVesselStrip,RewindSaves,SpawnCollision,SpawnTerminalOrbit,Spawner,StockWarpLimits,SwitchIntentPatch,TerminalOrbit,TestRunner,TestRunnerIsolation,Unity,Watch isolated=false strict=false multi=31",
   "BATCH_COMPLETE v1 total=2 passed=1 failed=0 skipped=1 category=BackgroundSeeder scene=FLIGHT",
   "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=Bug289 scene=FLIGHT",
   "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=ContinuationIntegrity scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=DisabledHoverEcho scene=FLIGHT",
   "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=FinalizeLimbo scene=FLIGHT",
   "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=Flight scene=FLIGHT",
   "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=ForwardRender scene=FLIGHT",
@@ -120,7 +121,7 @@ required  = [
   "BATCH_COMPLETE v1 total=2 passed=1 failed=0 skipped=1 category=TestRunnerIsolation scene=FLIGHT",
   "BATCH_COMPLETE v1 total=4 passed=4 failed=0 skipped=0 category=Unity scene=FLIGHT",
   "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=Watch scene=FLIGHT",
-  "BATCH_COMPLETE v1 total=57 passed=50 failed=0 skipped=7 category=multi:30 scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=58 passed=51 failed=0 skipped=7 category=multi:31 scene=FLIGHT",
 ]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 

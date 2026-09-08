@@ -896,6 +896,24 @@ namespace Parsek
             return count;
         }
 
+        /// <summary>
+        /// The contract behind a Mission Control list row. Stock (KSP 1.12.5,
+        /// <c>MissionControl.AddItem</c>) stores a <c>MissionControl.MissionSelection</c>
+        /// wrapper in <c>UIListItem.Data</c>, whose <c>contract</c> field is the row's
+        /// contract; a bare <c>Contract</c> payload is accepted too so a build that stores
+        /// the contract directly keeps working. Shared with the in-game overlay cells so
+        /// the test reads rows exactly as the overlay does.
+        /// </summary>
+        internal static Contract ExtractMissionControlRowContract(MCListItem row)
+        {
+            object data = row != null && row.container != null ? row.container.Data : null;
+            if (data == null)
+                return null;
+            if (data is MissionControl.MissionSelection selection)
+                return selection.contract;
+            return data as Contract;
+        }
+
         private static bool TryGetMissionControlRowContract(MCListItem row, out Contract contract)
         {
             contract = null;
@@ -904,7 +922,7 @@ namespace Parsek
 
             try
             {
-                contract = row.container != null ? row.container.Data as Contract : null;
+                contract = ExtractMissionControlRowContract(row);
                 if (contract != null)
                     return true;
 
@@ -912,7 +930,7 @@ namespace Parsek
                 {
                     missionRowsWarned = true;
                     ParsekLog.Warn(Tag,
-                        "StockUiOverlay: MissionControl row contract lookup failed — contract overlays disabled for rows without UIListItem.Data Contract");
+                        "StockUiOverlay: MissionControl row contract lookup failed - contract overlays disabled for rows whose UIListItem.Data is neither a MissionSelection nor a Contract");
                 }
             }
             catch (Exception ex)
