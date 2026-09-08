@@ -231,12 +231,43 @@ def main(argv=None):
             # captured -- roadmap Cause C's "no runtime-to-spec data path"), so it is on
             # the wire for a human reading a collected channel file, and for whatever
             # closes that gap later. The gate is the BATCH_COMPLETE tally, not this key.
+            # R10. ListHandles is the ONE verb whose payload the harness READS (the
+            # capture store), so the stub answers it with a real, fail-closed
+            # enumeration rather than a bare OK: a kind-less call is REJECTED
+            # kind-arg-missing and an unknown family is REJECTED kind-arg-invalid,
+            # exactly as the seam does, so a smoke leg can drive both.
+            if cmd == "ListHandles":
+                kind = fields.get("kind")
+                if not kind:
+                    _append(responses_path,
+                            "id=%s cmd=%s verdict=REJECTED seq=%d msg=kind-arg-missing\n"
+                            % (cid, cmd, seq))
+                    continue
+                handles = _list_handles_payload(kind)
+                if handles is None:
+                    _append(responses_path,
+                            "id=%s cmd=%s verdict=REJECTED seq=%d "
+                            "msg=kind-arg-invalid kind=%s\n" % (cid, cmd, seq, kind))
+                    continue
+                _append(log_path,
+                        "[LOG] [Parsek][INFO][TestCommands] listhandles kind=%s "
+                        "count=1 truncated=false\n" % kind)
+                _append(responses_path, "id=%s cmd=%s verdict=OK seq=%d %s\n"
+                        % (cid, cmd, seq, handles))
+                continue
             payload = ""
             if verdict == "OK" and cmd == "LoadGame":
                 payload = " scene=%s" % landing_scene
             elif verdict == "OK" and cmd == "ExitToSpaceCenter":
                 landing_scene = "SPACECENTER"
                 payload = " scene=SPACECENTER"
+            elif verdict == "OK" and cmd == "InvokeRewind":
+                # ECHO the args back. This is what makes the R10 round trip PROVABLE
+                # end to end without a real game: the response carries the very id the
+                # harness substituted, so a smoke leg can compare it against the
+                # ListHandles payload the id was captured from.
+                payload = (" rp=%s slot=%s rewound=true"
+                           % (fields.get("rp", ""), fields.get("slot", "")))
             _append(responses_path, "id=%s cmd=%s verdict=%s seq=%d%s\n"
                     % (cid, cmd, verdict, seq, payload))
             if cmd == "FlushAndQuit":
@@ -245,6 +276,30 @@ def main(argv=None):
         time.sleep(0.05)
 
     return 0
+
+
+def _list_handles_payload(kind):
+    """The R10 ListHandles payload for one family, or None when the family is not
+    one of the three (which the caller answers REJECTED kind-arg-invalid).
+
+    ONE member per family, which is all a capture / substitution smoke needs: the
+    harness half being exercised is the ${step.field} path, not the seam's own
+    enumeration order. The key grammar mirrors design-autotest-command-seam.md's
+    "#### ListHandles" verbatim, so a spec written against the stub is written
+    against the real payload's key names."""
+    if kind == "rewindpoints":
+        return ("kind=rewindpoints count=1 truncated=false "
+                "rp0=rp_fake0000000000000000000000000001 rp0ut=1234.5 "
+                "rp0provisional=false rp0corrupted=false rp0slots=1 "
+                "rp0slot0=rec_fake0 rp0slot0open=true")
+    if kind == "committed":
+        return ("kind=committed count=1 truncated=false rec0=rec_fake0 "
+                "rec0tree=tree_fake0 rec0pid=100000 rec0name=Test%20Craft "
+                "rec0spawned=false rec0state=CommittedProvisional")
+    if kind == "active":
+        return ("kind=active tree=tree_fake0 activeRec=rec_fake0 activePid=100000 "
+                "bg=1 truncated=false bg0pid=100001 bg0rec=rec_fake1")
+    return None
 
 
 def _drop_recording(root):

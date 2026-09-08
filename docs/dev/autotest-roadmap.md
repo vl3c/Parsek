@@ -189,19 +189,30 @@ inventory (106 of 112 categories driven; 110 once #1650 merges - it is open with
 green and closes `Contracts`, `RouteLiveAnchor`, `ResourceTopBar` and
 `PartEventFX`, leaving `CrewReservationLive` and `DisabledHoverEcho`, both
 host-blocked). The "Committed, not yet green" table in `autotest-status.md` is
-EMPTY: every committed lane has a green run. What remains is, in order:
+EMPTY: every committed lane has a green run. (It carried ONE row for part of
+2026-09-08 - `RH-1-live-rp-handle-rewind`, R10's first consumer - and emptied again the
+same day when that lane passed, `2026-09-08_0844_RH-1-live-rp-handle-rewind`.) What
+remains is, in order:
 
-1. **R10 runtime-handle plumbing** (Tier 3; one harness PR plus one seam verb, no
+1. ~~**R10 runtime-handle plumbing** (Tier 3; one harness PR plus one seam verb, no
    flight). It is the one unbuilt CAPABILITY left and it gates the most cells per
    unit of work: D18 `committed-interaction-claiming` / `chain-tip-original-pid`
    and D5 `chain-continuation-switch` need a switch target that is a live-tree
    background member (a live handle); R12 Stage B (the tombstone half, live
    `InvokeRewind`) and the pre-switch dialog cases need the same. D18 is the
    largest uncovered dimension (10 of 12) and it is the interaction surface of the
-   v0.9 headline feature, so this is where the next unmeasured product risk sits.
+   v0.9 headline feature, so this is where the next unmeasured product risk sits.~~
+   **SHIPPED 2026-09-08 (PR #R10PR)** - `${step.field}` capture / substitution plus the
+   `ListHandles` verb, first consumer `RH-1-live-rp-handle-rewind`; next: item 2.
 2. **The chain-interaction wave riding R10**: one fixture whose switch target is a
    background member of the live tree plus one committed spawned vessel; claims the
-   three cells above. Author it against R10's first green consumer, not before.
+   three cells above. Author it against R10's first green consumer, not before. The
+   HANDLE FAMILIES IT NEEDS NOW EXIST (2026-09-08): `ListHandles kind=active` emits
+   `bg<i>pid` (the live tree's `BackgroundMap` members, the switch target the
+   bg-member-continuation consume route requires) and `kind=committed` emits
+   `rec<i>spawnedPid` (the KSP-unique pid of a really-spawned clone, NEVER
+   `rec<i>pid`, which is craft-baked). What is still missing is the SUBJECT, not the
+   addressing - see the R12 residue block below.
 3. **Ghost-replay Tier A items 2-5** (the roadmap's own sequencing after GS-6):
    watch retarget + explosion hold (D6, the long-declined cell), zone transitions
    (needs an in-game test first, Cause F), debris TTL / promotion split (D5), and
@@ -351,7 +362,8 @@ CLOSED as a CAPABILITY gap. The seam's `RunTests` verb now takes
 both routing to the `*IncludingFlightRestore` entry points, so all 68 are drivable.
 One of the 13 categories is actually DRIVEN so far (`SceneExitMerge`, wired as
 `H21-scene-exit-merge-isolated`); the other 12 are now ordinary spec-authoring work
-under R6 / R7 / R10 rather than blocked. The diagnosis below is kept verbatim
+under R6 / R7 / R10 rather than blocked (R10's capability half shipped 2026-09-08, so
+all three are spec-authoring items now). The diagnosis below is kept verbatim
 because it is the evidence the fix rests on.
 
 `InGameTestRunner` has two batch entry points. The ordinary one admits
@@ -407,7 +419,8 @@ mission profile, and no existing verb produces them.**
 
 `TestCommandVerbs.cs` declared 19 implemented verbs and 11 reserved when this was
 written. **At `e01d11f85` (2026-09-07) `hlib.IMPLEMENTED_SEAM_VERBS` carries 31 and
-`RESERVED_SEAM_VERBS` 5** (`StopPlayback`, `StashSlot`, `FlySlot`,
+`RESERVED_SEAM_VERBS` 5** (32 implemented from 2026-09-08, when R10 added `ListHandles`;
+the reserved five are unchanged) (`StopPlayback`, `StashSlot`, `FlySlot`,
 `CrashAfterJournalPhase`, `RunInvariantReport`); the struck rows below were
 promoted, each as a strict promotion with the wire token byte-identical. The
 reserved set mapped almost one to one onto the largest uncovered dimensions:
@@ -432,7 +445,11 @@ armed only by stock click handlers writing a `StockActionIntentMarker`
 bypassed silently. There is also no set-active-vessel action in the mission library's
 action vocabulary. `SimulateStockSwitchClick` is not substitutable.
 
-**No runtime-to-spec data path.** `run.py:1157` substitutes exactly one token,
+**No runtime-to-spec data path.** ~~CLOSED 2026-09-08 BY R10~~ - the diagnosis is kept
+verbatim because it is the evidence R10 rests on; what shipped is `${step.field}`
+capture / substitution plus the `ListHandles` verb (see the R10 entry below), and the
+`InvokeRewind`-on-a-baked-id sentence is the exact wall `RH-1-live-rp-handle-rewind`
+now drives around. `run.py:1157` substitutes exactly one token,
 `${runSave}`. Response payloads are read for the verdict only; no payload field is
 ever captured into a variable a later step can reference. So every verb that
 addresses a live object is unreachable unless the id is statically bakeable.
@@ -1225,7 +1242,8 @@ per-recording body asserts over the analyzer's parsed model) - the .sfs surface
 deliberately does not carry those, they live in `.prec` sidecars the analyzer
 already parses.
 
-**R10. Runtime-handle plumbing.** One harness PR plus one seam verb.
+**R10. Runtime-handle plumbing.** ~~One harness PR plus one seam verb.~~
+**SHIPPED 2026-09-08 (PR #R10PR).**
 
 (a) Capture seam response payloads into a named store with `${step.field}`
 substitution at `run.py:1157`; (b) generalize `mission_runner._perform_seam_commit`
@@ -1234,6 +1252,84 @@ runtime-computed args with readback, which gives live-handle addressing INSIDE a
 flight; (c) add a RewindPoint / slot list verb, or extend `RecordingState`'s
 four-field payload. Unblocks live-authored `InvokeRewind` and every future verb that
 addresses a live tree, vessel, route, or kerbal.
+
+DELIVERED as all three, with one correction to (b) found while reading the code.
+
+- **(a) as written, plus the mission-param bridge.** The harness captures every
+  non-envelope payload field of a step's FIRST terminal `verdict=OK` response line into a
+  per-attempt store (percent-DECODED; a non-OK step captures nothing), keyed by the step's
+  harness id and by an optional new top-level `label`. `${<label-or-stepId>.<field>}`
+  references are substituted into later step args AND into `[driver.missionParams]`
+  string values immediately before `spawn_mission`. NEITHER TIER EVER PUTS THE LITERAL
+  TOKEN ON THE WIRE: a static fault (malformed token, unknown ref, forward or self
+  reference, a ref to a step whose `expect` is not `OK`, a duplicate / ill-formed label,
+  a label on a mission step) is `INVALID(spec-invalid)` in `validate_spec` before any
+  launch; a runtime miss (the referenced step answered OK, its payload has no such field)
+  brings the process tree down at the step and classifies the new NON-retryable subkind
+  `driver-unresolved-handle` - non-retryable because a second boot cannot grow a field the
+  verb does not emit. Pure: `hlib.capture_step_payload`, `substitute_step_args`,
+  `substitute_mission_params`, `find_handle_refs`, `find_malformed_handle_tokens`,
+  `handle_ref_fault`, `percent_decode`, `STEP_LABEL_KEY`,
+  `DRIVER_UNRESOLVED_HANDLE_SUBKIND`. Observability: `captured id=.. label=.. fields=..`
+  and `substituted id=.. arg=.. ref=${..} value=..` in the run log, plus the optional
+  `captured` / `substitutions` / `unresolvedHandle` step rows and the mission row's
+  `paramSubstitutions` in the result record (present only when non-empty, so every
+  pre-R10 record stays byte-identical).
+- **(b) CORRECTED: the "hardcoded" half did not exist as described.**
+  `mission_runner._perform_seam_command` was ALREADY verb-agnostic with payload readback,
+  so the generalization this entry asked for was in the tree before the work started;
+  `_perform_seam_commit` is untouched on purpose (five lanes are live-proven on it). The
+  DELIVERED RESIDUE was the runtime-COMPUTED half: `mlib.seam_handle_from_payload`
+  (tag-gated, fail-closed single-field read) and the R1 machine's `R1_RESOLVE` phase
+  (tag `resolve-rp`), which runs only when `rewindPointId = ""`, issues
+  `ListHandles kind=rewindpoints`, selects `rp<count-1>` or `rp0` per the new
+  `rewindPointSelect` param (default `last`; `resolveFrames` bounds the wait), and folds
+  the read id into the `InvokeRewind` args. With an id supplied, the emitted actions are
+  BYTE-IDENTICAL (`R1ResolveByteIdenticalRegressionTests`).
+- **(c) as a new verb, not a wider `RecordingState`.** `ListHandles` (31 -> 32
+  implemented, reserved unchanged at 5; ADDITIVE, the `ExportRenderManifest` shape):
+  `RequiresGameLoaded`, single-phase, read-only, no ERROR terminal, REQUIRED closed
+  `kind=` in `rewindpoints|committed|active` (mirrored in `hlib.VERB_SCOPED_CLOSED_ARGS`
+  so a typo is spec-invalid before a boot), capped payloads (16 RPs x 8 slots / 32
+  committed / 16 background) carrying `count` + `truncated` so a cut is never silent.
+  Widening `RecordingState` was rejected: eleven committed lanes and the R1 machine read
+  its four fields by exact key.
+
+First consumer `RH-1-live-rp-handle-rewind` (committed 2026-09-08, tier operator,
+fixture `bdock-recorded`): `ListHandles kind=rewindpoints` labelled `handles`, then
+`InvokeRewind rp=${handles.rp0} slot=1` - the first driven rewind whose target id was
+never written into a spec. LIVE-PROVEN the same day: reading run 1 (`2026-09-08_0838`)
+red on `InvokeRewind REJECTED recording-active` because `bdock-recorded` boots by
+promoting its committed tip into a live recorder - a fixture property, found AFTER the
+harness had logged `substituted ... value=rp_72ebafb509b943b6a353fa86eb3a4225` and put
+that id on the wire; a `StopRecording` step (R1's own order) fixed it and reading run 2
+(`2026-09-08_0844_RH-1-live-rp-handle-rewind`) PASSED attempt 1 with the captured id, the
+substituted value and KSP.log's `StartInvoke ... rp=` naming the same point. The status
+doc owns the row.
+
+Tests: `HandleCaptureCodecTests`, `HandleRefGrammarTests`, `HandleSubstitutionTests`,
+`HandleRefStaticValidationTests`, `HandleSpecValidationTests`,
+`HandleMissionParamStaticValidationTests`, `UnresolvedHandleClassificationTests`
+(`harness/lib/test_hlib.py`); `RuntimeHandleSmokeTests` (`test_run_smoke.py`, fake-KSP
+end-to-end: a captured field on the wire, an unknown field to
+`INVALID(driver-unresolved-handle)`, an unknown label to `INVALID(spec-invalid)` with
+zero boots, and missionParams forwarding); `R1SeamHandleReadTests`,
+`R1SelectRewindPointKeyTests`, `R1ResolvePhaseTests`,
+`R1ResolveByteIdenticalRegressionTests`, `R1ResolveParamTests`
+(`harness/missions/lib/test_r1_rewind.py`) plus `test_shells.py`'s
+`test_the_r10_resolve_path_lists_a_live_rp_and_rewinds_to_it`; and 35 xUnit cases in
+`Source/Parsek.Tests/TestCommandListHandlesTests.cs`. Contracts:
+`design-autotest-harness-core.md` -> "Runtime handles: payload capture and
+`${step.field}` substitution (R10)" and `design-autotest-command-seam.md` ->
+`#### ListHandles`.
+
+WHAT IT UNBLOCKS, none of it delivered here - each still needs its own spec: the
+chain-interaction wave (priority-register item 2), which now has the handle families it
+needs (`kind=active` -> `bg<i>pid` for D5 `chain-continuation-switch` /
+`chain-tip-original-pid`, `kind=committed` -> `rec<i>spawnedPid` for D18
+`committed-interaction-claiming`); R12 Stage B's live `InvokeRewind` on a live RP id
+(RH-1 is the shape); and every future verb that addresses a live tree, vessel, route or
+kerbal.
 
 **R11. A CAREER fixture with a flyable craft.** ~~One forge spec, one run.~~
 **CLOSED 2026-07-28 by `harness/fixtures/saves/career-pad-craft`** - built BY
@@ -1325,11 +1421,28 @@ WHAT R12 LEAVES BEHIND, each a separate follow-up and none of it a regression:
   `todo-and-known-bugs.md`), and the crew-end-state defect CL-2 flight 1 found
   means the subtree's kerbal-death action currently carries `KerbalEndState.
   Unknown`, which is exactly what that in-game test skips on.
+  **UPDATED 2026-09-08 (R10):** driving `InvokeRewind` against a LIVE RewindPoint id -
+  the one CL-1's own committed tree would produce in-run - is now reachable
+  (`ListHandles kind=rewindpoints` then `rp=${<step>.rp<i>}`, which is exactly RH-1's
+  shape). The two prerequisites above are untouched by that, and so is the
+  `InvokeRewind` x `[expectations.ledger]` rejection.
 - **D5 `chain-continuation-switch` / D18 `committed-interaction-claiming` /
   `chain-tip-original-pid`** are still UNCOVERED. `S0.8`'s measured consume route is
   `standalone` (`parentRecId=<standalone> branchPointId=<none>`), so no chain link is
   created; claiming them would need a fixture whose switch target is a background
   member of the live tree, or a committed spawned vessel.
+  **UPDATED 2026-09-08 (R10): the ADDRESSING half of that is gone.** A lane can now read
+  `ListHandles kind=active` -> `${<step>.bg0pid}` or `kind=committed` ->
+  `${<step>.rec0spawnedPid}` and hand the value to `SimulateStockSwitchClick pid=`, so no
+  spec has to know a pid in advance any more. What still blocks each is the SUBJECT, and
+  they are two different problems. D5 `chain-continuation-switch` and
+  `chain-tip-original-pid` need a background member OF THE LIVE TREE, which only an
+  IN-RUN split creates - a mission that decouples a `ModuleCommand`-bearing child so the
+  `bg-recording` route puts it in `activeTree.BackgroundMap`; a fixture's committed
+  background members are not the live tree's. `committed-interaction-claiming` needs a
+  committed vessel that has REALLY BEEN SPAWNED in-run (a ghost spawn), because
+  `rec<i>spawnedPid` is 0 until then and `rec<i>pid` is the craft-baked id a switch must
+  not be driven against. Both are mission / fixture work, not seam work.
 - **The other 6 stranded TRACKSTATION / MAINMENU categories** (including the 2
   TRACKSTATION-scene `GhostLifecycle` tests named under R8) are now REACHABLE through
   `scene=trackstation`; each still needs its own spec.

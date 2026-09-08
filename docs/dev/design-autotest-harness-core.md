@@ -1100,6 +1100,89 @@ line; first-wins matches the seam's own orchestrator contract), and for each
 expected step compare the observed verdict against `expect`. A step whose observed
 verdict does not equal its `expect` marks the driver stage failed at that step.
 
+### Runtime handles: payload capture and `${step.field}` substitution (R10)
+
+Before R10 the harness read a response line for its verdict only and substituted exactly
+one spec-side token, `${runSave}`. Every seam verb that addresses a live object therefore
+took an id the author had to bake into the TOML, and a live id is a runtime `Guid` or a
+launch-assigned pid. R10 adds the one missing data path, runtime -> spec, in three
+pieces: (a) a per-run CAPTURE STORE of response payloads with a `${step.field}` reference
+grammar substituted into later step lines and into `[driver.missionParams]`; (b) the
+mission library's runtime-computed seam args, so a machine INSIDE a live flight can list
+a handle and act on it; (c) the seam's `ListHandles` verb
+(`design-autotest-command-seam.md`, "#### ListHandles"), the enumeration those references
+read. Every decision is pure in `hlib` / `mlib`; `run.py` and `mission_runner.py` do only
+the file I/O around it.
+
+**The capture store.** After a step's FIRST terminal response line (the first-wins rule
+above) with `verdict=OK`, every payload field except the four envelope keys `id`, `cmd`,
+`verdict`, `seq` is percent-DECODED (`hlib.percent_decode`, the inverse of run.py's
+`encode_value`) and stored under the step's harness id (`0002`) and, when the step
+declares one, its `label`. `ut` and `msg` are captured like any other key (a `${x.ut}`
+is a legitimate `TimeJump` input). A non-OK step captures NOTHING: a refusal's payload is
+diagnostic, not a handle source, and a reference to it is unresolvable by definition.
+The store is per attempt (a retry starts empty) and lives only in `drive_seam`'s
+`DriveResult`; the result record carries what was captured (below).
+
+**The reference grammar.** `${<ref>.<field>}` where `<ref>` is a step `label`
+(`[A-Za-z][A-Za-z0-9_-]*`, unique per spec, not `runSave`) or a harness step id
+(`0001`..), and `<field>` is `[A-Za-z0-9_]+`. References may appear anywhere inside a
+string arg value, several per value, whole or partial; `${runSave}` keeps its own
+meaning and is the only dot-less form. A step declares a label with a top-level `label`
+key (`{ cmd = "ListHandles", label = "handles", args = { kind = "rewindpoints" } }`);
+labels are preferred over numeric ids because step ids are index-derived and an inserted
+step renumbers every later one. Substituted values are re-encoded by `encode_value` on
+write, so an id round-trips byte-exact and a value with spaces is safe.
+
+**Failure semantics: never a literal on the wire.** An unresolved reference is resolved
+in two tiers and neither passes the `${...}` text through:
+
+1. STATIC (`hlib.validate_spec`, before any launch -> `INVALID(spec-invalid)`): a
+   malformed token (unclosed, empty, a dot-less form other than `${runSave}`), a `<ref>`
+   naming no step label / id in this spec, a forward or self reference (the referenced
+   step must be an EARLIER seam step - a mission step has no seam payload), a reference
+   to a step whose `expect` is not `OK`, a duplicate or ill-formed `label`, and a
+   `label` on a mission step. These are the faults a TOML author can make and every one
+   is a boot saved.
+2. RUNTIME (`drive_seam`, at the step -> `INVALID(driver-unresolved-handle)`): the
+   referenced step answered OK but its payload has no such field (`hlib.substitute_step_args`
+   returns the unresolved reference). The step line is NOT written, the KSP process tree is
+   brought down (the same kill path the budget watchdog uses, but recorded under the
+   driver stage, not as `KILLED`), and the driver stage classifies INVALID with the new
+   subkind, NON-retryable (a second boot cannot grow a field the verb does not emit).
+   The result row for the step records the failing reference and reason.
+
+**Observability.** `drive_seam` logs one `Drive` line per capture (`captured id=<id>
+label=<l> fields=<k1,k2,...>`) and one per substitution (`substituted id=<id> arg=<k>
+ref=${...} value=<v>`), and the result record's driver step rows gain two OPTIONAL keys,
+`captured` (the decoded field map) and `substitutions` (a list of `{arg, ref, value}`),
+present only when non-empty so every pre-R10 record stays byte-identical. The mission
+step's row carries `paramSubstitutions` under the same rule. A run's proof that the id
+it acted on IS the id it listed is therefore mechanical: the `substituted ... value=` line
+against the seam's own `exec id=... verdict=OK` payload line and the consumer verb's log
+(`StartInvoke: ... rp=<id>` for the first consumer).
+
+**The mission bridge, both directions.** Harness -> mission: string values in
+`[driver.missionParams]` are substituted from the capture store immediately before
+`spawn_mission`, under the same two tiers (a static fault is spec-invalid; a runtime
+miss is `driver-unresolved-handle` before the spawn). Mission -> handle: `mission_runner`
+already runs an arbitrary verb with args and reads the payload back
+(`_perform_seam_command`, `TelemetrySnapshot.seam_command_payload`), which is the
+generalization the R10 entry asked for; `_perform_seam_commit` is left byte-identical
+because five lanes are live-proven on it. What R10 adds on that side is the RUNTIME-
+COMPUTED half: `mlib.seam_handle_from_payload` (a tag-gated, fail-closed field read) and
+the R1 machine's RESOLVE phase - when `rewindPointId` is absent from the mission params,
+R1 issues `ListHandles kind=rewindpoints`, selects `rp<count-1>` (the newest) or `rp0`
+per its `rewindPointSelect` param, and folds the read id into the `InvokeRewind` args it
+was previously handed statically. With `rewindPointId` set, R1's emitted actions are
+byte-identical to before.
+
+**Fake-KSP coverage.** `_fake_ksp` answers `ListHandles` with a fixed one-member
+enumeration and echoes `rp=` on `InvokeRewind`; `test_run_smoke` drives a captured field
+onto the wire and asserts the command line carries the listed id, drives an unknown
+field to `INVALID(driver-unresolved-handle)` with no later step written, and drives an
+unknown label to `INVALID(spec-invalid)` with zero boots.
+
 ### The unmet-mission tail
 
 On a `kind = "autopilot"` driver the mission-kind step is a handoff: run.py flies

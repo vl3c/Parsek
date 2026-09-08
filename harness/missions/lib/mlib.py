@@ -3186,6 +3186,28 @@ def _seam_payload(snapshot: TelemetrySnapshot, tag: str, key: str) -> str:
     return ""
 
 
+def seam_handle_from_payload(snapshot: TelemetrySnapshot, tag: str, key: str) -> str:
+    """R10, the mission side: one RUNTIME HANDLE read off the terminal response for
+    ``tag`` (a ``ListHandles`` member id, a live pid, a count), or "" when the
+    field is absent or the latest seam result belongs to a DIFFERENT command.
+
+    The public, named twin of ``_seam_payload``, and it carries its own name
+    because a HANDLE read is a different act from a diagnostic read: its value is
+    folded straight into the NEXT command's args, so the tag gate is not a nicety.
+    FAIL-CLOSED for ``_seam_result``'s reason verbatim: without the tag check the
+    PREVIOUS command's payload would still be riding the snapshot when this phase
+    first reads it, and the machine would command an irreversible verb against an
+    id its own enumeration never produced.
+
+    Returns the value RAW - still percent-encoded exactly as it arrived - because
+    ``format_seam_command_line`` passes arg values through verbatim onto a
+    whitespace-delimited wire line, so decoding here would put a literal space (or
+    an ``=``) on the wire for any value carrying one. Use ``decode_seam_value``
+    when the value is for a HUMAN (a give-up message), never when it is for the
+    wire."""
+    return _seam_payload(snapshot, tag, key)
+
+
 def _seam_reject_reason(snapshot: TelemetrySnapshot, tag: str) -> str:
     """Parsek's OWN refusal reason for ``tag``'s response, percent-decoded. "" when
     the response carried no ``msg``.
@@ -7071,6 +7093,12 @@ R1_ASCENT = "ASCENT"
 R1_COMMIT = "COMMIT"
 R1_STOP = "STOP"
 R1_RECORDER_IDLE = "RECORDER-IDLE"
+# R10. Entered from RECORDER-IDLE only when the mission params named NO
+# rewindPointId: the machine lists the live RewindPoints and folds the selected id
+# into the InvokeRewind it was previously handed statically. SKIPPED entirely when
+# rewindPointId IS set, which is what keeps the flown lanes' emitted actions
+# byte-identical.
+R1_RESOLVE = "RESOLVE"
 R1_REWIND = "REWIND"
 R1_VERIFY = "VERIFY"
 R1_REWOUND = "REWOUND"
@@ -7078,8 +7106,8 @@ R1_RELAUNCH = "RELAUNCH"
 R1_LOOP_POINTS = "LOOP-POINTS"
 R1_LOOP_CLOSED = "LOOP-CLOSED"
 R1_PHASES: Tuple[str, ...] = (R1_ASCENT, R1_COMMIT, R1_STOP, R1_RECORDER_IDLE,
-                              R1_REWIND, R1_VERIFY, R1_REWOUND, R1_RELAUNCH,
-                              R1_LOOP_POINTS, R1_LOOP_CLOSED)
+                              R1_RESOLVE, R1_REWIND, R1_VERIFY, R1_REWOUND,
+                              R1_RELAUNCH, R1_LOOP_POINTS, R1_LOOP_CLOSED)
 
 # Per-command tags. Distinct by construction, so the wire ids
 # ("<reserved>.commit" / ".stop" / ".state0" / ".rewind") can never collide --
@@ -7091,6 +7119,25 @@ R1_PHASES: Tuple[str, ...] = (R1_ASCENT, R1_COMMIT, R1_STOP, R1_RECORDER_IDLE,
 R1_TAG_COMMIT = "commit"
 R1_TAG_STOP = "stop"
 R1_TAG_REWIND = "rewind"
+# R10's ListHandles tag. Distinct from every tag above AND from both probe FAMILIES
+# (`state<i>` / `loop<i>`), which is the property that matters: the C# seam skips a
+# duplicate id, so a collision would make the resolve a silent no-op whose poll then
+# expired as a TIMEOUT that looks like a wedged addon. NOT added to
+# SEAM_COMMAND_POLL_SECONDS_BY_VERB: ListHandles is SINGLE-PHASE (a synchronous walk
+# of in-memory state), so the 120 s default window is right and an override would
+# only invent a number.
+R1_TAG_RESOLVE = "resolve-rp"
+
+# `rewindPointSelect` values. `last` is the default because
+# `ParsekScenario.RewindPoints` is in APPEND order, so `rp<count-1>` is the NEWEST
+# point - the one a just-flown ascent would have authored, which is the reason the
+# resolve exists at all. `first` is the stable-oldest pick a fixture-driven lane
+# wants. Closed and case-sensitive: a typo must be a NAMED give-up on frame 1, never
+# a silent fallback to a member the author did not choose.
+R1_REWIND_POINT_SELECT_LAST = "last"
+R1_REWIND_POINT_SELECT_FIRST = "first"
+R1_REWIND_POINT_SELECT_VALUES: Tuple[str, ...] = (R1_REWIND_POINT_SELECT_LAST,
+                                                  R1_REWIND_POINT_SELECT_FIRST)
 
 
 def r1_state_probe_tag(probe: int) -> str:
@@ -7121,11 +7168,27 @@ class R1Params:
     launched without a resolvable rewind target must name that on the FIRST frame
     instead of flying a whole ascent and discovering it at the top."""
     b2: B2Params
-    # The InvokeRewind target. "" / -1 = UNREAD -> the first frame fails closed
-    # with the `rewind-target-unresolved` give-up (never a flown ascent whose
-    # rewind leg was never reachable).
+    # The InvokeRewind target.
+    #
+    # `rewind_slot` keeps its fail-closed UNREAD sentinel (-1): nothing resolves a
+    # slot at runtime, so an unset one can only ever be REJECTED unknown-slot, and
+    # frame 1 says so rather than flying a whole ascent to find out.
+    #
+    # `rewind_point_id` NO LONGER does (R10). An EMPTY id now means RESOLVE AT
+    # RUNTIME: the RESOLVE phase lists the live RewindPoints and selects one per
+    # `rewind_point_select`. That is the whole point of the R10 mission bridge - a
+    # live RewindPoint id is a fresh Guid, so the only correct value for a lane
+    # that did not inject its own fixture is "ask the game".
     rewind_point_id: str = ""
     rewind_slot: int = -1
+    # WHICH member the RESOLVE phase picks out of the enumeration. Read ONLY when
+    # `rewind_point_id` is empty; an out-of-set spelling is a frame-1 give-up.
+    rewind_point_select: str = R1_REWIND_POINT_SELECT_LAST
+    # RESOLVE's frame bound, sized like every other post-ascent phase (see the
+    # section header: a game-time budget cannot bound a phase whose clock may run
+    # backward, and the seam bridge blocks inside perform() anyway, so this only
+    # covers "the action never executed at all").
+    resolve_frames: int = 40
     # FRAME budgets (see the section header: game-time budgets cannot bound a
     # phase whose clock runs backward). The seam bridge BLOCKS inside perform()
     # for the whole poll window, so a terminal token normally lands on the very
@@ -7173,6 +7236,9 @@ def r1_params_from_dict(params: Dict) -> R1Params:
         b2=b2_params_from_dict(params),
         rewind_point_id=str(params.get("rewindPointId", "") or ""),
         rewind_slot=int(params.get("rewindSlot", -1)),
+        rewind_point_select=str(params.get("rewindPointSelect",
+                                           R1_REWIND_POINT_SELECT_LAST) or ""),
+        resolve_frames=int(params.get("resolveFrames", 40)),
         commit_frames=int(params.get("commitFrames", 40)),
         stop_frames=int(params.get("stopFrames", 40)),
         idle_frames=int(params.get("idleFrames", 40)),
@@ -7217,6 +7283,13 @@ class R1State:
     state_probe: int = 0
     recorder_idle_reading: str = ""
     recorder_idle_observed: bool = False
+    # R10 RESOLVE evidence. `resolved_rewind_point_id` is the id READ off the
+    # ListHandles payload ("" = never resolved, which on the params-supplied path
+    # is the normal reading rather than a fault); `resolved_rewind_point_count` is
+    # the `count` the enumeration reported (-1 = never read, the fail-closed
+    # sentinel: a selection is never made from a count the mission could not read).
+    resolved_rewind_point_id: str = ""
+    resolved_rewind_point_count: int = -1
     # ---- LOOP-CLOSING evidence (the SECOND flight) ----
     # Peak altitude gain observed over post_rewind_altitude during RELAUNCH. NaN
     # = never measured (fail-closed: an unread channel grants no flight).
@@ -7319,10 +7392,47 @@ def _r1_parse_int(raw: str) -> Optional[int]:
         return None
 
 
-def _r1_rewind_action(params: R1Params) -> Action:
+def _r1_list_handles_action() -> Action:
+    # R10. SINGLE-PHASE and read-only, so it rides the default seam poll window;
+    # `kind` is REQUIRED and case-sensitive (the seam REJECTS kind-arg-missing).
+    return Action(ACTION_PARSEK_SEAM_COMMAND, seam_verb="ListHandles",
+                  seam_args=(("kind", "rewindpoints"),), seam_tag=R1_TAG_RESOLVE)
+
+
+def r1_effective_rewind_point_id(state: R1State) -> str:
+    """The RewindPoint id this machine will command: the mission param when it
+    named one, else whatever RESOLVE read. "" when neither, which no caller may
+    turn into a command (both paths that reach ``_r1_rewind_action`` have already
+    established a non-empty id)."""
+    if state.params.rewind_point_id:
+        return state.params.rewind_point_id
+    return state.resolved_rewind_point_id
+
+
+def r1_select_rewind_point_key(select: str, count: int) -> str:
+    """The payload KEY the selection names (``rp0`` / ``rp<count-1>``), or "" when
+    the count is unusable or the selection spelling is out of the closed set.
+
+    Pure and separate from the phase so the arithmetic is unit-covered on its own:
+    the off-by-one between "the newest" and "count" is exactly the kind of thing a
+    live flight should not be spent discovering."""
+    if count <= 0:
+        return ""
+    if select == R1_REWIND_POINT_SELECT_FIRST:
+        return "rp0"
+    if select == R1_REWIND_POINT_SELECT_LAST:
+        return "rp%d" % (count - 1)
+    return ""
+
+
+def _r1_rewind_action(params: R1Params, rewind_point_id: Optional[str] = None) -> Action:
+    # ``rewind_point_id`` overrides the param on the R10 RESOLVE path ONLY. When it
+    # is None the emitted Action is BYTE-IDENTICAL to the pre-R10 one, which is what
+    # keeps the flown lanes' action sequences unchanged.
+    rp = params.rewind_point_id if rewind_point_id is None else rewind_point_id
     return Action(
         ACTION_PARSEK_SEAM_COMMAND, seam_verb="InvokeRewind",
-        seam_args=(("rp", str(params.rewind_point_id)),
+        seam_args=(("rp", str(rp)),
                    ("slot", str(int(params.rewind_slot)))),
         seam_tag=R1_TAG_REWIND)
 
@@ -7353,7 +7463,9 @@ def r1_decide(state: R1State, snapshot: TelemetrySnapshot) -> Tuple[R1State, Lis
     # otherwise be spent reaching a leg that was never reachable, and the run
     # would read as an expensive ascent flake instead of a spec fault.
     if state.phase == R1_ASCENT and state.phase_frames == 0:
-        if not state.params.rewind_point_id or state.params.rewind_slot < 0:
+        # THE SLOT still fails closed here: nothing resolves a slot at runtime, so
+        # an unset one can only ever be REJECTED unknown-slot.
+        if state.params.rewind_slot < 0:
             return _r1_flake(
                 state,
                 "phase %s: rewind target unresolved before launch "
@@ -7362,6 +7474,20 @@ def r1_decide(state: R1State, snapshot: TelemetrySnapshot) -> Tuple[R1State, Lis
                 "REJECTED unknown-rp / unknown-slot"
                 % (R1_ASCENT, state.params.rewind_point_id,
                    state.params.rewind_slot)), []
+        # THE ID no longer does (R10): an empty one arms the RESOLVE phase. What
+        # DOES fail closed is an out-of-set `rewindPointSelect`, because on that
+        # path the selection is the only thing standing between the machine and a
+        # RewindPoint the author never chose - and frame 1 is where a params typo
+        # belongs, not the top of a flown ascent.
+        if (not state.params.rewind_point_id
+                and state.params.rewind_point_select not in R1_REWIND_POINT_SELECT_VALUES):
+            return _r1_flake(
+                state,
+                "phase %s: rewindPointId is empty (the RESOLVE path) but "
+                "rewindPointSelect=%r is not one of %s, so no member of the "
+                "ListHandles enumeration could be chosen"
+                % (R1_ASCENT, state.params.rewind_point_select,
+                   list(R1_REWIND_POINT_SELECT_VALUES))), []
 
     state = replace(state, phase_frames=state.phase_frames + 1)
 
@@ -7469,6 +7595,14 @@ def r1_decide(state: R1State, snapshot: TelemetrySnapshot) -> Tuple[R1State, Lis
                              pre_rewind_altitude=snapshot.altitude,
                              pre_rewind_situation=snapshot.situation or "",
                              pre_rewind_body=snapshot.body or "")
+                # R10: with NO rewindPointId in the params, list the live
+                # RewindPoints first and command the rewind from what came back.
+                # The pre-rewind stamp above is taken HERE either way, which keeps
+                # VERIFY's "before" the tightest observation available and leaves
+                # the params-supplied path's actions byte-identical.
+                if not state.params.rewind_point_id:
+                    return (_r1_enter(st, R1_RESOLVE, snapshot.ut),
+                            [_r1_list_handles_action()])
                 return (_r1_enter(st, R1_REWIND, snapshot.ut),
                         [_r1_rewind_action(state.params)])
             if reading == "true":
@@ -7510,6 +7644,62 @@ def r1_decide(state: R1State, snapshot: TelemetrySnapshot) -> Tuple[R1State, Lis
                 "%d frames" % (R1_RECORDER_IDLE, state.params.idle_frames)), []
         return state, []
 
+    if state.phase == R1_RESOLVE:
+        # R10. The ONE place a mission machine reads a live handle and acts on it.
+        # Every give-up here is DISTINCTLY NAMED: a bare timeout would say "the
+        # rewind never happened" while hiding which of the four ways the resolve
+        # can fail actually fired, and the fix for each is different.
+        result = _r1_seam_result(snapshot, R1_TAG_RESOLVE)
+        if result == "OK":
+            raw_count = seam_handle_from_payload(snapshot, R1_TAG_RESOLVE, "count")
+            count = _r1_parse_int(raw_count)
+            if count is None:
+                return _r1_flake(
+                    state,
+                    "phase %s: the ListHandles reply carried no readable `count` "
+                    "field (read %r), so no member could be selected; refusing to "
+                    "command InvokeRewind against a guessed id"
+                    % (R1_RESOLVE, raw_count)), []
+            if count <= 0:
+                return _r1_flake(
+                    replace(state, resolved_rewind_point_count=count),
+                    "phase %s: ListHandles enumerated count=%d RewindPoints, so "
+                    "this save has NOTHING to rewind to. The ascent authors one "
+                    "only on a MULTI-CONTROLLABLE split "
+                    "(SegmentBoundaryLogic.IsMultiControllableSplit), which an "
+                    "ordinary staged ascent does not perform"
+                    % (R1_RESOLVE, count)), []
+            key = r1_select_rewind_point_key(state.params.rewind_point_select, count)
+            resolved = seam_handle_from_payload(snapshot, R1_TAG_RESOLVE, key) if key else ""
+            if not resolved:
+                return _r1_flake(
+                    replace(state, resolved_rewind_point_count=count),
+                    "phase %s: ListHandles reported count=%d but its payload "
+                    "carried no readable %r field for rewindPointSelect=%r, so "
+                    "the enumeration and its own count disagree"
+                    % (R1_RESOLVE, count, key or "<no key>",
+                       state.params.rewind_point_select)), []
+            st = replace(state, resolved_rewind_point_id=resolved,
+                         resolved_rewind_point_count=count)
+            return (_r1_enter(st, R1_REWIND, snapshot.ut),
+                    [_r1_rewind_action(st.params, rewind_point_id=resolved)])
+        if result in ("ERROR", "TIMEOUT"):
+            return _r1_flake(
+                state,
+                "phase %s: the ListHandles seam command returned %s (%s); the "
+                "live RewindPoint id could not be read, and InvokeRewind matches "
+                "that id EXACTLY"
+                % (R1_RESOLVE, result,
+                   _r1_because(_r1_reject_reason(snapshot, R1_TAG_RESOLVE)))), []
+        if state.phase_frames > state.params.resolve_frames:
+            return _r1_flake(
+                state,
+                "phase %s: the ListHandles seam command never answered within %d "
+                "frames (no terminal token rode a snapshot; the seam bridge may "
+                "not be configured for this mission)"
+                % (R1_RESOLVE, state.params.resolve_frames)), []
+        return state, []
+
     if state.phase == R1_REWIND:
         result = _r1_seam_result(snapshot, R1_TAG_REWIND)
         if result == "OK":
@@ -7525,7 +7715,7 @@ def r1_decide(state: R1State, snapshot: TelemetrySnapshot) -> Tuple[R1State, Lis
                 replace(state, rewind_result=result, rewind_reject_reason=reason),
                 "phase %s: the InvokeRewind seam command returned %s for "
                 "rp=%s slot=%d; %s"
-                % (R1_REWIND, result, state.params.rewind_point_id,
+                % (R1_REWIND, result, r1_effective_rewind_point_id(state),
                    state.params.rewind_slot, _r1_because(reason))), []
         if state.phase_frames > state.params.rewind_frames:
             return _r1_flake(
@@ -7775,7 +7965,10 @@ def evaluate_r1_assertions(frames, params: R1Params,
     seam = AssertionOutcome(
         "rewindSeamAccepted", seam_met, (rewind_result or None),
         {"required": R1_VERIFY, "seamVerb": "InvokeRewind",
-         "rewindPointId": params.rewind_point_id or None,
+         # The EFFECTIVE id, so an R10 RESOLVE run's result JSON names the id the
+         # machine actually commanded rather than the empty param it started from.
+         "rewindPointId": r1_effective_rewind_point_id(st) or None,
+         "rewindPointResolved": str(getattr(st, "resolved_rewind_point_id", "") or "") or None,
          "rewindSlot": params.rewind_slot,
          # Parsek's OWN refusal reason when it declined, so the result JSON names
          # the cause instead of leaving it to the log.

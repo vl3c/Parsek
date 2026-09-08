@@ -49,6 +49,7 @@ namespace Parsek.Tests
             public void SealSlot(ParsedCommand cmd) => Calls.Add("SealSlot");
             public void RouteCommand(ParsedCommand cmd) => Calls.Add("RouteCommand");
             public void DeleteRecording(ParsedCommand cmd) => Calls.Add("DeleteRecording");
+            public void ListHandles(ParsedCommand cmd) => Calls.Add("ListHandles");
         }
 
         [Fact]
@@ -121,6 +122,13 @@ namespace Parsek.Tests
         // a save-scoped store only, and the lane it exists for deletes AT THE KSC with
         // KSC ghosts alive - a RequiresFlight row would defer there to its budget.
         [InlineData("DeleteRecording", "RequiresGameLoaded")]
+        // ListHandles: RequiresGameLoaded, deliberately NOT AnyScene like its read-only
+        // siblings RecordingState / ExportRenderManifest. Two of its three families walk
+        // save-scoped state, so at the main menu an AnyScene row would answer an
+        // honest-looking empty list and a spec would read that as "there are none". Not
+        // RequiresFlight either: the active family answers with an empty tree outside a
+        // live FLIGHT rather than deferring.
+        [InlineData("ListHandles", "RequiresGameLoaded")]
         public void RequirementFor_MatchesTable(string verb, string expected)
         {
             Assert.Equal(expected, TestCommandDispatcher.RequirementFor(verb).ToString());
@@ -162,6 +170,7 @@ namespace Parsek.Tests
             fake.SealSlot(cmd);
             fake.RouteCommand(cmd);
             fake.DeleteRecording(cmd);
+            fake.ListHandles(cmd);
 
             // One interface method per implemented v1 verb, no more, no less.
             var interfaceMethods = typeof(ITestCommandExecutor).GetMethods();

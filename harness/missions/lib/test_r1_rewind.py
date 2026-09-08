@@ -267,23 +267,48 @@ class SeamCommandAdditivityTests(unittest.TestCase):
 
 class R1PreflightGuardTests(unittest.TestCase):
     """MUTATION: delete the frame-1 rewind-target check in r1_decide and
-    UnsetRewindPointFlakesOnFrameOne / UnsetSlotFlakesOnFrameOne red -- the real
-    defect being a full ascent flown to reach a leg that InvokeRewind could only
-    ever answer REJECTED unknown-rp."""
+    UnsetSlotFlakesOnFrameOne / BadSelectFlakesOnFrameOne red -- the real defect
+    being a full ascent flown to reach a leg that InvokeRewind could only ever
+    answer REJECTED unknown-slot, or a resolve whose selection can never pick.
 
-    def test_unset_rewind_point_flakes_on_frame_one(self):
+    R10 MOVED ONE HALF OF THIS GUARD. An empty ``rewindPointId`` used to be the
+    canonical unresolved target and flaked here; it is now the RESOLVE trigger (a
+    live RewindPoint id is a fresh Guid, so "ask the game" is the only correct
+    value for a lane that injected no fixture). The SLOT still fails closed --
+    nothing resolves a slot at runtime -- and the frame-1 fault on the resolve path
+    is an out-of-set ``rewindPointSelect``."""
+
+    def test_unset_rewind_point_arms_the_resolve_instead_of_flaking(self):
+        # The R10 contract, asserted as the ABSENCE of the old give-up: an empty
+        # id must fly the ascent and reach RESOLVE, not die on frame 1.
         st = mlib.r1_initial_state(r1_params(rewindPointId=""))
+        out, _actions = mlib.r1_decide(st, snap(ut=100.0))
+        self.assertFalse(out.done)
+        self.assertEqual(out.phase, mlib.R1_ASCENT)
+
+    def test_unset_slot_flakes_on_frame_one(self):
+        st = mlib.r1_initial_state(r1_params(rewindSlot=-1))
         out, actions = mlib.r1_decide(st, snap(ut=100.0))
         self.assertTrue(out.done)
         self.assertEqual(out.verdict, mlib.MISSION_FLAKE)
         self.assertIn("rewind target unresolved", out.flake_reason)
         self.assertEqual(actions, [])
 
-    def test_unset_slot_flakes_on_frame_one(self):
-        st = mlib.r1_initial_state(r1_params(rewindSlot=-1))
-        out, _ = mlib.r1_decide(st, snap(ut=100.0))
+    def test_a_bad_select_on_the_resolve_path_flakes_on_frame_one(self):
+        st = mlib.r1_initial_state(
+            r1_params(rewindPointId="", rewindPointSelect="newest"))
+        out, actions = mlib.r1_decide(st, snap(ut=100.0))
         self.assertTrue(out.done)
         self.assertEqual(out.verdict, mlib.MISSION_FLAKE)
+        self.assertIn("rewindPointSelect", out.flake_reason)
+        self.assertEqual(actions, [])
+
+    def test_a_bad_select_is_inert_when_the_id_is_supplied(self):
+        # The selection is READ only on the resolve path, so an unused typo must
+        # not fail a lane whose target was named outright.
+        st = mlib.r1_initial_state(r1_params(rewindPointSelect="newest"))
+        out, _ = mlib.r1_decide(st, snap(ut=100.0))
+        self.assertFalse(out.done)
 
     def test_resolved_target_does_not_trip_the_guard(self):
         st = mlib.r1_initial_state(r1_params())
@@ -770,7 +795,11 @@ class R1AssertionTests(unittest.TestCase):
                                  "%s.%s is non-finite" % (row.name, key))
 
     def test_flake_reason_reaches_the_mission_verdict(self):
-        params = r1_params(rewindPointId="")
+        # The frame-1 give-up this drives is now the SLOT half of the preflight
+        # guard: since R10 an empty rewindPointId arms the RESOLVE phase instead
+        # of flaking (see R1PreflightGuardTests). The property under test - a
+        # frame-1 flake reason reaching the mission verdict verbatim - is unchanged.
+        params = r1_params(rewindSlot=-1)
         st = mlib.r1_initial_state(params)
         st, _ = mlib.r1_decide(st, snap(ut=100.0))
         verdict, reason = mlib.resolve_flight_verdict(
@@ -1109,6 +1138,284 @@ class R1ParamsTests(unittest.TestCase):
         self.assertEqual(p.rewind_point_id, "")
         self.assertEqual(p.rewind_slot, -1)
 
+
+
+# ---------------------------------------------------------------------------
+# R10 RESOLVE: the mission side of the runtime-handle path.
+# ---------------------------------------------------------------------------
+
+# The ListHandles payload a live rewindpoints enumeration produces, keyed exactly
+# as design-autotest-command-seam.md's "#### ListHandles" grammar spells it.
+RESOLVE_PAYLOAD_3 = (("kind", "rewindpoints"), ("count", "3"),
+                     ("truncated", "false"),
+                     ("rp0", "rp_aaaa"), ("rp0ut", "382.7"),
+                     ("rp1", "rp_bbbb"), ("rp1ut", "693.3"),
+                     ("rp2", "rp_cccc"), ("rp2ut", "8950.6"))
+
+
+def drive_to_resolve(pre_ut=912.0, **over):
+    """The RESOLVE path: no rewindPointId in the params, so probe 0 reading
+    recording=false parks the machine in RESOLVE with ListHandles emitted."""
+    over.setdefault("rewindPointId", "")
+    st = drive_to_idle(**over)
+    st, actions = mlib.r1_decide(
+        st, seam(mlib.r1_state_probe_tag(0), payload=(("recording", "false"),),
+                 ut=pre_ut, altitude=80500.0, situation="ORBITING", body="Kerbin"))
+    assert st.phase == mlib.R1_RESOLVE, st.phase
+    return st, actions
+
+
+class R1SeamHandleReadTests(unittest.TestCase):
+    """seam_handle_from_payload: the tag-gated, fail-closed handle read.
+
+    MUTATION: drop the tag check (return the payload regardless of tag) and
+    ReadsNothingFromAnotherCommandsPayload reds -- the real defect being a machine
+    commanding an IRREVERSIBLE rewind against an id the PREVIOUS command answered
+    with, which is the stale-result fail-open the whole seam contract exists to
+    prevent."""
+
+    def test_reads_a_field_of_its_own_commands_payload(self):
+        s = seam(mlib.R1_TAG_RESOLVE, payload=RESOLVE_PAYLOAD_3)
+        self.assertEqual("rp_aaaa",
+                         mlib.seam_handle_from_payload(s, mlib.R1_TAG_RESOLVE, "rp0"))
+        self.assertEqual("3",
+                         mlib.seam_handle_from_payload(s, mlib.R1_TAG_RESOLVE, "count"))
+
+    def test_reads_nothing_from_another_commands_payload(self):
+        s = seam(mlib.R1_TAG_REWIND, payload=RESOLVE_PAYLOAD_3)
+        self.assertEqual("",
+                         mlib.seam_handle_from_payload(s, mlib.R1_TAG_RESOLVE, "rp0"))
+
+    def test_an_absent_field_reads_empty(self):
+        s = seam(mlib.R1_TAG_RESOLVE, payload=RESOLVE_PAYLOAD_3)
+        self.assertEqual("",
+                         mlib.seam_handle_from_payload(s, mlib.R1_TAG_RESOLVE, "rp9"))
+
+    def test_the_value_is_returned_raw_for_the_wire(self):
+        # NOT decoded: format_seam_command_line passes arg values through verbatim
+        # onto a whitespace-delimited line, so decoding here would break the token.
+        s = seam(mlib.R1_TAG_RESOLVE, payload=(("rec0name", "Kerbal%20X"),))
+        self.assertEqual("Kerbal%20X",
+                         mlib.seam_handle_from_payload(s, mlib.R1_TAG_RESOLVE, "rec0name"))
+
+
+class R1SelectRewindPointKeyTests(unittest.TestCase):
+    """The selection arithmetic, on its own so the off-by-one is never discovered
+    on a flight. MUTATION: change `count - 1` to `count` and
+    LastSelectsTheNewest reds."""
+
+    def test_last_selects_the_newest(self):
+        # RewindPoints are in APPEND order, so rp<count-1> is the newest.
+        self.assertEqual("rp2", mlib.r1_select_rewind_point_key("last", 3))
+        self.assertEqual("rp0", mlib.r1_select_rewind_point_key("last", 1))
+
+    def test_first_selects_the_oldest(self):
+        self.assertEqual("rp0", mlib.r1_select_rewind_point_key("first", 3))
+
+    def test_an_unusable_count_or_selection_selects_nothing(self):
+        for select, count in (("last", 0), ("last", -1), ("first", 0),
+                              ("newest", 3), ("", 3)):
+            with self.subTest(select=select, count=count):
+                self.assertEqual("", mlib.r1_select_rewind_point_key(select, count))
+
+
+class R1ResolvePhaseTests(unittest.TestCase):
+    """The RESOLVE phase itself.
+
+    MUTATION: make RESOLVE advance on the seam token alone (skip the count / key
+    read) and ACountOfZeroIsANamedGiveUp / AnUnreadableCountIsANamedGiveUp red --
+    the real defect being an InvokeRewind commanded against an EMPTY id, which the
+    seam answers REJECTED unknown-rp after the whole ascent has been flown."""
+
+    def test_the_resolve_is_entered_only_when_no_id_was_supplied(self):
+        st, actions = drive_to_resolve()
+        self.assertEqual(mlib.R1_RESOLVE, st.phase)
+        self.assertEqual(
+            [Action(mlib.ACTION_PARSEK_SEAM_COMMAND, seam_verb="ListHandles",
+                    seam_args=(("kind", "rewindpoints"),),
+                    seam_tag=mlib.R1_TAG_RESOLVE)],
+            actions)
+
+    def test_a_supplied_id_skips_the_resolve_entirely(self):
+        st = drive_to_rewind()
+        self.assertEqual(mlib.R1_REWIND, st.phase)
+        self.assertNotIn(mlib.R1_RESOLVE, st.phases_reached)
+
+    def test_last_folds_the_newest_id_into_the_rewind(self):
+        st, _ = drive_to_resolve()
+        st, actions = mlib.r1_decide(
+            st, seam(mlib.R1_TAG_RESOLVE, payload=RESOLVE_PAYLOAD_3, ut=912.5))
+        self.assertEqual(mlib.R1_REWIND, st.phase)
+        self.assertEqual("rp_cccc", st.resolved_rewind_point_id)
+        self.assertEqual(3, st.resolved_rewind_point_count)
+        self.assertEqual(
+            [Action(mlib.ACTION_PARSEK_SEAM_COMMAND, seam_verb="InvokeRewind",
+                    seam_args=(("rp", "rp_cccc"), ("slot", "1")),
+                    seam_tag=mlib.R1_TAG_REWIND)],
+            actions)
+
+    def test_first_folds_the_oldest_id_into_the_rewind(self):
+        st, _ = drive_to_resolve(rewindPointSelect="first")
+        st, actions = mlib.r1_decide(
+            st, seam(mlib.R1_TAG_RESOLVE, payload=RESOLVE_PAYLOAD_3, ut=912.5))
+        self.assertEqual("rp_aaaa", st.resolved_rewind_point_id)
+        self.assertEqual(("rp", "rp_aaaa"), actions[0].seam_args[0])
+
+    def test_a_count_of_zero_is_a_named_give_up(self):
+        st, _ = drive_to_resolve()
+        st, actions = mlib.r1_decide(
+            st, seam(mlib.R1_TAG_RESOLVE,
+                     payload=(("kind", "rewindpoints"), ("count", "0"),
+                              ("truncated", "false")), ut=912.5))
+        self.assertTrue(st.done)
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+        self.assertIn("count=0", st.flake_reason)
+        self.assertIn("MULTI-CONTROLLABLE", st.flake_reason)
+        self.assertEqual([], actions)
+
+    def test_an_unreadable_count_is_a_named_give_up(self):
+        st, _ = drive_to_resolve()
+        st, _ = mlib.r1_decide(
+            st, seam(mlib.R1_TAG_RESOLVE,
+                     payload=(("kind", "rewindpoints"),), ut=912.5))
+        self.assertTrue(st.done)
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+        self.assertIn("no readable `count`", st.flake_reason)
+
+    def test_a_count_that_disagrees_with_the_payload_is_a_named_give_up(self):
+        # count=5 with only rp0..rp2 present: the enumeration and its own count
+        # disagree, and a guessed id is never commanded.
+        st, _ = drive_to_resolve()
+        st, _ = mlib.r1_decide(
+            st, seam(mlib.R1_TAG_RESOLVE,
+                     payload=(("count", "5"),) + RESOLVE_PAYLOAD_3[3:], ut=912.5))
+        self.assertTrue(st.done)
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+        self.assertIn("disagree", st.flake_reason)
+
+    def test_a_refused_resolve_quotes_parseks_own_reason(self):
+        st, _ = drive_to_resolve()
+        st, _ = mlib.r1_decide(
+            st, seam(mlib.R1_TAG_RESOLVE, result="ERROR",
+                     payload=(("msg", "kind-arg-missing"),), ut=912.5))
+        self.assertTrue(st.done)
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+        self.assertIn("Parsek's reason: kind-arg-missing", st.flake_reason)
+
+    def test_a_silent_resolve_gives_up_by_frame_count(self):
+        st, _ = drive_to_resolve()
+        for _ in range(st.params.resolve_frames + 2):
+            st, _ = mlib.r1_decide(st, snap(ut=913.0))
+            if st.done:
+                break
+        self.assertTrue(st.done)
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+        self.assertIn("never answered", st.flake_reason)
+
+    def test_the_resolve_tag_collides_with_no_other_r1_tag(self):
+        # The C# seam SKIPS duplicate ids, so a collision would make the resolve a
+        # silent no-op whose poll then expired as a TIMEOUT.
+        tags = {mlib.R1_TAG_COMMIT, mlib.R1_TAG_STOP, mlib.R1_TAG_REWIND,
+                mlib.R1_TAG_RESOLVE}
+        self.assertEqual(4, len(tags))
+        for probe in range(4):
+            self.assertNotIn(mlib.r1_state_probe_tag(probe), tags)
+            self.assertNotIn(mlib.r1_loop_probe_tag(probe), tags)
+
+    def test_the_effective_id_is_the_param_then_the_resolved_one(self):
+        st = drive_to_rewind()
+        self.assertEqual("rp_b9_root", mlib.r1_effective_rewind_point_id(st))
+        st, _ = drive_to_resolve()
+        self.assertEqual("", mlib.r1_effective_rewind_point_id(st))
+        st, _ = mlib.r1_decide(
+            st, seam(mlib.R1_TAG_RESOLVE, payload=RESOLVE_PAYLOAD_3, ut=912.5))
+        self.assertEqual("rp_cccc", mlib.r1_effective_rewind_point_id(st))
+
+
+class R1ResolveByteIdenticalRegressionTests(unittest.TestCase):
+    """THE REGRESSION THIS WAVE MUST NOT CAUSE: with rewindPointId SET, R1's
+    emitted actions are byte-identical to what they were before R10.
+
+    MUTATION: make RECORDER-IDLE always route through RESOLVE (drop the
+    `if not rewind_point_id` gate) and this reds -- the real defect being an extra
+    ListHandles command on three live-proven lanes (R1 / V1 and the CL-3 sibling
+    shape), each of which would consume a wire id and a phase the specs' pinned
+    logs do not carry."""
+
+    def _sequence(self, **over):
+        """Every action the machine emits from ORBIT to the terminal, as one flat
+        list, driving the SAME frames on both paths except for the resolve reply."""
+        st = at_orbit(mlib.r1_initial_state(r1_params(**over)))
+        emitted = []
+        frames = [
+            snap(ut=900.0),                                             # -> COMMIT
+            seam(mlib.R1_TAG_COMMIT, ut=910.0),                         # -> STOP
+            seam(mlib.R1_TAG_STOP, ut=911.0),                           # -> IDLE
+            seam(mlib.r1_state_probe_tag(0), payload=(("recording", "false"),),
+                 ut=912.0, altitude=80500.0, situation="ORBITING", body="Kerbin"),
+        ]
+        for frame in frames:
+            st, actions = mlib.r1_decide(st, frame)
+            emitted.extend(actions)
+        return st, emitted
+
+    def test_the_supplied_id_path_emits_the_pre_r10_sequence(self):
+        st, emitted = self._sequence()
+        self.assertEqual(mlib.R1_REWIND, st.phase)
+        self.assertEqual(
+            [Action(mlib.ACTION_PARSEK_SEAM_COMMAND, seam_verb="CommitTree",
+                    seam_args=(), seam_tag=mlib.R1_TAG_COMMIT),
+             Action(mlib.ACTION_PARSEK_SEAM_COMMAND, seam_verb="StopRecording",
+                    seam_args=(), seam_tag=mlib.R1_TAG_STOP),
+             Action(mlib.ACTION_PARSEK_SEAM_COMMAND, seam_verb="RecordingState",
+                    seam_args=(), seam_tag=mlib.r1_state_probe_tag(0)),
+             Action(mlib.ACTION_PARSEK_SEAM_COMMAND, seam_verb="InvokeRewind",
+                    seam_args=(("rp", "rp_b9_root"), ("slot", "1")),
+                    seam_tag=mlib.R1_TAG_REWIND)],
+            emitted)
+
+    def test_the_two_paths_differ_by_exactly_the_resolve(self):
+        _st_a, supplied = self._sequence()
+        st_b, resolved = self._sequence(rewindPointId="")
+        # Up to the point of divergence the two are the SAME objects.
+        self.assertEqual(supplied[:3], resolved[:3])
+        # The resolve path stops one action short (it is parked in RESOLVE waiting
+        # for the enumeration) and its next action is the ListHandles.
+        self.assertEqual(mlib.R1_RESOLVE, st_b.phase)
+        self.assertEqual(
+            Action(mlib.ACTION_PARSEK_SEAM_COMMAND, seam_verb="ListHandles",
+                   seam_args=(("kind", "rewindpoints"),),
+                   seam_tag=mlib.R1_TAG_RESOLVE),
+            resolved[3])
+        # ... and the rewind it then emits differs from the supplied path's ONLY
+        # in the rp value, which is the whole content of this feature.
+        st_b, actions = mlib.r1_decide(
+            st_b, seam(mlib.R1_TAG_RESOLVE, payload=RESOLVE_PAYLOAD_3, ut=912.5))
+        self.assertEqual(supplied[3].seam_verb, actions[0].seam_verb)
+        self.assertEqual(supplied[3].seam_tag, actions[0].seam_tag)
+        self.assertEqual(supplied[3].seam_args[1], actions[0].seam_args[1])
+        self.assertNotEqual(supplied[3].seam_args[0], actions[0].seam_args[0])
+
+    def test_the_resolve_phase_is_absent_from_a_supplied_id_run(self):
+        st = drive_to_loop_closed()
+        self.assertNotIn(mlib.R1_RESOLVE, st.phases_reached)
+        self.assertEqual("", st.resolved_rewind_point_id)
+        self.assertEqual(-1, st.resolved_rewind_point_count)
+
+
+class R1ResolveParamTests(unittest.TestCase):
+    """The param surface. MUTATION: default rewindPointSelect to "first" and
+    TheDefaultSelectionIsTheNewest reds -- the newest is the point a just-flown
+    ascent authored, which is the only one the resolve exists to reach."""
+
+    def test_the_default_selection_is_the_newest(self):
+        p = mlib.r1_params_from_dict({})
+        self.assertEqual(mlib.R1_REWIND_POINT_SELECT_LAST, p.rewind_point_select)
+        self.assertEqual(40, p.resolve_frames)
+
+    def test_the_selection_is_read_verbatim(self):
+        p = mlib.r1_params_from_dict({"rewindPointSelect": "first"})
+        self.assertEqual("first", p.rewind_point_select)
 
 if __name__ == "__main__":
     unittest.main()

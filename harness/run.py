@@ -1143,6 +1143,19 @@ def _response_has_terminal(lines: Sequence[str], step_id: str) -> Optional[str]:
     return None
 
 
+def _first_terminal_fields(lines: Sequence[str], step_id: str) -> Optional[Dict[str, str]]:
+    """The FIRST terminal response line for ``step_id`` as a parsed field map, or
+    None. First-wins for evaluate_response_stream's reason verbatim: an M-A2
+    crash-recovery rewrite re-emits a byte-equivalent line, so the first is what
+    the seam's own orchestrator treats as authoritative -- and the R10 capture
+    store must read the SAME line the verdict was taken from."""
+    for line in lines:
+        parsed = hlib._parse_response_line(line)
+        if parsed is not None and parsed.get("id") == step_id:
+            return parsed
+    return None
+
+
 class DriveResult:
     def __init__(self):
         self.steps_with_ids: List[Dict] = []
@@ -1172,6 +1185,13 @@ class DriveResult:
         # (both have an empty skipped list), and the opt-out would live only in the
         # harness log.
         self.tail_skip_opted_out = False
+        # R10: the reference that could NOT be resolved at its step / at the mission
+        # spawn ({"id", "ref", "reason"}), or None. Set INSTEAD of `killed`: the KSP
+        # tree is brought down through the same kill path, but the attempt is recorded
+        # under the DRIVER stage (INVALID driver-unresolved-handle, non-retryable), not
+        # as a watchdog KILLED -- a KILLED would outrank the driver subkind in
+        # classify_verdict and mask the actual fault.
+        self.unresolved_handle: Optional[Dict[str, str]] = None
         # HARNESS-MIDMISSION-COMMIT-BYPASS: what the mission subprocess wrote into the
         # seam channel on its own account (route 1). REPORT-ONLY -- see hlib's section
         # comment. None on every seam-only driver and on any run whose channel could not
@@ -1286,7 +1306,8 @@ def _drive_mission_step(result: DriveResult, step: Dict, step_id: str, step_inde
                         proc, runtime: Runtime, logger: HarnessLogger,
                         run_budget: float, run_start: float,
                         mission_ctx: Optional[MissionContext], run_id: Optional[str],
-                        preceding_load_ok: bool = True) -> bool:
+                        preceding_load_ok: bool = True,
+                        capture_store: Optional[Dict[str, Dict[str, str]]] = None) -> bool:
     """Drive the one mission-kind step (design "The handoff" steps 2-4). Records the
     mission step row on ``result.mission_step`` and returns True IFF the RUN budget
     expired mid-mission (mission killed FIRST, then the KSP tree -> KILLED). A
@@ -1345,7 +1366,32 @@ def _drive_mission_step(result: DriveResult, step: Dict, step_id: str, step_inde
         except OSError:
             pass
 
-    params_json = json.dumps(mission_ctx.mission_params, sort_keys=True)
+    # R10 harness -> mission bridge: resolve ${step.field} in the mission params
+    # IMMEDIATELY before the spawn, so a param can carry a live id a pre-mission seam
+    # step listed. Same two tiers as a step arg -- a spec-authorable fault was already
+    # refused by validate_spec, so anything left here is the runtime miss.
+    mission_params, param_subs, param_unresolved = hlib.substitute_mission_params(
+        mission_ctx.mission_params, capture_store)
+    for sub in param_subs:
+        logger.info("Mission", "substituted id=%s arg=%s ref=%s value=%s"
+                    % (step_id, sub["arg"], sub["ref"], sub["value"]))
+    if param_unresolved:
+        miss = param_unresolved[0]
+        result.unresolved_handle = {"id": step_id, "ref": miss["ref"],
+                                    "reason": miss["reason"]}
+        result.mission_step = {"id": step_id, "phase": "mission", "expect": expect,
+                               "missionVerdict": None, "met": False,
+                               "subkind": hlib.DRIVER_UNRESOLVED_HANDLE_SUBKIND,
+                               "unresolvedHandle": dict(miss)}
+        logger.warn("Mission",
+                    "unresolved handle in missionParams.%s ref=%s: %s; NO subprocess "
+                    "spawned -> INVALID %s (non-retryable)"
+                    % (miss["arg"], miss["ref"], miss["reason"],
+                       hlib.DRIVER_UNRESOLVED_HANDLE_SUBKIND))
+        result.killed_pids = runtime.kill_tree(proc)
+        logger.info("Mission", "kill complete pids=%s" % result.killed_pids)
+        return True
+    params_json = json.dumps(mission_params, sort_keys=True)
     args = ["--params", params_json,
             "--rpc-host", DEFAULT_RPC_HOST,
             "--rpc-port", str(DEFAULT_RPC_PORT),
@@ -1446,6 +1492,10 @@ def _drive_mission_step(result: DriveResult, step: Dict, step_id: str, step_inde
                            "missionVerdict": verdict, "met": met, "subkind": subkind or ""}
     if expiry_reason:
         result.mission_step["reason"] = expiry_reason
+    # R10: emitted only when the mission params actually carried a reference, so a
+    # pre-R10 autopilot run's mission row is byte-identical.
+    if param_subs:
+        result.mission_step["paramSubstitutions"] = list(param_subs)
     # G6: carry the mission's own wall span up to the harness result so the
     # harness-vs-mission residue is a subtraction, not an investigation.
     result.mission_wall_seconds = _read_mission_wall_seconds(result_path)
@@ -1508,6 +1558,10 @@ def drive_seam(spec: Dict, instance_dir: str, run_save_name: str, proc,
     run_start = runtime.now()
     any_response_seen = False
     skip_tail = hlib.spec_skips_tail_on_unmet_mission(spec)
+    # R10 capture store, keyed by BOTH the step's harness id and (when declared) its
+    # label. Per ATTEMPT by construction -- it is a local of this function and a retry
+    # calls it again -- which is the design's rule: a retry's captures are its own.
+    capture_store: Dict[str, Dict[str, str]] = {}
     tail_plan: Optional[hlib.UnmetTailPlan] = None
 
     for i, step in enumerate(steps):
@@ -1520,7 +1574,8 @@ def drive_seam(spec: Dict, instance_dir: str, run_save_name: str, proc,
             load_ok = _preceding_loadgame_ok(steps, i, responses_path)
             killed = _drive_mission_step(result, step, step_id, i, proc, runtime,
                                          logger, run_budget, run_start, mission_ctx, run_id,
-                                         preceding_load_ok=load_ok)
+                                         preceding_load_ok=load_ok,
+                                         capture_store=capture_store)
             if killed:
                 return result
             if result.mission_step is not None and not result.mission_step.get("met"):
@@ -1550,6 +1605,34 @@ def drive_seam(spec: Dict, instance_dir: str, run_save_name: str, proc,
                 args[k] = run_save_name
         record_step = {"id": step_id, "cmd": verb, "expect": step.get("expect", "OK")}
         result.steps_with_ids.append(record_step)
+
+        # R10 substitution, AFTER ${runSave} (which keeps its own meaning and is the
+        # only dot-less form, so the two can never contend for the same token). A
+        # substituted value is re-encoded by format_command_line below, so a captured
+        # id round-trips byte-exact and a value with spaces stays one wire token.
+        args, substitutions, unresolved = hlib.substitute_step_args(args, capture_store)
+        for sub in substitutions:
+            logger.info("Drive", "substituted id=%s arg=%s ref=%s value=%s"
+                        % (step_id, sub["arg"], sub["ref"], sub["value"]))
+        if substitutions:
+            record_step["substitutions"] = list(substitutions)
+        if unresolved:
+            # NEVER a literal ${...} on the wire: the line is not written at all. The
+            # process tree comes down through the watchdog's own kill path, but
+            # `result.killed` stays FALSE -- KILLED outranks driver-INVALID in
+            # classify_verdict and would mask the reference that actually failed.
+            miss = unresolved[0]
+            record_step["unresolvedHandle"] = dict(miss)
+            result.unresolved_handle = {"id": step_id, "ref": miss["ref"],
+                                        "reason": miss["reason"]}
+            logger.warn("Drive",
+                        "unresolved handle at step=%d id=%s cmd=%s arg=%s ref=%s: %s; "
+                        "the command line is NOT written -> INVALID %s (non-retryable)"
+                        % (i, step_id, verb, miss["arg"], miss["ref"], miss["reason"],
+                           hlib.DRIVER_UNRESOLVED_HANDLE_SUBKIND))
+            result.killed_pids = runtime.kill_tree(proc)
+            logger.info("Drive", "kill complete pids=%s" % result.killed_pids)
+            return result
 
         line = format_command_line(step_id, verb, args)
         with open(commands_path, "a", encoding="utf-8") as fh:
@@ -1603,6 +1686,23 @@ def drive_seam(spec: Dict, instance_dir: str, run_save_name: str, proc,
             if verdict is not None:
                 logger.info("Drive", "drive resp id=%s verdict=%s met=%s"
                             % (step_id, verdict, verdict == record_step["expect"]))
+                # R10 capture. Only a verdict=OK step captures: a refusal's payload is
+                # diagnostic, not a handle source, and a reference to it is unresolvable
+                # by definition. Stored under BOTH keys a ${ref} may use, and stored
+                # even when EMPTY so an unresolvable reference reports "no such field"
+                # (what the verb emits) rather than "no such step" (a spec typo).
+                if verdict == "OK":
+                    captured = hlib.capture_step_payload(
+                        _first_terminal_fields(result.response_lines, step_id))
+                    label = step.get(hlib.STEP_LABEL_KEY)
+                    capture_store[step_id] = captured
+                    if isinstance(label, str) and label:
+                        capture_store[label] = captured
+                    if captured:
+                        record_step["captured"] = dict(captured)
+                        logger.info("Drive", "captured id=%s label=%s fields=%s"
+                                    % (step_id, label if label else "-",
+                                       ",".join(captured)))
                 break
 
             exit_code = runtime.poll_exit(proc)
@@ -2215,6 +2315,14 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
                                outcome_unmet.verdict, outcome_unmet.msg or "-",
                                "mission-outcome" if is_flight_outcome
                                else "driver:%s" % outcome_driver_subkind)))
+    # R10: an unresolved ${step.field} OWNS the driver stage. It is asserted here
+    # rather than left to _stage_subkind_for because the step whose line was never
+    # written simply has no response, which that mapper reads as the generic
+    # `driver-stage` -- and that subkind is RETRYABLE, which this fault is not.
+    if drive.unresolved_handle is not None:
+        driver_valid = False
+        stage_subkind = hlib.DRIVER_UNRESOLVED_HANDLE_SUBKIND
+        detail["unresolvedHandle"] = dict(drive.unresolved_handle)
     detail["driverValidity"] = {
         "status": "PASS" if driver_valid else ("SKIPPED" if killed else "FAIL"),
         "allExpectedMet": ev.all_expected_met, "subkind": stage_subkind,
@@ -3794,9 +3902,19 @@ def _finish_result(spec, profile, attempt, started, start_wall, runtime, verdict
     steps_rec = []
     if drive is not None:
         ev = hlib.evaluate_response_stream(drive.response_lines, drive.steps_with_ids)
+        # R10 per-step extras, carried across from the drive loop's own rows (ev.steps
+        # is built from the RESPONSE stream and knows nothing about what was captured
+        # or substituted). Each key is emitted ONLY when non-empty, so every pre-R10
+        # step row is byte-identical.
+        extras_by_id = {str(s.get("id")): s for s in drive.steps_with_ids}
         for o in ev.steps:
-            steps_rec.append({"cmd": o.cmd, "id": o.step_id, "expect": o.expect,
-                              "verdict": o.verdict, "met": o.met})
+            row = {"cmd": o.cmd, "id": o.step_id, "expect": o.expect,
+                   "verdict": o.verdict, "met": o.met}
+            extra = extras_by_id.get(str(o.step_id), {})
+            for key in ("captured", "substitutions", "unresolvedHandle"):
+                if extra.get(key):
+                    row[key] = extra[key]
+            steps_rec.append(row)
         # M-B1: fold the mission-kind step in as a driver.steps row (design "Mission
         # result" row shape), inserted in id order so it reads inline with the seam
         # steps. verdict is the mission verdict on a met step, else "INVALID".
@@ -3808,6 +3926,12 @@ def _finish_result(spec, profile, attempt, started, start_wall, runtime, verdict
                     "subkind": m["subkind"] or None}
             if m.get("reason"):
                 mrow["reason"] = m["reason"]
+            # R10 (both emitted only when present, so a pre-R10 mission row is
+            # byte-identical): what the params resolved to, or the reference that
+            # stopped the spawn.
+            for key in ("paramSubstitutions", "unresolvedHandle"):
+                if m.get(key):
+                    mrow[key] = m[key]
             steps_rec.append(mrow)
             steps_rec.sort(key=lambda s: s["id"])
     driver_rec = {"steps": steps_rec,

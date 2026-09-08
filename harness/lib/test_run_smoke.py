@@ -183,7 +183,11 @@ class FakeRuntime(run.Runtime):
         # (not one the test picked).
         argv = list(args)
         seam = []
-        for flag in ("--seam-commands", "--seam-commit-id"):
+        # --params is forwarded for the same reason the seam flags are: the R10
+        # missionParams substitution happens INSIDE run.py, so the only honest way to
+        # observe what it produced is to let the stub receive the real bytes run.py
+        # chose (the `echoparams` mode writes them into its result JSON).
+        for flag in ("--seam-commands", "--seam-commit-id", "--params"):
             if flag in argv:
                 seam += [flag, argv[argv.index(flag) + 1]]
         out = open(stdout_path, "w", encoding="utf-8")
@@ -5500,3 +5504,242 @@ class FillStageTests(unittest.TestCase):
         self.assertFalse(ok)
         self.assertEqual("staging", subkind)
         self.assertIn("has no template in this save", self._log())
+
+
+class RuntimeHandleSmokeTests(unittest.TestCase):
+    """R10 over the REAL run loop (fake runtime): the runtime -> spec data path.
+
+    Three things are proven, and the second and third are the load-bearing ones.
+
+    THE HAPPY PATH: a spec lists a handle family it could not know in advance
+    (`ListHandles kind=rewindpoints`, labelled) and a LATER step names one member
+    of that payload (`InvokeRewind rp=${handles.rp0}`). The proof is MECHANICAL
+    rather than "the run went green": the command file must carry the LISTED id
+    literally, and the stub echoes that same id back on the InvokeRewind response,
+    so the id the run acted on and the id it listed sit side by side.
+
+    THE RUNTIME-MISS NEGATIVE CONTROL: a reference to a field the verb does not
+    emit must NOT put a literal `${...}` on the wire. The step line is never
+    written, no later step runs, and the attempt classifies
+    INVALID(driver-unresolved-handle) - deliberately NOT the KILLED a watchdog
+    kill would otherwise produce, because KILLED outranks the driver subkind in
+    classify_verdict and would mask the reference that failed.
+
+    THE STATIC NEGATIVE CONTROL: a reference to a label that does not exist is
+    caught by validate_spec, so it costs ZERO KSP boots."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="parsek-harness-handles-")
+        self.instance = os.path.join(self.tmp, "instance")
+        os.makedirs(self.instance, exist_ok=True)
+        _write_manifest(self.instance, "stock-minimal")
+        self.template = os.path.join(self.tmp, "fresh-career")
+        os.makedirs(self.template, exist_ok=True)
+        with open(os.path.join(self.template, "persistent.sfs"), "w") as fh:
+            fh.write("GAME { }\n")
+        self._orig_results = run.RESULTS_DIR
+        run.RESULTS_DIR = os.path.join(self.tmp, "results")
+        self.logger = run.HarnessLogger(os.path.join(run.RESULTS_DIR, "handles_harness.log"))
+
+    def tearDown(self):
+        run.RESULTS_DIR = self._orig_results
+        self.logger.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    # The id the fake seam's rewindpoints family enumerates. Named once so the
+    # assertions below compare against the STUB's payload, not a retyped literal.
+    LISTED_RP = "rp_fake0000000000000000000000000001"
+
+    def _handle_spec(self, ref="${handles.rp0}"):
+        """LoadGame -> ListHandles(label=handles) -> InvokeRewind(ref) -> FlushAndQuit.
+        No RunTests step, so the required pin must not name BATCH_COMPLETE (the
+        batch-owner rule rejects a spec that demands one with nobody to own it)."""
+        spec = _make_spec(self.template, 30, 2400)
+        spec["id"] = "SMOKE-handles"
+        spec["driver"]["steps"] = [
+            {"cmd": "LoadGame", "args": {"save": "${runSave}", "name": "persistent"},
+             "expect": "OK", "budget": 300},
+            {"cmd": "ListHandles", "args": {"kind": "rewindpoints"},
+             "label": "handles", "expect": "OK"},
+            {"cmd": "InvokeRewind", "args": {"rp": ref, "slot": "0"},
+             "expect": "OK", "budget": 300},
+            {"cmd": "FlushAndQuit", "expect": "OK"},
+        ]
+        spec["expectations"]["logContracts"]["required"] = [
+            "listhandles kind=rewindpoints count=1 truncated=false"]
+        return spec
+
+    def _mission_handle_spec(self):
+        """The harness -> mission bridge: a pre-mission ListHandles feeds a
+        missionParams value, substituted immediately before spawn_mission."""
+        spec = _make_autopilot_spec(self.template, 30, 2400)
+        spec["id"] = "SMOKE-handles-mission"
+        spec["driver"]["missionParams"]["rewindPointId"] = "${handles.rp0}"
+        spec["driver"]["steps"].insert(
+            2, {"cmd": "ListHandles", "args": {"kind": "rewindpoints"},
+                "label": "handles", "expect": "OK"})
+        return spec
+
+    def _run(self, spec, mode="pass", **kwargs):
+        rt = FakeRuntime(mode, **kwargs)
+        result = run.run_attempt(spec, self.instance, self.tmp, rt, attempt=1,
+                                 prior_boot_crashed=False, logger=self.logger)
+        return result, rt
+
+    def _commands_written(self):
+        path = os.path.join(self.instance, "parsek-test-commands.txt")
+        if not os.path.isfile(path):
+            return []
+        with open(path, "r", encoding="utf-8") as fh:
+            return [l.strip() for l in fh if l.strip()]
+
+    def _step_row(self, result, cmd):
+        return next(s for s in result["driver"]["steps"] if s.get("cmd") == cmd)
+
+    # ---- the happy path --------------------------------------------------
+
+    def test_a_listed_handle_reaches_the_wire_and_the_run_passes(self):
+        result, _ = self._run(self._handle_spec())
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"],
+                         "expected PASS, got %s (%s)" % (result["verdict"],
+                                                         result.get("subkind")))
+        self.assertTrue(result["driver"]["allExpectedMet"])
+
+        # THE PROOF: the command file carries the LISTED id literally, not the token.
+        lines = self._commands_written()
+        rewind = next(l for l in lines if "cmd=InvokeRewind" in l)
+        self.assertIn("rp=%s" % self.LISTED_RP, rewind)
+        self.assertNotIn("${", rewind)
+        # ... and the same id came back on the stub's echo, so the acted-on id and
+        # the listed id are the same object in the collected channel.
+        responses = os.path.join(self.instance, "parsek-test-responses.txt")
+        with open(responses, "r", encoding="utf-8") as fh:
+            body = fh.read()
+        self.assertIn("cmd=InvokeRewind verdict=OK", body)
+        self.assertIn("rp=%s" % self.LISTED_RP, body)
+
+    def test_the_result_record_carries_the_capture_and_the_substitution(self):
+        result, _ = self._run(self._handle_spec())
+        listed = self._step_row(result, "ListHandles")
+        self.assertEqual(self.LISTED_RP, listed["captured"]["rp0"])
+        self.assertEqual("rewindpoints", listed["captured"]["kind"])
+        # The four envelope keys never land in a capture.
+        for envelope in ("id", "cmd", "verdict", "seq"):
+            self.assertNotIn(envelope, listed["captured"])
+        rewind = self._step_row(result, "InvokeRewind")
+        self.assertEqual([{"arg": "rp", "ref": "${handles.rp0}",
+                           "value": self.LISTED_RP}],
+                         rewind["substitutions"])
+
+    def test_a_step_that_captures_and_substitutes_nothing_keeps_its_old_row(self):
+        # THE BYTE-IDENTICAL GUARANTEE: a step with no payload and no reference must
+        # carry exactly the five pre-R10 keys, or every existing result record moved.
+        result, _ = self._run(self._handle_spec())
+        quit_row = self._step_row(result, "FlushAndQuit")
+        self.assertEqual({"cmd", "id", "expect", "verdict", "met"}, set(quit_row))
+
+    def test_the_harness_log_names_the_capture_and_the_substitution(self):
+        self._run(self._handle_spec())
+        with open(self.logger.log_path, "r", encoding="utf-8") as fh:
+            body = fh.read()
+        self.assertIn("captured id=0002 label=handles fields=", body)
+        self.assertIn("substituted id=0003 arg=rp ref=${handles.rp0} value=%s"
+                      % self.LISTED_RP, body)
+
+    # ---- the runtime-miss negative control -------------------------------
+
+    def test_an_unknown_field_reds_driver_unresolved_handle_and_writes_no_line(self):
+        result, _ = self._run(self._handle_spec(ref="${handles.nosuchfield}"))
+        self.assertEqual(hlib.VERDICT_INVALID, result["verdict"])
+        self.assertEqual(hlib.DRIVER_UNRESOLVED_HANDLE_SUBKIND, result["subkind"])
+        # NOT a KILLED: the process tree came down, but the attempt is recorded under
+        # the driver stage so the subkind survives classify_verdict's precedence.
+        self.assertFalse(result["kspExit"]["killed"])
+        # The reference never reached the wire, and neither did anything after it.
+        lines = self._commands_written()
+        self.assertFalse(any("cmd=InvokeRewind" in l for l in lines),
+                         "the unresolved step's line must NOT be written: %s" % lines)
+        self.assertFalse(any("cmd=FlushAndQuit" in l for l in lines),
+                         "no later step may run after an unresolved handle: %s" % lines)
+        self.assertFalse(any("${" in l for l in lines),
+                         "a literal ${} must never reach the channel: %s" % lines)
+        # The failing reference is named in the record, on the step and once at the
+        # verifier level, so a reader does not have to reconstruct it from the log.
+        rewind = self._step_row(result, "InvokeRewind")
+        self.assertEqual("${handles.nosuchfield}", rewind["unresolvedHandle"]["ref"])
+        self.assertEqual("${handles.nosuchfield}",
+                         result["verifiers"]["unresolvedHandle"]["ref"])
+        self.assertEqual("0003", result["verifiers"]["unresolvedHandle"]["id"])
+
+    def test_the_unresolved_verdict_is_not_retried(self):
+        result, _ = self._run(self._handle_spec(ref="${handles.nosuchfield}"))
+        verdict = hlib.Verdict(result["verdict"], result["subkind"], False, "")
+        self.assertFalse(hlib.should_retry(verdict, 1, "once"),
+                         "a second boot cannot grow a field the verb does not emit")
+
+    # ---- the static negative control -------------------------------------
+
+    def test_an_unknown_label_is_spec_invalid_with_zero_boots(self):
+        spec = self._handle_spec(ref="${nosuchlabel.rp0}")
+        validation = hlib.validate_spec(spec, {})
+        self.assertFalse(validation.ok)
+        self.assertTrue(any("names no step label" in e for e in validation.errors),
+                        list(validation.errors))
+        rt = FakeRuntime("pass")
+        run._write_invalid_spec_result(spec, list(validation.errors), rt, self.logger)
+        jsons = [f for f in os.listdir(run.RESULTS_DIR) if f.endswith(".json")]
+        self.assertEqual(1, len(jsons), jsons)
+        with open(os.path.join(run.RESULTS_DIR, jsons[0]), "r", encoding="utf-8") as fh:
+            record = json.load(fh)
+        self.assertEqual(hlib.VERDICT_INVALID, record["verdict"])
+        self.assertEqual("spec-invalid", record["subkind"])
+        # ZERO BOOTS: no exit code because no process was ever launched.
+        self.assertIsNone(record["kspExit"]["code"])
+        self.assertEqual(0, rt.launch_count)
+        self.assertEqual([], self._commands_written())
+
+    # ---- the stub's own honesty ------------------------------------------
+
+    def test_the_fake_seam_answers_all_three_families_and_refuses_the_rest(self):
+        """The stub is the ONLY ListHandles any headless test can drive, so its
+        payload grammar has to stay the one the design specifies - a stub that
+        quietly answered OK to every kind would make the capture legs vacuous."""
+        import _fake_ksp
+        for kind in ("rewindpoints", "committed", "active"):
+            with self.subTest(kind=kind):
+                payload = _fake_ksp._list_handles_payload(kind)
+                self.assertIsNotNone(payload)
+                self.assertIn("truncated=false", payload)
+        # Fail-closed and CASE-SENSITIVE, mirroring the seam's own ParseKind.
+        for bad in ("RewindPoints", "rewind-points", "", "trees"):
+            with self.subTest(bad=bad):
+                self.assertIsNone(_fake_ksp._list_handles_payload(bad))
+
+    # ---- the harness -> mission bridge -----------------------------------
+
+    def test_a_mission_param_is_substituted_before_the_spawn(self):
+        result, rt = self._run(self._mission_handle_spec(), mode="autopilot",
+                               mission_mode="echoparams")
+        self.assertEqual(1, rt.mission_spawn_count)
+        # What run.py actually PASSED, read back out of the stub's own artifact.
+        mission_result = os.path.join(run.RESULTS_DIR,
+                                      "%s_mission.json" % result["runId"])
+        with open(mission_result, "r", encoding="utf-8") as fh:
+            received = json.load(fh)["receivedParams"]
+        self.assertEqual(self.LISTED_RP, received["rewindPointId"])
+        # ... and the mission row records the substitution that produced it.
+        mrow = next(s for s in result["driver"]["steps"] if s.get("phase") == "mission")
+        self.assertEqual([{"arg": "rewindPointId", "ref": "${handles.rp0}",
+                           "value": self.LISTED_RP}],
+                         mrow["paramSubstitutions"])
+
+    def test_an_unresolvable_mission_param_spawns_nothing(self):
+        spec = self._mission_handle_spec()
+        spec["driver"]["missionParams"]["rewindPointId"] = "${handles.nosuchfield}"
+        result, rt = self._run(spec, mode="autopilot", mission_mode="echoparams")
+        self.assertEqual(hlib.VERDICT_INVALID, result["verdict"])
+        self.assertEqual(hlib.DRIVER_UNRESOLVED_HANDLE_SUBKIND, result["subkind"])
+        self.assertEqual(0, rt.mission_spawn_count,
+                         "an unresolved param must stop the spawn, not fly a mission "
+                         "with a literal ${} in its params")
+        self.assertFalse(result["kspExit"]["killed"])

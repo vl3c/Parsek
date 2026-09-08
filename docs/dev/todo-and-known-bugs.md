@@ -2211,7 +2211,7 @@ loss for another, and probably the worst of the three.
 
 1. **No committed recorded fixture can be a Rewind-to-Launch SUBJECT.** `RecordingStore.CanRewind` resolves the rewind owner through `GetRewindRecording`, which needs a non-empty `Recording.RewindSaveFileName` on the recording itself or on its tree ROOT; with neither it returns null and `CanRewindPreFileCheck` refuses `"No rewind save available"`. Every recorded fixture under `harness/fixtures/saves/` carries `rewindSave = ` EMPTY - seventeen saves, one line each - and `rover-route-recorded`'s tree B root (`cf8d06fc...`) carries no `rewindSave` key at all. That is POLICY, not decay: `harvest_bdock_station.py` prunes `Parsek/Saves` and clears the hint, and `build_rover_route_recorded.py` gates the absence in both directions (`FORBIDDEN_DIR_NAMES` contains `"Saves"`; `verify_tree` reds on "a rewindSave = parsek_rw_* hint survived", with the rationale "INV9's dangling-hint WARN depends on it"). So the fixture cannot be quietly repaired - the repair is a policy change with an analyzer rule behind it.
 
-2. **[CLOSED 2026-09-02] A subject produced IN-SESSION cannot be named by a static spec.** `FlightRecorder.CaptureRewindSave` does write a `parsek_rw_*` quicksave at every non-promotion recording start, so `StartRecording` -> `CommitTree` inside a driven run produces a committed tree whose root IS rewindable. But `TestCommandRewindToLaunch.ResolveTarget` auto-selects only when exactly ONE committed tree exists and otherwise answers `ambiguous-tree` rather than guessing (deliberate: "the operation is irreversible in the same breath"). The rover host ships TWO committed trees, so the fresh one makes three; and the `tree=` arg that exists to resolve exactly this takes an ID, while a freshly committed tree's id is a runtime `Guid`. The harness has ONE spec-side substitution, `${runSave}` (`hlib.RUN_SAVE_TOKEN`), and no step can consume a prior step's payload. GS-4 escapes this only because its host fixture has ZERO committed trees, so its mission's own launch leaves exactly one and the auto-select fires. **CLOSED by (U1) below, shipped 2026-09-02**: `InvokeRewindToLaunch tree=latest` names the most recently committed tree - last in the append-ordered `RecordingStore.CommittedTrees`, which is exactly the tree a `StartRecording` -> `CommitTree` pair just added. Contract and rationale: `docs/dev/design-autotest-command-seam.md` -> `#### D12/A2`; pure decision in `TestCommandRewindToLaunch.ResolveTarget` with the id path untouched and the bare no-arg `ambiguous-tree` refusal deliberately unchanged.
+2. **[CLOSED 2026-09-02] A subject produced IN-SESSION cannot be named by a static spec.** `FlightRecorder.CaptureRewindSave` does write a `parsek_rw_*` quicksave at every non-promotion recording start, so `StartRecording` -> `CommitTree` inside a driven run produces a committed tree whose root IS rewindable. But `TestCommandRewindToLaunch.ResolveTarget` auto-selects only when exactly ONE committed tree exists and otherwise answers `ambiguous-tree` rather than guessing (deliberate: "the operation is irreversible in the same breath"). The rover host ships TWO committed trees, so the fresh one makes three; and the `tree=` arg that exists to resolve exactly this takes an ID, while a freshly committed tree's id is a runtime `Guid`. The harness HAD ONE spec-side substitution, `${runSave}` (`hlib.RUN_SAVE_TOKEN`), and no step could consume a prior step's payload (both true until R10 shipped `${step.field}` capture / substitution on 2026-09-08 - see the R10 entry in the harness build-order list below; the closure below is the earlier, narrower one). GS-4 escapes this only because its host fixture has ZERO committed trees, so its mission's own launch leaves exactly one and the auto-select fires. **CLOSED by (U1) below, shipped 2026-09-02**: `InvokeRewindToLaunch tree=latest` names the most recently committed tree - last in the append-ordered `RecordingStore.CommittedTrees`, which is exactly the tree a `StartRecording` -> `CommitTree` pair just added. Contract and rationale: `docs/dev/design-autotest-command-seam.md` -> `#### D12/A2`; pure decision in `TestCommandRewindToLaunch.ResolveTarget` with the id path untouched and the bare no-arg `ambiguous-tree` refusal deliberately unchanged.
 
 **Why it matters.** H6 covers the route-rewind timeline synthetically and says so in its own header: NOT reachable there are "the REAL HandleRewindOnLoad go-back scene load and RewindInvoker.ConsumePostLoad". `ParsekScenario.HandleRewindOnLoad` is where the go-back seam retires post-cutoff free-standing route rows (`Ledger.RetireFutureRouteActionsAtRewind`) and runs the shared `RouteRewindClassifier.ReconcileStoreAtRewind` over the live `RouteStore` - and the rewind branch RETURNS EARLY before `RouteStore.LoadRoutesFrom(node)`, so the in-memory store IS the pre-rewind capture and routes created after the quicksave point genuinely reach the dormant classifier. None of that has ever run in a driven flight.
 
@@ -10354,13 +10354,28 @@ item and must not be counted as one:
   absence of the very thing stage B exists to exercise: author stage B report-only
   first, read ITS facets, then arm - the same three-run promotion S4.1 just went
   through. Stage B scope: the R12 residue block in `docs/dev/autotest-roadmap.md`.
-- **R10** runtime-handle plumbing so a live tree / vessel / route id can reach a verb
-  (today `run.py:1157` substitutes exactly one token, `${runSave}`, and no response
-  payload is ever captured) - OPEN. NOTE R12 solved the SPECIFIC instance that
-  blocked it worst, without solving R10: `SimulateStockSwitchClick` takes `vessel=`
-  (a stable NAME) precisely because a TOML author cannot know the pid a launch will
-  mint, the same stable-addressing dodge `InvokeRewind` used. That is a per-verb
-  workaround, not the general mechanism.
+- **R10** runtime-handle plumbing so a live tree / vessel / route id can reach a verb -
+  ~~OPEN (`run.py:1157` substitutes exactly one token, `${runSave}`, and no response
+  payload is ever captured)~~ **CLOSED 2026-09-08** (PR #R10PR, branch
+  `r10-runtime-handles`) by three pieces: the harness captures a seam reply's payload
+  fields into a per-run store and substitutes `${<label-or-stepId>.<field>}` into later
+  step args and into `[driver.missionParams]` (static faults `INVALID(spec-invalid)`
+  pre-launch, a runtime miss the new NON-retryable `INVALID(driver-unresolved-handle)`
+  at the step - the literal token never reaches the wire); `mlib.seam_handle_from_payload`
+  plus the R1 machine's `R1_RESOLVE` phase compute the same thing inside a live flight;
+  and the new `ListHandles` seam verb (31 -> 32 implemented, reserved unchanged at 5;
+  required closed `kind=` in `rewindpoints|committed|active`, capped payloads with
+  `count` + `truncated`) is the enumeration those references read. First consumer
+  `RH-1-live-rp-handle-rewind` - `ListHandles kind=rewindpoints` labelled `handles`, then
+  `InvokeRewind rp=${handles.rp0} slot=1`. The NOTE below still stands as history: R12
+  solved the SPECIFIC instance that blocked it worst without solving R10 -
+  `SimulateStockSwitchClick` takes `vessel=` (a stable NAME) precisely because a TOML
+  author cannot know the pid a launch will mint, the same stable-addressing dodge
+  `InvokeRewind` used; that was a per-verb workaround, and the general mechanism now
+  exists (a pid-addressed switch reads `${<step>.bg<i>pid}` /
+  `${<step>.rec<i>spawnedPid}`). Contracts: `design-autotest-harness-core.md` ->
+  "Runtime handles: payload capture and `${step.field}` substitution (R10)",
+  `design-autotest-command-seam.md` -> `#### ListHandles`.
 - **R11** a CAREER fixture with a flyable craft - ~~`FORGE-career-pad`; all three
   career-family fixtures currently have ZERO VESSEL nodes~~ **CLOSED 2026-07-28** by
   `harness/fixtures/saves/career-pad-craft`, built by construction rather than by a

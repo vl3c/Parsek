@@ -16,6 +16,12 @@ Modes (test-injected by the smoke test's FakeRuntime.spawn_mission):
               run.py maps INVALID(mission), retry-once)
   noresult    write NOTHING and exit 1 (edge 12: a mission that never wrote a
               readable result -> run.py fails closed to INVALID(tooling-mission))
+  echoparams  like `ok`, but ECHO the parsed --params back into the result JSON
+              (`receivedParams`) and onto stdout. The R10 harness -> mission bridge
+              substitutes ${step.field} into missionParams immediately before the
+              spawn, and this is the only place that substitution is OBSERVABLE
+              from outside run.py: it proves the mission was handed the RESOLVED
+              value rather than the token.
   midcommit   write a ROUTE-1 mid-mission `cmd=CommitTree` into the seam channel
               under the reserved id, THEN MISSION-ASSERT-FAIL (exit 1). That is
               HARNESS-MIDMISSION-COMMIT-BYPASS's exact shape: a world-mutating
@@ -41,7 +47,8 @@ def main(argv=None):
     parser.add_argument("--result", required=True)
     parser.add_argument("--budget", type=float, default=600.0)
     parser.add_argument("--mode", default="ok",
-                        choices=["ok", "assertfail", "noresult", "midcommit"])
+                        choices=["ok", "assertfail", "noresult", "midcommit",
+                                 "echoparams"])
     # Route-1 seam bridge, as run.py hands it to a real mission. Only the
     # `midcommit` mode uses them; every other mode ignores them exactly as
     # B1/B2/B4/B5/B7/forge do.
@@ -102,6 +109,17 @@ def main(argv=None):
         "krpcServerVersion": "0.5.4",
         "error": None,
     }
+    if args.mode == "echoparams":
+        # ADDITIVE key on the result schema: run.py reads named keys, so an extra
+        # one changes nothing about how the result is classified. Present only in
+        # this mode, so every other mode's artifact is byte-identical.
+        try:
+            received = json.loads(args.params)
+        except ValueError:
+            received = {"_unparseable": args.params}
+        result["receivedParams"] = received
+        print("[Mission][Info][Params] received params=%s"
+              % json.dumps(received, sort_keys=True))
     with open(args.result, "w", encoding="utf-8", newline="\n") as fh:
         fh.write(json.dumps(result, sort_keys=True, indent=2) + "\n")
     print("[Mission][Info][Verdict] mission verdict=%s reason=%s" % (verdict, reason))

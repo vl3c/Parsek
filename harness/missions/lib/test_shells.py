@@ -4494,9 +4494,62 @@ class R1RewindLoopShellTests(unittest.TestCase):
         rows = {a["name"]: a for a in result["assertions"]}
         self.assertEqual(rows["rewindSeamAccepted"]["rejectReason"], "recording-active")
 
-    def test_an_unresolved_rewind_target_flakes_before_any_action_is_performed(self):
+    def test_the_r10_resolve_path_lists_a_live_rp_and_rewinds_to_it(self):
+        """R10 end to end through the SHELL, not just the machine: with no
+        `rewindPointId` in the params, the run must issue `ListHandles
+        kind=rewindpoints`, read a live id out of its payload, and command
+        InvokeRewind against THAT id.
+
+        MUTATION: drop the RESOLVE routing in RECORDER-IDLE and this reds - the
+        real defect being an InvokeRewind commanded with rp= EMPTY, which the seam
+        answers REJECTED unknown-rp after a whole ascent has been flown."""
         params = dict(R1_PARAMS)
         params["rewindPointId"] = ""
+        frames = (self._ascent_frames()
+                  + self._cycle_frames()[:3]
+                  + [self._seam(mlib.R1_TAG_RESOLVE,
+                                payload=(("kind", "rewindpoints"), ("count", "3"),
+                                         ("truncated", "false"),
+                                         ("rp0", "rp_aaaa"), ("rp1", "rp_bbbb"),
+                                         ("rp2", "rp_cccc")),
+                                ut=212.5, altitude=80000, situation="ORBITING",
+                                body="Kerbin")]
+                  + self._cycle_frames()[3:]
+                  + self._loop_frames())
+        control = FakeMissionControl(frames)
+        code, result = run(r1_rewind_loop.SPEC, params, control)
+        self.assertEqual(result["verdict"], mlib.MISSION_OK, result)
+        self.assertEqual(code, 0)
+        self.assertIn(mlib.R1_RESOLVE, result["phasesReached"])
+        seam_actions = [a for a in control.actions
+                        if a.kind == mlib.ACTION_PARSEK_SEAM_COMMAND]
+        self.assertEqual([(a.seam_verb, a.seam_tag) for a in seam_actions],
+                         [("CommitTree", mlib.R1_TAG_COMMIT),
+                          ("StopRecording", mlib.R1_TAG_STOP),
+                          ("RecordingState", mlib.r1_state_probe_tag(0)),
+                          ("ListHandles", mlib.R1_TAG_RESOLVE),
+                          ("InvokeRewind", mlib.R1_TAG_REWIND),
+                          ("RecordingState", mlib.r1_loop_probe_tag(0))])
+        # SIX distinct tags: the C# seam skips a duplicate id, so a collision
+        # would make one command a silent no-op.
+        self.assertEqual(len({a.seam_tag for a in seam_actions}), 6)
+        # THE PROOF: the id on the wire is the one the enumeration listed (the
+        # NEWEST, rp<count-1>), not a spec literal - there is no literal here.
+        rewind = next(a for a in seam_actions if a.seam_verb == "InvokeRewind")
+        self.assertEqual((("rp", "rp_cccc"), ("slot", "1")), rewind.seam_args)
+        self.assertEqual(("kind", "rewindpoints"),
+                         next(a for a in seam_actions
+                              if a.seam_verb == "ListHandles").seam_args[0])
+        rows = {a["name"]: a for a in result["assertions"]}
+        self.assertEqual(rows["rewindSeamAccepted"]["rewindPointId"], "rp_cccc")
+        self.assertEqual(rows["rewindSeamAccepted"]["rewindPointResolved"], "rp_cccc")
+
+    def test_an_unresolved_rewind_target_flakes_before_any_action_is_performed(self):
+        # THE SLOT, since R10: an empty `rewindPointId` now arms the RESOLVE phase
+        # (ListHandles reads the live id), while an unset SLOT is still resolvable
+        # by nothing and can only ever be REJECTED unknown-slot.
+        params = dict(R1_PARAMS)
+        params["rewindSlot"] = -1
         control = FakeMissionControl(self._ascent_frames())
         code, result = run(r1_rewind_loop.SPEC, params, control)
         self.assertEqual(result["verdict"], mlib.MISSION_FLAKE, result)

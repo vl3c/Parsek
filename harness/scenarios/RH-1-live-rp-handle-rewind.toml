@@ -1,0 +1,216 @@
+schema = 1
+id = "RH-1-live-rp-handle-rewind"
+# `operator`: a READING RUN, and the FIRST CONSUMER of R10 (runtime handles) end to
+# end - the seam's new `ListHandles` verb, the harness's `${step.field}` capture and
+# substitution, and a consumer verb driven against an id no TOML ever named. Nothing
+# here is armed; the saveParse block below is report-only by omission.
+#
+# WHAT THIS LANE CLOSES. Until R10 nothing a driven run could read named a LIVE
+# object. `InvokeRewind rp=` matches the RewindPointId EXACTLY and live ids are fresh
+# Guids, so every rewind the suite drives targets an INJECTED fixture id the author
+# baked in. S1.5's own header names the wall verbatim: "a seam channel exposing the
+# live RewindPoint id (InvokeRewind matches RewindPointId EXACTLY and live ids are
+# fresh GUIDs from RewindPointAuthor.cs; RecordingState's payload is
+# recording/tree/points/scene only)". This lane drives the answer:
+# `ListHandles kind=rewindpoints` enumerates the family, the step is LABELLED
+# `handles`, and the next step's `rp = "${handles.rp0}"` carries the enumerated id
+# onto the wire. The spec never spells an id.
+#
+# WHY THE FIXTURE IS `bdock-recorded` AND NOT A FRESH FLIGHT. A RewindPoint is
+# authored only on a MULTI-CONTROLLABLE split
+# (ParsekFlight.TryAuthorRewindPointForSplit -> SegmentBoundaryLogic
+# .IsMultiControllableSplit), which an ordinary staged ascent does not perform - so a
+# seam-only lane cannot make one. `bdock-recorded` already carries THREE harvested
+# RewindPoints with real Guid ids and their quicksaves on disk:
+#
+#   rp_72ebafb509b943b6a353fa86eb3a4225  ut 382.73171081540551   (rp0, list order)
+#   rp_f4edbb9721bc43649a6c1727dca67b1e  ut 693.285145263449     (rp1)
+#   rp_1df613c7a9b74aad8c60b483ba221dde  ut 8950.5879785489251   (rp2)
+#
+# `ParsekScenario.RewindPoints` is in APPEND order and ListHandles walks it in that
+# order, so `rp0` is the OLDEST of the three (UT 382.7). It is the one this lane
+# names because it is the only member whose index is stable under any future
+# re-harvest that appends.
+#
+# THE SLOT IS 1, AND THAT IS A READING OF THE FIXTURE, NOT A GUESS. ListHandles'
+# `rp<i>slot<j>open` is true iff the slot's EFFECTIVE tip resolves to a committed
+# recording that is NOT MergeState.Immutable - i.e. the slots a rewind can actually
+# be invoked through. rp0's two CHILD_SLOTs in persistent.sfs are:
+#
+#   slot 0 -> originChildRecordingId a32f62f52dc84d6a94daf93460ec6548 ("Kerbal X")
+#             - no `mergeState` key, and RecordingTreeRecordCodec defaults a missing
+#               mergeState to Immutable, so slot 0 reads CLOSED.
+#   slot 1 -> originChildRecordingId b07cfd6cc27d47e7a6fb497d9836e665
+#             ("Kerbal X Probe") - `mergeState = CommittedProvisional`, so slot 1
+#             reads OPEN.
+#
+# The save carries exactly three CommittedProvisional recordings
+# (b07cfd6cc27d47e7a6fb497d9836e665, 500c0ba9c18b4e2f96d64dd4d3b40b63,
+# 4af6cfd725d646ccbac9ef2f7749667e), one per RewindPoint, each in that point's
+# slot 1. Hence `slot = "1"` below, hard-coded: R10 makes the RewindPoint ID
+# addressable at runtime, not the slot INDEX, and a slot index is a small integer a
+# fixture reading resolves once.
+#
+# WHY THE StartInvoke PIN IS A CLASS AND NOT THE LITERAL ID. The whole point of this
+# lane is that the harness supplied an id the spec does not know, so pinning
+# `rp=rp_72eb...` would assert the opposite of what is being proved. The IDENTITY
+# proof is mechanical and lives in the run's own artifacts (design "Runtime handles"
+# -> Observability): the harness log's `substituted id=0005 arg=rp
+# ref=${handles.rp0} value=<id>` line, the result JSON's `substitutions` row on the
+# InvokeRewind step and `captured` map on the ListHandles step, and the seam's own
+# `exec id=... verdict=OK ... rp0=<id>` payload line, all naming the same id as the
+# `StartInvoke: ... rp=<id>` the class below matches.
+#
+# READING RUN 1 (2026-09-08, `2026-09-08_0838_RH-1-live-rp-handle-rewind`): the R10
+# subject held on the first boot - ListHandles enumerated the three points with
+# `rp0slot1open=true` exactly as derived above, the harness logged `substituted
+# id=0004 arg=rp ref=${handles.rp0} value=rp_72ebafb509b943b6a353fa86eb3a4225`, and
+# the commands channel carried that id - and InvokeRewind was REJECTED
+# `recording-active`. The cause is the FIXTURE, not the plumbing: bdock-recorded's
+# active vessel IS its committed tree's tip, so scene entry PROMOTES that recording
+# (`Recording started: vessel="Kerbal X" ... promotion, treeRec=rec[37d0dc07|...]`)
+# and the InvokeRewind dispatch guard reads a live recorder. `autoRecordOnLaunch`
+# does not govern a promotion, and it is set after the boot anyway. The StopRecording
+# step below is the fix, and it is R1's own live-proven order (mlib `_r1_stop_action`
+# precedes the rewind for the same guard): StopRecording is idempotent-OK, answering
+# `stopped=true` here and `idle=true` on a fixture that promotes nothing.
+#
+# READING RUN 2 (2026-09-08, `2026-09-08_0844_RH-1-live-rp-handle-rewind`): PASS,
+# attempt 1, every verifier PASS/SKIPPED. The identity chain, read off the run's own
+# artifacts: the response line `id=0004 cmd=ListHandles ...
+# rp0=rp_72ebafb509b943b6a353fa86eb3a4225 ... rp0slot1open=true`, the harness log
+# `substituted id=0005 arg=rp ref=${handles.rp0} value=rp_72ebafb509b943b6a353fa86eb3a4225`,
+# the commands channel `id=0005 cmd=InvokeRewind rp=rp_72ebafb509b943b6a353fa86eb3a4225
+# slot=1`, and KSP.log's `invokerewind start rp=rp_72ebafb509b943b6a353fa86eb3a4225
+# slot=1` -> `StartInvoke: sess=sess_25b37ada... rp=rp_72ebafb5... slot=1` ->
+# `Invocation complete: ... rp=rp_72ebafb5... slot=1 activePid=3702669050`. The three
+# S1.5 post-load pins held on this fixture too. LIVE-PROVEN in that run; the D9 claims
+# below are made from it.
+tier = "operator"
+description = "Reading run, and the FIRST CONSUMER of R10 runtime handles: ListHandles kind=rewindpoints enumerates the bdock-recorded fixture's three live RewindPoints, the step is labelled `handles`, and InvokeRewind is then driven with rp=${handles.rp0} slot=1 (rp0's only OPEN slot, the CommittedProvisional Kerbal X Probe) - the first driven rewind whose target id was never written into a spec."
+instanceProfile = "stock-minimal"
+tags = ["RH-1", "R10", "runtime-handles", "seam-verb", "list-handles", "rewind",
+        "kerbin", "sandbox", "reading-run", "first-consumer"]
+
+[fixture]
+# bdock-recorded: the B-DOCK harvest. Three RewindPoints with real Guid ids and their
+# quicksaves under Parsek/RewindPoints/, three CommittedProvisional slot tips, 19
+# recordings, and `activeVessel = 1` over ten VESSEL nodes - so the boot lands in
+# FLIGHT on `Kerbal X` (ORBITING Kerbin), which is what the RequiresFlight verbs below
+# need. NOTHING is injected: the whole point is that the ids are the harvest's own.
+saveTemplate       = "fixtures/saves/bdock-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  # The fixture is a recorded harvest; do not start a new recording on top of it. A
+  # live recorder would additionally make InvokeRewind REJECT `recording-active`
+  # (TestCommandDispatcher's gate), which is R1's flight-1 lesson.
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # Reading run 1's finding: the boot PROMOTES the committed tip into a live recorder
+  # and InvokeRewind's dispatch guard refuses `recording-active` over it. Stop it
+  # first (R1's order; idempotent-OK either way).
+  { cmd = "StopRecording",                                                     expect = "OK" },
+  # THE SUBJECT, half one: enumerate the live family and LABEL the step. `kind` is
+  # REQUIRED and case-sensitive; hlib.validate_spec refuses any other spelling
+  # pre-launch rather than spending a boot on a typed REJECTED.
+  { cmd = "ListHandles", args = { kind = "rewindpoints" }, label = "handles",  expect = "OK" },
+  # THE SUBJECT, half two: the id comes from the payload above, not from this file.
+  { cmd = "InvokeRewind", args = { rp = "${handles.rp0}", slot = "1" },        expect = "OK", budget = 300 },
+  # S1.5's post-rewind tail verbatim: the merge folds the conclusion scene-exit and
+  # the trailing RecordingState confirms the merged tree.
+  { cmd = "AnswerMergeDialog", args = { choice = "merge" },                    expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "FlushAndQuit",                                                      expect = "OK" },
+]
+
+[dimensionsCovered]
+# D9 `rewind-to-separation` / `refly-gate` are claimed from reading run 2 (PASS,
+# `2026-09-08_0844_RH-1-live-rp-handle-rewind`) on the same tokens S1.5 claims them
+# from: the StartInvoke line proves the invocation fired through RewindInvoker's gate
+# on the listed point, and `Invocation complete` + the ConsumePostLoad pin prove the
+# post-load half ran. Before that run this block was BASICS ONLY: a dimension claim
+# is a statement that a value was EXERCISED AND OBSERVED, not that a step was
+# written. The three below are properties of the host itself (a Kerbin sandbox save
+# booting into FLIGHT) and hold the moment the boot lands.
+#
+# STILL NOT CLAIMED, on the same claim-is-not-gate ground S0.8 states: D18
+# `rewind-strip-respawn-cycle`. S1.5 claims it from a TimeJump-then-rewind run that
+# spawns a ghost and strips it; nothing here spawns or jumps, so the value has no
+# proving token in this lane. No dimension value exists for the runtime-handle path
+# itself: the reading showed the handle path is a HARNESS property (the substituted
+# id reaches the same verb the static id did), not a product behaviour a cell
+# could name, so none is proposed.
+D9  = ["rewind-to-separation", "refly-gate"]
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING. run.py reads `expectations.allowedAnomalies`; a bare
+# `allowedAnomalies` written after an `[expectations.<sub>]` header is TOML-scoped to
+# that SUB-table and is never read, so this table must stay ahead of the sub-tables.
+allowedAnomalies = []
+
+[expectations.recordings]
+# A WIDE window on purpose. The fixture stages 19 .prec sidecars; what a rewind +
+# merge leaves is what the reading measures, and a tight pin authored from a
+# never-flown guess would red on arithmetic rather than on a defect. The floor is the
+# anti-vacuity part: a run that produced no recordings did not do this.
+count = { min = 2, max = 30 }
+
+[expectations.logContracts]
+required = [
+  # THE R10 SUBJECT, and the anti-vacuity pin: the verb ran, enumerated THIS
+  # fixture's three RewindPoints, and did not silently cut the list. `count=3` is a
+  # literal because the fixture's REWIND_POINTS node carries exactly three POINTs; a
+  # value class here would let a zero-member enumeration read green while the
+  # substitution that follows it could not possibly have resolved.
+  "listhandles kind=rewindpoints count=3 truncated=false",
+  # The consumer verb acted on a well-formed RewindPoint id. A CLASS, not a literal -
+  # see the header: the identity proof is the substituted/captured pair in the run's
+  # own artifacts, and pinning the literal would assert the opposite of the claim.
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=.* rp=rp_[0-9a-f]{32}",
+  "Invocation complete",
+  # S1.5's two UNCONDITIONAL post-load lines (its header establishes that the
+  # conditional route-retire / dropped-science lines cannot be required). Inherited,
+  # not re-derived on this fixture - the first pins to relax if the reading reds.
+  "ConsumePostLoad: restoring bundle with route-retire cutoffUT=",
+  "Restored: recs=.* pendingScience=",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # The verb must neither refuse nor be driven kind-less. validate_spec already makes
+  # both unreachable from a committed spec; these catch a SEAM-side regression that
+  # made the arg parse fail-open.
+  "listhandles rejected",
+  "kind-arg-missing",
+  "kind-arg-invalid",
+]
+
+[runtime]
+# Budget arithmetic (M-A5 S8), sized so the WORST DEFER path surfaces a clean per-step
+# TIMEOUT (a driver-INVALID the operator can read) for every step instead of a
+# run-budget KILL. run.py waits max(step_budget, 600) + 60 for a DEFERRED verb
+# (LoadGame / InvokeRewind) and max(step_budget, dispatch_budget + 60) for the rest,
+# where the dispatch default is 60 s:
+#   LoadGame          max(300,600)+60 = 660
+#   SetSetting        max(60, 60+60)  = 120
+#   StopRecording     max(60, 60+60)  = 120
+#   ListHandles       max(60, 60+60)  = 120   (SINGLE-PHASE, rides the default)
+#   InvokeRewind      max(300,600)+60 = 660
+#   AnswerMergeDialog max(120,120+60) = 180
+#   RecordingState    max(60, 60+60)  = 120
+#   FlushAndQuit      max(60, 60+60)  = 120   -> sum 2100
+# The ceiling must EXCEED that sum so no step-wait is capped (a capped deferred wait
+# KILLs mid-step instead of surfacing the seam's own TIMEOUT). 2400 clears it by 300.
+# On the happy path - the verbs EXECUTE in FLIGHT - the real wall clock is a couple of
+# minutes; this ceiling only governs the unattended defer path.
+budgetSeconds = 2400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

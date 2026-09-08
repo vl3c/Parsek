@@ -27,7 +27,7 @@ namespace Parsek.TestCommands
     /// </summary>
     internal static class TestCommandVerbs
     {
-        // Implemented (v1 + M-C1 batch 1 + M-C1.1 follow-up + M-C2 EVA batch + EVA-4 + R12 + the arrival-validation lane + the player-workflow lane + M-A7 + the map-view pair + InvokeRewindToLaunch + the logistics pair + DeleteRecording): 31 verbs.
+        // Implemented (v1 + M-C1 batch 1 + M-C1.1 follow-up + M-C2 EVA batch + EVA-4 + R12 + the arrival-validation lane + the player-workflow lane + M-A7 + the map-view pair + InvokeRewindToLaunch + the logistics pair + DeleteRecording + ListHandles): 32 verbs.
         // M-C1 promoted InvokeRewind, AnswerMergeDialog, TimeJump, and KscAction from
         // Reserved to Implemented (design-autotest-seam-verbs-c1.md). The M-C1.1 follow-up
         // added SaveGame (the M-B3 L2/R6 persist-before-reload dependency). M-C2 added the
@@ -145,6 +145,19 @@ namespace Parsek.TestCommands
             // living KSC / flight ghosts, AUTOMATION-GAP-KSC-TABLE-DELETE) needs a row with
             // ghosts ABOVE it, which an appended ghost-only row can never be.
             "DeleteRecording",
+            // ListHandles. ADDITIVE (31 -> 32 implemented, reserved unchanged at 5), the
+            // ExportRenderManifest shape: an OBSERVATION verb that was never in the
+            // reserved envelope and is read-only with respect to the game world. It
+            // enumerates ONE handle family per call (kind=rewindpoints|committed|active)
+            // so a spec can name a live object it could not have known in advance - every
+            // id a run would act on is a fresh Guid (rewind points, recordings, trees) or
+            // a launch-assigned persistentId (vessels). Deliberately a NEW verb rather
+            // than a wider RecordingState: that payload is a four-field snapshot eleven
+            // committed lanes and the R1 mission machine read by exact key, so widening it
+            // would put an unbounded list on every one of those lines and every one of
+            // those readers. A REQUIRED kind= keeps each family on its own bounded line
+            // and leaves the four-field payload byte-identical.
+            "ListHandles",
         };
 
         // Reserved (recognized, not implemented in v1): 5 verbs.
@@ -196,6 +209,7 @@ namespace Parsek.TestCommands
             "RecordingState",        // read-only report
             "MissionMark",           // stamps one log line, nothing else (hlib: TAIL_ROLE_INERT)
             "ExportRenderManifest",  // read-only w.r.t. the game world; writes only the manifest file
+            "ListHandles",           // enumerates live handles, writes nothing (hlib: TAIL_ROLE_INERT)
             "FlushAndQuit",          // the reader of the latch, not a mutator of the world
         };
 
