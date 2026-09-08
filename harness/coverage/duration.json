@@ -1478,6 +1478,26 @@
         "2026-09-08T21:48:57Z": 171.0
       }
     },
+    "RF-7M-predicted-tail-map-render": {
+      "last": 60.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 60.0,
+      "p95": 60.0,
+      "samples": {
+        "2026-09-08T22:23:55Z": 60.0
+      }
+    },
+    "RF-7T-predicted-tail-ts-render": {
+      "last": 58.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 58.0,
+      "p95": 58.0,
+      "samples": {
+        "2026-09-08T22:25:06Z": 58.0
+      }
+    },
     "RVR-1-rover-route-proof": {
       "last": 179.0,
       "lastVsP50": 1.0,

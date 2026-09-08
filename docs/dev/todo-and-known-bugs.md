@@ -15,7 +15,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## RF7M-DEFECT-B-NEEDS-AN-ENGAGED-GHOST: a seam-only lane over a recorded fixture engages no ghost, so flight-map presence tracks nothing and the chain-HEAD source-resolution defect cannot be reached from it at all [MEASURED 2026-09-08 by RF-7M's two reading runs. A LANE / HARNESS finding, not a product defect - the product defect it fails to reach is real and is filed against the render fix branch. OPEN]
+## RF7M-DEFECT-B-NEEDS-AN-ENGAGED-GHOST: a seam-only lane over a recorded fixture engages no ghost, so flight-map presence tracks nothing and the chain-HEAD source-resolution defect cannot be reached from it at all [MEASURED 2026-09-08 by RF-7M's two reading runs. A LANE / HARNESS finding, not a product defect. ANSWERED the same day by RF-7T, whose Tracking Station host runs its resolver unconditionally and is therefore that half's harness subject - it reproduced the defect and then went green on the fix. KEPT OPEN as the record of a lane-shaping constraint that will bite the next author of a seam-only render lane]
 
 RF-7M reproduces the PREDICTED-TAIL render defect in two independent halves. Half (A),
 the forward-arc pass dropping every subsurface-periapsis conic, reproduces perfectly:
@@ -51,12 +51,19 @@ REJECTs `no-watchable-ghost` and therefore cannot pass vacuously, and
 `RF-7T-predicted-tail-ts-render`, whose Tracking Station host creates its own proto
 entries rather than borrowing the flight engine's.
 
-Needs: RF-7T and RF-8 reading runs to establish which of them actually reaches the
-surface, and then the defect-(B) tokens pinned on whichever does. If NEITHER does, the
-honest conclusion is that half (B) has no harness subject at all today and belongs to an
-in-game cell instead - the render fix branch's own design section already names the
-seam it would assert on (`GhostMapPresence.ResolveMapPresenceGhostSource` routing through
-`EffectiveState.EffectiveTipRecordingId`).
+ANSWERED 2026-09-08, same day, by RF-7T's first run: the Tracking Station DOES reach the
+surface. Ten `ResolveTrackingStationGhostSource` lines ran over the pod's chain HEAD and
+every one answered `source=None orbitSource=none ... hasSegments=False` with zero ghosts
+created - a HARDER reading than the seed's, which at least got a `state-vector-fallback`
+ellipse on the flight map. The defect-(B) tokens live on RF-7T, and its run 2 against the
+post-#1659 DLL PASSED attempt 1 with `hasOrbitSegments=False` gone.
+
+WHAT STAYS OPEN IS THE CONSTRAINT, not the question: no seam verb spawns a ghost for a
+committed recording, so any FUTURE flight-map render lane over a recorded fixture will hit
+this wall the same way. RF-8 (`EnterWatchMode`, which REJECTs `no-watchable-ghost` and so
+cannot pass vacuously) is the standing test of whether the watch path is a second route in;
+it has not been flown. A lane author reaching for the flight map should read this entry
+first and either use the TS host or engage a ghost deliberately.
 ## ~~PREDICTED-BALLISTIC-TAIL-IS-DRAWN-BY-NOTHING-ON-THE-MAP: a scene-exit continuation tail is excluded from the orbit line by its subsurface periapsis and has no recorded samples to fall back on, so neither surface draws it~~ FIXED 2026-09-08
 
 Forensics: manual Re-Fly session `2026-09-08_2317_refly-a-manual` (dev instance, main

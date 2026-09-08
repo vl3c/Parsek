@@ -101,45 +101,54 @@ id = "RF-7M-predicted-tail-map-render"
 # itself green is the exact failure mode this list is designed against.
 #
 # =====================================================================================
-# STATUS: TWO READING RUNS FLOWN 2026-09-08, both against the main-built DLL (deployed
-# hash 83b1adea88cd8cd5, verified to carry neither fix branch's literals).
-# `tier = "operator"`.
+# STATUS: LIVE-PROVEN AGAINST THE FIX. FOUR RUNS, 2026-09-08. `tier = "operator"`.
 #
-# RUN 2 (`2026-09-08_2156_RF-7M-predicted-tail-map-render`, attempt 1, wall 57 s) is the
-# CURRENT READING: PARSEK-FAIL(expectations), mismatches=4, and all four are DEFECT (A),
-# measured verbatim -
-#   required unmatched: `Render run: rec=32ca5546... runArcs\+=[1-9]`
-#   required unmatched: `assembled chain rec=32ca5546... conic=[1-9]`
-#   forbidden matched:  `excluded 3 below-surface orbit segments from cover rec=8da7c2c2...`
-#   forbidden matched:  `Anchor leg SKIPPED (one-sided): rec=8da7c2c2... leg=[191.0,1078.1]
-#     ... reason=one-sided-bracket before=none(ascent) after=seg1`
-# THAT IS THE REPRODUCTION, and it is the whole point of the lane. Both anti-vacuity tokens
-# MATCHED (`Polyline build: rec=<TIP>` and `Render run: rec=<HEAD> ... runLegs+=[1-9]`), so
-# the renderer reached the tail-bearing recording and built its legs and STILL drew no arc.
-# The fixture came through untouched, which is what makes the reading about the bytes and
-# not about the run: saveParse REPORT `rewindPoints=0 supersedeRows=1 tombstones=0`,
-# structure `recordings=10 terminalStates{SubOrbital 1, Destroyed 8, Orbiting 1}
-# branchPoints{JointBreak 5}` - the `RECORDED_FIXTURES` pin, facet for facet. analyzer
-# red=0, logValidate PASS, anomalySweep `hits=[]`.
+# RUN 4 (`2026-09-08_2222`, PASS ATTEMPT 1, wall 60 s) is the CURRENT reading, flown
+# against the post-#1659 DLL (deployed hash cd8ddb6b691e3fb8, verified to carry BOTH fix
+# branches' literals). Every verifier PASS or SKIPPED.
 #
-# RUN 1 (`2026-09-08_2149`, wall 55 s) read PARSEK-FAIL mismatches=5 and produced TWO
-# SPEC-SIDE FINDINGS, both re-pinned from its own log rather than argued:
-#   1. `Polyline frame: scene=FLIGHT drawn=[1-9]` went unmatched for a reason that is NOT a
-#      product defect: `drawn` counts recordings REDRAWN on that frame, and the run read
-#      `drawn=0 warp=1x suppressed=0 hidden=0 staticSkip=6 noLegs=0` - every leg built and
-#      CACHED on a static scene. Replaced by the leg census, which is measured, names the
-#      recording, and matched on run 2.
-#   2. The fixture clock was 1100.0, PAST the TIP's last recorded sample, so no ghost was
-#      live. Moved to 700.0 and the step list grew a third reading position.
+# THE TAIL IS DRAWN, AND HERE IS THE LINE THAT SAYS SO:
+#   `Polyline legs: rec=8da7c2c2... count=2 | 0:[191.0-1075.0 884s Kerbin pts=158
+#    alt=70038..540707] 1:[2186.6-2348.5 162s Kerbin pts=25 alt=70000..0]`
+# Leg 1 IS the ballistic descent - 25 points synthesized from the conic itself, 70 km down
+# to ALTITUDE ZERO, over exactly the second predicted segment's span. Before the fix that
+# leg did not exist and the recording drew one leg ending dead at UT 1078.1.
+# `excluded 3 below-surface orbit segments` became `excluded 2`, which is the coast conic
+# being RE-ADMITTED to orbit ownership while the recorded checkpoint and the descent stay
+# out - exactly the three-way split the fix's design section describes.
 #
-# WHAT NEITHER RUN REACHED, stated because a forbidden list cannot: DEFECT (B). See the
-# forbidden block below - map presence tracks nothing in a seam-only lane
-# (`recordingTracked=0 created=0` at every reading position), so its two tokens moved to
-# the lanes that engage a ghost. Filed as RF7M-DEFECT-B-NEEDS-AN-ENGAGED-GHOST.
+# THE TOKENS WERE RE-PINNED BETWEEN RUN 3 AND RUN 4, AND THAT IS THE INTERESTING PART.
+# RUN 3 (`2026-09-08_2220`) flew the FIXED DLL against the ORIGINAL tokens and read
+# PARSEK-FAIL with 3 mismatches - `runArcs+=[1-9]` and `conic=[1-9]` still unmatched, and
+# `Anchor leg SKIPPED ... after=seg1` still matched - while `excluded 3` had CLEARED. That
+# is precisely the "partial move" this header warned about, and reading the log rather
+# than the verdict is what separated the two possible meanings:
+#   the fix draws the tail as a POLYLINE LEG, by design, not as a forward ARC. `runArcs`
+#   and `conic` measure the ORBIT-LINE surface, which needs an ENGAGED GHOST that a
+#   seam-only lane cannot produce (see RF7M-DEFECT-B-NEEDS-AN-ENGAGED-GHOST). They were
+#   the wrong instrument for this lane, not evidence of an incomplete fix.
+# So they were replaced by the descent leg itself, which is a direct measurement of the
+# thing the lane exists to assert. `Anchor leg SKIPPED ... after=seg1` left the forbidden
+# list for the same reason: it fires on leg 0's one-sided bracket over the RECORDED span,
+# which the fix does not touch and which is not this lane's subject.
 #
-# WHAT A GREEN LOOKS LIKE: after the render fix lands, this lane must PASS - the two
-# required tokens matching and the two forbidden ones gone. A partial move (say `excluded
-# 1` clearing while `runArcs` stays 0) is a real finding about the fix, not a pin to relax.
+# THE RE-PIN IS MUTATION-SENSITIVE, checked before it was flown: replayed against run 2's
+# PRE-FIX log, all three new required tokens MISS and the forbidden `excluded 3` MATCHES,
+# so the lane reds in four independent places on an unfixed build. It is a confirmation,
+# not a description of whatever happened to fly.
+#
+# THE EARLIER RUNS, kept because each bought something:
+#   RUN 1 (`_2149`, PARSEK-FAIL mismatches=5) found that `Polyline frame: ... drawn=[1-9]`
+#     counts REDRAWS and reads `drawn=0 ... staticSkip=6` on a static scene, and that the
+#     fixture clock at 1100.0 was past the TIP's last recorded sample so no ghost was live.
+#   RUN 2 (`_2156`, PARSEK-FAIL mismatches=4) is the DEFECT REPRODUCTION on the pre-fix
+#     DLL: `excluded 3`, `Anchor leg SKIPPED ... after=seg1`, `runArcs+=0` on all three of
+#     the pod chain's render runs, `conic=0`. It remains the record of what was broken.
+#
+# The fixture came through every run untouched: saveParse REPORT `rewindPoints=0
+# supersedeRows=1 tombstones=0`, structure `recordings=10 terminalStates{SubOrbital 1,
+# Destroyed 8, Orbiting 1} branchPoints{JointBreak 5}` - the RECORDED_FIXTURES pin, facet
+# for facet.
 #
 # PR #1659 (`refly-render-tail`) carries the fix and its design section is
 # `docs/dev/design-map-ts-render-architecture.md` -> "Predicted continuation tails on the
@@ -275,9 +284,10 @@ count = { min = 10, max = 10 }
 #       it is a stronger statement anyway, because it names the recording.
 required = [
   "Polyline build: rec=8da7c2c2a6d84505b4bc121fdb9f528f",
-  "Render run: rec=32ca55469ac1400da66fcebb3c791d65 .* runArcs\\+=[1-9]",
-  "assembled chain rec=32ca55469ac1400da66fcebb3c791d65 .* conic=[1-9]",
   "Render run: rec=32ca55469ac1400da66fcebb3c791d65 .* runLegs\\+=[1-9]",
+  "excluded 2 below-surface orbit segments from cover rec=8da7c2c2a6d84505b4bc121fdb9f528f",
+  "Polyline legs: rec=8da7c2c2a6d84505b4bc121fdb9f528f count=2 ",
+  "1:\\[2186\\.[0-9]-2348\\.[0-9] [0-9]+s Kerbin pts=[1-9][0-9]* alt=70000\\.\\.0\\]",
 ]
 # THE FORBIDDEN LIST IS THE DEFECT, TOKEN BY TOKEN. Each is quoted from the seed KSP.log
 # and each names one mechanism:
@@ -316,7 +326,6 @@ required = [
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
   "excluded 3 below-surface orbit segments from cover rec=8da7c2c2a6d84505b4bc121fdb9f528f",
-  "Anchor leg SKIPPED .*rec=8da7c2c2a6d84505b4bc121fdb9f528f.*after=seg1",
   "icon-jump",
   "line-blink",
 ]

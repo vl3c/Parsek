@@ -20851,6 +20851,17 @@ KXRW_BOOSTER_STAGE = "BOOSTER-STAGE"
 KXRW_CORE_CUT = "CORE-CUT"
 KXRW_CORE_DISCARD = "CORE-DISCARD"
 KXRW_COAST = "COAST"
+# RF-9. THE COAST-EXIT PROFILE's one phase (opt-in; `coastExitProfile`). It holds
+# the top stack while the coast carries it ACROSS the atmosphere top and then ends
+# the mission there, in FLIGHT, with the recorder still live - so the SPEC's own
+# `ExitToSpaceCenter` step is what commits, and the committed recording spans an
+# Atmospheric -> ExoBallistic boundary the optimizer's split predicate accepts.
+# That boundary is the whole subject: the sealing defect PR #1658 fixed needs a
+# SPLIT on the promoted slot's own recording, and no other profile in this machine
+# produces one. With the key absent the phase is UNREACHABLE and COAST advances
+# exactly as it always did (`kxrw_coast_next_phase` stays the single decision for
+# the other two routes).
+KXRW_COAST_EXIT = "COAST-EXIT"
 # GS-6. The scripted PART-EVENT TIMELINE, and the ONE phase this machine gained
 # for it. Entered only when a spec declares `partSweepSteps`; with an empty list
 # (every pre-GS-6 spec, GS-4 included) COAST still goes STRAIGHT to TREE-STATE and
@@ -20897,7 +20908,8 @@ KXRW_DONE = "DONE"
 
 KXRW_PHASES: Tuple[str, ...] = (
     KXRW_ROLLOUT, KXRW_PRELAUNCH, KXRW_ASCENT, KXRW_BOOSTER_CUT, KXRW_BOOSTER_STAGE,
-    KXRW_CORE_CUT, KXRW_CORE_DISCARD, KXRW_COAST, KXRW_PART_SWEEP,
+    KXRW_CORE_CUT, KXRW_CORE_DISCARD, KXRW_COAST, KXRW_COAST_EXIT,
+    KXRW_PART_SWEEP,
     KXRW_TREE_STATE, KXRW_COMMIT,
     KXRW_STOP, KXRW_RECORDER_IDLE,
     KXRW_IMPACT_AUTORECORD_OFF, KXRW_IMPACT_COAST, KXRW_IMPACT_SETTLE,
@@ -20920,7 +20932,7 @@ KXRW_PHASES: Tuple[str, ...] = (
 # doing it for them.
 KXRW_FLIGHT_PHASES: Tuple[str, ...] = (
     KXRW_ASCENT, KXRW_BOOSTER_CUT, KXRW_BOOSTER_STAGE, KXRW_CORE_CUT,
-    KXRW_CORE_DISCARD, KXRW_COAST, KXRW_PART_SWEEP,
+    KXRW_CORE_DISCARD, KXRW_COAST, KXRW_COAST_EXIT, KXRW_PART_SWEEP,
     KXRW_IMPACT_AUTORECORD_OFF, KXRW_IMPACT_COAST)
 
 # The phases in which a `vessel_lost` snapshot is the EXPECTED reading rather
@@ -21323,6 +21335,64 @@ def kxrw_impact_profile_conflict(params: "KxrwParams") -> str:
     return ""
 
 
+def kxrw_coast_exit_profile_conflict(params: "KxrwParams") -> str:
+    """The reason ``coastExitProfile`` cannot be flown with the rest of this params
+    set, or "" when it can. Evaluated on the machine's first decision frame beside
+    ``kxrw_impact_profile_conflict``, for that function's reason: a spec that cannot
+    fly dies before a stage click rather than after an ascent.
+
+    TWO CONFLICTS, both structural.
+
+    ``impactProfile`` is the OTHER answer to the same question - what happens to the
+    top stack after the core comes off - and the two are opposite: this profile ends
+    the mission with the stack ALIVE and climbing, that one waits for it to hit the
+    ground. Declaring both would silently pick one, and which one is a reading of
+    the decide order rather than of the spec.
+
+    ``partSweepSteps`` is a list of part actions the machine fires between COAST and
+    TREE-STATE, and this profile never reaches TREE-STATE: every declared step would
+    be silently skipped, and the lane would then read as "the applier never logged
+    it" - blaming the product for a spec choice. That is GS-6's own
+    vocabulary-typo lesson, applied to a phase graph rather than to a name.
+
+    Returned rather than raised so the caller owns the severity, exactly as
+    ``kxrw_impact_profile_conflict`` and ``kxrw_sweep_steps_valid`` do."""
+    if not getattr(params, "coast_exit_profile", False):
+        return ""
+    if getattr(params, "impact_profile", False):
+        return ("coastExitProfile and impactProfile are mutually exclusive: they "
+                "are opposite answers to what becomes of the top stack after the "
+                "core discard - this one ends the mission with it ALIVE and above "
+                "the atmosphere, that one waits for it to reach the ground - so a "
+                "spec declaring both would have the decide order pick for it")
+    steps = tuple(getattr(params, "part_sweep_steps", ()) or ())
+    if steps:
+        return ("coastExitProfile and partSweepSteps are mutually exclusive: the "
+                "sweep fires between COAST and TREE-STATE and this profile ends "
+                "the mission at COAST-EXIT, so the %d declared step(s) (%s) would "
+                "be silently skipped and the lane would read as an applier that "
+                "never logged them" % (len(steps), ",".join(steps)))
+    return ""
+
+
+def kxrw_coast_exit_gate_met(altitude: float, situation: str,
+                             min_altitude: float,
+                             accepted: Tuple[str, ...]) -> bool:
+    """One frame's reading of the COAST-EXIT gate: a FINITE altitude at or above
+    ``min_altitude`` AND a situation in ``accepted``.
+
+    Both halves are OBSERVATIONS, and both are needed. The altitude alone is what
+    the optimizer's boundary is actually about (Kerbin's atmosphere ends at 70 km,
+    so an ExoBallistic section starts there); the situation is what says the stack
+    is COASTING rather than orbiting - a SUB_ORBITAL reading is the periapsis still
+    being inside the body, which is what makes the scene-exit tail a predicted
+    impact and the promoted slot's reason `crashed`. An UNREAD altitude is not a
+    high one, on ``kxrw_throttle_is_zero``'s argument."""
+    if not _is_finite(altitude) or float(altitude) < float(min_altitude):
+        return False
+    return str(situation or "") in tuple(accepted or ())
+
+
 def kxrw_throttle_is_zero(throttle: float, epsilon: float) -> bool:
     """OBSERVED-zero throttle: a FINITE readback at or below ``epsilon``.
 
@@ -21433,6 +21503,30 @@ class KxrwParams:
     part_sweep_frames: int = 600
     # Hard bound on the WHOLE pre-commit flight, measured from the launch click.
     flight_max_seconds: float = 420.0
+
+    # --- the RF-9 COAST-EXIT PROFILE (opt-in; see the phase constant) -------
+    # FALSE is the default and it is load-bearing exactly as `impact_profile`'s is:
+    # with it false COAST-EXIT is unreachable and the phase graph, the emitted
+    # actions and the assertion rows are byte-identical to the pre-RF-9 lane.
+    coast_exit_profile: bool = False
+    # The altitude the gate wants BEFORE the mission hands the scene over. 71 km
+    # rather than 70: Kerbin's atmosphere ends at exactly 70 000 m and the whole
+    # point is to be OUTSIDE it, with a kilometre of margin against a poll landing
+    # on the boundary itself. Not a trajectory - a threshold.
+    coast_exit_min_altitude: float = 71000.0
+    # The situations the gate accepts. SUB_ORBITAL only, by default and by intent:
+    # an ORBITING stack has a periapsis outside the atmosphere, its scene-exit tail
+    # is a closed orbit rather than a predicted impact, and the slot it promotes
+    # qualifies (if at all) for a different reason than the one this lane is about.
+    coast_exit_situations: Tuple[str, ...] = ("SUB_ORBITAL",)
+    # Consecutive in-gate frames before the hand-over. Debounced for the reason
+    # every other gate in this machine is: one glitched poll at the boundary must
+    # not end a flight.
+    coast_exit_debounce_frames: int = 2
+    # SILENCE bound for the gate, in frames. What it catches is a stack that never
+    # got there - a core discarded too low, an ascent that under-performed - which
+    # is a MISSION give-up rather than a Parsek finding, and it says so by name.
+    coast_exit_frames: int = 600
 
     # --- the IMPACT PROFILE (opt-in; see the section header) ----------------
     # FALSE is the default and it is load-bearing exactly as `part_sweep_steps`'
@@ -21579,6 +21673,17 @@ def kxrw_params_from_dict(params: Dict) -> KxrwParams:
         part_sweep_settle_frames=int(params.get("partSweepSettleFrames", 6)),
         part_sweep_frames=int(params.get("partSweepFrames", 600)),
         flight_max_seconds=float(params.get("flightMaxSeconds", 420.0)),
+        # RF-9. Same `bool(...)` fail-safe as `impactProfile` below, and the same
+        # reason: the schema rejects a non-bool at ADMIT and this is the machine's
+        # own guard for a params dict that reached it unvalidated.
+        coast_exit_profile=bool(params.get("coastExitProfile", False)),
+        coast_exit_min_altitude=float(
+            params.get("coastExitMinAltitudeMeters", 71000.0)),
+        coast_exit_situations=tuple(
+            str(x) for x in (params.get("coastExitSituations")
+                             or ("SUB_ORBITAL",))),
+        coast_exit_debounce_frames=int(params.get("coastExitDebounceFrames", 2)),
+        coast_exit_frames=int(params.get("coastExitFrames", 600)),
         # `bool(...)` rather than a bare read: hlib's schema check already rejects
         # a non-bool at ADMIT, and this is the machine's own fail-safe for a params
         # dict that reached it unvalidated (the sweep vocabulary's shape exactly).
@@ -21665,6 +21770,18 @@ class KxrwState:
     core_discard_ut: float = float("nan")
     core_discard_altitude: float = float("nan")
     core_discard_commanded: bool = False
+
+    # --- RF-9 coast exit (all inert unless `coast_exit_profile` is on) -------
+    # Consecutive in-gate frames, and what the gate SAW on the frame it opened.
+    # The two readings are carried rather than re-derived from `frames` because
+    # they are the evidence that the hand-over happened above the atmosphere: an
+    # operator reading a save whose recording carries no ExoBallistic section
+    # needs the altitude this machine actually observed, not a peak over the run.
+    coast_exit_streak: int = 0
+    coast_exit_observed: bool = False
+    coast_exit_ut: float = float("nan")
+    coast_exit_altitude: float = float("nan")
+    coast_exit_situation: str = ""
 
     # --- the seam bridge ----------------------------------------------------
     tree_probe: int = 0
@@ -22028,7 +22145,8 @@ def kxrw_decide(state: KxrwState,
     # the ascent burns a whole flight and then flakes, which the retry policy flies
     # again. The first frame is ROLLOUT with no click yet issued.
     if state.phase == KXRW_ROLLOUT and not state.rollout_launch_commanded:
-        conflict = kxrw_impact_profile_conflict(p)
+        conflict = (kxrw_impact_profile_conflict(p)
+                    or kxrw_coast_exit_profile_conflict(p))
         if conflict:
             return _kxrw_flake(state, "phase %s: %s" % (KXRW_ROLLOUT, conflict)), []
 
@@ -22287,6 +22405,14 @@ def kxrw_decide(state: KxrwState,
     # ---- COAST: let the recorder author post-separation coverage -----------
     if state.phase == KXRW_COAST:
         if _is_finite(snapshot.ut)                 and (snapshot.ut - state.phase_entry_ut) >= p.coast_seconds:
+            # RF-9: the SECOND branch this phase gained, and it is taken before the
+            # sweep decision because the two are mutually exclusive by the conflict
+            # gate above - reading it here keeps that exclusion in one place rather
+            # than making the sweep helper answer a question that is not its own.
+            if p.coast_exit_profile:
+                return (_kxrw_enter(replace(state, coast_exit_streak=0),
+                                    KXRW_COAST_EXIT, snapshot.ut),
+                        [])
             # GS-6: the ONE branch this phase gained. With no declared sweep the
             # answer is TREE-STATE and the emitted action list is the same single
             # RecordingState probe it always was - see kxrw_coast_next_phase.

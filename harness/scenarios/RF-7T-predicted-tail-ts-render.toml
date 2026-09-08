@@ -45,33 +45,36 @@ id = "RF-7T-predicted-tail-ts-render"
 # whole subject IS defect (B) in the TS, a 1100 clock would have made it vacuous.
 #
 # =====================================================================================
-# STATUS: READING RUN 1 FLOWN 2026-09-08
-# (`2026-09-08_2159_RF-7T-predicted-tail-ts-render`, attempt 1, wall 55 s, against the
-# main-built DLL, deployed hash 83b1adea88cd8cd5). VERDICT PARSEK-FAIL(expectation),
-# mismatches=2. `tier = "operator"`.
+# STATUS: LIVE-PROVEN AGAINST THE FIX. TWO RUNS, 2026-09-08. `tier = "operator"`.
 #
-# DEFECT (B) REPRODUCED IN THE TRACKING STATION, AND HARDER THAN IN THE SEED:
-#   forbidden matched: `hasOrbitSegments=False`.
-# Ten `ResolveTrackingStationGhostSource` lines ran for the pod's chain HEAD and every one
-# answered `source=None orbitSource=none ... hasSegments=False`, with ZERO ghosts created.
-# The seed session at least got a `state-vector-fallback` ellipse on the flight map; in the
-# TS the pod gets NO orbit source at all - `orbitSource=` appears ten times in the whole
-# run and reads `none` every time.
+# RUN 2 (`2026-09-08_2224`, PASS ATTEMPT 1, wall 58 s) flew the post-#1659 DLL (deployed
+# hash cd8ddb6b691e3fb8, verified to carry BOTH fix branches' literals) and every verifier
+# read PASS or SKIPPED. `hasOrbitSegments=False` is GONE from the Tracking Station, and
+# the re-pinned `ResolveTrackingStationGhostSource` token matched - so the TS resolver
+# still runs for the pod's chain HEAD, and now finds segments through the effective tip.
 #
-# THAT IS THE MEASUREMENT RF-7M COULD NOT MAKE, and it settles the question the
-# RF7M-DEFECT-B-NEEDS-AN-ENGAGED-GHOST finding left open: the flight map tracks nothing in
-# a seam-only lane (`recordingTracked=0` at every reading position, measured twice), while
-# the TS host runs its own per-recording resolver unconditionally. So the TRACKING STATION
-# is defect (B)'s harness subject, and this lane is where its tokens belong.
+# UNLIKE RF-7M, THIS LANE NEEDED NO RE-PIN TO GO GREEN. Its tokens were the right
+# instrument first time; the only edit between the two runs was run 1's spec-side finding
+# (the flight-map line name for the TS's own line), and the fix did the rest. That is
+# worth recording as a difference rather than a coincidence: RF-7M gates on the POLYLINE
+# surface, whose post-fix shape is a leg rather than an arc, while this lane gates on the
+# ghost SOURCE, whose token is the same before and after.
 #
-# ONE SPEC-SIDE FINDING, re-pinned from the run's own log exactly as this header said it
-# would be: the required token asked for the FLIGHT-map line name and the TS emits its own.
-# The fixture came through untouched - saveParse REPORT `rewindPoints=0 supersedeRows=1
-# tombstones=0`, analyzer red=0, driverValidity PASS.
+# RUN 1 (`2026-09-08_2159`, PARSEK-FAIL mismatches=2) is the DEFECT REPRODUCTION on the
+# pre-fix DLL and remains the record of what was broken: ten
+# `ResolveTrackingStationGhostSource` lines over the chain HEAD, every one `source=None
+# orbitSource=none ... hasSegments=False`, ZERO ghosts created, `orbitSource=` reading
+# `none` all ten times. The seed session at least got a `state-vector-fallback` ellipse on
+# the flight map; the TS gave the pod no orbit source at all.
 #
-# EXPECTED VERDICT ON RUN 2 (main): PARSEK-FAIL(expectations) on `hasOrbitSegments=False`
-# alone, with the re-pinned presence token matching. After the render fix lands this lane
-# must PASS. A red on anything else is a finding for `docs/dev/todo-and-known-bugs.md`.
+# IT ALSO SETTLED WHAT RF-7M COULD NOT REACH. The flight map tracks nothing in a seam-only
+# lane (`recordingTracked=0` at every reading position, measured twice), while this host
+# runs its resolver unconditionally - so the TRACKING STATION is the harness subject for
+# the map-presence half, and that is why its two tokens live here. See
+# RF7M-DEFECT-B-NEEDS-AN-ENGAGED-GHOST.
+#
+# The fixture came through both runs untouched: saveParse REPORT `rewindPoints=0
+# supersedeRows=1 tombstones=0`, analyzer red=0, driverValidity PASS.
 #
 # PR #1659 (`refly-render-tail`) carries the fix; its design section is
 # `docs/dev/design-map-ts-render-architecture.md` -> "Predicted continuation tails on the

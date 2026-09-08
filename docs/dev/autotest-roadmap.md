@@ -3636,6 +3636,26 @@ deployed hash `83b1adea88cd8cd5`, verified to carry neither fix branch's literal
   harder than in the seed: ten `ResolveTrackingStationGhostSource` lines over the chain
   HEAD, every one `source=None orbitSource=none ... hasSegments=False`, zero ghosts.
 
+**BOTH RENDER LANES ARE NOW GREEN AGAINST THE MERGED FIX (2026-09-08).** PR #1659
+merged as `1b2fc0fea`; the branch was rebuilt, re-provisioned (deployed hash
+`cd8ddb6b691e3fb8`, verified to carry both fixes) and both lanes re-flown.
+
+- **RF-7T PASS attempt 1 with no re-pin** - its tokens were right first time.
+- **RF-7M needed a re-pin, and the reason is worth keeping.** Flown against the fixed
+  DLL with its ORIGINAL tokens it still read PARSEK-FAIL on `runArcs+=[1-9]` and
+  `conic=[1-9]`. Reading the log rather than the verdict showed the fix draws the tail
+  as a POLYLINE LEG, by design, not as a forward arc: `Polyline legs: ... count=2 |
+  ... 1:[2186.6-2348.5 162s Kerbin pts=25 alt=70000..0]` - the ballistic descent, 25
+  points sampled off the conic down to altitude zero. `runArcs` / `conic` measure the
+  ORBIT-LINE surface, which needs an engaged ghost this lane cannot produce. They were
+  the wrong instrument, not evidence of an incomplete fix. Re-pinned onto the descent
+  leg, and the re-pin was checked MUTATION-SENSITIVE against the pre-fix log (four
+  independent reds) before being flown.
+
+That distinction - wrong instrument versus incomplete fix - is the single most valuable
+thing this program produced, and it is only available because the lanes were flown
+against BOTH builds.
+
 **A THIRD LIMITATION, MEASURED RATHER THAN PREDICTED.** RF-7M could not reach defect (B)
 at all, on either of two clocks: a seam-only lane over a recorded fixture engages no
 ghost, so flight-map presence tracks nothing (`recordingTracked=0 created=0` at every
