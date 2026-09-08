@@ -57,13 +57,16 @@ M-A6 stack provisioner, M-B1 mission library, M-B2 ledger oracle, M-C1 seam verb
 batch 1, M-C2 EVA verbs. Status and per-module proof live in `autotest-status.md`.
 None of the items in this roadmap are blocked on a missing module.
 
-### Scenarios: 225 committed
+### Scenarios: 230 committed
 
-Re-derived 2026-09-07 at the merge of #1646 (`e01d11f85`): `ls harness/scenarios/*.toml` returns **224**
-files, the total `autotest-status.md`'s `## Test cases` header states and
-`AutotestStatusScenarioCountTests` pins against the committed files. The 68 below
-was the 2026-08-04 snapshot; the V / GS / W / L / RVR / H41-H70 / LT waves, among others, took it
-from 68 to 224 between 2026-08-04 and 2026-09-07.
+Re-derived 2026-09-08 at `de5ac6112` (after #1648 V27M, #1650 LT-3 / LT-4 / LT-5 / H71
+and #1653 RH-1): `ls harness/scenarios/*.toml` returns **230** files, the total
+`autotest-status.md`'s `## Test cases` header states and
+`AutotestStatusScenarioCountTests` pins against the committed files (129 live-proven
+in that doc's own table, 0 committed-not-yet-green; tiers: 125 nightly, 24 daily,
+81 operator). The 68 below was the 2026-08-04 snapshot; the V / GS / W / L / RVR /
+H41-H71 / LT / RH waves, among others, took it from 68 to 230 between 2026-08-04 and
+2026-09-08.
 
 `ls harness/scenarios/*.toml` returned **68** files when this section was last
 re-derived before that (2026-08-04 at
@@ -79,13 +82,14 @@ these rather than editing them by memory; both numbers have moved many times.
 
 ### Coverage: 163 of 248 registry cells (was 83 of 241 at the baseline, 108 of 242 on 2026-08-04, 162 of 247 on 2026-09-07 before G1 / G3b closed)
 
-Re-derived 2026-09-07 at the merge of #1646 (`e01d11f85`), replacing the 2026-08-04 snapshot (108 of
-242; the registry has since grown by five values net: D6 +2, D9 +1, D10 +3, D16 -1). The
-command is unchanged: `hlib.compute_coverage(specs, [], registry)` over the 224
+Re-derived 2026-09-08 at `de5ac6112`, replacing the 2026-09-07 snapshot (162 of 247;
+#1648 added the D10 `route-endpoint-rebind-render` value and claimed it, so the
+registry is 248 and the 2026-08-04 delta is now D6 +2, D9 +1, D10 +4, D16 -1). The
+command is unchanged: `hlib.compute_coverage(specs, [], registry)` over the 230
 committed specs and `harness/coverage/registry.toml` returns exactly:
 
 ```
-values 247   covered 162   uncovered 85   expectedFailValues 0   xpass 0
+values 248   covered 163   uncovered 85   expectedFailValues 0   xpass 0
 ```
 
 Per dimension (total / uncovered), with the 2026-08-04 uncovered count kept in
@@ -102,7 +106,7 @@ the last column so the delta stays legible:
 | D7 | part events / FX | 16 | 4 | 11 |
 | D8 | ledger / career | 18 | 0 | 6 |
 | D9 | rewind / re-fly | 17 | 1 | 4 |
-| D10 | logistics / routes | 23 | 1 | 12 |
+| D10 | logistics / routes | 24 | 1 | 12 |
 | D11 | missions abstraction | 18 | 6 | 10 |
 | D12 | crew | 10 | 5 | 8 |
 | D13 | spawn positioning | 11 | 7 | 7 |
@@ -111,7 +115,7 @@ the last column so the delta stays legible:
 | D16 | storage / sidecars | 12 | 8 | 9 |
 | D17 | mod compatibility | 6 | 4 | 4 |
 | D18 | re-fly / interaction | 12 | 10 | 10 |
-| | | **247** | **85** | **134** |
+| | | **248** | **85** | **134** |
 
 The cells still uncovered in four dimensions worth naming: D9 is down to
 `load-time-sweep` alone; D10 to `harvest-provenance` (this same commit adds the
@@ -123,6 +127,51 @@ D13 unchanged at `proximity-offset`, `bbox-block`, `ksc-exclusion`,
 `situation-correction`, `pid-dedup`, `terminal-orbit-safety`, `real-spawn-control`
 (the R8 residue, all self-skip-guarded); D17 unchanged at `persistent-rotation`,
 `better-time-warp`, `remotetech-commnet`, `making-history` (R14 residue).
+
+### What remains, by product area (2026-09-08)
+
+Read with the register below. Sixty-six percent of the declared surface is gated
+and every committed lane has a green run; the residue is UNEVEN, and each thin
+dimension is thin for a different reason. Covered / total per dimension at
+`de5ac6112`, with what closing the rest takes:
+
+| Dim | Subject | Covered | What the residue is, and what closes it |
+|---|---|---:|---|
+| D8 | ledger / career | 18 / 18 | Done. |
+| D9 | rewind / re-fly | 16 / 17 | `load-time-sweep` only, a unit-level sweep no lane drives (ghost-replay Tier B item 7). |
+| D10 | logistics / routes | 23 / 24 | `harvest-provenance` only; an operator ore-drill flight (supply-route hand-off). |
+| D1 | recording lifecycle | 13 / 18 | `manual-gloops`, `stop-on-switch` (R2 registry call), `commit-abort` (needs its definition), `sub-2-point-drop`, `switch-segment-noop-discard`: the Tier D authoring pass, register item 8. |
+| D7 | part events / FX | 12 / 16 | `chute-cut`, `bays` (GS-6 residues, need a descent variant and a ServiceBay tail), `engine-fx-effects`, `inventory-place-remove` (Tier 4 producer). |
+| D14 | bodies / scenes | 24 / 32 | Tylo / Bop / Pol (G9), `atmosphere`, `situation`, `warp-1x`, `warp-phys`, `scene-editor`: breadth, behind everything else. |
+| D11 | missions abstraction | 12 / 18 | `default-mission`, `leg-trim`, `whole-mission-loop`, `clone`, `station-phase-lock`, `s4-arrival-restitch`: Missions-tab semantics that need seam verbs equivalent to the tab's buttons (`MissionConfig` exists; the rest do not). |
+| D6 | playback / ghosts | 10 / 18 | Register item 3 (Tier A: retarget + explosion hold, zone transitions, reentry FX at the replay surface) takes the cells that have subjects; `loop-period-modes`, `self-overlap`, `overlap-expiry-soft-caps`, `attitude-preservation` need loop-cycle instruments (Tier C); `commnet-relay` is vacuous until a generator writes `AntennaSpecs`. |
+| D4 | track sections / optimizer | 6 / 12 | A CLAIM GAP of the H57 kind: `Optimizer` executes whole on LT-2 but `hysteresis`, `env-body-split`, `surface-graze-suppression`, `tail-trim`, `seed-event-split`, `split-at-ut` have no cell-level gating token. Same fix as the D3 / D6 claim pass in register item 3. |
+| D5 | tree topology | 6 / 12 | `chain-continuation-switch` (register item 2, in flight), `staging-debris-ttl` / `-promotion` (Tier A item 5), `dock-merge-same-tree` (Tier 4), `crash-coalescing` (a crash-landing profile; Tier A item 2's second shape), `bg-on-rails` (`Recording` executes whole on LT-2, claim gap). |
+| D12 | crew | 5 / 10 | `tombstone-rep-penalty` and `stand-ins` wait on R12 Stage B (now unblocked by R10); `reservation-auto-hire`, `missed-endut-auto-free`, `crew-swap` are career-lane work and Tier 4 machinery. |
+| D3 | reference frames | 3 / 7 | A claim gap: `Pipeline-Anchor` executes whole on H11; `absolute`, `relative-anchored-nonloop`, `relative-loop`, `boundary-seam` need the test-to-cell mapping confirmed and one token each (register item 3, part 0). |
+| D13 | spawn positioning | 4 / 11 | Where a REAL spawn lands (terrain clearance, KSC exclusion, collision, orbit safety): the in-game tests exist and self-skip on every committed fixture. Generator / fixture work (R8 residue), not spec work. |
+| D16 | storage / sidecars | 4 / 12 | Formats, safe-write, path validation. Already covered headlessly by xUnit; the registry asks for a driven lane. Low product risk; several cells could close through one save-parse lane. |
+| D17 | mod compatibility | 2 / 6 | `better-time-warp`, `making-history` have the instance and no spec (R14 residue); `persistent-rotation`, `remotetech-commnet` are source-blocked. |
+| D18 | re-fly / interaction | 2 / 12 | THE LARGEST RESIDUE and the interaction surface of the v0.9 headline feature: what happens when the player spawns a ghost as a real vessel, docks with it, and how chains link afterwards. Register item 2 (in flight) claims `committed-interaction-claiming` and `chain-tip-original-pid`; the other eight (`ghost-conversion-quicksave`, `intermediate-spawn-suppression`, `cross-tree-chain-linking`, `ghost-extension-past-endut`, `background-event-claims`, `chain-terminated-destruction-recovery`, `chain-state-rederived`, `loop-first-run-is-real`) need the same spawn-in-run driving item 2 has to build, so they are its natural follow-on wave. |
+| D2 | sampling | 3 / 4 | `proximity-cadence-bg` (R1 residue: grep an archived B-lane log first). |
+| D15 | timeline | 0 / 1 | `timeline-projection`, one cell, no subject yet. |
+
+Structurally out of reach and excluded on purpose: planet -> planet transfers not
+from Kerbin (G6), the moon-to-moon re-aim road (G7, a product decision),
+`commnet-relay` until a generator writes antenna specs, and the two source-blocked
+D17 mods.
+
+**Distance to done.** Register items 1-3 plus the claim pass (D3 / D4 / D6 / D5
+tokens for categories that already execute whole) land the count somewhere near
+175 of 248. The realistic ceiling for UNATTENDED coverage is 85-90 percent: the
+rest is mods, manual flights and the excluded classes. Two caveats keep the number
+honest. A covered cell means a lane GATES a token about that behaviour, not that
+the behaviour is proven correct - the per-lane negative control is the program's
+answer, and the trust-risk list at the end of this file (presence-only log
+contracts, the ledger oracle's independence check being a structural no-op, no
+mutation tool) is still open. And most in-game batch lanes gate a DECISION inside
+a live KSP process rather than a flown situation, the caveat every R4 / R6 / R7 /
+R8 spec is required to carry.
 
 ### The headline
 
@@ -184,11 +233,14 @@ This section is the ranked answer to "what next", re-derived on `main` at
 closed V3C). It supersedes the ORDER implied by the Build-order tiers and the
 per-program sequencing notes below; those sections stay the DEFINITIONS of the
 items and the record of why. Re-derive before acting: `ls harness/scenarios/*.toml`
-(225), `hlib.compute_coverage` (163 of 248 cells, 85 uncovered), and the category
-inventory (106 of 112 categories driven; 110 once #1650 merges - it is open with CI
-green and closes `Contracts`, `RouteLiveAnchor`, `ResourceTopBar` and
-`PartEventFX`, leaving `CrewReservationLive` and `DisabledHoverEcho`, both
-host-blocked). The "Committed, not yet green" table in `autotest-status.md` is
+(230 at `de5ac6112`), `hlib.compute_coverage` (163 of 248 cells, 85 uncovered), and
+the category inventory (110 of 112 categories driven since #1650 merged, which closed
+`Contracts`, `RouteLiveAnchor`, `ResourceTopBar` and `PartEventFX`; the two left,
+`CrewReservationLive` and `DisabledHoverEcho`, are host-blocked). STANDING
+2026-09-08, end of day: item 1 SHIPPED (#1653); items 2 and 3 are in flight in
+separate sessions (branches `chain-interaction` and `ghost-replay-tier-a`); the
+promotion calls in item 7 are DONE (#1652). "What remains, by product area" above
+is the per-dimension reading behind this order. The "Committed, not yet green" table in `autotest-status.md` is
 EMPTY: every committed lane has a green run. (It carried ONE row for part of
 2026-09-08 - `RH-1-live-rp-handle-rewind`, R10's first consumer - and emptied again the
 same day when that lane passed, `2026-09-08_0844_RH-1-live-rp-handle-rewind`.) What
