@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Runtime.InteropServices;
 using UnityEngine;
 
 namespace Parsek.InGameTests
@@ -44,7 +45,13 @@ namespace Parsek.InGameTests
             var go = new GameObject("ParsekDisabledHoverEchoProbe");
             UnityEngine.Object.DontDestroyOnLoad(go);
             DisabledHoverProbe probe = go.AddComponent<DisabledHoverProbe>();
-
+            // Unattended batches leave the OS pointer wherever the launcher left it, which
+            // is almost never inside the game window; the probe then reads "not measured"
+            // and skips. Park the pointer over the probe's own button for the measurement
+            // and put it back afterwards. Windows only; anywhere else the placement reports
+            // itself unavailable and the cell keeps its original skip.
+            CursorPlacement placement = CursorPlacement.TryPlaceOverProbeButton();
+            ParsekLog.Info("TestRunner", "DisabledHoverEcho_InGame: cursor placement " + placement.Describe());
             try
             {
                 int guardFrames = 0;
@@ -112,8 +119,136 @@ namespace Parsek.InGameTests
             }
             finally
             {
+                placement.Restore();
                 UnityEngine.Object.Destroy(go);
             }
+        }
+
+        /// <summary>
+        /// Parks the OS pointer inside the probe button's rect (the top 120 px of the game
+        /// window's client area, full width) for the duration of the measurement, and
+        /// restores the previous pointer position afterwards. Unity samples the pointer
+        /// from the OS, so nothing inside the engine can fake a hover; moving the real
+        /// pointer is the only way an unattended batch can measure tooltip publication.
+        /// Every failure mode (not Windows, no user32, no game window found) degrades to
+        /// "not placed", which leaves the cell on its original skip path.
+        /// </summary>
+        internal readonly struct CursorPlacement
+        {
+            private const int ProbeButtonHeightPx = 120;
+
+            internal readonly bool Placed;
+            internal readonly string Reason;
+            private readonly int restoreX;
+            private readonly int restoreY;
+
+            private CursorPlacement(bool placed, string reason, int restoreX, int restoreY)
+            {
+                Placed = placed;
+                Reason = reason;
+                this.restoreX = restoreX;
+                this.restoreY = restoreY;
+            }
+
+            internal string Describe()
+            {
+                return (Placed ? "placed" : "not placed") + " (" + Reason + ")";
+            }
+
+            internal static CursorPlacement TryPlaceOverProbeButton()
+            {
+                if (Environment.OSVersion.Platform != PlatformID.Win32NT)
+                    return new CursorPlacement(false, "not Windows: " + Environment.OSVersion.Platform, 0, 0);
+                try
+                {
+                    IntPtr window = NativeMethods.FindWindowW(null, "Kerbal Space Program");
+                    string source = "title";
+                    if (window == IntPtr.Zero)
+                    {
+                        window = NativeMethods.GetForegroundWindow();
+                        source = "foreground";
+                    }
+                    if (window == IntPtr.Zero)
+                        return new CursorPlacement(false, "no game window handle", 0, 0);
+                    if (!NativeMethods.GetClientRect(window, out NativeMethods.RECT client))
+                        return new CursorPlacement(false, "GetClientRect failed", 0, 0);
+                    int width = client.Right - client.Left;
+                    int height = client.Bottom - client.Top;
+                    if (width <= 0 || height < ProbeButtonHeightPx)
+                        return new CursorPlacement(false, "client area " + width + "x" + height + " too small", 0, 0);
+                    var target = new NativeMethods.POINT { X = width / 2, Y = ProbeButtonHeightPx / 2 };
+                    if (!NativeMethods.ClientToScreen(window, ref target))
+                        return new CursorPlacement(false, "ClientToScreen failed", 0, 0);
+                    NativeMethods.GetCursorPos(out NativeMethods.POINT previous);
+                    if (!NativeMethods.SetCursorPos(target.X, target.Y))
+                        return new CursorPlacement(false, "SetCursorPos refused", 0, 0);
+                    return new CursorPlacement(true,
+                        "window=" + source + " client=" + width + "x" + height
+                        + " screen=(" + target.X + "," + target.Y + ") restore=(" + previous.X + "," + previous.Y + ")",
+                        previous.X, previous.Y);
+                }
+                catch (Exception ex)
+                {
+                    // DllNotFoundException / EntryPointNotFoundException / SecurityException:
+                    // the platform has no usable user32, so the cell measures nothing.
+                    return new CursorPlacement(false, ex.GetType().Name + ": " + ex.Message, 0, 0);
+                }
+            }
+
+            internal void Restore()
+            {
+                if (!Placed)
+                    return;
+                try
+                {
+                    NativeMethods.SetCursorPos(restoreX, restoreY);
+                }
+                catch (Exception)
+                {
+                    // Best effort: the pointer stays parked over the probe area.
+                }
+            }
+        }
+
+        private static class NativeMethods
+        {
+            [StructLayout(LayoutKind.Sequential)]
+            internal struct RECT
+            {
+                public int Left;
+                public int Top;
+                public int Right;
+                public int Bottom;
+            }
+
+            [StructLayout(LayoutKind.Sequential)]
+            internal struct POINT
+            {
+                public int X;
+                public int Y;
+            }
+
+            [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+            internal static extern IntPtr FindWindowW(string className, string windowName);
+
+            [DllImport("user32.dll")]
+            internal static extern IntPtr GetForegroundWindow();
+
+            [DllImport("user32.dll")]
+            [return: MarshalAs(UnmanagedType.Bool)]
+            internal static extern bool GetClientRect(IntPtr hWnd, out RECT rect);
+
+            [DllImport("user32.dll")]
+            [return: MarshalAs(UnmanagedType.Bool)]
+            internal static extern bool ClientToScreen(IntPtr hWnd, ref POINT point);
+
+            [DllImport("user32.dll")]
+            [return: MarshalAs(UnmanagedType.Bool)]
+            internal static extern bool GetCursorPos(out POINT point);
+
+            [DllImport("user32.dll")]
+            [return: MarshalAs(UnmanagedType.Bool)]
+            internal static extern bool SetCursorPos(int x, int y);
         }
 
         /// <summary>

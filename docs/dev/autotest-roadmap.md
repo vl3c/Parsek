@@ -185,10 +185,16 @@ closed V3C). It supersedes the ORDER implied by the Build-order tiers and the
 per-program sequencing notes below; those sections stay the DEFINITIONS of the
 items and the record of why. Re-derive before acting: `ls harness/scenarios/*.toml`
 (225), `hlib.compute_coverage` (163 of 248 cells, 85 uncovered), and the category
-inventory (106 of 112 categories driven; 110 once #1650 merges - it is open with CI
-green and closes `Contracts`, `RouteLiveAnchor`, `ResourceTopBar` and
-`PartEventFX`, leaving `CrewReservationLive` and `DisabledHoverEcho`, both
-host-blocked). The "Committed, not yet green" table in `autotest-status.md` is
+inventory (**112 of 112 categories driven, 621 of 621 declarations - the in-game
+coverage axis is CLOSED**; #1650 took it to 110 by closing `Contracts`,
+`RouteLiveAnchor`, `ResourceTopBar` and `PartEventFX`, and the 2026-09-08 wave closed
+the last two by refuting the "host-blocked" reading on both - `CrewReservationLive`
+joined `LT-4-long-tail-route-flight` because a RECORDED store carries the spawned pid
+no injected corpus does, and `DisabledHoverEcho` joined `LT-1-long-tail-flight`
+because the test process can move the OS pointer even though no seam verb can. What
+remains on this axis is ONE named cell,
+`RuntimeTests.EvaKerbalGhostHasVesselSnapshot`, which wants a crewed craft FLYING low
+over terrain and which no seam verb lofts). The "Committed, not yet green" table in `autotest-status.md` is
 EMPTY: every committed lane has a green run. (It carried ONE row for part of
 2026-09-08 - `RH-1-live-rp-handle-rewind`, R10's first consumer - and emptied again the
 same day when that lane passed, `2026-09-08_0844_RH-1-live-rp-handle-rewind`.) What
@@ -584,21 +590,55 @@ categories those lanes drive WHOLE - `Contracts`, `RouteLiveAnchor` and `Structu
 promoted to inventory bucket A3 on the flights; the rest are measured slices that stay
 in bucket B with named residue.
 
-WHAT REMAINS ON THIS AXIS, and none of it is a host question. TWO categories stay
+~~WHAT REMAINS ON THIS AXIS, and none of it is a host question. TWO categories stay
 undriven: `CrewReservationLive` (2), which read 0 of 2 on three further hosts, so the
 blocker is the corpus writer's inability to author a spawned endpoint (inventory B1),
-and `DisabledHoverEcho` (1), which is interactive-only. Beyond them the axis holds
+and `DisabledHoverEcho` (1), which is interactive-only.~~ Beyond them the axis holds
 RESIDUE rather than undriven categories, tabulated in the inventory's B5 section as
-bounds on lanes that already exist: the two `StockUiOverlay` Mission Control cells
+bounds on lanes that already exist: ~~the two `StockUiOverlay` Mission Control cells
 (they want the Mission Control BUILDING UI open, which no seam verb drives - the
 nine-Offered-contract host measured the same `rows=9, contractRows=0` skip and refuted
 the "wants an offered contract" reading); `TopBarReflectsLedgerAfterRecalc` (on an
 earned career the ledger reconstruction runs above the live pools and the drawdown
-guard uplift-clamps the patch); `RuntimeTests.EvaKerbalGhostHasVesselSnapshot` (wants a
+guard uplift-clamps the patch);~~ `RuntimeTests.EvaKerbalGhostHasVesselSnapshot` (wants a
 crewed vessel FLYING low over terrain); and the `AutoRecord` committed-tree-restore
 trap (`DiscardTree` cannot idle a host whose committed tree re-arms the recorder about
 7 ms later - `rover-route-recorded` already covers those cells, so it is a trap to know
 rather than a defect to fix).
+
+**A THIRD CENSUS ON 2026-09-08 (scratch CEN-8..CEN-12, not committed) CLOSED THE AXIS
+AT 112 OF 112 CATEGORIES AND 621 OF 621 DECLARATIONS, and it closed three of the four
+residue rows with it.** Every one of the struck claims above was a bound on the layer
+that had been looked at rather than on the product:
+
+- `CrewReservationLive` (2) is now `LT-4-long-tail-route-flight`'s fourth constituent
+  at 2 of 2. The corpus writer still authors no spawned pid, but three RECORDED
+  fixtures carry one that survives the load-time spawn reconcile, and every host the
+  two earlier censuses asked was an injected corpus or a career (CEN-9,
+  `2026-09-08_1029`, on `depot-route-recorded`; CEN-10, `_1030`, the same 2 of 2 on
+  `bdock-recorded`). The corpus-writer item survives, now buying only `SpawnHealth`'s
+  third cell.
+- `DisabledHoverEcho` (1) is now `LT-1-long-tail-flight`'s 31st constituent at 1 of 1.
+  No seam verb can move the OS pointer; the test process runs inside the game window
+  and now parks it over the cell's own probe button for the measurement, restoring the
+  previous position afterwards, and degrades to the old skip off Windows (CEN-12,
+  `_1035`).
+- The two `StockUiOverlay` Mission Control cells were a PRODUCT DEFECT, not a UI state.
+  `rows=9` said the building UI was open and nine rows had been walked; the row-to-
+  contract lookup was what failed, because stock stores a `MissionControl.MissionSelection`
+  in `UIListItem.Data` and Parsek cast it `as Contract`. Parsek's Mission Control
+  contract overlays had therefore never decorated a row on KSP 1.12.5. Fixed in
+  `StockUiOverlayController.ExtractMissionControlRowContract`; H45 moved to
+  `career-earned-ksc` and reads 6 of 6 (CEN-11, `_1034`, with the overlay logging
+  `MissionControl decorated contractCount=1`).
+- `TopBarReflectsLedgerAfterRecalc` wanted "a career whose reconstruction lands at or
+  below live", which is unbuildable rather than unbuilt: seed == live on every seeded
+  career, so the cell's own probe credit always runs above it and CEN-8 measured the
+  identical skip on `fresh-career`. The cell now ASSERTS the drawdown guard on that
+  branch, taking H71 to 2 of 2.
+
+All four re-pinned lanes flew on runs `2026-09-08_1038` (H71), `2026-09-08_1039` (H45), `2026-09-08_1040` (LT-4) and `2026-09-08_1041` (LT-1), every one PASS attempt 1. What is left on the axis is the
+`EvaKerbalGhostHasVesselSnapshot` cell and the committed-tree-restore trap.
 
 **No structural save-content assertion.** The only assertion any spec can make about
 the produced recordings is `recordings.count`, a min/max integer window, and it is
@@ -1478,9 +1518,15 @@ A SECOND CENSUS THE SAME DAY spent three more multi-category boots plus one ordi
 one (LT-3 / LT-4 / LT-5 and `H71-resource-topbar-ksc`) and took the count to 110 of
 112, closing four of the six categories the first pair had to exclude for want of a
 host; LT-1 was re-pinned 33 -> 30 constituents as three of its slices moved to the
-lanes whose hosts feed them. What is left is two categories that no host closes -
+lanes whose hosts feed them. ~~What is left is two categories that no host closes -
 `CrewReservationLive` (corpus-writer work) and `DisabledHoverEcho` (interactive-only) -
-so this item's remaining work has left the batch mechanism entirely.
+so this item's remaining work has left the batch mechanism entirely.~~ A THIRD CENSUS
+(2026-09-08, scratch CEN-8..CEN-12) closed both without leaving the batch mechanism at
+all: `CrewReservationLive` is LT-4's fourth constituent (a recorded store carries the
+spawned pid; no injected corpus does) and `DisabledHoverEcho` is LT-1's 31st (the cell
+places the OS pointer itself). The item is CLOSED at 112 of 112 categories, and both
+"no host closes it" claims were bounds on which hosts had been asked and on which
+layer could move a pointer.
 Flight? ALL SIX FLOWN 2026-09-07 AND GREEN ON ATTEMPT 1. The first pair are LT-1
 (`2026-09-07_1511`) and LT-2 (`_1516`); the second wave flew the same evening -
 LT-1's 30-constituent re-pin `2026-09-07_2030` (292 s), LT-3 `_2035` (64 s), LT-4

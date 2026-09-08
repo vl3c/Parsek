@@ -10,21 +10,25 @@ tier = "nightly"
 # same xUnit base (an earned ledger, two committed recordings, nine Offered
 # contracts, no VESSEL node, so LoadGame takes the NoVesselSpaceCenter route).
 # Measured on the 2026-09-07 second census (scratch CEN-2, run `2026-09-07_2017`,
-# 4 candidate categories): ResourceTopBar 1 of 2.
+# 4 candidate categories): ResourceTopBar 1 of 2, then 2 of 2 on the 2026-09-08 census
+# CEN-11 (run `2026-09-08_1034`) after the cell was re-pinned to the guard.
 #
-# THE ONE SKIP IS MEASURED AND NAMED: `TopBarReflectsLedgerAfterRecalc` skips because
-# on this career the ledger reconstruction runs ABOVE the live pools and the
-# drawdown guard uplift-clamps the funds / science patch (its skip text), so the
-# bar cannot be asserted against a clamped patch; `CurrencyTooltipResolvesWidgetScreenRects`
-# executes and passes. The three sibling categories the census read on this host
-# are owned elsewhere: `Ledger` 4 of 4 (H48), `StockUiOverlay` 4 of 6 (H45; the two
-# Mission Control cells skip here exactly as on H45, "rows=9, contractRows=0" - the
-# offered rows populate only with the Mission Control building open, which no seam
-# verb drives), `CrewReservationLive` 0 of 2 (no spawned vessels).
-# FLOWN (first flight): run `2026-09-07_2038`, PASS attempt 1, wall 46 s, the pinned line
-# matched verbatim, one ERROR line (the carve-out) and no other, every verifier
+# BOTH CELLS EXECUTE. `TopBarReflectsLedgerAfterRecalc` used to skip here because the
+# ledger reconstruction runs ABOVE the live pools and the drawdown guard uplift-clamps
+# the funds / science patch - and it did the same on `fresh-career` (CEN-8), because
+# seed == live on every seeded career, so the probe credit ALWAYS runs above live.
+# The cell now asserts that guard (live funds / science hold, no change event fires)
+# instead of skipping past it; `CurrencyTooltipResolvesWidgetScreenRects` executes and
+# passes as before. The three sibling categories the census read on this host
+# are owned elsewhere: `Ledger` 4 of 4 (H48), `StockUiOverlay` 6 of 6 (H45; the two
+# Mission Control cells read "rows=9, contractRows=0" here until 2026-09-08, when the
+# row-contract lookup was fixed - stock stores a MissionSelection wrapper, not the
+# Contract, in the row - and both now pass wherever a contract is on offer),
+# `CrewReservationLive` 0 of 2 (no spawned vessels; LT-4 carries it).
+# FLOWN (2-of-2 re-pin): run `2026-09-08_1038`, PASS attempt 1, wall 46 s, the pinned
+# line matched verbatim, one ERROR line (the carve-out) and no other, every verifier
 # PASS or REPORT.
-description = "Run the in-game ResourceTopBar category unattended at the Space Center of a vessel-less earned career, pinned whole."
+description = "Run the in-game ResourceTopBar category unattended at the Space Center of a vessel-less earned career, both cells executing, pinned whole."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "resource-topbar", "career", "H71"]
 
@@ -54,7 +58,7 @@ allowedAnomalies = []
 count = { min = 2, max = 2 }
 
 [expectations.logContracts]
-required  = ["BATCH_COMPLETE v1 total=2 passed=1 failed=0 skipped=1 category=ResourceTopBar scene=SPACECENTER"]
+required  = ["BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=ResourceTopBar scene=SPACECENTER"]
 # The ERROR gate carries ONE named carve-out, measured on the census (CEN-2, one
 # line): `TopBarReflectsLedgerAfterRecalc` seeds a synthetic probe action whose
 # VesselRecovery science leg has, by construction, no ScienceChanged event, so

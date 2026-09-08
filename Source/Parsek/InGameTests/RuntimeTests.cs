@@ -20466,29 +20466,39 @@ namespace Parsek.InGameTests
                 InGameAssert.IsNotNull(LedgerOrchestrator.Science, "ScienceModule should be initialized after RecalculateAndPatch");
                 InGameAssert.IsNotNull(LedgerOrchestrator.Reputation, "ReputationModule should be initialized after RecalculateAndPatch");
 
-                // On a mixed-history surplus career the ledger running balance already sits
-                // at/above live, so the synthetic probe credit pushes running ABOVE live and the
-                // production drawdown guard UPLIFT-clamps the funds/science patch DOWN to live: the
-                // probe delta is intentionally NOT written and no change event fires. Both the value
-                // assertions and the one-event-per-delta assertions below assume the probe deltas
-                // land, which is false in that case. Skip rather than false-fail; the test still runs
-                // its real contract on a clean Parsek-only career where no uplift clamp fires. (No
-                // time-travel context here, so the guard is active. After the patch, an uplift clamp
-                // shows as running > live: the guard holds live, so the running balance still exceeds it.)
+                // The drawdown guard (plan section 3.2): outside a time-travel context the recalc
+                // patch never UPLIFTS a live pool, and the probe credits push the reconstruction
+                // above live on every seeded career (seed == live, so seed + probe > live). Both
+                // 2026-09-08 census hosts (fresh-career, career-earned-ksc) took this branch, so
+                // the guard IS the contract this cell measures at a live Space Center: live funds
+                // and science hold their pre-probe values and no change event fires for them. The
+                // un-clamped branch below (reconstruction at or below live) keeps the original
+                // delta-and-event contract for a host that reaches it. (After the patch an uplift
+                // clamp shows as running > live: the guard held live, so running still exceeds it.)
                 bool authoritativeReduction = LedgerOrchestrator.IsAuthoritativeReduction(
                     RewindContext.IsRewinding,
                     ParsekScenario.Instance?.ActiveReFlySessionMarker != null,
                     ParsekScenario.Instance?.ActiveMergeJournal != null,
                     tombstonePath: false,
                     RewindContext.RewindResourceAdjustmentInProgress);
-                if (!authoritativeReduction
+                bool upliftClamped = !authoritativeReduction
                     && (LedgerOrchestrator.Funds.GetRunningBalance() > Funding.Instance.Funds + 0.01
-                        || LedgerOrchestrator.Science.GetRunningScience() > ResearchAndDevelopment.Instance.Science + 0.001))
+                        || LedgerOrchestrator.Science.GetRunningScience() > ResearchAndDevelopment.Instance.Science + 0.001);
+                if (upliftClamped)
                 {
-                    InGameAssert.Skip(
-                        "ledger reconstruction runs above live and the drawdown guard uplift-clamped the "
-                        + "funds/science patch (mixed-history surplus career); the probe-delta value and "
-                        + "event-count contracts cannot be verified here. Run on a clean Parsek-only career.");
+                    AssertDoubleNear(Funding.Instance.Funds, fundsBefore, 0.01,
+                        "drawdown guard: a non-authoritative reconstruction above live must hold live funds (no uplift)");
+                    AssertDoubleNear(ResearchAndDevelopment.Instance.Science, scienceBefore, 0.001,
+                        "drawdown guard: a non-authoritative reconstruction above live must hold live science (no uplift)");
+                    InGameAssert.AreEqual(0, fundsEvents,
+                        "drawdown guard: a clamped funds patch writes nothing, so no OnFundsChanged fires");
+                    InGameAssert.AreEqual(0, scienceEvents,
+                        "drawdown guard: a clamped science patch writes nothing, so no OnScienceChanged fires");
+                    ParsekLog.Info("TestRunner",
+                        "TopBarReflectsLedgerAfterRecalc: guard branch (reconstruction above live) "
+                        + $"fundsRunning={LedgerOrchestrator.Funds.GetRunningBalance():F2} fundsLive={Funding.Instance.Funds:F2} "
+                        + $"scienceRunning={LedgerOrchestrator.Science.GetRunningScience():F3} scienceLive={ResearchAndDevelopment.Instance.Science:F3} "
+                        + $"reputationEvents={reputationEvents} (reputation is not guarded; observation only)");
                     return;
                 }
 
@@ -21714,9 +21724,9 @@ namespace Parsek.InGameTests
         {
             try
             {
-                return row != null && row.container != null
-                    ? row.container.Data as Contract
-                    : null;
+                // The production reader: stock wraps the contract in a
+                // MissionControl.MissionSelection, which a bare `as Contract` never sees.
+                return StockUiOverlayController.ExtractMissionControlRowContract(row);
             }
             catch (System.Exception ex)
             {

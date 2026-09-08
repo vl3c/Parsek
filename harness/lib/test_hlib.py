@@ -3883,18 +3883,12 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # PHASE-4 WAVE 1 (measured 2026-08-28). Only THREE of the eight new members owe
         # an entry; the rest skip on scene eligibility alone or not at all.
         #
-        # H45 (`career-contract-pad`): both Mission Control overlay cells, identical
-        # reason - "No Mission Control offered contract row with a non-empty title/Guid
-        # is available (rows=0, contractRows=0, offeredRows=0, activeRows=0)". THE
-        # COUNTERS ARE THE POINT: the live screen instantiated and was WALKED and found
-        # nothing, so this is not the contract-picker rejecting a row's state - the
-        # fixture puts no OFFERED contract in front of the screen at all. A fixture
-        # property, exactly as the discipline above requires, and closable by a career
-        # save carrying one offered contract with a non-empty title and Guid.
-        "H45-stock-ui-overlay": 2,
-        # H71: TopBarReflectsLedgerAfterRecalc, the drawdown guard uplift-clamps the
-        # patch on the earned career (measured on the 2026-09-07 census, CEN-2).
-        "H71-resource-topbar-ksc": 1,
+        # H45 owed 2 until 2026-09-08 (both Mission Control overlay cells, "rows=0,
+        # contractRows=0" on `career-contract-pad`). Closed twice over: the lane moved to
+        # `career-earned-ksc` (nine Offered contracts), and the row-contract lookup the
+        # overlay and the cells share was fixed to unwrap stock's MissionSelection
+        # payload - on the contract-carrying host the cells read "rows=9,
+        # contractRows=0" until then. The spec header carries the reading.
         # H53 (`gloops-airshow` + the 274-row corpus): "No ghost map PIDs - patch not
         # exercised" and "No live active tree to use as a synth source". BOTH ARE
         # DRIVER-STATE rather than fixture properties - the first wants playback armed
@@ -4054,7 +4048,7 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     #      OPERATOR save (`s15`) that is not a committed fixture at all. Reading a guard
     #      string as a fixture spec is a hypothesis, not a derivation.
     #
-    # Only H45 / H53 / H54 owe a RUNTIME_SKIPS entry (2 / 2 / 4). H44's 16 and H46's 1
+    # Only H53 / H54 owe a RUNTIME_SKIPS entry (2 / 4; H45's 2 closed 2026-09-08). H44's 16 and H46's 1
     # are PURE SCENE FILTERING - the runner's own `Scene eligibility skip summary` line
     # accounts for every one and neither run contains a single per-test `SKIPPED:` line -
     # and that distinction is the one to keep straight: a scene skip is a lane's SCOPE,
@@ -4375,7 +4369,7 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # `duna-one-recorded` because the re-aim cells' skip strings NAME that mission
         # ("load s15 (the Kerbin->Duna 'Duna ...')").
         recorded_fixture = {"H35-logistics-route-proof", "H51-save-load",
-                            "H71-resource-topbar-ksc",
+                            "H45-stock-ui-overlay", "H71-resource-topbar-ksc",
                             "H54-missions"}
         self.assertEqual(set(), corpus_backed & recorded_fixture,
                          "a member cannot be both corpus-backed and "
@@ -6814,6 +6808,7 @@ class MultiCategoryBatchWiringGroupTests(unittest.TestCase):
             "BackgroundSeeder": 2,
             "Bug289": 2,
             "ContinuationIntegrity": 2,
+            "DisabledHoverEcho": 1,
             "FinalizeLimbo": 2,
             "Flight": 2,
             "ForwardRender": 1,
@@ -6860,6 +6855,7 @@ class MultiCategoryBatchWiringGroupTests(unittest.TestCase):
             "RouteLiveAnchor": 1,
             "Structure": 2,
             "Missions": 13,
+            "CrewReservationLive": 2,
         }),
         "LT-5-long-tail-playback-flight": ("FLIGHT", {
             "PartEventFX": 6,

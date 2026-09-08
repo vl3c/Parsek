@@ -1,15 +1,20 @@
 schema = 1
 id = "LT-4-long-tail-route-flight"
 tier = "nightly"
-# THE ROUTE SLICE OF THE LONG TAIL. Three categories that need a COMMITTED SUPPLY
-# ROUTE in the store, which no injected corpus carries: `RouteLiveAnchor` (the
+# THE ROUTE SLICE OF THE LONG TAIL. Four categories that need what only a RECORDED
+# store carries - a committed supply route, and recordings whose vessels Parsek has
+# real-spawned - which no injected corpus has: `RouteLiveAnchor` (the
 # live-anchor resolution of a route endpoint; executed nothing on LT-1's host),
 # `Structure` (its route structure-list cell; 1 of 2 on LT-1) and `Missions`
 # (the station-mission phase-lock cell `RealSave_StationMission_PhaseLocksOrHolds`,
 # which H54's `duna-one-recorded` host does not have - H54 executes the
 # dock-composition and re-aim cells, this lane the dock-composition and station
 # cells; the two lanes are different slices of one category, and the multi-family's
-# no-overlap rule is keyed within the family). Host: `depot-route-recorded`, the H40
+# no-overlap rule is keyed within the family), and `CrewReservationLive` (both cells
+# read `SpawnedVesselPersistentId` on committed recordings; this store carries three
+# such recordings whose spawned vessels survive the load-time spawn reconcile, where
+# every injected corpus and every pad career carries none - measured 2 of 2 on the
+# 2026-09-08 census CEN-9, run `2026-09-08_1029`). Host: `depot-route-recorded`, the H40
 # / V18T fixture whose store carries one committed depot route over 22 recordings.
 # Measured on the 2026-09-07 second census (scratch CEN-4, run `2026-09-07_2010`,
 # 7 candidate categories): RouteLiveAnchor 1 of 1, Structure 2 of 2, Missions 2 of 13.
@@ -22,9 +27,11 @@ tier = "nightly"
 # THE ELEVEN MISSIONS SKIPS ARE MEASURED: the re-aim / loop-unit / periodicity cells
 # want the Duna host or a loop, and the remaining presentation cells want mission
 # archetypes this store does not carry; each names its want in its skip text.
-# FLOWN (first flight): run `2026-09-07_2036`, PASS attempt 1, wall 56 s, every per-constituent
-# line above matched verbatim and every verifier PASS or REPORT.
-description = "Run the three route-needing long-tail in-game categories (RouteLiveAnchor, Structure, Missions) as one multi-category batch at FLIGHT on the depot-route-recorded store, every constituent pinned whole."
+# FLOWN (first flight, the three-constituent pin without CrewReservationLive): run
+# `2026-09-07_2036`, PASS attempt 1, wall 56 s, every verifier PASS or REPORT.
+# FLOWN (four-constituent re-pin): run `2026-09-08_1040`, PASS attempt 1, wall 58 s,
+# every per-constituent line above matched verbatim and every verifier PASS or REPORT.
+description = "Run the four route-needing long-tail in-game categories (RouteLiveAnchor, Structure, Missions, CrewReservationLive) as one multi-category batch at FLIGHT on the depot-route-recorded store, every constituent pinned whole."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "multi-category", "long-tail", "supply-route", "LT-4"]
 
@@ -41,7 +48,7 @@ steps = [
   { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
   { cmd = "StopRecording",                                                    expect = "OK" },
   { cmd = "DiscardTree",                                                      expect = "OK" },
-  { cmd = "RunTests",   args = { category = "RouteLiveAnchor,Structure,Missions" }, expect = "OK", budget = 540 },
+  { cmd = "RunTests",   args = { category = "RouteLiveAnchor,Structure,Missions,CrewReservationLive" }, expect = "OK", budget = 540 },
   { cmd = "FlushAndQuit",                                                     expect = "OK" },
 ]
 
@@ -60,11 +67,12 @@ count = { min = 22, max = 22 }
 # census line, plus the aggregate whose counts are the sums. `failed=0` on every
 # line is the assertion.
 required  = [
-  "runtests start category=RouteLiveAnchor,Structure,Missions isolated=false strict=false multi=3",
+  "runtests start category=RouteLiveAnchor,Structure,Missions,CrewReservationLive isolated=false strict=false multi=4",
   "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=RouteLiveAnchor scene=FLIGHT",
   "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=Structure scene=FLIGHT",
   "BATCH_COMPLETE v1 total=13 passed=2 failed=0 skipped=11 category=Missions scene=FLIGHT",
-  "BATCH_COMPLETE v1 total=16 passed=5 failed=0 skipped=11 category=multi:3 scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=CrewReservationLive scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=18 passed=7 failed=0 skipped=11 category=multi:4 scene=FLIGHT",
 ]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
