@@ -587,15 +587,33 @@ class SceneReloadToleranceTests(unittest.TestCase):
                              mlib.KXRW_PHASES.index(mlib.KXRW_DONE)],
             mlib.KXRW_POST_REWIND_PHASES)
         # The union the machine actually consults is the post-rewind block PLUS the
-        # rollout, whose FLIGHT->FLIGHT reload is a second, DIFFERENT reason for a
-        # dead handle. Two named sets, deliberately not one flat list.
-        self.assertEqual((mlib.KXRW_ROLLOUT,) + mlib.KXRW_POST_REWIND_PHASES,
+        # rollout, whose FLIGHT->FLIGHT reload is a second reason for a dead
+        # handle, PLUS the impact profile's post-crash block, which is a third
+        # (the craft was deliberately destroyed, the throwaway launch reloads the
+        # scene over the wreckage, the exit tears it down and the RELOAD cold-boots
+        # a save). THREE named sets, deliberately not one flat list: a future edit
+        # has to say which reason it is extending.
+        self.assertEqual((mlib.KXRW_ROLLOUT,) + mlib.KXRW_IMPACT_PHASES
+                         + mlib.KXRW_POST_REWIND_PHASES,
                          mlib.KXRW_VESSEL_LOST_EXPECTED_PHASES)
+        self.assertEqual(
+            (mlib.KXRW_IMPACT_SETTLE, mlib.KXRW_SC_EXIT, mlib.KXRW_SC_COMMITTED,
+             mlib.KXRW_TEMP_LAUNCH, mlib.KXRW_TEMP_READY),
+            mlib.KXRW_IMPACT_PHASES)
         # No flight phase may sit in the carve-out: the ascent must still die on a
-        # destroyed craft.
+        # destroyed craft. The impact profile's first two phases are BOTH flight
+        # phases and NEITHER is in the carve-out - IMPACT-AUTORECORD-OFF holds a
+        # live coasting stack, and IMPACT-COAST treats a loss as the impact SIGNAL
+        # in the generic block by NAME rather than by joining this set - so the
+        # invariant below stays exact. MUTATION: put either in KXRW_IMPACT_PHASES
+        # and a craft destroyed before the profile ever disarmed anything stops
+        # ending the mission.
         overlap = (set(mlib.KXRW_FLIGHT_PHASES)
                    & set(mlib.KXRW_VESSEL_LOST_EXPECTED_PHASES))
         self.assertEqual(set(), overlap)
+        for phase in (mlib.KXRW_IMPACT_AUTORECORD_OFF, mlib.KXRW_IMPACT_COAST):
+            self.assertIn(phase, mlib.KXRW_FLIGHT_PHASES)
+            self.assertNotIn(phase, mlib.KXRW_VESSEL_LOST_EXPECTED_PHASES)
 
     def test_a_lost_vessel_in_a_flight_phase_is_a_deterministic_failure(self):
         st = rolled_out(machine())
@@ -1209,7 +1227,7 @@ class MapClosedBeforeTheWatchTests(unittest.TestCase):
     def test_map_exit_sits_between_the_open_and_the_watch(self):
         """The phase order IS the rule. MUTATION: move MAP-EXIT after WATCH and the
         map closes only once the watch camera has already driven under it."""
-        self.assertEqual(23, len(mlib.KXRW_PHASES))
+        self.assertEqual(30, len(mlib.KXRW_PHASES))
         self.assertEqual(len(set(mlib.KXRW_PHASES)), len(mlib.KXRW_PHASES))
         i = mlib.KXRW_PHASES.index
         self.assertEqual(i(mlib.KXRW_MAP_VIEW) + 1, i(mlib.KXRW_MAP_EXIT))
@@ -1676,19 +1694,22 @@ class HappyPathTests(unittest.TestCase):
         self.assertTrue(st.done)
         self.assertIsNone(st.verdict)
 
-        # EVERY declared phase was actually walked EXCEPT the opt-in GS-6 sweep -
-        # the chain joins up end to end. MUTATION: wire any phase's exit to the
-        # wrong successor and the skipped one shows up here even when its own
-        # per-phase cell passes.
+        # EVERY declared phase was actually walked EXCEPT the two OPT-INs - the
+        # chain joins up end to end. MUTATION: wire any phase's exit to the wrong
+        # successor and the skipped one shows up here even when its own per-phase
+        # cell passes.
         #
-        # PART-SWEEP IS EXCLUDED BY DESIGN, and this line is the compatibility
-        # statement: these params declare no `partSweepSteps`, so COAST advances
-        # straight to TREE-STATE exactly as it did before the phase existed. A
-        # sweep-declaring params set reaching it is the sibling cell below.
-        self.assertEqual(set(mlib.KXRW_PHASES) - {mlib.KXRW_PART_SWEEP},
-                         set(st.phases_reached))
-        self.assertNotIn(mlib.KXRW_PART_SWEEP, st.phases_reached)
-        self.assertEqual(23, len(mlib.KXRW_PHASES))
+        # THE TWO OPT-INS ARE EXCLUDED BY DESIGN, and this line is the whole
+        # compatibility statement: these params declare neither `partSweepSteps`
+        # nor `impactProfile`, so COAST advances straight to TREE-STATE and
+        # TREE-STATE advances straight to COMMIT, exactly as they did before either
+        # feature existed. A declaring params set reaching them is the sibling
+        # cells (PartSweepTests / ImpactProfileTests).
+        opt_in = {mlib.KXRW_PART_SWEEP} | set(mlib.KXRW_IMPACT_PHASES) \
+            | {mlib.KXRW_IMPACT_AUTORECORD_OFF, mlib.KXRW_IMPACT_COAST}
+        self.assertEqual(set(mlib.KXRW_PHASES) - opt_in, set(st.phases_reached))
+        self.assertEqual(set(), opt_in & set(st.phases_reached))
+        self.assertEqual(30, len(mlib.KXRW_PHASES))
 
         rows = mlib.evaluate_kxrw_assertions([], mlib.kxrw_params_from_dict(pdict),
                                              st)
@@ -1832,6 +1853,983 @@ class PartSweepTests(unittest.TestCase):
         self.assertIn(mlib.KXRW_PART_SWEEP, mlib.KXRW_FLIGHT_PHASES)
         self.assertNotIn(mlib.KXRW_PART_SWEEP, mlib.KXRW_POST_REWIND_PHASES)
         self.assertNotIn(mlib.KXRW_PART_SWEEP, mlib.KXRW_VESSEL_LOST_EXPECTED_PHASES)
+
+
+class ImpactProfileTests(unittest.TestCase):
+    """THE SECOND OPT-IN: `impactProfile`, the lane that ends its flight in a
+    DELIBERATE CRASH and reaches the rewind through the Space Center.
+
+    THE ASCENT IS NOT PART OF THE BRANCH, and that is the shape the measured
+    flights bought. An earlier revision diverged at the LAST BOOSTER DROP (cut
+    there, never throttle up) and the stack fell back within 330-374 m of the pad,
+    and the launch that followed hung; the pad hypothesis (KSP's
+    `PreFlightTests.LaunchSiteClear.Test()` waiting on an obstruction dialog) was
+    REFUTED by the far crash of runs 2026-09-08_1429 / _1503_a2, which hung the
+    same way with only the clamps at the pad - the blocker is the post-crash EMPTY
+    ROSTER, answered by probe-cored launches. The profile keeps the far shape
+    because it is the shape every green flight flew: it runs the ordinary ascent,
+    discards the fueled core the ordinary way, and lets the unpowered pod stack
+    fall from ~60 km onto ground 50 km or more downrange.
+
+    THE PRODUCT FACTS THE REST OF THE BRANCH IS SHAPED BY. Parsek does NOT commit a
+    tree in flight once the active vessel is destroyed:
+    `ShowPostDestructionTreeMergeDialog` finalizes it and STASHES it as pending,
+    after which CommitTree is refused `no-active-tree`; `ExitToSpaceCenter` is what
+    commits it (the arrival's auto-commit under autoMerge), and
+    `InvokeRewindToLaunch` is RequiresFlight, so a craft has to be on the pad before
+    the rewind can be commanded at all - which is GS-4's own post-rewind launch, a
+    kRPC call issued from SPACECENTER onto a clear pad. And when the stack breaks up
+    KSP hands active-vessel to a SURVIVING FRAGMENT: with `autoRecordOnLaunch` still
+    armed Parsek opens a second recording tree on it, which flips the exit gate's
+    pinned tree-state token (the spec accepts `hasActiveTree=false
+    hasPendingTree=true` and `hasActiveTree=true hasPendingTree=false`, the two
+    measured crash shapes, and a fragment tree is neither) and lands in the save
+    the spec's log contracts read, so the disarm runs BEFORE the fall.
+
+    The compatibility statement lives in HappyPathTests (neither opt-in declared ->
+    none of these phases is entered and the graph is the pre-profile one); the
+    first cells here pin the same fact at the ONE frame the branch is taken."""
+
+    IMPACT = {"impactProfile": True, "boosterStageCount": 1,
+              "stageSettleFrames": 2}
+
+    def _to_last_drop(self, **over):
+        """Drive a fresh machine to the frame the LAST declared booster drop
+        clicks, and return that frame's (state, actions).
+
+        The altitude MOVES on every frame, and that is not cosmetic: the
+        frozen-telemetry detector reads a stream whose UT advances while the other
+        readings stay bit-identical as a destroyed craft, so a fixture that holds
+        one altitude across the settle window trips the detector on the ascent."""
+        over.setdefault("boosterStageCount", 1)
+        over.setdefault("stageSettleFrames", 2)
+        st = rolled_out(machine(**over))
+        st, _ = mlib.kxrw_decide(st, snap(ut=0.0, altitude=0.0, throttle=0.0,
+                                          available_thrust=0.0))
+        st, _ = fly(st, ut=1.0, altitude=100.0)                  # peak = LIT
+        st, _ = fly(st, ut=40.0, altitude=9000.0, available_thrust=FLAMED)
+        self.assertEqual(mlib.KXRW_BOOSTER_CUT, st.phase)
+        for ut, alt in ((40.5, 9100.0), (41.0, 9200.0)):
+            st, _ = fly(st, ut=ut, altitude=alt, throttle=0.0,
+                        available_thrust=FLAMED)
+        self.assertEqual(mlib.KXRW_BOOSTER_STAGE, st.phase)
+        return fly(st, ut=41.5, altitude=9300.0, throttle=0.0,
+                   available_thrust=FLAMED)
+
+    def _to_tree_state(self, **over):
+        """Drive a fresh machine through the UNCHANGED ascent to TREE-STATE, and
+        return that frame's (state, actions).
+
+        Every step of it is the ordinary lane's: the last drop throttles back up,
+        the core gate opens on apoapsis, CORE-CUT holds until the throttle READS
+        zero, CORE-DISCARD stages the fueled core and COAST runs its window out.
+        The profile's own phases start after this."""
+        params_ = dict(self.IMPACT)
+        params_.update(over)
+        st, _ = self._to_last_drop(**params_)
+        self.assertEqual(mlib.KXRW_ASCENT, st.phase)
+        st, _ = fly(st, ut=50.0, altitude=40000.0, apoapsis=61000.0)
+        self.assertEqual(mlib.KXRW_CORE_CUT, st.phase)
+        for ut, alt in ((50.5, 40500.0), (51.0, 41000.0)):
+            st, _ = fly(st, ut=ut, altitude=alt, apoapsis=61000.0, throttle=0.0)
+        self.assertEqual(mlib.KXRW_CORE_DISCARD, st.phase)
+        st, _ = fly(st, ut=51.5, altitude=41500.0, apoapsis=61000.0, throttle=0.0)
+        self.assertEqual(mlib.KXRW_COAST, st.phase)
+        st, acts = fly(st, ut=75.0, altitude=59000.0, apoapsis=61000.0,
+                       throttle=0.0)
+        self.assertEqual(mlib.KXRW_TREE_STATE, st.phase)
+        return st, acts
+
+    def _at_impact_autorecord_off(self, **over):
+        """A machine parked in IMPACT-AUTORECORD-OFF with a captured tree id,
+        reached through the real TREE-STATE branch rather than hand-built."""
+        st, _ = self._to_tree_state(**over)
+        st, acts = mlib.kxrw_decide(st, seam("tree0", "OK", (("tree", "t_kx"),),
+                                             ut=76.0, situation="FLYING"))
+        self.assertEqual(mlib.KXRW_IMPACT_AUTORECORD_OFF, st.phase)
+        return st, acts
+
+    def _coasting(self, **over):
+        """A machine parked in IMPACT-COAST, past the disarm.
+
+        `launch_ut` is 0 on this fixture, so every UT a cell hands the coast has to
+        stay inside `flightMaxSeconds`: IMPACT-COAST is a FLIGHT phase and the
+        whole-flight budget bounds it exactly as it bounds the ascent."""
+        st, _ = self._at_impact_autorecord_off(**over)
+        st, acts = mlib.kxrw_decide(st, seam("impautorec", "OK", (), ut=76.5,
+                                             situation="FLYING"))
+        self.assertEqual(mlib.KXRW_IMPACT_COAST, st.phase)
+        self.assertEqual([], acts)
+        return st
+
+    # ---- (a) the ascent is the ordinary one, on both profiles ---------------
+
+    def test_omitting_the_key_keeps_the_last_drop_throttling_back_up(self):
+        """The pre-profile lane, unchanged."""
+        st, acts = self._to_last_drop()
+        self.assertEqual([mlib.ACTION_ACTIVATE_STAGE, mlib.ACTION_SET_THROTTLE],
+                         kinds(acts))
+        self.assertEqual(mlib.KXRW_ASCENT, st.phase)
+        self.assertNotIn(mlib.ACTION_AP_DISENGAGE, kinds(acts))
+        self.assertEqual([], [a for a in acts if a.seam_verb])
+
+    def test_the_last_drop_throttles_back_up_with_the_key_on_too(self):
+        """THE FLOWN SHAPE, as a one-frame pin. MUTATION: restore the old branch
+        (cut here, no throttle-up, straight to TREE-STATE) and the stack falls
+        back within 330-374 m of the pad (runs 2026-09-08_1130 / _1157_a2 and
+        _1302 / _1331_a2), the slow near-vertical impact whose crash shape
+        (`type=Breakup, cause=CRASH`, the stash path) GS-7's tokens are NOT cut
+        to. Those runs hung on the roster, not the pad (see the class docstring);
+        the pin keeps the far shape the green flights measured."""
+        st, acts = self._to_last_drop(**self.IMPACT)
+        self.assertEqual([mlib.ACTION_ACTIVATE_STAGE, mlib.ACTION_SET_THROTTLE],
+                         kinds(acts))
+        self.assertEqual(mlib.KXRW_ASCENT, st.phase)
+        self.assertNotIn(mlib.ACTION_CUT_THROTTLE, kinds(acts))
+        self.assertNotIn(mlib.ACTION_AP_DISENGAGE, kinds(acts))
+        self.assertEqual([], [a for a in acts if a.seam_verb])
+        self.assertNotIn(mlib.KXRW_TREE_STATE, st.phases_reached)
+        self.assertEqual(1, st.booster_drops_done)
+
+    def test_the_core_gate_and_the_coast_run_unchanged_on_this_profile(self):
+        """WHAT ACTUALLY MAKES THE STACK FALL. The fueled core comes off with the
+        throttle READ at zero, exactly as on the ordinary lane, and nothing
+        relights: the profile needs no special cut because the core gate already
+        left the pod stack unpowered. MUTATION: skip the core gate on this profile
+        and the stack still has a Mainsail under it."""
+        st, _ = self._to_tree_state()
+        for name in (mlib.KXRW_CORE_CUT, mlib.KXRW_CORE_DISCARD, mlib.KXRW_COAST):
+            self.assertIn(name, st.phases_reached)
+        self.assertTrue(st.core_discard_commanded)
+        self.assertTrue(st.core_cut_throttle_observed)
+        self.assertEqual(0.0, st.core_cut_throttle_reading)
+
+    # ---- (b) TREE-STATE's opt-in exit: the disarm, not a commit -------------
+
+    def test_tree_state_disarms_auto_record_and_commands_no_commit(self):
+        """TWO FACTS IN ONE FRAME. NO CommitTree: the crash is about to make it
+        impossible (`no-active-tree`), so issuing one would flake on a verb the
+        lane never needed. AND the disarm goes out HERE, before the fall - a
+        fragment that inherits active-vessel with the trigger armed opens a second
+        recording tree in the save the log contracts read. MUTATION: wire this exit
+        to COMMIT, or to IMPACT-COAST with no SetSetting, and either failure
+        follows."""
+        st, acts = self._at_impact_autorecord_off()
+        self.assertEqual("t_kx", st.tree_id)
+        self.assertEqual(1, len(acts))
+        self.assertEqual(mlib.ACTION_PARSEK_SEAM_COMMAND, acts[0].kind)
+        self.assertEqual("SetSetting", acts[0].seam_verb)
+        self.assertEqual("impautorec", acts[0].seam_tag)
+        self.assertEqual((("name", "autoRecordOnLaunch"), ("value", "false")),
+                         acts[0].seam_args)
+        # The SAME pair the post-rewind disarm sends, under a DIFFERENT wire id.
+        self.assertEqual(mlib.KXRW_TAG_IMPACT_AUTORECORD, acts[0].seam_tag)
+        self.assertNotEqual(mlib.KXRW_TAG_AUTORECORD,
+                            mlib.KXRW_TAG_IMPACT_AUTORECORD)
+        self.assertNotIn(mlib.KXRW_COMMIT, st.phases_reached)
+        self.assertNotIn(mlib.KXRW_STOP, st.phases_reached)
+        self.assertNotIn(mlib.KXRW_RECORDER_IDLE, st.phases_reached)
+        self.assertEqual("", st.commit_result)
+        # The recorder was never OBSERVED idle on this path, and the machine must
+        # not pretend it was: nothing here stops the recorder, so the evidence
+        # simply does not exist.
+        self.assertFalse(st.recorder_idle_observed)
+
+    def test_the_disarm_ok_releases_the_fall(self):
+        st = self._coasting()
+        self.assertEqual("OK", st.impact_autorecord_off_result)
+        self.assertEqual("t_kx", st.tree_id)
+
+    def test_a_refused_disarm_is_fatal_and_names_the_fragment_recording(self):
+        """FATAL, unlike a refused render verb: this is a DRIVER-SEQUENCING
+        precondition. MUTATION: record it and fly on, and the break-up's surviving
+        fragment authors a tree of its own in the save the spec reads - which can
+        also refuse the ExitToSpaceCenter this profile's commit depends on."""
+        for reason in ("unknown-setting", "value-rejected"):
+            st, _ = self._at_impact_autorecord_off()
+            st, acts = mlib.kxrw_decide(
+                st, seam("impautorec", "ERROR", (("msg", reason),), ut=77.0,
+                         situation="FLYING"))
+            self.assertTrue(st.done, reason)
+            self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+            self.assertEqual(mlib.KXRW_IMPACT_AUTORECORD_OFF, st.flake_phase)
+            self.assertEqual("ERROR", st.impact_autorecord_off_result)
+            self.assertIn(reason, st.flake_reason)
+            self.assertIn("SECOND recording tree", st.flake_reason)
+            self.assertEqual([], acts)
+            self.assertNotIn(mlib.KXRW_IMPACT_COAST, st.phases_reached)
+
+    def test_a_silent_disarm_hits_the_shared_frame_bound(self):
+        """It reuses `autoRecordOffFrames` rather than declaring a knob of its own:
+        the two phases issue the identical one-frame SetSetting verb, and a second
+        name for one number is the one that drifts."""
+        st, _ = self._at_impact_autorecord_off(autoRecordOffFrames=3)
+        for i in range(8):
+            st, _ = mlib.kxrw_decide(st, snap(ut=77.0 + i, altitude=59000.0 - i,
+                                              situation="FLYING"))
+            if st.done:
+                break
+        self.assertTrue(st.done)
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+        self.assertEqual(mlib.KXRW_IMPACT_AUTORECORD_OFF, st.flake_phase)
+        self.assertIn("never answered", st.flake_reason)
+
+    # ---- (c) + (d) the two impact readings ----------------------------------
+
+    def test_a_lost_vessel_in_impact_coast_is_the_signal_not_the_terminal(self):
+        """READING 1. MUTATION: leave IMPACT-COAST out of the generic loss block's
+        named branch and the very event the profile flew for ends the mission as
+        MISSION-ASSERT-FAIL."""
+        st = self._coasting()
+        st, _ = mlib.kxrw_decide(st, snap(ut=200.0, situation="FLYING",
+                                          altitude=5000.0))
+        # The crash frame's own clock is UNREADABLE, which is the normal shape:
+        # the stamp has to come off the last finite reading or it poisons
+        # recording_end_ut, which is what the playback wait targets.
+        st, acts = mlib.kxrw_decide(st, snap(ut=float("nan"), vessel_lost=True))
+        self.assertFalse(st.done)
+        self.assertIsNone(st.verdict)
+        self.assertEqual(mlib.KXRW_IMPACT_SETTLE, st.phase)
+        self.assertTrue(st.impact_observed)
+        self.assertEqual("vessel-lost", st.impact_observed_by)
+        self.assertEqual(200.0, st.impact_ut)
+        self.assertEqual(200.0, st.recording_end_ut)
+        self.assertEqual([], acts)
+
+    def test_the_frozen_telemetry_trip_in_impact_coast_is_the_same_signal(self):
+        """READING 2, and it is not redundant: KSP routinely keeps a live
+        active-vessel handle after a crash by handing it to a surviving debris
+        piece, whose readings then FREEZE. MUTATION: handle only vessel_lost and
+        this whole population ends the mission instead of driving it on."""
+        st = self._coasting(frozenTelemetrySamples=3)
+        # UT ADVANCES while every other reading stays bit-identical: that stream IS
+        # the detector's signature, and it is what a debris handle reports.
+        last = float("nan")
+        for i in range(8):
+            last = 200.0 + 0.5 * i
+            st, acts = mlib.kxrw_decide(st, snap(ut=last, altitude=0.0,
+                                                 situation="LANDED"))
+            if st.phase != mlib.KXRW_IMPACT_COAST:
+                break
+        self.assertFalse(st.done)
+        self.assertEqual(mlib.KXRW_IMPACT_SETTLE, st.phase)
+        self.assertTrue(st.impact_observed)
+        self.assertEqual("frozen-telemetry", st.impact_observed_by)
+        self.assertEqual(last, st.impact_ut)
+        self.assertEqual(last, st.recording_end_ut)
+
+    def test_whichever_reading_fires_first_wins_and_the_other_cannot_restamp(self):
+        """IDEMPOTENCE. The two readings routinely arrive together (a destroyed
+        craft freezes AND goes unreadable), so the second must not move a stamp the
+        first already took. MUTATION: drop the `impact_observed` latch and a later
+        UT overwrites recording_end_ut, moving the playback target."""
+        st = self._coasting()
+        st, _ = mlib.kxrw_decide(st, snap(ut=200.0, situation="FLYING"))
+        st, _ = mlib.kxrw_decide(st, snap(ut=float("nan"), vessel_lost=True))
+        self.assertEqual(200.0, st.impact_ut)
+        # More lost frames land in IMPACT-SETTLE: expected there, counted, and no
+        # restamp.
+        for _ in range(3):
+            st, _ = mlib.kxrw_decide(st, snap(ut=260.0, vessel_lost=True))
+        self.assertEqual(200.0, st.impact_ut)
+        self.assertEqual(200.0, st.recording_end_ut)
+        self.assertEqual("vessel-lost", st.impact_observed_by)
+        self.assertEqual(3, st.post_impact_vessel_lost_frames)
+        # And the direct call is idempotent on its own.
+        again = mlib._kxrw_observe_impact(st, snap(ut=260.0), "frozen-telemetry")
+        self.assertIs(st, again)
+
+    # ---- (e) the mutation guard ---------------------------------------------
+
+    def test_a_lost_vessel_in_any_other_flight_phase_is_still_fatal(self):
+        """THE CARVE-OUT IS ONE PHASE WIDE. MUTATION: widen the impact branch to
+        `state.phase in KXRW_FLIGHT_PHASES` and a craft destroyed on the ascent -
+        the failure the detector exists for - is silently re-read as a successful
+        impact. IMPACT-AUTORECORD-OFF is in the list on purpose: the stack is still
+        alive and coasting there, so a loss is a craft destroyed BEFORE the profile
+        got to disarm anything."""
+        for phase in (mlib.KXRW_ASCENT, mlib.KXRW_BOOSTER_CUT,
+                      mlib.KXRW_BOOSTER_STAGE, mlib.KXRW_CORE_CUT,
+                      mlib.KXRW_CORE_DISCARD, mlib.KXRW_COAST,
+                      mlib.KXRW_PART_SWEEP, mlib.KXRW_IMPACT_AUTORECORD_OFF):
+            st = dataclasses.replace(machine(**self.IMPACT), phase=phase)
+            st, _ = mlib.kxrw_decide(st, snap(ut=30.0, vessel_lost=True))
+            self.assertTrue(st.done, phase)
+            self.assertEqual(mlib.MISSION_ASSERT_FAIL, st.verdict, phase)
+            self.assertIn("vessel-lost", st.loss_reason)
+            self.assertFalse(st.impact_observed, phase)
+
+    # ---- (f) the coast bound ------------------------------------------------
+
+    def test_a_stack_that_never_hits_the_ground_gives_up_by_name(self):
+        """Neither reading can see a stack that SURVIVED - a soft landing, a stack
+        still flying, a stalled clock - so the bound is the only thing that ends
+        this phase in that case, and it has to SAY which of those it is naming."""
+        st = self._coasting(impactCoastFrames=5)
+        for i in range(12):
+            st, acts = mlib.kxrw_decide(st, snap(ut=200.0 + i, altitude=1000.0 - i,
+                                                 situation="FLYING"))
+            self.assertEqual([], acts)
+            if st.done:
+                break
+        self.assertTrue(st.done)
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+        self.assertEqual(mlib.KXRW_IMPACT_COAST, st.flake_phase)
+        self.assertIn("no impact was observed", st.flake_reason)
+        self.assertIn("SURVIVED", st.flake_reason)
+        self.assertFalse(st.impact_observed)
+
+    # ---- (g) IMPACT-SETTLE -> the exit ---------------------------------------
+
+    def _at_sc_exit(self, **over):
+        """A machine parked in SC-EXIT, driven out of IMPACT-SETTLE by holding the
+        settle for the frames the params declare."""
+        params_ = dict(self.IMPACT)
+        params_.update(over)
+        st = dataclasses.replace(machine(**params_),
+                                 phase=mlib.KXRW_IMPACT_SETTLE, tree_id="t_kx",
+                                 impact_autorecord_off_result="OK",
+                                 impact_observed=True, impact_observed_by="vessel-lost",
+                                 impact_ut=1200.0, recording_end_ut=1200.0)
+        settle = mlib.kxrw_params_from_dict(params_).impact_settle_frames
+        for _ in range(settle):
+            st, _ = mlib.kxrw_decide(st, snap(ut=1200.0, vessel_lost=True))
+        self.assertEqual(mlib.KXRW_SC_EXIT, st.phase)
+        return st
+
+    def test_the_settle_is_held_before_the_exit_is_commanded(self):
+        """THE HOLD IS NOT CEREMONY: the C# finalize waits up to 5 s of REAL time
+        for the destruction coalescer before it stashes the tree, and the exit
+        tears the scene that finalize runs in down. MUTATION: exit on the first
+        frame and the run races the very stash the whole hop depends on."""
+        st = dataclasses.replace(machine(**self.IMPACT, impactSettleFrames=4),
+                                 phase=mlib.KXRW_IMPACT_SETTLE, tree_id="t_kx",
+                                 impact_observed=True, impact_ut=1200.0,
+                                 recording_end_ut=1200.0)
+        for _ in range(3):
+            # vessel_lost is the EXPECTED reading here - the craft is gone.
+            st, acts = mlib.kxrw_decide(st, snap(ut=1200.0, vessel_lost=True))
+            self.assertEqual(mlib.KXRW_IMPACT_SETTLE, st.phase)
+            self.assertEqual([], acts)
+        st, acts = mlib.kxrw_decide(st, snap(ut=1200.0, vessel_lost=True))
+        self.assertEqual(mlib.KXRW_SC_EXIT, st.phase)
+        self.assertEqual(1, len(acts))
+        self.assertEqual(mlib.ACTION_PARSEK_SEAM_COMMAND, acts[0].kind)
+        self.assertEqual("ExitToSpaceCenter", acts[0].seam_verb)
+        self.assertEqual(mlib.KXRW_TAG_SC_EXIT, acts[0].seam_tag)
+        self.assertEqual((), acts[0].seam_args)
+        self.assertFalse(st.done)
+        self.assertEqual(4, st.post_impact_vessel_lost_frames)
+        # NOTHING is stamped here: the pre-rewind clock belongs to TEMP-READY, on
+        # the frame the rewind actually goes out.
+        self.assertTrue(math.isnan(st.pre_rewind_ut))
+
+    # ---- (h) SC-EXIT --------------------------------------------------------
+
+    def test_the_exit_ok_reads_the_committed_count_rather_than_assuming_it(self):
+        """The exit's OK says a SCENE CHANGED; it does not say a tree was
+        committed. MUTATION: advance straight to the launch on the OK and the lane
+        puts a craft on the pad and rewinds against a world that may still hold a
+        pending tree - exactly the COMMANDED-vs-OBSERVED confusion the SPACECENTER
+        clock gate exists for one phase later."""
+        st = self._at_sc_exit()
+        st, acts = mlib.kxrw_decide(st, seam("scexit", "OK", (), ut=1200.0,
+                                             vessel_lost=True))
+        self.assertEqual(mlib.KXRW_SC_COMMITTED, st.phase)
+        self.assertEqual("OK", st.sc_exit_result)
+        self.assertEqual(1, len(acts))
+        self.assertEqual("ListHandles", acts[0].seam_verb)
+        self.assertEqual((("kind", "committed"),), acts[0].seam_args)
+        self.assertEqual("sccommit0", acts[0].seam_tag)
+        self.assertEqual([], [a for a in acts
+                              if a.kind == mlib.ACTION_LAUNCH_VESSEL])
+
+    def test_a_refused_exit_is_fatal_and_quotes_parseks_own_reason(self):
+        """Unlike a refused render verb: the exit is this profile's ONLY route to a
+        committed tree, so flying on would drive a rewind against a pending one.
+        The refusal word is quoted, never guessed at (R1 flight 1's lesson)."""
+        st = self._at_sc_exit()
+        st, acts = mlib.kxrw_decide(
+            st, seam("scexit", "ERROR", (("msg", "dialog-required"),), ut=1200.0,
+                     vessel_lost=True))
+        self.assertTrue(st.done)
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+        self.assertEqual(mlib.KXRW_SC_EXIT, st.flake_phase)
+        self.assertEqual("ERROR", st.sc_exit_result)
+        self.assertEqual("dialog-required", st.sc_exit_reject_reason)
+        self.assertIn("dialog-required", st.flake_reason)
+        self.assertIn("no-active-tree", st.flake_reason)
+        self.assertEqual([], acts)
+        self.assertNotIn(mlib.KXRW_SC_COMMITTED, st.phases_reached)
+
+    def test_a_silent_exit_hits_its_own_frame_bound(self):
+        st = self._at_sc_exit(scExitFrames=3)
+        for i in range(8):
+            st, _ = mlib.kxrw_decide(st, snap(ut=1200.0, vessel_lost=True))
+            if st.done:
+                break
+        self.assertTrue(st.done)
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+        self.assertEqual(mlib.KXRW_SC_EXIT, st.flake_phase)
+        self.assertIn("never answered", st.flake_reason)
+
+    # ---- (i) SC-COMMITTED ---------------------------------------------------
+
+    def _at_sc_committed(self, **over):
+        st = self._at_sc_exit(**over)
+        st, _ = mlib.kxrw_decide(st, seam("scexit", "OK", (), ut=1200.0,
+                                          vessel_lost=True))
+        self.assertEqual(mlib.KXRW_SC_COMMITTED, st.phase)
+        return st
+
+    def test_a_committed_count_releases_the_throwaway_launch(self):
+        """count >= 1 is the OBSERVED commit, and what it releases is the launch
+        that gives the rewind a FLIGHT scene. The craft launched is the RECORDED
+        one, never the watcher (see the crew-roster cell below). MUTATION: rewind
+        directly and InvokeRewindToLaunch's RequiresFlight gate refuses it at the
+        Space Center."""
+        st = self._at_sc_committed()
+        st, acts = mlib.kxrw_decide(
+            st, seam("sccommit0", "OK", (("kind", "committed"), ("count", "3")),
+                     ut=1200.0, vessel_lost=True))
+        self.assertEqual(mlib.KXRW_TEMP_LAUNCH, st.phase)
+        self.assertEqual(3, st.committed_handle_count)
+        # NOTHING rides the transition: TEMP-LAUNCH issues its own click on its own
+        # first frame, WATCHER-LAUNCH's shape exactly.
+        self.assertEqual([], acts)
+        st, acts = mlib.kxrw_decide(st, snap(ut=1200.0, vessel_lost=True))
+        self.assertEqual(mlib.KXRW_TEMP_READY, st.phase)
+        self.assertEqual(1, len(acts))
+        self.assertEqual(mlib.ACTION_LAUNCH_VESSEL, acts[0].kind)
+        self.assertEqual(CRAFT, acts[0].text)
+        self.assertEqual("LaunchPad", acts[0].launch_site)
+        self.assertTrue(st.temp_launch_commanded)
+
+    def test_a_zero_count_reprobes_under_a_fresh_tag_and_then_names_the_giveup(self):
+        """count=0 means the arrival's auto-commit has not landed in the store yet,
+        which is a WAIT rather than a verdict - so the phase re-asks. A REUSED tag
+        would be a reused wire id, and the C# seam SKIPS DUPLICATE IDS, so every
+        re-probe after the first would be a silent no-op. MUTATION: flake on the
+        first zero and a healthy run dies on one frame of lag."""
+        st = self._at_sc_committed(scCommittedFrames=6)
+        st, acts = mlib.kxrw_decide(
+            st, seam("sccommit0", "OK", (("count", "0"),), ut=1200.0,
+                     vessel_lost=True))
+        self.assertEqual(mlib.KXRW_SC_COMMITTED, st.phase)
+        self.assertEqual(["sccommit1"], [a.seam_tag for a in acts])
+        self.assertEqual(["ListHandles"], [a.seam_verb for a in acts])
+        self.assertEqual(0, st.committed_handle_count)
+        tags = []
+        for i in range(1, 12):
+            st, acts = mlib.kxrw_decide(
+                st, seam("sccommit%d" % i, "OK", (("count", "0"),), ut=1200.0,
+                         vessel_lost=True))
+            tags += [a.seam_tag for a in acts]
+            if st.done:
+                break
+        self.assertTrue(st.done)
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+        self.assertEqual(mlib.KXRW_SC_COMMITTED, st.flake_phase)
+        self.assertIn("never auto-committed at the Space Center", st.flake_reason)
+        self.assertEqual(len(tags), len(set(tags)))       # every wire id distinct
+        self.assertNotIn(mlib.KXRW_TEMP_LAUNCH, st.phases_reached)
+
+    def test_an_unreadable_count_fails_closed(self):
+        """FAIL CLOSED, the R1 RESOLVE shape: a count the mission could not read is
+        not evidence that a tree committed, and the next act is irreversible."""
+        for payload in ((), (("count", "many"),)):
+            st = self._at_sc_committed()
+            st, acts = mlib.kxrw_decide(
+                st, seam("sccommit0", "OK", payload, ut=1200.0, vessel_lost=True))
+            self.assertTrue(st.done, payload)
+            self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+            self.assertEqual(mlib.KXRW_SC_COMMITTED, st.flake_phase)
+            self.assertIn("no readable `count` field", st.flake_reason)
+            self.assertEqual([], acts)
+        # And the shared parse itself, in both directions.
+        self.assertEqual(3, mlib._seam_parse_int("3"))
+        self.assertIsNone(mlib._seam_parse_int(""))
+        self.assertIsNone(mlib._seam_parse_int("many"))
+
+    def test_a_refused_or_silent_list_handles_flakes(self):
+        st = self._at_sc_committed()
+        st, _ = mlib.kxrw_decide(
+            st, seam("sccommit0", "ERROR", (("msg", "kind-arg-missing"),),
+                     ut=1200.0, vessel_lost=True))
+        self.assertTrue(st.done)
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+        self.assertIn("kind-arg-missing", st.flake_reason)
+
+        st = self._at_sc_committed(scCommittedFrames=3)
+        for _ in range(8):
+            st, _ = mlib.kxrw_decide(st, snap(ut=1200.0, vessel_lost=True))
+            if st.done:
+                break
+        self.assertTrue(st.done)
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+        self.assertIn("never answered", st.flake_reason)
+
+    # ---- (j) TEMP-LAUNCH / TEMP-READY: the FLIGHT scene the rewind needs -----
+
+    def _at_temp_launch(self, **over):
+        st = self._at_sc_committed(**over)
+        st, _ = mlib.kxrw_decide(
+            st, seam("sccommit0", "OK", (("count", "2"),), ut=1200.0,
+                     vessel_lost=True))
+        self.assertEqual(mlib.KXRW_TEMP_LAUNCH, st.phase)
+        return st
+
+    def _at_temp_ready(self, **over):
+        st = self._at_temp_launch(**over)
+        st, _ = mlib.kxrw_decide(st, snap(ut=1200.0, vessel_lost=True))
+        self.assertEqual(mlib.KXRW_TEMP_READY, st.phase)
+        return st
+
+    def test_the_throwaway_craft_is_launched_after_the_committed_read(self):
+        """THE PHASE ORDER, as a fact rather than as prose. The launch is GS-4's
+        own post-rewind WATCHER-LAUNCH operation: a kRPC call issued from the SPACE
+        CENTER, which has worked on every GS-4 / GS-6 flight. What blocks such a
+        call is a refused PRE-FLIGHT CHECK, not the scene - it raises a dialog and
+        `LaunchVessel` yields on it forever - and the far-downrange crash is what
+        keeps `LaunchSiteClear` satisfied."""
+        i = mlib.KXRW_PHASES.index
+        self.assertLess(i(mlib.KXRW_SC_EXIT), i(mlib.KXRW_TEMP_LAUNCH))
+        self.assertLess(i(mlib.KXRW_SC_COMMITTED), i(mlib.KXRW_TEMP_LAUNCH))
+        self.assertEqual(i(mlib.KXRW_TEMP_LAUNCH) + 1, i(mlib.KXRW_TEMP_READY))
+        self.assertEqual(i(mlib.KXRW_TEMP_READY) + 1, i(mlib.KXRW_REWIND))
+        st = self._at_temp_launch()
+        st, acts = mlib.kxrw_decide(st, snap(ut=1200.0, vessel_lost=True))
+        self.assertEqual(mlib.KXRW_TEMP_READY, st.phase)
+        self.assertEqual([mlib.ACTION_LAUNCH_VESSEL], kinds(acts))
+        self.assertEqual(CRAFT, acts[0].text)
+        self.assertTrue(st.temp_launch_commanded)
+
+    def test_the_throwaway_is_the_recorded_craft_and_not_the_watcher(self):
+        """THE CREW CONSTRAINT, as the two facts a cell can hold. The crash leaves
+        every kerbal `state = Missing`, so `DefaultCrewForVessel` builds an EMPTY
+        manifest and only a `minimumCrew = 0` command module is still a control
+        source - the recorded Kerbal X's RC-L01, not the Jumping Flea's Mk1 pod.
+        The watcher craft would hang kRPC's LaunchVessel inside
+        `WaitForVesselPreFlightChecks` on `PreFlightTests.NoControlSources`
+        (measured, GS-7 round 3: 2026-09-08_1429 / _1503_a2).
+
+        MUTATION: launch `watcher_craft_name` here (the shape before this fix) and
+        the first assert reds; settle TEMP-READY on the WATCHER's name and the
+        second does."""
+        st = self._at_temp_launch()
+        st, acts = mlib.kxrw_decide(st, snap(ut=1200.0, vessel_lost=True))
+        self.assertEqual(CRAFT, acts[0].text)
+        self.assertNotEqual(WATCHER, acts[0].text)
+        # And the settle gate reads the RECORDED craft back. A frame carrying the
+        # WATCHER's name in an otherwise acceptable situation settles NOTHING: it
+        # is a name this launch cannot produce, so accepting it would let a launch
+        # that never arrived be closed by a stale read.
+        for ut in (1201.0, 1202.0, 1203.0):
+            st, acts = mlib.kxrw_decide(st, snap(ut=ut, situation="PRE_LAUNCH",
+                                                 vessel_name=WATCHER))
+            self.assertEqual(mlib.KXRW_TEMP_READY, st.phase)
+            self.assertEqual(0, st.temp_ready_streak)
+            self.assertEqual([], acts)
+        self.assertFalse(st.temp_ready_observed)
+        self.assertNotIn(mlib.KXRW_REWIND, st.phases_reached)
+
+    def test_the_settled_throwaway_craft_stamps_the_clock_and_commands_the_rewind(self):
+        """The settle gate is the launch gate every other launch here uses, and the
+        stamp is taken on the SAME frame the rewind goes out, so the SPACECENTER
+        gate compares against the tightest possible `before`. The rewind carries
+        the tree id captured before the crash, which is the only id anything in
+        this run knows."""
+        st = self._at_temp_ready(rolloutReadyDebounceFrames=2)
+        # The scene load: a lost frame settles nothing, and it is EXPECTED here.
+        st, acts = mlib.kxrw_decide(st, snap(ut=1201.0, vessel_lost=True))
+        self.assertEqual(0, st.temp_ready_streak)
+        self.assertEqual([], acts)
+        st, acts = mlib.kxrw_decide(st, snap(ut=1202.0, situation="PRE_LAUNCH",
+                                             vessel_name=CRAFT))
+        self.assertEqual(mlib.KXRW_TEMP_READY, st.phase)
+        self.assertEqual([], acts)
+        st, acts = mlib.kxrw_decide(st, snap(ut=1203.0, situation="PRE_LAUNCH",
+                                             vessel_name=CRAFT))
+        self.assertEqual(mlib.KXRW_REWIND, st.phase)
+        self.assertTrue(st.temp_ready_observed)
+        self.assertEqual(CRAFT, st.temp_ready_vessel_name)
+        self.assertEqual(1203.0, st.pre_rewind_ut)
+        self.assertEqual(1, len(acts))
+        self.assertEqual("InvokeRewindToLaunch", acts[0].seam_verb)
+        self.assertEqual((("tree", "t_kx"),), acts[0].seam_args)
+        self.assertEqual(mlib.KXRW_TAG_REWIND, acts[0].seam_tag)
+
+    def test_an_unreadable_clock_refuses_to_command_the_rewind(self):
+        """RECORDER-IDLE's refusal, on the profile's own path to the same verb:
+        `pre_rewind_ut` is the SPACECENTER gate's ONLY `before`, so a non-finite
+        stamp makes the OBSERVED backward clock permanently unprovable - after an
+        irreversible world load has already been commanded. MUTATION: stamp
+        `snapshot.ut` unguarded and the frame below commands the rewind against
+        NaN."""
+        st = self._at_temp_ready(rolloutReadyDebounceFrames=1)
+        st, acts = mlib.kxrw_decide(st, snap(ut=float("nan"),
+                                             situation="PRE_LAUNCH",
+                                             vessel_name=CRAFT))
+        self.assertEqual(mlib.KXRW_TEMP_READY, st.phase)
+        self.assertEqual([], acts)
+        self.assertFalse(st.temp_ready_observed)
+        self.assertTrue(math.isnan(st.pre_rewind_ut))
+        # A readable clock releases it, and stamps THAT frame.
+        st, acts = mlib.kxrw_decide(st, snap(ut=1250.0, situation="PRE_LAUNCH",
+                                             vessel_name=CRAFT))
+        self.assertEqual(mlib.KXRW_REWIND, st.phase)
+        self.assertEqual(1250.0, st.pre_rewind_ut)
+        self.assertEqual("InvokeRewindToLaunch", acts[0].seam_verb)
+
+    def test_a_clock_that_never_reads_burns_the_bound_and_names_the_stamp(self):
+        st = self._at_temp_ready(rolloutReadyDebounceFrames=1,
+                                 watcherLaunchFrames=4)
+        for _ in range(10):
+            st, acts = mlib.kxrw_decide(st, snap(ut=float("nan"),
+                                                 situation="PRE_LAUNCH",
+                                                 vessel_name=CRAFT))
+            self.assertEqual([], acts)
+            if st.done:
+                break
+        self.assertTrue(st.done)
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+        self.assertEqual(mlib.KXRW_TEMP_READY, st.flake_phase)
+        self.assertIn("`ut` was unreadable", st.flake_reason)
+        self.assertIn("refusing to command an irreversible rewind",
+                      st.flake_reason)
+        self.assertNotIn(mlib.KXRW_REWIND, st.phases_reached)
+
+    def test_a_throwaway_craft_that_never_settles_names_what_it_was_for(self):
+        """And it names BOTH pre-flight checks that produce this shape in the
+        field, each of which raises a dialog kRPC's LaunchVessel then yields on
+        forever: an OBSTRUCTED PAD (LaunchSiteClear) and NO CONTROL SOURCE
+        (NoControlSources, the all-Missing roster). It names the craft it asked
+        for, too - the RECORDED one, which is what the second check is why."""
+        st = self._at_temp_ready(watcherLaunchFrames=4)
+        for _ in range(10):
+            st, _ = mlib.kxrw_decide(st, snap(ut=1201.0, vessel_lost=True))
+            if st.done:
+                break
+        self.assertTrue(st.done)
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+        self.assertEqual(mlib.KXRW_TEMP_READY, st.flake_phase)
+        self.assertIn("never became the active vessel", st.flake_reason)
+        self.assertIn("RequiresFlight", st.flake_reason)
+        self.assertIn("LaunchSiteClear", st.flake_reason)
+        self.assertIn("NoControlSources", st.flake_reason)
+        self.assertIn("Missing", st.flake_reason)
+        self.assertIn(repr(CRAFT), st.flake_reason)
+        self.assertNotIn(mlib.KXRW_REWIND, st.phases_reached)
+
+    # ---- (k) the assertion rows ---------------------------------------------
+
+    def test_the_profile_substitutes_one_row_and_adds_none(self):
+        p = mlib.kxrw_params_from_dict(params(**self.IMPACT))
+        st = dataclasses.replace(
+            machine(**self.IMPACT), launch_ut=1000.0, impact_observed=True,
+            impact_observed_by="frozen-telemetry", impact_ut=1200.0,
+            recording_end_ut=1200.0, impact_autorecord_off_result="OK",
+            core_discard_commanded=True, core_cut_throttle_observed=True,
+            tree_id="t_kx", sc_exit_result="OK", committed_handle_count=4,
+            sc_commit_probe=1, post_impact_vessel_lost_frames=7,
+            temp_ready_vessel_name=CRAFT)
+        rows = {r.name: r for r in mlib.evaluate_kxrw_assertions([], p, st)}
+        self.assertEqual(8, len(rows))
+        self.assertNotIn("treeCommitted", rows)
+        # THE CORE ROW IS NOT SUBSTITUTED: this profile runs the core gate the
+        # ordinary way, and that discard is what leaves the stack falling.
+        self.assertTrue(rows["coreDiscardedWithEnginesOff"].met)
+
+        committed = rows["treeCommittedAtSpaceCenter"]
+        self.assertTrue(committed.met)
+        self.assertEqual(4, committed.value)
+        self.assertEqual("t_kx", committed.detail["tree"])
+        self.assertEqual("OK", committed.detail["exitResult"])
+        self.assertEqual(4, committed.detail["count"])
+        self.assertEqual(2, committed.detail["probes"])
+        self.assertNotIn("saveResult", committed.detail)
+        self.assertNotIn("reloadResult", committed.detail)
+        # WHICH CRAFT bought the rewind's FLIGHT scene, as EVIDENCE only: the
+        # throwaway is the RECORDED craft (the post-crash roster is all-Missing,
+        # so only a minimumCrew=0 command module still passes NoControlSources),
+        # and the row's met test does not read either field.
+        self.assertEqual(CRAFT, committed.detail["throwawayCraft"])
+        self.assertEqual(CRAFT, committed.detail["throwawayObservedName"])
+        unread = dataclasses.replace(st, temp_ready_vessel_name="")
+        self.assertEqual(
+            "UNREAD",
+            {r.name: r for r in mlib.evaluate_kxrw_assertions([], p, unread)}
+            ["treeCommittedAtSpaceCenter"].detail["throwawayObservedName"])
+
+        # THE CRASH RIDES THE ROW THAT DESCRIBES THE FLIGHT, not a ninth row.
+        span = rows["recordedSpanSeconds"]
+        self.assertTrue(span.met)
+        self.assertEqual(200.0, span.value)
+        self.assertTrue(span.detail["impactObserved"])
+        self.assertEqual("frozen-telemetry", span.detail["impactObservedBy"])
+        self.assertEqual(1200.0, span.detail["impactUT"])
+        self.assertEqual(600, span.detail["impactCoastFrames"])
+        self.assertEqual("OK", span.detail["autoRecordDisarmedBeforeImpact"])
+        self.assertEqual(7, span.detail["postImpactVesselLostFrames"])
+
+    def test_the_span_row_fails_when_no_impact_was_observed(self):
+        """`recording_end_ut` IS the impact stamp on this profile, so an
+        unobserved impact leaves the row with no span to measure. MUTATION: leave
+        the row on the window alone and a stack that SURVIVED, whose end UT was
+        stamped by nothing, reports a healthy span."""
+        p = mlib.kxrw_params_from_dict(params(**self.IMPACT))
+        # A span inside the window, stamped by an END that no impact produced.
+        no_impact = dataclasses.replace(machine(**self.IMPACT), launch_ut=1000.0,
+                                        recording_end_ut=1200.0)
+        rows = {r.name: r for r in mlib.evaluate_kxrw_assertions([], p, no_impact)}
+        self.assertFalse(rows["recordedSpanSeconds"].met)
+        self.assertEqual(200.0, rows["recordedSpanSeconds"].value)
+        self.assertFalse(rows["recordedSpanSeconds"].detail["impactObserved"])
+        self.assertEqual("none",
+                         rows["recordedSpanSeconds"].detail["impactObservedBy"])
+        self.assertEqual(
+            "NONE",
+            rows["recordedSpanSeconds"].detail["autoRecordDisarmedBeforeImpact"])
+        # The SAME state with the key OFF meets the row: the extra conjunct is the
+        # profile's alone.
+        off = mlib.kxrw_params_from_dict(params())
+        rows = {r.name: r for r in mlib.evaluate_kxrw_assertions([], off,
+                                                                 no_impact)}
+        self.assertTrue(rows["recordedSpanSeconds"].met)
+
+    def test_the_committed_row_reads_its_own_evidence_and_nothing_else(self):
+        """MUTATION: meet `treeCommittedAtSpaceCenter` off the exit result alone
+        and a run whose tree never committed passes."""
+        p = mlib.kxrw_params_from_dict(params(**self.IMPACT))
+        exit_only = dataclasses.replace(machine(**self.IMPACT), tree_id="t_kx",
+                                        sc_exit_result="OK",
+                                        committed_handle_count=0)
+        rows = {r.name: r for r in mlib.evaluate_kxrw_assertions([], p, exit_only)}
+        self.assertFalse(rows["treeCommittedAtSpaceCenter"].met)
+        self.assertEqual(0, rows["treeCommittedAtSpaceCenter"].value)
+
+        never_read = dataclasses.replace(machine(**self.IMPACT), tree_id="t_kx",
+                                         sc_exit_result="")
+        rows = {r.name: r for r in mlib.evaluate_kxrw_assertions([], p, never_read)}
+        self.assertFalse(rows["treeCommittedAtSpaceCenter"].met)
+        self.assertIsNone(rows["treeCommittedAtSpaceCenter"].value)
+        self.assertEqual("NONE",
+                         rows["treeCommittedAtSpaceCenter"].detail["exitResult"])
+        self.assertIsNone(rows["treeCommittedAtSpaceCenter"].detail["count"])
+        self.assertEqual(0, rows["treeCommittedAtSpaceCenter"].detail["probes"])
+
+        # The exit conjunct on its own: a count that reads fine over an exit
+        # that never answered OK is NOT a commit proof. MUTATION: drop
+        # `exit_result == "OK"` from the row and this fixture passes it.
+        count_without_exit = dataclasses.replace(
+            machine(**self.IMPACT), tree_id="t_kx",
+            sc_exit_result="TIMEOUT", committed_handle_count=3)
+        rows = {r.name: r for r in
+                mlib.evaluate_kxrw_assertions([], p, count_without_exit)}
+        self.assertFalse(rows["treeCommittedAtSpaceCenter"].met)
+        self.assertEqual(3, rows["treeCommittedAtSpaceCenter"].value)
+        self.assertEqual("TIMEOUT",
+                         rows["treeCommittedAtSpaceCenter"].detail["exitResult"])
+
+    def test_the_non_impact_rows_are_untouched_by_the_profile(self):
+        """THE COMPATIBILITY STATEMENT FOR THE ROWS: with the key omitted the eight
+        names and their evidence are byte-identical to what they always were, the
+        span row's detail keys included."""
+        p = mlib.kxrw_params_from_dict(params())
+        st = machine()
+        rows = mlib.evaluate_kxrw_assertions([], p, st)
+        self.assertEqual(
+            ["coreDiscardedWithEnginesOff", "boosterStagesDropped",
+             "recordedSpanSeconds", "treeCommitted", "rewoundToLaunch",
+             "watcherOnPad", "renderVerbsDriven", "playbackWatchedOut"],
+            [r.name for r in rows])
+        span_off = [r for r in rows if r.name == "recordedSpanSeconds"][0]
+        for key in ("impactObserved", "impactObservedBy", "impactUT",
+                    "impactCoastFrames", "autoRecordDisarmedBeforeImpact",
+                    "postImpactVesselLostFrames"):
+            self.assertNotIn(key, span_off.detail)
+        # ...and with it on, the same eight POSITIONS with ONE substituted name.
+        pi = mlib.kxrw_params_from_dict(params(**self.IMPACT))
+        names = [r.name for r in mlib.evaluate_kxrw_assertions(
+            [], pi, machine(**self.IMPACT))]
+        self.assertEqual(
+            ["coreDiscardedWithEnginesOff", "boosterStagesDropped",
+             "recordedSpanSeconds", "treeCommittedAtSpaceCenter",
+             "rewoundToLaunch", "watcherOnPad", "renderVerbsDriven",
+             "playbackWatchedOut"], names)
+
+    # ---- (l) the conflict gate ----------------------------------------------
+
+    def test_the_profile_and_the_part_sweep_are_refused_on_the_first_frame(self):
+        """FAIL CLOSED BEFORE THE ASCENT, which is the GS-6 vocabulary lesson: a
+        gate that fires after the flight burns a whole run and then flakes, which
+        the retry policy flies again. The sweep fires part actions on the very
+        stack this profile needs to fall unattended, and the vocabulary carries
+        steps that keep it alive - a survived stack reads to IMPACT-COAST exactly
+        as a stalled clock does. MUTATION: drop the gate and a `chutes-deploy`
+        turns a spec choice into a give-up about the product."""
+        st = machine(impactProfile=True, partSweepSteps=["gear-down"])
+        st, acts = mlib.kxrw_decide(st, snap(ut=0.0, situation="PRE_LAUNCH"))
+        self.assertTrue(st.done)
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+        self.assertEqual(mlib.KXRW_ROLLOUT, st.flake_phase)
+        self.assertIn("mutually exclusive", st.flake_reason)
+        self.assertIn("gear-down", st.flake_reason)
+        # NOTHING was commanded: not even the rollout's own launch click.
+        self.assertEqual([], acts)
+        self.assertFalse(st.rollout_launch_commanded)
+
+    def test_the_two_retired_clauses_no_longer_refuse_anything(self):
+        """THE MIRROR DIRECTION of the rework. `boosterStageCount` below 1 used to
+        be refused because the profile handed off from the LAST BOOSTER DROP; it
+        does not any more, so a zero-drop craft simply runs the ordinary core gate.
+        And there is no save folder to resolve because there is no reload. MUTATION:
+        keep either clause and a perfectly flyable spec dies on frame 1."""
+        conflict = mlib.kxrw_impact_profile_conflict
+        self.assertEqual("", conflict(mlib.kxrw_params_from_dict(
+            params(impactProfile=True, boosterStageCount=0))))
+        self.assertEqual("", conflict(mlib.kxrw_params_from_dict(
+            params(**self.IMPACT))))
+        # ...and a zero-drop machine actually leaves ROLLOUT and flies.
+        st = machine(impactProfile=True, boosterStageCount=0)
+        st, acts = mlib.kxrw_decide(st, snap(ut=0.0, situation="PRE_LAUNCH"))
+        self.assertFalse(st.done)
+        self.assertEqual([mlib.ACTION_LAUNCH_VESSEL], kinds(acts))
+        # The predicate is INERT on every lane that does not declare the profile.
+        self.assertEqual("", conflict(mlib.kxrw_params_from_dict(params())))
+        self.assertEqual("", conflict(mlib.kxrw_params_from_dict(
+            params(partSweepSteps=["gear-down"]))))
+        self.assertIn("mutually exclusive", conflict(mlib.kxrw_params_from_dict(
+            params(impactProfile=True, partSweepSteps=["gear-down"]))))
+
+    # ---- (m) the phase bookkeeping ------------------------------------------
+
+    def test_the_impact_phases_sit_where_the_post_rewind_block_stays_contiguous(self):
+        """The seven profile phases go BETWEEN the ordinary bridge and REWIND, so
+        KXRW_POST_REWIND_PHASES is still the contiguous TAIL of KXRW_PHASES - the
+        property the carve-out's own cell asserts. MUTATION: append them after
+        DONE (or interleave them past REWIND) and that slice stops matching."""
+        self.assertEqual(30, len(mlib.KXRW_PHASES))
+        self.assertEqual(len(set(mlib.KXRW_PHASES)), len(mlib.KXRW_PHASES))
+        i = mlib.KXRW_PHASES.index
+        self.assertEqual(
+            (mlib.KXRW_IMPACT_AUTORECORD_OFF, mlib.KXRW_IMPACT_COAST,
+             mlib.KXRW_IMPACT_SETTLE, mlib.KXRW_SC_EXIT, mlib.KXRW_SC_COMMITTED,
+             mlib.KXRW_TEMP_LAUNCH, mlib.KXRW_TEMP_READY),
+            mlib.KXRW_PHASES[i(mlib.KXRW_RECORDER_IDLE) + 1:i(mlib.KXRW_REWIND)])
+        self.assertEqual(
+            mlib.KXRW_PHASES[i(mlib.KXRW_REWIND):i(mlib.KXRW_DONE)],
+            mlib.KXRW_POST_REWIND_PHASES)
+        # Distinct wire ids: the C# seam SKIPS DUPLICATE IDS, so a collision here
+        # would make the second command a silent no-op whose poll then expires as a
+        # TIMEOUT that reads like a wedged addon. The two SetSetting tags are the
+        # pair that matters most - they carry identical args.
+        tags = {mlib.KXRW_TAG_COMMIT, mlib.KXRW_TAG_STOP, mlib.KXRW_TAG_REWIND,
+                mlib.KXRW_TAG_AUTORECORD, mlib.KXRW_TAG_IMPACT_AUTORECORD,
+                mlib.KXRW_TAG_MAP, mlib.KXRW_TAG_MAP_EXIT, mlib.KXRW_TAG_SC_EXIT,
+                mlib.kxrw_sc_commit_probe_tag(0), mlib.kxrw_tree_probe_tag(0),
+                mlib.kxrw_idle_probe_tag(0), mlib.kxrw_watch_probe_tag(0)}
+        self.assertEqual(12, len(tags))
+        self.assertEqual("sccommit3", mlib.kxrw_sc_commit_probe_tag(3))
+
+    def test_the_new_knobs_are_declared_and_default_sanely(self):
+        p = mlib.kxrw_params_from_dict(params())
+        self.assertFalse(p.impact_profile)
+        self.assertEqual(600, p.impact_coast_frames)
+        self.assertEqual(16, p.impact_settle_frames)
+        self.assertEqual(240, p.sc_exit_frames)
+        self.assertEqual(40, p.sc_committed_frames)
+        # IMPACT-AUTORECORD-OFF declares no knob of its own; it reuses the
+        # post-rewind disarm's. MUTATION: add a second key and the two numbers
+        # start drifting apart for one identical verb.
+        self.assertEqual(40, p.auto_record_off_frames)
+        # The settle has to outlast the C# finalize's 5 s coalescer wait, at the
+        # standard 0.5 s poll. MUTATION: drop the default to 4 frames (2 s) and the
+        # exit races the very stash the whole Space Center hop depends on.
+        self.assertGreater(p.impact_settle_frames * 0.5, 5.0)
+        # A declared bool arrives as a bool, and a missing one defaults false.
+        self.assertTrue(
+            mlib.kxrw_params_from_dict(params(impactProfile=True)).impact_profile)
+        # The three keys the rework retired are gone from the params object, so a
+        # spec still declaring them is caught by the schema-sync cell rather than
+        # landing as a silent default.
+        for gone in ("sc_save_frames", "reload_frames", "reload_save_name"):
+            self.assertFalse(hasattr(p, gone), gone)
+
+    def test_the_profile_walks_from_the_tree_probe_to_the_rewind_end_to_end(self):
+        """The chain joins up. A per-phase cell can pass while two phases are wired
+        to the wrong successor, and this is the cell that would catch it.
+
+        THE VERB SEQUENCE IS THE POINT: the disarm rides the tree read, the exit
+        follows the settle, the committed count is READ back, and only then does a
+        craft go onto the pad - one launch, between the ListHandles and the
+        rewind."""
+        st, acts = self._to_tree_state()
+        verbs = [a.seam_verb for a in acts if a.seam_verb]
+        self.assertEqual(["RecordingState"], verbs)
+        script = [
+            seam("tree0", "OK", (("tree", "t_kx"),), ut=76.0, situation="FLYING"),
+            seam("impautorec", "OK", (), ut=76.5, situation="FLYING"),
+        ]
+        script += [snap(ut=77.0 + i, altitude=58000.0 - 500.0 * i,
+                        situation="FLYING") for i in range(4)]
+        script += [snap(ut=200.0, vessel_lost=True)]                 # the impact
+        # the settle, whose last frame commands the exit
+        script += [snap(ut=200.0, vessel_lost=True) for _ in range(16)]
+        script += [seam("scexit", "OK", (), ut=200.0, vessel_lost=True),
+                   seam("sccommit0", "OK", (("count", "2"),), ut=200.0,
+                        vessel_lost=True),
+                   # the launch click, then the scene load and the settle (one
+                   # frame short of the debounce, so the rewind rides the frame
+                   # driven after the loop)
+                   snap(ut=200.0, vessel_lost=True),
+                   snap(ut=201.0, vessel_lost=True),
+                   snap(ut=201.5, situation="PRE_LAUNCH", vessel_name=CRAFT)]
+        launch_at = None
+        for s in script:
+            st, acts = mlib.kxrw_decide(st, s)
+            for a in acts:
+                if a.kind == mlib.ACTION_LAUNCH_VESSEL:
+                    # The RECORDED craft: the post-crash roster is all-Missing, so
+                    # the watcher's crewed pod would hang on NoControlSources.
+                    self.assertEqual(CRAFT, a.text)
+                    launch_at = len(verbs)
+            verbs += [a.seam_verb for a in acts if a.seam_verb]
+            self.assertFalse(st.done, st.flake_reason or st.loss_reason)
+        self.assertEqual(mlib.KXRW_TEMP_READY, st.phase)
+        st, acts = mlib.kxrw_decide(st, snap(ut=202.0, situation="PRE_LAUNCH",
+                                             vessel_name=CRAFT))
+        verbs += [a.seam_verb for a in acts if a.seam_verb]
+        self.assertEqual(mlib.KXRW_REWIND, st.phase)
+        # NO CommitTree, NO StopRecording, NO SaveGame and NO LoadGame anywhere on
+        # this path: the crash stashed the tree, the Space Center arrival committed
+        # it, and the rewind is commanded in that same process.
+        self.assertEqual(["RecordingState", "SetSetting", "ExitToSpaceCenter",
+                          "ListHandles", "InvokeRewindToLaunch"], verbs)
+        # ONE launch, and it sits between the committed read and the rewind.
+        self.assertEqual(4, launch_at)
+        # Every profile phase walked, in order, and the ordinary bridge's three
+        # skipped entirely.
+        self.assertEqual(
+            [mlib.KXRW_TREE_STATE, mlib.KXRW_IMPACT_AUTORECORD_OFF,
+             mlib.KXRW_IMPACT_COAST, mlib.KXRW_IMPACT_SETTLE, mlib.KXRW_SC_EXIT,
+             mlib.KXRW_SC_COMMITTED, mlib.KXRW_TEMP_LAUNCH,
+             mlib.KXRW_TEMP_READY, mlib.KXRW_REWIND],
+            [ph for ph in st.phases_reached
+             if ph in (set(mlib.KXRW_IMPACT_PHASES)
+                       | {mlib.KXRW_TREE_STATE, mlib.KXRW_IMPACT_AUTORECORD_OFF,
+                          mlib.KXRW_IMPACT_COAST, mlib.KXRW_REWIND})])
+        for skipped in (mlib.KXRW_COMMIT, mlib.KXRW_STOP,
+                        mlib.KXRW_RECORDER_IDLE, mlib.KXRW_PART_SWEEP):
+            self.assertNotIn(skipped, st.phases_reached)
+        # The core gate DID run - it is what left the stack falling.
+        for walked in (mlib.KXRW_CORE_CUT, mlib.KXRW_CORE_DISCARD,
+                       mlib.KXRW_COAST):
+            self.assertIn(walked, st.phases_reached)
+        # The rewind carries the tree captured BEFORE the crash, and the playback
+        # wait's stamp is the impact instant.
+        self.assertEqual(200.0, st.recording_end_ut)
+        self.assertEqual(202.0, st.pre_rewind_ut)
 
 
 class CraftAndSchemaSyncTests(unittest.TestCase):

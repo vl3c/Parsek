@@ -21953,6 +21953,21 @@ namespace Parsek.InGameTests
                 "UpdateReentryFx should drive the live particle emission rate from the shared tuned range");
             InGameAssert.IsGreaterThan(actualRate, legacyEmissionRateCeiling,
                 $"Bug #538 regression: tuned live emission rate should rise past the old {legacyEmissionRateCeiling.ToString("F0", CultureInfo.InvariantCulture)} particles/sec ceiling within {emissionSettleTimeoutSeconds:F1}s of realtime");
+
+            // The cell's own summary line, written ONLY after every assertion above has
+            // passed, so a skipped or failed run of this cell never prints it. The harness
+            // lane H52-reentry-fx pins it as the D6 `reentry-fx` claim token: the numeric
+            // it carries is the one the cell decided on (a live Unity particle system
+            // driven past the legacy 2000/s ceiling by the production UpdateReentryFx path
+            // against live atmospheric parameters). Invariant formatting because a harness
+            // regex reads the digits.
+            ParsekLog.Info("ReentryFx", string.Format(CultureInfo.InvariantCulture,
+                "Bug538_ReentryFireDensity: live reentry fire particle system driven on {0}: " +
+                "emissionRate={1:F0}/s expectedRate={2:F0}/s legacyCeiling={3:F0}/s " +
+                "lastIntensity={4:F3} fireThreshold={5:F3} playing={6}",
+                body.name, actualRate, expectedRate, legacyEmissionRateCeiling,
+                info.lastIntensity, GhostVisualBuilder.ReentryFireThreshold,
+                info.fireParticles.isPlaying ? "true" : "false"));
         }
 
         [InGameTest(Category = "ReentryFx", Scene = GameScenes.FLIGHT,

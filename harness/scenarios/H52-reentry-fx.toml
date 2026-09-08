@@ -24,6 +24,44 @@ tier = "nightly"
 # cannot fire here. If a first flight reds on the split, do NOT widen the pattern -
 # read the skip reason out of the log and correct the reachability argument, because
 # one of the statements above is then wrong.
+#
+# THE CLAIM PASS (2026-09-08, roadmap priority item 3, "the cheap CLAIM half first").
+# A whole-tally BATCH_COMPLETE pin asserts that the three cells RAN, not what they
+# proved, so this lane claimed no D6 cell for as long as its only token was the
+# tally (CLAIM-IS-NOT-GATE, the H57 lesson in reverse). The second cell,
+# `Bug538_ReentryFireDensity_UsesDoubledEmissionRange`, now writes ONE summary line
+# AFTER its last assertion (RuntimeTests.cs, subsystem `ReentryFx`):
+#     [Parsek][INFO][ReentryFx] Bug538_ReentryFireDensity: live reentry fire particle
+#         system driven on <body>: emissionRate=<n>/s expectedRate=<n>/s
+#         legacyCeiling=2000/s lastIntensity=<f> fireThreshold=<f> playing=<true|false>
+# Placement is the whole argument: a skipped cell throws at InGameAssert.Skip before
+# the body runs, and a failed cell throws at the assertion it failed, so the line is
+# printed ONLY by a run in which TryBuildReentryFx built a real Unity particle system
+# in a live atmosphere and UpdateReentryFx drove its emission past the legacy 2000/s
+# ceiling. The required regex below pins the digits class on emissionRate (four
+# digits starting 2-9, or five or more) and `playing=true`, so a body that stubbed
+# the driver could not satisfy it even if the tally still read passed=3.
+#
+# WHAT THE TOKEN PROVES, AND WHAT IT DOES NOT. It proves the ghost engine's reentry
+# FX DRIVER - the production per-frame `GhostPlaybackEngine.UpdateReentryFx` on a
+# `GhostVisualBuilder.TryBuildReentryFx` particle system - against live Kerbin
+# atmospheric parameters (pressure, temperature, density, speed of sound read off the
+# real body), on a SYNTHETIC ghost root positioned at the active vessel. It does NOT
+# prove that a REPLAYED recording's trajectory reaches that driver: nothing here is a
+# committed recording, and no ghost spawned by playback is watched re-entering. The
+# D6 `reentry-fx` claim below is therefore the FX-logic half, stated as such; the
+# rendered-replay half is the ghost-replay program's Tier A item 3 (a reentry profile
+# rewound and watched), which stays open on that program's register.
+# MEASURED the same day: run `2026-09-08_1108_H52-reentry-fx`, PASS attempt 1, 50 s
+# wall, expectations mismatches=0 with the new token live, the line reading
+#     emissionRate=2102/s expectedRate=2102/s legacyCeiling=2000/s
+#     lastIntensity=0.453 fireThreshold=0.020 playing=true
+# - the driver settled 102/s above the legacy ceiling inside the cell's 1.5 s
+# realtime window on this host, which is why the digits class starts at 2000 and
+# not higher. Mutation control on that log: removing the line leaves the regex with
+# zero matches, so a skipped or failed cell (which never prints it) reds the lane.
+# The two older archived H52 logs (`2026-08-28_2226`, `2026-09-06_1900`) predate
+# the line and cannot carry it.
 description = "Run the in-game ReentryFx category unattended: the lazy ghost-root FX build, the doubled fire-density emission range, and the speed gate matching the reentry-potential floor, all against live atmospheric parameters."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "phase4-wave1", "reentry-fx", "H52"]
@@ -49,9 +87,13 @@ steps = [
 ]
 
 [dimensionsCovered]
-# HONEST and minimal. NOT claimed: any D2 ghost-visual value - these cells assert
-# the FX GATES (flag, range, speed floor), not that anything rendered; H15 owns
-# the corpus-wide ghost build.
+# `reentry-fx` <- the `[ReentryFx] Bug538_ReentryFireDensity: ... emissionRate=<n>/s
+#   ... playing=true` token (post-assertion, cell-level; see the header for the exact
+#   scope: the FX driver on a live particle system, not a watched replay).
+D6 = ["reentry-fx"]
+# NOT claimed: any D2 ghost-visual value - these cells assert the FX GATES (flag,
+# range, speed floor) and the live driver, not that a replayed ghost rendered; H15
+# owns the corpus-wide ghost build.
 D14 = ["sandbox", "scene-flight"]
 
 [expectations]
@@ -74,7 +116,12 @@ count = { min = 0, max = 0 }
 #  - failed=0 is the ASSERTION.
 #  - passed=3 follows.
 #  - scene=FLIGHT is the gloops-airshow Focusable route, MEASURED by H13 / H5 / H29.
-required  = ["BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=ReentryFx scene=FLIGHT"]
+#  - the Bug538 cell's own post-assertion summary line (see the header): the D6
+#    `reentry-fx` claim token. `emissionRate` must read 2000-9999 or five-plus
+#    digits (the cell asserts strictly above the 2000/s legacy ceiling) and the
+#    particle system must be playing.
+required  = ["BATCH_COMPLETE v1 total=3 passed=3 failed=0 skipped=0 category=ReentryFx scene=FLIGHT",
+             "\\[ReentryFx\\] Bug538_ReentryFireDensity: live reentry fire particle system driven on Kerbin: emissionRate=(?:200[1-9]|20[1-9][0-9]|2[1-9][0-9]{2}|[3-9][0-9]{3}|[1-9][0-9]{4,})/s expectedRate=[0-9]+/s legacyCeiling=2000/s lastIntensity=[0-9.]+ fireThreshold=[0-9.]+ playing=true"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 [runtime]

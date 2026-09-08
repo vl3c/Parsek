@@ -1,0 +1,516 @@
+schema = 1
+id = "GS-7-kerbalx-crash-watch-hold"
+# =====================================================================================
+# THE WATCHED EXPLOSION HOLD: fly GS-4's staged Kerbal X ascent to its core discard,
+# then instead of committing let the unpowered pod stack fall 70 km or more downrange
+# into the ground, commit through a Space Center hop, Rewind-to-Launch, put the probe-cored
+# GS1 Auto-Chute Booster on the pad and WATCH the replay all the way into the impact - so the one
+# watch-mode behaviour the whole V-family declined to claim runs under a live camera:
+# the watched ghost's terminal explosion, the 5 s watch hold that follows it, the
+# hold's per-frame retarget scan, and the `watch hold expired` derender that ends it.
+#
+# Roadmap: "The ghost-replay coverage program (GS-4 derivatives)", Tier A item 2, and
+# the 2026-09-08 priority register's item 3. GS-4 is the template; GS-6 is the
+# precedent for an OPT-IN branch of the `kx_rewind_watch` machine that leaves the
+# pre-existing graph byte-identical when its key is omitted. This lane adds one such
+# key, `impactProfile = true`, and pins what the crash makes observable.
+#
+# =====================================================================================
+# 1. WHY A CRASH, AND NOT THE ROADMAP'S FIRST SUGGESTION
+# -------------------------------------------------------------------------------------
+# The roadmap entry says "watch the CORE CHILD through its destruction". The core child
+# is NOT destroyed inside the recorded span: on every archived GS-4 / GS-6 flight it is
+# finalized `terminal=SubOrbital` at the seam commit (`FinalizeTreeRecordings ...
+# vessel='Kerbal X Probe' ... terminal=SubOrbital`, e.g. `2026-08-28_1855`), so its
+# ghost ends `stale past-end ghost (no longer held)` with no explosion to hold on. The
+# booster debris cannot be pinned either: across thirteen archived Kerbal X replays
+# (GS-4 `2026-08-27_2145` / `_2204`, `2026-08-28_0051` / `_1527` / `_1544` / `_1550`
+# / `_1855`, GS-6 `2026-09-02_1420` / `_1505` / `_1524` / `_1542` / `_1551` / `_1601`)
+# the pair-1 and pair-2 boosters end by `parent-anchored debris outside relative
+# coverage at endpoint` on most flights and by an endpoint explosion on some, with no
+# index behaving the same way twice in a row, and the pair-3 boosters explode 1.2 s
+# after their ghosts spawn (`Early debris completion ... explosionUT=66.7x` on all
+# thirteen), a window no watch entry can be timed into. The only ghost whose terminal
+# can be MADE Destroyed deterministically is the parent itself, which is the roadmap
+# entry's own second suggestion: "a crash-landing profile whose multi-part breakup
+# also claims D5 crash-coalescing".
+#
+# =====================================================================================
+# 2. THE CODE FACTS THIS SPEC RESTS ON - read, not assumed.
+# -------------------------------------------------------------------------------------
+# (1) THE WATCHED EXPLOSION HOLD IS THE POLICY'S DESTROYED BRANCH.
+#     `ParsekPlaybackPolicy.HandlePlaybackCompleted` (ParsekPlaybackPolicy.cs ~660-740):
+#     when the completed ghost is the watched one, needs no spawn and has no
+#     continuation, the hold is `TerminalState.Destroyed ? 5f : 3f` seconds,
+#     `StartWatchHoldFromPolicy` arms it, `TriggerExplosionIfDestroyed` fires the stock
+#     `FXMonger.Explode` at the ghost's terminal position, and the policy writes
+#     `Watch hold started for #<i>: 5s terminal=Destroyed`. Every frame of the hold
+#     `WatchModeController.ProcessWatchEndHoldTimer` re-runs `FindNextWatchTarget`
+#     (the RETARGET scan: `auto-followed during hold` is the reason it writes when a
+#     continuation appears); with none, the hold expires with `Watch hold expired for
+#     #<i>` and the ghost is destroyed with reason `watch hold expired`. GS-4 measured
+#     the 3 s SubOrbital form of this path; nothing has measured the Destroyed form
+#     under a camera.
+# (2) WHY THE RETARGET SCAN FINDS NOTHING HERE, BY DESIGN. The parent's
+#     `ChildBranchPointId` is the crash split (a `Breakup` or a `JointBreak` branch
+#     point - both shapes were measured, code fact 4). `GhostPlaybackLogic.
+#     FindNextWatchTarget` walks that branch point's children same-PID first; for a
+#     `Breakup` it refuses the different-PID fallback outright
+#     (`allowDifferentPidFallback = bp.Type != BranchPointType.Breakup`), and for a
+#     `JointBreak` the fallback excludes `IsDebris` children - and every child of a
+#     crash is debris. So the scan returns -1 and the hold runs to expiry. The `FindNextWatchTarget:
+#     currentIndex=<i>, chainId=null, chainIndex=-1, treeId=<t>, childBpId=<bp>` line
+#     is the scan's own evidence and is required.
+# (3) PARSEK DOES NOT COMMIT IN FLIGHT AFTER THE ACTIVE VESSEL DIES. `OnVesselWillDestroy`
+#     routes an active-vessel death in tree mode to `ShowPostDestructionTreeMergeDialog`
+#     (ParsekFlight.cs ~3326-3520): it waits out the coalescer, finalizes the tree
+#     (`all leaves terminal`, or the debris-only-blockers form), STASHES it as a pending
+#     tree and explicitly defers the commit to the post-report scene transition (#434:
+#     the stock crash report shows first so a player can still revert). The seam
+#     `CommitTree` verb refuses `no-active-tree` once the tree is stashed, and
+#     `InvokeRewindToLaunch` is `RequiresFlight` and refuses a pending tree through
+#     `RecordingStore.CanRewind`. So the machine hops: `ExitToSpaceCenter` (proceeds
+#     under autoMerge=true with `pendingTreeVariant=None`, exactly CL-2's measured gate
+#     line) lets the pending tree auto-commit on arrival (`Silent full-fidelity
+#     auto-commit (scene-exit)` then `Committed tree ...`), `ListHandles kind=committed`
+#     reads back `count>=1` as the commit proof, a THROWAWAY craft is launched FROM THE
+#     SPACE CENTER to obtain a FLIGHT scene - the very launch GS-4's post-rewind
+#     WATCHER-LAUNCH phase issues from SPACECENTER on every flight - and the rewind verb
+#     runs from it; the rewind's quicksave predates that launch, so the throwaway craft
+#     is rewound out of existence and the real watcher is launched again after the
+#     rewind by the unchanged post-rewind block. `autoMerge=true` is therefore
+#     LOAD-BEARING twice over in this lane (GS-4's reason, and the exit gate).
+#     BOTH PAD LAUNCHES AFTER THE CRASH ARE PROBE-CORED, and rounds 3 and 4 are why.
+#     The Kerbal X launches with KSP's default manifest (Bill and Bob; Jebediah is
+#     `Missing` in the fixture and Valentina goes with the pad craft the rollout
+#     recovers), and the crash kills both. From then on every kerbal in the roster
+#     reads `state = Missing`, so kRPC's `LaunchVessel` builds an EMPTY crew manifest
+#     (decompiled `LaunchConfig`: an empty `crew` list means `DefaultCrewForVessel`,
+#     never a crewless pod, so a crewed craft cannot be launched empty on purpose).
+#     KSP's pre-flight test `PreFlightTests.NoControlSources` (decompiled) counts a
+#     command part as a control source only if its `ModuleCommand.minimumCrew` is met:
+#     the Flea's Mk1 pod needs one kerbal and has none, the check raises its "launch
+#     anyway?" dialog, and kRPC's `WaitForVesselPreFlightChecks` yields forever because
+#     `preFlightChecksComplete` is set only by that dialog's callback. The rewind does
+#     NOT refill the pool: the `parsek_rw_*` quicksave carries Bill and Bob aboard the
+#     recorded Kerbal X, the strip reserves them, and the ledger keeps them dead
+#     (`Reservation: 'Bill Kerman' endUT=INDEFINITE (Dead)` on every recalculation,
+#     round 4). GS-4 / GS-8 survive the same roster because their crew LIVE:
+#     `CrewReservationManager.ReserveCrewIn` hires a stand-in for every reserved
+#     kerbal ("so the available pool stays constant") and their Flea flies on one; it
+#     skips Dead crew, so this lane's pool is empty for good. Hence: the throwaway is
+#     the Kerbal X (RC-L01 `probeStackLarge`, `minimumCrew = 0`; launched crewless in
+#     round 4, never lifts off, rewound out of existence), and the watcher is the
+#     `GS1 Auto-Chute Booster` (`probeCoreOcto2.v2` on the booster stage,
+#     `minimumCrew = 0`, its own craft pid 2200110033, the GS-1 craft the shared-ship
+#     overlay already stages into this fixture's VAB). NOT the fixture's `Kerbal X
+#     Sweep` (probe-cored too, but it shares the Kerbal X's baked pid 3620499050 and
+#     `ResolveRewindSuppressionLiveLaunchPresence` is pid-only by design).
+# (4) THE CRASH COALESCER, MEASURED IN TWO SHAPES. Round 1's slow, near-vertical
+#     impact closed as `Coalescer emitted split branch point: ut=127.96, type=Breakup,
+#     cause=CRASH, debris=2` and went through `OnVesselWillDestroy`'s post-destruction
+#     path (`Active vessel destroyed in tree mode`, finalize, stash). Round 3's fast
+#     impact from 60 km closed as `type=JointBreak, cause=DECOUPLE, debris=8` - the
+#     same shape a staging drop prints - and went through the PENDING-SPLIT path instead
+#     (`Pending split destruction override`, no stash, the tree still ACTIVE at the
+#     exit and auto-committed as such). Neither the branch-point line nor the stash
+#     lines are therefore crash-specific on their own, and none of them is required.
+#     What BOTH rounds printed, and only a crash can: the recorder's own verdict that
+#     the recorded vessel died inside a coalesced split (`ResumeSplitRecorder: vessel
+#     was destroyed (joint break fed to coalescer (classification=DebrisSplit))`), its
+#     capture appended `(destroyed=True)`, the coalescer building child recordings for
+#     vessels ALREADY GONE inside its window (`CreateBreakupChildRecording: using
+#     pre-captured trajectory point for pid=<p> (vessel destroyed)`, `ProcessBreakupEvent:
+#     debris child created: ... alive=False`), the stubs those children become
+#     (`PruneSinglePointDebrisLeaves: removed <n> single-point debris stub(s)`) and the
+#     parent's `terminal=Destroyed`. Those are the D5 `crash-coalescing` tokens.
+# (5) THE PROFILE, AND THE TWO CONSTRAINTS THAT SHAPED IT. GS-4's ascent runs
+#     UNCHANGED through the three booster drops, the engines-off core discard (so the
+#     `Kerbal X Probe` child and its RewindPoint exist exactly as in GS-4) and the
+#     coast; the machine reads the tree id while the recorder is live, disarms
+#     `autoRecordOnLaunch` over the seam, and then - instead of committing - rides the
+#     unpowered pod stack (mk1-3 pod + the never-lit Poodle stage, no parachute) from
+#     its ~60 km apoapsis into the ground, 50 km or more downrange. IMPACT is OBSERVED
+#     by either kRPC signal a destroyed active vessel produces (a `vessel_lost`
+#     snapshot, or the frozen-telemetry detector tripping when KSP hands the active
+#     vessel to a surviving fragment); both stamp the recording's end UT.
+#     WHY FAR: the first two rounds cut the throttle at the last booster drop and the
+#     stack fell back 330-374 m from the pad, and the far profile was adopted on the
+#     hypothesis that KSP's `PreFlightTests.LaunchSiteClear` (which asks
+#     `ShipConstruction.FindVesselsLandedAt(flightState, "LaunchPad", ...)`) was what
+#     held the throwaway launch. Round 3 REFUTED that as the blocker (the launch hung
+#     with the impact 74 km away, and the only vessels landed at the site were the
+#     three launch clamps, which are `Debris` and which the test waves through); the
+#     real blocker is the crew manifest (code fact 3). The far profile is KEPT anyway:
+#     it is GS-4's own ascent (the probe child and its RewindPoint exist as in GS-4),
+#     and it keeps the pad free of the one thing that WOULD obstruct - a surviving
+#     non-debris fragment landed at the site, which the close crash did produce
+#     (`Kerbal X Probe`, rounds 1 and 2).
+#     WHY DISARM FIRST: after the close crash KSP handed the active vessel to a
+#     surviving fragment and, with `autoRecordOnLaunch` still true, Parsek opened a
+#     NEW tree on it (`StartRecording: clearing stale chain state without active
+#     tree` on `_1331_a2`), which both pollutes the save and can flip the exit gate's
+#     `hasActiveTree=false`. The SetSetting now precedes the impact; the post-rewind
+#     AUTORECORD-OFF phase re-sends it and is a no-op.
+#
+# =====================================================================================
+# 3. STATUS: FLOWN GREEN AND ARMED 2026-09-08, seven flights in one day. Rounds 1-4
+# located the blocker (the roster, not the pad or the scene), round 5 is the reading
+# run, and the two flights that discharge the arming discipline are recorded at the
+# end of this section: ARMED RE-FLIGHT `2026-09-08_1728` (PASS attempt 1, 767 s
+# wall, ghostLifecycle status=PASS gating=True spawned=8/8/8 unbalanced=0, all 31
+# tokens) and NEGATIVE CONTROL `2026-09-08_1741` (`destroyedReasons.forbidden =
+# ["watch hold expired"]` added uncommitted and reverted in place: PARSEK-FAIL
+# (ghost-lifecycle) attempt 1 on exactly that clause, `forbidden destroy reason
+# 'watch hold expired' matched 1 MeshDestroyed line(s)`, every other verifier green,
+# all 31 tokens still matched). The round-by-round record follows.
+#   ROUND 1 `2026-09-08_1130_GS-7-kerbalx-crash-watch-hold` (+ retry `_1157_a2`), the
+#   close-crash profile with the throwaway launch from the Space Center: INVALID
+#   (autopilot-flake, mission budget expired). Everything up to the launch worked and
+#   is MEASURED: launch UT 30.2; drops at +29 / +34 / +37 s; impact at UT ~127.7
+#   (`Distance from launch: 374m, Max distance: 7132m`); `type=Breakup, cause=CRASH,
+#   debris=2`; the in-flight finalize (`only debris leaves still block same-scene
+#   merge`) and stash; `exittospacecenter complete scene=SPACECENTER` in 2.7 s; the
+#   auto-commit (`recordings=8 spawnable=0`); `listhandles kind=committed count=8`. It
+#   also measured two `Debris TTL expired, ending recording` lines (expiry=125.6) -
+#   the unpowered stack kept its boosters in the physics bubble past the 60 s TTL, the
+#   first of this lane's flights to reach that exit. The far profile forfeits that reading
+#   (the powered ascent leaves the boosters behind, as GS-4's does); D5
+#   `staging-debris-ttl` is therefore OBSERVED here, not claimed, and the close-crash
+#   variant is the cheap lane for it once the pad-clearance obstruction has a driver
+#   (roadmap item 5).
+#   ROUND 2 `2026-09-08_1302` (+ `_1331_a2`), the same close crash with the throwaway
+#   launch moved to the post-crash FLIGHT scene: INVALID the same way, at the same
+#   call, which is what located the blocker in the pre-flight check rather than in the
+#   scene (code fact 5), and measured the fragment recording that motivates the
+#   disarm.
+#   ROUND 3 `2026-09-08_1429` (+ `_1503_a2`), the far-crash profile: INVALID the same
+#   way, and the most instructive of the three. MEASURED: GS-4's ascent verbatim
+#   (drops at +29 / +34 / +37 s, core discard at +88 s, `Kerbal X Probe` created), the
+#   disarm (`setsetting autoRecordOnLaunch=false` at UT 139.5), a 208 s unpowered fall
+#   to impact at UT 348.5 with the parent 73,806 m from the pad, `type=JointBreak,
+#   cause=DECOUPLE, debris=8` closing through the pending-split path (code fact 4),
+#   `FinalizeTreeRecordings ... vessel='Kerbal X' ... terminal=Destroyed` and the probe
+#   child `terminal=Destroyed` too, `PruneSinglePointDebrisLeaves: removed 8`, the exit
+#   with `hasActiveTree=true hasPendingTree=false` (auto-committed as an ACTIVE tree,
+#   `recordings=8 spawnable=0`), `count=8` - and then the Space Center launch of the
+#   Flea hung once more, with nothing but the three launch clamps landed at the pad.
+#   That is what turned the search from the pad to the ROSTER: every kerbal `state =
+#   Missing`, an empty manifest, and the Mk1 pod's `minimumCrew = 1` failing
+#   `NoControlSources`. Round 4 launched the Kerbal X (probe core aboard) instead.
+#   ROUND 4 `2026-09-08_1552` (+ retry `_1627_a2`), the crewless Kerbal X throwaway: INVALID
+#   again, but one launch further. MEASURED on both attempts: the throwaway launched
+#   (`Mk1-3 Command Pod holds 3 crew, but only 0 are available`, then `Kerbal X
+#   loaded!`), TEMP-READY settled, `InvokeRewindToLaunch` answered `rewound=true`
+#   (`invokerewindtolaunch complete ... elapsed=4.4s`, the quicksave loaded into
+#   SPACECENTER, the clock read back at UT ~19), the disarm re-answered OK - and the
+#   WATCHER launch hung on the identical pre-flight line (`Mk1 Command Pod holds 1
+#   crew, but only 0 are available`, `NoControlSources: FAIL!`), with the produced
+#   save's roster reading all four kerbals `Missing`. That closed the roster question
+#   for both pad launches (code fact 3) and named the fix: a probe-cored watcher.
+#   ROUND 5 `2026-09-08_1711`, THE READING RUN: MISSION-OK attempt 1, 766 s wall,
+#   PARSEK-FAIL(expectations) on exactly ONE of the 31 required tokens, the
+#   `childBpId=<hex>` guess (re-cut above to the measured `childBpId=null,
+#   supersedes=0`). MEASURED, end to end: GS-4's ascent (the three launch clamps at
+#   UT 30.24, booster drops at 60.80 / 62.98 / 65.12, the core discard at 118.56 with
+#   the `Kerbal X Probe` child seeded at 119.08), the disarm at UT
+#   139.5, the 208 s fall to impact at UT 348.44 with the parent 73,174 m from the
+#   pad (`type=JointBreak, cause=DECOUPLE, debris=8`), `FinalizeTreeRecordings`
+#   `terminal=Destroyed` on the parent (1370 points), the probe (703) and all six
+#   boosters, `PruneSinglePointDebrisLeaves: removed 8 single-point debris stub(s)
+#   (Destroyed=8) and 2 empty branch point(s)`, the exit with `hasActiveTree=true
+#   hasPendingTree=false`, `Committed tree 'Kerbal X' (8 recordings)`, `count=8`, the
+#   crewless Kerbal X throwaway (`NoControlSources: PASS!`), `invokerewindtolaunch
+#   complete ... elapsed=4.4s`, the crewless Booster watcher (`Mk1 Command Pod holds 1
+#   crew, but only 0 are available` then `NoControlSources: PASS!`, `GS1 Auto-Chute
+#   Booster loaded!`), `enterwatchmode complete: index=0`, eight `MeshSpawned`, the
+#   three booster explosions at their endpoints, the probe's explosion at UT ~348, the
+#   parent's `Stock FXMonger.Explode for ghost #0 "Kerbal X" at (-36753.5,113.8,
+#   -62064.6) ... power=1.00`, `FindNextWatchTarget: currentIndex=0, chainId=null,
+#   chainIndex=-1, treeId=cb2feb85..., childBpId=null, supersedes=0`, `Watch hold
+#   timer set: holdUntilRealTime=688.3`, `Watch hold started for #0: 5s
+#   terminal=Destroyed`, five real seconds later `Watch hold expired for #0 at
+#   t=688.3`, and `phase=MeshDestroyed ... currentUT=353.480 playbackUT=353.480
+#   vessel=Kerbal X reason=watch hold expired` - the cell, under a live camera.
+#   ghostLifecycle spawned=8/8/8 unbalanced=0 (ARMED below off this reading); the
+#   analyzer, log validation and anomaly sweep all PASS; unityExceptions total=0.
+#   Two OBSERVATIONS for the todo, neither gated here: the eight pruned stubs leave
+#   three sidecar files each on disk (the `count` note below), and the core-discard
+#   RewindPoint SURVIVES this rewind (saveParse rewindPoints=1, where GS-4 / GS-8 read
+#   0) because the crash promoted the tree's slots to CommittedProvisional
+#   (`CommitTree promoted rec=... reason=crashed to CommittedProvisional`) - a data
+#   point for roadmap Tier B item 6, the vanished-RewindPoint design call.
+#   THE TOKENS RE-CUT OFF ROUNDS 1 AND 3 TOGETHER: the crash group keeps only what
+#   both shapes print (code fact 4); `Active vessel destroyed in tree mode`, the stash
+#   lines, the coalescer's `cause=CRASH` verdict and the `Vessel was destroyed during
+#   recording` death stamp are OBSERVED, shape-dependent, and no longer required; the
+#   exit-gate token accepts both tree states. Every token from the rewind onward was
+#   a first-flight pin until round 5 measured them and rounds 6-7 (the armed re-flight
+#   and the negative control, above) matched all 31 again.
+#   OBSERVATION, not gated: the armed re-flight `_1728` carries
+#   `NullReferenceException: 1` in its report-only `unityExceptions` row where the
+#   reading run carried 0 and the control 3; GS-8's three runs each carry 1 as well,
+#   so it reads as a fixture-level artefact rather than a crash-profile one, and it is
+#   the standing reason roadmap Tier B item 9 (arming `unityExceptions`) exists.
+# Pre-flight risks recorded before round 5, each with the line that would name it on
+# a red run (none fired on rounds 5-7):
+#   - the stack SURVIVES the impact (a bounce that leaves the pod intact): the machine
+#     never observes a loss and flakes on `impactCoastFrames` / `flightMaxSeconds` -
+#     driver-INVALID, never PARSEK-FAIL, per mission-vs-Parsek orthogonality;
+#   - the fall out-runs `flightMaxSeconds` (600 s from the launch click: ~85 s to the
+#     discard, then a 3-4 min fall): the same named flake, re-tuned by raising it;
+#   - the crash debris children surviving finalize as multi-point recordings (the
+#     `recordings.count` floor is 8 = parent + 6 boosters + probe for exactly this
+#     reason; the floor stayed a floor, see the count block for why);
+#   - the watched parent retiring under the camera by some path other than the hold
+#     (the required `reason=watch hold expired` token is what reds on it, and that red
+#     would be the product finding this lane exists to make visible);
+#   - the Booster watcher itself: a crewed Mk1 pod that launches empty prints the same
+#     `only 0 are available` line as the failures above; the difference is the
+#     `NoControlSources: PASS!` that its Octo2 earns (the throwaway's RC-L01 earned the
+#     same PASS in round 4), and WATCHER-READY settles on the name `GS1 Auto-Chute
+#     Booster`.
+# =====================================================================================
+tier = "operator"
+description = "Watched explosion hold: GS-4's staged Kerbal X ascent through its core discard, then the unpowered pod stack ridden 70 km or more downrange into the ground, committed through a Space Center hop (autoMerge commit on arrival, a crewless throwaway pad launch of the probe-cored Kerbal X from the Space Center), Rewound-to-Launch and WATCHED from the probe-cored GS1 Auto-Chute Booster through its replayed impact - the 5 s Destroyed-terminal watch hold, its retarget scan and its `watch hold expired` derender gated, plus the recorder's own destroyed-in-split verdict for the crash coalescer."
+instanceProfile = "stock-minimal"
+tags = ["GS7", "rewind-to-launch", "watch-mode", "ghost-render", "explosion-hold", "crash-coalescing", "ghost-lifecycle"]
+
+[fixture]
+# gs1-two-stage-pad, exactly as GS-4 / GS-6 use it. No fixture change.
+saveTemplate       = "fixtures/saves/gs1-two-stage-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "kx_rewind_watch"
+
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header.
+#
+# GS-4's prelude verbatim. `autoMerge=true` is load-bearing for the exit gate (code
+# fact 3), `verboseLogging=true` for the Group-1 auto-record token, the `[Flight]`
+# finalize line, the `[ExplosionFx]` and `[Watch]` lines below, and
+# `ghostRenderTracing=true` for every MeshSpawned / MeshDestroyed token.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },      expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" },   expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoMerge", value = "true" },            expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" },       expect = "OK" },
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" },   expect = "OK" },
+  { phase = "mission",                                                            expect = "MISSION-OK", budget = 2000 },
+  { cmd = "FlushAndQuit",                                                         expect = "OK" },
+]
+
+[driver.missionParams]
+craftName        = "Kerbal X"
+launchSite       = "LaunchPad"
+# NOT the Jumping Flea (GS-4 / GS-8): its Mk1 pod needs a kerbal and the crash leaves
+# none (header code fact 3). The Booster's Octo2 probe core launches it empty.
+watcherCraftName = "GS1 Auto-Chute Booster"
+# THE ONE KEY THAT IS THE LANE. Omitted = GS-4's flown 22-phase graph exactly (23
+# with the other opt-in, PART-SWEEP, which GS-4 also skips); true = the
+# impact branch described in the header (mlib.kxrw_decide, `impactProfile`): after
+# TREE-STATE the machine disarms auto-record and falls instead of committing.
+impactProfile = true
+# The whole pre-commit flight from the launch click, and the impact window inside
+# it. GS-4's 420 s covered a commit ~105 s after the click; this lane spends ~85 s to
+# the core discard, 20 s of coast, and then a 3-4 minute unpowered fall from a
+# ~60 km apoapsis, so both bounds are sized to the fall. 900 frames at the 0.5 s
+# poll is 450 s of impact window; 600 s is the whole-flight backstop above it.
+flightMaxSeconds = 600.0
+impactCoastFrames = 900
+# Frames held after the loss before the exit verb goes out: the C# post-destruction
+# finalize waits up to 5 s real time for the coalescer to close, then stashes.
+impactSettleFrames = 16
+# The exit spans a full scene load, and the commit read-back is one verb reply.
+scExitFrames = 240
+scCommittedFrames = 40
+
+[dimensionsCovered]
+# CLAIM-IS-NOT-GATE. Every value below is backed by a REQUIRED token in this spec's
+# own logContracts.
+#
+# `auto-record-launch` <- "Auto-record started (..." (GS-4's Group 1).
+D1 = ["auto-record-launch"]
+# `controlled-decoupled-child` <- the fueled-core discard, exactly as GS-4 (the far
+#   profile keeps GS-4's whole ascent).
+# `crash-coalescing` <- the crash-side lines of code fact 4, MEASURED on rounds 1
+#   and 3: the recorder's `vessel was destroyed (joint break fed to coalescer ...)`
+#   verdict, the `(destroyed=True)` capture append, the destroyed-child pre-capture,
+#   the `alive=False` child creation, the stub prune and the parent's
+#   `terminal=Destroyed`.
+# NOT claimed: `staging-debris-ttl` - measured on the close-crash rounds, forfeited by
+#   the far profile (see STATUS).
+D5 = ["controlled-decoupled-child", "crash-coalescing"]
+# `basic-playback` / `mesh-lifecycle-derender` <- the MeshSpawned / MeshDestroyed
+#   tokens plus the ghostLifecycle declaration (ARMED, see the block).
+# `watch-mode-retarget-explosion-hold` <- THE cell: `Watch hold started for #<i>: 5s
+#   terminal=Destroyed`, the `FindNextWatchTarget` retarget scan for the watched index,
+#   `Stock FXMonger.Explode for ghost #<i> "Kerbal X"`, `Watch hold expired for #<i>`,
+#   and the parent's `phase=MeshDestroyed ... reason=watch hold expired`. The retarget
+#   half is the SCAN and its designed empty result (code fact 2): no continuation is
+#   reachable from a crash, so `auto-followed during hold` is not produced and not
+#   claimed as produced; a lane that wants the resolving form needs a watched ghost
+#   whose branch point carries a live non-debris child.
+D6 = ["basic-playback", "mesh-lifecycle-derender", "watch-mode-retarget-explosion-hold"]
+# `rewind-to-launch` <- the product line and the seam terminal, as GS-4.
+D9 = ["rewind-to-launch"]
+# `scene-ksc` <- BOTH the exit verb's `exittospacecenter complete scene=SPACECENTER`
+#   and the rewind terminal; `scene-map` <- `entermapview ok mapOpen=true`.
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc", "scene-map"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING: `allowedAnomalies` must precede every
+# [expectations.<sub>] header.
+allowedAnomalies = []
+
+[expectations.recordings]
+# MEASURED round 5 `2026-09-08_1711`: the committed tree holds exactly 8 recordings
+# (parent + six booster debris + the core child, `Committed tree 'Kerbal X' (8
+# recordings)`), but this counter counts SIDECAR IDS ON DISK and read 16: the eight
+# crash stubs `PruneSinglePointDebrisLeaves` removed from the tree (`removed 8
+# single-point debris stub(s)`) each left three files behind under
+# `Parsek/Recordings/` (GS-8, with no crash, reads 8 = its 8). The floor stays at the
+# tree's own 8; a max is deliberately NOT pinned, because the stub count is the
+# crash's part count (round 4 measured 8 and 9 across two attempts) and the leftover
+# sidecars are an OBSERVATION for the todo, not a contract this lane owns.
+count = { min = 8 }
+
+[expectations.logContracts]
+# GROUPS, in emission order. [MEASURED] = the exact line was measured on a named
+# run; [DERIVED] = transcribed from the producer.
+#
+# GROUP 1 - LAUNCH, RECORDING, THE THREE DROPS AND THE CORE DISCARD (GS-4's tokens).
+# GROUP 2 - THE CRASH ([MEASURED] on rounds 1 AND 3, the two shapes of code fact 4;
+#   the shape-dependent lines - `Active vessel destroyed in tree mode`, the stash
+#   pair, `cause=CRASH`, the `Vessel was destroyed during recording` death stamp -
+#   are OBSERVED and deliberately not required).
+#   "ResumeSplitRecorder: vessel was destroyed (joint break fed to coalescer (classification=<c>))"
+#       ParsekFlight.cs (Info) - the recorder's verdict that the recorded vessel died
+#       inside the coalesced split; a staging split never prints it.
+#       The classification is the split's, not the crash's: round 1 read
+#       `StructuralSplit`, round 3 `DebrisSplit`, so it is a word class.
+#   "TryAppendCapturedToTree: appended <n> points to tree recording '<r>' (destroyed=True)"
+#   "CreateBreakupChildRecording: using pre-captured trajectory point for pid=<p> (vessel destroyed)"
+#   "ProcessBreakupEvent: debris child created: pid=<p>, name='...', recId=<r>, alive=False"
+#   "PruneSinglePointDebrisLeaves: removed <n> single-point debris stub(s) ..."
+#   "FinalizeTreeRecordings: rec='<r>' vessel='Kerbal X' points=<n> orbitSegs=<n> terminal=Destroyed"
+#       ParsekFlight.cs (VERBOSE - the verboseLogging step above).
+# GROUP 3 - THE SPACE CENTER HOP (CL-2's measured exit lines, then the auto-commit,
+#   all [MEASURED] on rounds 1 and 3 - round 1 stashed, round 3 stayed active).
+#   "exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=<x> hasPendingTree=<y> ..."
+#   "exittospacecenter complete scene=SPACECENTER game-loaded=true elapsed="
+#   "Silent full-fidelity auto-commit (scene-exit): tree='...' recordings=<n> spawnable=<n>"
+#   "Committed tree '...' (<n> recordings)"      RecordingStore.cs (Info)
+#   "listhandles kind=committed count=<n> truncated=false"  the commit read-back (Info)
+# GROUP 4 - REWIND, MAP, WATCH (GS-4's tokens).
+# GROUP 5 - THE GHOST LIFECYCLE AND THE HOLD (the lane's heart; all [DERIVED]).
+#   MeshSpawned parent + probe + debris [MEASURED - GS-4].
+#   "Stock FXMonger.Explode for ghost #<i> \"Kerbal X\" at" GhostPlaybackEngine.cs:8740
+#       (VERBOSE, ExplosionFx). The ` at` after the closing quote keeps `Kerbal X
+#       Debris` / `Kerbal X Probe` from matching.
+#   "FindNextWatchTarget: currentIndex=<i>, chainId=null, chainIndex=-1, treeId=<t>, childBpId=null, supersedes=0"
+#       WatchModeController.cs:2504 (VERBOSE, rate-limited on a shared key; printed
+#       at the watched ghost's completion). `chainId=null`: this lane's parent is a
+#       tree recording with no chain. `childBpId=null` [MEASURED round 5, the one
+#       first-flight guess that missed]: the crash split's eight children are all
+#       single-point stubs and `PruneSinglePointDebrisLeaves` removes them AND the
+#       now-empty branch point at finalize (`removed 8 ... and 2 empty branch
+#       point(s)`), so the parent carries no child branch point into the commit and
+#       the retarget scan has nothing to walk - the designed empty result the hold
+#       expires on, now pinned as the bytes it prints rather than as a hex id.
+#   "Watch hold timer set: holdUntilRealTime="  WatchModeController.cs:3743 (Info)
+#   "Watch hold started for #<i>: 5s terminal=Destroyed"  ParsekPlaybackPolicy.cs:733 (Info)
+#       The 5 s is the Destroyed branch; GS-4 measured the 3 s SubOrbital branch.
+#   "Watch hold expired for #<i> at t="         WatchModeController.cs:2991 (Info)
+#   "phase=MeshDestroyed ... vessel=Kerbal X reason=watch hold expired"  - THE token.
+#       Deliberately NOT the GS-4 alternation: an auto-follow or a `playback
+#       completed` ending here would mean the hold did not run, which is the finding.
+#   "phase=MeshDestroyed ... vessel=Kerbal X Probe reason=" / "... Kerbal X Debris"
+#       [MEASURED - GS-4]
+required  = ["Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
+             "Recording started",
+             "Controllable split children: \\[[0-9]+,[0-9]+\\]",
+             "ProcessBreakupEvent: controlled child created: pid=[0-9]+",
+             "ResumeSplitRecorder: vessel was destroyed \\(joint break fed to coalescer \\(classification=[A-Za-z]+\\)\\)",
+             "TryAppendCapturedToTree: appended [1-9][0-9]* points to tree recording '[0-9a-f]+' \\(destroyed=True\\)",
+             "CreateBreakupChildRecording: using pre-captured trajectory point for pid=[0-9]+ \\(vessel destroyed\\)",
+             "ProcessBreakupEvent: debris child created: pid=[0-9]+, name='[^']*', recId=[0-9a-f]+, alive=False",
+             "PruneSinglePointDebrisLeaves: removed [1-9][0-9]* single-point debris stub",
+             "FinalizeTreeRecordings: rec='[0-9a-f]+' vessel='Kerbal X' points=[1-9][0-9]* orbitSegs=[0-9]+ terminal=Destroyed",
+             "exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=(?:false hasPendingTree=true|true hasPendingTree=false)",
+             "exittospacecenter complete scene=SPACECENTER game-loaded=true elapsed=",
+             "Silent full-fidelity auto-commit \\(scene-exit\\): tree='.+' recordings=[1-9][0-9]* spawnable=[0-9]+",
+             "Committed tree '.+' \\([1-9][0-9]* recordings\\)",
+             "listhandles kind=committed count=[1-9][0-9]* truncated=false",
+             "Rewind-to-Launch initiated to UT",
+             "invokerewindtolaunch complete rec=",
+             "entermapview ok mapOpen=true",
+             "exitmapview ok mapOpen=false",
+             "enterwatchmode complete: index=",
+             "phase=MeshSpawned [^\\r\\n]*vessel=Kerbal X reason=ghost-created",
+             "phase=MeshSpawned [^\\r\\n]*vessel=Kerbal X Probe reason=ghost-created",
+             "phase=MeshSpawned [^\\r\\n]*vessel=Kerbal X Debris",
+             "Stock FXMonger\\.Explode for ghost #[0-9]+ \"Kerbal X\" at",
+             "FindNextWatchTarget: currentIndex=[0-9]+, chainId=null, chainIndex=-1, treeId=[0-9a-f]+, childBpId=null, supersedes=0",
+             "Watch hold timer set: holdUntilRealTime=",
+             "Watch hold started for #[0-9]+: 5s terminal=Destroyed",
+             "Watch hold expired for #[0-9]+ at t=",
+             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X reason=watch hold expired",
+             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Probe reason=",
+             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Debris"]
+# The suite-wide ERROR pattern; it also covers the seam verbs' own failure terminals
+# (a refused exit, a refused rewind, a watch that never entered all log at ERROR).
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+# ARMED 2026-09-08 off the reading run `2026-09-08_1711` (MISSION-OK, spawned=8
+# spawnLines=8 destroyLines=8 unbalanced=0, reasons: 3 x `parent-anchored debris
+# outside relative coverage at endpoint`, 2 x `playback completed`, 2 x `stale
+# past-end ghost (no longer held)`, 1 x `watch hold expired`) - the same 8-ghost
+# census GS-4 / GS-8 arm on, one crash ending instead of a suborbital one. The
+# armed re-flight `2026-09-08_1728` (PASS, gate live) and the negative control
+# `2026-09-08_1741` (`destroyedReasons.forbidden = ["watch hold expired"]`, the one
+# reason this lane exists to produce, red on exactly that clause, reverted) are
+# recorded in the STATUS section above and in `GHOSTLIFE_ARMED_SPECS`. requireBalanced is
+# the derender tripwire GS-4 established.
+[expectations.ghostLifecycle]
+gating = true
+spawned = { min = 8 }
+requireBalanced = true
+
+# REPORT-ONLY: no Re-Fly machinery may have run (Rewind-to-Launch builds neither).
+[expectations.rewind]
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+# REPORT-ONLY structural shape, MEASURED round 5 `2026-09-08_1711` (saveParse:
+# trees=1 committedTrees=1 recordings=8 branchPoints={JointBreak: 4}
+# terminalStates={Destroyed: 8}): one committed tree; the parent, all six boosters
+# AND the probe terminate Destroyed; the three drops plus the core discard survive as
+# four JointBreak branch points, while the impact's own branch point (`type=JointBreak,
+# cause=DECOUPLE, debris=8`, code fact 4) and the core discard's empty twin are pruned
+# with the stubs, so `Breakup` is NOT in the produced save on this crash shape - the
+# first-flight `Breakup = { min = 1 }` came from round 1's slow near-vertical impact
+# and is retired. Stays report-only (roadmap item 5 owns the debris structure).
+[expectations.recordings.structure]
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 8 }
+branchPoints   = { JointBreak = { min = 4 } }
+terminalStates = { Destroyed = { min = 8 } }
+
+[runtime]
+# GS-4's 2400 re-derived for this profile: the flight is LONGER (GS-4's ~105 s to
+# commit plus a 3-4 minute fall), the replay wait spends the whole span again in
+# real time, and the Space Center hop adds one scene exit and one extra pad rollout
+# before the rewind. 300 LoadGame + 2000 mission + boot and margin.
+budgetSeconds = 2800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+# EMPTY, deliberately - an expectedFail key would demote the exact hold / derender
+# behaviour this lane exists to gate.
+bugId = ""

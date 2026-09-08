@@ -10,6 +10,40 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Automated testing: two ghost-replay lanes now gate what a watcher actually sees
+  when a replayed flight crashes and when it flies out of visual range.** The
+  rewind-and-watch mission gained an opt-in crash profile (`impactProfile`): after
+  the core discard it disarms auto-record, rides the unpowered stack into the
+  ground, observes the impact, exits to the Space Center so the tree auto-commits
+  on arrival, reads the commit back, launches a crewless probe-cored throwaway onto
+  the pad from the Space Center and rewinds from it; omitting the key keeps the
+  existing mission graph byte-identical. `GS-7-kerbalx-crash-watch-hold` flies it
+  with a crewless watcher (a fatal crash leaves the roster empty for good, so every
+  pad launch after it must be probe-cored) and gates the watched ghost's terminal
+  explosion, the 5 s Destroyed-terminal watch hold, its retarget scan and the
+  `watch hold expired` derender, plus the recorder's destroyed-in-split verdict for
+  the crash coalescer; its ghost-lifecycle balance is armed. `GS-8-kerbalx-zone-round-trip` flies the unchanged
+  mission with a longer burn and a late watch entry so the replay crosses the 10 km
+  fidelity step, the 50 km mesh hide and the 120 km Beyond step unwatched and is
+  then watched, which rebuilds the mesh - flown green and armed on 2026-09-08 with
+  the ghost-lifecycle balance holding across the round trip. No product change.
+- **Automated testing: the in-game reentry-FX density check now writes one summary
+  line after it has passed, so the unattended run that executes it can prove WHAT it
+  proved rather than only that it ran.** The nightly lane that drives the three
+  reentry-FX checks had pinned only the batch tally (`3 passed`), and a tally cannot
+  distinguish a check that measured the live particle emission from one whose body
+  was stubbed out; the cell that drives the real reentry fire particle system past the
+  legacy 2000/s ceiling on live Kerbin atmosphere (`Bug538_ReentryFireDensity`) now
+  logs its emission rate, the expected rate, the smoothed intensity against the fire
+  threshold and whether the particles are playing, strictly after its last assertion
+  (a skipped or failed run never prints it). `H52-reentry-fx` pins the line with a
+  digits class on the rate and claims the D6 `reentry-fx` coverage cell off it, with
+  the scope stated in the spec: the FX driver on a live particle system, not a watched
+  replay. Same pass, no product change: `LT-1` additionally pins the two post-assertion
+  lines its `Watch` constituent already wrote, and `H11-pipeline-anchor` records the
+  test-by-test reading that confirms its earlier D3 withdrawal (four of its seven
+  cells stub the anchor resolver, two seed anchors through a test seam, one asserts
+  an epsilon over the re-fly rebuild's test overload), so neither claims a cell.
 - **Automated testing: a driven run can now act on an object it discovered at runtime,
   instead of only on ids someone typed into a test file first.** Every automated test
   script names what it acts on in advance, and until now that was the whole vocabulary:

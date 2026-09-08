@@ -57,16 +57,19 @@ M-A6 stack provisioner, M-B1 mission library, M-B2 ledger oracle, M-C1 seam verb
 batch 1, M-C2 EVA verbs. Status and per-module proof live in `autotest-status.md`.
 None of the items in this roadmap are blocked on a missing module.
 
-### Scenarios: 230 committed
+### Scenarios: 234 committed
 
-Re-derived 2026-09-08 at `de5ac6112` (after #1648 V27M, #1650 LT-3 / LT-4 / LT-5 / H71
-and #1653 RH-1): `ls harness/scenarios/*.toml` returns **230** files, the total
-`autotest-status.md`'s `## Test cases` header states and
-`AutotestStatusScenarioCountTests` pins against the committed files (129 live-proven
-in that doc's own table, 0 committed-not-yet-green; tiers: 125 nightly, 24 daily,
-81 operator). The 68 below was the 2026-08-04 snapshot; the V / GS / W / L / RVR /
-H41-H71 / LT / RH waves, among others, took it from 68 to 230 between 2026-08-04 and
-2026-09-08.
+Re-derived 2026-09-08 on `ghost-replay-tier-a` after it merged origin/main (#1654
+fixture lanes, #1655 chain-interaction, #1656 roadmap standing): `ls
+harness/scenarios/*.toml` returns **234** files, the total `autotest-status.md`'s
+`## Test cases` header states and `AutotestStatusScenarioCountTests` pins against
+the committed files (230 at `de5ac6112` after #1648 V27M, #1650 LT-3 / LT-4 / LT-5 /
+H71 and #1653 RH-1; the four added the same day are CI-1, CI-2, GS-7 and GS-8, all
+live-proven; 133 live-proven in that doc's own table, 0 committed-not-yet-green;
+tiers: 125 nightly, 25 daily, 84 operator, parsed from the specs' `tier` keys). The 68
+below was the 2026-08-04 snapshot;
+the V / GS / W / L / RVR / H41-H71 / LT / RH / CI waves, among others, took it from 68
+to 234 between 2026-08-04 and 2026-09-08.
 
 `ls harness/scenarios/*.toml` returned **68** files when this section was last
 re-derived before that (2026-08-04 at
@@ -80,13 +83,22 @@ EVA / CL / S0.x / H22-H25 / V1 / BDOCK waves and R14's MC-1/MC-2 took it from
 55 to 68. Adding a scenario is not the same as covering a cell. Re-derive
 these rather than editing them by memory; both numbers have moved many times.
 
-### Coverage: 166 of 248 registry cells (was 83 of 241 at the baseline, 108 of 242 on 2026-08-04, 162 of 247 on 2026-09-07 before G1 / G3b closed, 163 of 248 after them)
+### Coverage: 170 of 248 registry cells (was 83 of 241 at the baseline, 108 of 242 on 2026-08-04, 162 of 247 on 2026-09-07 before G1 / G3b closed, 163 of 248 on 2026-09-08 before the ghost-replay claim pass, 166 after chain-interaction)
 
-Re-derived 2026-09-08 on `chain-interaction` (register item 2): `hlib.compute_coverage`
-over the 232 committed specs returns `values 248 covered 166 uncovered 82
-expectedFailValues 0 xpass 0`. The three cells that moved are D5
-`chain-continuation-switch` (GS-3 armed + CI-1), D18 `committed-interaction-claiming`
-and D18 `chain-tip-original-pid` (CI-2). D18 is now 4 of 12 covered.
+Re-derived 2026-09-08 on `ghost-replay-tier-a` after it merged origin/main (#1654-#1656):
+`hlib.compute_coverage(specs, [], registry)` over the 234 committed specs and
+`harness/coverage/registry.toml` returns exactly:
+
+```
+values 248   covered 170   uncovered 78   expectedFailValues 0   xpass 0
+```
+
+Seven cells moved on 2026-09-08 in two branches. `chain-interaction` (register item
+2): D5 `chain-continuation-switch` (GS-3 armed + CI-1), D18
+`committed-interaction-claiming` and D18 `chain-tip-original-pid` (CI-2); D18 is now 4
+of 12 covered. `ghost-replay-tier-a` (register item 3): D6 `reentry-fx` (H52's
+post-assertion line, the claim pass), D6 `watch-mode-retarget-explosion-hold` and D5
+`crash-coalescing` (GS-7, gated tokens), D6 `zone-transitions` (GS-8, gated tokens).
 
 Re-derived 2026-09-08 at `de5ac6112`, replacing the 2026-09-07 snapshot (162 of 247;
 #1648 added the D10 `route-endpoint-rebind-render` value and claimed it, so the
@@ -98,8 +110,9 @@ committed specs and `harness/coverage/registry.toml` returns exactly:
 values 248   covered 163   uncovered 85   expectedFailValues 0   xpass 0
 ```
 
-Per dimension (total / uncovered), with the 2026-08-04 uncovered count kept in
-the last column so the delta stays legible:
+Per dimension (total / uncovered) for the CURRENT derivation above (234 specs,
+170 of 248; the retained `de5ac6112` block directly above it is history), with the
+2026-08-04 uncovered count kept in the last column so the delta stays legible:
 
 | Dim | Subject | Total | Uncovered | Was |
 |---|---|---:|---:|---:|
@@ -107,8 +120,8 @@ the last column so the delta stays legible:
 | D2 | sampling | 4 | 1 | 1 |
 | D3 | reference frames | 7 | 4 | 4 |
 | D4 | track sections / optimizer | 12 | 6 | 6 |
-| D5 | tree topology | 12 | 6 | 7 |
-| D6 | playback / ghosts | 18 | 8 | 11 |
+| D5 | tree topology | 12 | 4 | 7 |
+| D6 | playback / ghosts | 18 | 5 | 11 |
 | D7 | part events / FX | 16 | 4 | 11 |
 | D8 | ledger / career | 18 | 0 | 6 |
 | D9 | rewind / re-fly | 17 | 1 | 4 |
@@ -120,8 +133,8 @@ the last column so the delta stays legible:
 | D15 | timeline | 1 | 1 | 1 |
 | D16 | storage / sidecars | 12 | 8 | 9 |
 | D17 | mod compatibility | 6 | 4 | 4 |
-| D18 | re-fly / interaction | 12 | 10 | 10 |
-| | | **248** | **85** | **134** |
+| D18 | re-fly / interaction | 12 | 8 | 10 |
+| | | **248** | **78** | **134** |
 
 The cells still uncovered in four dimensions worth naming: D9 is down to
 `load-time-sweep` alone; D10 to `harvest-provenance` (this same commit adds the
@@ -138,8 +151,10 @@ D13 unchanged at `proximity-offset`, `bbox-block`, `ksc-exclusion`,
 
 Read with the register below. Sixty-six percent of the declared surface is gated
 and every committed lane has a green run; the residue is UNEVEN, and each thin
-dimension is thin for a different reason. Covered / total per dimension at
-`de5ac6112`, with what closing the rest takes:
+dimension is thin for a different reason. Covered / total per dimension,
+re-derived 2026-09-08 on `ghost-replay-tier-a` after the merge of origin/main (234
+specs; the D5 / D6 / D18 rows moved since `de5ac6112`), with what closing the rest
+takes:
 
 | Dim | Subject | Covered | What the residue is, and what closes it |
 |---|---|---:|---|
@@ -150,15 +165,15 @@ dimension is thin for a different reason. Covered / total per dimension at
 | D7 | part events / FX | 12 / 16 | `chute-cut`, `bays` (GS-6 residues, need a descent variant and a ServiceBay tail), `engine-fx-effects`, `inventory-place-remove` (Tier 4 producer). |
 | D14 | bodies / scenes | 24 / 32 | Tylo / Bop / Pol (G9), `atmosphere`, `situation`, `warp-1x`, `warp-phys`, `scene-editor`: breadth, behind everything else. |
 | D11 | missions abstraction | 12 / 18 | `default-mission`, `leg-trim`, `whole-mission-loop`, `clone`, `station-phase-lock`, `s4-arrival-restitch`: Missions-tab semantics that need seam verbs equivalent to the tab's buttons (`MissionConfig` exists; the rest do not). |
-| D6 | playback / ghosts | 10 / 18 | Register item 3 (Tier A: retarget + explosion hold, zone transitions, reentry FX at the replay surface) takes the cells that have subjects; `loop-period-modes`, `self-overlap`, `overlap-expiry-soft-caps`, `attitude-preservation` need loop-cycle instruments (Tier C); `commnet-relay` is vacuous until a generator writes `AntennaSpecs`. |
+| D6 | playback / ghosts | 13 / 18 | Register item 3 took the three cells that had subjects on 2026-09-08 (`watch-mode-retarget-explosion-hold`, `zone-transitions`, `reentry-fx`; the reentry replay surface stays open as Tier A item 3's second half); `loop-period-modes`, `self-overlap`, `overlap-expiry-soft-caps`, `attitude-preservation` need loop-cycle instruments (Tier C); `commnet-relay` is vacuous until a generator writes `AntennaSpecs`. |
 | D4 | track sections / optimizer | 6 / 12 | A CLAIM GAP of the H57 kind: `Optimizer` executes whole on LT-2 but `hysteresis`, `env-body-split`, `surface-graze-suppression`, `tail-trim`, `seed-event-split`, `split-at-ut` have no cell-level gating token. Same fix as the D3 / D6 claim pass in register item 3. |
-| D5 | tree topology | 6 / 12 | `chain-continuation-switch` (register item 2, in flight), `staging-debris-ttl` / `-promotion` (Tier A item 5), `dock-merge-same-tree` (Tier 4), `crash-coalescing` (a crash-landing profile; Tier A item 2's second shape), `bg-on-rails` (`Recording` executes whole on LT-2, claim gap). |
+| D5 | tree topology | 8 / 12 | `staging-debris-ttl` / `-promotion` (Tier A item 5, sized as two lanes), `dock-merge-same-tree` (Tier 4), `bg-on-rails` (`Recording` executes whole on LT-2, claim gap); `chain-continuation-switch` (CI-1) and `crash-coalescing` (GS-7) closed 2026-09-08. |
 | D12 | crew | 5 / 10 | `tombstone-rep-penalty` and `stand-ins` wait on R12 Stage B (now unblocked by R10); `reservation-auto-hire`, `missed-endut-auto-free`, `crew-swap` are career-lane work and Tier 4 machinery. |
 | D3 | reference frames | 3 / 7 | A claim gap: `Pipeline-Anchor` executes whole on H11; `absolute`, `relative-anchored-nonloop`, `relative-loop`, `boundary-seam` need the test-to-cell mapping confirmed and one token each (register item 3, part 0). |
 | D13 | spawn positioning | 4 / 11 | Where a REAL spawn lands (terrain clearance, KSC exclusion, collision, orbit safety): the in-game tests exist and self-skip on every committed fixture. Generator / fixture work (R8 residue), not spec work. |
 | D16 | storage / sidecars | 4 / 12 | Formats, safe-write, path validation. Already covered headlessly by xUnit; the registry asks for a driven lane. Low product risk; several cells could close through one save-parse lane. |
 | D17 | mod compatibility | 2 / 6 | `better-time-warp`, `making-history` have the instance and no spec (R14 residue); `persistent-rotation`, `remotetech-commnet` are source-blocked. |
-| D18 | re-fly / interaction | 2 / 12 | THE LARGEST RESIDUE and the interaction surface of the v0.9 headline feature: what happens when the player spawns a ghost as a real vessel, docks with it, and how chains link afterwards. Register item 2 (in flight) claims `committed-interaction-claiming` and `chain-tip-original-pid`; the other eight (`ghost-conversion-quicksave`, `intermediate-spawn-suppression`, `cross-tree-chain-linking`, `ghost-extension-past-endut`, `background-event-claims`, `chain-terminated-destruction-recovery`, `chain-state-rederived`, `loop-first-run-is-real`) need the same spawn-in-run driving item 2 has to build, so they are its natural follow-on wave. |
+| D18 | re-fly / interaction | 4 / 12 | THE LARGEST RESIDUE and the interaction surface of the v0.9 headline feature: what happens when the player spawns a ghost as a real vessel, docks with it, and how chains link afterwards. Register item 2 (in flight) claims `committed-interaction-claiming` and `chain-tip-original-pid`; the other eight (`ghost-conversion-quicksave`, `intermediate-spawn-suppression`, `cross-tree-chain-linking`, `ghost-extension-past-endut`, `background-event-claims`, `chain-terminated-destruction-recovery`, `chain-state-rederived`, `loop-first-run-is-real`) need the same spawn-in-run driving item 2 has to build, so they are its natural follow-on wave. CI-2 closed `committed-interaction-claiming` and `chain-tip-original-pid` on 2026-09-08. |
 | D2 | sampling | 3 / 4 | `proximity-cadence-bg` (R1 residue: grep an archived B-lane log first). |
 | D15 | timeline | 0 / 1 | `timeline-projection`, one cell, no subject yet. |
 
@@ -313,6 +328,22 @@ remains is, in order:
    (H11) and `Watch` (LT-1) already execute whole, but their D6 / D3 cells stay
    unclaimed because a whole-tally pin asserts the cells RAN, not what they
    proved - each needs one cell-level gating token, the H57 lesson in reverse.
+   CLAIM HALF DONE 2026-09-08: H52 gained a post-assertion line in the Bug538 cell
+   and claims D6 `reentry-fx` off it (the FX-driver half; the rendered-replay half
+   is Tier A item 3), measured live the same day on `2026-09-08_1108_H52-reentry-fx`
+   (PASS attempt 1, `emissionRate=2102/s ... playing=true`); H11's seven bodies were read and earn NO D3 cell (stubbed
+   resolver, test-seam anchors - see the corrections section); LT-1 pins the two
+   `Watch` post-assertion lines and claims nothing, the retarget / explosion-hold
+   cell being live watch behaviour those cells never exercise.
+   FLIGHT HALF 2026-09-08: ~~watch retarget + explosion hold~~ (Tier A item 2,
+   `GS-7-kerbalx-crash-watch-hold`, flown green + armed, D6
+   `watch-mode-retarget-explosion-hold` + D5 `crash-coalescing` claimed) and ~~zone
+   transitions~~ (Tier A item 4, `GS-8-kerbalx-zone-round-trip`, flown green +
+   armed, D6 `zone-transitions` claimed; no in-game test was needed - the flown
+   replay's production lines carry the ladder). Debris TTL / promotion (item 5) is
+   SIZED, not flown (two different lanes, see the item); the reentry-FX replay half
+   (item 3) and the GS-6 residues (`chute-two-phase` / `chute-cut`, `bays`) stay
+   filed where they are - none is a one-flight derivative of the GS-4 template.
 4. **Ghost-replay Tier B item 6, the vanished-RewindPoint design call**: costs
    nothing and the roadmap says to take it early; then items 7-9 (rewind-to-launch
    x Re-Fly, repeat-rewind idempotence, arming `unityExceptions` on GS-4 / W1 -
@@ -762,9 +793,11 @@ crew-transfer action, and no inventory-part action in the mission action vocabul
   makes it a sub-surface of Relative sections and therefore overlapping with
   `parent-anchored-debris`. Resolve before anyone claims it, or the claim is
   unfalsifiable.
-- No in-game test found for: D6 `zone-transitions`, D4 `tail-trim`, D5
-  `staging-debris-promotion`, D9 `load-time-sweep`, D2 `density-presets`. Each needs a
-  new in-game test written against an existing seam.
+- No in-game test found for: ~~D6 `zone-transitions`~~ (CLAIMED 2026-09-08 by
+  `GS-8-kerbalx-zone-round-trip` from a flown replay's production lines, no test
+  needed), D4 `tail-trim`, D5 `staging-debris-promotion`, D9 `load-time-sweep`, D2
+  `density-presets`. Each of the rest needs a new in-game test written against an
+  existing seam.
 - D5 `dock-merge-same-tree` needs a two-port single-launch craft (new fixture + new
   mission). D7 `inventory-place-remove` needs an inventory-carrying craft plus an EVA
   construction action. D8 `milestones` needs a career flight that earns one.
@@ -3376,17 +3409,77 @@ first spawn frame (hold-then-retry, never a single eager ask).
    multi-part breakup also claims D5 `crash-coalescing`. The 3-5 s hold and
    its `watch hold expired` / retarget destroy reasons are already in the
    ghostlife vocabulary.
+   **DONE 2026-09-08: `GS-7-kerbalx-crash-watch-hold` is FLOWN GREEN AND ARMED.**
+   The crash-landing profile, not the core child: the core is `terminal=SubOrbital`
+   at every archived commit, so only the parent can be MADE Destroyed
+   deterministically. Reading run `2026-09-08_1711` (MISSION-OK, one re-cut token:
+   the pruned crash split leaves `childBpId=null`), armed re-flight `2026-09-08_1728`
+   (PASS, gate live), negative control `2026-09-08_1741` (`destroyedReasons.forbidden =
+   ["watch hold expired"]`, red PARSEK-FAIL(ghost-lifecycle) exactly). Measured
+   under the camera: `Watch hold started for #0: 5s terminal=Destroyed`, the
+   `FindNextWatchTarget` scan with nothing to walk, `Watch hold expired`, and the
+   `reason=watch hold expired` derender at UT 353.48; D6
+   `watch-mode-retarget-explosion-hold` and D5 `crash-coalescing` both claimed off
+   gated tokens. Machinery: the kx mission's opt-in `impactProfile` branch (seven
+   phases). The five-flight road to it is in the spec's STATUS section; the one
+   fact worth carrying: after a fatal crash the roster is EMPTY for good (the ledger
+   keeps the dead crew dead through the rewind, and the stand-in hire skips Dead),
+   so every pad launch after the crash - the throwaway and the watcher - must be
+   probe-cored.
 3. **Reentry FX** (D6 `reentry-fx` UNCOVERED): a B4-shaped reentry profile
    rewound + watched, FX arm/disarm lines pinned during the replay.
+   HALF-CLOSED 2026-09-08 by the claim pass: `H52-reentry-fx` now claims the cell
+   off the Bug538 cell's post-assertion line (measured on run
+   `2026-09-08_1108_H52-reentry-fx`, PASS attempt 1), which proves the FX DRIVER
+   (`UpdateReentryFx` on a live `TryBuildReentryFx` particle system, live Kerbin
+   atmosphere, synthetic ghost root) and NOT a rendered replay. The replay half -
+   a committed reentry watched re-entering with the lazy-build line pinned during
+   playback - is what this item still names; it needs a reentry-shaped profile
+   the kx machine does not fly (the Kerbal X pod stack is suborbital at commit and
+   never re-enters inside the recorded span), so it stays open here rather than
+   being flown on the GS-4 template.
 4. **Zone transitions** (D6 `zone-transitions` UNCOVERED): place the watcher
    so the replay crosses the 120 km visual range; the engine-teardown
    MeshDestroyed emit (added with GS-4's review round) plus the zone tracer's
    torn-down/rebuilt lines make mesh unload/reload assertable for the first
    time. Pair with a ghostLifecycle balance that must survive the round trip.
+   **DONE 2026-09-08: `GS-8-kerbalx-zone-round-trip` is FLOWN GREEN AND ARMED.**
+   Four flights in one afternoon: reading run `2026-09-08_1119` (PARSEK-FAIL on
+   the late watch, and the measurement that the mesh hide is the 50 km distance
+   LOD, not the 120 km zone step), round 2 `_1225` (PASS attempt 1, all 21 tokens,
+   the ladder measured at 10000 m / 55004 m torn down / 120006 m Beyond / watch
+   rebuild `watch mode requested` / `Beyond->Physics dist=1m`), armed re-flight
+   `_1239` (PASS, gate live) and negative control `_1249` (`spawned = {min 9}`,
+   red PARSEK-FAIL(ghost-lifecycle) exactly). GS-4's machine unchanged: three
+   params (a 160 km core burn, a 150 s coast, a 175 s watch lead). D6
+   `zone-transitions` claimed off gated tokens; the Cause F "needs an in-game
+   test" entry is answered by the flown replay instead. One correction the flight
+   made to the plan: the engine-teardown MeshDestroyed emit is the DestroyAllGhosts
+   bulk path, not the zone hide - the zone teardown and the rebuild emit NO
+   lifecycle line, which is exactly why the balance survives the round trip.
 5. **Debris lifecycle split** (D5 `staging-debris-ttl` /
    `staging-debris-promotion`, both UNCOVERED): GS-4's flight already
    produces the population; a variant asserts the TTL-expiry vs promotion
    fork in the produced save through the saveParse structure block.
+   SIZED 2026-09-08 on GS-7's flights, NOT FLOWN; the two halves are different
+   lanes. (a) `staging-debris-ttl` is `BackgroundRecorder.cs` `Debris TTL expired,
+   ending recording:` (Info, the 60 s `DebrisTTLSeconds` timer). It printed TWICE
+   on GS-7 round 1 `2026-09-08_1130` (the slow near-vertical impact kept the
+   boosters inside the physics bubble past their timer) and ZERO times on rounds 3-5
+   (the far crash closes every booster through `Debris TTL: vessel left physics
+   bubble`), so it is a PROFILE property, not a Kerbal X property - the todo's
+   "likely, not certain" objection to claiming it off a B-lane stands. The lane that
+   claims it is GS-7 with the cut moved back before the core discard (round 1's
+   shape) and the probe-cored watcher; its structure block then measures the
+   TTL-closed booster terminals. (b) `staging-debris-promotion` had NO product
+   definition in the registry; the recorder's only "promotion" is
+   `VesselSwitchDecision.PromoteFromBackground` (`FlightRecorder.DecideOnVesselSwitch`,
+   logged `Promoted recording '<id>' from background` in `ParsekFlight`): the player
+   switches to a background-recorded vessel and its recording resumes physics
+   sampling. For staging debris that means switching to a dropped booster INSIDE its
+   60 s TTL, which needs a switch verb the mission library does not drive on a
+   falling booster (`SimulateSwitchClick` exists as a seam verb; the kx machine has
+   no phase for it). Both stay UNCOVERED; neither is a one-param flip of GS-7.
 
 ### Tier B - the rewind system's own open questions
 
@@ -3397,6 +3490,12 @@ first spawn frame (hold-then-retry, never a single eager ask).
    the player still deserves once the replay passes the branch point again,
    or is rewound-out-of-existence the contract? Then a lane pins whichever
    answer, the GS-1/GS-2 both-branches pattern.
+   DATA POINT 2026-09-08 (GS-7 `2026-09-08_1711`, report-only saveParse): on the
+   CRASH profile the same core-discard RP SURVIVES the rewind (rewindPoints=1)
+   because the crash promoted the tree's slots to CommittedProvisional
+   (`CommitTree promoted rec=... reason=crashed to CommittedProvisional`), so the
+   answer already differs by terminal kind; the design call has two measured
+   shapes to rule on, not one.
 7. **Rewind-to-launch x Re-Fly interplay.** Rewind-to-launch on a tree
    carrying supersede rows exercises `DropSupersedesRewoundOutOfExistence`
    and D9 `load-time-sweep` (the dimension's one UNCOVERED cell) live -
@@ -5007,10 +5106,17 @@ UNVERIFIED in this pass, flagged rather than asserted:
 - **`modded-compat.toml` mod presence in the dev GameData.** One analysis reported
   every `devSourcedMods` entry present. Not re-checked here. Verify before scheduling
   R14.
-- **Whether `Pipeline-Anchor`'s 7 tests map to D3 `relative-anchored-nonloop` /
+- ~~**Whether `Pipeline-Anchor`'s 7 tests map to D3 `relative-anchored-nonloop` /
   `relative-loop` / `boundary-seam` one-for-one.** The category name and test names
   suggest it strongly; the mapping was not read test by test. Confirm before pinning
-  the R6 claims.
+  the R6 claims.~~ READ TEST BY TEST 2026-09-08 (the claim pass in front of ghost-replay
+  Tier A): they do NOT. Four cells (`RelativeBoundary`, `OrbitalCheckpoint`, `SOI`,
+  `Loop`) run under `AnchorPropagator.ResolverOverrideForTesting`, two (`Dock`,
+  `SuppressedSubtree`) seed anchors through `RenderSessionState.PutAnchorForTesting`,
+  and `LiveSeparation` asserts an epsilon over the re-fly `RebuildFromMarker` test
+  overload on two one-section ABSOLUTE recordings, logging its line before the assert.
+  No TrackSection of any D3 frame is played back, so no D3 cell can be claimed from
+  H11; the mapping is recorded in the spec's `[dimensionsCovered]` comment.
 - **Whether the Kerbal X upper stage carries deployable solar panels**, which would
   make D7 `panels-antennas-radiators` free on B11-B14 via a `Part event:
   DeployableExtended` token. Check an archived recording or log before claiming.

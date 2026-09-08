@@ -1,0 +1,313 @@
+schema = 1
+id = "GS-8-kerbalx-zone-round-trip"
+# =====================================================================================
+# THE RENDER LADDER, DRIVEN BOTH WAYS: a replayed Kerbal X flies away from a watcher
+# parked on the pad through every tier the flight scene has - full fidelity to 10 km,
+# mesh HIDDEN and torn down past the 50 km distance LOD, the Beyond zone past
+# `DistanceThresholds.GhostVisualRangeMeters` = 120 km - and is then WATCHED, which
+# re-centres the render-distance reference on the ghost and REBUILDS the mesh; so
+# mesh unload AND reload are asserted from the log for the first time, with the
+# ghost-lifecycle balance holding across the round trip. (The first cut of this header
+# placed the teardown at 120 km; reading run 1 measured it at the 50 km LOD - see the
+# STATUS section.)
+#
+# Roadmap: "The ghost-replay coverage program (GS-4 derivatives)", Tier A item 4
+# (D6 `zone-transitions` UNCOVERED), and the 2026-09-08 priority register's item 3.
+# GS-4 is the template; every mechanism below is GS-4's, and the only things this lane
+# changes are three mission PARAMS (a longer core burn, a longer coast, a LATE watch
+# entry) and the tokens it pins. The roadmap's Cause F note that "no in-game test
+# exists for zone-transitions" is answered without one: the tiers are exercised by a
+# real replay and read off production log lines, which is the stronger evidence.
+#
+# =====================================================================================
+# 1. THE CODE FACTS THIS SPEC RESTS ON - read, not assumed.
+# -------------------------------------------------------------------------------------
+# (1) THE TIERS. `RenderingZoneManager` (RenderingZoneManager.cs): Physics below
+#     `GhostFlight.FullFidelityRangeMeters` = 10,000 m (full mesh + part events + FX),
+#     Visual to `GhostVisualRangeMeters` = 120,000 m (coarse silhouette, no FX), Beyond
+#     past it (no mesh; position tracked for the map). Each change writes
+#         [Parsek][VERBOSE][Zone] Zone transition: ghost=#<i> "<name>" <Old>-><New> dist=<n>m
+#     through `VerboseRateLimited` on the SHARED key `zone-transition` (5 s), so two
+#     ghosts crossing a tier inside one window print one line. The Beyond crossing is
+#     the only transition this lane is alone in - the six booster ghosts never leave
+#     the Visual tier and are gone by ~+80 s. The parent's own Physics->Visual
+#     crossing at 10 km was expected to collide with the booster drops' window; run 1
+#     measured it printing cleanly (`dist=10002m`), so it is required too.
+# (2) THE TEARDOWN. Beyond, `HandleHiddenGhostVisualState` (GhostPlaybackEngine.cs
+#     ~7540-7620) either PREWARMS the hidden mesh (a ghost within 50 km + buffer, or
+#     one carrying a prewarm-class part event inside the lookahead window) or tears it
+#     down, writing `Mesh torn down: ghost #<i> "<name>" primary cycle=-1
+#     anchorDist=<n>m renderDist=<n>m ... reason=hidden by distance LOD at <n>m`
+#     (VerboseRateLimited, per-index key). The core discard is a Decoupled event and
+#     Decoupled IS prewarm-class, so a Beyond crossing shortly before the discard
+#     keeps the mesh a little longer; the coast after the discard carries no such
+#     event, so the teardown lands before the watch entry either way.
+# (3) THE REBUILD. Watch entry runs `EnsureGhostVisualsLoadedForWatch` ->
+#     `EnsureGhostVisualsLoaded`, which on a torn-down state writes `Ghost #<i> "<name>"
+#     visuals rebuilt (<build>, <reason>)` (GhostPlaybackEngine.cs:7667). The watch
+#     controller's own `HasActiveGhost` (WatchModeController.cs:867) is `state != null`,
+#     not "mesh loaded", so a Beyond ghost IS a watch candidate; the entry cutoff is the
+#     300 km `IsWithinWatchEntryRange` predicate (W1's measured boundary), which is why
+#     the watch must be asked for BETWEEN the 120 km crossing and 300 km.
+# (4) WHY WATCHING BRINGS THE GHOST BACK TO PHYSICS. The engine's render distance is
+#     `ParsekFlight.ResolvePlaybackDistanceForEngine` (ParsekFlight.cs:23247): the LOD
+#     radius is centred on the CAMERA ANCHOR, which is the watched ghost while in watch
+#     mode and the active vessel otherwise. GS-4 measured the consequence - its watched
+#     parent read `zone=Physics rdist=8-22m` while tens of kilometres from the pad - and
+#     it is also why GS-4's profile cannot claim this cell: a ghost watched from spawn
+#     never leaves Physics. This lane therefore watches LATE, after the crossing, and
+#     the re-centring is what produces `Beyond->Physics`.
+# (5) THE LIFECYCLE STAYS BALANCED. `MeshSpawned` is emitted once, at ghost creation
+#     (`FinalizePendingSpawnLifecycle`); the zone teardown (`UnloadGhostVisuals`) and
+#     the rebuild emit NO lifecycle line; `MeshDestroyed` is emitted by `DestroyGhost`
+#     at the end. So a round trip leaves one spawn and one destroy per recording, and
+#     the ghostLifecycle balance below is exactly the check that a teardown/rebuild
+#     regression that started emitting or dropping lifecycle lines would red.
+# (6) THE GEOMETRY, DERIVED FROM ARCHIVED FLIGHTS. GS-4 committed at +105 s with the
+#     pod 44 km from the pad (`FinalizeTreeRecordings ... maxDist=44002m`, `_1855`);
+#     GS-6, same burn plus a ~90 s longer coast, at 70 km (+197 s, `maxDist=69900m`,
+#     `2026-09-02_1814`). Both discarded the core at a 60 km apoapsis. This lane
+#     raises `coreDiscardApoapsisMeters` to 160 km so the Mainsail keeps burning past
+#     the 45 km turn-end at the 25 deg final pitch (mostly horizontal thrust from
+#     there), and coasts 60 s after the discard; the crossing is expected between
+#     +150 s and +230 s and the commit near +260 s. FIRST-FLIGHT NUMBERS: the reading
+#     run measures the crossing UT, and `watchEntryLeadSeconds` is re-pinned to it.
+#
+# =====================================================================================
+# 2. STATUS: READING RUN 1 FLOWN, `2026-09-08_1119_GS-8-kerbalx-zone-round-trip`,
+# MISSION-OK attempt 1 (all eight rows met, span 177.58 s) and PARSEK-FAIL(expectations)
+# on exactly three tokens, all one cause: THE WATCH ASKED TOO LATE. Measured, launch
+# UT 29.64: the core came off at +116.5 s (apoapsis 160 km reached well before the
+# 300 s clock), the 60 s coast committed at +177.6 s (UT 207.22), the parent crossed
+# 120 km at UT 192.1 (`Visual->Beyond dist=120008m`, +162.5 s), the ghost ended
+# `stale past-end ghost (no longer held)` at UT 207.22, and the first EnterWatchMode
+# went out at ~UT 264 (lead 230) against an empty engine - every probe answered
+# `no-watchable-ghost` with `candidates=[0 ghost=F ...]` until the retry bound. The
+# three unmet tokens were `enterwatchmode complete`, `Beyond->Physics` and the parent
+# MeshDestroyed alternation (it read `stale past-end`, the unwatched ending). ROUND 2
+# is re-cut off those bytes: `coastSeconds` 60 -> 150 so the commit lands near +268 s
+# with the crossing unchanged at ~+162 s, and `watchEntryLeadSeconds` 230 -> 175 so
+# the ask goes out ~12 s after the crossing with the ghost at ~135 km (inside the
+# 300 km cutoff) and ~90 s of recording left to watch.
+#
+# WHAT RUN 1 MEASURED THAT THE HEADER HAD WRONG, corrected above and below: the MESH
+# is not torn down at the 120 km zone boundary. The engine-frame-iter census reads
+# `vis=T` through Physics and the lower Visual tier up to 49,363 m and `vis=F` from
+# 50,601 m on (`hidden-by-zone`), so the mesh HIDE is the 50 km distance LOD
+# (`GhostPlaybackLogic.GetZoneRenderingPolicy` hides at
+# `DistanceThresholds.GhostFlight.LoopSimplifiedMeters`), the `Mesh torn down` line
+# landed at renderDist=55014m, a prewarm rebuilt it once at 57 km (`visuals rebuilt
+# (recording-start-snapshot, hidden-tier prewarm (hidden by distance LOD at 57294m))`
+# - the 50 km + buffer prewarm band of code fact 2), and the 120 km crossing is the
+# ZONE step to Beyond with the mesh already gone. The ladder this lane now claims is
+# therefore three-tiered as measured: full fidelity to 10 km, visible to 50 km,
+# hidden past it, Beyond past 120 km. The rebuild token is re-cut to the WATCH
+# rebuild's own reason (`watch mode requested`), because the generic `visuals
+# rebuilt (` form was satisfied by the prewarm on run 1 and proved nothing about
+# the watch.
+#
+# ROUND 2 FLOWN GREEN, `2026-09-08_1225_GS-8-kerbalx-zone-round-trip`: PASS attempt 1,
+# 645 s wall, every verifier PASS/SKIPPED/REPORT, expectations mismatches=0 on all
+# 21 required tokens, ghostLifecycle spawned=8 spawnLines=8 destroyLines=8
+# unbalanced=0 malformed=0 - the census of run 1 repeated exactly. The ladder,
+# measured on the parent: `Physics->Visual dist=10000m`, `Mesh torn down ...
+# renderDist=55004m`, the prewarm rebuild at 57679 m, `Visual->Beyond dist=120006m`,
+# then the watch entered on index 0 at 106,977 m altitude (`enterwatchmode complete:
+# index=0`), the WATCH rebuild (`visuals rebuilt (recording-start-snapshot, watch mode
+# requested)`), `Beyond->Physics dist=1m` on the same frame, and the watched ending
+# `Watch hold started for #0: 3s terminal=SubOrbital` -> `watch hold expired` at
+# UT 300.62. Recorded span 268.0 s (commit +268 s as derived), pod 222,548 m from
+# the pad at commit. ARMED off these two readings (see [expectations.ghostLifecycle]).
+#
+# THREE-RUN DISCIPLINE DISCHARGED THE SAME DAY: armed re-flight
+# `2026-09-08_1239_GS-8-kerbalx-zone-round-trip` PASS attempt 1 (645 s wall,
+# `ghostLifecycle status=PASS gating=True armed=['ghostLifecycle'] spawned=8/8/8
+# unbalanced=0`, all 21 tokens matched); negative control `2026-09-08_1249` with the
+# single mutation `spawned = { min = 9 }` (uncommitted, reverted in place) red
+# PARSEK-FAIL(ghost-lifecycle) attempt 1 on exactly that window with every other
+# verifier green - so the armed gate reds on ITSELF and on nothing else.
+#
+# Pre-flight risks recorded before round 2, each with the line that names it (none
+# fired):
+#   - the crossing never happens (the profile falls short of 120 km): the required
+#     `Visual->Beyond` and `Mesh torn down` tokens are missing and the run reds
+#     PARSEK-FAIL(expectations) on exactly those - a SPEC calibration red, re-tuned by
+#     raising the apoapsis or the coast, never by weakening the tokens;
+#   - the ghost is past 300 km when the watch is asked for: `no-watchable-ghost`
+#     refusals until `watchEntryRetryFrames`, then the playback wait runs unwatched and
+#     the `enterwatchmode complete` + rebuild tokens red - re-pin the lead earlier;
+#   - the watch window closes (the recording ends before the lead): same red, re-pin;
+#   - the shared 5 s rate limit (`RenderingZoneManager`, key `zone-transition`)
+#     swallows a required zone line. This is NOT impossible: both green logs print
+#     `Beyond->Physics dist=1m | suppressed=1`, so one zone line WAS swallowed inside
+#     the window, and the collider is the probe child's own tier entry (`Ghost #7
+#     "Kerbal X Probe" visuals rebuilt (... entered visible distance tier)` 2 ms later
+#     on the same frame), not a booster. The required tokens survive because the parent
+#     is index 0 and is iterated first, which is an ORDER dependency: an engine
+#     iteration-order change would red this lane (a false negative, never a false
+#     pass), and `Mesh torn down` on its per-index key stays the safe witness.
+# =====================================================================================
+tier = "operator"
+description = "Zone round trip: staged Kerbal X ascent with a longer core burn, committed, Rewound-to-Launch, replayed UNWATCHED past the 120 km visual range from a pad watcher (Visual->Beyond transition, mesh torn down), then WATCHED late so the render reference re-centres on the ghost (visuals rebuilt, Beyond->Physics), with the ghost-lifecycle balance holding across the round trip."
+instanceProfile = "stock-minimal"
+tags = ["GS8", "rewind-to-launch", "watch-mode", "ghost-render", "zone-transitions", "ghost-lifecycle"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/gs1-two-stage-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "kx_rewind_watch"
+
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header.
+# GS-4's prelude verbatim; `verboseLogging=true` carries every `[Zone]` and
+# `[Engine]` token below (all VERBOSE), `ghostRenderTracing=true` the lifecycle pair.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },      expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" },   expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoMerge", value = "true" },            expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" },       expect = "OK" },
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" },   expect = "OK" },
+  { phase = "mission",                                                            expect = "MISSION-OK", budget = 1700 },
+  { cmd = "FlushAndQuit",                                                         expect = "OK" },
+]
+
+[driver.missionParams]
+craftName        = "Kerbal X"
+launchSite       = "LaunchPad"
+watcherCraftName = "Jumping Flea"
+# THE LONGER BURN (code fact 6). The core comes off at a 160 km apoapsis or at
+# coreDiscardMaxFlightSeconds, whichever first; 300 s is a backstop over a burn the
+# Kerbal X's tanks may not sustain that long (a flamed-out core still passes the
+# engines-off gate, and the discard then fires on the clock).
+coreDiscardApoapsisMeters   = 160000.0
+coreDiscardMaxFlightSeconds = 300.0
+# The unpowered coast after the discard: more downrange distance, and the recorded
+# span the playback wait spends again in real time.
+coastSeconds = 150.0
+# THE LATE WATCH. Seconds past the launch click before the first EnterWatchMode goes
+# out: after the Beyond crossing (MEASURED +162.5 s on run 1), before the 300 km
+# entry cutoff and before the recording ends (~+268 s with the coast above).
+watchEntryLeadSeconds = 175.0
+# The whole WATCH phase budget (hold + retries) at the 0.5 s poll: the phase is
+# entered around launchUT - 10 s, so the hold alone is ~240 s = 480 frames.
+watchEntryRetryFrames = 700
+
+[dimensionsCovered]
+# CLAIM-IS-NOT-GATE. Every value below is backed by a REQUIRED token in this spec's
+# own logContracts.
+# `auto-record-launch` <- `Auto-record started (PRELAUNCH|...)` + `Recording started`.
+D1 = ["auto-record-launch"]
+# `controlled-decoupled-child` <- `ProcessBreakupEvent: controlled child created:
+#   pid=` + `Controllable split children:` (the core discard's probe child,
+#   IsDebris=false with a parent anchor).
+D5 = ["controlled-decoupled-child"]
+# `zone-transitions` <- THE cell, as MEASURED on run 1: `Zone transition: ...
+#   Physics->Visual dist=10002m` (the 10 km fidelity step; it printed cleanly on run
+#   1, so it is required after all), `Mesh torn down ... renderDist=5xxxxm ...
+#   reason=hidden by distance LOD` (the 50 km mesh hide), `Visual->Beyond
+#   dist=120008m` (the 120 km zone step, outward), `visuals rebuilt (..., watch
+#   mode requested)` (the reload on watch entry) and `Beyond->Physics` (the step
+#   back in, from the re-centred reference).
+# `basic-playback` / `mesh-lifecycle-derender` <- the lifecycle pair + the balance.
+D6 = ["basic-playback", "mesh-lifecycle-derender", "zone-transitions"]
+# `rewind-to-launch` <- `Rewind-to-Launch initiated to UT` + `invokerewindtolaunch
+#   complete rec=`.
+D9 = ["rewind-to-launch"]
+# `kerbin` / `sandbox` <- the `gs1-two-stage-pad` sandbox fixture every token above
+#   is flown on; `scene-flight` <- the MeshSpawned / Zone transition tokens (FLIGHT
+#   only); `scene-ksc` <- the rewind's SPACECENTER terminal (`invokerewindtolaunch
+#   complete` answers from the settled Space Center); `scene-map` <- `entermapview ok`
+#   / `exitmapview ok`.
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc", "scene-map"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# GS-4's structural 8 (parent + 6 booster debris + the core child); the longer burn
+# adds distance, not recordings. RE-PINNED EXACT from runs `_1119` and `_1225`,
+# 8 both times (the B19 re-pin-do-not-widen contract).
+count = { min = 8, max = 8 }
+
+[expectations.logContracts]
+# GROUPS 1-4 are GS-4's, verbatim. GROUP 5 is this lane's own; GROUP 6 the lifecycle.
+#
+# GROUP 5 - THE ROUND TRIP (all VERBOSE; producers named in the header).
+#   "Zone transition: ghost=#<i> \"Kerbal X\" Physics->Visual dist=<n>m"  [MEASURED run 1: 10002m]
+#   "Mesh torn down: ghost #<i> \"Kerbal X\" primary ... renderDist=<n>m ... reason=hidden by distance LOD at <n>m"
+#       [MEASURED run 1: 55014m - the 50 km mesh hide, NOT the 120 km zone step]
+#   "Zone transition: ghost=#<i> \"Kerbal X\" Visual->Beyond dist=<n>m"  [MEASURED run 1: 120008m]
+#   "enterwatchmode complete: index="  (GS-4's token, here LATE by construction)
+#   "Ghost #<i> \"Kerbal X\" visuals rebuilt (<build>, watch mode requested)"
+#       The WATCH rebuild's own reason (GhostPlaybackEngine.EnsureGhostVisualsLoadedForWatch);
+#       the bare `visuals rebuilt (` form matched run 1's 57 km PREWARM rebuild.
+#   "Zone transition: ghost=#<i> \"Kerbal X\" Beyond->Physics dist=<n>m"
+#       The re-centred distance is metres, not kilometres: the reference is the
+#       watched ghost itself.
+#   "phase=MeshDestroyed ... vessel=Kerbal X reason=watch hold expired" - the WATCHED
+#       ending only; run 1's unwatched `stale past-end` reading is exactly what the
+#       alternation GS-4 uses would have let through here.
+required  = ["Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
+             "Recording started",
+             "Controllable split children: \\[[0-9]+,[0-9]+\\]",
+             "ProcessBreakupEvent: controlled child created: pid=[0-9]+",
+             "Committed tree '.+' \\([1-9][0-9]* recordings\\)",
+             "Rewind-to-Launch initiated to UT",
+             "invokerewindtolaunch complete rec=",
+             "entermapview ok mapOpen=true",
+             "exitmapview ok mapOpen=false",
+             "phase=MeshSpawned [^\\r\\n]*vessel=Kerbal X reason=ghost-created",
+             "phase=MeshSpawned [^\\r\\n]*vessel=Kerbal X Probe reason=ghost-created",
+             "phase=MeshSpawned [^\\r\\n]*vessel=Kerbal X Debris",
+             "Zone transition: ghost=#[0-9]+ \"Kerbal X\" Physics->Visual dist=1[0-9]{4}m",
+             "Mesh torn down: ghost #[0-9]+ \"Kerbal X\" primary cycle=-1 anchorDist=[0-9]+m renderDist=[5-9][0-9]{4}m [^\\r\\n]*reason=hidden by distance LOD at [5-9][0-9]{4}m",
+             "Zone transition: ghost=#[0-9]+ \"Kerbal X\" Visual->Beyond dist=1[2-9][0-9]{4}m",
+             "enterwatchmode complete: index=",
+             "Ghost #[0-9]+ \"Kerbal X\" visuals rebuilt \\([^)]*watch mode requested\\)",
+             "Zone transition: ghost=#[0-9]+ \"Kerbal X\" Beyond->Physics dist=[0-9]+m",
+             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X reason=watch hold expired",
+             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Probe reason=",
+             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Debris"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+# ARMED 2026-09-08 (roster GHOSTLIFE_ARMED_SPECS in harness/lib/test_hlib.py): both
+# readings, `2026-09-08_1119` (red on the late watch, the census untouched by it) and
+# `2026-09-08_1225` (PASS), measured spawned=8 spawnLines=8 destroyLines=8
+# unbalanced=0 malformed=0, and the balance across the teardown/rebuild round trip
+# is the point of declaring it here (code fact 5). Armed re-flight `_1239` PASS with
+# the gate live; negative control `_1249` (spawned min 9) red exactly. The armed statement: all eight
+# ghosts render and every one is destroyed again, with the parent's mesh having
+# been torn down and rebuilt in between.
+[expectations.ghostLifecycle]
+gating = true
+spawned = { min = 8 }
+requireBalanced = true
+
+[expectations.rewind]
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+# REPORT-ONLY, re-pinned to the measurement: all three flights (`_1225`, `_1239`,
+# `_1249`) parsed branchPoints={JointBreak: 5} (three drops + the core discard + one
+# more the longer burn adds) and terminalStates={SubOrbital: 2, Destroyed: 6} (the
+# pod and the probe suborbital, the six boosters destroyed on unload).
+[expectations.recordings.structure]
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 8 }
+branchPoints   = { JointBreak = { min = 5 } }
+terminalStates = { SubOrbital = { min = 2 }, Destroyed = { min = 6 } }
+
+[runtime]
+# GS-4's 2400 plus the longer recorded span (~+150 s of flight, spent again in real
+# time by the playback wait) and the late watch hold: ~300 s more at every cap.
+budgetSeconds = 2700
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
