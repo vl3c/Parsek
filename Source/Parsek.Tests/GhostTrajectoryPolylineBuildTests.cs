@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -3146,6 +3146,348 @@ namespace Parsek.Tests
                 GhostTrajectoryPolylineRenderer.ShouldCaptureLegForParity(legWasConicAnchored: false),
                 "A non-anchored body-fixed leg (descent / atmospheric / surface) must be captured for parity; "
                 + "its rendered points ARE the raw recorded track, so a real mis-draw shows drift.");
+        }
+
+        // =====================================================================
+        // Predicted continuation tail (2026-09-08). Fixture elements are the
+        // MEASURED ones from the re-fly session's TIP sidecar 8da7c2c2:
+        // sma 865777.71214532177, ecc 0.31755526014312058 on Kerbin (radius
+        // 600000, GM 3.5316e12) -> periapsis radius 590845 m, 9155 m INSIDE the
+        // planet, apoapsis altitude 540710 m. The coast runs 1078.05 -> 2186.58
+        // (clipped at atmosphere entry, 70 km) and the ballistic descent runs
+        // 2186.58 -> 2348.55 (impact). The epoch is pinned at the impact instant
+        // with the mean anomaly that puts r exactly at the body radius there, so
+        // the descent's end is ON the surface by construction rather than by
+        // rounding.
+        // =====================================================================
+
+        private const double KerbinRadius = 600000.0;
+        private const double KerbinGravParameter = 3.5316000e12;
+        private const double TailSma = 865777.71214532177;
+        private const double TailEcc = 0.31755526014312058;
+        private const double TailCoastStartUT = 1078.0528338768356;
+        private const double TailAtmosphereEntryUT = 2186.5751775686945;
+        private const double TailImpactUT = 2348.5488254909719;
+        private const double TailMeanAnomalyAtImpact = 6.1056670826845894;
+        private const double LastRecordedUT = 1078.4528338768353;
+
+        private static bool KerbinSurface(
+            string bodyName, out GhostTrajectoryPolylineRenderer.BodySurfaceInfo info)
+        {
+            info = default(GhostTrajectoryPolylineRenderer.BodySurfaceInfo);
+            if (bodyName != "Kerbin") return false;
+            info = new GhostTrajectoryPolylineRenderer.BodySurfaceInfo
+            {
+                radius = KerbinRadius,
+                gravParameter = KerbinGravParameter
+            };
+            return true;
+        }
+
+        /// <summary>Radius-only provider: what a caller that never fills GM looks like.</summary>
+        private static bool KerbinSurfaceRadiusOnly(
+            string bodyName, out GhostTrajectoryPolylineRenderer.BodySurfaceInfo info)
+        {
+            info = default(GhostTrajectoryPolylineRenderer.BodySurfaceInfo);
+            if (bodyName != "Kerbin") return false;
+            info = new GhostTrajectoryPolylineRenderer.BodySurfaceInfo { radius = KerbinRadius };
+            return true;
+        }
+
+        /// <summary>
+        /// Synthetic <c>ConicGapSampler</c>: altitude comes from the conic itself through the
+        /// same pure Kepler radius the ownership predicate uses, so a sampled tail point's
+        /// altitude is the real one (the descent's last point sits at altitude 0). Latitude and
+        /// longitude are placeholders - the builder caches the triple verbatim and only the
+        /// Driver converts to world space.
+        /// </summary>
+        private static bool ConicSampler(
+            OrbitSegment seg, double ut, out double lat, out double lon, out double alt)
+        {
+            lat = 0.0;
+            lon = 0.0;
+            alt = 0.0;
+            if (!TrajectoryMath.TryGetConicRadiusAtUT(seg, KerbinGravParameter, ut, out double r))
+                return false;
+            alt = r - KerbinRadius;
+            return true;
+        }
+
+        private static OrbitSegment TailSegment(double startUT, double endUT, bool predicted)
+        {
+            return new OrbitSegment
+            {
+                startUT = startUT,
+                endUT = endUT,
+                bodyName = "Kerbin",
+                semiMajorAxis = TailSma,
+                eccentricity = TailEcc,
+                inclination = 0.5473,
+                longitudeOfAscendingNode = 0.0,
+                argumentOfPeriapsis = 84.509,
+                meanAnomalyAtEpoch = TailMeanAnomalyAtImpact,
+                epoch = TailImpactUT,
+                isPredicted = predicted
+            };
+        }
+
+        /// <summary>
+        /// The measured shape: recorded ascent + exo climb ending at UT 1078.45, then a predicted
+        /// coast and a predicted ballistic descent with zero points of their own. The coast
+        /// starts 0.4 s BEFORE the last recorded sample - the finalizer's anchor reseed - so the
+        /// fixture also exercises the recorded/predicted overlap.
+        /// </summary>
+        private static Recording MakePredictedTailRecording(bool predicted = true)
+        {
+            var rec = new Recording { RecordingId = "rec-predicted-tail" };
+            var ascent = new List<TrajectoryPoint>();
+            for (int i = 0; i <= 19; i++)
+            {
+                double ut = 190.0 * i / 19.0;
+                ascent.Add(MakePoint(ut, -0.1 + i * 0.005, -74.5, 100.0 + i * 3700.0));
+            }
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Active,
+                startUT = 0.0,
+                endUT = 190.0,
+                frames = ascent,
+                checkpoints = new List<OrbitSegment>(),
+                bodyFixedFrames = null,
+                sampleRateHz = 10f
+            });
+
+            var exo = new List<TrajectoryPoint>();
+            for (int i = 0; i <= 29; i++)
+            {
+                double ut = 190.0 + (LastRecordedUT - 190.0) * i / 29.0;
+                exo.Add(MakePoint(ut, 0.0 + i * 0.01, -74.0, 70038.0 + i * 15700.0));
+            }
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                referenceFrame = ReferenceFrame.Absolute,
+                source = TrackSectionSource.Active,
+                startUT = 190.0,
+                endUT = LastRecordedUT,
+                frames = exo,
+                checkpoints = new List<OrbitSegment>(),
+                bodyFixedFrames = null,
+                sampleRateHz = 10f
+            });
+
+            rec.OrbitSegments.Add(TailSegment(TailCoastStartUT, TailAtmosphereEntryUT, predicted));
+            rec.OrbitSegments.Add(TailSegment(TailAtmosphereEntryUT, TailImpactUT, predicted));
+            return rec;
+        }
+
+        /// <summary>
+        /// Walks a set of covering intervals over [from, to] and returns the largest hole.
+        /// </summary>
+        private static double LargestHole(List<(double startUT, double endUT)> spans, double from, double to)
+        {
+            spans.Sort((a, b) => a.startUT.CompareTo(b.startUT));
+            double cursor = from;
+            double worst = 0.0;
+            for (int i = 0; i < spans.Count; i++)
+            {
+                var sp = spans[i];
+                if (sp.endUT <= cursor) continue;
+                if (sp.startUT > cursor)
+                {
+                    double hole = Math.Min(sp.startUT, to) - cursor;
+                    if (hole > worst) worst = hole;
+                }
+                if (sp.endUT > cursor) cursor = sp.endUT;
+                if (cursor >= to) break;
+            }
+            if (cursor < to && to - cursor > worst) worst = to - cursor;
+            return worst;
+        }
+
+        [Fact]
+        public void PredictedSubsurfacePeriapsisTail_IsCoveredByEitherALegOrAnArc()
+        {
+            // THE cell the forensic report named. Before the fix the union over the tail was
+            // EMPTY: the conics were dropped by the subsurface-periapsis predicate and the
+            // interior-only gap filler could not reach a span with no bracketing recorded point.
+            var rec = MakePredictedTailRecording();
+
+            var legs = GhostTrajectoryPolylineRenderer.BuildLegsForRecording(
+                rec, KerbinSurface, ConicSampler);
+            var arcIndices = GhostTrajectoryPolylineRenderer.SelectForwardArcSegmentIndices(
+                rec.OrbitSegments,
+                forwardWindowStartUT: LastRecordedUT,
+                forwardStopUT: TailImpactUT + 50.0,
+                headUT: 200.0,
+                surface: KerbinSurface);
+
+            var spans = new List<(double startUT, double endUT)>();
+            for (int i = 0; i < legs.Count; i++) spans.Add((legs[i].startUT, legs[i].endUT));
+            for (int i = 0; i < arcIndices.Count; i++)
+            {
+                var seg = rec.OrbitSegments[arcIndices[i]];
+                spans.Add((seg.startUT, seg.endUT));
+            }
+
+            double hole = LargestHole(spans, TailCoastStartUT, TailImpactUT);
+            Assert.True(
+                hole <= GhostTrajectoryPolylineRenderer.GapFillMinSeconds,
+                string.Format(
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    "the predicted tail [{0:F2},{1:F2}] must be covered by legs plus selected arcs; "
+                    + "largest hole was {2:F1}s over spans [{3}]",
+                    TailCoastStartUT, TailImpactUT, hole,
+                    string.Join(", ", spans.ConvertAll(sp => string.Format(
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        "{0:F1}-{1:F1}", sp.startUT, sp.endUT)))));
+        }
+
+        [Fact]
+        public void PredictedTail_CoastIsTheArc_DescentIsTheLeg()
+        {
+            // The tiling the design section states: the clipped coast is orbit-owned (arc), the
+            // ballistic descent is polyline-owned (leg). Pinning WHICH piece goes where is what
+            // stops a future change from covering the tail with one long chord across the coast.
+            var rec = MakePredictedTailRecording();
+
+            var arcIndices = GhostTrajectoryPolylineRenderer.SelectForwardArcSegmentIndices(
+                rec.OrbitSegments, LastRecordedUT, TailImpactUT + 50.0, 200.0, KerbinSurface);
+            Assert.Single(arcIndices);
+            Assert.Equal(0, arcIndices[0]);
+
+            var legs = GhostTrajectoryPolylineRenderer.BuildLegsForRecording(
+                rec, KerbinSurface, ConicSampler);
+            // Last leg is the descent: it starts at the atmosphere-entry UT and ends at impact.
+            var descent = legs[legs.Count - 1];
+            Assert.Equal(TailAtmosphereEntryUT, descent.startUT, 3);
+            Assert.Equal(TailImpactUT, descent.endUT, 3);
+            // And its last sampled point is on the ground, not underneath it.
+            double lastAlt = descent.alts[descent.alts.Length - 1];
+            Assert.True(lastAlt >= -1.0 && lastAlt <= 1.0,
+                "the descent leg's last sample must land on the surface, got alt=" + lastAlt);
+        }
+
+        [Fact]
+        public void PredictedTail_ArcOwnedCoastEntersTheOrbitalCover()
+        {
+            // The cover and the arc selector must agree, or the coast would be drawn twice: once
+            // as an arc and once as a straight chord inside the recorded leg run.
+            var rec = MakePredictedTailRecording();
+            var cover = GhostTrajectoryPolylineRenderer.ComputeOrbitalCoverIntervals(
+                rec.OrbitSegments, KerbinSurface);
+            Assert.Single(cover);
+            Assert.Equal(TailCoastStartUT, cover[0].startUT, 3);
+            Assert.Equal(TailAtmosphereEntryUT, cover[0].endUT, 3);
+        }
+
+        [Fact]
+        public void IsOrbitSegmentBelowSurface_TrueForTheMeasuredTailElements()
+        {
+            // Arithmetic anchor on the trigger itself: sma * (1 - ecc) = 590845 m against a
+            // 600000 m body radius. If this ever reads false the whole family is testing nothing.
+            var coast = TailSegment(TailCoastStartUT, TailAtmosphereEntryUT, predicted: true);
+            Assert.True(GhostTrajectoryPolylineRenderer.IsOrbitSegmentBelowSurface(
+                coast, KerbinSurface));
+            Assert.Equal(590845.446, TailSma * (1.0 - TailEcc), 2);
+        }
+
+        [Fact]
+        public void PredictedTailOwnership_SplitsCoastFromDescentOnSpanGeometry()
+        {
+            var coast = TailSegment(TailCoastStartUT, TailAtmosphereEntryUT, predicted: true);
+            var descent = TailSegment(TailAtmosphereEntryUT, TailImpactUT, predicted: true);
+
+            Assert.True(GhostTrajectoryPolylineRenderer.IsPredictedTailOrbitOwnedConic(
+                coast, KerbinSurface));
+            Assert.False(GhostTrajectoryPolylineRenderer.IsPredictedTailOrbitOwnedConic(
+                descent, KerbinSurface));
+
+            Assert.False(GhostTrajectoryPolylineRenderer.IsSegmentExcludedFromOrbitOwnership(
+                coast, KerbinSurface));
+            Assert.True(GhostTrajectoryPolylineRenderer.IsSegmentExcludedFromOrbitOwnership(
+                descent, KerbinSurface));
+        }
+
+        [Fact]
+        public void NonPredictedTwinOfTheTail_IsUnchangedByTheFix()
+        {
+            // NEGATIVE CONTROL, and the mirror direction of the re-admission: the same two conics
+            // with isPredicted cleared are a RECORDED below-surface pair, which FIX #27 must keep
+            // excluded from the cover and out of the arc pass so their recorded samples draw as a
+            // leg. Nothing about the predicted-tail work may move that.
+            var rec = MakePredictedTailRecording(predicted: false);
+
+            var cover = GhostTrajectoryPolylineRenderer.ComputeOrbitalCoverIntervals(
+                rec.OrbitSegments, KerbinSurface);
+            Assert.Empty(cover);
+
+            var arcIndices = GhostTrajectoryPolylineRenderer.SelectForwardArcSegmentIndices(
+                rec.OrbitSegments, LastRecordedUT, TailImpactUT + 50.0, 200.0, KerbinSurface);
+            Assert.Empty(arcIndices);
+
+            // And no tail points are synthesized for it - a recorded conic's shape is only ever
+            // borrowed BETWEEN two recorded samples.
+            var pts = new List<TrajectoryPoint> { MakePoint(LastRecordedUT, 0.0, -74.0, 540710.0) };
+            int inserted = GhostTrajectoryPolylineRenderer.FillPredictedTailFromConics(
+                pts, rec, KerbinSurface, ConicSampler, out int tailSegs);
+            Assert.Equal(0, inserted);
+            Assert.Equal(0, tailSegs);
+        }
+
+        [Fact]
+        public void PredictedTail_WithoutGravParameter_StillDrawsAsOneLeg()
+        {
+            // FAIL-CLOSED control: a provider that fills only the radius (every pre-2026-09-08
+            // caller) cannot run the span test, so neither predicted conic is orbit-owned and the
+            // WHOLE tail is sampled into legs. Degraded shape, never a hole.
+            var rec = MakePredictedTailRecording();
+
+            var arcIndices = GhostTrajectoryPolylineRenderer.SelectForwardArcSegmentIndices(
+                rec.OrbitSegments, LastRecordedUT, TailImpactUT + 50.0, 200.0,
+                KerbinSurfaceRadiusOnly);
+            Assert.Empty(arcIndices);
+
+            var legs = GhostTrajectoryPolylineRenderer.BuildLegsForRecording(
+                rec, KerbinSurfaceRadiusOnly, ConicSampler);
+            var spans = new List<(double startUT, double endUT)>();
+            for (int i = 0; i < legs.Count; i++) spans.Add((legs[i].startUT, legs[i].endUT));
+            Assert.True(
+                LargestHole(spans, TailCoastStartUT, TailImpactUT)
+                    <= GhostTrajectoryPolylineRenderer.GapFillMinSeconds,
+                "with no gravitational parameter the tail must still be covered, as legs");
+        }
+
+        [Fact]
+        public void FillFramelessGapsFromConics_InsertsNothingForATailConic()
+        {
+            // Documents the interior-only loop that made the defect possible, so a future change
+            // that extends the filler flips a STATED expectation instead of moving silently. The
+            // tail is covered by FillPredictedTailFromConics, not by this pass.
+            var rec = MakePredictedTailRecording();
+            var pts = new List<TrajectoryPoint>
+            {
+                MakePoint(900.0, 0.0, -74.0, 400000.0),
+                MakePoint(LastRecordedUT, 0.0, -74.0, 540710.0)
+            };
+
+            int inserted = GhostTrajectoryPolylineRenderer.FillFramelessGapsFromConics(
+                pts, rec, KerbinSurface, ConicSampler);
+
+            Assert.Equal(0, inserted);
+        }
+
+        [Fact]
+        public void PredictedTailBuild_LogsTheTailCounters()
+        {
+            var rec = MakePredictedTailRecording();
+            GhostTrajectoryPolylineRenderer.BuildLegsForRecording(rec, KerbinSurface, ConicSampler);
+            Assert.Contains(logLines, l =>
+                l.Contains("Polyline build: rec=rec-predicted-tail")
+                && l.Contains("predictedTailSegs=1")
+                && !l.Contains("predictedTailPts=0"));
         }
     }
 }
