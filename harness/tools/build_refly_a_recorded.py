@@ -78,15 +78,23 @@ render lane over the harvested clock would assert `runArcs` over an empty forwar
 window and read green while measuring nothing - the exact vacuity the V18T lesson
 is about.
 
-So the builder re-points the clock to `FLIGHTSTATE_UT = 1100.0`, which is chosen
-rather than round: it is 21.55 s past the pod chain TIP's last RECORDED sample
-(1078.4528) and 1,086.58 s short of the predicted coast's end (2,186.5752), i.e.
-INSIDE the first predicted segment. From there the recorded span is behind, the
-rest of the coast and the whole ballistic descent to impact are ahead, and the
-ghost must be positioned from a predicted conic rather than from a point - which
-is the strongest single position for reading all four surfaces at once. It also
-reproduces the geometry of the seed's own two render scenes, both of which ran
-with the tail in the future (23:12:56 at UT ~190-500 and 23:15:40 at UT ~32).
+So the builder re-points the clock to `FLIGHTSTATE_UT = 700.0`, and the value is
+MEASURED rather than chosen. The first cut used 1100.0 - inside the first
+predicted segment, which looked like the strongest single position - and RF-7M's
+reading run `2026-09-08_2149` proved it is not: at 1100 the clock is past the
+TIP's last RECORDED sample (1078.4528), so no ghost is live, and the run produced
+ZERO `map-presence-*` lines and ZERO `orbitSource=` lines. Defect (A) reproduced
+perfectly there and defect (B) was not exercised AT ALL, because the surface that
+carries it never ran.
+
+700.0 sits INSIDE the TIP's recorded span [191.04, 1078.4528] - 508.96 s past its
+start and 378.45 s short of its last sample - so a ghost is live and resolves a
+map-presence source, while the whole predicted tail (1078.05 -> 2348.55) is still
+AHEAD for the forward surfaces. From there a lane can walk forward through both
+predicted segments with `TimeJump`, which is forward-only; from 1100 it could not
+walk back to where the ghost lives. It also reproduces the geometry of the seed's
+own two render scenes, both of which ran with the tail in the future (23:12:56 at
+UT ~190-500 and 23:15:40 at UT ~32).
 
 The pad craft's `lct` / `lastUT` are re-pointed to the same value, so no vessel
 claims a launch time in the future; the five asteroids carry `lastUT = -1` and
@@ -219,12 +227,13 @@ POD_TIP_SEGMENTS = (
 # The last RECORDED sample, and the reseeded anchor 0.4 s before it. The tail
 # therefore extends the recording by 1270.10 s past the last point with ZERO
 # points in that span - the hole the player saw.
+POD_TIP_RECORDED_START_UT = 191.04000000002392
 POD_TIP_LAST_RECORDED_UT = 1078.4528338768353
 PREDICTED_TAIL_START_UT = 1078.0528338768356
 PREDICTED_IMPACT_UT = 2348.5488254909719
 
 # --- the clock the render lanes read from (build step 2) -------------------
-FLIGHTSTATE_UT = 1100.0
+FLIGHTSTATE_UT = 700.0
 HARVESTED_FLIGHTSTATE_UT = 11336.087830810762
 # The vessel whose launch time moves with the clock. It is the save's ACTIVE
 # vessel (index 1, PRELAUNCH on the pad), and as harvested its `lct` / `lastUT`
@@ -428,17 +437,22 @@ def _verify_clock(lines: List[str]) -> List[str]:
         problems.append(
             "the committed save's clock is not the re-pointed one (%d line(s) "
             "would change): run build_refly_a_recorded.py" % edits)
-    if not (POD_TIP_LAST_RECORDED_UT < FLIGHTSTATE_UT
-            < POD_TIP_SEGMENTS[1]["endUT"]):
+    if not (POD_TIP_RECORDED_START_UT < FLIGHTSTATE_UT
+            < POD_TIP_LAST_RECORDED_UT):
         problems.append(
-            "the clock %r does not sit inside the first predicted segment "
-            "(%r, %r]: every forward render surface would have an empty window "
-            "and the render lanes would assert nothing"
-            % (FLIGHTSTATE_UT, POD_TIP_LAST_RECORDED_UT,
-               POD_TIP_SEGMENTS[1]["endUT"]))
-    if FLIGHTSTATE_UT >= PREDICTED_IMPACT_UT:
-        problems.append("the clock %r is at or past the predicted impact %r"
-                        % (FLIGHTSTATE_UT, PREDICTED_IMPACT_UT))
+            "the clock %r does not sit inside the TIP's RECORDED span (%r, %r): "
+            "no ghost would be live, so map-presence source resolution never "
+            "runs and the render lanes cannot reach defect (B) at all - "
+            "MEASURED on RF-7M reading run 2026-09-08_2149, which produced zero "
+            "map-presence lines from a clock at 1100.0"
+            % (FLIGHTSTATE_UT, POD_TIP_RECORDED_START_UT,
+               POD_TIP_LAST_RECORDED_UT))
+    if not FLIGHTSTATE_UT < PREDICTED_TAIL_START_UT:
+        problems.append(
+            "the clock %r is at or past the predicted tail's start %r: the "
+            "forward surfaces would have a partial window and `TimeJump` is "
+            "forward-only, so a lane could not walk the tail from its start"
+            % (FLIGHTSTATE_UT, PREDICTED_TAIL_START_UT))
     return problems
 
 

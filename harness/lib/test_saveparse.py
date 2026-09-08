@@ -3233,15 +3233,20 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         #   tree 47cea2fe7d9e4e9eb6a729a7e280cc41, root group "Kerbal X With
         #     Probe", MISSION a6862f3f642f4f219f6edca087eca81b (same name,
         #     loopPlayback False)
-        #   save clock (FLIGHTSTATE UT) 1,100.0 - a BUILDER EDIT, not the harvest.
-        #     As harvested it was 11,336.0878, more than 9,000 s past the predicted
-        #     impact at 2,348.55, and every render surface the fixture exists for is
-        #     a FORWARD one (`TimeJump` is forward-only), so no lane could reach the
-        #     tail. 1,100.0 sits 21.55 s past the TIP's last recorded sample and
-        #     1,086.58 s short of the predicted coast's end - INSIDE the first
-        #     predicted segment. The pad craft's `lct` / `lastUT` move with it so no
-        #     vessel claims a future launch; nothing else in FLIGHTSTATE is touched,
-        #     and `build_refly_a_recorded._verify_clock` re-derives the relationship
+        #   save clock (FLIGHTSTATE UT) 700.0 - a BUILDER EDIT, not the harvest, and
+        #     the value is MEASURED. As harvested it was 11,336.0878, more than
+        #     9,000 s past the predicted impact at 2,348.55, and every render surface
+        #     the fixture exists for is a FORWARD one (`TimeJump` is forward-only),
+        #     so no lane could reach the tail. The first cut used 1,100.0, inside the
+        #     first predicted segment; RF-7M reading run `2026-09-08_2149` proved that
+        #     is past the TIP's last RECORDED sample (1078.4528), so NO GHOST IS LIVE
+        #     - the run produced zero `map-presence-*` and zero `orbitSource=` lines
+        #     and could not reach defect (B) at all. 700.0 sits INSIDE the recorded
+        #     span [191.04, 1078.4528], so a ghost resolves a map-presence source
+        #     while the whole tail stays ahead for the forward surfaces. The pad
+        #     craft's `lct` / `lastUT` move with it so no vessel claims a future
+        #     launch; nothing else in FLIGHTSTATE is touched, and
+        #     `build_refly_a_recorded._verify_clock` re-derives that RELATIONSHIP
         #     rather than comparing the number. activeVessel 1
         #     ('#autoLOC_501224', PRELAUNCH), 7 VESSEL nodes (five asteroids plus
         #     the pad craft and the re-flown probe), Mode SANDBOX

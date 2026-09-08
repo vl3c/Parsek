@@ -36,22 +36,42 @@ id = "RF-7T-predicted-tail-ts-render"
 # at the second boot.
 #
 # THE CLOCK SURVIVES THE RELOAD, which is what makes the TS reading a reading at all. The
-# builder re-points the fixture to UT 1100.0 (inside the first predicted segment) and the
-# `SaveGame` before the TS load writes whatever UT the flight leg reached, so the TS opens
-# with the tail still ahead. Without that the TS would show a recording whose whole span
-# is in the past and the forward surfaces would have nothing to draw - RF-7M's header
-# carries the argument.
+# builder re-points the fixture to UT 700.0 and the `SaveGame` before the TS load writes
+# that clock through, so the TS opens with a LIVE ghost inside the TIP's recorded span and
+# the whole predicted tail still ahead. The value is MEASURED, not chosen: RF-7M reading
+# run 1 flew a 1100.0 clock - inside the first predicted segment, which looked stronger -
+# and produced ZERO `map-presence-*` and ZERO `orbitSource=` lines, because past the last
+# recorded sample no ghost is alive and defect (B)'s surface never runs. Since this lane's
+# whole subject IS defect (B) in the TS, a 1100 clock would have made it vacuous.
 #
 # =====================================================================================
-# STATUS: NEVER FLOWN. `tier = "operator"`.
+# STATUS: READING RUN 1 FLOWN 2026-09-08
+# (`2026-09-08_2159_RF-7T-predicted-tail-ts-render`, attempt 1, wall 55 s, against the
+# main-built DLL, deployed hash 83b1adea88cd8cd5). VERDICT PARSEK-FAIL(expectation),
+# mismatches=2. `tier = "operator"`.
 #
-# EXPECTED READING-RUN VERDICT ON MAIN: PARSEK-FAIL(expectations), reproducing defect (B)
-# in the Tracking Station on `orbitSource=state-vector-fallback` and `hasOrbitSegments=
-# False`. What this lane will ALSO settle, and what no existing evidence answers: whether
-# the TS draws anything at all for a chain whose tail lives on the tip, i.e. whether the
-# `Ghost TS entry` / polyline tokens below are the right names. A red on THOSE is a
-# SPEC-SIDE finding to re-pin from the run's own log, not a product defect - and telling
-# the two apart is why the TS half is its own lane.
+# DEFECT (B) REPRODUCED IN THE TRACKING STATION, AND HARDER THAN IN THE SEED:
+#   forbidden matched: `hasOrbitSegments=False`.
+# Ten `ResolveTrackingStationGhostSource` lines ran for the pod's chain HEAD and every one
+# answered `source=None orbitSource=none ... hasSegments=False`, with ZERO ghosts created.
+# The seed session at least got a `state-vector-fallback` ellipse on the flight map; in the
+# TS the pod gets NO orbit source at all - `orbitSource=` appears ten times in the whole
+# run and reads `none` every time.
+#
+# THAT IS THE MEASUREMENT RF-7M COULD NOT MAKE, and it settles the question the
+# RF7M-DEFECT-B-NEEDS-AN-ENGAGED-GHOST finding left open: the flight map tracks nothing in
+# a seam-only lane (`recordingTracked=0` at every reading position, measured twice), while
+# the TS host runs its own per-recording resolver unconditionally. So the TRACKING STATION
+# is defect (B)'s harness subject, and this lane is where its tokens belong.
+#
+# ONE SPEC-SIDE FINDING, re-pinned from the run's own log exactly as this header said it
+# would be: the required token asked for the FLIGHT-map line name and the TS emits its own.
+# The fixture came through untouched - saveParse REPORT `rewindPoints=0 supersedeRows=1
+# tombstones=0`, analyzer red=0, driverValidity PASS.
+#
+# EXPECTED VERDICT ON RUN 2 (main): PARSEK-FAIL(expectations) on `hasOrbitSegments=False`
+# alone, with the re-pinned presence token matching. After the render fix lands this lane
+# must PASS. A red on anything else is a finding for `docs/dev/todo-and-known-bugs.md`.
 #
 # PR #1659 (`refly-render-tail`) carries the fix; its design section is
 # `docs/dev/design-map-ts-render-architecture.md` -> "Predicted continuation tails on the
@@ -127,15 +147,21 @@ count = { min = 10, max = 10 }
 # separates a run that measured the TS from a run that never left flight and reported
 # green on the two shared tokens by accident. It is REQUIRED first for that reason.
 #
-# THE TWO PRESENCE TOKENS are the TS side of defect (B) and are DERIVED, not measured: the
-# seed never opened this scene. `map-presence-` is matched as a PREFIX class rather than a
-# full line because the seed's own variants differ by branch
-# (`map-presence-initial-create` / `map-presence-pending-create`) and this lane must not
-# guess which one the TS host takes - what it asserts is that the resolver RAN for the
-# pod's chain HEAD, which is the recording defect (B) is about.
+# THE PRESENCE TOKEN IS THE TS RESOLVER'S OWN LINE, RE-PINNED FROM READING RUN 1. The
+# first cut asked for the FLIGHT-map line name (`map-presence-*`) and it went unmatched,
+# which is the spec-side finding this lane's header predicted it would produce. The
+# Tracking Station has its own resolver and its own line, measured on that run:
+#   `ResolveTrackingStationGhostSource: Tracking-station orbit source:
+#    context=tracking-station-startup recIndex=0 rec=32ca5546... vessel="Kerbal X With
+#    Probe" currentUT=701.9 source=None orbitSource=none reason=already-spawned
+#    terminal=SubOrbital ... hasSegments=False ...`
+# The token pins the CONTEXT class (`startup` and `lifecycle` both appear) and the
+# recording, and nothing downstream of them: what it asserts is that the TS resolver RAN
+# for the pod's chain HEAD, which is the recording defect (B) is about. Everything after
+# `rec=` is what the forbidden list judges.
 required = [
   "loadgame complete .*scene=TRACKSTATION",
-  "map-presence-\\S+: rec=32ca55469ac1400da66fcebb3c791d65",
+  "ResolveTrackingStationGhostSource: Tracking-station orbit source: context=tracking-station-\\S+ recIndex=[0-9]+ rec=32ca55469ac1400da66fcebb3c791d65",
 ]
 # Defect (B)'s two tokens, forbidden exactly as in RF-7M. If the TS host really does share
 # `ResolveMapPresenceGhostSource` then a fix that clears them in the flight map clears them

@@ -1366,7 +1366,7 @@ GAME
 	FLIGHTSTATE
 	{
 		version = 1.12.5
-		UT = 1100.0
+		UT = 700.0
 		activeVessel = 1
 		mapViewFiltering = -1026
 		commNetUIModeTracking = Network
@@ -1509,8 +1509,8 @@ GAME
 			displaylandedAt = #autoLOC_6002112
 			splashed = False
 			met = 0
-			lct = 1100.0
-			lastUT = 1100.0
+			lct = 700.0
+			lastUT = 700.0
 			distanceTraveled = 0
 			root = 0
 			lat = -0.097207799089391686

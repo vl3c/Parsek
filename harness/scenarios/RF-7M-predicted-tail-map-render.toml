@@ -61,14 +61,24 @@ id = "RF-7M-predicted-tail-map-render"
 # defect shapes cell by cell, and state what to do if a re-harvest ever heals one (re-fly
 # this lane against that DLL; do not re-pin the fixture).
 #
-# THE CLOCK IS A BUILDER EDIT AND IT IS LOAD-BEARING. As harvested the save's FLIGHTSTATE
-# UT was 11,336.09, more than 9,000 s past the predicted impact; every surface here is a
-# FORWARD one and `TimeJump` is forward-only, so the tail was unreachable. The builder
-# re-points the clock to 1100.0 - 21.55 s past the TIP's last recorded sample, inside the
-# first predicted segment - so the recorded span is behind and the rest of the coast plus
-# the whole descent are ahead. `build_refly_a_recorded._verify_clock` re-derives that
-# RELATIONSHIP rather than comparing the number, so a moved tail reds rather than leaving
-# this lane asserting over an empty window.
+# THE CLOCK IS A BUILDER EDIT, IT IS LOAD-BEARING, AND READING RUN 1 RE-DERIVED IT. As
+# harvested the save's FLIGHTSTATE UT was 11,336.09, more than 9,000 s past the predicted
+# impact; every surface here is a FORWARD one and `TimeJump` is forward-only, so the tail
+# was unreachable and a lane over those bytes would have asserted over an empty window.
+#
+# The first cut set the clock to 1100.0, INSIDE the first predicted segment, on the
+# reasoning that positioning the ghost on a predicted conic is the strongest single place
+# to read all four surfaces from. Reading run 1 (`2026-09-08_2149`) refuted half of that in
+# one measurement: 1100.0 is PAST the TIP's last recorded sample (1078.4528), so NO GHOST
+# IS LIVE, and the run emitted ZERO `map-presence-*` lines and ZERO `orbitSource=` lines.
+# Defect (A) reproduced verbatim there; defect (B)'s surface never ran at all, so its two
+# forbidden tokens read absent for a reason that is not a pass.
+#
+# The clock is now 700.0 - inside the recorded span [191.04, 1078.4528], 378.45 s short of
+# its end - so a ghost is live and resolves a map-presence source, and the step list walks
+# 700 -> 1200 -> 2300 to read the same map at a live ghost, inside the predicted coast, and
+# inside the ballistic descent in turn. `build_refly_a_recorded._verify_clock` asserts that
+# RELATIONSHIP rather than the number, and names this run in its failure text.
 #
 # =====================================================================================
 # THE SHAPE IS V27M's, NOT V18T's, and that choice is the forensics' own.
@@ -84,24 +94,52 @@ id = "RF-7M-predicted-tail-map-render"
 # costs nothing and adds the one thing the default-verbose lines cannot give: a measurement
 # of whether what IS drawn is drawn stably.
 #
-# ANTI-VACUITY, three independent tokens per the V18T lesson: the ghost host must exist
-# (`Polyline build: rec=<TIP>`), the chain must build a conic phase
-# (`assembled chain ... conic=[1-9]`), and the arc census must be positive
-# (`runArcs+=[1-9]`). A lane that read `runArcs+=0` and called itself green is the exact
-# failure mode this list is designed against.
+# ANTI-VACUITY, three independent tokens per the V18T lesson: the tail-bearing recording
+# must be reached at all (`Polyline build: rec=<TIP>`), legs must actually be built for the
+# pod chain (`Render run: rec=<HEAD> ... runLegs+=[1-9]`), and the chain must build a conic
+# phase (`assembled chain ... conic=[1-9]`). A lane that read `runArcs+=0` and called
+# itself green is the exact failure mode this list is designed against.
 #
 # =====================================================================================
-# STATUS: NEVER FLOWN. `tier = "operator"`.
+# STATUS: TWO READING RUNS FLOWN 2026-09-08, both against the main-built DLL (deployed
+# hash 83b1adea88cd8cd5, verified to carry neither fix branch's literals).
+# `tier = "operator"`.
 #
-# EXPECTED READING-RUN VERDICT ON MAIN: PARSEK-FAIL(expectations), REPRODUCING both defects
-# on these tokens -
-#   required not matched:  Render run: rec=32ca5546... runArcs\+=[1-9]
-#   required not matched:  assembled chain rec=32ca5546... conic=[1-9]
-#   forbidden matched:     excluded 3 below-surface orbit segments from cover rec=8da7c2c2...
-#   forbidden matched:     orbitSource=state-vector-fallback
-#   forbidden matched:     hasOrbitSegments=False
-# A red on exactly those five is the REPRODUCTION and is the lane working. A red on
-# anything else is a finding for `docs/dev/todo-and-known-bugs.md`.
+# RUN 2 (`2026-09-08_2156_RF-7M-predicted-tail-map-render`, attempt 1, wall 57 s) is the
+# CURRENT READING: PARSEK-FAIL(expectations), mismatches=4, and all four are DEFECT (A),
+# measured verbatim -
+#   required unmatched: `Render run: rec=32ca5546... runArcs\+=[1-9]`
+#   required unmatched: `assembled chain rec=32ca5546... conic=[1-9]`
+#   forbidden matched:  `excluded 3 below-surface orbit segments from cover rec=8da7c2c2...`
+#   forbidden matched:  `Anchor leg SKIPPED (one-sided): rec=8da7c2c2... leg=[191.0,1078.1]
+#     ... reason=one-sided-bracket before=none(ascent) after=seg1`
+# THAT IS THE REPRODUCTION, and it is the whole point of the lane. Both anti-vacuity tokens
+# MATCHED (`Polyline build: rec=<TIP>` and `Render run: rec=<HEAD> ... runLegs+=[1-9]`), so
+# the renderer reached the tail-bearing recording and built its legs and STILL drew no arc.
+# The fixture came through untouched, which is what makes the reading about the bytes and
+# not about the run: saveParse REPORT `rewindPoints=0 supersedeRows=1 tombstones=0`,
+# structure `recordings=10 terminalStates{SubOrbital 1, Destroyed 8, Orbiting 1}
+# branchPoints{JointBreak 5}` - the `RECORDED_FIXTURES` pin, facet for facet. analyzer
+# red=0, logValidate PASS, anomalySweep `hits=[]`.
+#
+# RUN 1 (`2026-09-08_2149`, wall 55 s) read PARSEK-FAIL mismatches=5 and produced TWO
+# SPEC-SIDE FINDINGS, both re-pinned from its own log rather than argued:
+#   1. `Polyline frame: scene=FLIGHT drawn=[1-9]` went unmatched for a reason that is NOT a
+#      product defect: `drawn` counts recordings REDRAWN on that frame, and the run read
+#      `drawn=0 warp=1x suppressed=0 hidden=0 staticSkip=6 noLegs=0` - every leg built and
+#      CACHED on a static scene. Replaced by the leg census, which is measured, names the
+#      recording, and matched on run 2.
+#   2. The fixture clock was 1100.0, PAST the TIP's last recorded sample, so no ghost was
+#      live. Moved to 700.0 and the step list grew a third reading position.
+#
+# WHAT NEITHER RUN REACHED, stated because a forbidden list cannot: DEFECT (B). See the
+# forbidden block below - map presence tracks nothing in a seam-only lane
+# (`recordingTracked=0 created=0` at every reading position), so its two tokens moved to
+# the lanes that engage a ghost. Filed as RF7M-DEFECT-B-NEEDS-AN-ENGAGED-GHOST.
+#
+# WHAT A GREEN LOOKS LIKE: after the render fix lands, this lane must PASS - the two
+# required tokens matching and the two forbidden ones gone. A partial move (say `excluded
+# 1` clearing while `runArcs` stays 0) is a real finding about the fix, not a pin to relax.
 #
 # PR #1659 (`refly-render-tail`) carries the fix and its design section is
 # `docs/dev/design-map-ts-render-architecture.md` -> "Predicted continuation tails on the
@@ -145,7 +183,9 @@ steps = [
   # noisy (V27M's own comment).
   { cmd = "RecordingState",                                                      expect = "OK" },
   { cmd = "RecordingState",                                                      expect = "OK" },
-  # --- READING 1: inside the predicted COAST (clock is already at UT 1100) -------------
+  # --- READING 1: inside the TIP's RECORDED span (the fixture boots at UT 700) ---------
+  # A ghost is LIVE here, which is what makes defect (B)'s surface run at all - reading
+  # run 1 at UT 1100 emitted no map-presence line because nothing was alive to resolve.
   { cmd = "EnterMapView",                                                        expect = "OK", budget = 120 },
   { cmd = "RecordingState",                                                      expect = "OK" },
   { cmd = "RecordingState",                                                      expect = "OK" },
@@ -158,10 +198,23 @@ steps = [
   { cmd = "RecordingState",                                                      expect = "OK" },
   { cmd = "RecordingState",                                                      expect = "OK" },
   { cmd = "ExitMapView",                                                         expect = "OK" },
-  # --- READING 2: inside the ballistic DESCENT ------------------------------------------
+  # --- READING 2: inside the predicted COAST --------------------------------------------
+  # 1200 is 121.95 s past the coast segment's start (1078.0528) and 986.58 s short of its
+  # end, so the clock sits inside the FIRST predicted segment with the descent still ahead.
+  { cmd = "TimeJump",     args = { ut = "1200" },                                expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  { cmd = "EnterMapView",                                                        expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  { cmd = "RecordingState",                                                      expect = "OK" },
+  { cmd = "ExitMapView",                                                         expect = "OK" },
+  # --- READING 3: inside the ballistic DESCENT ------------------------------------------
   # 2300 is 113.45 s past the descent segment's start (2186.5752) and 48.55 s short of the
   # extrapolated impact (2348.5488), so the clock sits inside the SECOND predicted segment
-  # with the terminal still ahead. Forward-only, and comfortably forward of 1100.
+  # with the terminal still ahead. Forward-only, and comfortably forward of 1200.
   { cmd = "TimeJump",     args = { ut = "2300" },                                expect = "OK", budget = 120 },
   { cmd = "RecordingState",                                                      expect = "OK" },
   { cmd = "RecordingState",                                                      expect = "OK" },
@@ -213,13 +266,18 @@ count = { min = 10, max = 10 }
 #   `assembled chain rec=<HEAD> ... conic=[1-9]`  the Director's own statement that it
 #       built a conic phase for the pod. `conic=0` today, which is defect (A) again seen
 #       from the composition side rather than the draw side.
-#   `Polyline frame: scene=FLIGHT drawn=[1-9]`  ANTI-VACUITY 2: something was drawn in the
-#       flight map at all.
+#   `Render run: rec=<HEAD> ... runLegs+=[1-9]`  ANTI-VACUITY 2, RE-PINNED FROM READING
+#       RUN 1. The first cut used `Polyline frame: scene=FLIGHT drawn=[1-9]`, which went
+#       unmatched for a reason that is NOT a defect: `drawn` counts recordings REDRAWN on
+#       that frame, and a static scene reads `drawn=0 ... staticSkip=6` while the legs are
+#       fully built and cached. The leg census on the same run read `runLegs+=2` on all
+#       three of the pod chain's render runs, so the anti-vacuity job belongs there - and
+#       it is a stronger statement anyway, because it names the recording.
 required = [
   "Polyline build: rec=8da7c2c2a6d84505b4bc121fdb9f528f",
   "Render run: rec=32ca55469ac1400da66fcebb3c791d65 .* runArcs\\+=[1-9]",
   "assembled chain rec=32ca55469ac1400da66fcebb3c791d65 .* conic=[1-9]",
-  "Polyline frame: scene=FLIGHT drawn=[1-9]",
+  "Render run: rec=32ca55469ac1400da66fcebb3c791d65 .* runLegs\\+=[1-9]",
 ]
 # THE FORBIDDEN LIST IS THE DEFECT, TOKEN BY TOKEN. Each is quoted from the seed KSP.log
 # and each names one mechanism:
@@ -227,20 +285,37 @@ required = [
 #       of three segments dropped, including the two predicted ones. A fix that re-admits
 #       the predicted pair would read `excluded 1` and this clause would clear while the
 #       recorded checkpoint conic stays correctly excluded (FIX #27 untouched).
-#   `orbitSource=state-vector-fallback`  defect (B)'s outcome: the pod re-sourced onto an
-#       instantaneous ellipse it never flew.
-#   `hasOrbitSegments=False`  defect (B)'s cause: the question answered over the HEAD.
 #   `Anchor leg SKIPPED ... after=seg1`  the builder knowing a following segment exists and
 #       declining anyway - the clearest single line that the tail was seen and dropped.
 #   `icon-jump` / `line-blink`  the two Tier-C tracer anomalies, armed here and simply
 #       absent from the seed session. They are forbidden rather than merely unrequired
 #       because a fix that DRAWS the tail badly is a different failure from one that draws
 #       it, and only these two can tell them apart.
+#
+# DEFECT (B)'s TWO TOKENS ARE DELIBERATELY *NOT* HERE, AND THAT IS A MEASUREMENT.
+# `orbitSource=state-vector-fallback` and `hasOrbitSegments=False` were on this list for
+# both reading runs and matched on neither - and BOTH TIMES THAT WAS SILENCE, NOT A PASS,
+# which is exactly the failure mode a forbidden list is worst at expressing.
+#
+#   Run 1 (clock 1100.0, past the TIP's last recorded sample): ZERO `map-presence-*` lines,
+#   ZERO `orbitSource=` lines. Diagnosed as the clock, and the clock was moved.
+#   Run 2 (clock 700.0, INSIDE the recorded span): still ZERO `orbitSource=` lines, and the
+#   three `map-presence-*` lines that DO appear are all the same tracker summary reading
+#   `scope=flight-map-presence vesselsTracked=0 recordingTracked=0 chainTracked=0 created=0`
+#   at UT 700.0, 705.1 and 2302.5.
+#
+# So the cause is not the clock: NO GHOST IS ENGAGED AT ALL. Map presence builds a proto
+# for a recording the GHOST ENGINE is holding a slot for, and a seam-only lane over a
+# harvested fixture engages none - the seed session had one because the same tree was being
+# flown. Keeping the two tokens forbidden here would let this lane read them as clear
+# forever while measuring nothing about them, so they move to the lanes that can actually
+# engage a ghost: RF-8, which drives `EnterWatchMode` (a verb that REJECTs
+# `no-watchable-ghost` when there is none, i.e. it cannot pass vacuously), and RF-7T, whose
+# TS host creates its own proto entries. Filed as RF7M-DEFECT-B-NEEDS-AN-ENGAGED-GHOST in
+# `docs/dev/todo-and-known-bugs.md`.
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
   "excluded 3 below-surface orbit segments from cover rec=8da7c2c2a6d84505b4bc121fdb9f528f",
-  "orbitSource=state-vector-fallback",
-  "hasOrbitSegments=False",
   "Anchor leg SKIPPED .*rec=8da7c2c2a6d84505b4bc121fdb9f528f.*after=seg1",
   "icon-jump",
   "line-blink",
@@ -274,10 +349,11 @@ branchPoints   = { JointBreak = { min = 5, max = 5 } }
 
 [runtime]
 # Budget arithmetic (M-A5 S8): LoadGame 660 + StopRecording 120 + DiscardTree 120 +
-# SetSetting x4 480 + RecordingState x22 2640 + EnterMapView x2 360 + ExitMapView x2 240 +
-# TimeJump (deferred) 660 + FlushAndQuit 120 = 5400. 5700 clears it by 300. The real wall
-# clock is one boot plus ~40 s of dwell.
-budgetSeconds = 5700
+# SetSetting x4 480 + RecordingState x29 3480 + EnterMapView x3 540 + ExitMapView x3 360 +
+# TimeJump x2 (deferred) 1320 + FlushAndQuit 120 = 7200. 7500 clears it by 300. The real
+# wall clock is one boot plus a minute of dwell - reading run 1 measured 55 s over two of
+# the three reading positions.
+budgetSeconds = 7500
 
 [retry]
 policy = "once"

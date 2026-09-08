@@ -15,6 +15,49 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## RF7M-DEFECT-B-NEEDS-AN-ENGAGED-GHOST: a seam-only lane over a recorded fixture engages no ghost, so flight-map presence tracks nothing and the chain-HEAD source-resolution defect cannot be reached from it at all [MEASURED 2026-09-08 by RF-7M's two reading runs. A LANE / HARNESS finding, not a product defect - the product defect it fails to reach is real and is filed against the render fix branch. OPEN]
+
+RF-7M reproduces the PREDICTED-TAIL render defect in two independent halves. Half (A),
+the forward-arc pass dropping every subsurface-periapsis conic, reproduces perfectly:
+run `2026-09-08_2156` read `excluded 3 below-surface orbit segments from cover
+rec=8da7c2c2...`, `Anchor leg SKIPPED (one-sided) ... after=seg1`, `runLegs+=2
+runArcs+=0` on all three of the pod chain's render runs, and `conic=0`.
+
+Half (B) - map presence resolving `hasOrbitSegments` from the chain HEAD, which has none,
+and re-sourcing the ghost as `orbitSource=state-vector-fallback` - WAS NOT REACHED ON
+EITHER RUN, and the two attempts are what make the cause a measurement rather than a
+guess:
+
+- RUN 1 flew a fixture clock of UT 1100.0, past the TIP's last recorded sample
+  (1078.4528). Zero `map-presence-*` lines, zero `orbitSource=` lines. Diagnosed as the
+  clock: no ghost can be live past the end of its own recorded span.
+- RUN 2 flew UT 700.0, INSIDE the recorded span [191.04, 1078.4528]. Still zero
+  `orbitSource=` lines, and the only three `map-presence-*` lines are the tracker's own
+  summary, reading `scope=flight-map-presence vesselsTracked=0 recordingTracked=0
+  chainTracked=0 created=0` at UT 700.0, 705.1 and 2302.5.
+
+So the cause is not the clock. Flight-map presence builds a proto for a recording the
+GHOST ENGINE is holding a slot for, and a seam-only lane over a harvested fixture engages
+none - the 2026-09-08 session had one because the same tree was being flown at the time.
+No seam verb spawns a ghost for a committed recording directly.
+
+WHY THIS IS FILED RATHER THAN PAPERED OVER. The two defect-(B) tokens sat in RF-7M's
+FORBIDDEN list for both runs and matched on neither, which reads exactly like a pass. A
+forbidden list cannot distinguish "the defect is gone" from "the surface never ran", and
+leaving them there would have given the lane a clause that could never fail - the silence
+-is-not-success shape. They have been REMOVED from RF-7M, and half (B) now belongs to the
+two lanes that can engage a ghost: `RF-8-ghost-during-refly`, whose `EnterWatchMode`
+REJECTs `no-watchable-ghost` and therefore cannot pass vacuously, and
+`RF-7T-predicted-tail-ts-render`, whose Tracking Station host creates its own proto
+entries rather than borrowing the flight engine's.
+
+Needs: RF-7T and RF-8 reading runs to establish which of them actually reaches the
+surface, and then the defect-(B) tokens pinned on whichever does. If NEITHER does, the
+honest conclusion is that half (B) has no harness subject at all today and belongs to an
+in-game cell instead - the render fix branch's own design section already names the
+seam it would assert on (`GhostMapPresence.ResolveMapPresenceGhostSource` routing through
+`EffectiveState.EffectiveTipRecordingId`).
+
 ## DISCARDTREE-CANNOT-IDLE-A-COMMITTED-TREE-RESTORE-HOST: on a save whose committed tree is restorable for a spawned vessel, `StopRecording` + `DiscardTree` frees the recorder for about 7 ms before the restore re-arms and promotes it again, so every in-game cell that guards on an idle recorder skips `recording already active` [MEASURED 2026-09-07 by the second in-game census over `mun-landing-recorded` (scratch CEN-5, and CEN-7 with a 12-step `RecordingState` dwell inserted between `DiscardTree` and `RunTests`): all ten `AutoRecord` cells skipped identically on both. A HOST PROPERTY of the seam, not a product defect - no coverage is lost, so this is filed to be known rather than fixed]
 
 The log line that names the mechanism, from the CEN-7 runlog seven milliseconds after

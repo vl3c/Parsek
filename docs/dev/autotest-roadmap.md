@@ -3619,6 +3619,30 @@ recordings.
    one (RF-1) or reads one out of `bdock-recorded`. The fixture README states
    this where a lane author will meet it.
 
+**WHAT THE FIRST THREE READING RUNS MEASURED (2026-09-08, all on the main-built DLL,
+deployed hash `83b1adea88cd8cd5`, verified to carry neither fix branch's literals).**
+
+- **RF-1 PASS attempt 1** (`2026-09-08_2146`, wall 171 s, mission MISSION-OK in 95.8 s,
+  expectations mismatches=0). The new `siblingAirborneAtExit` exit worked first time
+  (`assert boosterStillAirborne value=FLYING met=True`), the slot was promoted
+  `reason=stableLeafUnconcluded terminal=SubOrbital`, `ReapOrphanedRPs: reaped=0
+  remaining=1`, and the re-fly ran through a RewindPoint id the spec never spelled. Its
+  header's prediction held in the negative too: no `sealedTipClosed`, because a
+  sub-kilometre hop crosses no environment boundary for the optimizer to split on.
+- **RF-7M PARSEK-FAIL, defect (A) reproduced** (`2026-09-08_2156`, mismatches=4). Both
+  anti-vacuity tokens matched, so the renderer reached the tail-bearing recording, built
+  its legs, and still drew no arc.
+- **RF-7T PARSEK-FAIL, defect (B) reproduced** (`2026-09-08_2159`, mismatches=2), and
+  harder than in the seed: ten `ResolveTrackingStationGhostSource` lines over the chain
+  HEAD, every one `source=None orbitSource=none ... hasSegments=False`, zero ghosts.
+
+**A THIRD LIMITATION, MEASURED RATHER THAN PREDICTED.** RF-7M could not reach defect (B)
+at all, on either of two clocks: a seam-only lane over a recorded fixture engages no
+ghost, so flight-map presence tracks nothing (`recordingTracked=0 created=0` at every
+reading position). The Tracking Station runs its own per-recording resolver
+unconditionally and therefore IS the harness subject for that half. Filed as
+RF7M-DEFECT-B-NEEDS-AN-ENGAGED-GHOST; the two defect-(B) tokens moved from RF-7M to RF-7T.
+
 **THE TWO FIXES.** Neither is in this program's scope and both are open at the
 time of writing: PR #1658 (`refly-continuation`) carries the open bit across an
 optimizer split - `second.MergeState = original.MergeState` beside the terminal
