@@ -15,6 +15,94 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~OPTIMIZER-SPLIT-DROPS-MERGESTATE-AND-CLOSES-AN-OPEN-REFLY-SLOT: the optimizer's phase-change split moves a recording's terminal to a brand-new chain TIP but not its `MergeState`, and open/closed is read from the TIP, so a slot promoted to `CommittedProvisional` seconds earlier in the SAME commit reads closed and the reaper deletes its rewind-point quicksave~~ [FORENSICS 2026-09-08 over session `2026-09-08_2317_refly-a-manual` (`.forensics-continuation.md`, every claim cited to `KSP.log:N` in that folder's 28889-line log). FIXED 2026-09-08]
+
+Five steps, all inside one commit plus the next:
+
+1. `KSP.log:17434-17435` (23:11:22.046) - the scene-exit ballistic extrapolator had
+   stamped `terminal=Destroyed` on the still-alive sub-orbital pod
+   (`KSP.log:16845/16847`), `TryQualify` returned `crashed`, and
+   `RecordingStore.ApplyRewindProvisionalMergeStates` promoted `32ca5546` to
+   `CommittedProvisional` for `slot=0`. Correct at that instant: `Destroyed ->
+   TerminalKind.Crashed` is the OPEN outcome, and it is what let the FOCUS slot
+   qualify at all.
+2. `KSP.log:17549/17561/17563` (23:11:22.270) - `MergeDialog.MergeCommit` reaches
+   `RecordingStore.RunOptimizationPass()` four lines after `CommitPendingTree()`
+   (`MergeDialog.Commit.cs:82` then `:86`). The phase-change split cut the
+   just-promoted recording at UT 191.04 (`prev=Atmospheric next=ExoBallistic`) into
+   HEAD `32ca5546` (272 pts) plus a new chain TIP `8da7c2c2` (129 pts) carrying the
+   terminal. `RecordingOptimizer.TransferTerminalFieldsToSecondHalf` moved the
+   terminal and nothing else; `MergeState` appeared zero times in the whole file, so
+   the tip took `Recording.MergeState`'s `Immutable` field initializer. The produced
+   save shows it: `8da7c2c2` has `terminalState = 4` and NO `mergeState` key at all.
+3. `KSP.log:18207` (23:11:26.012) - `UnfinishedFlightClassifier.IsSlotEffectiveTipOpen`
+   resolved the slot tip to `8da7c2c2`, read `Immutable`, and
+   `EffectiveState.TryResolveUnfinishedFlightRaw` emitted
+   `IsUnfinishedFlight=false rec=32ca5546 reason=sealedTipClosed slot=0`. The
+   Unfinished Flights row was never drawn again; `CanInvokeSlot` appears once in the
+   whole log and only for `slot=1`.
+4. `KSP.log:22012` (23:13:57.664) - on the next commit the chain-tip promotion branch
+   DID reach `8da7c2c2` and the first-commit guard refused it: `CommitTree: rec=8da7c2c2
+   already committed/fork - not re-deriving MergeState`. Second lock, not first cause:
+   the guard exists to stop a deliberately sealed tip being re-opened and stays.
+5. `KSP.log:24025-24026` (23:14:00.441) - `RewindPointReaper.IsReapEligible` reads the
+   same tip `MergeState`, found every slot closed, reaped the RP and deleted the
+   quicksave. Irreversible: `saves/re-fly-a/Parsek/` in the collected snapshot has no
+   `RewindPoints` directory.
+
+Not a regression from any merge after 2026-08-20: both halves of the mechanism landed
+2026-05-21 (`76f479af0` / `91d48e921`, PR #942, the collapse-Seal-into-MergeState
+change that made the tip's `MergeState` the single open/closed source), and
+`e1783ce09` (2026-05-18) is the same split-vs-Re-Fly interaction fixed from the other
+side (STASH dedupe) without carrying the open bit.
+
+Fixed: `TransferTerminalFieldsToSecondHalf` now COPIES `MergeState` onto the
+terminal-carrying half (the open bit is terminal-keyed by construction, so it must
+travel with the terminal; a stale `CommittedProvisional` left on the HEAD is inert
+because `TryQualify` accepts both states and every open/closed read goes through the
+tip), and the mirror direction `RecordingOptimizer.MergeInto` takes the MORE OPEN of
+the two states when the absorbed recording carried the terminal. One Verbose line at
+each site. No new log token, so GS-1's `CommitTree promoted rec=` forbid is untouched -
+re-running promotion after the optimizer would have tripped it, which is one reason
+this fix is the smaller one.
+
+Two structural test blind spots the forensics named, both now closed at unit level:
+no test connected an extrapolated tail to the re-fly slot surface, and no test ran the
+optimizer split across a promoted slot (every classifier cell hand-authored the
+post-promotion `MergeState`; `UnfinishedFlightClassifierTests.cs:693` even pinned the
+defect's outcome as correct in isolation without asking how the tip became
+`Immutable`). Added, in `Source/Parsek.Tests/`:
+`RecordingOptimizerTests.SplitAtSection_CarriesMergeStateToTheTerminalCarryingHalf`
+plus its Immutable negative and three `MergeInto` mirror cells;
+`CollapseSealMergeStateRegressionTests.OptimizerSplitOfPromotedSlot_KeepsSlotOpenAndRpUnreaped`
+(commit -> assert open -> `RunOptimizationPass()` -> assert still open and the RP still
+not reap-eligible; verified failing on the pre-fix code); and the sibling
+`UnfinishedFlightClassifierTests.OpenClosedFilter_SplitTipOfPromotedRecording_IsNotBornImmutable`
+next to the pinned `:693` outcome. No committed harness spec pins
+`reason=sealedTipClosed`; if a live-proof lane is wanted, R7c is the tightest existing
+coupling to extend.
+
+## REFLY-QUALIFY-AND-TIP-WALKS-DISAGREE-ACROSS-SWITCH-CONTINUATIONS: "does this slot qualify" and "is its tip open" are answered over DIFFERENT recording sets, so a slot whose flight continued through a `VesselSwitchContinuation` can qualify on one walk and resolve its tip on another [FOUND 2026-09-08 while forensically reading session `2026-09-08_2317_refly-a-manual`; NOT the cause of that session's closure and not fixed with it]
+
+`570960da1` (2026-08-05, PR #1427) repointed `UnfinishedFlightClassifier.TryQualify`
+(`:115`) and the candidate-shape gate (`:736`) from `ResolveChainTerminalRecording` to
+`ResolveTerminalRecordingAcrossSwitchContinuations`, which additionally hops
+`VesselSwitchContinuation` branch points. The open/closed walk
+(`UnfinishedFlightClassifier.cs:853`) and the promotion target
+(`RecordingStore.cs:1282`) both still go through `slot.EffectiveRecordingId` ->
+`EffectiveState.EffectiveTipRecordingId`, which has NO switch-continuation hop.
+
+The 2026-09-08 session did not fire this (no switch continuation anywhere in it:
+`side=active-parent-child` and `side=child` only), and the split defect above is a
+separate mechanism. Filed because the predicate pair is supposed to be two questions
+about ONE recording and currently is not.
+
+Needs: decide which walk is canonical before changing either. Promotion writing to a
+tip the qualify walk cannot see, or qualifying against a terminal the tip walk cannot
+reach, are both reachable shapes on paper; neither has been observed in a log yet, so
+this wants a constructed fixture (a slot whose flight continues through a stock Switch
+-To segment, then terminates) rather than a speculative edit.
+
 ## DISCARDTREE-CANNOT-IDLE-A-COMMITTED-TREE-RESTORE-HOST: on a save whose committed tree is restorable for a spawned vessel, `StopRecording` + `DiscardTree` frees the recorder for about 7 ms before the restore re-arms and promotes it again, so every in-game cell that guards on an idle recorder skips `recording already active` [MEASURED 2026-09-07 by the second in-game census over `mun-landing-recorded` (scratch CEN-5, and CEN-7 with a 12-step `RecordingState` dwell inserted between `DiscardTree` and `RunTests`): all ten `AutoRecord` cells skipped identically on both. A HOST PROPERTY of the seam, not a product defect - no coverage is lost, so this is filed to be known rather than fixed]
 
 The log line that names the mechanism, from the CEN-7 runlog seven milliseconds after
