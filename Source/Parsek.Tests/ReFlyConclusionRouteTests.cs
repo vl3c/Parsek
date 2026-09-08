@@ -626,5 +626,62 @@ namespace Parsek.Tests
             Assert.DoesNotContain(logLines, l =>
                 l.Contains("ReFlyProvisionalRetirement cleared"));
         }
+
+        // ------------------------------------------------------------------
+        // RF6-FOUR-REWIND-CELLS-FAIL-ONLY-WITH-A-LIVE-SESSION: the in-game cell
+        // MergeInterruptionRecovery gained a precondition guard over the same
+        // predicate. The cell needs a live KSP scene, but its decision is pure,
+        // so it is pinned here: refuse -> skip naming the reason, accept ->
+        // proceed. The load-bearing cell is the second one - a re-fly carrying
+        // payload but no terminal state still SKIPS, which is exactly what red
+        // the RF-6 lane and exactly what the old "fly the re-fly" advice missed.
+        // ------------------------------------------------------------------
+
+        [Fact]
+        public void MergeInterruptionRecoverySkipGuard_AcceptedTargetProceeds()
+        {
+            var concluded = Rec("rec_provisional", terminal: TerminalState.Landed);
+            concluded.Points.Add(new TrajectoryPoint { ut = 0.0 });
+
+            string skipMessage;
+            Assert.False(InGameTests.MergeInterruptionRecoveryTest
+                .TryBuildUnconcludedReFlySkip(concluded, out skipMessage));
+            Assert.Null(skipMessage);
+        }
+
+        [Fact]
+        public void MergeInterruptionRecoverySkipGuard_PayloadWithoutTerminalStateStillSkips()
+        {
+            // RF-6's own provisional: points=1, playableSections=1, terminal=<null>.
+            var airborne = Rec("rec_provisional", terminal: null);
+            airborne.Points.Add(new TrajectoryPoint { ut = 0.0 });
+
+            string skipMessage;
+            Assert.True(InGameTests.MergeInterruptionRecoveryTest
+                .TryBuildUnconcludedReFlySkip(airborne, out skipMessage));
+            Assert.Contains("null TerminalState", skipMessage);
+            Assert.Contains("rec_provisional", skipMessage);
+            Assert.Contains("CONCLUDED", skipMessage);
+        }
+
+        [Fact]
+        public void MergeInterruptionRecoverySkipGuard_EmptyProvisionalSkipsOnThePayloadClause()
+        {
+            var empty = Rec("rec_provisional", terminal: TerminalState.Landed);
+
+            string skipMessage;
+            Assert.True(InGameTests.MergeInterruptionRecoveryTest
+                .TryBuildUnconcludedReFlySkip(empty, out skipMessage));
+            Assert.Contains("empty Points", skipMessage);
+        }
+
+        [Fact]
+        public void MergeInterruptionRecoverySkipGuard_NullProvisionalSkipsRatherThanThrows()
+        {
+            string skipMessage;
+            Assert.True(InGameTests.MergeInterruptionRecoveryTest
+                .TryBuildUnconcludedReFlySkip(null, out skipMessage));
+            Assert.Contains("null recording", skipMessage);
+        }
     }
 }

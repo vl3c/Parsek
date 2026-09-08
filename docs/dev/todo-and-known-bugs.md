@@ -9949,6 +9949,50 @@ scenario-coverage item.
 
 ---
 
+## RF6-FOUR-REWIND-CELLS-FAIL-ONLY-WITH-A-LIVE-SESSION: one in-game cell leaks a merge journal into the rest of the batch, and its own failure is a missing precondition [FOUND 2026-09-08 by the committed lane `RF-6-rewind-category-live-session`, the first lane to run the `Rewind` category inside a LIVE re-fly session (`passed=8 failed=4 skipped=26`). FIXED 2026-09-09 in `MergeInterruptionRecoveryTest`. No product defect. The owed RF-6 re-flight on branch `refly-lanes` is the live proof]
+
+Four cells failed; ONE cell explains all four.
+
+**The cascade.** `MergeInterruptionRecoveryTest.MergeInterruptionRecovery`
+installs a REAL `MergeJournal`, deliberately faults the orchestrator at
+`Durable1Done`, and had no outer try/finally. Its assertion "Expected supersede
+relations to be durable at Durable1Done; got 0" reds BEFORE the `RunFinisher()`
+that would clear the journal, so `scenario.ActiveMergeJournal` stayed set for the
+remainder of the batch. The next three cells -
+`DiscardReFly_PrelaunchContext_DispatchesEditorWithFacility`,
+`ReFlyRevertDialog_Prelaunch_BlocksStockRevert_AndShowsDialog`,
+`DiscardReFly_LaunchContext_PreservesSiblingState_DispatchesSpaceCenter` - then
+hit the product's two journal-active guards (`RevertInterceptor`'s "refusing -
+merge journal active" and `ReFlyRevertDialog.BuildBody`'s `journalActive` branch)
+and failed as CASCADE VICTIMS, not as independent isolation defects. Those three
+need no change. The discriminator is the leaked journal, not the live session:
+three other dialog cells took the same journal-active branch and passed, because
+they do not assert on body copy or on the handler running.
+
+**The cell's own failure.** The lane's provisional carried no
+`TerminalStateValue`, so `SupersedeCommit.ValidateSupersedeTarget` refused with
+`reason=null TerminalState`, wrote 0 supersede rows and completed the merge with
+the origin still effective - exactly as designed. The cell asserted against an
+UNMET PRECONDITION its own doc comment described but nothing enforced.
+
+**Fix, one commit, both halves in the one cell.** (a) A precondition guard
+before `RunMerge` calling the PRODUCT predicate
+`SupersedeCommit.ValidateSupersedeTarget` and skipping with its reason named,
+mirroring the guard `KerbalRecoveryOnSupersede` already carries; the pure
+decision is `MergeInterruptionRecoveryTest.TryBuildUnconcludedReFlySkip`, pinned
+headlessly in `ReFlyConclusionRouteTests`. (b) An outer try/finally restoring
+`ActiveMergeJournal` and `ActiveReFlySessionMarker` to their pre-cell values and
+clearing the fault injection, the fix
+`JournalFinisherMarkerPresentVariantTest` already carries. No `[InGameTest]`
+attribute moved, so `CommittedBatchTallySourceSyncTests` and the R7a / R7c / RF-6
+`total=38` pins are unmoved.
+
+**Re-measure, do not predict.** RF-6's `failed=0` stays HARD; the plausible post-fix
+shape is `passed=10 failed=0 skipped=28`, and `passed` / `skipped` are re-pinned
+whole from the first green flight per the lane's interim rule.
+
+---
+
 ## R7-SESSION-BATCH-ISOLATION: running the `Rewind` category beside a LIVE re-fly session breaks seven of its own tests, and starves nine more [FOUND 2026-08-04 by roadmap R7's abandoned `R7b-rewind-session-live` spec. FOUR defect-items FIXED here across THREE tests ((1)+(2) in `F5MidReFlyResume`, (2b), (3)); the FOUR remaining failing tests in (4) are RECORDED, not fixed. The nine starved are collateral of (2b), explained below - the spec is NOT committed]
 
 R7 set out to drive `Rewind` in both of its precondition modes. R7a (no live
@@ -10032,10 +10076,19 @@ yield - R7a already executes 16 members, and the session-live mode's best
 measured result was 15.
 
 WHAT A FUTURE ATTEMPT SHOULD DO DIFFERENTLY, in order:
-1. FLY the re-fly. Every unflown-provisional failure above disappears if the
-   provisional carries Points; that is a mission-driven spec (CL-3's shape), not
-   a seam-only one. `StartRecording` after `InvokeRewind` does NOT work - flight
-   `2026-08-04_1644` measured the refusal reason unchanged.
+1. CONCLUDE the re-fly - land or crash it and save - not merely fly it. That is
+   a mission-driven spec (CL-3's shape), not a seam-only one. `StartRecording`
+   after `InvokeRewind` does NOT work - flight `2026-08-04_1644` measured the
+   refusal reason unchanged.
+   CORRECTED 2026-09-09 by RF-6 (see `RF6-FOUR-REWIND-CELLS-FAIL-ONLY-WITH-A-LIVE-SESSION`
+   above): this item used to read "Every unflown-provisional failure above
+   disappears if the provisional carries Points", and carrying Points is
+   NECESSARY AND NOT SUFFICIENT. `SupersedeCommit.ValidateSupersedeTarget` has a
+   second clause. RF-6 measured both, one flight apart, on the same lane: without
+   a time jump the merge refused with `reason=empty Points points=0
+   trackSections=0`; with one it refused with `reason=null TerminalState points=1
+   playableSections=1 terminal=<null>`. The time jump DID clear the payload
+   clause and the tally was byte-identical because the terminal clause caught it.
 2. Then give the four in (4) the same foreign-live-session skip guard (2) got.
 3. Expect the ceiling to stay near R7a's: the first member to perform a real
    merge ends the session for everyone after it, which is inherent, not a defect.

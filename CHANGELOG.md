@@ -894,6 +894,16 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Dev
 
+- **An in-game test left a merge journal installed on the live scenario when it failed,
+  and three later tests failed because of it.** The merge-interruption test deliberately
+  crashes a real merge halfway through and then repairs it; when its own assertion red
+  first, the half-finished journal stayed behind and every later test that touches a
+  revert dialog was refused by the product's "a merge is in progress" guards - one
+  broken test reported as four. It now restores the journal and session marker in a
+  finally block, and stands down with a named reason when the re-fly it needs has not
+  been concluded (landed or crashed and saved) rather than asserting against a merge
+  that correctly declines to run. Test-side only; no gameplay change.
+
 - **Roadmap gaps G1 (route-driven rendering) and G3b (the surface endpoint fallback at
   a render surface) are closed on measured runs.** The tracking-station route lane
   (`V18T`) now gates the route-owned cadence and the docked station endpoint off four
