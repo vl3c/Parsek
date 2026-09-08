@@ -625,5 +625,80 @@ namespace Parsek.Tests
                 MergeState.NotCommitted,
                 loadedTree.Recordings["live"].MergeState);
         }
+
+        // ---------- Optimizer split of a just-promoted slot ------------------
+
+        /// <summary>
+        /// Session 2026-09-08_2317_refly-a-manual. MergeDialog.MergeCommit runs
+        /// CommitPendingTree() - which promotes the slot's tip to
+        /// CommittedProvisional - and only THEN RunOptimizationPass(). When the
+        /// phase-change split cuts the just-promoted recording, the terminal moves
+        /// onto a brand-new chain TIP, and open/closed is read from that tip: before
+        /// the MergeState carry the tip was born Immutable, the slot read
+        /// sealedTipClosed, its Unfinished Flights row was never drawn, and
+        /// RewindPointReaper deleted the rewind-point quicksave permanently.
+        /// </summary>
+        [Fact]
+        public void OptimizerSplitOfPromotedSlot_KeepsSlotOpenAndRpUnreaped()
+        {
+            var tree = MakeSplitTree("optsplit", "bp_o", "child_a", "child_b",
+                TerminalState.Destroyed, TerminalState.Landed);
+            GiveAtmosphericToExoPayload(tree.Recordings["child_a"]);
+            var slot0 = Slot(0, "child_a");
+            var rp = Rp("optsplit", "bp_o", 0, slot0, Slot(1, "child_b"));
+            var scenario = InstallScenario(rp);
+
+            RecordingStore.CommitTree(tree);
+
+            // Crashed qualifies regardless of focus, so the focus slot promotes.
+            Assert.Equal(MergeState.CommittedProvisional, tree.Recordings["child_a"].MergeState);
+            Assert.True(UnfinishedFlightClassifier.IsSlotEffectiveTipOpen(slot0));
+            // The landed sibling never promotes, so the RP's survival rests on slot 0
+            // alone - this is what makes the reap assertion below sharp.
+            Assert.False(UnfinishedFlightClassifier.IsSlotEffectiveTipOpen(rp.ChildSlots[1]));
+            Assert.False(RewindPointReaper.IsReapEligible(rp, scenario.RecordingSupersedes));
+
+            RecordingStore.RunOptimizationPass();
+
+            // The split really happened and really moved the terminal off child_a.
+            Assert.Equal(3, tree.Recordings.Count);
+            string tipId = slot0.EffectiveRecordingId(scenario.RecordingSupersedes);
+            Assert.NotEqual("child_a", tipId);
+            Recording tip = EffectiveState.FindCommittedRecordingByIdRaw(tipId);
+            Assert.NotNull(tip);
+            Assert.Equal(TerminalState.Destroyed, tip.TerminalStateValue);
+            Assert.Null(tree.Recordings["child_a"].TerminalStateValue);
+
+            // The slot must still be open, and the RP must survive.
+            Assert.Equal(MergeState.CommittedProvisional, tip.MergeState);
+            Assert.True(UnfinishedFlightClassifier.IsSlotEffectiveTipOpen(slot0));
+            Assert.False(RewindPointReaper.IsReapEligible(rp, scenario.RecordingSupersedes));
+            Assert.Empty(deletedRpIds);
+        }
+
+        private static void GiveAtmosphericToExoPayload(Recording rec)
+        {
+            // An ascent crossing the Atmospheric -> ExoBallistic boundary: the
+            // optimizer's phase-change split predicate accepts that boundary and both
+            // halves clear CanAutoSplit's 5 s minimum duration.
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0, altitude = 5000, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 190.0, altitude = 60000, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 191.0, altitude = 71000, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 800.0, altitude = 250000, bodyName = "Kerbin" });
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                startUT = 100.0,
+                endUT = 191.0,
+                frames = new List<TrajectoryPoint>(),
+            });
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                startUT = 191.0,
+                endUT = 800.0,
+                frames = new List<TrajectoryPoint>(),
+            });
+        }
     }
 }
