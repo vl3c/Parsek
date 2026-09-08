@@ -177,6 +177,84 @@ feature and its entire automated proof is nominal.
 
 ---
 
+## Priority register (2026-09-08)
+
+This section is the ranked answer to "what next", re-derived on `main` at
+`05f557abe` (after #1647 reconciled this file, #1648 closed G1 / G3b and #1649
+closed V3C). It supersedes the ORDER implied by the Build-order tiers and the
+per-program sequencing notes below; those sections stay the DEFINITIONS of the
+items and the record of why. Re-derive before acting: `ls harness/scenarios/*.toml`
+(225), `hlib.compute_coverage` (163 of 248 cells, 85 uncovered), and the category
+inventory (106 of 112 categories driven; 110 once #1650 merges - it is open with CI
+green and closes `Contracts`, `RouteLiveAnchor`, `ResourceTopBar` and
+`PartEventFX`, leaving `CrewReservationLive` and `DisabledHoverEcho`, both
+host-blocked). The "Committed, not yet green" table in `autotest-status.md` is
+EMPTY: every committed lane has a green run. What remains is, in order:
+
+1. **R10 runtime-handle plumbing** (Tier 3; one harness PR plus one seam verb, no
+   flight). It is the one unbuilt CAPABILITY left and it gates the most cells per
+   unit of work: D18 `committed-interaction-claiming` / `chain-tip-original-pid`
+   and D5 `chain-continuation-switch` need a switch target that is a live-tree
+   background member (a live handle); R12 Stage B (the tombstone half, live
+   `InvokeRewind`) and the pre-switch dialog cases need the same. D18 is the
+   largest uncovered dimension (10 of 12) and it is the interaction surface of the
+   v0.9 headline feature, so this is where the next unmeasured product risk sits.
+2. **The chain-interaction wave riding R10**: one fixture whose switch target is a
+   background member of the live tree plus one committed spawned vessel; claims the
+   three cells above. Author it against R10's first green consumer, not before.
+3. **Ghost-replay Tier A items 2-5** (the roadmap's own sequencing after GS-6):
+   watch retarget + explosion hold (D6, the long-declined cell), zone transitions
+   (needs an in-game test first, Cause F), debris TTL / promotion split (D5), and
+   the GS-6 residues (`chute-two-phase` / `chute-cut` need a descent variant,
+   `bays` a harvested ServiceBay tail). Existing fixtures and verbs; one flight
+   each. Note the cheap CLAIM half first: `ReentryFx` (H52), `Pipeline-Anchor`
+   (H11) and `Watch` (LT-1) already execute whole, but their D6 / D3 cells stay
+   unclaimed because a whole-tally pin asserts the cells RAN, not what they
+   proved - each needs one cell-level gating token, the H57 lesson in reverse.
+4. **Ghost-replay Tier B item 6, the vanished-RewindPoint design call**: costs
+   nothing and the roadmap says to take it early; then items 7-9 (rewind-to-launch
+   x Re-Fly, repeat-rewind idempotence, arming `unityExceptions` on GS-4 / W1 -
+   the latter is also the first real move on known-gate 11, raw Unity exceptions
+   unjudged).
+5. **Ghost-replay Tier C as one arc**: ghostlife v2 (item 10) then loop-cycle
+   rendering on the GS-4 subject (item 12, blocked on 10), with the replay-parity
+   evaluator (11) alongside.
+6. **Loop-render residue, in this order**: G2's KSC third (`V20K`, one reading run,
+   nothing blocks it, criterion (c) forbids writing the KSC limitation up before it
+   flies); the criterion (b) control debt on every V pair that still shares the
+   `rewind.supersedeRows` inversion; G8 (long-horizon recurrence + co-residency -
+   instrument work first, then the three roads; the one player-visible risk still
+   unmeasured in this program); G5 and G9 as breadth behind them. `V18M`, `B31`
+   and the FLIGHT variant of B27 stay reserved, not blockers.
+7. **Cheap flights and arming calls, batch them between the items above**:
+   Operator item 8 (EVA-2 points-window reading run + negative control, ~64 s
+   each); H59's report-only `[expectations.routes]` reading and the promotion of
+   the other report-only route declarers; the `operator -> nightly` PROMOTION
+   calls for V18T, V20M, V20T, V25M, B29, V3C and GS-6 (each has the three-run
+   discipline behind it; B29 is a 35-minute lane, so it costs the nightly budget
+   more than the others); the R1 residue windows on `B1-pad-hop` and `BDOCK-1`;
+   R14's two instance-ready specs (`better-time-warp`, `making-history`).
+8. **Tier D D1 residue** as filler: `switch-segment-noop-discard`, `commit-abort`
+   (needs its definition first), `sub-2-point-drop`, and the R2 registry decision
+   on `stop-on-switch` (still unclaimable as written; the other R2 cell,
+   `surface-body-fixed`, is claimed by `H17-flight-integration`, so R2 is down to
+   one cell and its "two unclaimable cells" text is stale).
+9. **Trust risks** that no lane moves by itself: risk 4 (the ledger oracle's
+   independence check is a structural no-op; needs a reputation-producing scenario
+   carrying a ledger block), risk 8 (no mutation tool), known-gate 14 (strict
+   per-identity ground truth armed by nothing), known-gate 7 (B4's chute latch,
+   needs its own diagnosis from a B4 recording).
+10. **Operator-only hand-off** (manual flights, schedule rather than attempt
+    opportunistically): D14 inter-body surface delivery, D13 / D10
+    `harvest-provenance` on an ore drill, the recovery-credit third of costed
+    dispatch, and the Tier 4 residue (`manual-gloops`, claw / inventory producers,
+    crew swap, milestones, D13 spawn-positioning generator work, D16 storage cells,
+    the D11 mission cells).
+
+Decisions owed rather than work: keep or delete `bdock-station-craft` (default
+KEEP; two suites enumerate it), and whether `V18M` / `V20K` are worth their reading
+runs this cycle or stay when-wanted.
+
 ## What we cannot reproduce yet, grouped by cause
 
 The single largest cause is not a missing capability. It is that we own roughly five
@@ -675,7 +753,11 @@ Rule: one token per claimed class; never loosen a token to keep a claim.
 **R2. Resolve the two registry defects.** Registry-only. **STILL OPEN** -
 re-verified 2026-07-28 at `7f5efa738`: both `stop-on-switch` and
 `surface-body-fixed` are still in `registry.toml`, so the 242 denominator still
-carries two unclaimable cells.
+carries two unclaimable cells. **UPDATED 2026-09-08: down to ONE.**
+`surface-body-fixed` is claimed by `H17-flight-integration` (`D3 = ["surface-body-fixed"]`,
+gated on that lane's whole tally) and reads covered in `hlib.compute_coverage`;
+`stop-on-switch` is still in the registry and still unclaimed. The decision below
+now concerns that one cell.
 
 D1 `stop-on-switch` and D3 `surface-body-fixed` cannot be honestly claimed as
 written (see Cause F). Both R1 and everything after it writes claims against the
