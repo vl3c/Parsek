@@ -109,6 +109,70 @@ def copy_file(src, dst_dir):
         return False
 
 
+def render_manifest_save_name(text):
+    """The `saveName` a render manifest declares in its header, or None.
+
+    The manifest is a ConfigNode written by the M-A7 recorder; its header carries the
+    save it was exported from. Pure over the file's text so the decision below is
+    testable without a KSP install.
+    """
+    if not text:
+        return None
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("saveName"):
+            continue
+        head, sep, value = stripped.partition("=")
+        if not sep or head.strip() != "saveName":
+            continue
+        return value.strip()
+    return None
+
+
+def should_copy_render_manifest(manifest_save_name, collected_save_name):
+    """Decide whether a render manifest belongs to the session being collected.
+
+    Returns (copy, reason). The manifest lives at the KSP root like the test-results
+    file, but unlike that file NOTHING clears it between runs: a bundle collected with
+    PARSEK_RENDER_MANIFEST unset happily carried a 14-day-old manifest from a different
+    save (2026-09-08 bundle, `saveName = s15 (SANDBOX)`), which reads as the session's
+    own artifact and is not. Gate on the manifest's own declared save.
+    """
+    if manifest_save_name is None:
+        return False, "no saveName header (unreadable or pre-header manifest)"
+    if not collected_save_name:
+        return False, "no collected save name to compare against"
+    # The recorder writes HighLogic.CurrentGame.Title, which is the save FOLDER plus a
+    # bracketed game mode ("s15 (SANDBOX)"), while the collector works in folder names.
+    # Accept either spelling; anything else is a manifest from a different save.
+    if manifest_save_name == collected_save_name:
+        return True, f"saveName '{manifest_save_name}' matches the collected save"
+    if manifest_save_name.startswith(collected_save_name + " ("):
+        return True, (f"saveName '{manifest_save_name}' is the collected save "
+                      f"'{collected_save_name}' with its game mode")
+    return False, (f"saveName '{manifest_save_name}' is not the collected save "
+                   f"'{collected_save_name}'")
+
+
+def copy_render_manifest_if_current(ksp_dir, save_name, out_dir):
+    """Copy parsek-render-manifest.txt only when it belongs to this session."""
+    manifest = Path(ksp_dir) / "parsek-render-manifest.txt"
+    if not manifest.is_file():
+        return False
+    try:
+        text = manifest.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        print(f"  parsek-render-manifest.txt  (skipped: unreadable: {exc})")
+        return False
+    declared = render_manifest_save_name(text)
+    copy, reason = should_copy_render_manifest(declared, save_name)
+    if not copy:
+        mtime = datetime.fromtimestamp(manifest.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
+        print(f"  parsek-render-manifest.txt  (skipped: {reason}; mtime {mtime})")
+        return False
+    return copy_file(manifest, out_dir)
+
+
 def parsek_sidecar_dirs_to_copy(parsek_dir, skip_recordings):
     """Names of the save's Parsek/<dir> subdirectories to copy, sorted.
 
@@ -378,8 +442,11 @@ def main():
         copy_file(player_log, out_dir)
     copy_file(ksp_dir / "parsek-test-results.txt", out_dir)
     # M-A7: the render-composition manifest is a KSP-root artifact like the test
-    # results file; absent unless PARSEK_RENDER_MANIFEST armed the recorder.
-    copy_file(ksp_dir / "parsek-render-manifest.txt", out_dir)
+    # results file; absent unless PARSEK_RENDER_MANIFEST armed the recorder. Nothing
+    # clears it between runs, so it is copied only when its own saveName header names
+    # the save being collected - otherwise a stale manifest from another save reads as
+    # this session's evidence (it did, on the 2026-09-08 bundle).
+    copy_render_manifest_if_current(ksp_dir, save_name, out_dir)
     copy_file(ksp_dir / "Logs" / "ModuleManager" / "ModuleManager.log", out_dir)
     copy_file(ksp_dir / "Logs" / "ModuleManager" / "MMPatch.log", out_dir)
     print()

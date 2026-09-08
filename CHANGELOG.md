@@ -10,6 +10,13 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **`collect-logs.py` no longer copies a render manifest that belongs to a different
+  session.** The manifest lives at the KSP root like the test-results file, but nothing
+  clears it between runs, so a bundle collected with the recorder inert carried a
+  fourteen-day-old manifest from another save and read as that session's evidence. It is
+  now copied only when its own `saveName` header names the save being collected, and the
+  skip prints the manifest's declared save and its modification time.
+
 - **Automated testing: one in-game cell now watches a predicted continuation tail reach
   a draw decision against a live body.** The three existing in-game checks named for this
   render assert the segment SELECTOR's input window, and all three would have passed on

@@ -99,6 +99,16 @@ other render-side lat/lon/alt reader already dispatches. Now dispatched through 
 Relative section without one REFUSES with
 `MapMarkerPositionFailureReason.RelativeFrameWithoutBodyFixed` rather than clamping.
 
+## ~~COLLECT-LOGS-COPIED-A-STALE-RENDER-MANIFEST~~ FIXED 2026-09-08
+
+`scripts/collect-logs.py` copied `parsek-render-manifest.txt` unconditionally. The
+2026-09-08 bundle therefore carried a 2026-08-25 file from save `s15 (SANDBOX)` while
+KSP.log:227 said `[RenderManifest] inert: PARSEK_RENDER_MANIFEST=(unset)` - an artifact
+that reads as this session's and is not. The copy is now gated on the manifest's own
+`saveName` header matching the collected save, and prints why it skipped otherwise.
+
+---
+
 ## DISCARDTREE-CANNOT-IDLE-A-COMMITTED-TREE-RESTORE-HOST: on a save whose committed tree is restorable for a spawned vessel, `StopRecording` + `DiscardTree` frees the recorder for about 7 ms before the restore re-arms and promotes it again, so every in-game cell that guards on an idle recorder skips `recording already active` [MEASURED 2026-09-07 by the second in-game census over `mun-landing-recorded` (scratch CEN-5, and CEN-7 with a 12-step `RecordingState` dwell inserted between `DiscardTree` and `RunTests`): all ten `AutoRecord` cells skipped identically on both. A HOST PROPERTY of the seam, not a product defect - no coverage is lost, so this is filed to be known rather than fixed]
 
 The log line that names the mechanism, from the CEN-7 runlog seven milliseconds after
