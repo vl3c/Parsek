@@ -3643,9 +3643,11 @@ reading position). The Tracking Station runs its own per-recording resolver
 unconditionally and therefore IS the harness subject for that half. Filed as
 RF7M-DEFECT-B-NEEDS-AN-ENGAGED-GHOST; the two defect-(B) tokens moved from RF-7M to RF-7T.
 
-**THE TWO FIXES.** Neither is in this program's scope and both are open at the
-time of writing: PR #1658 (`refly-continuation`) carries the open bit across an
-optimizer split - `second.MergeState = original.MergeState` beside the terminal
+**THE TWO FIXES.** Neither is in this program's scope. PR #1658
+(`refly-continuation`) MERGED to main on 2026-09-08 as `a783879aa`, after the three
+reading runs above - so they flew a pre-fix DLL, and since that fix emits no new log
+token and moves none of their pins, what is owed is a confirmation re-flight rather
+than a re-derivation. It carries the open bit across an optimizer split - `second.MergeState = original.MergeState` beside the terminal
 move, plus the more-open-wins mirror in `MergeInto` - and emits no new log token,
 so no RF lane moves when it lands. The `refly-render-tail` branch draws the
 predicted tail and routes chain map presence through

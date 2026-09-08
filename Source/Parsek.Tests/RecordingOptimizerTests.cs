@@ -621,6 +621,57 @@ namespace Parsek.Tests
             Assert.DoesNotContain(logLines, l => l.Contains("voided on both halves"));
         }
 
+        // A Re-Fly slot's open/closed bit is read from the slot's effective chain
+        // TIP, and the split moves the terminal onto the second half - which makes
+        // that half the tip. Leaving the second half at Recording.MergeState's
+        // Immutable default silently closed the slot and the reaper then deleted its
+        // rewind-point quicksave (session 2026-09-08_2317_refly-a-manual).
+        [Fact]
+        public void SplitAtSection_CarriesMergeStateToTheTerminalCarryingHalf()
+        {
+            EnableLogCapture();
+            Recording rec = MakeRecordingWithSections(
+                17000, 17100, 17200,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
+            rec.RecordingId = "split-open-slot";
+            rec.TerminalStateValue = TerminalState.Destroyed;
+            rec.MergeState = MergeState.CommittedProvisional;
+
+            Recording second = RecordingOptimizer.SplitAtSection(rec, 1);
+
+            Assert.NotNull(second);
+            // The terminal moved (pre-existing behavior) ...
+            Assert.Equal(TerminalState.Destroyed, second.TerminalStateValue);
+            Assert.Null(rec.TerminalStateValue);
+            // ... and the open bit travelled with it.
+            Assert.Equal(MergeState.CommittedProvisional, second.MergeState);
+            // Copy, not move: the first half keeps its state. That is inert - it stays
+            // chain-linked behind the tip, and every open/closed read goes through the tip.
+            Assert.Equal(MergeState.CommittedProvisional, rec.MergeState);
+            Assert.Contains(logLines, l => l.Contains("[Optimizer]")
+                && l.Contains("Split: MergeState=CommittedProvisional carried with terminal=Destroyed"));
+        }
+
+        [Fact]
+        public void SplitAtSection_ImmutableOriginalStaysImmutableOnBothHalves()
+        {
+            Recording rec = MakeRecordingWithSections(
+                17000, 17100, 17200,
+                SegmentEnvironment.Atmospheric, SegmentEnvironment.ExoBallistic);
+            rec.RecordingId = "split-sealed";
+            rec.TerminalStateValue = TerminalState.Landed;
+            rec.MergeState = MergeState.Immutable;
+
+            Recording second = RecordingOptimizer.SplitAtSection(rec, 1);
+
+            Assert.NotNull(second);
+            Assert.Equal(TerminalState.Landed, second.TerminalStateValue);
+            // The carry never OPENS a sealed recording - it only preserves what the
+            // original already was.
+            Assert.Equal(MergeState.Immutable, second.MergeState);
+            Assert.Equal(MergeState.Immutable, rec.MergeState);
+        }
+
         // --- Supersede-row guard (post-Re-Fly-split HEAD/TIP invariant) -----
         //
         // After RecordingTreeSplitter.SplitOriginAtRewindUT splits the origin
@@ -944,6 +995,60 @@ namespace Parsek.Tests
             b.TerminalStateValue = TerminalState.Landed;
             RecordingOptimizer.MergeInto(a, b);
             Assert.Equal(TerminalState.Landed, a.TerminalStateValue);
+        }
+
+        // Mirror direction of SplitAtSection_CarriesMergeStateToTheTerminalCarryingHalf:
+        // absorbing an OPEN terminal-carrying tip into a head must not close the slot.
+        [Fact]
+        public void MergeInto_TakesTheMoreOpenMergeState_WhenAbsorbedCarriesTheTerminal()
+        {
+            EnableLogCapture();
+            var a = MakeChainSegment("c1", 0);
+            var b = MakeChainSegment("c1", 1);
+            a.RecordingId = "merge-head";
+            b.RecordingId = "merge-open-tip";
+            a.MergeState = MergeState.Immutable;
+            b.MergeState = MergeState.CommittedProvisional;
+            b.TerminalStateValue = TerminalState.Destroyed;
+
+            RecordingOptimizer.MergeInto(a, b);
+
+            Assert.Equal(TerminalState.Destroyed, a.TerminalStateValue);
+            Assert.Equal(MergeState.CommittedProvisional, a.MergeState);
+            Assert.Contains(logLines, l => l.Contains("[Optimizer]")
+                && l.Contains("MergeInto: MergeState carried with terminal=Destroyed")
+                && l.Contains("target=merge-head"));
+        }
+
+        [Fact]
+        public void MergeInto_KeepsOpenTarget_WhenAbsorbedTerminalIsSealed()
+        {
+            // One direction only: the carry never DEMOTES an open target.
+            var a = MakeChainSegment("c1", 0);
+            var b = MakeChainSegment("c1", 1);
+            a.MergeState = MergeState.CommittedProvisional;
+            b.MergeState = MergeState.Immutable;
+            b.TerminalStateValue = TerminalState.Landed;
+
+            RecordingOptimizer.MergeInto(a, b);
+
+            Assert.Equal(MergeState.CommittedProvisional, a.MergeState);
+        }
+
+        [Fact]
+        public void MergeInto_NoTerminalOnAbsorbed_LeavesTargetMergeStateAlone()
+        {
+            // The open bit is terminal-keyed: a mid-chain absorb that carries no
+            // terminal must not move the target's state.
+            var a = MakeChainSegment("c1", 0);
+            var b = MakeChainSegment("c1", 1);
+            a.MergeState = MergeState.Immutable;
+            b.MergeState = MergeState.CommittedProvisional;
+            b.TerminalStateValue = null;
+
+            RecordingOptimizer.MergeInto(a, b);
+
+            Assert.Equal(MergeState.Immutable, a.MergeState);
         }
 
         [Fact]

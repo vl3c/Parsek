@@ -729,6 +729,68 @@ namespace Parsek.Tests
             Assert.Equal("rec_crashed", members[0].RecordingId);
         }
 
+        [Fact]
+        public void OpenClosedFilter_SplitTipOfPromotedRecording_IsNotBornImmutable()
+        {
+            // Sibling of the cell above, which pins what an Immutable tip DOES
+            // (hide the row) without asking how a tip BECOMES Immutable. The
+            // optimizer's phase-change split is one answer: it mints the new chain
+            // tip and moves the terminal onto it. A tip minted from a promoted
+            // (CommittedProvisional) recording must not be born Immutable, or the
+            // row vanishes with nobody having sealed anything
+            // (session 2026-09-08_2317_refly-a-manual).
+            const string treeId = "tree_split_tip";
+            const string bpId = "bp_split_tip";
+            var crashed = Rec(
+                "rec_crashed_head",
+                MergeState.CommittedProvisional,
+                TerminalState.Destroyed,
+                parentBranchPointId: bpId);
+            AddAtmosphericToExoPayload(crashed);
+
+            Recording tip = RecordingOptimizer.SplitAtSection(crashed, 1);
+            Assert.NotNull(tip);
+            tip.RecordingId = "rec_crashed_tip";
+            tip.VesselName = tip.RecordingId;
+            // SplitAtSection does not copy branch linkage (the live split pass chains
+            // the halves instead), so point the slot straight at the tip: this cell
+            // reads the tip's own state, not the chain walk.
+            tip.ParentBranchPointId = bpId;
+
+            InstallTree(treeId, crashed, tip);
+            var rp = RpWithFocus("rp_split_tip", bpId, 0, "rec_other", "rec_crashed_tip");
+            InstallScenario(new List<RewindPoint> { rp });
+
+            Assert.Equal(TerminalState.Destroyed, tip.TerminalStateValue);
+            Assert.NotEqual(MergeState.Immutable, tip.MergeState);
+            Assert.True(UnfinishedFlightClassifier.IsSlotEffectiveTipOpen(rp.ChildSlots[1]));
+            Assert.True(EffectiveState.IsUnfinishedFlight(tip));
+        }
+
+        private static void AddAtmosphericToExoPayload(Recording rec)
+        {
+            // Crosses the Atmospheric -> ExoBallistic boundary at UT 191, both halves
+            // well clear of CanAutoSplit's 5 s minimum.
+            rec.Points.Add(new TrajectoryPoint { ut = 100.0, altitude = 5000, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 190.0, altitude = 60000, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 191.0, altitude = 71000, bodyName = "Kerbin" });
+            rec.Points.Add(new TrajectoryPoint { ut = 800.0, altitude = 250000, bodyName = "Kerbin" });
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                startUT = 100.0,
+                endUT = 191.0,
+                frames = new List<TrajectoryPoint>(),
+            });
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.ExoBallistic,
+                startUT = 191.0,
+                endUT = 800.0,
+                frames = new List<TrajectoryPoint>(),
+            });
+        }
+
         private static Recording Rec(
             string id,
             MergeState state,

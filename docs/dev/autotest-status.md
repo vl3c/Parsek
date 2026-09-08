@@ -2765,10 +2765,13 @@ deleted the RewindPoint permanently. Separately, that pod's predicted tail was d
 NOTHING on the map: `runArcs+=0` on all 96 render runs, proto presence
 `hasOrbitSegments=False` on the HEAD, `orbitSource=state-vector-fallback`.
 
-TWO PRODUCT FIXES ARE IN FLIGHT AND THIS PROGRAM TOUCHES NEITHER. PR #1658
-(`refly-continuation`) carries the open bit across an optimizer split and mirrors it in
-`MergeInto`; the `refly-render-tail` branch draws the predicted tail and resolves chain map
-presence through the effective tip. RF-7M and RF-7T are authored to RED on main on exactly
+TWO PRODUCT FIXES, AND THIS PROGRAM TOUCHES NEITHER. PR #1658 (`refly-continuation`)
+carries the open bit across an optimizer split and mirrors it in `MergeInto`, and MERGED
+to main on 2026-09-08 as `a783879aa` - AFTER the three reading runs below, which therefore
+flew a pre-fix DLL and are owed a confirmation re-flight rather than a re-derivation (it
+emits no new log token and moves none of their pins). The `refly-render-tail` branch draws
+the predicted tail and resolves chain map presence through the effective tip, and is still
+open - which is what RF-7M and RF-7T reproduce. RF-7M and RF-7T are authored to RED on main on exactly
 the defect tokens, which is a measured reproduction rather than a lane defect - each says
 so in its own STATUS block and in its row below.
 

@@ -849,7 +849,28 @@ namespace Parsek
             // states, so a verdict change here can leave them stale. No-op in the normal
             // pre-commit case where nothing has populated them yet.
             if (absorbed.TerminalStateValue.HasValue)
+            {
                 target.StampTerminalState(absorbed.TerminalStateValue, "RecordingOptimizer.AbsorbInto");
+
+                // Mirror of the split's MergeState carry (see
+                // TransferTerminalFieldsToSecondHalf): open/closed for a Re-Fly slot is
+                // read from the slot's effective chain TIP and is terminal-keyed, so a
+                // merge that moves the terminal onto `target` must not leave `target`
+                // more closed than the tip it absorbed. Take the MORE OPEN of the two.
+                // One direction only: an open target is never demoted by absorbing a
+                // sealed segment, and NotCommitted is not "more open" here - it means a
+                // live recorder, which a committed target must not claim to be.
+                if (absorbed.MergeState == MergeState.CommittedProvisional
+                    && target.MergeState == MergeState.Immutable)
+                {
+                    target.MergeState = MergeState.CommittedProvisional;
+                    ParsekLog.Verbose("Optimizer",
+                        $"MergeInto: MergeState carried with terminal=" +
+                        $"{absorbed.TerminalStateValue.Value} - target={target.RecordingId ?? "<no-id>"} " +
+                        $"Immutable -> CommittedProvisional (absorbed=" +
+                        $"{absorbed.RecordingId ?? "<no-id>"})");
+                }
+            }
             if (absorbed.TerminalOrbitBody != null)
             {
                 target.TerminalOrbitInclination = absorbed.TerminalOrbitInclination;
@@ -1364,8 +1385,31 @@ namespace Parsek
             // original.StartCrew unchanged (keeps the recording-start crew)
             // second.StartCrew stays null (no snapshot at environment boundary)
 
+            TerminalState? carriedTerminal = original.TerminalStateValue;
             second.TerminalStateValue = original.TerminalStateValue;
             original.TerminalStateValue = null;
+
+            // A Re-Fly slot's open/closed bit is read from the slot's effective chain
+            // TIP (UnfinishedFlightClassifier.IsSlotEffectiveTipOpen), and the terminal
+            // move above just made `second` that tip. The bit is terminal-keyed by
+            // construction, so it must travel with the terminal: leaving `second` at
+            // Recording.MergeState's Immutable default closes a slot nobody sealed and
+            // RewindPointReaper then deletes its quicksave permanently.
+            // COPY, not move: a stale CommittedProvisional left on the first half is
+            // inert, because TryQualify accepts Immutable and CommittedProvisional
+            // alike and every open/closed read goes through the tip.
+            // The copy is UNCONDITIONAL (no terminal-carry gate, unlike MergeInto) and
+            // carries NotCommitted too: CopySplitIdentityFields already gives the second
+            // half its head's session and RP ids, so it must stay on the same
+            // load-time-sweep terms as its head rather than become an Immutable orphan;
+            // MergeInto refuses NotCommitted because a committed target must not claim
+            // a live recorder.
+            second.MergeState = original.MergeState;
+            ParsekLog.Verbose("Optimizer",
+                $"Split: MergeState={original.MergeState} carried with terminal=" +
+                $"{(carriedTerminal.HasValue ? carriedTerminal.Value.ToString() : "<none: unconditional copy>")} " +
+                $"onto the second half (original={original.RecordingId ?? "<no-id>"}; " +
+                "the second half's id is assigned by the caller)");
 
             second.TerminalOrbitInclination = original.TerminalOrbitInclination;
             second.TerminalOrbitEccentricity = original.TerminalOrbitEccentricity;

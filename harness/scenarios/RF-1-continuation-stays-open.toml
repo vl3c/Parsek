@@ -93,9 +93,12 @@ id = "RF-1-continuation-stays-open"
 # - asserted cell by cell in `harness/lib/test_build_refly_a_recorded.py`. A lane cannot
 # reproduce a defect whose trigger its own physics cannot reach; a fixture can.
 #
-# PR #1658 (`refly-continuation`) carries the fix - `second.MergeState =
+# PR #1658 (`refly-continuation`) carried the fix - `second.MergeState =
 # original.MergeState` beside the terminal move, plus the more-open-wins mirror in
-# `MergeInto`. It emits NO new log token, so nothing below moves when it lands.
+# `MergeInto` - and MERGED to main on 2026-09-08 as `a783879aa`, AFTER this lane's reading
+# run. It emits no new log token and moves none of the tokens below, which is why the
+# reading run's verdict still stands; a re-flight on post-#1658 main is owed as a
+# confirmation, not as a re-derivation.
 #
 # =====================================================================================
 # THE RE-FLY HALF: how the run gets back into FLIGHT to drive it.
@@ -122,10 +125,50 @@ id = "RF-1-continuation-stays-open"
 # silently: `InvokeRewind` REJECTs `unknown-slot`, and a CLOSED slot REJECTs `refly-gate`.
 #
 # =====================================================================================
-# STATUS: NEVER FLOWN. `tier = "operator"` while calibrating. Nothing is armed; both
-# save-parse blocks are report-only by omission of a `gating` key, and their windows are
-# what the seed and GS-1 flight 3 PREDICT rather than what anything measured - the reading
-# run is what turns them into measurements.
+# STATUS: LIVE-PROVEN. READING RUN 1 FLOWN 2026-09-08
+# (`2026-09-08_2146_RF-1-continuation-stays-open`), PASS ATTEMPT 1, wall 171 s, against
+# the main-built DLL (deployed hash 83b1adea88cd8cd5). Every verifier PASS or SKIPPED,
+# expectations **mismatches=0** over all 15 required and 4 forbidden patterns, analyzer
+# red=0, logValidate PASS, anomalySweep `hits=[] counts={}`, unityExceptions total=0.
+# `tier = "operator"` while calibrating; nothing armed.
+#
+# THE MISSION VARIANT WORKED ON ITS FIRST FLIGHT: `assert boosterStillAirborne
+# value=FLYING met=True`, MISSION-OK in 95.8 s, phases PRELAUNCH -> ASCENT -> STAGE ->
+# COAST -> DESCENT -> SIBLING-DOWN -> LANDED. The pod touched down at ut 118.98 and the
+# booster read FLYING on the two frames that followed, which is the whole shape.
+#
+# MEASURED, VERBATIM, and every one of them a token this spec had DERIVED:
+#   `RewindPoint begin: rp=rp_fcbe24b4e5b94d769796d7ace521f451 bp=bcb1b6ae... slots=2
+#    controllablePids=2 focusSlot=0 ut=30.86`
+#   `IsUnfinishedFlight=true rec=6dbb8d01... reason=stableLeafUnconcluded slot=1
+#    focusSlot=0 terminal=SubOrbital side=child`
+#   `CommitTree promoted rec=6dbb8d01... vessel='GS1 Auto-Chute Booster Probe' slot=1
+#    rp=rp_fcbe24b4... reason=stableLeafUnconcluded to CommittedProvisional`
+#   `ReapOrphanedRPs: reaped=0 remaining=1`
+#   `listhandles kind=rewindpoints count=1 truncated=false`, then the harness's own
+#    `substituted id=0011 arg=rp ref=${handles.rp0} value=rp_fcbe24b4e5b94d769796d7ace521f451`
+#    reaching `Invocation complete: sess=sess_20fa94ec... rp=rp_fcbe24b4... slot=1
+#    activePid=4023738118` - the first re-fly in the suite of a RewindPoint KSP physics
+#    authored during the same run.
+#
+# THE FORBID HELD, AND SO DID THE PREDICTION BEHIND IT. No `reason=sealedTipClosed`, no
+# `already committed/fork`, no `Reaped rp=`. The header above argued this profile cannot
+# reproduce the split defect because it crosses no environment boundary; the run confirms
+# it, which is worth as much as the positive half - it is what makes the fixture, not this
+# lane, the defect's reproduction.
+#
+# THE SAVE-PARSE WINDOWS ALL LANDED, which is what promotes them from guesses to
+# measurements: `rewindPoints=1 supersedeRows=1 tombstones=0`, structure `trees=1
+# committedTrees=1 recordings=3 terminalStates{Landed 1, SubOrbital 1, Destroyed 1}
+# branchPoints{JointBreak 1}`, points total 742 (largest 381). The Destroyed one is the
+# RE-FLY's own fork, which closed `IsUnfinishedFlight=true ... reason=crashed
+# terminal=Destroyed side=child` - a second, unpinned reading worth recording, because it
+# is the `crashed` branch the seed took and this lane's own booster did not.
+#
+# ARMING IS NOT TAKEN HERE. One sample is one sample, and the two windows worth arming
+# (`rewindPoints = {1,1}` and the SubOrbital terminal) are exactly the ones a second flight
+# should confirm first. The arming discipline is S4.1's: reading run, armed run, negative
+# control.
 # =====================================================================================
 tier = "operator"
 description = "GS-1 inverted: the same two-stage flight exits to the Space Center with the auto-chute booster STILL UNDER CANOPY, so the non-focus slot is promoted CommittedProvisional and its flight-authored RewindPoint survives - then the lane re-enters FLIGHT, reads the live RewindPoint id off ListHandles and RE-FLIES that slot, the first re-fly in the suite of a RewindPoint KSP physics authored during the same run."
