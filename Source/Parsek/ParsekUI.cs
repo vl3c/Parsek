@@ -1685,7 +1685,61 @@ namespace Parsek
             BadRecordingIndex,
             NoTrajectoryPoints,
             OutsideTimeRange,
-            MissingBody
+            MissingBody,
+
+            /// <summary>
+            /// The UT falls in a RELATIVE-frame TrackSection with no body-fixed shadow, so no
+            /// body-fixed (lat, lon, alt) triple exists for it. Refusing is mandatory: in a
+            /// RELATIVE section those three fields are anchor-local METRE OFFSETS, and feeding
+            /// them to <c>CelestialBody.GetWorldSurfacePosition</c> puts the marker deep inside
+            /// the planet (the CLAUDE.md "Rotation / world frame" footgun).
+            /// </summary>
+            RelativeFrameWithoutBodyFixed
+        }
+
+        /// <summary>
+        /// Which sample list answers a body-fixed (lat, lon, alt) read at one UT, per the
+        /// section's <see cref="ReferenceFrame"/>. Mirrors the polyline builder's
+        /// <c>ResolveSourceListForSection</c> policy exactly: Absolute walks the recording's own
+        /// points, a Relative section walks its body-fixed shadow, and a Relative section WITHOUT
+        /// one refuses rather than reading metre offsets as geographic coordinates.
+        /// </summary>
+        internal enum MapMarkerFrameSource
+        {
+            FlatPoints,
+            SectionBodyFixedFrames,
+            RelativeUnresolved
+        }
+
+        /// <summary>
+        /// PURE frame dispatch for the map-marker position read. Returns which list to sample and,
+        /// for <see cref="MapMarkerFrameSource.SectionBodyFixedFrames"/>, that list. A recording
+        /// with no TrackSections, or a UT outside every section, keeps the flat-points path
+        /// (byte-identical to the pre-2026-09-08 behaviour, which is what every Absolute-only
+        /// recording is). xUnit-testable: no Unity or KSP call.
+        /// </summary>
+        internal static MapMarkerFrameSource ResolveMapMarkerFrameSource(
+            List<TrackSection> sections, double ut, out List<TrajectoryPoint> source)
+        {
+            source = null;
+            if (sections == null || sections.Count == 0)
+                return MapMarkerFrameSource.FlatPoints;
+
+            int idx = TrajectoryMath.FindTrackSectionForUT(sections, ut);
+            if (idx < 0)
+                return MapMarkerFrameSource.FlatPoints;
+
+            TrackSection section = sections[idx];
+            if (section.referenceFrame != ReferenceFrame.Relative)
+                return MapMarkerFrameSource.FlatPoints;
+
+            if (section.bodyFixedFrames != null && section.bodyFixedFrames.Count > 0)
+            {
+                source = section.bodyFixedFrames;
+                return MapMarkerFrameSource.SectionBodyFixedFrames;
+            }
+
+            return MapMarkerFrameSource.RelativeUnresolved;
         }
 
         internal struct MapMarkerSummary
@@ -2468,15 +2522,38 @@ namespace Parsek
                 return false;
             }
 
+            // RELATIVE-frame dispatch: rec.Points in a Relative section carries anchor-local
+            // METRE OFFSETS in latitude/longitude/altitude, so reading them geographically puts
+            // the marker inside the planet. Use the section's body-fixed shadow when it has one,
+            // and refuse otherwise - the marker is a fallback affordance, so no marker beats a
+            // marker at a fabricated position (the same "retire, never clamp" rule the
+            // parent-anchored playback path follows).
+            MapMarkerFrameSource frameSource = ResolveMapMarkerFrameSource(
+                rec.TrackSections, ut, out List<TrajectoryPoint> sectionSource);
+            if (frameSource == MapMarkerFrameSource.RelativeUnresolved)
+            {
+                failureReason = MapMarkerPositionFailureReason.RelativeFrameWithoutBodyFixed;
+                return false;
+            }
+            List<TrajectoryPoint> samples =
+                frameSource == MapMarkerFrameSource.SectionBodyFixedFrames
+                    ? sectionSource
+                    : rec.Points;
+
             int cachedIdx;
             if (!mapMarkerCachedIndices.TryGetValue(recordingIndex, out cachedIdx))
                 cachedIdx = -1;
+            // The cached index indexes rec.Points; a per-section list is a different array, so
+            // start cold for it and do not write the section-local index back.
+            bool useCachedIndex = frameSource == MapMarkerFrameSource.FlatPoints;
+            int sampleIdx = useCachedIndex ? cachedIdx : -1;
 
             TrajectoryPoint before, after;
             float t;
-            bool found = TrajectoryMath.InterpolatePoints(rec.Points, ref cachedIdx, ut,
+            bool found = TrajectoryMath.InterpolatePoints(samples, ref sampleIdx, ut,
                 out before, out after, out t);
-            mapMarkerCachedIndices[recordingIndex] = cachedIdx;
+            if (useCachedIndex)
+                mapMarkerCachedIndices[recordingIndex] = sampleIdx;
 
             double lat, lon, alt;
             if (found)

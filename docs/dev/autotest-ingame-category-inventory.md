@@ -129,7 +129,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `Logistics` | 47 | 8 | 2 | 1 | 38 | 46 | H34 (SPACECENTER slice), H35 (FLIGHT ordinary slice), H38 (FLIGHT ISOLATED on a built pad rig, flown 2026-08-28, executes 39), H39 + H40 (the same ISOLATED slice on RECORDED hosts, both flown 2026-08-28, executing 34 and 35), RVR-1 (the same ISOLATED slice on the TARGET-BRANCH recorded host `rover-route-recorded`, authored 2026-08-30, NEVER FLOWN - predicted to convert the two dock-window cells H39/H40 both measured as unpayable by existing bytes, at the cost of the initiator cell they pin). Union across the five FLOWN slices: 42 of 47 | B |
 | `LogisticsGrapple` | 4 | 3 | 0 | 0 | 1 | 2 | H41 (ISOLATED, flown 2026-08-28, executes 3 of 4; the 4th wants a harvested Grapple window) | A |
 | `MapPresence` | 5 | 5 | 3 | 3 | 0 | 2 | H28 | A |
-| `MapRender` | 22 | 21 | 0 | 0 | 1 | 14 | S1.7 | B |
+| `MapRender` | 23 | 22 | 0 | 0 | 1 | 14 | S1.7 | B |
 | `MapView` | 4 | 3 | 3 | 4 | 0 | 2 | H47 (flown 2026-08-28, executes 4 of 4) | A |
 | `MergeDialog` | 2 | 0 | 0 | 0 | 2 | 2 | H63-merge-dialog-isolated (ISOLATED, LIVE-PROVEN 2026-09-06, run `2026-09-06_2012`: PASS attempt 1, 58 s wall, every verifier PASS or SKIPPED, `BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=MergeDialog scene=FLIGHT` pinned whole. EXECUTED 2 of 2. The merge popup's own two branches driven in place over a FABRICATED pending tree - Discard clears it, deferred Merge commits it through the real `Merge to Timeline` path - which is a different seam from H21's, where a real stock scene exit spawns the same popup. Boots `gloops-airshow`: neither cell stages or spawns, so the requirement is `loaded-vessel`. Neither REFLECTION guard fired, so the merge-dialog helpers and `ParsekScenario.Instance` both resolve at run time on KSP 1.12.5) | A |
 | `MissionPhasing` | 4 | 4 | 0 | 0 | 0 | 2 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 3 of 4; the residue wants an airborne vessel) | B |
@@ -206,8 +206,8 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **112 categories / 621 declarations**. Buckets **A 86 categories
-(348 declarations)**, **B 26 categories (273 declarations)**, **C 0 categories (0
+Totals, re-derived: **112 categories / 622 declarations**. Buckets **A 86 categories
+(348 declarations)**, **B 26 categories (274 declarations)**, **C 0 categories (0
 declarations)** - all three re-derived mechanically 2026-09-08 by counting the table's
 rows per Bucket cell and summing their Decls column, which is also how the bucket
 section headers below are derived. The bucket numbers in this line had drifted
@@ -307,7 +307,7 @@ Tier B item-4 subject the roadmap wrote as a manual flight and H56's probe retir
 ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE, fixed in the same commit as these cells, so
 nothing has ever exercised the fixed producer live.
 
-Driven by a committed spec: **112 of 112 categories**, covering **621 of 621
+Driven by a committed spec: **112 of 112 categories**, covering **622 of 622
 declarations** (re-derived mechanically 2026-09-08: count the table rows whose
 Driven-by cell is not `-`, and sum their Decls column).
 
@@ -1061,7 +1061,7 @@ drive WHOLE: `Contracts` (2 of 2, LT-3), `RouteLiveAnchor` (1 of 1, LT-4) and
 to be read against, and LT-1 flew its own 30-constituent pin green the same evening
 (`2026-09-07_2030`, 292 s).
 
-### Bucket B - wireable, but needs something first (26 categories, 273 declarations)
+### Bucket B - wireable, but needs something first (26 categories, 274 declarations)
 
 Not one list but six reasons, and the reason is what decides whether it is worth
 doing.

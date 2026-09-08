@@ -50,7 +50,13 @@ namespace Parsek.MapRender
             CelestialBody body = ResolveBodyByNameSafe(bodyName);
             if (body == null)
                 return false;
-            info = new GhostTrajectoryPolylineRenderer.BodySurfaceInfo { radius = body.Radius };
+            info = new GhostTrajectoryPolylineRenderer.BodySurfaceInfo
+            {
+                radius = body.Radius,
+                // PREDICTED-TAIL: GM must be carried here too, or the Director chain would
+                // classify a predicted orbit-owned tail conic differently from the polyline cover.
+                gravParameter = body.gravParameter
+            };
             return true;
         }
 
