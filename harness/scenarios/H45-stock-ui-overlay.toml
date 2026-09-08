@@ -50,23 +50,44 @@ tier = "nightly"
 # closing it needs a career save carrying at least one offered contract with a non-empty
 # title and Guid at the moment the batch runs. Declared as 2 in
 # `IngameBatchWiringGroupTests.RUNTIME_SKIPS` so the tally can be pinned WHOLE without
-# the group asserting a split this fixture cannot deliver. CONFIRM RUNS PENDING.
-description = "FLOWN: the in-game StockUiOverlay category unattended on a career host - Parsek's decorations on the live stock R&D, Astronaut Complex and Mission Control screens, and their removal on despawn."
+# the group asserting a split this fixture cannot deliver.
+#
+# -------------------------------------------------------------------------------------
+# SECOND READING (2026-09-08) - THE OPEN QUESTION WAS A PRODUCT DEFECT, NOT A FIXTURE.
+# `career-earned-ksc` (nine Offered contracts, vessel-less, boots to the Space Center)
+# was built to answer the fixture requirement above, and the first census on it (CEN-2,
+# `2026-09-07_2017`) still read both Mission Control cells skipping - now with
+# `rows=9, contractRows=0`: nine live rows, and the picker could not read a contract out
+# of ANY of them. The production overlay logged the same thing on the same screen
+# ("MissionControl row contract lookup failed - contract overlays disabled"): stock
+# (`MissionControl.AddItem`, KSP 1.12.5) stores a `MissionControl.MissionSelection`
+# wrapper in `UIListItem.Data`, and both Parsek's overlay and the test cast it
+# `as Contract`, so the Mission Control contract overlays had never decorated a row.
+# `StockUiOverlayController.ExtractMissionControlRowContract` now unwraps the
+# MissionSelection (a bare Contract payload is still accepted) and the test reads rows
+# through it. Census CEN-11 (`2026-09-08_1034`) on the fixed DLL: 6 of 6, the overlay
+# logging `MissionControl decorated contractCount=1`. The lane moved to this host and
+# pins the whole category executing; `career-contract-pad` stays the L5 lane's host.
+# FIRST FLIGHT ON THIS HOST: run `2026-09-08_1039`, PASS attempt 1, wall 49 s, the
+# 6/6 line matched verbatim, `recordings.count = 2`, every verifier PASS or REPORT.
+description = "FLOWN: the in-game StockUiOverlay category unattended on a career host with contracts on offer, all six cells executing - Parsek's decorations on the live stock R&D, Astronaut Complex and Mission Control screens, and their removal on despawn."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "phase4-wave1", "stock-ui", "career", "H45", "flown"]
 
 [fixture]
-# career-contract-pad, and BOTH properties are load-bearing. CAREER: four of the six
+# career-earned-ksc (career-contract-pad until 2026-09-08), and BOTH properties are
+# load-bearing. CAREER: four of the six
 # cells skip outright on a non-career mode ("Astronaut Complex overlay verification
 # is career-only", "R&D overlay verification needs a tech-research-capable mode"),
 # so the whole batch would be vacuous on any SANDBOX host including the wave's
-# gloops-airshow. CONTRACTS: the two Mission Control cells need a contract to
-# decorate, which is what this fixture is named for and carries.
+# gloops-airshow. CONTRACTS ON OFFER: the two Mission Control cells need an Offered
+# contract row to decorate; this fixture carries nine, the old host carried none in
+# front of the screen (its one contract is Active, spliced for L5).
 #
 # It boots via `LoadGame scene=spacecenter` (the R12 argument H34 also uses).
 # Its activeVessel would otherwise take the Focusable route into FLIGHT, where
 # all six SPACECENTER-scoped declarations scene-skip and the batch is empty.
-saveTemplate = "fixtures/saves/career-contract-pad"
+saveTemplate = "fixtures/saves/career-earned-ksc"
 injectedRecordings = "none"
 craft = []
 
@@ -97,7 +118,8 @@ allowedAnomalies = []
 
 [expectations.recordings]
 # Zero: nothing here records, and the overlays are read-side decoration.
-count = { min = 0, max = 0 }
+# The two committed recordings the earned career carries (H71 pins the same 2).
+count = { min = 2, max = 2 }
 
 [expectations.logContracts]
 # ANTI-VACUITY plus a DELIBERATELY OPEN SPLIT.
@@ -110,7 +132,7 @@ count = { min = 0, max = 0 }
 #  - scene=SPACECENTER is LOAD-BEARING and is the B10 fail-open guard: a boot that lost
 #    the `scene=` argument lands in FLIGHT, where all six scene-skip and the tally reads
 #    `total=6 passed=0 failed=0 skipped=6` - a vacuous line this pin rejects.
-required  = ["BATCH_COMPLETE v1 total=6 passed=4 failed=0 skipped=2 category=StockUiOverlay scene=SPACECENTER"]
+required  = ["BATCH_COMPLETE v1 total=6 passed=6 failed=0 skipped=0 category=StockUiOverlay scene=SPACECENTER"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
 [runtime]
