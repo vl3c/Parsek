@@ -1,0 +1,364 @@
+schema = 1
+id = "RF-9-atmosphere-exit-split-stays-open"
+# =====================================================================================
+# THE RE-FLY CONTINUATION PROGRAM, LANE 9. THE SEALING DEFECT'S SHAPE, FLOWN.
+#
+# RF-1 asserts the OPEN branch of the Re-Fly slot contract on a profile that CANNOT
+# reproduce the sealing defect, and says so in its own header: a sub-kilometre GS-1
+# hop crosses no environment boundary, so the optimizer has nothing to split, so the
+# tip the split would have minted never exists. Its two forbidden patterns are a
+# GUARD there. THIS LANE IS WHERE THEY ARE A REPRODUCTION.
+#
+# THE DEFECT, in one chain (measured on the operator's manual session of 2026-09-08,
+# `logs/2026-09-08_2317_refly-a-manual`, and frozen as the fixture `refly-a-recorded`):
+#   1. `RecordingStore.ApplyRewindProvisionalMergeStates` promotes the qualifying
+#      slot's recording to `CommittedProvisional` - correct at that instant.
+#   2. 230 ms later `RunOptimizationPass` splits that same recording at an
+#      Atmospheric -> ExoBallistic boundary. `TransferTerminalFieldsToSecondHalf`
+#      moved the TERMINAL to the new chain TIP and (before PR #1658) not the
+#      `MergeState`, so the tip took `Recording.MergeState`'s field initializer,
+#      `Immutable`.
+#   3. Open/closed is read from the TIP
+#      (`UnfinishedFlightClassifier.IsSlotEffectiveTipOpen` ->
+#      `EffectiveState.EffectiveTipRecordingId`), so the slot read
+#      `reason=sealedTipClosed`, the STASH row never drew, and
+#      `RewindPointReaper.IsReapEligible` then DELETED the RewindPoint for good.
+#
+# STEP 2 IS THE PRECONDITION NOTHING IN THE SUITE PRODUCED. It needs a
+# `PersistedPhaseChange` boundary INSIDE the promoted slot's own recording, and
+# `RecordingOptimizer.IsSplittableEnvOrBodyBoundary` accepts exactly one thing as
+# that: an Atmospheric <-> ExoBallistic (or Approach <-> ExoBallistic) crossing that
+# is not a graze. On Kerbin that is 70 km, one way, with no return - which is what a
+# stack left coasting ABOVE the atmosphere at the scene exit has and what every other
+# rewind lane in the suite lacks:
+#   - GS-1 / RF-1 hop to 700 m inside a 2.25 km physics bubble (one environment).
+#   - GS-2 / GS-3 split in a 100 km parking orbit and never see atmosphere at all;
+#     `minSafePeriapsisMeters = 75000` exists to keep it that way.
+#   - GS-4 / GS-7 fly THIS craft but discard the core at a 60 km apoapsis, so the top
+#     stack peaks inside the atmosphere and falls back through the same environment.
+#   - Every `bdock-recorded` lane reads an injected RewindPoint out of a harvested
+#     fixture; the recordings there were authored by a different flight entirely.
+#
+# =====================================================================================
+# WHAT THIS LANE CHANGES, AND WHY IT IS TWO NUMBERS RATHER THAN A NEW MISSION.
+#
+# The craft is already right. `harness/fixtures/ships/Kerbal X.craft` carries an
+# RC-L01 `probeStackLarge` on the CORE stage, directly under the istg=2
+# `Decoupler.2`, so the core discard is a MULTI-CONTROLLABLE split
+# (`SegmentBoundaryLogic.IsMultiControllableSplit` counts two) and KSP physics
+# authors a RewindPoint - the same one GS-4 flies past on its way to a
+# rewind-to-LAUNCH. The pod half is a crewed Mk1-3 with an LV-T45 that this lane
+# never lights, exactly as GS-4 / GS-7 leave it.
+#
+# So the subject is reached by moving the discard's apoapsis gate ABOVE the
+# atmosphere top (`coreDiscardApoapsisMeters = 95000` against GS-4's default 60000)
+# and then REFUSING TO HAND THE SCENE OVER until the stack has been OBSERVED outside
+# it. That refusal is the mission's `coastExitProfile` (RF-9's opt-in, byte-inert
+# when absent, replay-proved by `CoastExitProfileTests`): COAST -> COAST-EXIT ->
+# DONE, nothing commanded, the recorder still live and the SPEC's own
+# `ExitToSpaceCenter` doing the commit - RF-1's shape for RF-1's reason.
+#
+# A LONGER `coastSeconds` WOULD HAVE BEEN ONE LINE AND WOULD HAVE BEEN WRONG. "We
+# coasted after the core came off" is a COMMANDED reading of the boundary; a
+# debounced altitude + situation pair is an OBSERVED one, and every token below is
+# downstream of the boundary actually being in the recording. B1's inert chute is
+# what commanded readings cost.
+#
+# THE DISCARD STAYS INSIDE THE ATMOSPHERE while the APOAPSIS it is gated on is
+# outside it. That pair is the shape: the split below the boundary, the exit above
+# it, and the boundary therefore in the MIDDLE of the promoted recording rather than
+# at either edge. (The split's own position is not load-bearing for the defect - the
+# focus recording spans launch to scene exit either way - but it is the seed's shape
+# and there is no reason to fly a different one.)
+#
+# =====================================================================================
+# THE SLOT IS 0, and unlike RF-1's that is a reading of the SEED rather than of a
+# sibling lane's flights. The RewindPoint is authored at the core discard with the
+# ACTIVE vessel - the top stack - as the focus, and the seed measured
+# `CommitTree promoted rec=32ca5546... slot=0 rp=rp_a9967... reason=crashed`. A wrong
+# index cannot pass silently: `InvokeRewind` REJECTs `unknown-slot`, and a CLOSED
+# slot REJECTs `refly-gate`.
+#
+# WHICH REASON THE SLOT QUALIFIES UNDER IS NOT PINNED TO ONE VALUE, and that is
+# deliberate on a never-flown lane. The seed's tail was extrapolated to a predicted
+# impact and stamped `Destroyed`, so the classifier's Destroyed branch answered
+# `reason=crashed`. If `IncompleteBallisticSceneExitFinalizer` declines this
+# particular tail the terminal stays `SubOrbital`, the SubOrbital branch answers
+# `stableLeafUnconcluded` (RF-1's own reason), and the slot is promoted just the
+# same - the sealing defect does not care which. The token below therefore admits
+# both shapes AS AN ALTERNATION and the reading run re-pins it to whichever fired.
+# What is NOT loose is the promotion line's `slot=0` and the split line: those two
+# are the lane.
+#
+# THE ONE CORRELATION A REGEX CANNOT MAKE. `Split candidate (PersistedPhaseChange):
+# rec=X` and `CommitTree promoted rec=Y ... slot=0` must name the SAME recording, or
+# the split happened on something the slot does not read. Per-line regexes cannot
+# say that, so the reading run reads the two ids and this header records them. The
+# structural half is still gated: with the split on a DIFFERENT recording the
+# forbidden `sealedTipClosed` could not fire either, so a green run whose ids
+# disagreed would be a lane that measured nothing - which is why the ids are
+# READ AND WRITTEN DOWN rather than assumed.
+#
+# =====================================================================================
+# THE FORBIDDEN PAIR IS THE POINT.
+#
+#   `reason=sealedTipClosed` (EffectiveState.cs) is the verdict the seed's slot read
+#   after the split minted a tip nobody promoted. On this profile the split DOES
+#   happen, so this pattern is a REPRODUCTION rather than a guard: on a pre-#1658
+#   DLL it fires, on a fixed one it must not.
+#
+#   `not re-deriving MergeState` (RecordingStore.cs) is the first-commit guard
+#   cementing an `Immutable` nobody chose - the second lock in the seed's chain.
+#   PINNED ON THE FRAGMENT, NOT ON THE WHOLE SENTENCE: the source writes
+#   `already committed/fork - not re-deriving MergeState` with an EM DASH, so the
+#   hyphenated pattern RF-1 and the forensics carry CANNOT MATCH ANY LOG LINE. That
+#   is the silence-is-not-success shape (a forbidden clause that can never fail), it
+#   is filed in `docs/dev/todo-and-known-bugs.md`, and RF-1's copy is corrected in
+#   the same commit as this file.
+#
+#   `Reaped rp=` is forbidden for RF-1's reason: the reaper deleting the point is the
+#   defect's irreversible last step, and a run that reaped did not leave the slot
+#   open whatever else it did.
+#
+# =====================================================================================
+# STATUS: NEVER FLOWN. Authored 2026-09-09 against the post-#1658 / post-#1659 DLL
+# (deployed automation hash cd8ddb6b691e3fb8, carrying `MergeState carried with
+# terminal=` and the render fix's `IsSegmentExcludedFromOrbitOwnership` /
+# `FillPredictedTailFromConics` / `ResolveMapPresenceChainSegments` /
+# `map-presence chain-tip segments: head=` in both encodings). Every window below is
+# DERIVED - from GS-4's four flights for the ascent and the recording census, from
+# the seed for the slot and the split, from RF-1 for the re-fly chain. Nothing is
+# armed. The first reading run re-pins the counts off its own bytes.
+# =====================================================================================
+tier = "operator"
+description = "The sealing defect's shape flown live: the Kerbal X's probe-cored core is discarded INSIDE the atmosphere (authoring a RewindPoint), the crewed top stack then coasts OUT through 70 km and the scene exits while it is still climbing - so the committed focus recording spans an Atmospheric -> ExoBallistic boundary, the optimizer splits it, and the promoted slot must stay open across that split and be re-flyable."
+instanceProfile = "stock-minimal"
+tags = ["RF-9", "rewind", "refly", "unfinished-flights", "continuation", "staging",
+        "scene-exit", "optimizer-split", "runtime-handles", "reading-run"]
+
+[fixture]
+# GS-4's fixture verbatim, and for GS-4's reasons: `gs1-two-stage-pad` carries the
+# inert `SCENARIO{name=ParsekScenario}` node (the CL-1 trap) and a pad-scene sandbox
+# world, "Kerbal X" arrives through the save's shared-ships row, and the mission's own
+# ROLLOUT recovers the pre-placed GS1 booster before rolling this lane's subject out.
+saveTemplate       = "fixtures/saves/gs1-two-stage-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "kx_rewind_watch"
+
+# `steps` MUST stay in [driver], ABOVE the [driver.missionParams] header: a key after
+# the sub-table header is TOML-scoped to driver.missionParams and the spec would
+# validate as having ZERO steps.
+#
+# THIRTEEN STEPS, in three acts - RF-1's chain with GS-4's prelude.
+#   ACT 1 (LoadGame .. mission .. ExitToSpaceCenter). `autoRecordOnLaunch=true` is
+#     what starts the recording on PRELAUNCH's own stage click (this lane issues no
+#     StartRecording, GS-4's contract). `autoMerge=true` is MANDATORY: without it
+#     `SceneExitInterceptor.ShouldShowDialogBeforeSceneChange` returns RegularMerge and
+#     `ExitToSpaceCenter` REJECTs `dialog-required`. `verboseLogging=true` is
+#     LOAD-BEARING: the classifier verdict AND the optimizer's split-candidate line are
+#     both `ParsekLog.Verbose`.
+#   ACT 2 (LoadGame .. StopRecording) re-enters FLIGHT for the rewind, with RF-1's two
+#     guards - the boot promotes the committed tip into a live recorder and
+#     `InvokeRewind` REJECTs `recording-active` over it, so StopRecording goes first;
+#     `autoRecordOnLaunch` is disarmed so nothing new opens behind it.
+#   ACT 3 (ListHandles .. AnswerMergeDialog) is RH-1's / RF-1's chain verbatim, with
+#     the id read at RUNTIME off the labelled `handles` step (a live RewindPointId is
+#     a fresh Guid this file could not spell).
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" },      expect = "OK", budget = 300 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "true" },   expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "autoMerge", value = "true" },            expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },       expect = "OK" },
+  { phase = "mission",                                                                   expect = "MISSION-OK", budget = 1600 },
+  { cmd = "ExitToSpaceCenter",                                                           expect = "OK", budget = 120 },
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" },      expect = "OK", budget = 300 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" },  expect = "OK" },
+  { cmd = "StopRecording",                                                               expect = "OK" },
+  { cmd = "ListHandles",       args = { kind = "rewindpoints" }, label = "handles",      expect = "OK" },
+  { cmd = "InvokeRewind",      args = { rp = "${handles.rp0}", slot = "0" },             expect = "OK", budget = 300 },
+  { cmd = "AnswerMergeDialog", args = { choice = "merge" },                              expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "FlushAndQuit",                                                                expect = "OK" },
+]
+
+# GS-4's params plus the RF-9 profile and the two numbers that move the discard above
+# the atmosphere. Everything not named here takes the machine's own default, which is
+# what GS-4's four green flights flew.
+[driver.missionParams]
+craftName        = "Kerbal X"
+launchSite       = "LaunchPad"
+# THE OPT-IN. See the mission's docstring: COAST -> COAST-EXIT -> DONE, nothing
+# commanded, the mission ending in FLIGHT with the recorder live.
+coastExitProfile = true
+# THE ONE NUMBER THAT MOVES THE SUBJECT. GS-4 discards at a 60 km apoapsis, which
+# leaves the top stack peaking INSIDE the atmosphere - one environment, no boundary,
+# no split. 95 km puts the apex 25 km outside it with margin for a gravity turn that
+# under-performs; the discard itself still happens well inside the atmosphere,
+# because apoapsis leads altitude by a wide margin on a powered ascent.
+coreDiscardApoapsisMeters = 95000.0
+# The clock arm on the same gate, raised in step: it fires FIRST if the apoapsis
+# target is not reached, and at GS-4's 200 s a 95 km target could be cut off
+# mid-climb - which would discard the core low, and then COAST-EXIT would flake by
+# name (a MISSION give-up, correctly, but a wasted flight).
+coreDiscardMaxFlightSeconds = 300.0
+# The gate this lane exists for. 71 km rather than 70: Kerbin's atmosphere ends at
+# exactly 70 000 m and the point is to be OUTSIDE it, with a kilometre of margin
+# against a poll landing on the boundary. SUB_ORBITAL is the only accepted situation
+# (the default, restated here because it is a claim rather than a default): an
+# ORBITING stack has its periapsis outside the atmosphere and its scene-exit tail is
+# a closed orbit rather than the predicted impact this lane's `crashed` branch reads.
+coastExitMinAltitudeMeters = 71000.0
+coastExitSituations = ["SUB_ORBITAL"]
+coastExitDebounceFrames = 2
+# Frame budget for the climb from the discard to 71 km. At the 0.5 s poll, 600 frames
+# is ~300 s of silence - generous, because what it catches is a stack that never got
+# there rather than a slow one.
+coastExitFrames = 600
+# The whole-flight bound, raised from GS-4's 420 s default to admit the higher
+# apoapsis target plus the coast out. It bounds COAST-EXIT too (a FLIGHT phase).
+flightMaxSeconds = 700.0
+# DERIVED, wide, and re-pinned by the first reading run: the span is launch ->
+# hand-over, which is GS-4's ascent (~150 s to a 60 km apoapsis) plus the extra climb
+# to 95 km plus the coast through 70 km.
+recordedSpanWindowSeconds = { min = 60.0, max = 650.0 }
+
+[dimensionsCovered]
+# BASICS ONLY on a never-flown lane, on RH-1's claim-is-not-gate ground: a dimension
+# claim states that a value was EXERCISED AND OBSERVED, not that a step was written.
+#
+# WHAT THE READING RUN WOULD EARN, listed so the follow-up commit is mechanical:
+# `rewind-to-separation` and `refly-gate` off the StartInvoke / Invocation-complete
+# pair; `unfinished-flights-stash` off the promotion line; `auto-record-launch` /
+# `commit-scene-exit` / `auto-merge` off the group-2 tokens; and
+# `controlled-decoupled-child` off the breakup line. NOT `rp-disk-reaper`: this lane
+# asserts the reaper DECLINED, which is the opposite of exercising it.
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# GS-4 measures EXACTLY 8 on this craft and this ascent (the parent, the probe-cored
+# core, and six radial boosters). This lane flies the same staging plan, so 8 is the
+# derived answer - widened both ways because the higher apoapsis changes where the
+# boosters land and a debris piece that leaves the bubble may or may not be recorded.
+# The reading run measures the real count; do not widen further blindly.
+count = { min = 6, max = 10 }
+
+[expectations.logContracts]
+# FIVE GROUPS.
+#
+# GROUP 1 - THE FLIGHT AND THE SPLIT (GS-4's group, MEASURED on its flights). The
+# two-pid class in `Controllable split children` is the non-vacuity: the same line is
+# emitted with ONE pid on a single-controllable split, which is exactly the case
+# where no RewindPoint is authored and this whole lane becomes an ascent with a
+# scene exit.
+#
+# GROUP 2 - THE COMMIT. RF-1's tokens verbatim; the exit's own shape
+# (`hasActiveTree=true hasPendingTree=false`) is what says the recorder was still
+# live when the scene changed, which is this profile's whole hand-over contract.
+#
+# GROUP 3 - THE BOUNDARY AND THE SPLIT. THE LANE'S OWN SUBJECT, and the token no
+# other spec in the suite carries. `prev=Atmospheric next=ExoBallistic` is pinned
+# inside the pattern rather than left loose: a split on any OTHER boundary would be a
+# different experiment, and `PersistedPhaseChange` is the only reason
+# `IsSplittableEnvOrBodyBoundary` returns for this crossing.
+#   `[Optimizer] Split candidate (PersistedPhaseChange): rec=<id> sec=<n>
+#    splitUT=<f2> prev=Atmospheric next=ExoBallistic`   (Verbose, RecordingOptimizer)
+# The `SplitAtSection` line beside it is the proof the candidate was ACTED on: a
+# candidate that `CanAutoSplit` then rejects logs the first line and not the second,
+# and the defect needs the split to have HAPPENED.
+#
+# GROUP 4 - THE OPEN SLOT ACROSS THE SPLIT. The alternation is argued in the header:
+# `crashed terminal=Destroyed` is the seed's branch, `stableLeafUnconcluded ...
+# terminal=SubOrbital` is RF-1's, both promote, and the reading run re-pins to the one
+# that fired. `slot=0` on the promotion line is NOT part of the alternation - it is
+# the lane's identity claim about which half stayed open.
+#
+# GROUP 5 - THE POINT SURVIVED, AND THE RE-FLY. `ReapOrphanedRPs: reaped=0
+# remaining=1` is the strongest single statement here: `IsReapEligible` returns false
+# the moment ANY slot's effective tip is CommittedProvisional, so `remaining=1` is
+# only reachable when the slot really is open ACROSS THE SPLIT - which is precisely
+# what the defect broke. Then RH-1's four re-fly tokens, with `count=1` on the
+# enumeration because a zero-member one would make `${handles.rp0}` unresolvable.
+required  = ["Recording started",
+             "Controllable split children: \\[[0-9]+,[0-9]+\\]",
+             "ProcessBreakupEvent: controlled child created: pid=[0-9]+",
+             "RewindPoint begin: rp=\\S+ bp=\\S+ slots=2 controllablePids=2",
+             "RewindPoint slot capture: rp=\\S+ populated=2/2 disabled=0",
+             "exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=true hasPendingTree=false",
+             "Silent full-fidelity auto-commit \\(scene-exit\\): tree='.+' recordings=[1-9][0-9]*",
+             "Split candidate \\(PersistedPhaseChange\\): rec=\\S+ sec=[0-9]+ splitUT=[0-9.]+ prev=Atmospheric next=ExoBallistic",
+             "SplitAtSection: split",
+             "IsUnfinishedFlight=true rec=\\S+ reason=(?:crashed terminal=Destroyed|stableLeafUnconcluded slot=[0-9]+ focusSlot=[0-9]+ terminal=SubOrbital)",
+             "CommitTree promoted rec=\\S+ vessel='.+' slot=0 rp=\\S+ reason=\\S+ to CommittedProvisional",
+             "ReapOrphanedRPs: reaped=0 remaining=1",
+             "listhandles kind=rewindpoints count=1 truncated=false",
+             "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=.* rp=rp_[0-9a-f]{32}",
+             "Invocation complete",
+             "ConsumePostLoad: restoring bundle with route-retire cutoffUT=",
+             "Restored: recs=.* pendingScience="]
+# THE FOUR FORBIDDEN PATTERNS. The middle two are the DEFECT; see the header for why
+# the second is pinned on a fragment rather than on the whole sentence.
+forbidden = ["\\[Parsek\\]\\[ERROR\\]",
+             "reason=sealedTipClosed",
+             "not re-deriving MergeState",
+             "Reaped rp="]
+
+# REPORT-ONLY (no `gating` key). DERIVED windows.
+#
+#   rewindPoints = { min = 1, max = 1 }  the save-side statement of group 5: the
+#       reaper declined and the point is still on disk. The log's `reaped=0` proves
+#       the sweep ran; a count of 1 in the .sfs proves the object survived it.
+#   supersedeRows = { min = 1 }  the re-fly merged, so `SupersedeCommit.AppendRelations`
+#       wrote at least one row.
+#   tombstones = { max = 0 }  nobody dies where this lane looks: the crew ride the top
+#       stack, which is still coasting when the scene exits, and the re-fly's own fork
+#       is what the merge supersedes. A nonzero here would mean the re-fly killed them.
+[expectations.rewind]
+rewindPoints  = { min = 1, max = 1 }
+supersedeRows = { min = 1 }
+tombstones    = { max = 0 }
+
+# REPORT-ONLY. GS-4's structure row with the terminals left OPEN at the bottom: this
+# lane's top stack ends above the atmosphere rather than inside it, so which of
+# Destroyed / SubOrbital it stamps is exactly the thing the reading run measures (see
+# the group-4 alternation). `branchPoints` is GS-4's - three booster pairs and the
+# core - and is a fact about the staging plan rather than about this profile.
+[expectations.recordings.structure]
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 6 }
+branchPoints   = { JointBreak = { min = 4 } }
+
+[runtime]
+# Budget arithmetic (M-A5 S8). run.py waits max(step_budget, 600) + 60 for a DEFERRED
+# verb (LoadGame / InvokeRewind) and max(step_budget, dispatch_budget + 60) otherwise,
+# with a 60 s dispatch default:
+#   LoadGame x2       660 x2                = 1320
+#   SetSetting x4     120 x4                =  480
+#   mission           1600                  = 1600
+#   ExitToSpaceCenter max(120,120+60) = 180 =  180
+#   StopRecording     120                   =  120
+#   ListHandles       120                   =  120
+#   InvokeRewind      660                   =  660
+#   AnswerMergeDialog 180                   =  180
+#   RecordingState    120                   =  120
+#   FlushAndQuit      120                   =  120   -> sum 4900
+# The ceiling must EXCEED that sum or a capped deferred wait KILLs mid-step instead of
+# surfacing the seam's own per-step TIMEOUT. 5200 clears it by 300.
+budgetSeconds = 5200
+
+[retry]
+policy = "once"
+
+[expectedFail]
+# EMPTY, deliberately, on GS-1's argument: an `expectedFail` key would demote every
+# failure of its subkind under one bug id, including the regression these tokens exist
+# to catch. On a PRE-#1658 DLL this lane reds on `reason=sealedTipClosed`; that is the
+# reproduction working, not a bug to file under an id.
+bugId = ""

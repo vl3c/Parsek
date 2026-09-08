@@ -15,6 +15,88 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~RF-FORBID-EM-DASH-CANNOT-MATCH: a forbidden pattern quoting the C# `already committed/fork - not re-deriving MergeState` line with an ASCII HYPHEN can never match, because the source writes an EM DASH~~ FIXED 2026-09-09
+
+FOUND while authoring RF-9's own forbidden list against the source rather than against a
+quotation. `RecordingStore.cs:1272` writes
+
+    $"CommitTree: rec={...} already committed/fork [EM DASH] " + $"not re-deriving MergeState (slot=... rp=...)"
+
+with U+2014, and `RF-1-continuation-stays-open.toml` forbade the same sentence spelled
+with `-`. No log line Parsek can emit matches that pattern, so the clause could only ever
+read clear.
+
+WHY IT IS FILED RATHER THAN JUST FIXED. A forbidden clause that cannot fail is
+indistinguishable from one that passes, which is the silence-is-not-success shape the
+RF-7M defect-(B) tokens were REMOVED for two days earlier - the same failure, arrived at
+from the opposite direction (there the surface never ran, here the pattern never could).
+The class is worth naming: a forbidden pattern quoted from a doc or a forensics report is
+a pattern nobody has matched against the emitting source, and non-ASCII punctuation in a
+C# interpolated string is invisible in every rendering of it.
+
+FIX: both RF-1 and RF-9 now forbid the fragment `not re-deriving MergeState`, which is
+unique in the whole log surface (one call site), carries no punctuation to get wrong, and
+stays ASCII in the spec file. RF-1's reading-run verdict is unaffected - its profile takes
+no optimizer split, so the line was never going to be written on that lane either way;
+what was restored is the guard, not a measurement.
+
+RESIDUE, deliberately not swept in the same commit: `docs/dev/todo-and-known-bugs.md:261`
+and the two forensics reports quote the hyphenated sentence as PROSE, which is correct
+house style for a doc (plain ASCII, no em dashes) and harmless as long as no spec copies
+it into a regex. Any future forbid over that line takes the fragment.
+
+## RF6-FOUR-REWIND-CELLS-FAIL-ONLY-WITH-A-LIVE-SESSION: the first batch ever to run the in-game `Rewind` category with a live re-fly session executed its twelve session-gated cells and FOUR failed, three of them cells that pass with no session [MEASURED 2026-09-08 by RF-6's two reading runs plus an R7a control on the same DLL. OPEN, undiagnosed]
+
+RF-6 exists to run `RunTests category="Rewind"` AFTER an `InvokeRewind`, because twelve
+cells in that category gate on `scenario.ActiveReFlySessionMarker` and no lane and no
+injected save had ever given them one. They ran. Eight passed. Four failed, identically
+on both runs:
+
+```
+BATCH_COMPLETE v1 total=38 passed=8 failed=4 skipped=26 category=Rewind scene=FLIGHT
+  MergeInterruptionRecoveryTest.MergeInterruptionRecovery
+    - Expected supersede relations to be durable at Durable1Done; got 0
+  ReFlyRevertDialogPrelaunchTest.DiscardReFly_PrelaunchContext_DispatchesEditorWithFacility
+    - DiscardReFlyLoadGameForTesting should fire exactly once
+  ReFlyRevertDialogPrelaunchTest.ReFlyRevertDialog_Prelaunch_BlocksStockRevert_AndShowsDialog
+    - Prelaunch body copy should mention VAB
+  ReFlyRevertDialogTest.DiscardReFly_LaunchContext_PreservesSiblingState_DispatchesSpaceCenter
+    - Marker should be cleared after Discard Re-fly
+```
+
+THE CONTROL, flown on the SAME DLL within the hour: `R7a-rewind-session-absent` reads
+`total=38 passed=16 failed=0 skipped=22`, its historical pin token for token. So the same
+category, same build, zero failures without a session and four with one.
+
+THREE OF THE FOUR ARE `ReFlyRevertDialog*` CELLS, which the category inventory puts in the
+group that needs NEITHER a RewindPoint nor a session and INSTALLS ITS OWN SYNTHETIC MARKER.
+Those are the cells R7a executes and passes. Failing only when a REAL session is live is
+the signature of the R7-SESSION-BATCH-ISOLATION family the roadmap already records from
+R7's abandoned session-live spec ("JournalFinisherMarkerPresentVariant eating the marker
+for nine later members"). If that is what this is, it is a TEST-ISOLATION defect, not a
+product one - but it has never been measured before, and nothing here proves it yet.
+
+ONE HYPOTHESIS WAS TESTED AND REFUTED, which is why this entry does not name a cause.
+`MergeInterruptionRecovery` wanting durable supersede rows and getting zero looked like the
+unflown-provisional route: a re-fly that recorded nothing merges with ZERO rows BY DESIGN
+(`refused-unflown-provisional` / `concluded-no-supersede`), and RF-6 run 1 drove
+`InvokeRewind` straight into `RunTests` with nothing between them. Run 2 added a
+`TimeJump ut=500` so the attempt was FLOWN before the batch read it. The tally was
+BYTE-IDENTICAL - same 8/4/26, same four cells, same four messages. The unflown provisional
+is not the cause. (The step is KEPT anyway: the flown shape matches every sibling RF lane
+and costs nothing.)
+
+ONE CONFOUND REMAINS AND IS NOT CLOSED. RF-6 hosts on `bdock-recorded` and R7a on
+`career-pad-craft`, so the control varies the HOST as well as the session. The cheapest
+way to close it is to fly R7a's spec against `bdock-recorded` (or RF-6 without its
+`InvokeRewind`) and read the tally; either isolates the session as the only moving part.
+That experiment has not been run.
+
+Needs: that isolation run, then a diagnosis per cell. RF-6 keeps `failed=0` pinned HARD and
+therefore stays RED - deliberately. A first-execution failure is a product or test finding
+to diagnose, never a tally to widen, and widening it would retire the only instrument that
+can see these four cells at all.
+
 ## RF7M-DEFECT-B-NEEDS-AN-ENGAGED-GHOST: a seam-only lane over a recorded fixture engages no ghost, so flight-map presence tracks nothing and the chain-HEAD source-resolution defect cannot be reached from it at all [MEASURED 2026-09-08 by RF-7M's two reading runs. A LANE / HARNESS finding, not a product defect. ANSWERED the same day by RF-7T, whose Tracking Station host runs its resolver unconditionally and is therefore that half's harness subject - it reproduced the defect and then went green on the fix. KEPT OPEN as the record of a lane-shaping constraint that will bite the next author of a seam-only render lane]
 
 RF-7M reproduces the PREDICTED-TAIL render defect in two independent halves. Half (A),

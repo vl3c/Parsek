@@ -8479,6 +8479,11 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
             "operator by the reading-run discipline; AUTHORED 2026-09-09, NEVER "
             "FLOWN. Declares ghostLifecycle report-only with NO windows, which is "
             "what the reading run is for. Owes a flight",
+        "RF-9-atmosphere-exit-split-stays-open.toml":
+            "operator by the reading-run discipline; AUTHORED 2026-09-09, NEVER "
+            "FLOWN. The sealing defect's live reproduction (the only lane whose "
+            "promoted recording crosses an environment boundary the optimizer "
+            "splits on); reds on a pre-#1658 DLL BY DESIGN. Owes a flight",
         "RH-1-live-rp-handle-rewind.toml":
             "operator by the reading-run discipline (V1/V2/V24W precedent); AUTHORED "
             "2026-09-08, NEVER FLOWN, reading pending. Owes a flight, not a human call",

@@ -326,10 +326,21 @@ required  = ["Recording started",
 #   GUARD against the day something gives it one, not a reproduction. Its reproduction is
 #   the `refly-a-recorded` fixture, whose committed bytes carry that tip.
 #
-#   `already committed/fork - not re-deriving MergeState` (RecordingStore.cs:1204-1207)
-#   is the first-commit guard cementing an `Immutable` nobody chose - the SECOND lock in
-#   the seed's chain, and the one that makes the closure permanent. It is forbidden for
-#   the same reason and with the same caveat.
+#   `not re-deriving MergeState` (RecordingStore.cs:1204-1207) is the first-commit guard
+#   cementing an `Immutable` nobody chose - the SECOND lock in the seed's chain, and the
+#   one that makes the closure permanent. It is forbidden for the same reason and with
+#   the same caveat.
+#
+#   PINNED ON THE FRAGMENT AS OF 2026-09-09, and the correction is worth a paragraph
+#   because the original could never have fired. The C# writes
+#   `already committed/fork [EM DASH] not re-deriving MergeState`; this file carried the
+#   sentence with an ASCII HYPHEN, which matches no log line Parsek can emit. A
+#   forbidden clause that cannot fail is the silence-is-not-success shape - it reads
+#   exactly like a pass on every run - and it is the same defect class the RF-7M
+#   defect-(B) tokens were removed for. Filed in `docs/dev/todo-and-known-bugs.md` as
+#   RF-FORBID-EM-DASH-CANNOT-MATCH. The reading run of 2026-09-08 is UNAFFECTED in its
+#   verdict: this profile takes no split, so the line it now correctly forbids was never
+#   going to be written either way - what was lost was the guard, not the measurement.
 #
 #   `Reaped rp=` is GS-1's REQUIRED token, forbidden here. That inversion is the cleanest
 #   statement of what these two lanes are: same craft, same profile, same commit route,
@@ -337,7 +348,7 @@ required  = ["Recording started",
 #   booster in the air, whatever else it did.
 forbidden = ["\\[Parsek\\]\\[ERROR\\]",
              "reason=sealedTipClosed",
-             "already committed/fork - not re-deriving MergeState",
+             "not re-deriving MergeState",
              "Reaped rp="]
 
 # REPORT-ONLY (no `gating` key). The windows are what the seed and GS-1 flight 3 PREDICT.

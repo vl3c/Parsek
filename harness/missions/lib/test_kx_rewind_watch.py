@@ -1227,7 +1227,7 @@ class MapClosedBeforeTheWatchTests(unittest.TestCase):
     def test_map_exit_sits_between_the_open_and_the_watch(self):
         """The phase order IS the rule. MUTATION: move MAP-EXIT after WATCH and the
         map closes only once the watch camera has already driven under it."""
-        self.assertEqual(30, len(mlib.KXRW_PHASES))
+        self.assertEqual(31, len(mlib.KXRW_PHASES))
         self.assertEqual(len(set(mlib.KXRW_PHASES)), len(mlib.KXRW_PHASES))
         i = mlib.KXRW_PHASES.index
         self.assertEqual(i(mlib.KXRW_MAP_VIEW) + 1, i(mlib.KXRW_MAP_EXIT))
@@ -1694,22 +1694,24 @@ class HappyPathTests(unittest.TestCase):
         self.assertTrue(st.done)
         self.assertIsNone(st.verdict)
 
-        # EVERY declared phase was actually walked EXCEPT the two OPT-INs - the
+        # EVERY declared phase was actually walked EXCEPT the OPT-INs - the
         # chain joins up end to end. MUTATION: wire any phase's exit to the wrong
         # successor and the skipped one shows up here even when its own per-phase
         # cell passes.
         #
-        # THE TWO OPT-INS ARE EXCLUDED BY DESIGN, and this line is the whole
-        # compatibility statement: these params declare neither `partSweepSteps`
-        # nor `impactProfile`, so COAST advances straight to TREE-STATE and
-        # TREE-STATE advances straight to COMMIT, exactly as they did before either
-        # feature existed. A declaring params set reaching them is the sibling
-        # cells (PartSweepTests / ImpactProfileTests).
-        opt_in = {mlib.KXRW_PART_SWEEP} | set(mlib.KXRW_IMPACT_PHASES) \
+        # THE THREE OPT-INS ARE EXCLUDED BY DESIGN, and this line is the whole
+        # compatibility statement: these params declare none of `partSweepSteps`,
+        # `impactProfile` or `coastExitProfile`, so COAST advances straight to
+        # TREE-STATE and TREE-STATE advances straight to COMMIT, exactly as they
+        # did before any of the three features existed. A declaring params set
+        # reaching them is the sibling cells (PartSweepTests / ImpactProfileTests /
+        # CoastExitProfileTests).
+        opt_in = {mlib.KXRW_PART_SWEEP, mlib.KXRW_COAST_EXIT} \
+            | set(mlib.KXRW_IMPACT_PHASES) \
             | {mlib.KXRW_IMPACT_AUTORECORD_OFF, mlib.KXRW_IMPACT_COAST}
         self.assertEqual(set(mlib.KXRW_PHASES) - opt_in, set(st.phases_reached))
         self.assertEqual(set(), opt_in & set(st.phases_reached))
-        self.assertEqual(30, len(mlib.KXRW_PHASES))
+        self.assertEqual(31, len(mlib.KXRW_PHASES))
 
         rows = mlib.evaluate_kxrw_assertions([], mlib.kxrw_params_from_dict(pdict),
                                              st)
@@ -2709,7 +2711,7 @@ class ImpactProfileTests(unittest.TestCase):
         KXRW_POST_REWIND_PHASES is still the contiguous TAIL of KXRW_PHASES - the
         property the carve-out's own cell asserts. MUTATION: append them after
         DONE (or interleave them past REWIND) and that slice stops matching."""
-        self.assertEqual(30, len(mlib.KXRW_PHASES))
+        self.assertEqual(31, len(mlib.KXRW_PHASES))
         self.assertEqual(len(set(mlib.KXRW_PHASES)), len(mlib.KXRW_PHASES))
         i = mlib.KXRW_PHASES.index
         self.assertEqual(
@@ -2830,6 +2832,277 @@ class ImpactProfileTests(unittest.TestCase):
         # wait's stamp is the impact instant.
         self.assertEqual(200.0, st.recording_end_ut)
         self.assertEqual(202.0, st.pre_rewind_ut)
+
+
+class CoastExitProfileTests(unittest.TestCase):
+    """RF-9's opt-in: end the mission in FLIGHT, with the recorder live, once the
+    top stack has been OBSERVED coasting above the atmosphere.
+
+    WHAT THE LANE NEEDS FROM IT, and therefore what these cells guard: the
+    committed recording has to span an Atmospheric -> ExoBallistic boundary,
+    because that is the only boundary the optimizer's `PersistedPhaseChange` split
+    predicate cuts on and the SPLIT is the precondition of the sealing defect. The
+    machine cannot see sections, so what it CAN do is refuse to hand over until it
+    has read the altitude and the situation that produce one - which is the whole
+    difference between this and a longer `coastSeconds`.
+    """
+
+    # A scripted flight that reaches COAST: rollout, launch, three drops, the core
+    # gate, the discard. The discard is BELOW 70 km, which is where it has to be
+    # for the boundary to land INSIDE the surviving stack's recording.
+    def _to_coast(self, **over):
+        over.setdefault("boosterStageCount", 3)
+        over.setdefault("stageSettleFrames", 2)
+        over.setdefault("coastSeconds", 5.0)
+        over.setdefault("coreDiscardApoapsisMeters", 90000.0)
+        over.setdefault("recordedSpanWindowSeconds", {"min": 60.0, "max": 600.0})
+        st = rolled_out(machine(**over))
+        st, _ = mlib.kxrw_decide(st, snap(ut=1000.0, altitude=0.0, throttle=0.0,
+                                          available_thrust=0.0))
+        st, _ = fly(st, ut=1001.0, altitude=200.0)
+        ut = 1040.0
+        for _ in range(40):
+            st, _ = fly(st, ut=ut, altitude=9000.0, throttle=0.0,
+                        available_thrust=FLAMED)
+            ut += 0.5
+            if st.phase == mlib.KXRW_ASCENT and st.booster_drops_done >= 3:
+                break
+        assert st.booster_drops_done == 3, st.booster_drops_done
+        st, _ = fly(st, ut=1150.0, altitude=58000.0, apoapsis=91000.0)
+        assert st.phase == mlib.KXRW_CORE_CUT, st.phase
+        st, _ = fly(st, ut=1151.0, altitude=58500.0, apoapsis=91000.0, throttle=0.0)
+        st, _ = fly(st, ut=1152.0, altitude=59000.0, apoapsis=91000.0, throttle=0.0)
+        assert st.phase == mlib.KXRW_CORE_DISCARD, st.phase
+        st, _ = fly(st, ut=1153.0, altitude=59500.0, apoapsis=91000.0, throttle=0.0)
+        assert st.phase == mlib.KXRW_COAST, st.phase
+        return st
+
+    def _coast_out(self, st, **kw):
+        """One post-coast frame with the readings a coasting top stack carries."""
+        kw.setdefault("throttle", 0.0)
+        kw.setdefault("available_thrust", 0.0)
+        kw.setdefault("apoapsis", 91000.0)
+        return mlib.kxrw_decide(st, snap(**kw))
+
+    # ---- (a) the byte-inertness claim, made mechanically --------------------
+
+    def test_the_off_path_is_identical_with_the_key_absent_or_false(self):
+        """THE COMPATIBILITY STATEMENT. Every committed KX lane (GS-4, GS-6, GS-7,
+        GS-8) must drive EXACTLY what it drove before, so this replays the same
+        scripted flight through the machine with the key ABSENT and with it
+        explicitly `false` and compares what a live run would notice: the phase
+        reached on every frame and the ACTION LIST emitted on every frame.
+
+        Comparing the terminal alone would not do - two runs can agree at the end
+        and disagree about which frame commanded the stage."""
+        def replay(**over):
+            st = self._to_coast(**over)
+            trace = []
+            ut = 1160.0
+            for _ in range(6):
+                st, acts = self._coast_out(st, ut=ut, altitude=72000.0,
+                                           situation="SUB_ORBITAL")
+                trace.append((st.phase,
+                              tuple((a.kind, a.value, a.text, a.seam_verb)
+                                    for a in acts)))
+                ut += 1.0
+                if st.done:
+                    break
+            return st, tuple(trace)
+
+        absent_state, absent_trace = replay()
+        false_state, false_trace = replay(coastExitProfile=False)
+        self.assertEqual(absent_trace, false_trace)
+        self.assertEqual(absent_state.phase, false_state.phase)
+        self.assertEqual(absent_state.verdict, false_state.verdict)
+        # ...and the OFF path really does reach the phase the ON path replaces,
+        # so the comparison above is between two runs that got somewhere.
+        self.assertEqual(mlib.KXRW_TREE_STATE, absent_state.phase)
+        self.assertNotIn(mlib.KXRW_COAST_EXIT, absent_state.phases_reached)
+
+    def test_the_predicate_is_inert_on_every_lane_that_does_not_declare_it(self):
+        conflict = mlib.kxrw_coast_exit_profile_conflict
+        self.assertEqual("", conflict(mlib.kxrw_params_from_dict(params())))
+        self.assertEqual("", conflict(mlib.kxrw_params_from_dict(
+            params(impactProfile=True))))
+        self.assertEqual("", conflict(mlib.kxrw_params_from_dict(
+            params(partSweepSteps=["gear-down"]))))
+        self.assertEqual("", conflict(mlib.kxrw_params_from_dict(
+            params(coastExitProfile=True))))
+
+    # ---- (b) the gate itself -------------------------------------------------
+
+    def test_the_gate_wants_both_halves_and_an_actual_reading(self):
+        """MUTATION: drop either conjunct and a stack still inside the atmosphere,
+        or one already in orbit, hands the scene over - and the recording the spec
+        commits then carries one environment (no split) or a closed orbit (no
+        predicted impact, so no `reason=crashed` promotion)."""
+        met = mlib.kxrw_coast_exit_gate_met
+        self.assertTrue(met(72000.0, "SUB_ORBITAL", 71000.0, ("SUB_ORBITAL",)))
+        self.assertFalse(met(69000.0, "SUB_ORBITAL", 71000.0, ("SUB_ORBITAL",)))
+        self.assertFalse(met(72000.0, "ORBITING", 71000.0, ("SUB_ORBITAL",)))
+        self.assertFalse(met(72000.0, "", 71000.0, ("SUB_ORBITAL",)))
+        # An UNREAD altitude is not a high one (kxrw_throttle_is_zero's argument).
+        self.assertFalse(met(float("nan"), "SUB_ORBITAL", 71000.0,
+                             ("SUB_ORBITAL",)))
+        # Exactly AT the threshold counts: the bound is inclusive on purpose.
+        self.assertTrue(met(71000.0, "SUB_ORBITAL", 71000.0, ("SUB_ORBITAL",)))
+
+    def test_one_in_gate_frame_does_not_settle_it(self):
+        st = self._to_coast(coastExitProfile=True)
+        st, _ = self._coast_out(st, ut=1160.0, altitude=60000.0,
+                                situation="SUB_ORBITAL")
+        self.assertEqual(mlib.KXRW_COAST_EXIT, st.phase)
+        st, _ = self._coast_out(st, ut=1170.0, altitude=72000.0,
+                                situation="SUB_ORBITAL")
+        self.assertEqual(mlib.KXRW_COAST_EXIT, st.phase,
+                         "the debounce is 2 - one read must not end the flight")
+        self.assertFalse(st.coast_exit_observed)
+        st, acts = self._coast_out(st, ut=1171.0, altitude=73000.0,
+                                   situation="SUB_ORBITAL")
+        self.assertEqual(mlib.KXRW_DONE, st.phase)
+        self.assertTrue(st.done)
+        self.assertIsNone(st.verdict)
+        # NOTHING is commanded on the way out: the scenario's own
+        # ExitToSpaceCenter step is what commits the tree.
+        self.assertEqual([], acts)
+        self.assertTrue(st.coast_exit_observed)
+        self.assertEqual(73000.0, st.coast_exit_altitude)
+        self.assertEqual("SUB_ORBITAL", st.coast_exit_situation)
+        self.assertEqual(1171.0, st.coast_exit_ut)
+        # The span's end is stamped HERE because there is no CommitTree to stamp it.
+        self.assertEqual(1171.0, st.recording_end_ut)
+
+    def test_a_broken_streak_starts_over(self):
+        st = self._to_coast(coastExitProfile=True)
+        st, _ = self._coast_out(st, ut=1160.0, altitude=72000.0,
+                                situation="SUB_ORBITAL")
+        st, _ = self._coast_out(st, ut=1161.0, altitude=69000.0,
+                                situation="SUB_ORBITAL")
+        self.assertEqual(0, st.coast_exit_streak)
+        st, _ = self._coast_out(st, ut=1162.0, altitude=72000.0,
+                                situation="SUB_ORBITAL")
+        self.assertEqual(mlib.KXRW_COAST_EXIT, st.phase)
+
+    def test_a_stack_that_never_climbs_out_flakes_by_name(self):
+        """A MISSION give-up, never a Parsek finding: an ascent that under-performed
+        or a core discarded too low is a driver fact. MUTATION: let it fall through
+        to DONE and the run commits a single-environment recording while every
+        downstream token reads as a product defect."""
+        st = self._to_coast(coastExitProfile=True, coastExitFrames=4)
+        ut = 1160.0
+        for _ in range(8):
+            st, _ = self._coast_out(st, ut=ut, altitude=60000.0,
+                                    situation="SUB_ORBITAL")
+            ut += 1.0
+            if st.done:
+                break
+        self.assertTrue(st.done)
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+        self.assertEqual(mlib.KXRW_COAST_EXIT, st.flake_phase)
+        self.assertIn("never read >= 71000 m", st.flake_reason)
+        self.assertIn("SUB_ORBITAL", st.flake_reason)
+        # The discard's own altitude rides the give-up: the two numbers together
+        # are what say whether the boundary was reachable at all.
+        self.assertIn("59500", st.flake_reason)
+
+    # ---- (c) the rows --------------------------------------------------------
+
+    def test_four_rows_not_eight_and_the_fourth_is_the_hand_over(self):
+        """A row over a verb nobody issued is not a weaker assertion, it is a false
+        one. This profile drives no CommitTree, no rewind, no watcher and no
+        playback, so those four rows are GONE rather than failing on every green
+        flight. MUTATION: keep them and the lane can never pass."""
+        st = self._to_coast(coastExitProfile=True)
+        st, _ = self._coast_out(st, ut=1160.0, altitude=64000.0,
+                                situation="SUB_ORBITAL")
+        st, _ = self._coast_out(st, ut=1170.0, altitude=72000.0,
+                                situation="SUB_ORBITAL")
+        st, _ = self._coast_out(st, ut=1171.0, altitude=73000.0,
+                                situation="SUB_ORBITAL")
+        self.assertEqual(mlib.KXRW_DONE, st.phase)
+        rows = mlib.evaluate_kxrw_assertions(
+            [], mlib.kxrw_params_from_dict(
+                params(coastExitProfile=True,
+                       recordedSpanWindowSeconds={"min": 60.0, "max": 600.0})), st)
+        self.assertEqual(["coreDiscardedWithEnginesOff", "boosterStagesDropped",
+                          "recordedSpanSeconds", "handedOverAboveAtmosphere"],
+                         [r.name for r in rows])
+        self.assertEqual([], [r.name for r in rows if not r.met],
+                         [r.to_dict() for r in rows])
+        hand = [r for r in rows if r.name == "handedOverAboveAtmosphere"][0]
+        self.assertEqual(73000.0, hand.value)
+        self.assertEqual("SUB_ORBITAL", hand.detail["observedSituation"])
+        self.assertEqual(59500.0, hand.detail["coreDiscardAltitude"])
+        span = [r for r in rows if r.name == "recordedSpanSeconds"][0]
+        self.assertTrue(span.detail["coastExitObserved"])
+        self.assertEqual(171.0, span.value)               # 1171 - 1000
+
+    def test_an_unreached_gate_fails_the_span_row_rather_than_reporting_a_nan(self):
+        """The impact profile's discipline: say WHICH half failed rather than
+        leaving a NaN to be interpreted."""
+        st = self._to_coast(coastExitProfile=True)
+        rows = mlib.evaluate_kxrw_assertions(
+            [], mlib.kxrw_params_from_dict(
+                params(coastExitProfile=True,
+                       recordedSpanWindowSeconds={"min": 60.0, "max": 600.0})), st)
+        span = [r for r in rows if r.name == "recordedSpanSeconds"][0]
+        self.assertFalse(span.met)
+        self.assertFalse(span.detail["coastExitObserved"])
+        hand = [r for r in rows if r.name == "handedOverAboveAtmosphere"][0]
+        self.assertFalse(hand.met)
+
+    # ---- (d) the conflict gate ----------------------------------------------
+
+    def test_the_two_profiles_are_refused_on_the_first_frame(self):
+        st = machine(coastExitProfile=True, impactProfile=True)
+        st, acts = mlib.kxrw_decide(st, snap(ut=0.0, situation="PRE_LAUNCH"))
+        self.assertTrue(st.done)
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+        self.assertEqual(mlib.KXRW_ROLLOUT, st.flake_phase)
+        self.assertIn("mutually exclusive", st.flake_reason)
+        self.assertEqual([], acts)
+        self.assertFalse(st.rollout_launch_commanded)
+
+    def test_the_profile_and_the_part_sweep_are_refused_on_the_first_frame(self):
+        st = machine(coastExitProfile=True, partSweepSteps=["gear-down"])
+        st, acts = mlib.kxrw_decide(st, snap(ut=0.0, situation="PRE_LAUNCH"))
+        self.assertTrue(st.done)
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+        self.assertIn("mutually exclusive", st.flake_reason)
+        self.assertIn("gear-down", st.flake_reason)
+        self.assertEqual([], acts)
+
+    # ---- (e) the phase bookkeeping ------------------------------------------
+
+    def test_the_new_phase_sits_where_the_post_rewind_block_stays_contiguous(self):
+        """COAST-EXIT goes between COAST and PART-SWEEP, so KXRW_POST_REWIND_PHASES
+        is still the contiguous TAIL of KXRW_PHASES - the property the carve-out's
+        own cell asserts. MUTATION: append it after DONE and that slice stops
+        matching."""
+        self.assertEqual(31, len(mlib.KXRW_PHASES))
+        i = mlib.KXRW_PHASES.index
+        self.assertEqual(i(mlib.KXRW_COAST) + 1, i(mlib.KXRW_COAST_EXIT))
+        self.assertEqual(i(mlib.KXRW_COAST_EXIT) + 1, i(mlib.KXRW_PART_SWEEP))
+        self.assertEqual(mlib.KXRW_PHASES[i(mlib.KXRW_REWIND):i(mlib.KXRW_DONE)],
+                         mlib.KXRW_POST_REWIND_PHASES)
+        # A FLIGHT phase: the stack is alive and coasting, so a lost vessel there is
+        # a craft destroyed and `flightMaxSeconds` still bounds it.
+        self.assertIn(mlib.KXRW_COAST_EXIT, mlib.KXRW_FLIGHT_PHASES)
+        self.assertNotIn(mlib.KXRW_COAST_EXIT, mlib.KXRW_POST_REWIND_PHASES)
+        self.assertNotIn(mlib.KXRW_COAST_EXIT, mlib.KXRW_IMPACT_PHASES)
+
+    def test_a_lost_vessel_in_the_new_phase_is_still_lethal(self):
+        """The stack is ALIVE here - this is not IMPACT-COAST, where a dead handle
+        is the signal. MUTATION: carve COAST-EXIT into the expected-loss set and a
+        craft destroyed on the way up reads as a successful hand-over."""
+        st = self._to_coast(coastExitProfile=True)
+        st, _ = self._coast_out(st, ut=1160.0, altitude=65000.0,
+                                situation="SUB_ORBITAL")
+        self.assertEqual(mlib.KXRW_COAST_EXIT, st.phase)
+        st, _ = mlib.kxrw_decide(st, snap(ut=1161.0, vessel_lost=True))
+        self.assertTrue(st.done)
+        self.assertEqual(mlib.MISSION_ASSERT_FAIL, st.verdict)
 
 
 class CraftAndSchemaSyncTests(unittest.TestCase):

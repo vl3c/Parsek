@@ -254,6 +254,66 @@ required = false
 type = "number"
 min = 0.0
 
+# ---- the RF-9 coast exit (OPTIONAL; omitted = the pre-RF-9 lane) --------------
+#
+# WHAT IT CHANGES. With `coastExitProfile = true` the machine ends at COAST-EXIT,
+# in FLIGHT, with the recorder live and the top stack coasting ABOVE the
+# atmosphere: no CommitTree, no rewind, no watcher, no playback, and four
+# assertion rows instead of eight. The SPEC's own `ExitToSpaceCenter` step is what
+# commits the tree, so the committed recording spans an Atmospheric ->
+# ExoBallistic boundary - which is the only boundary the optimizer's
+# `PersistedPhaseChange` split predicate cuts on, and the split is the precondition
+# of the sealing defect PR #1658 fixed. No other profile in this machine produces
+# one: the ordinary lane commits from a still-atmospheric coast, and the impact
+# profile flies the same stack into the ground.
+#
+# THE CORE MUST COME OFF LOW ENOUGH TO SPLIT AND HIGH ENOUGH TO CLIMB OUT. A lane
+# declaring this profile raises `coreDiscardApoapsisMeters` above the atmosphere
+# top (the default 60 km leaves the stack inside it for the whole flight, which is
+# what GS-4 / GS-7 want and what makes their recordings single-environment) while
+# leaving the discard itself in the atmosphere. That pair is the shape, and the
+# gate below is what MEASURES the second half of it rather than assuming it.
+#
+# REFUSED WITH `impactProfile` or `partSweepSteps`, on the machine's FIRST decision
+# frame - before a stage click, never after an ascent
+# (`mlib.kxrw_coast_exit_profile_conflict` carries both arguments).
+[params.coastExitProfile]
+required = false
+type = "bool"
+
+# The altitude the hand-over gate wants. 71 km by default rather than 70: Kerbin's
+# atmosphere ends at exactly 70 000 m, the point is to be OUTSIDE it, and a
+# kilometre is margin against a poll landing on the boundary itself.
+[params.coastExitMinAltitudeMeters]
+required = false
+type = "number"
+min = 0.0
+
+# Situations the gate accepts. `["SUB_ORBITAL"]` by default and by intent: an
+# ORBITING stack has its periapsis outside the atmosphere, so its scene-exit tail
+# is a closed orbit rather than the predicted impact that makes the promoted slot
+# read `reason=crashed`.
+[params.coastExitSituations]
+required = false
+type = "list"
+
+# Consecutive in-gate frames before the hand-over. Debounced for the reason every
+# gate in this machine is: one glitched poll must not end a flight.
+[params.coastExitDebounceFrames]
+required = false
+type = "int"
+min = 1
+max = 50
+
+# SILENCE bound for the gate, in frames. What it catches is a stack that never got
+# there - an under-performing ascent, a core discarded too low - which is a MISSION
+# give-up rather than a Parsek finding, and the flake says so by name.
+[params.coastExitFrames]
+required = false
+type = "int"
+min = 1
+max = 10000
+
 # ---- the GS-6 part-event sweep (OPTIONAL; omitted = the pre-GS-6 lane) --------
 #
 # THE SCRIPTED TIMELINE. `partSweepSteps` is an ordered list of step NAMES from

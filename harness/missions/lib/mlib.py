@@ -17416,9 +17416,19 @@ MISSION_HANDOFF_CONTRACTS: Dict[str, Dict] = {
     # (`[GhostPartEvents] apply family=... applied=[1-9]`) and to
     # `[expectations.ghostLifecycle]`. Declaring it stops the misreading this table
     # was created for: "MISSION-OK, so the sweep worked".
+    # RF-9 ADDS A THIRD UNVERIFIED CLAIM to the same table entry rather than a
+    # second entry, because the coast-exit profile is the same mission: it flies
+    # the identical ascent and hands the scene over above the atmosphere. What it
+    # CANNOT see is what the recorder then did with that flight - whether the
+    # committed recording actually carries an Atmospheric -> ExoBallistic boundary,
+    # whether the optimizer split on it, and whether the promoted slot stayed open.
+    # The mission reads altitudes and situations; sections, splits and MergeStates
+    # are the spec's `[expectations.logContracts]` question, and a mission that
+    # tried to answer it would be asserting over a surface kRPC cannot reach.
     "kx_rewind_watch": {
         "terminal": "DONE",
-        "unverifiedByMission": ["ghostPartEventReplay", "ghostRenderLifecycle"],
+        "unverifiedByMission": ["ghostPartEventReplay", "ghostRenderLifecycle",
+                                "recordedEnvironmentBoundary"],
         "verifiedBy": ["logContracts", "ghostLifecycle"],
     },
     "eva4_atmo_chute": {
@@ -22440,6 +22450,66 @@ def kxrw_decide(state: KxrwState,
                     [_kxrw_seam_action("RecordingState", kxrw_tree_probe_tag(0))])
         return state, []
 
+    # ---- COAST-EXIT (RF-9): ride the coast OUT of the atmosphere -----------
+    #
+    # THE MISSION ENDS HERE, IN FLIGHT, WITH THE RECORDER LIVE. Nothing is
+    # commanded and nothing is committed: the SPEC's own `ExitToSpaceCenter` step
+    # is what closes the tree, exactly as RF-1's does after its own MISSION-OK, and
+    # for the same reason - a mission that drove the commit would own a decision
+    # the scenario is written to observe.
+    #
+    # WHAT THE GATE IS FOR. The whole lane exists to put an Atmospheric ->
+    # ExoBallistic boundary INSIDE the promoted slot's own recording, because that
+    # is the only thing the optimizer's `PersistedPhaseChange` split predicate cuts
+    # on and the split is what the sealing defect needed. "The core came off and we
+    # waited" is a COMMANDED reading of that; the debounced altitude + situation
+    # pair is an OBSERVED one, and B1's inert chute is what commanded readings cost.
+    if state.phase == KXRW_COAST_EXIT:
+        in_gate = kxrw_coast_exit_gate_met(
+            snapshot.altitude, snapshot.situation,
+            p.coast_exit_min_altitude, p.coast_exit_situations)
+        streak = state.coast_exit_streak + 1 if in_gate else 0
+        st = replace(state, coast_exit_streak=streak)
+        if streak >= max(1, p.coast_exit_debounce_frames):
+            # The stamps ride the SAME frame the gate opened on, so the evidence
+            # and the verdict cannot drift apart. `recording_end_ut` is stamped
+            # here because on this profile there is no CommitTree to stamp it:
+            # what the recorded span measures is launch -> hand-over, which is the
+            # span the scenario's exit then commits.
+            return (_kxrw_enter(
+                replace(st,
+                        coast_exit_observed=True,
+                        coast_exit_ut=(snapshot.ut if _is_finite(snapshot.ut)
+                                       else float("nan")),
+                        coast_exit_altitude=(snapshot.altitude
+                                             if _is_finite(snapshot.altitude)
+                                             else float("nan")),
+                        coast_exit_situation=str(snapshot.situation or ""),
+                        recording_end_ut=(snapshot.ut if _is_finite(snapshot.ut)
+                                          else float("nan"))),
+                KXRW_DONE, snapshot.ut), [])
+        if st.phase_frames > p.coast_exit_frames:
+            # A MISSION give-up, by name: the stack never got above the atmosphere
+            # in a coasting situation, which is an ascent that under-performed or a
+            # core discarded too low - a driver fact, never a Parsek finding. The
+            # scenario's tokens are all downstream of this hand-over, so letting the
+            # run continue would produce a green-looking flight of a different
+            # experiment.
+            return _kxrw_flake(
+                st,
+                "phase %s: the top stack never read >= %.0f m in one of %s on %d "
+                "consecutive frames within %d frames (last altitude %s, last "
+                "situation %s, core discarded at %s m). The boundary this lane "
+                "exists to record is the atmosphere exit; without it the committed "
+                "recording carries one environment and the optimizer has nothing "
+                "to split"
+                % (KXRW_COAST_EXIT, p.coast_exit_min_altitude,
+                   list(p.coast_exit_situations),
+                   max(1, p.coast_exit_debounce_frames), p.coast_exit_frames,
+                   _obs_fmt(snapshot.altitude), snapshot.situation or "UNREAD",
+                   _obs_fmt(state.core_discard_altitude))), []
+        return st, []
+
     # ---- PART-SWEEP (GS-6): the scripted part-event timeline ---------------
     #
     # One step per settle window, in the spec's own order, on the still-recording
@@ -23438,7 +23508,62 @@ def evaluate_kxrw_assertions(frames, params: KxrwParams,
                 getattr(state, "impact_autorecord_off_result", "") or "NONE"),
             "postImpactVesselLostFrames": int(
                 getattr(state, "post_impact_vessel_lost_frames", 0))})
+    if bool(getattr(params, "coast_exit_profile", False)):
+        # RF-9. THE SPAN IS LAUNCH -> HAND-OVER on this profile, because there is
+        # no commit to stamp its end: COAST-EXIT writes `recording_end_ut` on the
+        # frame its gate opened. An unreached gate leaves that NaN, so the row
+        # already fails - the extra conjunct is here for the same reason the impact
+        # profile carries one, to say WHICH half failed in the result JSON rather
+        # than leaving a NaN to be interpreted.
+        span_met = span_met and bool(
+            getattr(state, "coast_exit_observed", False))
+        span_detail.update({
+            "coastExitObserved": bool(
+                getattr(state, "coast_exit_observed", False)),
+            "handOverUT": (getattr(state, "coast_exit_ut", None)
+                           if _is_finite(getattr(state, "coast_exit_ut",
+                                                 float("nan"))) else None)})
     span_row = AssertionOutcome("recordedSpanSeconds", span_met, span, span_detail)
+
+    if bool(getattr(params, "coast_exit_profile", False)):
+        # RF-9. FOUR ROWS, NOT EIGHT, and the four that are gone are gone because
+        # this profile never drives them: there is no CommitTree, no rewind, no
+        # watcher and no playback on a lane that ends the mission in FLIGHT and
+        # hands the scene to the scenario's own exit step. A row over a verb nobody
+        # issued is not a weaker assertion, it is a false one - it would fail every
+        # green flight, and the honest place for "what this mission does not
+        # verify" is MISSION_HANDOFF_CONTRACTS, not a row that always reds.
+        #
+        # WHAT THE FOURTH ROW SAYS: the stack was OBSERVED outside the atmosphere,
+        # in a coasting situation, on K consecutive frames. That is the whole
+        # precondition the scenario's tokens are downstream of - a committed
+        # recording that crosses Atmospheric -> ExoBallistic - expressed as
+        # telemetry the mission actually read.
+        coast_exit = AssertionOutcome(
+            "handedOverAboveAtmosphere",
+            bool(getattr(state, "coast_exit_observed", False)),
+            getattr(state, "coast_exit_altitude", float("nan")),
+            {"minAltitudeMeters": params.coast_exit_min_altitude,
+             "accepted": list(params.coast_exit_situations),
+             "observedSituation": (getattr(state, "coast_exit_situation", "")
+                                   or "UNREAD"),
+             "debounceK": params.coast_exit_debounce_frames,
+             "handOverUT": (getattr(state, "coast_exit_ut", None)
+                            if _is_finite(getattr(state, "coast_exit_ut",
+                                                  float("nan"))) else None),
+             # The discard's own altitude beside the exit's: the pair IS the
+             # boundary the recording is supposed to carry (a split BELOW the
+             # atmosphere top, an exit ABOVE it), and an operator reading a run
+             # whose recording did not split needs both numbers in one place.
+             "coreDiscardAltitude": (
+                 getattr(state, "core_discard_altitude", None)
+                 if _is_finite(getattr(state, "core_discard_altitude",
+                                       float("nan"))) else None),
+             "coreDiscardUT": (getattr(state, "core_discard_ut", None)
+                               if _is_finite(getattr(state, "core_discard_ut",
+                                                     float("nan"))) else None),
+             "frameCap": params.coast_exit_frames})
+        return [core, boosters, span_row, coast_exit]
 
     tree_id = getattr(state, "tree_id", "") or ""
     if impact_profile:

@@ -3547,7 +3547,7 @@ filler between calibration flights.
 
 ---
 
-## The re-fly continuation program (RF-1..RF-8)
+## The re-fly continuation program (RF-1..RF-9)
 
 Added 2026-09-09, after the first Rewind-to-Separation session an operator ever
 flew BY HAND end to end and collected: `logs/2026-09-08_2317_refly-a-manual`,
@@ -3602,6 +3602,7 @@ recordings.
 | RF-6 | `bdock-recorded` | The twelve session-gated in-game `Rewind` cells, executing for the first time anywhere, by ordering `RunTests` after `InvokeRewind` |
 | RF-7M / RF-7T | `refly-a-recorded` | The predicted continuation tail on the flight map and in the Tracking Station. REPRODUCTIONS: authored to red on main on the exact defect tokens |
 | RF-8 | `bdock-recorded` | What renders DURING a live re-fly - the sibling's ghost in watch mode and on the map, with both tracers armed for the first time on any rewind lane |
+| RF-9 | `gs1-two-stage-pad` + the Kerbal X | THE SEALING DEFECT'S OWN SHAPE, FLOWN. The only lane whose promoted recording crosses an environment boundary the optimizer splits on, which is the precondition RF-1 records itself as unable to reach: the probe-cored core is discarded INSIDE the atmosphere and the crewed top stack then coasts OUT through 70 km before the scene exits. Reds on a pre-#1658 DLL by design |
 
 **TWO LIMITATIONS, structural rather than unfinished.**
 
@@ -3662,6 +3663,37 @@ ghost, so flight-map presence tracks nothing (`recordingTracked=0 created=0` at 
 reading position). The Tracking Station runs its own per-recording resolver
 unconditionally and therefore IS the harness subject for that half. Filed as
 RF7M-DEFECT-B-NEEDS-AN-ENGAGED-GHOST; the two defect-(B) tokens moved from RF-7M to RF-7T.
+
+**RF-9, ADDED 2026-09-09: THE SEALING DEFECT'S OWN SHAPE, FLOWN.** The program shipped
+with a hole its own headers named: RF-1 asserts the OPEN branch on a profile that CANNOT
+split, and the split defect's only reproduction was the FIXTURE. RF-9 closes it. The
+precondition is narrow - `RecordingOptimizer.IsSplittableEnvOrBodyBoundary` accepts an
+Atmospheric <-> ExoBallistic crossing and nothing else as `PersistedPhaseChange` - and a
+survey of every mission and fixture found no lane that produces one on a recording a
+RewindPoint slot points at: GS-1/RF-1 hop 700 m inside the physics bubble, GS-2/GS-3
+split in a 100 km parking orbit (`minSafePeriapsisMeters = 75000` keeps it that way),
+GS-4/GS-7 fly the right craft but discard the core at a 60 km apoapsis so the top stack
+peaks INSIDE the atmosphere, and every `bdock-recorded` lane reads an injected point.
+
+The craft was already right: `harness/fixtures/ships/Kerbal X.craft` carries an RC-L01
+`probeStackLarge` on the core stage, so the istg=2 discard is a multi-controllable split
+and KSP physics authors a RewindPoint - the one GS-4 flies past on its way to a
+rewind-to-LAUNCH. So RF-9 is two numbers and one opt-in rather than a new mission:
+`coreDiscardApoapsisMeters = 95000` puts the apex outside the atmosphere, and the new
+`coastExitProfile` on `kx_rewind_watch` refuses to hand the scene over until the stack
+has been OBSERVED at >= 71 km in SUB_ORBITAL on two consecutive frames (COAST ->
+COAST-EXIT -> DONE, nothing commanded, the recorder still live, the spec's own
+`ExitToSpaceCenter` committing - RF-1's shape). A longer `coastSeconds` would have been
+one line and would have made the boundary a COMMANDED reading. Byte-inert when absent,
+replay-proved by `CoastExitProfileTests`.
+
+**AND ONE HARNESS FINDING FELL OUT OF AUTHORING IT.** RF-9's forbidden list was written
+against `RecordingStore.cs` rather than against a quotation, which is how the em dash was
+noticed: the C# writes `already committed/fork [EM DASH] not re-deriving MergeState`, and
+RF-1 forbade the same sentence spelled with an ASCII hyphen - a pattern no log line can
+match, which reads exactly like a pass on every run. Same silence-is-not-success shape as
+the RF-7M defect-(B) tokens, arrived at from the opposite direction. Both lanes now forbid
+the fragment `not re-deriving MergeState`; filed as RF-FORBID-EM-DASH-CANNOT-MATCH.
 
 **THE TWO FIXES.** Neither is in this program's scope. PR #1658
 (`refly-continuation`) MERGED to main on 2026-09-08 as `a783879aa`, after the three
