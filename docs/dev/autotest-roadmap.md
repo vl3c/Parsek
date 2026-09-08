@@ -229,10 +229,11 @@ EMPTY: every committed lane has a green run. What remains is, in order:
 7. **Cheap flights and arming calls, batch them between the items above**:
    Operator item 8 (EVA-2 points-window reading run + negative control, ~64 s
    each); H59's report-only `[expectations.routes]` reading and the promotion of
-   the other report-only route declarers; the `operator -> nightly` PROMOTION
-   calls for V18T, V20M, V20T, V25M, B29, V3C and GS-6 (each has the three-run
-   discipline behind it; B29 is a 35-minute lane, so it costs the nightly budget
-   more than the others); the R1 residue windows on `B1-pad-hop` and `BDOCK-1`;
+   the other report-only route declarers; ~~the `operator -> nightly` PROMOTION
+   calls for V18T, V20M, V20T, V25M, B29, V3C and GS-6~~ DONE 2026-09-08 (operator
+   decision: all seven to nightly, B29's ~36 min and V3C's ~15 min included; the
+   nightly p50 sum moves from ~6.2 h to ~7.3 h); the R1 residue windows on
+   `B1-pad-hop` and `BDOCK-1`;
    R14's two instance-ready specs (`better-time-warp`, `making-history`).
 8. **Tier D D1 residue** as filler: `switch-segment-noop-discard`, `commit-abort`
    (needs its definition first), `sub-2-point-drop`, and the R2 registry decision
@@ -251,9 +252,10 @@ EMPTY: every committed lane has a green run. What remains is, in order:
     crew swap, milestones, D13 spawn-positioning generator work, D16 storage cells,
     the D11 mission cells).
 
-Decisions owed rather than work: keep or delete `bdock-station-craft` (default
-KEEP; two suites enumerate it), and whether `V18M` / `V20K` are worth their reading
-runs this cycle or stay when-wanted.
+Decisions owed rather than work: ~~keep or delete `bdock-station-craft`~~ DECIDED
+2026-09-08, KEEP (it is the clean operator-build base `bdock-station-pad` was stamped
+from; two suites enumerate it; nothing loads it and nothing needs to), and whether
+`V18M` / `V20K` are worth their reading runs this cycle or stay when-wanted.
 
 ## What we cannot reproduce yet, grouped by cause
 
@@ -2961,7 +2963,7 @@ Forensics live in `docs/dev/todo-and-known-bugs.md`; this is a pointer index onl
 | The no-1x-coast certification cannot see coast warp-thrash (known-gate 8) | A real gap in an existing gate. Bounded for now by the machine-side thrash fast-fail. |
 | ~~`autotest-status.md` EVA-2 rows contradict themselves~~ (CLOSED, verified 2026-09-07: the contradicting row is gone - the only `does not exist yet` left in `docs/dev/autotest-status.md` at `cc1c4c573` is the `eva2-lko-crewed` fixture row's own "Row corrected 2026-07-29" note quoting the old text - and the EVA-2 row reads LIVE-PROVEN 2026-07-24) | Was: the EVA table said "STILL pending-fixture: `eva2-lko-crewed` does not exist yet" while the section header says all four EVA scenarios are LIVE-PROVEN, Operator item 2 says the fixture was forged and committed, the fixture exists on disk with 7 VESSEL nodes, the spec reads `tier = "daily"`, and `duration.json` carries a measured 57 s run. Not a system bug; a stale doc row that reads as a blocker. Deliberately NOT edited here to avoid colliding with concurrent sessions; filed as a todo. |
 | ~~The L6 recover lane's landed dwell straddles the optimizer's 5 s split floor~~ (CLOSED 2026-09-02, branch `l6-dwell-variants`) | Was: `L6-career-same-name-recover` committed 4, then 3, then 4 recordings on one fixture and one DLL, because the second half of its touchdown split (`recoverUT - touchdownSectionUT`) measured 5.34 / 4.82 / 5.88 s against `CanAutoSplitIgnoringGhostTriggers`'s 5.0 s both-halves floor - so no count pin could be exact and the lane could not be promoted. THE FLOOR STAYS (it is the hop guard); the INPUT is now controlled. `science_bench_recover` gained an optional `preRecoverDwellSeconds` (default 0.0 = the pre-change machine, replayed against `origin/main` rather than asserted), L6 declares 12.0 and pins its counts exactly, the new sibling `L6-career-same-name-natural-dwell` keeps the uncontrolled range as an A/B control, and the sub-floor side - which no hold can produce, since a hold only lengthens a tail - is pinned headlessly at the measured magnitudes by `RecordingOptimizerTests`. ALL THREE READING RUNS FLEW 2026-09-02: L6 long PASS with count=4 and every exact pin matched (realized tail 11.84 s, margin +6.84 s - the predicted landedUT-to-section offset was 3.4 s and MEASURED 0.50 s, wrong in the safe direction), the natural-dwell control PASS at a 5.70 s tail (0.70 s above the floor, so the natural band is now four points with one still below), and L3 PARSEK-FAIL on ONE token that is a landing-site biome roll rather than the dwell (L3-CREWREPORT-BIOME-PIN-DEPENDS-ON-LANDING-SITE; L3's timeline is unmoved, measured against the prior recovery run at 0.16-0.20 s). THE ARMED RUN AND ITS CONTROL THEN FLEW THE SAME EVENING: `_1847` PASS with mismatches=0 and an 11.66 s tail (second green on the exact pins), and the uncommitted `L6-negctl-long-dwell-namematches-three` PARSEK-FAIL on exactly the seeded token with zero forbids. Two greens plus a discriminating control = the armed discipline; what remains is the ordinary promotion call. Forensics: L6-RECOVER-DWELL-STRADDLES-SPLIT-FLOOR |
-| `harness/fixtures/saves/bdock-station-craft/` is an orphan | No spec LOADS it: no `saveTemplate` points at it. It IS named in a provenance comment at `BDOCK-1-station-interceptor.toml:97` (whose own `saveTemplate` is `bdock-station-pad`), and by `harness/tools/harvest_bdock_station.py` plus the design doc. Decide keep or delete - and if delete, drop that comment reference with it. UPDATE 2026-09-07: still no `saveTemplate` points at it, but it is no longer reference-free on the test side - `harness/lib/test_saveparse.py` (`EXPECTED_SCENARIO_PRESENCE`) and `harness/fixtures/shared-ships.toml` both enumerate it, so a delete edits both plus the BDOCK-1 comment. The keep-or-delete call is still the operator's; the default is KEEP (it is the harvested provenance of `bdock-station-pad` and two suites pin it). |
+| ~~`harness/fixtures/saves/bdock-station-craft/` is an orphan~~ (DECIDED 2026-09-08: KEEP, operator decision - the clean base the pad fixture was stamped from) | Was: no spec LOADS it: no `saveTemplate` points at it. It IS named in a provenance comment at `BDOCK-1-station-interceptor.toml:97` (whose own `saveTemplate` is `bdock-station-pad`), and by `harness/tools/harvest_bdock_station.py` plus the design doc. Decide keep or delete - and if delete, drop that comment reference with it. UPDATE 2026-09-07: still no `saveTemplate` points at it, but it is no longer reference-free on the test side - `harness/lib/test_saveparse.py` (`EXPECTED_SCENARIO_PRESENCE`) and `harness/fixtures/shared-ships.toml` both enumerate it, so a delete edits both plus the BDOCK-1 comment. The keep-or-delete call is still the operator's; the default is KEEP (it is the harvested provenance of `bdock-station-pad` and two suites pin it). |
 | ~~`S1.5-rewind-loop.toml:3-8` and `S4.1-rewind-merge.toml:3-9` carry a SPACECENTER-host premise contradicted by the LoadRoute contract~~ (CLOSED: both headers were rewritten 2026-07-26 with the corrected `LoadGame` premise, both re-tiered `nightly`, and R3 closed by flight 2026-07-29) | Was: kept two specs and up to 16 cells off every cadence. |
 
 ---
