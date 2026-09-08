@@ -57,14 +57,14 @@ M-A6 stack provisioner, M-B1 mission library, M-B2 ledger oracle, M-C1 seam verb
 batch 1, M-C2 EVA verbs. Status and per-module proof live in `autotest-status.md`.
 None of the items in this roadmap are blocked on a missing module.
 
-### Scenarios: 230 committed
+### Scenarios: 232 committed
 
-Re-derived 2026-09-08 on `ghost-replay-tier-a`: `ls harness/scenarios/*.toml` returns **230**
+Re-derived 2026-09-08 on `ghost-replay-tier-a` (after GS-7 / GS-8 landed): `ls harness/scenarios/*.toml` returns **232**
 files, the total `autotest-status.md`'s `## Test cases` header states and
 `AutotestStatusScenarioCountTests` pins against the committed files (224 at the
 2026-09-07 re-derivation, at the merge of #1646 `e01d11f85`). The 68 below
 was the 2026-08-04 snapshot; the V / GS / W / L / RVR / H41-H70 / LT waves, among others, took it
-from 68 to 230 between 2026-08-04 and 2026-09-08.
+from 68 to 232 between 2026-08-04 and 2026-09-08.
 
 `ls harness/scenarios/*.toml` returned **68** files when this section was last
 re-derived before that (2026-08-04 at
@@ -78,15 +78,17 @@ EVA / CL / S0.x / H22-H25 / V1 / BDOCK waves and R14's MC-1/MC-2 took it from
 55 to 68. Adding a scenario is not the same as covering a cell. Re-derive
 these rather than editing them by memory; both numbers have moved many times.
 
-### Coverage: 164 of 248 registry cells (was 83 of 241 at the baseline, 108 of 242 on 2026-08-04, 162 of 247 on 2026-09-07 before G1 / G3b closed, 163 of 248 on 2026-09-08 before the ghost-replay claim pass)
+### Coverage: 167 of 248 registry cells (was 83 of 241 at the baseline, 108 of 242 on 2026-08-04, 162 of 247 on 2026-09-07 before G1 / G3b closed, 163 of 248 on 2026-09-08 before the ghost-replay claim pass, 164 after it)
 
 Re-derived 2026-09-08 on `ghost-replay-tier-a` after the claim pass (H52 claims D6
-`reentry-fx`), replacing the 2026-09-07 snapshot. The command is unchanged:
-`hlib.compute_coverage(specs, [], registry)` over the 230 committed specs and
+`reentry-fx`) and the two flown Tier A lanes (GS-7 claims D6
+`watch-mode-retarget-explosion-hold` + D5 `crash-coalescing`, GS-8 claims D6
+`zone-transitions`), replacing the 2026-09-07 snapshot. The command is unchanged:
+`hlib.compute_coverage(specs, [], registry)` over the 232 committed specs and
 `harness/coverage/registry.toml` returns exactly:
 
 ```
-values 248   covered 164   uncovered 84   expectedFailValues 0   xpass 0
+values 248   covered 167   uncovered 81   expectedFailValues 0   xpass 0
 ```
 
 Per dimension (total / uncovered), with the 2026-08-04 uncovered count kept in
@@ -230,6 +232,15 @@ remains is, in order:
    resolver, test-seam anchors - see the corrections section); LT-1 pins the two
    `Watch` post-assertion lines and claims nothing, the retarget / explosion-hold
    cell being live watch behaviour those cells never exercise.
+   FLIGHT HALF 2026-09-08: ~~watch retarget + explosion hold~~ (Tier A item 2,
+   `GS-7-kerbalx-crash-watch-hold`, flown green + armed, D6
+   `watch-mode-retarget-explosion-hold` + D5 `crash-coalescing` claimed) and ~~zone
+   transitions~~ (Tier A item 4, `GS-8-kerbalx-zone-round-trip`, flown green +
+   armed, D6 `zone-transitions` claimed; no in-game test was needed - the flown
+   replay's production lines carry the ladder). Debris TTL / promotion (item 5) is
+   SIZED, not flown (two different lanes, see the item); the reentry-FX replay half
+   (item 3) and the GS-6 residues (`chute-two-phase` / `chute-cut`, `bays`) stay
+   filed where they are - none is a one-flight derivative of the GS-4 template.
 4. **Ghost-replay Tier B item 6, the vanished-RewindPoint design call**: costs
    nothing and the roadmap says to take it early; then items 7-9 (rewind-to-launch
    x Re-Fly, repeat-rewind idempotence, arming `unityExceptions` on GS-4 / W1 -
@@ -3243,6 +3254,23 @@ first spawn frame (hold-then-retry, never a single eager ask).
    multi-part breakup also claims D5 `crash-coalescing`. The 3-5 s hold and
    its `watch hold expired` / retarget destroy reasons are already in the
    ghostlife vocabulary.
+   **DONE 2026-09-08: `GS-7-kerbalx-crash-watch-hold` is FLOWN GREEN AND ARMED.**
+   The crash-landing profile, not the core child: the core is `terminal=SubOrbital`
+   at every archived commit, so only the parent can be MADE Destroyed
+   deterministically. Reading run `2026-09-08_1711` (MISSION-OK, one re-cut token:
+   the pruned crash split leaves `childBpId=null`), armed re-flight `2026-09-08_1728`
+   (PASS, gate live), negative control `2026-09-08_1741` (`destroyedReasons.forbidden =
+   ["watch hold expired"]`, red PARSEK-FAIL(ghost-lifecycle) exactly). Measured
+   under the camera: `Watch hold started for #0: 5s terminal=Destroyed`, the
+   `FindNextWatchTarget` scan with nothing to walk, `Watch hold expired`, and the
+   `reason=watch hold expired` derender at UT 353.48; D6
+   `watch-mode-retarget-explosion-hold` and D5 `crash-coalescing` both claimed off
+   gated tokens. Machinery: the kx mission's opt-in `impactProfile` branch (seven
+   phases). The five-flight road to it is in the spec's STATUS section; the one
+   fact worth carrying: after a fatal crash the roster is EMPTY for good (the ledger
+   keeps the dead crew dead through the rewind, and the stand-in hire skips Dead),
+   so every pad launch after the crash - the throwaway and the watcher - must be
+   probe-cored.
 3. **Reentry FX** (D6 `reentry-fx` UNCOVERED): a B4-shaped reentry profile
    rewound + watched, FX arm/disarm lines pinned during the replay.
    HALF-CLOSED 2026-09-08 by the claim pass: `H52-reentry-fx` now claims the cell
@@ -3278,6 +3306,25 @@ first spawn frame (hold-then-retry, never a single eager ask).
    `staging-debris-promotion`, both UNCOVERED): GS-4's flight already
    produces the population; a variant asserts the TTL-expiry vs promotion
    fork in the produced save through the saveParse structure block.
+   SIZED 2026-09-08 on GS-7's flights, NOT FLOWN; the two halves are different
+   lanes. (a) `staging-debris-ttl` is `BackgroundRecorder.cs` `Debris TTL expired,
+   ending recording:` (Info, the 60 s `DebrisTTLSeconds` timer). It printed TWICE
+   on GS-7 round 1 `2026-09-08_1130` (the slow near-vertical impact kept the
+   boosters inside the physics bubble past their timer) and ZERO times on rounds 3-5
+   (the far crash closes every booster through `Debris TTL: vessel left physics
+   bubble`), so it is a PROFILE property, not a Kerbal X property - the todo's
+   "likely, not certain" objection to claiming it off a B-lane stands. The lane that
+   claims it is GS-7 with the cut moved back before the core discard (round 1's
+   shape) and the probe-cored watcher; its structure block then measures the
+   TTL-closed booster terminals. (b) `staging-debris-promotion` had NO product
+   definition in the registry; the recorder's only "promotion" is
+   `VesselSwitchDecision.PromoteFromBackground` (`FlightRecorder.DecideOnVesselSwitch`,
+   logged `Promoted recording '<id>' from background` in `ParsekFlight`): the player
+   switches to a background-recorded vessel and its recording resumes physics
+   sampling. For staging debris that means switching to a dropped booster INSIDE its
+   60 s TTL, which needs a switch verb the mission library does not drive on a
+   falling booster (`SimulateSwitchClick` exists as a seam verb; the kx machine has
+   no phase for it). Both stay UNCOVERED; neither is a one-param flip of GS-7.
 
 ### Tier B - the rewind system's own open questions
 
@@ -3288,6 +3335,12 @@ first spawn frame (hold-then-retry, never a single eager ask).
    the player still deserves once the replay passes the branch point again,
    or is rewound-out-of-existence the contract? Then a lane pins whichever
    answer, the GS-1/GS-2 both-branches pattern.
+   DATA POINT 2026-09-08 (GS-7 `2026-09-08_1711`, report-only saveParse): on the
+   CRASH profile the same core-discard RP SURVIVES the rewind (rewindPoints=1)
+   because the crash promoted the tree's slots to CommittedProvisional
+   (`CommitTree promoted rec=... reason=crashed to CommittedProvisional`), so the
+   answer already differs by terminal kind; the design call has two measured
+   shapes to rule on, not one.
 7. **Rewind-to-launch x Re-Fly interplay.** Rewind-to-launch on a tree
    carrying supersede rows exercises `DropSupersedesRewoundOutOfExistence`
    and D9 `load-time-sweep` (the dimension's one UNCOVERED cell) live -

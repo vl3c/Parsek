@@ -11059,6 +11059,14 @@ class GhostLifecycleVerifierWiringTests(unittest.TestCase):
     # ARMED RE-FLIGHT and the NEGATIVE CONTROL that discharge the three-run
     # workflow.
     GHOSTLIFE_ARMED_SPECS = {
+        # ARMED 2026-09-08 off the reading run `2026-09-08_1711_GS-7-kerbalx-crash-watch-hold`
+        # (MISSION-OK attempt 1, PARSEK-FAIL on one re-cut logContract token only;
+        # ghostLifecycle spawned=8 spawnLines=8 destroyLines=8 unbalanced=0 with
+        # `watch hold expired` among the eight reasons) - the same 8-ghost census
+        # GS-4 / GS-8 arm on, ending in a watched crash. ARMED RE-FLIGHT and the
+        # negative control (`destroyedReasons.forbidden = ["watch hold expired"]`)
+        # are recorded in the spec's STATUS section by the arming pass's own flights.
+        "GS-7-kerbalx-crash-watch-hold.toml",
         # ARMED 2026-09-08 off two readings of the identical census: reading run 1
         # `2026-09-08_1119_GS-8-kerbalx-zone-round-trip` (PARSEK-FAIL on the late
         # watch entry, spawned=8/8/8 unbalanced=0 regardless) and round 2

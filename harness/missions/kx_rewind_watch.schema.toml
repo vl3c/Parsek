@@ -269,9 +269,11 @@ min = 0.0
 # PART-SWEEP is an OPT-IN phase, entered only on request.
 #
 # MUTUALLY EXCLUSIVE WITH `impactProfile` below, and refused by name on the
-# machine's first decision frame: that profile leaves for TREE-STATE from the last
-# booster drop and never enters COAST, so a declared timeline could only be
-# silently dropped.
+# machine's first decision frame: that profile needs the stack to fall unattended
+# to the ground, and this vocabulary carries steps (`chutes-arm` / `chutes-deploy`,
+# `throttle-up`, `engines-on`) that keep it alive - a survived stack reads to
+# IMPACT-COAST exactly as a stalled clock does, so the give-up would name the
+# product for a spec choice.
 #
 # THE VOCABULARY, and what each step is FOR (Parsek family in brackets):
 #   gear-down / gear-up            [GearDeployed / GearRetracted]
@@ -337,15 +339,47 @@ max = 100000
 
 # ---- the IMPACT PROFILE (OPTIONAL; omitted = the pre-profile lane) ------------
 #
-# WHAT IT CHANGES. With `impactProfile = true` the flight does not climb on after
-# its last booster drop: the throttle stays cut, the autopilot is disengaged, the
-# tree id is captured while a recorder is still live, and the stack falls back and
-# HITS THE GROUND. The tree then reaches the rewind through the SPACE CENTER
-# instead of through CommitTree:
+# WHAT IT CHANGES, AND WHAT IT DELIBERATELY DOES NOT. The FLOWN ASCENT IS
+# UNCHANGED: every booster drop, the throttle-up after the last one, the fueled-core
+# gate, the discard and the coast run exactly as they do on the ordinary lane. The
+# profile diverges only AFTER the tree id has been read, and the tree then reaches
+# the rewind through the SPACE CENTER instead of through CommitTree:
 #
-#   BOOSTER-STAGE (last drop) -> TREE-STATE -> IMPACT-COAST -> IMPACT-SETTLE
-#   -> TEMP-LAUNCH -> TEMP-READY -> SC-EXIT -> SC-COMMITTED -> SC-SAVE -> RELOAD
-#   -> RELOAD-READY -> REWIND -> (as before)
+#   COAST -> TREE-STATE -> IMPACT-AUTORECORD-OFF -> IMPACT-COAST -> IMPACT-SETTLE
+#   -> SC-EXIT -> SC-COMMITTED -> TEMP-LAUNCH -> TEMP-READY -> REWIND -> (as before)
+#
+# WHAT MAKES THE STACK FALL is the ordinary core gate. ASCENT enters CORE-CUT with
+# the throttle cut and the autopilot disengaged, CORE-DISCARD drops the fueled
+# Mainsail, and this lane never presses the Poodle - so from
+# `coreDiscardApoapsisMeters` on, the pod stack is unpowered, has no parachute, and
+# reaches the ground without the machine doing anything further.
+#
+# THE CRASH HAPPENS FAR FROM THE PAD, and the history of that choice matters more
+# than the choice. An earlier revision diverged at the LAST BOOSTER DROP (cut there,
+# never throttle up) and left the stack falling back within 330-374 m of the pad,
+# measured on runs 2026-09-08_1130 / _1157_a2 and 2026-09-08_1302 / _1331_a2, and
+# the launch that followed hung. The first hypothesis was the pad (KSP's
+# `PreFlightTests.LaunchSiteClear.Test()` waiting on an obstruction dialog). Moving
+# the cut to the core discard (73 km downrange, runs 2026-09-08_1429 / _1503_a2)
+# REFUTED it: only the launch clamps sat at the pad and the launch hung the same
+# way (`LaunchSiteClear` waves Debris through anyway). The blocker is the ROSTER,
+# below. The far crash is KEPT because it is the shape every green flight flew and
+# the shape GS-7's tokens are cut to, not because the pad needs it. The scene was
+# never the blocker either: TEMP-LAUNCH is the kRPC launch GS-4's post-rewind
+# WATCHER-LAUNCH issues from SPACECENTER on every flight.
+#
+# WHY THE DISARM PRECEDES THE FALL. When the stack breaks up KSP hands the active
+# vessel to a SURVIVING FRAGMENT, and with `autoRecordOnLaunch` still armed Parsek
+# opens a NEW recording tree on it (measured: `StartRecording: clearing stale chain
+# state without active tree`). The exit gate this lane pins reads
+# the tree state (`hasActiveTree=false hasPendingTree=true` on the stash shape,
+# `hasActiveTree=true hasPendingTree=false` on the pending-split shape), so a
+# fragment recording can refuse the exit outright, and either way it lands in the
+# save the spec's log contracts read. IMPACT-AUTORECORD-OFF
+# sends the same `SetSetting autoRecordOnLaunch=false` pair the post-rewind
+# AUTORECORD-OFF phase sends, one frame after the tree id is captured; it cannot run
+# any earlier, because that setting is what auto-started this flight's own recording
+# at the PRELAUNCH click. A non-OK is FATAL.
 #
 # WHY THE HOP, and it is Parsek's own shape rather than a driver preference.
 # Destroying the active vessel does NOT commit its tree in flight:
@@ -358,55 +392,64 @@ max = 100000
 # `InvokeRewindToLaunch` is RequiresFlight, which is the only reason a temporary
 # craft is put on the pad at all. That craft is NOT the watcher - the rewind's
 # quicksave predates it, so it is rewound out of existence and the real watcher is
-# launched afterwards by the unchanged WATCHER-LAUNCH phase.
+# launched afterwards by the unchanged WATCHER-LAUNCH phase. Nothing between the
+# arrival's in-memory commit and the rewind reads a .sfs: the rewind is commanded in
+# the same process the commit landed in, so there is no save-and-reload leg.
 #
-# WHY THE LAUNCH RUNS BEFORE THE EXIT, AND WHY A SAVE + RELOAD FOLLOW IT. Two
-# measured facts, one from a flight and one from a decompile:
-#   - kRPC's `LaunchVessel` yields on `WaitForVesselPreFlightChecks(config)`, and
-#     those checks never report complete outside the FLIGHT scene. The first flight
-#     of this profile issued the launch from SPACECENTER and the RPC HUNG for the
-#     rest of the mission budget with KSP logging no launch at all. So the
-#     throwaway craft goes up from the POST-CRASH flight scene, which kRPC can
-#     launch from; the wreckage and the stock crash report are irrelevant to
-#     `FlightDriver.StartWithNewLaunch`.
-#   - the persistent.sfs the exit itself wrote still carries the tree as PENDING -
-#     the auto-commit happened in MEMORY, on arrival - so SC-SAVE re-persists the
-#     live state and RELOAD boots it. That boot lands in FLIGHT rather than at the
-#     KSC because KSP's `FlightState` capture stamps `activeVesselIdx = 0` when
-#     `FlightGlobals.ready` is false (it is, at the Space Center) and after the
-#     crash the throwaway craft is the only vessel left, so index 0 IS it.
+# THE THROWAWAY IS `craftName` ITSELF, and the WATCHER CRAFT CANNOT SERVE, which is
+# why this block declares no craft key of its own. The crash leaves an ALL-MISSING
+# crew roster (the pod's crew died in the impact, the rest went with the recovered
+# pad occupant; measured on GS-7 round 3, runs 2026-09-08_1429 / _1503_a2), so
+# `DefaultCrewForVessel` builds an EMPTY manifest for the next launch. A craft whose
+# command module declares `minimumCrew = 1` - the Mk1 pod `watcherCraftName`'s
+# Jumping Flea is built on - then has NO CONTROL SOURCE, KSP's
+# `PreFlightTests.NoControlSources` raises its "launch anyway?" dialog, and kRPC's
+# `LaunchVessel` yields on `WaitForVesselPreFlightChecks` forever (only that check's
+# own callback sets `preFlightChecksComplete`). The recorded Kerbal X carries the
+# RC-L01 `probeStackLarge` (`minimumCrew = 0`) and launches unattended. TEMP-READY
+# therefore reads `rolloutExpectedVesselName` / `rolloutReadySituations` /
+# `rolloutReadyDebounceFrames` back, and only its FRAME BOUND stays
+# `watcherLaunchFrames` - a Space Center launch is the watcher's operation, not the
+# rollout's FLIGHT->FLIGHT reload. THE REWIND DOES NOT REFILL THE POOL (round 4,
+# runs 2026-09-08_1627 / _a2: throwaway launched, rewind complete, the Flea hung on
+# the identical `NoControlSources` line): the `parsek_rw_*` quicksave carries the
+# crew aboard the recorded craft, the strip reserves them and the ledger keeps them
+# dead, and `CrewReservationManager.ReserveCrewIn` hires the stand-in GS-4 / GS-8's
+# Flea flies on only for LIVING reserved crew. A spec that turns this profile on
+# must therefore also name a probe-cored `watcherCraftName` (GS-7: the
+# `GS1 Auto-Chute Booster`, launched empty by its Octo2).
 #
 # OMITTING THE KEY IS THE PRE-PROFILE LANE, exactly: the phase graph, the emitted
-# actions and the assertion rows are byte-identical. Two rows are SUBSTITUTED when
-# it is on (never added - the count stays eight): `impactObserved` for
-# `coreDiscardedWithEnginesOff` (that profile never enters the core gate) and
-# `treeCommittedAtSpaceCenter` for `treeCommitted` (there is no CommitTree verdict
-# to read).
+# actions and the assertion rows are byte-identical. ONE row is SUBSTITUTED when it
+# is on (never added - the count stays eight): `treeCommittedAtSpaceCenter` for
+# `treeCommitted`, because there is no CommitTree verdict to read.
+# `coreDiscardedWithEnginesOff` is untouched - the profile runs that gate the
+# ordinary way - and the crash rides `recordedSpanSeconds`, which additionally FAILS
+# when no impact was observed (that row's `recording_end_ut` IS the impact stamp).
 #
-# REFUSED WITH `partSweepSteps` above, with `boosterStageCount` below 1, and with
-# an empty `reloadSaveName`, on the machine's FIRST decision frame - before a stage
-# click, never after an ascent.
+# REFUSED WITH `partSweepSteps` above, on the machine's FIRST decision frame -
+# before a stage click, never after an ascent.
 [params.impactProfile]
 required = false
 type = "bool"
 
-# Frames IMPACT-COAST waits for the impact before giving up BY NAME. The fall is
-# real time at 1x (this lane warps nowhere), so this is generous on purpose; what
-# it actually catches is a stack that SURVIVED - still flying, or landed softly -
-# or a clock that stalled, neither of which the two impact readings can see on
-# their own.
+# Frames IMPACT-COAST waits for the impact before giving up BY NAME. The fall from
+# the core-discard apoapsis is real time at 1x (this lane warps nowhere) and takes
+# minutes, so this is generous on purpose; what it actually catches is a stack that
+# SURVIVED - still flying, or landed softly - or a clock that stalled, neither of
+# which the two impact readings can see on their own. IMPACT-COAST is also a FLIGHT
+# phase, so `flightMaxSeconds` bounds it too and has to admit the whole fall.
 [params.impactCoastFrames]
 required = false
 type = "int"
 min = 1
 max = 10000
 
-# Frames held between the observed impact and the throwaway craft's launch click.
-# NOT a tuning knob: the C# finalize waits up to 5 s of REAL time for the
-# destruction coalescer before it stashes the tree, so the settle has to outlast
-# that or the FLIGHT->FLIGHT reload that follows tears down the scene the finalize
-# is running in, racing the very stash the whole hop depends on. 16 frames at the
-# standard 0.5 s poll is 8 s.
+# Frames held between the observed impact and the ExitToSpaceCenter click. NOT a
+# tuning knob: the C# finalize waits up to 5 s of REAL time for the destruction
+# coalescer before it stashes the tree, so the settle has to outlast that or the
+# exit tears down the scene the finalize is running in, racing the very stash the
+# whole hop depends on. 16 frames at the standard 0.5 s poll is 8 s.
 [params.impactSettleFrames]
 required = false
 type = "int"
@@ -435,43 +478,10 @@ type = "int"
 min = 1
 max = 10000
 
-# SC-SAVE's SILENCE bound. `SaveGame` is a SYNCHRONOUS in-process
-# GamePersistence.SaveGame, so its reply lands on the very next frame; this bounds
-# a seam that never answers at all rather than a slow write. A non-OK answer is
-# FATAL rather than bounded: the commit the arrival performed lives only in the
-# memory of a process about to be reloaded away.
-[params.scSaveFrames]
-required = false
-type = "int"
-min = 1
-max = 10000
-
-# RELOAD's SILENCE bound, and it bounds only the SILENCE. `LoadGame` is a two-phase
-# verb whose completion straddles a whole cold boot, and the mission bridge BLOCKS
-# inside perform() for it under a 420 s wall poll, so by the time a frame reaches
-# this phase the terminal has either landed or the poll itself expired. Hence the
-# rewindFrames-sized value rather than a scene-load-sized one.
-[params.reloadFrames]
-required = false
-type = "int"
-min = 1
-max = 10000
-
-# The save FOLDER the RELOAD boots - the run's own save, and the ONE key of this
-# profile with no usable default. It is a per-RUN fact (the harness stages a fresh
-# save name per run), so any literal here would be a guess about somebody else's
-# run; an EMPTY value is refused by name on the machine's first decision frame
-# rather than defaulted. A spec supplies it through R10's reply capture off the
-# labelled LoadGame boot step - `reloadSaveName = "${boot.save}"` - so the machine
-# only ever sees a resolved string.
-#
-# IT IS THE FOLDER, NOT THE SLOT. `LoadGameImpl` assigns
-# `HighLogic.SaveFolder = save` and then reads the `name` slot inside it; the slot
-# is `persistent` on both halves of the hop and is a machine constant
-# (`mlib.KXRW_RELOAD_SLOT_NAME`), not a declared key.
-[params.reloadSaveName]
-required = false
-type = "string"
+# IMPACT-AUTORECORD-OFF has NO knob of its own: it is bounded by
+# `autoRecordOffFrames` below. The two phases issue the identical one-frame
+# SetSetting verb, so a second key would be two names for one number and the one
+# that drifts is the one nobody re-pins.
 
 # ---- FRAME budgets ------------------------------------------------------------
 #
@@ -535,12 +545,13 @@ type = "int"
 min = 1
 max = 10000
 
-# AUTORECORD-OFF's bound: frames in which the `SetSetting autoRecordOnLaunch=false`
-# step must answer. It is a one-frame AnyScene verb riding the 60 s C# default, so
-# its reply lands on the very next frame; this bounds a seam that never answers at
-# all. A non-OK answer is FATAL rather than bounded - leaving the setting armed
-# means the watcher launch auto-starts a second recording in the save the spec's
-# log contracts are about to read.
+# AUTORECORD-OFF's bound, and IMPACT-AUTORECORD-OFF's: frames in which a
+# `SetSetting autoRecordOnLaunch=false` step must answer. It is a one-frame
+# AnyScene verb riding the 60 s C# default, so its reply lands on the very next
+# frame; this bounds a seam that never answers at all. A non-OK answer is FATAL
+# rather than bounded at BOTH sites - leaving the setting armed means the watcher
+# launch auto-starts a second recording, and on the impact profile a surviving
+# fragment does the same, in the save the spec's log contracts are about to read.
 [params.autoRecordOffFrames]
 required = false
 type = "int"
@@ -548,7 +559,11 @@ min = 1
 max = 10000
 
 # WATCHER-READY's bound: frames in which the watcher craft must settle into one of
-# watcherReadySituations after its launch_vessel click.
+# watcherReadySituations after its launch_vessel click. The IMPACT PROFILE's
+# TEMP-READY reuses THIS bound (and nothing else of the watcher's - it settles the
+# RECORDED craft, on the rollout's own name / situations / debounce): what it
+# bounds is a launch out of the SPACE CENTER, which is the watcher's operation
+# rather than the rollout's FLIGHT->FLIGHT reload. See the impact block above.
 [params.watcherLaunchFrames]
 required = false
 type = "int"

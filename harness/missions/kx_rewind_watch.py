@@ -43,59 +43,102 @@ THE PHASE PLAN (``mlib.kxrw_decide``; every state name is an ``mlib.KXRW_*``):
 
 THE IMPACT PROFILE (``impactProfile``, OPT-IN, default false) is the one branch in
 that plan. With the key omitted nothing above moves - the phase graph, the emitted
-actions and the assertion rows are byte-identical. With it declared the flight is
-ended by a DELIBERATE CRASH instead of by a commit, and the tree reaches the
+actions and the assertion rows are byte-identical. With it declared THE ASCENT IS
+STILL THE ONE ABOVE, every drop and the fueled-core discard included; the flight is
+then ended by a DELIBERATE CRASH instead of by a commit, and the tree reaches the
 rewind through the Space Center:
 
-    ... -> BOOSTER-STAGE (the LAST declared drop: no throttle-up, an explicit
-                          throttle cut and an AP disengage, so the stack falls)
-      -> TREE-STATE   (the same RecordingState probe; the id is captured HERE,
-                       while a recorder is still live)
+    ... -> COAST -> TREE-STATE  (the same RecordingState probe; the id is
+                       captured while a recorder is still live, because after the
+                       crash the tree is stashed and CommitTree refuses it)
+      -> IMPACT-AUTORECORD-OFF  (seam SetSetting autoRecordOnLaunch=false, under
+                       its own wire tag: the break-up hands active-vessel to a
+                       surviving FRAGMENT, and an armed trigger opens a second
+                       recording tree on it)
       -> IMPACT-COAST (fall; the impact is OBSERVED as EITHER a vessel_lost
                        snapshot OR a frozen-telemetry trip, and the last finite
                        UT becomes the recorded END)
       -> IMPACT-SETTLE(hold while the C# destruction coalescer finishes)
-      -> TEMP-LAUNCH -> TEMP-READY  (a throwaway craft on the pad, NOT the
-                       watcher, launched from the POST-CRASH flight scene)
-      -> SC-EXIT      (seam ExitToSpaceCenter)
+      -> SC-EXIT      (seam ExitToSpaceCenter - what actually commits the tree)
       -> SC-COMMITTED (seam ListHandles kind=committed: READ that the tree
                        actually committed)
-      -> SC-SAVE      (seam SaveGame name=persistent: the arrival's commit is
-                       IN MEMORY; the .sfs the exit wrote still says pending)
-      -> RELOAD       (seam LoadGame save=<run save> name=persistent: back into
-                       FLIGHT on the throwaway craft)
-      -> RELOAD-READY (the booted craft settles; the pre-rewind clock is stamped
-                       on the frame the rewind goes out)
+      -> TEMP-LAUNCH -> TEMP-READY  (a throwaway launch of the RECORDED craft,
+                       from the SPACE CENTER, NOT the watcher - see the crew
+                       paragraph below; the pre-rewind clock is stamped on the
+                       frame the rewind goes out)
       -> REWIND       (unchanged from here on)
 
-WHY THE SPACE CENTER HOP, because it reads like a detour and is not. Parsek does
-NOT commit a tree in flight once the active vessel is destroyed:
-``ParsekFlight.ShowPostDestructionTreeMergeDialog`` finalizes the tree and STASHES
-it as pending, deferring the commit to the scene transition. So ``CommitTree`` is
-refused ``no-active-tree`` from the crash onward; ``ExitToSpaceCenter`` proceeds
-under autoMerge=true and the pending tree auto-commits on arrival in SPACECENTER;
-and ``InvokeRewindToLaunch`` is RequiresFlight and refuses a pending tree, which is
-the ONLY reason a throwaway craft is put on the pad at all. That craft supplies a
+WHAT MAKES THE STACK FALL is the ordinary core gate, not a special cut: CORE-CUT
+cuts the throttle and disengages the AP, CORE-DISCARD drops the fueled Mainsail,
+and this lane never presses the Poodle - so the pod stack is unpowered and
+parachute-less from about 60 km, and it reaches the ground on its own.
+
+THE CRASH HAPPENS FAR FROM THE PAD, and the history of that choice matters more
+than the choice. An earlier revision cut the throttle at the LAST BOOSTER DROP
+and left the stack falling back within 330-374 m of the pad (measured, runs
+2026-09-08_1130 / _1157_a2 and 2026-09-08_1302 / _1331_a2), and the launch that
+followed hung. The first hypothesis was the pad: KSP's
+``PreFlightTests.LaunchSiteClear.Test()`` waits on an obstruction dialog nobody is
+there to dismiss. Moving the cut to the core discard (73 km downrange, runs
+2026-09-08_1429 / _1503_a2) REFUTED it - only the launch clamps sat at the pad and
+the launch hung the same way (and ``LaunchSiteClear`` waves Debris through
+anyway). The real blocker is the ROSTER, in the crew paragraph below. The far
+crash is KEPT because it is the shape every green flight flew and the shape the
+GS-7 tokens are cut to, not because the pad needs it; the scene was never the
+blocker either (TEMP-LAUNCH is the same kRPC call GS-4's post-rewind
+WATCHER-LAUNCH issues from SPACECENTER).
+
+WHY THE DISARM PRECEDES THE FALL. When the stack breaks up KSP hands the active
+vessel to a surviving fragment, and with ``autoRecordOnLaunch`` still armed Parsek
+opens a NEW recording tree on it (measured: ``StartRecording: clearing stale chain
+state without active tree``). The exit gate this lane pins reads
+the tree state (``hasActiveTree=false hasPendingTree=true`` on the stash shape,
+``hasActiveTree=true hasPendingTree=false`` on the pending-split shape), so a
+fragment recording can refuse the very exit the commit depends on, and either way
+it pollutes the save the spec's log contracts read. The disarm cannot run any earlier - that same setting is what auto-started
+this flight's own recording at the PRELAUNCH click - so it goes out one frame after
+the tree id is captured, and a non-OK is FATAL.
+
+WHY THE SPACE CENTER HOP, because it reads like a detour and is not. The crash
+closes in one of two shapes (measured): a slow near-vertical impact goes through
+``ParsekFlight.ShowPostDestructionTreeMergeDialog``, which finalizes the tree and
+STASHES it as pending (``CommitTree`` is then refused ``no-active-tree``); a fast
+impact from the core-discard apoapsis closes through the pending-split path with
+the tree still active and its vessel gone. ``ExitToSpaceCenter`` proceeds under
+autoMerge=true in BOTH shapes and the tree auto-commits on arrival in SPACECENTER,
+which is why the hop is the shape-independent commit; ``InvokeRewindToLaunch`` is
+RequiresFlight, which is the ONLY reason a throwaway craft is put on the pad at
+all. That craft supplies a
 FLIGHT scene and nothing else: the rewind's quicksave predates it, so it is
 rewound out of existence and the real watcher is launched afterwards by the
-unchanged WATCHER-LAUNCH phase. The exit's own OK stays a COMMANDED reading
-throughout - it says a scene changed, never that a tree was committed, so
-SC-COMMITTED goes and reads the count.
+unchanged WATCHER-LAUNCH phase.
 
-WHY THE LAUNCH RUNS BEFORE THE EXIT, AND WHY A SAVE + RELOAD FOLLOW IT. Two
-measured facts, one from a flight and one from a decompile:
-  - kRPC's ``LaunchVessel`` yields on ``WaitForVesselPreFlightChecks(config)``,
-    and those checks never report complete outside the FLIGHT scene. The first
-    flight of this profile launched from SPACECENTER and the RPC HUNG for the rest
-    of the mission budget with KSP logging no launch at all. A craft can therefore
-    be launched through kRPC only from FLIGHT (the ROLLOUT precedent), and the
-    post-crash scene IS still FLIGHT.
-  - the persistent.sfs the exit wrote still carries the tree as PENDING, because
-    the auto-commit happened in memory on arrival. SC-SAVE re-persists the live
-    state and RELOAD boots it; the boot lands in FLIGHT rather than at the KSC
-    because KSP's ``FlightState`` capture stamps ``activeVesselIdx = 0`` when
-    ``FlightGlobals.ready`` is false, and after the crash the throwaway craft is
-    the only vessel left.
+THE THROWAWAY IS THE RECORDED CRAFT, AND THE WATCHER CANNOT BE IT. The crash
+leaves an ALL-MISSING crew roster - the pod's crew died in the impact and the rest
+went with the recovered pad occupant (measured on GS-7 round 3, runs
+2026-09-08_1429 / _1503_a2) - so ``DefaultCrewForVessel`` builds an EMPTY manifest
+for the next launch. A craft whose command module declares ``minimumCrew = 1``,
+which is the Mk1 pod the Jumping Flea is built on, then has NO CONTROL SOURCE:
+``PreFlightTests.NoControlSources`` raises its "launch anyway?" dialog and kRPC's
+``LaunchVessel`` yields on ``WaitForVesselPreFlightChecks`` forever, because only
+that check's own callback sets ``preFlightChecksComplete``. The recorded Kerbal X
+carries the RC-L01 ``probeStackLarge`` (``minimumCrew = 0``) and launches
+unattended, so TEMP-LAUNCH re-launches IT and TEMP-READY reads the ROLLOUT's
+expected name and situations back. THE REWIND DOES NOT REFILL THE POOL (measured
+on round 4, runs 2026-09-08_1627 / _a2: the throwaway launched and the rewind
+completed, then the Flea hung on the identical ``NoControlSources`` line): the
+``parsek_rw_*`` quicksave carries the crew aboard the recorded craft, the strip
+reserves them, and the ledger keeps them dead (``Reservation: '<name>'
+endUT=INDEFINITE (Dead)``). GS-4 / GS-8's post-rewind Flea flies because their
+crew LIVE - ``CrewReservationManager.ReserveCrewIn`` hires a stand-in for every
+reserved kerbal and skips Dead ones - so a spec that turns the profile on must
+also name a probe-cored ``watcherCraftName`` (GS-7 uses the
+``GS1 Auto-Chute Booster``, whose Octo2 launches it empty).
+
+The exit's own OK stays a COMMANDED reading
+throughout - it says a scene changed, never that a tree was committed, so
+SC-COMMITTED goes and reads the count. Nothing here saves or reloads a game: the
+rewind is commanded in the same process the arrival's in-memory commit landed in.
 
 WATCH HOLDS AND THEN KEEPS ASKING, and the GS-4 reading run is why. It issued one
 EnterWatchMode at 00:48:27, five seconds before the parent ghost's
@@ -142,21 +185,26 @@ fails closed on an empty ``tree=`` payload - which is exactly the shape
 "auto-record never fired" produces, so that give-up already names this whole
 failure class. The mirror obligation is the AUTORECORD-OFF phase: the setting is
 still armed after the rewind, so it is turned off BEFORE the watcher launches and
-brings a second recorder with it.
+brings a second recorder with it. The impact profile has a SECOND such site,
+IMPACT-AUTORECORD-OFF, for a different second recorder: a fragment that survives
+the break-up inherits active-vessel while the trigger is still armed.
 
 WHAT THIS MISSION DOES NOT DO (by construction):
-  - It never flies the watcher craft, and it never RECORDS it. The Jumping Flea
-    exists to give the flight scene a live vessel, so a ghost has somewhere to be
-    watched FROM; AUTORECORD-OFF is what keeps its launch from authoring a
-    recording of its own.
+  - It never flies the watcher craft, and it never RECORDS it. The watcher (the
+    Jumping Flea on GS-4 / GS-8, the probe-cored Booster on GS-7) exists to give
+    the flight scene a live vessel, so a ghost has somewhere to be watched FROM;
+    AUTORECORD-OFF is what keeps its launch from authoring a recording of its own.
   - It uses NO time warp (v1). The playback wait is real time, bounded by a FRAME
     cap rather than a UT budget, because past the rewind the clock has moved
     backwards and a stuck clock is exactly what a UT budget cannot see.
   - It asserts nothing about ghosts, markers, polylines or the watch camera.
 
-NOT a handoff mission: it terminates on exactly the outcome it certifies, so it is
-deliberately absent from ``mlib.MISSION_HANDOFF_CONTRACTS`` (every mission but
-EVA-4 is).
+A HANDOFF mission: it certifies that the flights flew and the sequence was driven,
+and declares through ``mlib.MISSION_HANDOFF_CONTRACTS`` what it does NOT verify
+(the ghost's part-event replay and its render lifecycle), which belong to the spec's
+logContracts and ghostLifecycle evaluator - the split the orthogonality note above
+describes, and what the runner's verdict line prints as ``handoff mission - ...
+not verified here``.
 
 This is a THIN shell: every decision is the pure ``mlib.kxrw_decide`` phase machine
 and ``mlib.evaluate_kxrw_assertions``; the flight, connect, logging, seam transport
