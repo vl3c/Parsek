@@ -1398,10 +1398,16 @@ namespace Parsek
             // COPY, not move: a stale CommittedProvisional left on the first half is
             // inert, because TryQualify accepts Immutable and CommittedProvisional
             // alike and every open/closed read goes through the tip.
+            // The copy is UNCONDITIONAL (no terminal-carry gate, unlike MergeInto) and
+            // carries NotCommitted too: CopySplitIdentityFields already gives the second
+            // half its head's session and RP ids, so it must stay on the same
+            // load-time-sweep terms as its head rather than become an Immutable orphan;
+            // MergeInto refuses NotCommitted because a committed target must not claim
+            // a live recorder.
             second.MergeState = original.MergeState;
             ParsekLog.Verbose("Optimizer",
                 $"Split: MergeState={original.MergeState} carried with terminal=" +
-                $"{(carriedTerminal.HasValue ? carriedTerminal.Value.ToString() : "<none>")} " +
+                $"{(carriedTerminal.HasValue ? carriedTerminal.Value.ToString() : "<none: unconditional copy>")} " +
                 $"onto the second half (original={original.RecordingId ?? "<no-id>"}; " +
                 "the second half's id is assigned by the caller)");
 
