@@ -47,6 +47,58 @@ feeds the cover, the arc selector, the bridge search and the Director's chain as
 they cannot drift apart. Contract:
 `docs/dev/design-map-ts-render-architecture.md`, "Predicted continuation tails on the map".
 
+## ~~PREDICTED-TAIL-CHAIN-HEAD-RESOLVES-MAP-PRESENCE-WITH-NO-SEGMENTS: an optimizer split moves every conic onto the TIP, so the HEAD answers hasOrbitSegments=False and the ghost is re-sourced to an ellipse it never flew~~ FIXED 2026-09-08
+
+Defect (B) of the same session. At auto-commit the optimizer env-split the pod at the
+atmosphere-exit boundary (KSP.log:17549, `splitUT=191.04 prev=Atmospheric
+next=ExoBallistic`): HEAD `32ca5546` kept 272 points and 0 segments, TIP `8da7c2c2` took
+129 points and all 3 segments including both predicted ones. Map-presence source
+resolution ran only on the HEAD and never once names the TIP, so every line read
+`hasOrbitSegments=False` (KSP.log:18839, 18852, 27343), both segment-seeded ghost sources
+failed, and the pod was created with `orbitSource=state-vector-fallback` (KSP.log:20132) -
+the instantaneous UT-191 ellipse (sma 654813, ecc 0.435) it never flew, since it burned
+again after 191 and reached 540 km. In the final scene it got no map presence at all
+(`reason=no-state-vector-point ... suppressed=4386`).
+
+Fix: `GhostMapPresence.ResolveMapPresenceChainSegments` resolves the SEGMENT LOOKUP (only)
+through `EffectiveState.EffectiveTipRecordingId`, and the endpoint seed
+(`RecordingEndpointResolver.TryGetLastMatchingSegment`, `:318`) takes the effective tip's
+list when the recording's own is empty. `considerStateVector` and every skip-reason branch
+still read the recording's OWN `HasOrbitSegments`, so a HEAD inside its own recorded span
+keeps its state-vector ghost, and `state-vector-fallback` stays the fallback of last
+resort. Mirror direction checked: the TS marker VETO
+(`ParsekTrackingStation.ClassifyAtmosphericMarkerSkip`, `:892`) asks the opposite question -
+"does a conic cover this UT, so a live proto icon already shows the ghost" - and widening
+it to the chain would REMOVE a marker, so it deliberately stays on the recording's own
+segments.
+
+## PREDICTED-TAIL-CHAIN-HEAD-HOLDS-MAP-PRESENCE: routing the segment lookup to the effective tip does not restore presence at a UT NEITHER member's conics cover
+
+Residual of the fix above, stated rather than papered over. In the measured session the
+HEAD's ghost sat at UT 191.1 - between the HEAD's own end (191.04) and the TIP's first
+conic (216.70) - and still resolves through the state-vector path there, because no
+segment on either member covers that UT. Whether a chain should hand map presence to the
+TIP's own ghost once the playhead passes the HEAD's end is a chain-VISIBILITY question,
+not a segment-lookup one: in the same session the flight-scene engine had the TIP visible
+and driven (`[i=1 rec=8da7c2c2 ... endUT=2348.5][out:vis=T ...]`, KSP.log:20211) while
+map-presence resolution never ran for it at all.
+
+Fix: unknown - needs a reading of which member the map-presence lifecycle pass selects for
+a chain and why the TIP never entered the pending-create queue. Not scheduled.
+
+## ~~PARSEKUI-MAP-MARKER-READS-RAW-LATLONALT-WITH-NO-FRAME-DISPATCH (latent, never observed firing)~~ FIXED 2026-09-08
+
+`ParsekUI.TryComputeGhostWorldPosition` (`ParsekUI.cs:2443-2513`) interpolated `rec.Points`
+and called `body.GetWorldSurfacePosition(lat, lon, alt)` at `:2512` with no
+`TrackSection.referenceFrame` resolution - `ParsekUI.cs` contained zero occurrences of
+`Relative` or `referenceFrame`. In a RELATIVE section those fields are anchor-local metre
+offsets, so the marker would land deep inside the planet. It did not fire in the measured
+session (`skippedRelNoBodyFixed=0` everywhere, the pod's sections all Absolute), and every
+other render-side lat/lon/alt reader already dispatches. Now dispatched through the pure
+`ResolveMapMarkerFrameSource`: a Relative section uses its body-fixed shadow, and a
+Relative section without one REFUSES with
+`MapMarkerPositionFailureReason.RelativeFrameWithoutBodyFixed` rather than clamping.
+
 ## DISCARDTREE-CANNOT-IDLE-A-COMMITTED-TREE-RESTORE-HOST: on a save whose committed tree is restorable for a spawned vessel, `StopRecording` + `DiscardTree` frees the recorder for about 7 ms before the restore re-arms and promotes it again, so every in-game cell that guards on an idle recorder skips `recording already active` [MEASURED 2026-09-07 by the second in-game census over `mun-landing-recorded` (scratch CEN-5, and CEN-7 with a 12-step `RecordingState` dwell inserted between `DiscardTree` and `RunTests`): all ten `AutoRecord` cells skipped identically on both. A HOST PROPERTY of the seam, not a product defect - no coverage is lost, so this is filed to be known rather than fixed]
 
 The log line that names the mechanism, from the CEN-7 runlog seven milliseconds after

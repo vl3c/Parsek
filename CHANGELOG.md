@@ -10,6 +10,23 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **A flight the recording optimizer split in two no longer shows a map orbit it never
+  flew.** When the optimizer cuts one flight at an environment boundary, the earlier half
+  keeps the trajectory samples and the later half keeps every orbit. Map presence was
+  resolved from the earlier half alone, found no orbit there, and fell back to seeding the
+  ghost from a single instantaneous position - drawing an ellipse the craft never flew, and
+  in the measured session eventually drawing no icon or orbit line at all. The segment
+  lookup now follows the chain to its effective tip, so the ghost is seeded from the orbit
+  the flight actually had, including its predicted continuation tail. Only the segment
+  lookup moved: a recording playing back inside its own recorded span keeps the position
+  source it had, and the single-position fallback stays the last resort.
+- **The map marker no longer risks placing a ghost inside a planet during a docking or
+  rendezvous section.** The flight-map fallback marker read a recording's stored
+  coordinates without checking the section's reference frame; in a docking-relative section
+  those three numbers are metre offsets from the partner craft, not latitude / longitude /
+  altitude. It now reads the section's body-fixed shadow, and draws no marker at all when
+  there is none, rather than a marker in the wrong place. No case of it firing was observed.
+
 - **A flight that left the scene mid-air now draws its predicted continuation on the
   map instead of ending in empty space.** When a recording is finalized at scene exit the
   extrapolator appends the rest of the flight as predicted orbit segments - a coast to
