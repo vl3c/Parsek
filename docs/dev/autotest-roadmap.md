@@ -80,7 +80,13 @@ EVA / CL / S0.x / H22-H25 / V1 / BDOCK waves and R14's MC-1/MC-2 took it from
 55 to 68. Adding a scenario is not the same as covering a cell. Re-derive
 these rather than editing them by memory; both numbers have moved many times.
 
-### Coverage: 163 of 248 registry cells (was 83 of 241 at the baseline, 108 of 242 on 2026-08-04, 162 of 247 on 2026-09-07 before G1 / G3b closed)
+### Coverage: 166 of 248 registry cells (was 83 of 241 at the baseline, 108 of 242 on 2026-08-04, 162 of 247 on 2026-09-07 before G1 / G3b closed, 163 of 248 after them)
+
+Re-derived 2026-09-08 on `chain-interaction` (register item 2): `hlib.compute_coverage`
+over the 232 committed specs returns `values 248 covered 166 uncovered 82
+expectedFailValues 0 xpass 0`. The three cells that moved are D5
+`chain-continuation-switch` (GS-3 armed + CI-1), D18 `committed-interaction-claiming`
+and D18 `chain-tip-original-pid` (CI-2). D18 is now 4 of 12 covered.
 
 Re-derived 2026-09-08 at `de5ac6112`, replacing the 2026-09-07 snapshot (162 of 247;
 #1648 added the D10 `route-endpoint-rebind-render` value and claimed it, so the
@@ -263,7 +269,7 @@ remains is, in order:
    v0.9 headline feature, so this is where the next unmeasured product risk sits.~~
    **SHIPPED 2026-09-08 (PR #1653)** - `${step.field}` capture / substitution plus the
    `ListHandles` verb, first consumer `RH-1-live-rp-handle-rewind`; next: item 2.
-2. **The chain-interaction wave riding R10**: one fixture whose switch target is a
+2. ~~**The chain-interaction wave riding R10**: one fixture whose switch target is a
    background member of the live tree plus one committed spawned vessel; claims the
    three cells above. Author it against R10's first green consumer, not before. The
    HANDLE FAMILIES IT NEEDS NOW EXIST (2026-09-08): `ListHandles kind=active` emits
@@ -271,7 +277,33 @@ remains is, in order:
    bg-member-continuation consume route requires) and `kind=committed` emits
    `rec<i>spawnedPid` (the KSP-unique pid of a really-spawned clone, NEVER
    `rec<i>pid`, which is craft-baked). What is still missing is the SUBJECT, not the
-   addressing - see the R12 residue block below.
+   addressing - see the R12 residue block below.~~
+   **CLOSED 2026-09-08 (branch `chain-interaction`, PR #1655), all three cells
+   claimed off GATING tokens - but not the way this item was written.** The two D18 cells are
+   NOT switch cells: the catalog (`automated-testing-scenario-catalog.md`, D18 + ladder
+   S4.7) defines `committed-interaction-claiming` as the ghost-chain walker CLAIMING
+   a committed docking's partner and `chain-tip-original-pid` as the chain-tip spawn
+   preserving the original pid, and the "committed spawned vessel" half of this item
+   was a mis-scoping inherited from the R12 residue block (corrected there). What
+   flew: `CI-1-eva-switch-bg-member` (daily; `StartRecording` -> `EvaExit` so the
+   ship enters the live tree's BackgroundMap -> `ListHandles kind=active` ->
+   `SimulateStockSwitchClick pid=${bg.bg0pid}`; reading `2026-09-08_1054` re-pinned
+   two regex shapes, armed re-flight `2026-09-08_1057` PASS attempt 1, negative
+   control `2026-09-08_1059` red on exactly `branchPoints.VesselSwitchContinuation 1
+   < min 2`) claims D5 `chain-continuation-switch` + `eva-branch` + D1
+   `switch-segment`; `GS-3-switch-nudge-deployed` had flown the bg-member route since
+   2026-08-05 without arming it - its `route=bg-member-continuation` / real
+   `parentRecId` / `recorder-bound` lines are now REQUIRED and the other routes
+   FORBIDDEN, re-flown green `2026-09-08_1101`, and it claims the same D5 value;
+   `CI-2-refly-claim-tip-pid` (operator; RH-1's rewind to `rp=${handles.rp0}` puts
+   bdock-recorded's Dock branch point in the future, the walker claims the partner
+   `via MERGE`, `TimeJump ut=8960` past the tip spawns Kerbal X with `pid=3620499050
+   preserveIdentity=true`, and the `ListHandles kind=committed` readback shows the tip
+   row go from `spawnedPid=0` to `spawnedPid=3620499050` = its `pid`; reading
+   `2026-09-08_1100` re-pinned the count to 22 - the re-fly provisional survives the
+   merge on this fixture jump or no jump, RH-1's run 2 kept it too, and 21 was a
+   miscount - armed re-flight `2026-09-08_1105_CI-2-refly-claim-tip-pid`, negative
+   control `2026-09-08_1106_CI-2-refly-claim-tip-pid`) claims both D18 cells. No C# change, no provisioning.
 3. **Ghost-replay Tier A items 2-5** (the roadmap's own sequencing after GS-6):
    watch retarget + explosion hold (D6, the long-declined cell), zone transitions
    (needs an in-game test first, Cause F), debris TTL / promotion split (D5), and
@@ -492,7 +524,7 @@ reserved set mapped almost one to one onto the largest uncovered dimensions:
 | ~~`SealSlot`~~ / `StashSlot` / `FlySlot` | D9 `unfinished-flights-stash`, `seal-stash-fly`. `SealSlot` PROMOTED 2026-08-30 (`RVR-2` drove seal -> route create -> delivery 2026-09-01); `StashSlot` / `FlySlot` stay reserved |
 | ~~`RouteCommand`~~ | D10 (12 uncovered then, 1 on 2026-09-07). PROMOTED 2026-08-30 alongside `SealSlot`; the RVR-1..RVR-20 wave rode it |
 | ~~`MissionConfig`~~ | D11 loop behaviour (10 uncovered then, 6 on 2026-09-07). PROMOTED by the arrival-validation lane (the second strict promotion after R12's) |
-| ~~`SimulateStockSwitchClick`~~ | D1 `switch-segment` / `switch-segment-noop-discard`, D5 `chain-continuation-switch`, D18 `committed-interaction-claiming`. PROMOTED by R12 (2026-07-30, first consumer `S0.8-switch-click-segment`) |
+| ~~`SimulateStockSwitchClick`~~ | D1 `switch-segment` / `switch-segment-noop-discard`, D5 `chain-continuation-switch` (claimed 2026-09-08 by CI-1 and GS-3). The D18 `committed-interaction-claiming` this row once listed is a ghost-chain cell the verb never reached; CI-2 claims it through a rewind. PROMOTED by R12 (2026-07-30, first consumer `S0.8-switch-click-segment`) |
 | `CrashAfterJournalPhase` | D9 `merge-journal`, `load-time-sweep` |
 | `RunInvariantReport` | analyzer-in-scene |
 
@@ -1420,11 +1452,13 @@ zero boots, and missionParams forwarding); `R1SeamHandleReadTests`,
 
 WHAT IT UNBLOCKS, none of it delivered here - each still needs its own spec: the
 chain-interaction wave (priority-register item 2), which now has the handle families it
-needs (`kind=active` -> `bg<i>pid` for D5 `chain-continuation-switch` /
-`chain-tip-original-pid`, `kind=committed` -> `rec<i>spawnedPid` for D18
-`committed-interaction-claiming`); R12 Stage B's live `InvokeRewind` on a live RP id
-(RH-1 is the shape); and every future verb that addresses a live tree, vessel, route or
-kerbal.
+needs (`kind=active` -> `bg<i>pid` for D5 `chain-continuation-switch`, and
+`kind=committed` -> `rec<i>spawnedPid` as the READBACK of a chain-tip spawn's
+preserved pid; the two D18 cells named here on 2026-09-08 morning were mis-scoped as
+switch cells - see the register item 2 closure); R12 Stage B's live `InvokeRewind`
+on a live RP id (RH-1 is the shape); and every future verb that addresses a live
+tree, vessel, route or kerbal. DELIVERED the same day: CI-1 rides `${bg.bg0pid}`,
+CI-2 rides `${handles.rp0}` plus the committed readback.
 
 **R11. A CAREER fixture with a flyable craft.** ~~One forge spec, one run.~~
 **CLOSED 2026-07-28 by `harness/fixtures/saves/career-pad-craft`** - built BY
@@ -1450,9 +1484,11 @@ argument on `LoadGame`.** ~~Two seam verbs.~~ **SHIPPED 2026-07-30.**
 kRPC cannot substitute for the first (it bypasses `StockActionIntentMarker`) and
 nothing at all substitutes for the second. Unblocks D1 `switch-segment` /
 `switch-segment-noop-discard` in their REAL form (R6 only reaches the gate layer),
-D5 `chain-continuation-switch`, D18 `committed-interaction-claiming` /
-`chain-tip-original-pid`, D14 `scene-ts`, and the 7 stranded TRACKSTATION /
-MAINMENU categories including `TrackingStation` (10 tests).
+D5 `chain-continuation-switch`, D14 `scene-ts`, and the 7 stranded TRACKSTATION /
+MAINMENU categories including `TrackingStation` (10 tests). (The D18
+`committed-interaction-claiming` / `chain-tip-original-pid` pair this sentence once
+listed are ghost-chain cells no switch verb reaches; corrected 2026-09-08, see the
+residue block.)
 
 DELIVERED as THREE capabilities, not two - the scope grew one item while the design
 was written, because Cause C ("scene entry is two-valued") has a second half that the
@@ -1521,23 +1557,31 @@ WHAT R12 LEAVES BEHIND, each a separate follow-up and none of it a regression:
   (`ListHandles kind=rewindpoints` then `rp=${<step>.rp<i>}`, which is exactly RH-1's
   shape). The two prerequisites above are untouched by that, and so is the
   `InvokeRewind` x `[expectations.ledger]` rejection.
-- **D5 `chain-continuation-switch` / D18 `committed-interaction-claiming` /
+- ~~**D5 `chain-continuation-switch` / D18 `committed-interaction-claiming` /
   `chain-tip-original-pid`** are still UNCOVERED. `S0.8`'s measured consume route is
   `standalone` (`parentRecId=<standalone> branchPointId=<none>`), so no chain link is
   created; claiming them would need a fixture whose switch target is a background
-  member of the live tree, or a committed spawned vessel.
-  **UPDATED 2026-09-08 (R10): the ADDRESSING half of that is gone.** A lane can now read
-  `ListHandles kind=active` -> `${<step>.bg0pid}` or `kind=committed` ->
-  `${<step>.rec0spawnedPid}` and hand the value to `SimulateStockSwitchClick pid=`, so no
-  spec has to know a pid in advance any more. What still blocks each is the SUBJECT, and
-  they are two different problems. D5 `chain-continuation-switch` and
-  `chain-tip-original-pid` need a background member OF THE LIVE TREE, which only an
-  IN-RUN split creates - a mission that decouples a `ModuleCommand`-bearing child so the
-  `bg-recording` route puts it in `activeTree.BackgroundMap`; a fixture's committed
-  background members are not the live tree's. `committed-interaction-claiming` needs a
-  committed vessel that has REALLY BEEN SPAWNED in-run (a ghost spawn), because
-  `rec<i>spawnedPid` is 0 until then and `rec<i>pid` is the craft-baked id a switch must
-  not be driven against. Both are mission / fixture work, not seam work.
+  member of the live tree, or a committed spawned vessel.~~
+  **CLOSED 2026-09-08 (branch `chain-interaction`, register item 2), and the
+  paragraph above was WRONG about two of the three cells.** Only D5
+  `chain-continuation-switch` is a switch cell; the catalog defines the two D18 cells
+  as ghost-chain mechanics (a committed docking CLAIMING its partner, and the chain-tip
+  spawn preserving the original pid), which RH-1's own log had already shown firing on
+  bdock-recorded after a rewind. The D5 cell: `GS-3` had flown the bg-member route
+  since 2026-08-05 (its required `origin-terminal-stamped` token is emitted only inside
+  that branch) and now GATES it (re-flown green `2026-09-08_1101`), and
+  `CI-1-eva-switch-bg-member` reaches the same route on an EVA split with the target
+  read from the live BackgroundMap (`${bg.bg0pid}`; `2026-09-08_1057` PASS, negative
+  control `_1059`). The D18 cells: `CI-2-refly-claim-tip-pid` (`2026-09-08_1100`
+  reading, `2026-09-08_1105_CI-2-refly-claim-tip-pid` armed, `2026-09-08_1106_CI-2-refly-claim-tip-pid` negative control)
+  gates `claimed by tree=... via MERGE`, `Chain built ... spawnUT=8951.5` and `Chain
+  tip spawn complete: #<i> "Kerbal X" pid=3620499050` with `preserveIdentity=true`.
+  The earlier "committed vessel that has REALLY BEEN SPAWNED in-run" reading is
+  retired with the paragraph; what R10's `rec<i>spawnedPid` turned out to be for is the
+  READBACK of that tip spawn (`pid` and `spawnedPid` equal on one response line).
+  What the wave did NOT build, and is still open as a subject: a lane whose switch
+  target is a DECOUPLED controllable child (GS-2's split under `${bg.bg0pid}`, a
+  sibling of GS-3 minus its Case-A probe) - not needed for any cell today.
 - **The other 6 stranded TRACKSTATION / MAINMENU categories** (including the 2
   TRACKSTATION-scene `GhostLifecycle` tests named under R8) are now REACHABLE through
   `scene=trackstation`; each still needs its own spec.

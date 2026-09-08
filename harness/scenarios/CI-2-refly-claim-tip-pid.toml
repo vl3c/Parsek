@@ -1,0 +1,206 @@
+schema = 1
+id = "CI-2-refly-claim-tip-pid"
+tier = "operator"
+# =====================================================================================
+# THE CHAIN-INTERACTION WAVE, LANE 2 (roadmap priority register item 2, riding R10):
+# the two D18 ghost-chain cells, `committed-interaction-claiming` and
+# `chain-tip-original-pid`, on the catalog's OWN definition of them.
+#
+# READ THE CATALOG BEFORE THE ROADMAP. `docs/dev/automated-testing-scenario-catalog.md`
+# defines D18 as "Ghost chains / paradox prevention (flight-recorder design 12-14)":
+# "committed-interaction vessel claiming ... chain-tip spawn preserving the ORIGINAL
+# vessel PID", and its S4.7 ladder entry spells the scenario out: commit a docking,
+# rewind before it, assert the partner is CLAIMED (despawned + ghosted), and at the tip
+# UT the combined vessel spawns with the ORIGINAL pid. Neither cell is about a stock
+# Switch-To; the roadmap's R12-leftovers paragraph (and the R10 note that inherited
+# it) mis-scoped both as switch-route cells. This lane is written against the catalog.
+#
+# THE MECHANISM, as RH-1's own reading run 2 (`2026-09-08_0844_RH-1-live-rp-handle-
+# rewind`) already logged it without asking: rewinding bdock-recorded to its oldest
+# RewindPoint (UT 382.7) puts the committed docking tree's Dock branch point (UT 8949.27)
+# in the FUTURE, and the ghost-chain walker then CLAIMS the docking partner -
+#   `[ChainWalker] Vessel PID=3620499050 claimed by tree=8c677bba... via MERGE at UT=8949.3`
+#   `[ChainWalker] Chain built: vessel=3620499050 links=1 tip=37d0dc07... spawnUT=8951.5`
+#   `[GhostMap] Created ghost vessel 'Ghost: Kerbal X' ... for chain pid=3620499050`
+# - `via MERGE` being the walker's name for a Dock / Board interaction (the committed
+# interaction), which is cell one. Cell two is what happens when the clock passes the
+# chain tip: `SpawnVesselOrChainTip`'s chain-tip branch respawns the vessel PRESERVING
+# ITS IDENTITY (`RespawnVessel: preserving vessel identity (chain-tip spawn)`) and logs
+# `Chain tip spawn complete: #<i> "Kerbal X" pid=3620499050` - the ORIGINAL pid, which
+# is exactly why that literal is pinned rather than a class: the claim IS that the
+# number did not change.
+#
+# WHY IT RIDES R10, twice. The rewind targets `rp=${handles.rp0}` (RH-1's shape), and
+# after the jump `ListHandles kind=committed` is read back: the tip recording's row
+# carries `rec<i>pid=3620499050 rec<i>spawnedPid=3620499050` on ONE response line,
+# the machine-readable form of "the spawned pid equals the original pid" that the
+# review compares against the KSP.log literal. That readback is observation, not a
+# gate: the response channel is not a logContract surface, and the gate is the
+# `Chain tip spawn complete ... pid=3620499050` line.
+#
+# ORDER. The rewind MUST precede the jump: the fixture loads at UT 8951.87, already
+# past the tip (spawnUT 8951.5), so the tip vessel is simply the live Kerbal X on boot
+# and nothing would spawn. Only after the rewind puts the tip in the future does a
+# TimeJump past it exercise the chain-tip spawn. `ut = "8960"` is an absolute target
+# ~8.5 s past spawnUT and ~9.4 s past the tree's Undock branch point (UT 8950.59), the
+# smallest jump that lands beyond every recorded event; the tip spawn is queued while
+# warp is active and flushed by `FlushDeferredSpawns` once it drops.
+#
+# FIRST-FLIGHT UNKNOWNS, named: (1) whether TimeJump is accepted with a re-fly session
+# active (no committed spec jumps AFTER an InvokeRewind; S1.5 jumps BEFORE); (2) whether
+# AnswerMergeDialog still finds RH-1's dialog after the jump; (3) whether the tip spawn
+# lands the vessel or the collision walkback refuses it (`Chain tip spawn blocked by
+# collision` is forbidden below so that outcome reads as the finding it would be).
+# READING RUN 1 (2026-09-08, `2026-09-08_1100_CI-2-refly-claim-tip-pid`): PARSEK-FAIL
+# (expectation) on exactly ONE facet, `recordings.count 22 > max 21`, with every log
+# token matched. All three named unknowns answered: TimeJump was accepted under the
+# active re-fly (`timejump start target=8960 delta=8576.9s` -> `timejump complete
+# reachedUT=8960.1`), AnswerMergeDialog found the re-fly conclusion dialog after the
+# jump (`Pre-transition tree merge dialog: tree='Kerbal X', recordings=10,
+# labels=ReFlyAttempt` -> `answermergedialog choice=merge result=committed`), and the
+# tip spawn landed: `Chain tip spawn: pid=3620499050 vessel=Kerbal X
+# preserveIdentity=true - real vessel created` -> `Chain tip spawn complete: #19
+# "Kerbal X" pid=3620499050`, preceded by the sibling tip `#17 "Kerbal X Probe"
+# pid=2307686926` on the same jump. THE READBACK, off the run's result record: the
+# pre-jump `ListHandles kind=committed` row for recording 37d0dc07... read
+# `rec11pid=3620499050 rec11spawnedPid=0`; the post-jump row read
+# `rec11pid=3620499050 rec11spawnedPid=3620499050` - spawned pid equal to the original
+# pid, the D18 claim in one line. The 22nd recording is the re-fly provisional
+# (`rec_93ca...`, Kerbal X Probe), which the merge keeps on this fixture WITH OR
+# WITHOUT the jump (`provisional=rec_93ca... mergeState=Immutable terminalKind=InFlight`;
+# the review re-read RH-1's run 2 and it kept its own provisional the same way, 22
+# recordings under a `{2,30}` window, zero `retired-empty-provisional` lines) - the
+# prediction of 21 was a miscount of RH-1's produced save, not a jump effect. Count
+# re-pinned to 22. Measured facets: trees=2,
+# committedTrees=2, recordings=22, branchPoints Dock=1 JointBreak=10 Undock=1,
+# terminalStates Destroyed=7 Docked=1 Orbiting=6 - the structure block below is ARMED
+# on them. ARMED RE-FLIGHT `2026-09-08_1105_CI-2-refly-claim-tip-pid`: PASS attempt 1,
+# every verifier PASS/SKIPPED. NEGATIVE CONTROL `2026-09-08_1106_CI-2-refly-claim-tip-pid`
+# (terminalStates.Docked temporarily pinned to 0): PARSEK-FAIL(save-structure) on exactly
+# `recordings.structure.terminalStates.Docked 1 > max 0`, nothing else moved. LIVE-PROVEN.
+# =====================================================================================
+description = "Chain-interaction lane 2 (D18 ghost chains), riding R10: bdock-recorded rewound to rp=${handles.rp0} so the committed docking's Dock branch point is in the future and the walker CLAIMS the partner (via MERGE), then TimeJump past the chain tip so the tip spawn re-creates the vessel with its ORIGINAL pid, read back through ListHandles kind=committed."
+instanceProfile = "stock-minimal"
+tags = ["CI-2", "chain-interaction", "ghost-chain", "claiming", "chain-tip", "rewind",
+        "time-jump", "R10", "runtime-handles", "kerbin", "sandbox", "reading-run"]
+
+[fixture]
+# bdock-recorded (RH-1's host): three harvested RewindPoints with real Guid ids and
+# their quicksaves on disk; rp0 (list order = append order) is rp_72ebafb5... at UT
+# 382.73, slot 1 its one OPEN slot (RH-1's derivation, unchanged). The committed docking
+# tree 8c677bba... carries the Dock branch point at UT 8949.27 (mergeCause=DOCK,
+# targetVesselPid=3620499050 = "Kerbal X", the fixture's active vessel), the Undock at
+# 8950.59, and the tip recording 37d0dc07... whose chain spawnUT is 8951.5.
+saveTemplate = "fixtures/saves/bdock-recorded"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # The walker's claim / chain-built lines are Verbose (VerboseOnChange). RH-1 saw them
+  # only because the RP quicksave happens to carry verboseLogging=True; pin it.
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" },     expect = "OK" },
+  # RH-1's finding: the boot PROMOTES the committed tip into a live recorder and
+  # InvokeRewind's dispatch guard refuses `recording-active` over it.
+  { cmd = "StopRecording",                                                     expect = "OK" },
+  { cmd = "ListHandles", args = { kind = "rewindpoints" }, label = "handles",  expect = "OK" },
+  { cmd = "InvokeRewind", args = { rp = "${handles.rp0}", slot = "1" },        expect = "OK", budget = 300 },
+  # Observation before the jump: the tip row's spawnedPid, for the review's before /
+  # after comparison (0 or the pre-rewind adoption stamp; the reading run says which).
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "pre",         expect = "OK" },
+  # THE SUBJECT, half two: past the chain tip.
+  { cmd = "TimeJump",   args = { ut = "8960" },                                expect = "OK", budget = 120 },
+  # Observation after the jump: the tip row now reads spawnedPid=3620499050.
+  { cmd = "ListHandles", args = { kind = "committed" }, label = "post",        expect = "OK" },
+  # RH-1's tail: the merge folds the conclusion, the trailing state read confirms it.
+  { cmd = "AnswerMergeDialog", args = { choice = "merge" },                    expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                    expect = "OK" },
+  { cmd = "FlushAndQuit",                                                      expect = "OK" },
+]
+
+[dimensionsCovered]
+# CLAIM-IS-NOT-GATE: both D18 values are backed by REQUIRED tokens, all OBSERVED on
+# reading run 1 (`2026-09-08_1100_CI-2-refly-claim-tip-pid`):
+#   `committed-interaction-claiming` <- `claimed by tree=... via MERGE` + the chain-built
+#       line + the chain ghost creation for the claimed pid. Scope, stated: this is the
+#       walker's CLAIM decision and the map-level chain ghost. The catalog's "station
+#       despawned" half did not run here because the claimed vessel was not loaded
+#       after the rewind (`Chain vessel pid=3620499050 not loaded in scene - nothing to
+#       ghost`, `Strip stripped=[]`); the in-scene despawn / ghost conversion of a LIVE
+#       claimed vessel is unexercised by this lane (it is closer to the separate
+#       `ghost-conversion-quicksave` cell, still uncovered).
+#   `chain-tip-original-pid`         <- `Chain tip spawn: pid=3620499050 ...
+#       preserveIdentity=true` + `preserving vessel identity (chain-tip spawn)` +
+#       `Chain tip spawn complete: ... pid=3620499050`.
+# D9 `rewind-to-separation` / `refly-gate` are RH-1's on this fixture and are not
+# re-claimed here; this lane's subject is what the rewind ENABLES, not the rewind.
+D14 = ["kerbin", "sandbox", "scene-flight"]
+D18 = ["committed-interaction-claiming", "chain-tip-original-pid"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# MEASURED 22 on all three runs (predicted 21, a miscount): the fixture's 21 plus the
+# re-fly provisional the merge keeps on this fixture, jump or no jump (RH-1's run 2
+# reads the same 22). The tip spawns create no recording, so this count guards the
+# MERGE shape, not the jump; the jump's own guard is the tip-spawn token pair above.
+count = { min = 22, max = 22 }
+
+[expectations.recordings.structure]
+# ARMED 2026-09-08 on reading run 1's measured facets. The Dock branch point IS the
+# committed interaction the walker claims through; the terminal counts are the
+# fixture's plus the merged provisional. trees admits 3 for the duplicate-tree writer
+# hazard (observed 2).
+gating         = true
+trees          = { min = 2, max = 3 }
+committedTrees = { min = 2, max = 2 }
+recordings     = { min = 22, max = 22 }
+branchPoints   = { Dock = { min = 1, max = 1 }, Undock = { min = 1, max = 1 }, JointBreak = { min = 10, max = 10 } }
+terminalStates = { Docked = { min = 1, max = 1 }, Orbiting = { min = 6, max = 6 }, Destroyed = { min = 7, max = 7 } }
+
+[expectations.logContracts]
+# Ordered as the mechanism runs: the rewind fires on the listed point -> the walker
+# claims the docking partner because the Dock bp is now in the future -> the chain and
+# its ghost exist for the ORIGINAL pid -> the jump lands past the tip -> the tip spawn
+# preserves the identity and completes with that same pid.
+required  = [
+  "listhandles kind=rewindpoints count=3 truncated=false",
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=\\S+ rp=rp_[0-9a-f]{32} slot=1",
+  "Invocation complete",
+  "\\[ChainWalker\\] Vessel PID=3620499050 claimed by tree=8c677bba0ec04e558c6ebec4ad8c3c9f via MERGE at UT=8949\\.3",
+  "\\[ChainWalker\\] Chain built: vessel=3620499050 links=1 tip=37d0dc074351408ba0374230793abb1c spawnUT=8951\\.5 terminated=False",
+  "\\[GhostMap\\] Created ghost vessel 'Ghost: Kerbal X' ghostPid=[0-9]+ type=Ship body=Kerbin .* for chain pid=3620499050",
+  "listhandles kind=committed count=[1-9][0-9]* truncated=false",
+  "timejump start target=8960 ",
+  "timejump complete reachedUT=896[0-9]",
+  "preserving vessel identity \\(chain-tip spawn\\)",
+  "Chain tip spawn: pid=3620499050 vessel=Kerbal X preserveIdentity=true",
+  "Chain tip spawn complete: #[0-9]+ \"Kerbal X\" pid=3620499050",
+  "answermergedialog choice=merge result=committed",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "Chain tip spawn blocked by collision",
+  "Chain tip spawn failed",
+  "listhandles rejected",
+  "timejump rejected",
+]
+
+[runtime]
+# Budget arithmetic (M-A5 S8): max(step_budget, 600) + 60 per DEFERRED verb (LoadGame,
+# InvokeRewind, TimeJump) and max(step_budget, dispatch + 60) for the rest:
+#   LoadGame          660   InvokeRewind 660   TimeJump 660
+#   SetSetting x2     240   StopRecording 120  ListHandles x3 360
+#   AnswerMergeDialog 180   RecordingState 120 FlushAndQuit 120   -> sum 3120
+# The ceiling must EXCEED that sum so no step-wait is capped. 3600 clears it by 480.
+budgetSeconds = 3600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
