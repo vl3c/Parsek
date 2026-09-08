@@ -531,14 +531,55 @@ driven-category count from 70 of 112 to 106 of 112 (539 -> 607 declarations) in 
 boots. Status rows: `docs/dev/autotest-status.md`, "In-game MULTI-CATEGORY batch
 wiring, the long tail". Bucket detail: the inventory's A3 and B5 sections.
 
-What is NOT closed: six categories are still undriven, and every one names a HOST
-rather than a harness gap - `Contracts` (2) and `ResourceTopBar` (2) are career-only
-and want a `fresh-career` sibling of LT-2; `CrewReservationLive` (2) wants
-spawned-endpoint recordings in the corpus writer; `PartEventFX` (6) wants ghosts with
-resolvable FX parts; `RouteLiveAnchor` (1) wants a live station route; and
-`DisabledHoverEcho` (1) needs the OS pointer inside the game window, which no seam
-can place. The lanes' censuses measured each of those as executing nothing, which is
-why they are excluded by name rather than pinned as vacuous slices.
+What those two lanes did NOT close: six categories were still undriven, and every one
+named a HOST rather than a harness gap - `Contracts` (2) and `ResourceTopBar` (2) are
+career-only and wanted a career host; `CrewReservationLive` (2) wants spawned-endpoint
+recordings in the corpus writer; `PartEventFX` (6) wanted ghosts with resolvable FX
+parts; `RouteLiveAnchor` (1) wanted a live station route; and `DisabledHoverEcho` (1)
+needs the OS pointer inside the game window, which no seam can place. The lanes'
+censuses measured each of those as executing nothing, which is why they were excluded
+by name rather than pinned as vacuous slices.
+
+**FOUR OF THE SIX CLOSED ON A SECOND CENSUS THE SAME DAY (2026-09-07, scratch specs
+CEN-1..CEN-7, not committed), taking the driven count to 110 of 112 categories and 618
+of 621 declarations** (re-derived from the inventory table: count the rows whose
+Driven-by cell is not `-`, sum their Decls). Four lanes, each changing only the
+FIXTURE: `LT-3-long-tail-career-flight` (`Contracts` 2 of 2, `TestCommands` 2 of 4, at
+FLIGHT on `career-earned-pad`), `LT-4-long-tail-route-flight` (`RouteLiveAnchor` 1 of
+1, `Structure` 2 of 2, `Missions` 2 of 13, on `depot-route-recorded` behind H40's kill
+pair), `LT-5-long-tail-playback-flight` (`PartEventFX` 1 of 6, `GhostLifecycle` 4 of
+17, over the `part-showcase` corpus playing at the batch UT) and
+`H71-resource-topbar-ksc` (`ResourceTopBar` 1 of 2, at SPACECENTER on
+`career-earned-ksc` - a fixture DERIVED from the xUnit base
+`Source/Parsek.Tests/Fixtures/C2CareerPostFix/` by
+`harness/tools/build_career_earned_ksc.py`, with no flight). `LT-1-long-tail-flight`
+was re-pinned from 33 constituents to 30 in the same commit, because a slice that is a
+HOST property belongs on the lane whose host pays it. Every count above was a census
+measurement when it was written, and ALL FIVE FLIGHTS HAVE SINCE CONFIRMED IT, each
+PASS on attempt 1 with every per-constituent `BATCH_COMPLETE` line matched verbatim
+and every verifier PASS or REPORT: LT-1's 30-constituent re-pin `2026-09-07_2030`
+(292 s), LT-3 `_2035` (64 s), LT-4 `_2036` (56 s), LT-5 `_2037` (72 s) and H71 `_2038`
+(46 s, whose log carries exactly the one ERROR line the spec carves out by name for
+the top-bar probe's own `Science reconcile dump (post-walk)`, and no other). The three
+categories those lanes drive WHOLE - `Contracts`, `RouteLiveAnchor` and `Structure` -
+promoted to inventory bucket A3 on the flights; the rest are measured slices that stay
+in bucket B with named residue.
+
+WHAT REMAINS ON THIS AXIS, and none of it is a host question. TWO categories stay
+undriven: `CrewReservationLive` (2), which read 0 of 2 on three further hosts, so the
+blocker is the corpus writer's inability to author a spawned endpoint (inventory B1),
+and `DisabledHoverEcho` (1), which is interactive-only. Beyond them the axis holds
+RESIDUE rather than undriven categories, tabulated in the inventory's B5 section as
+bounds on lanes that already exist: the two `StockUiOverlay` Mission Control cells
+(they want the Mission Control BUILDING UI open, which no seam verb drives - the
+nine-Offered-contract host measured the same `rows=9, contractRows=0` skip and refuted
+the "wants an offered contract" reading); `TopBarReflectsLedgerAfterRecalc` (on an
+earned career the ledger reconstruction runs above the live pools and the drawdown
+guard uplift-clamps the patch); `RuntimeTests.EvaKerbalGhostHasVesselSnapshot` (wants a
+crewed vessel FLYING low over terrain); and the `AutoRecord` committed-tree-restore
+trap (`DiscardTree` cannot idle a host whose committed tree re-arms the recorder about
+7 ms later - `rover-route-recorded` already covers those cells, so it is a trap to know
+rather than a defect to fix).
 
 **No structural save-content assertion.** The only assertion any spec can make about
 the produced recordings is `recordings.count`, a min/max integer window, and it is
@@ -1318,7 +1359,22 @@ count from 70 of 112 to 106 of 112 in TWO boots and 343 s. The fan-out never hap
 because nobody was going to spend 89 boots on one- and two-cell categories, which is
 what made the "efficiency item" framing understate it - the tail was not slow to
 drive, it was not worth driving.
-Flight? Two, both flown 2026-09-07 and green on attempt 1.
+A SECOND CENSUS THE SAME DAY spent three more multi-category boots plus one ordinary
+one (LT-3 / LT-4 / LT-5 and `H71-resource-topbar-ksc`) and took the count to 110 of
+112, closing four of the six categories the first pair had to exclude for want of a
+host; LT-1 was re-pinned 33 -> 30 constituents as three of its slices moved to the
+lanes whose hosts feed them. What is left is two categories that no host closes -
+`CrewReservationLive` (corpus-writer work) and `DisabledHoverEcho` (interactive-only) -
+so this item's remaining work has left the batch mechanism entirely.
+Flight? ALL SIX FLOWN 2026-09-07 AND GREEN ON ATTEMPT 1. The first pair are LT-1
+(`2026-09-07_1511`) and LT-2 (`_1516`); the second wave flew the same evening -
+LT-1's 30-constituent re-pin `2026-09-07_2030` (292 s), LT-3 `_2035` (64 s), LT-4
+`_2036` (56 s), LT-5 `_2037` (72 s) and `H71-resource-topbar-ksc` `_2038` (46 s), each
+with every per-constituent `BATCH_COMPLETE` line matched verbatim and every verifier
+PASS or REPORT (H71's log carries exactly the one ERROR line its spec carves out by
+name, and no other). Three categories promoted to inventory bucket A3 on those
+flights - `Contracts`, `RouteLiveAnchor` and `Structure` - and the remaining
+constituents are measured slices with named residue.
 
 **R14. Provision `modded-compat` and add one spec.** One provision run, one spec.
 

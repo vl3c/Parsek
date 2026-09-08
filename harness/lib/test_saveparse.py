@@ -1934,6 +1934,28 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                              "5436a7e8840b4c5885afcbaedc9dc037"],
             "schemaGeneration": 4,
         },
+        # career-earned-ksc is the SAME career as career-earned-pad minus the spliced
+        # pad craft (harness/tools/build_career_earned_ksc.py copies the xUnit base
+        # C2CareerPostFix with only the rewindSave / Parsek/Saves hygiene edits), so its
+        # recorded shape is the pad sibling's to the byte: same two recordings, same
+        # tree, same Landed terminal. Vessel-less, it boots to the Space Center.
+        "career-earned-ksc": {
+            "trees": 1, "committedTrees": 1, "recordings": 2,
+            "supersedes": 0, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"Landed": 1},
+            "branchPoints": {},
+            # 8 = two recordings x (.prec + .pann + _vessel.craft + _ghost.craft).
+            # The `.prec.txt` mirrors are committed (the harness requires them
+            # per-trajectory) but excluded from this floor by the `.txt` filter
+            # above, which is the point of that filter.
+            "minAuthoritativeSidecars": 8,
+            # The pad sibling's ids verbatim (both fixtures derive from the same
+            # base); a re-harvest of `C2CareerPostFix` moves them in BOTH entries.
+            "recordingIds": ["1d611e7533a64508ae6f3b305a51615e",
+                             "5436a7e8840b4c5885afcbaedc9dc037"],
+            "schemaGeneration": 4,
+        },
         # --- THE FIRST SURFACE-ENDPOINT SUBJECT (ATMOSPHERIC) ------------
         # PROVENANCE: kerbin-splashdown-recorded <- B4-reentry-splashdown, run
         # 2026-08-24_1431, PASS attempt 1 (wall 1,065 s, mission wall 989.2 s,

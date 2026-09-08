@@ -1,0 +1,78 @@
+schema = 1
+id = "LT-4-long-tail-route-flight"
+tier = "nightly"
+# THE ROUTE SLICE OF THE LONG TAIL. Three categories that need a COMMITTED SUPPLY
+# ROUTE in the store, which no injected corpus carries: `RouteLiveAnchor` (the
+# live-anchor resolution of a route endpoint; executed nothing on LT-1's host),
+# `Structure` (its route structure-list cell; 1 of 2 on LT-1) and `Missions`
+# (the station-mission phase-lock cell `RealSave_StationMission_PhaseLocksOrHolds`,
+# which H54's `duna-one-recorded` host does not have - H54 executes the
+# dock-composition and re-aim cells, this lane the dock-composition and station
+# cells; the two lanes are different slices of one category, and the multi-family's
+# no-overlap rule is keyed within the family). Host: `depot-route-recorded`, the H40
+# / V18T fixture whose store carries one committed depot route over 22 recordings.
+# Measured on the 2026-09-07 second census (scratch CEN-4, run `2026-09-07_2010`,
+# 7 candidate categories): RouteLiveAnchor 1 of 1, Structure 2 of 2, Missions 2 of 13.
+#
+# THE KILL PAIR IS H40's: the fixture resumes its recorder on load (the docked
+# vessel is the live tree's active recording), and several cells guard on an idle
+# recorder, so StopRecording + DiscardTree run before the batch exactly as H40 does.
+# The count pin is H40's 22, measured again on the census after the pair.
+#
+# THE ELEVEN MISSIONS SKIPS ARE MEASURED: the re-aim / loop-unit / periodicity cells
+# want the Duna host or a loop, and the remaining presentation cells want mission
+# archetypes this store does not carry; each names its want in its skip text.
+# FLOWN (first flight): run `2026-09-07_2036`, PASS attempt 1, wall 56 s, every per-constituent
+# line above matched verbatim and every verifier PASS or REPORT.
+description = "Run the three route-needing long-tail in-game categories (RouteLiveAnchor, Structure, Missions) as one multi-category batch at FLIGHT on the depot-route-recorded store, every constituent pinned whole."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "multi-category", "long-tail", "supply-route", "LT-4"]
+
+[fixture]
+saveTemplate = "fixtures/saves/depot-route-recorded"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "StopRecording",                                                    expect = "OK" },
+  { cmd = "DiscardTree",                                                      expect = "OK" },
+  { cmd = "RunTests",   args = { category = "RouteLiveAnchor,Structure,Missions" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The committed store after the kill pair: H40 pins the same 22, the census read 22.
+count = { min = 22, max = 22 }
+
+[expectations.logContracts]
+# ANTI-VACUITY, PER CONSTITUENT: one whole literal line per category, the measured
+# census line, plus the aggregate whose counts are the sums. `failed=0` on every
+# line is the assertion.
+required  = [
+  "runtests start category=RouteLiveAnchor,Structure,Missions isolated=false strict=false multi=3",
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=RouteLiveAnchor scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=Structure scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=13 passed=2 failed=0 skipped=11 category=Missions scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=16 passed=5 failed=0 skipped=11 category=multi:3 scene=FLIGHT",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+budgetSeconds = 900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

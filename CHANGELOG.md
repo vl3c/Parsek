@@ -28,6 +28,29 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- Four more groups of in-game tests now run unattended, and three of them had never
+  run a single test anywhere. The tests that check contract offers, the ones that
+  check a supply route resolves against a live station, and the ones that read the
+  game's own funds, science and reputation bar all need a save the automated rig did
+  not have: a career, a career with a committed supply route, and a career sitting at
+  the Space Center rather than on the launch pad. Each now has one, so between them
+  they cover 110 of the 112 in-game test groups. The tests that read a ghost's part
+  effects also run for the first time, on a save whose ghosts are actually mid-flight
+  when the tests fire rather than merely present in the store. The Space Center career
+  is derived from a save the unit tests already carry - copied, with the two edits that
+  keep an uncommitted quicksave hint and a harvest leftover out of it, and checked byte
+  for byte on every test run so a hand edit to either side is caught. Three groups also
+  moved off the original catch-all run onto whichever of the new saves actually feeds
+  them. What is left over is recorded rather than fixed: the crew-reservation tests
+  have no save that carries a spawned craft's identity at all, one hover test needs the
+  mouse pointer inside the game window, the Mission Control tests turn out to want that
+  building's own screen open rather than a contract on offer, and one currency-bar test
+  cannot read the bar on a career whose recorded history adds up to more than its
+  balance. All four new runs, and the re-pinned catch-all one they were split out of,
+  have since flown green first time and matched every predicted result line exactly
+  (runs `2026-09-07_2030`, `_2035`, `_2036`, `_2037` and `_2038`). Test-tooling only;
+  no gameplay change.
+
 - The automated test rig no longer starts the next in-game test before the game has
   finished bringing a reloaded flight back up. Between tests that restore a saved
   flight, the rig waited for the flight globals to read ready, which happens some

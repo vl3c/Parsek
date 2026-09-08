@@ -12,7 +12,9 @@ CAREER dev save down to a deterministic clean-slate KSC. Source template: the de
 install `test career` save (KSP 1.12.5), reset per the M-B3 operator checklist in
 `docs/dev/todo-and-known-bugs.md`.
 
-Each fixture is `persistent.sfs` + `persistent.loadmeta` + `AddOns/DistantObject/Settings.cfg`.
+Each fixture is `persistent.sfs` + `persistent.loadmeta` + `AddOns/DistantObject/Settings.cfg`
+(the two derived-by-construction fixtures, `coalescer-pad` and `career-earned-ksc`, carry no
+`AddOns/`; nothing in the harness reads it).
 No craft in flight, no active/offered contracts, no completed milestones, no unlocked
 tech beyond the mode default `start` node, all facilities at level 0, no Parsek footprint
 (no `Parsek/` dir, no `ParsekScenario` SCENARIO node, no `ParsekSettings` custom-param),
@@ -356,6 +358,25 @@ a subject nobody meant to ship.
 The spec-to-fixture pairing is gated by `L4SpecFixtureSyncTests` in the same file, and
 the structural counts by `CommittedFixtureSweepTests.RECORDED_FIXTURES` in
 `harness/lib/test_saveparse.py`.
+
+## career-earned-ksc (GAME Mode = CAREER, 0 VESSELS, 2 recordings)
+
+`career-earned-pad`'s career WITHOUT the spliced pad craft: the xUnit base
+`Source/Parsek.Tests/Fixtures/C2CareerPostFix/` copied by
+`harness/tools/build_career_earned_ksc.py` with only the two hygiene edits the pad
+builder applies (every `rewindSave = parsek_rw_*` hint stripped, `Parsek/Saves/` not
+copied). Zero VESSEL nodes, so `LoadGame` takes the NoVesselSpaceCenter route; nine
+CONTRACT nodes stay `Offered` and none is Active (the Active splice is the pad
+sibling's D8 cell and needs a craft to be honest). It exists because `ResourceTopBar`'s
+two cells are career-only AND Space-Center-scoped and no committed career booted to
+the Space Center (H71 drives them here). The nine Offered contracts were meant to
+reach the two `StockUiOverlay` Mission Control cells as well, but the census read
+them skipping here exactly as on H45 ("rows=9, contractRows=0"): the offered rows
+populate only with the Mission Control building UI open, which no seam verb drives.
+Like `coalescer-pad`, it carries no `AddOns/` directory: the xUnit base has none, and
+nothing in the harness requires it (H71 flew green without it). Drift-gated by
+`harness/lib/test_career_earned_ksc.py` (`--check` byte identity, shape, and the pad
+sibling's ledger extending this one by exactly its accept row).
 
 ## career-same-name-pad (GAME Mode = CAREER, 1 VESSEL, 2 recordings)
 

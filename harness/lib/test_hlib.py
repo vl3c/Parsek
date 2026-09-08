@@ -3671,6 +3671,7 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         "H44-ghost-map-trackstation": ("GhostMap", 25, "TRACKSTATION"),
         "H45-stock-ui-overlay":      ("StockUiOverlay", 6, "SPACECENTER"),
         "H46-settings":              ("Settings", 5, "FLIGHT"),
+        "H71-resource-topbar-ksc":   ("ResourceTopBar", 2, "SPACECENTER"),
         "H47-map-view":              ("MapView", 4, "TRACKSTATION"),
         "H48-ledger-drawdown":       ("Ledger", 4, "SPACECENTER"),
         "H49-tree-integrity":        ("TreeIntegrity", 4, "FLIGHT"),
@@ -3751,6 +3752,9 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # property, exactly as the discipline above requires, and closable by a career
         # save carrying one offered contract with a non-empty title and Guid.
         "H45-stock-ui-overlay": 2,
+        # H71: TopBarReflectsLedgerAfterRecalc, the drawdown guard uplift-clamps the
+        # patch on the earned career (measured on the 2026-09-07 census, CEN-2).
+        "H71-resource-topbar-ksc": 1,
         # H53 (`gloops-airshow` + the 274-row corpus): "No ghost map PIDs - patch not
         # exercised" and "No live active tree to use as a synth source". BOTH ARE
         # DRIVER-STATE rather than fixture properties - the first wants playback armed
@@ -4001,8 +4005,8 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # cell below cannot catch either, because it compares two sets that shrink
         # together. Same shape as CommittedBatchTallySourceSyncTests's
         # test_the_source_tree_is_actually_readable.
-        self.assertEqual(43, len(self.GROUP),
-                         "the H7-H20 + H22-H37 + Phase-4 Wave 1 (H42-H54) group is 43 "
+        self.assertEqual(44, len(self.GROUP),
+                         "the H7-H20 + H22-H37 + Phase-4 Wave 1 (H42-H54) + H71 group is 44 "
                          "specs; if it genuinely changed size, update this floor AND the "
                          "counts in docs/dev/autotest-ingame-category-inventory.md and "
                          "docs/dev/autotest-status.md in the same commit")
@@ -4231,6 +4235,7 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
         # `duna-one-recorded` because the re-aim cells' skip strings NAME that mission
         # ("load s15 (the Kerbin->Duna 'Duna ...')").
         recorded_fixture = {"H35-logistics-route-proof", "H51-save-load",
+                            "H71-resource-topbar-ksc",
                             "H54-missions"}
         self.assertEqual(set(), corpus_backed & recorded_fixture,
                          "a member cannot be both corpus-backed and "
@@ -6672,7 +6677,6 @@ class MultiCategoryBatchWiringGroupTests(unittest.TestCase):
             "FinalizeLimbo": 2,
             "Flight": 2,
             "ForwardRender": 1,
-            "GhostLifecycle": 17,
             "GhostMapOrbits": 2,
             "IdentityLoss": 3,
             "MissionPhasing": 4,
@@ -6691,10 +6695,8 @@ class MultiCategoryBatchWiringGroupTests(unittest.TestCase):
             "SpawnTerminalOrbit": 3,
             "Spawner": 2,
             "StockWarpLimits": 1,
-            "Structure": 2,
             "SwitchIntentPatch": 3,
             "TerminalOrbit": 2,
-            "TestCommands": 4,
             "TestRunner": 2,
             "TestRunnerIsolation": 2,
             "Unity": 4,
@@ -6707,6 +6709,21 @@ class MultiCategoryBatchWiringGroupTests(unittest.TestCase):
             "WarpToTime": 1,
             "TestRunnerIsolation": 2,
             "SwitchIntentPatch": 3,
+        }),
+        # The 2026-09-07 second census moved three LT-1 constituents to hosts that
+        # execute more of them and added the cells only those hosts reach.
+        "LT-3-long-tail-career-flight": ("FLIGHT", {
+            "Contracts": 2,
+            "TestCommands": 4,
+        }),
+        "LT-4-long-tail-route-flight": ("FLIGHT", {
+            "RouteLiveAnchor": 1,
+            "Structure": 2,
+            "Missions": 13,
+        }),
+        "LT-5-long-tail-playback-flight": ("FLIGHT", {
+            "PartEventFX": 6,
+            "GhostLifecycle": 17,
         }),
     }
 

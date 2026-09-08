@@ -968,7 +968,7 @@ Each fact about this system lives in exactly one place:
 | `harness/README.md` | Harness module mechanics: ownership boundary, how to run, submodule readiness |
 | `todo-and-known-bugs.md` | Finding forensics: the full evidence trail behind every live finding |
 | `harness/coverage/registry.toml` | The machine-readable coverage denominator (authoritative cell list) |
-| `autotest-ingame-category-inventory.md` | The in-game category axis in DETAIL: all 109 categories with per-scene batch eligibility and self-skip surface, the A/B/C wiring triage, and the H7-H20 fly-order runbook. A category that ships WRITTEN but not yet driven by a spec (`AutoMergeCommit`, `DisabledHoverEcho`, `RouteLifecycle`) is recorded THERE, in bucket B, and gets a row here only once a committed spec drives it |
+| `autotest-ingame-category-inventory.md` | The in-game category axis in DETAIL: all 112 categories with per-scene batch eligibility and self-skip surface, the A/B/C wiring triage, and the H7-H20 fly-order runbook. A category that ships WRITTEN but not yet driven by a spec (`AutoMergeCommit`, `DisabledHoverEcho`, `RouteLifecycle`) is recorded THERE, in bucket B, and gets a row here only once a committed spec drives it |
 | `test-coverage-audit-2026-07-29.md` | Full-stack coverage SNAPSHOT (all three systems + design-doc contracts, measured 2026-07-29) and the consolidated ranked gap register. A dated audit, not a living status doc |
 | `design-testing-unified.md` | The cross-system explainer (how the three testing systems work and compose, the validation-pyramid/atomic-decomposition model, binding constraints) and the beyond-R14 program (visual validation, mode-axis expansion, fuzz/perf lanes); its build-order extension is indexed as roadmap Tier 5 |
 
@@ -1095,7 +1095,7 @@ moon lane.
 | Machine lock (multi-agent exclusivity) | ONE lockfile `<umbrella>/automation/.ksp-machine.lock` arbitrating `run.py` AND `provision.py`, replacing the two mutually-blind per-instance locks (`.harness-run.lock` / `.provision.lock`) | SHIPPED 2026-08-02. Closes four leaks found by a full audit of the pre-existing three-tier lock: (1) **provision-under-run** - the two locks never read each other, so a routine `provision.py --profile stock-minimal` could run DEPLOY (overwriting `Parsek.dll`, settings, MM cache) during the harness's pre-launch or post-exit window, when the coarse EC-1 "any KSP alive" probe passes; DEMONSTRATED live during the audit (a provision logged `lock decision=acquired-free` 21 minutes into a held run lock). (2) **per-attempt scope** - acquire/release sat inside `run_attempt`, leaving the lock free between a selection's scenarios; a sibling arriving in any gap killed every remaining scenario with non-retryable `INVALID(instance-locked)`. Now held for the whole invocation, with a timestamp heartbeat at each scenario boundary, and ADMIT moved under it (the DLL-hash check could previously be invalidated by a concurrent provision between check and launch). (3) **non-atomic acquire** - read-decide-write with no `O_EXCL`; two racers could both reclaim the same stale lock and both launch. Now an atomic exclusive create with a single bounded reclaim retry that refuses rather than loops. (4) **no wall-clock expiry** - the `timestamp` field was written and read by nothing, so a hard-killed holder whose pid Windows recycled wedged the instance permanently with no `--force`; now pid-liveness OR a 4h lease, with the liveness probe failing CLOSED and release re-reading to confirm ownership. Granularity is the MACHINE, not the instance dir, because the monopolised resources are machine-global (kRPC 50000/50001, one GPU) - a per-instance key let two profiles both acquire and both bind 50000, where the loser's bind fails soft and its mission drives the WINNER's game (a false-PASS path). Fail-fast on contention preserved (design edge 7 / EC-10); `--dry-run`, the unit suites, `collect-logs.py` and `dotnet build` deliberately do NOT take it. Coverage: the lock WIRING (the shell half) had ZERO cells before this - `test_run_smoke.py` on main never referenced `acquire_run_lock` / `release_run_lock` - and now has 28 driving real lockfile I/O, plus 18 in a dedicated `provision/test_machinelock.py` that drives the shared protocol directly (so the loser-of-a-race branches, and provision's half, are covered on their own terms rather than only through run.py); the pure `provlib` decision already had 7 cells (5 `LockTests` + 2 `LockfileReleaseTests`) and now has 22. 68 lock cells total, counted mechanically. HARDENED 2026-08-02 by two independent clean reviews, which found the first cut did NOT deliver its headline guarantee: (a) `provision.py` had a SECOND, weaker acquire whose `FileExistsError` branch unconditionally `os.replace`d the lockfile - reachable with no stale lock at all, so a provision starting alongside a run overwrote the run's live lock and DEPLOYed over its instance; (b) `run.py`'s reclaim called a bare `os.remove` on whatever was at the path, so two racers that both judged the same stale lock both proceeded - the loser deleted the WINNER's fresh lock and both held (reproduced with a PoC by the reviewer). Both are closed by extracting ONE shared protocol (`harness/provision/machinelock.py`): winning is decided solely by the exclusive create, and a stale lock is reclaimed by atomic rename to a pid-unique quarantine followed by a BYTE COMPARE against what was judged - a mismatch means a fresh holder appeared, which is restored and refused. A THIRD review round (of the fix itself) confirmed both originals dead and found three more in the same "unverified write to the lock path" family, all now closed and each pinned by a cell in the new `provision/test_machinelock.py`: two correlated read failures compared `None == None`, "verified", and deleted a LIVE holder's lock (a single AV/backup hold spans both reads); the empty file that exists between a winner's exclusive create and the close of its write parsed as "no lock" and was reclaimable (safe on Windows only by the winner's open handle blocking the rename - a platform accident, so the guard is now in the protocol and holds on POSIX too); and the restore path could `os.replace` over a third party that had legitimately won the briefly-free path, so it is now an exclusive create that stands down. The heartbeat's re-verify was moved BEFORE its swap - checking after the write is worthless, since by then the reclaimer's lock is already overwritten and the read only ever shows our own. Also from review: a failed heartbeat is now FATAL to the selection (it previously warned and kept flying unlocked beside whoever reclaimed it), the heartbeat preserves `startedIso` so a refusal reports when the hold BEGAN, and the lease moved 4h -> 8h because the worst committed spec (BDOCK-1, 6900s x 2 attempts) left only ~10 minutes of margin - now pinned by `LeaseCoversWorstCaseScenarioTests` so a future budget rise reds here instead of in a night flight. LIVE-PROVEN 2026-08-02 with a real foreign holder process: `run.py` refuses naming holder pid/worktree/selection/since, `provision.py` aborts `EC-10`, and the holder's lockfile is byte-identical afterwards. Suites green after merging main: lib 1163 / provision 236 / missions 1111. KNOWN CONSTRAINT: the key is the umbrella root, so "machine-wide" holds by convention for the documented sibling layout, not by construction (`--umbrella-root` / `--instance-dir` can decouple it) - filed under DEV-INSTANCE-UNLOCKED. **The deferred residual R8 "`_ksp_running_against` coarseness" (`design-autotest-stack-setup.md:740`, NOT the roadmap's R8) must not narrow the zombie probe without re-reading `harness/README.md`**: that probe is a second, independent guard on port 50000 and the GPU |
 | Tier runner (agent-requested, on demand) | One command flies a whole tier and leaves a classified outcome: `harness/tools/tier_runner.py --tier {daily|nightly|operator}`, invoked by an agent when the operator requests a tier run (`run-tier` project skill, `.claude/skills/run-tier/SKILL.md`) | SHIPPED 2026-08-05. **REFRAMED 2026-08-05** to the agent-requested model the operator asked for ("run them by type"): the Task Scheduler registration script was REMOVED (git history keeps it), the `run-tier` skill was added, and `cadence_runner.py` / `test_cadence_runner.py` / `results/cadence/` / `PARSEK_CADENCE_RUNPY_ARGS` were renamed to `tier_runner.py` / `test_tier_runner.py` / `results/tier-runs/` / `PARSEK_TIER_RUNPY_ARGS`. **NOTHING IS SCHEDULED.** The rename is MECHANICAL - identifiers, paths and the `[Cadence]`->`[TierRun]` log prefix only, no decision or policy changed - so the live proof below still stands for the current code. The runner owns ONLY what run.py cannot: an `ES_SYSTEM_REQUIRED` wake hold (a multi-hour tier nobody is sitting with is otherwise suspended ~2 min in, mid-flight), an advisory lock/KSP preflight that SKIPS rather than queues (a run.py refusal would stamp one junk `INVALID(instance-locked)` result JSON per selected spec - 46 for the nightly tier - into `results/` and the contact-sheet index), outcome classification into GREEN / RED / NEEDS-PROVISION / LOCKED / NO-SELECTION with the verdict tally and any KILLED called out, a one-line-per-invocation `results/tier-runs/history.txt` skim surface, and 60-day rotation of its OWN logs only. It NEVER provisions (which worktree's DLL the instance carries is a human call) and never re-runs a finding. `--tier` is a `choices=` set because run.py's own `--tier` silently selects ZERO on a typo and exits 0 - a walk-away run that reads green having flown nothing. LIVE-PROVEN 2026-08-05: a full `--tier daily` invocation flew end to end through the pre-rename runner and classified GREEN, history line `2026-08-05T07:07:59Z tier=daily outcome=GREEN exit=0 PASS=22`. Exit codes 0/1/2/3/4. Pure decisions unit-tested in `harness/lib/test_tier_runner.py` (69 cells). Tier spec counts on 2026-08-05: daily 22 / nightly 46 / operator 11. Mechanics + the review recipe: `harness/README.md` -> "Running a tier on request (agent-driven)" |
 
-## Test cases (all 225 committed scenarios)
+## Test cases (all 229 committed scenarios)
 
 LIVE-PROVEN = at least one fully-unattended PASS with every verifier green.
 The "Parsek surface verified" column is the reason the case exists.
@@ -3188,7 +3188,49 @@ here - the 86-part host came in under the 17-part recorded one, because a self-s
 cell costs microseconds and a five-recording corpus costs every restore. All three are far
 inside the projections above, which are kept because they are what sizes the next host.
 
-### In-game MULTI-CATEGORY batch wiring, the long tail: LT-1 + LT-2, both LIVE-PROVEN (2)
+### In-game batch wiring: the career Space Center resource top bar, H71 (1)
+
+AUTHORED 2026-09-07 off the second in-game census, on a fixture DERIVED rather than
+flown, and LIVE-PROVEN the same day on its first flight `2026-09-07_2038` (PASS attempt
+1, 46 s). `ResourceTopBar`'s two cells are career-only AND read the stock funds / science
+/ reputation widgets, which exist only at the Space Center, so they had skipped on
+every host the suite owned: LT-2's `fresh-sandbox` reports "career-only", and every
+FLIGHT career reports "no funds/science currency widget present". No committed career
+booted to the Space Center WITH a career worth reading - `fresh-career` and
+`strategy-career` are vessel-less but carry no CONTRACT nodes, and every earned career
+(`career-earned-pad`, `career-contract-pad`, `career-science-pad`) carries a pad craft
+that routes `LoadGame` to FLIGHT.
+
+THE HOST WAS BUILT BY DERIVATION, not by a flight, and that is the reusable part.
+`harness/tools/build_career_earned_ksc.py` copies the xUnit fixture
+`Source/Parsek.Tests/Fixtures/C2CareerPostFix/` - the same base `career-earned-pad` is
+spliced from, which carries ZERO `VESSEL` nodes, a populated ledger, two committed
+recordings and nine `Offered` contracts - applying ONLY the two hygiene edits the pad
+builder applies: every `rewindSave = parsek_rw_*` hint stripped (no fixture may point
+at an uncommitted quicksave) and `Parsek/Saves/` not copied (the harvest exhaust is not
+committed). Nothing else is touched: no contract is re-stated Active, because that is
+the pad sibling's D8 splice and needs a craft to be honest. Vessel-less, it takes
+`TestCommandLoadGame.DecideLoadRoute`'s `NoVesselSpaceCenter` route, which is the scene
+the cells want. `harness/lib/test_career_earned_ksc.py` (7 cells) re-derives the
+fixture in-process and compares it byte for byte, so a hand edit to either side reds in
+the unit suite instead of on a boot, and one of its cells pins the relationship to the
+pad sibling - the pad ledger extends this one by exactly its accept row.
+
+| Test case | Tier | Parsek surface verified | Blocker |
+|---|---|---|---|
+| H71-resource-topbar-ksc | nightly | The in-game `ResourceTopBar` category at SPACECENTER on `career-earned-ksc`: `CurrencyTooltipResolvesWidgetScreenRects` executes and passes, which is the FIRST execution of either cell anywhere. Pin `BATCH_COMPLETE v1 total=2 passed=1 failed=0 skipped=1 category=ResourceTopBar scene=SPACECENTER` whole, with the two committed recordings pinned exactly. LIVE-PROVEN 2026-09-07, first flight `2026-09-07_2038`, PASS attempt 1, wall 46 s, every verifier PASS or REPORT, the `BATCH_COMPLETE` line matched verbatim, and exactly ONE ERROR line in the log - the spec's own named carve-out, no other. Predicted on scratch census CEN-2 (run `2026-09-07_2017`, 4 candidate categories) and measured to that line. THE ONE SKIP IS MEASURED AND NAMED and it is a property of an EARNED career rather than of the host: `TopBarReflectsLedgerAfterRecalc` finds the ledger reconstruction running above the live pools, so the drawdown guard uplift-clamps the funds / science patch and the bar cannot be asserted against it. Its ERROR gate carries ONE named carve-out for the same cell's own synthetic probe action - a `VesselRecovery` science leg with, by construction, no `ScienceChanged` event, so `PostWalkActionReconciler` writes a single `[Parsek][ERROR][LedgerOrchestrator] Science reconcile dump (post-walk)` for that action id; the lookahead exempts exactly that id prefix and any other ERROR line still reds. The three sibling categories the census read on this host are owned elsewhere and confirmed unchanged here: `Ledger` 4 of 4 (H48), `StockUiOverlay` 4 of 6 (H45) and `CrewReservationLive` 0 of 2. Claims D14 `career` + `scene-ksc` | None - LIVE-PROVEN, pin whole |
+
+WHAT THIS HOST DID NOT BUY, and it is the more useful reading of the two. The fixture
+was built partly to close the two `StockUiOverlay` Mission Control cells H45 measured
+skipping "for want of an OFFERED contract" - and on a career carrying NINE Offered
+contracts they skip with the SAME string, `rows=9, contractRows=0`. So the want was
+never a save-state property: the offered rows populate only with the Mission Control
+BUILDING UI open, which no seam verb drives. H45 still reads 4 of 6, unchanged, and the
+residue moves from "needs a fixture" to "needs a facility-UI verb, or nothing" in the
+inventory's B5 table. A fixture built to test a hypothesis is worth building even when
+it refutes it; what it cost here was a derivation, not a flight.
+
+### In-game MULTI-CATEGORY batch wiring, the long tail: LT-1..LT-5, ALL FIVE LIVE-PROVEN (5)
 
 THE THIRD BATCH-WIRING FAMILY, opened 2026-09-07. The ordinary family (H7-H20 and
 friends) and the isolated family (H21, H38-H41, H55-H67) both drive exactly ONE named
@@ -3213,8 +3255,37 @@ boot". Roughly thirty categories hold one or two cells each, and at one boot per
 category none of them was ever worth wiring. These two lanes drive 37 distinct
 categories in TWO boots, 343 s of wall between them.
 
-Both flew 2026-09-07, PASS on attempt 1, every verifier PASS or SKIPPED, and every
-per-category pin matched token for token. Neither is interim:
+**THREE MORE LANES WERE ADDED 2026-09-07 OFF A SECOND CENSUS, and what they buy is
+different in kind: not more of the tail, but the categories the first two lanes
+EXCLUDED for want of a host.** `LT-3-long-tail-career-flight` takes the career slice
+(`Contracts`, `TestCommands`) on `career-earned-pad`; `LT-4-long-tail-route-flight`
+takes the route slice (`RouteLiveAnchor`, `Structure`, `Missions`) on
+`depot-route-recorded` behind H40's StopRecording + DiscardTree kill pair; and
+`LT-5-long-tail-playback-flight` takes the active-ghost slice (`PartEventFX`,
+`GhostLifecycle`) over the `part-showcase` corpus with a TimeJump to UT 55, so the
+showcase ghosts are spawned and five seconds into playback when the batch fires. Each
+membership was MEASURED on a scratch census (CEN-1 `2026-09-07_2007`, CEN-4 `_2010`,
+CEN-3 `_2008`; the scratch specs are not committed), and each lane's fixture is the
+only thing that differs from LT-1 - the selector, the batch shape and the
+per-constituent pins are LT-1's step for step. ALL THREE HAVE SINCE FLOWN, the same
+evening and green on attempt 1: LT-3 `2026-09-07_2035` (64 s), LT-4 `_2036` (56 s) and
+LT-5 `_2037` (72 s), every per-constituent `BATCH_COMPLETE` line matched verbatim and
+every verifier PASS or REPORT. The census predicted every constituent count exactly.
+
+**LT-1 WAS RE-PINNED FROM 33 CONSTITUENTS TO 30 IN THE SAME COMMIT.**
+`GhostLifecycle`, `Structure` and `TestCommands` moved to LT-5, LT-4 and LT-3
+respectively, because each was a SLICE on LT-1's host for a reason the host owns - no
+ghosts playing, no committed route, no career - and each is driven better, or whole,
+on the lane that pays it. LT-1's aggregate is now `total=57 passed=50 failed=0
+skipped=7 category=multi:30`; the superseded 33-constituent pin was `total=80
+passed=54 failed=0 skipped=26 category=multi:33` (run `2026-09-07_1511`). The family's
+no-overlap rule is what forces the move to be a MOVE: a category belongs to exactly
+one lane in the family, so a better host is not an addition, it is a re-homing.
+
+ALL FIVE FLEW 2026-09-07, PASS on attempt 1, every verifier PASS or SKIPPED / REPORT,
+and every per-category pin matched token for token: LT-1 `_1511` at 33 constituents and
+`_2030` (292 s) at the re-pinned 30, LT-2 `_1516`, LT-3 `_2035`, LT-4 `_2036` and LT-5
+`_2037`. None is interim:
 `MultiCategoryBatchWiringGroupTests.INTERIM_PIN_IDS` is empty.
 
 The lanes were authored off a CENSUS rather than off a derivation, and the census is
@@ -3230,6 +3301,21 @@ game window, which no seam can place, and `ResourceTopBar` / `GhostMapOrbits` ha
 executable slice at SPACECENTER. Each is named in the inventory's B5 note with the host
 that would buy it.
 
+**FOUR OF THOSE SIX WERE BOUGHT BY THE SECOND CENSUS (2026-09-07, scratch CEN-1..CEN-7,
+not committed), and every one of them by a HOST rather than by any change to the
+mechanism.** `Contracts` (2 of 2) and `TestCommands` (2 of 4) execute on the
+`career-earned-pad` career, `RouteLiveAnchor` (1 of 1) and `Structure` (2 of 2) on
+`depot-route-recorded`, `PartEventFX` (1 of 6) and `GhostLifecycle` (4 of 17) on the
+playing `part-showcase` corpus, and `ResourceTopBar` (1 of 2) at SPACECENTER on the new
+`career-earned-ksc` fixture through `H71-resource-topbar-ksc`, which is its own section
+below. TWO REMAIN UNDRIVEN and neither is a host question: `CrewReservationLive` read
+0 of 2 on three further hosts (the census's career, playback and Space Center hosts), so
+what holds it is the corpus writer's inability to author a spawned endpoint, and
+`DisabledHoverEcho` is interactive-only. The inventory's B5 table now carries the
+residue - the two Mission Control cells, `TopBarReflectsLedgerAfterRecalc`, the
+`AutoRecord` EVA cell and the committed-tree-restore trap - as bounds on lanes that
+already exist rather than as categories to wire.
+
 TWO TEST-SIDE FINDINGS came out of the census, both fixed in the same branch and both
 in cells no batch had ever run. `PartEventTiming`'s deployable cell asserted the
 pre-S2 snap contract and FAILED; it is re-pinned to the shipped animated contract and
@@ -3239,8 +3325,11 @@ order-independent and passes.
 
 | Test case | Tier | Parsek surface verified | Blocker |
 |---|---|---|---|
-| LT-1-long-tail-flight | nightly | THIRTY-THREE in-game categories in ONE FLIGHT boot over `gloops-airshow` + the injected `all-synthetic` corpus (274 recordings, count pinned exactly, so the store-reading constituents - `RecordingStore`, `TerminalOrbit`, `RewindSaves`, `Structure`, `IdentityLoss`, `Watch` - walk real bytes rather than passing vacuously over an empty store). LIVE-PROVEN 2026-09-07, run `2026-09-07_1511` (the SECOND pinned flight; the first, `_1502`, red only on the pointer-dependent DisabledHoverEcho pin since dropped): PASS attempt 1, 297 s wall, every verifier PASS or SKIPPED. Aggregate `BATCH_COMPLETE v1 total=80 passed=54 failed=0 skipped=26 category=multi:33 scene=FLIGHT`, and all 33 per-category lines pinned WHOLE alongside it, each `failed=0` a literal. Twenty-four constituents executed their category whole with zero skips; the nine partial slices carry their skip reasons in the spec header (GhostLifecycle 15, TestCommands 3, SwitchIntentPatch 2, and one each for BackgroundSeeder, GhostMapOrbits, MissionPhasing, Spawner, Structure, TestRunnerIsolation). Claims D14 `sandbox` + `scene-flight` only: a whole-tally pin asserts that a category's cells RAN, not what they proved | None - LIVE-PROVEN, pin whole |
+| LT-1-long-tail-flight | nightly | THIRTY in-game categories in ONE FLIGHT boot over `gloops-airshow` + the injected `all-synthetic` corpus (274 recordings, count pinned exactly, so the store-reading constituents - `RecordingStore`, `TerminalOrbit`, `RewindSaves`, `IdentityLoss`, `Watch` - walk real bytes rather than passing vacuously over an empty store). RE-PINNED 2026-09-07 from 33 constituents to 30: `GhostLifecycle`, `Structure` and `TestCommands` moved to LT-5, LT-4 and LT-3, whose hosts feed the cells this one starves. Current pin `BATCH_COMPLETE v1 total=57 passed=50 failed=0 skipped=7 category=multi:30 scene=FLIGHT` plus all 30 per-category lines whole. LIVE-PROVEN AT 30 on 2026-09-07, run `2026-09-07_2030`, PASS attempt 1, wall 292 s, every verifier PASS or REPORT, all 30 per-category lines matched verbatim. PRIOR, and LIVE-PROVEN at 33: run `2026-09-07_1511` (the SECOND pinned flight; the first, `_1502`, red only on the pointer-dependent DisabledHoverEcho pin since dropped), PASS attempt 1, 297 s wall, every verifier PASS or SKIPPED, aggregate `total=80 passed=54 failed=0 skipped=26 category=multi:33`, twenty-four constituents whole and nine slices. Claims D14 `sandbox` + `scene-flight` only: a whole-tally pin asserts that a category's cells RAN, not what they proved | None - LIVE-PROVEN at both pins, 33 and 30 |
 | LT-2-long-tail-spacecenter | nightly | The SPACECENTER slice of the same tail: SIX categories in one boot over `fresh-sandbox` with `injectedRecordings = "none"`, so `DecideLoadRoute` takes the `NoVesselSpaceCenter` route (H45 / H48's door) and every pinned line reads `scene=SPACECENTER`. The EMPTY store is the point rather than an economy: `Optimizer`'s two cells run `RunOptimizationPass` over the live store and SKIP whenever a committed recording is present, which the `_0847` census measured and the `_0854` census disproved. LIVE-PROVEN 2026-09-07, run `2026-09-07_1516` (the second pinned flight; the first, `_1508`, red only on the WarpToTime skip since made order-independent): PASS attempt 1, 46 s wall, every verifier PASS or SKIPPED. Aggregate `BATCH_COMPLETE v1 total=10 passed=7 failed=0 skipped=3 category=multi:6 scene=SPACECENTER`, all six per-category lines pinned WHOLE. `Optimizer` (2), `Recording` (1), `ResourceReconciliation` (1) and `WarpToTime` (1) execute whole; `TestRunnerIsolation` skips 1 and `SwitchIntentPatch` 2, both scene residue named in the header. Claims D14 `sandbox` + `scene-ksc` | None - LIVE-PROVEN, pin whole |
+| LT-3-long-tail-career-flight | nightly | THE CAREER SLICE of the tail: `Contracts` (2 of 2, the FIRST execution of either cell anywhere) and `TestCommands` (2 of 4) in one FLIGHT boot over `career-earned-pad`, the L4 ledger host - an earned ledger, two committed recordings pinned exactly, one Active contract and a crewed pod on the pad. Both categories are career-only, which is why LT-1's sandbox host executed nothing of one and 1 of 4 of the other. Pin `BATCH_COMPLETE v1 total=6 passed=4 failed=0 skipped=2 category=multi:2 scene=FLIGHT` plus both per-category lines whole. LIVE-PROVEN 2026-09-07, first flight `2026-09-07_2035`, PASS attempt 1, wall 64 s, every verifier PASS or REPORT, both per-category lines matched verbatim; membership and counts predicted on scratch census CEN-1 (run `2026-09-07_2007`, 6 candidate categories) and measured to that line. `Contracts` is driven WHOLE at 2 of 2 and joins bucket A3 on it; `TestCommands` at 2 of 4 is a slice and stays in bucket B. The two `TestCommands` skips are MEASURED AND NAMED - the MAINMENU cell scene-skips in FLIGHT, and `FlightChannelRoundTrip_PendingOperator` is the file-channel round trip only an operator drives. Claims D14 `career` + `scene-flight` | None - LIVE-PROVEN, pin whole |
+| LT-4-long-tail-route-flight | nightly | THE ROUTE SLICE: `RouteLiveAnchor` (1 of 1, the FIRST execution of that cell anywhere), `Structure` (2 of 2) and `Missions` (2 of 13) in one FLIGHT boot over `depot-route-recorded`, the suite's only committed Active route (22 recordings, count pinned exactly), behind H40's own StopRecording + DiscardTree kill pair - the fixture resumes its recorder on load and several cells guard on an idle one. What the host buys is a COMMITTED SUPPLY ROUTE, which no injected corpus carries. Its `Missions` cell `RealSave_StationMission_PhaseLocksOrHolds` is one H54's `duna-one-recorded` host cannot reach, so the two lanes are different slices of one category and the family's no-overlap rule is keyed within the family. Pin `BATCH_COMPLETE v1 total=16 passed=5 failed=0 skipped=11 category=multi:3 scene=FLIGHT` plus all three per-category lines whole. LIVE-PROVEN 2026-09-07, first flight `2026-09-07_2036`, PASS attempt 1, wall 56 s, every verifier PASS or REPORT, all three per-category lines matched verbatim; predicted on scratch census CEN-4 (run `2026-09-07_2010`, 7 candidate categories) and measured to that line. `RouteLiveAnchor` (1 of 1) and `Structure` (2 of 2) are driven WHOLE and join bucket A3 on it; `Missions` at 2 of 13 is a slice and stays in bucket B. The eleven `Missions` skips are the re-aim / loop-unit / periodicity cells and the presentation cells whose archetypes this store does not carry, each naming its want in its skip text. Claims D14 `sandbox` + `scene-flight` | None - LIVE-PROVEN, pin whole |
+| LT-5-long-tail-playback-flight | nightly | THE ACTIVE-GHOST SLICE: `PartEventFX` (1 of 6, `LightInfosValid` - the FIRST execution of any cell in that category anywhere) and `GhostLifecycle` (4 of 17) in one FLIGHT boot over `gloops-airshow` with the `part-showcase` preset injected (243 recordings, count pinned exactly) and a TimeJump to UT 55, so every showcase ghost is spawned and five seconds into playback when `RunTests` fires. That is the whole difference from LT-1, whose corpus is present but static at its batch UT, where the same two categories read 0 of 6 and 2 of 17. Pin `BATCH_COMPLETE v1 total=23 passed=5 failed=0 skipped=18 category=multi:2 scene=FLIGHT` plus both per-category lines whole. LIVE-PROVEN 2026-09-07, first flight `2026-09-07_2037`, PASS attempt 1, wall 72 s, every verifier PASS or REPORT, both per-category lines matched verbatim; predicted on scratch census CEN-3 (run `2026-09-07_2008`, 6 candidate categories) and measured to that line. Both constituents are SLICES (1 of 6 and 4 of 17), so this lane contributes nothing to bucket A3 and both categories stay in bucket B with the residue named below. The skips are measured and named: the engine / chute / fairing / decoupler FX cells want a ghost whose part family resolves FX at the batch UT, and `GhostLifecycle`'s residue wants a loop recording or two overlapping recordings of one vessel - the 2026-08-04 body read's populations, unchanged. Claims D14 `sandbox` + `scene-flight` | None - LIVE-PROVEN, pin whole |
 
 THE STORE SPLIT BETWEEN THE TWO LANES IS DELIBERATE and is the one authoring decision
 worth carrying forward: a store-READING constituent needs the corpus or it passes over

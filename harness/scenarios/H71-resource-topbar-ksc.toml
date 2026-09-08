@@ -1,0 +1,73 @@
+schema = 1
+id = "H71-resource-topbar-ksc"
+tier = "nightly"
+# THE RESOURCE TOP BAR ON A CAREER SPACE CENTER. `ResourceTopBar`'s two cells are
+# career-only AND read the stock funds / science / reputation widgets, which exist
+# only at the Space Center - so they skipped on every host before this one: LT-2's
+# `fresh-sandbox` ("career-only"), LT-1's and the CEN-1 census's FLIGHT careers ("no
+# currency widget present"). Host: `career-earned-ksc`, the vessel-less sibling of
+# `career-earned-pad` derived by `harness/tools/build_career_earned_ksc.py` from the
+# same xUnit base (an earned ledger, two committed recordings, nine Offered
+# contracts, no VESSEL node, so LoadGame takes the NoVesselSpaceCenter route).
+# Measured on the 2026-09-07 second census (scratch CEN-2, run `2026-09-07_2017`,
+# 4 candidate categories): ResourceTopBar 1 of 2.
+#
+# THE ONE SKIP IS MEASURED AND NAMED: `TopBarReflectsLedgerAfterRecalc` skips because
+# on this career the ledger reconstruction runs ABOVE the live pools and the
+# drawdown guard uplift-clamps the funds / science patch (its skip text), so the
+# bar cannot be asserted against a clamped patch; `CurrencyTooltipResolvesWidgetScreenRects`
+# executes and passes. The three sibling categories the census read on this host
+# are owned elsewhere: `Ledger` 4 of 4 (H48), `StockUiOverlay` 4 of 6 (H45; the two
+# Mission Control cells skip here exactly as on H45, "rows=9, contractRows=0" - the
+# offered rows populate only with the Mission Control building open, which no seam
+# verb drives), `CrewReservationLive` 0 of 2 (no spawned vessels).
+# FLOWN (first flight): run `2026-09-07_2038`, PASS attempt 1, wall 46 s, the pinned line
+# matched verbatim, one ERROR line (the carve-out) and no other, every verifier
+# PASS or REPORT.
+description = "Run the in-game ResourceTopBar category unattended at the Space Center of a vessel-less earned career, pinned whole."
+instanceProfile = "stock-minimal"
+tags = ["ingame-batch", "resource-topbar", "career", "H71"]
+
+[fixture]
+saveTemplate = "fixtures/saves/career-earned-ksc"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "ResourceTopBar" }, expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                     expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["career", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The two committed recordings the career carries (its pad sibling pins the same 2).
+count = { min = 2, max = 2 }
+
+[expectations.logContracts]
+required  = ["BATCH_COMPLETE v1 total=2 passed=1 failed=0 skipped=1 category=ResourceTopBar scene=SPACECENTER"]
+# The ERROR gate carries ONE named carve-out, measured on the census (CEN-2, one
+# line): `TopBarReflectsLedgerAfterRecalc` seeds a synthetic probe action whose
+# VesselRecovery science leg has, by construction, no ScienceChanged event, so
+# `PostWalkActionReconciler` writes its `Science reconcile dump (post-walk)` at
+# ERROR for that action id and nothing else. The lookahead exempts exactly the
+# probe's own id prefix; any other ERROR line still reds.
+forbidden = ["\\[Parsek\\]\\[ERROR\\](?!\\[LedgerOrchestrator\\] Science reconcile dump \\(post-walk\\): action=parsek-overlay-topbar-phase5-topbar-)"]
+
+[runtime]
+budgetSeconds = 720
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

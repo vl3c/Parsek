@@ -92,13 +92,13 @@ Two limits of this table, stated so nobody over-reads it:
 | Category | Decls | Exec FLIGHT | Exec SPACECENTER | Exec TRACKSTATION | Batch-disabled | Members with self-skip | Driven by | Bucket |
 |---|---|---|---|---|---|---|---|---|
 | `AutoMergeCommit` | 1 | 0 | 0 | 0 | 1 | 1 | H67-automerge-commit-isolated (ISOLATED, LIVE-PROVEN 2026-09-06, run `2026-09-06_2016`: PASS attempt 1, 55 s wall, every verifier PASS or SKIPPED, `BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=AutoMergeCommit scene=FLIGHT` pinned whole. EXECUTED 1 of 1. H21's scene-exit seam with `autoMerge` FLIPPED ON, over the ORBITING `gs2-orbital-stack`: stock save-and-exit out of FLIGHT commits SILENTLY and at FULL FIDELITY, keeping the committed leaf's `VesselSnapshot` and spawn-at-end eligibility. The host is DICTATED by the cell, whose own skip says only an ORBITING vessel produces the stable-terminal shape `CommitTreeSceneExit` preserves a snapshot for - which is why this lane added the `orbiting` fixture-requirement class. All six guards were settled by host + driver as predicted, so the census rode entirely on the assertions and they held) | A |
-| `AutoRecord` | 10 | 0 | 0 | 0 | 10 | 10 | H61-autorecord-isolated (ISOLATED, LIVE-PROVEN 2026-09-06, run `2026-09-06_2010`: PASS attempt 1, 82 s wall, every verifier PASS or SKIPPED, `BATCH_COMPLETE v1 total=10 passed=5 failed=0 skipped=5 category=AutoRecord scene=FLIGHT` pinned whole, `skipped=5` declared in `MEASURED_SKIPPED`. EXECUTED 5 of 10, so this is a SLICE and the category stays in bucket B on `Logistics`' precedent. The largest isolated batch in the suite, over the crewed PRELAUNCH `gs1-two-stage-pad`: launch auto-record starting exactly once, deferred EVA auto-record after a real `FlightEVA.spawnEVA`, the post-switch watch's negative case, and the two #526 pad-transient canaries. The spec header's PREDICTED 5-execute / 5-skip census held CELL FOR CELL. RESIDUE, all HOST properties and none a product claim: `AutoRecordOnPostSwitch_LandedMotion_*` and `AutoRecordOnPostSwitch_GearToggle_*` want a LANDED host, `AutoRecordOnPostSwitch_OrbitalEngineOrRcs_*` an ORBITING one, `EvaKerbalGhostHasVesselSnapshot` a MID-FLIGHT crewed one, and `EvaTwiceFromSameCapsuleProducesTwoBranches` a host with 2+ crew - `eva3-pad-3crew` would buy the last, but its launch clamps carry `RealSpawnControl_WarpToRecordingEnd_OnPad_*`'s own skip, so it trades a cell rather than closing the lane. Claims D1 `auto-record-launch` + `auto-record-eva` only: `auto-record-first-mod-switch` is NOT claimed, and the census MEASURED why - the only post-switch cell that executes here is the negative one). THREE SIBLING HOSTS were added 2026-09-07 to buy that residue from fixtures the repo already owns, each changing only the fixture so a census delta is attributable to the host alone, and ALL THREE FLEW GREEN THE SAME DAY (PASS attempt 1, every verifier PASS or SKIPPED, each pinned whole with its `skipped=` in `MEASURED_SKIPPED`): H68-autorecord-orbiting over `gs2-orbital-stack`, run `2026-09-07_1618`, 74 s wall, `total=10 passed=3 failed=0 skipped=7`, EXECUTING 3 of 10 - the ORBITING positive post-switch cell (`mode=engine situation=ORBITING autoStartCount=1`), the first orbital EVA auto-record any unattended lane has driven, and the post-switch no-op; H69-autorecord-landed over `rover-route-recorded`, run `2026-09-07_1619`, 99 s, `total=10 passed=4 failed=0 skipped=6`, EXECUTING 4 - the LANDED positive post-switch cell (`situation=LANDED autoStartCount=1`), the no-op, and both #526 canaries from LANDED including the Real Spawn Control one no clamped host can run; and H70-autorecord-pad-crew over `eva3-pad-3crew`, run `2026-09-07_1621`, 91 s, `total=10 passed=5 failed=0 skipped=5`, EXECUTING 5 including `EvaTwiceFromSameCapsuleProducesTwoBranches` for the FIRST TIME ANYWHERE (`first='Valentina Kerman' second='Bob Kerman' evaBranches=2`). H69 and H70 confirmed their headers cell for cell and string for string; H68 was REFUTED TWICE - the two-EVA cell does NOT work in orbit (the first kerbal floats in front of the hatch after the walk-clear - an INFERENCE from two different skip strings on two flights, not a logged measurement - so `spawnEVA` refuses the second EVA and H70 is the host that runs it), and its PREDICTED FAIL on `EvaKerbalGhostHasVesselSnapshot` became a measured SKIP when that cell's guard was WIDENED in `Source/` to require a crewed vessel FLYING inside an atmosphere. UNION ACROSS THE FOUR HOSTS: 8 OF 10 CELLS NOW EXECUTE SOMEWHERE. Residue reduced to TWO cells that execute NOWHERE, both HARVEST requirements: `AutoRecordOnPostSwitch_GearToggle_*` needs a LANDED craft carrying `ModuleWheels.ModuleWheelDeployment` (H69 MEASURED the rover passing its situation guard and skipping one guard later on `active landed vessel has no deployable landing-gear module the canary can toggle`, so a LANDED host is necessary but NOT SUFFICIENT), and `EvaKerbalGhostHasVesselSnapshot` needs a crewed vessel FLYING low over terrain - low enough that the EVA kerbal reaches the ground inside the cell's 10 s settle wait and its terminal reads Landed, not Splashed; a just-airborne or hovering craft over the KSC grass, not a cruise-altitude one; no committed fixture is, so a forge or a derived in-flight save sized to that bound. D1 `auto-record-first-mod-switch` is now CLOSED, claimed and measured by H68 and H69, not by H61. THE CATEGORY STAYS IN BUCKET B: no SINGLE lane drives it whole - the best is 5 of 10 - and the bucket is a per-lane property, so a four-lane union of 8 does not promote it to A. | B |
+| `AutoRecord` | 10 | 0 | 0 | 0 | 10 | 10 | H61-autorecord-isolated (ISOLATED, LIVE-PROVEN 2026-09-06, run `2026-09-06_2010`: PASS attempt 1, 82 s wall, every verifier PASS or SKIPPED, `BATCH_COMPLETE v1 total=10 passed=5 failed=0 skipped=5 category=AutoRecord scene=FLIGHT` pinned whole, `skipped=5` declared in `MEASURED_SKIPPED`. EXECUTED 5 of 10, so this is a SLICE and the category stays in bucket B on `Logistics`' precedent. The largest isolated batch in the suite, over the crewed PRELAUNCH `gs1-two-stage-pad`: launch auto-record starting exactly once, deferred EVA auto-record after a real `FlightEVA.spawnEVA`, the post-switch watch's negative case, and the two #526 pad-transient canaries. The spec header's PREDICTED 5-execute / 5-skip census held CELL FOR CELL. RESIDUE, all HOST properties and none a product claim: `AutoRecordOnPostSwitch_LandedMotion_*` and `AutoRecordOnPostSwitch_GearToggle_*` want a LANDED host, `AutoRecordOnPostSwitch_OrbitalEngineOrRcs_*` an ORBITING one, `EvaKerbalGhostHasVesselSnapshot` a MID-FLIGHT crewed one, and `EvaTwiceFromSameCapsuleProducesTwoBranches` a host with 2+ crew - `eva3-pad-3crew` would buy the last, but its launch clamps carry `RealSpawnControl_WarpToRecordingEnd_OnPad_*`'s own skip, so it trades a cell rather than closing the lane. Claims D1 `auto-record-launch` + `auto-record-eva` only: `auto-record-first-mod-switch` is NOT claimed, and the census MEASURED why - the only post-switch cell that executes here is the negative one). THREE SIBLING HOSTS were added 2026-09-07 to buy that residue from fixtures the repo already owns, each changing only the fixture so a census delta is attributable to the host alone, and ALL THREE FLEW GREEN THE SAME DAY (PASS attempt 1, every verifier PASS or SKIPPED, each pinned whole with its `skipped=` in `MEASURED_SKIPPED`): H68-autorecord-orbiting over `gs2-orbital-stack`, run `2026-09-07_1618`, 74 s wall, `total=10 passed=3 failed=0 skipped=7`, EXECUTING 3 of 10 - the ORBITING positive post-switch cell (`mode=engine situation=ORBITING autoStartCount=1`), the first orbital EVA auto-record any unattended lane has driven, and the post-switch no-op; H69-autorecord-landed over `rover-route-recorded`, run `2026-09-07_1619`, 99 s, `total=10 passed=4 failed=0 skipped=6`, EXECUTING 4 - the LANDED positive post-switch cell (`situation=LANDED autoStartCount=1`), the no-op, and both #526 canaries from LANDED including the Real Spawn Control one no clamped host can run; and H70-autorecord-pad-crew over `eva3-pad-3crew`, run `2026-09-07_1621`, 91 s, `total=10 passed=5 failed=0 skipped=5`, EXECUTING 5 including `EvaTwiceFromSameCapsuleProducesTwoBranches` for the FIRST TIME ANYWHERE (`first='Valentina Kerman' second='Bob Kerman' evaBranches=2`). H69 and H70 confirmed their headers cell for cell and string for string; H68 was REFUTED TWICE - the two-EVA cell does NOT work in orbit (the first kerbal floats in front of the hatch after the walk-clear - an INFERENCE from two different skip strings on two flights, not a logged measurement - so `spawnEVA` refuses the second EVA and H70 is the host that runs it), and its PREDICTED FAIL on `EvaKerbalGhostHasVesselSnapshot` became a measured SKIP when that cell's guard was WIDENED in `Source/` to require a crewed vessel FLYING inside an atmosphere. UNION ACROSS THE FOUR HOSTS: 8 OF 10 CELLS NOW EXECUTE SOMEWHERE. Residue reduced to TWO cells that execute NOWHERE, both HARVEST requirements: `AutoRecordOnPostSwitch_GearToggle_*` needs a LANDED craft carrying `ModuleWheels.ModuleWheelDeployment` (H69 MEASURED the rover passing its situation guard and skipping one guard later on `active landed vessel has no deployable landing-gear module the canary can toggle`, so a LANDED host is necessary but NOT SUFFICIENT), and `EvaKerbalGhostHasVesselSnapshot` needs a crewed vessel FLYING low over terrain - low enough that the EVA kerbal reaches the ground inside the cell's 10 s settle wait and its terminal reads Landed, not Splashed; a just-airborne or hovering craft over the KSC grass, not a cruise-altitude one; no committed fixture is, so a forge or a derived in-flight save sized to that bound. D1 `auto-record-first-mod-switch` is now CLOSED, claimed and measured by H68 and H69, not by H61. THE CATEGORY STAYS IN BUCKET B: no SINGLE lane drives it whole - the best is 5 of 10 - and the bucket is a per-lane property, so a four-lane union of 8 does not promote it to A. A FIFTH HOST WAS TRIED 2026-09-07 AND REFUSED: the second census ran the category over `mun-landing-recorded` (scratch CEN-5 and CEN-7, the second with a 12-step `RecordingState` dwell after StopRecording + DiscardTree) and EVERY cell skipped `recording already active`, because about 7 ms after DiscardTree the committed-tree restore re-arms and promotes the recorder again (`ArmCommittedTreeRestoreAttempt: replacing stale context ... reason=TryTakeCommittedTreeForSpawnedVesselRestore copy-on-write`). No dwell length changes that, so the seam cannot idle a committed-tree-restore host; H69 already executes the LANDED cells on `rover-route-recorded`, so no coverage is lost. Filed as `DISCARDTREE-CANNOT-IDLE-A-COMMITTED-TREE-RESTORE-HOST`. | B |
 | `BackgroundSeeder` | 2 | 2 | 0 | 0 | 0 | 2 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 1 of 2; the residue is the seed cell, which wants stateful parts the 1-part pod host does not carry) | B |
 | `Bug289` | 2 | 2 | 0 | 0 | 0 | 0 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 2 of 2 - the whole category at FLIGHT with zero skips) | A |
 | `ClawCouple` | 2 | 2 | 0 | 0 | 0 | 2 | H42 (flown 2026-08-28, executes 2 of 2) | A |
 | `Coalescer` | 2 | 0 | 0 | 0 | 2 | 2 | H62-coalescer-isolated (ISOLATED, flown 2026-09-06, executes 2 of 2 - LIVE-PROVEN on its second flight `2026-09-06_2017`, `total=2 passed=2 failed=0 skipped=0` pinned whole; the first flight on `gs1-two-stage-pad` read `passed=0 skipped=2` because gs1's first stage lights the engine, so the host is now the derived `coalescer-pad`, gs1 with the decoupler moved into the first stage. A REAL controlled-decoupled split over a host carrying PRELAUNCH + an engine + 2 command modules + a decoupler IN THE NEXT STAGE: the live seed residual decision line with numeric `seedLiveRootDist=` / `propagatedResidual=`, and the child's `ParentAnchorRecordingId` stamped at the focused parent at split time. Both cells executed as predicted once the stage order matched. Claims D5 `controlled-decoupled-child` only - `crash-coalescing` is NOT claimed, because neither cell crashes anything) | A |
 | `ContinuationIntegrity` | 2 | 2 | 2 | 2 | 0 | 0 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 2 of 2 - the whole category at FLIGHT with zero skips) | A |
-| `Contracts` | 2 | 2 | 0 | 0 | 0 | 2 | - | B |
+| `Contracts` | 2 | 2 | 0 | 0 | 0 | 2 | LT-3-long-tail-career-flight (MULTI, authored 2026-09-07 and LIVE-PROVEN the same day: first flight `2026-09-07_2035`, PASS attempt 1, 64 s wall, every verifier PASS or REPORT, every per-constituent `BATCH_COMPLETE` line matched verbatim. Predicted on the 2026-09-07 second census (scratch CEN-1, run `2026-09-07_2007`) at 2 of 2 - the whole category with zero skips, at FLIGHT on the `career-earned-pad` career, which is what both cells' career-only guards want and what no sandbox host could give them - and the flight measured that line exactly. The FIRST execution of either cell anywhere; PROMOTED to bucket **A** (A3) by that flight, on the promotion rule below: the tally is pinned whole AND the lane drove the category whole at its own boot) | A |
 | `CrewReservation` | 15 | 14 | 6 | 5 | 0 | 12 | H31 | A |
 | `CrewReservationLive` | 2 | 2 | 2 | 2 | 0 | 2 | - | B |
 | `DataHealth` | 4 | 4 | 4 | 4 | 0 | 0 | H14 | A |
@@ -113,7 +113,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `GameActionsHealth` | 4 | 4 | 4 | 4 | 0 | 3 | B10 / L1 | B |
 | `GhostAudio` | 9 | 8 | 3 | 2 | 0 | 1 | H30 | A |
 | `GhostChains` | 4 | 4 | 4 | 4 | 0 | 4 | H50 (flown 2026-08-28, executes 4 of 4) | A |
-| `GhostLifecycle` | 17 | 15 | 0 | 2 | 0 | 17 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 2 of 17 - see the 2026-08-29 note, whose ~4-of-17 prediction this MEASURES at 2. The 15 skips are no active ghosts / loop units / overlap recordings in this scene; the S1.4 playback lane owns that surface) | B |
+| `GhostLifecycle` | 17 | 15 | 0 | 2 | 0 | 17 | LT-5-long-tail-playback-flight (MULTI, authored 2026-09-07 and LIVE-PROVEN the same day: first flight `2026-09-07_2037`, PASS attempt 1, 72 s wall, every verifier PASS or REPORT, both per-category lines matched verbatim. Predicted on the 2026-09-07 second census (scratch CEN-3, run `2026-09-07_2008`) at 4 of 17 over `gloops-airshow` + the `part-showcase` preset with a TimeJump to UT 55, so the showcase ghosts are spawned and five seconds into playback when the batch fires. MOVED OUT OF LT-1 in the same commit: LT-1's host has a corpus but nothing PLAYING at its batch UT, where it measured 2 of 17, so the category now sits on the lane that gives its cells active ghosts. The 13 skips want a loop recording (M1 owns loop units) or two overlapping recordings of one vessel - see the 2026-08-04 body read below, whose ~4-of-17 prediction this host MEASURES at exactly 4. A SLICE at 4 of 17, so the promotion rule below does NOT fire and the bucket stays **B** on `Logistics`' standing precedent, with the residue named here) | B |
 | `GhostMap` | 25 | 16 | 0 | 9 | 0 | 11 | S1.6, H44 (TRACKSTATION slice, flown 2026-08-28, executes 9 of 25 - the WHOLE TS slice, zero run-time skips) | B |
 | `GhostMapOrbits` | 2 | 2 | 1 | 1 | 0 | 1 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 1 of 2; the map cell wants ghost map vessels, which no unattended FLIGHT batch arms). NOT an LT-2 constituent: its SPACECENTER slice measured the same skip on the census | B |
 | `GhostPlayback` | 42 | 41 | 1 | 1 | 1 | 12 | S1.4 | B |
@@ -133,9 +133,9 @@ Two limits of this table, stated so nobody over-reads it:
 | `MapView` | 4 | 3 | 3 | 4 | 0 | 2 | H47 (flown 2026-08-28, executes 4 of 4) | A |
 | `MergeDialog` | 2 | 0 | 0 | 0 | 2 | 2 | H63-merge-dialog-isolated (ISOLATED, LIVE-PROVEN 2026-09-06, run `2026-09-06_2012`: PASS attempt 1, 58 s wall, every verifier PASS or SKIPPED, `BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=MergeDialog scene=FLIGHT` pinned whole. EXECUTED 2 of 2. The merge popup's own two branches driven in place over a FABRICATED pending tree - Discard clears it, deferred Merge commits it through the real `Merge to Timeline` path - which is a different seam from H21's, where a real stock scene exit spawns the same popup. Boots `gloops-airshow`: neither cell stages or spawns, so the requirement is `loaded-vessel`. Neither REFLECTION guard fired, so the merge-dialog helpers and `ParsekScenario.Instance` both resolve at run time on KSP 1.12.5) | A |
 | `MissionPhasing` | 4 | 4 | 0 | 0 | 0 | 2 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 3 of 4; the residue wants an airborne vessel) | B |
-| `Missions` | 13 | 7 | 6 | 0 | 0 | 9 | M1, H54 (FLIGHT slice, flown 2026-08-28, executes **3 of 13** - see the archetype note below) | B |
+| `Missions` | 13 | 7 | 6 | 0 | 0 | 9 | M1, H54 (FLIGHT slice, flown 2026-08-28, executes **3 of 13** - see the archetype note below), LT-4-long-tail-route-flight (MULTI, authored 2026-09-07 and LIVE-PROVEN the same day: first flight `2026-09-07_2036`, PASS attempt 1, 56 s wall, every verifier PASS or REPORT, all three per-category lines matched verbatim; predicted on the 2026-09-07 second census, scratch CEN-4, run `2026-09-07_2010`, at 2 of 13 over `depot-route-recorded` - the dock-composition cell plus the station-mission phase-lock cell `RealSave_StationMission_PhaseLocksOrHolds`, which H54's `duna-one-recorded` host does not reach. The two lanes are different slices of ONE category, which is what the archetype note below predicts: no single real save is more than one or two archetypes. The census also read 1 of 13 on `career-earned-pad`, which is why LT-3 does not carry it. Both driving lanes execute a SLICE - H54 3 of 13, LT-4 2 of 13 - so the promotion rule does NOT fire and the bucket stays **B**, the archetype residue being the reason) | B |
 | `Optimizer` | 2 | 0 | 2 | 0 | 0 | 2 | LT-2-long-tail-spacecenter (MULTI, flown 2026-09-07, executes 2 of 2 - the whole category at SPACECENTER with zero skips. Its cells mutate the live store and skip whenever a committed recording is present, which is why that lane injects NOTHING) | A |
-| `PartEventFX` | 6 | 6 | 0 | 0 | 0 | 6 | - | B |
+| `PartEventFX` | 6 | 6 | 0 | 0 | 0 | 6 | LT-5-long-tail-playback-flight (MULTI, authored 2026-09-07 and LIVE-PROVEN the same day: first flight `2026-09-07_2037`, PASS attempt 1, 72 s wall, every verifier PASS or REPORT, both per-category lines matched verbatim. Predicted on the 2026-09-07 second census (scratch CEN-3, run `2026-09-07_2008`) at 1 of 6 - `LightInfosValid` - over the playing `part-showcase` corpus. The FIRST execution of any cell in this category anywhere; the five skips want an active ghost whose engine / chute / fairing / decoupler FX resolve at the batch UT, which the static showcase ghosts do not give, so this is a SLICE at 1 of 6: the promotion rule below does NOT fire on a green flight that drove only part of the category, and the bucket stays **B**) | B |
 | `PartEventFidelity` | 5 | 5 | 0 | 0 | 0 | 5 | H37 | A |
 | `PartEventTiming` | 2 | 2 | 0 | 0 | 0 | 0 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 2 of 2 - the whole category at FLIGHT with zero skips; its deployable cell asserted the retired pre-S2 snap on the census and is re-pinned to the shipped animated contract) | A |
 | `Periodicity` | 13 | 1 | 9 | 0 | 3 | 5 | M2 | B |
@@ -161,7 +161,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `RenderComposition` | 1 | 1 | 0 | 0 | 0 | 1 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 1 of 1 - the whole category at FLIGHT with zero skips) | A |
 | `ResourceManifest` | 1 | 1 | 0 | 0 | 0 | 0 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 1 of 1 - the whole category at FLIGHT with zero skips) | A |
 | `ResourceReconciliation` | 1 | 0 | 1 | 0 | 0 | 0 | LT-2-long-tail-spacecenter (MULTI, flown 2026-09-07, executes 1 of 1 - the whole category at SPACECENTER with zero skips) | A |
-| `ResourceTopBar` | 2 | 0 | 2 | 0 | 0 | 2 | - | B |
+| `ResourceTopBar` | 2 | 0 | 2 | 0 | 0 | 2 | H71-resource-topbar-ksc (authored 2026-09-07 and LIVE-PROVEN the same day: first flight `2026-09-07_2038`, PASS attempt 1, 46 s wall, every verifier PASS or REPORT, the `BATCH_COMPLETE` line matched verbatim, and exactly ONE ERROR line in the log - the spec's own named carve-out for the top-bar probe's `Science reconcile dump (post-walk)`, with no other. Predicted on the 2026-09-07 second census (scratch CEN-2, run `2026-09-07_2017`) at 1 of 2 over `career-earned-ksc`, the vessel-less earned career built for it: `CurrencyTooltipResolvesWidgetScreenRects` executes and passes. The FIRST execution of either cell anywhere - both are career-only AND read the stock currency widgets, which exist only at the Space Center, so LT-2's sandbox host skipped them "career-only" and every FLIGHT career skipped them "no currency widget present". `TopBarReflectsLedgerAfterRecalc` skips because on an EARNED career the ledger reconstruction runs above the live pools and the drawdown guard uplift-clamps the funds / science patch, so a SLICE at 1 of 2: the promotion rule below does NOT fire and the bucket stays **B**) | B |
 | `RevertFlow` | 1 | 0 | 0 | 0 | 1 | 1 | H64-revert-flow-isolated (ISOLATED, LIVE-PROVEN 2026-09-06, run `2026-09-06_2013`: PASS attempt 1, 60 s wall, every verifier PASS or SKIPPED, `BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=RevertFlow scene=FLIGHT` pinned whole. EXECUTED 1 of 1. The first committed spec anywhere to drive STOCK REVERT TO LAUNCH: over `gs1-two-stage-pad` it records, stages off the pad, invokes KSP's own revert through the `FlightDriver` reflection surface, and asserts Parsek soft-unstashes the live tree with NO merge dialog. The fifth guard - whether the `FlightDriver` revert surface resolves on this KSP build, never exercised at run time anywhere before - did NOT fire, so the probe is live against KSP 1.12.5. Claims D1 `commit-revert-merge` with a stated honest limit: this is the REVERT half only) | A |
 | `RevertVesselStrip` | 1 | 1 | 0 | 0 | 0 | 1 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 1 of 1 - the whole category at FLIGHT with zero skips) | A |
 | `Rewind` | 38 | 26 | 6 | 0 | 6 | 24 | R7a / R7c | A |
@@ -169,7 +169,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `RouteDockCapture` | 6 | 0 | 0 | 0 | 6 | 6 | H55 (ISOLATED, GREEN run 2 2026-09-01 `total=6 passed=6 failed=0 skipped=0`, nightly; run 1 `passed=1 failed=5` - RED on an authoring defect in the cells' own partner rig, which carried no `ModuleCommand` part so the undocked half was debris and no split branch, hence no route-window completion, was created; rigs re-rooted on a probe core, and run 2 pins the whole tally. The ordinary path executes 0 of 6, so the isolated arg is the only way to run any of it. Pins `total=6` exactly, `failed=0` asserted, plus one REQUIRED token per cell) + H56 (ISOLATED, AUTHORED 2026-09-02, NEVER FLOWN - the SAME six cells on a SECOND host, `rover-route-recorded`, whose active vessel is a 17-part LANDED rover instead of H55's PRELAUNCH pad rig. Two products H55 structurally cannot buy: the origin-proof probe's non-PRELAUNCH branch, which decides roadmap Tier B item 4, and the SURFACE flavor of the five capture cells. Driver, batch and token shapes are H55's step for step so a census delta is attributable to the host alone; `total=6` is shared and attribute-exact, so a seventh cell reds BOTH members, and the `passed=`/`skipped=` split is interim until its first census) | B |
 | `RouteEscrowContention` | 2 | 0 | 0 | 0 | 2 | 2 | H60 (ISOLATED, LIVE-PROVEN 2026-09-02 `2026-09-02_1314` PASS attempt 1, `total=2 passed=2 failed=0 skipped=0` pinned whole, nightly - roadmap Tier C item 10, two STORED routes contending for ONE physical source through the production `RouteOrchestrator.Tick`. A MULTI-STOP holder route reserves its SUMMED pickup manifest at dispatch, fires only its first window, and the still-held second window blocks a competitor on the competitor's OWN crossing with the M6 `source-reserved:` token; the holder's second window then releases AND debits in the same instant, so the competitor stays blocked on unchanged numbers with the cause flipped `escrow` -> `physical` - the reserve/release PRE-IMAGE invariant driven live. A second cell drives the only release that DOES free a competitor: `RouteStore.RemoveRoute` on the holder mid-cycle. Its own category, not two more `RouteDockCapture` or `Logistics` cells, precisely so those categories' pinned `total=6` / `total=47` do not move. Pins `total=2 passed=2 failed=0 skipped=0` WHOLE, plus eight phase tokens - six production `[Route]` lines and one `EscrowContention:` summary per cell, with the measured `raw=11 netted=5` / `raw=5 netted=5` pair carrying the pre-image invariant. ARMED DISCIPLINE COMPLETE the same day: armed re-flight `2026-09-02_1339` PASS attempt 1 on the whole pin with `mismatches=[]`, and a negative control - cell 1's `causeAfterWindow` flipped `physical` -> `escrow` - red on exactly that one token with zero forbids, so the pin discriminates rather than merely passes. The two runs drew different source pids and read identical amounts. D10 `multi-origin-escrow` is CLAIMED off the completed discipline, as a third owner contributing the ORCHESTRATOR-driven form H38's and H40's hand-reserved cell cannot reach) | A |
 | `RouteLifecycle` | 8 | 8 | 8 | 8 | 0 | 8 | RVR-3 (flown once 2026-09-01, `total=6 passed=4 failed=2`; the two failures were CONTRACT DRIFT - see the triage note - and the category is now 8 cells pinning BOTH halves of the armed-pause state machine. Pins `total=8` exactly with `passed=`/`skipped=` interim, `failed=0` asserted, plus a REQUIRED PASS token per resolution cell, and declares no render-composition expectations block, which is what keeps the five crossing cells from self-skipping) | B |
-| `RouteLiveAnchor` | 1 | 1 | 0 | 0 | 0 | 1 | - | B |
+| `RouteLiveAnchor` | 1 | 1 | 0 | 0 | 0 | 1 | LT-4-long-tail-route-flight (MULTI, authored 2026-09-07 and LIVE-PROVEN the same day: first flight `2026-09-07_2036`, PASS attempt 1, 56 s wall, every verifier PASS or REPORT, all three per-category lines matched verbatim. Predicted on the 2026-09-07 second census (scratch CEN-4, run `2026-09-07_2010`) at 1 of 1 - the whole category with zero skips - over `depot-route-recorded`, the suite's only committed Active route, after H40's StopRecording + DiscardTree kill pair, and the flight measured that line exactly. The FIRST execution of this cell anywhere; a committed supply route is what it wants and no injected corpus carries one. PROMOTED to bucket **A** (A3) by that flight, on the promotion rule below) | A |
 | `RouteRewindTimeline` | 7 | 7 | 7 | 7 | 0 | 1 | H6 | B |
 | `RouteStartDockedOrigin` | 3 | 0 | 0 | 0 | 3 | 3 | H57 (ISOLATED, LIVE-PROVEN 2026-09-06 `2026-09-06_1650` PASS attempt 1, `total=3 passed=3 failed=0 skipped=0` pinned WHOLE - a THIRD cell, the predecessor-window pickup (ROUTE-ORIGIN-PROOF-PICKUP-PREDATING-THE-RECORDING): the run starts docked, takes NOTHING while recording, and the PREVIOUS recording of the same launch holds the window that bracketed the load, and the bind read `pickup=GainFromPredecessorWindow pickupValidated=1 predecessorUndockUT=NaN` - the OPEN-window shape. `total=3` is attribute-exact and the split is now literal; the id has LEFT `IsolatedBatchWiringGroupTests.INTERIM_PIN_IDS`. PRIOR: LIVE-PROVEN 2026-09-02 `2026-09-02_1044` PASS attempt 1, `total=2 passed=2 failed=0 skipped=0` pinned whole, nightly - Tier B item 4, the START-DOCKED origin subject. Two cells that reuse the `RouteDockCapture` rig but dock BEFORE the recorder starts, so their product is the start-time ORIGIN PROOF rather than a route window: the subject docks a partner rig into the active vessel, starts the recording docked, undocks and delivers LiquidFuel to a SECOND partner, then reads the proof back off the captured recording; the negative control undocks BEFORE the start and must capture nothing. Its own category, not a seventh `RouteDockCapture` cell, precisely so H55's and H56's pinned `total=6` does not move. Pins `total=2` exactly with `passed=`/`skipped=` interim and `failed=0` asserted) | A |
 | `SaveLoad` | 4 | 4 | 4 | 4 | 0 | 2 | H51 (flown 2026-08-28, executes 4 of 4) | A |
@@ -184,15 +184,15 @@ Two limits of this table, stated so nobody over-reads it:
 | `SpawnRotation` | 10 | 10 | 0 | 0 | 0 | 0 | H8 | A |
 | `SpawnTerminalOrbit` | 3 | 3 | 0 | 0 | 0 | 3 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 3 of 3 - the whole category at FLIGHT with zero skips) | A |
 | `Spawner` | 2 | 2 | 0 | 0 | 0 | 1 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 1 of 2; the residue wants autostrut parts in range) | B |
-| `StockUiOverlay` | 6 | 0 | 6 | 0 | 0 | 6 | H45 (flown 2026-08-28, executes 4 of 6; the 2 Mission Control cells want an OFFERED contract) | A |
+| `StockUiOverlay` | 6 | 0 | 6 | 0 | 0 | 6 | H45 (flown 2026-08-28, executes 4 of 6; the 2 Mission Control cells want an OFFERED contract. RE-MEASURED 2026-09-07 on the second census (scratch CEN-2, run `2026-09-07_2017`) over `career-earned-ksc`, a Space Center career carrying NINE Offered contracts, and it reads the same 4 of 6 with the same skip text - `No Mission Control offered contract row with a non-empty title/Guid (rows=9, contractRows=0)`. So the want is not an offered CONTRACT after all: the rows populate only with the Mission Control BUILDING UI open, which no seam verb drives. Residue, recorded in B5) | A |
 | `StockWarpLimits` | 1 | 1 | 0 | 0 | 0 | 0 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 1 of 1 - the whole category at FLIGHT with zero skips) | A |
 | `StrategyLifecycle` | 10 | 0 | 10 | 0 | 0 | 10 | L3 | A |
-| `Structure` | 2 | 2 | 2 | 2 | 0 | 2 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 1 of 2 over the injected corpus; the residue wants committed routes) | B |
+| `Structure` | 2 | 2 | 2 | 2 | 0 | 2 | LT-4-long-tail-route-flight (MULTI, authored 2026-09-07 and LIVE-PROVEN the same day: first flight `2026-09-07_2036`, PASS attempt 1, 56 s wall, every verifier PASS or REPORT, all three per-category lines matched verbatim. Predicted on the 2026-09-07 second census (scratch CEN-4, run `2026-09-07_2010`) at 2 of 2 - the whole category with zero skips - over `depot-route-recorded`, and the flight measured that line exactly. MOVED OUT OF LT-1 in the same commit: LT-1's injected corpus carries no committed route, so its route structure-list cell skipped there and the category read 1 of 2. PROMOTED to bucket **A** (A3) by that flight, on the promotion rule below) | A |
 | `SwitchIntentPatch` | 3 | 1 | 1 | 1 | 0 | 0 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 1 of 3 at FLIGHT - its KSC and TS cells scene-skip) + LT-2-long-tail-spacecenter (MULTI, flown 2026-09-07, executes 1 of 3 at SPACECENTER - the KSC marker patch cell; its FLIGHT and TS cells scene-skip there). Union 2 of 3: the TS cell needs a TRACKSTATION lane | B |
 | `SwitchSegment` | 6 | 6 | 0 | 0 | 0 | 0 | H12 | A |
 | `TerminalOrbit` | 2 | 2 | 2 | 2 | 0 | 2 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 2 of 2 - the whole category at FLIGHT with zero skips over the injected corpus) | A |
 | `TerrainClearance` | 6 | 6 | 0 | 0 | 0 | 6 | H43 (flown 2026-08-28, executes 6 of 6) | A |
-| `TestCommands` | 4 | 3 | 1 | 1 | 0 | 3 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 1 of 4; the three skips are the career-only research cell, the MAINMENU cell, and the file-channel round trip only an operator drives) | B |
+| `TestCommands` | 4 | 3 | 1 | 1 | 0 | 3 | LT-3-long-tail-career-flight (MULTI, authored 2026-09-07 and LIVE-PROVEN the same day: first flight `2026-09-07_2035`, PASS attempt 1, 64 s wall, every verifier PASS or REPORT, both per-category lines matched verbatim. Predicted on the 2026-09-07 second census (scratch CEN-1, run `2026-09-07_2007`) at 2 of 4 over the `career-earned-pad` career. MOVED OUT OF LT-1 in the same commit, where it read 1 of 4: the fourth cell is the research one, which wants a career R&D. The two remaining skips are MEASURED AND NAMED - the MAINMENU cell scene-skips in FLIGHT, and `FlightChannelRoundTrip_PendingOperator` is the file-channel round trip only an operator drives. A SLICE at 2 of 4, so the promotion rule below does NOT fire and the bucket stays **B**) | B |
 | `TestRunner` | 2 | 2 | 2 | 2 | 0 | 0 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 2 of 2 - the whole category at FLIGHT with zero skips) | A |
 | `TestRunnerIsolation` | 2 | 1 | 2 | 1 | 0 | 1 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 1 of 2 at FLIGHT - the SPACECENTER cell scene-skips) + LT-2-long-tail-spacecenter (MULTI, flown 2026-09-07, executes 1 of 2 at SPACECENTER - the in-memory-restore gate cell self-skips pending its own green run) | B |
 | `TrackingStation` | 10 | 0 | 0 | 9 | 1 | 3 | H23 | A |
@@ -206,8 +206,8 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **112 categories / 621 declarations**. Buckets **A 80 categories
-(338 declarations)**, **B 32 categories (283 declarations)**, **C 0 categories (0
+Totals, re-derived: **112 categories / 621 declarations**. Buckets **A 83 categories
+(343 declarations)**, **B 29 categories (278 declarations)**, **C 0 categories (0
 declarations)** - all three re-derived mechanically 2026-09-07 by counting the table's
 rows per Bucket cell and summing their Decls column, which is also how the bucket
 section headers below are derived. The bucket numbers in this line had drifted
@@ -307,15 +307,47 @@ Tier B item-4 subject the roadmap wrote as a manual flight and H56's probe retir
 ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE, fixed in the same commit as these cells, so
 nothing has ever exercised the fixed producer live.
 
-Driven by a committed spec: **106 of 112 categories**, covering **607 of 621
+Driven by a committed spec: **110 of 112 categories**, covering **618 of 621
 declarations** (re-derived mechanically 2026-09-07: count the table rows whose
 Driven-by cell is not `-`, and sum their Decls column).
 
+**THE SECOND CENSUS OF 2026-09-07 TOOK THAT FROM 106 / 607, and it is the last
+cheap move this axis has.** Four lanes authored off scratch censuses CEN-1..CEN-7
+drive the four categories that had executed NOTHING ANYWHERE:
+`LT-3-long-tail-career-flight` (`Contracts` 2 of 2, `TestCommands` 2 of 4, at FLIGHT
+on `career-earned-pad`), `LT-4-long-tail-route-flight` (`RouteLiveAnchor` 1 of 1,
+`Structure` 2 of 2, `Missions` 2 of 13, on `depot-route-recorded`),
+`LT-5-long-tail-playback-flight` (`PartEventFX` 1 of 6, `GhostLifecycle` 4 of 17, over
+the playing `part-showcase` corpus) and `H71-resource-topbar-ksc` (`ResourceTopBar`
+1 of 2, at SPACECENTER on the new `career-earned-ksc` fixture). Three of the four
+categories - `Contracts`, `RouteLiveAnchor`, `ResourceTopBar` - had never executed a
+single cell on any host, and `PartEventFX` had never executed one either. Each lane
+changes the HOST rather than the harness, which is what the first census predicted
+would be needed. `LT-1-long-tail-flight` was re-pinned from 33 constituents to 30 in
+the same commit: `GhostLifecycle`, `Structure` and `TestCommands` moved to the lanes
+whose hosts actually feed them, and LT-1's aggregate is now `total=57 passed=50
+failed=0 skipped=7 category=multi:30`. ALL FOUR LANES FLEW THE SAME EVENING AND PASSED
+ON ATTEMPT 1 - LT-3 `2026-09-07_2035` (64 s), LT-4 `_2036` (56 s), LT-5 `_2037` (72 s),
+H71 `_2038` (46 s), plus LT-1's re-pin `_2030` (292 s) - so THE BUCKET LETTERS MOVED,
+on the same rule the R6 wave applied: a category driven WHOLE at a green boot promotes,
+a slice does not. `Contracts`, `RouteLiveAnchor` and `Structure` are now **A**;
+`TestCommands`, `Missions`, `PartEventFX`, `GhostLifecycle` and `ResourceTopBar` stay
+**B** as measured slices with named residue.
+
+**TWO CATEGORIES REMAIN UNDRIVEN - 3 declarations - and neither is a host question
+any more.** `CrewReservationLive` (2) is the B1 corpus-writer gap: the second census
+read 0 of 2 on three further hosts (the `career-earned-pad` FLIGHT career, the
+`part-showcase` playback host and the vessel-less `career-earned-ksc` Space Center),
+so no fixture choice moves it and only spawned-endpoint recordings will.
+`DisabledHoverEcho` (1) needs the OS pointer inside the game window and is not
+automatable at all.
+
 **THE 2026-09-07 MULTI-CATEGORY WAVE MOVED THAT NUMBER FURTHER THAN ANY WAVE BEFORE
 IT: 70 -> 106 categories and 539 -> 607 declarations in two boots.**
-`LT-1-long-tail-flight` drives 33 categories at FLIGHT over `gloops-airshow` plus the
+`LT-1-long-tail-flight` drove 33 categories at FLIGHT over `gloops-airshow` plus the
 injected corpus (run `2026-09-07_1511`, 297 s, `total=80 passed=54 failed=0
-skipped=26 category=multi:33`) and `LT-2-long-tail-spacecenter` drives 6 at
+skipped=26 category=multi:33`; RE-PINNED to 30 constituents the same day, see below)
+and `LT-2-long-tail-spacecenter` drives 6 at
 SPACECENTER over an empty store (run `2026-09-07_1516`, 46 s, `total=10 passed=7
 failed=0 skipped=3 category=multi:6`); `TestRunnerIsolation` and `SwitchIntentPatch`
 are in both, so the distinct addition is 37 categories and 85 declarations. Both are
@@ -324,11 +356,16 @@ probe is per category, so a constituent that executed nothing reds by name. Twen
 eight of the 37 were driven WHOLE at their lane's boot and move to bucket **A**; the
 other nine are slices and stay in **B** with their residue named in the row.
 
-SIX CATEGORIES REMAIN UNDRIVEN, and they are exactly the census exclusions listed in
-the B5 note below: `Contracts` (2), `CrewReservationLive` (2), `PartEventFX` (6),
-`RouteLiveAnchor` (1), `ResourceTopBar` (2) and `DisabledHoverEcho` (1) - 14
-declarations. None is a harness gap; each names a HOST or an input surface the two
-lanes' fixtures do not carry.
+SIX CATEGORIES REMAINED UNDRIVEN AFTER THAT WAVE, and they were exactly the census
+exclusions listed in the B5 note below: `Contracts` (2), `CrewReservationLive` (2),
+`PartEventFX` (6), `RouteLiveAnchor` (1), `ResourceTopBar` (2) and
+`DisabledHoverEcho` (1) - 14 declarations. None was a harness gap; each named a HOST
+or an input surface the two lanes' fixtures did not carry. **FOUR OF THE SIX WERE
+CLOSED THE SAME DAY BY THE SECOND CENSUS** (LT-3 / LT-4 / LT-5 / H71, see the
+paragraph after the driven-count line above), which is the strongest evidence the
+exclusion list was a fixture inventory rather than a limit: each was bought by
+pointing the same batch mechanism at a host the repo already owned, save one - `H71`
+needed `career-earned-ksc`, DERIVED from an xUnit fixture with no flight.
 
 TWO CORRECTIONS ARE FOLDED INTO THOSE NUMBERS, and they are worth naming because the
 prose below is a history that had drifted from its own table. (1) The sentence read
@@ -625,7 +662,7 @@ categories in 297 s and `LT-2` took 6 more in 46 s. The one-step rule stands, an
 question is still "is what it executes worth a boot", but a boot now buys a whole
 bucket rather than one row.
 
-### Bucket A - wired now (80 categories, 338 declarations)
+### Bucket A - wired now (83 categories, 343 declarations)
 
 Three sub-classes, admitted on DIFFERENT grounds. Conflating them is how a spec would
 end up pinned against the wrong derivation.
@@ -929,7 +966,7 @@ rather than replaced with a guess.
 | `H39-logistics-isolated-bdock` | Logistics | 47 declared, 46 admitted | The same 46 cells over `bdock-recorded` - the FIRST time the restore-flagged Logistics declarations run against a non-empty recording store (two committed trees, 19 recordings, one dock window). Pays two of H38's five missing-recorded-subject skips, and is the fixture-axis negative control on H38: the census delta says which of its 39 passes were RIG properties rather than universal ones - measured, 5 of them. FLOWN 3x 2026-08-28, pinned whole `47/34/0/13` with count 21; its census-2 recordings-floor red is half of how the tree-deletion data loss was found |
 | `H40-logistics-isolated-depot-route` | Logistics | 47 declared, 46 admitted | The same 46 cells over `depot-route-recorded`, the suite's ONLY committed Active GhostDriving route (four `SOURCE_REF` rows carrying `routeProofHash`, a Dock and an Undock branch point, 22 recordings). The axis it adds is ROUTE-PRESENT vs ROUTE-ABSENT: every route-reading cell in the category has until now executed only against state a test forged in-body. Carries the `RevalidateSources ... routes=1 transitioned=0` anti-vacuity token, tightened to `reason=OnLoad` by the census (the authored wildcard also matched on the route-less host). FLOWN 3x 2026-08-28, pinned whole `47/35/0/12` with count 22. It adds ZERO distinct declarations over `H38 ∪ H39` - its value is the execution context plus the nine-cell destination-headroom test-defect family its census 1 exposed against a 720/720 tank |
 
-**A3 - the MULTI-CATEGORY batch path (28 categories, 2 specs), opened 2026-09-07.**
+**A3 - the MULTI-CATEGORY batch path (31 categories, 4 specs), opened 2026-09-07.**
 Neither of A1's derivation nor A2's isolated arg: these categories are admitted
 because ONE boot drove each of them WHOLE, alongside three dozen siblings, through
 the seam's comma-list `RunTests` selector. `LT-1-long-tail-flight` contributes 24
@@ -938,7 +975,13 @@ the seam's comma-list `RunTests` selector. `LT-1-long-tail-flight` contributes 2
 `RenderComposition`, `ResourceManifest`, `RevertVesselStrip`, `RewindSaves`,
 `SpawnCollision`, `SpawnTerminalOrbit`, `StockWarpLimits`, `TerminalOrbit`,
 `TestRunner`, `Unity`, `Watch`) and `LT-2-long-tail-spacecenter` contributes 4
-(`Optimizer`, `Recording`, `ResourceReconciliation`, `WarpToTime`).
+(`Optimizer`, `Recording`, `ResourceReconciliation`, `WarpToTime`). THREE MORE JOINED
+2026-09-07 on the second wave's first flights, all green on attempt 1:
+`LT-3-long-tail-career-flight` contributes `Contracts` (run `2026-09-07_2035`) and
+`LT-4-long-tail-route-flight` contributes `RouteLiveAnchor` and `Structure` (run
+`2026-09-07_2036`). `LT-5-long-tail-playback-flight` flew green the same day (run
+`2026-09-07_2037`) and contributes NOTHING to A3: both its constituents are slices,
+which is what the rule below is for.
 
 THE ADMISSION SHAPE IS THE SAME ONE A1 AND A2 USE, applied per constituent rather
 than per spec: the lane pinned that category's whole `BATCH_COMPLETE` line off a
@@ -946,7 +989,15 @@ measured census, and the lane drove the category WHOLE at its own boot with zero
 skips. The nine constituents that executed a SLICE stay in bucket **B** on
 `Logistics`' standing precedent, with their residue named in the table row -
 `BackgroundSeeder`, `GhostLifecycle`, `GhostMapOrbits`, `MissionPhasing`, `Spawner`,
-`Structure`, `SwitchIntentPatch`, `TestCommands` and `TestRunnerIsolation`.
+`Structure`, `SwitchIntentPatch`, `TestCommands` and `TestRunnerIsolation`. THREE OF
+THE NINE MOVED LANE (2026-09-07, the second census): `GhostLifecycle` to
+LT-5, `Structure` to LT-4 and `TestCommands` to LT-3, each to a host that feeds the
+cells LT-1's host starved. A slice that is a HOST property rather than a category
+property belongs on the lane whose fixture pays it, and moving it costs LT-1 nothing
+but a re-pin. THE MOVE PAID FOR ONE OF THE THREE AND THE RULE SAYS SO: on the new
+lanes' first flights `Structure` came in WHOLE at 2 of 2 and promoted to A3, while
+`GhostLifecycle` (4 of 17) and `TestCommands` (2 of 4) are still slices and stay in
+**B** - a better host is not the same thing as a sufficient one.
 
 WHAT A WHOLE-TALLY PIN OVER A CONSTITUENT DOES NOT BUY, stated because 33 pins in one
 spec look like a lot of coverage: the pin asserts that the category's cells RAN and
@@ -956,10 +1007,27 @@ the lane that drives the behaviour. The per-category rows above say what each co
 
 | Spec | Scene | Constituents | Measured aggregate |
 |---|---|---|---|
-| `LT-1-long-tail-flight` | FLIGHT (`gloops-airshow` + `all-synthetic`, 274 pinned) | 33 | `total=80 passed=54 failed=0 skipped=26 category=multi:33`, run `2026-09-07_1511`, 297 s |
+| `LT-1-long-tail-flight` | FLIGHT (`gloops-airshow` + `all-synthetic`, 274 pinned) | 30 (was 33) | `total=57 passed=50 failed=0 skipped=7 category=multi:30`, run `2026-09-07_2030`, 292 s (PASS attempt 1, every constituent line matched verbatim). The 33-constituent pin `total=80 passed=54 failed=0 skipped=26 category=multi:33` (run `2026-09-07_1511`, 297 s) is SUPERSEDED: `GhostLifecycle`, `Structure` and `TestCommands` moved to LT-5 / LT-4 / LT-3, which is where their cells' inputs are |
 | `LT-2-long-tail-spacecenter` | SPACECENTER (`fresh-sandbox`, nothing injected) | 6 | `total=10 passed=7 failed=0 skipped=3 category=multi:6`, run `2026-09-07_1516`, 46 s |
+| `LT-3-long-tail-career-flight` | FLIGHT (`career-earned-pad`, nothing injected, 2 recordings pinned) | 2 | `total=6 passed=4 failed=0 skipped=2 category=multi:2`, run `2026-09-07_2035`, 64 s (PASS attempt 1; predicted by census CEN-1, run `2026-09-07_2007`) |
+| `LT-4-long-tail-route-flight` | FLIGHT (`depot-route-recorded` + H40's StopRecording / DiscardTree kill pair, 22 recordings pinned) | 3 | `total=16 passed=5 failed=0 skipped=11 category=multi:3`, run `2026-09-07_2036`, 56 s (PASS attempt 1; predicted by census CEN-4, run `2026-09-07_2010`) |
+| `LT-5-long-tail-playback-flight` | FLIGHT (`gloops-airshow` + `part-showcase`, 243 pinned, TimeJump to UT 55) | 2 | `total=23 passed=5 failed=0 skipped=18 category=multi:2`, run `2026-09-07_2037`, 72 s (PASS attempt 1; predicted by census CEN-3, run `2026-09-07_2008`) |
 
-### Bucket B - wireable, but needs something first (32 categories, 283 declarations)
+THE LAST THREE ROWS BECAME A3 MEMBERS ON 2026-09-07, when all three lanes flew and
+passed on attempt 1 (`2026-09-07_2035` / `_2036` / `_2037`, 64 / 56 / 72 s), every
+per-constituent `BATCH_COMPLETE` line matching verbatim and every verifier PASS or
+REPORT. The promotion rule the R6 wave wrote - the tally is pinned whole AND the lane
+drove the category whole at its own boot - fires for the three categories those lanes
+drive WHOLE: `Contracts` (2 of 2, LT-3), `RouteLiveAnchor` (1 of 1, LT-4) and
+`Structure` (2 of 2, LT-4), so the parenthetical in this heading moved from 28 / 2 to
+31 / 4. It does NOT fire for the four slices the same flights drove - `TestCommands`
+(2 of 4), `Missions` (2 of 13), `PartEventFX` (1 of 6) and `GhostLifecycle`
+(4 of 17) - which stay in **B** with their residue named in the table rows, on
+`Logistics`' standing precedent. The aggregates above are also what LT-1's re-pin has
+to be read against, and LT-1 flew its own 30-constituent pin green the same evening
+(`2026-09-07_2030`, 292 s).
+
+### Bucket B - wireable, but needs something first (29 categories, 278 declarations)
 
 Not one list but six reasons, and the reason is what decides whether it is worth
 doing.
@@ -1001,6 +1069,16 @@ spawned-endpoint recordings, which also makes `SpawnHealth`'s third cell
 (`SpawnedPidConsistency`, wired but inert for the same reason) meaningful. That is a
 C# fixture change, not a spec change, and it is the highest-value item in this
 bucket because it unblocks three cells across two categories at once.
+
+**RE-MEASURED 2026-09-07 ON THREE MORE HOSTS, and the reading is that no fixture
+choice will close it.** The second census ran the category over the
+`career-earned-pad` FLIGHT career (CEN-1), the playing `part-showcase` corpus (CEN-3)
+and the vessel-less `career-earned-ksc` Space Center (CEN-2), and read 0 of 2 on all
+three. Those hosts differ in scene, in game mode, in store contents and in whether
+ghosts are playing; what none of them has is a recording carrying a non-zero
+`SpawnedVesselPersistentId`, which is the one thing both cells short-circuit on. The
+census therefore does for this category what a fixture sweep does: it converts "we
+have not found a host" into "the state is not in the committed bytes at all".
 
 **B2 - CLOSED 2026-08-04 BY R14, and this note lagged it by a month.**
 `ReStockCompat` (9) and `WaterfallCompat` (8) are batch-eligible and substantial, but
@@ -1044,6 +1122,24 @@ boots, so it wants a `fresh-career` sibling lane rather than a boot of its own. 
 prediction that the group would be cheap once a multi-category contract existed held
 exactly: seven boots became one, and the residue is a fixture question.
 
+**THAT LAST ONE CLOSED 2026-09-07 BY `H71-resource-topbar-ksc`, and the fixture
+question had a sharper answer than "a `fresh-career` sibling".** `fresh-career` and
+`strategy-career` are vessel-less and boot to the Space Center but carry no CONTRACT
+nodes, and every EARNED career (`career-earned-pad`, `career-contract-pad`,
+`career-science-pad`) carries a pad craft that routes `LoadGame` to FLIGHT, where the
+currency widgets do not exist. The host that satisfies both halves was DERIVED rather
+than flown: `harness/tools/build_career_earned_ksc.py` copies the xUnit fixture
+`Source/Parsek.Tests/Fixtures/C2CareerPostFix/` - vessel-less, an earned ledger, two
+committed recordings, nine `Offered` contracts - applying only the two hygiene edits
+its pad sibling's builder applies (strip the `rewindSave` hints, do not copy
+`Parsek/Saves/`), and `harness/lib/test_career_earned_ksc.py` gates the result byte
+for byte. H71 measures 1 of 2 on it. THE CATEGORY STAYS IN **B** as a slice: its
+second cell, `TopBarReflectsLedgerAfterRecalc`, skips because on an earned career the
+ledger reconstruction runs ABOVE the live pools and the drawdown guard uplift-clamps
+the funds / science patch, so the bar cannot be asserted against a clamped patch -
+a PRODUCT property of an earned career, not a host shortfall, and it is recorded in
+B5 as residue rather than as a lane to author.
+
 **B4 - self-skip guards whose preconditions the committed fixtures do not obviously
 meet.** The large categories live here: `Logistics` (47 declarations, of which
 38 are `AllowBatchExecution = false` and one more is scene-ineligible, leaving 8
@@ -1053,6 +1149,17 @@ guarded), `TerrainClearance` (6, all 6), `PartEventFX` (6, all 6). These are exa
 where the "specs that all Skip" warning bites: wiring them now produces green-looking
 specs that execute nothing. Each needs its guard preconditions read and a fixture
 chosen to satisfy them - real work, one category at a time.
+
+`PartEventFX` GOT THAT FIXTURE READ ON 2026-09-07 and it bought exactly one cell.
+Its six guards want FX infos resolved on an ACTIVE ghost, so the host has to be
+playing, not merely corpus-backed - which is why `LT-5-long-tail-playback-flight`
+injects the `part-showcase` preset and TimeJumps to UT 55, five seconds into the
+showcase recordings' own playback. The census read 1 of 6 (`LightInfosValid`): the
+showcase ghosts are one part per family and only the light family resolves FX at the
+batch UT, so the engine / chute / fairing / decoupler cells still want a ghost whose
+FX those families actually build. That is the B4 pattern in miniature - the guard read
+was right about WHAT the cells want and could not predict how much of it one host
+carries, which only a census says.
 
 `Logistics` IS NOW PARTLY WIRED, and the shape of that wiring is the worked example
 this paragraph asks for. `H34-logistics-inter-body` (2026-08-11, flown under its
@@ -1173,6 +1280,18 @@ bearing part:
   only the COST of carrying the category - two executed cells no longer owe a boot of
   their own, which is why the row is driven and still bucket **B**.
 
+  RE-MEASURED 2026-09-07 ON A PLAYING HOST, and the 2 was a HOST reading rather than a
+  category one. The second census ran the same 17 cells over `gloops-airshow` + the
+  `part-showcase` preset with a TimeJump to UT 55 - the same corpus shape, but with
+  the showcase ghosts SPAWNED AND MID-PLAYBACK when the batch fires - and read 4 of
+  17, which is the 2026-08-04 body read's "~4 of 17" exactly. The category moved to
+  `LT-5-long-tail-playback-flight` in that commit. So both numbers stand and they
+  measure different things: 2 is what a corpus-backed host with nothing playing gives,
+  4 is what an active-ghost host gives, and the 13 that remain are the overlap and
+  loop-unit populations clauses (a) to (d) above say no committed asset can produce.
+  "Should not be wired next" is unchanged - what changed is that carrying it costs
+  nothing, so it rides a lane whose host it shares.
+
 ~~The honest next wave is therefore bucket B6 below (`LogContracts` 10,
 `GhostAudio` 9, `Diagnostics` 6, `MapPresence` 5, `LocalizedName` 3 - all
 read 2026-08-04 with high predicted execution on committed fixtures), plus
@@ -1204,7 +1323,11 @@ Multi-category batch contract"), and the lanes have FLOWN: `LT-1-long-tail-fligh
 (33 categories at FLIGHT, run `2026-09-07_1511`, 297 s) and
 `LT-2-long-tail-spacecenter` (6 at SPACECENTER, run `2026-09-07_1516`, 46 s), both
 PASS attempt 1 with every constituent pinned whole. Twenty-eight of the tail moved
-to bucket **A3**; nine are driven as slices and stay in **B** with a named residue.
+to bucket **A3**; nine were driven as slices and stayed in **B** with a named
+residue. THREE MORE JOINED A3 on 2026-09-07 when the second wave's lanes flew green
+on attempt 1 - `Contracts` (LT-3, run `2026-09-07_2035`), `RouteLiveAnchor` and
+`Structure` (both LT-4, run `2026-09-07_2036`) - taking A3 to 31 categories across
+4 specs.
 
 **WHAT REMAINS IN B5 IS THE CENSUS EXCLUSIONS, and every one names a HOST rather
 than a harness gap.** They were candidates on the scratch censuses
@@ -1227,6 +1350,40 @@ Two of the six are one lane away, and they are the same lane: `Contracts` and
 generator work already tracked elsewhere in this doc (B1 for `CrewReservationLive`,
 B4 for `PartEventFX`, the Logistics harvest requirement for `RouteLiveAnchor`) and
 `DisabledHoverEcho` is not automatable at all.
+
+**FOUR OF THE SIX WERE BOUGHT ON 2026-09-07 BY A SECOND CENSUS (scratch CEN-1..CEN-7,
+not committed), and the "what would buy it" column was right about every one of them
+except its guess at which lane.** `Contracts` went to `LT-3-long-tail-career-flight`
+at FLIGHT rather than SPACECENTER - both cells are career-only, not
+SPACECENTER-scoped, so the career host was the requirement and the scene was not.
+`ResourceTopBar` went to `H71-resource-topbar-ksc` on the DERIVED `career-earned-ksc`
+fixture rather than to a `fresh-career` sibling, because a sandbox-shaped career with
+no contracts and an earned career with a pad craft each fail one half of the want (see
+B3 above). `PartEventFX` and `GhostLifecycle` went to `LT-5-long-tail-playback-flight`
+- the `part-showcase` corpus playing from UT 50 with a TimeJump to UT 55, so the
+ghosts are ACTIVE when the batch runs - and `RouteLiveAnchor` and `Structure` to
+`LT-4-long-tail-route-flight` on `depot-route-recorded`, the committed Active-route
+host, exactly as the Logistics family's fixtures predicted. Every count in those rows
+was a census measurement when it was written, and ALL FOUR LANES HAVE SINCE FLOWN AND
+CONFIRMED IT: LT-3 `2026-09-07_2035` (64 s), LT-4 `2026-09-07_2036` (56 s), LT-5
+`2026-09-07_2037` (72 s) and H71 `2026-09-07_2038` (46 s), each PASS on attempt 1 with
+every per-constituent `BATCH_COMPLETE` line matched verbatim and every verifier PASS
+or REPORT. `Contracts`, `RouteLiveAnchor` and `Structure` are driven WHOLE and are now
+bucket **A** (A3); `PartEventFX`, `GhostLifecycle`, `TestCommands` and `Missions` are
+driven as slices and stay in **B**.
+
+**WHAT REMAINS IS RESIDUE RATHER THAN UNDRIVEN CATEGORIES, and it is worth listing
+because each item is a bound on a lane that already exists:**
+
+| Residue | Where it sits | Why no lane reaches it | What would buy it |
+|---|---|---|---|
+| `CrewReservationLive` (2 cells) | undriven | 0 of 2 on every host tried - the two LT-1/LT-2 hosts plus `career-earned-pad`, `part-showcase` and `career-earned-ksc`. Both cells short-circuit on `spawnedCount == 0` | Spawned-endpoint recordings in the corpus writer (B1), not a host |
+| `DisabledHoverEcho` (1 cell) | undriven | Needs the OS pointer inside the game window; unattended it skips ("pointer was never inside the probe button rect") | Nothing available; interactive-only |
+| The two `StockUiOverlay` Mission Control cells | H45 drives 4 of 6 | They skip `rows=9, contractRows=0` even on `career-earned-ksc`, whose career carries NINE Offered contracts. The offered rows populate only with the Mission Control BUILDING UI open, which no seam verb drives - so the want is a UI state, not a save state, and the fixture that was supposed to buy them proves it | A seam verb that opens a KSC facility UI, or nothing |
+| `TopBarReflectsLedgerAfterRecalc` | H71 drives 1 of 2 | On an EARNED career the ledger reconstruction runs above the live pools and the drawdown guard uplift-clamps the funds / science patch, so the bar cannot be read against the patch. It also emits ONE `[Parsek][ERROR][LedgerOrchestrator] Science reconcile dump (post-walk)` line for its own synthetic probe action, which is why H71's ERROR gate carries a single named carve-out | A career whose ledger reconstruction lands at or below the live pools, i.e. a different career subject |
+| `RuntimeTests.EvaKerbalGhostHasVesselSnapshot` (`AutoRecord`) | H61 / H68-H70 union 8 of 10 | Needs a crewed vessel FLYING low over terrain: an EVA from LANDED auto-seals the kerbal recording, and a cruise-altitude host leaves the kerbal airborne past the cell's settle wait | A forge or a derived in-flight save sized to that bound (unchanged from the H68-H70 wave) |
+| `AutoRecord` on a committed-tree-restore host | H69 covers the LANDED cells elsewhere | Every cell skipped `recording already active` on `mun-landing-recorded` (CEN-5, and CEN-7 with a 12-step `RecordingState` dwell): ~7 ms after DiscardTree the committed-tree restore re-arms and promotes the recorder again. No dwell closes that window | Nothing needed - `rover-route-recorded` (H69) already runs the LANDED cells. Filed as a known trap, not a defect to fix |
+| `Missions` archetype residue | M1, H54 (3 of 13), LT-4 (2 of 13) | The census read 1 of 13 on `career-earned-pad` and 2 of 13 on `depot-route-recorded` against H54's 3 of 13, which is the archetype bound restated: one real save is at most one or two of the four archetypes | More recorded mission subjects, one archetype at a time |
 
 **B6 - ~~THE NEXT WAVE~~ CLOSED 2026-08-05: all seven wired.** `KspApiSanity` /
 `Serialization` shipped 2026-08-04 as H24 / H25; the remaining five shipped
