@@ -177,10 +177,16 @@ count = { min = 3, max = 3 }
 # correct the derivation, never the pattern.
 #
 # WHAT EACH TOKEN RESTS ON:
-#  - total=38 is ATTRIBUTE-EXACT (see R7a); the token counts the whole category, not
-#    the scene-eligible slice.
-#  - skipped=32, ALL ATTRIBUTE-FORCED: every FLIGHT-scoped Rewind declaration
-#    scene-skips here. That is the mirror image of R7a/R7b's 5, and it is why
+#  - total=39 is ATTRIBUTE-EXACT (see R7a); the token counts the whole category, not
+#    the scene-eligible slice. MOVED 38 -> 39 on 2026-09-09 by the re-fly
+#    regression-net wave's FLIGHT-scoped OptimizerSplitOfPromotedSlotKeepsSlotOpen
+#    (Source/Parsek/InGameTests/OptimizerSplitKeepsPromotedSlotOpenTest.cs). A
+#    FLIGHT-scoped addition moves this SPACECENTER spec's `total` AND its `skipped`
+#    even though nothing about the SPACECENTER slice changed - the token counts the
+#    whole category, and the new cell scene-skips here. This is the exact mirror of
+#    the 2026-08-20 move R7a records, where a SPACECENTER addition moved R7a's pair.
+#  - skipped=33, ALL ATTRIBUTE-FORCED (32 -> 33 on 2026-09-09, see above): every
+#    FLIGHT-scoped Rewind declaration scene-skips here. That is the mirror image of R7a/R7b's 5, and it is why
 #    `scene=SPACECENTER` in this pin is load-bearing rather than cosmetic - at
 #    FLIGHT this line would be impossible. The former 33rd (run-time) skip was
 #    UnfinishedFlightsRenderingAndNoHide on "No Unfinished Flight member in current
@@ -249,7 +255,7 @@ count = { min = 3, max = 3 }
 #    occurrences) in both archived R7c logs, which is what makes them a live
 #    discriminator rather than a hopeful negative.
 required  = [
-  "BATCH_COMPLETE v1 total=38 passed=6 failed=0 skipped=32 category=Rewind scene=SPACECENTER",
+  "BATCH_COMPLETE v1 total=39 passed=6 failed=0 skipped=33 category=Rewind scene=SPACECENTER",
   "Split origin \\S+ at UT=[0-9.]+: HEAD=\\[[0-9.]+\\.\\.[0-9.]+\\] \\(kept, id unchanged\\), TIP=\\S+ \\[[0-9.]+\\.\\.[0-9.]+\\] \\(will be superseded\\)",
 ]
 forbidden = [

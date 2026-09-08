@@ -192,9 +192,26 @@ plus its Immutable negative and three `MergeInto` mirror cells;
 (commit -> assert open -> `RunOptimizationPass()` -> assert still open and the RP still
 not reap-eligible; verified failing on the pre-fix code); and the sibling
 `UnfinishedFlightClassifierTests.OpenClosedFilter_SplitTipOfPromotedRecording_IsNotBornImmutable`
-next to the pinned `:693` outcome. No committed harness spec pins
-`reason=sealedTipClosed`; if a live-proof lane is wanted, R7c is the tightest existing
-coupling to extend.
+next to the pinned `:693` outcome.
+
+In-game regression cell, added 2026-09-09:
+`Source/Parsek/InGameTests/OptimizerSplitKeepsPromotedSlotOpenTest.cs`
+(`OptimizerSplitOfPromotedSlotKeepsSlotOpen`, category `Rewind`, FLIGHT). It drives the
+same shape through the REAL in-game `RecordingStore.RunOptimizationPass()` - merge pass,
+split pass, tail trim, loop-sync, BackgroundMap rebuild and dirty flush - rather than a
+direct splitter call, and asserts through the production predicates
+(`UnfinishedFlightClassifier.IsSlotEffectiveTipOpen`, `RewindPointReaper.IsReapEligible`,
+plus a real `ReapOrphanedRPs()` pass) that the slot stays open and the RP is not reaped,
+and that the carry site logged
+`Split: MergeState=CommittedProvisional carried with terminal=`. It pins the reap harder
+than the xUnit sibling can: its RP is authored `SessionProvisional = false`, so
+`IsReapEligible` reaches the per-slot tip walk instead of short-circuiting on the session
+flag. Synthetic and self-cleaning (own tree, own RP list, own quicksave-delete hook,
+sidecars deleted in the finally block); it skips when a re-fly session is live, because
+`RunOptimizationSplitPass` deliberately defers the split of the active provisional
+recording. `Rewind`'s tally moved 38 -> 39: R7a `passed=16 -> 17`, R7c `skipped=32 -> 33`.
+
+No committed harness spec pins `reason=sealedTipClosed`.
 
 ## REFLY-QUALIFY-AND-TIP-WALKS-DISAGREE-ACROSS-SWITCH-CONTINUATIONS: "does this slot qualify" and "is its tip open" are answered over DIFFERENT recording sets, so a slot whose flight continued through a `VesselSwitchContinuation` can qualify on one walk and resolve its tip on another [FOUND 2026-09-08 while forensically reading session `2026-09-08_2317_refly-a-manual`; NOT the cause of that session's closure and not fixed with it]
 

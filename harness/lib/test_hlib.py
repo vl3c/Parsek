@@ -4468,7 +4468,7 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     # trusted; the table exists so a rename reds HERE with both names named.
     GROUP = {
         "H21-scene-exit-merge-isolated": ("SceneExitMerge", 2),
-        "R7a-rewind-session-absent": ("Rewind", 38),
+        "R7a-rewind-session-absent": ("Rewind", 39),
         # The THIRD slice of `Logistics` and the one that is actually the category:
         # H34 owns its 2 SPACECENTER-eligible declarations and H35 the 8 the ORDINARY
         # FLIGHT filter admits, while the other 38 are AllowBatchExecution = false +

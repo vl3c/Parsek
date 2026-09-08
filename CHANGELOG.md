@@ -10,6 +10,22 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Automated testing: the optimizer-split regression that silently closed a re-fly
+  slot now has an in-game cell that drives the real optimizer pass.** The fix that
+  carries a recording's merge state onto the half the terminal moves to was proven
+  headlessly, by calling the splitter and the store directly; nothing ran it through
+  the pass a live commit actually takes, which is also the pass that merges, trims,
+  rebuilds the background map and flushes to disk. The new `Rewind` cell installs a
+  synthetic committed tree and a two-slot rewind point entirely in memory, runs the
+  in-game optimization pass over them, and then asks the two production predicates the
+  player's affordance is read from - is this slot still open, is its rewind point now
+  deletable - plus a real reap pass that must delete nothing. It pins the reap harder
+  than the headless sibling can, because its rewind point is authored past the session
+  flag that short-circuits the eligibility check. It cleans up after itself, sidecars
+  included, and stands down with a named reason while a re-fly session is live, since
+  the pass deliberately defers that split. `R7a-rewind-session-absent` moves to
+  `total=39 passed=17` and `R7c-rewind-spacecenter` to `total=39 skipped=33`.
+
 - **`collect-logs.py` no longer copies a render manifest that belongs to a different
   session.** The manifest lives at the KSP root like the test-results file, but nothing
   clears it between runs, so a bundle collected with the recorder inert carried a
