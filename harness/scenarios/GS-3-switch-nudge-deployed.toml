@@ -308,11 +308,18 @@ D1 = ["switch-segment", "commit-scene-exit", "auto-merge"]
 # `controlled-decoupled-child` <- "ProcessBreakupEvent: controlled child created:
 #   pid=...", as GS-2.
 #
-# NOT claimed, on S0.8's own ground: `chain-continuation-switch`. A switch segment is
-# attached under a BRANCH POINT, never a chain link - `CreateSwitchContinuationSegment`
-# writes no ChainId (SwitchSegmentBuilder.cs:422-465) - so the D5 topology value has
-# no proving token here either.
-D5 = ["controlled-decoupled-child"]
+# `chain-continuation-switch` <- CLAIMED 2026-09-08 (the chain-interaction wave) off
+#   the REQUIRED `route=bg-member-continuation` line plus the `created ...
+#   parentRecId=<32-hex> ... branchPointId=<dashed Guid>` shape and the ARMED
+#   `branchPoints.VesselSwitchContinuation` window. The earlier refusal here read the
+#   value as a ChainId link; the D5 dimension is "tree / chain topology" and this value
+#   names the topology a switch leaves behind - a continuation branch attached UNDER
+#   the live-tree member the switch landed on. The ChainId chain
+#   (ChainSegmentManager's EVA-board / boundary-split segments) is a different
+#   topology and is not what this token proves. CI-1-eva-switch-bg-member claims the
+#   same value from the same tokens on an EVA split, so the two lanes cover the two
+#   in-run splits that put a vessel into BackgroundMap.
+D5 = ["controlled-decoupled-child", "chain-continuation-switch"]
 # `rp-disk-reaper` <- NOW CLAIMED, which it deliberately was not while this spec was
 #   measuring the bug. Then, the reaper's behaviour was the prediction under test and
 #   claiming coverage off a report-only block would have been claiming it from
@@ -397,17 +404,27 @@ count = { min = 3, max = 5 }
 #   "OnSave: saving 1 committed tree(s)"                                      (Info) [MEASURED - CL-2]
 #
 # DELIBERATELY NOT REQUIRED, and each is a reading-run measurement + arming candidate:
-#   "[SwitchSegment] route=bg-member-continuation ..."  ParsekFlight.cs:9141 (Info)
-#       PREDICTED. The released core is registered in the live tree's BackgroundMap by
-#       the breakup itself (`activeTree.BackgroundMap[pid] = childRec.RecordingId`,
-#       ParsekFlight.cs:7600), and the committed-clone branch declines because the live
-#       tree is not in CommittedTrees - so the route selector at ParsekFlight.cs:8664-8686
-#       should pick BG-member. It is NOT required because S0.8 MEASURED `route=standalone`
-#       on a superficially similar setup (its target was NOT a BackgroundMap member,
-#       which is exactly the difference), and a route token is precisely the kind of
-#       thing that deserves to be measured before it is asserted. If it reads
-#       bg-member-continuation, this spec also becomes the first legitimate claimant of
-#       D5 `chain-continuation-switch`... it does not: see the D5 note above.
+#   "[SwitchSegment] route=bg-member-continuation ..."  ParsekFlight.cs (the
+#       StartBgMemberContinuationSegment route log; line refs re-derived 2026-09-08 for
+#       the chain-interaction wave - the breakup writes the entry in ProcessBreakupEvent's
+#       CONTROLLED arm, `activeTree.BackgroundMap[pid] = childRec.RecordingId`, and the
+#       route selector runs committed-clone -> BG-member -> standalone)
+#       PREDICTED on 2026-08-05, and NOT required then because S0.8 had MEASURED
+#       `route=standalone` on a superficially similar setup (its target was NOT a
+#       BackgroundMap member, which is exactly the difference), and a route token is
+#       precisely the kind of thing that deserves to be measured before it is asserted.
+#       ARMED 2026-09-08 (the chain-interaction wave, roadmap register item 2): the
+#       `origin-terminal-stamped` token this spec has REQUIRED since the fix flights is
+#       emitted from exactly one call site, inside the BG-member branch, so those runs
+#       had already entered that branch; the route line, the created line's real
+#       parentRecId / branchPointId (the standalone shape reads `<standalone>` /
+#       `<none>`) and the bg-member recorder-bound line are now REQUIRED and the other
+#       two routes FORBIDDEN, so a routing regression reds here instead of hiding
+#       behind the stamp (which is emitted BEFORE the branch's two standalone
+#       fallthroughs). RE-FLOWN GREEN on `2026-09-08_1101_GS-3-switch-nudge-deployed`
+#       (PASS attempt 1, every verifier PASS/SKIPPED) with the route tokens armed:
+#       `route=bg-member-continuation intentId=... treeId=87eac6c9...` in that run's
+#       KSP.log is the first time this lane's route was a GATE rather than a reading.
 #   "TryAutoDiscardNoOpSwitchSegment: no-op detected but disposition=BgMemberOrMixed is deferred at scene exit"
 #                                             SceneExitInterceptor.cs:410  (Info)
 #       THE HEADER'S CENTRAL CLAIM, stated by the code itself. If this line is absent
@@ -431,7 +448,9 @@ required  = ["Recording started",
              "RewindPoint begin: rp=\\S+ bp=\\S+ slots=2 controllablePids=2 focusSlot=[01]",
              "switchclick gate targetPid=[0-9]+ targetName=Kerbal X Probe .*hasActiveRecording=true hasActiveSession=false priorFocusedPid=0 .*dialogDecision=NoPriorSession",
              "switchclick armed intent: intentId=.* action=MapSwitchTo targetPid=[0-9]+ sourceScene=Flight .* ttl=2s route=plain-arm-and-switch",
-             "\\[SwitchSegment\\] created intentId=.* focusedName='Kerbal X Probe' reason=MapSwitchTo",
+             "\\[SwitchSegment\\] created intentId=\\S+ sessionId=\\S+ treeId=\\S+ parentRecId=[0-9a-f]{32} segmentRecId=[0-9a-f-]{36} branchPointId=[0-9a-f-]{36} sourcePid=[0-9]+ focusedPid=[0-9]+ focusedName='Kerbal X Probe' reason=MapSwitchTo",
+             "\\[SwitchSegment\\] recorder-bound route=bg-member-continuation new-recording-id=[0-9a-f-]{36} vessel-pid=[0-9]+ vessel-name='Kerbal X Probe'",
+             "\\[SwitchSegment\\] route=bg-member-continuation intentId=\\S+ sessionId=\\S+ treeId=\\S+ parentRecId=[0-9a-f]{32} segmentRecId=[0-9a-f-]{36} bgRecId=[0-9a-f]{32} sourcePid=[0-9]+ focusedPid=[0-9]+",
              "\\[SwitchIntent\\] cleared: intentId=.* reason=consumed-into-segment",
              "switchclick complete site=map targetPid=[0-9]+ targetName=Kerbal X Probe .* switched=true",
              "switchclick refused gate=RefusedDialogRequired reason=dialog-required case=A-session targetPid=[0-9]+",
@@ -446,7 +465,17 @@ required  = ["Recording started",
 # either list on the other side would be asserting the conclusion before the
 # measurement.
 forbidden = ["\\[Parsek\\]\\[ERROR\\]",
-             "Reaped rp="]
+             "Reaped rp=",
+             # ARMED 2026-09-08 with the route tokens above: the two other consume routes and the
+             # named fallthroughs INSIDE the bg-member branch (an origin can be stamped and the
+             # route still fall to standalone, so the stamp alone never was the gate).
+             "\\[SwitchSegment\\] route=standalone",
+             "\\[SwitchSegment\\] route=bg-lookup-failed-standalone",
+             "\\[SwitchSegment\\] route=committed-spawned-clone",
+             "bg-lookup-failed-start-standalone",
+             "bg-flush-failed-start-standalone",
+             "continuation-refused-start-standalone",
+             "ambiguous-parent-start-standalone"]
 
 # ARMED (`gating = true`) 2026-08-05 on the post-fix reading run `2026-08-05_1132`
 # (PASS attempt 1), which measured `rewindPoints 1 / supersedeRows 0 / tombstones 0`.

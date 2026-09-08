@@ -1,0 +1,219 @@
+schema = 1
+id = "CI-1-eva-switch-bg-member"
+tier = "daily"
+# =====================================================================================
+# THE CHAIN-INTERACTION WAVE, LANE 1 (roadmap priority register item 2, riding R10).
+#
+# WHAT IT MEASURES. The stock-switch consume site has three routes -
+# committed-spawned-clone, bg-member-continuation, standalone - and every driven
+# switch to date measured `standalone` (S0.8: its target was a fixture vessel that was
+# never in the live tree's BackgroundMap). GS-3 has FLOWN the bg-member route (its
+# required `origin-terminal-stamped` token is emitted only inside that branch) but never
+# armed the route line itself. This lane makes the bg-member route the GATE, on the
+# cheapest in-run split there is: an EVA. The exit forks the tree (`Tree branch created:
+# type=EVA`, the ship's continuation and the kerbal's recording as the two children) and
+# the recorder follows the kerbal, so at the kerbal's switch-complete THE SHIP - the
+# vessel the recorder left - is written into `activeTree.BackgroundMap` (ParsekFlight's
+# OnVesselSwitchComplete backgrounding, MEASURED on reading run 1: `listhandles
+# kind=active count=1` with `bg0pid=3620499050`). A Switch-To back onto the ship is
+# therefore a switch onto a background member of the live tree.
+#
+# WHY IT RIDES R10. The ship's pid is fixture-baked (3620499050), so this lane COULD
+# name it. It deliberately does not: `ListHandles kind=active` enumerates the live
+# BackgroundMap and `${bg.bg0pid}` carries whatever pid is in it onto the wire, which
+# is the shape every future chain-interaction lane needs (a decoupled child's pid is
+# minted at split time and no TOML can know it). `bg=1` is pinned below so the
+# substitution can only ever resolve to the one member the EVA split created; an
+# empty map would red as INVALID(driver-unresolved-handle) at the switch step, and
+# the `bg=1` token turns that plumbing red into a readable cause.
+#
+# ORDER IS THE WHOLE SPEC. The recorder must be live on the SHIP before the EVA so the
+# exit takes the FOREGROUND split path (the recorder follows the kerbal, the ship is
+# backgrounded); `autoRecordOnEva=false` keeps the deferred auto-record path - which
+# starts a fresh tree with no split - out of the picture. The click happens BEFORE
+# StopRecording (S0.8's order): `hasActiveRecording` reads `activeTree != null`, and
+# the consume's BackgroundMap gate needs the entry still present.
+#
+# THE ONE LIVE RISK, stated up front: `switch-refused-by-stock` if stock's ClearToSave
+# refuses the switch while the kerbal is still on the ladder. `release = "true"` +
+# `settleSeconds = "10"` (EVA-1's and EVA-2's own args) are the mitigation, not a
+# proof. If the reading run reds there, that is the finding, and GS-3's decoupler
+# split is the fallback host.
+#
+# READING RUN 1 (2026-09-08, `2026-09-08_1054_CI-1-eva-switch-bg-member`): PARSEK-FAIL
+# (expectation) on exactly two REGEX SHAPES, with every route token matched and the
+# count at its predicted 4. The EVA branch line prints the SHIP's continuation as
+# `activeChild=... (pid=3620499050)` and the kerbal as `bgChild=... (pid=604211114)`
+# with `evaCrew=Valentina Kerman` appended, the opposite child naming from the
+# prediction - and the ship still reached the BackgroundMap (the `listhandles
+# kind=active count=1` line, `bg0pid=3620499050` in the response channel, and
+# `substituted id=0008 arg=pid ref=${bg.bg0pid} value=3620499050` in the harness log),
+# because the backgrounding of the vessel the recorder LEFT happens at the kerbal's
+# switch-complete, not at the branch. The intent-cleared line carries
+# `action=MapSwitchTo` before `targetPid=`. Both re-pinned off the run's bytes. The
+# route lines matched verbatim: `route=bg-member-continuation ...
+# parentRecId=2e5dd3c4bade4da499313680da456fca ... focusedPid=3620499050`, the
+# resolver's `unique-terminal-leaf ... leafRecId=2e5dd3c4...` (the ship's continuation
+# recording, the same id the route line names as parentRecId), `recorder-bound
+# route=bg-member-continuation ... vessel-pid=3620499050`. Measured facets: trees=1,
+# committedTrees=0, recordings=4, branchPoints EVA=1 VesselSwitchContinuation=1,
+# terminalStates Orbiting=1 - the structure block is ARMED on them. ARMED RE-FLIGHT
+# `2026-09-08_1057_CI-1-eva-switch-bg-member`: PASS attempt 1, every verifier
+# PASS/SKIPPED. NEGATIVE CONTROL `2026-09-08_1059_CI-1-eva-switch-bg-member`
+# (VesselSwitchContinuation temporarily pinned to 2): PARSEK-FAIL(save-structure) on
+# exactly `recordings.structure.branchPoints.VesselSwitchContinuation 1 < min 2`,
+# nothing else moved. LIVE-PROVEN.
+# =====================================================================================
+description = "Chain-interaction lane 1, riding R10: StartRecording on the orbiting Kerbal X, EvaExit so the EVA split puts the SHIP into the live tree's BackgroundMap, ListHandles kind=active labelled bg, then SimulateStockSwitchClick pid=${bg.bg0pid} - the first driven switch whose consume route is gated as bg-member-continuation rather than S0.8's measured standalone."
+instanceProfile = "stock-minimal"
+tags = ["CI-1", "chain-interaction", "switch-segment", "bg-member", "eva", "R10",
+        "runtime-handles", "kerbin", "sandbox", "reading-run", "first-consumer"]
+
+[fixture]
+# eva2-lko-crewed, EVA-2's and S0.8's host: the crewed 28-part "Kerbal X" (activeVessel,
+# ORBITING ~101.8 km, pid 3620499050, one ModuleCommand) and the 13-part "Kerbal X
+# Probe" ~16 m away. Both ORBITING - the consume site REFUSES surface targets
+# (PRELAUNCH / LANDED / SPLASHED -> on-surface-defer-to-trigger) while the verb still
+# reports switched=true, which is the fail-open every pad fixture would read green on.
+# ZERO committed trees in the save, so the committed-spawned-clone branch (which runs
+# FIRST at the consume site) can match nothing and cannot steal the route, and the
+# pre-switch dialog Case C (target matches a separate committed tree) cannot fire.
+# `CanSwitchVesselsFar = True` in the save (the verb is fail-closed on it).
+saveTemplate = "fixtures/saves/eva2-lko-crewed"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoRecordOnEva",    value = "false" }, expect = "OK" },
+  # `origin-terminal-stamped` (the BG-entry-found proof) is Verbose.
+  { cmd = "SetSetting", args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "StartRecording",                                                      expect = "OK" },
+  { cmd = "EvaExit",    args = { release = "true", settleSeconds = "10" },        expect = "OK", budget = 120 },
+  # THE R10 HALF: read the live BackgroundMap rather than the fixture.
+  { cmd = "ListHandles", args = { kind = "active" }, label = "bg",                expect = "OK" },
+  # THE SUBJECT: the click onto the background member, by the pid the seam listed.
+  { cmd = "SimulateStockSwitchClick", args = { pid = "${bg.bg0pid}" },            expect = "OK", budget = 120 },
+  # StopRecording, then NO CommitTree (S0.8's shape): the ARM and the CONSUME are the
+  # assertion; committing would change the tree the structure block below reads. Quitting
+  # from FLIGHT with a recorder live reds REC-003, hence the stop.
+  { cmd = "StopRecording",                                                        expect = "OK" },
+  { cmd = "FlushAndQuit",                                                         expect = "OK" },
+]
+
+[dimensionsCovered]
+# CLAIM-IS-NOT-GATE: every value below is backed by a REQUIRED token, and every one was
+# OBSERVED on reading run 1 (`2026-09-08_1054_CI-1-eva-switch-bg-member`).
+#   D5  `chain-continuation-switch` <- the REQUIRED `route=bg-member-continuation` line
+#       plus the ARMED `branchPoints.VesselSwitchContinuation` window. The reading: the
+#       D5 dimension is "tree / chain topology" and this value names the topology a
+#       switch leaves behind - a continuation branch attached UNDER the live-tree
+#       member the switch landed on (parentRecId = that member's recording id; the
+#       standalone route reads `<standalone>` and writes no branch point). GS-3
+#       declined the same claim because the segment writes no ChainId; the ChainId
+#       chain is the EVA-board / boundary-split segment chain (ChainSegmentManager), a
+#       different topology, and this lane names the distinction rather than
+#       inheriting the refusal. GS-3 now claims it on the same tokens.
+#   D5  `eva-branch`            <- `Tree branch created: type=EVA`, as EVA-1/3/4 claim it.
+#   D1  `switch-segment`        <- `[SwitchSegment] created ... reason=MapSwitchTo` +
+#       `[SwitchIntent] cleared ... reason=consumed-into-segment`, as S0.8 and GS-3.
+D1  = ["switch-segment"]
+D5  = ["chain-continuation-switch", "eva-branch"]
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (see S0.8): this table stays ahead of the sub-tables.
+allowedAnomalies = []
+
+[expectations.recordings]
+# MEASURED 4 on reading run 1 (predicted 4): the ship's root recording, the two
+# EVA-split children (`Tree branch created: type=EVA ... activeChild= ... bgChild=`),
+# and the switch continuation segment the consume opened on the ship. None is
+# committed (no CommitTree), so all four are the live tree's sidecars flushed at save.
+# This is the NUMERIC guard: the route tokens below are re.search presence checks, and
+# a consume that logged its route but wrote no segment would only move this number.
+count = { min = 4, max = 4 }
+
+[expectations.recordings.structure]
+# ARMED 2026-09-08 on reading run 1's measured facets (trees=1, committedTrees=0,
+# recordings=4, branchPoints EVA=1 VesselSwitchContinuation=1): the save-side shape
+# of the route. A VesselSwitchContinuation branch point on disk can only come from a
+# NON-standalone route (standalone passes a null parent and the builder writes no
+# bp), so this is the structural twin of the route token. trees admits 2 for the
+# documented duplicate-tree writer hazard (GS-3's note; observed 1 here).
+gating         = true
+trees          = { min = 1, max = 2 }
+committedTrees = { min = 0, max = 0 }
+recordings     = { min = 4, max = 4 }
+branchPoints   = { EVA = { min = 1, max = 1 }, VesselSwitchContinuation = { min = 1, max = 1 } }
+
+[expectations.logContracts]
+# Ordered as the mechanism runs: recorder live -> EVA split backgrounds the ship ->
+# the seam lists exactly one background member -> the click's gate saw a loaded,
+# orbiting, non-committed target with a live tree and no prior session -> the marker
+# armed -> the resolver found the ship's one terminal leaf -> the segment was created
+# UNDER that leaf (parentRecId is a 32-hex recording id, branchPointId a dashed Guid;
+# on the standalone route those read `<standalone>` / `<none>`) -> the recorder was
+# bound on the bg-member route -> the route line itself -> the marker was spent by
+# the CONSUME (not by the verb) -> the verb's own completion.
+#
+# `bg0pid` is the pid-ascending first member; with exactly one member (`bg=1`) it is the
+# ship, and the `focusedPid=3620499050` literal on the created line is the identity
+# proof that the listed pid IS the fixture's ship - the pid the spec itself never wrote
+# into an arg.
+required  = [
+  "Recording started",
+  "Tree branch created: type=EVA, bp=[0-9a-f]{32}, activeChild=[0-9a-f]{32} \\(pid=3620499050\\), bgChild=[0-9a-f]{32} \\(pid=[0-9]+\\), evaCrew=Valentina Kerman",
+  "listhandles kind=active count=1 truncated=false",
+  "switchclick gate targetPid=3620499050 targetName=Kerbal X scenarioReady=true canSwitchVesselsFar=true targetIsActiveVessel=false targetIsUnloaded=false hasActiveRecording=true hasActiveSession=false priorFocusedPid=0 anotherDialogOpen=false targetIsSeparateCommittedVessel=false dialogDecision=NoPriorSession",
+  "switchclick armed intent: intentId=.* action=MapSwitchTo targetPid=3620499050 sourceScene=Flight .* ttl=2s route=plain-arm-and-switch",
+  "unique-terminal-leaf treeId=\\S+ focusedPid=3620499050 leafRecId=[0-9a-f]{32}",
+  "\\[SwitchSegment\\] created intentId=\\S+ sessionId=\\S+ treeId=\\S+ parentRecId=[0-9a-f]{32} segmentRecId=[0-9a-f-]{36} branchPointId=[0-9a-f-]{36} sourcePid=[0-9]+ focusedPid=3620499050 focusedName='Kerbal X' reason=MapSwitchTo",
+  "\\[SwitchSegment\\] recorder-bound route=bg-member-continuation new-recording-id=[0-9a-f-]{36} vessel-pid=3620499050",
+  "\\[SwitchSegment\\] route=bg-member-continuation intentId=\\S+ sessionId=\\S+ treeId=\\S+ parentRecId=[0-9a-f]{32} segmentRecId=[0-9a-f-]{36} bgRecId=[0-9a-f]{32} sourcePid=[0-9]+ focusedPid=3620499050",
+  "\\[SwitchSegment\\] origin-terminal-stamped recId=[0-9a-f]{32} terminal=\\S+ source=(?:cache|live) focusedPid=3620499050",
+  "\\[SwitchIntent\\] cleared: intentId=\\S+ action=MapSwitchTo targetPid=3620499050 reason=consumed-into-segment",
+  "switchclick complete site=map targetPid=3620499050 targetName=Kerbal X .* activeVesselPid=3620499050 switched=true",
+]
+# Every forbidden line is a DISTINCT real failure mode of this lane: the two other
+# routes; the three named fallthroughs INSIDE the bg-member branch (an origin can be
+# stamped and the route still fall to standalone, so the stamp alone is not the gate);
+# the resolver's ambiguity and dangling-bp warnings; the verb refusing the click; and
+# the consume refusing a surface target (which the verb would report as switched=true).
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  "\\[SwitchSegment\\] route=standalone",
+  "\\[SwitchSegment\\] route=bg-lookup-failed-standalone",
+  "\\[SwitchSegment\\] route=committed-spawned-clone",
+  "bg-lookup-failed-start-standalone",
+  "bg-flush-failed-start-standalone",
+  "continuation-refused-start-standalone",
+  "ambiguous-parent-start-standalone",
+  "reason=dangling-childbranchpoint",
+  "switchclick refused",
+  "on-surface-defer-to-trigger",
+]
+
+[runtime]
+# Budget arithmetic (M-A5 S8): run.py waits max(step_budget, 600) + 60 for a DEFERRED
+# verb (LoadGame) and max(step_budget, dispatch_budget + 60) for the rest:
+#   LoadGame                  max(300,600)+60 = 660
+#   SetSetting x3             3 x 120         = 360
+#   StartRecording            max(60, scene-wait+60): the scene-wait budget; 120 booked
+#   EvaExit                   max(120,120+60) = 180
+#   ListHandles               max(60, 60+60)  = 120   (SINGLE-PHASE)
+#   SimulateStockSwitchClick  max(120, 60+60) = 120
+#   StopRecording             max(60, 60+60)  = 120
+#   FlushAndQuit              max(60, 60+60)  = 120   -> sum 1800
+# The ceiling must EXCEED that sum so no step-wait is capped. 2100 clears it by 300.
+# On the happy path the wall clock is ~3 minutes; this ceiling governs the defer path.
+budgetSeconds = 2100
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
