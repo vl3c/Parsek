@@ -124,6 +124,37 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Parsek's markings on the Mission Control contract list now appear at all.** Open
+  Mission Control and Parsek annotates the contract rows, the way it already does on
+  the R&D tree and in the Astronaut Complex. On KSP 1.12.5 those contract annotations
+  had never once been drawn: the game keeps each row's contract inside a small wrapper
+  object, Parsek read the row expecting the contract itself, found nothing, wrote one
+  line to the log saying contract overlays were disabled, and decorated nothing. It
+  reads the wrapper now, and still accepts a bare contract in case a build ever stores
+  one directly. The R&D and Astronaut Complex decorations were never affected. Found
+  through an automated test that had been skipping for the same reason and whose skip
+  was twice read as a missing save rather than a missing feature: it reported nine
+  contract rows walked and none recognised, and the second number was the defect.
+
+- Every one of the 112 groups of in-game tests is now driven by an automated run, and
+  the last two were closed by looking somewhere else rather than by building anything.
+  The crew-reservation tests need a save that remembers a craft Parsek itself put back
+  in the world; that was written off as impossible because the generated test saves
+  cannot make one, but the saves captured from real recorded flights already carry
+  them (22 of them do; the recorded supply-route save has three), so those tests now
+  run on that save. The hover test needs
+  the mouse pointer inside the game window, which nothing driving the game from outside
+  can arrange; the test now moves the pointer over its own button for the measurement
+  and puts it back afterwards, and falls back to its old skip anywhere that is not
+  Windows. Two more runs were re-pinned to stop skipping: the Mission Control overlay
+  tests moved to the save with contracts on offer and now check all six of their cases
+  against the fix above, and the currency-bar test now checks the safeguard it used to
+  skip past - when a career's recorded history adds up to more than its balance, the
+  bar is deliberately left alone, and that is now what the test asserts rather than a
+  reason to give up. One test case is still reachable nowhere: it needs a crewed craft
+  flying low over the ground, and no saved flight is one. Test-tooling only; no gameplay
+  change beyond the Mission Control fix above.
+
 - Four more groups of in-game tests now run unattended, and three of them had never
   run a single test anywhere. The tests that check contract offers, the ones that
   check a supply route resolves against a live station, and the ones that read the

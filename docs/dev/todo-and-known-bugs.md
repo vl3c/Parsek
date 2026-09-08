@@ -33,22 +33,53 @@ tree is merely committed, not one whose committed tree is RESTORABLE, and the tw
 identical in a fixture listing. Recorded in the inventory's `AutoRecord` row and its B5
 residue table.
 
-## STOCKUIOVERLAY-MISSION-CONTROL-ROWS-NEED-THE-BUILDING-UI: the two Mission Control cells skip `rows=9, contractRows=0` even on a career carrying nine Offered contracts, so the want was never an offered contract [MEASURED 2026-09-07 by the second in-game census (scratch CEN-2, run `2026-09-07_2017`) on the purpose-derived `career-earned-ksc` fixture. REFUTES the reading H45 has carried since 2026-08-28; not a product defect]
+## EVAKERBALGHOSTHASVESSELSNAPSHOT-HAS-NO-HOST-THAT-FLIES-LOW: the one `AutoRecord` cell that executes NOWHERE wants a crewed vessel FLYING low over terrain, and no committed fixture is one and no seam verb lofts one [MEASURED across the four `AutoRecord` hosts - H61 `gs1-two-stage-pad`, H68 `gs2-orbital-stack`, H69 `rover-route-recorded`, H70 `eva3-pad-3crew`, whose union executes 8 of 10. Filed 2026-09-08 as the last named unreachable cell on the in-game category axis, which is otherwise CLOSED at 112 of 112 categories]
 
-H45 measured 4 of 6 on 2026-08-28 and recorded the two skips as wanting an OFFERED
-contract, which is what their skip text reads as. `career-earned-ksc` was derived in
-part to buy exactly that: nine `Offered` CONTRACT nodes, vessel-less so it boots to the
-Space Center. The cells skip with the identical string, and the `rows=9` half is the
-tell - the overlay walks nine rows and none of them is a contract row, because the
-offered rows are populated by the Mission Control BUILDING UI and that UI is never
-opened. A save-state property cannot close it.
+The cell EVAs a kerbal and asserts the resulting ghost carries a `VesselSnapshot`, then
+waits 10 s for the kerbal to settle and reads its terminal. That bounds the host from
+both sides: a LANDED or PRELAUNCH craft auto-seals the kerbal recording before the
+assertion, an ORBITING one leaves the kerbal floating (H68 measured the guard, widened
+in `Source/` to require a crewed vessel FLYING inside an atmosphere), and a
+cruise-altitude craft leaves the kerbal airborne past the settle wait and reads
+Splashed or nothing. What is wanted is a just-airborne or hovering crewed craft over
+the KSC grass.
 
-Needs: a seam verb that opens a KSC facility UI (none exists; `KscAction` applies stock
-actions in place), or the cells re-pointed at whatever surface holds the offered
-contracts with the building closed. Until then H45 stays at 4 of 6 and the residue is
-recorded in the inventory's B5 table rather than as a fixture to build.
+Needs: a forged or derived in-flight save sized to that bound. Not worth one on its own
+- it buys a single cell - so this is filed as the axis's one named residue rather than
+as work to schedule. Recorded in the inventory's `AutoRecord` row and its B5 residue
+table.
 
-## TOPBARREFLECTSLEDGERAFTERRECALC-SKIPS-ON-AN-EARNED-CAREER: the cell cannot assert the currency bar when the ledger reconstruction runs above the live pools, because the drawdown guard uplift-clamps the funds / science patch [MEASURED 2026-09-07 by the second in-game census (scratch CEN-2, run `2026-09-07_2017`) on `career-earned-ksc`, pinned as H71's one declared skip, and CONFIRMED on H71's first flight `2026-09-07_2038` - PASS attempt 1, 46 s, the pinned line matched verbatim, and exactly one ERROR line in the log: the carve-out named below, with no other. A PRODUCT property of an earned career, not a defect and not a host shortfall]
+## ~~STOCKUIOVERLAY-MISSION-CONTROL-ROWS-NEED-THE-BUILDING-UI: the two Mission Control cells skip `rows=9, contractRows=0` even on a career carrying nine Offered contracts, so the want was never an offered contract~~ [MEASURED 2026-09-07 by the second in-game census (scratch CEN-2, run `2026-09-07_2017`) on the purpose-derived `career-earned-ksc` fixture. **ITS PREMISE WAS WRONG**: the Mission Control building UI WAS open and the row-to-contract lookup was broken, so this was a PRODUCT DEFECT rather than a UI-state requirement. FIXED 2026-09-08]
+
+**THE PREMISE WAS WRONG, AND THE COUNTER THAT SAID SO WAS INSIDE THE SKIP STRING.**
+`rows=9` means the overlay instantiated the live Mission Control screen and WALKED nine
+rows: the building UI was open. What failed was `contractRows` - the row-to-contract
+lookup. Stock `MissionControl.AddItem` (KSP 1.12.5) stores a
+`MissionControl.MissionSelection` wrapper in each row's `UIListItem.Data`;
+`StockUiOverlayController` cast it `as Contract`, got null, logged its one-shot
+"MissionControl row contract lookup failed - contract overlays disabled" and decorated
+nothing. Parsek's Mission Control contract overlays had therefore NEVER decorated a row
+on KSP 1.12.5 - a user-facing defect that two readings of this skip walked straight
+past, because both took the test's skip text as a statement about the SAVE rather than
+about Parsek.
+
+Fixed: `StockUiOverlayController.ExtractMissionControlRowContract` unwraps the
+MissionSelection (a bare `Contract` payload is still accepted, so a build that stores
+the contract directly keeps working), and the two in-game cells read rows through that
+same helper so the test and the production overlay cannot diverge again. Census CEN-11
+(scratch, run `2026-09-08_1034`) on `career-earned-ksc`: `StockUiOverlay` 6 of 6, with
+the overlay logging `MissionControl decorated contractCount=1`.
+`H45-stock-ui-overlay` moved to that host for its nine Offered rows, is pinned
+`total=6 passed=6 failed=0 skipped=0` with recordings count 2, and its RUNTIME_SKIPS
+entry is gone. `career-contract-pad` stays L5's host and could not have shown this
+either way - its one contract is Active, so it puts no Offered row in front of the
+screen.
+
+THE LESSON: a skip string's COUNTERS are evidence about the product, not only about the
+fixture. Two waves read `rows=0` and then `rows=9` as successive statements about which
+save to build, and the change in that number between two hosts was the whole tell.
+
+## ~~TOPBARREFLECTSLEDGERAFTERRECALC-SKIPS-ON-AN-EARNED-CAREER: the cell cannot assert the currency bar when the ledger reconstruction runs above the live pools, because the drawdown guard uplift-clamps the funds / science patch~~ [MEASURED 2026-09-07 by the second in-game census (scratch CEN-2, run `2026-09-07_2017`) on `career-earned-ksc`, pinned as H71's one declared skip, and CONFIRMED on H71's first flight `2026-09-07_2038` - PASS attempt 1, 46 s, the pinned line matched verbatim, and exactly one ERROR line in the log: the carve-out named below, with no other. A PRODUCT property of an earned career, not a defect and not a host shortfall. FIXED 2026-09-08 by re-pinning the CELL, not the fixture: the clamp is the shipped drawdown guard and is now what the cell asserts on that branch]
 
 The cell recalculates, patches, and reads the stock funds / science widgets back. On a
 career whose recorded flights reconstruct to MORE than the save's live pools, the
@@ -60,25 +91,57 @@ synthetic probe action whose `VesselRecovery` science leg has, by construction, 
 action id - which is why `H71-resource-topbar-ksc`'s ERROR gate carries one named
 carve-out keyed to the probe's own id prefix, and any other ERROR line still reds.
 
-Needs: a career subject whose ledger reconstruction lands at or below the live pools,
-i.e. a different career fixture rather than a different scene. Not worth a fixture on
-its own; the sibling cell `CurrencyTooltipResolvesWidgetScreenRects` executes on this
-host and is the first execution the category has ever had.
+~~Needs: a career subject whose ledger reconstruction lands at or below the live pools,
+i.e. a different career fixture rather than a different scene.~~ THAT REQUIREMENT WAS
+UNBUILDABLE, NOT MERELY UNBUILT, and measuring it is what closed the entry. Seed ==
+live on every seeded career, so the cell's own synthetic probe credit ALWAYS pushes the
+reconstruction above live and the guard ALWAYS clamps: census CEN-8 (2026-09-08) read
+the identical skip on `fresh-career`, the cleanest career the suite owns. No committed
+or derivable fixture takes the other branch.
 
-## CREWRESERVATIONLIVE-HAS-NO-HOST-BECAUSE-THE-CORPUS-CANNOT-AUTHOR-ONE: both cells short-circuit on `spawnedCount == 0`, and the second census measured 0 of 2 on three more hosts, which converts "no host found" into "the state is not in the committed bytes" [MEASURED 2026-09-07 by the second in-game census across the `career-earned-pad` FLIGHT career (CEN-1), the playing `part-showcase` corpus (CEN-3) and the vessel-less `career-earned-ksc` Space Center (CEN-2). Restates the inventory's bucket-B1 gap with three new data points; not a product defect]
+Fixed: the cell now ASSERTS the guard on the clamped branch instead of skipping past
+it. Live funds and science must hold their pre-probe values and neither
+`OnFundsChanged` nor `OnScienceChanged` may fire, which is the drawdown guard's own
+contract (no uplift outside a time-travel context); the original delta-and-event
+contract is kept verbatim for a host whose reconstruction lands at or below live, so
+nothing is lost if one ever exists. `H71-resource-topbar-ksc` is re-pinned
+`total=2 passed=2 failed=0 skipped=0` and its RUNTIME_SKIPS entry is gone. The ERROR
+carve-out described above is UNCHANGED: that line comes from the probe action itself,
+not from the branch the cell takes. The sibling cell
+`CurrencyTooltipResolvesWidgetScreenRects` still executes and passes.
 
-Those three hosts differ in scene, game mode, store contents and whether ghosts are
+## ~~CREWRESERVATIONLIVE-HAS-NO-HOST-BECAUSE-THE-CORPUS-CANNOT-AUTHOR-ONE: both cells short-circuit on `spawnedCount == 0`, and the second census measured 0 of 2 on three more hosts, which converts "no host found" into "the state is not in the committed bytes"~~ [MEASURED 2026-09-07 by the second in-game census across the `career-earned-pad` FLIGHT career (CEN-1), the playing `part-showcase` corpus (CEN-3) and the vessel-less `career-earned-ksc` Space Center (CEN-2). **ITS PREMISE WAS WRONG**: recorded fixtures DO carry spawned pids, and every host the censuses had asked was an injected corpus or a career. CLOSED 2026-09-08 by hosting the category on `depot-route-recorded`]
+
+~~Those three hosts differ in scene, game mode, store contents and whether ghosts are
 playing. What none of them has is a recording carrying a non-zero
 `SpawnedVesselPersistentId`, which is the one thing both cells read, so the category is
-one of the two still undriven after the census wave.
+one of the two still undriven after the census wave.~~ The three hosts DID differ in
+every axis that paragraph names, and in none of the axis that mattered: all three were
+either an injected synthetic corpus or a career fixture, and neither population is
+where a spawned pid comes from. A RECORDED fixture is - it is harvested from a real
+flight in which Parsek spawned a vessel - and `depot-route-recorded` carries three
+committed recordings whose `SpawnedVesselPersistentId` is non-zero and survives the
+load-time spawn reconcile. Census CEN-9 (scratch, run `2026-09-08_1029`) read 2 of 2
+there and CEN-10 (`_1030`) the same on `bdock-recorded`, so the property belongs to
+recorded stores generally rather than to one fixture.
 
-Needs: teach the corpus writer to author spawned-endpoint recordings.
-`RecordingBuilder.WithSpawnedPid` exists and has ZERO callers, so every synthetic
-recording serializes `spawnedPid == 0`. The same change makes `SpawnHealth`'s third cell
-(`SpawnedPidConsistency`, wired but inert) meaningful, so it unblocks three cells across
-two categories at once - see the inventory's B1 note, which also states why adding
-`-CleanStart` to the harness inject is NOT the route (it would boot every corpus-backed
-spec at SPACECENTER).
+Closed: `CrewReservationLive` is `LT-4-long-tail-route-flight`'s fourth constituent,
+pinned `total=2 passed=2 failed=0 skipped=0`, which takes the in-game category axis to
+112 of 112.
+
+STILL WANTED, at a lower value than this entry used to claim: teach the corpus writer to
+author spawned-endpoint recordings. `RecordingBuilder.WithSpawnedPid` exists and has
+ZERO callers, so every SYNTHETIC recording still serializes `spawnedPid == 0` and
+`SpawnHealth`'s third cell (`SpawnedPidConsistency`, wired but inert) is still vacuous
+on every corpus-backed lane. That is now ONE cell rather than three across two
+categories - see the inventory's B1 note, which also states why adding `-CleanStart` to
+the harness inject is NOT the route (it would boot every corpus-backed spec at
+SPACECENTER).
+
+THE LESSON, and it is the same one the Mission Control entry above records: a census
+that sweeps one population and concludes over all of them reads as a proof and is not
+one. "The state is not in the committed bytes" was a claim about 250-odd committed
+fixtures derived from five.
 
 ## ~~ISOLATED-RESTORE-HANDS-OFF-BEFORE-ONFLIGHTREADY: the isolated batch's baseline restore returned on `FlightGlobals.ready`, up to several hundred milliseconds before `GameEvents.onFlightReady`, whose Parsek handler disarms the post-switch auto-record watch - so the next cell's arm was wiped 128 ms in~~ [FOUND 2026-09-07 by the first flights of H68 (`2026-09-07_1609`) and H69 (`_1611`): every post-switch AutoRecord cell on the ORBITING and LANDED hosts timed out with `armed=False baselineCaptured=False`, while the PRELAUNCH hosts (H61, H70) had always won the same race. TEST-RUNNER DEFECT, not a product one. FIXED 2026-09-07 on branch `autorecord-hosts`]
 

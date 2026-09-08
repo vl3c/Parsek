@@ -369,10 +369,20 @@ copied). Zero VESSEL nodes, so `LoadGame` takes the NoVesselSpaceCenter route; n
 CONTRACT nodes stay `Offered` and none is Active (the Active splice is the pad
 sibling's D8 cell and needs a craft to be honest). It exists because `ResourceTopBar`'s
 two cells are career-only AND Space-Center-scoped and no committed career booted to
-the Space Center (H71 drives them here). The nine Offered contracts were meant to
-reach the two `StockUiOverlay` Mission Control cells as well, but the census read
-them skipping here exactly as on H45 ("rows=9, contractRows=0"): the offered rows
-populate only with the Mission Control building UI open, which no seam verb drives.
+the Space Center (H71 drives them here, and since 2026-09-08 BOTH of its cells
+execute). The nine Offered contracts were meant to reach the two `StockUiOverlay`
+Mission Control cells as well, AND SINCE 2026-09-08 THEY DO: `H45-stock-ui-overlay` is
+hosted here and executes all six of its cells.
+~~The census read them skipping here exactly as on H45 ("rows=9, contractRows=0"): the
+offered rows populate only with the Mission Control building UI open, which no seam
+verb drives.~~ That reading was wrong, and this fixture is what disproved it: `rows=9`
+meant the building UI WAS open and nine rows had been walked, so what failed was the
+row-to-contract lookup, in Parsek's production overlay as much as in the test (stock
+stores a `MissionControl.MissionSelection` in `UIListItem.Data`, which a bare
+`as Contract` never sees). Fixed in
+`StockUiOverlayController.ExtractMissionControlRowContract`, and these nine Offered
+rows are what the fixed lookup reads. `career-contract-pad` cannot substitute: its one
+contract is Active, so it puts no Offered row in front of the screen.
 Like `coalescer-pad`, it carries no `AddOns/` directory: the xUnit base has none, and
 nothing in the harness requires it (H71 flew green without it). Drift-gated by
 `harness/lib/test_career_earned_ksc.py` (`--check` byte identity, shape, and the pad

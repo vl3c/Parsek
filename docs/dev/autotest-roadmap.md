@@ -57,14 +57,17 @@ M-A6 stack provisioner, M-B1 mission library, M-B2 ledger oracle, M-C1 seam verb
 batch 1, M-C2 EVA verbs. Status and per-module proof live in `autotest-status.md`.
 None of the items in this roadmap are blocked on a missing module.
 
-### Scenarios: 232 committed
+### Scenarios: 234 committed
 
-Re-derived 2026-09-08 on `ghost-replay-tier-a` (after GS-7 / GS-8 landed): `ls harness/scenarios/*.toml` returns **232**
-files, the total `autotest-status.md`'s `## Test cases` header states and
-`AutotestStatusScenarioCountTests` pins against the committed files (224 at the
-2026-09-07 re-derivation, at the merge of #1646 `e01d11f85`). The 68 below
-was the 2026-08-04 snapshot; the V / GS / W / L / RVR / H41-H70 / LT waves, among others, took it
-from 68 to 232 between 2026-08-04 and 2026-09-08.
+Re-derived 2026-09-08 on `ghost-replay-tier-a` after it merged origin/main (#1654
+fixture lanes, #1655 chain-interaction, #1656 roadmap standing): `ls
+harness/scenarios/*.toml` returns **234** files, the total `autotest-status.md`'s
+`## Test cases` header states and `AutotestStatusScenarioCountTests` pins against
+the committed files (230 at `de5ac6112` after #1648 V27M, #1650 LT-3 / LT-4 / LT-5 /
+H71 and #1653 RH-1; the four added the same day are CI-1, CI-2, GS-7 and GS-8, all
+live-proven, 0 committed-not-yet-green). The 68 below was the 2026-08-04 snapshot;
+the V / GS / W / L / RVR / H41-H71 / LT / RH / CI waves, among others, took it from 68
+to 234 between 2026-08-04 and 2026-09-08.
 
 `ls harness/scenarios/*.toml` returned **68** files when this section was last
 re-derived before that (2026-08-04 at
@@ -78,17 +81,31 @@ EVA / CL / S0.x / H22-H25 / V1 / BDOCK waves and R14's MC-1/MC-2 took it from
 55 to 68. Adding a scenario is not the same as covering a cell. Re-derive
 these rather than editing them by memory; both numbers have moved many times.
 
-### Coverage: 167 of 248 registry cells (was 83 of 241 at the baseline, 108 of 242 on 2026-08-04, 162 of 247 on 2026-09-07 before G1 / G3b closed, 163 of 248 on 2026-09-08 before the ghost-replay claim pass, 164 after it)
+### Coverage: 170 of 248 registry cells (was 83 of 241 at the baseline, 108 of 242 on 2026-08-04, 162 of 247 on 2026-09-07 before G1 / G3b closed, 163 of 248 on 2026-09-08 before the ghost-replay claim pass, 166 after chain-interaction)
 
-Re-derived 2026-09-08 on `ghost-replay-tier-a` after the claim pass (H52 claims D6
-`reentry-fx`) and the two flown Tier A lanes (GS-7 claims D6
-`watch-mode-retarget-explosion-hold` + D5 `crash-coalescing`, GS-8 claims D6
-`zone-transitions`), replacing the 2026-09-07 snapshot. The command is unchanged:
-`hlib.compute_coverage(specs, [], registry)` over the 232 committed specs and
+Re-derived 2026-09-08 on `ghost-replay-tier-a` after it merged origin/main (#1654-#1656):
+`hlib.compute_coverage(specs, [], registry)` over the 234 committed specs and
 `harness/coverage/registry.toml` returns exactly:
 
 ```
-values 248   covered 167   uncovered 81   expectedFailValues 0   xpass 0
+values 248   covered 170   uncovered 78   expectedFailValues 0   xpass 0
+```
+
+Seven cells moved on 2026-09-08 in two branches. `chain-interaction` (register item
+2): D5 `chain-continuation-switch` (GS-3 armed + CI-1), D18
+`committed-interaction-claiming` and D18 `chain-tip-original-pid` (CI-2); D18 is now 4
+of 12 covered. `ghost-replay-tier-a` (register item 3): D6 `reentry-fx` (H52's
+post-assertion line, the claim pass), D6 `watch-mode-retarget-explosion-hold` and D5
+`crash-coalescing` (GS-7, gated tokens), D6 `zone-transitions` (GS-8, gated tokens).
+
+Re-derived 2026-09-08 at `de5ac6112`, replacing the 2026-09-07 snapshot (162 of 247;
+#1648 added the D10 `route-endpoint-rebind-render` value and claimed it, so the
+registry is 248 and the 2026-08-04 delta is now D6 +2, D9 +1, D10 +4, D16 -1). The
+command is unchanged: `hlib.compute_coverage(specs, [], registry)` over the 230
+committed specs and `harness/coverage/registry.toml` returns exactly:
+
+```
+values 248   covered 163   uncovered 85   expectedFailValues 0   xpass 0
 ```
 
 Per dimension (total / uncovered), with the 2026-08-04 uncovered count kept in
@@ -100,8 +117,8 @@ the last column so the delta stays legible:
 | D2 | sampling | 4 | 1 | 1 |
 | D3 | reference frames | 7 | 4 | 4 |
 | D4 | track sections / optimizer | 12 | 6 | 6 |
-| D5 | tree topology | 12 | 6 | 7 |
-| D6 | playback / ghosts | 18 | 7 | 11 |
+| D5 | tree topology | 12 | 4 | 7 |
+| D6 | playback / ghosts | 18 | 5 | 11 |
 | D7 | part events / FX | 16 | 4 | 11 |
 | D8 | ledger / career | 18 | 0 | 6 |
 | D9 | rewind / re-fly | 17 | 1 | 4 |
@@ -113,8 +130,8 @@ the last column so the delta stays legible:
 | D15 | timeline | 1 | 1 | 1 |
 | D16 | storage / sidecars | 12 | 8 | 9 |
 | D17 | mod compatibility | 6 | 4 | 4 |
-| D18 | re-fly / interaction | 12 | 10 | 10 |
-| | | **248** | **84** | **134** |
+| D18 | re-fly / interaction | 12 | 8 | 10 |
+| | | **248** | **78** | **134** |
 
 The cells still uncovered in four dimensions worth naming: D9 is down to
 `load-time-sweep` alone; D10 to `harvest-provenance` (this same commit adds the
@@ -126,6 +143,51 @@ D13 unchanged at `proximity-offset`, `bbox-block`, `ksc-exclusion`,
 `situation-correction`, `pid-dedup`, `terminal-orbit-safety`, `real-spawn-control`
 (the R8 residue, all self-skip-guarded); D17 unchanged at `persistent-rotation`,
 `better-time-warp`, `remotetech-commnet`, `making-history` (R14 residue).
+
+### What remains, by product area (2026-09-08)
+
+Read with the register below. Sixty-six percent of the declared surface is gated
+and every committed lane has a green run; the residue is UNEVEN, and each thin
+dimension is thin for a different reason. Covered / total per dimension at
+`de5ac6112`, with what closing the rest takes:
+
+| Dim | Subject | Covered | What the residue is, and what closes it |
+|---|---|---:|---|
+| D8 | ledger / career | 18 / 18 | Done. |
+| D9 | rewind / re-fly | 16 / 17 | `load-time-sweep` only, a unit-level sweep no lane drives (ghost-replay Tier B item 7). |
+| D10 | logistics / routes | 23 / 24 | `harvest-provenance` only; an operator ore-drill flight (supply-route hand-off). |
+| D1 | recording lifecycle | 13 / 18 | `manual-gloops`, `stop-on-switch` (R2 registry call), `commit-abort` (needs its definition), `sub-2-point-drop`, `switch-segment-noop-discard`: the Tier D authoring pass, register item 8. |
+| D7 | part events / FX | 12 / 16 | `chute-cut`, `bays` (GS-6 residues, need a descent variant and a ServiceBay tail), `engine-fx-effects`, `inventory-place-remove` (Tier 4 producer). |
+| D14 | bodies / scenes | 24 / 32 | Tylo / Bop / Pol (G9), `atmosphere`, `situation`, `warp-1x`, `warp-phys`, `scene-editor`: breadth, behind everything else. |
+| D11 | missions abstraction | 12 / 18 | `default-mission`, `leg-trim`, `whole-mission-loop`, `clone`, `station-phase-lock`, `s4-arrival-restitch`: Missions-tab semantics that need seam verbs equivalent to the tab's buttons (`MissionConfig` exists; the rest do not). |
+| D6 | playback / ghosts | 10 / 18 | Register item 3 (Tier A: retarget + explosion hold, zone transitions, reentry FX at the replay surface) takes the cells that have subjects; `loop-period-modes`, `self-overlap`, `overlap-expiry-soft-caps`, `attitude-preservation` need loop-cycle instruments (Tier C); `commnet-relay` is vacuous until a generator writes `AntennaSpecs`. |
+| D4 | track sections / optimizer | 6 / 12 | A CLAIM GAP of the H57 kind: `Optimizer` executes whole on LT-2 but `hysteresis`, `env-body-split`, `surface-graze-suppression`, `tail-trim`, `seed-event-split`, `split-at-ut` have no cell-level gating token. Same fix as the D3 / D6 claim pass in register item 3. |
+| D5 | tree topology | 6 / 12 | `chain-continuation-switch` (register item 2, in flight), `staging-debris-ttl` / `-promotion` (Tier A item 5), `dock-merge-same-tree` (Tier 4), `crash-coalescing` (a crash-landing profile; Tier A item 2's second shape), `bg-on-rails` (`Recording` executes whole on LT-2, claim gap). |
+| D12 | crew | 5 / 10 | `tombstone-rep-penalty` and `stand-ins` wait on R12 Stage B (now unblocked by R10); `reservation-auto-hire`, `missed-endut-auto-free`, `crew-swap` are career-lane work and Tier 4 machinery. |
+| D3 | reference frames | 3 / 7 | A claim gap: `Pipeline-Anchor` executes whole on H11; `absolute`, `relative-anchored-nonloop`, `relative-loop`, `boundary-seam` need the test-to-cell mapping confirmed and one token each (register item 3, part 0). |
+| D13 | spawn positioning | 4 / 11 | Where a REAL spawn lands (terrain clearance, KSC exclusion, collision, orbit safety): the in-game tests exist and self-skip on every committed fixture. Generator / fixture work (R8 residue), not spec work. |
+| D16 | storage / sidecars | 4 / 12 | Formats, safe-write, path validation. Already covered headlessly by xUnit; the registry asks for a driven lane. Low product risk; several cells could close through one save-parse lane. |
+| D17 | mod compatibility | 2 / 6 | `better-time-warp`, `making-history` have the instance and no spec (R14 residue); `persistent-rotation`, `remotetech-commnet` are source-blocked. |
+| D18 | re-fly / interaction | 2 / 12 | THE LARGEST RESIDUE and the interaction surface of the v0.9 headline feature: what happens when the player spawns a ghost as a real vessel, docks with it, and how chains link afterwards. Register item 2 (in flight) claims `committed-interaction-claiming` and `chain-tip-original-pid`; the other eight (`ghost-conversion-quicksave`, `intermediate-spawn-suppression`, `cross-tree-chain-linking`, `ghost-extension-past-endut`, `background-event-claims`, `chain-terminated-destruction-recovery`, `chain-state-rederived`, `loop-first-run-is-real`) need the same spawn-in-run driving item 2 has to build, so they are its natural follow-on wave. |
+| D2 | sampling | 3 / 4 | `proximity-cadence-bg` (R1 residue: grep an archived B-lane log first). |
+| D15 | timeline | 0 / 1 | `timeline-projection`, one cell, no subject yet. |
+
+Structurally out of reach and excluded on purpose: planet -> planet transfers not
+from Kerbin (G6), the moon-to-moon re-aim road (G7, a product decision),
+`commnet-relay` until a generator writes antenna specs, and the two source-blocked
+D17 mods.
+
+**Distance to done.** Register items 1-3 plus the claim pass (D3 / D4 / D6 / D5
+tokens for categories that already execute whole) land the count somewhere near
+175 of 248. The realistic ceiling for UNATTENDED coverage is 85-90 percent: the
+rest is mods, manual flights and the excluded classes. Two caveats keep the number
+honest. A covered cell means a lane GATES a token about that behaviour, not that
+the behaviour is proven correct - the per-lane negative control is the program's
+answer, and the trust-risk list at the end of this file (presence-only log
+contracts, the ledger oracle's independence check being a structural no-op, no
+mutation tool) is still open. And most in-game batch lanes gate a DECISION inside
+a live KSP process rather than a flown situation, the caveat every R4 / R6 / R7 /
+R8 spec is required to carry.
 
 ### The headline
 
@@ -187,11 +249,21 @@ This section is the ranked answer to "what next", re-derived on `main` at
 closed V3C). It supersedes the ORDER implied by the Build-order tiers and the
 per-program sequencing notes below; those sections stay the DEFINITIONS of the
 items and the record of why. Re-derive before acting: `ls harness/scenarios/*.toml`
-(225), `hlib.compute_coverage` (163 of 248 cells, 85 uncovered), and the category
-inventory (106 of 112 categories driven; 110 once #1650 merges - it is open with CI
-green and closes `Contracts`, `RouteLiveAnchor`, `ResourceTopBar` and
-`PartEventFX`, leaving `CrewReservationLive` and `DisabledHoverEcho`, both
-host-blocked). The "Committed, not yet green" table in `autotest-status.md` is
+(230 at `de5ac6112`), `hlib.compute_coverage` (163 of 248 cells, 85 uncovered), and the category
+inventory (**112 of 112 categories driven, 621 of 621 declarations - the in-game
+coverage axis is CLOSED**; #1650 took it to 110 by closing `Contracts`,
+`RouteLiveAnchor`, `ResourceTopBar` and `PartEventFX`, and the 2026-09-08 wave closed
+the last two by refuting the "host-blocked" reading on both - `CrewReservationLive`
+joined `LT-4-long-tail-route-flight` because a RECORDED store carries the spawned pid
+no injected corpus does, and `DisabledHoverEcho` joined `LT-1-long-tail-flight`
+because the test process can move the OS pointer even though no seam verb can. What
+remains on this axis is ONE named cell,
+`RuntimeTests.EvaKerbalGhostHasVesselSnapshot`, which wants a crewed craft FLYING low
+over terrain and which no seam verb lofts). STANDING 2026-09-08, end of day: item 1
+SHIPPED (#1653); items 2 and 3 are in flight in separate sessions (branches
+`chain-interaction` and `ghost-replay-tier-a`); the promotion calls in item 7 are DONE
+(#1652). "What remains, by product area" above is the per-dimension reading behind
+this order. The "Committed, not yet green" table in `autotest-status.md` is
 EMPTY: every committed lane has a green run. (It carried ONE row for part of
 2026-09-08 - `RH-1-live-rp-handle-rewind`, R10's first consumer - and emptied again the
 same day when that lane passed, `2026-09-08_0844_RH-1-live-rp-handle-rewind`.) What
@@ -207,7 +279,7 @@ remains is, in order:
    v0.9 headline feature, so this is where the next unmeasured product risk sits.~~
    **SHIPPED 2026-09-08 (PR #1653)** - `${step.field}` capture / substitution plus the
    `ListHandles` verb, first consumer `RH-1-live-rp-handle-rewind`; next: item 2.
-2. **The chain-interaction wave riding R10**: one fixture whose switch target is a
+2. ~~**The chain-interaction wave riding R10**: one fixture whose switch target is a
    background member of the live tree plus one committed spawned vessel; claims the
    three cells above. Author it against R10's first green consumer, not before. The
    HANDLE FAMILIES IT NEEDS NOW EXIST (2026-09-08): `ListHandles kind=active` emits
@@ -215,7 +287,33 @@ remains is, in order:
    bg-member-continuation consume route requires) and `kind=committed` emits
    `rec<i>spawnedPid` (the KSP-unique pid of a really-spawned clone, NEVER
    `rec<i>pid`, which is craft-baked). What is still missing is the SUBJECT, not the
-   addressing - see the R12 residue block below.
+   addressing - see the R12 residue block below.~~
+   **CLOSED 2026-09-08 (branch `chain-interaction`, PR #1655), all three cells
+   claimed off GATING tokens - but not the way this item was written.** The two D18 cells are
+   NOT switch cells: the catalog (`automated-testing-scenario-catalog.md`, D18 + ladder
+   S4.7) defines `committed-interaction-claiming` as the ghost-chain walker CLAIMING
+   a committed docking's partner and `chain-tip-original-pid` as the chain-tip spawn
+   preserving the original pid, and the "committed spawned vessel" half of this item
+   was a mis-scoping inherited from the R12 residue block (corrected there). What
+   flew: `CI-1-eva-switch-bg-member` (daily; `StartRecording` -> `EvaExit` so the
+   ship enters the live tree's BackgroundMap -> `ListHandles kind=active` ->
+   `SimulateStockSwitchClick pid=${bg.bg0pid}`; reading `2026-09-08_1054` re-pinned
+   two regex shapes, armed re-flight `2026-09-08_1057` PASS attempt 1, negative
+   control `2026-09-08_1059` red on exactly `branchPoints.VesselSwitchContinuation 1
+   < min 2`) claims D5 `chain-continuation-switch` + `eva-branch` + D1
+   `switch-segment`; `GS-3-switch-nudge-deployed` had flown the bg-member route since
+   2026-08-05 without arming it - its `route=bg-member-continuation` / real
+   `parentRecId` / `recorder-bound` lines are now REQUIRED and the other routes
+   FORBIDDEN, re-flown green `2026-09-08_1101`, and it claims the same D5 value;
+   `CI-2-refly-claim-tip-pid` (operator; RH-1's rewind to `rp=${handles.rp0}` puts
+   bdock-recorded's Dock branch point in the future, the walker claims the partner
+   `via MERGE`, `TimeJump ut=8960` past the tip spawns Kerbal X with `pid=3620499050
+   preserveIdentity=true`, and the `ListHandles kind=committed` readback shows the tip
+   row go from `spawnedPid=0` to `spawnedPid=3620499050` = its `pid`; reading
+   `2026-09-08_1100` re-pinned the count to 22 - the re-fly provisional survives the
+   merge on this fixture jump or no jump, RH-1's run 2 kept it too, and 21 was a
+   miscount - armed re-flight `2026-09-08_1105_CI-2-refly-claim-tip-pid`, negative
+   control `2026-09-08_1106_CI-2-refly-claim-tip-pid`) claims both D18 cells. No C# change, no provisioning.
 3. **Ghost-replay Tier A items 2-5** (the roadmap's own sequencing after GS-6):
    watch retarget + explosion hold (D6, the long-declined cell), zone transitions
    (needs an in-game test first, Cause F), debris TTL / promotion split (D5), and
@@ -452,7 +550,7 @@ reserved set mapped almost one to one onto the largest uncovered dimensions:
 | ~~`SealSlot`~~ / `StashSlot` / `FlySlot` | D9 `unfinished-flights-stash`, `seal-stash-fly`. `SealSlot` PROMOTED 2026-08-30 (`RVR-2` drove seal -> route create -> delivery 2026-09-01); `StashSlot` / `FlySlot` stay reserved |
 | ~~`RouteCommand`~~ | D10 (12 uncovered then, 1 on 2026-09-07). PROMOTED 2026-08-30 alongside `SealSlot`; the RVR-1..RVR-20 wave rode it |
 | ~~`MissionConfig`~~ | D11 loop behaviour (10 uncovered then, 6 on 2026-09-07). PROMOTED by the arrival-validation lane (the second strict promotion after R12's) |
-| ~~`SimulateStockSwitchClick`~~ | D1 `switch-segment` / `switch-segment-noop-discard`, D5 `chain-continuation-switch`, D18 `committed-interaction-claiming`. PROMOTED by R12 (2026-07-30, first consumer `S0.8-switch-click-segment`) |
+| ~~`SimulateStockSwitchClick`~~ | D1 `switch-segment` / `switch-segment-noop-discard`, D5 `chain-continuation-switch` (claimed 2026-09-08 by CI-1 and GS-3). The D18 `committed-interaction-claiming` this row once listed is a ghost-chain cell the verb never reached; CI-2 claims it through a rewind. PROMOTED by R12 (2026-07-30, first consumer `S0.8-switch-click-segment`) |
 | `CrashAfterJournalPhase` | D9 `merge-journal`, `load-time-sweep` |
 | `RunInvariantReport` | analyzer-in-scene |
 
@@ -603,21 +701,55 @@ categories those lanes drive WHOLE - `Contracts`, `RouteLiveAnchor` and `Structu
 promoted to inventory bucket A3 on the flights; the rest are measured slices that stay
 in bucket B with named residue.
 
-WHAT REMAINS ON THIS AXIS, and none of it is a host question. TWO categories stay
+~~WHAT REMAINS ON THIS AXIS, and none of it is a host question. TWO categories stay
 undriven: `CrewReservationLive` (2), which read 0 of 2 on three further hosts, so the
 blocker is the corpus writer's inability to author a spawned endpoint (inventory B1),
-and `DisabledHoverEcho` (1), which is interactive-only. Beyond them the axis holds
+and `DisabledHoverEcho` (1), which is interactive-only.~~ Beyond them the axis holds
 RESIDUE rather than undriven categories, tabulated in the inventory's B5 section as
-bounds on lanes that already exist: the two `StockUiOverlay` Mission Control cells
+bounds on lanes that already exist: ~~the two `StockUiOverlay` Mission Control cells
 (they want the Mission Control BUILDING UI open, which no seam verb drives - the
 nine-Offered-contract host measured the same `rows=9, contractRows=0` skip and refuted
 the "wants an offered contract" reading); `TopBarReflectsLedgerAfterRecalc` (on an
 earned career the ledger reconstruction runs above the live pools and the drawdown
-guard uplift-clamps the patch); `RuntimeTests.EvaKerbalGhostHasVesselSnapshot` (wants a
+guard uplift-clamps the patch);~~ `RuntimeTests.EvaKerbalGhostHasVesselSnapshot` (wants a
 crewed vessel FLYING low over terrain); and the `AutoRecord` committed-tree-restore
 trap (`DiscardTree` cannot idle a host whose committed tree re-arms the recorder about
 7 ms later - `rover-route-recorded` already covers those cells, so it is a trap to know
 rather than a defect to fix).
+
+**A THIRD CENSUS ON 2026-09-08 (scratch CEN-8..CEN-12, not committed) CLOSED THE AXIS
+AT 112 OF 112 CATEGORIES AND 621 OF 621 DECLARATIONS, and it closed three of the four
+residue rows with it.** Every one of the struck claims above was a bound on the layer
+that had been looked at rather than on the product:
+
+- `CrewReservationLive` (2) is now `LT-4-long-tail-route-flight`'s fourth constituent
+  at 2 of 2. The corpus writer still authors no spawned pid, but three RECORDED
+  fixtures carry one that survives the load-time spawn reconcile, and every host the
+  two earlier censuses asked was an injected corpus or a career (CEN-9,
+  `2026-09-08_1029`, on `depot-route-recorded`; CEN-10, `_1030`, the same 2 of 2 on
+  `bdock-recorded`). The corpus-writer item survives, now buying only `SpawnHealth`'s
+  third cell.
+- `DisabledHoverEcho` (1) is now `LT-1-long-tail-flight`'s 31st constituent at 1 of 1.
+  No seam verb can move the OS pointer; the test process runs inside the game window
+  and now parks it over the cell's own probe button for the measurement, restoring the
+  previous position afterwards, and degrades to the old skip off Windows (CEN-12,
+  `_1035`).
+- The two `StockUiOverlay` Mission Control cells were a PRODUCT DEFECT, not a UI state.
+  `rows=9` said the building UI was open and nine rows had been walked; the row-to-
+  contract lookup was what failed, because stock stores a `MissionControl.MissionSelection`
+  in `UIListItem.Data` and Parsek cast it `as Contract`. Parsek's Mission Control
+  contract overlays had therefore never decorated a row on KSP 1.12.5. Fixed in
+  `StockUiOverlayController.ExtractMissionControlRowContract`; H45 moved to
+  `career-earned-ksc` and reads 6 of 6 (CEN-11, `_1034`, with the overlay logging
+  `MissionControl decorated contractCount=1`).
+- `TopBarReflectsLedgerAfterRecalc` wanted "a career whose reconstruction lands at or
+  below live", which is unbuildable rather than unbuilt: seed == live on every seeded
+  career, so the cell's own probe credit always runs above it and CEN-8 measured the
+  identical skip on `fresh-career`. The cell now ASSERTS the drawdown guard on that
+  branch, taking H71 to 2 of 2.
+
+All four re-pinned lanes flew on runs `2026-09-08_1038` (H71), `2026-09-08_1039` (H45), `2026-09-08_1040` (LT-4) and `2026-09-08_1041` (LT-1), every one PASS attempt 1. What is left on the axis is the
+`EvaKerbalGhostHasVesselSnapshot` cell and the committed-tree-restore trap.
 
 **No structural save-content assertion.** The only assertion any spec can make about
 the produced recordings is `recordings.count`, a min/max integer window, and it is
@@ -1348,11 +1480,13 @@ zero boots, and missionParams forwarding); `R1SeamHandleReadTests`,
 
 WHAT IT UNBLOCKS, none of it delivered here - each still needs its own spec: the
 chain-interaction wave (priority-register item 2), which now has the handle families it
-needs (`kind=active` -> `bg<i>pid` for D5 `chain-continuation-switch` /
-`chain-tip-original-pid`, `kind=committed` -> `rec<i>spawnedPid` for D18
-`committed-interaction-claiming`); R12 Stage B's live `InvokeRewind` on a live RP id
-(RH-1 is the shape); and every future verb that addresses a live tree, vessel, route or
-kerbal.
+needs (`kind=active` -> `bg<i>pid` for D5 `chain-continuation-switch`, and
+`kind=committed` -> `rec<i>spawnedPid` as the READBACK of a chain-tip spawn's
+preserved pid; the two D18 cells named here on 2026-09-08 morning were mis-scoped as
+switch cells - see the register item 2 closure); R12 Stage B's live `InvokeRewind`
+on a live RP id (RH-1 is the shape); and every future verb that addresses a live
+tree, vessel, route or kerbal. DELIVERED the same day: CI-1 rides `${bg.bg0pid}`,
+CI-2 rides `${handles.rp0}` plus the committed readback.
 
 **R11. A CAREER fixture with a flyable craft.** ~~One forge spec, one run.~~
 **CLOSED 2026-07-28 by `harness/fixtures/saves/career-pad-craft`** - built BY
@@ -1378,9 +1512,11 @@ argument on `LoadGame`.** ~~Two seam verbs.~~ **SHIPPED 2026-07-30.**
 kRPC cannot substitute for the first (it bypasses `StockActionIntentMarker`) and
 nothing at all substitutes for the second. Unblocks D1 `switch-segment` /
 `switch-segment-noop-discard` in their REAL form (R6 only reaches the gate layer),
-D5 `chain-continuation-switch`, D18 `committed-interaction-claiming` /
-`chain-tip-original-pid`, D14 `scene-ts`, and the 7 stranded TRACKSTATION /
-MAINMENU categories including `TrackingStation` (10 tests).
+D5 `chain-continuation-switch`, D14 `scene-ts`, and the 7 stranded TRACKSTATION /
+MAINMENU categories including `TrackingStation` (10 tests). (The D18
+`committed-interaction-claiming` / `chain-tip-original-pid` pair this sentence once
+listed are ghost-chain cells no switch verb reaches; corrected 2026-09-08, see the
+residue block.)
 
 DELIVERED as THREE capabilities, not two - the scope grew one item while the design
 was written, because Cause C ("scene entry is two-valued") has a second half that the
@@ -1449,23 +1585,31 @@ WHAT R12 LEAVES BEHIND, each a separate follow-up and none of it a regression:
   (`ListHandles kind=rewindpoints` then `rp=${<step>.rp<i>}`, which is exactly RH-1's
   shape). The two prerequisites above are untouched by that, and so is the
   `InvokeRewind` x `[expectations.ledger]` rejection.
-- **D5 `chain-continuation-switch` / D18 `committed-interaction-claiming` /
+- ~~**D5 `chain-continuation-switch` / D18 `committed-interaction-claiming` /
   `chain-tip-original-pid`** are still UNCOVERED. `S0.8`'s measured consume route is
   `standalone` (`parentRecId=<standalone> branchPointId=<none>`), so no chain link is
   created; claiming them would need a fixture whose switch target is a background
-  member of the live tree, or a committed spawned vessel.
-  **UPDATED 2026-09-08 (R10): the ADDRESSING half of that is gone.** A lane can now read
-  `ListHandles kind=active` -> `${<step>.bg0pid}` or `kind=committed` ->
-  `${<step>.rec0spawnedPid}` and hand the value to `SimulateStockSwitchClick pid=`, so no
-  spec has to know a pid in advance any more. What still blocks each is the SUBJECT, and
-  they are two different problems. D5 `chain-continuation-switch` and
-  `chain-tip-original-pid` need a background member OF THE LIVE TREE, which only an
-  IN-RUN split creates - a mission that decouples a `ModuleCommand`-bearing child so the
-  `bg-recording` route puts it in `activeTree.BackgroundMap`; a fixture's committed
-  background members are not the live tree's. `committed-interaction-claiming` needs a
-  committed vessel that has REALLY BEEN SPAWNED in-run (a ghost spawn), because
-  `rec<i>spawnedPid` is 0 until then and `rec<i>pid` is the craft-baked id a switch must
-  not be driven against. Both are mission / fixture work, not seam work.
+  member of the live tree, or a committed spawned vessel.~~
+  **CLOSED 2026-09-08 (branch `chain-interaction`, register item 2), and the
+  paragraph above was WRONG about two of the three cells.** Only D5
+  `chain-continuation-switch` is a switch cell; the catalog defines the two D18 cells
+  as ghost-chain mechanics (a committed docking CLAIMING its partner, and the chain-tip
+  spawn preserving the original pid), which RH-1's own log had already shown firing on
+  bdock-recorded after a rewind. The D5 cell: `GS-3` had flown the bg-member route
+  since 2026-08-05 (its required `origin-terminal-stamped` token is emitted only inside
+  that branch) and now GATES it (re-flown green `2026-09-08_1101`), and
+  `CI-1-eva-switch-bg-member` reaches the same route on an EVA split with the target
+  read from the live BackgroundMap (`${bg.bg0pid}`; `2026-09-08_1057` PASS, negative
+  control `_1059`). The D18 cells: `CI-2-refly-claim-tip-pid` (`2026-09-08_1100`
+  reading, `2026-09-08_1105_CI-2-refly-claim-tip-pid` armed, `2026-09-08_1106_CI-2-refly-claim-tip-pid` negative control)
+  gates `claimed by tree=... via MERGE`, `Chain built ... spawnUT=8951.5` and `Chain
+  tip spawn complete: #<i> "Kerbal X" pid=3620499050` with `preserveIdentity=true`.
+  The earlier "committed vessel that has REALLY BEEN SPAWNED in-run" reading is
+  retired with the paragraph; what R10's `rec<i>spawnedPid` turned out to be for is the
+  READBACK of that tip spawn (`pid` and `spawnedPid` equal on one response line).
+  What the wave did NOT build, and is still open as a subject: a lane whose switch
+  target is a DECOUPLED controllable child (GS-2's split under `${bg.bg0pid}`, a
+  sibling of GS-3 minus its Case-A probe) - not needed for any cell today.
 - **The other 6 stranded TRACKSTATION / MAINMENU categories** (including the 2
   TRACKSTATION-scene `GhostLifecycle` tests named under R8) are now REACHABLE through
   `scene=trackstation`; each still needs its own spec.
@@ -1499,9 +1643,15 @@ A SECOND CENSUS THE SAME DAY spent three more multi-category boots plus one ordi
 one (LT-3 / LT-4 / LT-5 and `H71-resource-topbar-ksc`) and took the count to 110 of
 112, closing four of the six categories the first pair had to exclude for want of a
 host; LT-1 was re-pinned 33 -> 30 constituents as three of its slices moved to the
-lanes whose hosts feed them. What is left is two categories that no host closes -
+lanes whose hosts feed them. ~~What is left is two categories that no host closes -
 `CrewReservationLive` (corpus-writer work) and `DisabledHoverEcho` (interactive-only) -
-so this item's remaining work has left the batch mechanism entirely.
+so this item's remaining work has left the batch mechanism entirely.~~ A THIRD CENSUS
+(2026-09-08, scratch CEN-8..CEN-12) closed both without leaving the batch mechanism at
+all: `CrewReservationLive` is LT-4's fourth constituent (a recorded store carries the
+spawned pid; no injected corpus does) and `DisabledHoverEcho` is LT-1's 31st (the cell
+places the OS pointer itself). The item is CLOSED at 112 of 112 categories, and both
+"no host closes it" claims were bounds on which hosts had been asked and on which
+layer could move a pointer.
 Flight? ALL SIX FLOWN 2026-09-07 AND GREEN ON ATTEMPT 1. The first pair are LT-1
 (`2026-09-07_1511`) and LT-2 (`_1516`); the second wave flew the same evening -
 LT-1's 30-constituent re-pin `2026-09-07_2030` (292 s), LT-3 `_2035` (64 s), LT-4
