@@ -179,6 +179,21 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A flight you could still re-fly no longer loses that option the instant it is
+  committed.** When a flight ended in a way that keeps its rewind point open (a crash,
+  including a re-entry Parsek predicts as it leaves the scene), committing the tree
+  correctly marked the slot as still re-flyable - and then, a fraction of a second
+  later in the same commit, the housekeeping pass that splits a recording where its
+  flight phase changes (atmosphere to space, say) moved the flight's ending onto a
+  brand-new segment without that "still re-flyable" mark. Open or closed is read from
+  whichever segment carries the ending, so the slot read as closed: no Unfinished
+  Flights row was drawn, the next commit treated the closure as deliberate, and the
+  clean-up pass then deleted the rewind point's quicksave for good. The mark now
+  travels with the ending on both the split and the merge that reverses it, so a slot
+  that was open stays open and its rewind point survives. Only flights whose recording
+  happens to cross a phase boundary at commit time were affected; a slot deliberately
+  sealed still stays sealed.
+
 - **Parsek's markings on the Mission Control contract list now appear at all.** Open
   Mission Control and Parsek annotates the contract rows, the way it already does on
   the R&D tree and in the Astronaut Complex. On KSP 1.12.5 those contract annotations
