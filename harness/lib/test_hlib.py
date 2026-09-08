@@ -8553,6 +8553,13 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # ARMING pass (three-run discipline, GHOSTLIFE_ARMED_SPECS) and the
         # ordinary cadence PROMOTION call - the GS-1/GS-2/GS-3 shape exactly.
         "GS-4-kerbalx-rewind-watch.toml":   "FLOWN GREEN 2026-08-27 (2145 reading, 2204 green, both attempt 1); operator tier is now the arming + PROMOTION call, not debt",
+        # The ghost-replay Tier A derivatives (roadmap items 2 and 4), operator by
+        # the CALIBRATION DISCIPLINE on the GS-4 / GS-6 shape: authored 2026-09-08
+        # with first-flight pins, then the reading run, the re-pin off its own
+        # bytes, the armed re-flight and the negative control. Promotion past
+        # operator is the cadence call that follows, not outstanding human work.
+        "GS-7-kerbalx-crash-watch-hold.toml": "calibration-discipline - AUTHORED 2026-09-08 (the watched explosion hold over a deliberate crash profile, the kx machine's impactProfile branch); operator tier is the never-flown calibration hold, discharged by the reading run + re-pin + armed re-flight + negative control, not a debt",
+        "GS-8-kerbalx-zone-round-trip.toml":  "calibration-discipline - AUTHORED 2026-09-08 (the 120 km render-ladder step both ways, a longer core burn and a late watch entry on the unchanged kx machine); operator tier is the never-flown calibration hold, discharged by the reading run + re-pin + armed re-flight + negative control, not a debt",
         # tier=operator by PROMOTION POLICY on a NEVER-FLOWN lane, the GS-1 shape
         # exactly: GS-6 is authored and registered but has not flown, so it cannot
         # sit on a cadence. Its debt is the READING RUN, carried by the
@@ -11052,6 +11059,14 @@ class GhostLifecycleVerifierWiringTests(unittest.TestCase):
     # ARMED RE-FLIGHT and the NEGATIVE CONTROL that discharge the three-run
     # workflow.
     GHOSTLIFE_ARMED_SPECS = {
+        # ARMED 2026-09-08 off two readings of the identical census: reading run 1
+        # `2026-09-08_1119_GS-8-kerbalx-zone-round-trip` (PARSEK-FAIL on the late
+        # watch entry, spawned=8/8/8 unbalanced=0 regardless) and round 2
+        # `2026-09-08_1225` (PASS attempt 1, spawned=8/8/8 unbalanced=0). The
+        # ARMED RE-FLIGHT `2026-09-08_1239` PASS attempt 1 with the gate live
+        # (ghostLifecycle status=PASS gating=True spawned=8/8/8 unbalanced=0);
+        # the negative control is recorded in the spec's STATUS section.
+        "GS-8-kerbalx-zone-round-trip.toml",
         # ARMED 2026-08-28. Windows authored from TWO green measurements of the
         # same census (reading run `2026-08-27_2145` red only on the
         # since-fixed watch-entry race; green run `2026-08-27_2204` PASS
@@ -11275,6 +11290,16 @@ class GhostLifecycleVerifierWiringTests(unittest.TestCase):
         #     than at teardown. See SHOWCASE-LOOPFLAG-STRIPPED-AT-LOAD in
         #     docs/dev/todo-and-known-bugs.md.
         "S1.9-part-showcase-render.toml",
+        # The ghost-replay Tier A derivatives (2026-09-08), each REPORT-ONLY on
+        # authoring with GS-4's window shape: GS-7 declares spawned {min 7}
+        # (parent + six boosters; the crash profile never discards the core, so
+        # no probe child) and GS-8 spawned {min 8} (GS-4's census - the longer
+        # burn adds distance, not recordings). Both keep requireBalanced because
+        # the balance IS the claim each lane makes about its round trip (the
+        # explosion hold's derender, the zone teardown/rebuild); arming follows
+        # the reading runs through GHOSTLIFE_ARMED_SPECS.
+        "GS-7-kerbalx-crash-watch-hold.toml",
+        "GS-8-kerbalx-zone-round-trip.toml",
     }
 
     def test_ghost_lifecycle_declarers_are_the_recorded_roster(self):

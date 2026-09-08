@@ -10,6 +10,22 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Automated testing: two ghost-replay lanes now gate what a watcher actually sees
+  when a replayed flight crashes and when it flies out of visual range.** The
+  rewind-and-watch mission gained an opt-in crash profile (`impactProfile`): after
+  the last booster drop it rides the unpowered stack into the ground, observes the
+  impact, launches a throwaway pad craft from the post-crash flight scene, exits to
+  the Space Center so the stashed tree auto-commits, reads the commit back, saves,
+  reloads into flight and rewinds; omitting the key keeps the existing mission graph
+  byte-identical. `GS-7-kerbalx-crash-watch-hold` flies it and pins the watched
+  ghost's terminal explosion, the 5 s Destroyed-terminal watch hold, its retarget
+  scan and the `watch hold expired` derender, plus the crash coalescer's own
+  `type=Breakup, cause=CRASH` verdict and the debris TTL-expiry exit that only an
+  unpowered stack keeps in range. `GS-8-kerbalx-zone-round-trip` flies the unchanged
+  mission with a longer burn and a late watch entry so the replay crosses the 10 km
+  fidelity step, the 50 km mesh hide and the 120 km Beyond step unwatched and is
+  then watched, which rebuilds the mesh - flown green and armed on 2026-09-08 with
+  the ghost-lifecycle balance holding across the round trip. No product change.
 - **Automated testing: the in-game reentry-FX density check now writes one summary
   line after it has passed, so the unattended run that executes it can prove WHAT it
   proved rather than only that it ran.** The nightly lane that drives the three

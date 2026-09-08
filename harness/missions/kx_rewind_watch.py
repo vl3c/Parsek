@@ -41,6 +41,62 @@ THE PHASE PLAN (``mlib.kxrw_decide``; every state name is an ``mlib.KXRW_*``):
                        `no-watchable-ghost`)
       -> PLAYBACK-WAIT-> DONE
 
+THE IMPACT PROFILE (``impactProfile``, OPT-IN, default false) is the one branch in
+that plan. With the key omitted nothing above moves - the phase graph, the emitted
+actions and the assertion rows are byte-identical. With it declared the flight is
+ended by a DELIBERATE CRASH instead of by a commit, and the tree reaches the
+rewind through the Space Center:
+
+    ... -> BOOSTER-STAGE (the LAST declared drop: no throttle-up, an explicit
+                          throttle cut and an AP disengage, so the stack falls)
+      -> TREE-STATE   (the same RecordingState probe; the id is captured HERE,
+                       while a recorder is still live)
+      -> IMPACT-COAST (fall; the impact is OBSERVED as EITHER a vessel_lost
+                       snapshot OR a frozen-telemetry trip, and the last finite
+                       UT becomes the recorded END)
+      -> IMPACT-SETTLE(hold while the C# destruction coalescer finishes)
+      -> TEMP-LAUNCH -> TEMP-READY  (a throwaway craft on the pad, NOT the
+                       watcher, launched from the POST-CRASH flight scene)
+      -> SC-EXIT      (seam ExitToSpaceCenter)
+      -> SC-COMMITTED (seam ListHandles kind=committed: READ that the tree
+                       actually committed)
+      -> SC-SAVE      (seam SaveGame name=persistent: the arrival's commit is
+                       IN MEMORY; the .sfs the exit wrote still says pending)
+      -> RELOAD       (seam LoadGame save=<run save> name=persistent: back into
+                       FLIGHT on the throwaway craft)
+      -> RELOAD-READY (the booted craft settles; the pre-rewind clock is stamped
+                       on the frame the rewind goes out)
+      -> REWIND       (unchanged from here on)
+
+WHY THE SPACE CENTER HOP, because it reads like a detour and is not. Parsek does
+NOT commit a tree in flight once the active vessel is destroyed:
+``ParsekFlight.ShowPostDestructionTreeMergeDialog`` finalizes the tree and STASHES
+it as pending, deferring the commit to the scene transition. So ``CommitTree`` is
+refused ``no-active-tree`` from the crash onward; ``ExitToSpaceCenter`` proceeds
+under autoMerge=true and the pending tree auto-commits on arrival in SPACECENTER;
+and ``InvokeRewindToLaunch`` is RequiresFlight and refuses a pending tree, which is
+the ONLY reason a throwaway craft is put on the pad at all. That craft supplies a
+FLIGHT scene and nothing else: the rewind's quicksave predates it, so it is
+rewound out of existence and the real watcher is launched afterwards by the
+unchanged WATCHER-LAUNCH phase. The exit's own OK stays a COMMANDED reading
+throughout - it says a scene changed, never that a tree was committed, so
+SC-COMMITTED goes and reads the count.
+
+WHY THE LAUNCH RUNS BEFORE THE EXIT, AND WHY A SAVE + RELOAD FOLLOW IT. Two
+measured facts, one from a flight and one from a decompile:
+  - kRPC's ``LaunchVessel`` yields on ``WaitForVesselPreFlightChecks(config)``,
+    and those checks never report complete outside the FLIGHT scene. The first
+    flight of this profile launched from SPACECENTER and the RPC HUNG for the rest
+    of the mission budget with KSP logging no launch at all. A craft can therefore
+    be launched through kRPC only from FLIGHT (the ROLLOUT precedent), and the
+    post-crash scene IS still FLIGHT.
+  - the persistent.sfs the exit wrote still carries the tree as PENDING, because
+    the auto-commit happened in memory on arrival. SC-SAVE re-persists the live
+    state and RELOAD boots it; the boot lands in FLIGHT rather than at the KSC
+    because KSP's ``FlightState`` capture stamps ``activeVesselIdx = 0`` when
+    ``FlightGlobals.ready`` is false, and after the crash the throwaway craft is
+    the only vessel left.
+
 WATCH HOLDS AND THEN KEEPS ASKING, and the GS-4 reading run is why. It issued one
 EnterWatchMode at 00:48:27, five seconds before the parent ghost's
 ``phase=MeshSpawned ... vessel=Kerbal X`` at 00:48:32, and Parsek rightly answered

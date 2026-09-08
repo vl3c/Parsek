@@ -3227,6 +3227,23 @@ def _seam_because(reason: str) -> str:
         "the response carried no msg= reason"
 
 
+def _seam_parse_int(raw: str) -> Optional[int]:
+    """Parse a seam payload integer, or None when it is absent / unparseable.
+
+    None is the FAIL-CLOSED answer: a count gate must never be satisfied by a
+    value the mission could not actually read. ONE home, beside the three payload
+    readers above, for the reason they have one: every machine that reads a
+    ListHandles `count` reads it through the same parse, and two copies are two
+    places for a fail-closed contract to drift apart."""
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    try:
+        return int(text)
+    except ValueError:
+        return None
+
+
 # The R1 spellings are KEPT as aliases rather than renamed away: they are called
 # BY NAME from `test_r1_rewind.py` and `test_cl3_refly_crew_tombstone.py`, whose
 # mutation notes cite them, and there is nothing to gain from editing a live-proven
@@ -7382,14 +7399,9 @@ def _r1_loop_action(probe: int) -> Action:
 def _r1_parse_int(raw: str) -> Optional[int]:
     """Parse a payload integer, or None when it is absent / unparseable. None is
     the FAIL-CLOSED answer: a points gate must never be satisfied by a value the
-    mission could not actually read."""
-    text = str(raw or "").strip()
-    if not text:
-        return None
-    try:
-        return int(text)
-    except ValueError:
-        return None
+    mission could not actually read. The R1 spelling of ``_seam_parse_int``, kept
+    because it is called BY NAME from this machine's cells."""
+    return _seam_parse_int(raw)
 
 
 def _r1_list_handles_action() -> Action:
@@ -20617,6 +20629,79 @@ def evaluate_m3_assertions(frames, params: M3Params, phases_reached=(),
 # warp is used (v1 keeps it simple), so the wait is real time - and it is bounded
 # by `playbackWaitFrames` rather than by a UT budget, because a STUCK clock is
 # precisely the failure a UT budget cannot see.
+#
+# THE IMPACT PROFILE (`impactProfile`, OPT-IN, default false). With the key
+# omitted every line above is the whole machine and not one frame of it moves.
+# With it declared the flight ends in a DELIBERATE CRASH and the tree reaches the
+# rewind through the SPACE CENTER instead of through CommitTree:
+#
+#   ... -> BOOSTER-STAGE (the LAST declared drop: no throttle-up, an explicit cut
+#          and an AP disengage) -> TREE-STATE (the same RecordingState probe COAST
+#          issues) -> IMPACT-COAST -> IMPACT-SETTLE -> TEMP-LAUNCH -> TEMP-READY
+#          -> SC-EXIT -> SC-COMMITTED -> SC-SAVE -> RELOAD -> RELOAD-READY
+#          -> REWIND -> (unchanged from here)
+#
+# WHY THE SPACE CENTER HOP, and it is Parsek's shape rather than a preference.
+# Destroying the active vessel does NOT commit its tree in flight:
+# `ParsekFlight.ShowPostDestructionTreeMergeDialog` finalizes the tree and STASHES
+# it as PENDING, deferring the commit to the scene transition. Three consequences
+# the machine has to obey, in order:
+#   (a) CommitTree is refused `no-active-tree` once the tree is stashed, so the
+#       COMMIT / STOP / RECORDER-IDLE bridge cannot run at all on this path. The
+#       tree id is therefore captured BEFORE the crash (TREE-STATE, while a
+#       recorder is still live), exactly as it is on the ordinary path.
+#   (b) `ExitToSpaceCenter` is what actually commits it: the exit proceeds under
+#       autoMerge=true and the pending tree auto-commits on arrival in
+#       SPACECENTER. SC-COMMITTED then READS that (`ListHandles kind=committed`,
+#       RequiresGameLoaded, so it answers with no active vessel) rather than
+#       assuming it - the exit's own OK says a scene changed, never that a tree
+#       was committed.
+#   (c) `InvokeRewindToLaunch` is RequiresFlight and refuses a pending tree, so a
+#       FLIGHT scene has to exist again before it can be commanded. The throwaway
+#       craft TEMP-LAUNCH puts on the pad is what supplies it - and it is a
+#       THROWAWAY: the rewind's quicksave predates it, so it is rewound out of
+#       existence and the REAL watcher is launched afterwards by the unchanged
+#       WATCHER-LAUNCH phase.
+#
+# WHY THE LAUNCH RUNS BEFORE THE EXIT, AND WHY A RELOAD FOLLOWS IT. The first
+# flight of this profile put TEMP-LAUNCH after SC-COMMITTED and the kRPC
+# `LaunchVessel` RPC HUNG for the whole mission budget with KSP logging no launch
+# at all. Decompiled from the automation instance's `KRPC.SpaceCenter.dll`, the
+# RPC yields on `WaitForVesselPreFlightChecks(config)` until KSP reports the
+# pre-flight checks complete, and those never complete outside the FLIGHT scene.
+# So a craft can be launched through kRPC ONLY from FLIGHT (the ROLLOUT
+# precedent), never from the Space Center. The order that satisfies both facts is
+# the one above:
+#   - TEMP-LAUNCH / TEMP-READY run in the POST-CRASH FLIGHT scene, which kRPC can
+#     launch from. The stack's debris and the stock crash report are irrelevant to
+#     `FlightDriver.StartWithNewLaunch`, and the FLIGHT->FLIGHT reload arrives as
+#     vessel_lost frames exactly as the ROLLOUT's does.
+#   - SC-EXIT then leaves with the throwaway craft sitting on the pad, and the
+#     pending tree auto-commits on arrival.
+#   - SC-SAVE / RELOAD get that commit back into a FLIGHT scene. The
+#     persistent.sfs the exit itself wrote still carries the tree as PENDING (the
+#     auto-commit happened in MEMORY, on arrival), so a reload of that file would
+#     boot a world with nothing committed to rewind to; SC-SAVE re-persists the
+#     live state and RELOAD boots it. The boot lands in FLIGHT rather than at the
+#     KSC because KSP's `FlightState` capture stamps `activeVesselIdx = 0` when
+#     `FlightGlobals.ready` is false (it is, at the Space Center) and after the
+#     crash the throwaway craft is the ONLY vessel - so index 0 IS it and
+#     `TestCommandLoadGame`'s route is Focusable.
+#
+# THE IMPACT IS OBSERVED, NOT ASSUMED, and by EITHER of two readings, because KSP
+# produces both: a `vessel_lost` snapshot (the active vessel handle died), or the
+# frozen-telemetry detector tripping (KSP handed active-vessel to a surviving
+# debris piece and the readings froze). In IMPACT-COAST both are the SIGNAL rather
+# than the loss they are in every other flight phase, and whichever fires first
+# wins - the other cannot re-fire a transition, because the phase is already gone.
+# The stamp taken is the last FINITE `ut` seen, and it becomes `recording_end_ut`:
+# the playback wait derives its target from that field, so the crash instant is
+# what ends the wait exactly as the commit instant does on the ordinary path.
+#
+# WHAT THE PROFILE DOES NOT TOUCH: the core gate (CORE-CUT / CORE-DISCARD / COAST /
+# PART-SWEEP) is structurally unreachable on it - the last booster drop leaves for
+# TREE-STATE on its own frame, so ASCENT never sees drops-complete - and the
+# post-rewind block from REWIND to DONE is byte-identical.
 # ---------------------------------------------------------------------------
 
 KXRW_ROLLOUT = "ROLLOUT"
@@ -20638,6 +20723,26 @@ KXRW_TREE_STATE = "TREE-STATE"
 KXRW_COMMIT = "COMMIT"
 KXRW_STOP = "STOP"
 KXRW_RECORDER_IDLE = "RECORDER-IDLE"
+# The IMPACT PROFILE's nine phases (opt-in; see the header). They sit between the
+# ordinary bridge's last phase and REWIND so that KXRW_POST_REWIND_PHASES stays the
+# CONTIGUOUS TAIL of KXRW_PHASES - the property the post-rewind carve-out's own
+# cell asserts, and the reason that block is one run rather than a per-phase
+# sprinkle.
+#
+# THE TEMPORARY LAUNCH SITS BEFORE THE EXIT, not after it, and that ordering is a
+# measured kRPC constraint rather than a preference: `LaunchVessel` yields on
+# `WaitForVesselPreFlightChecks`, which never completes outside FLIGHT. SC-SAVE and
+# RELOAD then exist because the exit's own persistent.sfs still carries the tree as
+# PENDING - the auto-commit happened in memory. See the header.
+KXRW_IMPACT_COAST = "IMPACT-COAST"
+KXRW_IMPACT_SETTLE = "IMPACT-SETTLE"
+KXRW_TEMP_LAUNCH = "TEMP-LAUNCH"
+KXRW_TEMP_READY = "TEMP-READY"
+KXRW_SC_EXIT = "SC-EXIT"
+KXRW_SC_COMMITTED = "SC-COMMITTED"
+KXRW_SC_SAVE = "SC-SAVE"
+KXRW_RELOAD = "RELOAD"
+KXRW_RELOAD_READY = "RELOAD-READY"
 KXRW_REWIND = "REWIND"
 KXRW_SPACECENTER = "SPACECENTER"
 KXRW_AUTORECORD_OFF = "AUTORECORD-OFF"
@@ -20653,15 +20758,26 @@ KXRW_PHASES: Tuple[str, ...] = (
     KXRW_ROLLOUT, KXRW_PRELAUNCH, KXRW_ASCENT, KXRW_BOOSTER_CUT, KXRW_BOOSTER_STAGE,
     KXRW_CORE_CUT, KXRW_CORE_DISCARD, KXRW_COAST, KXRW_PART_SWEEP,
     KXRW_TREE_STATE, KXRW_COMMIT,
-    KXRW_STOP, KXRW_RECORDER_IDLE, KXRW_REWIND, KXRW_SPACECENTER,
+    KXRW_STOP, KXRW_RECORDER_IDLE,
+    KXRW_IMPACT_COAST, KXRW_IMPACT_SETTLE,
+    KXRW_TEMP_LAUNCH, KXRW_TEMP_READY,
+    KXRW_SC_EXIT, KXRW_SC_COMMITTED, KXRW_SC_SAVE,
+    KXRW_RELOAD, KXRW_RELOAD_READY,
+    KXRW_REWIND, KXRW_SPACECENTER,
     KXRW_AUTORECORD_OFF, KXRW_WATCHER_LAUNCH, KXRW_WATCHER_READY, KXRW_MAP_VIEW,
     KXRW_MAP_EXIT, KXRW_WATCH, KXRW_PLAYBACK_WAIT, KXRW_DONE)
 
 # The FLIGHT phases: bounded by the whole-flight clock, vessel_lost is lethal, and
 # the frozen-telemetry (vessel-destroyed) detector runs.
+#
+# IMPACT-COAST IS ONE OF THEM, and both halves of that matter. It is bounded by
+# `flightMaxSeconds` like every other flight phase, and the frozen detector runs in
+# it - but in IMPACT-COAST alone a loss or a trip is the IMPACT SIGNAL rather than
+# a terminal, which is why the two generic blocks at the top of `kxrw_decide` name
+# the phase explicitly instead of the set doing it for them.
 KXRW_FLIGHT_PHASES: Tuple[str, ...] = (
     KXRW_ASCENT, KXRW_BOOSTER_CUT, KXRW_BOOSTER_STAGE, KXRW_CORE_CUT,
-    KXRW_CORE_DISCARD, KXRW_COAST, KXRW_PART_SWEEP)
+    KXRW_CORE_DISCARD, KXRW_COAST, KXRW_PART_SWEEP, KXRW_IMPACT_COAST)
 
 # The phases in which a `vessel_lost` snapshot is the EXPECTED reading rather
 # than a loss. From the frame InvokeRewindToLaunch is commanded (the scene tears
@@ -20674,21 +20790,39 @@ KXRW_POST_REWIND_PHASES: Tuple[str, ...] = (
     KXRW_WATCHER_READY, KXRW_MAP_VIEW, KXRW_MAP_EXIT, KXRW_WATCH,
     KXRW_PLAYBACK_WAIT)
 
-# Every phase in which a `vessel_lost` snapshot is EXPECTED. TWO disjoint reasons,
-# deliberately spelled as a union of two named sets rather than as one flat list,
-# because they are not the same fact and a future edit should have to say which one
-# it is extending:
+# The IMPACT PROFILE's post-crash block: from the settle that follows the observed
+# impact to the reloaded craft settling on the pad. A THIRD named reason for a
+# dead vessel handle, and its own set for the reason the two below are their own:
+# the crash destroyed the active vessel, TEMP-LAUNCH is a FLIGHT->FLIGHT reload
+# over the wreckage, SC-EXIT runs a full scene transition, SPACECENTER has no
+# active vessel at all, and RELOAD is a cold boot of a whole save. IMPACT-COAST is
+# deliberately NOT here - a loss THERE is the signal the profile is waiting for,
+# and the generic block converts it into a transition.
+KXRW_IMPACT_PHASES: Tuple[str, ...] = (
+    KXRW_IMPACT_SETTLE, KXRW_TEMP_LAUNCH, KXRW_TEMP_READY, KXRW_SC_EXIT,
+    KXRW_SC_COMMITTED, KXRW_SC_SAVE, KXRW_RELOAD, KXRW_RELOAD_READY)
+
+# Every phase in which a `vessel_lost` snapshot is EXPECTED. THREE disjoint
+# reasons, deliberately spelled as a union of named sets rather than as one flat
+# list, because they are not the same fact and a future edit should have to say
+# which one it is extending:
 #   ROLLOUT              - a FLIGHT->FLIGHT scene reload is running under the
 #                          mission (`sc.launch_vessel` recovers the pad occupant
 #                          and brings the subject up), so the active vessel handle
 #                          is legitimately dead for a few frames. The B-DOCK
 #                          Interceptor-launch precedent exactly.
+#   the impact block      - the IMPACT PROFILE deliberately destroyed the craft,
+#                          then launches a throwaway one over the wreckage, exits
+#                          to SPACECENTER and reloads the save: the dead handle is
+#                          the outcome the profile asked for. Inert on every lane
+#                          that does not declare the profile, because none of
+#                          those phases is ever entered.
 #   the post-rewind block - there is no active vessel AT ALL: the world reloaded
 #                          into SPACECENTER, and the craft being watched is a
 #                          GHOST, which kRPC cannot read as a vessel.
 # Everywhere else a lost vessel is a destroyed craft and terminates the mission.
 KXRW_VESSEL_LOST_EXPECTED_PHASES: Tuple[str, ...] = (
-    (KXRW_ROLLOUT,) + KXRW_POST_REWIND_PHASES)
+    (KXRW_ROLLOUT,) + KXRW_IMPACT_PHASES + KXRW_POST_REWIND_PHASES)
 
 # Per-command seam tags. Distinct by construction: the C# seam SKIPS DUPLICATE
 # IDS, so a reused tag makes the second command a silent no-op whose poll then
@@ -20702,6 +20836,16 @@ KXRW_TAG_MAP = "map"
 # and the C# seam skips duplicate ids - reusing `map` would make the close a silent
 # no-op whose poll then expires as a TIMEOUT that reads like a wedged addon.
 KXRW_TAG_MAP_EXIT = "mapexit"
+# The IMPACT PROFILE's scene exit. Its own tag for the same duplicate-id reason as
+# every tag here; distinct from the `sccommit*` FAMILY below so an exit reply can
+# never satisfy a committed-count probe.
+KXRW_TAG_SC_EXIT = "scexit"
+# The IMPACT PROFILE's re-persist and its boot, one tag each. `scsave` is close
+# enough to `scexit` to read like a typo of it and is deliberately not shortened
+# further: the two verbs answer one after the other in the same block, and the tag
+# gate is what stops the exit's OK from advancing the save's phase.
+KXRW_TAG_SC_SAVE = "scsave"
+KXRW_TAG_RELOAD = "reload"
 # A tag FAMILY prefix, not a single tag: the WATCH phase can issue several
 # EnterWatchMode attempts (see below), and each needs its own wire id.
 KXRW_TAG_WATCH = "watch"
@@ -20790,6 +20934,16 @@ def kxrw_idle_probe_tag(probe: int) -> str:
     from ``tree*`` so an idle probe can never collide with a tree probe at the
     same index."""
     return "idle%d" % int(probe)
+
+
+def kxrw_sc_commit_probe_tag(probe: int) -> str:
+    """Tag for SC-COMMITTED probe ``probe`` (``sccommit0``, ...). Its OWN family,
+    for the reason ``idle*`` and ``watch*`` have theirs: the phase re-issues the
+    SAME ListHandles verb while the pending tree has not auto-committed yet, and
+    the C# seam SKIPS DUPLICATE IDS - a reused tag would make every probe after
+    the first a silent no-op whose poll then expires as a TIMEOUT that reads like
+    a wedged addon."""
+    return "sccommit%d" % int(probe)
 
 
 # Situations that prove the Kerbal X actually left the pad. GS-1's measured
@@ -20979,6 +21133,96 @@ def kxrw_coast_next_phase(sweep_steps: Sequence[str]) -> str:
     return KXRW_PART_SWEEP if tuple(sweep_steps or ()) else KXRW_TREE_STATE
 
 
+# The args the IMPACT PROFILE's SC-COMMITTED probe carries. `kind` is REQUIRED and
+# case-sensitive (the seam REJECTS `kind-arg-missing`), and `committed` is the
+# token that enumerates every recording in every committed tree - which is the
+# only reading that can say whether the pending tree the crash stashed actually
+# auto-committed on arrival in SPACECENTER.
+KXRW_SC_COMMITTED_LIST_ARGS: Tuple[Tuple[str, str], ...] = (("kind", "committed"),)
+
+# The save SLOT both halves of the reload address: SC-SAVE writes it and RELOAD
+# reads it back. ONE constant rather than two literals, because a slot written
+# under one name and booted under another is a reload of the wrong world, and the
+# two call sites are twenty lines apart. `persistent` is also the slot the run's
+# own boot step loads and the one `SaveGameImpl` defaults to when `name` is
+# omitted - sent EXPLICITLY anyway, so the pairing is visible at both call sites
+# rather than resting on a C# default that is free to change.
+KXRW_RELOAD_SLOT_NAME = "persistent"
+
+# SC-SAVE's args. `name` is the slot; there is no folder arg - `SaveGameImpl`
+# writes into `HighLogic.SaveFolder`, which IS the run's save because the exit did
+# not change it.
+KXRW_SC_SAVE_ARGS: Tuple[Tuple[str, str], ...] = (
+    ("name", KXRW_RELOAD_SLOT_NAME),)
+
+
+def kxrw_reload_seam_args(save_name: str) -> Tuple[Tuple[str, str], ...]:
+    """The args RELOAD's ``LoadGame`` carries: the run's save FOLDER and the slot
+    SC-SAVE just wrote.
+
+    BOTH ARE SENT, and the folder is why the profile needs a param at all.
+    ``LoadGameImpl`` assigns ``HighLogic.SaveFolder = save`` before
+    ``GamePersistence.LoadGame(name, save, ...)``, so an omitted folder would boot
+    whatever folder happened to be current - which is the run's save today and a
+    silent cross-save boot the day a lane runs after something else moved it. The
+    spec resolves the folder through R10's reply capture (``${boot.save}``), so the
+    machine only ever sees a resolved string; an EMPTY one is refused before the
+    flight by ``kxrw_impact_profile_conflict``, which is why this stays a plain
+    formatter with no degrade branch of its own."""
+    return (("save", str(save_name or "").strip()),
+            ("name", KXRW_RELOAD_SLOT_NAME))
+
+
+def kxrw_impact_profile_conflict(params: "KxrwParams") -> str:
+    """The reason ``impactProfile`` cannot be flown with the rest of this params
+    set, or "" when it can. Evaluated ONCE, on the machine's first decision frame,
+    so a spec that cannot fly dies before a stage click rather than after an
+    ascent - the GS-6 sweep-vocabulary lesson applied to a second opt-in.
+
+    THREE CONFLICTS, and all three are structural rather than a matter of taste:
+      - `partSweepSteps` declares a timeline the profile's phase graph never
+        reaches. The sweep runs between COAST and TREE-STATE; the profile leaves
+        for TREE-STATE from the LAST BOOSTER DROP and never enters COAST at all,
+        so every declared step would be silently dropped and the lane would read
+        as "the applier never logged the family".
+      - `boosterStageCount` below 1 leaves the profile with no last booster drop
+        to hand off from, so ASCENT would fall through to the core gate the
+        profile's whole contract says it never enters.
+      - an EMPTY `reloadSaveName` leaves RELOAD with no save folder to boot. The
+        profile's only route from the Space Center back into a FLIGHT scene is
+        SC-SAVE + LoadGame, and `LoadGameImpl` assigns `HighLogic.SaveFolder` from
+        that arg - so an unresolved one is a cross-save boot at best. The spec
+        supplies it through R10's reply capture, and a capture that did not
+        resolve is exactly what this catches, BEFORE the flight rather than eight
+        phases into it.
+    Returned rather than raised so the caller owns the severity, exactly as
+    ``kxrw_sweep_steps_valid`` does."""
+    if not getattr(params, "impact_profile", False):
+        return ""
+    steps = tuple(params.part_sweep_steps or ())
+    if steps:
+        return ("impactProfile and partSweepSteps are mutually exclusive: the "
+                "sweep runs between COAST and TREE-STATE, and the impact profile "
+                "leaves for TREE-STATE from the last booster drop without ever "
+                "entering COAST, so the %d declared step(s) (%s) could only be "
+                "silently dropped" % (len(steps), ",".join(steps)))
+    if int(params.booster_stage_count) < 1:
+        return ("impactProfile requires boosterStageCount >= 1 (declared %d): the "
+                "profile hands off to TREE-STATE on the LAST booster drop, and "
+                "with none declared ASCENT would fall through to the core gate "
+                "this profile never enters"
+                % (int(params.booster_stage_count),))
+    if not str(getattr(params, "reload_save_name", "") or "").strip():
+        return ("impactProfile requires a non-empty reloadSaveName: the profile's "
+                "only route from the Space Center back into a FLIGHT scene is "
+                "SC-SAVE followed by LoadGame save=<folder>, and LoadGame sets "
+                "HighLogic.SaveFolder from that arg - with none resolved the boot "
+                "would address whatever folder happened to be current. The spec "
+                "supplies it from the labelled boot step's reply "
+                "(reloadSaveName = \"${boot.save}\")")
+    return ""
+
+
 def kxrw_throttle_is_zero(throttle: float, epsilon: float) -> bool:
     """OBSERVED-zero throttle: a FINITE readback at or below ``epsilon``.
 
@@ -21089,6 +21333,51 @@ class KxrwParams:
     part_sweep_frames: int = 600
     # Hard bound on the WHOLE pre-commit flight, measured from the launch click.
     flight_max_seconds: float = 420.0
+
+    # --- the IMPACT PROFILE (opt-in; see the section header) ----------------
+    # FALSE is the default and it is load-bearing exactly as `part_sweep_steps`'
+    # empty tuple is: with it false the phase graph, the actions and the assertion
+    # rows are byte-identical to the pre-profile lane.
+    impact_profile: bool = False
+    # Frames IMPACT-COAST will wait for the impact before giving up by name. The
+    # fall from the staging altitude is real time at 1x (this lane warps nowhere),
+    # so this is generous on purpose; what it actually catches is a stack that
+    # SURVIVED (a chute, a soft landing) or a clock that stalled - neither of
+    # which the two impact readings can see on their own.
+    impact_coast_frames: int = 600
+    # Frames held between the observed impact and the ExitToSpaceCenter click. The
+    # C# finalize waits up to 5 s of REAL time for the destruction coalescer
+    # before it stashes the tree, so the settle has to outlast that or the exit
+    # races the very stash it depends on: 16 frames at the 0.5 s poll is 8 s.
+    impact_settle_frames: int = 16
+    # SC-EXIT's SILENCE bound. Generous because the verb spans a whole scene load
+    # (FLIGHT teardown -> SPACECENTER bootstrap -> ParsekScenario.OnLoad -> the
+    # pending-tree auto-commit), every frame of which arrives vessel_lost.
+    sc_exit_frames: int = 240
+    # SC-COMMITTED's bound: frames in which `ListHandles kind=committed` must
+    # report at least one committed recording. It bounds a REREAD loop - the exit
+    # answered OK, so the scene changed; what this waits on is the auto-commit
+    # landing in the store, which is the one thing the exit's own OK does not say.
+    sc_committed_frames: int = 40
+    # SC-SAVE's SILENCE bound. SaveGame is a SYNCHRONOUS in-process
+    # GamePersistence.SaveGame riding the seam's 120 s default poll, so its reply
+    # lands on the very next frame; this bounds a seam that never answers at all,
+    # exactly as `autoRecordOffFrames` does for the other one-frame verb here.
+    sc_save_frames: int = 40
+    # RELOAD's SILENCE bound, and it bounds only the SILENCE. `LoadGame` is a
+    # two-phase verb whose completion straddles a whole cold boot, and the bridge
+    # BLOCKS inside perform() for it under a 420 s wall poll
+    # (SEAM_COMMAND_POLL_SECONDS_BY_VERB) - so by the time a frame is decided here
+    # the terminal has either landed or the poll itself expired. The frame count is
+    # `rewindFrames`' shape and value for that reason.
+    reload_frames: int = 40
+    # The save FOLDER the RELOAD boots. NO DEFAULT WORTH THE NAME: "" is refused
+    # before the flight by `kxrw_impact_profile_conflict`, because the folder is a
+    # per-RUN fact (the harness stages a fresh save name per run) and any literal
+    # here would be a guess about somebody else's run. The spec resolves it through
+    # R10's reply capture off the labelled LoadGame boot step, so the machine only
+    # ever sees a resolved string.
+    reload_save_name: str = ""
 
     # --- FRAME budgets (see the header: a game-time budget cannot bound a phase
     # whose clock has been rewound) ------------------------------------------
@@ -21205,6 +21494,17 @@ def kxrw_params_from_dict(params: Dict) -> KxrwParams:
         part_sweep_settle_frames=int(params.get("partSweepSettleFrames", 6)),
         part_sweep_frames=int(params.get("partSweepFrames", 600)),
         flight_max_seconds=float(params.get("flightMaxSeconds", 420.0)),
+        # `bool(...)` rather than a bare read: hlib's schema check already rejects
+        # a non-bool at ADMIT, and this is the machine's own fail-safe for a params
+        # dict that reached it unvalidated (the sweep vocabulary's shape exactly).
+        impact_profile=bool(params.get("impactProfile", False)),
+        impact_coast_frames=int(params.get("impactCoastFrames", 600)),
+        impact_settle_frames=int(params.get("impactSettleFrames", 16)),
+        sc_exit_frames=int(params.get("scExitFrames", 240)),
+        sc_committed_frames=int(params.get("scCommittedFrames", 40)),
+        sc_save_frames=int(params.get("scSaveFrames", 40)),
+        reload_frames=int(params.get("reloadFrames", 40)),
+        reload_save_name=str(params.get("reloadSaveName", "") or ""),
         stage_cut_frames=int(params.get("stageCutFrames", 40)),
         tree_frames=int(params.get("treeStateFrames", 40)),
         commit_frames=int(params.get("commitFrames", 40)),
@@ -21298,6 +21598,54 @@ class KxrwState:
     recorder_idle_observed: bool = False
     rewind_result: str = ""
     rewind_reject_reason: str = ""
+
+    # --- the IMPACT PROFILE -------------------------------------------------
+    # The last FINITE `ut` any frame carried. The impact stamp reads it because
+    # the frame that WITNESSES the crash is very often the frame whose telemetry
+    # stopped being readable, and a NaN stamp would poison `recording_end_ut` -
+    # which is what the playback wait derives its target from.
+    last_finite_ut: float = float("nan")
+    impact_observed: bool = False
+    # WHICH of the two readings fired: "vessel-lost" | "frozen-telemetry" | "".
+    # Evidence, never a gate - the profile does not care which one KSP produced,
+    # only that one did.
+    impact_observed_by: str = ""
+    impact_ut: float = float("nan")
+    # The explicit cut that rides the last booster drop on this profile. A
+    # COMMANDED reading and labelled as one on the row: nothing reads the throttle
+    # back afterwards, because the stack is on its way to the ground and no
+    # irreversible act is gated on it (unlike the fueled-core discard).
+    impact_throttle_cut_commanded: bool = False
+    sc_exit_result: str = ""
+    sc_exit_reject_reason: str = ""
+    # The SC-COMMITTED probe index (the `sccommit*` tag family). The number of
+    # probes ISSUED is this plus one once the first has gone out - derived rather
+    # than counted twice, because a duplicate that is only ever equal is a
+    # duplicate that can drift.
+    sc_commit_probe: int = 0
+    # `ListHandles kind=committed`'s count. -1 = never read, which is the
+    # fail-closed sentinel the row reads: an unread count is not a committed tree.
+    committed_handle_count: int = -1
+    temp_launch_commanded: bool = False
+    temp_ready_streak: int = 0
+    temp_ready_observed: bool = False
+    temp_ready_vessel_name: str = ""
+    sc_save_result: str = ""
+    reload_result: str = ""
+    reload_reject_reason: str = ""
+    # The RELOAD-READY settle, mirroring the `temp_*` trio above field for field.
+    # TWO SETTLES RATHER THAN ONE REUSED, because they are two different craft
+    # readings: the temp trio records the launch into the post-crash FLIGHT scene,
+    # this one records the SAME craft coming back up out of a cold boot. Collapsing
+    # them would let a give-up in one name the other's evidence.
+    reload_ready_streak: int = 0
+    reload_ready_observed: bool = False
+    reload_ready_vessel_name: str = ""
+    # Frames of the post-impact block that arrived with no readable vessel.
+    # EXPECTED (the crash, the throwaway launch, the scene exit, the reload),
+    # carried for the record rather than for a gate - the post-rewind counter's
+    # shape exactly.
+    post_impact_vessel_lost_frames: int = 0
 
     # --- the OBSERVED rewind ------------------------------------------------
     pre_rewind_ut: float = float("nan")
@@ -21445,6 +21793,29 @@ def _kxrw_seam_action(verb: str, tag: str,
                   seam_tag=tag)
 
 
+def _kxrw_observe_impact(state: KxrwState, snapshot: TelemetrySnapshot,
+                         observed_by: str) -> KxrwState:
+    """Record the IMPACT PROFILE's crash and enter IMPACT-SETTLE.
+
+    ONE writer for BOTH readings (a `vessel_lost` snapshot and a frozen-telemetry
+    trip), so whichever fires first wins and the stamps cannot disagree. IDEMPOTENT
+    by an explicit latch as well as by the phase change: a second call returns the
+    state untouched rather than re-stamping a later UT onto an impact that already
+    happened.
+
+    THE STAMP IS THE LAST FINITE `ut`, not `snapshot.ut`, because the frame that
+    witnesses a crash is routinely the frame whose telemetry stopped reading. It is
+    written to `recording_end_ut` as well as to `impact_ut`: the playback wait
+    derives its target from `recording_end_ut` alone, so on this profile the crash
+    instant plays the part the CommitTree instant plays on the ordinary path."""
+    if state.impact_observed:
+        return state
+    ut = snapshot.ut if _is_finite(snapshot.ut) else state.last_finite_ut
+    st = replace(state, impact_observed=True, impact_observed_by=observed_by,
+                 impact_ut=ut, recording_end_ut=ut)
+    return _kxrw_enter(st, KXRW_IMPACT_SETTLE, snapshot.ut)
+
+
 def _kxrw_flight_over_budget(state: KxrwState,
                              snapshot: TelemetrySnapshot) -> bool:
     """True iff the WHOLE pre-commit flight has out-run ``flightMaxSeconds`` since
@@ -21559,6 +21930,13 @@ def kxrw_decide(state: KxrwState,
     peak = _update_peak(state.peak_apoapsis, snapshot.apoapsis)
     state = replace(state, peak_apoapsis=peak, phase_frames=state.phase_frames + 1)
 
+    # The last readable clock, tracked on EVERY frame including vessel_lost ones
+    # (`ut` is read off space_center, not off the vessel). The IMPACT PROFILE's
+    # crash stamp reads this, because the frame that witnesses the crash is
+    # routinely the frame whose telemetry stopped reading.
+    if _is_finite(snapshot.ut):
+        state = replace(state, last_finite_ut=snapshot.ut)
+
     live = not snapshot.vessel_lost
     if live and _is_finite(snapshot.altitude):
         state = replace(state, last_finite_altitude=snapshot.altitude)
@@ -21573,15 +21951,37 @@ def kxrw_decide(state: KxrwState,
                 or snapshot.available_thrust > state.ascent_peak_thrust:
             state = replace(state, ascent_peak_thrust=snapshot.available_thrust)
 
-    # VESSEL LOSS. Lethal everywhere EXCEPT the post-rewind block, where having no
-    # readable active vessel is the NORMAL reading (SPACECENTER has none at all).
-    # See KXRW_POST_REWIND_PHASES.
+    # THE OPT-IN CONFLICT GATE, on the machine's FIRST decision frame and before
+    # anything is commanded. It runs here rather than in the phase body it would
+    # affect for the GS-6 sweep-vocabulary reason verbatim: a gate that fires after
+    # the ascent burns a whole flight and then flakes, which the retry policy flies
+    # again. The first frame is ROLLOUT with no click yet issued.
+    if state.phase == KXRW_ROLLOUT and not state.rollout_launch_commanded:
+        conflict = kxrw_impact_profile_conflict(p)
+        if conflict:
+            return _kxrw_flake(state, "phase %s: %s" % (KXRW_ROLLOUT, conflict)), []
+
+    # VESSEL LOSS. Lethal everywhere EXCEPT the post-rewind block, the IMPACT
+    # PROFILE's post-crash block, and IMPACT-COAST itself - where a dead handle is
+    # respectively the NORMAL reading (SPACECENTER has no active vessel at all),
+    # the OUTCOME the profile asked for, and the SIGNAL it is waiting on. See
+    # KXRW_POST_REWIND_PHASES / KXRW_IMPACT_PHASES.
     if snapshot.vessel_lost:
+        if state.phase == KXRW_IMPACT_COAST:
+            # THE IMPACT, reading (1) of 2. NOT a terminal here: this is the very
+            # event the profile flew for, and the mission has five more phases to
+            # drive. Everywhere else this same snapshot still ends the mission.
+            return _kxrw_observe_impact(state, snapshot, "vessel-lost"), []
         if state.phase == KXRW_ROLLOUT:
             # The rollout's own FLIGHT->FLIGHT reload is running under us.
             state = replace(
                 state,
                 rollout_vessel_lost_frames=state.rollout_vessel_lost_frames + 1)
+        elif state.phase in KXRW_IMPACT_PHASES:
+            state = replace(
+                state,
+                post_impact_vessel_lost_frames=(
+                    state.post_impact_vessel_lost_frames + 1))
         elif state.phase in KXRW_POST_REWIND_PHASES:
             state = replace(
                 state,
@@ -21604,6 +22004,17 @@ def kxrw_decide(state: KxrwState,
         new_sig, new_count, tripped = _advance_frozen_count(
             state.frozen_sig, state.frozen_count, snapshot, limit)
         if tripped:
+            if state.phase == KXRW_IMPACT_COAST:
+                # THE IMPACT, reading (2) of 2. KSP does not always kill the
+                # active-vessel handle on a crash - it routinely hands
+                # active-vessel to a surviving debris piece, whose readings then
+                # freeze, which is precisely what this detector is FOR. On THIS
+                # phase that is the signal rather than the terminal. The frozen
+                # bookkeeping rides into the transition so the counter carries the
+                # latest signature rather than re-tripping on stale state.
+                return _kxrw_observe_impact(
+                    replace(state, frozen_sig=new_sig, frozen_count=new_count),
+                    snapshot, "frozen-telemetry"), []
             return replace(
                 state, frozen_sig=new_sig, frozen_count=new_count, done=True,
                 verdict=MISSION_ASSERT_FAIL,
@@ -21755,6 +22166,24 @@ def kxrw_decide(state: KxrwState,
             # thrust step is coming; the settle wait, not a fresh reading, is what
             # separates the clicks.
             return _kxrw_enter(st, KXRW_BOOSTER_CUT, snapshot.ut), actions
+        if p.impact_profile:
+            # THE IMPACT PROFILE'S ONE DIVERGENCE IN THE FLOWN ASCENT, and it is
+            # exactly the absence of the throttle-up below: the stack is left
+            # unpowered on the last drop so it falls back and hits the ground.
+            # The cut is COMMANDED explicitly rather than assumed from BOOSTER-CUT
+            # (a commanded state nobody re-states is a state a later edit can
+            # silently drop), and the AP is disengaged so nothing holds attitude
+            # on the way down. Then straight to TREE-STATE with the same single
+            # RecordingState probe COAST issues on the ordinary path - the tree id
+            # has to be captured HERE, while a recorder is still live, because
+            # after the crash the tree is stashed as PENDING and CommitTree is
+            # refused `no-active-tree`.
+            st = replace(st, impact_throttle_cut_commanded=True, tree_probe=0)
+            actions.append(Action(ACTION_CUT_THROTTLE, 0.0))
+            actions.append(Action(ACTION_AP_DISENGAGE))
+            return (_kxrw_enter(st, KXRW_TREE_STATE, snapshot.ut),
+                    actions + [_kxrw_seam_action("RecordingState",
+                                                 kxrw_tree_probe_tag(0))])
         # Last pair away: throttle back up and keep climbing on the core.
         actions.append(Action(ACTION_SET_THROTTLE, p.launch_throttle))
         return _kxrw_enter(st, KXRW_ASCENT, snapshot.ut), actions
@@ -21865,6 +22294,16 @@ def kxrw_decide(state: KxrwState,
         if result == "OK":
             tree = _seam_payload(snapshot, tag, "tree")
             if tree:
+                if p.impact_profile:
+                    # NO CommitTree ON THIS PATH, and it is Parsek's shape rather
+                    # than a shortcut: the crash that follows makes
+                    # `ParsekFlight.ShowPostDestructionTreeMergeDialog` finalize
+                    # and STASH the tree as pending, after which CommitTree is
+                    # refused `no-active-tree`. The commit is performed by the
+                    # SPACECENTER arrival instead (SC-EXIT), and READ back by
+                    # SC-COMMITTED.
+                    return (_kxrw_enter(replace(state, tree_id=tree),
+                                        KXRW_IMPACT_COAST, snapshot.ut), [])
                 return (_kxrw_enter(replace(state, tree_id=tree), KXRW_COMMIT,
                                     snapshot.ut),
                         [_kxrw_seam_action("CommitTree", KXRW_TAG_COMMIT)])
@@ -22021,6 +22460,351 @@ def kxrw_decide(state: KxrwState,
                 "phase %s: the RecordingState seam command never answered within %d "
                 "frames" % (KXRW_RECORDER_IDLE, p.idle_frames)), []
         return state, []
+
+    # ---- THE IMPACT PROFILE'S NINE PHASES (opt-in; see the section header) --
+    #
+    # Every one of them is unreachable unless a spec declares `impactProfile`: the
+    # only door in is TREE-STATE's own opt-in branch above. Their shared contract
+    # is that a `vessel_lost` frame is EXPECTED here (KXRW_IMPACT_PHASES) - the
+    # crash destroyed the craft, the throwaway launch reloads the scene over the
+    # wreckage, the exit tears it down and the RELOAD cold-boots a save - so every
+    # bound below is a FRAME count, exactly as the post-rewind block's are and for
+    # a related reason: there is often no vessel and, past the exit, no reliable
+    # forward clock either.
+
+    # ---- IMPACT-COAST: fall, and WAIT to be told the stack hit --------------
+    # The transitions out of this phase are NOT here. Both impact readings are
+    # handled by the two generic blocks at the top of `kxrw_decide`, because both
+    # arrive as the very snapshots those blocks exist to classify; putting a
+    # third copy of either test here is how the two would drift apart. What is
+    # left for the phase body is the one thing neither reading can produce: the
+    # give-up for an impact that never came.
+    if state.phase == KXRW_IMPACT_COAST:
+        if state.phase_frames > p.impact_coast_frames:
+            return _kxrw_flake(
+                state,
+                "phase %s: no impact was observed within %d frames (nowUT=%s, "
+                "last readable UT %s). Neither reading fired - no vessel_lost "
+                "snapshot and no frozen-telemetry trip - so either the stack "
+                "SURVIVED (it is still flying, or it landed softly) or the clock "
+                "stalled; the profile's whole premise is a craft that stops "
+                "existing"
+                % (KXRW_IMPACT_COAST, p.impact_coast_frames, _obs_fmt(snapshot.ut),
+                   _obs_fmt(state.last_finite_ut))), []
+        return state, []
+
+    # ---- IMPACT-SETTLE: let the C# finalize run, THEN relaunch --------------
+    if state.phase == KXRW_IMPACT_SETTLE:
+        # A HOLD, not a readback, and deliberately: nothing on the kRPC side can
+        # see Parsek's destruction coalescer finish. The C# finalize waits up to
+        # 5 s of REAL time for it before stashing the tree as pending, and
+        # `impactSettleFrames` is sized to outlast that (16 frames at the 0.5 s
+        # poll = 8 s). Moving on early would race the very stash the whole
+        # SPACECENTER hop depends on - and what follows is a FLIGHT->FLIGHT
+        # reload, which tears the scene the finalize is running in down.
+        if state.phase_frames >= max(1, p.impact_settle_frames):
+            return _kxrw_enter(state, KXRW_TEMP_LAUNCH, snapshot.ut), []
+        return state, []
+
+    # ---- TEMP-LAUNCH / TEMP-READY: the FLIGHT scene the rewind verb needs, put
+    # ---- up BEFORE the exit -------------------------------------------------
+    #
+    # THIS CRAFT IS NOT THE WATCHER, and the distinction is the whole reason the
+    # pair exists. `InvokeRewindToLaunch` is RequiresFlight, so something has to be
+    # on the pad before the rewind can be commanded at all. The rewind's quicksave
+    # PREDATES this launch, so this craft is rewound out of existence by the very
+    # verb it exists to enable; the REAL watcher is launched afterwards by the
+    # unchanged WATCHER-LAUNCH phase, after AUTORECORD-OFF has disarmed the
+    # recorder. It reuses the watcher's craft / name / situations because "a small
+    # craft that settles on the pad" is the entire specification of both.
+    #
+    # IT RUNS HERE, IN THE POST-CRASH FLIGHT SCENE, AND THAT IS MEASURED RATHER
+    # THAN PREFERRED. The first flight of this profile issued the launch from
+    # SPACECENTER (after SC-COMMITTED) and the kRPC `LaunchVessel` RPC HUNG for the
+    # rest of the mission budget with KSP logging no launch at all: the RPC yields
+    # on `WaitForVesselPreFlightChecks(config)`, and those checks never report
+    # complete outside the FLIGHT scene (decompiled from the automation instance's
+    # `KRPC.SpaceCenter.dll`). The post-crash scene IS still FLIGHT, and
+    # `FlightDriver.StartWithNewLaunch` cares about neither the wreckage nor the
+    # stock crash report, so the launch works from here - and, on the kRPC side,
+    # only from here.
+    if state.phase == KXRW_TEMP_LAUNCH:
+        # ONE click, on the phase's first frame - WATCHER-LAUNCH's shape exactly.
+        st = replace(state, temp_launch_commanded=True, temp_ready_streak=0)
+        return (_kxrw_enter(st, KXRW_TEMP_READY, snapshot.ut),
+                [Action(ACTION_LAUNCH_VESSEL, text=p.watcher_craft_name,
+                        launch_site=p.launch_site)])
+
+    if state.phase == KXRW_TEMP_READY:
+        # THE SAME SETTLE GATE BOTH OTHER LAUNCHES USE. A weaker gate on one of
+        # three identical operations is a hole on that one. This launch is a
+        # FLIGHT->FLIGHT reload over the wreckage, so its vessel_lost frames are
+        # expected and settle nothing.
+        settled = kxrw_launch_settled(snapshot.vessel_lost, snapshot.vessel_name,
+                                      snapshot.situation,
+                                      p.watcher_expected_vessel_name,
+                                      p.watcher_ready_situations)
+        streak = state.temp_ready_streak + 1 if settled else 0
+        st = replace(state, temp_ready_streak=streak,
+                     temp_ready_vessel_name=((snapshot.vessel_name
+                                              or state.temp_ready_vessel_name)
+                                             if live
+                                             else state.temp_ready_vessel_name))
+        if streak >= max(1, p.watcher_ready_debounce):
+            # SETTLED, AND NOTHING IS STAMPED HERE. The pre-rewind clock stamp
+            # belongs to RELOAD-READY, on the frame the rewind actually goes out: a
+            # stamp taken here would be separated from the command by a scene exit
+            # and a cold boot, and the SPACECENTER gate's `before` has to be the
+            # tightest one available.
+            return (_kxrw_enter(replace(st, temp_ready_observed=True),
+                                KXRW_SC_EXIT, snapshot.ut),
+                    [_kxrw_seam_action("ExitToSpaceCenter", KXRW_TAG_SC_EXIT)])
+        if st.phase_frames > p.watcher_launch_frames:
+            return _kxrw_flake(
+                st,
+                "phase %s: %r never became the active vessel in one of %s within "
+                "%d frames (craft file %r, last name read %r, last situation %s). "
+                "Exiting without it would leave the Space Center save with no "
+                "vessel for RELOAD to boot into FLIGHT, and InvokeRewindToLaunch "
+                "is RequiresFlight"
+                % (KXRW_TEMP_READY, p.watcher_expected_vessel_name,
+                   list(p.watcher_ready_situations), p.watcher_launch_frames,
+                   p.watcher_craft_name, st.temp_ready_vessel_name or "",
+                   snapshot.situation or "UNREAD")), []
+        return st, []
+
+    # ---- SC-EXIT: the scene transition that COMMITS the pending tree --------
+    if state.phase == KXRW_SC_EXIT:
+        result = _seam_result(snapshot, KXRW_TAG_SC_EXIT)
+        if result == "OK":
+            # The OK says a SCENE CHANGED. It does not say a tree was committed,
+            # so SC-COMMITTED goes and reads that - the same COMMANDED-versus-
+            # OBSERVED discipline the SPACECENTER clock gate applies to the
+            # rewind's own OK.
+            st = replace(state, sc_exit_result="OK", sc_commit_probe=0)
+            return (_kxrw_enter(st, KXRW_SC_COMMITTED, snapshot.ut),
+                    [_kxrw_seam_action("ListHandles", kxrw_sc_commit_probe_tag(0),
+                                       KXRW_SC_COMMITTED_LIST_ARGS)])
+        if result in ("ERROR", "TIMEOUT"):
+            # FATAL, and unlike a refused render verb this is not a Parsek verdict
+            # about a replay: the exit is the ONLY route this profile has to a
+            # committed tree, so flying on would drive a rewind against a tree that
+            # is still pending. Parsek's own refusal word is quoted rather than
+            # guessed at (the exit gate refuses by name when a dialog is required).
+            reason = _seam_reject_reason(snapshot, KXRW_TAG_SC_EXIT)
+            return _kxrw_flake(
+                replace(state, sc_exit_result=result,
+                        sc_exit_reject_reason=reason),
+                "phase %s: ExitToSpaceCenter returned %s; %s. The crash STASHED "
+                "this flight's tree as pending (CommitTree is refused "
+                "`no-active-tree` from here), and the SPACECENTER arrival is what "
+                "auto-commits it - without the exit there is nothing to rewind to"
+                % (KXRW_SC_EXIT, result, _seam_because(reason))), []
+        if state.phase_frames > p.sc_exit_frames:
+            return _kxrw_flake(
+                state,
+                "phase %s: the ExitToSpaceCenter seam command never answered "
+                "within %d frames (no terminal token rode a snapshot). It spans a "
+                "whole scene load, which is why the bound is the largest in this "
+                "block - a silent one means the bridge itself is not answering"
+                % (KXRW_SC_EXIT, p.sc_exit_frames)), []
+        return state, []
+
+    # ---- SC-COMMITTED: READ that the pending tree actually committed --------
+    if state.phase == KXRW_SC_COMMITTED:
+        tag = kxrw_sc_commit_probe_tag(state.sc_commit_probe)
+        result = _seam_result(snapshot, tag)
+        if result == "OK":
+            raw_count = seam_handle_from_payload(snapshot, tag, "count")
+            count = _seam_parse_int(raw_count)
+            if count is None:
+                # FAIL CLOSED, the R1 RESOLVE shape: an unreadable count is not
+                # permission to command an irreversible rewind against a tree
+                # nothing has confirmed exists.
+                return _kxrw_flake(
+                    state,
+                    "phase %s: the ListHandles reply carried no readable `count` "
+                    "field (read %r), so whether the pending tree committed could "
+                    "not be established; refusing to save, reload and rewind "
+                    "against an unverified commit"
+                    % (KXRW_SC_COMMITTED, raw_count)), []
+            if count >= 1:
+                st = replace(state, committed_handle_count=count)
+                return (_kxrw_enter(st, KXRW_SC_SAVE, snapshot.ut),
+                        [_kxrw_seam_action("SaveGame", KXRW_TAG_SC_SAVE,
+                                           KXRW_SC_SAVE_ARGS)])
+            # count == 0: the exit answered OK but the auto-commit has not landed
+            # in the store yet. RE-PROBE under a FRESH tag (the C# seam skips
+            # duplicate ids) until the bound.
+            st = replace(state, committed_handle_count=0,
+                         sc_commit_probe=state.sc_commit_probe + 1)
+            if st.phase_frames > p.sc_committed_frames:
+                return _kxrw_flake(
+                    st,
+                    "phase %s: the pending tree never auto-committed at the Space "
+                    "Center - ListHandles kind=committed still enumerated count=0 "
+                    "after %d frames (%d probe(s)). ExitToSpaceCenter answered OK, "
+                    "so the scene changed; what did not happen is the arrival's "
+                    "commit of the tree the crash stashed, and "
+                    "InvokeRewindToLaunch is REJECTED without one"
+                    % (KXRW_SC_COMMITTED, p.sc_committed_frames,
+                       st.sc_commit_probe)), []
+            return st, [_kxrw_seam_action(
+                "ListHandles", kxrw_sc_commit_probe_tag(st.sc_commit_probe),
+                KXRW_SC_COMMITTED_LIST_ARGS)]
+        if result in ("ERROR", "TIMEOUT"):
+            return _kxrw_flake(
+                state,
+                "phase %s: the ListHandles seam command returned %s (%s); whether "
+                "the crash's pending tree committed could not be read"
+                % (KXRW_SC_COMMITTED, result,
+                   _seam_because(_seam_reject_reason(snapshot, tag)))), []
+        if state.phase_frames > p.sc_committed_frames:
+            return _kxrw_flake(
+                state,
+                "phase %s: the ListHandles seam command never answered within %d "
+                "frames (no terminal token rode a snapshot)"
+                % (KXRW_SC_COMMITTED, p.sc_committed_frames)), []
+        return state, []
+
+    # ---- SC-SAVE: put the IN-MEMORY commit onto disk ------------------------
+    #
+    # WHY A SAVE AT ALL, because "the exit already wrote persistent.sfs" is exactly
+    # the reasoning this phase exists to refuse. The .sfs the exit wrote was
+    # serialized on the way OUT of flight, while the tree was still PENDING; the
+    # auto-commit then happened in MEMORY, on arrival at the Space Center. A boot of
+    # that file would therefore load a world whose tree is still pending, and
+    # InvokeRewindToLaunch refuses one. SaveGame re-persists the LIVE state - the
+    # commit included - into the same slot RELOAD then boots.
+    #
+    # AND WHY THE RESULT IS FOCUSABLE: KSP's `FlightState` capture stamps
+    # `activeVesselIdx = 0` when `FlightGlobals.ready` is false, which it is at the
+    # Space Center. After the crash the ONLY vessel left is the throwaway craft
+    # TEMP-LAUNCH put on the pad, so index 0 IS that craft and
+    # `TestCommandLoadGame`'s route resolves Focusable - the boot lands in FLIGHT
+    # rather than back at the KSC.
+    if state.phase == KXRW_SC_SAVE:
+        result = _seam_result(snapshot, KXRW_TAG_SC_SAVE)
+        if result == "OK":
+            st = replace(state, sc_save_result="OK")
+            return (_kxrw_enter(st, KXRW_RELOAD, snapshot.ut),
+                    [_kxrw_seam_action("LoadGame", KXRW_TAG_RELOAD,
+                                       kxrw_reload_seam_args(p.reload_save_name))])
+        if result in ("ERROR", "TIMEOUT"):
+            # FATAL for SC-EXIT's reason: without this write the committed tree
+            # exists only in a process that is about to be reloaded away, and the
+            # rewind would be commanded against a save that never had it. Parsek's
+            # own refusal word is quoted (`no-game` / `save-failed`).
+            reason = _seam_reject_reason(snapshot, KXRW_TAG_SC_SAVE)
+            return _kxrw_flake(
+                replace(state, sc_save_result=result),
+                "phase %s: SaveGame returned %s; %s. The commit the Space Center "
+                "arrival performed is IN MEMORY only - the .sfs the exit wrote "
+                "still carries this flight's tree as pending - so without this "
+                "write there is nothing on disk for the reload to rewind against"
+                % (KXRW_SC_SAVE, result, _seam_because(reason))), []
+        if state.phase_frames > p.sc_save_frames:
+            return _kxrw_flake(
+                state,
+                "phase %s: the SaveGame seam command never answered within %d "
+                "frames (no terminal token rode a snapshot). It is a SYNCHRONOUS "
+                "in-process persist whose reply lands on the next frame, so a "
+                "silent one means the bridge itself is not answering"
+                % (KXRW_SC_SAVE, p.sc_save_frames)), []
+        return state, []
+
+    # ---- RELOAD: boot the just-written save back into FLIGHT ----------------
+    #
+    # The bridge BLOCKS inside perform() for this one: `LoadGame` is two-phase and
+    # `seam_command_poll_seconds("LoadGame")` is 420 s, so the whole cold boot
+    # happens inside the command and the frame bound below only catches a seam that
+    # answered nothing at all.
+    if state.phase == KXRW_RELOAD:
+        result = _seam_result(snapshot, KXRW_TAG_RELOAD)
+        if result == "OK":
+            return (_kxrw_enter(replace(state, reload_result="OK"),
+                                KXRW_RELOAD_READY, snapshot.ut), [])
+        if result in ("ERROR", "TIMEOUT"):
+            # Parsek's own reason is quoted rather than guessed at: the dispatcher
+            # refuses this verb by name (`recording-active`, `load-in-flight`) and
+            # the impl adds `load-failed` / an invalid-scene REJECTED, and each one
+            # sends an operator somewhere different.
+            reason = _seam_reject_reason(snapshot, KXRW_TAG_RELOAD)
+            return _kxrw_flake(
+                replace(state, reload_result=result,
+                        reload_reject_reason=reason),
+                "phase %s: LoadGame save=%r returned %s; %s. This boot is the "
+                "profile's only route from the Space Center back into a FLIGHT "
+                "scene, and InvokeRewindToLaunch is RequiresFlight"
+                % (KXRW_RELOAD, p.reload_save_name, result,
+                   _seam_because(reason))), []
+        if state.phase_frames > p.reload_frames:
+            return _kxrw_flake(
+                state,
+                "phase %s: the LoadGame seam command never answered within %d "
+                "frames (no terminal token rode a snapshot). The bridge blocks "
+                "inside perform() for the whole 420 s boot poll, so a silent one "
+                "is the bridge not answering rather than a slow load"
+                % (KXRW_RELOAD, p.reload_frames)), []
+        return state, []
+
+    # ---- RELOAD-READY: the booted craft settles, THEN the rewind goes out ---
+    if state.phase == KXRW_RELOAD_READY:
+        # THE SAME SETTLE GATE EVERY OTHER LAUNCH USES, over the same craft
+        # TEMP-LAUNCH put on the pad - it is what the save's `activeVesselIdx = 0`
+        # resolved to, so a settle on any other name means the boot focused
+        # something nobody expected.
+        settled = kxrw_launch_settled(snapshot.vessel_lost, snapshot.vessel_name,
+                                      snapshot.situation,
+                                      p.watcher_expected_vessel_name,
+                                      p.watcher_ready_situations)
+        streak = state.reload_ready_streak + 1 if settled else 0
+        st = replace(state, reload_ready_streak=streak,
+                     reload_ready_vessel_name=((snapshot.vessel_name
+                                                or state.reload_ready_vessel_name)
+                                               if live
+                                               else state.reload_ready_vessel_name))
+        if streak >= max(1, p.watcher_ready_debounce):
+            if not _is_finite(snapshot.ut):
+                # THE SAME REFUSAL RECORDER-IDLE MAKES, for the same reason:
+                # `pre_rewind_ut` is the SPACECENTER gate's only "before", and a
+                # non-finite stamp makes the OBSERVED backward clock permanently
+                # unprovable - after an irreversible world load has already been
+                # commanded. HOLD (the streak is kept; the craft did settle) and
+                # try again on a frame whose clock reads.
+                if st.phase_frames > p.watcher_launch_frames:
+                    return _kxrw_flake(
+                        st,
+                        "phase %s: the reloaded craft settled but `ut` was "
+                        "unreadable on every frame within %d frames; the "
+                        "pre-rewind clock stamp is the SPACECENTER gate's only "
+                        "`before`, and a non-finite one makes the OBSERVED "
+                        "backward clock unprovable - refusing to command an "
+                        "irreversible rewind against a stamp nothing can be "
+                        "compared to"
+                        % (KXRW_RELOAD_READY, p.watcher_launch_frames)), []
+                return st, []
+            # Stamped on the SAME frame the rewind is commanded, so the regression
+            # gate compares against the tightest possible "before".
+            st = replace(st, reload_ready_observed=True, pre_rewind_ut=snapshot.ut)
+            return (_kxrw_enter(st, KXRW_REWIND, snapshot.ut),
+                    [_kxrw_seam_action(
+                        "InvokeRewindToLaunch", KXRW_TAG_REWIND,
+                        (("tree", str(st.tree_id)),))])
+        if st.phase_frames > p.watcher_launch_frames:
+            return _kxrw_flake(
+                st,
+                "phase %s: %r never became the active vessel in one of %s within "
+                "%d frames after the boot (craft file %r, last name read %r, last "
+                "situation %s). LoadGame answered OK, so a game loaded; what did "
+                "not happen is it settling in FLIGHT on the craft the save's "
+                "activeVesselIdx addressed, and InvokeRewindToLaunch is "
+                "RequiresFlight"
+                % (KXRW_RELOAD_READY, p.watcher_expected_vessel_name,
+                   list(p.watcher_ready_situations), p.watcher_launch_frames,
+                   p.watcher_craft_name, st.reload_ready_vessel_name or "",
+                   snapshot.situation or "UNREAD")), []
+        return st, []
 
     # ---- REWIND -------------------------------------------------------------
     if state.phase == KXRW_REWIND:
@@ -22403,22 +23187,59 @@ def evaluate_kxrw_assertions(frames, params: KxrwParams,
       defect into a retryable driver-INVALID and throw the evidence away.
     - ``playbackWatchedOut``: the clock passed recordedEnd + playbackMarginSeconds,
       so the whole ghost lifecycle (spawn -> replay -> retire) is inside the log.
+
+    THE IMPACT PROFILE SUBSTITUTES TWO ROWS IN PLACE, and adds none: the count
+    stays eight, and the six rows it does not touch are byte-identical.
+      - ``impactObserved`` replaces ``coreDiscardedWithEnginesOff``, because that
+        profile never enters the core gate at all - a row about a discard that
+        cannot happen would be a permanently-unmet row rather than evidence. It
+        carries the crash the profile flew for: WHICH reading saw it, and when.
+      - ``treeCommittedAtSpaceCenter`` replaces ``treeCommitted``, because on that
+        profile the commit is not a CommitTree verdict to read: the crash stashes
+        the tree as pending and the SPACECENTER arrival commits it, so the
+        evidence is the exit's own terminal plus the count ListHandles read back.
+        The SaveGame and LoadGame terminals that carry that commit onto disk and
+        back into flight ride the DETAIL rather than the met test - the machine
+        cannot reach the rewind without both, so testing them here would be
+        testing the row's own reachability.
+    ``recordedSpanSeconds`` needs no substitution: ``recording_end_ut`` is stamped
+    by the impact instead of by the commit, so the row measures the same thing.
     """
     frames = list(frames or [])
     launch_ut = getattr(state, "launch_ut", float("nan"))
     end_ut = getattr(state, "recording_end_ut", float("nan"))
 
-    core_ok = bool(getattr(state, "core_discard_commanded", False)
-                   and getattr(state, "core_cut_throttle_observed", False))
-    core = AssertionOutcome(
-        "coreDiscardedWithEnginesOff", core_ok,
-        getattr(state, "core_cut_throttle_reading", float("nan")),
-        {"throttleZeroEpsilon": params.throttle_zero_epsilon,
-         "stageCommanded": bool(getattr(state, "core_discard_commanded", False)),
-         "throttleObservedZero": bool(
-             getattr(state, "core_cut_throttle_observed", False)),
-         "discardUT": getattr(state, "core_discard_ut", None),
-         "discardAltitude": getattr(state, "core_discard_altitude", None)})
+    impact_profile = bool(getattr(params, "impact_profile", False))
+
+    if impact_profile:
+        # THE CRASH THE PROFILE FLEW FOR. Met on the OBSERVATION, never on the
+        # commanded cut that preceded it: the cut only stops the stack climbing,
+        # and a stack that glided down intact would have had the same cut.
+        impact_ut = getattr(state, "impact_ut", float("nan"))
+        core = AssertionOutcome(
+            "impactObserved", bool(getattr(state, "impact_observed", False)),
+            impact_ut if _is_finite(impact_ut) else float("nan"),
+            {"observedBy": getattr(state, "impact_observed_by", "") or "none",
+             "coastFrames": params.impact_coast_frames,
+             # COMMANDED and labelled as such: nothing reads the throttle back on
+             # this path, because no irreversible act is gated on it (the fueled
+             # core is long gone by here).
+             "throttleCutCommanded": bool(
+                 getattr(state, "impact_throttle_cut_commanded", False)),
+             "postImpactVesselLostFrames": int(
+                 getattr(state, "post_impact_vessel_lost_frames", 0))})
+    else:
+        core_ok = bool(getattr(state, "core_discard_commanded", False)
+                       and getattr(state, "core_cut_throttle_observed", False))
+        core = AssertionOutcome(
+            "coreDiscardedWithEnginesOff", core_ok,
+            getattr(state, "core_cut_throttle_reading", float("nan")),
+            {"throttleZeroEpsilon": params.throttle_zero_epsilon,
+             "stageCommanded": bool(getattr(state, "core_discard_commanded", False)),
+             "throttleObservedZero": bool(
+                 getattr(state, "core_cut_throttle_observed", False)),
+             "discardUT": getattr(state, "core_discard_ut", None),
+             "discardAltitude": getattr(state, "core_discard_altitude", None)})
 
     drops = int(getattr(state, "booster_drops_done", 0))
     boosters = AssertionOutcome(
@@ -22453,16 +23274,43 @@ def evaluate_kxrw_assertions(frames, params: KxrwParams,
              getattr(state, "rollout_vessel_lost_frames", 0))})
 
     tree_id = getattr(state, "tree_id", "") or ""
-    committed = AssertionOutcome(
-        "treeCommitted",
-        bool(tree_id) and getattr(state, "commit_result", "") == "OK",
-        tree_id or None,
-        {"commitResult": getattr(state, "commit_result", "") or "NONE",
-         "stopResult": getattr(state, "stop_result", "") or "NONE",
-         "recorderIdleObserved": bool(
-             getattr(state, "recorder_idle_observed", False)),
-         "recorderIdleReading": (getattr(state, "recorder_idle_reading", "")
-                                 or "UNREAD")})
+    if impact_profile:
+        exit_result = getattr(state, "sc_exit_result", "") or ""
+        handle_count = int(getattr(state, "committed_handle_count", -1))
+        committed = AssertionOutcome(
+            "treeCommittedAtSpaceCenter",
+            bool(exit_result == "OK" and handle_count >= 1),
+            handle_count if handle_count >= 0 else None,
+            {"tree": tree_id or None,
+             "exitResult": exit_result or "NONE",
+             "exitReason": getattr(state, "sc_exit_reject_reason", "") or None,
+             # The two verbs that carry the read-back commit from the arrival's
+             # MEMORY onto disk and back into a FLIGHT scene. EVIDENCE, not
+             # gates: the machine cannot reach the rewind without both having
+             # answered OK, so a row that also tested them would be testing its
+             # own reachability. What they buy an operator is the ability to tell
+             # a run that never got past the persist from one that never got past
+             # the boot, without reading the phase list.
+             "saveResult": getattr(state, "sc_save_result", "") or "NONE",
+             "reloadResult": getattr(state, "reload_result", "") or "NONE",
+             # PROBES ISSUED, derived from the tag-family index rather than
+             # counted a second time: the first probe rides the SC-EXIT terminal,
+             # so the index and the count differ by exactly one once any has gone
+             # out. >1 means the arrival's auto-commit had not landed on the first
+             # read, which is what an operator needs before blaming the exit.
+             "probes": (int(getattr(state, "sc_commit_probe", 0)) + 1
+                        if exit_result == "OK" else 0)})
+    else:
+        committed = AssertionOutcome(
+            "treeCommitted",
+            bool(tree_id) and getattr(state, "commit_result", "") == "OK",
+            tree_id or None,
+            {"commitResult": getattr(state, "commit_result", "") or "NONE",
+             "stopResult": getattr(state, "stop_result", "") or "NONE",
+             "recorderIdleObserved": bool(
+                 getattr(state, "recorder_idle_observed", False)),
+             "recorderIdleReading": (getattr(state, "recorder_idle_reading", "")
+                                     or "UNREAD")})
 
     regression = getattr(state, "ut_regression", float("nan"))
     rewound = AssertionOutcome(

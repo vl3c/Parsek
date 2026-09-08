@@ -645,9 +645,11 @@ crew-transfer action, and no inventory-part action in the mission action vocabul
   makes it a sub-surface of Relative sections and therefore overlapping with
   `parent-anchored-debris`. Resolve before anyone claims it, or the claim is
   unfalsifiable.
-- No in-game test found for: D6 `zone-transitions`, D4 `tail-trim`, D5
-  `staging-debris-promotion`, D9 `load-time-sweep`, D2 `density-presets`. Each needs a
-  new in-game test written against an existing seam.
+- No in-game test found for: ~~D6 `zone-transitions`~~ (CLAIMED 2026-09-08 by
+  `GS-8-kerbalx-zone-round-trip` from a flown replay's production lines, no test
+  needed), D4 `tail-trim`, D5 `staging-debris-promotion`, D9 `load-time-sweep`, D2
+  `density-presets`. Each of the rest needs a new in-game test written against an
+  existing seam.
 - D5 `dock-merge-same-tree` needs a two-port single-launch craft (new fixture + new
   mission). D7 `inventory-place-remove` needs an inventory-carrying craft plus an EVA
   construction action. D8 `milestones` needs a career flight that earns one.
@@ -3258,6 +3260,20 @@ first spawn frame (hold-then-retry, never a single eager ask).
    MeshDestroyed emit (added with GS-4's review round) plus the zone tracer's
    torn-down/rebuilt lines make mesh unload/reload assertable for the first
    time. Pair with a ghostLifecycle balance that must survive the round trip.
+   **DONE 2026-09-08: `GS-8-kerbalx-zone-round-trip` is FLOWN GREEN AND ARMED.**
+   Four flights in one afternoon: reading run `2026-09-08_1119` (PARSEK-FAIL on
+   the late watch, and the measurement that the mesh hide is the 50 km distance
+   LOD, not the 120 km zone step), round 2 `_1225` (PASS attempt 1, all 22 tokens,
+   the ladder measured at 10000 m / 55004 m torn down / 120006 m Beyond / watch
+   rebuild `watch mode requested` / `Beyond->Physics dist=1m`), armed re-flight
+   `_1239` (PASS, gate live) and negative control `_1249` (`spawned = {min 9}`,
+   red PARSEK-FAIL(ghost-lifecycle) exactly). GS-4's machine unchanged: three
+   params (a 160 km core burn, a 150 s coast, a 175 s watch lead). D6
+   `zone-transitions` claimed off gated tokens; the Cause F "needs an in-game
+   test" entry is answered by the flown replay instead. One correction the flight
+   made to the plan: the engine-teardown MeshDestroyed emit is the DestroyAllGhosts
+   bulk path, not the zone hide - the zone teardown and the rebuild emit NO
+   lifecycle line, which is exactly why the balance survives the round trip.
 5. **Debris lifecycle split** (D5 `staging-debris-ttl` /
    `staging-debris-promotion`, both UNCOVERED): GS-4's flight already
    produces the population; a variant asserts the TTL-expiry vs promotion
