@@ -10356,7 +10356,7 @@ item and must not be counted as one:
   through. Stage B scope: the R12 residue block in `docs/dev/autotest-roadmap.md`.
 - **R10** runtime-handle plumbing so a live tree / vessel / route id can reach a verb -
   ~~OPEN (`run.py:1157` substitutes exactly one token, `${runSave}`, and no response
-  payload is ever captured)~~ **CLOSED 2026-09-08** (PR #R10PR, branch
+  payload is ever captured)~~ **CLOSED 2026-09-08** (PR #1653, branch
   `r10-runtime-handles`) by three pieces: the harness captures a seam reply's payload
   fields into a per-run store and substitutes `${<label-or-stepId>.<field>}` into later
   step args and into `[driver.missionParams]` (static faults `INVALID(spec-invalid)`

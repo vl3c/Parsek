@@ -70,7 +70,7 @@ _(unreleased — entries accumulate here per commit)_
   value and the rewind's own log naming the same rewind point. Contracts:
   `docs/dev/design-autotest-harness-core.md` -> "Runtime handles: payload capture and
   `${step.field}` substitution (R10)" and `design-autotest-command-seam.md` ->
-  "#### ListHandles". Test-tooling only; no gameplay change (PR #R10PR).
+  "#### ListHandles". Test-tooling only; no gameplay change (PR #1653).
 
 - **Automated testing: the looped re-aim arrival seam is now observable by the companion
   lane, with no product change.** The `V3C-flight-arrival-companion` harness lane flies a

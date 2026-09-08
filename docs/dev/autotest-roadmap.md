@@ -202,7 +202,7 @@ remains is, in order:
    `InvokeRewind`) and the pre-switch dialog cases need the same. D18 is the
    largest uncovered dimension (10 of 12) and it is the interaction surface of the
    v0.9 headline feature, so this is where the next unmeasured product risk sits.~~
-   **SHIPPED 2026-09-08 (PR #R10PR)** - `${step.field}` capture / substitution plus the
+   **SHIPPED 2026-09-08 (PR #1653)** - `${step.field}` capture / substitution plus the
    `ListHandles` verb, first consumer `RH-1-live-rp-handle-rewind`; next: item 2.
 2. **The chain-interaction wave riding R10**: one fixture whose switch target is a
    background member of the live tree plus one committed spawned vessel; claims the
@@ -1243,7 +1243,7 @@ deliberately does not carry those, they live in `.prec` sidecars the analyzer
 already parses.
 
 **R10. Runtime-handle plumbing.** ~~One harness PR plus one seam verb.~~
-**SHIPPED 2026-09-08 (PR #R10PR).**
+**SHIPPED 2026-09-08 (PR #1653).**
 
 (a) Capture seam response payloads into a named store with `${step.field}`
 substitution at `run.py:1157`; (b) generalize `mission_runner._perform_seam_commit`

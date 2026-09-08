@@ -2,7 +2,7 @@
 
 Last updated: 2026-09-08 (**`ListHandles` ADDED to the M-A2 seam - 31 -> 32
 implemented, reserved unchanged at 5 - and R10 RUNTIME-HANDLE PLUMBING SHIPPED**, branch
-`r10-runtime-handles`, PR #R10PR. R10 is the runtime -> spec data path: the harness
+`r10-runtime-handles`, PR #1653. R10 is the runtime -> spec data path: the harness
 captures a seam reply's payload fields into a per-run store and substitutes
 `${<label-or-stepId>.<field>}` references out of it into later step args and into
 `[driver.missionParams]`, with two failure tiers that never put the literal token on the
@@ -1269,7 +1269,7 @@ The "Parsek surface verified" column is the reason the case exists.
 
 ### Committed, not yet green (0)
 
-BACK TO ONE AND DOWN TO ZERO ON 2026-09-08 (`r10-runtime-handles`, PR #R10PR): the
+BACK TO ONE AND DOWN TO ZERO ON 2026-09-08 (`r10-runtime-handles`, PR #1653): the
 "empty by construction until the next never-flown spec lands" sentence below is what
 happened, and the lane flew out the same day. `RH-1-live-rp-handle-rewind`, the FIRST
 CONSUMER of R10 runtime handles end to end (`ListHandles kind=rewindpoints` labelled
