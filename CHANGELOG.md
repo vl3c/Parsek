@@ -10,6 +10,20 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Automated testing: the harvested save of the closed-slot session is now read
+  through the real loader, not only compared byte for byte.** That save is the only
+  copy of what the defect actually wrote, and the damage is invisible in its text: the
+  later half of the split flight carries no merge-state line at all, and the whole
+  problem is that an absent line means "sealed" when the code reads it back. A drift
+  test over the same bytes cannot see that, because there is nothing there to drift.
+  Six checks now load the save the way the game does and pin what it decodes to - the
+  earlier half open, the later half sealed, the ending and the two predicted
+  continuation arcs on the later half, the two halves one chain cut at one instant, and
+  the new analyzer report firing on the decoded result. A seventh records the loss
+  itself: the save has no rewind point left anywhere, which is why the report has to be
+  keyed on the pair of halves rather than on the slot. The checks name the save they
+  read and stand down, saying where they looked, when it is not present.
+
 - **Automated testing: the recording analyzer now names a re-fly slot that was
   closed by a split rather than by anyone sealing it.** When the optimizer used to cut
   a flight in two it moved the flight's ending onto the later half without the flag
