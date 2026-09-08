@@ -18419,6 +18419,43 @@ GS1_AIRBORNE_SITUATIONS: Tuple[str, ...] = ("FLYING", "SUB_ORBITAL", "ORBITING",
 # log contracts are what say whether it ended the way this scenario requires.
 GS1_SIBLING_DESTROYED = "DESTROYED"
 
+# THE SIBLING-AIRBORNE EXIT (spec key `siblingAirborneAtExit`, the RF-1 variant).
+# OFF unless a spec sets it, and the OFF path is byte-identical to what GS-1 has
+# always driven - `Gs1AirborneExitInertnessTests` replays a whole flight through both
+# settings and compares the emitted Action lists and the phase sequence frame by
+# frame, so that is a mechanical claim rather than a reading of the diff.
+#
+# WHY IT EXISTS. GS-1 asserts the CLOSED branch of the Re-Fly slot contract: both
+# stages land, both slots resolve `stableTerminal`, the RewindPoint reaps. The OPEN
+# branch - a slot still open at the commit, and therefore re-flyable - has never been
+# produced deliberately by any lane. GS-1 flight 3 produced it BY ACCIDENT (run
+# `2026-08-05_0807`): `ExitToSpaceCenter` fired while the booster was still under
+# canopy, its recording closed `terminal=SubOrbital`, and Parsek correctly opened an
+# Unfinished Flight - `IsUnfinishedFlight=true rec=81e48efe... reason=
+# stableLeafUnconcluded slot=1 focusSlot=0 terminal=SubOrbital side=child`. The
+# SIBLING-DOWN wait was added to stop that happening. This flag makes it happen ON
+# PURPOSE, by inverting that same wait's exit rather than by shortening it: a
+# shortened timeout would exit on a BUDGET, which is a MISSION-FLAKE and proves
+# nothing about where the booster was.
+#
+# THE BOOSTER, NOT THE POD, IS THE HALF LEFT AIRBORNE, and the choice is forced. The
+# pod is the ACTIVE vessel this mission flies, so ending the scene while IT is still
+# up would leave `landedSituation` and every terminal row unmet - a driver-INVALID
+# run whose evidence the spec's contracts never get to read (and world-mutating tail
+# steps are SKIPPED on an unmet mission, so `ExitToSpaceCenter` would not even run).
+# The booster is the half the mission watches and never controls, which is exactly
+# the NON-FOCUS child the classifier's open branch is about.
+#
+# WHAT THIS CANNOT REACH, stated so a later reader does not go looking. The seed
+# session the RF lanes were authored from left its half open with `reason=crashed`:
+# an ALIVE SUB-ORBITAL vessel on a VACUUM coast, whose scene-exit tail the ballistic
+# extrapolator ran to a predicted impact and stamped `Destroyed`. That needs an
+# exo-atmospheric arc, and this profile is a sub-kilometre hop bounded by stock's
+# ~2.25 km physics bubble (a booster outside it is deleted before it can land). So
+# the reason this flag produces is `stableLeafUnconcluded` - the one flight 3
+# measured - and NO GS-1 variant can produce `crashed`.
+GS1_SIBLING_AIRBORNE_DEBOUNCE_K = 2
+
 # Consecutive Deployed reads before the canopy latch certifies. Same value and same
 # reasoning as B1_CANOPY_DEBOUNCE_K: stock flips ParachuteState to DEPLOYED at the
 # START of the ~8 s canopy animation, so a lone glitched frame must not certify.
@@ -18474,6 +18511,11 @@ class Gs1Params:
     # Game-seconds to wait for the booster to reach the ground AFTER the active
     # vessel has landed (spec key siblingDownTimeoutSeconds).
     sibling_down_timeout: float = 240.0
+    # INVERT the SIBLING-DOWN exit: conclude as soon as the booster is OBSERVED
+    # still AIRBORNE, and MISSION-ASSERT-FAIL if it settles landed or absent first
+    # (spec key siblingAirborneAtExit). See GS1_SIBLING_AIRBORNE_DEBOUNCE_K for the
+    # whole argument. Default False = every committed GS-1 lane is untouched.
+    sibling_airborne_at_exit: bool = False
     # AvailableThrust (newtons) at/below which the active vessel counts as having
     # NO live engine. Not zero: a float read of a shut-down engine can carry
     # rounding dust, and the discriminator is unambiguous by orders of magnitude -
@@ -18505,6 +18547,7 @@ def gs1_params_from_dict(params: Dict) -> Gs1Params:
         descent_timeout=float(params.get("descentTimeoutSeconds", 300)),
         sibling_vessel_name=str(params.get("siblingVesselName", "") or ""),
         sibling_down_timeout=float(params.get("siblingDownTimeoutSeconds", 240)),
+        sibling_airborne_at_exit=bool(params.get("siblingAirborneAtExit", False)),
         separation_thrust_epsilon=float(params.get("separationThrustEpsilonNewtons", 100)),
         frozen_sample_limit=int(params.get("frozenTelemetrySamples", 10)),
     )
@@ -18560,6 +18603,12 @@ class Gs1State:
     # GS1_SIBLING_DEBOUNCE_K first settles it.
     sibling_landed_streak: int = 0
     sibling_absent_streak: int = 0
+    # The MIRROR of sibling_landed_streak, counted only when the exit is inverted:
+    # consecutive reads that are PRESENT with a real AIRBORNE situation. Kept as its
+    # own field rather than derived from the landed streak because "not landed" and
+    # "observed airborne" are different readings - an unreadable or absent sibling is
+    # neither, and must advance nothing.
+    sibling_airborne_streak: int = 0
     # The settled outcome: "" while unsettled, else a landed situation name or
     # GS1_SIBLING_DESTROYED. Read by the assertion row.
     sibling_outcome: str = ""
@@ -18914,6 +18963,7 @@ def gs1_decide(state: Gs1State, snapshot: TelemetrySnapshot) -> Tuple[Gs1State, 
         # commanded.
         landed_streak = state.sibling_landed_streak
         absent_streak = state.sibling_absent_streak
+        airborne_streak = state.sibling_airborne_streak
         if snapshot.sibling_present == 1:
             # PRESENCE is observed, so the absent streak resets unconditionally.
             absent_streak = 0
@@ -18928,17 +18978,61 @@ def gs1_decide(state: Gs1State, snapshot: TelemetrySnapshot) -> Tuple[Gs1State, 
                 pass
             elif snapshot.sibling_situation in state.params.landed_situations:
                 landed_streak = landed_streak + 1
+                airborne_streak = 0
             else:
                 # A REAL reading of a non-landed situation (FLYING, SUB_ORBITAL):
                 # genuine evidence the booster is still up, so progress resets.
                 landed_streak = 0
+                # ... and, for the inverted exit, that same reading is the POSITIVE
+                # evidence. Only a situation in GS1_AIRBORNE_SITUATIONS advances it:
+                # "not one of landedSituations" is a wider set than "airborne" and
+                # would let a PRE_LAUNCH or DOCKED reading certify the shape.
+                if snapshot.sibling_situation in GS1_AIRBORNE_SITUATIONS:
+                    airborne_streak = airborne_streak + 1
+                else:
+                    airborne_streak = 0
         elif snapshot.sibling_present == 0 and state.sibling_seen_present:
             landed_streak = 0
+            airborne_streak = 0
             absent_streak = absent_streak + 1
-        # sibling_present == -1 (UNREAD) holds BOTH streaks: a faulted enumeration is
-        # evidence in neither direction.
+        # sibling_present == -1 (UNREAD) holds ALL THREE streaks: a faulted
+        # enumeration is evidence in neither direction.
         state = replace(state, sibling_landed_streak=landed_streak,
-                        sibling_absent_streak=absent_streak)
+                        sibling_absent_streak=absent_streak,
+                        sibling_airborne_streak=airborne_streak)
+
+        # THE INVERTED EXIT (siblingAirborneAtExit, RF-1). Checked BEFORE the two
+        # nominal exits so the flag fully owns the phase's meaning rather than racing
+        # them, and the two nominal terminals become named ASSERT-FAILs: under this
+        # flag a booster that has already landed, or that is gone, means the shape
+        # the run exists to produce did not occur, and concluding MISSION-OK over it
+        # would hand the spec a scene exit with nothing open to assert about.
+        if state.params.sibling_airborne_at_exit:
+            if airborne_streak >= GS1_SIBLING_AIRBORNE_DEBOUNCE_K:
+                settled = replace(state, sibling_outcome=snapshot.sibling_situation)
+                return _gs1_enter(settled, GS1_LANDED, snapshot.ut, peak), []
+            if landed_streak >= GS1_SIBLING_DEBOUNCE_K:
+                return replace(
+                    state, peak_apoapsis=peak, done=True,
+                    verdict=MISSION_ASSERT_FAIL,
+                    sibling_outcome=snapshot.sibling_situation,
+                    loss_reason=_gs1_loss_reason(
+                        state,
+                        "sibling-already-down (siblingAirborneAtExit wanted the "
+                        "booster STILL FLYING at the exit and it read %s on %d "
+                        "consecutive frames)"
+                        % (snapshot.sibling_situation, landed_streak))), []
+            if absent_streak >= GS1_SIBLING_DEBOUNCE_K:
+                return replace(
+                    state, peak_apoapsis=peak, done=True,
+                    verdict=MISSION_ASSERT_FAIL,
+                    sibling_outcome=GS1_SIBLING_DESTROYED,
+                    loss_reason=_gs1_loss_reason(
+                        state,
+                        "sibling-gone (siblingAirborneAtExit wanted the booster "
+                        "STILL FLYING at the exit and it left the vessel list on "
+                        "%d consecutive frames)" % absent_streak)), []
+            return _gs1_stay_or_flake(state, snapshot, peak), []
 
         if landed_streak >= GS1_SIBLING_DEBOUNCE_K:
             settled = replace(state, sibling_outcome=snapshot.sibling_situation)
@@ -19064,16 +19158,28 @@ def evaluate_gs1_assertions(frames, params: Gs1Params,
     # what tell those two apart without another flight.
     outcome = getattr(state, "sibling_outcome", "") or ""
     watched = params.sibling_vessel_name
+    # UNDER THE INVERTED EXIT the row asserts the OPPOSITE FACT, and it has to: a
+    # bare `bool(outcome)` would be satisfied by the machine's own ASSERT-FAIL
+    # terminals, which set an outcome precisely to say the shape did NOT occur. The
+    # positive form is "the booster was OBSERVED in an airborne situation", read off
+    # the settled outcome rather than off the frame tail (the pod's telemetry cannot
+    # see the booster, and the tail's last sibling reading may be a fault).
+    if watched and params.sibling_airborne_at_exit:
+        booster_met = outcome in GS1_AIRBORNE_SITUATIONS
+        booster_name = "boosterStillAirborne"
+    else:
+        booster_met = (not watched) or bool(outcome)
+        booster_name = "boosterConcluded"
     booster = AssertionOutcome(
-        "boosterConcluded",
-        (not watched) or bool(outcome),
-        outcome or None,
+        booster_name, booster_met, outcome or None,
         {"watchedVessel": watched or None,
          "debounceK": GS1_SIBLING_DEBOUNCE_K,
          "everObservedPresent": bool(getattr(state, "sibling_seen_present", False)),
          "lastSituation": getattr(state, "sibling_last_situation", "") or "UNREAD",
          "landedAccepted": list(params.landed_situations),
-         "destroyedSentinel": GS1_SIBLING_DESTROYED})
+         "destroyedSentinel": GS1_SIBLING_DESTROYED,
+         "airborneAtExit": bool(params.sibling_airborne_at_exit),
+         "airborneAccepted": list(GS1_AIRBORNE_SITUATIONS)})
     return [apo, sep, ceiling, canopy, sit, booster]
 
 

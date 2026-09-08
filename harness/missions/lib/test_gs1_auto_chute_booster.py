@@ -1190,5 +1190,242 @@ class SpecSyncTests(unittest.TestCase):
                          "spec does differently")
 
 
+# ---------------------------------------------------------------------------
+# 5. THE SIBLING-AIRBORNE EXIT (siblingAirborneAtExit, the RF-1 variant).
+# ---------------------------------------------------------------------------
+
+
+class Gs1AirborneExitInertnessTests(unittest.TestCase):
+    """THE BYTE-INERTNESS CLAIM, made mechanically rather than by reading the diff.
+
+    The flag adds a branch inside SIBLING-DOWN and a field to Gs1Params, and every
+    committed GS-1 lane must drive EXACTLY what it drove before. So this replays one
+    whole scripted flight - pad, pod touchdown, booster touchdown - through the
+    machine with the key ABSENT and with it explicitly `false`, and compares the two
+    things a live run would notice: the ACTION LIST emitted on every frame, and the
+    phase reached on every frame.
+
+    Comparing the terminal state alone would not do: two runs can agree at the end
+    and disagree about which frame commanded the chute.
+    """
+
+    # The pod lands at ut 30; the booster then reads FLYING twice and LANDED twice -
+    # the nominal GS-1 shape, which the OFF path must fly to LANDED through
+    # SIBLING-DOWN.
+    FRAMES = (
+        dict(ut=0.0, altitude=70.0, situation="PRE_LAUNCH"),
+        dict(ut=2.0, altitude=200.0, apoapsis=300.0, vertical_speed=90.0,
+             situation="FLYING"),
+        dict(ut=4.0, altitude=500.0, apoapsis=750.0, vertical_speed=60.0,
+             situation="FLYING"),
+        dict(ut=5.0, altitude=560.0, apoapsis=780.0, vertical_speed=50.0,
+             situation="FLYING"),
+        dict(ut=6.0, altitude=600.0, apoapsis=780.0, vertical_speed=40.0,
+             situation="FLYING"),
+        dict(ut=11.0, altitude=800.0, apoapsis=760.0, vertical_speed=5.0,
+             situation="FLYING", available_thrust=0.0),
+        dict(ut=12.0, altitude=800.0, apoapsis=750.0, vertical_speed=-2.0,
+             situation="FLYING", available_thrust=0.0),
+        dict(ut=13.0, altitude=500.0, vertical_speed=-8.0, situation="FLYING",
+             available_thrust=0.0, craft_chute_state=mlib.CHUTE_STATE_DEPLOYED),
+        dict(ut=14.0, altitude=400.0, vertical_speed=-8.0, situation="FLYING",
+             available_thrust=0.0, craft_chute_state=mlib.CHUTE_STATE_DEPLOYED),
+        dict(ut=15.0, altitude=300.0, vertical_speed=-8.0, situation="FLYING",
+             available_thrust=0.0, craft_chute_state=mlib.CHUTE_STATE_DEPLOYED),
+        dict(ut=30.0, altitude=71.0, vertical_speed=-5.0, situation="LANDED",
+             available_thrust=0.0, craft_chute_state=mlib.CHUTE_STATE_DEPLOYED),
+        dict(ut=31.0, situation="LANDED", available_thrust=0.0,
+             sibling_situation="FLYING"),
+        dict(ut=32.0, situation="LANDED", available_thrust=0.0,
+             sibling_situation="FLYING"),
+        dict(ut=33.0, situation="LANDED", available_thrust=0.0,
+             sibling_situation="LANDED"),
+        dict(ut=34.0, situation="LANDED", available_thrust=0.0,
+             sibling_situation="LANDED"),
+    )
+
+    def _replay(self, **over):
+        state = machine(**over)
+        trace = []
+        for frame in self.FRAMES:
+            kw = dict(frame)
+            kw.setdefault("sibling_present", 1)
+            kw.setdefault("sibling_situation", "FLYING")
+            state, actions = step(state, **kw)
+            trace.append((state.phase,
+                          tuple((a.kind, a.value, a.text) for a in actions)))
+            if state.done:
+                break
+        return state, tuple(trace)
+
+    def test_the_off_path_is_byte_identical_with_the_key_absent_or_false(self):
+        absent_state, absent_trace = self._replay()
+        self.assertNotIn("siblingAirborneAtExit", GS1_PARAMS,
+                         "the committed GS-1 params must not carry the key - this "
+                         "cell's whole claim is about what the key's ABSENCE does")
+        false_state, false_trace = self._replay(siblingAirborneAtExit=False)
+        self.assertEqual(absent_trace, false_trace)
+        self.assertEqual(absent_state.phase, false_state.phase)
+        self.assertEqual(absent_state.verdict, false_state.verdict)
+        self.assertEqual(absent_state.sibling_outcome, false_state.sibling_outcome)
+
+    def test_the_off_path_still_waits_for_the_booster_to_land(self):
+        """The nominal GS-1 contract, restated so the inertness cell above is
+        comparing two runs that actually reach the interesting phase."""
+        state, trace = self._replay()
+        self.assertIn(mlib.GS1_SIBLING_DOWN, [phase for phase, _ in trace])
+        self.assertEqual(mlib.GS1_LANDED, state.phase)
+        self.assertEqual("LANDED", state.sibling_outcome)
+
+    def test_the_on_path_diverges_only_after_the_pod_is_down(self):
+        """Where the two paths part, asserted as a FRAME INDEX rather than as a
+        verdict. Everything up to and including the pod's touchdown is the same
+        flight; the flag can only change what happens after it."""
+        _off_state, off_trace = self._replay()
+        _on_state, on_trace = self._replay(siblingAirborneAtExit=True)
+        pod_down = next(i for i, frame in enumerate(self.FRAMES)
+                        if frame.get("situation") == "LANDED")
+        self.assertEqual(off_trace[:pod_down + 1], on_trace[:pod_down + 1])
+
+
+class Gs1AirborneExitTests(unittest.TestCase):
+    """The inverted exit itself: one positive terminal and two named ASSERT-FAILs."""
+
+    def test_two_airborne_reads_conclude_the_mission_with_the_booster_up(self):
+        state = to_sibling_down(siblingAirborneAtExit=True)
+        state, _ = step(state, ut=31.0, situation="LANDED", available_thrust=0.0,
+                        sibling_present=1, sibling_situation="FLYING")
+        self.assertEqual(mlib.GS1_SIBLING_DOWN, state.phase,
+                         "one read must not settle it - the debounce is 2")
+        state, _ = step(state, ut=32.0, situation="LANDED", available_thrust=0.0,
+                        sibling_present=1, sibling_situation="FLYING")
+        self.assertEqual(mlib.GS1_LANDED, state.phase)
+        self.assertIsNone(state.verdict)
+        self.assertEqual("FLYING", state.sibling_outcome)
+
+    def test_an_unreadable_sibling_holds_the_airborne_streak(self):
+        """Same rule as the landed streak: a faulted enumeration is evidence in
+        neither direction, so it must neither advance nor erase progress."""
+        state = to_sibling_down(siblingAirborneAtExit=True)
+        state, _ = step(state, ut=31.0, situation="LANDED", available_thrust=0.0,
+                        sibling_present=1, sibling_situation="FLYING")
+        self.assertEqual(1, state.sibling_airborne_streak)
+        state, _ = step(state, ut=32.0, situation="LANDED", available_thrust=0.0,
+                        sibling_present=-1)
+        self.assertEqual(1, state.sibling_airborne_streak)
+        self.assertEqual(mlib.GS1_SIBLING_DOWN, state.phase)
+
+    def test_a_present_but_unreadable_situation_holds_the_airborne_streak(self):
+        state = to_sibling_down(siblingAirborneAtExit=True)
+        state, _ = step(state, ut=31.0, situation="LANDED", available_thrust=0.0,
+                        sibling_present=1, sibling_situation="FLYING")
+        state, _ = step(state, ut=32.0, situation="LANDED", available_thrust=0.0,
+                        sibling_present=1, sibling_situation="")
+        self.assertEqual(1, state.sibling_airborne_streak)
+        self.assertEqual(mlib.GS1_SIBLING_DOWN, state.phase)
+
+    def test_a_non_airborne_non_landed_reading_does_not_certify(self):
+        """`PRE_LAUNCH` is neither landed nor airborne. The streak counts only
+        GS1_AIRBORNE_SITUATIONS: "not in landedSituations" is a wider set and would
+        let a reading that proves nothing settle the run."""
+        state = to_sibling_down(siblingAirborneAtExit=True)
+        for ut in (31.0, 32.0, 33.0):
+            state, _ = step(state, ut=ut, situation="LANDED", available_thrust=0.0,
+                            sibling_present=1, sibling_situation="PRE_LAUNCH")
+        self.assertEqual(0, state.sibling_airborne_streak)
+        self.assertEqual(mlib.GS1_SIBLING_DOWN, state.phase)
+
+    def test_a_booster_already_down_is_a_named_assert_fail(self):
+        state = to_sibling_down(siblingAirborneAtExit=True)
+        for ut in (31.0, 32.0):
+            state, _ = step(state, ut=ut, situation="LANDED", available_thrust=0.0,
+                            sibling_present=1, sibling_situation="LANDED")
+        self.assertTrue(state.done)
+        self.assertEqual(mlib.MISSION_ASSERT_FAIL, state.verdict)
+        self.assertIn("sibling-already-down", state.loss_reason)
+
+    def test_a_booster_that_left_the_vessel_list_is_a_named_assert_fail(self):
+        """The mirror direction. Under the nominal exit a DESTROYED booster still
+        CONCLUDES the mission (it stopped flying, which is all the wait wanted);
+        under this one it means the open slot the run exists to produce does not
+        exist, so the run must not hand the spec a scene exit to read."""
+        state = to_sibling_down(siblingAirborneAtExit=True)
+        for ut in (31.0, 32.0):
+            state, _ = step(state, ut=ut, situation="LANDED", available_thrust=0.0,
+                            sibling_present=0)
+        self.assertTrue(state.done)
+        self.assertEqual(mlib.MISSION_ASSERT_FAIL, state.verdict)
+        self.assertIn("sibling-gone", state.loss_reason)
+        self.assertEqual(mlib.GS1_SIBLING_DESTROYED, state.sibling_outcome)
+
+
+class Gs1AirborneExitAssertionRowTests(unittest.TestCase):
+    """The row renames AND inverts, and both halves matter.
+
+    A `bool(outcome)` row would be satisfied by the machine's own ASSERT-FAIL
+    terminals, which set an outcome precisely to say the shape did NOT occur."""
+
+    def _rows(self, state, **over):
+        return {r.name: r for r in
+                mlib.evaluate_gs1_assertions(
+                    [snap(ut=34.0, situation="LANDED")],
+                    mlib.gs1_params_from_dict(params(**over)), state=state)}
+
+    def test_the_row_is_renamed_and_met_when_the_booster_is_up(self):
+        state = to_sibling_down(siblingAirborneAtExit=True)
+        for ut in (31.0, 32.0):
+            state, _ = step(state, ut=ut, situation="LANDED", available_thrust=0.0,
+                            sibling_present=1, sibling_situation="FLYING")
+        rows = self._rows(state, siblingAirborneAtExit=True)
+        self.assertIn("boosterStillAirborne", rows)
+        self.assertNotIn("boosterConcluded", rows)
+        self.assertTrue(rows["boosterStillAirborne"].met)
+        self.assertEqual("FLYING", rows["boosterStillAirborne"].value)
+
+    def test_a_landed_outcome_does_not_satisfy_the_inverted_row(self):
+        state = to_sibling_down(siblingAirborneAtExit=True)
+        for ut in (31.0, 32.0):
+            state, _ = step(state, ut=ut, situation="LANDED", available_thrust=0.0,
+                            sibling_present=1, sibling_situation="LANDED")
+        rows = self._rows(state, siblingAirborneAtExit=True)
+        self.assertFalse(rows["boosterStillAirborne"].met)
+
+    def test_the_destroyed_sentinel_does_not_satisfy_the_inverted_row(self):
+        state = to_sibling_down(siblingAirborneAtExit=True)
+        for ut in (31.0, 32.0):
+            state, _ = step(state, ut=ut, situation="LANDED", available_thrust=0.0,
+                            sibling_present=0)
+        rows = self._rows(state, siblingAirborneAtExit=True)
+        self.assertFalse(rows["boosterStillAirborne"].met)
+
+    def test_the_nominal_row_keeps_its_name_and_meaning(self):
+        state = to_sibling_down()
+        for ut in (31.0, 32.0):
+            state, _ = step(state, ut=ut, situation="LANDED", available_thrust=0.0,
+                            sibling_present=1, sibling_situation="LANDED")
+        rows = self._rows(state)
+        self.assertIn("boosterConcluded", rows)
+        self.assertNotIn("boosterStillAirborne", rows)
+        self.assertTrue(rows["boosterConcluded"].met)
+
+
+class Gs1AirborneExitSchemaTests(unittest.TestCase):
+
+    def test_the_schema_declares_the_key_as_an_optional_bool(self):
+        with open(SCHEMA_PATH, "rb") as fh:
+            schema = tomllib.load(fh)
+        row = schema["params"]["siblingAirborneAtExit"]
+        self.assertFalse(row["required"])
+        self.assertEqual("bool", row["type"])
+
+    def test_the_committed_gs1_spec_does_not_set_it(self):
+        """GS-1 asserts the CLOSED branch. If it ever carried this key its two reap
+        tokens would be asserting the opposite of what the flight produced."""
+        with open(SPEC_PATH, "rb") as fh:
+            spec = tomllib.load(fh)
+        self.assertNotIn("siblingAirborneAtExit",
+                         spec["driver"]["missionParams"])
+
+
 if __name__ == "__main__":
     unittest.main()
