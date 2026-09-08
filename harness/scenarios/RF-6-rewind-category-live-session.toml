@@ -88,7 +88,47 @@ id = "RF-6-rewind-category-live-session"
 # the conclusion. RF-1 through RF-4 own the conclusion routes.
 #
 # =====================================================================================
-# STATUS: NEVER FLOWN. `tier = "operator"`. INTERIM PIN: `total=38` exact, the rest classes.
+# STATUS: TWO READING RUNS FLOWN 2026-09-08, plus an R7a control on the same DLL.
+# VERDICT PARSEK-FAIL(results) BOTH TIMES, and the lane STAYS RED BY DESIGN.
+# `tier = "operator"`. The tally pin is now MEASURED on `total=`, and `passed`/`skipped`
+# stay classes until the four failures below are diagnosed - re-pinning them now would
+# encode a failure as the expected shape.
+#
+# THE EXPERIMENT WORKED: the twelve session-gated cells RAN, for the first time anywhere.
+#   `BATCH_COMPLETE v1 total=38 passed=8 failed=4 skipped=26 category=Rewind scene=FLIGHT`
+# Eight passed. FOUR FAILED, identically on both runs:
+#   MergeInterruptionRecoveryTest.MergeInterruptionRecovery
+#     - Expected supersede relations to be durable at Durable1Done; got 0
+#   ReFlyRevertDialogPrelaunchTest.DiscardReFly_PrelaunchContext_DispatchesEditorWithFacility
+#     - DiscardReFlyLoadGameForTesting should fire exactly once
+#   ReFlyRevertDialogPrelaunchTest.ReFlyRevertDialog_Prelaunch_BlocksStockRevert_AndShowsDialog
+#     - Prelaunch body copy should mention VAB
+#   ReFlyRevertDialogTest.DiscardReFly_LaunchContext_PreservesSiblingState_DispatchesSpaceCenter
+#     - Marker should be cleared after Discard Re-fly
+#
+# THE CONTROL, flown on the SAME DLL within the hour: `R7a-rewind-session-absent` read
+# `total=38 passed=16 failed=0 skipped=22`, its historical pin token for token. Same
+# category, same build: zero failures without a session, four with one. THREE of the four
+# are `ReFlyRevertDialog*` cells, which need no session and install their own synthetic
+# marker - the cells R7a executes and passes. That is the R7-SESSION-BATCH-ISOLATION
+# signature, now MEASURED rather than predicted.
+#
+# ONE HYPOTHESIS TESTED AND REFUTED, which is why neither this header nor the todo entry
+# names a cause. `MergeInterruptionRecovery` wanting durable supersede rows and getting
+# zero looked like the unflown-provisional route (a re-fly that recorded nothing merges
+# with ZERO rows by design). Run 2 added the `TimeJump` above so the attempt was FLOWN
+# before the batch read it, and the tally came back BYTE-IDENTICAL - same 8/4/26, same four
+# cells, same four messages. Not the cause. The step is kept because the flown shape
+# matches every sibling RF lane.
+#
+# ONE CONFOUND IS OPEN: this lane hosts on `bdock-recorded` and R7a on `career-pad-craft`,
+# so the control moves the HOST as well as the session. Flying R7a's spec against
+# `bdock-recorded` - or this lane without its `InvokeRewind` - isolates it. Not yet run.
+#
+# `failed=0` STAYS PINNED HARD. A first-execution failure is a finding to diagnose, never a
+# tally to widen, and widening it would retire the only instrument that can see these four
+# cells at all. Filed as RF6-FOUR-REWIND-CELLS-FAIL-ONLY-WITH-A-LIVE-SESSION.
+#
 # =====================================================================================
 tier = "operator"
 description = "Run the in-game Rewind category with a LIVE re-fly session, so the twelve session-gated cells - the merge-tail supersede rules, the tombstone contract, ghost suppression during a re-fly, and MergeReFlyToSubOrbitalKeepsSlotOpen - execute for the first time. InvokeRewind arms the session off a runtime-enumerated RewindPoint id, then RunTests drives the batch."
@@ -115,6 +155,16 @@ steps = [
   # THE ORDERING IS THE LANE. Everything before this line exists to make this call
   # possible; everything after it runs with the session it arms.
   { cmd = "InvokeRewind", args = { rp = "${handles.rp0}", slot = "1" },         expect = "OK", budget = 300 },
+  # THE RE-FLY IS FLOWN BEFORE THE BATCH READS IT, and reading run 1 is why. Without
+  # this the session the twelve cells find is an UNFLOWN provisional, which merges with
+  # ZERO supersede rows BY DESIGN (`refused-unflown-provisional` /
+  # `concluded-no-supersede`) - and `MergeInterruptionRecovery` failed on exactly that
+  # shape, "Expected supersede relations to be durable at Durable1Done; got 0". Every
+  # other RF lane that merges already flies its re-fly first, on CI-2's measurement that
+  # `TimeJump` is accepted with a session live; this lane not doing so was an
+  # inconsistency, not a design choice. 500 is ~117 s past rp0's UT 382.73 and short of
+  # the tree's Dock branch point at 8949.27.
+  { cmd = "TimeJump",     args = { ut = "500" },                                expect = "OK", budget = 120 },
   # R7a's own budget for the same 38-cell category.
   { cmd = "RunTests",     args = { category = "Rewind" },                       expect = "OK", budget = 540 },
   { cmd = "FlushAndQuit",                                                       expect = "OK" },
