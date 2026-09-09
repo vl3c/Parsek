@@ -642,6 +642,22 @@ Two things a lane author must know before choosing it:
 
 - **Its RewindPoint SURVIVED** (`rp_404ea488`, quicksave on disk) - the difference the
   fix makes - so unlike the seed this host CAN be re-flown.
+- **Its RewindPoint quicksave's own rewind-to-LAUNCH references were CLEARED on
+  2026-09-09**, and the reason is worth a lane author's attention. The quicksave embeds
+  its own copy of the ParsekScenario, hints included, and the harvest had cleared only
+  the copy in `persistent.sfs` - so RF-11's re-fly read the pruned name back out of
+  `PARSEK_ACTIVE_TREE`, `SaveActiveTreeIfAny` copied it onto the tree root, and the
+  analyzer FAILed `INV9-REWINDPOINT missing-rewind-save-provisional` on a recording
+  pointing at a file this fixture does not carry. The edit is value-only (the keys stay,
+  no PART name and no line count moves, so the deep-parse precondition and every pinned
+  count are untouched) and both `build_refly_autopilot_recorded.py --check` and
+  `CommittedFixtureRewindSaveTests` now gate the absence against any `parsek_rw_*` value
+  rather than one key's spelling - the first pass cleared `rewindSave` and the lane was
+  still red, because the key the restore reads is `resumeRewindSave`. Filed as
+  RF11-REWINDPOINT-QUICKSAVE-CARRIES-A-PRUNED-REWIND-SAVE-HINT. `bdock-recorded`'s three
+  quicksaves KEEP theirs: their bytes are more load-bearing and seven lanes re-fly that
+  fixture green, which is the evidence the residual does not reach a FAIL there.
+
 - **It carries NO rewind-to-LAUNCH save, and neither does any other recorded fixture.**
   The produced save had one and the harvest keeps it out, which is POLICY:
   `harvest_bdock_station.py` prunes the directory and clears the hint,
