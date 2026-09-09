@@ -98,8 +98,8 @@ is no longer warped; the timeout and exception paths force the rate down too.
 
 PROVEN, not asserted, and the proof is a CELL rather than a token.
 `MergeCrashedReFlyCreatesCPSupersede` - which wants exactly `TerminalKind.Crashed` and had
-never executed anywhere - PASSES on BOTH phase-4 lanes: `RF-12W` (`2026-09-09_1930`, PASS,
-`BATCH_COMPLETE v1 total=39 passed=14 failed=0 skipped=25`) and `RF-12L` (`2026-09-09_1924`,
+never executed anywhere - PASSES on BOTH phase-4 lanes: `RF-12W` (`2026-09-09_2017`, PASS,
+`BATCH_COMPLETE v1 total=39 passed=14 failed=0 skipped=25`) and `RF-12L` (`2026-09-09_2012`,
 PASS, the same tally). Against RF-12's 12 and RF-6's 11. The `null TerminalState` token that
 killed both of those runs appears ZERO times in either phase-4 log.
 

@@ -94,7 +94,7 @@ id = "RF-12L-rewind-batch-after-landing"
 # now carries one measured exception, and the `No active re-fly session` guard is
 # withdrawn because a batch that merges the session correctly reports it spent.
 #
-# STATUS: LIVE-PROVEN 2026-09-09 (`2026-09-09_1924`, PASS attempt 1, wall 284 s,
+# STATUS: LIVE-PROVEN 2026-09-09 (`2026-09-09_2012`, PASS attempt 1, wall 284 s,
 # MISSION-OK, `BATCH_COMPLETE v1 total=39 passed=14 failed=0 skipped=25`). Reading run 1
 # (`2026-09-09_1911`) read the same tally and went PARSEK-FAIL only on the two forbid
 # clauses corrected below. `MergeCrashedReFlyCreatesCPSupersede` PASSES here too, so both

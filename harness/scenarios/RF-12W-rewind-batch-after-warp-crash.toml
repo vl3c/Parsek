@@ -124,7 +124,7 @@ id = "RF-12W-rewind-batch-after-warp-crash"
 # for a reason that has nothing to do with the warp. Recorded rather than silently
 # omitted.
 #
-# STATUS: LIVE-PROVEN 2026-09-09 (`2026-09-09_1930`, PASS attempt 1, wall 212 s,
+# STATUS: LIVE-PROVEN 2026-09-09 (`2026-09-09_2017`, PASS attempt 1, wall 171 s,
 # `BATCH_COMPLETE v1 total=39 passed=14 failed=0 skipped=25`), on the FOURTH flight. The
 # three reds before it each taught the lane something it could not have been authored to
 # know, and all three corrections live in this file: the warp budget and target (run 1,
