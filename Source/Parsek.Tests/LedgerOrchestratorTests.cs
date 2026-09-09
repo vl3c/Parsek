@@ -3073,5 +3073,193 @@ namespace Parsek.Tests
             Assert.Single(subset);
             Assert.Equal("inside@subject", subset[0].subjectId);
         }
+
+        // ================================================================
+        // Reputation seed: re-stamping inside-seed KerbalDeath rows
+        // ================================================================
+
+        private static GameAction MakeMilestoneRepRow(string milestoneId, double ut, float rep)
+        {
+            return new GameAction
+            {
+                Type = GameActionType.MilestoneAchievement,
+                UT = ut,
+                RecordingId = "rec_pod",
+                MilestoneId = milestoneId,
+                MilestoneRepAwarded = rep,
+                Effective = true
+            };
+        }
+
+        private static GameAction MakeInsideSeedKerbalDeathRow(double ut, float applied)
+        {
+            return new GameAction
+            {
+                Type = GameActionType.ReputationPenalty,
+                UT = ut,
+                RecordingId = "rec_pod",
+                RepPenaltySource = ReputationPenaltySource.KerbalDeath,
+                NominalPenalty = applied,
+                InsideReputationSeed = true
+            };
+        }
+
+        // Walks the ledger's reputation rows through a fresh ReputationModule in UT order
+        // and returns the running reputation the recalc would land on.
+        private static float WalkReputation()
+        {
+            var module = new ReputationModule();
+            var rows = new List<GameAction>(Ledger.Actions);
+            // The seed sits at UT 0.0, so plain UT order puts it first exactly as the
+            // recalc walk does.
+            rows.Sort((a, b) => a.UT.CompareTo(b.UT));
+
+            foreach (var row in rows)
+                module.ProcessAction(row);
+
+            return module.GetRunningRep();
+        }
+
+        // THE CL-2-pod-impact-ledger SEQUENCE (run 2026-09-09_2253), reproduced.
+        //
+        // The commit's 3c-post ensure deferred (no seed, no baseline, no live pool), so
+        // the producer stamped the death row INSIDE the seed on the expectation that the
+        // seed would later be read off a live pool containing it. Four milliseconds later
+        // the SAME commit's recalc created the seed through the refusal fallback - the
+        // milestone reputation rows this commit had just added made
+        // LedgerHasReputationTimelineActions true - and a refusal seed is career start (0),
+        // which contains no death. Left alone the walk skips the -10 and lands on +2
+        // against a live -7.99.
+        [Fact]
+        public void EnsureReputationSeed_RefusalFallbackAfterInsideStamp_ReStampsRowOutside()
+        {
+            Ledger.AddAction(MakeMilestoneRepRow("RecordsSpeed", 11.54, 1f));
+            Ledger.AddAction(MakeMilestoneRepRow("RecordsAltitude", 14.96, 1f));
+            var deathRow = MakeInsideSeedKerbalDeathRow(119.92, 9.999828f);
+            Ledger.AddAction(deathRow);
+
+            var origin = LedgerOrchestrator.EnsureReputationSeedForCommit();
+
+            Assert.Equal(ReputationSeedOrigin.CreatedThisCommitFromRefusalFallback, origin);
+            Assert.False(deathRow.InsideReputationSeed);
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("1 KerbalDeath rep penalty row(s) were stamped inside a seed") &&
+                l.Contains("read from career start") &&
+                l.Contains("re-stamped outside so the walk applies them"));
+
+            // The walk now applies the row: 0 seed + 1 + 1 - 9.999828, matching the live
+            // pool the flight left behind rather than the +2 the skip produced.
+            Assert.Equal(-7.999828f, WalkReputation(), 1e-4f);
+            Assert.Equal(-9.999828f, deathRow.EffectiveRep, 1e-4f);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("KerbalDeath rep penalty is inside the reputation seed"));
+        }
+
+        // Same repair through the other career-start branch: a career-start baseline is
+        // read from GameStateStore, its value predates the flight, and the wording names
+        // the baseline rather than career start.
+        [Fact]
+        public void EnsureReputationSeed_CareerBaselineAfterInsideStamp_ReStampsRowOutside()
+        {
+            GameStateStore.AddBaseline(new GameStateBaseline
+            {
+                ut = 0.0,
+                funds = 500000.0,
+                science = 0.0,
+                reputation = 0f
+            });
+
+            var deathRow = MakeInsideSeedKerbalDeathRow(119.92, 9.999828f);
+            Ledger.AddAction(deathRow);
+
+            var origin = LedgerOrchestrator.EnsureReputationSeedForCommit();
+
+            Assert.Equal(ReputationSeedOrigin.CreatedThisCommitFromCareerBaseline, origin);
+            Assert.False(deathRow.InsideReputationSeed);
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("read from the career-start baseline"));
+        }
+
+        // THE MIRROR, at the level the fix lives: a seed created from the LIVE POOL
+        // already contains every death filed before it, so its inside-seed rows stay
+        // inside and the walk keeps skipping them. Flipping here would subtract the same
+        // penalty twice. PreExisting and NotYetCaptured create no seed at all and are
+        // equally inert - NotYetCaptured in particular is the origin that WROTE the stamp.
+        [Fact]
+        public void RestampInsideSeedRows_NonCareerStartOrigins_LeaveTheStampAlone()
+        {
+            var deathRow = MakeInsideSeedKerbalDeathRow(119.92, 9.999828f);
+            Ledger.AddAction(deathRow);
+
+            LedgerOrchestrator.RestampInsideSeedRowsAgainstCareerStartSeed(
+                ReputationSeedOrigin.CreatedThisCommitFromLivePool);
+            Assert.True(deathRow.InsideReputationSeed);
+
+            LedgerOrchestrator.RestampInsideSeedRowsAgainstCareerStartSeed(
+                ReputationSeedOrigin.PreExisting);
+            Assert.True(deathRow.InsideReputationSeed);
+
+            LedgerOrchestrator.RestampInsideSeedRowsAgainstCareerStartSeed(
+                ReputationSeedOrigin.NotYetCaptured);
+            Assert.True(deathRow.InsideReputationSeed);
+
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("re-stamped outside so the walk applies them"));
+
+            // And the module still honours the stamp: seed 90, row skipped, pool held.
+            var module = new ReputationModule();
+            module.ProcessAction(new GameAction
+            {
+                Type = GameActionType.ReputationInitial,
+                UT = 0.0,
+                InitialReputation = 90f
+            });
+            module.ProcessAction(deathRow);
+            Assert.Equal(90f, module.GetRunningRep());
+            Assert.Equal(0f, deathRow.EffectiveRep);
+        }
+
+        // Only KerbalDeath rows carry the seed hazard, so only they are re-stamped. A
+        // non-KerbalDeath penalty stamped inside is left exactly as it was: the module
+        // applies it regardless of the stamp, and touching it here would widen the fix
+        // into reconstruction changes nobody asked for.
+        [Fact]
+        public void RestampInsideSeedRows_NonKerbalDeathRow_IsLeftAlone()
+        {
+            var otherRow = new GameAction
+            {
+                Type = GameActionType.ReputationPenalty,
+                UT = 50.0,
+                RecordingId = "rec_other",
+                RepPenaltySource = ReputationPenaltySource.Other,
+                NominalPenalty = 5f,
+                InsideReputationSeed = true
+            };
+            Ledger.AddAction(otherRow);
+
+            LedgerOrchestrator.RestampInsideSeedRowsAgainstCareerStartSeed(
+                ReputationSeedOrigin.CreatedThisCommitFromRefusalFallback);
+
+            Assert.True(otherRow.InsideReputationSeed);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("re-stamped outside so the walk applies them"));
+        }
+
+        // Cached ERS / ELS / recalc consumers key off StateVersion. A flip that does not
+        // bump leaves them serving the pre-flip stamps, which is the same class of stale
+        // read TruncateActionsForTesting's bump exists to prevent.
+        [Fact]
+        public void RestampInsideSeedRows_BumpsLedgerStateVersion()
+        {
+            Ledger.AddAction(MakeInsideSeedKerbalDeathRow(119.92, 9.999828f));
+            int before = Ledger.StateVersion;
+
+            LedgerOrchestrator.RestampInsideSeedRowsAgainstCareerStartSeed(
+                ReputationSeedOrigin.CreatedThisCommitFromRefusalFallback);
+
+            Assert.NotEqual(before, Ledger.StateVersion);
+        }
     }
 }

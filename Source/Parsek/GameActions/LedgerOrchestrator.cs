@@ -2030,6 +2030,7 @@ namespace Parsek
                 // A career-start value: it predates every flight this commit files.
                 Ledger.SeedInitialReputation(initialBaseline.reputation);
                 origin = ReputationSeedOrigin.CreatedThisCommitFromCareerBaseline;
+                RestampInsideSeedRowsAgainstCareerStartSeed(origin);
                 return true;
             }
 
@@ -2043,15 +2044,32 @@ namespace Parsek
                     "SeedInitialReputation: refusing to treat current reputation as initial " +
                     "because reputation timeline actions already exist and no baseline was available");
                 origin = ReputationSeedOrigin.CreatedThisCommitFromRefusalFallback;
+                RestampInsideSeedRowsAgainstCareerStartSeed(origin);
                 return true;
             }
 
-            if (global::Reputation.Instance == null
+            bool noReputationInstance = global::Reputation.Instance == null;
+            if (noReputationInstance
                 || Math.Abs(global::Reputation.Instance.reputation) <= 0.01f)
             {
-                // Still deferred: the seed will be captured off a LATER live pool, one
-                // that has already taken any death this commit is filing.
+                // Still deferred: the seed is EXPECTED to be captured off a LATER live
+                // pool, one that has already taken any death this commit is filing. If
+                // that later capture turns out to be a career-start branch instead, the
+                // rows stamped on this expectation are flipped back outside there.
+                //
+                // The reason matters when reading a flight back: a null singleton is a
+                // scene/load-order fact (the scene-exit commit runs during OnLoad, before
+                // the destination scene's career ScenarioModules have awoken), while a
+                // ~0 pool is a genuinely fresh career. CL-2-pod-impact-ledger's deferral
+                // looked like the second and was the first.
                 origin = ReputationSeedOrigin.NotYetCaptured;
+                ParsekLog.Verbose(Tag,
+                    "EnsureInitialReputationSeed: deferring the reputation seed - " +
+                    (noReputationInstance
+                        ? "Reputation.Instance null"
+                        : "pool ~0, deferring (reputation="
+                            + global::Reputation.Instance.reputation.ToString("R", CultureInfo.InvariantCulture)
+                            + ")"));
                 return false;
             }
 
@@ -2060,6 +2078,73 @@ namespace Parsek
             Ledger.SeedInitialReputation(global::Reputation.Instance.reputation);
             origin = ReputationSeedOrigin.CreatedThisCommitFromLivePool;
             return true;
+        }
+
+        /// <summary>
+        /// Flips every KerbalDeath <see cref="GameActionType.ReputationPenalty"/> row that
+        /// is stamped INSIDE the reputation seed back to OUTSIDE, because the seed this
+        /// call just created carries a career-start value that cannot contain those deaths.
+        ///
+        /// <para>
+        /// The stamp a producer writes is an assumption about how the seed WILL be
+        /// captured: <see cref="ReputationSeedOrigin.NotYetCaptured"/> means "deferred, so
+        /// a later LIVE pool will already have taken this hit". When the seed is finally
+        /// created by a branch whose value predates the flights - the career-start baseline
+        /// or the refusal fallback - that assumption is falsified, and every row resting on
+        /// it would otherwise be skipped by <c>ReputationModule.ProcessRepPenalty</c>
+        /// against a seed that never contained it. Measured on CL-2-pod-impact-ledger
+        /// (2026-09-09_2253): one -10 death row stamped inside at the commit, the seed
+        /// created 4 ms later by the refusal branch at 0, the walk reading +2 against a
+        /// live -7.99.
+        /// </para>
+        ///
+        /// <para>
+        /// A seed created FROM THE LIVE POOL is the case this must NOT touch: that value
+        /// already contains every death filed before it, so its inside-seed rows stay
+        /// inside and applying them would subtract the same penalty twice. The predicate
+        /// (<see cref="KerbalDeathRepPenalty.CareerStartSeedInvalidatesInsideStamps"/>)
+        /// carries that distinction; this method only executes it.
+        /// </para>
+        ///
+        /// <para>
+        /// Runs at the seed's own creation site so the flip is ATOMIC with the seed row -
+        /// no second pass, and no window in which the ledger holds a career-start seed and
+        /// a row claiming to be inside it.
+        /// </para>
+        /// </summary>
+        internal static void RestampInsideSeedRowsAgainstCareerStartSeed(ReputationSeedOrigin origin)
+        {
+            if (!KerbalDeathRepPenalty.CareerStartSeedInvalidatesInsideStamps(origin))
+                return;
+
+            var actions = Ledger.Actions;
+            int restamped = 0;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var action = actions[i];
+                if (action == null) continue;
+                if (action.Type != GameActionType.ReputationPenalty) continue;
+                if (action.RepPenaltySource != ReputationPenaltySource.KerbalDeath) continue;
+                if (!action.InsideReputationSeed) continue;
+
+                action.InsideReputationSeed = false;
+                restamped++;
+            }
+
+            if (restamped == 0)
+                return;
+
+            // Cached ERS / ELS / recalc consumers key off StateVersion; a flip that does
+            // not bump leaves them serving the pre-flip stamps.
+            Ledger.BumpStateVersion();
+
+            string seedSource = origin == ReputationSeedOrigin.CreatedThisCommitFromRefusalFallback
+                ? "career start"
+                : "the career-start baseline";
+            ParsekLog.Info(Tag,
+                $"SeedInitialReputation: {restamped.ToString(CultureInfo.InvariantCulture)} " +
+                $"KerbalDeath rep penalty row(s) were stamped inside a seed that was then " +
+                $"read from {seedSource}; re-stamped outside so the walk applies them");
         }
 
         private static bool TryGetInitialResourceBaseline(out GameStateBaseline initialBaseline)

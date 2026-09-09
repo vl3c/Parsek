@@ -351,5 +351,89 @@ namespace Parsek.Tests
                     KerbalDeathRepPenalty.IsInsideReputationSeed(origin));
             }
         }
+
+        // ---- the re-stamp rule ---------------------------------------------
+
+        // The refusal fallback seeds career start (0), which contains no death, so every
+        // row stamped inside on the deferred expectation has to come back out. This is
+        // the CL-2-pod-impact-ledger sequence: stamp inside at the commit, seed from the
+        // refusal branch 4 ms later.
+        [Fact]
+        public void CareerStartSeedInvalidatesInsideStamps_RefusalFallback_Flips()
+        {
+            Assert.True(KerbalDeathRepPenalty.CareerStartSeedInvalidatesInsideStamps(
+                ReputationSeedOrigin.CreatedThisCommitFromRefusalFallback));
+        }
+
+        // Same for the career-start baseline: its value predates the flight entirely.
+        [Fact]
+        public void CareerStartSeedInvalidatesInsideStamps_CareerBaseline_Flips()
+        {
+            Assert.True(KerbalDeathRepPenalty.CareerStartSeedInvalidatesInsideStamps(
+                ReputationSeedOrigin.CreatedThisCommitFromCareerBaseline));
+        }
+
+        // THE MIRROR, and the case that must never flip: a live-pool seed already
+        // contains every death filed before it. Flipping those rows subtracts the same
+        // penalty twice.
+        [Fact]
+        public void CareerStartSeedInvalidatesInsideStamps_LivePool_DoesNotFlip()
+        {
+            Assert.False(KerbalDeathRepPenalty.CareerStartSeedInvalidatesInsideStamps(
+                ReputationSeedOrigin.CreatedThisCommitFromLivePool));
+        }
+
+        // Neither of these creates a seed in the call being answered for, so neither
+        // invalidates anything: PreExisting found one already there, NotYetCaptured made
+        // none. NotYetCaptured is in particular the origin that WROTE the stamps being
+        // repaired - answering true here would flip them the moment they were written.
+        [Fact]
+        public void CareerStartSeedInvalidatesInsideStamps_NoSeedCreated_DoesNotFlip()
+        {
+            Assert.False(KerbalDeathRepPenalty.CareerStartSeedInvalidatesInsideStamps(
+                ReputationSeedOrigin.PreExisting));
+            Assert.False(KerbalDeathRepPenalty.CareerStartSeedInvalidatesInsideStamps(
+                ReputationSeedOrigin.NotYetCaptured));
+        }
+
+        // Exhaustive over the enum, exactly like the inside-seed cell above, so a new
+        // origin must state which side of the re-stamp it falls on.
+        [Fact]
+        public void CareerStartSeedInvalidatesInsideStamps_CoversEveryOrigin()
+        {
+            var expected = new Dictionary<ReputationSeedOrigin, bool>
+            {
+                { ReputationSeedOrigin.NotYetCaptured, false },
+                { ReputationSeedOrigin.PreExisting, false },
+                { ReputationSeedOrigin.CreatedThisCommitFromLivePool, false },
+                { ReputationSeedOrigin.CreatedThisCommitFromCareerBaseline, true },
+                { ReputationSeedOrigin.CreatedThisCommitFromRefusalFallback, true },
+            };
+
+            foreach (ReputationSeedOrigin origin in
+                System.Enum.GetValues(typeof(ReputationSeedOrigin)))
+            {
+                Assert.True(expected.ContainsKey(origin),
+                    "new ReputationSeedOrigin '" + origin + "' has no re-stamp answer");
+                Assert.Equal(expected[origin],
+                    KerbalDeathRepPenalty.CareerStartSeedInvalidatesInsideStamps(origin));
+            }
+        }
+
+        // The two rules answer the same enum and must not both claim a row: a row is
+        // stamped inside on an origin, and re-stamped outside on an origin - never both
+        // for the same origin, or the producer would undo its own stamp.
+        [Fact]
+        public void InsideSeedAndReStamp_NeverBothTrueForOneOrigin()
+        {
+            foreach (ReputationSeedOrigin origin in
+                System.Enum.GetValues(typeof(ReputationSeedOrigin)))
+            {
+                Assert.False(
+                    KerbalDeathRepPenalty.IsInsideReputationSeed(origin)
+                    && KerbalDeathRepPenalty.CareerStartSeedInvalidatesInsideStamps(origin),
+                    "origin '" + origin + "' both stamps rows inside and invalidates them");
+            }
+        }
     }
 }

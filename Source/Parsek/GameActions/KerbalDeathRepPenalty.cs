@@ -25,8 +25,11 @@ namespace Parsek
         /// No seed exists yet and this commit did not create one - the live-pool read is
         /// still deferred (<c>Reputation.Instance</c> missing, or |reputation| &lt;= 0.01,
         /// which <c>EnsureInitialReputationSeed</c> refuses to treat as a real balance).
-        /// The seed will therefore be captured LATER, off a live pool that has already
-        /// taken any death from this commit.
+        /// The seed is therefore EXPECTED to be captured LATER, off a live pool that has
+        /// already taken any death from this commit - an assumption, not a guarantee. When
+        /// the later capture turns out to be a career-start branch instead, the rows
+        /// stamped on this expectation are flipped back outside by
+        /// <see cref="KerbalDeathRepPenalty.CareerStartSeedInvalidatesInsideStamps"/>.
         /// </summary>
         NotYetCaptured = 0,
 
@@ -161,6 +164,13 @@ namespace Parsek
         /// other this-commit branch" - is what the enum member keeps to one line if it
         /// ever needs to change.
         /// </para>
+        ///
+        /// <para>
+        /// The <see cref="ReputationSeedOrigin.NotYetCaptured"/> answer is the one
+        /// PREDICTION this rule makes, and it is repaired rather than trusted:
+        /// <see cref="CareerStartSeedInvalidatesInsideStamps"/> flips those rows back
+        /// outside when the seed is finally created from a career-start value instead.
+        /// </para>
         /// </summary>
         internal static bool IsInsideReputationSeed(ReputationSeedOrigin origin)
         {
@@ -178,6 +188,52 @@ namespace Parsek
                     // APPLYING the penalty: an unmodeled death is a silent refund on the
                     // next supersede merge, while a double subtraction is visible in the
                     // pool and in the post-walk reconcile.
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// THE RE-STAMP RULE, the mirror of <see cref="IsInsideReputationSeed"/>. True iff
+        /// a seed CREATED BY THIS CALL carries a value that predates the flights, so every
+        /// row already stamped inside a seed is now stamped against a value that does not
+        /// contain it and must be flipped back outside.
+        ///
+        /// <para>
+        /// <see cref="ReputationSeedOrigin.NotYetCaptured"/> is an ASSUMPTION, not a fact:
+        /// the producer stamps a death inside the seed because the seed is still deferred
+        /// and will therefore be read off a LATER live pool that has already taken the
+        /// hit. Nothing guarantees the later capture is a live-pool read. Measured on
+        /// CL-2-pod-impact-ledger (run 2026-09-09_2253): the commit's ensure deferred, the
+        /// death row was stamped inside, and four milliseconds later the SAME commit's
+        /// recalc created the seed through the refusal fallback - career start, value 0,
+        /// containing no death. The walk then skipped a -10 that nothing else carried, and
+        /// the rebuilt pool read +2 against a live -7.99.
+        /// </para>
+        ///
+        /// <para>
+        /// Only the two career-start branches invalidate an earlier stamp. A seed created
+        /// from the LIVE POOL contains every death filed before it, so rows stamped inside
+        /// it stay inside; <see cref="ReputationSeedOrigin.PreExisting"/> and
+        /// <see cref="ReputationSeedOrigin.NotYetCaptured"/> create no seed at all in the
+        /// call being answered for and so invalidate nothing.
+        /// </para>
+        /// </summary>
+        internal static bool CareerStartSeedInvalidatesInsideStamps(ReputationSeedOrigin origin)
+        {
+            switch (origin)
+            {
+                case ReputationSeedOrigin.CreatedThisCommitFromCareerBaseline:
+                case ReputationSeedOrigin.CreatedThisCommitFromRefusalFallback:
+                    return true;
+                case ReputationSeedOrigin.NotYetCaptured:
+                case ReputationSeedOrigin.PreExisting:
+                case ReputationSeedOrigin.CreatedThisCommitFromLivePool:
+                    return false;
+                default:
+                    // Unreachable while the enum is exhaustive above. Fail toward NOT
+                    // re-stamping: leaving a stamp alone is the behaviour every origin
+                    // that creates no seed already gets, while flipping one against a
+                    // live-pool seed subtracts the same penalty twice.
                     return false;
             }
         }
