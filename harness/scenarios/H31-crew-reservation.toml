@@ -65,8 +65,10 @@ steps = [
 #  - rescue-marker: the pid-scoped rescue-completion marker surviving
 #    rescue -> unreserve -> apply against a live KerbalRoster.
 # NOT claimed, each for a stated reason: stand-ins (CrewReplacements is empty
-# under every committed fixture x preset - no Parsek-generated stand-in is ever
-# created here; the "stand-ins" these cells use are pre-existing roster kerbals
+# under THIS lane's fixture x preset - no Parsek-generated stand-in is ever created
+# HERE; the CL family's `career-pad-craft` x `rewind-crew-loss` does generate one and
+# `CL-4-refly-crew-standin` claims the cell off it since 2026-09-09; the "stand-ins"
+# these cells use are pre-existing roster kerbals
 # behind a synthetic original), crew-swap (every cell calls
 # PlaceOrphanedReplacements directly, deliberately avoiding
 # SwapReservedCrewInFlight's side effects - the swap orchestrator never runs),
