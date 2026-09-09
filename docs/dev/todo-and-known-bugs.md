@@ -80,9 +80,11 @@ authored to supply it. Both candidate routes fail, for two different reasons:
    PENDING tree (`AtomicMarkerWrite: attached in-place fork rec=... to tree 'Kerbal X'`)
    and `CommitTreeImpl` commits `ParsekFlight.activeTree`.
 
-The only conclusion route the seam has is `AnswerMergeDialog`, which DRIVES the scene exit
+The only conclusion route the seam HAD was `AnswerMergeDialog`, which DRIVES the scene exit
 and therefore cannot be sequenced before a FLIGHT batch. A crash that has to happen in real
-time cannot be sequenced against a batch either, because there is no wait verb.
+time could not be sequenced against a batch either, because there was no wait verb. That
+last sentence is what phase 4 falsified: `WarpToUT` is that verb and RF-12W is that
+sequence (below).
 
 WHAT CLOSED THE WARP HALF, 2026-09-09 (re-fly phase 4): a NEW seam verb, `WarpToUT`
 (33rd implemented, additive; contract in `design-autotest-command-seam.md` -> "#### WarpToUT").
@@ -139,24 +141,32 @@ WHAT REMAINS, RE-SCOPED. The `CommitTree` half is untouched: nothing yet commits
 concludes a PENDING tree in place, and it still has exactly one consumer. But the LANDED
 half turns out not to be an instrument problem at all, and the re-scope is the finding:
 
-**`TerminalState.Landed` IS NEVER STAMPED WHILE THE SCENE IS FLIGHT.** Every write of it
-goes through `ParsekFlight.FinalizeTreeRecordings`, whose five callers are
-`FinalizeTreeOnSceneChangeCore`, `CommitTreeSceneExit`, `CommitTreeFlight`,
-`CommitTreeRevert` and `ShowPostDestructionTreeMergeDialog`. There is no GameEvents
-touchdown handler that stamps it, and the one place that computes a live-flight surface
-terminal (`RecordingFinalizationCacheProducer.TryBuildSurfaceTerminalCache`) writes it into
-a CACHE - its single eager mutation of `recording.TerminalStateValue` is the DESTROY
-branch, added precisely so a transient post-impact LANDED situation could not stamp
-`Landed` on a recording the player watched crash. `TerminalState.Destroyed` IS written
-live, by `ParsekFlight.TerminalEvents.ApplyTerminalDestruction`.
+**THE FIRST VERSION OF THIS PARAGRAPH WAS WRONG, and the correction is the useful part.**
+It read "`TerminalState.Landed` is never stamped while the scene is FLIGHT", and the review
+panel refuted it with counterexamples: `BackgroundRecorder.EndDebrisRecording` stamps
+`RecordingTree.DetermineTerminalState((int)v.situation, v)` on a debris-TTL tick and that
+returns `Landed` for a LANDED or PRELAUNCH situation; `ParsekFlight.TerminalEvents`'
+`PhantomTerrainCrashOverride` stamps it; and `RecordingFinalizationCacheApplier` stamps it
+from a BackgroundRecorder-reached path. The claim also conflated `TerminalState` with
+`TerminalKind`: the cell gates on `TerminalKind.Landed`, which `TerminalKindClassifier`
+maps from SIX states including `Docked` and `Boarded` - and `ParsekFlight.MergeBranch`
+stamps BOTH of those live, on the ACTIVE parent recording, with no scene exit at all.
 
-So `MergeLandedReFlyCreatesImmutableSupersede` is unreachable from ANY lane that stays in
-FLIGHT, and no instrument closes that: the only thing that stamps `Landed` is the same
-conclusion that ends the session the cell needs live. What is open is therefore a
-DECISION - whether that cell should keep a shape only a hand-played session can reach, or
-be re-written against the surface a live landing does expose - not a piece of work. Two
-independent readings agree on the mechanism: this one, and the phase-4 mission agent's own
-read of the same call sites while building `reflyConclusionProfile`.
+**WHAT IS ACTUALLY TRUE is about the conclusion ROUTE, not about the stamp.** A live re-fly
+cannot reach any route that would stamp a Landed-kind terminal on ITS OWN provisional:
+`CommitTreeFlight` answers `no-active-tree` on a re-fly's pending tree (RF-12 measured
+exactly that), `ShowPostDestructionTreeMergeDialog` fires only on a destruction and stamps
+`Destroyed`, and `CommitTreeRevert` and scene exit both END the session the cell needs
+live. `TryCommitReFlySupersede` has exactly one production caller,
+`MergeDialog.MergeCommit`, and `CommitTreeFlight` bypasses it.
+
+**SO THE CELL IS NOT STRUCTURALLY UNREACHABLE, and what is open is a LANE rather than a
+decision.** A re-fly that DOCKS with something, or whose kerbal is BOARDED, stamps
+`Docked` / `Boarded` through `MergeBranch` while the scene is still FLIGHT and satisfies
+`TerminalKind.Landed` with the session still live. Nobody has flown that shape. It is the
+cheapest route to `MergeLandedReFlyCreatesImmutableSupersede` and it needs no new
+instrument - `EvaBoard` is already an implemented seam verb, and RF-12L's mission machine
+already flies a re-fly it could board.
 
 RELATED, and measured on RF-12's run rather than assumed: two of the nine
 (`MergeReFlyToSubOrbitalKeepsSlotOpen`, `MergeNonFocusReFlyToOrbitImmutable`) skip on

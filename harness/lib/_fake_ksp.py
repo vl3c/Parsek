@@ -256,14 +256,20 @@ def main(argv=None):
                         % (cid, cmd, seq, handles))
                 continue
             # WarpToUT. Answered explicitly rather than by the bare-OK default for
-            # two reasons a smoke leg needs: the verb is FAIL-CLOSED on its target
-            # (a missing / non-forward `ut` is REJECTED by the real seam, and a
-            # smoke leg must be able to drive that refusal without a game), and its
-            # OK is accompanied by a `warptout complete` log line that a spec's
-            # logContract can pin. The stub does NOT model the rails ladder: there
-            # is no world to simulate, so it lands the clock at the requested target
-            # and reports maxRate=1, which is exactly the shape a fully-clamped real
-            # warp reports too.
+            # two reasons a smoke leg needs: the verb is FAIL-CLOSED on a MISSING or
+            # unparseable `ut` (which a smoke leg must be able to drive without a
+            # game), and its OK carries a `warptout complete` log line a spec's
+            # logContract can pin.
+            #
+            # WHAT THE STUB DELIBERATELY DOES NOT MODEL, so nobody writes a spec
+            # against a refusal it cannot reproduce: it has no clock, so it cannot
+            # answer `backward-warp`; it does not range-check, so a non-finite or
+            # absurd target returns OK where the real seam answers
+            # `target-out-of-range`; and it ignores `maxRate` entirely, so
+            # `max-rate-invalid` is unreachable here. It also does NOT model the
+            # rails ladder - there is no world to simulate - so it lands the clock at
+            # the requested target and reports maxRate=1, which is the shape a
+            # fully-clamped real warp reports too.
             if cmd == "WarpToUT":
                 raw_ut = fields.get("ut")
                 try:

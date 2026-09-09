@@ -1489,8 +1489,10 @@ def replay_conclusion(**over):
     trace = []
     for spec in CONCLUSION_REPLAY_FRAMES:
         st, acts = mlib.r1_decide(st, _conclusion_frame(spec))
-        trace.append((st.phase,
-                      tuple((a.kind, a.value, a.text, a.seam_verb) for a in acts)))
+        # Action is frozen/eq, so the WHOLE dataclass compares - all 13 fields, not the
+        # four an earlier cut picked. seam_args and seam_tag are the fields R1's own seam
+        # commands carry, and a divergence in either used to pass.
+        trace.append((st.phase, tuple(acts)))
         if st.done:
             break
     return st, tuple(trace)
@@ -1912,8 +1914,16 @@ class R1ReflyConclusionPhaseBookkeepingTests(unittest.TestCase):
             os.path.abspath(__file__))), "r1_rewind_loop.schema.toml")
         with open(path, "rb") as fh:
             declared = set(tomllib.load(fh)["params"])
+        # BOTH DIRECTIONS. The read-not-declared half catches a params.get() that no
+        # schema block admits; the declared-not-read half (below) catches an INERT schema
+        # block, which is the failure that looks like coverage and is not. The kx cell this
+        # is modelled on asserts both, and the review panel caught that this one did not.
         self.assertEqual(set(), conclusion_keys - declared,
                          "the machine reads a key the schema does not declare")
+        self.assertEqual(set(), {k for k in declared if k.startswith("reflyConclusion")}
+                         - conclusion_keys,
+                         "the schema declares a conclusion key the machine never reads "
+                         "(an inert block is the failure that looks like coverage)")
 
 
 if __name__ == "__main__":

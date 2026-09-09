@@ -10,7 +10,7 @@ namespace Parsek.Tests
     /// the precondition guard added after RF-12W's first flight.
     ///
     /// <para><b>What it is guarding against, and why the cell needed it twice.</b>
-    /// <c>KerbalRecoveryOnSupersede</c> asserts §7.16: every eligible kerbal-death action
+    /// <c>KerbalRecoveryOnSupersede</c> asserts section 7.16: every eligible kerbal-death action
     /// in the supersede subtree is tombstoned by the merge, and each of those kerbals is
     /// no longer Dead in the roster. Subtree membership is NOT the whole eligibility
     /// test - <c>CommitTombstones</c> applies a second screen, <c>PreRewindTombstoneGuard</c>,

@@ -28,11 +28,12 @@ _(unreleased — entries accumulate here per commit)_
   finishing a re-flown attempt had never once run, because they only apply to an
   attempt that ended and no automated run could make one end without leaving the
   flight first. With time now really passing, a re-flown craft reaches its own ending
-  in front of the checks that care about it. Two related things were established
-  along the way and are worth stating plainly: a crash marks the attempt as finished
-  the moment it happens, while a landing does not - a landing is only recorded as the
-  ending when the flight is packed up - so the checks that ask specifically about a
-  landed ending still cannot be reached from a run that stays in flight.
+  in front of the checks that care about it. One related thing was established along
+  the way and is worth stating plainly: a crash marks the attempt as finished the moment
+  it happens, whereas the peaceful endings are only written down when something closes
+  the flight off - so a test run that never leaves the flight can reach the checks about
+  a crashed attempt, and reaching the ones about a settled attempt needs the run to end
+  the attempt some other way, such as docking it to something.
 
 - **Automated testing: a reload that goes ahead while a flight is being recorded now
   says so in the log.** The refusal always explained itself; the one case that is

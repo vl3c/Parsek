@@ -443,26 +443,41 @@ remains is, in order:
     with the recorder live and the session marker intact. Two lanes consume them, RF-12W
     (crash) and RF-12L (non-destroyed), and they are two lanes rather than one because the
     terminal a lane produces DECIDES which cells it can reach.
-    BOTH PHASE-4 LANES FLEW GREEN on 2026-09-09 (RF-12W `_1930` PASS, RF-12L `_1924` PASS,
-    both `BATCH_COMPLETE v1 total=39 passed=14 failed=0 skipped=25`), and the closure is a
-    CELL rather than a token: `MergeCrashedReFlyCreatesCPSupersede`, which wants exactly
-    `TerminalKind.Crashed` and had never executed anywhere, now PASSES on both. Two findings
+    BOTH PHASE-4 LANES FLEW GREEN on 2026-09-09, and the closure is a CELL rather than a
+    token: `MergeCrashedReFlyCreatesCPSupersede`, which wants exactly
+    `TerminalKind.Crashed` and had never executed anywhere, now PASSES on both. Run ids,
+    verdicts and batch tallies live in `autotest-status.md`, which owns them. Two findings
     came out of the reds on the way there, both filed: the in-game
     `KerbalRecoveryOnSupersede` cell ignored the product's own pre-rewind tombstone guard
     (TEST defect, fixed here, and fixing it stopped that cell spending the session for the
     whole `Merge*` family), and two RF-family forbid clauses were themselves wrong and are
-    corrected off run evidence.
-    PHASE 4's OWN FINDING, measured by reading the stamp call sites rather than inferred
-    from skip texts: `TerminalState.Landed` is written ONLY inside
-    `ParsekFlight.FinalizeTreeRecordings` (scene exit / `CommitTreeFlight` /
-    `CommitTreeRevert` / the post-destruction dialog). There is no touchdown handler that
-    stamps it, and `RecordingFinalizationCacheProducer`'s live surface terminal goes into
-    a CACHE whose one eager write is the DESTROY branch. `TerminalState.Destroyed` IS
-    written live, by `ApplyTerminalDestruction`. So a CRASH is the only conclusion a live
-    re-fly can reach, `MergeLandedReFlyCreatesImmutableSupersede` is unreachable from any
-    lane that stays in FLIGHT, and the reason is structural rather than instrumental: the
-    only thing that stamps `Landed` is the same conclusion that ends the session the cell
-    needs live.
+    corrected off run evidence. One stamp-site correction worth carrying: the terminal
+    those lanes read is stamped at `ParsekFlight.TryAppendCapturedToTree` off the
+    pending-split destruction override, NOT by `ApplyTerminalDestruction`, which fires a
+    frame later on a different branch. Several paths can stamp a terminal; a lane must pin
+    the CONDITION, never one stamp site - RF-12W's first cut pinned the wrong one and would
+    have red a run whose re-fly concluded perfectly well.
+    PHASE 4's OWN FINDING, and the review panel CORRECTED the first version of it - the
+    correction is the useful half, so it is recorded rather than quietly replaced. The
+    first reading said "`TerminalState.Landed` is never stamped while the scene is FLIGHT"
+    and that is FALSE: `BackgroundRecorder.EndDebrisRecording` stamps
+    `DetermineTerminalState((int)v.situation, v)` on a debris-TTL tick, which returns
+    `Landed`, and `PhantomTerrainCrashOverride` and the finalization-cache applier stamp it
+    live too. Worse, the claim confused `TerminalState` with `TerminalKind`: the cell gates
+    on `TerminalKind.Landed`, which `TerminalKindClassifier` maps from SIX states including
+    `Docked` and `Boarded` - and `ParsekFlight.MergeBranch` stamps both of those live, on
+    the ACTIVE parent recording, with no scene exit.
+    WHAT IS ACTUALLY TRUE is about the conclusion ROUTE, not the stamp: a live re-fly
+    cannot reach any route that would stamp one on ITS OWN provisional. `CommitTreeFlight`
+    answers `no-active-tree` on a re-fly's pending tree (RF-12 measured it),
+    `ShowPostDestructionTreeMergeDialog` fires only on a destruction (which stamps
+    `Destroyed`), and `CommitTreeRevert` and scene exit both END the session the cell needs
+    live. `TryCommitReFlySupersede` has exactly one production caller,
+    `MergeDialog.MergeCommit`.
+    SO THE CELL IS NOT STRUCTURALLY UNREACHABLE AFTER ALL, and that is a lane rather than
+    a decision: a re-fly that DOCKS or is BOARDED stamps `Docked` / `Boarded` in flight
+    through `MergeBranch` and satisfies `TerminalKind.Landed` with the session still live.
+    Nobody has flown that shape, and it is now the cheapest route to the cell.
     STILL OPEN, and cheap enough to batch with item 7 rather than to rank on its own:
     the LANDED half of RF12-NO-SEAM-PATH-CONCLUDES-A-REFLY-IN-FLIGHT (the crash half is
     closed by `WarpToUT`; the landed half is the structural finding above, so what is open

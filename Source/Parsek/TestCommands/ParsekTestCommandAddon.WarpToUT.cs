@@ -93,10 +93,17 @@ namespace Parsek.TestCommands
                 + $"maxRate={Inv(cap)} rate={Inv(warpMaxObservedRate)} "
                 + $"ceilingIndex={SafeMaxRateIndexForActiveVessel().ToString(CultureInfo.InvariantCulture)}");
 
-            // First ladder step immediately, so the warp starts on this frame rather than
-            // one poll later.
-            ApplyWarpLadderStep(nowUt);
+            // ARM THE TWO-PHASE FIRST, THEN RAISE THE WARP. The order is load-bearing and
+            // it is the fourth exit the file header's "always lowered" claim has to cover:
+            // if the first ladder step throws BEFORE the pending verdict is set, the pump's
+            // ExecuteHead catch emits a terminal ERROR, `completionVerb` is never
+            // "WarpToUT", TryCompleteWarpToUT never runs - and the game is left warped with
+            // nothing left to lower it. Setting the result first means any throw here is
+            // caught by TryCompleteTwoPhase's handler instead, which routes through this
+            // verb's own catch and force-lowers. The step still happens on THIS frame, so
+            // the warp starts no later than it did before.
             SetExecResult(PendingVerdict, null, null);
+            ApplyWarpLadderStep(nowUt);
         }
 
         private void TryCompleteWarpToUT(double now)
@@ -139,8 +146,11 @@ namespace Parsek.TestCommands
                     // that stock has clamped to 1x for minutes - the atmospheric-descent
                     // case this verb exists to drive - would otherwise be completely
                     // silent between `warptout start` and its terminal, and a reader could
-                    // not tell a working slow warp from a wedged one. The rate KEY carries
-                    // the applied index so a CHANGED clamp still prints at once.
+                    // not tell a working slow warp from a wedged one. The rate KEY is the
+                    // index sampled at the TOP of this poll frame (before the ladder step
+                    // below may move it), so a changed clamp prints on the next frame
+                    // rather than this one, and `rate=` can be one step fresher than
+                    // `rateIndex=` on the line that reports the change.
                     ParsekLog.InfoRateLimited(Tag,
                         "warptout-progress-" + currentRateIndex.ToString(CultureInfo.InvariantCulture),
                         $"warptout progress ut={Inv(warpTargetUt)} reachedUT={Inv(currentUt)} "
@@ -208,7 +218,17 @@ namespace Parsek.TestCommands
             int desired = TestCommandWarpToUT.SelectRateIndex(
                 remaining, SafeWarpRates(), ceiling, warpMaxRateCap);
 
-            if (desired == warpLastRequestedIndex) return;
+            // DE-DUP ON BOTH THE REQUEST AND WHAT STOCK IS ACTUALLY AT. De-duping on the
+            // request alone WEDGES: once stock clamps a rung away (under acceleration, a
+            // near SOI transition, an altitude drop), nothing re-asserts until `desired`
+            // itself moves, and `desired` only moves when the ceiling changes or the
+            // remaining span crosses a rung boundary. On a long span with `desired` pinned
+            // high that can be the WHOLE budget, turning a warp stock would have allowed a
+            // minute later into a `warp-timeout` ERROR. The green log shows the drift is
+            // real: after `requested=3` stock moved the live index to 2 and then 1 with no
+            // re-request line in between.
+            if (desired == warpLastRequestedIndex && SafeCurrentWarpRateIndex() == desired)
+                return;
             warpLastRequestedIndex = desired;
 
             SafeSetWarpRate(desired, instant: desired == 0);
@@ -216,10 +236,14 @@ namespace Parsek.TestCommands
             double appliedRate = SafeCurrentWarpRate();
             if (appliedRate > warpMaxObservedRate) warpMaxObservedRate = appliedRate;
 
+            // `mode=` is not decoration: the two ladders share an index space with wholly
+            // different values, so a `rate=` that disagrees with the rung is only readable
+            // once the line says which array answered.
             ParsekLog.Info(Tag,
                 $"warptout rate requested={desired.ToString(CultureInfo.InvariantCulture)} "
                 + $"applied={applied.ToString(CultureInfo.InvariantCulture)} "
-                + $"rate={Inv(appliedRate)} ceilingIndex={ceiling.ToString(CultureInfo.InvariantCulture)} "
+                + $"rate={Inv(appliedRate)} mode={SafeWarpModeName()} "
+                + $"ceilingIndex={ceiling.ToString(CultureInfo.InvariantCulture)} "
                 + $"clamped={(applied < desired ? "true" : "false")} "
                 + $"remaining={Inv(remaining)}s ut={Inv(warpTargetUt)}");
         }
@@ -241,6 +265,15 @@ namespace Parsek.TestCommands
 
         private static string Inv(double v) => v.ToString("R", CultureInfo.InvariantCulture);
 
+        /// <summary>The live warp MODE name (`HIGH` rails / `LOW` physics), or `unknown`
+        /// when it cannot be read. Logged beside every rate change so a reader can tell
+        /// which of the two index spaces a rung belongs to.</summary>
+        private static string SafeWarpModeName()
+        {
+            try { return TimeWarp.WarpMode.ToString(); }
+            catch (Exception) { return "unknown"; }
+        }
+
         private static bool SafeWarpControllerPresent()
         {
             try { return TimeWarp.fetch != null; }
@@ -259,9 +292,28 @@ namespace Parsek.TestCommands
             catch (Exception) { return 1f; }
         }
 
+        /// <summary>
+        /// The live rails/physics rate INDEX, or 0 when there is no warp controller.
+        ///
+        /// <para>The explicit null-fetch guard is load-bearing and IL-verified:
+        /// <c>TimeWarp::get_CurrentRateIndex</c> returns <b>1</b> on its <c>!fetch</c>
+        /// branch (someone copied <c>CurrentRate</c>'s <c>1f</c> literal), so a scene
+        /// teardown while a WarpToUT is PENDING would leave this reporting 1 forever.
+        /// Two consequences, both bad: <see cref="TestCommandWarpToUT.DecideWarpCompletion"/>
+        /// could never return CompleteOk (it requires index 0), so the verb would hold the
+        /// FIFO head to its whole budget and then ERROR; and
+        /// <see cref="ForceWarpToRealTime"/>'s early-out would never trip, so its Info line
+        /// would fire EVERY poll frame against a stock call that is a no-op with a null
+        /// fetch - tens of thousands of lines, which is exactly what the batch-counting
+        /// convention exists to prevent.</para>
+        /// </summary>
         private static int SafeCurrentWarpRateIndex()
         {
-            try { return TimeWarp.CurrentRateIndex; }
+            try
+            {
+                if (TimeWarp.fetch == null) return 0;
+                return TimeWarp.CurrentRateIndex;
+            }
             catch (Exception) { return 0; }
         }
 
@@ -332,11 +384,23 @@ namespace Parsek.TestCommands
 
                 if (TimeWarp.WarpMode == TimeWarp.Modes.LOW)
                 {
+                    // THE WHOLE PHYSICS LADDER, and `maxPhysicsRate_index` is deliberately
+                    // NOT consulted. It reads like the physics ceiling and is not: every
+                    // stock use site indexes the RAILS array with it - `MaxPhysicsRate =>
+                    // fetch.warpRates[fetch.maxPhysicsRate_index]`, `setRate`'s
+                    // `if (Mode == Modes.HIGH) { if (rateIdx > maxPhysicsRate_index) ... }`,
+                    // `if (curr_rate > warpRates[maxPhysicsRate_index])`, and all four
+                    // clamp screen-messages. Stock's actual LOW ceiling is the tail of
+                    // `setRate`: `Mathf.Clamp(num, 0, physicsWarpRates.Length - 1)`.
+                    //
+                    // Using it here was a REGRESSION with a measurement behind it: on
+                    // RF-12W's `2026-09-09_2157` log the atmospheric descent ran at physics
+                    // 4x (`rate=4 rateIndex=3` sustained, terminal `maxRate=4`); after the
+                    // first cut of this branch, `2026-09-09_2224` sat at 1x for 40 s of the
+                    // same descent. `maxPhysicsRate_index` is a HIGH-mode gate, so reading
+                    // it here answered 0 and pinned the ladder to real time.
                     if (tw.physicsWarpRates == null || tw.physicsWarpRates.Length == 0) return 0;
-                    int physTop = tw.physicsWarpRates.Length - 1;
-                    int physCeiling = tw.maxPhysicsRate_index;
-                    if (physCeiling < 0) physCeiling = 0;
-                    return physCeiling > physTop ? physTop : physCeiling;
+                    return tw.physicsWarpRates.Length - 1;
                 }
 
                 if (tw.warpRates == null || tw.warpRates.Length == 0) return 0;

@@ -246,8 +246,15 @@ namespace Parsek.TestCommands
             if (warpRates == null || warpRates.Count == 0) return 0;
             if (double.IsNaN(remainingSeconds) || remainingSeconds <= 0.0) return 0;
 
+            // ONLY the upper clamp, and its absence is what an out-of-range ceiling
+            // would cost: without it a stale ceiling indexes past the array and throws.
+            // There is deliberately NO lower clamp - a negative ceiling makes the
+            // descending loop below run zero times and fall through to 0, which is the
+            // same answer a clamp would produce, so a `if (ceiling < 0) ceiling = 0;`
+            // would be a line no test could ever discriminate. (Mutation-tested by the
+            // review panel, which found exactly that: the assertion pinning it passed
+            // against code without it.)
             int ceiling = maxAllowedIndex;
-            if (ceiling < 0) ceiling = 0;
             if (ceiling > warpRates.Count - 1) ceiling = warpRates.Count - 1;
 
             bool capped = maxRateCap > UncappedMaxRate;

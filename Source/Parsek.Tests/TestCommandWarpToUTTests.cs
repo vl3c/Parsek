@@ -164,6 +164,16 @@ namespace Parsek.Tests
             Assert.Equal(5,
                 TestCommandWarpToUT.SelectRateIndex(2500.0, StockRates, TopIndex,
                     TestCommandWarpToUT.UncappedMaxRate));
+
+            // THE SPAN THAT ACTUALLY DISCRIMINATES THE FACTOR, added after the review
+            // panel mutation-tested this cell and found the three spans above answer the
+            // SAME index with or without the `* MinRealSecondsAtRate` - so the cell's own
+            // name promised coverage only the ladder-walk cell supplied. 2499 s is one
+            // second short of 1000x's window: with the factor the answer steps down to
+            // 100x, without it 1000x still qualifies.
+            Assert.Equal(4,
+                TestCommandWarpToUT.SelectRateIndex(2499.0, StockRates, TopIndex,
+                    TestCommandWarpToUT.UncappedMaxRate));
         }
 
         [Fact]
@@ -243,9 +253,16 @@ namespace Parsek.Tests
         [Fact]
         public void SelectRateIndex_ClampsAnOutOfRangeCeilingRatherThanIndexingPastTheLadder()
         {
+            // The UPPER clamp is the one that matters: without it a stale ceiling indexes
+            // past the array and throws. Removing the clause reds exactly here.
             Assert.Equal(TopIndex,
                 TestCommandWarpToUT.SelectRateIndex(1e9, StockRates, 99,
                     TestCommandWarpToUT.UncappedMaxRate));
+            // A NEGATIVE ceiling answers 1x, and this cell claims nothing about HOW. The
+            // review panel mutation-tested the lower clamp that used to sit beside the
+            // upper one and found it dead - the descending loop runs zero times either
+            // way - so the clause is gone and this assertion pins the OUTPUT, which is the
+            // only thing that was ever observable.
             Assert.Equal(0,
                 TestCommandWarpToUT.SelectRateIndex(1e9, StockRates, -5,
                     TestCommandWarpToUT.UncappedMaxRate));

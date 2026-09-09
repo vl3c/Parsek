@@ -219,7 +219,7 @@ namespace Parsek.InGameTests
 
         /// <summary>
         /// Split the subtree's kerbal-death rows into what the merge WILL retire and
-        /// which kerbals §7.16 can therefore recover, or refuse the run by naming the
+        /// which kerbals section 7.16 can therefore recover, or refuse the run by naming the
         /// missing context. Pure, so it is pinned headlessly in
         /// <c>KerbalRecoveryStraddleGuardTests</c> the way PR #1661 pinned
         /// <c>MergeInterruptionRecoveryTest.TryBuildUnconcludedReFlySkip</c>.

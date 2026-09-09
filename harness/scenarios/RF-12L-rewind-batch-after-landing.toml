@@ -20,30 +20,42 @@ id = "RF-12L-rewind-batch-after-landing"
 # THE MEASURED FINDING THIS LANE CARRIES, and it is the reason the lane is honest about
 # what it does NOT buy.
 #
-# `TerminalState.Landed` IS NEVER STAMPED WHILE THE SCENE IS FLIGHT. Every write of it
-# goes through `ParsekFlight.FinalizeTreeRecordings`, which has exactly five callers -
-# `FinalizeTreeOnSceneChangeCore`, `CommitTreeSceneExit`, `CommitTreeFlight`,
-# `CommitTreeRevert` and `ShowPostDestructionTreeMergeDialog`. There is NO GameEvents
-# touchdown handler that stamps it, and the one place that computes a live-flight surface
-# terminal (`RecordingFinalizationCacheProducer.TryBuildSurfaceTerminalCache`) writes it
-# into a CACHE rather than onto the recording - its single eager mutation of
-# `recording.TerminalStateValue` is the DESTROY branch, added precisely so a transient
-# post-impact LANDED situation could not stamp `Landed` on a recording the player watched
-# crash. `TerminalState.Destroyed`, by contrast, IS written live, by
-# `ParsekFlight.TerminalEvents.ApplyTerminalDestruction` from the deferred-destruction
-# coroutine.
+# AN EARLIER CUT OF THIS HEADER CLAIMED "`TerminalState.Landed` IS NEVER STAMPED WHILE THE
+# SCENE IS FLIGHT". THE REVIEW PANEL REFUTED IT, and the refutation is more useful than the
+# claim was, so it is recorded here rather than quietly deleted.
 #
-# THE PREDICTION WAS THEREFORE EXPLICITLY MIXED, and reading run 1 ANSWERED IT
+#   FALSE, with counterexamples: `BackgroundRecorder.EndDebrisRecording` stamps
+#   `DetermineTerminalState((int)v.situation, v)` on a debris-TTL tick and that returns
+#   `Landed`; `ParsekFlight.TerminalEvents.PhantomTerrainCrashOverride` stamps it; and
+#   `RecordingFinalizationCacheApplier` stamps it from a BackgroundRecorder-reached path.
+#   The claim also confused `TerminalState` with `TerminalKind`: the cell it was written
+#   about gates on `TerminalKind.Landed`, which `TerminalKindClassifier` maps from SIX
+#   states including `Docked` and `Boarded` - and `ParsekFlight.MergeBranch` stamps both
+#   of those LIVE, on the ACTIVE parent recording, with no scene exit at all.
+#
+#   WHAT IS ACTUALLY TRUE is about the conclusion ROUTE rather than the stamp: a live
+#   re-fly cannot reach any route that would stamp a Landed-kind terminal on ITS OWN
+#   provisional. `CommitTreeFlight` answers `no-active-tree` on a re-fly's pending tree
+#   (RF-12 measured it), `ShowPostDestructionTreeMergeDialog` fires only on a destruction
+#   and stamps `Destroyed`, and `CommitTreeRevert` and scene exit both END the session the
+#   cell needs live. `TryCommitReFlySupersede` has exactly one production caller,
+#   `MergeDialog.MergeCommit`.
+#
+# SO `MergeLandedReFlyCreatesImmutableSupersede` IS NOT UNREACHABLE, and what is owed is a
+# LANE rather than a decision: a re-fly that DOCKS with something, or whose kerbal is
+# BOARDED, stamps `Docked` / `Boarded` through `MergeBranch` while the scene is still
+# FLIGHT and satisfies `TerminalKind.Landed` with the session still live. It needs no new
+# instrument - `EvaBoard` is already an implemented seam verb and this lane's own mission
+# machine already flies a re-fly that could be boarded.
+#
+# WHAT THIS LANE ACTUALLY MEASURED, and it answered the pre-registered prediction
 # SIDEWAYS - which is what a reading run is for and why the prediction was written down
-# before the flight. The lane was authored expecting the re-flight to settle LANDED, so
-# that `MergeLandedReFlyCreatesImmutableSupersede` would skip and the structural finding
-# above would be demonstrated. What actually happened on `2026-09-09_1911` is that the
-# un-piloted hop off the pad CONCLUDED DESTROYED: the mission's `reflyConclusionInFlight`
-# row read `value=destroyed concludedUT=58.3 airborneSeen=true`, MISSION-OK. So this lane
-# has NOT yet exercised the landed branch of the conclusion profile, and the header's
-# structural claim about `Landed` stands UNTESTED BY FLIGHT here (it is derived from the
-# stamp call sites, and two independent reads agree). That is recorded rather than
-# papered over: the honest statement is that the profile CONCLUDES, not that it lands.
+# before the flight. The lane was authored expecting the re-flight to settle LANDED. What
+# happened on `2026-09-09_1911` is that the un-piloted hop off the pad CONCLUDED DESTROYED:
+# the mission's `reflyConclusionInFlight` row read `value=destroyed concludedUT=58.3
+# airborneSeen=true`, MISSION-OK. So the landed branch of the conclusion profile is BUILT
+# AND PINNED HEADLESSLY BUT UNEXERCISED BY FLIGHT, and the honest statement is that the
+# profile CONCLUDES, not that it lands.
 #
 # =====================================================================================
 # HOW THE RE-FLY IS FLOWN TO ITS ENDING, which is the mission half of phase 4.
@@ -75,15 +87,19 @@ id = "RF-12L-rewind-batch-after-landing"
 #
 # =====================================================================================
 # WHAT READING RUN 1 BOUGHT, and it is the best result the whole program has produced:
-# `BATCH_COMPLETE v1 total=39 passed=14 failed=0 skipped=25`, against RF-12W's 13, RF-12's
+# `BATCH_COMPLETE v1 total=39 passed=14 failed=0 skipped=25`, against RF-12W's 14, RF-12's
 # 12 and RF-6's 11 - and `failed=0`, where RF-12W red on the first-ever execution of
 # `KerbalRecoveryOnSupersede`. The run was PARSEK-FAIL only on two forbid clauses that
 # were themselves wrong, both corrected below off this run's own evidence: the ERROR guard
 # now carries one measured exception, and the `No active re-fly session` guard is
 # withdrawn because a batch that merges the session correctly reports it spent.
 #
-# STATUS: READING RUN 1 FLOWN 2026-09-09 (`2026-09-09_1911`, MISSION-OK, wall 284 s),
-# PARSEK-FAIL on two clauses this change fixes; re-flight pending. `total=39` is pinned EXACTLY and is source-derived
+# STATUS: LIVE-PROVEN 2026-09-09 (`2026-09-09_1924`, PASS attempt 1, wall 284 s,
+# MISSION-OK, `BATCH_COMPLETE v1 total=39 passed=14 failed=0 skipped=25`). Reading run 1
+# (`2026-09-09_1911`) read the same tally and went PARSEK-FAIL only on the two forbid
+# clauses corrected below. `MergeCrashedReFlyCreatesCPSupersede` PASSES here too, so both
+# phase-4 lanes reach the cell the program was built to reach.
+# `total=39` is pinned EXACTLY and is source-derived
 # (`CommittedBatchTallySourceSyncTests` walks `Source/Parsek` and reds until it agrees
 # with the `[InGameTest]` attributes it counts); `passed` and `skipped` stay CLASSES for
 # RF-6's reason - this category gains cells regularly and an exact split would red on
@@ -185,7 +201,12 @@ allowedAnomalies = []
 # FLOOR that a rewind which lost the committed corpus sinks below. No ceiling - the Kerbal
 # X sheds boosters that each become a parent-anchored debris child, and the conclusion may
 # add more.
-count = { min = 1 }
+# The floor was `min = 1` on the reading run, which nothing short of total corpus loss
+# could trip. Raised to 11 off the green run's measured 27: the injected rewind-b9 corpus
+# plus the flown ascent's tree is the population a rewind that lost its corpus sinks
+# below. Still no ceiling - the Kerbal X sheds boosters that each become a parent-anchored
+# debris child and the conclusion adds more.
+count = { min = 11 }
 
 [expectations.logContracts]
 # THREE FAMILIES, in the order the run produces them.
@@ -207,7 +228,26 @@ count = { min = 1 }
 required = [
   "Re-Fly \\(Rewind-to-Separation\\) StartInvoke", "Invocation complete",
   "ConsumePostLoad: restoring bundle with route-retire cutoffUT=",
-  "Recording started",
+  # THE SECOND FLIGHT'S recorder, named. A bare `Recording started` matches the FIRST
+  # ascent's own start line (5 hits on the green run), so it proved nothing about the
+  # re-flight; the slot's vessel name is what makes it the re-fly's recorder.
+  "Recording started: vessel=\"B9 Slot 1\"",
+  # THE SESSION WAS STILL LIVE WHEN THE BATCH STARTED - see RF-12W for why this row
+  # exists and why it beats the withdrawn `No active re-fly session` forbid.
+  "A live Re-Fly session is already active \\(sess=sess_[0-9a-f]{32}\\)",
+  # THE PREMISE, PINNED ON THE ONE LINE THAT DISCRIMINATES IT (RF-12W carries the full
+  # argument): `qualifies=True` with a non-InFlight terminalKind is the state RF-6 and
+  # RF-12 could not reach, measured 1 hit here and ZERO on both of those.
+  "\\[Supersede\\] provisional=rec_[0-9a-f]{32} mergeState=\\w+ terminalKind=(Crashed|Landed) qualifies=True",
+  # THE CLAIM-TO-TOKEN PIN, and the review panel is why it exists. The strongest thing
+  # either phase-4 lane says is "`MergeCrashedReFlyCreatesCPSupersede` executes and
+  # passes" - the cell that wants exactly `TerminalKind.Crashed` and had never run
+  # anywhere - and until this row that claim was held by NOTHING: the tally pin is
+  # `passed=[1-9][0-9]*`, so the cell could regress to SKIPPED with the lane still green.
+  # The CL family already solves this with committed claim-to-token pins, and RF-12 itself
+  # pins `PASSED: KerbalDualResidenceCarveOutTest\.` for the same reason. MEASURED: present
+  # once on both phase-4 green logs, ZERO on RF-12's unconcluded log and ZERO on RF-6's.
+  "PASSED: MergeCrashedReFlyCreatesCPSupersedeTest\\.MergeCrashedReFlyCreatesCPSupersede",
   "runtests start category=Rewind",
   "BATCH_COMPLETE v1 total=39 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=Rewind scene=FLIGHT",
 ]
@@ -228,11 +268,13 @@ forbidden = [
   #
   # The exception is a NEGATIVE LOOKAHEAD rather than a dropped clause on purpose: every
   # other Parsek ERROR still reds these lanes, so the guard keeps all of its value except
-  # for the one line the lane's own physics makes inevitable. The consequence a reader
+  # for the one line the lane's own physics makes inevitable. It names the CAUSE and not
+  # just the prefix - `InGameTestSkippedException: ValidateQuicksaveStructure skipped` -
+  # so a genuinely corrupt baseline or an IOException on the same restore still reds. The consequence a reader
   # needs: because the in-memory restore was refused, the produced-save snapshot is the
   # BATCH-START state, so `[expectations.rewind]` here must be read against batch-start,
   # never against what a merging cell did.
-  "\\[Parsek\\]\\[ERROR\\](?!\\[TestRunner\\] Batch baseline restore failure)",
+  "\\[Parsek\\]\\[ERROR\\](?!\\[TestRunner\\] Batch baseline restore failure detail \\([^)]*\\): Parsek\\.InGameTests\\.InGameTestSkippedException: ValidateQuicksaveStructure skipped)",
   # THE TERMINAL-GATE GUARD, and this lane CAN carry it. The header predicted it could
   # not, on the reasoning that a landing does not stamp a terminal - but the profile's
   # first flight concluded `outcome=destroyed` rather than landed (the un-piloted hop off
@@ -268,14 +310,19 @@ forbidden = [
 rewindPoints = { min = 1 }
 
 [runtime]
-# Budget arithmetic (M-A5 S8). Steps: LoadGame max(240,600)+60 = 660 (deferred verb),
-# SetSetting x2 120, mission 1800 (the mission-step budget bounds the subprocess inside
-# the run budget), RunTests max(540,600)+60 = 660, FlushAndQuit 60
-#   -> sum 3300; +200 margin = 3500.
+# Budget arithmetic (M-A5 S8), CORRECTED by the review panel. A non-deferred verb with
+# no declared budget waits max(60, dispatchBudget + 60) = 120, not 60 - so:
+#   LoadGame max(240,600)+60 = 660 (deferred verb) + SetSetting x2 240
+#   + mission 1800 (taken verbatim, no +60) + RunTests max(540,600)+60 = 660
+#   + FlushAndQuit 120
+#   -> sum 3480, NOT the 3300 an earlier cut of this comment claimed.
 # The mission budget is R1's 1200 plus the conclusion phase's own 900-frame bound
 # (~450 s at the 0.5 s poll cadence) plus slack, since the profile appends a whole phase
 # after the point where R1 finishes.
-budgetSeconds = 3500
+# 3600 rather than 3500: the corrected sum clears by 120 where the mis-stated one
+# appeared to clear by 200 and actually cleared by 20. The green run's wall was 284 s, so
+# this bounds the defer path and nothing else.
+budgetSeconds = 3600
 
 [retry]
 policy = "once"

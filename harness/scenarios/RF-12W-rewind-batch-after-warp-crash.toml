@@ -22,17 +22,24 @@ id = "RF-12W-rewind-batch-after-warp-crash"
 # doc "#### WarpToUT") drives the stock rails rate ladder instead of the epoch shift, so
 # the world SIMULATES forward: the re-flown half coasts to apoapsis, falls back, re-enters
 # and impacts, and `ParsekFlight.TerminalEvents.ApplyTerminalDestruction` stamps
-# `TerminalState.Destroyed` WHILE THE SCENE IS STILL FLIGHT. That is the one terminal a
-# live re-fly can reach without leaving the scene, and the reason is worth writing down
-# because the sibling lane RF-12L exists to measure the other half of it:
+# `TerminalState.Destroyed` WHILE THE SCENE IS STILL FLIGHT. It is the one terminal a
+# live re-fly reaches WITHOUT DOING ANYTHING but come down, and the reason is worth
+# writing down because an earlier cut of this header got it wrong and the review panel
+# caught it:
 #
-#   `TerminalState.Landed` is stamped ONLY at finalization - `FinalizeTreeRecordings`,
-#   reached from scene exit, `CommitTreeFlight`, `CommitTreeRevert`, or the
-#   post-destruction merge dialog. There is NO GameEvents touchdown handler that stamps
-#   it, and `RecordingFinalizationCacheProducer`'s live-flight surface terminal goes into
-#   a CACHE, not onto the recording (its one eager write is the DESTROY branch). So a
-#   landing cannot conclude a re-fly in flight and a destruction can. Measured 2026-09-09
-#   by reading the stamp call sites, not inferred from the skip texts.
+#   The claim was "`TerminalState.Landed` is stamped ONLY at finalization". FALSE.
+#   `BackgroundRecorder.EndDebrisRecording` stamps it live on a debris-TTL tick,
+#   `PhantomTerrainCrashOverride` stamps it, and - the part that matters most - the cell
+#   this lane's sibling was built around gates on `TerminalKind.Landed`, which
+#   `TerminalKindClassifier` maps from SIX states including `Docked` and `Boarded`, both
+#   of which `ParsekFlight.MergeBranch` stamps live on the ACTIVE parent recording.
+#
+#   WHAT IS TRUE is about the ROUTE: a live re-fly cannot reach anything that stamps a
+#   Landed-kind terminal on ITS OWN provisional. `CommitTreeFlight` answers
+#   `no-active-tree` on a re-fly's pending tree, `ShowPostDestructionTreeMergeDialog`
+#   fires only on a destruction, and `CommitTreeRevert` / scene exit both END the session.
+#   So a DESTRUCTION is the conclusion a warp can drive - and a re-fly that DOCKS or is
+#   BOARDED is the one route to the Landed-kind cell that nobody has flown yet.
 #
 # =====================================================================================
 # WHAT THE WARP TARGET IS, AND WHY 600. THE NUMBER IS MEASURED, NOT CHOSEN.
@@ -117,7 +124,19 @@ id = "RF-12W-rewind-batch-after-warp-crash"
 # for a reason that has nothing to do with the warp. Recorded rather than silently
 # omitted.
 #
-# STATUS: NEVER FLOWN. `total=39` is pinned EXACTLY and is source-derived
+# STATUS: LIVE-PROVEN 2026-09-09 (`2026-09-09_1930`, PASS attempt 1, wall 212 s,
+# `BATCH_COMPLETE v1 total=39 passed=14 failed=0 skipped=25`), on the FOURTH flight. The
+# three reds before it each taught the lane something it could not have been authored to
+# know, and all three corrections live in this file: the warp budget and target (run 1,
+# killed after it measured the profile), the in-game `KerbalRecoveryOnSupersede` guard
+# (run 2, PARSEK-FAIL on that cell's FIRST EXECUTION ANYWHERE - filed and fixed as
+# KERBAL-RECOVERY-CELL-IGNORES-THE-PRE-REWIND-TOMBSTONE-GUARD), and the completion regex
+# plus the two inherited forbid clauses (run 3).
+#
+# THE RESULT THAT MATTERS IS A CELL, NOT A TALLY: `MergeCrashedReFlyCreatesCPSupersede`,
+# which wants exactly `TerminalKind.Crashed` and had never executed anywhere, PASSES.
+#
+# `total=39` is pinned EXACTLY and is source-derived
 # (`CommittedBatchTallySourceSyncTests` walks `Source/Parsek` and reds until it agrees
 # with the `[InGameTest]` attributes it counts); `passed` and `skipped` stay CLASSES for
 # RF-6's and RF-12's reason - this category gains cells regularly and an exact split would
@@ -160,7 +179,7 @@ steps = [
   # already flew and whose merge wrote real supersede rows, so it is measured rather than
   # assumed.
   { cmd = "InvokeRewind", args = { rp = "${handles.rp0}", slot = "0" },         expect = "OK", budget = 300 },
-  # THE STEP THIS LANE EXISTS FOR. See the header for why 900 and what a clamp does.
+  # THE STEP THIS LANE EXISTS FOR. See the header for why 600 and what a clamp does.
   { cmd = "WarpToUT",     args = { ut = "600" },                                expect = "OK", budget = 540 },
   # R7a's, RF-6's and RF-12's own budget for the same 39-cell category.
   { cmd = "RunTests",     args = { category = "Rewind" },                       expect = "OK", budget = 540 },
@@ -186,7 +205,7 @@ count = { min = 11, max = 30 }
 #
 # THE FOUR TOKENS THAT MAKE THIS LANE DIFFERENT, in the order the run produces them:
 #   StartInvoke        a re-fly actually started (RF-6's own anti-vacuity token).
-#   warptout start     the REAL warp was driven, not the epoch shift. The `ut=900` in this
+#   warptout start     the REAL warp was driven, not the epoch shift. The `ut=600` in this
 #                      row is what separates it from a `TimeJump` line at a glance.
 #   warptout complete  the clock arrived AND the warp came back down (the terminal is only
 #                      emitted once rate index 0 is observed).
@@ -210,6 +229,36 @@ required = [
   # reached value reds a completion that was exactly right. `ut=` echoes the CAPTURED
   # target and is therefore exact by construction.
   "warptout complete reachedUT=[0-9.]+ ut=600 ",
+  # THE SESSION WAS STILL LIVE WHEN THE BATCH STARTED. Emitted by
+  # `F5MidReFlyResume`, which SKIPS because it finds a real session and refuses to
+  # install its own over it - and F sorts before every `Merge*` cell, so this reads the
+  # session at batch ENTRY rather than after some cell has spent it. It replaces the
+  # job the withdrawn `No active re-fly session` forbid used to do, and unlike that
+  # guard it cannot be confused by discovery order.
+  "A live Re-Fly session is already active \\(sess=sess_[0-9a-f]{32}\\)",
+  # THE PREMISE, PINNED ON THE ONE LINE THAT DISCRIMINATES IT. `SupersedeCommit`
+  # emits this when a merge evaluates the provisional's terminal, and `qualifies=True`
+  # with a non-InFlight `terminalKind` is exactly the state RF-6 and RF-12 could not
+  # reach. MEASURED across six runs by the review panel: 1 hit on each of the four
+  # RF-12W / RF-12L runs, ZERO on RF-12's unconcluded log and ZERO on both RF-6 runs.
+  #
+  # It exists because the FORBIDDEN `reason=null TerminalState` below turned out to be
+  # decoration, and the panel proved it rather than argued it: that literal has ONE
+  # producer (`SupersedeCommit.AppendRelations`), every in-batch route to it is gated
+  # on a non-null terminal (`MergeCrashedReFlyCreatesCPSupersedeTest` skips first when
+  # the kind is InFlight), and RF-12's own unconcluded log carries it ZERO times - so
+  # this lane's whole contract minus the two `warptout` rows PASSED on RF-12's log.
+  # A guard that cannot fire on the counterfactual it names is not a guard.
+  "\\[Supersede\\] provisional=rec_[0-9a-f]{32} mergeState=\\w+ terminalKind=(Crashed|Landed) qualifies=True",
+  # THE CLAIM-TO-TOKEN PIN, and the review panel is why it exists. The strongest thing
+  # either phase-4 lane says is "`MergeCrashedReFlyCreatesCPSupersede` executes and
+  # passes" - the cell that wants exactly `TerminalKind.Crashed` and had never run
+  # anywhere - and until this row that claim was held by NOTHING: the tally pin is
+  # `passed=[1-9][0-9]*`, so the cell could regress to SKIPPED with the lane still green.
+  # The CL family already solves this with committed claim-to-token pins, and RF-12 itself
+  # pins `PASSED: KerbalDualResidenceCarveOutTest\.` for the same reason. MEASURED: present
+  # once on both phase-4 green logs, ZERO on RF-12's unconcluded log and ZERO on RF-6's.
+  "PASSED: MergeCrashedReFlyCreatesCPSupersedeTest\\.MergeCrashedReFlyCreatesCPSupersede",
   "runtests start category=Rewind",
   "BATCH_COMPLETE v1 total=39 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=Rewind scene=FLIGHT",
 ]
@@ -230,11 +279,17 @@ forbidden = [
   #
   # The exception is a NEGATIVE LOOKAHEAD rather than a dropped clause on purpose: every
   # other Parsek ERROR still reds these lanes, so the guard keeps all of its value except
-  # for the one line the lane's own physics makes inevitable. The consequence a reader
+  # for the one line the lane's own physics makes inevitable. It names the CAUSE and not
+  # just the prefix - `InGameTestSkippedException: ValidateQuicksaveStructure skipped` -
+  # so a genuinely corrupt baseline or an IOException on the same restore still reds,
+  # which a prefix-only carve-out would have swallowed. (The mis-levelling is really the
+  # runner's: `InGameTestRunner` logs a deliberate `InGameAssert.Skip` at ERROR and then
+  # repeats it at Warn on the next line. Fixing it there would retire this lookahead for
+  # every future crash lane; not done here because it is outside this change's subject.) The consequence a reader
   # needs: because the in-memory restore was refused, the produced-save snapshot is the
   # BATCH-START state, so `[expectations.rewind]` here must be read against batch-start,
   # never against what a merging cell did.
-  "\\[Parsek\\]\\[ERROR\\](?!\\[TestRunner\\] Batch baseline restore failure)",
+  "\\[Parsek\\]\\[ERROR\\](?!\\[TestRunner\\] Batch baseline restore failure detail \\([^)]*\\): Parsek\\.InGameTests\\.InGameTestSkippedException: ValidateQuicksaveStructure skipped)",
   # THE TERMINAL-GATE GUARD, AND THE LANE'S ANTI-VACUITY CLAUSE. Every terminal-gated
   # cell in the batch routes through `SupersedeCommit.ValidateSupersedeTarget`, whose
   # THIRD clause refuses a provisional with a null `TerminalState` - and that is exactly
@@ -252,16 +307,17 @@ forbidden = [
   # DELIBERATELY NOT FORBIDDEN, and each line is a measurement rather than an omission:
   #
   # `No active re-fly session` - RF-6's and RF-12's inherited guard, and it CANNOT be
-  #   carried by a lane whose batch actually reaches a merging cell. Reading run 2 emitted
-  #   it SEVEN times, and every one of them was correct: `KerbalRecoveryOnSupersede` runs
-  #   a REAL merge, which spends the session, and every `Merge*` cell after it (K sorts
-  #   before M) then honestly reports the session gone. The earlier `F5MidReFlyResume`
-  #   reported it LIVE in the same batch (`sess=sess_3cb7d17543e24d599dc22c172bfeed60`),
-  #   which is the proof the token means "spent by an earlier cell" here rather than
-  #   "never armed". A regex cannot separate the two, so the guard is dropped and its job
-  #   is done by `reason=null TerminalState` above - a strictly better instrument, because
-  #   it fires on the condition the lane exists to remove instead of on a side effect of
-  #   the batch's own discovery order.
+  #   carried by a lane whose batch actually reaches a merging cell. On the GREEN run it
+  #   fires 5 times and every one is correct: `MergeCrashedReFlyCreatesCPSupersede` runs a
+  #   REAL merge, which SPENDS the session, and the five `Merge*` cells after it then
+  #   honestly report it gone. (On reading run 2, before the `KerbalRecoveryOnSupersede`
+  #   guard landed, that cell merged first and the count was 7 - same mechanism, different
+  #   spender, which is itself the argument: WHICH cell spends the session is decided by
+  #   discovery order and a regex cannot see it.) The proof the token means
+  #   "spent by an earlier cell" rather than "never armed" is that `F5MidReFlyResume`,
+  #   which runs first, SKIPS in the same batch BECAUSE the session is live - and that
+  #   line is now a REQUIRED row above, so the property the withdrawn guard actually
+  #   protected is pinned by something that can see it.
   #
   # `outcome=unbound-refly-provisional` - RF-12 measured that it is raised at the
   #   rewind's own SAVE, before any driven step can fly the attempt, so no seam lane can

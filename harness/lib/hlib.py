@@ -581,9 +581,9 @@ STEP_WAIT_MARGIN_SECONDS = 60
 # WarpToUT joins for a reason of its OWN, and not TimeJump's: TimeJump is here because
 # its jump is instantaneous and only the spawn-queue settle is watched, while WarpToUT's
 # completion watches a clock that advances in REAL time whenever stock clamps the ladder
-# (a vessel under drag inside the atmosphere is pinned to 1x). Its 300 s budget must be
-# out-waited by the harness step-wait, and the 540 s cap must govern any budget a spec
-# declares for it.
+# (a vessel under drag inside the atmosphere is pinned to 1x). Its 540 s budget - this
+# module's own MAX_DEFERRED_STEP_BUDGET_SECONDS - must be out-waited by the harness
+# step-wait, which is what puts it at the cap rather than under it.
 DEFERRED_SEAM_VERBS: Tuple[str, ...] = ("RunTests", "LoadGame", "InvokeRewind", "TimeJump",
                                         "EvaChuteDeploy", "StartLoopPlayback",
                                         "InvokeRewindToLaunch", "WarpToUT")
