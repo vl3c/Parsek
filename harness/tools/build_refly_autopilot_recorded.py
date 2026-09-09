@@ -209,6 +209,35 @@ def verify() -> List[str]:
     if hints:
         problems.append("dangling rewindSave hint(s) %r with no committed payload"
                         % hints)
+    # THE SAME KEY INSIDE THE REWINDPOINT QUICKSAVE, added 2026-09-09 after RF-11's
+    # reading run 1 turned the analyzer RED on it. The quicksave embeds its OWN copy of
+    # the ParsekScenario, hints included, and the harvest cleared only the one in
+    # persistent.sfs - so a re-fly restored the pruned name out of PARSEK_ACTIVE_TREE
+    # (`RewindSaveFileName set for restore: '<null>' -> 'parsek_rw_7f15ef'
+    # (quickload-resume from PARSEK_ACTIVE_TREE)`), `SaveActiveTreeIfAny` copied it onto
+    # the tree ROOT, and INV9 correctly reported a CommittedProvisional recording
+    # pointing at a file no fixture carries: `FAIL INV9-REWINDPOINT ...
+    # missing-rewind-save-provisional`. Not a product defect - production never has that
+    # state, because a save whose quicksave names a rewind save also HAS it. It is the
+    # harvest's pruning being one file short, and it is checked here so a re-harvest
+    # cannot re-introduce it silently.
+    if os.path.isfile(rp_file):
+        # ANY `parsek_rw_*` VALUE, not just the `rewindSave` key. RF-11 reading run 1
+        # was cleaned of `rewindSave` and STILL red, because the name the restore
+        # actually reads is `resumeRewindSave` on the PARSEK_ACTIVE_TREE resume node -
+        # a second key the first pass missed by matching on the first one's spelling.
+        # Matching the VALUE shape is what makes the check about the property (no
+        # reference to a payload this fixture does not carry) rather than about a key
+        # list somebody has to keep complete.
+        rp_hints = [ln.strip() for ln in _read_lines(rp_file) if "parsek_rw_" in ln]
+        if rp_hints:
+            problems.append(
+                "the RewindPoint quicksave references a rewind-to-launch save: %r. It "
+                "embeds its own copy of the ParsekScenario, so a re-fly RESTORES the "
+                "name the harvest pruned from persistent.sfs and INV9 then FAILs on a "
+                "dangling reference (RF-11 reading run 1, 2026-09-09). Clear the VALUE "
+                "and leave the key - the file is deep-parsed payload and its line count "
+                "is pinned" % rp_hints)
 
     # The render subject.
     tail = os.path.join(FIXTURE_DIR, "Parsek", "Recordings",

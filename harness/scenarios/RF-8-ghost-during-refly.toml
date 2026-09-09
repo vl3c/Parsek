@@ -47,22 +47,64 @@ id = "RF-8-ghost-during-refly"
 # positive half (a ghost was created, watch mode entered, the map drew something).
 #
 # =====================================================================================
-# STATUS: FLOWN 2026-09-09 AND INVALID, WITH THE CAUSE MEASURED. `EnterWatchMode` refused
-# `no-watchable-ghost committed=22 ... [9 ghost=T body=T range=F]`: of 22 committed
-# recordings exactly ONE has a live ghost on the matching body, and the watch RANGE gate
-# declines it. So a ghost DOES resolve during a live re-fly and IS body-matched - a better
-# answer than the seed had - and what is NOT established is whether any clock on this host
-# puts it inside the cutoff. Filed as RF8-NO-WATCHABLE-GHOST-DURING-A-REFLY-ON-BDOCK with
-# the experiment rather than a re-pin. The step expects OK, so the run never reached this
-# lane`s own forbidden `no-watchable-ghost` clause: an unmet seam step is a driver gate
-# first.
+# RE-TARGETED 2026-09-09, FROM rp0 TO rp1, AND THE RE-TARGET IS THE ANSWER TO THIS LANE'S
+# OWN FINDING. Read this before moving the rewind point back.
+#
+# Reading run 1 (`2026-09-08_2323`) refused at `EnterWatchMode`:
+#   `enterwatchmode rejected reason=no-watchable-ghost committed=22 tree=(any)
+#    candidates=[0 ghost=F body=F range=F],...,[9 ghost=T body=T range=F],...`
+# and was filed as RF8-NO-WATCHABLE-GHOST-DURING-A-REFLY-ON-BDOCK with the cause named but
+# the subject unreached: of 22 committed recordings exactly one had a live ghost and it
+# failed the RANGE term.
+#
+# THE COLLECTED LOG SETTLES IT, and the answer is that the lane was jumping past its own
+# sibling. Four lines above the refusal the same log prints the committed census with each
+# recording's UT span (`logs/2026-09-09_0224_RF-8-ghost-during-refly/KSP.log:13087-13108`):
+#
+#   #0  "Kerbal X"        UT   26-196   chain idx=0     #8  "Kerbal X Probe"  UT  382-387
+#   #1  "Kerbal X"        UT  196-387   chain idx=1     #9  "Kerbal X"        UT  391-568
+#   #17 "Kerbal X Probe"  UT  693-8952                  #10 "Kerbal X"        UT  568-8949
+#
+# `rp0` sits at UT 382.73 and its SIBLING is slot 0's `a32f62f5` - the Kerbal X whose chain
+# (#0 + #1) ENDS AT UT 387. The lane then jumped to UT 500, which is 113 s past the last
+# frame that recording has. There was no sibling ghost to watch because the sibling's
+# recording was over; index 9 is a DIFFERENT launch's chain and is genuinely far away, so
+# `range=F` is the gate answering correctly about the wrong object. Nothing was wrong with
+# the watch gate, the tracers, or the session.
+#
+# `rp1` HAS THE SPAN THIS LANE NEEDED ALL ALONG. It sits at UT 693.29; its slot 1 is the
+# Probe `500c0ba9` (#17, UT 693-8952, the OPEN slot) and its slot 0 is `5157d655`, whose
+# chain is #9 + #10 and runs to UT 8949. So at UT 800 - 107 s after the separation, the
+# same margin RF-2 uses on rp0 - the re-flown Probe and the committed sibling's ghost are
+# both live, both on Kerbin, and 107 s of post-separation drift apart, which is three
+# orders of magnitude inside `WatchModeController.WatchEnterCutoffMeters` (300 km).
+#
+# READING RUN 2 (2026-09-09) CONFIRMED THE RE-TARGET AND COST TWO SPEC-SIDE RE-PINS.
+# `EnterWatchMode` was ACCEPTED - `enterwatchmode initiated: index=10
+# recId=3e0207a4... auto=true`, and index 10 is the sibling chain (`Kerbal X`,
+# UT 568-8949) the header above predicts - `EnterMapView` opened, a ghost was created
+# (`Created ghost vessel 'Ghost: Kerbal X' ... orbitSource=endpoint-terminal-orbit`), and
+# every driver step met. So the subject is REACHED and the finding is closed.
+#
+# The two re-pins are both the same class and both came off the run's own log rather than
+# a re-derivation: the watch-completion token was written against the verb's PAYLOAD keys
+# instead of its log line, and the polyline token was `drawn=[1-9]` - the exact token
+# RF-7M's run 1 had already refuted, because it counts REDRAWS and reads `drawn=0
+# staticSkip=13` on a static scene. This lane inherited the mistake without inheriting the
+# correction, which is worth one line: a token copied between lanes carries its own
+# history, and RF-7M's was already written down.
+#
+# THE FINDING IS THEREFORE A LANE FINDING AND IS CLOSED BY THIS EDIT, not by a product
+# change. It is also the program-wide-claim rule in miniature for a second time in this
+# family: "a ghost resolves during a re-fly" needed a data point about the SIBLING's own
+# coverage window, and the first run took one about whatever happened to be spawned.
 # FORMERLY: NEVER FLOWN. `tier = "operator"`. NOTHING ARMED - `ghostLifecycle` is declared
 # with no `gating` key precisely so the first run MEASURES a lifecycle rather than being
 # judged against one. GS-4's own header records that a lifecycle block is armed only after
 # a reading run whose facets match the declared windows; this lane has no facets yet.
 # =====================================================================================
 tier = "operator"
-description = "Reading run: what renders DURING a live re-fly. Rewind the open slot of the oldest bdock-recorded RewindPoint, fly the attempt with a TimeJump, then enter watch mode on the committed sibling's ghost and open the map - the first lane to arm either render tracer with a re-fly session live, with ghostLifecycle declared report-only."
+description = "Reading run: what renders DURING a live re-fly. Rewind the open slot of the MIDDLE bdock-recorded RewindPoint - the one whose committed sibling still has trajectory coverage when the attempt is flown - fly the attempt with a TimeJump, then enter watch mode on the committed sibling's ghost and open the map - the first lane to arm either render tracer with a re-fly session live, with ghostLifecycle declared report-only."
 instanceProfile = "stock-minimal"
 tags = ["RF-8", "rewind", "refly", "ghost", "watch-mode", "map", "render-tracing",
         "runtime-handles", "kerbin", "sandbox", "reading-run"]
@@ -86,8 +128,17 @@ steps = [
   { cmd = "SetSetting",     args = { name = "verboseLogging",     value = "true" }, expect = "OK" },
   { cmd = "StopRecording",                                                        expect = "OK" },
   { cmd = "ListHandles",    args = { kind = "rewindpoints" }, label = "handles",  expect = "OK" },
-  { cmd = "InvokeRewind",   args = { rp = "${handles.rp0}", slot = "1" },         expect = "OK", budget = 300 },
-  { cmd = "TimeJump",       args = { ut = "500" },                                expect = "OK", budget = 120 },
+  # rp1, NOT rp0. `ListHandles` walks `ParsekScenario.RewindPoints` in APPEND order, so
+  # `rp1` is the middle of the harvest's three points - UT 693.29, the one whose SIBLING
+  # chain (#9 + #10, UT 391-8949) still has coverage when the attempt is flown. See the
+  # RE-TARGETED block at the top: rp0's sibling recording ends at UT 387 and there is
+  # nothing there to watch.
+  { cmd = "InvokeRewind",   args = { rp = "${handles.rp1}", slot = "1" },         expect = "OK", budget = 300 },
+  # 800 is ~107 s past rp1's UT 693.29 - RF-2's own margin on rp0 - and far short of the
+  # tree's Dock branch point at 8949.27, so this lane does not drag CI-2's chain-tip spawn
+  # into its own measurement. Two vessels 107 s past a separation are hundreds of metres
+  # apart, not hundreds of kilometres.
+  { cmd = "TimeJump",       args = { ut = "800" },                                expect = "OK", budget = 120 },
   # Pacing before each visual step: `IsLineBlink` raises if two seam events land within
   # eight visual frames, which would make the Tier-C reading noise rather than truth.
   { cmd = "RecordingState",                                                       expect = "OK" },
@@ -138,10 +189,22 @@ required = [
   "listhandles kind=rewindpoints count=3 truncated=false",
   "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=.* rp=rp_[0-9a-f]{32}",
   "Invocation complete",
-  "timejump complete reachedUT=50[0-9]",
+  "timejump complete reachedUT=80[0-9]",
   "Created ghost vessel ",
-  "enterwatchmode complete .*watching=true",
-  "Polyline frame: scene=FLIGHT drawn=[1-9]",
+  # RE-PINNED FROM READING RUN 2's OWN LOG (2026-09-09). The token was
+  # `enterwatchmode complete .*watching=true`, derived from the verb's PAYLOAD key set
+  # (`index`, `recId`, `watching`) rather than from a log line. The Info line carries
+  # only two of those: `enterwatchmode complete: index=10 recId=3e0207a4...`. Pinning
+  # `index=` and `recId=` keeps everything the line can actually say, and the step's own
+  # `expect = "OK"` already carries the payload half.
+  "enterwatchmode complete: index=[0-9]+ recId=\\S+",
+  # RE-PINNED FOR RF-7M's REASON, which this lane inherited without inheriting the
+  # correction. `Polyline frame: ... drawn=N` counts REDRAWS, and a static scene reads
+  # `drawn=0 ... staticSkip=13` because every leg is cached - RF-7M's run 1 measured the
+  # identical shape and replaced the token with the LEG CENSUS, which is a statement
+  # about what was BUILT rather than about what was re-uploaded this frame. The sibling's
+  # own census on this run is `Polyline legs: rec=3e0207a4... count=3`.
+  "Polyline legs: rec=\\S+ count=[1-9]",
   "answermergedialog choice=merge result=committed",
 ]
 forbidden = [

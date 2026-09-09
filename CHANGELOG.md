@@ -10,6 +10,49 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Automated testing: a reload taken while a re-fly is in progress can now be driven,
+  and the first one settled a question that had been open for a month.** Reloading a
+  save is refused while a flight is being recorded, so that a reload can never throw
+  away a recording nobody meant to lose - which also meant the one case worth watching
+  could not be reached: quick-saving and quick-loading in the middle of a re-fly, which
+  is something a player does casually and the game had never been watched doing. The
+  refusal now takes one deliberate exception, and only while a re-fly is genuinely
+  under way; every other reload refuses exactly as before, a request that names the
+  exception without a re-fly in progress refuses too, and a mis-spelled request is
+  turned away rather than quietly ignored. The first run through it answered the
+  question: the re-fly survives the reload intact, the resume takes the branch written
+  for it, and the flight then finishes normally. What used to end a re-fly was the
+  in-game test batch's own preparation, not reloading.
+
+- **Automated testing: both halves of one abandoned separation can now be re-flown in
+  one sitting, and the point that lets you do it survives until the last of them is
+  finished with.** Nothing had ever exercised that: every recorded separation in the
+  test corpus had only one half still open, so "finish one half and the other stays
+  available" was a promise no run had checked. A run now re-flies the first half,
+  merges it, re-flies the second through a handle it reads back fresh - which is what
+  proves the point was still there - and then finishes each half in turn, watching the
+  point stay put for the first and go only with the last.
+
+- **Automated testing: the checks that follow a re-fly with a start-over now run on a
+  flight that actually has something to start over from.** They had been pointed at a
+  recorded save that carries no launch to go back to, so the whole sequence stopped at
+  the first step. They now run on a real flight, and they pin the property that
+  matters: a second attempt the player has decided to keep is NOT thrown away when they
+  then take the whole flight back to the pad.
+
+- **Automated testing: the check on what you can watch during a re-fly was looking at
+  the wrong moment.** It jumped the clock to a point where the other half's recording
+  had already ended, so there was nothing to follow and the run read as a refusal. It
+  now watches while both halves still have footage, and the camera takes the sibling as
+  intended.
+
+- **Automated testing: two recorded test saves referred to a start-over point that was
+  deliberately not kept with them.** Trimming those files had cleared the reference in
+  one place and left it in another, so re-flying from one of them re-introduced a
+  pointer to a file that is not there, and the save checker correctly complained. The
+  stale reference is cleared, and both the file's own build check and the standing
+  corpus check now look for any such pointer rather than for one particular spelling.
+
 - **Automated testing: the harvested save of the closed-slot session is now read
   through the real loader, not only compared byte for byte.** That save is the only
   copy of what the defect actually wrote, and the damage is invisible in its text: the

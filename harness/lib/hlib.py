@@ -1868,6 +1868,23 @@ BATCH_ISOLATED_VALUES: Tuple[str, ...] = ("true", "false")
 LOADGAME_SCENE_KEY = "scene"
 LOADGAME_SCENE_VALUES: Tuple[str, ...] = ("spacecenter", "trackstation")
 
+# RF-3/A1 `LoadGame allowLiveRecorder=`: the ONE opt-in past the `recording-active`
+# dispatch guard, and only while a re-fly session marker is live. It exists because an
+# F9 mid re-fly is a state ORDINARY PLAY reaches and the seam could not drive it at
+# all - stopping the recorder first changes what the experiment observes, since a load
+# WITH a live recorder is the event the guard describes.
+#
+# `refly` is the ONLY accepted spelling and there is deliberately no `true` / `any`:
+# the value names WHICH live-recorder state it excuses, so a future second case is a
+# second value carrying its own state term rather than a widening of this one. The C#
+# parse (TestCommandLoadGame.TryParseAllowLiveRecorder) is the scene= parse verbatim,
+# so the same three faults this table catches apply. The FOURTH fault - the arg on a
+# step whose runtime state carries no marker - is NOT catchable here (it is a runtime
+# fact), which is why the seam still answers `recording-active` in that case rather
+# than executing: the arg buys nothing on its own.
+LOADGAME_ALLOW_LIVE_RECORDER_KEY = "allowLiveRecorder"
+LOADGAME_ALLOW_LIVE_RECORDER_VALUES: Tuple[str, ...] = ("refly",)
+
 SWITCHCLICK_SITE_KEY = "site"
 SWITCHCLICK_SITE_VALUES: Tuple[str, ...] = ("map", "ts", "ksc")
 
@@ -1910,9 +1927,10 @@ LISTHANDLES_KIND_KEY = "kind"
 LISTHANDLES_KIND_VALUES: Tuple[str, ...] = ("rewindpoints", "committed", "active")
 
 # arg key -> (the ONLY verb that reads it, its closed value set). Iterated by
-# validate_spec, so a fourth such arg is one row rather than a fourth copied block.
+# validate_spec, so a fifth such arg is one row rather than a fifth copied block.
 VERB_SCOPED_CLOSED_ARGS: Dict[str, Tuple[str, Tuple[str, ...]]] = {
     LOADGAME_SCENE_KEY: ("LoadGame", LOADGAME_SCENE_VALUES),
+    LOADGAME_ALLOW_LIVE_RECORDER_KEY: ("LoadGame", LOADGAME_ALLOW_LIVE_RECORDER_VALUES),
     SWITCHCLICK_SITE_KEY: ("SimulateStockSwitchClick", SWITCHCLICK_SITE_VALUES),
     RUNTESTS_STRICT_KEY: ("RunTests", RUNTESTS_STRICT_VALUES),
     LISTHANDLES_KIND_KEY: ("ListHandles", LISTHANDLES_KIND_VALUES),
@@ -3859,8 +3877,14 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
         # caught pre-launch instead of costing a KSP boot to learn.
         for arg_key, (owner_verb, allowed) in sorted(VERB_SCOPED_CLOSED_ARGS.items()):
             for key in step_args:
+                # Compared lower-vs-lower on BOTH sides. Every arg key in the table was
+                # all-lowercase until RF-3/A1's `allowLiveRecorder`, for which
+                # `key.lower() == arg_key` can never be true - so the case-variant guard
+                # would have been silently inert on the one key whose spelling is easiest
+                # to get wrong. `key != arg_key` still gates it, so the exact spelling is
+                # never flagged and no existing row's behaviour moves.
                 if (isinstance(key, str) and key != arg_key
-                        and key.lower() == arg_key):
+                        and key.lower() == arg_key.lower()):
                     errors.append(
                         "driver.steps[%d].args.%s: the seam arg is spelled %r exactly "
                         "(the C# lookup is case-sensitive), so this key would be sent "
@@ -6594,6 +6618,11 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     #
     # LoadGame scene= : a bad spelling is an ARG fault, caught before the save is read.
     "scene-arg-invalid": "driver-arg",
+    # LoadGame allowLiveRecorder= (RF-3/A1): same shape, same class. The refusal a
+    # spec is far more likely to meet on this arg is `recording-active` (the opt-in
+    # parsed but no re-fly marker was live), which already has its own row - and that
+    # separation is the point: a TYPO and a wrong STATE must not report as one thing.
+    "allow-live-recorder-arg-invalid": "driver-arg",
     # ExitToSpaceCenter: the wedge guard declined because a merge modal would spawn. A
     # GATE decline, not a bad arg - the spec must set autoMerge (v1 supported shape).
     "dialog-required": "driver-gate",

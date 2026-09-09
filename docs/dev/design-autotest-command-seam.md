@@ -1259,6 +1259,70 @@ RewindPoints with real `Guid` ids and their quicksaves on disk, three
 then `InvokeRewind rp=${handles.rp0} slot=<the open slot>` - the first driven rewind
 whose target id was never written into a spec.
 
+#### RF-3/A1 - `LoadGame allowLiveRecorder=refly`
+
+**Contract.** `LoadGame` gains one optional argument. ABSENT is the pre-RF-3 contract
+verbatim, including the `recording-active` dispatch reject. PRESENT and equal to the
+literal `refly`, the load is admitted past that reject - and ONLY when the runtime state
+also carries a live re-fly session marker (`DispatchState.ActiveReFlyMarker`, the bit
+`AnswerMergeDialog` already reads). With the arg and NO marker, a live recorder still
+refuses `recording-active`, unchanged and with the same token: the argument buys nothing
+on its own. `load-in-flight` is untouched on every path.
+
+**Why the guard needed an opening at all.** A quickload taken while a re-fly session is
+live is a state ORDINARY PLAY reaches - CLAUDE.md's `ReFlyProvisionalBinding` entry lists
+it explicitly ("reachable from ordinary play (rewind, F5/F9, conclude without flying)"),
+the in-game cell `F5MidReFlyResume` exists for it, and the todo entry
+`REFLY-BATCH-BASELINE-DISCARDS-LIVE-SESSION` has held the question of what it does open
+since 2026-08-11. The seam could not reach it: `S4.4-refly-quicksave-mid-session`'s
+reading run 1 measured `reject id=0005 cmd=LoadGame reason=recording-active` and its
+header recorded the boundary in the spec's own words - the seam "cannot reproduce
+F9-mid-refly without either stopping the recorder first (which changes the experiment) or
+a guard-bypass the seam deliberately does not offer".
+
+**Why not just `StopRecording` first,** which needs no C# at all: because a load WITH a
+live recorder is the event the guard exists to describe. Stopping the recorder produces a
+different event that happens to reach the same disk, and the whole subject is what the
+product does to a session across a reload it did not expect. The alternative was
+considered and rejected on exactly that ground.
+
+**Why an argument and not a verb** (R12/A1's reasoning, verbatim in shape): the fault
+being fixed is that the dispatch guard is two-valued when the state it guards is
+three-valued - no recorder, a recorder, a recorder that belongs to a re-fly the caller is
+deliberately reloading over. The argument is additive under the "readers ignore unknown
+keys" clause, so every existing spec is byte-unaffected, and the guard's strength for
+every caller that does not pass it is literally unchanged code.
+
+**Parse is fail-closed and case-sensitive**, matching `scene=` and `RunTests`' `isolated=`
+(`TestCommandLoadGame.TryParseAllowLiveRecorder`): only the lowercase literal `refly` is
+accepted; anything else - including an EMPTY value, `ReFly`, `true`, `1` - is `REJECTED
+msg=allow-live-recorder-arg-invalid`, evaluated BEFORE the recorder term so a typo can
+never be masked by a state in which the opt-in would not have been needed. There is
+deliberately no `true` / `any` spelling: the value names WHICH live-recorder state it
+excuses, so a future second case is a second value carrying its own state term rather than
+a widening of this one.
+
+**Where it lives.** Entirely inside the pure `TestCommandDispatcher.DecideDispatch`
+`case "LoadGame"`. No executor change, no payload change, no new wire token beyond the
+argument itself and its one refusal reason. Mirrored harness-side by
+`hlib.LOADGAME_ALLOW_LIVE_RECORDER_KEY` in `VERB_SCOPED_CLOSED_ARGS` (so a case-variant
+key, a bad value or the arg on the wrong verb is INVALID(spec-invalid) before a boot) and
+by an `allow-live-recorder-arg-invalid` row in the reject-reason class map. Adding it
+required lowering that validator's case-variant comparison on BOTH sides - it is the
+table's first non-lowercase key, and `key.lower() == arg_key` could never have fired for
+it.
+
+**Coverage.** `TestCommandDispatchTests` walks the conjunction one leg at a time (arg with
+marker executes; arg without marker still refuses `recording-active`; marker without arg
+still refuses; three bad values and one bad value with no recorder at all refuse
+`allow-live-recorder-arg-invalid`; the arg does not relax `InvokeRewind`'s identical token
+or `LoadGame`'s own `load-in-flight`), and `TestCommandLoadGameTests` pins the parse.
+
+**First consumer.** `S4.4-refly-quicksave-mid-session`, re-shaped into the F5+F9
+experiment its header describes: the bare reload keeps `expect = "REJECTED"` as a live
+negative control for the guard, and the very next step reloads the same quicksave with the
+opt-in. The pair is the mutation test carried inside the flight.
+
 ## Behavior
 
 ### Addon lifecycle
@@ -1320,7 +1384,7 @@ parsed, N deferred), with bounded per-command Info lines (command counts are sma
 | `DiscardTree` | FLIGHT; if no active tree -> OK `nothing=true` | stop recorder if live, then `ParsekFlight.AutoDiscardActiveTreeWithMessage(reason, screenMessage, ledgerRecalcReason)` (the wrong-context-caller entry point) with test-command-specific strings | `discarded` bool |
 | `RecordingState` | any scene (read-only) | snapshot recorder/tree state (reuses `ParsekLog.FormatRecState` inputs) | `recording`, `tree` (the `RecordingTree.Id` of the active tree, empty when none - adjudication B), `points`, `scene` |
 | `RunTests` | any scene the runner supports; else Defer | `InGameTestRunner.RunAll()` (no `category`) or `RunCategory(category)`; with `isolated=true` (R5) the `*IncludingFlightRestore` variant instead, which also admits `RestoreBatchFlightBaselineAfterExecution` tests and restores a flight baseline after each. An `isolated` value other than the exact lowercase `true`/`false` is REJECTED `isolated-arg-invalid` (fail-closed: a silent fallback would run the ordinary filter and print an all-skipped tally that reads like a Parsek defect). Response deferred until `IsRunning` goes true->false and `ExportResultsFile` ran | `passed`, `failed`, `skipped`, `results=parsek-test-results.txt` |
-| `LoadGame` | any scene incl. MAINMENU (the BOOT CHANNEL); Reject if a recorder is live (`msg=recording-active`) or a load is already in flight (`msg=load-in-flight`) | long-running two-phase (like `RunTests`): journal `CLAIMED` -> initiate load (`HighLogic.SaveFolder = dir`; `GamePersistence.LoadGame(...)`; `FlightDriver.StartAndFocusVessel(...)` - the same Assembly-CSharp-only sequence as v0.5.4 `TestingTools.LoadSave`, no kRPC types); response deferred until the new scene settles (pure `TestCommandLoadGame.DecideLoadCompletion`): a settled FLIGHT scene with `HighLogic.CurrentGame != null` -> journal `EXECUTED` + terminal `OK`; a settle-back to MAINMENU -> `ERROR msg=load-failed-returned-to-menu` (a failed flight boot, e.g. an NRE in `FlightDriver.Start` on an incompatible save); the LoadGame budget expiring -> `ERROR msg=load-timeout`. A null / incompatible game detected up front (before two-phase) is still `ERROR msg=load-failed` | `scene`, `save` |
+| `LoadGame` | any scene incl. MAINMENU (the BOOT CHANNEL); Reject if a recorder is live (`msg=recording-active`, unless `allowLiveRecorder=refly` is passed AND a re-fly session marker is live - RF-3/A1) or a load is already in flight (`msg=load-in-flight`) | long-running two-phase (like `RunTests`): journal `CLAIMED` -> initiate load (`HighLogic.SaveFolder = dir`; `GamePersistence.LoadGame(...)`; `FlightDriver.StartAndFocusVessel(...)` - the same Assembly-CSharp-only sequence as v0.5.4 `TestingTools.LoadSave`, no kRPC types); response deferred until the new scene settles (pure `TestCommandLoadGame.DecideLoadCompletion`): a settled FLIGHT scene with `HighLogic.CurrentGame != null` -> journal `EXECUTED` + terminal `OK`; a settle-back to MAINMENU -> `ERROR msg=load-failed-returned-to-menu` (a failed flight boot, e.g. an NRE in `FlightDriver.Start` on an incompatible save); the LoadGame budget expiring -> `ERROR msg=load-timeout`. A null / incompatible game detected up front (before two-phase) is still `ERROR msg=load-failed` | `scene`, `save`, `allowLiveRecorder` |
 | `MissionMark` | any scene | emit a stable `[Parsek][Info][TestCommands] MISSIONMARK label=<label> ut=<ut>` log line (H3-style correlation) | `label` echoed |
 | `FlushAndQuit` | any scene (incl. menus) | if a game is loaded, force a scenario/game save so committed data is durable, THEN `Application.Quit()` deferred one frame; response + journal `DONE` written and flushed BEFORE quitting. Deliberately replaces kRPC master's `Quit()` RPC (a bare `Application.Quit()`, not commit-safe). | `saved` bool |
 
@@ -1351,7 +1415,9 @@ Notes:
   crash mid-load leaves it `CLAIMED` -> reported `INTERRUPTED` on restart (the journal file
   survives the scene load). Mid-flight, `LoadGame` is Rejected while a recorder is live
   (`recording-active`); the orchestrator must `CommitTree` / `DiscardTree` first, so the
-  verb never silently discards an in-flight recording.
+  verb never silently discards an in-flight recording. THE ONE EXCEPTION is RF-3/A1's
+  `allowLiveRecorder=refly`, which admits the load while a re-fly session marker is live
+  so the seam can drive an F9 mid re-fly; without the marker the reject is unchanged.
 - `FlushAndQuit` does NOT auto-commit an in-flight recording. Committing is done only by
   explicit `CommitTree` or a real scene-exit; a bare quit from flight has never persisted
   a live uncommitted recorder, and the command preserves that. To keep an in-flight

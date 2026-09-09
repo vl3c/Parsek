@@ -10,8 +10,7 @@ id = "RF-4-rewind-to-launch-after-merge"
 # (`TestCommandRewindToLaunch`) has NO RewindPoint, NO session marker, NO journal and NO
 # supersede of its own - it rewinds a committed TREE to its launch and ends in SPACECENTER.
 # What happens when the second runs over a tree the first has already forked is answered by
-# exactly one code path, `RecordingStore`'s supersede ROLLBACK (`:5936-5983`), and by no
-# lane at all.
+# exactly one code path, `RecordingStore`'s supersede ROLLBACK, and by no lane at all.
 #
 # THE OPERATOR'S OWN SESSION TOOK THIS STEP. After the probe's re-fly merged at 23:13:58 it
 # went straight to a rewind-to-launch at 23:14:32, which is the sequence a player actually
@@ -19,21 +18,78 @@ id = "RF-4-rewind-to-launch-after-merge"
 # this lane pins.
 #
 # =====================================================================================
+# RE-HOSTED 2026-09-09, AND THE RE-HOST IS A CORRECTION OF THE FIX THIS LANE'S OWN TODO
+# ENTRY IDENTIFIED. Read this before touching the driver.
+#
+# Reading run 1 (`2026-09-08_2311`, on `bdock-recorded`) got act 1 exactly right and then
+# REJECTED at `InvokeRewindToLaunch tree=latest`:
+#   `invokerewindtolaunch refused: rewind-gate No rewind save available tree=8c677bba... rec=5157d655...`
+# because NO recorded fixture carries a launch quicksave - `harvest_bdock_station.py`
+# prunes `Parsek/Saves`, `CommittedFixtureRewindSaveTests` forbids it everywhere. Filed as
+# RF4-BDOCK-RECORDED-CANNOT-REWIND-TO-LAUNCH, whose stated fix was H58's own: keep the
+# host and mint a rewindable subject in-run with `StartRecording` / `StopRecording` /
+# `CommitTree`, since `FlightRecorder.CaptureRewindSave` writes the quicksave at every
+# NON-promotion recording start.
+#
+# THAT FIX MAKES THE VERB SUCCEED AND THROWS THE SUBJECT AWAY, and the reason is
+# mechanical rather than a matter of taste. The rollback is scoped to the OWNER'S TREE.
+# `RecordingStore.DropSupersedesRewoundOutOfExistence` resolves `ownerTree` by
+# `owner.TreeId`; `DropSupersedesRewoundOutOfExistenceDetailedPure` then builds
+# `rewoundOutOldIds` from the owner plus that tree's recordings with
+# `StartUT >= rewindAdjustedUT`, and keeps ONLY relations whose `OldRecordingId` is in that
+# set (or whose `NewRecordingId` IS the owner - the self-rewind case). A freshly minted
+# single-node tree stands in NO supersede relation at all, so rewinding IT to launch walks
+# an empty in-scope set, emits no summary line (the log fires only when a counter is
+# nonzero) and answers nothing about the fork act 1 created. The lane would have gone
+# GREEN while measuring an empty set, which is the worst available outcome and the exact
+# silence-is-not-success shape this program has already paid for twice.
+#
+# SO THE HOST MOVES TO THE ONE SHAPE THAT CARRIES BOTH PROPERTIES IN ONE TREE: a real
+# launch (whose non-promotion recording start mints the `parsek_rw_*` quicksave) that ALSO
+# authors a RewindPoint and gets re-flown. That is RF-1's flight exactly -
+# `gs1_auto_chute_booster` with `siblingAirborneAtExit`, whose booster is still under
+# canopy at scene exit, so the non-focus slot is promoted `CommittedProvisional` and its
+# flight-authored point survives to be re-flown. RF-1 has flown it twice, green both times.
+#
+# WHAT THE RE-HOST COSTS: the `ambiguous-tree` negative control, which needed a multi-tree
+# host. It is replaced by the OTHER half of the same guard, which no committed lane
+# exercises at all - the BARE call's AUTO-SELECT on a single-committed-tree save. H58 and
+# this lane's own previous shape pin only the refusal; nothing pins the acceptance.
+#
+# =====================================================================================
+# THE SEAL IS WHAT MAKES THE FORK CANON, and it is the second correction.
+#
+# The rollback has two branches and only one of them is the safety property worth pinning:
+# an IMMUTABLE fork is PRESERVED across the parent's rewind, anything else is dropped and
+# retired. Which branch a run takes is decided by the fork's `MergeState`, and RF-1
+# MEASURED what this profile's re-fly leaves: `IsUnfinishedFlight=true ... reason=crashed
+# terminal=Destroyed side=child`. `TerminalKindClassifier` routes Crashed to
+# `CommittedProvisional` - a crash is exactly the thing a player re-flies - so a merge
+# alone leaves the fork OPEN and the rollback would take the drop branch.
+#
+# So this lane SEALS the slot before rewinding, which is both the mechanism and the story:
+# the player decides the second attempt is the one that counts, seals it, and only then
+# decides the whole flight was wrong. RF-5's reading run measured what the seal does -
+# `UnfinishedFlightSealHandler.TrySeal` flips the slot's effective TIP (which after the
+# merge IS the fork) to `Immutable`, and reaps the point inside the same call. That is the
+# state the two subject tokens below describe, and on this profile it is unreachable any
+# other way.
+#
+# =====================================================================================
 # THE TWO TOKENS, and what each is worth.
 #
 #   `Rewind supersede rollback: dropped=N retiredForks=N retiredOldSides=N
 #    skippedNonImmutableOldSides=N restored=N skippedImmutable=N demotedImmutable=N
-#    rewindUT=F1 owner='...'`                        (Info, RecordingStore.cs:5956)
+#    rewindUT=F1 owner='...'`                        (Info, RecordingStore.cs)
 #   It is emitted ONLY when at least one of those counters is nonzero, so its PRESENCE is
 #   already the assertion that the rollback found the fork the merge created. A run whose
-#   merge appended no relation would emit nothing here at all - which is precisely why this
-#   lane FLIES its re-fly (the `TimeJump` below) rather than merging an empty provisional:
+#   merge appended no relation would emit nothing here at all - which is why this lane
+#   FLIES its re-fly rather than merging an empty provisional:
 #   `MergeDialog.TryCommitReFlySupersede` answers `refused-unflown-provisional` /
 #   `concluded-no-supersede` with ZERO rows by design, and a lane about rolling supersedes
 #   back must not sit on the route that creates none.
 #
 #   `Preserved canon fork across parent rewind: rec=<id> mergeState=Immutable rewindUT=...`
-#                                                    (Info, RecordingStore.cs:5972)
 #   One line per member of `rollback.SkippedImmutableForkRecordingIds`, i.e. per fork the
 #   rollback DECLINED to drop because it is Immutable. That is the whole safety property of
 #   the pair: a rewind of the parent must not delete history the player already sealed. The
@@ -42,102 +98,168 @@ id = "RF-4-rewind-to-launch-after-merge"
 #   survived and the summary says HOW MANY, and a regression that preserved the wrong one
 #   would satisfy only one of them.
 #
-# THE PRINCIPAL UNKNOWN, named rather than assumed. Whether the merged fork is Immutable at
-# the moment of the rewind-to-launch depends on `TerminalKindClassifier`: an InFlight tip
-# flips CommittedProvisional and only a stable or crashed one flips Immutable. CI-2's
-# reading run over these same bytes measured the merged provisional as
-# `mergeState=Immutable terminalKind=InFlight`, which is the branch this lane needs - but
-# that is one sample on one fixture. IF `Preserved canon fork` does not fire, read the
-# summary line's `skippedImmutable=` and `demotedImmutable=` counters BEFORE filing
-# anything: `demotedImmutable=[1-9]` with `skippedImmutable=0` means the fork was demoted
-# rather than preserved (a different, documented branch - `Demoted Immutable preservation
-# to drop (priorTip retired)`), which is a SPEC-SIDE re-pin, not a defect.
+# IF `Preserved canon fork` DOES NOT FIRE, read the summary's counters BEFORE filing:
+# `demotedImmutable=[1-9]` with `skippedImmutable=0` means the fork was demoted rather than
+# preserved (a different, documented branch - `Demoted Immutable preservation to drop
+# (priorTip retired)`), which is a SPEC-SIDE re-pin, not a defect.
 #
 # =====================================================================================
-# THE TREE ARGUMENT. `InvokeRewindToLaunch` auto-selects only when EXACTLY ONE committed
-# tree exists, and `bdock-recorded` carries TWO - so a bare call REJECTs `ambiguous-tree`.
-# H58 pins exactly that pair (bare `expect = "REJECTED"`, then `tree = "latest"`
-# `expect = "OK"`), and this lane drives the same two steps for the same reason: the
-# refusal is free, it is the only committed exercise of that guard on a multi-tree host,
-# and it proves the keyword is doing work rather than the auto-select.
-#
-# =====================================================================================
-# STATUS: FLOWN 2026-09-09 AND INVALID, WITH THE CAUSE MEASURED AND THE FIX IDENTIFIED.
-# Act 1 ran perfectly (re-fly, TimeJump, merge) and the bare `InvokeRewindToLaunch`
-# REJECTED `ambiguous-tree` exactly as designed; then `tree=latest` REJECTED too:
-# `rewind-gate No rewind save available tree=8c677bba... rec=5157d655...`. THE HOST IS THE
-# CAUSE: `bdock-recorded` carries zero `rewindSave` hints and no `Parsek/Saves`, and NO
-# recorded fixture does - that is policy. H58 passes the same pair because it PRODUCES its
-# subject in-run (`FlightRecorder.CaptureRewindSave` writes the quicksave at every
-# non-promotion recording start), which is the prologue this lane needs and which keeps
-# both the host and the `ambiguous-tree` control. Filed as
-# RF4-BDOCK-RECORDED-CANNOT-REWIND-TO-LAUNCH.
-# FORMERLY: NEVER FLOWN. `tier = "operator"`. Nothing armed.
+# STATUS: LIVE-PROVEN IN THIS SHAPE. READING RUN 2 FLOWN 2026-09-09
+# (`2026-09-09_1641`, wall 150 s, MISSION-OK), and the whole subject came back verbatim on
+# the first flight of the re-host:
+#   `sealslot complete mode=slot rp=rp_8b0e2d98... slot=1 tip=rec_e50de50a... alreadySealed=False`
+#   `Reaped rp=rp_8b0e2d98... bp=f00d6d2d... slots=2` / `ReapOrphanedRPs: reaped=1 remaining=0`
+#   `invokerewindtolaunch target resolved tree=d3a44b40... resolvedBy=AutoSingle arg= committedTrees=1`
+#   `Rewind supersede rollback: dropped=0 ... skippedImmutable=1 demotedImmutable=0 rewindUT=11.5
+#    owner='GS1 Auto-Chute Booster'`
+#   `Preserved canon fork across parent rewind: rec=rec_e50de50a... mergeState=Immutable rewindUT=11.5`
+# So the sealed fork SURVIVED its parent's rewind, `dropped=0` says nothing was taken, and
+# `resolvedBy=AutoSingle` is the bare auto-select branch no committed lane had ever
+# exercised. TWO SPEC-SIDE CORRECTIONS came out of it, both recorded where they apply: the
+# `unbound-refly-provisional` forbid (measured non-forbiddable by any seam lane) and the
+# `rewindPoints` window (the rewind-to-launch reinstates the point the seal reaped).
+# The 125 `NullReferenceException`s the unityExceptions row reports are ALL stock
+# `SpaceCenterCamera2.UpdateTransformOverview`, with no Parsek frame in any stack; the row
+# is report-only and they are the KSC camera, not this change.
+# Reading run 1 flew the PREVIOUS shape (`bdock-recorded`, no seal, no launch quicksave) and was INVALID at the
+# rewind-to-launch step with the cause measured; that finding is what this file is the
+# answer to, and it is recorded above rather than deleted. `tier = "operator"`. NOTHING
+# ARMED - one sample is one sample, and two of the three `[expectations.rewind]` windows
+# have now moved once each; arming waits for a second flight that lands on the same three.
 # =====================================================================================
 tier = "operator"
-description = "Rewind-to-LAUNCH over a tree a rewind-to-SEPARATION has already forked: rewind the open slot of the oldest bdock-recorded RewindPoint, fly it with a TimeJump, merge it so a supersede fork exists, then drive InvokeRewindToLaunch (bare, expecting the ambiguous-tree refusal on this two-tree host, then with tree=latest) and pin the supersede rollback's summary and its per-fork preservation line."
+description = "Rewind-to-LAUNCH over a tree a rewind-to-SEPARATION has already forked, on the one host that carries both in ONE tree: fly RF-1's two-stage profile so a real launch mints a rewind quicksave and leaves an open slot, re-fly that slot and merge it, SEAL the fork so it becomes canon, then rewind the whole tree to launch through the bare auto-select and pin that the supersede rollback PRESERVED the sealed fork instead of dropping it."
 instanceProfile = "stock-minimal"
-tags = ["RF-4", "rewind", "rewind-to-launch", "refly", "supersede", "rollback",
+tags = ["RF-4", "rewind", "rewind-to-launch", "refly", "supersede", "rollback", "seal",
         "runtime-handles", "kerbin", "sandbox", "reading-run"]
 
 [fixture]
-saveTemplate       = "fixtures/saves/bdock-recorded"
+# RF-1's host, and RF-1's reasons: the forge-produced two-stage pad state whose craft puts
+# a probeCoreOcto2 on the BOOSTER, so both sides of the decoupler carry a ModuleCommand,
+# `IsMultiControllableSplit` returns two and a RewindPoint is authored by physics. What
+# this lane additionally needs from it is the thing no recorded fixture has: the LAUNCH
+# itself, whose non-promotion recording start writes the `parsek_rw_*` quicksave that
+# `RecordingStore.CanRewind` demands.
+saveTemplate       = "fixtures/saves/gs1-two-stage-pad"
 injectedRecordings = "none"
 craft              = []
 
 [driver]
-kind = "seam"
+kind    = "autopilot"
+mission = "gs1_auto_chute_booster"
+
+# `steps` MUST stay in [driver], ABOVE the [driver.missionParams] header: a key after the
+# sub-table header is TOML-scoped to driver.missionParams and the spec would validate as
+# having ZERO steps.
+#
+# FOUR ACTS.
+#   ACT 1 is RF-1's act 1 verbatim: the flight, with `autoMerge=true` MANDATORY (without
+#     it `SceneExitInterceptor.ShouldShowDialogBeforeSceneChange` returns RegularMerge and
+#     `ExitToSpaceCenter` REJECTs `dialog-required`) and `autoRecordOnLaunch=true`, which
+#     is what starts the recorder on the pad - the NON-PROMOTION start that captures this
+#     lane's whole rewind-to-launch subject.
+#   ACT 2 is RF-1's acts 2-3 verbatim: re-enter FLIGHT, stop the promoted recorder
+#     (`InvokeRewind` REJECTs `recording-active` over it - RH-1 reading run 1 spent a whole
+#     flight learning that), read the live RewindPoint id off a LABELLED enumeration and
+#     re-fly slot 1, then merge.
+#   ACT 3 seals the fork so the rollback has an Immutable one to preserve. The seal also
+#     reaps the point (RF-5 measured that it happens inside the same call), which is fine:
+#     nothing after this needs it.
+#   ACT 4 is the subject.
 steps = [
-  { cmd = "LoadGame",            args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
-  { cmd = "SetSetting",          args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
-  { cmd = "SetSetting",          args = { name = "verboseLogging", value = "true" },  expect = "OK" },
-  { cmd = "StopRecording",                                                            expect = "OK" },
-  # --- ACT 1: a real re-fly, FLOWN, then merged so a fork exists to roll back ---------
-  { cmd = "ListHandles",         args = { kind = "rewindpoints" }, label = "handles",  expect = "OK" },
-  { cmd = "InvokeRewind",        args = { rp = "${handles.rp0}", slot = "1" },         expect = "OK", budget = 300 },
-  { cmd = "TimeJump",            args = { ut = "500" },                                expect = "OK", budget = 120 },
-  { cmd = "AnswerMergeDialog",   args = { choice = "merge" },                          expect = "OK", budget = 120 },
-  # --- ACT 2: rewind-to-LAUNCH over what that merge left -------------------------------
-  { cmd = "LoadGame",            args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
-  { cmd = "SetSetting",          args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
-  { cmd = "StopRecording",                                                            expect = "OK" },
-  # H58's pair. The refusal is the multi-tree guard doing its job on a host with two
-  # committed trees; without it, `tree = "latest"` below could be passing for free.
-  { cmd = "InvokeRewindToLaunch",                                                     expect = "REJECTED", budget = 300 },
-  { cmd = "InvokeRewindToLaunch", args = { tree = "latest" },                         expect = "OK", budget = 300 },
-  { cmd = "FlushAndQuit",                                                             expect = "OK" },
+  { cmd = "LoadGame",           args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "SetSetting",         args = { name = "autoRecordOnLaunch", value = "true" },  expect = "OK" },
+  { cmd = "SetSetting",         args = { name = "autoMerge", value = "true" },           expect = "OK" },
+  { cmd = "SetSetting",         args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { phase = "mission",                                                                    expect = "MISSION-OK", budget = 900 },
+  { cmd = "ExitToSpaceCenter",                                                            expect = "OK", budget = 120 },
+  # --- ACT 2: the re-fly, flown and merged so a fork exists -----------------------------
+  { cmd = "LoadGame",           args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "SetSetting",         args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "ListHandles",        args = { kind = "rewindpoints" }, label = "handles",      expect = "OK" },
+  { cmd = "InvokeRewind",       args = { rp = "${handles.rp0}", slot = "1" },             expect = "OK", budget = 300 },
+  { cmd = "AnswerMergeDialog",  args = { choice = "merge" },                              expect = "OK", budget = 120 },
+  # --- ACT 3: seal the fork -> it becomes the canon this rewind must not delete ---------
+  { cmd = "LoadGame",           args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "SetSetting",         args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "StopRecording",                                                                expect = "OK" },
+  { cmd = "ListHandles",        args = { kind = "rewindpoints" }, label = "handles2",     expect = "OK" },
+  { cmd = "SealSlot",           args = { rp = "${handles2.rp0}", slot = "1" },            expect = "OK", budget = 120 },
+  # --- ACT 4: rewind the WHOLE tree to launch, over the fork it now carries -------------
+  # BARE, with no `tree=`. This host has exactly one committed tree, which is the branch
+  # `TestCommandRewindToLaunch` auto-selects, and no committed lane exercises it.
+  { cmd = "InvokeRewindToLaunch",                                                         expect = "OK", budget = 300 },
+  { cmd = "FlushAndQuit",                                                                 expect = "OK" },
 ]
 
+# RF-1's params VERBATIM, which are GS-1's plus the one inversion key. Changing any of
+# them would make this lane's flight a different experiment from the two RF-1 flights that
+# measured the open slot this lane re-flies.
+[driver.missionParams]
+throttle = 1.0
+stagingApoapsisMeters = 700
+stagingMaxAltMeters = 1500
+apoapsisWindowMeters = { min = 600, max = 1600 }
+stageSettleFrames = 2
+chuteArmMaxRateMps = 30
+chuteFullDeployAltMeters = 600
+landedSituations = ["LANDED", "SPLASHED"]
+ascentTimeoutSeconds = 90
+coastTimeoutSeconds = 120
+stageTimeoutSeconds = 60
+descentTimeoutSeconds = 300
+siblingVesselName = "GS1 Auto-Chute Booster Probe"
+# THE INVERSION. The run concludes on an OBSERVATION (the booster read airborne twice) and
+# stays MISSION-OK, which is what leaves the non-focus slot open and its point unreaped.
+siblingAirborneAtExit = true
+siblingDownTimeoutSeconds = 240
+
 [dimensionsCovered]
-# BASICS ONLY until the reading run. What it earns: `rewind-to-launch` (which today only
-# GS-4/6/7/8 claim, all from `kx_rewind_watch` and none over a forked tree),
-# `rewind-to-separation` / `refly-gate` from act 1, and `supersede-relation` from the
-# merge - which would make this the first lane to claim all three in one run.
+# BASICS ONLY until the reading run, on RH-1's claim-is-not-gate ground. What it would
+# earn: `rewind-to-launch` (today claimed only by GS-4/6/7/8, all from `kx_rewind_watch`
+# and none over a FORKED tree), `rewind-to-separation` / `refly-gate` from act 2,
+# `supersede-relation` from the merge and `seal-stash-fly` from act 3 - which would make
+# this the first lane to claim all four in one run.
 D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
 
 [expectations]
 allowedAnomalies = []
 
 [expectations.recordings]
-count = { min = 2, max = 30 }
+# RF-1's window widened at the top by the re-fly's provisional and whatever the sealed
+# fork's own tail leaves. A first reading measures the real count.
+count = { min = 2, max = 12 }
 
 [expectations.logContracts]
-# ORDERED AS THE MECHANISM RUNS: the re-fly fires, is flown, merges into a fork, and the
-# rewind-to-launch then rolls the supersede state back around that fork.
+# ORDERED AS THE MECHANISM RUNS: the flight authors a point, the re-fly forks it, the seal
+# makes the fork canon, and the rewind-to-launch rolls the supersede state back AROUND it.
+#
+# The first three are RF-1's own MEASURED tokens, kept because they are this lane's
+# PRECONDITION rather than its subject: without a two-controllable split there is no
+# RewindPoint, and without an open slot there is nothing to re-fly. A lane whose subject is
+# what a rollback does must not be able to pass on a run that never made a fork.
 required = [
-  "listhandles kind=rewindpoints count=3 truncated=false",
+  "RewindPoint begin: rp=\\S+ bp=\\S+ slots=2 controllablePids=2",
+  "CommitTree promoted rec=\\S+ vessel='.+' slot=1 rp=\\S+ reason=stableLeafUnconcluded to CommittedProvisional",
+  "listhandles kind=rewindpoints count=1 truncated=false",
   "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=.* rp=rp_[0-9a-f]{32}",
   "Invocation complete",
-  "timejump complete reachedUT=50[0-9]",
-  "answermergedialog choice=merge result=committed",
+  # ACT 3. `alreadySealed=False` is pinned inside the line: a seal that found the slot
+  # already closed would mean the MERGE closed it, and then the fork's MergeState is not
+  # this lane's doing and the branch below is not the branch it thinks it measured.
+  "sealslot complete mode=slot rp=\\S+ slot=1 tip=\\S+ alreadySealed=False",
+  # ACT 4, and the auto-select branch nothing else drives. `resolvedBy=` is matched loosely
+  # because that enum's spelling has never been read on this branch; what makes the token
+  # worth having is that a target resolved AT ALL on a bare call.
+  "invokerewindtolaunch target resolved tree=\\S+ resolvedBy=\\S+",
   # THE TWO SUBJECT TOKENS. `skippedImmutable=[1-9]` is pinned inside the summary rather
   # than left loose: the line fires whenever ANY counter is nonzero, so without the
   # conjunct a rollback that dropped everything and preserved nothing would still match.
   "Rewind supersede rollback: .*skippedImmutable=[1-9]",
   "Preserved canon fork across parent rewind: rec=\\S+ mergeState=Immutable",
-  # The verb's own completion, and the scene it lands in. `InvokeRewindToLaunch` ends in
-  # SPACECENTER by contract, which is what makes the OnLoad that runs the rollback happen
-  # at all.
+  # The verb's own completion. `InvokeRewindToLaunch` ends in SPACECENTER by contract,
+  # which is what makes the OnLoad that runs the rollback happen at all.
   "rewindtolaunch complete",
 ]
 forbidden = [
@@ -148,24 +270,51 @@ forbidden = [
   # would mean the rollback took a different branch than the one this lane measured. See
   # the header: if it fires, re-read the summary counters before filing.
   "Demoted Immutable preservation to drop",
+  # The RF family's standing guard, and on THIS host it is also RF-1's: the profile crosses
+  # no environment boundary the optimizer splits on, so a tip that lost its MergeState
+  # cannot be produced here unless something gave it one.
   "reason=sealedTipClosed",
+  # NOT FORBIDDEN, and reading run 2 is why. `outcome=unbound-refly-provisional` was
+  # authored here on RF-6's forensics, which named it a free early oracle for a merge
+  # that will write zero rows. It MATCHED - and the raise text says why:
+  # `reason=refly-provisional-has-no-trajectory-at-save`. The predicate is evaluated at
+  # the SAVE the rewind itself takes, which happens before any driven step can fly the
+  # attempt, so no seam lane can keep it clear and its presence says nothing about
+  # whether the merge that follows writes rows. This run's merge wrote one, and the
+  # rollback then preserved it - which is the whole subject, measured with the oracle
+  # firing. RF-12 measured the same thing from the other direction and both lanes record
+  # it rather than deleting the clause silently.
 ]
 
-# REPORT-ONLY. The interesting facet is `supersedeRows` AFTER the rollback: the merge
-# appended at least one, and the rewind-to-launch's rollback drops the ones whose parent it
-# rewound while PRESERVING the Immutable fork. A floor of 1 says the preserved row survived;
-# a measured 0 would mean the rollback took everything, which is the failure the
-# `Preserved canon fork` token names from the log side.
+# REPORT-ONLY. DERIVED, and every window says from what:
+#   rewindPoints  RE-PINNED FROM READING RUN 2 TO `{1,1}`, and the correction is a
+#                 READING rather than a mistake being papered over. The derivation said 0:
+#                 RF-1 leaves exactly 1 point, act 3's seal closes its last open slot and
+#                 the reaper runs inside that same call - and the log confirms exactly
+#                 that, `Reaped rp=rp_8b0e2d98... slots=2` then `ReapOrphanedRPs: reaped=1
+#                 remaining=0`. The produced save nevertheless carries ONE, because act 4
+#                 runs AFTER the seal: the rewind-to-LAUNCH's go-back reconcile REINSTATES
+#                 the point the seal had reaped. Nothing else in the suite has measured
+#                 that, and it is the second unpinned reading this lane bought.
+#   supersedeRows the merge appends at least one row for the superseded subtree, and the
+#                 rollback then PRESERVES the sealed fork's rather than dropping it - so a
+#                 floor of 1 after the rewind is the save-side form of `Preserved canon
+#                 fork`. A measured 0 would mean the rollback took everything.
+#   tombstones    nobody dies on this profile: the pod lands intact, the booster is still
+#                 flying, and the re-flown booster is unmanned.
 [expectations.rewind]
-rewindPoints  = { min = 1 }
+rewindPoints  = { min = 1, max = 1 }
 supersedeRows = { min = 1 }
 tombstones    = { max = 0 }
 
 [runtime]
-# LoadGame x2 1320 + SetSetting x3 360 + StopRecording x2 240 + ListHandles 120 +
-# InvokeRewind 660 + TimeJump 660 + AnswerMergeDialog 180 +
-# InvokeRewindToLaunch x2 (deferred) 1320 + FlushAndQuit 120 = 4980. 5300 clears it by 320.
-budgetSeconds = 5300
+# Budget arithmetic (M-A5 S8), deferred verbs at max(step,600)+60 and the rest at
+# max(step, 60+60):
+#   LoadGame x3 1980 + SetSetting x5 600 + mission 900 + ExitToSpaceCenter 180
+#   + StopRecording x2 240 + ListHandles x2 240 + InvokeRewind 660
+#   + AnswerMergeDialog 180 + SealSlot 120 + InvokeRewindToLaunch 660
+#   + FlushAndQuit 120 = 5880. 6200 clears it by 320.
+budgetSeconds = 6200
 
 [retry]
 policy = "once"

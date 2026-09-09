@@ -273,6 +273,44 @@ namespace Parsek.Tests
             Assert.Equal(RequestedBootScene.Unspecified, scene);
         }
 
+        // ----- RF-3/A1 `allowLiveRecorder=refly`: the opt-in that lets a load run on top
+        // of a LIVE re-fly recorder, so the seam can reproduce an F9 mid re-fly. The parse
+        // is the scene= parse verbatim (fail-closed, case-sensitive, absent is the old
+        // contract); the PERMISSION half lives in DecideDispatch and is covered in
+        // TestCommandDispatchTests. -----
+
+        [Fact]
+        public void ParseAllowLiveRecorder_Absent_NotAllowed()
+        {
+            Assert.True(TestCommandLoadGame.TryParseAllowLiveRecorder(null, out bool allow));
+            Assert.False(allow);
+        }
+
+        [Fact]
+        public void ParseAllowLiveRecorder_AcceptedWireValue()
+        {
+            Assert.True(TestCommandLoadGame.TryParseAllowLiveRecorder("refly", out bool allow));
+            Assert.True(allow);
+        }
+
+        [Theory]
+        [InlineData("")]        // present but empty: a typo, not an omission
+        [InlineData(" ")]
+        [InlineData("ReFly")]   // case-sensitive, like scene=
+        [InlineData("REFLY")]
+        [InlineData("re-fly")]
+        [InlineData("true")]
+        [InlineData("1")]
+        [InlineData("yes")]
+        [InlineData("recording")]
+        public void ParseAllowLiveRecorder_RejectsEverythingElse(string raw)
+        {
+            Assert.False(TestCommandLoadGame.TryParseAllowLiveRecorder(raw, out bool allow));
+            // The out value stays at the inert default, so a caller that ignores the bool
+            // cannot silently be granted the opt-in it mis-spelled.
+            Assert.False(allow);
+        }
+
         [Fact]
         public void Route_RequestedTrackStation_TakesTrackStation_EvenWithFocusableVessel()
         {

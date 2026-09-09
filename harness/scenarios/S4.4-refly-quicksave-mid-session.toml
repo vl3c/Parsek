@@ -77,7 +77,52 @@ tier = "operator"
 # THE CONCLUSION TOKENS are S4.2's three, verbatim: the conclusion route of a session
 # that flew nothing between rewind and merge is `retired-empty-provisional` ->
 # `refused-unflown-provisional` -> `concluded-no-supersede`.
-description = "Records the seam boundary REFLY-BATCH-BASELINE-DISCARDS-LIVE-SESSION runs into: InvokeRewind a crashed-booster slot, take an inert mid-session SaveGame, then a reload that the seam REFUSES `recording-active` (a resumed recorder is live after the rewind; a player's F9 bypasses that guard, the seam does not), and conclude by merge. The F9-mid-refly question the entry holds needs a manual playtest or a new seam affordance; run 1 (2026-09-02) measured the block."
+#
+# =====================================================================================
+# RE-SHAPED 2026-09-09 INTO THE EXPERIMENT IT WAS AUTHORED AS. The seam affordance this
+# file spent two paragraphs describing the absence of now exists.
+#
+# `LoadGame` takes ONE new optional argument, `allowLiveRecorder=refly` (RF-3/A1, contract
+# in `docs/dev/design-autotest-command-seam.md`). It lets a load past the
+# `recording-active` dispatch guard, and ONLY while a re-fly session marker is live. Both
+# halves of that sentence are load-bearing and both are exercised HERE, in one flight:
+#
+#   step 5  LoadGame WITHOUT the arg  -> REJECTED `recording-active`   (the guard, intact)
+#   step 6  LoadGame WITH the arg     -> OK                            (the F9 half, at last)
+#
+# So the lane carries its own mutation test: a change that widened the guard would make
+# step 5 answer OK and red the lane, and a change that broke the opt-in would red step 6.
+# Neither can be read as the other.
+#
+# WHY THE ARG AND NOT `StopRecording` FIRST, since that needs no C# at all. Because it
+# changes what the experiment observes, which this file already said before the affordance
+# existed: "the seam cannot reproduce F9-mid-refly without either stopping the recorder
+# first (which changes the experiment: the session must stay live across the load) or a
+# guard-bypass the seam deliberately does not offer". A load WITH a live recorder is the
+# event the guard exists to describe; a load after the recorder was stopped is a different
+# event that happens to reach the same disk.
+#
+# WHAT THIS RUN NOW DECIDES - the question the todo entry
+# REFLY-BATCH-BASELINE-DISCARDS-LIVE-SESSION has held open since 2026-08-11: does a real
+# reload mid-session END the session, or does only the in-game batch's own save-scoped
+# preparation do that? Two things answer it and NEITHER is a new token:
+#
+#   `End reason=treeDiscarded` stays FORBIDDEN. It is the quickload classifier's own
+#   emitter (`TreeDiscardPurge.ClearMarkerIfScopedToTree`, reached through
+#   `RecordingStore.DiscardPendingTree`), and `ShouldRunQuickloadDiscard` is supposed to be
+#   gated OFF by `IsReFlySessionActiveForQuickloadDiscard`. If it fires on step 6 the gate
+#   does not hold and the entry becomes a product bug.
+#
+#   `AnswerMergeDialog` at step 7 keeps `expect = "OK"`. Its dispatch DEFERS
+#   `no-refly-dialog` while there is neither a live dialog NOR a marker, so a session the
+#   reload killed makes that step defer to its budget and the lane reds on a step verdict
+#   rather than on a pattern. That is the sharper of the two: an absence cannot be
+#   asserted by a required token, but it can be asserted by a step that cannot complete
+#   without the thing being present.
+#
+# RF-6's forensics observed the marker surviving a batch teardown reload
+# (`Marker loaded: sess_...`); this is the first run to put a DELIBERATE reload under it.
+description = "The real F5+F9 mid-re-fly experiment this lane was authored as: InvokeRewind a crashed-booster slot, take an inert mid-session SaveGame, prove the seam still REFUSES a bare reload recording-active, then reload FOR REAL through the RF-3/A1 opt-in allowLiveRecorder=refly and answer the question REFLY-BATCH-BASELINE-DISCARDS-LIVE-SESSION has held open - whether a genuine reload ends a live re-fly session - through a forbidden treeDiscarded and a merge step that cannot complete without the session."
 instanceProfile = "stock-minimal"
 tags = ["rewind", "refly", "quicksave", "quickload", "session-isolation", "S4.4", "D9", "reading-run"]
 
@@ -102,7 +147,15 @@ steps = [
   { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
   { cmd = "InvokeRewind",      args = { rp = "rp_wp_root", slot = "1" },            expect = "OK", budget = 300 },
   { cmd = "SaveGame",          args = { name = "quicksave" },                       expect = "OK" },
+  # THE GUARD, UNCHANGED. No opt-in arg, a live recorder, so the seam refuses exactly as
+  # it did on reading run 1. Kept as the live negative control for step 6: without it, a
+  # regression that widened the guard for everyone would make step 6 pass for the wrong
+  # reason and nothing would notice.
   { cmd = "LoadGame",          args = { save = "${runSave}", name = "quicksave" },  expect = "REJECTED" },
+  # THE F9 HALF (RF-3/A1). The opt-in is scoped to LoadGame and admits only while a re-fly
+  # session marker is live, which is exactly this state. Two-phase like every other load,
+  # so it takes the LoadGame budget.
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "quicksave", allowLiveRecorder = "refly" }, expect = "OK", budget = 300 },
   { cmd = "AnswerMergeDialog", args = { choice = "merge" },                         expect = "OK", budget = 120 },
   { cmd = "RecordingState",                                                         expect = "OK" },
   { cmd = "FlushAndQuit",                                                           expect = "OK" },
@@ -131,6 +184,10 @@ required  = [
   # the rewind. The reject fires at DISPATCH, before any `loadgame start`, so this line -
   # not a `loadgame start ... name=quicksave` - is what a green run carries.
   "reject id=\\S+ cmd=LoadGame reason=recording-active",
+  # THE F9 HALF ACTUALLY RAN. `loadgame complete` is the verb's own terminal line and it
+  # can only be reached past the guard step 5 just proved is still closed, so the pair
+  # (reject, then complete) is the whole RF-3/A1 contract read off one log.
+  "loadgame complete",
   "outcome=retired-empty-provisional",
   "AppendRelations outcome=refused-unflown-provisional",
   # THE CLEAN-CONCLUSION TOKEN. S4.2 (via the batch) ended `outcome=concluded-no-supersede`;
@@ -153,10 +210,12 @@ forbidden = [
 ]
 
 [runtime]
-# S4.2's arithmetic with the reload now a dispatch reject (default 60, no two-phase wait):
-# LoadGame 660 + SetSetting 60 + InvokeRewind 660 + SaveGame 60 + LoadGame 60 +
-# AnswerMergeDialog 120 + RecordingState 60 + FlushAndQuit 60 = 1740; +120 margin.
-budgetSeconds = 1860
+# S4.2's arithmetic with BOTH reloads: the guard-blocked one is a dispatch reject
+# (default 60, no two-phase wait), the opt-in one is a real two-phase load.
+# LoadGame 660 + SetSetting 60 + InvokeRewind 660 + SaveGame 60 + LoadGame(reject) 60
+# + LoadGame(opt-in) 660 + AnswerMergeDialog 120 + RecordingState 60 + FlushAndQuit 60
+# = 2400; +150 margin.
+budgetSeconds = 2550
 
 [retry]
 policy = "once"

@@ -1,0 +1,232 @@
+schema = 1
+id = "RF-12-concluded-refly-batch"
+# =====================================================================================
+# THE RE-FLY CONTINUATION PROGRAM, LANE 12. A CONCLUDED RE-FLY IN FRONT OF THE BATCH.
+#
+# RF-6 put a LIVE re-fly session in front of the 39-cell `Rewind` category for the first
+# time and measured exactly what it bought: three of the twelve session-gated cells
+# executed, and NINE skipped on a precondition the session alone cannot supply. Four of
+# those nine name the same missing property in four different words:
+#
+#   MergeCrashedReFlyCreatesCPSupersede      "terminal kind InFlight, requires Crashed"
+#   MergeLandedReFlyCreatesImmutableSupersede "terminal kind InFlight, requires Landed"
+#   MergeAndSealReFlyClosesSlot              "outcome permanent (labelSource=classifier:noTerminal)"
+#   MergeReFlyToSubOrbitalKeepsSlotOpen      "could not resolve provisional's RP/slot"
+#
+# and PR #1661's own guard on `MergeInterruptionRecovery` says it outright: "the re-fly
+# must be CONCLUDED (landed or crashed, so a terminal state is stamped) and saved, not
+# merely flown". This lane supplies the missing property.
+#
+# =====================================================================================
+# HOW A RE-FLY CONCLUDES WITHOUT DYING, WHICH IS THE WHOLE DESIGN OF THIS FILE.
+#
+# The obvious route is to let the re-flown vessel crash: `ParsekFlight.TerminalEvents`'
+# `ApplyTerminalDestruction` (`:350`) stamps `TerminalState.Destroyed` when the vessel is
+# destroyed in flight. NO SEAM PATH CAN DRIVE THAT, and the reason is worth writing down
+# so the next author does not re-derive it: `TimeJump` is an EPOCH SHIFT, not a warp.
+# `ParsekFlight.TimeJumpTo` -> `TimeJumpManager.ExecuteJump` "stops warp and epoch-shifts
+# instantly (frozen relative positions, SMA/ecc/inc unchanged, MNA-at-epoch shifted by the
+# delta)". The clock moves; the vessel does not travel its trajectory. So a jump "past the
+# impact" lands the same vessel at the same place with a later clock, and the impact is
+# still however many REAL seconds away it was. There is no wait verb, and a crash that has
+# to happen in real time cannot be sequenced against a batch.
+#
+# THE ROUTE THAT LOOKED LIKE IT WORKED WAS `CommitTree`, AND READING RUN 1 REFUTED IT.
+# `ParsekFlight.CommitTreeFlight` calls `FinalizeTreeRecordings(..., isSceneExit: false)`,
+# whose live-vessel branch stamps `RecordingTree.DetermineTerminalState((int)v.situation, v)`
+# and FLYING(8) maps to `SubOrbital` - so on paper an in-flight commit concludes the
+# provisional with no destruction and no waiting. The flight answered
+#   `[Parsek][WARN][TestCommands] committree no-active-tree`
+# because a re-fly's provisional does not live in an ACTIVE tree: `RewindInvoker` attaches
+# an in-place fork into a PENDING one (`AtomicMarkerWrite: attached in-place fork
+# rec=... to tree 'Kerbal X'`), and `CommitTreeImpl` commits `ParsekFlight.activeTree`.
+#
+# SO THE FINDING IS THE LANE'S FIRST RESULT: NO SEAM PATH CONCLUDES A RE-FLY IN FLIGHT,
+# and the two candidate routes fail for two different, named reasons - `TimeJump` cannot
+# reach a crash because it does not move the vessel, and `CommitTree` cannot reach a
+# terminal stamp because the tree it would commit is not the one the re-fly is in. The
+# only conclusion route the seam has is `AnswerMergeDialog`, which drives the scene EXIT
+# and therefore cannot be sequenced before a FLIGHT batch. Filed as
+# RF12-NO-SEAM-PATH-CONCLUDES-A-REFLY-IN-FLIGHT.
+#
+# =====================================================================================
+# WHAT THE LANE IS INSTEAD, and it is not nothing: THE CREWED HOST.
+#
+# Reading run 1 read `BATCH_COMPLETE v1 total=39 passed=12 failed=0 skipped=27` where
+# RF-6's best on `bdock-recorded` is `passed=11`, and the twelfth is
+# `KerbalDualResidenceCarveOut` - which skips on RF-6's host with "active re-fly vessel
+# has no crew aboard" and PASSES here because this fixture's re-fly restores a CREWED
+# stack. That is a FOURTH session-gated cell executing for the first time anywhere, and
+# it is a property of the HOST rather than of any step, which is exactly why the lane
+# keeps its fixture rather than collapsing into RF-6.
+#
+# WHAT THE RUN ALSO MEASURED, and it is worth more than the pass: the nine remaining
+# skips, with their reasons, on a second host. Two of them move the diagnosis on:
+#
+#   `MergeReFlyToSubOrbitalKeepsSlotOpen` and `MergeNonFocusReFlyToOrbitImmutable` skip
+#   on "Could not resolve provisional's RP/slot" on BOTH hosts. That is a DEEPER
+#   precondition than the terminal, and it means the terminal-stamping route this lane
+#   was designed around would not have been sufficient even if it had worked.
+#
+#   `OptimizerSplitKeepsPromotedSlotOpen` skips on "Active re-fly session -
+#   RunOptimizationSplitPass DEFERS the split of the active provisional recording". So
+#   PR #1662's own regression cell is unreachable inside a live session, by design.
+#
+# =====================================================================================
+# THE FREE EARLY ORACLE WAS ADOPTED AND THEN WITHDRAWN, on this lane's own measurement.
+# RF-6's forensics named `outcome=unbound-refly-provisional` as a token that predicts a
+# zero-row merge forty in-game cells early, and it was authored here as FORBIDDEN. The
+# reading run fires it once, and the raise text says why:
+# `reason=refly-provisional-has-no-trajectory-at-save` - the predicate is evaluated at
+# the SAVE the rewind itself takes, which happens before any driven step can fly the
+# attempt. So no seam lane can keep that token forbidden, and the one that could is the
+# one that can conclude a re-fly, which is the lane the finding above says does not
+# exist. Recorded rather than left as a clause that reads clear for the wrong reason -
+# the silence-is-not-success shape this program has already paid for twice.
+#
+# ONE TEARDOWN FACT, from RF-6's forensics, so a reader of the produced save is not
+# surprised: the batch's baseline revert does NOT unwind a re-fly session. RF-6's marker
+# and journal survived the teardown reload, so this run's produced save carries POST-batch
+# session state, not pre-batch.
+#
+# =====================================================================================
+# STATUS: READING RUN 1 FLOWN 2026-09-09 and INVALID at the `CommitTree` step, with the
+# cause measured and the lane RE-SHAPED against it in the same change (see above). The
+# batch itself ran clean on that run - `total=39 passed=12 failed=0 skipped=27` - which is
+# where every number quoted above comes from. `tier = "operator"` while calibrating.
+# `total=39` is pinned EXACTLY and is source-derived
+# (`CommittedBatchTallySourceSyncTests` walks `Source/Parsek` and reds until it agrees
+# with the `[InGameTest]` attributes it counts); `passed` and `skipped` stay CLASSES for
+# RF-6's reason - this category gains cells regularly and an exact split would red on
+# every addition while saying nothing about the session gate. It is NOT in
+# `IngameBatchWiringGroupTests.INTERIM_PIN_IDS`, and that is not an omission: that group's
+# `GROUP` map covers the H-SERIES batch specs only, so no RF-series spec is a member and
+# adding one would fail the group's own set-equality check. RF-6 records the same fact
+# about itself. NOTHING ARMED.
+# =====================================================================================
+tier = "operator"
+description = "The 39-cell in-game Rewind category on a CREWED re-fly host: rewind a slot of refly-autopilot-recorded, fly the attempt with a TimeJump and run the batch inside the live session. Buys KerbalDualResidenceCarveOut, a fourth session-gated cell that RF-6 host cannot reach for want of crew, and carries the measured finding that NO seam path concludes a re-fly in flight - TimeJump does not move the vessel and CommitTree answers no-active-tree on a re-fly pending tree."
+instanceProfile = "stock-minimal"
+tags = ["RF-12", "rewind", "refly", "in-game-batch", "unfinished-flights", "seal",
+        "runtime-handles", "kerbin", "sandbox", "reading-run", "interim-pin"]
+
+[fixture]
+# `refly-autopilot-recorded`, and not RF-6's `bdock-recorded`, for one mechanical reason:
+# its RewindPoint restores a stack that is FLYING inside the atmosphere at UT 131.54, so
+# `DetermineTerminalState` stamps SubOrbital. `bdock-recorded`'s three points all restore
+# vessels in stable ORBITS, which stamp `Orbiting` - the terminal
+# `MergeNonFocusReFlyToOrbitImmutable` wants, but not the one the cell with the fullest
+# chain wants. The fixture's shape is pinned in `RECORDED_FIXTURES` and gated by
+# `harness/lib/test_refly_autopilot_recorded.py`.
+saveTemplate       = "fixtures/saves/refly-autopilot-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+
+# NINE STEPS. RF-6's chain with `TimeJump` replaced by the commit, plus the
+# `StopRecording` that H58 flight 1 paid for.
+steps = [
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "persistent" },  expect = "OK", budget = 300 },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # LOAD-BEARING: the classifier verdicts and the reaper summary this lane reads around
+  # its batch are Verbose, and so are the in-game cells' own skip lines.
+  { cmd = "SetSetting",   args = { name = "verboseLogging", value = "true" },   expect = "OK" },
+  { cmd = "StopRecording",                                                      expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "rewindpoints" }, label = "handles",  expect = "OK" },
+  # Slot 0 is the half whose restore is FLYING: the probe-cored core, discarded inside the
+  # atmosphere. Slot 1 is the crewed top stack from the same separation and is equally
+  # FLYING at that instant; slot 0 is chosen because RF-9 already flew this exact rewind
+  # and its merge wrote real supersede rows, so the path is measured rather than assumed.
+  { cmd = "InvokeRewind", args = { rp = "${handles.rp0}", slot = "0" },         expect = "OK", budget = 300 },
+  # THE RE-FLY IS FLOWN BEFORE THE BATCH READS IT - RF-6's own lesson, and the step that
+  # replaced the refuted `CommitTree`. `TimeJump` is an EPOCH SHIFT so it cannot conclude
+  # the attempt (see the header), but it does give the provisional Points, which moves
+  # two cells off the "empty Points" skip onto the terminal one and is the difference
+  # between a provisional that recorded nothing and one that recorded something.
+  # CI-2 measured `TimeJump` accepted with a session live; 300 is ~168 s past the point's
+  # UT 131.54.
+  { cmd = "TimeJump",     args = { ut = "300" },                                expect = "OK", budget = 300 },
+  # R7a's and RF-6's own budget for the same 39-cell category.
+  { cmd = "RunTests",     args = { category = "Rewind" },                       expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                       expect = "OK" },
+]
+
+[dimensionsCovered]
+# BASICS ONLY until the reading run, on RH-1's claim-is-not-gate ground.
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# RF-10 pins this fixture's cold-boot census at exactly 11; the re-fly adds its own
+# provisional and the commit keeps it. The ceiling has headroom for whatever the restored
+# stack sheds before the commit.
+count = { min = 11, max = 25 }
+
+[expectations.logContracts]
+# THE TALLY IS RF-6's, VERBATIM AND FOR RF-6's REASONS: `total=39` exact and source-
+# derived, `failed=0` HARD, `passed` / `skipped` as classes because this category gains
+# cells regularly and because the passed/skipped split here depends on discovery order
+# (see the header on the session being spent by the first merging cell).
+#
+# THE THREE TOKENS THAT MAKE THIS LANE DIFFERENT FROM RF-6, in the order the run produces
+# them:
+#   StartInvoke        a re-fly actually started (RF-6's own anti-vacuity token).
+#   terminalState=     the CONCLUSION, quoted from the production site rather than from a
+#                      log: `FinalizeTreeRecordings: set terminalState=SubOrbital on active
+#                      recording '<id>' (non-leaf, vessel situation=FLYING)`. Pinned with
+#                      the VALUE, because the whole lane is the difference between a
+#                      terminal and no terminal - a commit that stamped nothing would
+#                      still satisfy a value-less pattern.
+#   runtests start     the batch ran on the right category.
+required = [
+  "listhandles kind=rewindpoints count=1 truncated=false",
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=.* rp=rp_[0-9a-f]{32}",
+  "Invocation complete",
+  "timejump complete reachedUT=30[0-9]",
+  # THE LANE'S OWN GAIN, and the only token that separates it from RF-6: a session-gated
+  # cell that can only PASS when the re-flown vessel carries crew. On `bdock-recorded` it
+  # skips "active re-fly vessel has no crew aboard", so this line is the host doing the
+  # work rather than the step list.
+  "PASSED: KerbalDualResidenceCarveOutTest\\.KerbalDualResidenceCarveOut",
+  "runtests start category=Rewind",
+  "BATCH_COMPLETE v1 total=39 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=Rewind scene=FLIGHT",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # RF-6's guard, kept: if this appears the session was not live when the batch ran and
+  # the lane measured R7a again.
+  "No active re-fly session - invoke a rewind",
+  # NOT FORBIDDEN, and the header says why for each: `this test requires SubOrbital` was
+  # the subject token of the refuted CommitTree shape, and
+  # `outcome=unbound-refly-provisional` is raised at the rewind's own save, before any
+  # driven step can fly the attempt, so no seam lane can keep it clear.
+  # The RF family's standing guard: a chain TIP that lost its MergeState reads CLOSED.
+  "reason=sealedTipClosed",
+]
+
+# REPORT-ONLY, and DERIVED from the fixture's committed bytes (RF-10 pins them exactly:
+# 1 point, 2 supersede rows, 8 tombstones) plus what one in-batch merge could add. The
+# floors say "not fewer than the fixture already had"; there is no ceiling, because
+# whether a cell merges the session at all is the discovery-order question above.
+[expectations.rewind]
+rewindPoints  = { min = 1, max = 1 }
+supersedeRows = { min = 2 }
+tombstones    = { min = 8 }
+
+[runtime]
+# Budget arithmetic (M-A5 S8), deferred verbs at max(step,600)+60 and the rest at
+# max(step, 60+60):
+#   LoadGame 660 + SetSetting x2 240 + StopRecording 120 + ListHandles 120
+#   + InvokeRewind 660 + TimeJump 660 + RunTests 660 + FlushAndQuit 120 = 3240.
+#   3500 clears it by 260.
+budgetSeconds = 3500
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""
