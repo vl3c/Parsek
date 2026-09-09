@@ -623,6 +623,14 @@ re-harvesting it is a command rather than a session. That matters for the render
 RF-7M / RF-7T read the seed's predicted tail today, and this save carries the same shape
 (`a76c3839`, two `isPredicted` segments) on a flight anyone can re-fly.
 
+**THE RENDER LANES WERE DELIBERATELY NOT RE-POINTED AT IT.** RF-7M's tokens are QUOTED
+from a measured log and cut to the seed's own recording ids, and both lanes' headers are
+the reproduction record for two defects: re-pointing them would throw that away and
+replace measured tokens with derived ones, which is the trade the RF-7M re-pin of
+2026-09-08 was careful to avoid. The right shape is a NEW lane over these bytes, with its
+own reading run and its own derivation - and the fixture is committed so that lane costs a
+spec rather than a flight night.
+
 Two things a lane author must know before choosing it:
 
 - **Its RewindPoint SURVIVED** (`rp_404ea488`, quicksave on disk) - the difference the
