@@ -454,6 +454,24 @@ namespace Parsek
         /// events at or below the latest committed milestone EndUT, and after a rewind/load the
         /// current epoch may have no coverage for older-epoch action history even though the
         /// ledger still retains those actions.
+        /// <para>
+        /// SECOND WAY LIVE COVERAGE DISAPPEARS, and the one a source anchor cannot express:
+        /// every observed-side read filters through
+        /// <see cref="GameStateStore.IsEventVisibleToCurrentTimeline"/>, which hides an
+        /// event tagged to a recording that is no longer part of the effective recording
+        /// set. The RECALC still walks that recording's rows (a re-fly session suppresses
+        /// the origin subtree for visibility, it does not delete its ledger rows), so a
+        /// recording-scoped row outlives its own captured events for the length of the
+        /// session and can never pair. Anchorless types - the reputation / funds / science
+        /// earning and penalty rows - have no source event to notice that with, so the
+        /// state read as a "missing earning channel" WARN on every recalc. Measured on
+        /// CL-4-refly-crew-standin (2026-09-09_2158): the crew-death
+        /// ReputationPenalty(KerbalDeath) row for cl-pod-a paired cleanly at first commit
+        /// and then WARNed once the re-fly session suppressed cl-pod-a.
+        /// <see cref="HasOnlyTimelineHiddenPostWalkCoverage"/> now catches exactly that
+        /// state - the matching capture IS in the store and IS hidden - and nothing wider:
+        /// an action with no capture at all still WARNs.
+        /// </para>
         /// </summary>
         private static bool IsOutsidePostWalkLiveCoverage(
             GameAction action,
@@ -472,6 +490,16 @@ namespace Parsek
                     action,
                     "ut is at/below live prune threshold=" +
                     livePruneThreshold.ToString("F1", CultureInfo.InvariantCulture));
+                return true;
+            }
+
+            if (HasOnlyTimelineHiddenPostWalkCoverage(
+                    action, expectation, events, livePruneThreshold))
+            {
+                LogPostWalkLiveCoverageSkip(
+                    action,
+                    "the observed reward leg is present but tagged to a recording outside " +
+                    "the current timeline");
                 return true;
             }
 
@@ -506,6 +534,88 @@ namespace Parsek
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// True when this action's observed leg EXISTS in the store but is hidden from
+        /// the pass by <see cref="GameStateStore.IsEventVisibleToCurrentTimeline"/>,
+        /// because the action's own recording left the current timeline. The comparison
+        /// is then unreachable no matter what the ledger holds, so it is skipped rather
+        /// than reported as a missing earning channel.
+        /// <para>
+        /// Deliberately NARROW - all three conditions must hold. An action whose recording
+        /// is visible, one whose visible observed leg still exists, and one with no
+        /// matching capture at ALL (the genuine "missing earning channel", which must keep
+        /// WARNing) each return false and take the unchanged path.
+        /// </para>
+        /// </summary>
+        private static bool HasOnlyTimelineHiddenPostWalkCoverage(
+            GameAction action,
+            PostWalkExpectation expectation,
+            IReadOnlyList<GameStateEvent> events,
+            double livePruneThreshold)
+        {
+            if (IsActionRecordingVisibleToCurrentTimeline(action))
+                return false;
+            if (HasLivePostWalkObservedEvent(action, expectation, events, livePruneThreshold))
+                return false;
+
+            return HasTimelineHiddenPostWalkObservedEventForLeg(
+                       action, expectation.Funds, events, livePruneThreshold) ||
+                   HasTimelineHiddenPostWalkObservedEventForLeg(
+                       action, expectation.Rep, events, livePruneThreshold) ||
+                   HasTimelineHiddenPostWalkObservedEventForLeg(
+                       action, expectation.Sci, events, livePruneThreshold);
+        }
+
+        /// <summary>
+        /// The mirror of <see cref="HasLivePostWalkObservedEventForLeg"/> with exactly one
+        /// condition inverted: the event must be HIDDEN from the current timeline. Every
+        /// other filter (prune threshold, event type, epsilon window, recording scope,
+        /// reason key) is identical, so a hit is an event this pass would have paired with
+        /// had the recording still been visible.
+        /// </summary>
+        private static bool HasTimelineHiddenPostWalkObservedEventForLeg(
+            GameAction action,
+            PostWalkLeg leg,
+            IReadOnlyList<GameStateEvent> events,
+            double livePruneThreshold)
+        {
+            if (action == null || !leg.Applies || events == null || events.Count == 0)
+                return false;
+
+            string expectedKey = leg.ReasonKey ?? "";
+            for (int i = 0; i < events.Count; i++)
+            {
+                var e = events[i];
+                if (e.ut <= livePruneThreshold) continue;
+                if (GameStateStore.IsEventVisibleToCurrentTimeline(e)) continue;
+                if (e.eventType != leg.EventType) continue;
+                if (Math.Abs(e.ut - action.UT) > PostWalkReconcileEpsilonSeconds) continue;
+                if (!PostWalkEventMatchesAction(e, action)) continue;
+                if (!string.Equals(e.key ?? "", expectedKey, StringComparison.Ordinal))
+                    continue;
+                return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// True when the action is not recording-scoped, or when its recording still
+        /// belongs to the current timeline. The mirror of the observed-side filter
+        /// <see cref="GameStateStore.IsEventVisibleToCurrentTimeline"/>: an event tagged to
+        /// a recording outside the effective set is invisible to this pass, so a row
+        /// scoped to that same recording has no observable counterpart to compare against.
+        /// An untagged row keeps the historical answer (visible), because its expected
+        /// event is untagged too and stays visible.
+        /// </summary>
+        internal static bool IsActionRecordingVisibleToCurrentTimeline(GameAction action)
+        {
+            string recordingId = action == null ? null : action.RecordingId;
+            if (string.IsNullOrEmpty(recordingId))
+                return true;
+            return RecordingStore.IsCurrentTimelineRecordingId(recordingId);
         }
 
         private static void LogPostWalkLiveCoverageSkip(

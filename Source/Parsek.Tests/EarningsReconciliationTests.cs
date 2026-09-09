@@ -3997,5 +3997,189 @@ namespace Parsek.Tests
             Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation"));
         }
 
+        // ==================================================================
+        // Kerbal-death reputation penalty: self-paired by construction.
+        //
+        // CreateKerbalDeathRepPenaltyActions copies the recording-scoped
+        // VesselLoss ReputationChanged event's UT and magnitude onto the row, so
+        // the two are the SAME measurement seen from both sides of this walk.
+        // On a re-commit of the recording (the re-fly merge tail re-commits the
+        // death recording) DeduplicateAgainstLedger drops the fresh candidate
+        // because the ledger already holds one, and the store side was then left
+        // facing nothing: measured on CL-4-refly-crew-standin (2026-09-09_2158)
+        // as "Earnings reconciliation (rep): store delta=-10.0 vs ledger emitted
+        // delta=0.0 ... window=[69.1,124.1]". Both sides now exclude the pair.
+        // ==================================================================
+
+        private static GameStateEvent VesselLossRepEvent(
+            double ut, string recordingId, double applied = 9.999828)
+        {
+            return new GameStateEvent
+            {
+                ut = ut,
+                eventType = GameStateEventType.ReputationChanged,
+                key = "VesselLoss",
+                valueBefore = 0.0,
+                valueAfter = -applied,
+                recordingId = recordingId
+            };
+        }
+
+        private static GameAction KerbalDeathRepRow(
+            double ut, string recordingId, float applied = 9.999828f)
+        {
+            return new GameAction
+            {
+                UT = ut,
+                Type = GameActionType.ReputationPenalty,
+                RecordingId = recordingId,
+                RepPenaltySource = ReputationPenaltySource.KerbalDeath,
+                NominalPenalty = applied,
+                EffectiveRep = -applied
+            };
+        }
+
+        [Fact]
+        public void Reconcile_KerbalDeathPenalty_FirstCommit_ExcludesBothSides_NoWarn()
+        {
+            var events = new List<GameStateEvent> { VesselLossRepEvent(124.06, "cl-pod-a") };
+            var newActions = new List<GameAction> { KerbalDeathRepRow(124.06, "cl-pod-a") };
+
+            LedgerOrchestrator.ReconcileEarningsWindow(events, newActions,
+                startUT: 69.1, endUT: 124.1, recordingId: "cl-pod-a");
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (rep)"));
+            Assert.Contains(logLines, l =>
+                l.Contains("ReconcileEarningsWindow: excluded 1 paired VesselLoss event(s) " +
+                          "and 1 KerbalDeath penalty row(s)"));
+        }
+
+        [Fact]
+        public void Reconcile_KerbalDeathPenalty_ReCommit_RowOnlyInLedger_NoWarn()
+        {
+            // The re-commit shape: dedup already removed the row from newActions,
+            // so only the ledger carries it. This is the case that WARNed.
+            Ledger.AddActions(new List<GameAction> { KerbalDeathRepRow(124.06, "cl-pod-a") });
+            var events = new List<GameStateEvent> { VesselLossRepEvent(124.06, "cl-pod-a") };
+
+            LedgerOrchestrator.ReconcileEarningsWindow(events, new List<GameAction>(),
+                startUT: 69.1, endUT: 124.1, recordingId: "cl-pod-a");
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (rep)"));
+            Assert.Contains(logLines, l =>
+                l.Contains("ReconcileEarningsWindow: excluded 1 paired VesselLoss event(s) " +
+                          "and 0 KerbalDeath penalty row(s)"));
+        }
+
+        [Fact]
+        public void Reconcile_VesselLossEventWithNoPairedRow_StillWarns()
+        {
+            // The unpaired direction: the producer refused (no dead crew), so the
+            // event has no counterpart and the missing-channel WARN must survive.
+            var events = new List<GameStateEvent> { VesselLossRepEvent(124.06, "cl-pod-a") };
+
+            LedgerOrchestrator.ReconcileEarningsWindow(events, new List<GameAction>(),
+                startUT: 69.1, endUT: 124.1, recordingId: "cl-pod-a");
+
+            Assert.Contains(logLines, l =>
+                l.Contains("Earnings reconciliation (rep)") &&
+                l.Contains("store delta=-10.0") &&
+                l.Contains("ledger emitted delta=0.0"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("ReconcileEarningsWindow: excluded"));
+        }
+
+        [Fact]
+        public void Reconcile_KerbalDeathRowForAnotherRecording_DoesNotExcludeThisEvent()
+        {
+            // Recording identity is the pairing key, not the row type.
+            Ledger.AddActions(new List<GameAction> { KerbalDeathRepRow(124.06, "cl-pod-b") });
+            var events = new List<GameStateEvent> { VesselLossRepEvent(124.06, "cl-pod-a") };
+
+            LedgerOrchestrator.ReconcileEarningsWindow(events, new List<GameAction>(),
+                startUT: 69.1, endUT: 124.1, recordingId: "cl-pod-a");
+
+            Assert.Contains(logLines, l => l.Contains("Earnings reconciliation (rep)"));
+        }
+
+        [Fact]
+        public void Reconcile_NonDeathRepPenalty_StaysOnTheEmittedSide()
+        {
+            // The exclusion is scoped to the KerbalDeath source: a contract-fail
+            // penalty in the same window must still balance its own event.
+            var events = new List<GameStateEvent>
+            {
+                new GameStateEvent
+                {
+                    ut = 124.06,
+                    eventType = GameStateEventType.ReputationChanged,
+                    key = "ContractPenalty",
+                    valueBefore = 0.0,
+                    valueAfter = -25.0,
+                    recordingId = "cl-pod-a"
+                }
+            };
+            var newActions = new List<GameAction>
+            {
+                new GameAction
+                {
+                    UT = 124.06,
+                    Type = GameActionType.ReputationPenalty,
+                    RecordingId = "cl-pod-a",
+                    RepPenaltySource = ReputationPenaltySource.ContractFail,
+                    NominalPenalty = 25f,
+                    EffectiveRep = -25f
+                }
+            };
+
+            LedgerOrchestrator.ReconcileEarningsWindow(events, newActions,
+                startUT: 69.1, endUT: 124.1, recordingId: "cl-pod-a");
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (rep)"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("ReconcileEarningsWindow: excluded"));
+        }
+
+        // ---------- IsKerbalDeathPairedVesselLossEvent (pure) ----------
+
+        [Fact]
+        public void IsKerbalDeathPairedVesselLossEvent_UntaggedEvent_IsNeverPaired()
+        {
+            var rows = new List<GameAction> { KerbalDeathRepRow(124.06, "cl-pod-a") };
+            var untagged = VesselLossRepEvent(124.06, "");
+
+            Assert.False(LedgerOrchestrator.IsKerbalDeathPairedVesselLossEvent(
+                untagged, rows, null));
+        }
+
+        [Fact]
+        public void IsKerbalDeathPairedVesselLossEvent_WrongKeyOrGain_IsNotPaired()
+        {
+            var rows = new List<GameAction> { KerbalDeathRepRow(124.06, "cl-pod-a") };
+
+            var otherKey = VesselLossRepEvent(124.06, "cl-pod-a");
+            otherKey.key = "ContractPenalty";
+            Assert.False(LedgerOrchestrator.IsKerbalDeathPairedVesselLossEvent(
+                otherKey, rows, null));
+
+            // A reputation GAIN under the same key is not a penalty capture.
+            var gain = VesselLossRepEvent(124.06, "cl-pod-a");
+            gain.valueBefore = 0.0;
+            gain.valueAfter = 5.0;
+            Assert.False(LedgerOrchestrator.IsKerbalDeathPairedVesselLossEvent(
+                gain, rows, null));
+        }
+
+        [Fact]
+        public void IsKerbalDeathPairedVesselLossEvent_ReadsEmittedAndLedgerSides()
+        {
+            var evt = VesselLossRepEvent(124.06, "cl-pod-a");
+            var rows = new List<GameAction> { KerbalDeathRepRow(124.06, "cl-pod-a") };
+
+            Assert.False(LedgerOrchestrator.IsKerbalDeathPairedVesselLossEvent(evt, null, null));
+            Assert.True(LedgerOrchestrator.IsKerbalDeathPairedVesselLossEvent(evt, rows, null));
+            Assert.True(LedgerOrchestrator.IsKerbalDeathPairedVesselLossEvent(evt, null, rows));
+        }
+
     }
 }

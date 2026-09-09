@@ -417,14 +417,24 @@ namespace Parsek
                 return;
             }
 
+            // [ERS-exempt] The ledger slice is read raw on purpose: the question this
+            // answers is "does a KerbalDeath row for this recording exist ANYWHERE in the
+            // ledger", including one an effective-state walk would hide, because the
+            // VesselLoss event it is a copy of is equally still in the store.
+            var ledgerActions = Ledger.Actions;
+
             var storeDeltas = ComputeEarningsWindowStoreDeltas(
                 events,
                 startUT,
                 endUT,
-                recordingId);
+                recordingId,
+                newActions,
+                ledgerActions);
             LogEarningsWindowScopeSkipped(storeDeltas, startUT, endUT, recordingId);
 
             var emittedDeltas = ComputeEarningsWindowEmittedDeltas(newActions);
+            LogEarningsWindowKerbalDeathPairing(
+                storeDeltas, emittedDeltas, startUT, endUT, recordingId);
 
             if (scienceTracked)
             {
@@ -457,6 +467,7 @@ namespace Parsek
             public double DroppedSciDelta;
             public double WindowScopedSciDelta;
             public int ScopeSkipped;
+            public int KerbalDeathPairedSkipped;
         }
 
         private struct EarningsWindowEmittedDeltas
@@ -469,13 +480,16 @@ namespace Parsek
             public int ContractAcceptCount;
             public int FacilityUpgradeCount;
             public int FacilityRepairCount;
+            public int KerbalDeathPairedSkipped;
         }
 
         private static EarningsWindowStoreDeltas ComputeEarningsWindowStoreDeltas(
             IReadOnlyList<GameStateEvent> events,
             double startUT,
             double endUT,
-            string recordingId)
+            string recordingId,
+            IReadOnlyList<GameAction> emittedActions,
+            IReadOnlyList<GameAction> ledgerActions)
         {
             var deltas = new EarningsWindowStoreDeltas();
             if (events != null)
@@ -498,6 +512,20 @@ namespace Parsek
                     if (!scoped)
                     {
                         deltas.ScopeSkipped++;
+                        continue;
+                    }
+                    if (IsKerbalDeathPairedVesselLossEvent(e, emittedActions, ledgerActions))
+                    {
+                        // Reconciled BY CONSTRUCTION, so neither side counts it. The
+                        // ReputationPenalty(KerbalDeath) row IS a copy of this event
+                        // (CreateKerbalDeathRepPenaltyActions reads its UT and its
+                        // magnitude off it), and on a RE-commit of the same recording the
+                        // row is dropped by DeduplicateAgainstLedger because the ledger
+                        // already holds it - leaving the event on the store side with
+                        // nothing to face it, which is the -10 vs 0 WARN this excludes.
+                        // An event with NO paired row anywhere (the producer refused: no
+                        // dead crew) is NOT excluded and still WARNs.
+                        deltas.KerbalDeathPairedSkipped++;
                         continue;
                     }
                     switch (e.eventType)
@@ -530,6 +558,80 @@ namespace Parsek
                     $"ReconcileEarningsWindow: skipped {storeDeltas.ScopeSkipped} event(s) tagged to other recordings " +
                     $"(scope='{recordingId}', window=[{FormatFixed1(startUT)},{FormatFixed1(endUT)}])");
             }
+        }
+
+        /// <summary>
+        /// True for a <see cref="GameActionType.ReputationPenalty"/> row written by
+        /// <see cref="CreateKerbalDeathRepPenaltyActions"/>. Pure.
+        /// </summary>
+        internal static bool IsKerbalDeathRepPenaltyRow(GameAction a)
+        {
+            return a != null
+                && a.Type == GameActionType.ReputationPenalty
+                && a.RepPenaltySource == ReputationPenaltySource.KerbalDeath;
+        }
+
+        /// <summary>
+        /// True when <paramref name="actions"/> holds a kerbal-death reputation penalty
+        /// row scoped to <paramref name="recordingId"/>. Pure; an empty id never matches.
+        /// </summary>
+        internal static bool HasKerbalDeathRepPenaltyRowForRecording(
+            IReadOnlyList<GameAction> actions, string recordingId)
+        {
+            if (actions == null || string.IsNullOrEmpty(recordingId)) return false;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var a = actions[i];
+                if (!IsKerbalDeathRepPenaltyRow(a)) continue;
+                if (string.Equals(a.RecordingId ?? "", recordingId, StringComparison.Ordinal))
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// True when <paramref name="evt"/> is the recording-scoped VesselLoss reputation
+        /// capture that a kerbal-death <see cref="GameActionType.ReputationPenalty"/> row
+        /// was copied from, with that row present either in the commit's emitted list
+        /// (first commit) or already in the ledger (re-commit, where
+        /// <see cref="DeduplicateAgainstLedger"/> removes the fresh candidate). Such a
+        /// pair reconciles by construction and is excluded from both sides of
+        /// <see cref="ReconcileEarningsWindow"/>. An unpaired VesselLoss event - the
+        /// producer refused because no crew died - returns false and still counts, so the
+        /// "missing earning channel" WARN it deserves still fires. Pure.
+        /// </summary>
+        internal static bool IsKerbalDeathPairedVesselLossEvent(
+            GameStateEvent evt,
+            IReadOnlyList<GameAction> emittedActions,
+            IReadOnlyList<GameAction> ledgerActions)
+        {
+            string tag = evt.recordingId ?? "";
+            if (string.IsNullOrEmpty(tag)) return false;
+            // Same predicate the producer selects candidates with, so the two cannot drift:
+            // ReputationChanged + VesselLoss key + exact tag + a positive drop.
+            if (!KerbalDeathRepPenalty.IsRecordingScopedVesselLoss(evt, tag)) return false;
+            return HasKerbalDeathRepPenaltyRowForRecording(emittedActions, tag)
+                || HasKerbalDeathRepPenaltyRowForRecording(ledgerActions, tag);
+        }
+
+        private static void LogEarningsWindowKerbalDeathPairing(
+            EarningsWindowStoreDeltas storeDeltas,
+            EarningsWindowEmittedDeltas emittedDeltas,
+            double startUT,
+            double endUT,
+            string recordingId)
+        {
+            if (storeDeltas.KerbalDeathPairedSkipped == 0
+                && emittedDeltas.KerbalDeathPairedSkipped == 0)
+            {
+                return;
+            }
+
+            ParsekLog.Verbose(Tag,
+                $"ReconcileEarningsWindow: excluded {storeDeltas.KerbalDeathPairedSkipped.ToString(CultureInfo.InvariantCulture)} " +
+                $"paired VesselLoss event(s) and {emittedDeltas.KerbalDeathPairedSkipped.ToString(CultureInfo.InvariantCulture)} " +
+                $"KerbalDeath penalty row(s) from the rep comparison (self-paired by construction) " +
+                $"(scope='{recordingId ?? "(none)"}', window=[{FormatFixed1(startUT)},{FormatFixed1(endUT)}])");
         }
 
         private static EarningsWindowEmittedDeltas ComputeEarningsWindowEmittedDeltas(
@@ -565,6 +667,16 @@ namespace Parsek
                             deltas.EmittedRepDelta += a.EffectiveRep;
                             break;
                         case GameActionType.ReputationPenalty:
+                            // The kerbal-death leg is excluded on BOTH sides (see
+                            // ComputeEarningsWindowStoreDeltas): the row is a copy of the
+                            // VesselLoss event, so counting it here while a re-commit
+                            // drops the row would make first commit and re-commit
+                            // disagree. Every other penalty source stays.
+                            if (IsKerbalDeathRepPenaltyRow(a))
+                            {
+                                deltas.KerbalDeathPairedSkipped++;
+                                break;
+                            }
                             // #440B: EffectiveRep is signed negative for penalties
                             // (ReputationModule.ProcessContractPenaltyRep). No unary minus.
                             deltas.EmittedRepDelta += a.EffectiveRep;
@@ -1018,7 +1130,7 @@ namespace Parsek
                 // was destroyed lands within the 0.1 s dedup window, and with the shared
                 // "" key one of the two rows would be silently dropped as a duplicate.
                 // Two kerbal-death rows for the same recording still collapse, which is
-                // the dedup this door exists for (re-commit, backfill after commit).
+                // the dedup this door exists for (a re-commit of the same recording).
                 // Non-death penalties keep the "" key, so this narrows nothing that was
                 // previously unique.
                 case GameActionType.ReputationPenalty
@@ -1391,71 +1503,19 @@ namespace Parsek
                 NominalPenalty = decision.Magnitude
             });
 
+            // A CANDIDATE, not a decision: this producer runs on every commit of the
+            // recording, and on a re-commit DeduplicateAgainstLedger drops the row it
+            // returns because the ledger already carries one. The line would otherwise
+            // read like a fresh penalty was filed each time. The truth for "did a row
+            // land" is OnRecordingCommitted's "Committed recording ... dedup=N" summary.
             ParsekLog.Info(Tag,
                 $"KerbalDeath rep penalty: recording='{recordingId}' " +
                 $"applied={decision.Magnitude.ToString("R", CultureInfo.InvariantCulture)} " +
                 $"ut={decision.UT.ToString("R", CultureInfo.InvariantCulture)} " +
                 $"dead={decision.DeadCount.ToString(CultureInfo.InvariantCulture)} " +
-                "-> ReputationPenalty(KerbalDeath)");
+                "-> ReputationPenalty(KerbalDeath) candidate (dedup decides)");
 
             return result;
-        }
-
-        /// <summary>
-        /// Load-time backfill for the kerbal-death reputation penalty row. The
-        /// KerbalAssignment rows themselves are DERIVED at load by
-        /// <see cref="MigrateKerbalAssignments"/> for recordings that were injected or
-        /// committed by a build without this producer, so the paired penalty has to be
-        /// derivable there too - otherwise a save whose deaths only ever existed as
-        /// derived rows could never carry one.
-        ///
-        /// <para>
-        /// ADD-ONLY and idempotent: a recording that already has a
-        /// <see cref="ReputationPenaltySource.KerbalDeath"/> row is skipped untouched.
-        /// Deliberately NOT a <c>ReplaceActionsForRecording(ReputationPenalty, ...)</c> -
-        /// that would delete a recording's contract-fail / decline penalties as
-        /// collateral.
-        /// </para>
-        /// </summary>
-        private static void BackfillKerbalDeathRepPenalties()
-        {
-            var recordings = RecordingStore.CommittedRecordings;
-            if (recordings == null || recordings.Count == 0) return;
-
-            var alreadyPresent = new HashSet<string>(StringComparer.Ordinal);
-            var ledgerActions = Ledger.Actions;
-            for (int i = 0; i < ledgerActions.Count; i++)
-            {
-                var action = ledgerActions[i];
-                if (action == null) continue;
-                if (action.Type != GameActionType.ReputationPenalty) continue;
-                if (action.RepPenaltySource != ReputationPenaltySource.KerbalDeath) continue;
-                if (string.IsNullOrEmpty(action.RecordingId)) continue;
-                alreadyPresent.Add(action.RecordingId);
-            }
-
-            var added = new List<GameAction>();
-            int skippedPresent = 0;
-            for (int i = 0; i < recordings.Count; i++)
-            {
-                var rec = recordings[i];
-                if (rec == null || string.IsNullOrEmpty(rec.RecordingId)) continue;
-                if (alreadyPresent.Contains(rec.RecordingId))
-                {
-                    skippedPresent++;
-                    continue;
-                }
-
-                added.AddRange(CreateKerbalDeathRepPenaltyActions(
-                    rec.RecordingId, rec.StartUT, rec.EndUT));
-            }
-
-            if (added.Count == 0) return;
-
-            Ledger.AddActions(added);
-            ParsekLog.Info(Tag,
-                $"BackfillKerbalDeathRepPenalties: added {added.Count.ToString(CultureInfo.InvariantCulture)} row(s); " +
-                $"skipped {skippedPresent.ToString(CultureInfo.InvariantCulture)} recording(s) that already had one");
         }
 
         /// <summary>
@@ -2934,11 +2994,16 @@ namespace Parsek
             // kerbal actions in the ledger.
             MigrateKerbalAssignments();
 
-            // Same argument for the penalty stock applied for those deaths: a save whose
-            // KerbalAssignment+Dead rows only exist because the line above derived them
-            // has no committed penalty row either. Add-only and skips recordings that
-            // already have one, so a second load writes nothing.
-            BackfillKerbalDeathRepPenalties();
+            // NO load-time backfill for the paired kerbal-death reputation penalty.
+            // KerbalAssignment rows are safe to derive at load because they carry no
+            // pool arithmetic; the penalty does, and an older save cannot say whether
+            // its ReputationInitial seed was captured BEFORE or AFTER the death (rows
+            // written before seedCapturedUT existed store NaN, and the seed is taken
+            // lazily at the first commit, i.e. usually AFTER the crash already lowered
+            // the live pool). Adding a row there would subtract the same penalty a
+            // second time, and an authoritative merge recalc would write live-10 to the
+            // career. Flights filed before this producer shipped therefore keep exactly
+            // the rows they had; only newly committed recordings get one.
 
             // #401/#396 one-shot save recovery now runs here, after committed recordings
             // (and any cold-start pending active tree) have been loaded. That gives the

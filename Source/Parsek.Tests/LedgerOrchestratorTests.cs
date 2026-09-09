@@ -944,7 +944,10 @@ namespace Parsek.Tests
             Assert.Contains(logLines, l =>
                 l.Contains("[LedgerOrchestrator]") &&
                 l.Contains("KerbalDeath rep penalty: recording='rec-death'") &&
-                l.Contains("-> ReputationPenalty(KerbalDeath)"));
+                // "candidate (dedup decides)" is load-bearing wording: this producer runs
+                // on every commit of the recording and DeduplicateAgainstLedger drops the
+                // row on a re-commit, so the line must not read as a filed penalty.
+                l.Contains("-> ReputationPenalty(KerbalDeath) candidate (dedup decides)"));
 
             RecordingStore.ResetForTesting();
         }
