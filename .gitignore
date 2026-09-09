@@ -68,3 +68,11 @@ tmp-*
 nul
 Source/Parsek.Tests/TestResults/
 ksp-session.log
+
+# Agent scratch reports (forensics / inventory passes). Dot-prefixed working notes
+# left in the worktree so a session can re-read them; what they ESTABLISH belongs in
+# the spec headers, docs/dev/autotest-status.md, the roadmap and the todo entries,
+# which is where a reader looks. Ignored because `git add -A` swept them into two
+# commits in one night before this line existed.
+/.forensics-*.md
+/.inventory-*.md
