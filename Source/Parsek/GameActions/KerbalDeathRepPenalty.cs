@@ -4,6 +4,62 @@ using System.Collections.Generic;
 namespace Parsek
 {
     /// <summary>
+    /// Where the career's single <see cref="GameActionType.ReputationInitial"/> row came
+    /// from, AS SEEN BY ONE COMMIT at the moment that commit ensured the seed exists.
+    /// Produced by <c>LedgerOrchestrator.EnsureReputationSeedForCommit</c> and consumed
+    /// only by <see cref="KerbalDeathRepPenalty.IsInsideReputationSeed"/>.
+    ///
+    /// <para>
+    /// This is PRODUCTION ORDER, not game time. A rewind moves the game clock backwards,
+    /// so comparing a death's UT against the UT the seed was captured at orders nothing:
+    /// a post-rewind capture can carry a SMALLER UT than a death that happened before it
+    /// in real time, and the mirror case (a re-fly from a RewindPoint earlier than the
+    /// capture) reads the other way round. What a commit does know for certain is
+    /// whether the live pool the seed was, or will be, read from had already taken the
+    /// hit.
+    /// </para>
+    /// </summary>
+    internal enum ReputationSeedOrigin
+    {
+        /// <summary>
+        /// No seed exists yet and this commit did not create one - the live-pool read is
+        /// still deferred (<c>Reputation.Instance</c> missing, or |reputation| &lt;= 0.01,
+        /// which <c>EnsureInitialReputationSeed</c> refuses to treat as a real balance).
+        /// The seed will therefore be captured LATER, off a live pool that has already
+        /// taken any death from this commit.
+        /// </summary>
+        NotYetCaptured = 0,
+
+        /// <summary>
+        /// A ReputationInitial row already existed before this commit ran, so its value
+        /// was fixed before this commit's flights were filed.
+        /// </summary>
+        PreExisting = 1,
+
+        /// <summary>
+        /// This commit created the seed by reading the LIVE reputation pool
+        /// (<c>Reputation.Instance.reputation</c>), which by then had already taken every
+        /// hit this commit is filing.
+        /// </summary>
+        CreatedThisCommitFromLivePool = 2,
+
+        /// <summary>
+        /// This commit created the seed from the career-start
+        /// <c>GameStateBaseline</c>. That value predates the flight entirely, so nothing
+        /// this commit files can be inside it.
+        /// </summary>
+        CreatedThisCommitFromCareerBaseline = 3,
+
+        /// <summary>
+        /// This commit created the seed through the refusal fallback
+        /// (<c>LedgerHasReputationTimelineActions</c> with no baseline available), which
+        /// deliberately declines the live pool and seeds career start - the value 0 a
+        /// stock career begins at.
+        /// </summary>
+        CreatedThisCommitFromRefusalFallback = 4,
+    }
+
+    /// <summary>
     /// Pure decision for the kerbal-death reputation penalty row (design
     /// docs/parsek-rewind-to-separation-design.md section 7.16).
     ///
@@ -77,6 +133,53 @@ namespace Parsek
 
             /// <summary>Named refusal reason, or null when <see cref="Emit"/> is true.</summary>
             public string Reason;
+        }
+
+        /// <summary>
+        /// THE INSIDE-SEED RULE. True iff the penalty this producer is about to file is
+        /// ALREADY contained in the career's ReputationInitial seed value, so
+        /// <c>ReputationModule</c> must not subtract it a second time.
+        ///
+        /// <para>
+        /// The seed is a single absolute reputation figure. It is inside-the-seed exactly
+        /// when the live pool that figure was (or will be) read from had already taken
+        /// this hit - and a commit knows that from WHERE the seed came, never from
+        /// comparing UTs, because a rewind moves the game clock backwards and a re-fly
+        /// can file a death whose UT is smaller than the seed's capture UT yet later in
+        /// real time (and the mirror case reads the other way round).
+        /// </para>
+        ///
+        /// <para>
+        /// THE REFUSAL FALLBACK IS GROUPED WITH THE CAREER BASELINE, NOT WITH THE LIVE
+        /// POOL, and that is a choice worth naming. That branch exists precisely to
+        /// DECLINE the live pool; it seeds 0, which is the reputation a stock career
+        /// starts at, so its value predates the flight in exactly the way a career-start
+        /// baseline does and cannot contain this death. Grouping it with the live-pool
+        /// branch would drop the penalty from a timeline seeded at career start, which is
+        /// the "penalty goes unmodeled" failure this rule exists to prevent. The
+        /// alternative reading - "the branch ran during this commit, so treat it like the
+        /// other this-commit branch" - is what the enum member keeps to one line if it
+        /// ever needs to change.
+        /// </para>
+        /// </summary>
+        internal static bool IsInsideReputationSeed(ReputationSeedOrigin origin)
+        {
+            switch (origin)
+            {
+                case ReputationSeedOrigin.NotYetCaptured:
+                case ReputationSeedOrigin.CreatedThisCommitFromLivePool:
+                    return true;
+                case ReputationSeedOrigin.PreExisting:
+                case ReputationSeedOrigin.CreatedThisCommitFromCareerBaseline:
+                case ReputationSeedOrigin.CreatedThisCommitFromRefusalFallback:
+                    return false;
+                default:
+                    // Unreachable while the enum is exhaustive above. Fail toward
+                    // APPLYING the penalty: an unmodeled death is a silent refund on the
+                    // next supersede merge, while a double subtraction is visible in the
+                    // pool and in the post-walk reconcile.
+                    return false;
+            }
         }
 
         /// <summary>

@@ -933,7 +933,7 @@ namespace Parsek.Tests
             AddVesselLossEvent("rec-death", 500.0, 9.999828);
 
             var actions = LedgerOrchestrator.CreateKerbalDeathRepPenaltyActions(
-                "rec-death", 100.0, 500.0);
+                "rec-death", 100.0, 500.0, ReputationSeedOrigin.PreExisting);
 
             Assert.Single(actions);
             Assert.Equal(GameActionType.ReputationPenalty, actions[0].Type);
@@ -941,13 +941,75 @@ namespace Parsek.Tests
             Assert.Equal("rec-death", actions[0].RecordingId);
             Assert.Equal(500.0, actions[0].UT);
             Assert.Equal(9.999828f, actions[0].NominalPenalty, 1e-4f);
+            // A seed that already existed before this commit cannot contain this death.
+            Assert.False(actions[0].InsideReputationSeed);
             Assert.Contains(logLines, l =>
                 l.Contains("[LedgerOrchestrator]") &&
                 l.Contains("KerbalDeath rep penalty: recording='rec-death'") &&
                 // "candidate (dedup decides)" is load-bearing wording: this producer runs
                 // on every commit of the recording and DeduplicateAgainstLedger drops the
                 // row on a re-commit, so the line must not read as a filed penalty.
+                l.Contains("repSeedOrigin=PreExisting insideRepSeed=False") &&
                 l.Contains("-> ReputationPenalty(KerbalDeath) candidate (dedup decides)"));
+
+            RecordingStore.ResetForTesting();
+        }
+
+        // The seed this commit is about to take off the LIVE pool has already had the
+        // death subtracted from it, so the row must be stamped inside-seed and the
+        // module must not subtract it a second time.
+        [Fact]
+        public void CreateKerbalDeathRepPenaltyActions_LivePoolSeedThisCommit_StampsInsideSeed()
+        {
+            RecordingStore.ResetForTesting();
+            InstallCrewedRecording("rec-death-live", KerbalEndState.Dead);
+            AddVesselLossEvent("rec-death-live", 500.0, 9.999828);
+
+            var actions = LedgerOrchestrator.CreateKerbalDeathRepPenaltyActions(
+                "rec-death-live", 100.0, 500.0,
+                ReputationSeedOrigin.CreatedThisCommitFromLivePool);
+
+            Assert.Single(actions);
+            Assert.True(actions[0].InsideReputationSeed);
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("repSeedOrigin=CreatedThisCommitFromLivePool insideRepSeed=True"));
+
+            RecordingStore.ResetForTesting();
+        }
+
+        // No seed yet: it will be captured later, off a pool this death has already
+        // lowered. Same answer as the live-pool branch, for the same reason.
+        [Fact]
+        public void CreateKerbalDeathRepPenaltyActions_SeedNotYetCaptured_StampsInsideSeed()
+        {
+            RecordingStore.ResetForTesting();
+            InstallCrewedRecording("rec-death-deferred", KerbalEndState.Dead);
+            AddVesselLossEvent("rec-death-deferred", 500.0, 9.999828);
+
+            var actions = LedgerOrchestrator.CreateKerbalDeathRepPenaltyActions(
+                "rec-death-deferred", 100.0, 500.0, ReputationSeedOrigin.NotYetCaptured);
+
+            Assert.Single(actions);
+            Assert.True(actions[0].InsideReputationSeed);
+
+            RecordingStore.ResetForTesting();
+        }
+
+        // A career-start baseline predates the flight, so the death is NOT inside it.
+        [Fact]
+        public void CreateKerbalDeathRepPenaltyActions_CareerBaselineSeedThisCommit_StampsOutsideSeed()
+        {
+            RecordingStore.ResetForTesting();
+            InstallCrewedRecording("rec-death-baseline", KerbalEndState.Dead);
+            AddVesselLossEvent("rec-death-baseline", 500.0, 9.999828);
+
+            var actions = LedgerOrchestrator.CreateKerbalDeathRepPenaltyActions(
+                "rec-death-baseline", 100.0, 500.0,
+                ReputationSeedOrigin.CreatedThisCommitFromCareerBaseline);
+
+            Assert.Single(actions);
+            Assert.False(actions[0].InsideReputationSeed);
 
             RecordingStore.ResetForTesting();
         }
@@ -961,7 +1023,7 @@ namespace Parsek.Tests
             InstallCrewedRecording("rec-death-noevent", KerbalEndState.Dead);
 
             var actions = LedgerOrchestrator.CreateKerbalDeathRepPenaltyActions(
-                "rec-death-noevent", 100.0, 500.0);
+                "rec-death-noevent", 100.0, 500.0, ReputationSeedOrigin.PreExisting);
 
             Assert.Empty(actions);
             Assert.Contains(logLines, l =>
@@ -981,7 +1043,7 @@ namespace Parsek.Tests
             AddVesselLossEvent("rec-alive", 500.0, 9.999828);
 
             var actions = LedgerOrchestrator.CreateKerbalDeathRepPenaltyActions(
-                "rec-alive", 100.0, 500.0);
+                "rec-alive", 100.0, 500.0, ReputationSeedOrigin.PreExisting);
 
             Assert.Empty(actions);
             // No dead crew is the ordinary case for nearly every recording in a save, so
@@ -997,9 +1059,9 @@ namespace Parsek.Tests
             RecordingStore.ResetForTesting();
 
             Assert.Empty(LedgerOrchestrator.CreateKerbalDeathRepPenaltyActions(
-                "nonexistent", 100.0, 500.0));
+                "nonexistent", 100.0, 500.0, ReputationSeedOrigin.PreExisting));
             Assert.Empty(LedgerOrchestrator.CreateKerbalDeathRepPenaltyActions(
-                null, 100.0, 500.0));
+                null, 100.0, 500.0, ReputationSeedOrigin.PreExisting));
         }
 
         [Fact]

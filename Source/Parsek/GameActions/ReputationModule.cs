@@ -35,15 +35,6 @@ namespace Parsek
         /// </summary>
         private bool hasInitialSeed;
 
-        /// <summary>
-        /// UT the processed <see cref="GameActionType.ReputationInitial"/> row's value was
-        /// CAPTURED at, or <see cref="double.NaN"/> when no seed has been processed yet or
-        /// the seed does not carry one (every save written before the field existed).
-        /// NaN disables the pre-seed skip in <see cref="ProcessRepPenalty"/>, which is the
-        /// legacy behaviour.
-        /// </summary>
-        private double seedCapturedUT = double.NaN;
-
         // ================================================================
         // IResourceModule
         // ================================================================
@@ -54,7 +45,6 @@ namespace Parsek
             float previousRep = runningRep;
             runningRep = 0f;
             hasInitialSeed = false;
-            seedCapturedUT = double.NaN;
             ParsekLog.Verbose(Tag, $"Reset: runningRep {previousRep.ToString("F2", IC)} -> 0");
         }
 
@@ -126,26 +116,26 @@ namespace Parsek
         private void ProcessRepPenalty(GameAction action)
         {
             // THE SEED HAZARD, and it applies to KerbalDeath rows alone. The
-            // ReputationInitial seed captures the LIVE pool at first commit, which may
-            // already be AFTER a death lowered it; the seed row is stamped UT=0.0, so
-            // only its capture UT can say so. A death at or before that capture is
-            // already inside the seed value, and applying its row too subtracts the
-            // penalty twice. An unknown capture UT (NaN - every pre-field save) makes
-            // both comparisons false, so those saves keep exactly the old behaviour.
+            // ReputationInitial seed is a single absolute figure, and when it was read
+            // off the LIVE pool that pool had already taken the death's hit - applying
+            // the row too subtracts the penalty twice. The MODULE does not decide that:
+            // the producer does, once, in production order
+            // (KerbalDeathRepPenalty.IsInsideReputationSeed), and stamps the answer on
+            // the row. Deciding it here from UTs cannot work, because a rewind moves the
+            // game clock backwards and the seed row is stamped UT=0.0 either way.
             //
             // Scoped to this source on purpose: the same hazard exists for milestone
             // rows and is a separate, pre-existing defect (a live +1 applied twice,
             // observed on CL-4's run 2026-09-09_1815). Widening the skip to other types
             // here would change reconstruction for every save in one undiscussed step.
             if (action.RepPenaltySource == ReputationPenaltySource.KerbalDeath
-                && !double.IsNaN(seedCapturedUT)
-                && action.UT <= seedCapturedUT)
+                && action.InsideReputationSeed)
             {
                 action.EffectiveRep = 0f;
                 ParsekLog.Verbose(Tag,
-                    $"KerbalDeath rep penalty pre-dates the seed capture " +
-                    $"(ut={action.UT.ToString("R", IC)} <= seedCapturedUT={seedCapturedUT.ToString("R", IC)}) " +
-                    "- already inside the seed, not re-applied");
+                    $"KerbalDeath rep penalty is inside the reputation seed " +
+                    $"(recording={action.RecordingId ?? "null"}, " +
+                    $"ut={action.UT.ToString("R", IC)}) - not re-applied");
                 return;
             }
 
@@ -321,11 +311,9 @@ namespace Parsek
             float initial = action.InitialReputation;
             runningRep += initial;
             hasInitialSeed = true;
-            seedCapturedUT = action.SeedCapturedUT;
 
             ParsekLog.Info(Tag,
                 $"ReputationInitial: seed={initial.ToString("R", IC)}, " +
-                $"seedCapturedUT={seedCapturedUT.ToString("R", IC)}, " +
                 $"runningRep={runningRep.ToString("R", IC)}");
         }
 

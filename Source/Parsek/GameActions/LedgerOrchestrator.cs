@@ -273,10 +273,23 @@ namespace Parsek
             public double EndUT;
         }
 
+        /// <param name="repSeedOriginOverride">
+        /// The <see cref="ReputationSeedOrigin"/> already established for the surrounding
+        /// commit BATCH, or null to establish it here. A whole tree is one commit as far
+        /// as the reputation seed is concerned: the seed is captured off the live pool
+        /// once, at the first recording of the batch, and that pool has already taken
+        /// every death the batch is about to file. Establishing it per recording instead
+        /// would let the batch's FIRST recording create the seed and then read
+        /// <see cref="ReputationSeedOrigin.PreExisting"/> for a death filed by a LATER
+        /// recording of the same batch, which is the double-subtraction this parameter
+        /// exists to prevent. <see cref="NotifyLedgerTreeCommitted"/> passes it; the
+        /// single-recording commit paths pass null.
+        /// </param>
         internal static void OnRecordingCommitted(
             string recordingId, double startUT, double endUT,
             IReadOnlyList<PendingScienceSubject> pendingScienceOverride,
-            ref bool scienceActionsAddedToLedger)
+            ref bool scienceActionsAddedToLedger,
+            ReputationSeedOrigin? repSeedOriginOverride = null)
         {
             // Test-only fault injection (see OnRecordingCommittedFaultInjector doc).
             OnRecordingCommittedFaultInjector?.Invoke(recordingId);
@@ -311,11 +324,21 @@ namespace Parsek
             var kerbalActions = CreateKerbalAssignmentActions(recordingId, startUT, endUT);
             actions.AddRange(kerbalActions);
 
+            // 3c-post. Ensure the ReputationInitial seed BEFORE the death-penalty
+            // producer runs. The recalc at step 6 would otherwise be the first ensure,
+            // which is too late twice over: the producer could not tell a seed that will
+            // be read off the live pool (and therefore already carries the death) from
+            // one that predates the flight, and the seed's refusal branch would see this
+            // commit's own fresh KerbalDeath row and decline the live pool because of it.
+            ReputationSeedOrigin repSeedOrigin =
+                repSeedOriginOverride ?? EnsureReputationSeedForCommit();
+
             // 3d. The reputation penalty stock already applied for a crew death on this
             // recording (one row per vessel loss, magnitude read off the captured
             // VesselLoss event - never synthesized). Separate producer: see the method's
             // docstring for why it must not ride inside CreateKerbalAssignmentActions.
-            var deathRepActions = CreateKerbalDeathRepPenaltyActions(recordingId, startUT, endUT);
+            var deathRepActions = CreateKerbalDeathRepPenaltyActions(
+                recordingId, startUT, endUT, repSeedOrigin);
             actions.AddRange(deathRepActions);
 
             // 4. Deduplicate: remove actions already in the ledger from KSC real-time writes.
@@ -1446,8 +1469,16 @@ namespace Parsek
         /// <param name="recordingId">Recording to derive the row for.</param>
         /// <param name="startUT">Recording start UT (unused by the decision; kept for call-site symmetry).</param>
         /// <param name="endUT">Recording end UT - the reference point a death lands at.</param>
+        /// <param name="repSeedOrigin">
+        /// Where the career's reputation seed came from as of THIS commit, established
+        /// before this producer ran. It decides
+        /// <see cref="GameAction.InsideReputationSeed"/> on the emitted row - the one
+        /// question the module cannot answer for itself, because game UT does not order
+        /// events across a rewind.
+        /// </param>
         internal static List<GameAction> CreateKerbalDeathRepPenaltyActions(
-            string recordingId, double startUT, double endUT)
+            string recordingId, double startUT, double endUT,
+            ReputationSeedOrigin repSeedOrigin)
         {
             var result = new List<GameAction>();
 
@@ -1494,13 +1525,16 @@ namespace Parsek
                     $"(ut={decision.UT.ToString("R", CultureInfo.InvariantCulture)})");
             }
 
+            bool insideSeed = KerbalDeathRepPenalty.IsInsideReputationSeed(repSeedOrigin);
+
             result.Add(new GameAction
             {
                 UT = decision.UT,
                 Type = GameActionType.ReputationPenalty,
                 RecordingId = recordingId,
                 RepPenaltySource = ReputationPenaltySource.KerbalDeath,
-                NominalPenalty = decision.Magnitude
+                NominalPenalty = decision.Magnitude,
+                InsideReputationSeed = insideSeed
             });
 
             // A CANDIDATE, not a decision: this producer runs on every commit of the
@@ -1513,6 +1547,7 @@ namespace Parsek
                 $"applied={decision.Magnitude.ToString("R", CultureInfo.InvariantCulture)} " +
                 $"ut={decision.UT.ToString("R", CultureInfo.InvariantCulture)} " +
                 $"dead={decision.DeadCount.ToString(CultureInfo.InvariantCulture)} " +
+                $"repSeedOrigin={repSeedOrigin} insideRepSeed={insideSeed} " +
                 "-> ReputationPenalty(KerbalDeath) candidate (dedup decides)");
 
             return result;
@@ -1850,7 +1885,48 @@ namespace Parsek
             if (!scienceSeedDone)
                 scienceSeedDone = EnsureInitialScienceSeed(hasInitialBaseline, initialBaseline);
             if (!repSeedDone)
-                repSeedDone = EnsureInitialReputationSeed(hasInitialBaseline, initialBaseline);
+            {
+                ReputationSeedOrigin repSeedOrigin;
+                repSeedDone = EnsureInitialReputationSeed(
+                    hasInitialBaseline, initialBaseline, out repSeedOrigin);
+            }
+        }
+
+        /// <summary>
+        /// Ensures the career's <see cref="GameActionType.ReputationInitial"/> seed exists
+        /// AT THE START OF A COMMIT and reports WHERE it came from, so the kerbal-death
+        /// reputation-penalty producer can decide whether the penalty it is about to file
+        /// is already inside that seed value.
+        ///
+        /// <para>
+        /// ORDERING IS THE WHOLE POINT. The seed is otherwise ensured deep inside
+        /// <see cref="RecalculateAndPatchCore"/>, which a commit reaches only at its LAST
+        /// step - after the producer has already run and after its row is in the ledger.
+        /// Two things break in that order: the producer cannot see whether the seed will
+        /// be a live-pool read (which would already contain the death), and the seed's
+        /// own refusal branch would see this commit's fresh KerbalDeath
+        /// <see cref="GameActionType.ReputationPenalty"/> row through
+        /// <see cref="LedgerHasReputationTimelineActions"/> and refuse the live pool
+        /// because of it. Running the ensure BEFORE the producer removes both.
+        /// </para>
+        ///
+        /// <para>
+        /// Idempotent: the later call inside the recalc finds the seed already present,
+        /// or still legitimately deferred, and does nothing new.
+        /// </para>
+        /// </summary>
+        internal static ReputationSeedOrigin EnsureReputationSeedForCommit()
+        {
+            GameStateBaseline initialBaseline;
+            bool hasInitialBaseline = TryGetInitialResourceBaseline(out initialBaseline);
+
+            ReputationSeedOrigin origin;
+            bool done = EnsureInitialReputationSeed(
+                hasInitialBaseline, initialBaseline, out origin);
+            if (done)
+                repSeedDone = true;
+
+            return origin;
         }
 
         private static bool EnsureInitialFundsSeed(bool hasInitialBaseline, GameStateBaseline initialBaseline)
@@ -1925,60 +2001,65 @@ namespace Parsek
             return true;
         }
 
-        private static bool EnsureInitialReputationSeed(bool hasInitialBaseline, GameStateBaseline initialBaseline)
+        /// <summary>
+        /// Creates the career's single <see cref="GameActionType.ReputationInitial"/> row
+        /// if it does not exist yet. Returns true once a seed exists (created here or
+        /// already present), false while the live-pool read is still legitimately
+        /// deferred.
+        /// </summary>
+        /// <param name="hasInitialBaseline">Whether a career-start baseline was found.</param>
+        /// <param name="initialBaseline">That baseline; read only when the flag is true.</param>
+        /// <param name="origin">
+        /// WHERE the seed came from as seen by THIS call. The kerbal-death rep-penalty
+        /// producer reads it to decide whether the penalty it is about to file is already
+        /// inside the seeded value; every other caller discards it.
+        /// </param>
+        private static bool EnsureInitialReputationSeed(
+            bool hasInitialBaseline,
+            GameStateBaseline initialBaseline,
+            out ReputationSeedOrigin origin)
         {
             if (LedgerHasSeed(GameActionType.ReputationInitial))
+            {
+                origin = ReputationSeedOrigin.PreExisting;
                 return true;
+            }
 
-            // The CAPTURE UT differs per branch and is not the seed row's own UT (that
-            // stays 0.0). It is what ReputationModule needs to tell a kerbal-death
-            // penalty already baked into the seed value from one still to be applied.
             if (hasInitialBaseline)
             {
-                // A career-start baseline carries its own capture UT - typically 0 on a
-                // fresh template, non-zero for a baseline taken mid-career.
-                Ledger.SeedInitialReputation(initialBaseline.reputation, initialBaseline.ut);
+                // A career-start value: it predates every flight this commit files.
+                Ledger.SeedInitialReputation(initialBaseline.reputation);
+                origin = ReputationSeedOrigin.CreatedThisCommitFromCareerBaseline;
                 return true;
             }
 
             if (LedgerHasReputationTimelineActions())
             {
-                // This branch DELIBERATELY refuses the live pool and seeds career start,
-                // so the capture UT is career start too - not now.
-                Ledger.SeedInitialReputation(0f, 0.0);
+                // This branch DELIBERATELY refuses the live pool and seeds career start
+                // (0 - what a stock career begins at), so its value predates the flight
+                // just as a baseline does.
+                Ledger.SeedInitialReputation(0f);
                 ParsekLog.Warn(Tag,
                     "SeedInitialReputation: refusing to treat current reputation as initial " +
                     "because reputation timeline actions already exist and no baseline was available");
+                origin = ReputationSeedOrigin.CreatedThisCommitFromRefusalFallback;
                 return true;
             }
 
             if (global::Reputation.Instance == null
                 || Math.Abs(global::Reputation.Instance.reputation) <= 0.01f)
+            {
+                // Still deferred: the seed will be captured off a LATER live pool, one
+                // that has already taken any death this commit is filing.
+                origin = ReputationSeedOrigin.NotYetCaptured;
                 return false;
+            }
 
-            // Live-pool read: the capture UT is NOW, and any death that already lowered
-            // the pool is inside the value being seeded.
-            Ledger.SeedInitialReputation(global::Reputation.Instance.reputation, SafeNowUT());
+            // Live-pool read: any death that already lowered the pool is inside the
+            // value being seeded.
+            Ledger.SeedInitialReputation(global::Reputation.Instance.reputation);
+            origin = ReputationSeedOrigin.CreatedThisCommitFromLivePool;
             return true;
-        }
-
-        /// <summary>
-        /// <see cref="GetNowUT"/> that answers 0.0 instead of throwing when the universe
-        /// clock is unavailable (the Unity-static-free xUnit harness, or a cold load
-        /// before Planetarium exists). Used only where a missing clock must not abort the
-        /// caller - the reputation seed's capture UT, which is metadata about the seed
-        /// rather than a value the walk depends on.
-        /// </summary>
-        private static double SafeNowUT()
-        {
-            try
-            {
-                return GetNowUT();
-            }
-            catch
-            {
-                return 0.0;
-            }
         }
 
         private static bool TryGetInitialResourceBaseline(out GameStateBaseline initialBaseline)
@@ -2046,6 +2127,16 @@ namespace Parsek
             for (int i = 0; i < actions.Count; i++)
             {
                 var action = actions[i];
+
+                // A row that already declares itself INSIDE the seed is not independent
+                // reputation history: it is part of whatever value the seed will carry,
+                // and the module never applies it. Counting it here would let a commit's
+                // own KerbalDeath row talk the seed out of the live pool it belongs to,
+                // seeding career start with a WARN on a save that was only waiting for a
+                // non-zero pool.
+                if (action != null && action.InsideReputationSeed)
+                    continue;
+
                 if (ActionTouchesReputationBudget(action))
                     return true;
             }
@@ -2996,14 +3087,14 @@ namespace Parsek
 
             // NO load-time backfill for the paired kerbal-death reputation penalty.
             // KerbalAssignment rows are safe to derive at load because they carry no
-            // pool arithmetic; the penalty does, and an older save cannot say whether
-            // its ReputationInitial seed was captured BEFORE or AFTER the death (rows
-            // written before seedCapturedUT existed store NaN, and the seed is taken
+            // pool arithmetic; the penalty does, and the inside-the-seed answer is only
+            // available at PRODUCTION time - it is what the commit knew about where the
+            // seed came from, and a load can no longer reconstruct it (the seed is taken
             // lazily at the first commit, i.e. usually AFTER the crash already lowered
-            // the live pool). Adding a row there would subtract the same penalty a
-            // second time, and an authoritative merge recalc would write live-10 to the
-            // career. Flights filed before this producer shipped therefore keep exactly
-            // the rows they had; only newly committed recordings get one.
+            // the live pool). Adding a row here would subtract the same penalty a second
+            // time, and an authoritative merge recalc would write live-10 to the career.
+            // Flights filed before this producer shipped therefore keep exactly the rows
+            // they had; only newly committed recordings get one.
 
             // #401/#396 one-shot save recovery now runs here, after committed recordings
             // (and any cold-start pending active tree) have been loaded. That gives the
@@ -6411,6 +6502,14 @@ namespace Parsek
                 routedPending += routed.Count;
             int removedPending = 0;
 
+            // ONE reputation-seed ensure for the WHOLE tree, before any recording of it
+            // is committed. A tree is filed as a single act: the live pool read here has
+            // already taken every death in it, so a death filed by the tree's third
+            // recording is just as inside that seed as one filed by its first. Ensuring
+            // per recording would report PreExisting to every recording after the first
+            // and subtract those deaths twice.
+            ReputationSeedOrigin repSeedOrigin = EnsureReputationSeedForCommit();
+
             int gapsClosed = 0;
             bool commitSucceeded = false;
             try
@@ -6437,7 +6536,8 @@ namespace Parsek
                             startUT,
                             endUT,
                             perRecordingPending,
-                            ref scienceAddedToLedger);
+                            ref scienceAddedToLedger,
+                            repSeedOrigin);
                         removedPending += RemovePendingSubjectsFromStatic(perRecordingPending);
                     }
                     catch

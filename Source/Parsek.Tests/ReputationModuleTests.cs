@@ -616,18 +616,18 @@ namespace Parsek.Tests
         // KerbalDeath penalty: the SECOND pre-curved source, and the seed hazard
         // ================================================================
 
-        private static GameAction MakeSeed(float initial, double capturedUT)
+        private static GameAction MakeSeed(float initial)
         {
             return new GameAction
             {
                 Type = GameActionType.ReputationInitial,
                 UT = 0.0,
-                InitialReputation = initial,
-                SeedCapturedUT = capturedUT
+                InitialReputation = initial
             };
         }
 
-        private static GameAction MakeKerbalDeathPenalty(float applied, double ut)
+        private static GameAction MakeKerbalDeathPenalty(
+            float applied, double ut, bool insideSeed = false)
         {
             return new GameAction
             {
@@ -635,7 +635,8 @@ namespace Parsek.Tests
                 UT = ut,
                 RecordingId = "rec_pod",
                 NominalPenalty = applied,
-                RepPenaltySource = ReputationPenaltySource.KerbalDeath
+                RepPenaltySource = ReputationPenaltySource.KerbalDeath,
+                InsideReputationSeed = insideSeed
             };
         }
 
@@ -646,7 +647,7 @@ namespace Parsek.Tests
         [Fact]
         public void ProcessAction_RepPenalty_KerbalDeathSource_BypassesCurve()
         {
-            module.ProcessAction(MakeSeed(500f, capturedUT: 0.0));
+            module.ProcessAction(MakeSeed(500f));
             Assert.Equal(500f, module.GetRunningRep());
 
             var action = MakeKerbalDeathPenalty(9.999828f, ut: 1000.0);
@@ -658,56 +659,50 @@ namespace Parsek.Tests
                 l.Contains("[Reputation]") && l.Contains("KerbalDeath, pre-curved"));
         }
 
-        // The seed hazard: the seed captures the LIVE pool, so a death that happened
-        // before the capture is already inside the seeded value. Applying its row too
-        // would subtract the penalty twice.
+        // The seed hazard: when the seed was read off the LIVE pool that pool had
+        // already taken this hit, so applying the row too subtracts the penalty twice.
+        // The producer decides that, in production order, and stamps the row; the module
+        // only obeys the stamp.
         [Fact]
-        public void ProcessAction_RepPenalty_KerbalDeathBeforeSeedCapture_IsSkipped()
+        public void ProcessAction_RepPenalty_KerbalDeathInsideSeed_IsSkipped()
         {
-            module.ProcessAction(MakeSeed(90f, capturedUT: 500.0));
+            module.ProcessAction(MakeSeed(90f));
 
-            var action = MakeKerbalDeathPenalty(9.999828f, ut: 400.0);
+            var action = MakeKerbalDeathPenalty(9.999828f, ut: 400.0, insideSeed: true);
             module.ProcessAction(action);
 
             Assert.Equal(0f, action.EffectiveRep);
             Assert.Equal(90f, module.GetRunningRep());
             Assert.Contains(logLines, l =>
                 l.Contains("[Reputation]") &&
-                l.Contains("KerbalDeath rep penalty pre-dates the seed capture") &&
-                l.Contains("already inside the seed, not re-applied"));
+                l.Contains("KerbalDeath rep penalty is inside the reputation seed") &&
+                l.Contains("recording=rec_pod") &&
+                l.Contains("not re-applied"));
         }
 
+        // THE REWIND CASE, and the reason the decision cannot be a UT comparison: a
+        // re-fly moves the game clock backwards, so this death's UT sits AFTER the UT
+        // the seed was captured at even though the seed already contains it. Ordering by
+        // UT would apply the row; the stamp gets it right.
         [Fact]
-        public void ProcessAction_RepPenalty_KerbalDeathExactlyAtSeedCapture_IsSkipped()
+        public void ProcessAction_RepPenalty_KerbalDeathInsideSeedAtLaterUT_IsStillSkipped()
         {
-            // The capture reads the pool AFTER the hit landed, so equality is inside.
-            module.ProcessAction(MakeSeed(90f, capturedUT: 500.0));
+            module.ProcessAction(MakeSeed(90f));
 
-            var action = MakeKerbalDeathPenalty(9.999828f, ut: 500.0);
+            var action = MakeKerbalDeathPenalty(9.999828f, ut: 124.06, insideSeed: true);
             module.ProcessAction(action);
 
             Assert.Equal(0f, action.EffectiveRep);
             Assert.Equal(90f, module.GetRunningRep());
         }
 
+        // THE MIRROR CASE: a death filed against a seed that predates it applies, no
+        // matter how small its UT is. A rewind can put it at UT 10 on a career whose
+        // seed was captured much later in real time.
         [Fact]
-        public void ProcessAction_RepPenalty_KerbalDeathAfterSeedCapture_IsApplied()
+        public void ProcessAction_RepPenalty_KerbalDeathOutsideSeedAtEarlyUT_IsApplied()
         {
-            module.ProcessAction(MakeSeed(90f, capturedUT: 500.0));
-
-            var action = MakeKerbalDeathPenalty(9.999828f, ut: 500.001);
-            module.ProcessAction(action);
-
-            Assert.Equal(-9.999828f, action.EffectiveRep, 1e-4f);
-            Assert.Equal(90f - 9.999828f, module.GetRunningRep(), 1e-4f);
-        }
-
-        // Legacy save: no capture UT on the seed, so the skip cannot fire and the row
-        // applies exactly as it would have before the field existed.
-        [Fact]
-        public void ProcessAction_RepPenalty_KerbalDeathWithUnknownSeedCapture_IsApplied()
-        {
-            module.ProcessAction(MakeSeed(90f, capturedUT: double.NaN));
+            module.ProcessAction(MakeSeed(90f));
 
             var action = MakeKerbalDeathPenalty(9.999828f, ut: 10.0);
             module.ProcessAction(action);
@@ -716,14 +711,30 @@ namespace Parsek.Tests
             Assert.Equal(90f - 9.999828f, module.GetRunningRep(), 1e-4f);
         }
 
-        // The skip is source-scoped: the same hazard on other row types is a separate,
-        // pre-existing defect and must not be silently changed here.
+        // Legacy row: the sparse key is absent, which reads back false, so the row
+        // applies exactly as it would have before the field existed.
         [Fact]
-        public void ProcessAction_RepPenalty_NonKerbalDeathBeforeSeedCapture_StillApplies()
+        public void ProcessAction_RepPenalty_KerbalDeathWithoutStamp_IsApplied()
         {
-            module.ProcessAction(MakeSeed(90f, capturedUT: 500.0));
+            module.ProcessAction(MakeSeed(90f));
+
+            var action = MakeKerbalDeathPenalty(9.999828f, ut: 1000.0);
+            module.ProcessAction(action);
+
+            Assert.Equal(-9.999828f, action.EffectiveRep, 1e-4f);
+            Assert.Equal(90f - 9.999828f, module.GetRunningRep(), 1e-4f);
+        }
+
+        // The skip is source-scoped: the same hazard on other row types is a separate,
+        // pre-existing defect and must not be silently changed here. A stamped
+        // non-KerbalDeath row is therefore still applied.
+        [Fact]
+        public void ProcessAction_RepPenalty_NonKerbalDeathStampedInsideSeed_StillApplies()
+        {
+            module.ProcessAction(MakeSeed(90f));
 
             var action = MakeRepPenalty(10f, 400.0); // ReputationPenaltySource.Other
+            action.InsideReputationSeed = true;
             module.ProcessAction(action);
 
             Assert.True(action.EffectiveRep < 0f);

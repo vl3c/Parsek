@@ -388,50 +388,38 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ReputationInitial_SeedCapturedUT_RoundTrip()
+        public void RepPenalty_InsideReputationSeed_RoundTrip()
         {
             var original = new GameAction
             {
-                UT = 0.0,
-                Type = GameActionType.ReputationInitial,
-                InitialReputation = 92.5f,
-                SeedCapturedUT = 173400.25
+                UT = 500.0,
+                Type = GameActionType.ReputationPenalty,
+                RecordingId = "rec_010",
+                NominalPenalty = 9.999828f,
+                RepPenaltySource = ReputationPenaltySource.KerbalDeath,
+                InsideReputationSeed = true
             };
 
             var result = RoundTrip(original);
 
-            Assert.Equal(GameActionType.ReputationInitial, result.Type);
-            Assert.Equal(92.5f, result.InitialReputation);
-            Assert.Equal(173400.25, result.SeedCapturedUT);
+            Assert.Equal(GameActionType.ReputationPenalty, result.Type);
+            Assert.Equal(ReputationPenaltySource.KerbalDeath, result.RepPenaltySource);
+            Assert.True(result.InsideReputationSeed);
         }
 
         [Fact]
-        public void ReputationInitial_WithoutSeedCapturedUT_ReadsBackNaN()
+        public void RepPenalty_OutsideReputationSeed_WritesNoKey()
         {
-            // The absent key IS the legacy shape: every save written before the field
-            // existed lands here, and NaN is what disables the pre-seed skip in
-            // ReputationModule so those saves keep the old behaviour.
-            var node = new ConfigNode("GAME_ACTION");
-            node.AddValue("ut", "0");
-            node.AddValue("type", ((int)GameActionType.ReputationInitial).ToString());
-            node.AddValue("initialReputation", "92.5");
-
-            var loaded = GameAction.DeserializeFrom(node);
-
-            Assert.Equal(GameActionType.ReputationInitial, loaded.Type);
-            Assert.Equal(92.5f, loaded.InitialReputation);
-            Assert.True(double.IsNaN(loaded.SeedCapturedUT));
-        }
-
-        [Fact]
-        public void ReputationInitial_UnknownSeedCapturedUT_WritesNoKey()
-        {
+            // Sparse on purpose: false is the overwhelming majority (every non-KerbalDeath
+            // source, and every death filed against a seed that predates it).
             var original = new GameAction
             {
-                UT = 0.0,
-                Type = GameActionType.ReputationInitial,
-                InitialReputation = 10f,
-                SeedCapturedUT = double.NaN
+                UT = 500.0,
+                Type = GameActionType.ReputationPenalty,
+                RecordingId = "rec_011",
+                NominalPenalty = 9.999828f,
+                RepPenaltySource = ReputationPenaltySource.KerbalDeath,
+                InsideReputationSeed = false
             };
 
             var parent = new ConfigNode("ROOT");
@@ -439,8 +427,26 @@ namespace Parsek.Tests
             var node = parent.GetNode("GAME_ACTION");
 
             Assert.NotNull(node);
-            Assert.Null(node.GetValue("seedCapturedUT"));
-            Assert.True(double.IsNaN(GameAction.DeserializeFrom(node).SeedCapturedUT));
+            Assert.Null(node.GetValue("insideRepSeed"));
+            Assert.False(GameAction.DeserializeFrom(node).InsideReputationSeed);
+        }
+
+        [Fact]
+        public void RepPenalty_WithoutInsideRepSeedKey_ReadsBackFalse()
+        {
+            // The absent key IS the legacy shape: a row written before the field existed
+            // lands here and reads as "apply", which is the old behaviour.
+            var node = new ConfigNode("GAME_ACTION");
+            node.AddValue("ut", "500");
+            node.AddValue("type", ((int)GameActionType.ReputationPenalty).ToString());
+            node.AddValue("nominalPenalty", "9.999828");
+            node.AddValue("repPenaltySource", ((int)ReputationPenaltySource.KerbalDeath).ToString());
+
+            var loaded = GameAction.DeserializeFrom(node);
+
+            Assert.Equal(GameActionType.ReputationPenalty, loaded.Type);
+            Assert.Equal(ReputationPenaltySource.KerbalDeath, loaded.RepPenaltySource);
+            Assert.False(loaded.InsideReputationSeed);
         }
 
         [Fact]

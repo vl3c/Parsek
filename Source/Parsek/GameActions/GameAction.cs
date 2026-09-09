@@ -541,6 +541,31 @@ namespace Parsek
         /// <summary>Source of reputation penalty.</summary>
         public ReputationPenaltySource RepPenaltySource;
 
+        /// <summary>
+        /// True when this <see cref="ReputationPenaltySource.KerbalDeath"/> row's
+        /// magnitude is ALREADY contained in the career's
+        /// <see cref="GameActionType.ReputationInitial"/> seed value, so
+        /// <c>ReputationModule.ProcessRepPenalty</c> must not subtract it a second time.
+        ///
+        /// <para>
+        /// Decided ONCE, by the producer, in PRODUCTION order rather than in game UT
+        /// (<c>KerbalDeathRepPenalty.IsInsideReputationSeed</c>): a rewind moves the game
+        /// clock backwards, so "the death's UT precedes the seed's capture UT" orders
+        /// nothing across a re-fly. What the producer knows instead is whether the live
+        /// pool the seed was, or will be, read from had already taken this hit.
+        /// </para>
+        ///
+        /// <para>
+        /// Meaningless on every other <see cref="ReputationPenaltySource"/>; only the
+        /// KerbalDeath arm reads it. Written only when true and absent means false, so a
+        /// save from before the field existed reads as "apply", which is the old
+        /// behaviour. Additive value on an existing node: it renames no key and changes
+        /// no layout, so it is not a schema SHAPE change (.claude/CLAUDE.md, "Recording
+        /// schema") - no generation bump.
+        /// </para>
+        /// </summary>
+        public bool InsideReputationSeed;
+
         // ---- Milestone fields ----
 
         /// <summary>Milestone identifier, e.g. "FirstOrbitKerbin".</summary>
@@ -831,25 +856,6 @@ namespace Parsek
 
         /// <summary>Existing reputation when Parsek is first installed mid-career.</summary>
         public float InitialReputation;
-
-        /// <summary>
-        /// UT at which <see cref="InitialReputation"/> was CAPTURED off the live pool.
-        /// The seed row itself is always stamped <c>UT = 0.0</c> (it models "career
-        /// start"), so the row alone cannot say whether a given penalty had already
-        /// happened by capture time and is therefore already baked into the seed value.
-        /// A <see cref="ReputationPenaltySource.KerbalDeath"/> penalty at or before this
-        /// UT is skipped by <c>ReputationModule.ProcessRepPenalty</c> instead of being
-        /// subtracted a second time.
-        ///
-        /// <para>
-        /// <see cref="double.NaN"/> means UNKNOWN and is what every save written before
-        /// this field existed deserializes to; the skip is then not applied, so those
-        /// saves keep exactly today's behaviour. Additive value on an existing node: it
-        /// renames no key, changes no layout, and is therefore not a schema SHAPE change
-        /// (.claude/CLAUDE.md, "Recording schema") - no generation bump.
-        /// </para>
-        /// </summary>
-        public double SeedCapturedUT = double.NaN;
 
         // ================================================================
         // Derived fields — set during recalculation walk, NOT serialized
@@ -1520,12 +1526,19 @@ namespace Parsek
         {
             n.AddValue("nominalPenalty", NominalPenalty.ToString("R", IC));
             n.AddValue("repPenaltySource", ((int)RepPenaltySource).ToString(IC));
+            // Sparse on purpose: absent means false, which is what a pre-field save
+            // carries and what every non-KerbalDeath source is.
+            if (InsideReputationSeed)
+                n.AddValue("insideRepSeed", InsideReputationSeed.ToString());
         }
 
         private static void DeserializeRepPenalty(ConfigNode n, GameAction a)
         {
             TryParseFloat(n, "nominalPenalty", out a.NominalPenalty);
             TryParseEnum(n, "repPenaltySource", out a.RepPenaltySource);
+            string insideSeedStr = n.GetValue("insideRepSeed");
+            if (insideSeedStr != null)
+                bool.TryParse(insideSeedStr, out a.InsideReputationSeed);
         }
 
         private void SerializeKerbalAssignment(ConfigNode n)
@@ -1701,27 +1714,11 @@ namespace Parsek
         private void SerializeReputationInitial(ConfigNode n)
         {
             n.AddValue("initialReputation", InitialReputation.ToString("R", IC));
-            // Absent key means UNKNOWN, which is exactly what a pre-field save
-            // carries, so an unknown capture UT is written as nothing rather than
-            // as the literal "NaN".
-            if (!double.IsNaN(SeedCapturedUT))
-                n.AddValue("seedCapturedUT", SeedCapturedUT.ToString("R", IC));
         }
 
         private static void DeserializeReputationInitial(ConfigNode n, GameAction a)
         {
             TryParseFloat(n, "initialReputation", out a.InitialReputation);
-
-            // Absent or unparseable key -> NaN (unknown), which disables the
-            // pre-seed skip in ReputationModule and keeps legacy behaviour.
-            a.SeedCapturedUT = double.NaN;
-            string capturedUt = n.GetValue("seedCapturedUT");
-            double parsedCapturedUt;
-            if (!string.IsNullOrEmpty(capturedUt)
-                && double.TryParse(capturedUt, NS, IC, out parsedCapturedUt))
-            {
-                a.SeedCapturedUT = parsedCapturedUt;
-            }
         }
 
         // ---- Route action serialization helpers ----

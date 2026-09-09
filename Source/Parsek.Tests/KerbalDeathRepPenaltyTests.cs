@@ -280,5 +280,76 @@ namespace Parsek.Tests
             Assert.True(KerbalDeathRepPenalty.IsRecordingScopedVesselLoss(
                 VesselLoss(200.0, 0.0, -10.0), RecId));
         }
+
+        // ---- the inside-seed rule ------------------------------------------
+
+        // A seed already on the books when this commit started was fixed before this
+        // flight was filed, so nothing this commit files can be inside it.
+        [Fact]
+        public void IsInsideReputationSeed_PreExistingSeed_IsOutside()
+        {
+            Assert.False(KerbalDeathRepPenalty.IsInsideReputationSeed(
+                ReputationSeedOrigin.PreExisting));
+        }
+
+        // The live pool this commit read had already taken the hit.
+        [Fact]
+        public void IsInsideReputationSeed_LivePoolSeedThisCommit_IsInside()
+        {
+            Assert.True(KerbalDeathRepPenalty.IsInsideReputationSeed(
+                ReputationSeedOrigin.CreatedThisCommitFromLivePool));
+        }
+
+        // A career-start baseline predates the flight entirely.
+        [Fact]
+        public void IsInsideReputationSeed_CareerBaselineSeedThisCommit_IsOutside()
+        {
+            Assert.False(KerbalDeathRepPenalty.IsInsideReputationSeed(
+                ReputationSeedOrigin.CreatedThisCommitFromCareerBaseline));
+        }
+
+        // The refusal fallback DECLINES the live pool and seeds career start (0), so it
+        // is grouped with the baseline branch, not with the live-pool one. Grouping it
+        // the other way would drop the penalty from a timeline seeded at career start -
+        // the unmodeled-penalty failure the rule exists to prevent.
+        [Fact]
+        public void IsInsideReputationSeed_RefusalFallbackSeedThisCommit_IsOutside()
+        {
+            Assert.False(KerbalDeathRepPenalty.IsInsideReputationSeed(
+                ReputationSeedOrigin.CreatedThisCommitFromRefusalFallback));
+        }
+
+        // The deferred case: no seed yet, so the seed will be captured LATER, off a live
+        // pool this death has already lowered.
+        [Fact]
+        public void IsInsideReputationSeed_SeedNotYetCaptured_IsInside()
+        {
+            Assert.True(KerbalDeathRepPenalty.IsInsideReputationSeed(
+                ReputationSeedOrigin.NotYetCaptured));
+        }
+
+        // The rule is a pure function of the ORIGIN and of nothing else. Stated as one
+        // cell so a future input (a UT, a clock, a live pool read) has to break it.
+        [Fact]
+        public void IsInsideReputationSeed_CoversEveryOrigin()
+        {
+            var expected = new Dictionary<ReputationSeedOrigin, bool>
+            {
+                { ReputationSeedOrigin.NotYetCaptured, true },
+                { ReputationSeedOrigin.PreExisting, false },
+                { ReputationSeedOrigin.CreatedThisCommitFromLivePool, true },
+                { ReputationSeedOrigin.CreatedThisCommitFromCareerBaseline, false },
+                { ReputationSeedOrigin.CreatedThisCommitFromRefusalFallback, false },
+            };
+
+            foreach (ReputationSeedOrigin origin in
+                System.Enum.GetValues(typeof(ReputationSeedOrigin)))
+            {
+                Assert.True(expected.ContainsKey(origin),
+                    "new ReputationSeedOrigin '" + origin + "' has no inside-seed answer");
+                Assert.Equal(expected[origin],
+                    KerbalDeathRepPenalty.IsInsideReputationSeed(origin));
+            }
+        }
     }
 }
