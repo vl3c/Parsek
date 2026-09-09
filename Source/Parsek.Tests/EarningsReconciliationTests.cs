@@ -4181,5 +4181,128 @@ namespace Parsek.Tests
             Assert.True(LedgerOrchestrator.IsKerbalDeathPairedVesselLossEvent(evt, null, rows));
         }
 
+        // ---------- the pair has to agree in MAGNITUDE, not just in shape ----------
+        //
+        // "Reconciled by construction" is a claim about ONE measurement seen from both
+        // sides. A row carrying a different number is not that: dropping both sides would
+        // cancel exactly the discrepancy this walk exists to surface, and a producer that
+        // ever stopped copying the event's magnitude would go unreported forever.
+
+        [Fact]
+        public void IsKerbalDeathPairedVesselLossEvent_MagnitudeDisagrees_IsNotPaired()
+        {
+            var evt = VesselLossRepEvent(124.06, "cl-pod-a", applied: 5.0);
+            var rows = new List<GameAction>
+            {
+                KerbalDeathRepRow(124.06, "cl-pod-a", applied: 9.999828f)
+            };
+
+            Assert.False(LedgerOrchestrator.IsKerbalDeathPairedVesselLossEvent(evt, rows, null));
+            Assert.False(LedgerOrchestrator.IsKerbalDeathPairedVesselLossEvent(evt, null, rows));
+
+            // Inside the rep tolerance the two are the same measurement and still pair:
+            // stock's own -9.999828 for a nominal -10 is exactly this case.
+            var nearlyEqual = new List<GameAction>
+            {
+                KerbalDeathRepRow(124.06, "cl-pod-a", applied: 10f)
+            };
+            Assert.True(LedgerOrchestrator.IsKerbalDeathPairedVesselLossEvent(
+                VesselLossRepEvent(124.06, "cl-pod-a"), nearlyEqual, null));
+        }
+
+        [Fact]
+        public void IsMagnitudePairedKerbalDeathRepPenaltyRow_ReadsTheRowSide()
+        {
+            var row = KerbalDeathRepRow(124.06, "cl-pod-a");
+            var matching = new List<GameStateEvent> { VesselLossRepEvent(124.06, "cl-pod-a") };
+            var drifted = new List<GameStateEvent>
+            {
+                VesselLossRepEvent(124.06, "cl-pod-a", applied: 5.0)
+            };
+            var otherRecording = new List<GameStateEvent>
+            {
+                VesselLossRepEvent(124.06, "cl-pod-b")
+            };
+
+            Assert.True(LedgerOrchestrator.IsMagnitudePairedKerbalDeathRepPenaltyRow(row, matching));
+            Assert.False(LedgerOrchestrator.IsMagnitudePairedKerbalDeathRepPenaltyRow(row, drifted));
+            Assert.False(LedgerOrchestrator.IsMagnitudePairedKerbalDeathRepPenaltyRow(row, otherRecording));
+            Assert.False(LedgerOrchestrator.IsMagnitudePairedKerbalDeathRepPenaltyRow(row, null));
+            // An untagged row has no recording to pair through.
+            Assert.False(LedgerOrchestrator.IsMagnitudePairedKerbalDeathRepPenaltyRow(
+                KerbalDeathRepRow(124.06, null), matching));
+        }
+
+        [Fact]
+        public void Reconcile_KerbalDeathPenalty_MagnitudesDrifted_BothSidesCount_AndWarns()
+        {
+            // The row claims 9.999828, the capture it is supposed to be a copy of says
+            // 5.0. Neither side may be dropped: store -5.0 vs emitted -10.0 is a real
+            // divergence and must reach the log.
+            var events = new List<GameStateEvent>
+            {
+                VesselLossRepEvent(124.06, "cl-pod-a", applied: 5.0)
+            };
+            var newActions = new List<GameAction>
+            {
+                KerbalDeathRepRow(124.06, "cl-pod-a", applied: 9.999828f)
+            };
+
+            LedgerOrchestrator.ReconcileEarningsWindow(events, newActions,
+                startUT: 69.1, endUT: 124.1, recordingId: "cl-pod-a");
+
+            Assert.Contains(logLines, l =>
+                l.Contains("Earnings reconciliation (rep)") &&
+                l.Contains("store delta=-5.0") &&
+                l.Contains("ledger emitted delta=-10.0"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("ReconcileEarningsWindow: excluded"));
+        }
+
+        [Fact]
+        public void Reconcile_KerbalDeathPenalty_LedgerRowMagnitudeDrifted_StillWarns()
+        {
+            // The re-commit direction of the same drift: the fresh candidate was deduped
+            // away and the LEDGER carries the disagreeing row, so the store side has to
+            // keep counting its event.
+            Ledger.AddActions(new List<GameAction>
+            {
+                KerbalDeathRepRow(124.06, "cl-pod-a", applied: 5f)
+            });
+            var events = new List<GameStateEvent> { VesselLossRepEvent(124.06, "cl-pod-a") };
+
+            LedgerOrchestrator.ReconcileEarningsWindow(events, new List<GameAction>(),
+                startUT: 69.1, endUT: 124.1, recordingId: "cl-pod-a");
+
+            Assert.Contains(logLines, l =>
+                l.Contains("Earnings reconciliation (rep)") &&
+                l.Contains("store delta=-10.0"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("ReconcileEarningsWindow: excluded"));
+        }
+
+        [Fact]
+        public void Reconcile_KerbalDeathPenalty_MagnitudesAgreeAtAnotherValue_StaysQuiet()
+        {
+            // The pairing is not pinned to the CL-1 number: any row that agrees with its
+            // own capture is one measurement and drops out of both sides silently.
+            var events = new List<GameStateEvent>
+            {
+                VesselLossRepEvent(124.06, "cl-pod-a", applied: 4.0)
+            };
+            var newActions = new List<GameAction>
+            {
+                KerbalDeathRepRow(124.06, "cl-pod-a", applied: 4f)
+            };
+
+            LedgerOrchestrator.ReconcileEarningsWindow(events, newActions,
+                startUT: 69.1, endUT: 124.1, recordingId: "cl-pod-a");
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (rep)"));
+            Assert.Contains(logLines, l =>
+                l.Contains("ReconcileEarningsWindow: excluded 1 paired VesselLoss event(s) " +
+                          "and 1 KerbalDeath penalty row(s)"));
+        }
+
     }
 }

@@ -42,6 +42,37 @@ namespace Parsek
         // contributors can still aggregate into a visible mismatch.
         private const double PostWalkAggregateContributionEpsilon = 1e-6;
 
+        // The per-leg compare tolerances. Named constants rather than three locals
+        // because the timeline-hidden coverage probe has to answer "would this leg have
+        // compared equal?" with the SAME numbers the compare stage uses; a private copy
+        // there could drift and start swallowing divergences the walk would have WARNed
+        // about.
+        internal const double PostWalkFundsTolerance = 1.0;
+        internal const double PostWalkRepTolerance = 0.1;
+        internal const double PostWalkScienceTolerance = 0.1;
+
+        /// <summary>
+        /// The tolerance <see cref="CompareLeg"/> is called with for a leg of this
+        /// resource. Pure.
+        /// </summary>
+        internal static double GetPostWalkLegTolerance(GameStateEventType eventType)
+        {
+            switch (eventType)
+            {
+                case GameStateEventType.FundsChanged:
+                    return PostWalkFundsTolerance;
+                case GameStateEventType.ScienceChanged:
+                    return PostWalkScienceTolerance;
+                case GameStateEventType.ReputationChanged:
+                    return PostWalkRepTolerance;
+                default:
+                    // No other event type reaches a post-walk leg. The tightest
+                    // tolerance is the conservative answer for a future one: it can
+                    // only refuse a pairing, never invent one.
+                    return PostWalkRepTolerance;
+            }
+        }
+
         /// <summary>
         /// One resource leg of a <see cref="PostWalkExpectation"/>. Populated
         /// only when the leg applies for the action type; otherwise the leg is
@@ -345,9 +376,9 @@ namespace Parsek
                 return;
             }
 
-            const double fundsTol = 1.0;
-            const double repTol = 0.1;
-            const double sciTol = 0.1;
+            const double fundsTol = PostWalkFundsTolerance;
+            const double repTol = PostWalkRepTolerance;
+            const double sciTol = PostWalkScienceTolerance;
             double livePruneThreshold = MilestoneStore.GetLatestCommittedEndUT();
 
             int walked = 0;
@@ -546,7 +577,9 @@ namespace Parsek
         /// Deliberately NARROW - all three conditions must hold. An action whose recording
         /// is visible, one whose visible observed leg still exists, and one with no
         /// matching capture at ALL (the genuine "missing earning channel", which must keep
-        /// WARNing) each return false and take the unchanged path.
+        /// WARNing) each return false and take the unchanged path. So does one whose
+        /// hidden capture exists but carries a DIFFERENT amount: see
+        /// <see cref="HasTimelineHiddenPostWalkObservedEventForLeg"/>.
         /// </para>
         /// </summary>
         private static bool HasOnlyTimelineHiddenPostWalkCoverage(
@@ -574,6 +607,16 @@ namespace Parsek
         /// other filter (prune threshold, event type, epsilon window, recording scope,
         /// reason key) is identical, so a hit is an event this pass would have paired with
         /// had the recording still been visible.
+        /// <para>
+        /// AND THE AMOUNT HAS TO AGREE, which the shape filters alone do not say. This
+        /// probe answers "would the comparison have MATCHED but for the visibility
+        /// filter?", and its answer suppresses the WARN outright. A hidden capture whose
+        /// delta diverges from <see cref="PostWalkLeg.Expected"/> would have been a
+        /// mismatch, not a match, so it must not qualify the skip: the deltas are summed
+        /// over the same window <see cref="CompareLeg"/> sums over and compared with the
+        /// same per-resource tolerance (<see cref="GetPostWalkLegTolerance"/>), and a
+        /// divergent row falls through to the mismatch WARN it earns.
+        /// </para>
         /// </summary>
         private static bool HasTimelineHiddenPostWalkObservedEventForLeg(
             GameAction action,
@@ -585,6 +628,8 @@ namespace Parsek
                 return false;
 
             string expectedKey = leg.ReasonKey ?? "";
+            double observed = 0.0;
+            int observedCount = 0;
             for (int i = 0; i < events.Count; i++)
             {
                 var e = events[i];
@@ -595,10 +640,14 @@ namespace Parsek
                 if (!PostWalkEventMatchesAction(e, action)) continue;
                 if (!string.Equals(e.key ?? "", expectedKey, StringComparison.Ordinal))
                     continue;
-                return true;
+                observed += (e.valueAfter - e.valueBefore);
+                observedCount++;
             }
 
-            return false;
+            if (observedCount == 0)
+                return false;
+
+            return Math.Abs(leg.Expected - observed) <= GetPostWalkLegTolerance(leg.EventType);
         }
 
         /// <summary>

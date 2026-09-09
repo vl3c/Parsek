@@ -95,13 +95,19 @@ tier = "operator"
 # later read from career start, each replaced - see the CHANGELOG; the intermediate
 # armed attempts `2026-09-09_2225` and `_2250` PASSED on their DLLs and are how the
 # next follow-up was caught each time), so the ARMED RE-FLIGHT flew on the final DLL:
-# `2026-09-09_2313_CL-4-refly-crew-standin` PASS attempt 1, every verifier PASS/SKIPPED with
+# `2026-09-09_2313_CL-4-refly-crew-standin` PASS attempt 1, every gating verifier
+# PASS/SKIPPED (ghostLifecycle / renderCompose REPORT as always) with
 # `tombstones min = 2` gating, the death row stamped `insideRepSeed=True` (seed origin
 # `CreatedThisCommitFromLivePool`) and not re-applied by the walk, `Tombstoned 2 ...
-# Reputation=1, Kerbal=1`, WARN count 9 (the pre-change run's exact count, no ledger WARN). NEGATIVE CONTROL `2026-09-09_2251_CL-4-refly-crew-standin`
+# Reputation=1, Kerbal=1`, WARN count 9, the pre-change CL-4 count (`2026-09-09_1815` in
+# the `stage-b-tombstones` results) with no ledger WARN. NEGATIVE CONTROL
+# `2026-09-09_2251_CL-4-refly-crew-standin`
 # (the new token temporarily `Reputation=[2-9]`): PARSEK-FAIL(expectation) on exactly
 # that one `logContracts.required not matched` entry, every other verifier unchanged.
-# LIVE-PROVEN on the new cell's own gate.
+# It flew on the intermediate DLL of `_2250` (the re-stamp commit came out of that
+# chain's CL-2 run); the gate is spec-side and the `Tombstoned 2 ... Reputation=1,
+# Kerbal=1` line is byte-identical on `_2250` / `_2251` / `_2313`, so the proof
+# transfers. LIVE-PROVEN on the new cell's own gate.
 # =====================================================================================
 description = "Stage B's last flight-closable cell, D12 stand-ins: CL-3's crew-loss re-fly (career-pad-craft + rewind-crew-loss, rewind rp_cl_root slot 1, relaunch, merge) with the tombstone's release of the death-sourced permanent reservation gated through to the Parsek-generated stand-in that release triggers."
 instanceProfile = "stock-minimal"

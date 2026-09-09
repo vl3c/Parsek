@@ -29,8 +29,10 @@ Measured on `2026-09-09_1815_CL-4-refly-crew-standin` (pre-change DLL, career-pa
 + `rewind-crew-loss`): the re-fly's `+1 reputation 'Progression'` milestone raised the
 live pool to 0.999999464, the seed was taken at that value (`Seeded initial reputation:
 amount=0.999999464`), and the walk then applied the milestone row again, so the rebuilt
-pool read one unit above live and the drawdown guard clamped it back with the standing
-`GUARDED UPLIFT clamped resource=Reputation` WARN.
+pool read one unit above live and `PatchReputation: 1.00 -> 2.00 (target=2.00)` wrote
+the doubled figure straight into the live pool on that plain recalc (`_1815`
+KSP.log:12004). No `GUARDED UPLIFT` line appears in any CL log, so the guard's
+uplift cap does not stand between the walk and the career here.
 
 The 2026-09-10 change handles exactly one award class: a `ReputationPenalty(KerbalDeath)`
 row produced before the seed existed, or in the same commit that read the seed off the
@@ -40,11 +42,19 @@ why that cannot work - the seed was read at game UT 13.8 on the rewound clock wi
 death at UT 124, and the mirror case, a death on a re-fly from a RewindPoint earlier
 than the seed's UT, would be skipped although it postdates the seed in real time. A
 rewind moves the clock, so production order is the only honest discriminator.)
-Milestones, contract rewards and every other pre-seed award are still replayed. Two consequences worth knowing: (1) the guard hides the
-double count on plain recalcs but an authoritative recalc (rewind / re-fly / merge /
-tombstone) writes the doubled figure; (2) a death inside the very first committed
+Milestones, contract rewards and every other pre-seed award are still replayed. Two consequences worth knowing: (1) a plain recalc in a scene where the reputation
+singleton is alive writes the doubled figure to the career (measured above); a
+scene-exit commit escapes only because `Reputation.Instance` is null there; (2) a death inside the very first committed
 flight of a save is inside the seed, its row is skipped, and re-flying it away does
 NOT refund the penalty (a later death does) - accepted as the safe direction.
+
+A second edge of the same snapshot, found in review (2026-09-10): a live-pool seed
+contains every stock change to date, so a death that is already RECORDED but whose
+recording has not yet been committed when the seed is read is inside the seed, yet its
+row is produced later with a pre-existing seed and applies - the penalty counted twice.
+Reachable only when the very first seed capture coincides with a second pending tree
+carrying a death; the code comment at the live-pool branch of
+`EnsureInitialReputationSeed` names it. Same fix shape as below.
 
 Fix shape: generalize the inside-seed flag to every reputation row produced before
 the seed exists (same production-order rule, same commit-of-capture clause) or, better,

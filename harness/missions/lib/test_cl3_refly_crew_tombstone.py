@@ -2048,8 +2048,10 @@ class Cl3SpecCoverageClaimTests(unittest.TestCase):
         # THIS value cannot arrive by an edit that only touches a list...
         self.assertNotIn("tombstone-rep-penalty", self.claimed.get("D12", []))
         # ...and the spec carries the REASON, not merely the omission, so the
-        # next author does not re-derive it from the product.
-        self.assertIn("UNREACHABLE", _spec_text())
+        # next author does not re-derive it from the product: the past-tense record
+        # of why it was unreachable, and whose it is now.
+        self.assertIn("recorded it UNREACHABLE BY ANY FLIGHT", _spec_text())
+        self.assertIn("`CL-4-refly-crew-standin` claims the cell", _spec_text())
 
     def test_head_tip_split_and_terminal_kind_classify_stay_unclaimed(self):
         # `head-tip-split` fires only when the closure-root recording SPANS the

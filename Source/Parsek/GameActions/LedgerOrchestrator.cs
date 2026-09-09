@@ -284,6 +284,19 @@ namespace Parsek
         /// recording of the same batch, which is the double-subtraction this parameter
         /// exists to prevent. <see cref="NotifyLedgerTreeCommitted"/> passes it; the
         /// single-recording commit paths pass null.
+        /// <para>
+        /// ONE OVERRIDE VALUE IS NOT CARRIED FORWARD:
+        /// <see cref="ReputationSeedOrigin.NotYetCaptured"/> describes no seed at all -
+        /// it is the batch's PREDICTION that one will be captured later off a live pool.
+        /// A recording earlier in the same batch falsifies that prediction whenever its
+        /// own step-6 recalc creates the seed
+        /// (<see cref="SeedInitialResourceBalances"/> -> EnsureInitialReputationSeed),
+        /// and <see cref="RestampInsideSeedRowsAgainstCareerStartSeed"/> can only flip
+        /// rows that already exist, so a later recording stamped from the stale
+        /// prediction would never be repaired. A null or NotYetCaptured override is
+        /// therefore RE-ESTABLISHED per recording at step 3c-post; every definite value
+        /// is used exactly as passed.
+        /// </para>
         /// </param>
         internal static void OnRecordingCommitted(
             string recordingId, double startUT, double endUT,
@@ -330,8 +343,26 @@ namespace Parsek
             // be read off the live pool (and therefore already carries the death) from
             // one that predates the flight, and the seed's refusal branch would see this
             // commit's own fresh KerbalDeath row and decline the live pool because of it.
+            //
+            // A NotYetCaptured batch override (or none) is re-established here rather
+            // than reused: it names no seed, only the expectation of one, and an earlier
+            // recording of the same batch can have created the seed in its own step-6
+            // recalc since. Re-running the ensure then reads PreExisting off that seed -
+            // or lands in the refusal branch itself and flips the earlier rows - instead
+            // of stamping this recording's death inside a value that never contained it.
+            // See the repSeedOriginOverride docstring.
             ReputationSeedOrigin repSeedOrigin =
-                repSeedOriginOverride ?? EnsureReputationSeedForCommit();
+                repSeedOriginOverride.HasValue
+                && repSeedOriginOverride.Value != ReputationSeedOrigin.NotYetCaptured
+                    ? repSeedOriginOverride.Value
+                    : EnsureReputationSeedForCommit();
+            if (repSeedOriginOverride.HasValue && repSeedOrigin != repSeedOriginOverride.Value)
+            {
+                ParsekLog.Info(Tag,
+                    $"Reputation seed origin re-established for recording '{recordingId}': " +
+                    $"batch override {repSeedOriginOverride.Value} no longer describes the " +
+                    $"ledger, this commit reads {repSeedOrigin}");
+            }
 
             // 3d. The reputation penalty stock already applied for a crew death on this
             // recording (one row per vessel loss, magnitude read off the captured
@@ -455,7 +486,7 @@ namespace Parsek
                 ledgerActions);
             LogEarningsWindowScopeSkipped(storeDeltas, startUT, endUT, recordingId);
 
-            var emittedDeltas = ComputeEarningsWindowEmittedDeltas(newActions);
+            var emittedDeltas = ComputeEarningsWindowEmittedDeltas(newActions, events);
             LogEarningsWindowKerbalDeathPairing(
                 storeDeltas, emittedDeltas, startUT, endUT, recordingId);
 
@@ -482,6 +513,16 @@ namespace Parsek
                 scienceTracked,
                 repTracked);
         }
+
+        /// <summary>
+        /// Reputation tolerance of the earnings-window comparison, and of the
+        /// kerbal-death pairing that decides what that comparison may drop. The two
+        /// share one constant on purpose: a pair is excluded only when it would have
+        /// compared equal anyway, so the exclusion can never hide a rep discrepancy the
+        /// walk would otherwise have WARNed about. Kept at the historical <c>0.1f</c>
+        /// literal so the comparison is bit-for-bit what it was.
+        /// </summary>
+        internal const double EarningsWindowRepTolerance = 0.1f;
 
         private struct EarningsWindowStoreDeltas
         {
@@ -547,7 +588,9 @@ namespace Parsek
                         // already holds it - leaving the event on the store side with
                         // nothing to face it, which is the -10 vs 0 WARN this excludes.
                         // An event with NO paired row anywhere (the producer refused: no
-                        // dead crew) is NOT excluded and still WARNs.
+                        // dead crew) is NOT excluded and still WARNs, and neither is one
+                        // whose row disagrees in magnitude - "by construction" is a claim
+                        // about one measurement, so the numbers have to match.
                         deltas.KerbalDeathPairedSkipped++;
                         continue;
                     }
@@ -596,18 +639,60 @@ namespace Parsek
 
         /// <summary>
         /// True when <paramref name="actions"/> holds a kerbal-death reputation penalty
-        /// row scoped to <paramref name="recordingId"/>. Pure; an empty id never matches.
+        /// row scoped to <paramref name="recordingId"/> AND carrying
+        /// <paramref name="appliedMagnitude"/> within
+        /// <see cref="EarningsWindowRepTolerance"/>. Pure; an empty id never matches.
+        /// <para>
+        /// THE MAGNITUDE IS PART OF THE IDENTITY. The producer copies the VesselLoss
+        /// event's own magnitude onto the row, so an agreeing pair is one measurement
+        /// seen twice and excluding both sides is exact. A row that does NOT agree is a
+        /// different quantity - a producer defect, a hand-edited ledger, a second loss
+        /// under the same tag - and a shape-only match would have silently cancelled
+        /// exactly the discrepancy this reconciliation exists to surface.
+        /// </para>
         /// </summary>
         internal static bool HasKerbalDeathRepPenaltyRowForRecording(
-            IReadOnlyList<GameAction> actions, string recordingId)
+            IReadOnlyList<GameAction> actions, string recordingId, double appliedMagnitude)
         {
             if (actions == null || string.IsNullOrEmpty(recordingId)) return false;
             for (int i = 0; i < actions.Count; i++)
             {
                 var a = actions[i];
                 if (!IsKerbalDeathRepPenaltyRow(a)) continue;
-                if (string.Equals(a.RecordingId ?? "", recordingId, StringComparison.Ordinal))
-                    return true;
+                if (!string.Equals(a.RecordingId ?? "", recordingId, StringComparison.Ordinal))
+                    continue;
+                if (Math.Abs(a.NominalPenalty - appliedMagnitude) > EarningsWindowRepTolerance)
+                    continue;
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// The mirror of <see cref="HasKerbalDeathRepPenaltyRowForRecording"/> read from
+        /// the ROW's side: true when <paramref name="events"/> holds the recording-scoped
+        /// VesselLoss capture this kerbal-death penalty row was copied from, magnitudes
+        /// agreeing within <see cref="EarningsWindowRepTolerance"/>. Only such a row is
+        /// excluded from the emitted side of <see cref="ReconcileEarningsWindow"/>; a
+        /// magnitude-drifted one stays counted so the pair it does not form still WARNs.
+        /// Pure.
+        /// </summary>
+        internal static bool IsMagnitudePairedKerbalDeathRepPenaltyRow(
+            GameAction row, IReadOnlyList<GameStateEvent> events)
+        {
+            if (!IsKerbalDeathRepPenaltyRow(row)) return false;
+            string tag = row.RecordingId ?? "";
+            if (string.IsNullOrEmpty(tag)) return false;
+            if (events == null) return false;
+
+            for (int i = 0; i < events.Count; i++)
+            {
+                var e = events[i];
+                if (!KerbalDeathRepPenalty.IsRecordingScopedVesselLoss(e, tag)) continue;
+                double applied = e.valueBefore - e.valueAfter;
+                if (Math.Abs(row.NominalPenalty - applied) > EarningsWindowRepTolerance)
+                    continue;
+                return true;
             }
             return false;
         }
@@ -621,7 +706,9 @@ namespace Parsek
         /// pair reconciles by construction and is excluded from both sides of
         /// <see cref="ReconcileEarningsWindow"/>. An unpaired VesselLoss event - the
         /// producer refused because no crew died - returns false and still counts, so the
-        /// "missing earning channel" WARN it deserves still fires. Pure.
+        /// "missing earning channel" WARN it deserves still fires. So does an event whose
+        /// magnitude and row's magnitude DISAGREE: the two are then not one measurement
+        /// seen twice, and both sides keep counting. Pure.
         /// </summary>
         internal static bool IsKerbalDeathPairedVesselLossEvent(
             GameStateEvent evt,
@@ -633,8 +720,9 @@ namespace Parsek
             // Same predicate the producer selects candidates with, so the two cannot drift:
             // ReputationChanged + VesselLoss key + exact tag + a positive drop.
             if (!KerbalDeathRepPenalty.IsRecordingScopedVesselLoss(evt, tag)) return false;
-            return HasKerbalDeathRepPenaltyRowForRecording(emittedActions, tag)
-                || HasKerbalDeathRepPenaltyRowForRecording(ledgerActions, tag);
+            double applied = evt.valueBefore - evt.valueAfter;
+            return HasKerbalDeathRepPenaltyRowForRecording(emittedActions, tag, applied)
+                || HasKerbalDeathRepPenaltyRowForRecording(ledgerActions, tag, applied);
         }
 
         private static void LogEarningsWindowKerbalDeathPairing(
@@ -658,7 +746,8 @@ namespace Parsek
         }
 
         private static EarningsWindowEmittedDeltas ComputeEarningsWindowEmittedDeltas(
-            List<GameAction> newActions)
+            List<GameAction> newActions,
+            IReadOnlyList<GameStateEvent> events)
         {
             var deltas = new EarningsWindowEmittedDeltas
             {
@@ -694,8 +783,11 @@ namespace Parsek
                             // ComputeEarningsWindowStoreDeltas): the row is a copy of the
                             // VesselLoss event, so counting it here while a re-commit
                             // drops the row would make first commit and re-commit
-                            // disagree. Every other penalty source stays.
-                            if (IsKerbalDeathRepPenaltyRow(a))
+                            // disagree. Every other penalty source stays - and so does a
+                            // kerbal-death row whose magnitude does NOT agree with the
+                            // event it claims to copy, because that pair does not cancel
+                            // and the discrepancy is exactly what this walk is for.
+                            if (IsMagnitudePairedKerbalDeathRepPenaltyRow(a, events))
                             {
                                 deltas.KerbalDeathPairedSkipped++;
                                 break;
@@ -815,7 +907,7 @@ namespace Parsek
             bool repTracked)
         {
             const double fundsTol = 1.0;   // 1 funds tolerance for rounding
-            const double repTol = 0.1f;
+            const double repTol = EarningsWindowRepTolerance;
             const double sciTol = 0.1f;
 
             if (fundsTracked && Math.Abs(storeDeltas.DroppedFundsDelta - emittedDeltas.EmittedFundsDelta) > fundsTol)
@@ -2075,6 +2167,16 @@ namespace Parsek
 
             // Live-pool read: any death that already lowered the pool is inside the
             // value being seeded.
+            //
+            // KNOWN LIMITATION, filed rather than fixed. The live pool is a snapshot of
+            // EVERY stock change to date, including deaths from flights that are already
+            // RECORDED but whose recording has not been committed yet. Those deaths are
+            // inside this value, yet their rows are produced later, by a commit that
+            // reads PreExisting - stamped outside the seed and applied a second time.
+            // It needs the very first seed capture in a career to coincide with a second
+            // pending tree that carries a death, so it is not reachable from the normal
+            // one-tree-at-a-time flow; closing it means correlating the pool against
+            // uncommitted trees, which is a bigger change than the state deserves.
             Ledger.SeedInitialReputation(global::Reputation.Instance.reputation);
             origin = ReputationSeedOrigin.CreatedThisCommitFromLivePool;
             return true;
@@ -6593,6 +6695,11 @@ namespace Parsek
             // recording is just as inside that seed as one filed by its first. Ensuring
             // per recording would report PreExisting to every recording after the first
             // and subtract those deaths twice.
+            //
+            // The one answer that does NOT survive the batch is NotYetCaptured, which
+            // names no seed: OnRecordingCommitted re-establishes it per recording,
+            // because a recording committed earlier in this same loop can create the
+            // seed in its own recalc. See the repSeedOriginOverride docstring.
             ReputationSeedOrigin repSeedOrigin = EnsureReputationSeedForCommit();
 
             int gapsClosed = 0;

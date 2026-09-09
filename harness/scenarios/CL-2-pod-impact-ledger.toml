@@ -515,13 +515,21 @@ captureCrossCheck = "gate"
   # The crew death's reputation hit. It is applied by STOCK KSP. Since 2026-09-10
   # Parsek's ledger ALSO files a `ReputationPenalty(KerbalDeath)` row at commit, copied
   # (UT and magnitude) from this very `ReputationChanged` event
-  # (`LedgerOrchestrator.CreateKerbalDeathRepPenaltyActions`), but the produced pool
-  # does not move: this lane's reputation seed is read off the live pool at this very
-  # commit, AFTER the death, so the seed value already contains the hit; the row is
-  # flagged `insideRepSeed` and `ReputationModule` does not apply it. The oracle therefore still sees
-  # exactly one stock award and this entry is unchanged. That, and the fact that the
-  # measured line is stock's, is why the kind is the generic `stock-reputation-award`
-  # and not a crew-loss kind:
+  # (`LedgerOrchestrator.CreateKerbalDeathRepPenaltyActions`). MEASURED on the re-fly
+  # `2026-09-09_2316_CL-2-pod-impact-ledger`: this lane's commit is the scene-exit
+  # auto-commit, which runs while `Reputation.Instance` is still null, so the seed is
+  # deferred (`EnsureInitialReputationSeed: deferring the reputation seed -
+  # Reputation.Instance null`), the row is stamped `insideRepSeed=True` on that
+  # deferral, and the step-6 recalc then seeds career start (0) through the
+  # pre-existing refusal branch (`SeedInitialReputation: refusing to treat current
+  # reputation as initial ...`, the two milestone rows) and RE-STAMPS the row outside
+  # (`1 KerbalDeath rep penalty row(s) were stamped inside a seed that was then read
+  # from career start; re-stamped outside so the walk applies them`). The walk then
+  # reads `RepPenalty (KerbalDeath, pre-curved) ... runningRep=-8.00` against a live
+  # -7.99983: the ledger now MODELS the hit instead of clamping around it, and the
+  # produced pool this oracle reads is stock's, unchanged (`ledgerOracle`
+  # hardDivergences=0 on that run). The kind stays the generic
+  # `stock-reputation-award` because the measured line is stock's:
   # the oracle has no `kerbal-death` kind, deliberately - a real stock award line
   # names its `TransactionReasons` key and nothing else, so the capture cannot
   # honestly classify one as a scenario semantic.

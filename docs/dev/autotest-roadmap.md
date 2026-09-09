@@ -728,7 +728,10 @@ fixture's `persistent.sfs`:
 There is no CAREER save with a flyable craft anywhere in the repo. That one fact
 blocks the L-track end goal (grand oracle career runs with repeated rewinds), D8
 `milestones` / `contracts` / `strategies` / `tombstones` in their flown form, D12
-`reservation-auto-hire` and `tombstone-rep-penalty`, and D9 `tombstones`. The forge
+`reservation-auto-hire` and `tombstone-rep-penalty`, and D9 `tombstones` (as of this
+2026-07 writing; D9 `tombstones` fell to CL-3 on 2026-08-03 and D12
+`tombstone-rep-penalty` to CL-4 on 2026-09-10, both on the career fixture this
+paragraph asked for). The forge
 machinery to fix it exists and is live-proven (`forge_station.py`, `forge_lko.py`,
 `harvest_bdock_station.py`); a `FORGE-career-pad` is a mechanical repeat of
 `FORGE-eva3-pad`.
@@ -1623,8 +1626,9 @@ with a `--check` mode plus a byte-identity drift cell in
 
 What that unblocks is now AVAILABLE, not delivered - each still needs its own spec:
 the L-track end goal, D8 `milestones` / `contracts` / `strategies` / `tombstones` in
-flown form, D12 `reservation-auto-hire` / `tombstone-rep-penalty`, D9 `tombstones`,
-and D8 `ground-truth-harness` (which self-skips outside career).
+flown form, D12 `reservation-auto-hire` / ~~`tombstone-rep-penalty`~~ (CL-4, 2026-09-10),
+~~D9 `tombstones`~~ (CL-3, 2026-08-03), and D8 `ground-truth-harness` (which self-skips
+outside career).
 Flight? None to close R11 itself. The consumers after it are mostly seam boots.
 
 Original plan, kept for the record: `FORGE-career-pad`: fresh-career plus a craft

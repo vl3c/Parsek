@@ -3247,6 +3247,124 @@ namespace Parsek.Tests
                 l.Contains("re-stamped outside so the walk applies them"));
         }
 
+        // ================================================================
+        // Reputation seed: a NotYetCaptured BATCH origin goes stale mid-batch
+        // ================================================================
+
+        private static void AddMilestoneRepEvent(
+            string recordingId, double ut, string milestoneId, float rep)
+        {
+            var evt = new GameStateEvent
+            {
+                ut = ut,
+                eventType = GameStateEventType.MilestoneAchieved,
+                key = milestoneId,
+                detail = "rep=" + rep.ToString("R", System.Globalization.CultureInfo.InvariantCulture),
+                recordingId = recordingId
+            };
+            GameStateStore.AddEvent(ref evt);
+        }
+
+        private static GameAction FindKerbalDeathRow(string recordingId)
+        {
+            foreach (var a in Ledger.Actions)
+            {
+                if (a == null) continue;
+                if (a.Type != GameActionType.ReputationPenalty) continue;
+                if (a.RepPenaltySource != ReputationPenaltySource.KerbalDeath) continue;
+                if (string.Equals(a.RecordingId ?? "", recordingId, StringComparison.Ordinal))
+                    return a;
+            }
+            return null;
+        }
+
+        // THE STALE BATCH ORIGIN, at the seam NotifyLedgerTreeCommitted drives.
+        //
+        // The batch establishes NotYetCaptured once (no seed, no career baseline, no
+        // Reputation.Instance) and hands the same value to every recording. Recording A
+        // then commits a milestone reputation row, and its own step-6 recalc creates the
+        // seed through the refusal branch - career start, 0 - which re-stamps A's death
+        // row outside. Recording B's death is filed AFTER that seed exists; carrying the
+        // batch's now-falsified prediction would stamp it inside a value that never
+        // contained it, and RestampInsideSeedRowsAgainstCareerStartSeed has already run,
+        // so nothing would ever flip it back. The walk would then skip B's penalty for
+        // good.
+        [Fact]
+        public void OnRecordingCommitted_BatchOriginWentStaleMidBatch_LaterDeathIsStampedOutside()
+        {
+            RecordingStore.ResetForTesting();
+            InstallCrewedRecording("rec-batch-a", KerbalEndState.Dead, "Jeb Kerman");
+            InstallCrewedRecording("rec-batch-b", KerbalEndState.Dead, "Bill Kerman");
+            AddVesselLossEvent("rec-batch-a", 100.0, 9.999828);
+            AddVesselLossEvent("rec-batch-b", 200.0, 9.999828);
+            // The row that makes A's recalc refuse the live pool and seed career start,
+            // exactly as the CL-2 milestone rows did.
+            AddMilestoneRepEvent("rec-batch-a", 90.0, "RecordsSpeed", 1f);
+
+            // What NotifyLedgerTreeCommitted computes once for the whole tree.
+            var batchOrigin = LedgerOrchestrator.EnsureReputationSeedForCommit();
+            Assert.Equal(ReputationSeedOrigin.NotYetCaptured, batchOrigin);
+
+            bool scienceAdded = false;
+            LedgerOrchestrator.OnRecordingCommitted(
+                "rec-batch-a", 50.0, 150.0, null, ref scienceAdded, batchOrigin);
+            LedgerOrchestrator.OnRecordingCommitted(
+                "rec-batch-b", 150.0, 250.0, null, ref scienceAdded, batchOrigin);
+
+            var rowA = FindKerbalDeathRow("rec-batch-a");
+            var rowB = FindKerbalDeathRow("rec-batch-b");
+            Assert.NotNull(rowA);
+            Assert.NotNull(rowB);
+
+            // A was stamped inside on the batch's prediction and flipped back by its own
+            // recalc; B was never inside at all, because the ensure was re-run for it.
+            Assert.False(rowA.InsideReputationSeed);
+            Assert.False(rowB.InsideReputationSeed);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("Reputation seed origin re-established for recording 'rec-batch-b'") &&
+                l.Contains("batch override NotYetCaptured no longer describes the ledger") &&
+                l.Contains("this commit reads PreExisting"));
+            // A's own commit re-ran the ensure too and got the same deferred answer, so
+            // the line must not fire for it.
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("Reputation seed origin re-established for recording 'rec-batch-a'"));
+
+            RecordingStore.ResetForTesting();
+        }
+
+        // THE MIRROR: a DEFINITE batch override still describes reality for the whole
+        // batch and is used verbatim. A live-pool seed created at the top of the batch
+        // has already taken every death in it, so the tree's second death must stay
+        // stamped inside - re-establishing here would read PreExisting and subtract it
+        // twice, which is the double-subtraction the override exists to prevent.
+        [Fact]
+        public void OnRecordingCommitted_LivePoolBatchOrigin_IsCarriedToEveryRecording()
+        {
+            RecordingStore.ResetForTesting();
+            InstallCrewedRecording("rec-live-a", KerbalEndState.Dead, "Jeb Kerman");
+            InstallCrewedRecording("rec-live-b", KerbalEndState.Dead, "Bill Kerman");
+            AddVesselLossEvent("rec-live-a", 100.0, 9.999828);
+            AddVesselLossEvent("rec-live-b", 200.0, 9.999828);
+
+            bool scienceAdded = false;
+            LedgerOrchestrator.OnRecordingCommitted(
+                "rec-live-a", 50.0, 150.0, null, ref scienceAdded,
+                ReputationSeedOrigin.CreatedThisCommitFromLivePool);
+            LedgerOrchestrator.OnRecordingCommitted(
+                "rec-live-b", 150.0, 250.0, null, ref scienceAdded,
+                ReputationSeedOrigin.CreatedThisCommitFromLivePool);
+
+            var rowB = FindKerbalDeathRow("rec-live-b");
+            Assert.NotNull(rowB);
+            Assert.True(rowB.InsideReputationSeed);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("Reputation seed origin re-established"));
+
+            RecordingStore.ResetForTesting();
+        }
+
         // Cached ERS / ELS / recalc consumers key off StateVersion. A flip that does not
         // bump leaves them serving the pre-flip stamps, which is the same class of stale
         // read TruncateActionsForTesting's bump exists to prevent.

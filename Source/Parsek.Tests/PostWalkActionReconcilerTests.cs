@@ -220,7 +220,8 @@ namespace Parsek.Tests
         // ==================================================================
 
         /// <summary>The recorder-shaped crew-death capture: keyed VesselLoss, tagged, a loss.</summary>
-        private static GameStateEvent VesselLossEvent(double ut, string recordingId)
+        private static GameStateEvent VesselLossEvent(
+            double ut, string recordingId, double applied = 9.999828)
         {
             return new GameStateEvent
             {
@@ -228,7 +229,7 @@ namespace Parsek.Tests
                 eventType = GameStateEventType.ReputationChanged,
                 key = "VesselLoss",
                 valueBefore = 0.0,
-                valueAfter = -9.999828,
+                valueAfter = -applied,
                 recordingId = recordingId
             };
         }
@@ -269,6 +270,81 @@ namespace Parsek.Tests
                 l.Contains("the observed reward leg is present but tagged to a recording " +
                           "outside the current timeline"));
             Assert.Contains("actions=0", SummaryLine(logLines));
+        }
+
+        // THE AMOUNT IS PART OF "would this have paired?". The hidden-coverage skip
+        // suppresses the WARN outright, so it may only stand in for a comparison that
+        // would have MATCHED. A hidden capture of a different magnitude would have been a
+        // MISMATCH, and swallowing it would hide a divergence behind a visibility fact.
+        [Fact]
+        public void ReconcilePostWalk_HiddenCaptureMagnitudeDrifted_StillWarns()
+        {
+            // Same CL-4 shape as the skip case, one field changed: the hidden capture
+            // says -5.0 where the row expects -9.999828.
+            var events = new List<GameStateEvent>
+            {
+                VesselLossEvent(124.06, "cl-pod-a", applied: 5.0)
+            };
+            var actions = new List<GameAction>
+            {
+                KerbalDeathPenalty(ut: 124.06, effectiveRep: -9.999828f, recordingId: "cl-pod-a")
+            };
+
+            Assert.False(RecordingStore.IsCurrentTimelineRecordingId("cl-pod-a"));
+
+            LedgerOrchestrator.ReconcilePostWalk(events, actions, utCutoff: null);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("Earnings reconciliation (post-walk, rep)") &&
+                l.Contains("id=cl-pod-a") &&
+                l.Contains("keyed 'VesselLoss'") &&
+                l.Contains("expected=-10.0"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("the observed reward leg is present but tagged to a recording " +
+                          "outside the current timeline"));
+            Assert.Contains("mismatches(funds/rep/sci)=0/1/0", SummaryLine(logLines));
+        }
+
+        // The mirror at the same seam: a hidden capture whose magnitude agrees within the
+        // rep tolerance is the pair the skip is for, and stays silent. Stock's own
+        // -9.999828 against a nominal -10 lives inside that tolerance.
+        [Fact]
+        public void ReconcilePostWalk_HiddenCaptureMagnitudeAgrees_SkipsQuietly()
+        {
+            var events = new List<GameStateEvent>
+            {
+                VesselLossEvent(124.06, "cl-pod-a", applied: 9.999828)
+            };
+            var actions = new List<GameAction>
+            {
+                KerbalDeathPenalty(ut: 124.06, effectiveRep: -10f, recordingId: "cl-pod-a")
+            };
+
+            Assert.False(RecordingStore.IsCurrentTimelineRecordingId("cl-pod-a"));
+
+            LedgerOrchestrator.ReconcilePostWalk(events, actions, utCutoff: null);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (post-walk,"));
+            Assert.Contains(logLines, l =>
+                l.Contains("Post-walk live-coverage skip") &&
+                l.Contains("the observed reward leg is present but tagged to a recording " +
+                          "outside the current timeline"));
+            Assert.Contains("actions=0", SummaryLine(logLines));
+        }
+
+        [Fact]
+        public void GetPostWalkLegTolerance_MatchesTheCompareStagePerResource()
+        {
+            // The probe reads the same numbers ReconcilePostWalk passes to CompareLeg.
+            Assert.Equal(
+                1.0,
+                PostWalkActionReconciler.GetPostWalkLegTolerance(GameStateEventType.FundsChanged));
+            Assert.Equal(
+                0.1,
+                PostWalkActionReconciler.GetPostWalkLegTolerance(GameStateEventType.ReputationChanged));
+            Assert.Equal(
+                0.1,
+                PostWalkActionReconciler.GetPostWalkLegTolerance(GameStateEventType.ScienceChanged));
         }
 
         [Fact]

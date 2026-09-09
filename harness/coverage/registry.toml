@@ -395,9 +395,11 @@ values = ["default-mission", "leg-trim", "whole-mission-loop", "self-overlap", "
 # `ReputationPenaltySource.KerbalDeath` action, stock applied the hit directly (`Added
 # -9.999828 (-10) reputation: 'VesselLoss'.`, measured by CL-1 and CL-2) and the event
 # converter DROPPED it (`ConvertStrategyExchangeReputation` returns null for every
-# reason but StrategyInput), so the drawdown guard clamped the rebuilt pool back to
-# live on every plain recalc and a supersede merge, where the guard steps aside,
-# silently refunded the death. The product change:
+# reason but StrategyInput), so the rebuilt pool came out ten above live and any
+# recalc that reached the pool wrote it back up (no `GUARDED UPLIFT` clamp appears in
+# any CL log; `2026-09-09_1815` shows the analogous +1 milestone double-apply written
+# straight through), and a supersede merge refunded a death it could not see. The
+# product change:
 # `LedgerOrchestrator.CreateKerbalDeathRepPenaltyActions` (commit step 3d, through
 # `DeduplicateAgainstLedger`) files ONE `ReputationPenalty` row with `RepPenaltySource
 # = KerbalDeath` per recording that has a dead crew member AND a recording-scoped
