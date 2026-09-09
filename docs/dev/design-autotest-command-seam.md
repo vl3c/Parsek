@@ -1330,7 +1330,7 @@ somewhere the spec author cannot name in a log contract. An absolute target is a
 **There are TWO ladders, and the applier picks the live one.** Stock keeps `warpRates`
 (rails) and `physicsWarpRates` (physics warp, `TimeWarp.Modes.LOW`) as separate arrays
 sharing one index space with very different values: rails index 3 is 50x, physics index 3
-is 4x. RF-12W's reading run 2 logged `rateIndex=3 rate=4` inside the atmosphere, which is
+is 4x. RF-12W's reading run 2 logged `rate=4 rateIndex=3` inside the atmosphere, which is
 what surfaced the pair. `SafeWarpRates` re-reads `TimeWarp.WarpMode` every frame (stock
 switches ladders on its own as a vessel climbs out of the atmosphere) and hands the live
 array to the pure selector, which never looks either up itself; `SafeMaxRateIndexForActiveVessel`

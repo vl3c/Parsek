@@ -118,7 +118,7 @@ KERBAL-RECOVERY-CELL-IGNORES-THE-PRE-REWIND-TOMBSTONE-GUARD below.
 TWO THINGS THE SAME RUN MEASURED, both worth having in one place:
 
 1. **`TimeWarp` has TWO ladders and the first cut read the wrong one.** The log showed
-   `rateIndex=3 rate=4` inside the atmosphere; rails index 3 is 50x, so stock was in
+   `rate=4 rateIndex=3` inside the atmosphere; rails index 3 is 50x, so stock was in
    PHYSICS warp (`TimeWarp.Modes.LOW`), whose separate `physicsWarpRates` array shares the
    index space and has completely different values. Fixed in the same pass: the applier
    re-reads `TimeWarp.WarpMode` per frame and hands the live array to the pure selector,

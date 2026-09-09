@@ -52,7 +52,7 @@ id = "RF-12L-rewind-batch-after-landing"
 # SIDEWAYS - which is what a reading run is for and why the prediction was written down
 # before the flight. The lane was authored expecting the re-flight to settle LANDED. What
 # happened on `2026-09-09_1911` is that the un-piloted hop off the pad CONCLUDED DESTROYED:
-# the mission's `reflyConclusionInFlight` row read `value=destroyed concludedUT=58.3
+# the mission's `reflyConcludedInFlight` row read `value=destroyed concludedUT=58.3
 # airborneSeen=true`, MISSION-OK. So the landed branch of the conclusion profile is BUILT
 # AND PINNED HEADLESSLY BUT UNEXERCISED BY FLIGHT, and the honest statement is that the
 # profile CONCLUDES, not that it lands.
@@ -83,7 +83,7 @@ id = "RF-12L-rewind-batch-after-landing"
 # and it comes back down; reading run 1 measured it BREAKING UP rather than settling, which
 # is still a conclusion and still stamps a terminal in flight. The lane pins the ROW and
 # the SHAPE rather than the outcome word, exactly because a low hop can go either way and
-# both are legitimate - `reflyConclusionInFlight`'s own `outcome` detail carries which.
+# both are legitimate - `reflyConcludedInFlight`'s own `outcome` detail carries which.
 #
 # =====================================================================================
 # WHAT READING RUN 1 BOUGHT, and it is the best result the whole program has produced:
@@ -216,7 +216,7 @@ count = { min = 11 }
 #    real end-to-end re-fly from a verb that merely returned.
 # 2. THE RE-FLY REALLY FLEW AND REALLY ENDED. `Recording started` proves the recorder was
 #    live for the second flight. The mission's own conclusion is asserted by its
-#    `reflyConclusionInFlight` row rather than by a log token, because the ONLY channel
+#    `reflyConcludedInFlight` row rather than by a log token, because the ONLY channel
 #    that observes the debounced situation streak is the mission's telemetry.
 # 3. THE BATCH RAN ON THE RIGHT CATEGORY, INSIDE THE SESSION. `total=39` exact and
 #    source-derived, `failed=0` HARD, `passed` / `skipped` as classes.
