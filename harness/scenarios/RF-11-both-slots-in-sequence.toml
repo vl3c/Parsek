@@ -97,10 +97,39 @@ id = "RF-11-both-slots-in-sequence"
 # `listhandles kind=rewindpoints count=0`, which nothing but a real deletion can produce.
 #
 # =====================================================================================
-# STATUS: NEVER FLOWN. `tier = "operator"` while calibrating. NOTHING ARMED - the
-# `[expectations.rewind]` block below is report-only by omission and its windows are
-# DERIVED from the fixture's committed bytes plus what two merges must add, not measured.
-# Re-pin them off the reading run's own numbers before arming anything.
+# STATUS: LIVE-PROVEN AND ARMED 2026-09-09, through the full S4.1 cycle.
+#   READING RUN     `2026-09-09_1631` PASS attempt 1, expectations mismatches=0 over 9
+#                   required and 4 forbidden, analyzer red=0, saveParse REPORT
+#                   mismatches=0 with every DERIVED window landing:
+#                   `rewindPoints=0 supersedeRows=7 tombstones=10`, recordings 13,
+#                   points total 1200.
+#   ARMED RE-FLIGHT `2026-09-09_1659` PASS attempt 1, `saveParse status=PASS
+#                   gating=True armed=['rewind']`, the SAME three numbers - which is
+#                   what makes them a measurement of the lane rather than of a run.
+#   NEGATIVE CONTROL `2026-09-09_1700` with `rewindPoints` inverted to `{1,1}`:
+#                   PARSEK-FAIL(gating save-structure), mismatches
+#                   `['rewind.rewindPoints 0 < min 1']` - ONE token, nothing else -
+#                   reverted in the same change.
+# `rewindPoints = {0,0}` is the facet worth arming and the other two stay FLOORS on
+# purpose: `IsReapEligible` refuses the moment any slot's effective tip is open, so a
+# count of exactly zero on disk is only reachable when BOTH seals really closed their
+# half; whereas how many supersede rows and tombstones a subtree closure produces
+# depends on what each break-up sheds, and a ceiling there would be a guess dressed as
+# a pin.
+#
+# THREE RUNS BEFORE THE READING RUN WERE SPENT ON A FIXTURE FINDING, and it is recorded
+# in `docs/dev/todo-and-known-bugs.md` as
+# RF11-REWINDPOINT-QUICKSAVE-CARRIES-A-PRUNED-REWIND-SAVE-HINT: runs `_1621` and `_1628`
+# were PARSEK-FAIL on `INV9-REWINDPOINT missing-rewind-save-provisional` with every
+# driver step met, because the harvest clears the rewind-to-launch hint in
+# `persistent.sfs` and not inside the RewindPoint quicksave - so the re-fly read it back
+# out of `PARSEK_ACTIVE_TREE` and `SaveActiveTreeIfAny` copied it onto the tree root.
+# Run 2 is the instructive one: clearing only the `rewindSave` key left the lane red,
+# because the key the restore reads is `resumeRewindSave`.
+#
+# The 9 report-only `NullReferenceException`s the unityExceptions row carries are ALL
+# stock `SpaceCenterCamera2.UpdateTransformOverview` with no Parsek frame in any stack.
+# `tier = "operator"`.
 # =====================================================================================
 tier = "operator"
 description = "Both halves of one RewindPoint re-flown in sequence over refly-autopilot-recorded, the corpus's only point with TWO open slots: re-fly slot 0 and merge, prove the point SURVIVED by re-flying slot 1 through a second runtime enumeration, then seal each half in turn and assert the reaper declined on the first (reaped=0 remaining=1) and took the point only on the last (reaped=1 remaining=0) - the per-point-over-all-slots scope of RewindPointReaper.IsReapEligible."
@@ -223,7 +252,7 @@ forbidden = [
   "reason=sealedTipClosed",
 ]
 
-# REPORT-ONLY. DERIVED, and every window says from what:
+# ARMED 2026-09-09 (see the STATUS block). Every window says what it rests on:
 #   rewindPoints  the fixture ships 1; act 3's last seal reaps it, so 0 survives. This is
 #                 the only facet that can be predicted exactly.
 #   supersedeRows the fixture carries 2 (RF-9's merge). Each of this lane's two merges
@@ -233,6 +262,7 @@ forbidden = [
 #   tombstones    the fixture carries 8 (crewed pod, RF-9's kerbal deaths). Both re-flies
 #                 restore crewed stacks that break up, so the count can only grow.
 [expectations.rewind]
+gating        = true
 rewindPoints  = { min = 0, max = 0 }
 supersedeRows = { min = 4 }
 tombstones    = { min = 8 }

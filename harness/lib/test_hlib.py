@@ -9425,6 +9425,15 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
     # saveParse evaluator, so a second inversion would re-prove the evaluator
     # rather than these windows.
     ARMED_ALLOWLIST = {"S4.1-rewind-merge.toml", "CL-3-refly-crew-tombstone.toml",
+                       # RF-11: `rewind` armed 2026-09-09 through the full cycle -
+                       # reading run `2026-09-09_1631`, armed re-flight `_1659` on the
+                       # same three numbers, negative control `_1700` (rewindPoints
+                       # inverted to {1,1}) reading PARSEK-FAIL on exactly
+                       # `rewind.rewindPoints 0 < min 1` and nothing else, reverted in
+                       # the same change. Only `rewindPoints` is a two-sided pin; the
+                       # other two stay floors because a subtree closure's row and
+                       # tombstone counts depend on what each break-up sheds.
+                       "RF-11-both-slots-in-sequence.toml",
                        # CI-1: `structure` armed 2026-09-08 off its own reading run
                        # `2026-09-08_1054_CI-1-eva-switch-bg-member` (trees {1,2} for the
                        # duplicate-writer hazard, committedTrees 0, recordings 4,

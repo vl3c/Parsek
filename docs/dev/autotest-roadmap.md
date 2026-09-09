@@ -421,8 +421,15 @@ remains is, in order:
     puts a CONCLUDED re-fly in front of the in-game batch, through `CommitTree`'s
     live-vessel terminal stamp rather than through a crash the seam cannot drive
     (`TimeJump` is an epoch shift, not a warp).
+    ALL FIVE PHASE-3 LANES FLEW GREEN on 2026-09-09 (S4.4 `_1620`, RF-11 `_1631`,
+    RF-12 `_1637`, RF-8 `_1640`, RF-4 `_1645`), RF-11 armed through the full cycle
+    (`_1659` armed, `_1700` control), and phase 3 answered the month-old
+    REFLY-BATCH-BASELINE-DISCARDS-LIVE-SESSION: a genuine reload does NOT end a live
+    re-fly session, so what ended S4.2's was the in-game batch's own preparation.
     STILL OPEN, and cheap enough to batch with item 7 rather than to rank on its own:
-    the four phase-3 lanes owe their reading runs; and RF-9 / RF-5 have EARNED registry
+    RF12-NO-SEAM-PATH-CONCLUDES-A-REFLY-IN-FLIGHT (both routes measured and named, so
+    the nine terminal-gated in-game cells stay unreachable from the harness); and
+    RF-9 / RF-5 have EARNED registry
     cells through gating tokens that nobody has CLAIMED yet, which is the one item here
     that moves `hlib.compute_coverage` and every number derived from it. Definitions,
     evidence and the per-lane readings: "The re-fly continuation program (RF-1..RF-12)"
