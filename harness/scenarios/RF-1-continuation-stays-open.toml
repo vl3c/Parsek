@@ -362,7 +362,20 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]",
 #   tombstones = { max = 0 }  nobody dies on this profile: the pod lands intact and the
 #       booster is still flying. `CommitTombstones` only builds rows for in-scope kerbal
 #       deaths, so a nonzero here would mean the re-fly killed the crew.
+# ARMED 2026-09-09, on the arming discipline S4.1 set: reading run, armed run, negative
+# control. What earns it is that these three windows landed UNCHANGED on TWO flights
+# against different DLLs - reading run `2026-09-08_2146` (pre-#1658 main) and the
+# confirmation re-flight on merged main - so they are a measurement of the lane rather
+# than of a build. `rewindPoints = {1,1}` is the one that matters: `IsReapEligible`
+# returns false the moment any slot's effective tip is CommittedProvisional, so a count
+# of exactly one on disk is only reachable when the slot really stayed open. The
+# NEGATIVE CONTROL flown for this arming inverted it to `{2,2}` and red on exactly that
+# facet and no other: run `2026-09-08_2351`, PARSEK-FAIL(gating save-structure),
+# mismatches `['rewind.rewindPoints 1 < min 2']`, one token, reverted in the same change.
+# THE ARMED RE-FLIGHT that precedes it is `2026-09-08_2349`, PASS attempt 1,
+# `saveParse status=PASS gating=True armed=['rewind']`.
 [expectations.rewind]
+gating        = true
 rewindPoints  = { min = 1, max = 1 }
 supersedeRows = { min = 1 }
 tombstones    = { max = 0 }

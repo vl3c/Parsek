@@ -9349,6 +9349,19 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # 2, recordings 22 incl. the re-fly provisional the merge keeps,
                        # branchPoints Dock 1 / Undock 1 / JointBreak 10, terminals as measured).
                        "CI-2-refly-claim-tip-pid.toml",
+                       # RF-1: `rewind` armed 2026-09-09 off TWO flights whose facets
+                       # agreed across a DLL change - `2026-09-08_2146` (pre-#1658) and
+                       # the merged-main confirmation - plus its own negative control
+                       # (rewindPoints inverted to {2,2}, red on exactly that facet).
+                       # `rewindPoints = {1,1}` is the armed claim: the reaper declines
+                       # only while a slot's effective tip is CommittedProvisional.
+                       "RF-1-continuation-stays-open.toml",
+                       # RF-9: `rewind` armed 2026-09-09 off its two reading runs. The
+                       # windows were RE-PINNED from run 1 (tombstones 0 -> {min 1}) and
+                       # then landed unchanged on run 2, which is the same two-sample
+                       # standard; negative control inverted tombstones to {max = 0},
+                       # the exact window the reading run refuted.
+                       "RF-9-atmosphere-exit-split-stays-open.toml",
                        "V27M-rover-route-endpoint-substituted-map-lines.toml",  # routes, armed 2026-09-07 off `2026-09-07_1858`
                        "V14M-ike-player-loop.toml", "V14T-ike-ts-arrival.toml",
                        "V15M-gilly-player-loop.toml", "V15T-gilly-ts-arrival.toml",

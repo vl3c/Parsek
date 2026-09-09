@@ -3712,6 +3712,28 @@ in both encodings). SEVEN GREEN, one RED BY FINDING, two INVALID with named caus
 | RF-4 | INVALID | `RF-4` | `bdock-recorded` carries no rewind-to-launch save at all; the H58 verb pair was borrowed across FIXTURES |
 | RF-8 | INVALID | `RF-8` | A ghost DOES resolve during a live re-fly and is body-matched; the watch RANGE gate declines it |
 
+**TWO LANES ARE NOW ARMED**, both through the full S4.1 cycle rather than by decree:
+reading run, ARMED re-flight, NEGATIVE CONTROL, revert in the same change.
+
+- **RF-1 `[expectations.rewind]`** - armed run `2026-09-08_2349` PASS; control
+  `2026-09-08_2351` inverted `rewindPoints` to `{2,2}` and red on exactly
+  `rewind.rewindPoints 1 < min 2`. The armed claim is `rewindPoints = {1,1}`:
+  `IsReapEligible` returns false only while a slot's effective tip is
+  `CommittedProvisional`, so a count of one on disk is only reachable when the slot
+  really stayed open.
+- **RF-9 `[expectations.rewind]`** - armed run `2026-09-08_2354` PASS; control
+  `2026-09-08_2358` restored the REFUTED `tombstones = {max = 0}` and red on exactly
+  `rewind.tombstones 8 > max 0`. Arming the CORRECTED window is deliberate: a window
+  that was wrong once is exactly the one a later run must not be able to move quietly.
+
+**NO REGISTRY CELL WAS CLAIMED**, and that is a decision rather than an oversight. RF-9
+now exercises and OBSERVES `rewind-to-separation`, `refly-gate`,
+`unfinished-flights-stash`, `auto-record-launch`, `commit-scene-exit`, `auto-merge` and
+`controlled-decoupled-child` through gating tokens, and RF-5 does the same for
+`seal-stash-fly` and `rp-disk-reaper` from the seal side. Taking those claims moves
+`hlib.compute_coverage` and every number derived from it; it is a mechanical follow-up
+that deserves its own pass rather than a footnote to a flight night.
+
 **THE TWO INVALIDS ARE THE SAME SHAPE**, and it is worth naming: both are lanes whose
 SUBJECT is unreachable on `bdock-recorded`, and in both cases the reading run measured
 the reason rather than leaving it to be guessed. RF-4's fix is identified and costed

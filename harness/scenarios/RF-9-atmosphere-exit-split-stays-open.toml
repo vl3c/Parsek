@@ -374,7 +374,19 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]",
 #       slot did NOT qualify through the crashed branch - the opposite of the lane's
 #       subject. Left as `{ min = 1 }` rather than pinned at 8 on one sample; the armed
 #       re-flight is where a count is pinned.
+# ARMED 2026-09-09. Two flights, and the windows here are the ones the FIRST of them
+# corrected: `tombstones` moved from `{max = 0}` to `{min = 1}` because the extrapolated
+# tail kills the crew, and run 2 then landed inside every window unchanged. Arming the
+# corrected shape is the point - an unarmed window that was wrong once is exactly the
+# window a future run should not be allowed to move quietly. The NEGATIVE CONTROL flown
+# for this arming restored `tombstones = { max = 0 }`, the refuted window, and red on
+# that facet alone: run `2026-09-08_2358`, PARSEK-FAIL(gating save-structure),
+# mismatches `['rewind.tombstones 8 > max 0']`, reverted in the same change. THE ARMED
+# RE-FLIGHT that precedes it is `2026-09-08_2354`, PASS attempt 1, `saveParse
+# status=PASS gating=True armed=['rewind']` with `supersedeRows=2 tombstones=8
+# rewindPoints=1`.
 [expectations.rewind]
+gating        = true
 rewindPoints  = { min = 1, max = 1 }
 supersedeRows = { min = 1 }
 tombstones    = { min = 1 }
