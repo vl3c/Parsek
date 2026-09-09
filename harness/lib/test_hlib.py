@@ -8096,7 +8096,7 @@ class UnityExceptionScanTests(unittest.TestCase):
         # run that did not fly measures the abort, not the lane, which is why CL-3's two
         # nonzero collected-log readings (1 and 2, both mission aborts) are excluded.
         #
-        #   MAX 0 (12 specs) - every driver-valid reading of each is 0, across the
+        #   MAX 0 (15 specs) - every driver-valid reading of each is 0, across the
         #   failure-population collected logs, the archived green result JSONs, and the
         #   fresh all-green 2026-08-04 daily pass plus the singles flown beside it. The
         #   thinnest is L1-passive-sandbox, armed on its own fresh 0 plus the six-spec L1
@@ -8133,6 +8133,9 @@ class UnityExceptionScanTests(unittest.TestCase):
             "B10-career-passive-safety.toml": 0,
             "CL-2-pod-impact-ledger.toml": 0,
             "CL-3-refly-crew-tombstone.toml": 0,
+            # CL-4: CL-3's shape on CL-3's fixture and mission (six 0 readings there) plus
+            # its own three driver-valid runs 2026-09-09 (_1813 / _1815 / _1817), every one
+            # total=0; gating on its first flight was therefore a re-measurement, not a bet.
             "CL-4-refly-crew-standin.toml": 0,
             "L1-dismiss-kerbal-career.toml": 0,
             "L1-hire-kerbal-career.toml": 0,

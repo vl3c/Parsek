@@ -82,7 +82,7 @@ git worktree add ../Parsek-<branch-name> -b <branch-name> <target>
 
 Pick `<target>` carefully: from `main`, use `origin/main` (local main may be behind or ahead of remote). From a feature branch about to be merged, compare `git log --oneline <local>..origin/<branch>` first and use whichever ref is ahead.
 
-Fresh-worktree preflight for harness work: `python harness/missions/bootstrap_venv.py` (the `.venv` is per-worktree and gitignored; without it an autopilot lane reads `INVALID subkind=tooling-venv` with wall=0, or `run.py` exits with no Classify line).
+Fresh-worktree preflight for harness work: `dotnet build Source/Parsek.Tests/Parsek.Tests.csproj` if the lane uses an `injectedRecordings` preset (the injector runs that assembly with `--no-build`, so an unbuilt worktree reads `INVALID(stage-inject-noop)` before any boot), then `python harness/missions/bootstrap_venv.py` (the `.venv` is per-worktree and gitignored; without it an autopilot lane reads `INVALID subkind=tooling-venv` with wall=0, or `run.py` exits with no Classify line).
 
 Land: commit on the branch, `git push -u origin <branch>`, `gh pr create` with a clean body. `gh pr merge` blocks on the required `tests` check. When the PR conflicts with a moved `main`, merge `origin/main` into the branch: CHANGELOG / todo / autotest-status conflicts are keep-both, resolved at ENTRY level (`## ` headers - line-level splicing corrupts), scenario and status counts are re-derived mechanically rather than hand-summed, and grep the tree for stray conflict markers before committing. Before pushing a follow-up to an open PR, re-check `gh pr view --json headRefOid,state` - the operator may have merged it meanwhile.
 

@@ -7,14 +7,16 @@ tier = "operator"
 # WHAT STAGE B TURNED OUT TO BE. The roadmap's Stage B block ("the TOMBSTONE half
 # remains UNBUILT") was stale when this lane was written: `CL-3-refly-crew-tombstone`
 # already rewinds across a crew loss, re-flies, merges, and claims D9 `tombstones`
-# (2026-08-03) and D12 `dead-crew-strip` (2026-08-05) off armed gates. Of the four cells
-# the block named, `tombstone-rep-penalty` is UNREACHABLE BY ANY FLIGHT (the registry's
-# own D12 record: no production code constructs a `ReputationPenaltySource.KerbalDeath`
-# action, so a crew death produces no Parsek rep row a tombstone could reverse - a
-# product change, not a lane), which leaves exactly one: `stand-ins`.
+# (2026-08-03) and D12 `dead-crew-strip` (2026-08-05) off armed gates. Of the three cells
+# the block named, those two are CL-3's and `tombstone-rep-penalty` is UNREACHABLE BY
+# ANY FLIGHT (the registry's own D12 record: no production code constructs a
+# `ReputationPenaltySource.KerbalDeath` action - the event converter drops the
+# `VesselLoss` reputation change, so no `GameAction` exists for a tombstone to reverse;
+# a product change, not a lane). The D12 residue row named a fourth, `stand-ins`, and
+# that one is claimable: this lane.
 #
-# WHAT `stand-ins` MEANS. A Parsek-GENERATED stand-in kerbal: `KerbalRoster
-# .TryCreateGeneratedStandIn` -> `Stand-in generated: '<name>' (<trait>) for slot
+# WHAT `stand-ins` MEANS. A Parsek-GENERATED stand-in kerbal: `KerbalsModule
+# .IKerbalRosterFacade.TryCreateGeneratedStandIn` -> `Stand-in generated: '<name>' (<trait>) for slot
 # '<owner>' depth <d>` (KerbalsModule.cs). H31 declined the cell because no committed
 # fixture x preset generates one ("the stand-ins these cells use are pre-existing roster
 # kerbals behind a synthetic original"). CL-3's own runs DO generate one, and the
@@ -51,8 +53,9 @@ tier = "operator"
 # READING RUN (2026-09-09, `2026-09-09_1813_CL-4-refly-crew-standin`): PASS attempt 1,
 # every REQUIRED token matched under this id - the chain `Added 1 supersede relations
 # for subtree rooted at cl-pod-a` -> `Tombstoned 1 career actions (... Kerbal=1 ...)`
-# -> `Recomputed after tombstones: 1 reservations remain (permanent=0 temporary=1)` ->
-# `Stand-in generated: '<name>' (Pilot) for slot 'Jebediah Kerman' depth 0` - and the
+# -> `Stand-in generated: '<name>' (Pilot) for slot 'Jebediah Kerman' depth 0` ->
+# `Recomputed after tombstones: 1 reservations remain (permanent=0 temporary=1)` (the
+# recompute line is the post-hoc summary of the walk that generated the stand-in) - and the
 # report-only rewind facets read `supersedeRows=1 tombstones=1 rewindPoints=0`, CL-3's
 # exact numbers. The `[expectations.rewind]` block is ARMED on them below. (A first
 # attempt, `2026-09-09_1811`, was INVALID(stage-inject-noop): the fresh worktree had not
@@ -60,7 +63,11 @@ tier = "operator"
 # ARMED RE-FLIGHT `2026-09-09_1815_CL-4-refly-crew-standin`: PASS attempt 1, every
 # verifier PASS/SKIPPED with `[expectations.rewind]` gating. NEGATIVE CONTROL `2026-09-09_1817_CL-4-refly-crew-standin`
 # (`tombstones` temporarily pinned to `min = 2`): PARSEK-FAIL(save-structure) on exactly
-# `rewind.tombstones 1 < min 2`, nothing else moved. LIVE-PROVEN.
+# `rewind.tombstones 1 < min 2`, nothing else moved. That inverts a gate CL-3 already
+# owns, so a SECOND negative control inverted the NEW cell's own token: with the
+# required stand-in regex changed to `depth 1`, run `2026-09-09_1834_CL-4-refly-crew-standin` red
+# PARSEK-FAIL(expectation) on exactly that one `logContracts.required not matched`
+# entry, every other verifier unchanged. LIVE-PROVEN on its own gate.
 # =====================================================================================
 description = "Stage B's last flight-closable cell, D12 stand-ins: CL-3's crew-loss re-fly (career-pad-craft + rewind-crew-loss, rewind rp_cl_root slot 1, relaunch, merge) with the tombstone's release of the death-sourced permanent reservation gated through to the Parsek-generated stand-in that release triggers."
 instanceProfile = "stock-minimal"
@@ -118,7 +125,8 @@ allowedAnomalies = []
 count = { min = 1 }
 
 [expectations.logContracts]
-# The chain, in the order the merge tail runs it. Every token is MEASURED on CL-3's
+# The chain as the merge tail runs it (the stand-in line prints just before the
+# recompute summary, which tallies the walk that generated it). Every token is MEASURED on CL-3's
 # runs (`2026-08-03_1834` / `_1844`, `2026-08-04_2136` / `_2324`); the last one is the
 # subject. The owner name is the fixture's baked pod crew (`RewindCrewLossFixture
 # .DeadCrewName`), so the literal is stable; the stand-in's own name is generated and
@@ -147,9 +155,11 @@ tombstones    = { min = 1 }
 maxTotal = 0
 
 [runtime]
-# CL-3's arithmetic plus one SetSetting: LoadGame max(240,600)+60 = 660, SetSetting x2
-# 120, mission 600, AnswerMergeDialog max(240,120+60) = 240, RecordingState 120,
-# FlushAndQuit 120 -> 1860. 2100 clears it by 240.
+# Per-step waits as run.py computes them: LoadGame max(240,600)+60 = 660 (deferred
+# verb), SetSetting max(60, 60+60) = 120 EACH (240 for the two), mission 600 (the raw
+# declared budget - a mission step is a kRPC subprocess, no dispatch margin),
+# AnswerMergeDialog max(240, 120+60) = 240, RecordingState 120, FlushAndQuit 120
+# -> 1980. 2100 clears it by 120, so no step-wait is capped by the run budget.
 budgetSeconds = 2100
 
 [retry]

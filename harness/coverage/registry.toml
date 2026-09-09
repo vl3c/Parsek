@@ -394,8 +394,10 @@ values = ["default-mission", "leg-trim", "whole-mission-loop", "self-overlap", "
 # `RepPenaltySource = ReputationPenaltySource.Strategy`. No code path ever constructs
 # a `ReputationPenaltySource.KerbalDeath` action, so a crew death produces NO Parsek
 # rep row: stock applies the hit directly (`Added -9.999828 (-10) reputation:
-# 'VesselLoss'.`, measured by CL-1 and CL-2) and the ledger absorbs it through the
-# generic captured-award path, which is not a `GameAction` and cannot be tombstoned.
+# 'VesselLoss'.`, measured by CL-1 and CL-2) and the event converter DROPS it
+# (`GameStateEventConverter.ConvertStrategyExchangeReputation` returns null for every
+# reason but StrategyInput), so no `GameAction` exists for a tombstone to reverse; the
+# ledger's only contact with the hit is the log-only `ReconcileEarningsWindow` WARN.
 # `TombstoneEligibility.TryPairBundledRepPenalty` therefore has nothing to pair on a
 # flown death - and note it is called ONLY from `SupersedeCommit`'s autoseal /
 # retry-blocking classifier (`IsWorldStateChangingRecordingAction`), NEVER from
@@ -410,7 +412,7 @@ values = ["default-mission", "leg-trim", "whole-mission-loop", "self-overlap", "
 # catalog; H31 declined it because "no Parsek-generated stand-in is ever created"
 # under its fixtures. The definition a claim must gate on: the reservation walk
 # GENERATES a stand-in kerbal for a reservation slot whose owner is reserved
-# elsewhere - `KerbalRoster.TryCreateGeneratedStandIn`, observable as
+# elsewhere - `KerbalsModule.IKerbalRosterFacade.TryCreateGeneratedStandIn`, observable as
 # `KerbalsModule`'s `Stand-in generated: '<name>' (<trait>) for slot '<owner>' depth
 # <d>` line (KerbalsModule.cs). A pre-existing roster kerbal standing behind a
 # synthetic original (H31's shape) is NOT this cell. On the CL family the stand-in

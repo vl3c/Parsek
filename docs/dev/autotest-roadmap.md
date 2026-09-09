@@ -648,7 +648,10 @@ members (including `TrackingStation`, 10 tests).
 Fixtures are largely NOT the bottleneck. Eleven fixture directories exist under
 `harness/fixtures/saves/`, every forge has run, and no spec is fixture-blocked.
 
-One real gap: **every flyable fixture is SANDBOX.** Counting `VESSEL` nodes in each
+One real gap, AS OF 2026-07 (no longer true since `career-pad-craft`, R11, 2026-07-28,
+which the CL family flies and on which CL-3 / CL-4 claim D9 `tombstones` and D12
+`dead-crew-strip` / `stand-ins`; kept as the reading of its day): **every flyable
+fixture is SANDBOX.** Counting `VESSEL` nodes in each
 fixture's `persistent.sfs`:
 
 | Fixture | Mode | VESSEL nodes |
@@ -1445,7 +1448,9 @@ M-C2 block so the row is pure measurement): `rewind` all-zero, `structure`
 branchPoints {}}`. That is the PRE-REWIND baseline, not stage B's windows -
 stage B rewinds across CL-1's crew loss, so its numbers must be read off stage
 B's own report-only flight (expected `supersedeRows >= 1`, `tombstones >= 1`)
-before arming, exactly as S4.1 just did; (b) ~~`route` / `loop` stay RESERVED -
+before arming, exactly as S4.1 just did - DONE 2026-08-03: `CL-3-refly-crew-tombstone`
+read `supersedeRows 1 tombstones 1` on `2026-08-03_1834` and armed both floors on
+`_1844`; (b) ~~`route` / `loop` stay RESERVED -
 their consumers do not exist (zero committed declarers), so no evaluator was
 built for them~~ - UPDATED 2026-09-07: `route` SHIPPED 2026-09-02 as
 `[expectations.routes]` (PR #1603; declared by 21 specs - H58, H59, V18T, RVR-5,
@@ -1636,10 +1641,12 @@ WHAT R12 LEAVES BEHIND, each a separate follow-up and none of it a regression:
   narrower: D12 `stand-ins` (claimable off CL-3's own `Stand-in generated` line,
   taken by `CL-4-refly-crew-standin`) and D12 `tombstone-rep-penalty`, which the
   registry records as UNREACHABLE BY ANY FLIGHT (no production code constructs a
-  `ReputationPenaltySource.KerbalDeath` action; stock applies the hit and the ledger
-  absorbs it through the captured-award path a tombstone cannot reverse) - a product
-  change, decided separately. The original text follows as the record of why the
-  split was structural. ~~remains UNBUILT~~, and the split is structural
+  `ReputationPenaltySource.KerbalDeath` action; stock applies the hit and the event
+  converter drops the `VesselLoss` reputation change, so no `GameAction` exists for a
+  tombstone to reverse) - a product
+  change, decided separately. The original text follows, struck where it is no longer
+  true, as the record of why the split was structural. ~~remains UNBUILT~~, and the
+  split is structural
   rather than a scoping convenience. `SupersedeCommit` is the ONLY producer of a
   `LedgerTombstone` and `CommitTombstones` runs strictly inside the RE-FLY merge
   tail after supersede relations land, so no auto-commit can reach D9 `tombstones`
@@ -1650,16 +1657,19 @@ WHAT R12 LEAVES BEHIND, each a separate follow-up and none of it a regression:
   committed tree IS the subtree it wants. Stage B cannot be folded back into CL-2:
   it needs `InvokeRewind`, and `hlib.validate_spec` HARD-REJECTS `InvokeRewind`
   paired with `[expectations.ledger]` (a rewind rewrites the career pools from a
-  quicksave the seed+manifest contract cannot reconstruct). Two prerequisites to
+  quicksave the seed+manifest contract cannot reconstruct). ~~Two prerequisites to
   settle first: `dead-crew-strip` has no pinned definition in the registry (see
   `todo-and-known-bugs.md`), and the crew-end-state defect CL-2 flight 1 found
   means the subtree's kerbal-death action currently carries `KerbalEndState.
-  Unknown`, which is exactly what that in-game test skips on.
+  Unknown`, which is exactly what that in-game test skips on.~~ BOTH DISCHARGED before
+  CL-3 flew: the definition pinned 2026-08-02 (re-pinned 2026-08-05) in the registry's
+  D12 block, the end-state gate fixed 2026-07-30 by PR #1395.
   **UPDATED 2026-09-08 (R10):** driving `InvokeRewind` against a LIVE RewindPoint id -
   the one CL-1's own committed tree would produce in-run - is now reachable
   (`ListHandles kind=rewindpoints` then `rp=${<step>.rp<i>}`, which is exactly RH-1's
-  shape). The two prerequisites above are untouched by that, and so is the
-  `InvokeRewind` x `[expectations.ledger]` rejection.
+  shape). The two prerequisites above had already been discharged in August (the
+  struck text records them); the `InvokeRewind` x `[expectations.ledger]` rejection
+  stands.
 - ~~**D5 `chain-continuation-switch` / D18 `committed-interaction-claiming` /
   `chain-tip-original-pid`** are still UNCOVERED. `S0.8`'s measured consume route is
   `standalone` (`parentRecId=<standalone> branchPointId=<none>`), so no chain link is
