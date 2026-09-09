@@ -45,7 +45,8 @@ tier = "daily"
 # BATCH_COMPLETE line of a green flight and update the required pattern AND this
 # block together.
 #
-# 2026-09-09 RE-MEASURED AND RE-PINNED WHOLE, and the interim is over.
+# RE-MEASURED AND RE-PINNED WHOLE late 2026-09-08 (run ids _23xx), and the
+# interim is over.
 # PredictedTailMapRenderInGameTest was added 2026-09-08 for the predicted-
 # continuation-tail render contract (see
 # docs/dev/design-map-ts-render-architecture.md, "Predicted continuation tails on
@@ -53,7 +54,8 @@ tier = "daily"
 # batch-skipped + 22 executable and forced a digits-class interim on passed= and
 # skipped= because the new cell's split is decided at run time by its own
 # InGameAssert.Skip guards (it stands down when the scene has no usable body).
-# FLOWN GREEN TWICE 2026-09-09, on two different builds, reading the same line:
+# FLOWN GREEN TWICE late 2026-09-08 (run ids _23xx), on two different builds,
+# reading the same line:
 # `2026-09-08_2313_S1.7-maprender-parity` (PASS attempt 1, 75 s) and, after a
 # review pass changed an unrelated in-game cell and forced a re-provision,
 # `2026-09-08_2329_S1.7-maprender-parity` (PASS attempt 1, 71 s). Both: every

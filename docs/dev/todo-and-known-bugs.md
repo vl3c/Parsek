@@ -211,8 +211,9 @@ sidecars deleted in the finally block); it skips when a re-fly session is live, 
 `RunOptimizationSplitPass` deliberately defers the split of the active provisional
 recording, and on a save that already holds committed recordings (the pass would rewrite
 those in place; `PersistenceSplitOptimizerTest`'s precedent). `Rewind`'s tally moved
-38 -> 39: R7a `passed=16 -> 17`, R7c `skipped=32 -> 33`. FLOWN GREEN TWICE 2026-09-09,
-runs `2026-09-08_2314` and `2026-09-08_2328_R7a-rewind-session-absent`, the cell
+38 -> 39: R7a `passed=16 -> 17`, R7c `skipped=32 -> 33`. FLOWN GREEN TWICE late
+2026-09-08 (run ids `_23xx`), runs `2026-09-08_2314` and
+`2026-09-08_2328_R7a-rewind-session-absent`, the cell
 executing and passing on both with zero `optsplit*` residue in either produced save.
 
 Standing regression net across saves, added 2026-09-09: the analyzer rule

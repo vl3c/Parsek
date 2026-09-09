@@ -146,6 +146,22 @@ count = { min = 0, max = 0 }
 # run proves the guard does not fire here (no session is active, so it executes and
 # the tally is unmoved).
 #
+# THAT PAIR IS NOT THE MEASUREMENT BEHIND THE CURRENT PIN. It measured the
+# then-current total=37 line; the tally has moved twice since (2026-08-20, and
+# the re-fly regression-net wave recorded further below). The pin as it stands,
+# `total=39 passed=17 failed=0 skipped=22`, rests on a SECOND pair flown late
+# 2026-09-08 (run ids `_23xx`): `2026-09-08_2314_R7a-rewind-session-absent`
+# (PASS attempt 1, 76 s) and `2026-09-08_2328_R7a-rewind-session-absent` (PASS
+# attempt 1, 75 s, on a DIFFERENT build - a review pass added the new cell's
+# empty-store guard and forced a re-provision). Both read the line TOKEN FOR
+# TOKEN, both with every verifier PASS or REPORT, expectations mismatches=0,
+# analyzer red=0, anomalySweep hits=[] counts={}. The new FLIGHT-scoped cell
+# EXECUTED and PASSED on both (45 ms; tipMergeState=CommittedProvisional
+# tipTerminal=Destroyed slotOpen=True rpReapEligible=False reaped=0), its
+# empty-store guard did NOT fire (the pass measured committed=3, this cell's own
+# two plus the split half), and its teardown read recordingsRemoved=3
+# sidecarSetsDeleted=3 with zero optsplit* residue in either produced save.
+#
 # The pin is a LITERAL pattern and evaluate_expectations requires it to match, so a
 # PASS means the runner printed this line TOKEN FOR TOKEN. THE WHOLE PRE-FLIGHT
 # DERIVATION HELD, which is worth recording: 24 of the 37 bodies carry run-time

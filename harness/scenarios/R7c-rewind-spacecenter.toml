@@ -186,9 +186,10 @@ count = { min = 3, max = 3 }
 #    whole category, and the new cell scene-skips here. This is the exact mirror of
 #    the 2026-08-20 move R7a records, where a SPACECENTER addition moved R7a's pair.
 #  - skipped=33, ALL ATTRIBUTE-FORCED (32 -> 33 on 2026-09-09, see above): every
-#    FLIGHT-scoped Rewind declaration scene-skips here. That is the mirror image of R7a/R7b's 5, and it is why
-#    `scene=SPACECENTER` in this pin is load-bearing rather than cosmetic - at
-#    FLIGHT this line would be impossible. The former 33rd (run-time) skip was
+#    FLIGHT-scoped Rewind declaration scene-skips here. That is the mirror
+#    image of R7a/R7b's 5, and it is why `scene=SPACECENTER` in this pin is
+#    load-bearing rather than cosmetic - at FLIGHT this line would be
+#    impossible. The former 33rd (run-time) skip was
 #    UnfinishedFlightsRenderingAndNoHide on "No Unfinished Flight member in current
 #    save"; the injected b9 booster now satisfies IsUnfinishedFlight (unit-proven,
 #    see the fixture note), so it is predicted to EXECUTE.

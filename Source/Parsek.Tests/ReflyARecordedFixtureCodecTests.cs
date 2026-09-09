@@ -15,11 +15,15 @@ namespace Parsek.Tests
     /// Reads the HARVESTED subject of
     /// OPTIMIZER-SPLIT-DROPS-MERGESTATE-AND-CLOSES-AN-OPEN-REFLY-SLOT
     /// (`refly-a-recorded`, harvested from session 2026-09-08_2317_refly-a-manual)
-    /// through the PRODUCTION decode path - `SaveDirectoryLoader.Load`, whose tree walk
-    /// is `RecordingTreeRecordCodec.LoadRecordingFrom` and whose sidecar hydration is
+    /// through the OFFLINE ANALYZER'S LOADER SHELL OVER THE PRODUCTION DECODERS -
+    /// `SaveDirectoryLoader.Load` is the analyzer's own directory walk, but the two
+    /// decoders it drives are the shipping ones: the tree walk is
+    /// `RecordingTreeRecordCodec.LoadRecordingFrom`, and the sidecar hydration is
     /// `RecordingStore.LoadTrajectorySidecarForTesting`, i.e. the same
-    /// `DeserializeTrajectorySidecar` production reads a save with - and pins what those
-    /// bytes actually decode to.
+    /// `DeserializeTrajectorySidecar` production reads a save with. Worded that way on
+    /// purpose: what is pinned here is what those bytes DECODE to, not what a live
+    /// `ParsekScenario.OnLoad` would then do with them - the shell is not the game's
+    /// load path and this file does not claim to cover it.
     ///
     /// <para>
     /// The point is that the defect is INVISIBLE at the byte level unless you know the
@@ -48,10 +52,17 @@ namespace Parsek.Tests
     /// conditional-skip primitive, and a hard assert would red CI on every machine that
     /// is not this one - but it must not be mistaken for coverage. On `ubuntu-latest`,
     /// where no sibling worktree exists, THESE SIX CELLS PROVE NOTHING until the fixture
-    /// is committed; a green `tests` check is not evidence that they ran. They become
-    /// load-bearing automatically the moment #1660 puts the fixture on the in-repo path,
-    /// because that path is tried first. A resolved run echoes the directory it read, so
-    /// the two states are distinguishable in the test output.
+    /// is committed; a green `tests` check is not evidence that they ran. Worse than
+    /// that, and stated plainly because the earlier wording overclaimed it: a
+    /// skipped-by-path run PASSES SILENTLY. The `SKIP:` line goes to
+    /// `ITestOutputHelper`, which the default console logger does not print for a
+    /// PASSING test, so on an ordinary `dotnet test` (or `cloud-test.sh`) run the inert
+    /// state and the load-bearing state look IDENTICAL; the line is recoverable only
+    /// from a TRX/`--logger` capture or by raising verbosity. The remedy is not more
+    /// output, it is the fixture: these cells become load-bearing automatically the
+    /// moment #1660 puts `refly-a-recorded` on the in-repo path, because that path is
+    /// tried first, and until then the honest reading of a green run here is "no
+    /// evidence either way".
     /// </para>
     /// </summary>
     [Collection("Sequential")]

@@ -81,10 +81,12 @@ _(unreleased — entries accumulate here per commit)_
   what is on screen: it requires the built trajectory legs plus the selected forward arcs
   to cover the whole tail, and requires no drawn tail point to lie inside the body within
   the scene's own float-grid tolerance. It stands down with a named reason when the scene
-  offers no usable body. `S1.7-maprender-parity`'s batch tally moves to `total=23` with
-  the pass / skip split on the never-flown digits-class convention until the next green
-  flight re-measures it; the flown 2026-07-26 line is kept verbatim beside it so the pin
-  does not overwrite the measurement.
+  offers no usable body. `S1.7-maprender-parity`'s batch tally moves to `total=23`. That
+  move went in with the pass / skip split on the never-flown digits-class convention; it
+  has since been flown green twice and the whole line is pinned literally again, the new
+  check having executed rather than stood down, so the split is a measurement rather than
+  a prediction. The older flown line is kept verbatim beside it so the re-pin does not
+  overwrite the earlier measurement.
 
 - **A flight the recording optimizer split in two no longer shows a map orbit it never
   flew.** When the optimizer cuts one flight at an environment boundary, the earlier half

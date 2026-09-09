@@ -15627,7 +15627,8 @@ S17_MEASURED_REAIM_LINE = (
 S17_FLOWN_BATCH_LINE_2026_07_26 = (
     "[Parsek][INFO][TestRunner] BATCH_COMPLETE v1 total=22 passed=21 failed=0"
     " skipped=1 category=MapRender scene=FLIGHT")
-# 2026-09-09: RE-MEASURED, on two flights of two different builds. Predicted-
+# RE-MEASURED late 2026-09-08 (run ids _23xx), on two flights of two different
+# builds. Predicted-
 # TailMapRenderInGameTest moved the category to total=23 on 2026-09-08 and forced a
 # one-day digits-class interim on passed= and skipped=; runs
 # `2026-09-08_2313_S1.7-maprender-parity` (PASS attempt 1, 75 s) and
