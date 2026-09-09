@@ -109,7 +109,29 @@ and the two forensics reports quote the hyphenated sentence as PROSE, which is c
 house style for a doc (plain ASCII, no em dashes) and harmless as long as no spec copies
 it into a regex. Any future forbid over that line takes the fragment.
 
-## RF6-FOUR-REWIND-CELLS-FAIL-ONLY-WITH-A-LIVE-SESSION: the first batch ever to run the in-game `Rewind` category with a live re-fly session executed its twelve session-gated cells and FOUR failed, three of them cells that pass with no session [MEASURED 2026-09-08 by RF-6's two reading runs plus an R7a control on the same DLL. OPEN, undiagnosed]
+## ~~RF6-FOUR-REWIND-CELLS-FAIL-ONLY-WITH-A-LIVE-SESSION: the first batch ever to run the in-game `Rewind` category with a live re-fly session executed its twelve session-gated cells and FOUR failed, three of them cells that pass with no session~~ FIXED 2026-09-09 by PR #1661, LIVE-PROVEN by RF-6 the same day
+
+CLOSED 2026-09-09, AND THE LANE THAT FOUND IT IS THE LANE THAT PROVED THE FIX. PR #1661
+(`In-game MergeInterruptionRecovery: restore the merge journal on failure and skip on an
+unconcluded re-fly`) diagnosed the four failures as ONE in-game cell leaking a merge
+journal into the rest of the batch plus its own missing precondition - no product defect,
+which is what the three-runs-identical evidence below already pointed at. Its own entry
+lower in this file carries the diagnosis and states that the owed RF-6 re-flight is the
+live proof.
+
+THAT RE-FLIGHT FLEW 2026-09-09 on `refly-lanes` against the merged-main DLL (deployed
+automation hash `4c5511269aa04a67`): **`BATCH_COMPLETE v1 total=39 passed=11 failed=0
+skipped=28 category=Rewind scene=FLIGHT`**, RF-6 PASS attempt 1, every verifier
+PASS/SKIPPED. Eleven passed where eight did, zero failed where four did, and `total`
+moved 38 -> 39 because PR #1662 added a regression cell to the same category (the spec
+pin moved with it, mechanically, through `CommittedBatchTallySourceSyncTests`).
+
+ONE THING WORTH KEEPING FROM THE INVESTIGATION: run 3, flown on the post-#1658 DLL before
+#1661 existed, read BYTE-IDENTICALLY to runs 1 and 2. That is what said the four failures
+were not the sealing defect, and it is why the diagnosis went looking at batch isolation
+instead. The evidence below is kept for that reason rather than struck out with the
+heading.
+
 
 RF-6 exists to run `RunTests category="Rewind"` AFTER an `InvokeRewind`, because twelve
 cells in that category gate on `scenario.ActiveReFlySessionMarker` and no lane and no

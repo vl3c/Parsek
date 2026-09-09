@@ -187,7 +187,13 @@ allowedAnomalies = []
 count = { min = 2, max = 30 }
 
 [expectations.logContracts]
-# THE INTERIM PIN. `total=38` is exact and source-derived; `passed` / `skipped` are classes
+# THE PIN MOVED 38 -> 39 ON 2026-09-09, mechanically rather than by choice: PR #1662 added
+# an in-game regression cell for the optimizer-split MergeState carry to the `Rewind`
+# category, and `CommittedBatchTallySourceSyncTests` walks `Source/Parsek` and reds until
+# the pinned tally agrees with the attributes it counts. That gate is the reason this
+# number is never hand-summed.
+#
+# THE PIN. `total=39` is exact and source-derived; `passed` / `skipped` are classes
 # until the first flight measures them, at which point this spec is re-pinned and its id
 # leaves `INTERIM_PIN_IDS`. `failed=0` is HARD - see the header.
 #
@@ -200,7 +206,7 @@ required = [
   "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=.* rp=rp_[0-9a-f]{32}",
   "Invocation complete",
   "runtests start category=Rewind",
-  "BATCH_COMPLETE v1 total=38 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=Rewind scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=39 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=Rewind scene=FLIGHT",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",

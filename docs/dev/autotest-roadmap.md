@@ -3698,7 +3698,9 @@ the fragment `not re-deriving MergeState`; filed as RF-FORBID-EM-DASH-CANNOT-MAT
 
 **THE PROGRAM FLEW OUT ON 2026-09-09**, every lane against the merged-main DLL
 (deployed automation hash `cd8ddb6b691e3fb8`, verified to carry both fixes' literals
-in both encodings). SEVEN GREEN, one RED BY FINDING, two INVALID with named causes:
+in both encodings). NINE GREEN, two INVALID with named causes - and the lane that was RED BY FINDING is green
+as of run 4, because the finding it opened was fixed by PR #1661 the next morning and this
+program flew the proof:
 
 | Lane | Verdict | Run | What the run added |
 |---|---|---|---|
@@ -3709,7 +3711,7 @@ in both encodings). SEVEN GREEN, one RED BY FINDING, two INVALID with named caus
 | RF-2 | PASS | `RF-2` | The reaper's per-point scope: `rewindPoints=1` of three, `supersedeRows=2` |
 | RF-3 | PASS | `RF-3` | `tombstones` re-pinned 0 -> `{min=1}`; RF-2 measured 0 over the same host and the asymmetry is recorded, not explained |
 | RF-5 | PASS after refutation | `RF-5` | The idempotence premise refuted: the slot-mode seal reaps INSIDE its own call. Step inverted, `Sealed slot=` added as the lane's best line |
-| RF-6 | PARSEK-FAIL (finding) | `RF-6` | Byte-identical tally on the fixed DLL: the four failures are NOT the sealing defect |
+| RF-6 | RED x3 then **PASS** | `RF-6`, then run 4 post-#1661 | Byte-identical tally across the sealing fix said the four failures were not it; #1661 then fixed them and this lane flew the proof (`total=39 passed=11 failed=0 skipped=28`) |
 | RF-4 | INVALID | `RF-4` | `bdock-recorded` carries no rewind-to-launch save at all; the H58 verb pair was borrowed across FIXTURES |
 | RF-8 | INVALID | `RF-8` | A ghost DOES resolve during a live re-fly and is body-matched; the watch RANGE gate declines it |
 | RF-10 | PASS, ARMED | `2026-09-09_0008` / `_0011` / `_0012` | The round trip: the split tip's open bit survives the codec, read by a boot that flew nothing |
