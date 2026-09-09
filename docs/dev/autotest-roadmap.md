@@ -57,21 +57,19 @@ M-A6 stack provisioner, M-B1 mission library, M-B2 ledger oracle, M-C1 seam verb
 batch 1, M-C2 EVA verbs. Status and per-module proof live in `autotest-status.md`.
 None of the items in this roadmap are blocked on a missing module.
 
-### Scenarios: 245 committed
+### Scenarios: 247 committed
 
-Re-derived 2026-09-09 on `refly-lanes` at `659be2a68` (main `dfd5ff224` merged in, so
-#1658 / #1659 / #1661 / #1662 and the whole RF wave are counted): `ls
-harness/scenarios/*.toml` returns **245** files, the total `autotest-status.md`'s
-`## Test cases` header states and `AutotestStatusScenarioCountTests` pins against
-the committed files (234 at the 2026-09-08 `ghost-replay-tier-a` derivation, itself
-230 at `de5ac6112` after #1648 V27M, #1650 LT-3 / LT-4 / LT-5 / H71 and #1653 RH-1;
-the eleven added since are the re-fly continuation program, RF-1..RF-10 plus RF-7T;
-133 live-proven in that doc's own table, 0 committed-not-yet-green;
-tiers: 125 nightly, 25 daily, 95 operator, parsed from the specs' `tier` keys - the
-operator column carries the whole RF wave). The 68
-below was the 2026-08-04 snapshot;
-the V / GS / W / L / RVR / H41-H71 / LT / RH / CI / RF waves, among others, took it from 68
-to 245 between 2026-08-04 and 2026-09-09.
+Re-derived 2026-09-09 on `refly-phase3` (main `4ac5b5a4e`, so #1658 / #1659 / #1660 /
+#1661 / #1662 and the whole RF wave are counted): `ls harness/scenarios/*.toml` returns
+**247** files, the total `autotest-status.md`'s `## Test cases` header states and
+`AutotestStatusScenarioCountTests` pins against the committed files (245 at the phase-2
+derivation on `refly-lanes` at `659be2a68`; 234 at the 2026-09-08 `ghost-replay-tier-a`
+derivation, itself 230 at `de5ac6112` after #1648 V27M, #1650 LT-3 / LT-4 / LT-5 / H71
+and #1653 RH-1; the thirteen added since are the re-fly continuation program,
+RF-1..RF-12 plus RF-7T; tiers: 125 nightly, 25 daily, 97 operator, parsed from the
+specs' `tier` keys - the operator column carries the whole RF wave). The 68 below was
+the 2026-08-04 snapshot; the V / GS / W / L / RVR / H41-H71 / LT / RH / CI / RF waves,
+among others, took it from 68 to 247 between 2026-08-04 and 2026-09-09.
 
 `ls harness/scenarios/*.toml` returned **68** files when this section was last
 re-derived before that (2026-08-04 at
@@ -95,7 +93,7 @@ Re-derived 2026-09-09 on `refly-lanes` at `659be2a68`:
 values 248   covered 170   uncovered 78   expectedFailValues 0   xpass 0
 ```
 
-UNCHANGED by the eleven RF specs, and that is the program's own decision rather than
+UNCHANGED by the thirteen RF specs, and that is the program's own decision rather than
 an accident: none of them claims a NEW cell, so the covered / uncovered SET is
 identical with and without them - only the `coveredBy` membership of six D14
 host-basics cells (`kerbin`, `sandbox`, `scene-flight`, `scene-map`, `scene-ts`,
@@ -401,20 +399,40 @@ remains is, in order:
     dispatch, and the Tier 4 residue (`manual-gloops`, claw / inventory producers,
     crew swap, milestones, D13 spawn-positioning generator work, D16 storage cells,
     the D11 mission cells).
-11. ~~**The re-fly continuation program** (RF-1..RF-10 + RF-7T): the two defects the
-    operator's manual session found, and the eleven lanes that hold them down.~~
+11. ~~**The re-fly continuation program** (RF-1..RF-12 + RF-7T): the two defects the
+    operator's manual session found, and the thirteen lanes that hold them down.~~
     LANDED 2026-09-09 across #1658 (the optimizer-split MergeState carry), #1659 (the
     predicted-tail render), #1661 (the in-game `MergeInterruptionRecovery` isolation
     fix), #1662 (the INV12 analyzer rule, the regression cells and the
-    `refly-autopilot-recorded` twin) and this PR; nine lanes green, three armed.
-    STILL OPEN, and each is cheap enough to batch with item 7 rather than to rank on
-    its own: RF-4 needs a host that HAS a launch quicksave (H58's own in-run
-    `StartRecording` / `StopRecording` / `CommitTree` prologue, not a re-host); RF-8
-    needs a UT at which its one body-matched ghost is inside the watch RANGE cutoff,
-    or the lane has no host and retires; and RF-9 / RF-5 have EARNED registry cells
-    through gating tokens that nobody has CLAIMED yet, which is the one item here
+    `refly-autopilot-recorded` twin), #1660 (the RF-1..RF-10 lanes) and PHASE 3 (this
+    PR: RF-11, RF-12, the RF-4 / RF-8 re-authorings and the `LoadGame
+    allowLiveRecorder=refly` seam opt-in).
+    WHAT PHASE 3 CLOSED, and each was a lane finding rather than a product defect:
+    RF-4's todo entry proposed the H58 in-run prologue, which mints a rewindable tree
+    but NOT one the supersede rollback can see - the rollback is scoped to the OWNER'S
+    TREE, so a fresh single-node tree walks an empty in-scope set and the lane would
+    have gone green measuring nothing; it is re-hosted onto RF-1's flight, the only
+    shape carrying a launch quicksave and a re-fly fork in one tree, with a `SealSlot`
+    to make the fork Immutable so the PRESERVE branch is the one exercised. RF-8's
+    refusal was the lane jumping 113 s past its own sibling's last recorded frame -
+    read off the run's own committed census - and is re-targeted to the RewindPoint
+    whose sibling chain still has coverage. RF-11 is the two-open-slot lane RF-2 was
+    commissioned as and could not host until `refly-autopilot-recorded` landed. RF-12
+    puts a CONCLUDED re-fly in front of the in-game batch, through `CommitTree`'s
+    live-vessel terminal stamp rather than through a crash the seam cannot drive
+    (`TimeJump` is an epoch shift, not a warp).
+    ALL FIVE PHASE-3 LANES FLEW GREEN on 2026-09-09 (S4.4 `_1620`, RF-11 `_1631`,
+    RF-12 `_1637`, RF-8 `_1640`, RF-4 `_1645`), RF-11 armed through the full cycle
+    (`_1659` armed, `_1700` control), and phase 3 answered the month-old
+    REFLY-BATCH-BASELINE-DISCARDS-LIVE-SESSION: a genuine reload does NOT end a live
+    re-fly session, so what ended S4.2's was the in-game batch's own preparation.
+    STILL OPEN, and cheap enough to batch with item 7 rather than to rank on its own:
+    RF12-NO-SEAM-PATH-CONCLUDES-A-REFLY-IN-FLIGHT (both routes measured and named, so
+    the nine terminal-gated in-game cells stay unreachable from the harness); and
+    RF-9 / RF-5 have EARNED registry
+    cells through gating tokens that nobody has CLAIMED yet, which is the one item here
     that moves `hlib.compute_coverage` and every number derived from it. Definitions,
-    evidence and the per-lane readings: "The re-fly continuation program (RF-1..RF-10)"
+    evidence and the per-lane readings: "The re-fly continuation program (RF-1..RF-12)"
     below.
 
 Decisions owed rather than work: ~~keep or delete `bdock-station-craft`~~ DECIDED
@@ -3579,7 +3597,7 @@ filler between calibration flights.
 
 ---
 
-## The re-fly continuation program (RF-1..RF-10)
+## The re-fly continuation program (RF-1..RF-12)
 
 Added 2026-09-09, after the first Rewind-to-Separation session an operator ever
 flew BY HAND end to end and collected: `logs/2026-09-08_2317_refly-a-manual`,
@@ -3629,23 +3647,32 @@ recordings.
 | RF-1 | `gs1-two-stage-pad`, flown | That a non-focus half still airborne at scene exit keeps its slot OPEN and its FLIGHT-AUTHORED RewindPoint alive - and that the slot can then actually be re-flown. GS-1's assertion inverted on the same craft |
 | RF-2 | `bdock-recorded` | The reaper's PER-POINT scope across two merges in one run: one point reaps, its two siblings stand |
 | RF-3 | `bdock-recorded` | That a DISCARD costs nothing - proven by re-invoking the same rewind, not by grepping state |
-| RF-4 | `bdock-recorded` | Rewind-to-LAUNCH over a tree a rewind-to-SEPARATION already forked: the supersede rollback preserves the sealed fork |
+| RF-4 | `gs1-two-stage-pad`, flown (RE-HOSTED 2026-09-09) | Rewind-to-LAUNCH over a tree a rewind-to-SEPARATION already forked: the supersede rollback PRESERVES the sealed fork. Re-hosted onto RF-1's flight because the rollback is scoped to the OWNER'S TREE, so the in-run prologue its todo entry proposed would have rewound a tree carrying no supersede rows at all; a `SealSlot` before the rewind is what makes the fork Immutable and puts the run on the PRESERVE branch |
 | RF-5 | `bdock-recorded` | The opposite direction: `SealSlot` closes a slot on purpose and the point reaps by design. First consumer of the verb's `rp=` + `slot=` form |
 | RF-6 | `bdock-recorded` | The twelve session-gated in-game `Rewind` cells, executing for the first time anywhere, by ordering `RunTests` after `InvokeRewind` |
 | RF-7M / RF-7T | `refly-a-recorded` | The predicted continuation tail on the flight map and in the Tracking Station. REPRODUCTIONS: authored to red on main on the exact defect tokens |
-| RF-8 | `bdock-recorded` | What renders DURING a live re-fly - the sibling's ghost in watch mode and on the map, with both tracers armed for the first time on any rewind lane |
+| RF-8 | `bdock-recorded`, RE-TARGETED to rp1 2026-09-09 | What renders DURING a live re-fly - the sibling's ghost in watch mode and on the map, with both tracers armed for the first time on any rewind lane. Reading run 1's refusal was the lane jumping 113 s past its own sibling's last recorded frame; rp1's sibling chain runs to UT 8949, so at UT 800 both are live and close |
 | RF-9 | `gs1-two-stage-pad` + the Kerbal X | THE SEALING DEFECT'S OWN SHAPE, FLOWN. The only lane whose promoted recording crosses an environment boundary the optimizer splits on, which is the precondition RF-1 records itself as unable to reach: the probe-cored core is discarded INSIDE the atmosphere and the crewed top stack then coasts OUT through 70 km before the scene exits. Reds on a pre-#1658 DLL by design |
 | RF-10 | `refly-autopilot-recorded` | THE READ SIDE of the same fix, out of committed bytes: the codec omits `mergeState` exactly when it is Immutable and reads a missing key back AS Immutable, so the carried open bit has to survive a ROUND TRIP - and nothing tested that. Six steps, no flight, no re-fly; `ReapOrphanedRPs: reaped=0 remaining=1` is the whole lane. First consumer of the fixture RF-9 produced |
+| RF-11 | `refly-autopilot-recorded` | BOTH HALVES of one RewindPoint re-flown in sequence - the lane RF-2 was commissioned as and could not host, because until this fixture landed every committed point had exactly ONE open slot. The reaper's scope is per-POINT-over-ALL-SLOTS, and the ordered half of that claim is carried by a STEP (the second `InvokeRewind` reads its id from a second enumeration) because presence-only matching cannot order two identical summary lines |
+| RF-12 | `refly-autopilot-recorded` | The in-game `Rewind` category in front of a CONCLUDED re-fly, which is what RF-6 measured nine of its twelve session-gated cells still wanting. No seam path can crash a re-fly (`TimeJump` is an epoch shift, not a warp), so the conclusion comes from `CommitTree`'s live-vessel terminal stamp - FLYING maps to SubOrbital - which trades `MergeInterruptionRecovery` (needs NotCommitted) for `MergeReFlyToSubOrbitalKeepsSlotOpen`, the only in-game pin of the whole SubOrbital seal chain |
 
-**TWO LIMITATIONS, structural rather than unfinished.**
+**ONE LIMITATION IS STRUCTURAL; THE OTHER WAS LIFTED IN PHASE 3.**
 
-1. **No seam path drives an F9 mid re-fly.** `TestCommandDispatcher` refuses
-   `LoadGame` with `recording-active` while a recorder is live, and the in-game
-   `F5MidReFlyResume` cell simulates the sweep step for the same reason.
-   `S4.4-refly-quicksave-mid-session` records it verbatim as a HARNESS
-   limitation, not a product finding, and pins the reject as a required token.
-   No RF lane reloads a live session; RF-6 reaches the same surface from inside
-   the game instead.
+1. ~~**No seam path drives an F9 mid re-fly.**~~ LIFTED 2026-09-09. It read:
+   `TestCommandDispatcher` refuses `LoadGame` with `recording-active` while a
+   recorder is live, and the in-game `F5MidReFlyResume` cell simulates the sweep
+   step for the same reason, so no RF lane reloads a live session.
+   `S4.4-refly-quicksave-mid-session` recorded it verbatim as a HARNESS
+   limitation. PHASE 3 added the one opt-in past that guard -
+   `LoadGame allowLiveRecorder=refly` (RF-3/A1), admitted ONLY while a re-fly
+   session marker is live, with the guard byte-unchanged for every caller that
+   does not pass it and for every other verb - and re-shaped S4.4 into the F5+F9
+   experiment its header describes, keeping the bare reload in the same step
+   list as an `expect = "REJECTED"` negative control so the lane carries its own
+   mutation test. `StopRecording` first was the no-C# alternative and was
+   rejected on the spec's own stated ground: a load WITH a live recorder is the
+   event the guard exists to describe.
 2. **The seed's RewindPoint is gone.** The continuation defect reaped it before
    the save was collected, so the harvested fixture `refly-a-recorded` carries
    `REWIND_POINTS` empty and CANNOT re-fly. It serves the render lanes and any
@@ -3728,7 +3755,10 @@ match, which reads exactly like a pass on every run. Same silence-is-not-success
 the RF-7M defect-(B) tokens, arrived at from the opposite direction. Both lanes now forbid
 the fragment `not re-deriving MergeState`; filed as RF-FORBID-EM-DASH-CANNOT-MATCH.
 
-**THE PROGRAM FLEW OUT ON 2026-09-09**, every lane against the merged-main DLL
+**THE PROGRAM FLEW OUT ON 2026-09-09** (PHASE 2. Both INVALID rows below were
+re-authored and flown GREEN later the SAME DAY in phase 3 - see "THE TWO INVALIDS WERE
+THE SAME SHAPE" below; the shared date is why this note is here rather than left to a
+reader to notice.), every lane against the merged-main DLL
 (deployed automation hash `cd8ddb6b691e3fb8`, verified to carry both fixes' literals
 in both encodings). NINE GREEN, two INVALID with named causes - and the lane that was RED BY FINDING is green
 as of run 4, because the finding it opened was fixed by PR #1661 the next morning and this
@@ -3748,7 +3778,13 @@ program flew the proof:
 | RF-8 | INVALID | `RF-8` | A ghost DOES resolve during a live re-fly and is body-matched; the watch RANGE gate declines it |
 | RF-10 | PASS, ARMED | `2026-09-09_0008` / `_0011` / `_0012` | The round trip: the split tip's open bit survives the codec, read by a boot that flew nothing |
 
-**THREE LANES ARE NOW ARMED**, each through the full S4.1 cycle rather than by decree:
+**FOUR LANES ARE NOW ARMED** (RF-11 joined on 2026-09-09 through the same cycle:
+reading run `2026-09-09_1631`, armed re-flight `_1659` on the same three numbers,
+negative control `_1700` with `rewindPoints` inverted to `{1,1}` reading PARSEK-FAIL on
+exactly `rewind.rewindPoints 0 < min 1` and nothing else, reverted in the same change.
+Only `rewindPoints` is two-sided there; `supersedeRows` and `tombstones` stay floors,
+because what a subtree closure sheds is not something to pin a ceiling on.)
+THE THREE ARMED BEFORE IT**, each through the full S4.1 cycle rather than by decree:
 reading run, ARMED re-flight, NEGATIVE CONTROL, revert in the same change.
 
 - **RF-1 `[expectations.rewind]`** - armed run `2026-09-08_2349` PASS; control
@@ -3772,7 +3808,7 @@ reading run, ARMED re-flight, NEGATIVE CONTROL, revert in the same change.
 **NO NEW REGISTRY CELL IS CLAIMED**, and that is a decision rather than an oversight.
 Every RF spec carries only the host basics (D14 `kerbin` / `sandbox` / `scene-*`), so
 the covered / uncovered SET `compute_coverage` returns is identical with and without
-the eleven RF specs - only the `coveredBy` membership of six D14 cells moves
+the thirteen RF specs - only the `coveredBy` membership of six D14 cells moves
 (`kerbin`, `sandbox`, `scene-flight`, `scene-map`, `scene-ts`, `scene-ksc`), and the
 suite's own triple stays 170 of 248 with 78 uncovered. RF-9
 now exercises and OBSERVES `rewind-to-separation`, `refly-gate`,
@@ -3782,17 +3818,39 @@ now exercises and OBSERVES `rewind-to-separation`, `refly-gate`,
 `hlib.compute_coverage` and every number derived from it; it is a mechanical follow-up
 that deserves its own pass rather than a footnote to a flight night.
 
-**THE TWO INVALIDS ARE THE SAME SHAPE**, and it is worth naming: both are lanes whose
-SUBJECT is unreachable on `bdock-recorded`, and in both cases the reading run measured
-the reason rather than leaving it to be guessed. RF-4's fix is identified and cheap, and it is
-H58's own: no recorded fixture carries a launch quicksave (that is policy, gated in both
-directions), and H58 does not rewind a fixture tree - it PRODUCES its subject in-run,
-because `FlightRecorder.CaptureRewindSave` writes the quicksave at every non-promotion
-recording start. RF-4 gains a `StartRecording` / `StopRecording` / `CommitTree` prologue,
-keeps its host and keeps the `ambiguous-tree` negative control. RF-8's needs an experiment first - which UT, if
-any, puts the one body-matched ghost inside the watch cutoff. Neither was re-pinned to
-expect its own refusal: a lane that asserts the verb does not work has stopped measuring
-its subject.
+**THE TWO INVALIDS WERE THE SAME SHAPE**, and both are answered in phase 3
+(2026-09-09). Both were lanes whose SUBJECT was unreachable on `bdock-recorded`, and in
+both cases the reading run measured the reason rather than leaving it to be guessed.
+Neither was re-pinned to expect its own refusal: a lane that asserts the verb does not
+work has stopped measuring its subject.
+
+**RF-4: THE FIX THIS SECTION PREVIOUSLY IDENTIFIED WAS INSUFFICIENT, and saying so is the
+point.** It read that RF-4 should keep its host and gain H58's in-run `StartRecording` /
+`StopRecording` / `CommitTree` prologue, since `FlightRecorder.CaptureRewindSave` writes
+the quicksave at every non-promotion recording start. That mints a rewindable tree - and
+the wrong one. The supersede ROLLBACK is scoped to the OWNER'S TREE:
+`RecordingStore.DropSupersedesRewoundOutOfExistence` resolves `ownerTree` by
+`owner.TreeId`, and the pure walker builds its in-scope set from that tree's recordings,
+so a FRESH single-node tree stands in no supersede relation, walks an empty set, emits no
+summary line at all (the line fires only when a counter is nonzero) and the lane would
+have gone GREEN measuring nothing. The re-host is RF-1's flight, the only shape carrying a
+launch quicksave AND a re-fly fork in ONE tree; and because RF-1 measured its re-fly
+closing `reason=crashed terminal=Destroyed` - which `TerminalKindClassifier` routes to
+`CommittedProvisional` - the lane seals the slot first, so the rollback takes the PRESERVE
+branch the two subject tokens name rather than the drop branch. The `ambiguous-tree`
+control is traded for the other half of the same guard, which nothing in the suite
+exercises: the BARE call's auto-select on a single-committed-tree save.
+
+**RF-8: THE ANSWER WAS FOUR LINES ABOVE THE REFUSAL IN ITS OWN COLLECTED LOG.** The census
+`2026-09-09_0224_RF-8-ghost-during-refly/KSP.log:13087-13108` prints every committed
+recording's UT span. `rp0` sits at UT 382.73 and its sibling - slot 0's `a32f62f5`, chain
+#0 + #1 - ENDS AT UT 387; the lane jumped to UT 500, 113 s past the last frame that
+recording has. There was no sibling ghost because the sibling's recording was over, and
+index 9 (`ghost=T body=T range=F`) is a different launch's chain that is genuinely far
+away - the range gate answering correctly about the wrong object. `rp1` (UT 693.29) has
+the span the lane needed: its slot 0 `5157d655` chains #9 + #10 to UT 8949, so at UT 800
+both are live, both on Kerbin, and 107 s of post-separation drift apart. Re-targeted
+rather than retired, and the finding is a LANE finding.
 
 **THE FIXTURE THE PROGRAM PRODUCED.** `refly-autopilot-recorded` is RF-9's produced save,
 and it is the fixed-behaviour twin of `refly-a-recorded`: same craft, same staging plan,

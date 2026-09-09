@@ -15,6 +15,89 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~RF11-REWINDPOINT-QUICKSAVE-CARRIES-A-PRUNED-REWIND-SAVE-HINT: the harvest clears the rewind-to-launch hint in `persistent.sfs` and not inside the RewindPoint quicksave, so a re-fly reads it back and the analyzer FAILs~~ [FOUND 2026-09-09 by RF-11's reading runs 1 and 2. A FIXTURE / HARVEST-POLICY gap, not a product defect. FIXED 2026-09-09 in the same change]
+
+RF-11 re-flies both slots of `refly-autopilot-recorded`'s RewindPoint. Runs 1 (`_1621`)
+and 2 (`_1628`) were PARSEK-FAIL with every driver step met:
+
+    FAIL INV9-REWINDPOINT target=4a7739f6... INV9 missing-rewind-save-provisional
+      recording=4a7739f6... rewindId=parsek_rw_7f15ef
+
+THE MECHANISM, from the run's own log:
+
+    Recorder] RewindSaveFileName set for restore: '<null>' -> 'parsek_rw_7f15ef'
+      (quickload-resume from PARSEK_ACTIVE_TREE)
+    Flight]   SaveActiveTreeIfAny: copied rewind save 'parsek_rw_7f15ef'
+      to root recording '4a7739f6...'
+
+No recorded fixture carries a `Parsek/Saves/parsek_rw_*.sfs`, by POLICY - the harvester
+prunes the directory and clears the hint, `CommittedFixtureRewindSaveTests` forbids it,
+and the fixture builders gate the absence. But the RewindPoint quicksave embeds its OWN
+copy of the ParsekScenario, hints included, and the pruning never reached it. A re-fly
+restores the name out of that copy and `SaveActiveTreeIfAny` then copies it onto the tree
+ROOT, where Inv9RewindPoint correctly reports a `CommittedProvisional` recording pointing
+at a file the fixture does not have. Severity splits on the owning recording's MergeState
+(`Inv9RewindPoint.cs`), which is why this lands FAIL here and has never landed anywhere
+else.
+
+**THE PRODUCT IS CORRECT.** Production never reaches this state: a save whose quicksave
+names a rewind save also HAS it. The gap is that the harvest's prune is one file short.
+
+**RUN 2 IS THE INSTRUCTIVE HALF.** The first fix cleared the `rewindSave` key and the lane
+was STILL red, because the key the restore actually reads is `resumeRewindSave` on the
+`PARSEK_ACTIVE_TREE` resume node - a second spelling the first pass missed by matching on
+the first one's name. Both the builder post-condition and the standing gate now match any
+`parsek_rw_*` VALUE in the quicksave rather than a key list somebody has to keep complete.
+
+FIXED: the two values are cleared in `refly-autopilot-recorded`'s one quicksave (value
+only - the keys stay, no PART name and no line count moves, so the deep-parse precondition
+and every pinned count are untouched); `build_refly_autopilot_recorded.py --check` and a
+new `CommittedFixtureRewindSaveTests` cell pin the absence. `bdock-recorded`'s three
+quicksaves KEEP theirs, deliberately: their bytes are the more load-bearing of the two and
+seven lanes now re-fly that fixture green, which is the evidence that the residual does not
+reach a FAIL there. The class docstring's old "tolerated residual" note is corrected rather
+than deleted - it said "a spec that adds one must re-check this", and this is that re-check.
+
+## RF12-NO-SEAM-PATH-CONCLUDES-A-REFLY-IN-FLIGHT: neither of the two candidate routes can stamp a terminal on a live re-fly, so the FOUR terminal-gated in-game `Rewind` cells stay unreachable from the harness (of the nine that a live session alone does not reach) [MEASURED 2026-09-09 by RF-12's reading run 1. A HARNESS limitation with both causes named, not a product defect. OPEN]
+
+RF-6 measured that nine of the twelve session-gated `Rewind` cells skip on a precondition
+a live session alone cannot supply, and four of them name the same one: the re-fly must be
+CONCLUDED - landed or crashed, so a terminal state is stamped - not merely flown. RF-12 was
+authored to supply it. Both candidate routes fail, for two different reasons:
+
+1. **`TimeJump` cannot crash the vessel.** It is an EPOCH SHIFT, not a warp:
+   `ParsekFlight.TimeJumpTo` -> `TimeJumpManager.ExecuteJump` "stops warp and epoch-shifts
+   instantly (frozen relative positions, SMA/ecc/inc unchanged, MNA-at-epoch shifted by the
+   delta)". The clock moves; the vessel does not travel its trajectory, so a jump "past the
+   impact" leaves the same vessel in the same place with a later clock.
+
+2. **`CommitTree` cannot stamp the terminal.** Its live-vessel branch WOULD -
+   `CommitTreeFlight` calls `FinalizeTreeRecordings(..., isSceneExit: false)`, whose
+   `EnsureActiveRecordingTerminalState.liveNonLeaf` path stamps
+   `RecordingTree.DetermineTerminalState((int)v.situation, v)`, and FLYING(8) maps to
+   `SubOrbital`. The flight answered `[Parsek][WARN][TestCommands] committree
+   no-active-tree`, because a re-fly's provisional is an in-place fork attached to a
+   PENDING tree (`AtomicMarkerWrite: attached in-place fork rec=... to tree 'Kerbal X'`)
+   and `CommitTreeImpl` commits `ParsekFlight.activeTree`.
+
+The only conclusion route the seam has is `AnswerMergeDialog`, which DRIVES the scene exit
+and therefore cannot be sequenced before a FLIGHT batch. A crash that has to happen in real
+time cannot be sequenced against a batch either, because there is no wait verb.
+
+WHAT WOULD CLOSE IT, in rough order of cost: a seam affordance that commits or concludes a
+PENDING tree in place (the smallest change, and it has exactly one consumer today); or an
+autopilot mission that flies a re-fly to a crash and hands over with the scene still in
+FLIGHT, which the existing `kx_rewind_watch` `impactProfile` is close to. Not attempted
+here: RF-12 kept its host and banked what the host does buy (see below).
+
+RELATED, and measured on the same run rather than assumed: two of the nine
+(`MergeReFlyToSubOrbitalKeepsSlotOpen`, `MergeNonFocusReFlyToOrbitImmutable`) skip on
+"Could not resolve provisional's RP/slot" on BOTH hosts - a DEEPER precondition than the
+terminal, so the terminal-stamping route would not have been sufficient even if it had
+worked. And `OptimizerSplitKeepsPromotedSlotOpen` skips because `RunOptimizationSplitPass`
+DEFERS the split of an active provisional, i.e. PR #1662's own regression cell is
+unreachable inside a live session by design.
+
 ## REFLY-A-CODEC-TEST-SIBLING-PATH-IS-DEAD-AFTER-MERGE: the fixture resolver in `ReflyARecordedFixtureCodecTests` keeps a sibling-worktree path candidate that can no longer be reached [NOTED 2026-09-09 while reviewing PR #1660. Dead code, not a defect. OPEN as a cleanup]
 
 `Source/Parsek.Tests/ReflyARecordedFixtureCodecTests.cs` lines ~114-116 carry a SECOND
@@ -32,76 +115,84 @@ what makes the skip message legible when the fixture is genuinely absent. No C# 
 was made in #1660: it is a docs-only PR and a hard-coded branch name in a test is worth
 its own commit rather than a footnote to one.
 
-## RF4-BDOCK-RECORDED-CANNOT-REWIND-TO-LAUNCH: the lane borrowed H58's verb pair across FIXTURES, and its host carries no launch quicksave at all [MEASURED 2026-09-09 by RF-4's reading run. A LANE finding, not a product defect. OPEN, with the fix identified]
+## ~~RF4-BDOCK-RECORDED-CANNOT-REWIND-TO-LAUNCH: the lane borrowed H58's verb pair across FIXTURES, and its host carries no launch quicksave at all~~ [MEASURED 2026-09-09 by RF-4's reading run 1. A LANE finding, not a product defect. CLOSED 2026-09-09 by RF-4's reading run 2 (`2026-09-09_1645`, PASS attempt 1) after a RE-HOST - and the fix this entry originally identified was INSUFFICIENT, which is the part worth keeping]
 
-RF-4 drives H58's `InvokeRewindToLaunch` pair - bare -> REJECTED `ambiguous-tree`, then
-`tree=latest` -> OK - over `bdock-recorded`. Reading run 1 got the first half exactly
-right and then:
+RF-4 drove H58's `InvokeRewindToLaunch` pair over `bdock-recorded`. Reading run 1
+(`2026-09-08_2311_..._a2`) got the first half exactly right and then:
 
     invokerewindtolaunch target resolved tree=8c677bba... resolvedBy=LatestKeyword
     invokerewindtolaunch refused: rewind-gate No rewind save available tree=8c677bba... rec=5157d655...
 
-verdict INVALID (driver-gate), attempt 1 and 2. The run is
-`2026-09-08_2311_RF-4-rewind-to-launch-after-merge_a2` (the `_a2` is attempt 2, whose
-result JSON is the one kept), and the `No rewind save available` line above is quoted
-from it.
-
 THE CAUSE IS THE HOST, AND IT WAS KNOWABLE BEFORE THE FLIGHT: `bdock-recorded` carries
 ZERO `rewindSave` hints and no `Parsek/Saves/` directory, so no tree in it can be rewound
 to launch by any argument. The pair was borrowed from H58 across FIXTURES, and "the verb
-pair works" was read as a property of the verb rather than of the save. This is the
+pair works" was read as a property of the verb rather than of the save. That is the
 program-wide-claim rule in miniature: a claim about a lane needs a data point from THAT
 lane's host.
 
-THE FIX IS H58's OWN, AND IT IS CHEAPER THAN THE FIRST ANSWER FILED HERE. This entry
-originally proposed re-hosting RF-4 onto `refly-autopilot-recorded` and committing a
-rewind-to-launch quicksave into it. That was WRONG in its premise - H58 does not rewind a
-fixture tree either, and NO recorded fixture carries the payload, by policy: the harvester
-prunes `Parsek/Saves` and clears the hint, `CommittedFixtureRewindSaveTests` forbids it,
-and `build_rover_route_recorded.py` gates the absence in both directions. H58's own header
-states the mechanism it uses instead: `FlightRecorder.CaptureRewindSave` writes the
-`parsek_rw_*` quicksave at EVERY non-promotion recording start, so after a `StopRecording`
-leaves no active tree, a `StartRecording` / `StopRecording` / `CommitTree` triple mints a
-fresh single-node tree WITH a launch quicksave, and `tree=latest` then resolves to it.
+**THE FIX THIS ENTRY IDENTIFIED WAS INSUFFICIENT, and the correction is the reason the
+entry is worth reading rather than just closing.** It said: keep the host and mint a
+rewindable subject in-run with H58's `StartRecording` / `StopRecording` / `CommitTree`
+prologue, since `FlightRecorder.CaptureRewindSave` writes the quicksave at every
+non-promotion recording start. That does mint a rewindable tree - and the WRONG one. The
+supersede ROLLBACK, which is RF-4's entire subject, is scoped to the OWNER'S TREE:
+`RecordingStore.DropSupersedesRewoundOutOfExistence` resolves `ownerTree` by
+`owner.TreeId`, and `DropSupersedesRewoundOutOfExistenceDetailedPure` builds
+`rewoundOutOldIds` from the owner plus that tree's recordings, keeping only relations
+whose `OldRecordingId` is in that set (or whose `NewRecordingId` IS the owner). A freshly
+minted single-node tree stands in NO supersede relation, so rewinding IT walks an empty
+in-scope set and emits no summary line at all - the log fires only when a counter is
+nonzero. The lane would have gone GREEN while measuring nothing, which is the
+silence-is-not-success shape this program has already paid for twice.
 
-So RF-4 keeps its host and produces its own rewind subject in Act 2, exactly as H58 does.
-That also keeps the `ambiguous-tree` negative control, which the re-host would have thrown
-away (a single-tree host cannot be ambiguous). What it needs is the three-step prologue
-inserted before `InvokeRewindToLaunch`, and then its two DERIVED tokens
-(`Rewind supersede rollback: ... skippedImmutable=[1-9]`, `Preserved canon fork across
-parent rewind`) read for the first time.
+**WHAT ACTUALLY FIXED IT.** RF-4 is re-hosted onto RF-1's flight - the only shape in the
+corpus carrying a launch quicksave AND a re-fly fork in ONE tree, because a real launch
+mints the first and the flight-authored RewindPoint supplies the second - plus a
+`SealSlot` before the rewind. The seal is load-bearing, not decoration: RF-1 measured its
+re-fly closing `reason=crashed terminal=Destroyed`, which `TerminalKindClassifier` routes
+to `CommittedProvisional`, so without it the rollback takes the DROP branch instead of the
+PRESERVE branch the lane's two subject tokens describe. Run 2 measured all of it verbatim,
+including `resolvedBy=AutoSingle` - the bare auto-select branch no committed lane had ever
+exercised, which is what the re-host trades the `ambiguous-tree` control for.
 
-Until then RF-4 stays as authored and RED, because a lane re-pinned to expect the refusal
-would assert that rewind-to-launch does not work, which is the opposite of its subject.
-
-## RF8-NO-WATCHABLE-GHOST-DURING-A-REFLY-ON-BDOCK: exactly one candidate has a ghost on the right body and the watch RANGE gate declines it [MEASURED 2026-09-09 by RF-8's reading run. OPEN, cause named, subject unreached]
+## ~~RF8-NO-WATCHABLE-GHOST-DURING-A-REFLY-ON-BDOCK: exactly one candidate has a ghost on the right body and the watch RANGE gate declines it~~ [MEASURED 2026-09-09 by RF-8's reading run 1. CLOSED 2026-09-09 by reading run 2 (`2026-09-09_1640`, PASS attempt 1) after a RE-TARGET. A LANE finding: the run was jumping past its own sibling's last recorded frame]
 
 RF-8 arms both render tracers, invokes a re-fly and then asks for watch mode on a
-committed sibling. `EnterWatchMode` refused:
+committed sibling. Reading run 1 (`2026-09-08_2323_..._a2`) refused:
 
     enterwatchmode rejected reason=no-watchable-ghost committed=22 tree=(any)
     candidates=[0 ghost=F body=F range=F],...,[9 ghost=T body=T range=F],...
 
-so of 22 committed recordings exactly ONE (index 9) has a live ghost on the matching
-body, and it fails the RANGE gate. The other 21 have no ghost at all at that clock.
-Verdict INVALID (driver-gate): the step expects OK, so the lane never reached its own
-forbidden `no-watchable-ghost` clause. The run is
-`2026-09-08_2323_RF-8-ghost-during-refly_a2` (attempt 2), and the
-`no-watchable-ghost committed=22` refusal above is quoted from it.
+**THE ANSWER WAS IN THE SAME LOG, SIXTY-ODD LINES ABOVE THE REFUSAL**, and reading it is
+what closed the entry without a single new flight of the old shape. The committed census
+sits at `logs/2026-09-09_0224_RF-8-ghost-during-refly/KSP.log:13087-13108` and the refusal
+at `:13173`, with the watch gate's own per-candidate lines in between:
 
-WHAT IS AND IS NOT ESTABLISHED. Established: during a live re-fly on `bdock-recorded` a
-ghost DOES resolve and IS body-matched, so the refusal is the distance cutoff rather than
-an absent subject - which is a better answer than the seed session had. NOT established:
-whether any clock on this host puts that ghost inside the cutoff. `range=F` is a function
-of where the re-flown vessel sits after the RP restore and where the ghost is at the
-current UT, and nobody has measured the two positions.
+    #0  "Kerbal X"       UT  26-196  chain idx=0      #8  "Kerbal X Probe" UT 382-387
+    #1  "Kerbal X"       UT 196-387  chain idx=1      #9  "Kerbal X"       UT 391-568
+    #10 "Kerbal X"       UT 568-8949 chain idx=1      #17 "Kerbal X Probe" UT 693-8952
 
-NEXT STEP, and it is an experiment rather than a re-pin: read the candidate's own
-trajectory out of the fixture, pick a UT where it is near the RP's restore position, and
-drive a `TimeJump` to it before asking for watch (RF-2 and RF-3 already prove `TimeJump`
-is accepted with a session live). If no such UT exists, RF-8's subject has no host and
-the honest move is to say so and retire the lane - the same conclusion RF7M-DEFECT-B
-reached from the other direction.
+`rp0` sits at UT 382.73 and its SIBLING is slot 0's `a32f62f5` - the Kerbal X whose chain
+(#0 + #1) ENDS AT UT 387. The lane then jumped to UT 500, which is 113 s past the last
+frame that recording has. There was no sibling ghost to watch because the sibling's
+recording was over; index 9 is a DIFFERENT launch's chain and is genuinely hundreds of
+kilometres away, so `range=F` is the gate answering correctly about the wrong object.
+Nothing was wrong with the watch gate, the tracers or the session.
+
+FIXED by re-targeting the lane to `${handles.rp1}` (UT 693.29), whose slot-0 chain
+(#9 + #10) runs to UT 8949, with the jump at 800 - 107 s past the separation, RF-2's own
+margin. Run 2 (`2026-09-09_1640`) took it first time: `enterwatchmode initiated: index=10
+recId=<runId> auto=true`, `Created ghost vessel 'Ghost: Kerbal X' ...
+orbitSource=endpoint-terminal-orbit`, `EnterMapView` OK, `Polyline legs: rec=<runId>
+count=3` - the only multi-leg census in that log. Every id here is ELIDED because it is run-minted (a fresh HEAD cut off `5157d655`
+every run); quoting one is how the first cut of this entry ended up citing the RED run.
+
+TWO SPEC-SIDE RE-PINS came with it and the second is the one to remember: the watch token
+was written against the verb's PAYLOAD keys (`watching=true`) rather than its log line,
+which carries only `index=` and `recId=`; and `Polyline frame: ... drawn=[1-9]` is the
+token RF-7M's own run 1 had ALREADY refuted (it counts REDRAWS and reads `drawn=0
+staticSkip=13` on a static scene). RF-8 inherited the mistake without inheriting the
+correction. A token copied between lanes carries its own history.
 
 ## ~~RF-FORBID-EM-DASH-CANNOT-MATCH: a forbidden pattern quoting the C# `already committed/fork - not re-deriving MergeState` line with an ASCII HYPHEN can never match, because the source writes an EM DASH~~ FIXED 2026-09-09
 
@@ -9396,7 +9487,7 @@ future reader will look first.
 
 ---
 
-## REFLY-BATCH-BASELINE-DISCARDS-LIVE-SESSION: an in-game batch's baseline restore ends a live Re-Fly session, and the merge dialog never appears [OBSERVED 2026-08-12 by `S4.2-refly-world-preservation` attempt 1 of run `2026-08-11_2111`. REPORT-ONLY - not diagnosed, not fixed. Attempt 2 of the same spec ran clean, so it is INTERMITTENT. **THE DECIDING EXPERIMENT WAS AUTHORED AND FLOWN, AND FOUND THE SEAM CANNOT DRIVE IT: `harness/scenarios/S4.4-refly-quicksave-mid-session.toml`, reading run 1 `2026-09-02_1118` (both attempts INVALID(driver)).** S4.2's cycle with a real `SaveGame name=quicksave` (accepted, inert - the save half does NOT end the session) then a `LoadGame name=quicksave` from inside the live session. The reload was REJECTED at dispatch - `reject id=0005 cmd=LoadGame reason=recording-active` - because after `InvokeRewind` the restored flight RESUMES recording, and the seam's `LoadGame` refuses `recording-active` so a seam reload never silently discards a live recorder. A player's F9 quickload bypasses that guard (stock `GamePersistence.LoadGame` rebuilds the recorder), so the seam cannot reproduce F9-mid-refly without stopping the recorder (which changes the experiment) or a guard-bypass it does not offer. **SO THE DECIDING EXPERIMENT NEEDS A MANUAL F5/F9 PLAYTEST OR A NEW SEAM AFFORDANCE** - the entry stays REPORT-ONLY. S4.4 was re-shaped to RECORD that boundary: it asserts the guard-block (`expect = "REJECTED"` on the reload, reject line pinned), the inert save, and a clean merge conclusion, so it is a seam-drivable record of why the deeper question is still open rather than a lane that pretends past it]
+## ~~REFLY-BATCH-BASELINE-DISCARDS-LIVE-SESSION: an in-game batch's baseline restore ends a live Re-Fly session, and the merge dialog never appears~~ [OBSERVED 2026-08-12 by `S4.2-refly-world-preservation`. **ANSWERED AND CLOSED 2026-09-09 by `S4.4-refly-quicksave-mid-session` run `2026-09-09_1620` (PASS attempt 1), the first run anywhere to reload a save with a LIVE re-fly session under it.** The deciding experiment needed a seam affordance and phase 3 added it: `LoadGame allowLiveRecorder=refly` (RF-3/A1) admits a load past the `recording-active` guard, and ONLY while a re-fly session marker is live. S4.4 drives both halves in one step list - the bare reload still `reject id=0005 cmd=LoadGame reason=recording-active`, then the same quicksave reloaded WITH the opt-in, `loadgame start save=gloops-airshow name=quicksave scene=FLIGHT` -> `loadgame complete`. **A GENUINE RELOAD DOES NOT END THE SESSION.** `Marker loaded: sess_01d2a429...` came back across the load; `Quickload-resume trim scope refreshed: ... trimScope=ActiveRecOnly (refly-active sess=... markerTree=tree-wp-stack-root originRec=wp-booster-a)` shows `IsReFlySessionActiveForQuickloadDiscard` taking the re-fly-aware branch; the forbidden `End reason=treeDiscarded` never fired; and the session concluded cleanly `End reason=merged`. So the emitter that ended S4.2's session is the in-game batch's OWN save-scoped preparation, which is harness isolation (R7's family) and not a product bug. The historical record below is kept because it is what shaped the experiment]
 
 S4.2's driver note called this out in advance as "the one step of this sequence
 with no committed precedent" - a quicksave taken WHILE a Re-Fly session is live,
@@ -11405,7 +11496,7 @@ ZERO raises on any lane; V7T's `icon-off-orbit` red is its own documented findin
 
 ## TS-LOADGAME-RECORDING-ACTIVE-RACE - the scene-entry recorder re-arms after a StopRecording/DiscardTree pair and REJECTS the next `LoadGame` (SECOND SIGHTING 2026-08-09; V5's re-kill mitigation narrows the window, it does not close it)
 
-**What happens.** A `seam`-driver spec that re-enters a second scene mid-run must kill the live recorder first - `TestCommandDispatcher` refuses `LoadGame` with `msg=recording-active` by design, so the load never silently discards a live recording. The TS lanes therefore issue `StopRecording` + `DiscardTree` immediately before the load. On some scene-entry orderings a scene-entry recorder RE-ARMS after that pair and before the load lands, and the load is rejected. The run is driver-INVALID: the second half of the declared sequence never executes.
+**What happens.** A `seam`-driver spec that re-enters a second scene mid-run must kill the live recorder first - `TestCommandDispatcher` refuses `LoadGame` with `msg=recording-active` by design, so the load never silently discards a live recording (the ONE exception, added 2026-09-09, is RF-3/A1's `allowLiveRecorder=refly`, which admits the load only while a re-fly session marker is live). The TS lanes therefore issue `StopRecording` + `DiscardTree` immediately before the load. On some scene-entry orderings a scene-entry recorder RE-ARMS after that pair and before the load lands, and the load is rejected. The run is driver-INVALID: the second half of the declared sequence never executes.
 
 **Sighting 1 (2026-08-08, V5-ts-loop-arrival run 1 attempt 1).** Measured: promotion-recorder start 50.294 -> our StopRecording 50.599 -> a SECOND start 50.842 -> `reject LoadGame reason=recording-active`. Attempt 2 on the identical spec saw no second start. The mitigation adopted then was a re-kill pair placed immediately before the load, described in V5's write-up (and inherited verbatim into V6T / V7T) as "the only placement that makes the outcome deterministic".
 

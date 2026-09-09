@@ -1425,6 +1425,71 @@ class SpecValidationRejectTests(unittest.TestCase):
                         "kind= on a non-ListHandles verb must be rejected: %s"
                         % (list(v.errors),))
 
+    def test_load_game_allow_live_recorder_is_closed_and_case_sensitive(self):
+        # RF-3/A1. The row is OPTIONAL (absent is the pre-RF-3 contract), so unlike
+        # ListHandles' `kind` there is no REQUIRED half - what has to hold is the three
+        # spelling faults, and one of them (the case-variant KEY) is the reason the
+        # validator's comparison had to be lowered on BOTH sides: `allowLiveRecorder` is
+        # the table's first non-lowercase key, so `key.lower() == arg_key` could never
+        # fire for it and the guard would have been inert on the key most likely to be
+        # mis-typed.
+
+        # Valid value on the owning verb validates clean.
+        def m_ok(s):
+            s.get("expectations", {}).pop("ledger", None)
+            s["driver"]["steps"].insert(
+                1, {"cmd": "LoadGame",
+                    "args": {"save": "x", "name": "persistent",
+                             "allowLiveRecorder": "refly"},
+                    "expect": "OK", "budget": 300})
+        v = self._reject(m_ok)
+        self.assertFalse(
+            any("allowLiveRecorder" in e for e in v.errors),
+            "allowLiveRecorder=refly wrongly flagged: %s" % (list(v.errors),))
+
+        # WRONG CASE on the VALUE: the C# parse is case-sensitive.
+        def m_case_value(s):
+            s.get("expectations", {}).pop("ledger", None)
+            s["driver"]["steps"].insert(
+                1, {"cmd": "LoadGame",
+                    "args": {"save": "x", "name": "persistent",
+                             "allowLiveRecorder": "ReFly"},
+                    "expect": "OK", "budget": 300})
+        v = self._reject(m_case_value)
+        self.assertFalse(v.ok)
+        self.assertTrue(
+            any("allowLiveRecorder" in e and "ReFly" in e for e in v.errors),
+            "a case-variant value must be rejected: %s" % (list(v.errors),))
+
+        # WRONG CASE on the KEY: forwarded verbatim and silently ignored by the C#
+        # lookup, so the load would refuse recording-active while the spec believes it
+        # opted in.
+        def m_case_key(s):
+            s.get("expectations", {}).pop("ledger", None)
+            s["driver"]["steps"].insert(
+                1, {"cmd": "LoadGame",
+                    "args": {"save": "x", "name": "persistent",
+                             "allowliverecorder": "refly"},
+                    "expect": "OK", "budget": 300})
+        v = self._reject(m_case_key)
+        self.assertFalse(v.ok)
+        self.assertTrue(
+            any("allowliverecorder" in e for e in v.errors),
+            "a case-variant KEY must be rejected: %s" % (list(v.errors),))
+
+        # WRONG VERB: only LoadGame reads it.
+        def m_verb(s):
+            s.get("expectations", {}).pop("ledger", None)
+            s["driver"]["steps"].insert(
+                1, {"cmd": "RecordingState", "args": {"allowLiveRecorder": "refly"},
+                    "expect": "OK"})
+        v = self._reject(m_verb)
+        self.assertFalse(v.ok)
+        self.assertTrue(
+            any("allowLiveRecorder" in e and "LoadGame" in e for e in v.errors),
+            "allowLiveRecorder on a non-LoadGame verb must be rejected: %s"
+            % (list(v.errors),))
+
     def test_logistics_verbs_are_not_two_phase_deferred(self):
         # Both are SINGLE-phase: the seal (plus its persist) and the
         # build/store/orchestrator-arm are synchronous, so each read-back is a final
@@ -8496,6 +8561,15 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
             "FLOWN. The sealing defect's live reproduction (the only lane whose "
             "promoted recording crosses an environment boundary the optimizer "
             "splits on); reds on a pre-#1658 DLL BY DESIGN. Owes a flight",
+        "RF-11-both-slots-in-sequence.toml":
+            "operator by the reading-run discipline; AUTHORED 2026-09-09, NEVER "
+            "FLOWN. The lane RF-2 was commissioned as, now that "
+            "refly-autopilot-recorded gives the two-open-slot shape a subject. "
+            "Owes a flight, not a human call",
+        "RF-12-concluded-refly-batch.toml":
+            "operator by the reading-run discipline; AUTHORED 2026-09-09, NEVER "
+            "FLOWN, INTERIM tally pin. RF-6 with the re-fly CONCLUDED before the "
+            "batch. Owes a flight, not a human call",
         "RH-1-live-rp-handle-rewind.toml":
             "operator by the reading-run discipline (V1/V2/V24W precedent); AUTHORED "
             "2026-09-08, NEVER FLOWN, reading pending. Owes a flight, not a human call",
@@ -9351,6 +9425,15 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
     # saveParse evaluator, so a second inversion would re-prove the evaluator
     # rather than these windows.
     ARMED_ALLOWLIST = {"S4.1-rewind-merge.toml", "CL-3-refly-crew-tombstone.toml",
+                       # RF-11: `rewind` armed 2026-09-09 through the full cycle -
+                       # reading run `2026-09-09_1631`, armed re-flight `_1659` on the
+                       # same three numbers, negative control `_1700` (rewindPoints
+                       # inverted to {1,1}) reading PARSEK-FAIL on exactly
+                       # `rewind.rewindPoints 0 < min 1` and nothing else, reverted in
+                       # the same change. Only `rewindPoints` is a two-sided pin; the
+                       # other two stay floors because a subtree closure's row and
+                       # tombstone counts depend on what each break-up sheds.
+                       "RF-11-both-slots-in-sequence.toml",
                        # CI-1: `structure` armed 2026-09-08 off its own reading run
                        # `2026-09-08_1054_CI-1-eva-switch-bg-member` (trees {1,2} for the
                        # duplicate-writer hazard, committedTrees 0, recordings 4,
@@ -17708,14 +17791,16 @@ class CommittedFixtureRewindSaveTests(unittest.TestCase):
     to read "no seam verb reaches it", true while `InvokeRewind` was the only rewind
     verb (that one is Rewind-to-SEPARATION and targets
     `Parsek/RewindPoints/<rpId>.sfs` through `RewindInvoker`, a different system).
-    `InvokeRewindToLaunch` drives Rewind-to-LAUNCH, so it CAN reach this payload. The
-    cells below are unaffected TODAY because the one committed lane that drives the
-    verb (`GS-4-kerbalx-rewind-watch`, over the kx_rewind_watch mission's seam
-    bridge) rewinds to a quicksave its OWN in-run recording captured, never a
-    fixture-committed one - its fixture (`gs1-two-stage-pad`) carries no
-    `parsek_rw_*` payload, which is exactly what these cells enforce. A spec that
-    drives the verb against a fixture-committed rewind save must re-check both
-    halves here, not just the RewindPoints one.
+    `InvokeRewindToLaunch` drives Rewind-to-LAUNCH, so it CAN reach this payload.
+    THREE committed step sites drive it as of 2026-09-09 - `H58-route-rewind-to-launch`
+    twice and `RF-4-rewind-to-launch-after-merge` once; the enumeration here used to
+    name only `GS-4-kerbalx-rewind-watch`, which reaches it through the kx_rewind_watch
+    mission's seam bridge. The cells below are unaffected by all of them for one reason
+    that has not moved: every one of those lanes rewinds to a quicksave its OWN in-run
+    recording captured, never a fixture-committed one, because no fixture carries a
+    `parsek_rw_*` payload and these cells are what enforce that. A spec that drives the
+    verb against a fixture-committed rewind save must re-check both halves here, not
+    just the RewindPoints one.
 
     The FILE and the HINT must go together. A `rewindSave = ` key pointing at a
     deleted file is a dangling reference: Inv9RewindPoint raises WARN for it, and
@@ -17724,14 +17809,42 @@ class CommittedFixtureRewindSaveTests(unittest.TestCase):
     deleting the payload alone would turn the analyzer RED under the harness's
     Forbid fresh-save gate. This cell pins both halves.
 
-    KNOWN, TOLERATED RESIDUAL: `bdock-recorded/Parsek/RewindPoints/rp_*.sfs` embed
-    their own copies of the ParsekScenario, hints included, and are NOT edited -
-    they are byte-sensitive payload (`RewindInvoker.PartLoaderPrecondition.Check`
-    deep-parses their PART names) and `test_saveparse` pins `rewind_points: 3`.
-    Those hints only surface if a run actually invokes a rewind against
-    `bdock-recorded`, and neither consuming spec (`BDOCK-1-station-interceptor`,
-    `H35-logistics-route-proof`) has an `InvokeRewind` step. A spec that adds one
-    must re-check this."""
+    THE RESIDUAL INSIDE THE REWINDPOINT QUICKSAVES SURFACED, exactly as this
+    docstring warned it would, and the note is corrected rather than deleted. It
+    used to read: `bdock-recorded/Parsek/RewindPoints/rp_*.sfs` embed their own
+    copies of the ParsekScenario, hints included, and are NOT edited - they are
+    byte-sensitive payload (`RewindInvoker.PartLoaderPrecondition.Check`
+    deep-parses their PART names) and `test_saveparse` pins `rewind_points: 3`;
+    those hints only surface if a run actually invokes a rewind against
+    `bdock-recorded`, and neither consuming spec had an `InvokeRewind` step, so
+    "a spec that adds one must re-check this".
+
+    Seven specs now add one over `bdock-recorded` - RF-2, RF-3, RF-5, RF-6, RF-8,
+    RH-1, CI-2 (the roster's first cut named RF-4 instead of RF-6, in the very
+    commit that re-hosted RF-4 onto `gs1-two-stage-pad`; the count survived by
+    coincidence) - and they are green. It surfaced on the OTHER fixture first,
+    and then on this one too, at WARN. RF-11 re-flew
+    `refly-autopilot-recorded`'s point and the restore read the pruned name back
+    out of the quicksave's `PARSEK_ACTIVE_TREE` (`RewindSaveFileName set for
+    restore: '<null>' -> 'parsek_rw_7f15ef'`), `SaveActiveTreeIfAny` copied it to
+    the tree ROOT, and Inv9RewindPoint FAILed `missing-rewind-save-provisional` on
+    a `CommittedProvisional` recording pointing at a file no fixture carries.
+
+    So the VALUES are now cleared in EVERY committed fixture's RewindPoint
+    quicksaves (value-only edits: the keys stay, no PART name and no line count
+    moves, so the deep parse and every pinned count are untouched), and the cell
+    below pins the absence corpus-wide.
+
+    IT WAS SCOPED TO ONE FIXTURE FOR HALF A DAY, on the argument that bdock's
+    three copies are more load-bearing bytes and that seven lanes re-fly that
+    fixture green. The review panel refuted the second half the same day: RF-8's
+    own green run restores `parsek_rw_2226aa` out of
+    `rp_f4edbb97....sfs`, and its produced analysis carries the identical INV9
+    finding one severity down - `WARN ... missing-rewind-save` rather than the
+    RED `missing-rewind-save-provisional` - because severity splits on the owning
+    recording's MergeState (`Inv9RewindPoint.cs`). bdock's green sat one
+    MergeState away from RF-11's red on the same defect, so "it has not failed
+    yet" was doing work "it cannot fail" would have had to earn."""
 
     def test_no_fixture_commits_a_rewind_to_launch_quicksave(self):
         offenders = []
@@ -17760,6 +17873,55 @@ class CommittedFixtureRewindSaveTests(unittest.TestCase):
                          "a rewindSave hint whose payload is not committed is a "
                          "dangling reference: Inv9RewindPoint WARNs, and FAILs when "
                          "the owning recording is CommittedProvisional")
+
+    def test_no_fixture_rewind_point_quicksave_references_a_rewind_save(self):
+        # RF-11, 2026-09-09, WIDENED THE SAME DAY BY THE REVIEW PANEL. The quicksave
+        # embeds its own ParsekScenario copy, so a re-fly restores whatever rewind save
+        # it names and the analyzer then reports a dangling reference on the recording
+        # the name lands on.
+        #
+        # The first cut scoped this to `refly-autopilot-recorded` alone, on the argument
+        # that bdock's three copies are more load-bearing bytes and that seven lanes
+        # re-fly that fixture green. The panel refuted the second half: RF-8's OWN green
+        # run restores `parsek_rw_2226aa` out of `rp_f4edbb97...`, and its produced
+        # analysis carries the identical INV9 finding one severity down -
+        # `WARN ... missing-rewind-save recording=5157d655...` instead of the RED
+        # `missing-rewind-save-provisional`. Severity splits on the owning recording's
+        # MergeState (`Inv9RewindPoint.cs`), so bdock's green sat exactly one MergeState
+        # away from RF-11's red, on the same defect. "It has not failed yet" is not the
+        # same claim as "it cannot".
+        #
+        # So the prune is corpus-wide and the edits are value-only: the keys stay, no
+        # PART name and no line count moves, which is what keeps
+        # `RewindInvoker.PartLoaderPrecondition.Check`'s deep parse and every pinned
+        # count (`test_saveparse`'s `rewind_points: 3`) untouched.
+        offenders = []
+        for name in sorted(os.listdir(FIXTURE_SAVES_DIR)):
+            rp_dir = os.path.join(FIXTURE_SAVES_DIR, name, "Parsek", "RewindPoints")
+            if not os.path.isdir(rp_dir):
+                continue
+            offenders.extend(self._rewind_save_refs(rp_dir, name))
+        self.assertEqual([], offenders,
+                         "a rewind-to-launch reference inside a RewindPoint quicksave "
+                         "is restored by a re-fly and copied onto the tree root, where "
+                         "Inv9RewindPoint reports it as a dangling reference (RF-11 "
+                         "reading run 1). Clear the VALUE, keep the key")
+
+    @staticmethod
+    def _rewind_save_refs(rp_dir, label):
+        # ANY `parsek_rw_*` reference, not one key's spelling. The name the restore
+        # reads is `resumeRewindSave` on the PARSEK_ACTIVE_TREE resume node, NOT the
+        # `rewindSave` on the recording - a first pass that matched only the latter
+        # cleaned the file and the lane was still red. Matching the VALUE makes this
+        # about the property rather than about a key list somebody has to keep complete.
+        found = []
+        for name in sorted(os.listdir(rp_dir)):
+            with open(os.path.join(rp_dir, name), "r",
+                      encoding="utf-8", errors="replace") as fh:
+                for lineno, line in enumerate(fh, 1):
+                    if re.search(r"parsek_rw_\w+", line):
+                        found.append("%s/%s:%d %s" % (label, name, lineno, line.strip()))
+        return found
 
     def test_the_rewind_points_payload_is_untouched(self):
         # The other half of the trade. RewindPoints are NOT exhaust - they are

@@ -1,0 +1,305 @@
+schema = 1
+id = "RF-11-both-slots-in-sequence"
+# =====================================================================================
+# THE RE-FLY CONTINUATION PROGRAM, LANE 11. BOTH HALVES OF ONE REWINDPOINT, IN SEQUENCE.
+#
+# THIS IS THE LANE RF-2 WAS COMMISSIONED AS. RF-2's header says so in its own words:
+# it was asked for as "re-fly slot A of one RewindPoint, merge, assert the point SURVIVES
+# because slot B is still open, then re-fly slot B and assert it reaps only now", and it
+# had to substitute a per-POINT axis because
+#
+#   "Every committed RewindPoint in the tree has EXACTLY ONE OPEN SLOT ... Producing two
+#    open slots in one point therefore needs BOTH halves crashed or both unconcluded,
+#    which no committed mission flies and no committed generator stamps."
+#
+# THAT STOPPED BEING TRUE THE NEXT DAY. `refly-autopilot-recorded` landed on 2026-09-09 as
+# RF-9's own produced save, and it carries `rp_404ea488` with `sessionProvisional = False`,
+# TWO `CHILD_SLOT`s both `controllable = True`, and BOTH effective tips
+# `mergeState = CommittedProvisional`:
+#
+#   slot 0  origin 4a7739f6 (Destroyed)   -> superseded by rec_c54a110c  CommittedProvisional
+#   slot 1  origin 490f0f52 (SubOrbital)  -> chain tip  99ae6e58         CommittedProvisional
+#
+# (`persistent.sfs:1354-1398` for the point, `:626-1146` for the recordings; the two TIPs
+# carrying the open bit are pinned cell by cell in `harness/lib/test_refly_autopilot_recorded.py`
+# and are the reason the fixture is committed at all.) So the two-open-slot shape RF-2
+# could not find a subject for now exists on disk, and this lane is its first consumer.
+#
+# =====================================================================================
+# THE MEASUREMENT, AND WHERE IT ACTUALLY BITES.
+#
+# `RewindPointReaper.IsReapEligible` (`RewindPointReaper.cs:193-235`) returns false the
+# moment ANY slot's effective tip is `NotCommitted` or `CommittedProvisional`. The
+# property this lane exists to hold is that the predicate is per-POINT-over-ALL-SLOTS
+# rather than per-slot: closing ONE half of a two-slot point must leave the point, its
+# quicksave and the OTHER half's re-fly intact.
+#
+# THE LOAD-BEARING ASSERTION IS A STEP, NOT A TOKEN, and that is deliberate. Act 2 drives
+#   `InvokeRewind rp=${handles2.rp0} slot=1`   expect = OK
+# on an id read from a SECOND enumeration taken after act 1's merge, and the guard is
+# TIGHTER than "the verb would refuse". `TestCommandListHandles.BuildRewindPointsPayload`
+# emits an `rp0` key only when a row exists, so a reaped point leaves the reference
+# UNRESOLVED: `run.py` never writes the command line at all, kills the tree and classifies
+# driver-INVALID with `unresolvedHandle`. The run cannot reach act 3 in a world where act
+# 1's merge took the point. Act 3's `SealSlot rp=${handles3.rp0} slot=0` is the same guard
+# a third time. It has to be carried this way: presence-only log matching cannot express
+# "this summary must not have appeared YET" over two identical lines.
+#
+# =====================================================================================
+# WHY THE SLOTS ARE CLOSED BY A SEAL AND NOT BY THE MERGES. This is the one substitution
+# in the file and it is a reading of the fixture's own bytes rather than a preference.
+#
+# A merge closes a slot only when `TerminalKindClassifier` maps the re-fly tip to a
+# CLOSING kind; a CRASHED tip stays `CommittedProvisional`, because a crash is exactly the
+# thing a player re-flies. RF-9 already ran this experiment on this RewindPoint: it
+# re-flew slot 0, merged, and the fork it left - `rec_c54a110c`, `terminalState = 4`
+# (Destroyed) - is `mergeState = CommittedProvisional` on disk (`persistent.sfs:1120-1146`).
+# So on THIS profile a re-fly + merge provably does NOT close its slot, and a lane that
+# asserted `reaped=1` off a second merge would be asserting something the corpus says is
+# false. The restored stack is a mid-atmosphere separation at UT 131.54 with nothing
+# commanding it: it breaks up. Crashed is the honest outcome, not an accident.
+#
+# `SealSlot rp= slot=` is therefore the instrument that closes each half, and the seal
+# handler prints its own verdict per call - which is the token pair this lane pins:
+#
+#   `Sealed slot=0 ... mergeState=CommittedProvisional->Immutable ... reaperImpact=stillBlocked reaped=0`
+#   `Sealed slot=1 ... mergeState=CommittedProvisional->Immutable ... reaperImpact=willReap  reaped=1`
+#
+# `UnfinishedFlightSealHandler.cs:116-120` is the whole mechanism: `willReap` is
+# `persistedBeforeReap && IsReapEligible(rp, supersedes)`, and `ReapOrphanedRPs()` is
+# called ONLY inside `if (willReap)`. So a seal that leaves the point blocked never runs
+# the reaper at all, and `reaperImpact=` is the handler saying which branch it took.
+#
+# CORRECTED 2026-09-09 BY THE REVIEW PANEL, and the correction is the point of this
+# paragraph. The first cut of this lane required `ReapOrphanedRPs: reaped=0 remaining=1`
+# as the slot-0 witness, reading `:119` as "the seal always runs the reaper". It does not,
+# and the green run proves it: there is NO reaper summary between act 3's enumeration and
+# the slot-0 seal, and all nine `reaped=0 remaining=1` lines in that log are boot / scene
+# sweeps - RF-10 pins one of them as its entire subject on this same fixture. The token
+# carried no information about this lane whatsoever. `Sealed slot=N ... reaperImpact=` is
+# ordered, per-slot, and cannot be produced by a boot.
+#
+# A reaper that read eligibility per-SLOT instead of per-POINT would print
+# `reaperImpact=willReap reaped=1` on the FIRST seal and then fail the second seal with
+# `unknown-rp`, so the failure is caught by a step verdict as well as by the wrong token.
+#
+# =====================================================================================
+# THE MERGES ARE STILL FLOWN, AND THEY ARE NOT DECORATION. The subject is BOTH HALVES
+# RE-FLOWN in one run, so each act does a real `InvokeRewind` + conclusion + merge; the
+# seals in act 3 are the closing move, not a substitute for the re-flies. The proof that
+# each attempt was genuinely flown rather than retired unflown is the supersede rows:
+# `MergeDialog.TryCommitReFlySupersede` answers `refused-unflown-provisional` /
+# `concluded-no-supersede` with ZERO rows by design, so a growing row count is the
+# evidence. The fixture starts at TWO (both from RF-9's merge, `persistent.sfs:1399-1418`).
+#
+# NO `TimeJump`, and that is measured rather than saved. RF-2 and RF-4 need one because
+# `bdock-recorded`'s restored vessels are in stable orbits and would sit there forever;
+# here RF-9 flew this exact RewindPoint with NO TimeJump and its merge still wrote two
+# supersede rows and eight tombstones, because the restored stack concludes on its own
+# within the merge budget. Adding a jump would put a warp inside an atmosphere for no
+# gain.
+#
+# =====================================================================================
+# THE ONE TOKEN THAT IS WEAKER THAN IT LOOKS, said plainly rather than left to be found.
+# `ReapOrphanedRPs: reaped=0 remaining=1` also fires at EVERY boot of this fixture - RF-10
+# pins exactly that line as its whole subject on the same save - so its presence here is
+# satisfied before act 1 runs a single step. It is required anyway because its ABSENCE
+# would be a finding, but the assertion that carries the lane is the pair
+# `sealslot complete ... slot=0` / `... slot=1` bracketing it, plus the final
+# `listhandles kind=rewindpoints count=0`, which nothing but a real deletion can produce.
+#
+# =====================================================================================
+# STATUS: LIVE-PROVEN AND ARMED 2026-09-09, through the full S4.1 cycle.
+#   READING RUN     `2026-09-09_1631` PASS attempt 1, expectations mismatches=0 over 9
+#                   required and 4 forbidden, analyzer red=0, saveParse REPORT
+#                   mismatches=0 with every DERIVED window landing:
+#                   `rewindPoints=0 supersedeRows=7 tombstones=10`, recordings 13,
+#                   points total 1200.
+#   ARMED RE-FLIGHT `2026-09-09_1659` PASS attempt 1, `saveParse status=PASS
+#                   gating=True armed=['rewind']`, the SAME three numbers - which is
+#                   what makes them a measurement of the lane rather than of a run.
+#   NEGATIVE CONTROL `2026-09-09_1700` with `rewindPoints` inverted to `{1,1}`:
+#                   PARSEK-FAIL(gating save-structure), mismatches
+#                   `['rewind.rewindPoints 0 < min 1']` - ONE token, nothing else -
+#                   reverted in the same change.
+# `rewindPoints = {0,0}` is the facet worth arming and the other two stay FLOORS on
+# purpose: `IsReapEligible` refuses the moment any slot's effective tip is open, so a
+# count of exactly zero on disk is only reachable when BOTH seals really closed their
+# half; whereas how many supersede rows and tombstones a subtree closure produces
+# depends on what each break-up sheds, and a ceiling there would be a guess dressed as
+# a pin.
+#
+# THREE RUNS BEFORE THE READING RUN WERE SPENT ON A FIXTURE FINDING, and it is recorded
+# in `docs/dev/todo-and-known-bugs.md` as
+# RF11-REWINDPOINT-QUICKSAVE-CARRIES-A-PRUNED-REWIND-SAVE-HINT: runs `_1621` and `_1628`
+# were PARSEK-FAIL on `INV9-REWINDPOINT missing-rewind-save-provisional` with every
+# driver step met, because the harvest clears the rewind-to-launch hint in
+# `persistent.sfs` and not inside the RewindPoint quicksave - so the re-fly read it back
+# out of `PARSEK_ACTIVE_TREE` and `SaveActiveTreeIfAny` copied it onto the tree root.
+# Run 2 is the instructive one: clearing only the `rewindSave` key left the lane red,
+# because the key the restore reads is `resumeRewindSave`.
+#
+# The 9 report-only `NullReferenceException`s the unityExceptions row carries are ALL
+# stock `SpaceCenterCamera2.UpdateTransformOverview` with no Parsek frame in any stack.
+# `tier = "operator"`.
+# =====================================================================================
+tier = "operator"
+description = "Both halves of one RewindPoint re-flown in sequence over refly-autopilot-recorded, the corpus's only point with TWO open slots: re-fly slot 0 and merge, prove the point SURVIVED by re-flying slot 1 through a second runtime enumeration, then seal each half in turn and assert the reaper declined on the first (reaped=0 remaining=1) and took the point only on the last (reaped=1 remaining=0) - the per-point-over-all-slots scope of RewindPointReaper.IsReapEligible."
+instanceProfile = "stock-minimal"
+tags = ["RF-11", "rewind", "refly", "unfinished-flights", "rp-disk-reaper", "supersede",
+        "seal", "runtime-handles", "kerbin", "sandbox", "reading-run"]
+
+[fixture]
+# RF-9's produced save, and the ONLY committed fixture whose RewindPoint has two OPEN
+# slots. RF-10 is its other consumer and pins its cold-boot shape exactly (11 recordings,
+# 2 supersede rows, 8 tombstones, 1 rewind point), which is what makes this lane's deltas
+# legible: everything below starts from those numbers.
+saveTemplate       = "fixtures/saves/refly-autopilot-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+
+# THREE ACTS. Acts 1 and 2 are RF-9's act-3 chain verbatim (ListHandles -> InvokeRewind ->
+# AnswerMergeDialog), each preceded by the boot guards every rewind lane carries: the boot
+# PROMOTES the committed tip into a live recorder and `InvokeRewind`'s dispatch guard
+# REJECTs `recording-active` over it (RH-1 reading run 1 spent a whole flight learning
+# that), and `autoRecordOnLaunch` goes false so nothing new opens behind it.
+# `verboseLogging` is LOAD-BEARING twice over: both the reaper's per-sweep summary and the
+# seal handler's audit line are `ParsekLog.Verbose`.
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },  expect = "OK" },
+  { cmd = "StopRecording",                                                          expect = "OK" },
+  # --- ACT 1: the FOCUS half (slot 0) --------------------------------------------------
+  { cmd = "ListHandles",       args = { kind = "rewindpoints" }, label = "handles",  expect = "OK" },
+  { cmd = "InvokeRewind",      args = { rp = "${handles.rp0}", slot = "0" },         expect = "OK", budget = 300 },
+  { cmd = "AnswerMergeDialog", args = { choice = "merge" },                          expect = "OK", budget = 120 },
+  # --- ACT 2: the OTHER half (slot 1), over what act 1's merge left --------------------
+  # The second enumeration is the survival proof. `handles2.rp0` is the SAME point act 1
+  # used - the fixture carries exactly one - and the spec never spells either id.
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "StopRecording",                                                          expect = "OK" },
+  { cmd = "ListHandles",       args = { kind = "rewindpoints" }, label = "handles2", expect = "OK" },
+  { cmd = "InvokeRewind",      args = { rp = "${handles2.rp0}", slot = "1" },        expect = "OK", budget = 300 },
+  { cmd = "AnswerMergeDialog", args = { choice = "merge" },                          expect = "OK", budget = 120 },
+  # --- ACT 3: close them one at a time, and watch WHEN the point goes -------------------
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "StopRecording",                                                          expect = "OK" },
+  { cmd = "ListHandles",       args = { kind = "rewindpoints" }, label = "handles3", expect = "OK" },
+  # Neither merge closed its slot (see the header), so both seals must report
+  # `alreadySealed=False`. That is asserted as a FORBIDDEN `alreadySealed=True` below:
+  # a seal that found its slot already closed would mean a merge DID close it, which
+  # would make the reap arithmetic below measure something else entirely.
+  { cmd = "SealSlot",          args = { rp = "${handles3.rp0}", slot = "0" },        expect = "OK", budget = 120 },
+  { cmd = "SealSlot",          args = { rp = "${handles3.rp0}", slot = "1" },        expect = "OK", budget = 120 },
+  # The point is GONE, read back through the seam rather than off a response.
+  { cmd = "ListHandles",       args = { kind = "rewindpoints" }, label = "after",    expect = "OK" },
+  { cmd = "RecordingState",                                                          expect = "OK" },
+  { cmd = "FlushAndQuit",                                                            expect = "OK" },
+]
+
+[dimensionsCovered]
+# BASICS ONLY until the reading run, on RH-1's claim-is-not-gate ground. What it would
+# earn: `rewind-to-separation` / `refly-gate` off the two StartInvoke pairs,
+# `supersede-relation` off the two merges, `seal-stash-fly` off the two seals, and
+# `rp-disk-reaper` off the reap that only the LAST of them produced - which would make
+# this the first lane to claim the reaper from an exhausted MULTI-slot point.
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The fixture stages 11 sidecars (RF-10 pins that exactly) and two re-flies add their own
+# provisionals. The floor is the anti-vacuity half; the ceiling has headroom for whatever
+# debris the two atmospheric break-ups shed. A first reading measures the real count.
+count = { min = 11, max = 30 }
+
+[expectations.logContracts]
+# ORDERED AS THE RUN GOES. The three enumeration counts and the two seal lines are the
+# lane; the two reaper summaries are the arithmetic they bracket.
+#
+#   `count=1` x3   the point was there before act 1, SURVIVED act 1's merge, and survived
+#                  act 2's. Presence-only matching cannot tell the three apart, which is
+#                  why the survival claim rests on the two `${handles<n>.rp0}` steps
+#                  succeeding rather than on this token.
+#   StartInvoke    a re-fly actually started. Twice, indistinguishably.
+#   sealslot x2    slot 0 then slot 1, each naming its own index - two DIFFERENT literals,
+#                  so both must genuinely appear.
+#   reaped=0/1     the scope. See the header for why the first is weaker than it looks.
+#   Reaped rp=     the per-point deletion line, emitted once, naming a 2-slot point.
+#   `count=0`      the strongest token in the file: nothing but a real deletion produces
+#                  an empty enumeration on a fixture that ships exactly one point.
+required = [
+  "listhandles kind=rewindpoints count=1 truncated=false",
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=.* rp=rp_[0-9a-f]{32}",
+  # BOTH HALVES, named. `Invocation complete` carries the slot index, so the two
+  # re-flies are distinguishable where the StartInvoke pair is not - which is the
+  # lane's own title asserted rather than described.
+  "Invocation complete: .* slot=0 activePid=[0-9]+",
+  "Invocation complete: .* slot=1 activePid=[0-9]+",
+  "sealslot complete mode=slot rp=\\S+ slot=0 tip=\\S+ alreadySealed=False",
+  "sealslot complete mode=slot rp=\\S+ slot=1 tip=\\S+ alreadySealed=False",
+  # THE ARITHMETIC, per-slot and ordered. See the header for why the reaper's own
+  # summary cannot serve here: it is not emitted by a blocked seal, and the copies
+  # that DO appear are boot sweeps this fixture produces on every load.
+  "Sealed slot=0 .*mergeState=CommittedProvisional->Immutable .*reaperImpact=stillBlocked reaped=0",
+  "Sealed slot=1 .*mergeState=CommittedProvisional->Immutable .*reaperImpact=willReap reaped=1",
+  "Reaped rp=\\S+ bp=\\S+ slots=2",
+  "ReapOrphanedRPs: reaped=1 remaining=0",
+  "listhandles kind=rewindpoints count=0 truncated=false",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # A seal that found its slot ALREADY closed. Either merge closing its own slot would
+  # produce it, and that would silently change what the two reaper summaries measure -
+  # the point would already have been one-slot-open before act 3 began.
+  "sealslot complete mode=slot .*alreadySealed=True",
+  # NOT forbidden: `ReapOrphanedRPs: reaped=2`. `RewindPointReaper.cs` prints
+  # `reaped={toReap.Count}` where the list holds POINTS, not slots, and this fixture
+  # ships exactly one point - so the counter cannot exceed 1 under any defect and the
+  # clause could never fail. Removed 2026-09-09 by the review panel rather than left as
+  # a clause that reads clear for the wrong reason. The per-slot failure it was reaching
+  # for is caught by `reaperImpact=stillBlocked` above and by the two handle steps.
+  # The seed session's closure token, carried across the RF family as a standing guard:
+  # a chain TIP that lost its MergeState reads CLOSED, which would reap this point at
+  # boot and take both halves with it. That is the defect PR #1658 fixed and the exact
+  # reason this fixture exists.
+  "reason=sealedTipClosed",
+]
+
+# ARMED 2026-09-09 (see the STATUS block). Every window says what it rests on:
+#   rewindPoints  the fixture ships 1; act 3's last seal reaps it, so 0 survives. This is
+#                 the only facet that can be predicted exactly.
+#   supersedeRows the fixture carries 2 (RF-9's merge). Each of this lane's two merges
+#                 appends at least one row for its superseded subtree, so >= 4. NOT pinned
+#                 with a ceiling: how many rows a subtree closure produces depends on how
+#                 much debris each break-up sheds, which is a reading, not a derivation.
+#   tombstones    the fixture carries 8 (crewed pod, RF-9's kerbal deaths). Both re-flies
+#                 restore crewed stacks that break up, so the count can only grow.
+[expectations.rewind]
+gating        = true
+rewindPoints  = { min = 0, max = 0 }
+supersedeRows = { min = 4 }
+tombstones    = { min = 8 }
+
+[runtime]
+# Budget arithmetic (M-A5 S8), deferred verbs at max(step,600)+60 and the rest at
+# max(step, 60+60):
+#   LoadGame x3 1980 + SetSetting x4 480 + StopRecording x3 360 + ListHandles x4 480
+#   + InvokeRewind x2 1320 + AnswerMergeDialog x2 360 + SealSlot x2 240
+#   + RecordingState 120 + FlushAndQuit 120 = 5460. 5900 clears it by 440. (The x5
+#   in the first cut was a miscount corrected by the review panel; the ceiling is
+#   unchanged because it only ever has to EXCEED the sum.)
+budgetSeconds = 5900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

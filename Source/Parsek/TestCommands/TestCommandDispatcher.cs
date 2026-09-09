@@ -400,12 +400,38 @@ namespace Parsek.TestCommands
             switch (parsed.Verb)
             {
                 case "LoadGame":
+                {
                     // Never silently discard an in-flight recording, and never overlap loads.
-                    if (state.Recording)
+                    //
+                    // RF-3/A1, THE ONE OPT-IN: `allowLiveRecorder=refly` lets the load
+                    // past the recording-active guard, and ONLY when a re-fly session
+                    // marker is live. That state - a reload on top of a running re-fly
+                    // recorder - is a state ORDINARY PLAY reaches (F5/F9 mid re-fly; see
+                    // ReFlyProvisionalBinding's "reachable from ordinary play (rewind,
+                    // F5/F9, conclude without flying)"), and the seam could not reproduce
+                    // it at all: stopping the recorder first changes what the experiment
+                    // observes, because a load WITH a live recorder is the event the guard
+                    // exists to describe.
+                    //
+                    // THE GUARD IS UNCHANGED FOR EVERY OTHER CALLER, in both directions.
+                    // Without the arg, a live recorder still refuses. WITH the arg but no
+                    // marker, a live recorder still refuses with the SAME token - the arg
+                    // buys nothing on its own, so it cannot become a habit that quietly
+                    // erases the guard from lanes that are not mid-re-fly. And a
+                    // mis-spelled value is REJECTED rather than ignored, so an opt-in that
+                    // did not parse can never read as a load that was simply refused.
+                    bool allowLiveRecorderReFly;
+                    if (!TestCommandLoadGame.TryParseAllowLiveRecorder(
+                            Arg(parsed, "allowLiveRecorder"), out allowLiveRecorderReFly))
+                        return DispatchResult.Reject(
+                            TestCommandLoadGame.AllowLiveRecorderArgInvalidReason);
+                    if (state.Recording
+                        && !(allowLiveRecorderReFly && state.ActiveReFlyMarker))
                         return DispatchResult.Reject("recording-active");
                     if (state.LoadInFlight)
                         return DispatchResult.Reject("load-in-flight");
                     break;
+                }
 
                 case "InvokeRewind":
                 // Rewind-to-Launch shares the guard triple EXACTLY, for the same three

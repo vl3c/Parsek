@@ -16,6 +16,13 @@ namespace Parsek.Tests
         private static ParsedCommand Cmd(string verb)
             => TestCommandParser.ParseLine("id=1 cmd=" + verb, 1);
 
+        /// <summary>Same as <see cref="Cmd"/> with verb args appended verbatim
+        /// (<c>key=value</c> tokens, space-separated) so a dispatch cell can drive an
+        /// arg the decision reads.</summary>
+        private static ParsedCommand CmdArgs(string verb, params string[] argTokens)
+            => TestCommandParser.ParseLine(
+                "id=1 cmd=" + verb + " " + string.Join(" ", argTokens), 1);
+
         private static DispatchState Flight() => new DispatchState
         {
             Scene = TestCommandScene.Flight,
@@ -207,6 +214,105 @@ namespace Parsek.Tests
             var r = TestCommandDispatcher.DecideDispatch(Cmd("LoadGame"), st);
             Assert.Equal(DispatchDecision.Reject, r.Decision);
             Assert.Equal("recording-active", r.Reason);
+        }
+
+        // ----- RF-3/A1: LoadGame allowLiveRecorder=refly -----
+        //
+        // The opt-in is a CONJUNCTION (arg present AND marker live) and the cells below
+        // are one leg each. Mutating the guard to `state.Recording && !allowArg` (dropping
+        // the marker term) reds NoMarker; mutating it to
+        // `state.Recording && !state.ActiveReFlyMarker` (dropping the arg term) reds
+        // MarkerWithoutArg; deleting the parse call reds the invalid-value cells.
+
+        [Fact]
+        public void LoadGame_LiveRecorder_AllowReFlyArg_WithMarker_Executes()
+        {
+            var st = Flight();
+            st.Recording = true;
+            st.ActiveReFlyMarker = true;
+            var r = TestCommandDispatcher.DecideDispatch(
+                CmdArgs("LoadGame", "allowLiveRecorder=refly"), st);
+            Assert.Equal(DispatchDecision.Execute, r.Decision);
+        }
+
+        [Fact]
+        public void LoadGame_LiveRecorder_AllowReFlyArg_NoMarker_StillRejects_RecordingActive()
+        {
+            var st = Flight();
+            st.Recording = true;
+            st.ActiveReFlyMarker = false;
+            var r = TestCommandDispatcher.DecideDispatch(
+                CmdArgs("LoadGame", "allowLiveRecorder=refly"), st);
+            Assert.Equal(DispatchDecision.Reject, r.Decision);
+            Assert.Equal("recording-active", r.Reason);
+        }
+
+        [Fact]
+        public void LoadGame_LiveRecorder_MarkerWithoutArg_StillRejects_RecordingActive()
+        {
+            var st = Flight();
+            st.Recording = true;
+            st.ActiveReFlyMarker = true;
+            var r = TestCommandDispatcher.DecideDispatch(Cmd("LoadGame"), st);
+            Assert.Equal(DispatchDecision.Reject, r.Decision);
+            Assert.Equal("recording-active", r.Reason);
+        }
+
+        [Theory]
+        [InlineData("allowLiveRecorder=ReFly")]
+        [InlineData("allowLiveRecorder=true")]
+        [InlineData("allowLiveRecorder=")]
+        public void LoadGame_AllowLiveRecorder_BadValue_Rejects_ArgInvalid(string argToken)
+        {
+            var st = Flight();
+            st.Recording = true;
+            st.ActiveReFlyMarker = true;
+            var r = TestCommandDispatcher.DecideDispatch(CmdArgs("LoadGame", argToken), st);
+            Assert.Equal(DispatchDecision.Reject, r.Decision);
+            Assert.Equal(TestCommandLoadGame.AllowLiveRecorderArgInvalidReason, r.Reason);
+        }
+
+        [Fact]
+        public void LoadGame_AllowLiveRecorder_BadValue_RejectsEvenWithNoRecorder()
+        {
+            // A typo rejects even in a state where the opt-in was never needed, so a spec
+            // that mis-spells the value learns it on the first step rather than on the one
+            // where a recorder happens to be live. NOTE what this does NOT pin: moving the
+            // parse after the recorder term leaves this cell green (with Recording=false the
+            // recorder term is skipped and the relocated parse still rejects). The ORDER is
+            // pinned by the three BadValue_Rejects_ArgInvalid rows, which run with a live
+            // recorder and a live marker.
+            var r = TestCommandDispatcher.DecideDispatch(
+                CmdArgs("LoadGame", "allowLiveRecorder=yes"), MainMenu());
+            Assert.Equal(DispatchDecision.Reject, r.Decision);
+            Assert.Equal(TestCommandLoadGame.AllowLiveRecorderArgInvalidReason, r.Reason);
+        }
+
+        [Fact]
+        public void AllowLiveRecorder_OnlyRelaxesLoadGame_NotInvokeRewind()
+        {
+            // The opt-in is scoped to ONE verb. InvokeRewind carries the identical
+            // recording-active token and must not inherit the relaxation.
+            var st = Flight();
+            st.Recording = true;
+            st.ActiveReFlyMarker = true;
+            var r = TestCommandDispatcher.DecideDispatch(
+                CmdArgs("InvokeRewind", "allowLiveRecorder=refly"), st);
+            Assert.Equal(DispatchDecision.Reject, r.Decision);
+            Assert.Equal("recording-active", r.Reason);
+        }
+
+        [Fact]
+        public void LoadGame_AllowLiveRecorder_DoesNotRelaxLoadInFlight()
+        {
+            var st = Flight();
+            st.Recording = true;
+            st.ActiveReFlyMarker = true;
+            st.LoadInFlight = true;
+            var r = TestCommandDispatcher.DecideDispatch(
+                CmdArgs("LoadGame", "allowLiveRecorder=refly"), st);
+            Assert.Equal(DispatchDecision.Reject, r.Decision);
+            Assert.Equal("load-in-flight", r.Reason);
         }
 
         [Fact]

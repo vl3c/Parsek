@@ -235,7 +235,12 @@ forbidden = [
   # session was NOT live when the batch ran and the whole lane measured R7a again - which
   # is the single most likely way this experiment fails silently, and the reason it is
   # forbidden rather than left to the tally arithmetic.
-  "No active re-fly session - invoke a rewind",
+  # WIDENED 2026-09-09 by the review panel, and this lane is where RF-12 inherited the
+  # bug from. Nine of the eleven in-game cells that print this skip use an EM DASH; the
+  # ASCII-hyphen copy quoted here can only ever see two of them, and neither is one of
+  # the cells whose execution this lane exists to prove. Pinned on the prefix every
+  # emitter shares. Same character, same class as RF-FORBID-EM-DASH-CANNOT-MATCH.
+  "No active re-fly session",
 ]
 
 [runtime]
