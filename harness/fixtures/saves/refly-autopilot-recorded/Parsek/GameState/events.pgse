@@ -1,0 +1,54 @@
+version = 1
+GAME_STATE_EVENT
+{
+	ut = 174.9600000000157
+	type = 18
+	key = RecordsAltitude
+	detail = funds=14400;rep=2;sci=1
+	recordingId = 4a7739f6cc074185a82cbd10ccaeb01d
+}
+GAME_STATE_EVENT
+{
+	ut = 174.9600000000157
+	type = 18
+	key = RecordsAltitude
+	detail = funds=0;rep=0;sci=0
+	recordingId = 4a7739f6cc074185a82cbd10ccaeb01d
+}
+GAME_STATE_EVENT
+{
+	ut = 174.9600000000157
+	type = 18
+	key = RecordsDistance
+	detail = funds=14400;rep=2;sci=0
+	recordingId = 4a7739f6cc074185a82cbd10ccaeb01d
+}
+GAME_STATE_EVENT
+{
+	ut = 174.98000000001571
+	type = 18
+	key = RecordsSpeed
+	detail = funds=14400;rep=2;sci=0
+	recordingId = 4a7739f6cc074185a82cbd10ccaeb01d
+}
+GAME_STATE_EVENT
+{
+	ut = 131.59999999999351
+	type = 18
+	key = RecordsAltitude
+	detail = funds=9600;rep=1;sci=0
+}
+GAME_STATE_EVENT
+{
+	ut = 131.59999999999351
+	type = 18
+	key = RecordsSpeed
+	detail = funds=14400;rep=2;sci=0
+}
+GAME_STATE_EVENT
+{
+	ut = 131.59999999999351
+	type = 18
+	key = RecordsDistance
+	detail = funds=9600;rep=1;sci=0
+}

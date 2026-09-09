@@ -1,0 +1,251 @@
+schema = 1
+id = "RF-6-rewind-category-live-session"
+# =====================================================================================
+# THE RE-FLY CONTINUATION PROGRAM, LANE 6. THE TWELVE CELLS NOTHING HAS EVER EXECUTED.
+#
+# `Rewind` is the largest in-game category in the tree - 38 declarations - and it is
+# BIMODAL. `docs/dev/autotest-roadmap.md` is the authority and the bodies confirm it:
+#
+#   (a) TWELVE cells read `scenario.ActiveReFlySessionMarker`, skip on null, and also need
+#       `ActiveReFlyRecordingId` non-empty: `ContractTombstonesAcrossSupersede`,
+#       `GhostSuppressionDuringReFly`, `JournalFinisherMarkerPresentVariant`,
+#       `KerbalDualResidenceCarveOut`, `KerbalRecoveryOnSupersede`,
+#       `MergeAndSealReFlyClosesSlot`, `MergeCrashedReFlyCreatesCPSupersede`,
+#       `MergeInterruptionRecovery`, `MergeLandedReFlyCreatesImmutableSupersede`,
+#       `MergeNonFocusReFlyToOrbitImmutable`, `MergeReFlyStructuralMutationAutoSeals` and
+#       `MergeReFlyToSubOrbitalKeepsSlotOpen`.
+#   (b) FIVE need a RewindPoint but explicitly NO active session.
+#   (c) TWENTY-ONE need neither.
+#
+# NOTHING DRIVES GROUP (a). R7a runs the category ISOLATED in FLIGHT and R7c at
+# SPACECENTER, both with no session, so all twelve SKIP; and no injected save can boot with
+# one, because `ScenarioWriter.BuildScenarioNode` emits five node kinds and
+# `ReFlySessionMarker` is not among them - which is exactly why R7's session-live spec was
+# abandoned. So twelve cells covering the merge tail, the tombstone contract, ghost
+# suppression during a re-fly and the sub-orbital slot rule have never run, anywhere.
+#
+# THE FIX NEEDS NO NEW PRODUCT SURFACE AND NO GUARD CHANGE: drive `RunTests` AFTER an
+# `InvokeRewind` in the same run. The session the twelve cells look for is the one the
+# rewind just armed. That is one line of spec ordering, and it is the highest value per
+# line in the whole re-fly inventory.
+#
+# `MergeReFlyToSubOrbitalKeepsSlotOpen` IS IN THAT TWELVE, and it is the cell that names
+# this program's own subject: its skip text is "No active re-fly session - invoke a rewind,
+# fly to a suborbital arc, and rerun." This lane does the first half of that sentence.
+#
+# =====================================================================================
+# WHAT THE TALLY WILL SAY, AND WHY IT IS PINNED THE WAY IT IS.
+#
+# R7a (FLIGHT, isolated, no session) measured `total=38 passed=16 failed=0 skipped=22`.
+# R7c (SPACECENTER) measured `total=38 passed=6 failed=0 skipped=32`. With a session LIVE
+# in FLIGHT the arithmetic moves in BOTH directions and neither is predictable to the unit:
+# up to twelve group-(a) cells stop skipping, and some of the five group-(b) cells START
+# skipping (`F5MidReFlyResume` skips on a FOREIGN session by design). Guessing a number
+# would be authoring against predicted bytes.
+#
+# So this follows the interim rule for a never-flown spec exactly: `total=` is pinned to 38
+# EXACTLY and every other field is a class, re-pinned whole by the commit that reads the
+# first flight. `total=38` is not a guess - it is the count
+# `hlib.parse_ingame_test_declarations` derives from the `[InGameTest(Category = "Rewind")]`
+# attributes, and `CommittedBatchTallySourceSyncTests` keeps it in step with the source, so
+# adding a `Rewind` cell reds locally rather than in a flight.
+#
+# `INTERIM_PIN_IDS` IS NOT WHERE THIS ID GOES, and that is a property of that set rather
+# than a lapse here. `IngameBatchWiringGroupTests` DISCOVERS its members from disk by the
+# H-SERIES id pattern and then indexes `self.GROUP[sid]`, so registering a non-H id in it
+# reds with a KeyError instead of registering anything. The loose-pin discipline that set
+# encodes is followed in full - exact `total=`, classes elsewhere, re-pin on first flight -
+# it is simply carried by this comment and by the status row rather than by that cell,
+# whose reach is the H series alone.
+#
+# `failed=0` IS PINNED HARD, and that is deliberate. Twelve cells are about to execute for
+# the first time in their lives; if one of them fails, that is a PRODUCT FINDING for
+# `docs/dev/todo-and-known-bugs.md`, not a tally to widen. A lane that regexed `failed=`
+# would turn the single most likely useful result of this run into a green.
+#
+# =====================================================================================
+# THE BATCH IS NOT ISOLATED, and that is a decision rather than an omission. R7a runs this
+# same category isolated in FLIGHT, and copying it here was the first cut - `IsolatedBatch
+# WiringGroupTests` then reds on four separate properties an isolated member must have and
+# this lane cannot: a PRELAUNCH fixture (bdock-recorded boots ORBITING, which is exactly
+# what `InvokeRewind` needs), an EXACT pinned tally (the split is the unknown this lane
+# measures), a `recordings.count` floor at or above the staged corpus, and a pinned
+# baseline-slot token. Every one of those is the isolated contract working: an isolated
+# batch is a self-provisioning run over a PAD state, and this lane is the opposite - it
+# boots a recorded world and arms a session in it before the batch starts.
+#
+# The practical difference is the BASELINE REVERT. `InGameTestRunner.CaptureBatchBaseline`
+# writes a clean `.bak` BEFORE the marker and clean teardown reverts from it; without
+# isolation there is no per-scene capture, so the produced save is what the run actually
+# left. This lane still declares no `[expectations.rewind]` / `[expectations.recordings.
+# structure]` block, for a different reason: what 38 in-game cells do to a save is not a
+# shape any window authored in advance could describe, and a report-only block nobody can
+# read is worse than none.
+#
+# THE MERGE IS NOT ANSWERED. The lane quits with the session still live rather than driving
+# `AnswerMergeDialog`, because the batch's own teardown revert is the last thing that should
+# touch the world; a merge afterwards would race it, and the subject here is the TALLY, not
+# the conclusion. RF-1 through RF-4 own the conclusion routes.
+#
+# =====================================================================================
+# STATUS: GREEN AS OF RUN 4. FOUR FLIGHTS: runs 1-2 on 2026-09-08 (plus an R7a control on
+# the same DLL) and run 3 on the post-#1658 DLL all read PARSEK-FAIL(results) with the SAME
+# four failures; run 4, on 2026-09-09 against merged main after PR #1661, reads
+#   `BATCH_COMPLETE v1 total=39 passed=11 failed=0 skipped=28 category=Rewind scene=FLIGHT`
+# and PASS attempt 1, every verifier PASS/SKIPPED.
+#
+# THE LANE THAT FOUND THE FINDING FLEW ITS PROOF. #1661 diagnosed the four as ONE in-game
+# cell leaking a merge journal into the rest of the batch plus its own missing
+# precondition - no product defect, which is what run 3 reading BYTE-IDENTICALLY across
+# the sealing fix had already pointed at. `total` moved 38 -> 39 because #1662 added a
+# regression cell to this category, and the pin moved with it mechanically through
+# `CommittedBatchTallySourceSyncTests`.
+#
+# `passed` / `skipped` STAY AS CLASSES. They could now be pinned at 11 / 28, and
+# deliberately are not: this category gains cells regularly (two in one night), and an
+# exact pin on the split between passed and skipped would red on every such addition while
+# saying nothing about the session gate this lane exists for. `total=` is exact and
+# source-derived, `failed=0` is HARD, and those two are the lane.
+# `tier = "operator"`.
+#
+# WHAT FOLLOWS IS THE INVESTIGATION RECORD, kept rather than struck: run 3 is what said
+# the four failures were not the sealing defect and sent the diagnosis to batch isolation.
+#
+# THE EXPERIMENT WORKED: the twelve session-gated cells RAN, for the first time anywhere.
+#   `BATCH_COMPLETE v1 total=38 passed=8 failed=4 skipped=26 category=Rewind scene=FLIGHT`
+# Eight passed. FOUR FAILED, identically on both runs:
+#   MergeInterruptionRecoveryTest.MergeInterruptionRecovery
+#     - Expected supersede relations to be durable at Durable1Done; got 0
+#   ReFlyRevertDialogPrelaunchTest.DiscardReFly_PrelaunchContext_DispatchesEditorWithFacility
+#     - DiscardReFlyLoadGameForTesting should fire exactly once
+#   ReFlyRevertDialogPrelaunchTest.ReFlyRevertDialog_Prelaunch_BlocksStockRevert_AndShowsDialog
+#     - Prelaunch body copy should mention VAB
+#   ReFlyRevertDialogTest.DiscardReFly_LaunchContext_PreservesSiblingState_DispatchesSpaceCenter
+#     - Marker should be cleared after Discard Re-fly
+#
+# THE CONTROL, flown on the SAME DLL within the hour: `R7a-rewind-session-absent` read
+# `total=38 passed=16 failed=0 skipped=22`, its historical pin token for token. Same
+# category, same build: zero failures without a session, four with one. THREE of the four
+# are `ReFlyRevertDialog*` cells, which need no session and install their own synthetic
+# marker - the cells R7a executes and passes. That is the R7-SESSION-BATCH-ISOLATION
+# signature, now MEASURED rather than predicted.
+#
+# ONE HYPOTHESIS TESTED AND REFUTED, which is why neither this header nor the todo entry
+# names a cause. `MergeInterruptionRecovery` wanting durable supersede rows and getting
+# zero looked like the unflown-provisional route (a re-fly that recorded nothing merges
+# with ZERO rows by design). Run 2 added the `TimeJump` above so the attempt was FLOWN
+# before the batch read it, and the tally came back BYTE-IDENTICAL - same 8/4/26, same four
+# cells, same four messages. Not the cause. The step is kept because the flown shape
+# matches every sibling RF lane.
+#
+# ONE CONFOUND IS OPEN: this lane hosts on `bdock-recorded` and R7a on `career-pad-craft`,
+# so the control moves the HOST as well as the session. Flying R7a's spec against
+# `bdock-recorded` - or this lane without its `InvokeRewind` - isolates it. Not yet run.
+#
+# `failed=0` STAYS PINNED HARD. A first-execution failure is a finding to diagnose, never a
+# tally to widen, and widening it would retire the only instrument that can see these four
+# cells at all. Filed as RF6-FOUR-REWIND-CELLS-FAIL-ONLY-WITH-A-LIVE-SESSION.
+#
+# =====================================================================================
+tier = "operator"
+description = "Run the in-game Rewind category with a LIVE re-fly session, so the twelve session-gated cells - the merge-tail supersede rules, the tombstone contract, ghost suppression during a re-fly, and MergeReFlyToSubOrbitalKeepsSlotOpen - execute for the first time. InvokeRewind arms the session off a runtime-enumerated RewindPoint id, then RunTests drives the batch."
+instanceProfile = "stock-minimal"
+tags = ["RF-6", "rewind", "refly", "in-game-tests", "runtests", "session-live",
+        "runtime-handles", "kerbin", "sandbox", "reading-run"]
+
+[fixture]
+# bdock-recorded: boots into FLIGHT (what a FLIGHT-scoped batch and the RequiresFlight
+# InvokeRewind both need) and carries three real RewindPoints with one open slot each, so
+# the session the twelve cells look for can be armed without injecting anything.
+saveTemplate       = "fixtures/saves/bdock-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "persistent" },  expect = "OK", budget = 300 },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",   args = { name = "verboseLogging", value = "true" },   expect = "OK" },
+  { cmd = "StopRecording",                                                      expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "rewindpoints" }, label = "handles",  expect = "OK" },
+  # THE ORDERING IS THE LANE. Everything before this line exists to make this call
+  # possible; everything after it runs with the session it arms.
+  { cmd = "InvokeRewind", args = { rp = "${handles.rp0}", slot = "1" },         expect = "OK", budget = 300 },
+  # THE RE-FLY IS FLOWN BEFORE THE BATCH READS IT, and reading run 1 is why. Without
+  # this the session the twelve cells find is an UNFLOWN provisional, which merges with
+  # ZERO supersede rows BY DESIGN (`refused-unflown-provisional` /
+  # `concluded-no-supersede`) - and `MergeInterruptionRecovery` failed on exactly that
+  # shape, "Expected supersede relations to be durable at Durable1Done; got 0". Every
+  # other RF lane that merges already flies its re-fly first, on CI-2's measurement that
+  # `TimeJump` is accepted with a session live; this lane not doing so was an
+  # inconsistency, not a design choice. 500 is ~117 s past rp0's UT 382.73 and short of
+  # the tree's Dock branch point at 8949.27.
+  { cmd = "TimeJump",     args = { ut = "500" },                                expect = "OK", budget = 120 },
+  # R7a's own budget for the same 38-cell category.
+  { cmd = "RunTests",     args = { category = "Rewind" },                       expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                       expect = "OK" },
+]
+
+[dimensionsCovered]
+# BASICS ONLY until the reading run reads the tally. A category run's dimension claims have
+# to come from the cells that ACTUALLY EXECUTED, and which twelve of them do is the thing
+# this lane measures - claiming `tombstones` or `terminal-kind-classify` off a batch that
+# might still have skipped them would be exactly the claim-is-not-gate error.
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# WIDE, and the reason is the isolation revert: the produced save is the pre-batch world,
+# so this window describes the fixture rather than the run. The floor is the only part
+# that asserts anything (a save that lost its corpus).
+count = { min = 2, max = 30 }
+
+[expectations.logContracts]
+# THE PIN MOVED 38 -> 39 ON 2026-09-09, mechanically rather than by choice: PR #1662 added
+# an in-game regression cell for the optimizer-split MergeState carry to the `Rewind`
+# category, and `CommittedBatchTallySourceSyncTests` walks `Source/Parsek` and reds until
+# the pinned tally agrees with the attributes it counts. That gate is the reason this
+# number is never hand-summed.
+#
+# THE PIN. `total=39` is exact and source-derived; `failed=0` is HARD; `passed` and
+# `skipped` STAY as classes even though four flights have now measured them (11 / 28 on
+# run 4). The header carries the argument: this category gains cells regularly - two in
+# one night - and an exact pin on the passed/skipped split would red on every addition
+# while saying nothing about the session gate this lane exists for. The `interim-pin` tag
+# is gone with the first flight, as the convention says; `INTERIM_PIN_IDS` is empty and
+# this id was never in it.
+#
+# The two anti-vacuity tokens either side of the tally: the batch has to have STARTED on
+# the right category, and the session has to have been armed BEFORE it. A run
+# whose InvokeRewind silently no-oped would still emit a `BATCH_COMPLETE` with the R7a
+# numbers, and the StartInvoke line is what separates that from the intended experiment.
+required = [
+  "listhandles kind=rewindpoints count=3 truncated=false",
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=.* rp=rp_[0-9a-f]{32}",
+  "Invocation complete",
+  "runtests start category=Rewind",
+  "BATCH_COMPLETE v1 total=39 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=Rewind scene=FLIGHT",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # The skip text of the cell that names this program's own subject. If it appears, the
+  # session was NOT live when the batch ran and the whole lane measured R7a again - which
+  # is the single most likely way this experiment fails silently, and the reason it is
+  # forbidden rather than left to the tally arithmetic.
+  "No active re-fly session - invoke a rewind",
+]
+
+[runtime]
+# LoadGame 660 + SetSetting x2 240 + StopRecording 120 + ListHandles 120 +
+# InvokeRewind 660 + RunTests max(540, 600)+60 = 660 + FlushAndQuit 120 = 2580.
+# 2900 clears it by 320.
+budgetSeconds = 2900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

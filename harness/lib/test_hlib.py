@@ -8444,6 +8444,58 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
             "2026-09-08 (reading _1100, armed _1105 PASS, negative control _1106); "
             "stays operator because it rewinds and jumps a harvested docking fixture, "
             "the discipline's own reason, not a tag",
+        # THE RE-FLY CONTINUATION PROGRAM (RF-1..RF-10, authored 2026-09-08 and 2026-09-09).
+        # All eleven
+        # are `operator` by the READING-RUN discipline and none owes a human call.
+        #
+        # THE REASON STRINGS BELOW ARE STALE BY DESIGN OF THIS TEST, and it is worth
+        # saying once here rather than editing eleven of them after every flight
+        # night: only the KEYS are asserted (the cell compares the untagged operator
+        # set against this roster), so a reason that still reads NEVER FLOWN is a
+        # note about why the id is here, not a claim about its verdict. The verdicts
+        # live in `docs/dev/autotest-status.md`, which is the single status
+        # authority. As of 2026-09-09 nine of the eleven RF lanes are green, RF-4 and
+        # RF-8 are INVALID with filed causes, and what every one of them still owes
+        # is nothing - they are kept here because an operator-tier spec with no
+        # `pending-operator` tag has to be classified somewhere.
+        "RF-1-continuation-stays-open.toml":
+            "operator by the reading-run discipline; AUTHORED 2026-09-09, NEVER "
+            "FLOWN. Owes a flight, not a human call",
+        "RF-2-two-reflies-in-sequence.toml":
+            "operator by the reading-run discipline; AUTHORED 2026-09-09, NEVER "
+            "FLOWN. Owes a flight, not a human call",
+        "RF-3-refly-discard-then-commit.toml":
+            "operator by the reading-run discipline; AUTHORED 2026-09-09, NEVER "
+            "FLOWN. Owes a flight, not a human call",
+        "RF-4-rewind-to-launch-after-merge.toml":
+            "operator by the reading-run discipline; AUTHORED 2026-09-09, NEVER "
+            "FLOWN. Owes a flight, not a human call",
+        "RF-5-seal-closes-the-slot.toml":
+            "operator by the reading-run discipline; AUTHORED 2026-09-09, NEVER "
+            "FLOWN. First consumer of SealSlot's rp= + slot= form. Owes a flight",
+        "RF-6-rewind-category-live-session.toml":
+            "operator by the reading-run discipline; AUTHORED 2026-09-09, NEVER "
+            "FLOWN, INTERIM tally pin. Owes a flight, not a human call",
+        "RF-7M-predicted-tail-map-render.toml":
+            "operator by the reading-run discipline; AUTHORED 2026-09-09, NEVER "
+            "FLOWN. A REPRODUCTION lane, expected to RED on main until PR #1659 "
+            "lands - that is the lane working, not a debt owed to a human",
+        "RF-7T-predicted-tail-ts-render.toml":
+            "operator by the reading-run discipline; AUTHORED 2026-09-09, NEVER "
+            "FLOWN. RF-7M's Tracking Station half, same expectation",
+        "RF-8-ghost-during-refly.toml":
+            "operator by the reading-run discipline; AUTHORED 2026-09-09, NEVER "
+            "FLOWN. Declares ghostLifecycle report-only with NO windows, which is "
+            "what the reading run is for. Owes a flight",
+        "RF-10-fixed-tip-loads-open.toml":
+            "operator by the reading-run discipline; AUTHORED 2026-09-09, NEVER "
+            "FLOWN. The READ side of PR #1658 over RF-9's own harvested save, and "
+            "the first consumer of refly-autopilot-recorded. Owes a flight",
+        "RF-9-atmosphere-exit-split-stays-open.toml":
+            "operator by the reading-run discipline; AUTHORED 2026-09-09, NEVER "
+            "FLOWN. The sealing defect's live reproduction (the only lane whose "
+            "promoted recording crosses an environment boundary the optimizer "
+            "splits on); reds on a pre-#1658 DLL BY DESIGN. Owes a flight",
         "RH-1-live-rp-handle-rewind.toml":
             "operator by the reading-run discipline (V1/V2/V24W precedent); AUTHORED "
             "2026-09-08, NEVER FLOWN, reading pending. Owes a flight, not a human call",
@@ -9309,6 +9361,27 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # 2, recordings 22 incl. the re-fly provisional the merge keeps,
                        # branchPoints Dock 1 / Undock 1 / JointBreak 10, terminals as measured).
                        "CI-2-refly-claim-tip-pid.toml",
+                       # RF-1: `rewind` armed 2026-09-09 off TWO flights whose facets
+                       # agreed across a DLL change - `2026-09-08_2146` (pre-#1658) and
+                       # the merged-main confirmation - plus its own negative control
+                       # (rewindPoints inverted to {2,2}, red on exactly that facet).
+                       # `rewindPoints = {1,1}` is the armed claim: the reaper declines
+                       # only while a slot's effective tip is CommittedProvisional.
+                       "RF-1-continuation-stays-open.toml",
+                       # RF-10: `rewind` armed 2026-09-09 off its reading run. The
+                       # safest arming in the program: the lane starts no recorder and
+                       # runs no re-fly, so the three counts are the FIXTURE's identity
+                       # read back through a boot, and `test_refly_autopilot_recorded`
+                       # pins the same numbers off the file. The pair is mutually
+                       # checking - one catches a bad re-harvest, the other a load that
+                       # mutates committed state.
+                       "RF-10-fixed-tip-loads-open.toml",
+                       # RF-9: `rewind` armed 2026-09-09 off its two reading runs. The
+                       # windows were RE-PINNED from run 1 (tombstones 0 -> {min 1}) and
+                       # then landed unchanged on run 2, which is the same two-sample
+                       # standard; negative control inverted tombstones to {max = 0},
+                       # the exact window the reading run refuted.
+                       "RF-9-atmosphere-exit-split-stays-open.toml",
                        "V27M-rover-route-endpoint-substituted-map-lines.toml",  # routes, armed 2026-09-07 off `2026-09-07_1858`
                        "V14M-ike-player-loop.toml", "V14T-ike-ts-arrival.toml",
                        "V15M-gilly-player-loop.toml", "V15T-gilly-ts-arrival.toml",
@@ -11324,6 +11397,16 @@ class GhostLifecycleVerifierWiringTests(unittest.TestCase):
         # the reading runs through GHOSTLIFE_ARMED_SPECS.
         "GS-7-kerbalx-crash-watch-hold.toml",
         "GS-8-kerbalx-zone-round-trip.toml",
+        # THE FIRST DECLARER WITH A LIVE RE-FLY SESSION (RF-8, 2026-09-09), and
+        # declared with NO WINDOWS AT ALL. Every other member arrived carrying a
+        # spawned floor derived from a sibling lane's census; this one has no
+        # sibling - no rewind lane has ever armed a render tracer, entered watch
+        # mode or opened the map with a session live, so there is no census to
+        # derive from and authoring one would be a description of a guess. The
+        # bare block exists so the run RECORDS a lifecycle; windows and arming
+        # follow the reading run through GHOSTLIFE_ARMED_SPECS, on GS-4's
+        # discipline.
+        "RF-8-ghost-during-refly.toml",
     }
 
     def test_ghost_lifecycle_declarers_are_the_recorded_roster(self):

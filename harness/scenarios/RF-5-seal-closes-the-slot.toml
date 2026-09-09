@@ -1,0 +1,178 @@
+schema = 1
+id = "RF-5-seal-closes-the-slot"
+# =====================================================================================
+# THE RE-FLY CONTINUATION PROGRAM, LANE 5. SEALING, WHICH CLOSES A SLOT ON PURPOSE.
+#
+# Every other lane in this program is about a slot STAYING open: RF-1 produces one, RF-2
+# and RF-3 re-fly one, RF-4 rewinds over one. This lane is the deliberate opposite - the
+# operator decides an Unfinished Flight is finished, seals it, and the RewindPoint reaps
+# BY DESIGN. That direction has to be exercised for the same reason a fail-closed guard
+# needs a fail-open test: without it, a change that made sealing a no-op would show up
+# nowhere, and every "the slot stayed open" assertion in this program would still pass.
+#
+# `SealSlot`'s D9 `rp=` + `slot=` SPELLING HAS ZERO CONSUMERS TODAY. The verb is committed
+# and takes either `tree=` (which V27M and H58 drive) or `rp=` + `slot=` - and no spec has
+# ever driven the second form. This lane is its first consumer, which is worth stating
+# because a verb argument nothing drives is a verb argument nobody has proved parses.
+#
+# =====================================================================================
+# WHAT THE SEAL DOES, from the code rather than from the name.
+#
+# The slot-mode branch (`ParsekTestCommandAddon.SealSlot.cs:204-247`) resolves the slot's
+# EFFECTIVE tip through `ChildSlot.EffectiveRecordingId`, reads whether it was already
+# `Immutable`, and calls `UnfinishedFlightSealHandler.TrySeal(tip, out reason)`. On success
+# it logs
+#   `sealslot complete mode=slot rp=<id> slot=<n> tip=<recId> alreadySealed=False`
+# and answers OK with `sealed=1 alreadySealed=False fullySealed=True`. The flip is on the
+# TIP's `MergeState`, which is the single source of truth for open/closed
+# (`docs/parsek-rewind-to-separation-design.md:101`), so after it
+# `RewindPointReaper.IsReapEligible` finds every slot closed - slot 0 was already Immutable
+# on all three of this fixture's points - and the point becomes reap-eligible.
+#
+# THE REAP NEEDS AN OnLoad, AND THAT IS THE ONE NON-OBVIOUS STEP IN THIS FILE.
+# `ReapOrphanedRPs` runs from `ParsekScenario.OnLoad`, from the merge-journal orchestrator
+# and from the seal handler - and the seal handler's own call is what its
+# `reaperImpact=willReap ... reaped=` field reports. The seam's slot-mode branch calls
+# `TrySeal(tip, out reason)`, the two-argument overload, which is NOT the overload that
+# runs the reaper; so the reap here is the NEXT OnLoad's, which is why the lane reloads
+# and re-enumerates rather than asserting on the seal response alone. That reload is the
+# assertion: `count=2` after the seal can only be produced by a point that actually left
+# the disk.
+#
+# =====================================================================================
+# WHY `AnswerMergeDialog choice = "seal"` IS NOT DRIVEN HERE, and what it would take.
+#
+# That token has zero consumers in the whole suite, and it is TEMPTING to add one here.
+# It is not driven because it would be a coin flip on `expect`, which is exactly the
+# "authoring against predicted bytes" this program is supposed to avoid:
+# `MapChoice` maps `seal` to BUTTON 1 and REQUIRES a dialog with at least three buttons,
+# answering `ERROR choice-unavailable` otherwise (`ParsekTestCommandAddon.cs:2468-2498`).
+# No committed lane has ever measured how many buttons a re-fly conclusion dialog offers
+# on this fixture, and `expect = "OK"` versus `expect = "ERROR"` would be a guess either
+# way. What settles it is a REPORT, not a gate: the three-button dialog is the one a
+# conclusion offers when a slot would remain open afterwards, which is the shape RF-2's
+# header describes as needing a `rewind-both-open` fixture preset. THAT is the lane that
+# should first consume `choice = "seal"`, and it should do so after a reading run has
+# logged the dialog's own `labels=` line.
+#
+# =====================================================================================
+# STATUS: LIVE-PROVEN, AFTER A REFUTED PREMISE. READING RUN 1 (2026-09-09) went INVALID:
+# the idempotence probe rested on a SOURCE READING that slot-mode does not run the reaper,
+# and the flight showed the seal reaping INSIDE its own call. The step was inverted, the
+# `Sealed slot=` line added as a required token and the blanket refusal forbid narrowed;
+# run 2 (`RF-5`) then PASS attempt 1, expectations mismatches=0, saveParse REPORT
+# mismatches=0 (`rewindPoints=2 supersedeRows=0 tombstones=0`). RE-FLOWN on merged main
+# the same day, PASS again. Nothing armed.
+# FORMERLY: NEVER FLOWN. `tier = "operator"`. Nothing armed.
+# =====================================================================================
+tier = "operator"
+description = "The deliberate opposite of the rest of this program: SealSlot in its never-driven rp= + slot= form closes the open slot of the oldest bdock-recorded RewindPoint, and the next OnLoad reaps that point by design - proven by a re-enumeration that counts two where there were three, not by the seal response alone."
+instanceProfile = "stock-minimal"
+tags = ["RF-5", "rewind", "seal", "unfinished-flights", "rp-disk-reaper",
+        "seam-verb", "runtime-handles", "kerbin", "sandbox", "reading-run"]
+
+[fixture]
+# bdock-recorded: three points, each with slot 0 already Immutable and slot 1
+# CommittedProvisional. Sealing slot 1 therefore closes the LAST open slot of that point,
+# which is the precondition `IsReapEligible` needs and the reason this fixture can make the
+# assertion in one step rather than two.
+saveTemplate       = "fixtures/saves/bdock-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "persistent" },  expect = "OK", budget = 300 },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # The seal handler's own audit line and the reaper's per-point decision are Verbose.
+  { cmd = "SetSetting",   args = { name = "verboseLogging", value = "true" },   expect = "OK" },
+  { cmd = "StopRecording",                                                      expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "rewindpoints" }, label = "handles",  expect = "OK" },
+  # THE SUBJECT. `SealSlot` is RequiresGameLoaded and SINGLE-PHASE, so it needs no
+  # deferral budget beyond the dispatch default; 120 matches the tree-mode calls V27M and
+  # H58 already drive.
+  { cmd = "SealSlot",     args = { rp = "${handles.rp0}", slot = "1" },         expect = "OK", budget = 120 },
+  # RE-PINNED BY READING RUN 1 (2026-09-09), WHICH REFUTED THIS STEP'S PREMISE. It was
+  # written as an IDEMPOTENCE probe - the verb answering OK with alreadySealed=true on a
+  # slot that is already closed - resting on the header reading that slot-mode calls the
+  # two-argument TrySeal and so does not run the reaper. THE FLIGHT SAYS OTHERWISE: the
+  # first seal reaped the point INSIDE THE SAME CALL, one line before its own
+  # `sealslot complete`, so a second seal on that id can only answer `unknown-rp`.
+  # The step is KEPT AND INVERTED rather than deleted, because the rejection is now the
+  # strongest available proof that the point really left the STORE: an enumeration count
+  # can be read two ways, `unknown-rp` cannot. The comments-are-hypotheses rule paying
+  # for itself - the source reading was the hypothesis, the flight is the evidence.
+  { cmd = "SealSlot",     args = { rp = "${handles.rp0}", slot = "1" },         expect = "REJECTED", budget = 120 },
+  # THE REAP RAN INSIDE THE SEAL ITSELF (reading run 1), so what this reload measures
+  # now is that the point did not COME BACK - still worth its own step, and what the
+  # count below reads off the disk rather than off a response.
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "persistent" },  expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                      expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "rewindpoints" }, label = "after",    expect = "OK" },
+  { cmd = "FlushAndQuit",                                                       expect = "OK" },
+]
+
+[dimensionsCovered]
+# BASICS ONLY until the reading run. What it earns: `seal-stash-fly` - a D9 cell R7c is
+# the ONLY claiming lane for today, and R7c reaches it through an in-game cell rather than
+# through the seam verb - and `rp-disk-reaper` from a seal rather than from a commit,
+# which no lane covers.
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 2, max = 30 }
+
+[expectations.logContracts]
+# THE THREE-STEP ARGUMENT, each step a different surface:
+#   the seal happened      `sealslot complete mode=slot ... alreadySealed=False`
+#   what it DID            `Sealed slot=1 ... mergeState=CommittedProvisional->Immutable
+#                           terminal=Orbiting reaperImpact=willReap reaped=1`
+#   the point left the store `sealslot rejected reason=unknown-rp` on a second call
+#   the point left disk    `reaped=1 remaining=2` AND a re-enumeration reading `count=2`
+# The last pair is deliberately redundant: the summary proves the sweep took one, the
+# count proves nothing came back, and the two fail differently (a reaper that logged a
+# reap it did not perform satisfies only the first).
+required = [
+  "listhandles kind=rewindpoints count=3 truncated=false",
+  "sealslot complete mode=slot rp=\\S+ slot=1 tip=\\S+ alreadySealed=False",
+  "Sealed slot=1 rec=\\S+ bp=\\S+ rp=\\S+ tip=\\S+ mergeState=CommittedProvisional->Immutable terminal=Orbiting reaperImpact=willReap reaped=1",
+  "sealslot rejected reason=unknown-rp rp=\\S+",
+  "ReapOrphanedRPs: reaped=1 remaining=2",
+  "listhandles kind=rewindpoints count=2 truncated=false",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # The verb's own refusal surfaces. `sealslot rejected` covers unknown-rp / unknown-slot /
+  # the selector's own reject reasons, and `sealslot refused` is the handler declining to
+  # flip a tip it could resolve - both are ERRORs or WARNs this lane must not produce, and
+  # both are what a wrong `rp=` + `slot=` pair would produce first.
+  "sealslot rejected reason=unknown-slot",
+  "sealslot rejected reason=bad-",
+  "sealslot refused",
+  "sealslot tip-unresolvable",
+  # The seal must take exactly ONE point, not the family.
+  "ReapOrphanedRPs: reaped=[23]",
+]
+
+# REPORT-ONLY. Two of three points survive a single seal; nothing is superseded because no
+# rewind is invoked at all, which is what makes this lane's `supersedeRows = { max = 0 }`
+# the cleanest statement in the program that SEALING IS NOT MERGING.
+[expectations.rewind]
+rewindPoints  = { min = 2, max = 2 }
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+[runtime]
+# LoadGame x2 1320 + SetSetting x2 240 + StopRecording x2 240 + ListHandles x2 240 +
+# SealSlot x2 360 + FlushAndQuit 120 = 2520. 2800 clears it by 280.
+budgetSeconds = 2800
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

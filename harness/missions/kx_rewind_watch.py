@@ -41,8 +41,37 @@ THE PHASE PLAN (``mlib.kxrw_decide``; every state name is an ``mlib.KXRW_*``):
                        `no-watchable-ghost`)
       -> PLAYBACK-WAIT-> DONE
 
-THE IMPACT PROFILE (``impactProfile``, OPT-IN, default false) is the one branch in
-that plan. With the key omitted nothing above moves - the phase graph, the emitted
+THE COAST-EXIT PROFILE (``coastExitProfile``, OPT-IN, default false) is RF-9's
+branch, and the SHORTEST of the three routes: the plan above runs unchanged through
+CORE-DISCARD and COAST, and then
+
+    ... -> COAST -> COAST-EXIT (hold until the top stack reads
+                       >= coastExitMinAltitudeMeters in one of
+                       coastExitSituations on K consecutive frames)
+      -> DONE
+
+with NOTHING commanded on the way out. The mission ends in FLIGHT, with the
+recorder live and the stack still climbing, and the SCENARIO's own
+``ExitToSpaceCenter`` step is what commits the tree - RF-1's shape, for RF-1's
+reason: a mission that drove the commit would own the decision the spec is written
+to observe.
+
+WHY A GATE RATHER THAN A LONGER COAST. The lane exists to put an Atmospheric ->
+ExoBallistic boundary INSIDE the promoted slot's own recording, because that is the
+only boundary ``RecordingOptimizer.IsSplittableEnvOrBodyBoundary`` accepts as a
+``PersistedPhaseChange`` and the SPLIT is the precondition of the sealing defect PR
+#1658 fixed. "We coasted for a while after the core came off" is a COMMANDED
+reading of that; a debounced altitude + situation pair is an OBSERVED one. A spec
+flying this profile raises ``coreDiscardApoapsisMeters`` above the atmosphere top so
+the stack HAS somewhere to climb to, while the discard itself stays inside the
+atmosphere - the split below the boundary, the exit above it.
+
+Four assertion rows instead of eight, and the four that are gone are the ones this
+profile never drives (commit / rewind / watcher / playback). REFUSED with
+``impactProfile`` or ``partSweepSteps`` on the machine's first decision frame.
+
+THE IMPACT PROFILE (``impactProfile``, OPT-IN, default false) is the second branch
+in that plan. With the key omitted nothing above moves - the phase graph, the emitted
 actions and the assertion rows are byte-identical. With it declared THE ASCENT IS
 STILL THE ONE ABOVE, every drop and the fueled-core discard included; the flight is
 then ended by a DELIBERATE CRASH instead of by a commit, and the tree reaches the

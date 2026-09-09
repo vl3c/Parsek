@@ -140,6 +140,30 @@ min = 0.0
 required = false
 type = "string"
 
+# INVERT the SIBLING-DOWN exit: conclude the mission as soon as the booster is
+# OBSERVED STILL AIRBORNE after the pod is down, instead of waiting for it to land.
+# Absent / false = every committed GS-1 lane drives exactly what it always has
+# (`Gs1AirborneExitInertnessTests` replays a flight through both settings and
+# compares the emitted actions and the phase sequence frame by frame).
+#
+# IT IS AN INVERSION, NOT A SHORTER TIMEOUT, and that distinction is the design.
+# Shrinking `siblingDownTimeoutSeconds` would exit on a BUDGET, which is a
+# MISSION-FLAKE - a driver failure that proves nothing about where the booster was,
+# and whose world-mutating tail steps the harness then SKIPS, so the scene exit this
+# variant exists to take would never happen at all. The inversion exits on an
+# OBSERVATION, debounced exactly like the two nominal exits, and turns those two into
+# named ASSERT-FAILs (`sibling-already-down` / `sibling-gone`), because either one
+# means the shape under test did not occur.
+#
+# WHAT IT PRODUCES: a NON-FOCUS child still under canopy at `ExitToSpaceCenter`, so
+# its recording closes `terminal=SubOrbital`, the classifier answers
+# `reason=stableLeafUnconcluded`, the slot is promoted CommittedProvisional and the
+# RewindPoint is NOT reaped. That is GS-1's assertion inverted, and it is the only
+# deliberate open-slot shape any lane in the suite produces.
+[params.siblingAirborneAtExit]
+required = false
+type = "bool"
+
 # Game-seconds to wait for the booster to reach the ground AFTER the active vessel
 # has landed, before the wait flakes.
 #

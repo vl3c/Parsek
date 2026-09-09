@@ -1,0 +1,425 @@
+schema = 1
+id = "RF-1-continuation-stays-open"
+# =====================================================================================
+# THE RE-FLY CONTINUATION PROGRAM, LANE 1. GS-1 INVERTED.
+#
+# GS-1 asserts the CLOSED branch of the Re-Fly slot contract: a routine two-stage flight
+# whose stages BOTH land leaves both slots Immutable, opens no Unfinished Flight, and its
+# RewindPoint reaps. Every token in that spec is about something NOT happening.
+#
+# This lane asserts the OPEN branch of the same contract, on the same craft, the same
+# fixture and the same mission, with ONE mission parameter moved: the booster is STILL
+# UNDER CANOPY when the scene exits. So the non-focus child's recording closes
+# `terminal=SubOrbital`, the classifier answers `stableLeafUnconcluded`, the slot is
+# promoted `CommittedProvisional`, the RewindPoint is NOT reaped - and then this lane does
+# the thing no lane in the suite has ever done: it RE-FLIES that slot, through an id it
+# reads at runtime off a RewindPoint KSP physics authored during this very flight.
+#
+# EVERY OTHER REWIND LANE INJECTS ITS REWINDPOINT. S4.1 / S4.2 / S4.3 / S4.4 / R1 / CL-3
+# inject a C# fixture whose RP is written `CreatingSessionId = null` and promoted by the
+# fixture writer; RH-1 and CI-2 read one out of the harvested `bdock-recorded`. GS-1 is
+# the only lane whose RP is authored by a real staging event, and it exists to watch that
+# RP die. This lane is the first to author one and then FLY it.
+#
+# =====================================================================================
+# THE MISSION PARAMETER, and why it is an INVERSION rather than a shorter timeout.
+#
+# `siblingAirborneAtExit = true` inverts the exit of the mission's existing SIBLING-DOWN
+# phase: the wait concludes as soon as the booster is OBSERVED present with a real
+# airborne situation on two consecutive reads, and turns the two nominal exits into named
+# ASSERT-FAILs (`sibling-already-down`, `sibling-gone`) because either means the shape
+# under test did not occur.
+#
+# Shrinking `siblingDownTimeoutSeconds` to 0 would have been one line and would have been
+# WRONG: a budget exit is a MISSION-FLAKE, i.e. a driver failure, and the harness drives
+# only the CLEANUP TAIL on an unmet mission - `ExitToSpaceCenter` is world-mutating and
+# would be SKIPPED. The scene exit this lane exists to take would never happen, and every
+# token below would be unreachable. GS-1's flight-1 header records the same lesson from
+# the other side.
+#
+# THE BOOSTER, NOT THE POD, IS THE HALF LEFT AIRBORNE. The pod is the ACTIVE vessel the
+# mission flies; ending the scene while IT is up leaves `landedSituation` and every
+# terminal row unmet, which is the same driver-INVALID dead end. The booster is the half
+# the mission watches and never controls - exactly the non-focus child the classifier's
+# open branch is about. `mlib`'s GS1_SIBLING_AIRBORNE_DEBOUNCE_K comment carries the full
+# argument; `Gs1AirborneExitInertnessTests` replays a whole flight through the flag ON and
+# OFF and compares the emitted actions and phase sequence frame by frame, which is what
+# makes "GS-1 is untouched" a mechanical claim rather than a reading of the diff.
+#
+# =====================================================================================
+# WHAT THE SEED SESSION PREDICTS, AND THE ONE THING THIS PROFILE CANNOT REACH.
+#
+# This lane family was authored from the operator's manual Re-Fly session of 2026-09-08
+# (`logs/2026-09-08_2317_refly-a-manual`, main `2effc9d49`), harvested as the fixture
+# `refly-a-recorded`. In that session the open half was the FOCUS slot and its reason was
+# `crashed`: an alive SUB-ORBITAL pod on a VACUUM coast, whose scene-exit tail the
+# ballistic extrapolator ran to a predicted impact and stamped `Destroyed`.
+#
+# NO GS-1 VARIANT CAN PRODUCE THAT, and the reason is a stock rule rather than a choice.
+# An extrapolated impact needs an exo-atmospheric arc; this profile is a sub-kilometre hop
+# bounded by stock's ~2.25 km physics bubble, because a separated booster outside it is
+# DELETED before it can land. So the reason this lane produces is `stableLeafUnconcluded`
+# - which GS-1 flight 3 MEASURED verbatim on this exact craft:
+#   `IsUnfinishedFlight=true rec=81e48efe... reason=stableLeafUnconcluded slot=1
+#    focusSlot=0 terminal=SubOrbital side=child`
+#   `CommitTree promoted rec=81e48efe... vessel='GS1 Auto-Chute Booster Probe' slot=1
+#    rp=rp_6881c324... reason=stableLeafUnconcluded to CommittedProvisional`
+# The tokens below are pinned against THAT measurement, not against the seed's.
+#
+# =====================================================================================
+# THE FORBIDDEN TOKENS ARE A GUARD HERE, NOT A REPRODUCTION - stated plainly, because the
+# task this lane was authored for expected a red and honesty about which half reds where
+# is the whole value of the lane.
+#
+# The seed's slot closed because `RecordingOptimizer.TransferTerminalFieldsToSecondHalf`
+# moves a recording's TERMINAL to a new chain TIP without its `MergeState`, and
+# open/closed is read from the TIP (`UnfinishedFlightClassifier.IsSlotEffectiveTipOpen`).
+# The tip is minted `Immutable` by `Recording.MergeState`'s field initializer, so the slot
+# reads `reason=sealedTipClosed` and the reaper then deletes the RP for good.
+#
+# THAT SPLIT NEEDS A PHASE BOUNDARY TO CUT ON. The seed's pod crossed 70 km, so the
+# optimizer accepted a `PersistedPhaseChange` boundary at UT 191.04
+# (`prev=Atmospheric next=ExoBallistic`) and cut. This lane's booster never leaves the
+# atmosphere - one environment, no boundary, no split - so on TODAY'S DLL the tip is the
+# recording itself and the slot should stay open on its own.
+#
+# The two forbidden patterns below therefore assert something that should already hold on
+# this profile, and they are worth the two lines anyway for two reasons: they are the
+# grep-stable name of the failure if the optimizer ever DOES split this recording (a
+# lowered `BriefSectionMaxSeconds`, a new seam producer, a craft change that carries the
+# booster higher), and they document where the defect's real reproduction lives. That
+# reproduction is the FIXTURE: `refly-a-recorded` carries the seed's HEAD/TIP pair frozen
+# on disk - HEAD `mergeState = CommittedProvisional`, TIP with no `mergeState` key at all
+# - asserted cell by cell in `harness/lib/test_build_refly_a_recorded.py`. A lane cannot
+# reproduce a defect whose trigger its own physics cannot reach; a fixture can.
+#
+# PR #1658 (`refly-continuation`) carried the fix - `second.MergeState =
+# original.MergeState` beside the terminal move, plus the more-open-wins mirror in
+# `MergeInto` - and MERGED to main on 2026-09-08 as `a783879aa`, AFTER this lane's reading
+# run. It emits no new log token and moves none of the tokens below, which is why the
+# reading run's verdict still stands; a re-flight on post-#1658 main is owed as a
+# confirmation, not as a re-derivation.
+#
+# =====================================================================================
+# THE RE-FLY HALF: how the run gets back into FLIGHT to drive it.
+#
+# `ExitToSpaceCenter` leaves the run at SPACECENTER and `InvokeRewind` is a RequiresFlight
+# verb, so the lane re-enters through a second `LoadGame` (the flight-entry verb; S4.2's
+# argument that a two-boot seam run is not expensive applies). Two guards on that path,
+# both learned by other lanes rather than reasoned about here:
+#   - the boot PROMOTES the committed tip into a live recorder, and InvokeRewind's
+#     dispatch guard REJECTS `recording-active` over it. RH-1 reading run 1 spent a whole
+#     flight discovering exactly that. `StopRecording` first, R1's own order; it is
+#     idempotent-OK either way.
+#   - `autoRecordOnLaunch` is set FALSE before the second boot for the same reason. It
+#     does not govern a promotion, which is why StopRecording is still needed.
+#
+# THE ID IS READ AT RUNTIME. `ListHandles kind=rewindpoints` enumerates the family the
+# flight authored and the step is LABELLED `handles`, so `rp = "${handles.rp0}"` carries
+# an id this file never spells - which it could not, since a live RewindPointId is a fresh
+# Guid. RH-1 is the pattern and its header carries the identity-proof argument.
+#
+# THE SLOT IS 1, and that is a reading of two GS-1 flights rather than a guess. The RP is
+# authored with `focusSlot=0` (the pod, the vessel the mission flies) and both flight 2
+# and flight 3 measured the booster's promotion as `slot=1`. A wrong index cannot pass
+# silently: `InvokeRewind` REJECTs `unknown-slot`, and a CLOSED slot REJECTs `refly-gate`.
+#
+# =====================================================================================
+# STATUS: LIVE-PROVEN. READING RUN 1 FLOWN 2026-09-08
+# (`2026-09-08_2146_RF-1-continuation-stays-open`), PASS ATTEMPT 1, wall 171 s, against
+# the main-built DLL (deployed hash 83b1adea88cd8cd5). Every verifier PASS or SKIPPED,
+# expectations **mismatches=0** over all 15 required and 4 forbidden patterns, analyzer
+# red=0, logValidate PASS, anomalySweep `hits=[] counts={}`, unityExceptions total=0.
+# `tier = "operator"` while calibrating. ARMED 2026-09-09 - see the
+# `[expectations.rewind]` block below and the ARMING paragraph at the end of this header.
+#
+# THE MISSION VARIANT WORKED ON ITS FIRST FLIGHT: `assert boosterStillAirborne
+# value=FLYING met=True`, MISSION-OK in 95.8 s, phases PRELAUNCH -> ASCENT -> STAGE ->
+# COAST -> DESCENT -> SIBLING-DOWN -> LANDED. The pod touched down at ut 118.98 and the
+# booster read FLYING on the two frames that followed, which is the whole shape.
+#
+# MEASURED, VERBATIM, and every one of them a token this spec had DERIVED:
+#   `RewindPoint begin: rp=rp_fcbe24b4e5b94d769796d7ace521f451 bp=bcb1b6ae... slots=2
+#    controllablePids=2 focusSlot=0 ut=30.86`
+#   `IsUnfinishedFlight=true rec=6dbb8d01... reason=stableLeafUnconcluded slot=1
+#    focusSlot=0 terminal=SubOrbital side=child`
+#   `CommitTree promoted rec=6dbb8d01... vessel='GS1 Auto-Chute Booster Probe' slot=1
+#    rp=rp_fcbe24b4... reason=stableLeafUnconcluded to CommittedProvisional`
+#   `ReapOrphanedRPs: reaped=0 remaining=1`
+#   `listhandles kind=rewindpoints count=1 truncated=false`, then the harness's own
+#    `substituted id=0011 arg=rp ref=${handles.rp0} value=rp_fcbe24b4e5b94d769796d7ace521f451`
+#    reaching `Invocation complete: sess=sess_20fa94ec... rp=rp_fcbe24b4... slot=1
+#    activePid=4023738118` - the first re-fly in the suite of a RewindPoint KSP physics
+#    authored during the same run.
+#
+# THE FORBID HELD, AND SO DID THE PREDICTION BEHIND IT. No `reason=sealedTipClosed`, no
+# `already committed/fork`, no `Reaped rp=`. The header above argued this profile cannot
+# reproduce the split defect because it crosses no environment boundary; the run confirms
+# it, which is worth as much as the positive half - it is what makes the fixture, not this
+# lane, the defect's reproduction.
+#
+# THE SAVE-PARSE WINDOWS ALL LANDED, which is what promotes them from guesses to
+# measurements: `rewindPoints=1 supersedeRows=1 tombstones=0`, structure `trees=1
+# committedTrees=1 recordings=3 terminalStates{Landed 1, SubOrbital 1, Destroyed 1}
+# branchPoints{JointBreak 1}`, points total 742 (largest 381). The Destroyed one is the
+# RE-FLY's own fork, which closed `IsUnfinishedFlight=true ... reason=crashed
+# terminal=Destroyed side=child` - a second, unpinned reading worth recording, because it
+# is the `crashed` branch the seed took and this lane's own booster did not.
+#
+# ARMING WAS NOT TAKEN AT THAT POINT, and the reason it could be taken later is the reason
+# it was refused then: one sample is one sample. The second flight came on 2026-09-09 - a
+# confirmation re-flight on merged main - and landed on the SAME three windows, so
+# `[expectations.rewind]` was armed through the full S4.1 cycle that day (reading run,
+# armed run `2026-09-08_2349`, negative control `2026-09-08_2351` red on one facet,
+# reverted in the same change). The block below carries the record.
+# =====================================================================================
+tier = "operator"
+description = "GS-1 inverted: the same two-stage flight exits to the Space Center with the auto-chute booster STILL UNDER CANOPY, so the non-focus slot is promoted CommittedProvisional and its flight-authored RewindPoint survives - then the lane re-enters FLIGHT, reads the live RewindPoint id off ListHandles and RE-FLIES that slot, the first re-fly in the suite of a RewindPoint KSP physics authored during the same run."
+instanceProfile = "stock-minimal"
+tags = ["RF-1", "rewind", "refly", "unfinished-flights", "continuation", "staging",
+        "scene-exit", "runtime-handles", "reading-run"]
+
+[fixture]
+# GS-1's fixture verbatim - the same forge-produced two-stage pad state, whose craft puts
+# a probeCoreOcto2 on the BOOSTER so both sides of the decoupler carry a ModuleCommand and
+# `IsMultiControllableSplit` returns two. Without that there is no RewindPoint and this
+# lane is vacuous; GS-1's header carries the whole derivation.
+saveTemplate       = "fixtures/saves/gs1-two-stage-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "gs1_auto_chute_booster"
+
+# `steps` MUST stay in [driver], ABOVE the [driver.missionParams] header: a key after the
+# sub-table header is TOML-scoped to driver.missionParams and the spec would validate as
+# having ZERO steps.
+#
+# TWELVE STEPS, in three acts.
+#   ACT 1 (LoadGame .. mission .. ExitToSpaceCenter) is GS-1's own chain, unchanged, with
+#     `autoMerge=true` mandatory for the same reason (without it
+#     `SceneExitInterceptor.ShouldShowDialogBeforeSceneChange` returns RegularMerge and
+#     `ExitToSpaceCenter` REJECTs `dialog-required`). `verboseLogging=true` is LOAD-BEARING
+#     here where it is merely useful in GS-1: the classifier verdict line this lane
+#     REQUIRES is `ParsekLog.VerboseRateLimited`.
+#   ACT 2 (LoadGame .. StopRecording) re-enters FLIGHT for the rewind, with the two guards
+#     the header names.
+#   ACT 3 (ListHandles .. AnswerMergeDialog) is RH-1's chain verbatim.
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" },      expect = "OK", budget = 300 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "true" },   expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "autoMerge", value = "true" },            expect = "OK" },
+  { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },       expect = "OK" },
+  { phase = "mission",                                                                   expect = "MISSION-OK", budget = 900 },
+  { cmd = "ExitToSpaceCenter",                                                           expect = "OK", budget = 120 },
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" },      expect = "OK", budget = 300 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" },  expect = "OK" },
+  { cmd = "StopRecording",                                                               expect = "OK" },
+  { cmd = "ListHandles",       args = { kind = "rewindpoints" }, label = "handles",      expect = "OK" },
+  { cmd = "InvokeRewind",      args = { rp = "${handles.rp0}", slot = "1" },             expect = "OK", budget = 300 },
+  { cmd = "AnswerMergeDialog", args = { choice = "merge" },                              expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                              expect = "OK" },
+  { cmd = "FlushAndQuit",                                                                expect = "OK" },
+]
+
+# GS-1's params VERBATIM plus ONE key. Every value below is copied from the spec whose
+# four flights measured them; changing any of them would make this lane's flight a
+# different experiment from the one GS-1's forensics describe, and the whole argument for
+# pinning `stableLeafUnconcluded` rests on flying GS-1's profile.
+[driver.missionParams]
+throttle = 1.0
+stagingApoapsisMeters = 700
+stagingMaxAltMeters = 1500
+apoapsisWindowMeters = { min = 600, max = 1600 }
+stageSettleFrames = 2
+chuteArmMaxRateMps = 30
+chuteFullDeployAltMeters = 600
+landedSituations = ["LANDED", "SPLASHED"]
+ascentTimeoutSeconds = 90
+coastTimeoutSeconds = 120
+stageTimeoutSeconds = 60
+descentTimeoutSeconds = 300
+siblingVesselName = "GS1 Auto-Chute Booster Probe"
+# THE ONE KEY THIS LANE ADDS. See the header: it INVERTS the SIBLING-DOWN exit rather than
+# shortening it, so the run concludes on an OBSERVATION (the booster read airborne twice)
+# and stays MISSION-OK, which is what lets the world-mutating tail run at all.
+siblingAirborneAtExit = true
+# KEPT AT GS-1'S VALUE even though the inverted exit settles in two frames. It is now the
+# budget on "how long until the booster can be OBSERVED at all", which is a handful of
+# polls; leaving it at 240 costs nothing and keeps one number in this file identical to
+# the lane it is derived from.
+siblingDownTimeoutSeconds = 240
+
+[dimensionsCovered]
+# BASICS ONLY on a never-flown lane, on RH-1's own claim-is-not-gate ground: a dimension
+# claim states that a value was EXERCISED AND OBSERVED, not that a step was written. The
+# three below are properties of the host that hold the moment the boot lands.
+#
+# WHAT THE READING RUN EARNS, listed so the follow-up commit is mechanical rather than a
+# judgement: `rewind-to-separation` and `refly-gate` off the StartInvoke / Invocation
+# complete pair (RH-1's own tokens); `unfinished-flights-stash` off the promotion line,
+# which would make this the SECOND claiming lane for a cell that R7c alone covers today;
+# `auto-record-launch` / `commit-scene-exit` / `auto-merge` off GS-1's group-3 tokens; and
+# `controlled-decoupled-child` off the breakup line. NOT `rp-disk-reaper`: this lane
+# asserts the reaper DECLINED, which is the opposite of exercising it.
+D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# GS-1's window verbatim and for GS-1's reasons (the parent plus the split's controlled
+# child, with headroom for touchdown debris), widened at the top by the re-fly's own
+# provisional. A first reading measures the real count; do not widen blindly.
+count = { min = 2, max = 8 }
+
+[expectations.logContracts]
+# FIVE GROUPS. Groups 1-2 are GS-1's, quoted from the spec whose flights measured them.
+# Groups 3-5 are this lane's own subject and are DERIVED except where noted.
+#
+# GROUP 1 - THE FLIGHT AND THE SPLIT (GS-1's group 1, MEASURED on its flights 1-4).
+#   The two-pid class in `Controllable split children` is the non-vacuity: the same line
+#   is emitted with ONE pid on a single-controllable split, which is exactly the case
+#   where no RewindPoint is authored and this whole lane silently becomes a pad hop.
+#
+# GROUP 2 - THE REWINDPOINT, authored by KSP physics (GS-1's group 2, MEASURED).
+#
+# GROUP 3 - THE OPEN SLOT. This lane's subject, and the inversion of GS-1's forbidden
+# pair. Both lines were MEASURED VERBATIM on GS-1 flight 3 (`2026-08-05_0807`), which
+# produced this shape by accident:
+#   `IsUnfinishedFlight=true rec=81e48efe... reason=stableLeafUnconcluded slot=1
+#    focusSlot=0 terminal=SubOrbital side=child`   (Verbose, UnfinishedFlightClassifier)
+#   `CommitTree promoted rec=81e48efe... vessel='GS1 Auto-Chute Booster Probe' slot=1
+#    rp=rp_6881c324... reason=stableLeafUnconcluded to CommittedProvisional`  (Info)
+# `terminal=SubOrbital` is pinned inside the first pattern rather than left loose: it is
+# the classifier INPUT that makes the slot qualify, and a run whose booster closed
+# `Destroyed` or `Landed` instead would be a different experiment reading green.
+#
+# GROUP 4 - THE REWINDPOINT SURVIVED. `ReapOrphanedRPs: reaped=0 remaining=1` is GS-1's
+# reap token with both numbers inverted, and it is the strongest single statement this
+# lane makes: `RewindPointReaper.IsReapEligible` returns false the moment ANY slot's
+# effective tip is CommittedProvisional, so `remaining=1` is only reachable when the slot
+# really is open. MEASURED on GS-1 flight 2 (`reaped=0 remaining=1`) for the same reason
+# from the crashed-booster side.
+#
+# GROUP 5 - THE RE-FLY. RH-1's four tokens verbatim, plus the ListHandles line with
+# `count=1`: this run authored exactly one RewindPoint, so a zero-member enumeration -
+# which would make the `${handles.rp0}` substitution unresolvable - cannot read green.
+required  = ["Recording started",
+             "Controllable split children: \\[[0-9]+,[0-9]+\\]",
+             "ProcessBreakupEvent: controlled child created: pid=[0-9]+",
+             "RewindPoint begin: rp=\\S+ bp=\\S+ slots=2 controllablePids=2",
+             "RewindPoint slot capture: rp=\\S+ populated=2/2 disabled=0",
+             "exittospacecenter start scene=FLIGHT autoMerge=true hasActiveTree=true hasPendingTree=false",
+             "Silent full-fidelity auto-commit \\(scene-exit\\): tree='.+' recordings=[1-9][0-9]*",
+             "IsUnfinishedFlight=true rec=\\S+ reason=stableLeafUnconcluded slot=1 focusSlot=0 terminal=SubOrbital",
+             "CommitTree promoted rec=\\S+ vessel='.+' slot=1 rp=\\S+ reason=stableLeafUnconcluded to CommittedProvisional",
+             "ReapOrphanedRPs: reaped=0 remaining=1",
+             "listhandles kind=rewindpoints count=1 truncated=false",
+             "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=.* rp=rp_[0-9a-f]{32}",
+             "Invocation complete",
+             "ConsumePostLoad: restoring bundle with route-retire cutoffUT=",
+             "Restored: recs=.* pendingScience="]
+# THE THREE FORBIDDEN PATTERNS, and what each would mean.
+#
+#   `reason=sealedTipClosed` (EffectiveState.cs:1064-1072) is the verdict the seed's slot
+#   read after the optimizer split minted a tip nobody promoted. See the header: this
+#   profile has no phase boundary for the split predicate to cut on, so the pattern is a
+#   GUARD against the day something gives it one, not a reproduction. Its reproduction is
+#   the `refly-a-recorded` fixture, whose committed bytes carry that tip.
+#
+#   `not re-deriving MergeState` (RecordingStore.cs:1272-1273, the else branch of the
+#   promotion in `ApplyRewindProvisionalMergeStates`; re-grepped 2026-09-09, the old
+#   1204-1207 citation was stale) is the first-commit guard
+#   cementing an `Immutable` nobody chose - the SECOND lock in the seed's chain, and the
+#   one that makes the closure permanent. It is forbidden for the same reason and with
+#   the same caveat.
+#
+#   PINNED ON THE FRAGMENT AS OF 2026-09-09, and the correction is worth a paragraph
+#   because the original could never have fired. The C# writes
+#   `already committed/fork [EM DASH] not re-deriving MergeState`; this file carried the
+#   sentence with an ASCII HYPHEN, which matches no log line Parsek can emit. A
+#   forbidden clause that cannot fail is the silence-is-not-success shape - it reads
+#   exactly like a pass on every run - and it is the same defect class the RF-7M
+#   defect-(B) tokens were removed for. Filed in `docs/dev/todo-and-known-bugs.md` as
+#   RF-FORBID-EM-DASH-CANNOT-MATCH. The reading run of 2026-09-08 is UNAFFECTED in its
+#   verdict: this profile takes no split, so the line it now correctly forbids was never
+#   going to be written either way - what was lost was the guard, not the measurement.
+#
+#   `Reaped rp=` is GS-1's REQUIRED token, forbidden here. That inversion is the cleanest
+#   statement of what these two lanes are: same craft, same profile, same commit route,
+#   opposite branch of one contract. A run that reaped its RewindPoint did not leave the
+#   booster in the air, whatever else it did.
+forbidden = ["\\[Parsek\\]\\[ERROR\\]",
+             "reason=sealedTipClosed",
+             "not re-deriving MergeState",
+             "Reaped rp="]
+
+# REPORT-ONLY (no `gating` key). The windows are what the seed and GS-1 flight 3 PREDICT.
+#
+#   rewindPoints = { min = 1, max = 1 }  the save-side statement of group 4: the reaper
+#       declined and the point is still on disk. This is GS-1's `{ max = 0 }` inverted,
+#       and it is the facet the log cannot give - a `reaped=0` line proves the sweep ran,
+#       a count of 1 in the .sfs proves the object survived it.
+#   supersedeRows = { min = 1 }  the re-fly merged, so `SupersedeCommit.AppendRelations`
+#       wrote at least one row. GS-1 pins `{ max = 0 }` here because it invokes no rewind.
+#   tombstones = { max = 0 }  nobody dies on this profile: the pod lands intact and the
+#       booster is still flying. `CommitTombstones` only builds rows for in-scope kerbal
+#       deaths, so a nonzero here would mean the re-fly killed the crew.
+# ARMED 2026-09-09, on the arming discipline S4.1 set: reading run, armed run, negative
+# control. What earns it is that these three windows landed UNCHANGED on TWO flights
+# against different DLLs - reading run `2026-09-08_2146` (pre-#1658 main) and the
+# confirmation re-flight on merged main - so they are a measurement of the lane rather
+# than of a build. `rewindPoints = {1,1}` is the one that matters: `IsReapEligible`
+# returns false the moment any slot's effective tip is CommittedProvisional, so a count
+# of exactly one on disk is only reachable when the slot really stayed open. The
+# NEGATIVE CONTROL flown for this arming inverted it to `{2,2}` and red on exactly that
+# facet and no other: run `2026-09-08_2351`, PARSEK-FAIL(gating save-structure),
+# mismatches `['rewind.rewindPoints 1 < min 2']`, one token, reverted in the same change.
+# THE ARMED RE-FLIGHT that precedes it is `2026-09-08_2349`, PASS attempt 1,
+# `saveParse status=PASS gating=True armed=['rewind']`.
+[expectations.rewind]
+gating        = true
+rewindPoints  = { min = 1, max = 1 }
+supersedeRows = { min = 1 }
+tombstones    = { max = 0 }
+
+# REPORT-ONLY. `terminalStates` is GS-1's row with the booster moved from `Landed` to
+# `SubOrbital`, which is this lane's whole subject expressed in save form: the pod lands
+# (Landed >= 1) and the booster does not (SubOrbital >= 1). A run that read `Landed = 2`
+# flew GS-1, not this.
+[expectations.recordings.structure]
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 2 }
+terminalStates = { Landed = { min = 1 }, SubOrbital = { min = 1 } }
+branchPoints   = { JointBreak = { min = 1 } }
+
+[runtime]
+# Budget arithmetic (M-A5 S8). run.py waits max(step_budget, 600) + 60 for a DEFERRED verb
+# (LoadGame / InvokeRewind) and max(step_budget, dispatch_budget + 60) otherwise, with a
+# 60 s dispatch default:
+#   LoadGame x2       660 x2                = 1320
+#   SetSetting x4     120 x4                =  480
+#   mission           900                   =  900
+#   ExitToSpaceCenter max(120,120+60) = 180 =  180
+#   StopRecording     120                   =  120
+#   ListHandles       120                   =  120
+#   InvokeRewind      660                   =  660
+#   AnswerMergeDialog 180                   =  180
+#   RecordingState    120                   =  120
+#   FlushAndQuit      120                   =  120   -> sum 4200
+# The ceiling must EXCEED that sum, or a capped deferred wait KILLs mid-step instead of
+# surfacing the seam's own per-step TIMEOUT. 4500 clears it by 300. The real wall clock is
+# GS-1's ~110 s flight plus two boots; this only governs the unattended defer path.
+budgetSeconds = 4500
+
+[retry]
+policy = "once"
+
+[expectedFail]
+# EMPTY, deliberately, on GS-1's argument: an `expectedFail` key would demote every
+# failure of its subkind under one bug id, including the regression these tokens exist to
+# catch.
+bugId = ""

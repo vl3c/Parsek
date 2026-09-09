@@ -1,0 +1,201 @@
+schema = 1
+id = "RF-3-refly-discard-then-commit"
+# =====================================================================================
+# THE RE-FLY CONTINUATION PROGRAM, LANE 3. A DISCARD MUST COST NOTHING.
+#
+# S4.3 drives a Re-Fly discard and reads what it removes: the attempt's recordings, the
+# ghost teardown, the committed-list notification seam. It stops there. This lane asks the
+# question the operator actually cares about after a discard - CAN I TRY AGAIN? - and it
+# asks it twice over, on the same point and then on a different one:
+#
+#   1. rewind the open slot of the OLDEST RewindPoint and DISCARD from the merge dialog;
+#   2. assert the slot is STILL OPEN and the point is STILL ON DISK: all three points
+#      remain (`reaped=0 remaining=3`), and the very next enumeration still sees three;
+#   3. rewind that SAME slot AGAIN and MERGE, so the discard provably cost nothing;
+#   4. rewind the open slot of a DIFFERENT point and MERGE.
+#
+# WHY STEP 3 IS THE ONE THAT MATTERS. A discard that left the slot closed, or the RP
+# reaped, or the session marker standing, would look identical to a successful discard in
+# S4.3's tokens - every removal line would fire and the attempt would be gone. The only
+# thing that separates "discarded" from "destroyed" is whether the SAME rewind can be
+# invoked a second time, and that is a re-invocation, not an assertion about state. So the
+# proof here is a driven verb rather than a grep: the second `InvokeRewind` on
+# `${handles.rp0} slot=1` must answer OK, and it can only do so if
+# `RewindInvoker.CanInvoke`'s five preconditions still hold - RP not Corrupted, the
+# quicksave still on disk, no other session active, and the deep PART parse still passing.
+#
+# THE THIRD REWIND USES THE ENUMERATION AGAIN, ON PURPOSE. Step 3 re-runs `ListHandles`
+# rather than reusing the captured `${handles.rp0}` from step 1, so `count=3` is asserted
+# on BOTH sides of the discard. Reusing the capture would prove the id was stable in the
+# harness's memory; re-enumerating proves the OBJECT was stable on disk.
+#
+# =====================================================================================
+# WHY `bdock-recorded` AND NOT S4.3's INJECTED WORLD-PRESERVATION FIXTURE.
+#
+# S4.3's subject is the ghost teardown, so it needs a POPULATED flight scene and takes the
+# injected corpus for it. This lane's subject is RE-INVOCABILITY, which needs a point that
+# survives its own discard AND a SECOND point to move on to - and the harvest is the only
+# host with more than one. The injected presets carry exactly one RP each
+# (`run.py:126-137`), so a discard-then-different-point chain is unreachable on them.
+#
+# A DISCARD ON A JOURNAL-ACTIVE DIALOG PRESSES MERGE, and this lane must not sit on that
+# path: `MergeDialog.cs:421-430` forces a single button once the merge journal is running,
+# and `AnswerMergeDialog`'s `discard` role maps to the LAST button, which is then the
+# merge button. The path here is the ordinary pre-transition dialog (no journal has begun
+# because nothing has been committed yet), which is S4.3's own route; the `End
+# reason=discardReFlyAttemptFromMergeDialog` token below is what distinguishes them - a
+# forced-merge answer emits `committed`, never that reason.
+#
+# =====================================================================================
+# STATUS: LIVE-PROVEN. READING RUN FLOWN 2026-09-09 (`RF-3`), PASS attempt 1, expectations
+# mismatches=0. ONE REPORT-ONLY WINDOW WAS REFUTED AND RE-PINNED: `tombstones` was authored
+# `{max = 0}` and the run measured FIVE, while RF-2 measured ZERO over the same fixture and
+# the same number of merges - see the `[expectations.rewind]` block for the argument.
+# RE-FLOWN on merged main the same day, PASS again. Nothing armed.
+# FORMERLY: NEVER FLOWN. `tier = "operator"`. Nothing armed; the save-parse block is
+# report-only by omission and its windows are DERIVED from the fixture's bytes.
+# =====================================================================================
+tier = "operator"
+description = "A Re-Fly discard must cost nothing: rewind the open slot of the oldest bdock-recorded RewindPoint and DISCARD, assert all three points survive and the enumeration still sees three, then rewind THAT SAME SLOT again and merge - re-invocability proven by a driven verb rather than by a grep - and finally rewind a different point's slot and merge."
+instanceProfile = "stock-minimal"
+tags = ["RF-3", "rewind", "refly", "discard", "rp-disk-reaper", "runtime-handles",
+        "kerbin", "sandbox", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/bdock-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # S4.3's reason: the two committed-list handler lines and the classifier verdict are
+  # Verbose, and a discard that silently skipped the seam would be invisible without them.
+  { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },  expect = "OK" },
+  { cmd = "StopRecording",                                                          expect = "OK" },
+  # --- ACT 1: rewind, then DISCARD ---------------------------------------------------
+  { cmd = "ListHandles",       args = { kind = "rewindpoints" }, label = "handles",  expect = "OK" },
+  { cmd = "InvokeRewind",      args = { rp = "${handles.rp0}", slot = "1" },         expect = "OK", budget = 300 },
+  # THE ATTEMPT IS FLOWN BEFORE IT IS DISCARDED. An attempt that recorded nothing is
+  # retired by the leaf prune, so `Removed Re-Fly attempt rec=` would have nothing to
+  # name and S4.3's token could read absent for a reason that is not a defect. CI-2
+  # measured `TimeJump` accepted with a re-fly session live and the conclusion dialog
+  # still reachable afterwards. 500 is ~117 s past rp0's UT 382.73 and well short of the
+  # tree's Dock branch point at 8949.27, so CI-2's chain-tip spawn stays out of this.
+  { cmd = "TimeJump",          args = { ut = "500" },                                expect = "OK", budget = 120 },
+  { cmd = "AnswerMergeDialog", args = { choice = "discard" },                        expect = "OK", budget = 120 },
+  # --- ACT 2: the SAME slot again, and this time merge --------------------------------
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "StopRecording",                                                          expect = "OK" },
+  # Re-ENUMERATED rather than re-used: this is the on-disk survival assertion.
+  { cmd = "ListHandles",       args = { kind = "rewindpoints" }, label = "handles2", expect = "OK" },
+  { cmd = "InvokeRewind",      args = { rp = "${handles2.rp0}", slot = "1" },        expect = "OK", budget = 300 },
+  { cmd = "TimeJump",          args = { ut = "500" },                                expect = "OK", budget = 120 },
+  { cmd = "AnswerMergeDialog", args = { choice = "merge" },                          expect = "OK", budget = 120 },
+  # --- ACT 3: a DIFFERENT point's open slot, merged -----------------------------------
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "StopRecording",                                                          expect = "OK" },
+  { cmd = "ListHandles",       args = { kind = "rewindpoints" }, label = "handles3", expect = "OK" },
+  { cmd = "InvokeRewind",      args = { rp = "${handles3.rp0}", slot = "1" },        expect = "OK", budget = 300 },
+  # rp1's UT is 693.29 and `TimeJump` is FORWARD-ONLY, so 500 would REJECT
+  # `backward-jump`; 800 clears it by the same ~107 s margin the first two acts use.
+  { cmd = "TimeJump",          args = { ut = "800" },                                expect = "OK", budget = 120 },
+  { cmd = "AnswerMergeDialog", args = { choice = "merge" },                          expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                          expect = "OK" },
+  { cmd = "FlushAndQuit",                                                            expect = "OK" },
+]
+
+[dimensionsCovered]
+# BASICS ONLY until the reading run. What it would earn: `rewind-to-separation` /
+# `refly-gate` (three invocations past the five-precondition gate), `reconciliation-bundle`
+# and `read-back-guard` (S4.3's own claims, on the same restore tokens), and
+# `supersede-relation` from the two merges. There is still no D9 value for "attempt
+# discarded from the merge dialog" - S4.3 declined to invent one and this lane declines
+# for the same reason: a value is worth adding in the commit that reads a green off a run
+# that exercised it, not before.
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 2, max = 30 }
+
+[expectations.logContracts]
+# THE SURVIVAL PAIR IS THE LANE: `reaped=0 remaining=3` after the discard, and the second
+# `listhandles ... count=3` that re-reads the same fact off the object rather than off the
+# sweep. Either alone would be weaker - the summary could read 3 while a point had been
+# corrupted, and an enumeration could count a point whose quicksave had been deleted (the
+# payload the deep PART parse needs). Together with the second `InvokeRewind` answering OK
+# they are three independent statements of one property.
+required = [
+  "listhandles kind=rewindpoints count=3 truncated=false",
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=.* rp=rp_[0-9a-f]{32}",
+  "Invocation complete",
+  # S4.3's two discard tokens verbatim: the per-recording removal (ReFlyDiscard's own Info
+  # line) and the session-end reason that distinguishes a real discard from a
+  # journal-forced merge.
+  "timejump complete reachedUT=50[0-9]",
+  "Removed Re-Fly attempt rec=",
+  "End reason=discardReFlyAttemptFromMergeDialog",
+  # THE SURVIVAL HALF. The `count=3` token above is deliberately listed ONCE even though
+  # the lane enumerates three times before the first merge: logContract matching is
+  # presence-only `re.search`, so a second identical entry would assert nothing new. What
+  # carries the before/after claim is the pair below - a sweep that reaped nothing, and
+  # then a `count=2` that can only appear AFTER a merge has taken one, i.e. never before
+  # act 2. The third statement of the same property is not a token at all: it is act 2's
+  # `InvokeRewind` answering OK on a point act 1 discarded.
+  "ReapOrphanedRPs: reaped=0 remaining=3",
+  # ACT 2's merge closed the re-flown point; ACT 3's closed a second.
+  "ReapOrphanedRPs: reaped=1 remaining=2",
+  "listhandles kind=rewindpoints count=2 truncated=false",
+  "ReapOrphanedRPs: reaped=1 remaining=1",
+]
+forbidden = [
+  "\\[Parsek\\]\\[ERROR\\]",
+  # A DISCARD MUST NOT REAP, and this is the strongest way presence-only matching can say
+  # so: a `count=1` enumeration is unreachable on this chain, because only two merges run
+  # and each takes exactly one of three points. If it appears, something took a point
+  # nobody merged - which on this lane can only be the discard.
+  "listhandles kind=rewindpoints count=[01] truncated=false",
+  "ReapOrphanedRPs: reaped=[0-9]+ remaining=0",
+  "subscriber threw",
+  "reason=sealedTipClosed",
+]
+
+# REPORT-ONLY. RE-PINNED FROM READING RUN 1 (2026-09-09): three points in, one discard
+# reaps none, two merges reap two, so one survives (MEASURED: rewindPoints=1), and two
+# merges append at least two supersede rows onto a fixture that carries zero (MEASURED:
+# supersedeRows=2).
+#
+# `tombstones` WAS THE ONE DERIVED WINDOW THAT WAS WRONG, and it is worth the paragraph
+# because RF-2 measured ZERO over the same fixture and the same two merges. It was
+# authored "nobody dies" from reading the lane rather than the SUBTREE: tombstone rows
+# are built by `SupersedeCommit.CommitTombstones` for in-scope kerbal-death actions in
+# whatever the merge supersedes, so the count is a property of WHICH slot is merged and
+# not of how many merges there are. This lane merges the SAME slot twice (the discard,
+# then the commit) and RF-2 merges two different points; run 1 measured FIVE here and
+# RF-2 measured none. Pinned as a floor rather than at 5 on one sample, and the
+# asymmetry with RF-2 is recorded rather than explained - which of the two subtrees
+# carries the deaths is a reading nobody has taken.
+[expectations.rewind]
+rewindPoints  = { min = 1, max = 1 }
+supersedeRows = { min = 2 }
+tombstones    = { min = 1 }
+
+[runtime]
+# Budget arithmetic: LoadGame x3 1980 + SetSetting x5 600 + StopRecording x3 360 +
+# ListHandles x3 360 + InvokeRewind x3 1980 + TimeJump x3 (deferred) 1980 +
+# AnswerMergeDialog x3 540 + RecordingState 120 + FlushAndQuit 120 = 8040.
+# 8400 clears it by 360.
+budgetSeconds = 8400
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

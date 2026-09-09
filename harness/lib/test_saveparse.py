@@ -3179,6 +3179,183 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                 "dismissedCandidates": 0, "promptedCandidates": 0,
             },
         },
+        # --- THE RE-FLY CONTINUATION SUBJECT, AND THE FIRST SUPERSEDE ROW ---
+        # PROVENANCE: refly-a-recorded <- THE OPERATOR'S OWN MANUAL RE-FLY
+        # SESSION on the DEV instance, 2026-09-08, snapshot
+        # `logs/2026-09-08_2317_refly-a-manual` (save `re-fly-a`), DLL commit
+        # `2effc9d49` (main at the time). Harvested `--save-dir <log copy>/saves/
+        # re-fly-a --target-name refly-a-recorded --expect-situation PRELAUNCH
+        # --keep-parsek` (the gate passed on '#autoLOC_501224' PRELAUNCH,
+        # vessels=7), then finished by `harness/tools/build_refly_a_recorded.py`,
+        # whose ONE build step is the 618-byte AddOns restore. NOTHING WAS
+        # STRIPPED: the save already held exactly one tree, one MISSION and ten
+        # recordings that all belong to it.
+        #
+        # WHAT MAKES IT A SUBJECT NOTHING ELSE IN THIS MAP IS. It is the only
+        # committed fixture carrying a `RECORDING_SUPERSEDES` row (the probe's own
+        # re-fly, `d096297d` -> `rec_d4b696...`), the only one carrying a
+        # `SubOrbital` terminal, and the only one whose bytes hold a chain
+        # HEAD/TIP pair produced by an OPTIMIZER PHASE-CHANGE SPLIT ACROSS A
+        # PROMOTED RE-FLY SLOT. That last pair is a DEFECT frozen in the bytes and
+        # is the whole reason the fixture exists:
+        #   HEAD 32ca55469ac1400da66fcebb3c791d65  chainIndex 0, 272 points,
+        #     terminalState 3 (SubOrbital), mergeState CommittedProvisional,
+        #     ZERO top-level ORBIT_SEGMENTs, span [32.93999999999955,
+        #     191.04000000002392]
+        #   TIP  8da7c2c2a6d84505b4bc121fdb9f528f  chainIndex 1, 129 points,
+        #     terminalState 4 (Destroyed), NO `mergeState` KEY AT ALL, all three
+        #     ORBIT_SEGMENTs, span [191.04000000002392, 2348.5488254909719]
+        # The codec omits `mergeState` exactly when the value is `Immutable` and
+        # reads a missing key back as `Immutable`, so the tip is CLOSED - and
+        # `UnfinishedFlightClassifier.IsSlotEffectiveTipOpen` reads open/closed
+        # from the tip. That is why the pod's Unfinished Flights row never drew
+        # and why `ReapOrphanedRPs: reaped=1` then deleted the RewindPoint.
+        #
+        # `rewind_points` IS 0 AND THAT IS THE SUBJECT, NOT AN OMISSION. The RP
+        # was reaped by the defect before the session was collected, so THIS
+        # FIXTURE CANNOT RE-FLY: it serves the RF-7M / RF-7T render lanes and any
+        # load-time / classification lane. A lane needing a live RewindPoint flies
+        # the RF-1 mission variant or injects one of the three xUnit presets.
+        #
+        # THE SECOND DEFECT, also in the bytes: the TIP's two `isPredicted`
+        # segments run 1078.0528338768356 -> 2186.5751775686945 ->
+        # 2348.5488254909719 (the extrapolated impact) with sma 865777.71214532177
+        # / ecc 0.31755526014312058, i.e. periapsis radius 590,845.4455388983 m
+        # against Kerbin's 600,000 - 9,154.55 m INSIDE the planet. All three of
+        # the TIP's segments are subsurface, which is what
+        # `GhostTrajectoryPolylineRenderer.IsOrbitSegmentBelowSurface` drops from
+        # the forward-arc pass; and the HEAD, which map-presence source resolution
+        # reads, has none at all. Both halves are asserted cell-by-cell in
+        # `test_build_refly_a_recorded.py`, which states what to do if either
+        # heals (re-fly the lane, re-harvest the fixture - never re-pin).
+        #
+        # OTHER MEASURED BYTES:
+        #   tree 47cea2fe7d9e4e9eb6a729a7e280cc41, root group "Kerbal X With
+        #     Probe", MISSION a6862f3f642f4f219f6edca087eca81b (same name,
+        #     loopPlayback False)
+        #   save clock (FLIGHTSTATE UT) 700.0 - a BUILDER EDIT, not the harvest, and
+        #     the value is MEASURED. As harvested it was 11,336.0878, more than
+        #     9,000 s past the predicted impact at 2,348.55, and every render surface
+        #     the fixture exists for is a FORWARD one (`TimeJump` is forward-only),
+        #     so no lane could reach the tail. The first cut used 1,100.0, inside the
+        #     first predicted segment; RF-7M reading run `2026-09-08_2149` proved that
+        #     is past the TIP's last RECORDED sample (1078.4528), so NO GHOST IS LIVE
+        #     - the run produced zero `map-presence-*` and zero `orbitSource=` lines
+        #     and could not reach defect (B) at all. 700.0 sits INSIDE the recorded
+        #     span [191.04, 1078.4528], so a ghost resolves a map-presence source
+        #     while the whole tail stays ahead for the forward surfaces. The pad
+        #     craft's `lct` / `lastUT` move with it so no vessel claims a future
+        #     launch; nothing else in FLIGHTSTATE is touched, and
+        #     `build_refly_a_recorded._verify_clock` re-derives that RELATIONSHIP
+        #     rather than comparing the number. activeVessel 1
+        #     ('#autoLOC_501224', PRELAUNCH), 7 VESSEL nodes (five asteroids plus
+        #     the pad craft and the re-flown probe), Mode SANDBOX
+        #   `terminalStates` SUMS TO 10 - every recording carries one, which no
+        #     other recorded fixture manages: SubOrbital 1 = the HEAD,
+        #     Destroyed 8 = the TIP plus six ascent debris plus the superseded
+        #     probe, Orbiting 1 = the probe's re-fly fork.
+        #   `branchPoints` is 5 JointBreak; the last of them, 867b15ae at UT
+        #     188.82000000002279, is the decouple the two-slot RewindPoint was
+        #     authored on.
+        #   `minAuthoritativeSidecars` is 39, NOT 40: the chain TIP is
+        #     chainIndex 1 and reuses the chain head's `_vessel.craft`.
+        #   pointCount total 1099 over the 10 recordings (largest 300 = the
+        #     probe's re-fly fork, smallest 5).
+        #   The three KERBAL_SLOTS are all `permanentlyGone = True`: the crew died
+        #     in the pod's PREDICTED impact, which is a downstream consequence of
+        #     the extrapolated tail rather than incidental save state.
+        # --- THE FIXED-BEHAVIOUR TWIN of refly-a-recorded --------------------
+        # PROVENANCE: refly-autopilot-recorded <- RF-9-atmosphere-exit-split-stays-open,
+        # run 2026-09-08_2258, PASS attempt 1 on the post-#1658 / post-#1659 DLL
+        # (deployed hash cd8ddb6b691e3fb8), --keep-parsek, finished by
+        # `harness/tools/build_refly_autopilot_recorded.py`.
+        #
+        # THE PAIR IS THE POINT, and the two fixtures are only fully legible against
+        # each other. Same craft (the probe-cored Kerbal X), same staging plan, same
+        # optimizer split at the atmosphere exit - and opposite outcomes on disk:
+        #
+        #   refly-a-recorded   (pre-#1658)  TIP 8da7c2c2  chainIndex 1  NO mergeState
+        #   refly-autopilot    (post-#1658) TIP a76c3839  chainIndex 1  mergeState =
+        #                                                              CommittedProvisional
+        #
+        # So this fixture is the REGRESSION FLOOR for the sealing fix, readable with no
+        # flight at all, and it carries the pair TWICE: the pod chain
+        # (HEAD 4a7739f6 / TIP a76c3839) and the probe chain (HEAD 490f0f52 /
+        # TIP 99ae6e58), which is both slots of one RewindPoint rather than one.
+        # `harness/lib/test_refly_autopilot_recorded.py` states that cell by cell and
+        # reads the SIBLING fixture too, so a re-harvest that healed the defect copy
+        # cannot leave this one asserting a fix against nothing.
+        #
+        # AND IT IS REPRODUCIBLE, which the seed is not: the seed is an evening an
+        # operator flew by hand, this is `python run.py --id RF-9-...`.
+        #
+        # OTHER MEASURED BYTES:
+        #   tree c3dfd02c0bdb4f7e9fc53bfc1de00768, 11 recordings, pointCount total
+        #     1200 (largest 560 = the pod HEAD, and the two 12-point TIPs are the
+        #     post-split tails the atmosphere exit produced). THE POINT TOTAL IS THE
+        #     ONE FACET THAT MOVES BETWEEN RF-9 FLIGHTS - run `_2250` measured 1218,
+        #     `_2258` (the harvest source) 1200, later runs 1179 and 1211 - because it
+        #     counts physics samples over a real ascent. It is pinned here because
+        #     THESE bytes are fixed; no lane gates on it.
+        #   `terminalStates` SUMS TO 11: Destroyed 10 (the pod and probe TIPs, six
+        #     ascent debris, the superseded pod HEAD's own chain and the re-fly fork),
+        #     SubOrbital 1 (the probe HEAD). The Destroyed count is downstream of the
+        #     scene-exit finalizer extrapolating the coasting stack to a PREDICTED
+        #     impact - which is the very branch that makes the slot qualify
+        #     `reason=crashed`, so a fixture reading all-SubOrbital would be a
+        #     different experiment.
+        #   `tombstones` is 8 and is NOT incidental: the crew ride the pod, the
+        #     predicted impact kills them, and the re-fly's supersede tombstones those
+        #     death actions. RF-9's own `[expectations.rewind]` window was authored as
+        #     `{max = 0}` on exactly the wrong reading and re-pinned from this run.
+        #   `supersedes` is 2 rows, both retiring into the re-fly fork
+        #     `rec_c54a110c` at UT 131.88 - the pod HEAD and the pod TIP, which is what
+        #     superseding a SPLIT chain looks like.
+        #   `rewind_points` is 1 and its quicksave is on disk: unlike its sibling, this
+        #     fixture's point SURVIVED the commit, because the fix kept the slot open.
+        #     `Parsek/Saves/` is deliberately absent - see the drift test.
+        #   53 sidecar files over 11 recordings.
+        "refly-autopilot-recorded": {
+            "trees": 1, "committedTrees": 1, "recordings": 11,
+            "supersedes": 2, "tombstones": 8, "rewind_points": 1,
+            "rewind_retirements": 0,
+            "terminalStates": {"SubOrbital": 1, "Destroyed": 10},
+            "branchPoints": {"JointBreak": 5},
+            # 42, NOT 55: the two chain TIPs are chainIndex 1 and reuse their heads'
+            # `_vessel.craft`, and the re-fly fork carries no trajectory of its own.
+            "minAuthoritativeSidecars": 42,
+            "recordingIds": ["26c2df0f06ec4d06ab8ba872e2c09517",
+                             "490f0f52563240c7b56e1fd5b44b56dd",
+                             "4a7739f6cc074185a82cbd10ccaeb01d",
+                             "59a22eed188d4f239e1fcf1f4134ba5b",
+                             "84aa298709b8452fa0847f6b521878c0",
+                             "97bacc077bc64ad2b329082a691dbe99",
+                             "99ae6e587bd74328a8ab70f7bb434ad6",
+                             "a76c38394cbd4f7b9053d656fc80d134",
+                             "ad7dc90a949a4dd2abdfcfad79146f17",
+                             "e1d48f8ca8c944bbb364153f8a99e7c6",
+                             "rec_c54a110cecb542e5b848e4e9d7fbd920"],
+            "schemaGeneration": 4,
+        },
+        "refly-a-recorded": {
+            "trees": 1, "committedTrees": 1, "recordings": 10,
+            "supersedes": 1, "tombstones": 0, "rewind_points": 0,
+            "rewind_retirements": 0,
+            "terminalStates": {"SubOrbital": 1, "Destroyed": 8, "Orbiting": 1},
+            "branchPoints": {"JointBreak": 5},
+            "minAuthoritativeSidecars": 39,
+            "recordingIds": ["06fc4d2c917549379d8a04f4125dae63",
+                             "0fc1a8340b7849b7956b82e2541dfb07",
+                             "11ac7fa82e4a4d6e9f4b9217fe40af8f",
+                             "1e89a803a31b48c5a4521533837db819",
+                             "213962a5d9c04a47be88d2c0421231ff",
+                             "32ca55469ac1400da66fcebb3c791d65",
+                             "8da7c2c2a6d84505b4bc121fdb9f528f",
+                             "d096297d815647de988c380fb6931d0a",
+                             "fce975a9bb2a492eb013db97f3fec11e",
+                             "rec_d4b696b61b544c1e8013073c611c8477"],
+            "schemaGeneration": 4,
+        },
     }
 
     def test_fixture_set_is_exactly_the_committed_set(self):

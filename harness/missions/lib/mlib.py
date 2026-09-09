@@ -17416,9 +17416,19 @@ MISSION_HANDOFF_CONTRACTS: Dict[str, Dict] = {
     # (`[GhostPartEvents] apply family=... applied=[1-9]`) and to
     # `[expectations.ghostLifecycle]`. Declaring it stops the misreading this table
     # was created for: "MISSION-OK, so the sweep worked".
+    # RF-9 ADDS A THIRD UNVERIFIED CLAIM to the same table entry rather than a
+    # second entry, because the coast-exit profile is the same mission: it flies
+    # the identical ascent and hands the scene over above the atmosphere. What it
+    # CANNOT see is what the recorder then did with that flight - whether the
+    # committed recording actually carries an Atmospheric -> ExoBallistic boundary,
+    # whether the optimizer split on it, and whether the promoted slot stayed open.
+    # The mission reads altitudes and situations; sections, splits and MergeStates
+    # are the spec's `[expectations.logContracts]` question, and a mission that
+    # tried to answer it would be asserting over a surface kRPC cannot reach.
     "kx_rewind_watch": {
         "terminal": "DONE",
-        "unverifiedByMission": ["ghostPartEventReplay", "ghostRenderLifecycle"],
+        "unverifiedByMission": ["ghostPartEventReplay", "ghostRenderLifecycle",
+                                "recordedEnvironmentBoundary"],
         "verifiedBy": ["logContracts", "ghostLifecycle"],
     },
     "eva4_atmo_chute": {
@@ -18419,6 +18429,43 @@ GS1_AIRBORNE_SITUATIONS: Tuple[str, ...] = ("FLYING", "SUB_ORBITAL", "ORBITING",
 # log contracts are what say whether it ended the way this scenario requires.
 GS1_SIBLING_DESTROYED = "DESTROYED"
 
+# THE SIBLING-AIRBORNE EXIT (spec key `siblingAirborneAtExit`, the RF-1 variant).
+# OFF unless a spec sets it, and the OFF path is byte-identical to what GS-1 has
+# always driven - `Gs1AirborneExitInertnessTests` replays a whole flight through both
+# settings and compares the emitted Action lists and the phase sequence frame by
+# frame, so that is a mechanical claim rather than a reading of the diff.
+#
+# WHY IT EXISTS. GS-1 asserts the CLOSED branch of the Re-Fly slot contract: both
+# stages land, both slots resolve `stableTerminal`, the RewindPoint reaps. The OPEN
+# branch - a slot still open at the commit, and therefore re-flyable - has never been
+# produced deliberately by any lane. GS-1 flight 3 produced it BY ACCIDENT (run
+# `2026-08-05_0807`): `ExitToSpaceCenter` fired while the booster was still under
+# canopy, its recording closed `terminal=SubOrbital`, and Parsek correctly opened an
+# Unfinished Flight - `IsUnfinishedFlight=true rec=81e48efe... reason=
+# stableLeafUnconcluded slot=1 focusSlot=0 terminal=SubOrbital side=child`. The
+# SIBLING-DOWN wait was added to stop that happening. This flag makes it happen ON
+# PURPOSE, by inverting that same wait's exit rather than by shortening it: a
+# shortened timeout would exit on a BUDGET, which is a MISSION-FLAKE and proves
+# nothing about where the booster was.
+#
+# THE BOOSTER, NOT THE POD, IS THE HALF LEFT AIRBORNE, and the choice is forced. The
+# pod is the ACTIVE vessel this mission flies, so ending the scene while IT is still
+# up would leave `landedSituation` and every terminal row unmet - a driver-INVALID
+# run whose evidence the spec's contracts never get to read (and world-mutating tail
+# steps are SKIPPED on an unmet mission, so `ExitToSpaceCenter` would not even run).
+# The booster is the half the mission watches and never controls, which is exactly
+# the NON-FOCUS child the classifier's open branch is about.
+#
+# WHAT THIS CANNOT REACH, stated so a later reader does not go looking. The seed
+# session the RF lanes were authored from left its half open with `reason=crashed`:
+# an ALIVE SUB-ORBITAL vessel on a VACUUM coast, whose scene-exit tail the ballistic
+# extrapolator ran to a predicted impact and stamped `Destroyed`. That needs an
+# exo-atmospheric arc, and this profile is a sub-kilometre hop bounded by stock's
+# ~2.25 km physics bubble (a booster outside it is deleted before it can land). So
+# the reason this flag produces is `stableLeafUnconcluded` - the one flight 3
+# measured - and NO GS-1 variant can produce `crashed`.
+GS1_SIBLING_AIRBORNE_DEBOUNCE_K = 2
+
 # Consecutive Deployed reads before the canopy latch certifies. Same value and same
 # reasoning as B1_CANOPY_DEBOUNCE_K: stock flips ParachuteState to DEPLOYED at the
 # START of the ~8 s canopy animation, so a lone glitched frame must not certify.
@@ -18474,6 +18521,11 @@ class Gs1Params:
     # Game-seconds to wait for the booster to reach the ground AFTER the active
     # vessel has landed (spec key siblingDownTimeoutSeconds).
     sibling_down_timeout: float = 240.0
+    # INVERT the SIBLING-DOWN exit: conclude as soon as the booster is OBSERVED
+    # still AIRBORNE, and MISSION-ASSERT-FAIL if it settles landed or absent first
+    # (spec key siblingAirborneAtExit). See GS1_SIBLING_AIRBORNE_DEBOUNCE_K for the
+    # whole argument. Default False = every committed GS-1 lane is untouched.
+    sibling_airborne_at_exit: bool = False
     # AvailableThrust (newtons) at/below which the active vessel counts as having
     # NO live engine. Not zero: a float read of a shut-down engine can carry
     # rounding dust, and the discriminator is unambiguous by orders of magnitude -
@@ -18505,6 +18557,7 @@ def gs1_params_from_dict(params: Dict) -> Gs1Params:
         descent_timeout=float(params.get("descentTimeoutSeconds", 300)),
         sibling_vessel_name=str(params.get("siblingVesselName", "") or ""),
         sibling_down_timeout=float(params.get("siblingDownTimeoutSeconds", 240)),
+        sibling_airborne_at_exit=bool(params.get("siblingAirborneAtExit", False)),
         separation_thrust_epsilon=float(params.get("separationThrustEpsilonNewtons", 100)),
         frozen_sample_limit=int(params.get("frozenTelemetrySamples", 10)),
     )
@@ -18560,6 +18613,12 @@ class Gs1State:
     # GS1_SIBLING_DEBOUNCE_K first settles it.
     sibling_landed_streak: int = 0
     sibling_absent_streak: int = 0
+    # The MIRROR of sibling_landed_streak, counted only when the exit is inverted:
+    # consecutive reads that are PRESENT with a real AIRBORNE situation. Kept as its
+    # own field rather than derived from the landed streak because "not landed" and
+    # "observed airborne" are different readings - an unreadable or absent sibling is
+    # neither, and must advance nothing.
+    sibling_airborne_streak: int = 0
     # The settled outcome: "" while unsettled, else a landed situation name or
     # GS1_SIBLING_DESTROYED. Read by the assertion row.
     sibling_outcome: str = ""
@@ -18914,6 +18973,7 @@ def gs1_decide(state: Gs1State, snapshot: TelemetrySnapshot) -> Tuple[Gs1State, 
         # commanded.
         landed_streak = state.sibling_landed_streak
         absent_streak = state.sibling_absent_streak
+        airborne_streak = state.sibling_airborne_streak
         if snapshot.sibling_present == 1:
             # PRESENCE is observed, so the absent streak resets unconditionally.
             absent_streak = 0
@@ -18928,17 +18988,61 @@ def gs1_decide(state: Gs1State, snapshot: TelemetrySnapshot) -> Tuple[Gs1State, 
                 pass
             elif snapshot.sibling_situation in state.params.landed_situations:
                 landed_streak = landed_streak + 1
+                airborne_streak = 0
             else:
                 # A REAL reading of a non-landed situation (FLYING, SUB_ORBITAL):
                 # genuine evidence the booster is still up, so progress resets.
                 landed_streak = 0
+                # ... and, for the inverted exit, that same reading is the POSITIVE
+                # evidence. Only a situation in GS1_AIRBORNE_SITUATIONS advances it:
+                # "not one of landedSituations" is a wider set than "airborne" and
+                # would let a PRE_LAUNCH or DOCKED reading certify the shape.
+                if snapshot.sibling_situation in GS1_AIRBORNE_SITUATIONS:
+                    airborne_streak = airborne_streak + 1
+                else:
+                    airborne_streak = 0
         elif snapshot.sibling_present == 0 and state.sibling_seen_present:
             landed_streak = 0
+            airborne_streak = 0
             absent_streak = absent_streak + 1
-        # sibling_present == -1 (UNREAD) holds BOTH streaks: a faulted enumeration is
-        # evidence in neither direction.
+        # sibling_present == -1 (UNREAD) holds ALL THREE streaks: a faulted
+        # enumeration is evidence in neither direction.
         state = replace(state, sibling_landed_streak=landed_streak,
-                        sibling_absent_streak=absent_streak)
+                        sibling_absent_streak=absent_streak,
+                        sibling_airborne_streak=airborne_streak)
+
+        # THE INVERTED EXIT (siblingAirborneAtExit, RF-1). Checked BEFORE the two
+        # nominal exits so the flag fully owns the phase's meaning rather than racing
+        # them, and the two nominal terminals become named ASSERT-FAILs: under this
+        # flag a booster that has already landed, or that is gone, means the shape
+        # the run exists to produce did not occur, and concluding MISSION-OK over it
+        # would hand the spec a scene exit with nothing open to assert about.
+        if state.params.sibling_airborne_at_exit:
+            if airborne_streak >= GS1_SIBLING_AIRBORNE_DEBOUNCE_K:
+                settled = replace(state, sibling_outcome=snapshot.sibling_situation)
+                return _gs1_enter(settled, GS1_LANDED, snapshot.ut, peak), []
+            if landed_streak >= GS1_SIBLING_DEBOUNCE_K:
+                return replace(
+                    state, peak_apoapsis=peak, done=True,
+                    verdict=MISSION_ASSERT_FAIL,
+                    sibling_outcome=snapshot.sibling_situation,
+                    loss_reason=_gs1_loss_reason(
+                        state,
+                        "sibling-already-down (siblingAirborneAtExit wanted the "
+                        "booster STILL FLYING at the exit and it read %s on %d "
+                        "consecutive frames)"
+                        % (snapshot.sibling_situation, landed_streak))), []
+            if absent_streak >= GS1_SIBLING_DEBOUNCE_K:
+                return replace(
+                    state, peak_apoapsis=peak, done=True,
+                    verdict=MISSION_ASSERT_FAIL,
+                    sibling_outcome=GS1_SIBLING_DESTROYED,
+                    loss_reason=_gs1_loss_reason(
+                        state,
+                        "sibling-gone (siblingAirborneAtExit wanted the booster "
+                        "STILL FLYING at the exit and it left the vessel list on "
+                        "%d consecutive frames)" % absent_streak)), []
+            return _gs1_stay_or_flake(state, snapshot, peak), []
 
         if landed_streak >= GS1_SIBLING_DEBOUNCE_K:
             settled = replace(state, sibling_outcome=snapshot.sibling_situation)
@@ -19064,16 +19168,32 @@ def evaluate_gs1_assertions(frames, params: Gs1Params,
     # what tell those two apart without another flight.
     outcome = getattr(state, "sibling_outcome", "") or ""
     watched = params.sibling_vessel_name
+    # UNDER THE INVERTED EXIT the row asserts the OPPOSITE FACT, and it has to: a
+    # bare `bool(outcome)` would be satisfied by the machine's own ASSERT-FAIL
+    # terminals, which set an outcome precisely to say the shape did NOT occur. The
+    # positive form is "the booster was OBSERVED in an airborne situation", read off
+    # the settled outcome rather than off the frame tail (the pod's telemetry cannot
+    # see the booster, and the tail's last sibling reading may be a fault).
+    if watched and params.sibling_airborne_at_exit:
+        booster_met = outcome in GS1_AIRBORNE_SITUATIONS
+        booster_name = "boosterStillAirborne"
+    else:
+        booster_met = (not watched) or bool(outcome)
+        booster_name = "boosterConcluded"
     booster = AssertionOutcome(
-        "boosterConcluded",
-        (not watched) or bool(outcome),
-        outcome or None,
+        booster_name, booster_met, outcome or None,
         {"watchedVessel": watched or None,
-         "debounceK": GS1_SIBLING_DEBOUNCE_K,
+         # THE CONSTANT THE STREAK ACTUALLY USED. The two are equal today, which is
+         # exactly why reporting the wrong one is invisible until one of them moves.
+         "debounceK": (GS1_SIBLING_AIRBORNE_DEBOUNCE_K
+                       if getattr(params, "sibling_airborne_at_exit", False)
+                       else GS1_SIBLING_DEBOUNCE_K),
          "everObservedPresent": bool(getattr(state, "sibling_seen_present", False)),
          "lastSituation": getattr(state, "sibling_last_situation", "") or "UNREAD",
          "landedAccepted": list(params.landed_situations),
-         "destroyedSentinel": GS1_SIBLING_DESTROYED})
+         "destroyedSentinel": GS1_SIBLING_DESTROYED,
+         "airborneAtExit": bool(params.sibling_airborne_at_exit),
+         "airborneAccepted": list(GS1_AIRBORNE_SITUATIONS)})
     return [apo, sep, ceiling, canopy, sit, booster]
 
 
@@ -20745,6 +20865,17 @@ KXRW_BOOSTER_STAGE = "BOOSTER-STAGE"
 KXRW_CORE_CUT = "CORE-CUT"
 KXRW_CORE_DISCARD = "CORE-DISCARD"
 KXRW_COAST = "COAST"
+# RF-9. THE COAST-EXIT PROFILE's one phase (opt-in; `coastExitProfile`). It holds
+# the top stack while the coast carries it ACROSS the atmosphere top and then ends
+# the mission there, in FLIGHT, with the recorder still live - so the SPEC's own
+# `ExitToSpaceCenter` step is what commits, and the committed recording spans an
+# Atmospheric -> ExoBallistic boundary the optimizer's split predicate accepts.
+# That boundary is the whole subject: the sealing defect PR #1658 fixed needs a
+# SPLIT on the promoted slot's own recording, and no other profile in this machine
+# produces one. With the key absent the phase is UNREACHABLE and COAST advances
+# exactly as it always did (`kxrw_coast_next_phase` stays the single decision for
+# the other two routes).
+KXRW_COAST_EXIT = "COAST-EXIT"
 # GS-6. The scripted PART-EVENT TIMELINE, and the ONE phase this machine gained
 # for it. Entered only when a spec declares `partSweepSteps`; with an empty list
 # (every pre-GS-6 spec, GS-4 included) COAST still goes STRAIGHT to TREE-STATE and
@@ -20791,7 +20922,8 @@ KXRW_DONE = "DONE"
 
 KXRW_PHASES: Tuple[str, ...] = (
     KXRW_ROLLOUT, KXRW_PRELAUNCH, KXRW_ASCENT, KXRW_BOOSTER_CUT, KXRW_BOOSTER_STAGE,
-    KXRW_CORE_CUT, KXRW_CORE_DISCARD, KXRW_COAST, KXRW_PART_SWEEP,
+    KXRW_CORE_CUT, KXRW_CORE_DISCARD, KXRW_COAST, KXRW_COAST_EXIT,
+    KXRW_PART_SWEEP,
     KXRW_TREE_STATE, KXRW_COMMIT,
     KXRW_STOP, KXRW_RECORDER_IDLE,
     KXRW_IMPACT_AUTORECORD_OFF, KXRW_IMPACT_COAST, KXRW_IMPACT_SETTLE,
@@ -20814,7 +20946,7 @@ KXRW_PHASES: Tuple[str, ...] = (
 # doing it for them.
 KXRW_FLIGHT_PHASES: Tuple[str, ...] = (
     KXRW_ASCENT, KXRW_BOOSTER_CUT, KXRW_BOOSTER_STAGE, KXRW_CORE_CUT,
-    KXRW_CORE_DISCARD, KXRW_COAST, KXRW_PART_SWEEP,
+    KXRW_CORE_DISCARD, KXRW_COAST, KXRW_COAST_EXIT, KXRW_PART_SWEEP,
     KXRW_IMPACT_AUTORECORD_OFF, KXRW_IMPACT_COAST)
 
 # The phases in which a `vessel_lost` snapshot is the EXPECTED reading rather
@@ -21217,6 +21349,71 @@ def kxrw_impact_profile_conflict(params: "KxrwParams") -> str:
     return ""
 
 
+def kxrw_coast_exit_profile_conflict(params: "KxrwParams") -> str:
+    """The reason ``coastExitProfile`` cannot be flown with the rest of this params
+    set, or "" when it can. Evaluated on the machine's first decision frame beside
+    ``kxrw_impact_profile_conflict``, for that function's reason: a spec that cannot
+    fly dies before a stage click rather than after an ascent.
+
+    TWO CONFLICTS, both structural.
+
+    ``impactProfile`` is the OTHER answer to the same question - what happens to the
+    top stack after the core comes off - and the two are opposite: this profile ends
+    the mission with the stack ALIVE and climbing, that one waits for it to hit the
+    ground. Declaring both would silently pick one, and which one is a reading of
+    the decide order rather than of the spec.
+
+    ``partSweepSteps`` is a list of part actions the machine fires between COAST and
+    TREE-STATE, and this profile never reaches TREE-STATE: every declared step would
+    be silently skipped, and the lane would then read as "the applier never logged
+    it" - blaming the product for a spec choice. That is GS-6's own
+    vocabulary-typo lesson, applied to a phase graph rather than to a name.
+
+    Returned rather than raised so the caller owns the severity, exactly as
+    ``kxrw_impact_profile_conflict`` and ``kxrw_sweep_steps_valid`` do."""
+    if not getattr(params, "coast_exit_profile", False):
+        return ""
+    if getattr(params, "impact_profile", False):
+        return ("coastExitProfile and impactProfile are mutually exclusive: they "
+                "are opposite answers to what becomes of the top stack after the "
+                "core discard - this one ends the mission with it ALIVE and above "
+                "the atmosphere, that one waits for it to reach the ground - so a "
+                "spec declaring both would have the decide order pick for it")
+    if not tuple(getattr(params, "coast_exit_situations", ()) or ()):
+        return ("coastExitProfile declares an EMPTY coastExitSituations, so the "
+                "hand-over gate can never open and the flight would run to its frame "
+                "cap and flake. An empty list reaches the machine on purpose - the "
+                "params reader takes the key's own value rather than treating [] as "
+                "absent - so that this refusal happens on frame 1 instead of after an "
+                "ascent")
+    steps = tuple(getattr(params, "part_sweep_steps", ()) or ())
+    if steps:
+        return ("coastExitProfile and partSweepSteps are mutually exclusive: the "
+                "sweep fires between COAST and TREE-STATE and this profile ends "
+                "the mission at COAST-EXIT, so the %d declared step(s) (%s) would "
+                "be silently skipped and the lane would read as an applier that "
+                "never logged them" % (len(steps), ",".join(steps)))
+    return ""
+
+
+def kxrw_coast_exit_gate_met(altitude: float, situation: str,
+                             min_altitude: float,
+                             accepted: Tuple[str, ...]) -> bool:
+    """One frame's reading of the COAST-EXIT gate: a FINITE altitude at or above
+    ``min_altitude`` AND a situation in ``accepted``.
+
+    Both halves are OBSERVATIONS, and both are needed. The altitude alone is what
+    the optimizer's boundary is actually about (Kerbin's atmosphere ends at 70 km,
+    so an ExoBallistic section starts there); the situation is what says the stack
+    is COASTING rather than orbiting - a SUB_ORBITAL reading is the periapsis still
+    being inside the body, which is what makes the scene-exit tail a predicted
+    impact and the promoted slot's reason `crashed`. An UNREAD altitude is not a
+    high one, on ``kxrw_throttle_is_zero``'s argument."""
+    if not _is_finite(altitude) or float(altitude) < float(min_altitude):
+        return False
+    return str(situation or "") in tuple(accepted or ())
+
+
 def kxrw_throttle_is_zero(throttle: float, epsilon: float) -> bool:
     """OBSERVED-zero throttle: a FINITE readback at or below ``epsilon``.
 
@@ -21327,6 +21524,30 @@ class KxrwParams:
     part_sweep_frames: int = 600
     # Hard bound on the WHOLE pre-commit flight, measured from the launch click.
     flight_max_seconds: float = 420.0
+
+    # --- the RF-9 COAST-EXIT PROFILE (opt-in; see the phase constant) -------
+    # FALSE is the default and it is load-bearing exactly as `impact_profile`'s is:
+    # with it false COAST-EXIT is unreachable and the phase graph, the emitted
+    # actions and the assertion rows are byte-identical to the pre-RF-9 lane.
+    coast_exit_profile: bool = False
+    # The altitude the gate wants BEFORE the mission hands the scene over. 71 km
+    # rather than 70: Kerbin's atmosphere ends at exactly 70 000 m and the whole
+    # point is to be OUTSIDE it, with a kilometre of margin against a poll landing
+    # on the boundary itself. Not a trajectory - a threshold.
+    coast_exit_min_altitude: float = 71000.0
+    # The situations the gate accepts. SUB_ORBITAL only, by default and by intent:
+    # an ORBITING stack has a periapsis outside the atmosphere, its scene-exit tail
+    # is a closed orbit rather than a predicted impact, and the slot it promotes
+    # qualifies (if at all) for a different reason than the one this lane is about.
+    coast_exit_situations: Tuple[str, ...] = ("SUB_ORBITAL",)
+    # Consecutive in-gate frames before the hand-over. Debounced for the reason
+    # every other gate in this machine is: one glitched poll at the boundary must
+    # not end a flight.
+    coast_exit_debounce_frames: int = 2
+    # SILENCE bound for the gate, in frames. What it catches is a stack that never
+    # got there - a core discarded too low, an ascent that under-performed - which
+    # is a MISSION give-up rather than a Parsek finding, and it says so by name.
+    coast_exit_frames: int = 600
 
     # --- the IMPACT PROFILE (opt-in; see the section header) ----------------
     # FALSE is the default and it is load-bearing exactly as `part_sweep_steps`'
@@ -21473,6 +21694,20 @@ def kxrw_params_from_dict(params: Dict) -> KxrwParams:
         part_sweep_settle_frames=int(params.get("partSweepSettleFrames", 6)),
         part_sweep_frames=int(params.get("partSweepFrames", 600)),
         flight_max_seconds=float(params.get("flightMaxSeconds", 420.0)),
+        # RF-9. Same `bool(...)` fail-safe as `impactProfile` below, and the same
+        # reason: the schema rejects a non-bool at ADMIT and this is the machine's
+        # own guard for a params dict that reached it unvalidated.
+        coast_exit_profile=bool(params.get("coastExitProfile", False)),
+        coast_exit_min_altitude=float(
+            params.get("coastExitMinAltitudeMeters", 71000.0)),
+        # `get(key, default)` rather than `get(key) or default`: an EMPTY list is a
+        # spec author saying "accept nothing", and the `or` form silently turned that
+        # into the default gate - a params set that cannot be expressed. An empty list
+        # now reaches the machine and the conflict predicate refuses it by name.
+        coast_exit_situations=tuple(
+            str(x) for x in params.get("coastExitSituations", ("SUB_ORBITAL",))),
+        coast_exit_debounce_frames=int(params.get("coastExitDebounceFrames", 2)),
+        coast_exit_frames=int(params.get("coastExitFrames", 600)),
         # `bool(...)` rather than a bare read: hlib's schema check already rejects
         # a non-bool at ADMIT, and this is the machine's own fail-safe for a params
         # dict that reached it unvalidated (the sweep vocabulary's shape exactly).
@@ -21559,6 +21794,18 @@ class KxrwState:
     core_discard_ut: float = float("nan")
     core_discard_altitude: float = float("nan")
     core_discard_commanded: bool = False
+
+    # --- RF-9 coast exit (all inert unless `coast_exit_profile` is on) -------
+    # Consecutive in-gate frames, and what the gate SAW on the frame it opened.
+    # The two readings are carried rather than re-derived from `frames` because
+    # they are the evidence that the hand-over happened above the atmosphere: an
+    # operator reading a save whose recording carries no ExoBallistic section
+    # needs the altitude this machine actually observed, not a peak over the run.
+    coast_exit_streak: int = 0
+    coast_exit_observed: bool = False
+    coast_exit_ut: float = float("nan")
+    coast_exit_altitude: float = float("nan")
+    coast_exit_situation: str = ""
 
     # --- the seam bridge ----------------------------------------------------
     tree_probe: int = 0
@@ -21922,7 +22169,8 @@ def kxrw_decide(state: KxrwState,
     # the ascent burns a whole flight and then flakes, which the retry policy flies
     # again. The first frame is ROLLOUT with no click yet issued.
     if state.phase == KXRW_ROLLOUT and not state.rollout_launch_commanded:
-        conflict = kxrw_impact_profile_conflict(p)
+        conflict = (kxrw_impact_profile_conflict(p)
+                    or kxrw_coast_exit_profile_conflict(p))
         if conflict:
             return _kxrw_flake(state, "phase %s: %s" % (KXRW_ROLLOUT, conflict)), []
 
@@ -22181,6 +22429,14 @@ def kxrw_decide(state: KxrwState,
     # ---- COAST: let the recorder author post-separation coverage -----------
     if state.phase == KXRW_COAST:
         if _is_finite(snapshot.ut)                 and (snapshot.ut - state.phase_entry_ut) >= p.coast_seconds:
+            # RF-9: the SECOND branch this phase gained, and it is taken before the
+            # sweep decision because the two are mutually exclusive by the conflict
+            # gate above - reading it here keeps that exclusion in one place rather
+            # than making the sweep helper answer a question that is not its own.
+            if p.coast_exit_profile:
+                return (_kxrw_enter(replace(state, coast_exit_streak=0),
+                                    KXRW_COAST_EXIT, snapshot.ut),
+                        [])
             # GS-6: the ONE branch this phase gained. With no declared sweep the
             # answer is TREE-STATE and the emitted action list is the same single
             # RecordingState probe it always was - see kxrw_coast_next_phase.
@@ -22207,6 +22463,71 @@ def kxrw_decide(state: KxrwState,
                                 snapshot.ut),
                     [_kxrw_seam_action("RecordingState", kxrw_tree_probe_tag(0))])
         return state, []
+
+    # ---- COAST-EXIT (RF-9): ride the coast OUT of the atmosphere -----------
+    #
+    # THE MISSION ENDS HERE, IN FLIGHT, WITH THE RECORDER LIVE. Nothing is
+    # commanded and nothing is committed: the SPEC's own `ExitToSpaceCenter` step
+    # is what closes the tree, exactly as RF-1's does after its own MISSION-OK, and
+    # for the same reason - a mission that drove the commit would own a decision
+    # the scenario is written to observe.
+    #
+    # WHAT THE GATE IS FOR. The whole lane exists to put an Atmospheric ->
+    # ExoBallistic boundary INSIDE the promoted slot's own recording, because that
+    # is the only thing the optimizer's `PersistedPhaseChange` split predicate cuts
+    # on and the split is what the sealing defect needed. "The core came off and we
+    # waited" is a COMMANDED reading of that; the debounced altitude + situation
+    # pair is an OBSERVED one, and B1's inert chute is what commanded readings cost.
+    if state.phase == KXRW_COAST_EXIT:
+        in_gate = kxrw_coast_exit_gate_met(
+            snapshot.altitude, snapshot.situation,
+            p.coast_exit_min_altitude, p.coast_exit_situations)
+        streak = state.coast_exit_streak + 1 if in_gate else 0
+        st = replace(state, coast_exit_streak=streak)
+        if streak >= max(1, p.coast_exit_debounce_frames):
+            # The stamps ride the SAME frame the gate opened on, so the evidence
+            # and the verdict cannot drift apart. `recording_end_ut` is stamped
+            # here because on this profile there is no CommitTree to stamp it:
+            # what the recorded span measures is launch -> hand-over, which is the
+            # span the scenario's exit then commits.
+            # THE STAMP FALLS BACK TO `last_finite_ut`, which the machine tracks on
+            # every frame for exactly this - the impact profile's crash stamp does the
+            # same. A single unreadable `ut` on the certifying frame would otherwise
+            # pass `handedOverAboveAtmosphere` and fail `recordedSpanSeconds` with a
+            # null commitUT, which is an inconsistent pair rather than a verdict.
+            stamp_ut = (snapshot.ut if _is_finite(snapshot.ut)
+                        else st.last_finite_ut)
+            return (_kxrw_enter(
+                replace(st,
+                        coast_exit_observed=True,
+                        coast_exit_ut=stamp_ut,
+                        coast_exit_altitude=(snapshot.altitude
+                                             if _is_finite(snapshot.altitude)
+                                             else float("nan")),
+                        coast_exit_situation=str(snapshot.situation or ""),
+                        recording_end_ut=stamp_ut),
+                KXRW_DONE, snapshot.ut), [])
+        if st.phase_frames > p.coast_exit_frames:
+            # A MISSION give-up, by name: the stack never got above the atmosphere
+            # in a coasting situation, which is an ascent that under-performed or a
+            # core discarded too low - a driver fact, never a Parsek finding. The
+            # scenario's tokens are all downstream of this hand-over, so letting the
+            # run continue would produce a green-looking flight of a different
+            # experiment.
+            return _kxrw_flake(
+                st,
+                "phase %s: the top stack never read >= %.0f m in one of %s on %d "
+                "consecutive frames within %d frames (last altitude %s, last "
+                "situation %s, core discarded at %s m). The boundary this lane "
+                "exists to record is the atmosphere exit; without it the committed "
+                "recording carries one environment and the optimizer has nothing "
+                "to split"
+                % (KXRW_COAST_EXIT, p.coast_exit_min_altitude,
+                   list(p.coast_exit_situations),
+                   max(1, p.coast_exit_debounce_frames), p.coast_exit_frames,
+                   _obs_fmt(snapshot.altitude), snapshot.situation or "UNREAD",
+                   _obs_fmt(state.core_discard_altitude))), []
+        return st, []
 
     # ---- PART-SWEEP (GS-6): the scripted part-event timeline ---------------
     #
@@ -23206,7 +23527,62 @@ def evaluate_kxrw_assertions(frames, params: KxrwParams,
                 getattr(state, "impact_autorecord_off_result", "") or "NONE"),
             "postImpactVesselLostFrames": int(
                 getattr(state, "post_impact_vessel_lost_frames", 0))})
+    if bool(getattr(params, "coast_exit_profile", False)):
+        # RF-9. THE SPAN IS LAUNCH -> HAND-OVER on this profile, because there is
+        # no commit to stamp its end: COAST-EXIT writes `recording_end_ut` on the
+        # frame its gate opened. An unreached gate leaves that NaN, so the row
+        # already fails - the extra conjunct is here for the same reason the impact
+        # profile carries one, to say WHICH half failed in the result JSON rather
+        # than leaving a NaN to be interpreted.
+        span_met = span_met and bool(
+            getattr(state, "coast_exit_observed", False))
+        span_detail.update({
+            "coastExitObserved": bool(
+                getattr(state, "coast_exit_observed", False)),
+            "handOverUT": (getattr(state, "coast_exit_ut", None)
+                           if _is_finite(getattr(state, "coast_exit_ut",
+                                                 float("nan"))) else None)})
     span_row = AssertionOutcome("recordedSpanSeconds", span_met, span, span_detail)
+
+    if bool(getattr(params, "coast_exit_profile", False)):
+        # RF-9. FOUR ROWS, NOT EIGHT, and the four that are gone are gone because
+        # this profile never drives them: there is no CommitTree, no rewind, no
+        # watcher and no playback on a lane that ends the mission in FLIGHT and
+        # hands the scene to the scenario's own exit step. A row over a verb nobody
+        # issued is not a weaker assertion, it is a false one - it would fail every
+        # green flight, and the honest place for "what this mission does not
+        # verify" is MISSION_HANDOFF_CONTRACTS, not a row that always reds.
+        #
+        # WHAT THE FOURTH ROW SAYS: the stack was OBSERVED outside the atmosphere,
+        # in a coasting situation, on K consecutive frames. That is the whole
+        # precondition the scenario's tokens are downstream of - a committed
+        # recording that crosses Atmospheric -> ExoBallistic - expressed as
+        # telemetry the mission actually read.
+        coast_exit = AssertionOutcome(
+            "handedOverAboveAtmosphere",
+            bool(getattr(state, "coast_exit_observed", False)),
+            getattr(state, "coast_exit_altitude", float("nan")),
+            {"minAltitudeMeters": params.coast_exit_min_altitude,
+             "accepted": list(params.coast_exit_situations),
+             "observedSituation": (getattr(state, "coast_exit_situation", "")
+                                   or "UNREAD"),
+             "debounceK": params.coast_exit_debounce_frames,
+             "handOverUT": (getattr(state, "coast_exit_ut", None)
+                            if _is_finite(getattr(state, "coast_exit_ut",
+                                                  float("nan"))) else None),
+             # The discard's own altitude beside the exit's: the pair IS the
+             # boundary the recording is supposed to carry (a split BELOW the
+             # atmosphere top, an exit ABOVE it), and an operator reading a run
+             # whose recording did not split needs both numbers in one place.
+             "coreDiscardAltitude": (
+                 getattr(state, "core_discard_altitude", None)
+                 if _is_finite(getattr(state, "core_discard_altitude",
+                                       float("nan"))) else None),
+             "coreDiscardUT": (getattr(state, "core_discard_ut", None)
+                               if _is_finite(getattr(state, "core_discard_ut",
+                                                     float("nan"))) else None),
+             "frameCap": params.coast_exit_frames})
+        return [core, boosters, span_row, coast_exit]
 
     tree_id = getattr(state, "tree_id", "") or ""
     if impact_profile:

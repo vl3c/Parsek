@@ -533,7 +533,7 @@ gate is taught to accept a no-pools template when the manifest is empty (expecte
 block is removed from `L1-passive-sandbox` (it then runs as a pure recording-invariants
 passivity proof). ~~Left at `pending-fixture` until that is resolved.~~ RESOLVED - it is `tier = "daily"` and live-proven (see the status paragraph below).
 
-## Recorded-state fixtures - where they ARE documented, and two that are here
+## Recorded-state fixtures - where they ARE documented, and five that are here
 
 This file's scope is the FILE-CONSTRUCTED career/fresh templates above. The
 RECORDED-state fixtures (harvest `--keep-parsek`, where the committed RECORDING is the
@@ -544,15 +544,113 @@ omission: the pin and the prose sit in the same place, so a re-harvest that move
 shape reds against the paragraph describing it. Do not restate a recorded fixture's shape
 here; a second copy of a moving list is a second thing to leave stale.
 
-FOUR ENTRIES SIT HERE ANYWAY, each for its own reason. `rover-route-recorded`,
+FIVE ENTRIES SIT HERE ANYWAY, each for its own reason. `rover-route-recorded`,
 `rover-relay-recorded` and `rover-relay-c-recorded` are POINTERS worth keeping, because
 the naming rule they rest on can destroy an operator's own save if it is ever forgotten -
 and because the two relays' reasons to exist are things no structural facet can express
 (one carries ZERO origin proofs, the other TWO that name the WRONG origin).
 `rover-route-career` is not a harvest at all - it is file-constructed from two committed
 inputs, exactly like everything above this section - so it belongs to this file's scope
-even though its payload is recorded. No entry restates a shape `RECORDED_FIXTURES`
-already pins.
+even though its payload is recorded. `refly-a-recorded` is here because of a LIMITATION a
+lane author must meet before choosing it and that no facet states: its RewindPoint is
+gone, so it cannot re-fly. No entry restates a shape `RECORDED_FIXTURES` already pins.
+
+### refly-a-recorded (GAME Mode = SANDBOX, 2 real vessels + 5 asteroids)
+
+The RE-FLY CONTINUATION host (RF-7M / RF-7T), landed 2026-09-08. Harvested from the
+operator's own MANUAL Re-Fly session on the DEV instance, collected into the umbrella
+`logs/2026-09-08_2317_refly-a-manual/` (save `re-fly-a`) against DLL commit `2effc9d49`
+(main at the time); finished by `harness/tools/build_refly_a_recorded.py`, shape pinned in
+`RECORDED_FIXTURES` and wired into the suite by
+`harness/lib/test_build_refly_a_recorded.py`.
+
+**THE SEED SESSION, because the fixture is only legible against it.** A crewed "Kerbal X
+With Probe" launched; the probe decoupled at UT 189.32 into a two-slot RewindPoint (slot 0
+the pod, slot 1 the probe). The scene exited at UT 1078.5 with the pod ALIVE and
+SUB-ORBITAL, so the finalizer extrapolated a re-entry tail - two `isPredicted` orbit
+segments to an impact at UT 2348.5 - and stamped `terminal = Destroyed`. The commit
+promoted slot 0 to `CommittedProvisional` (`IsUnfinishedFlight=true ... reason=crashed`),
+and 230 ms later, inside the same commit, the optimizer's phase-change split at UT 191.04
+moved the terminal onto a NEW chain tip without its `MergeState`. The slot read
+`reason=sealedTipClosed` from then on, its Unfinished Flights row never drew, and after
+the probe's re-fly merged, `ReapOrphanedRPs: reaped=1` deleted the RewindPoint quicksave.
+
+**IT CANNOT RE-FLY, AND THAT IS WHY THIS ENTRY EXISTS.** The RP was reaped before the
+save was collected, so a lane needing a live RewindPoint must fly one (the RF-1
+`gs1_auto_chute_booster` sibling-down variant) or inject one of the three xUnit rewind
+presets. What this fixture serves instead is everything that can be read WITHOUT one: the
+map / TS render lanes over a predicted tail, and any load-time or classification lane.
+
+Two further things a future re-harvest must not lose, both asserted by the builder's
+`--check` rather than left to this prose:
+
+- **It carries the corpus's only `RECORDING_SUPERSEDES` row** (the probe's re-fly,
+  `d096297d` -> `rec_d4b696...`), live on both sides. The two free-play Duna strips each
+  DROPPED an orphan supersede row; this one must survive.
+- **It is a DEFECT fixture, so healing is a red, not an improvement.** Its chain tip
+  carrying no `mergeState` key and its predicted segments having a subsurface periapsis
+  are what RF-1 and RF-7 are authored against. If a re-harvest against a fixed DLL loses
+  either shape, re-fly the lanes against that DLL - do not re-pin the fixture to whatever
+  the new bytes say.
+- **THE ANALYZER READS `RED=0 WARN=1` ON IT, AND THE WARN IS EXPECTED.** The one finding
+  is `INV12-SPLIT-CLOSED-SLOT`, added by #1662, and it names this fixture's frozen defect
+  chain: HEAD `32ca5546` `CommittedProvisional` -> TIP `8da7c2c2` `Immutable`. That is
+  the rule doing its job on the corpus's only carrier of the shape, not a fixture fault.
+  Do NOT "fix" it and do not baseline it away; a reading of `WARN=0` here means the
+  defect shape is gone and the note above applies. The twin `refly-autopilot-recorded`
+  reads `WARN=0`, which is the same pair stated in analyzer terms.
+
+### refly-autopilot-recorded (GAME Mode = SANDBOX, 2 real vessels + asteroids)
+
+`refly-a-recorded`'s FIXED-BEHAVIOUR TWIN, landed 2026-09-09. Produced by
+`RF-9-atmosphere-exit-split-stays-open` run `2026-09-08_2258` (PASS attempt 1, on the
+post-#1658 / post-#1659 DLL, deployed hash `cd8ddb6b691e3fb8`), harvested with
+`--keep-parsek` and finished by `harness/tools/build_refly_autopilot_recorded.py`;
+shape pinned in `RECORDED_FIXTURES`, gated by
+`harness/lib/test_refly_autopilot_recorded.py`.
+
+**IT IS HERE FOR THE PAIR, and the pair is the whole regression floor for PR #1658.**
+The seed and this save are the same flight shape - a crewed Kerbal X whose probe-cored
+core comes off inside the atmosphere, whose top stack then coasts out through 70 km and
+is left there when the scene exits, so the optimizer splits the promoted recording at
+the Atmospheric -> ExoBallistic boundary - with opposite outcomes frozen on disk:
+
+    refly-a-recorded   (pre-fix)   TIP 8da7c2c2  chainIndex 1  NO mergeState key
+    refly-autopilot    (post-fix)  TIP a76c3839  chainIndex 1  mergeState = CommittedProvisional
+
+and this one carries it TWICE, on the pod chain and on the probe chain, which is both
+slots of one RewindPoint rather than one. The drift test reads the SIBLING fixture too,
+so a re-harvest that healed the defect copy cannot leave this one asserting against
+nothing.
+
+**AND IT IS REPRODUCIBLE, WHICH IS THE OTHER HALF OF WHY IT EXISTS.**
+`refly-a-recorded` is an evening an operator flew by hand and can never fly identically
+again; this is the output of a committed spec plus a committed mission profile, so
+re-harvesting it is a command rather than a session. That matters for the render lanes:
+RF-7M / RF-7T read the seed's predicted tail today, and this save carries the same shape
+(`a76c3839`, two `isPredicted` segments) on a flight anyone can re-fly.
+
+**THE RENDER LANES WERE DELIBERATELY NOT RE-POINTED AT IT.** RF-7M's tokens are QUOTED
+from a measured log and cut to the seed's own recording ids, and both lanes' headers are
+the reproduction record for two defects: re-pointing them would throw that away and
+replace measured tokens with derived ones, which is the trade the RF-7M re-pin of
+2026-09-08 was careful to avoid. The right shape is a NEW lane over these bytes, with its
+own reading run and its own derivation - and the fixture is committed so that lane costs a
+spec rather than a flight night.
+
+Two things a lane author must know before choosing it:
+
+- **Its RewindPoint SURVIVED** (`rp_404ea488`, quicksave on disk) - the difference the
+  fix makes - so unlike the seed this host CAN be re-flown.
+- **It carries NO rewind-to-LAUNCH save, and neither does any other recorded fixture.**
+  The produced save had one and the harvest keeps it out, which is POLICY:
+  `harvest_bdock_station.py` prunes the directory and clears the hint,
+  `CommittedFixtureRewindSaveTests` forbids it everywhere, and
+  `build_rover_route_recorded.py` gates the absence in both directions. A lane that needs
+  a rewindable tree PRODUCES one in-run instead - `FlightRecorder.CaptureRewindSave`
+  writes the quicksave at every non-promotion recording start, so StartRecording /
+  StopRecording / CommitTree mints one that `tree=latest` resolves to, which is exactly
+  what H58 does and what RF-4's re-host should do rather than carrying payload.
 
 ### rover-route-recorded (GAME Mode = SANDBOX, 3 real vessels + 8 asteroids)
 

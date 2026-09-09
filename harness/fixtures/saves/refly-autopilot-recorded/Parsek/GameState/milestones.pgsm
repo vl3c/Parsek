@@ -1,0 +1,154 @@
+version = 1
+MILESTONE
+{
+	id = 50d497479cd4453e96c92c583fe391f6
+	startUT = 0
+	endUT = 26.539999999999523
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 0
+	GAME_STATE_EVENT
+	{
+		ut = 26.539999999999523
+		type = 22
+		key = Valentina Kerman
+		detail = flight=0;entries=0,Recover,;trait=Pilot
+	}
+}
+MILESTONE
+{
+	id = c8668609e58e4c218595f417d28c5135
+	startUT = 26.539999999999523
+	endUT = 131.55999999999349
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 3
+	GAME_STATE_EVENT
+	{
+		ut = 31.319999999999421
+		type = 18
+		key = FirstLaunch
+		detail = funds=800;rep=0;sci=0
+		recordingId = 4a7739f6cc074185a82cbd10ccaeb01d
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 32.819999999999531
+		type = 18
+		key = RecordsSpeed
+		detail = funds=19200;rep=2;sci=0
+		recordingId = 4a7739f6cc074185a82cbd10ccaeb01d
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 39.440000000000566
+		type = 18
+		key = RecordsAltitude
+		detail = funds=19200;rep=2;sci=0
+		recordingId = 4a7739f6cc074185a82cbd10ccaeb01d
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 81.000000000001023
+		type = 18
+		key = RecordsDistance
+		detail = funds=14400;rep=1;sci=0
+		recordingId = 4a7739f6cc074185a82cbd10ccaeb01d
+	}
+}
+MILESTONE
+{
+	id = 2d29fe32b11b4b58bd4df8e006ed6b8e
+	startUT = 131.55999999999349
+	endUT = 174.94000000001569
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 1
+	GAME_STATE_EVENT
+	{
+		ut = 172.44000000001441
+		type = 18
+		key = RecordsAltitude
+		detail = funds=0;rep=0;sci=0
+		recordingId = 4a7739f6cc074185a82cbd10ccaeb01d
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 172.46000000001442
+		type = 18
+		key = ReachedSpace
+		detail = funds=8000;rep=1;sci=0
+		recordingId = 4a7739f6cc074185a82cbd10ccaeb01d
+	}
+}
+MILESTONE
+{
+	id = 256c61d97f804b1d8427ad1107d4b045
+	startUT = 174.94000000001569
+	endUT = 429.42600986837704
+	recordingId = c3dfd02c0bdb4f7e9fc53bfc1de00768
+	committed = True
+	lastReplayedIdx = 3
+	GAME_STATE_EVENT
+	{
+		ut = 174.9600000000157
+		type = 18
+		key = RecordsAltitude
+		detail = funds=14400;rep=2;sci=1
+		recordingId = 4a7739f6cc074185a82cbd10ccaeb01d
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 174.9600000000157
+		type = 18
+		key = RecordsAltitude
+		detail = funds=0;rep=0;sci=0
+		recordingId = 4a7739f6cc074185a82cbd10ccaeb01d
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 174.9600000000157
+		type = 18
+		key = RecordsDistance
+		detail = funds=14400;rep=2;sci=0
+		recordingId = 4a7739f6cc074185a82cbd10ccaeb01d
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 174.98000000001571
+		type = 18
+		key = RecordsSpeed
+		detail = funds=14400;rep=2;sci=0
+		recordingId = 4a7739f6cc074185a82cbd10ccaeb01d
+	}
+}
+MILESTONE
+{
+	id = c461dd1aa9eb4277aa096c0cd2580d91
+	startUT = 26.539999999999523
+	endUT = 131.87999999999366
+	recordingId = 
+	committed = True
+	lastReplayedIdx = 2
+	GAME_STATE_EVENT
+	{
+		ut = 131.59999999999351
+		type = 18
+		key = RecordsAltitude
+		detail = funds=9600;rep=1;sci=0
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 131.59999999999351
+		type = 18
+		key = RecordsSpeed
+		detail = funds=14400;rep=2;sci=0
+	}
+	GAME_STATE_EVENT
+	{
+		ut = 131.59999999999351
+		type = 18
+		key = RecordsDistance
+		detail = funds=9600;rep=1;sci=0
+	}
+}

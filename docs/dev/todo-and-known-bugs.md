@@ -15,6 +15,173 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## REFLY-A-CODEC-TEST-SIBLING-PATH-IS-DEAD-AFTER-MERGE: the fixture resolver in `ReflyARecordedFixtureCodecTests` keeps a sibling-worktree path candidate that can no longer be reached [NOTED 2026-09-09 while reviewing PR #1660. Dead code, not a defect. OPEN as a cleanup]
+
+`Source/Parsek.Tests/ReflyARecordedFixtureCodecTests.cs` lines ~114-116 carry a SECOND
+`FixtureCandidates` entry, `../../../../../../Parsek-refly-lanes/harness/fixtures/saves/refly-a-recorded`.
+PR #1662 added it as a BRIDGE: the fixture was committed on `refly-lanes` while the test
+could still be built from a tree that did not have it, so the resolver reached across to
+the sibling worktree by name. Once PR #1660 merges, the in-repo candidate (the first
+entry, five `..` segments to the repo root) resolves first on every checkout and the
+sibling one can never be taken.
+
+Fix: delete the second candidate and the sentence in the comment above it about "a sixth
+[segment reaching] the umbrella folder that holds the sibling worktrees". Leave
+`ResolveFixtureDir` / `DescribeCandidates` otherwise alone - the candidate LIST shape is
+what makes the skip message legible when the fixture is genuinely absent. No C# change
+was made in #1660: it is a docs-only PR and a hard-coded branch name in a test is worth
+its own commit rather than a footnote to one.
+
+## RF4-BDOCK-RECORDED-CANNOT-REWIND-TO-LAUNCH: the lane borrowed H58's verb pair across FIXTURES, and its host carries no launch quicksave at all [MEASURED 2026-09-09 by RF-4's reading run. A LANE finding, not a product defect. OPEN, with the fix identified]
+
+RF-4 drives H58's `InvokeRewindToLaunch` pair - bare -> REJECTED `ambiguous-tree`, then
+`tree=latest` -> OK - over `bdock-recorded`. Reading run 1 got the first half exactly
+right and then:
+
+    invokerewindtolaunch target resolved tree=8c677bba... resolvedBy=LatestKeyword
+    invokerewindtolaunch refused: rewind-gate No rewind save available tree=8c677bba... rec=5157d655...
+
+verdict INVALID (driver-gate), attempt 1 and 2. The run is
+`2026-09-08_2311_RF-4-rewind-to-launch-after-merge_a2` (the `_a2` is attempt 2, whose
+result JSON is the one kept), and the `No rewind save available` line above is quoted
+from it.
+
+THE CAUSE IS THE HOST, AND IT WAS KNOWABLE BEFORE THE FLIGHT: `bdock-recorded` carries
+ZERO `rewindSave` hints and no `Parsek/Saves/` directory, so no tree in it can be rewound
+to launch by any argument. The pair was borrowed from H58 across FIXTURES, and "the verb
+pair works" was read as a property of the verb rather than of the save. This is the
+program-wide-claim rule in miniature: a claim about a lane needs a data point from THAT
+lane's host.
+
+THE FIX IS H58's OWN, AND IT IS CHEAPER THAN THE FIRST ANSWER FILED HERE. This entry
+originally proposed re-hosting RF-4 onto `refly-autopilot-recorded` and committing a
+rewind-to-launch quicksave into it. That was WRONG in its premise - H58 does not rewind a
+fixture tree either, and NO recorded fixture carries the payload, by policy: the harvester
+prunes `Parsek/Saves` and clears the hint, `CommittedFixtureRewindSaveTests` forbids it,
+and `build_rover_route_recorded.py` gates the absence in both directions. H58's own header
+states the mechanism it uses instead: `FlightRecorder.CaptureRewindSave` writes the
+`parsek_rw_*` quicksave at EVERY non-promotion recording start, so after a `StopRecording`
+leaves no active tree, a `StartRecording` / `StopRecording` / `CommitTree` triple mints a
+fresh single-node tree WITH a launch quicksave, and `tree=latest` then resolves to it.
+
+So RF-4 keeps its host and produces its own rewind subject in Act 2, exactly as H58 does.
+That also keeps the `ambiguous-tree` negative control, which the re-host would have thrown
+away (a single-tree host cannot be ambiguous). What it needs is the three-step prologue
+inserted before `InvokeRewindToLaunch`, and then its two DERIVED tokens
+(`Rewind supersede rollback: ... skippedImmutable=[1-9]`, `Preserved canon fork across
+parent rewind`) read for the first time.
+
+Until then RF-4 stays as authored and RED, because a lane re-pinned to expect the refusal
+would assert that rewind-to-launch does not work, which is the opposite of its subject.
+
+## RF8-NO-WATCHABLE-GHOST-DURING-A-REFLY-ON-BDOCK: exactly one candidate has a ghost on the right body and the watch RANGE gate declines it [MEASURED 2026-09-09 by RF-8's reading run. OPEN, cause named, subject unreached]
+
+RF-8 arms both render tracers, invokes a re-fly and then asks for watch mode on a
+committed sibling. `EnterWatchMode` refused:
+
+    enterwatchmode rejected reason=no-watchable-ghost committed=22 tree=(any)
+    candidates=[0 ghost=F body=F range=F],...,[9 ghost=T body=T range=F],...
+
+so of 22 committed recordings exactly ONE (index 9) has a live ghost on the matching
+body, and it fails the RANGE gate. The other 21 have no ghost at all at that clock.
+Verdict INVALID (driver-gate): the step expects OK, so the lane never reached its own
+forbidden `no-watchable-ghost` clause. The run is
+`2026-09-08_2323_RF-8-ghost-during-refly_a2` (attempt 2), and the
+`no-watchable-ghost committed=22` refusal above is quoted from it.
+
+WHAT IS AND IS NOT ESTABLISHED. Established: during a live re-fly on `bdock-recorded` a
+ghost DOES resolve and IS body-matched, so the refusal is the distance cutoff rather than
+an absent subject - which is a better answer than the seed session had. NOT established:
+whether any clock on this host puts that ghost inside the cutoff. `range=F` is a function
+of where the re-flown vessel sits after the RP restore and where the ghost is at the
+current UT, and nobody has measured the two positions.
+
+NEXT STEP, and it is an experiment rather than a re-pin: read the candidate's own
+trajectory out of the fixture, pick a UT where it is near the RP's restore position, and
+drive a `TimeJump` to it before asking for watch (RF-2 and RF-3 already prove `TimeJump`
+is accepted with a session live). If no such UT exists, RF-8's subject has no host and
+the honest move is to say so and retire the lane - the same conclusion RF7M-DEFECT-B
+reached from the other direction.
+
+## ~~RF-FORBID-EM-DASH-CANNOT-MATCH: a forbidden pattern quoting the C# `already committed/fork - not re-deriving MergeState` line with an ASCII HYPHEN can never match, because the source writes an EM DASH~~ FIXED 2026-09-09
+
+FOUND while authoring RF-9's own forbidden list against the source rather than against a
+quotation. `RecordingStore.cs:1272` writes
+
+    $"CommitTree: rec={...} already committed/fork [EM DASH] " + $"not re-deriving MergeState (slot=... rp=...)"
+
+with U+2014, and `RF-1-continuation-stays-open.toml` forbade the same sentence spelled
+with `-`. No log line Parsek can emit matches that pattern, so the clause could only ever
+read clear.
+
+WHY IT IS FILED RATHER THAN JUST FIXED. A forbidden clause that cannot fail is
+indistinguishable from one that passes, which is the silence-is-not-success shape the
+RF-7M defect-(B) tokens were REMOVED for two days earlier - the same failure, arrived at
+from the opposite direction (there the surface never ran, here the pattern never could).
+The class is worth naming: a forbidden pattern quoted from a doc or a forensics report is
+a pattern nobody has matched against the emitting source, and non-ASCII punctuation in a
+C# interpolated string is invisible in every rendering of it.
+
+FIX: both RF-1 and RF-9 now forbid the fragment `not re-deriving MergeState`, which is
+unique in the whole log surface (one call site), carries no punctuation to get wrong, and
+stays ASCII in the spec file. RF-1's reading-run verdict is unaffected - its profile takes
+no optimizer split, so the line was never going to be written on that lane either way;
+what was restored is the guard, not a measurement.
+
+RESIDUE, deliberately not swept in the same commit: `docs/dev/todo-and-known-bugs.md:261`
+and the two forensics reports quote the hyphenated sentence as PROSE, which is correct
+house style for a doc (plain ASCII, no em dashes) and harmless as long as no spec copies
+it into a regex. Any future forbid over that line takes the fragment.
+
+## RF7M-DEFECT-B-NEEDS-AN-ENGAGED-GHOST: a seam-only lane over a recorded fixture engages no ghost, so flight-map presence tracks nothing and the chain-HEAD source-resolution defect cannot be reached from it at all [MEASURED 2026-09-08 by RF-7M's two reading runs. A LANE / HARNESS finding, not a product defect. ANSWERED the same day by RF-7T, whose Tracking Station host runs its resolver unconditionally and is therefore that half's harness subject - it reproduced the defect and then went green on the fix. KEPT OPEN as the record of a lane-shaping constraint that will bite the next author of a seam-only render lane]
+
+RF-7M reproduces the PREDICTED-TAIL render defect in two independent halves. Half (A),
+the forward-arc pass dropping every subsurface-periapsis conic, reproduces perfectly:
+run `2026-09-08_2156` read `excluded 3 below-surface orbit segments from cover
+rec=8da7c2c2...`, `Anchor leg SKIPPED (one-sided) ... after=seg1`, `runLegs+=2
+runArcs+=0` on all three of the pod chain's render runs, and `conic=0`.
+
+Half (B) - map presence resolving `hasOrbitSegments` from the chain HEAD, which has none,
+and re-sourcing the ghost as `orbitSource=state-vector-fallback` - WAS NOT REACHED ON
+EITHER RUN, and the two attempts are what make the cause a measurement rather than a
+guess:
+
+- RUN 1 flew a fixture clock of UT 1100.0, past the TIP's last recorded sample
+  (1078.4528). Zero `map-presence-*` lines, zero `orbitSource=` lines. Diagnosed as the
+  clock: no ghost can be live past the end of its own recorded span.
+- RUN 2 flew UT 700.0, INSIDE the recorded span [191.04, 1078.4528]. Still zero
+  `orbitSource=` lines, and the only three `map-presence-*` lines are the tracker's own
+  summary, reading `scope=flight-map-presence vesselsTracked=0 recordingTracked=0
+  chainTracked=0 created=0` at UT 700.0, 705.1 and 2302.5.
+
+So the cause is not the clock. Flight-map presence builds a proto for a recording the
+GHOST ENGINE is holding a slot for, and a seam-only lane over a harvested fixture engages
+none - the 2026-09-08 session had one because the same tree was being flown at the time.
+No seam verb spawns a ghost for a committed recording directly.
+
+WHY THIS IS FILED RATHER THAN PAPERED OVER. The two defect-(B) tokens sat in RF-7M's
+FORBIDDEN list for both runs and matched on neither, which reads exactly like a pass. A
+forbidden list cannot distinguish "the defect is gone" from "the surface never ran", and
+leaving them there would have given the lane a clause that could never fail - the silence
+-is-not-success shape. They have been REMOVED from RF-7M, and half (B) now belongs to the
+two lanes that can engage a ghost: `RF-8-ghost-during-refly`, whose `EnterWatchMode`
+REJECTs `no-watchable-ghost` and therefore cannot pass vacuously, and
+`RF-7T-predicted-tail-ts-render`, whose Tracking Station host creates its own proto
+entries rather than borrowing the flight engine's.
+
+ANSWERED 2026-09-08, same day, by RF-7T's first run: the Tracking Station DOES reach the
+surface. Ten `ResolveTrackingStationGhostSource` lines ran over the pod's chain HEAD and
+every one answered `source=None orbitSource=none ... hasSegments=False` with zero ghosts
+created - a HARDER reading than the seed's, which at least got a `state-vector-fallback`
+ellipse on the flight map. The defect-(B) tokens live on RF-7T, and its run 2 against the
+post-#1659 DLL PASSED attempt 1 with `hasOrbitSegments=False` gone.
+
+WHAT STAYS OPEN IS THE CONSTRAINT, not the question: no seam verb spawns a ghost for a
+committed recording, so any FUTURE flight-map render lane over a recorded fixture will hit
+this wall the same way. RF-8 (`EnterWatchMode`, which REJECTs `no-watchable-ghost` and so
+cannot pass vacuously) is the standing test of whether the watch path is a second route in;
+it has not been flown. A lane author reaching for the flight map should read this entry
+first and either use the TS host or engage a ghost deliberately.
 ## ~~PREDICTED-BALLISTIC-TAIL-IS-DRAWN-BY-NOTHING-ON-THE-MAP: a scene-exit continuation tail is excluded from the orbit line by its subsurface periapsis and has no recorded samples to fall back on, so neither surface draws it~~ FIXED 2026-09-08
 
 Forensics: manual Re-Fly session `2026-09-08_2317_refly-a-manual` (dev instance, main
@@ -9991,7 +10158,24 @@ scenario-coverage item.
 
 ---
 
-## RF6-FOUR-REWIND-CELLS-FAIL-ONLY-WITH-A-LIVE-SESSION: one in-game cell leaks a merge journal into the rest of the batch, and its own failure is a missing precondition [FOUND 2026-09-08 by the committed lane `RF-6-rewind-category-live-session`, the first lane to run the `Rewind` category inside a LIVE re-fly session (`passed=8 failed=4 skipped=26`). FIXED 2026-09-09 in `MergeInterruptionRecoveryTest`. No product defect. The owed RF-6 re-flight on branch `refly-lanes` is the live proof]
+## ~~RF6-FOUR-REWIND-CELLS-FAIL-ONLY-WITH-A-LIVE-SESSION: one in-game cell leaks a merge journal into the rest of the batch, and its own failure is a missing precondition~~ [FOUND 2026-09-08 by the committed lane `RF-6-rewind-category-live-session`, the first lane to run the `Rewind` category inside a LIVE re-fly session (`passed=8 failed=4 skipped=26`). FIXED 2026-09-09 in `MergeInterruptionRecoveryTest` by PR #1661. No product defect. CLOSED 2026-09-09 by the owed RF-6 re-flight on branch `refly-lanes`]
+
+CLOSED 2026-09-09, AND THE LANE THAT FOUND IT IS THE LANE THAT PROVED THE FIX. Run 4,
+`2026-09-09_0021_RF-6-rewind-category-live-session`, flown on the merged-main DLL
+(deployed automation hash `4c5511269aa04a67`): **`BATCH_COMPLETE v1 total=39 passed=11
+failed=0 skipped=28 category=Rewind scene=FLIGHT`**, PASS attempt 1, every verifier
+PASS or SKIPPED. Eleven passed where eight did and zero failed where four did. `total`
+moved 38 -> 39 because PR #1662 added a regression cell to the same category, and the
+spec's pin moved with it mechanically through `CommittedBatchTallySourceSyncTests`.
+
+TWO THINGS FROM THE INVESTIGATION ARE WORTH KEEPING. First, run 3 - flown on the
+post-#1658 DLL before #1661 existed - read BYTE-IDENTICALLY to runs 1 and 2
+(`total=38 passed=8 failed=4 skipped=26`). That is what said the four failures were not
+the sealing defect, and it is why the diagnosis went looking at batch isolation instead.
+Second, the CONTROL confound is not closed: RF-6 hosts on `bdock-recorded` and
+`R7a-rewind-session-absent` on `career-pad-craft`, so the control that read
+`passed=16 failed=0 skipped=22` varied the HOST as well as the session. The fix landing
+made that experiment unnecessary rather than answering it.
 
 Four cells failed; ONE cell explains all four.
 
@@ -10027,11 +10211,14 @@ headlessly in `ReFlyConclusionRouteTests`. (b) An outer try/finally restoring
 clearing the fault injection, the fix
 `JournalFinisherMarkerPresentVariantTest` already carries. No `[InGameTest]`
 attribute moved, so `CommittedBatchTallySourceSyncTests` and the R7a / R7c / RF-6
-`total=38` pins are unmoved.
+`total=38` pins were unmoved by THIS fix. (#1662 then added a `Rewind` cell, so
+RF-6's pin is `total=39` and the source-sync gate moved it there mechanically.)
 
-**Re-measure, do not predict.** RF-6's `failed=0` stays HARD; the plausible post-fix
-shape is `passed=10 failed=0 skipped=28`, and `passed` / `skipped` are re-pinned
-whole from the first green flight per the lane's interim rule.
+**Re-measure, do not predict.** RF-6's `failed=0` stayed HARD, and the prediction
+written here was wrong in the right direction: the plausible post-fix shape was
+`passed=10 failed=0 skipped=28` and run 4 measured `passed=11 failed=0 skipped=28`,
+because #1662's new cell also passes. `passed` / `skipped` were re-pinned whole from
+that first green flight per the lane's interim rule.
 
 ---
 

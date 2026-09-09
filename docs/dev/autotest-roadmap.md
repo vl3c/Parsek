@@ -57,19 +57,21 @@ M-A6 stack provisioner, M-B1 mission library, M-B2 ledger oracle, M-C1 seam verb
 batch 1, M-C2 EVA verbs. Status and per-module proof live in `autotest-status.md`.
 None of the items in this roadmap are blocked on a missing module.
 
-### Scenarios: 234 committed
+### Scenarios: 245 committed
 
-Re-derived 2026-09-08 on `ghost-replay-tier-a` after it merged origin/main (#1654
-fixture lanes, #1655 chain-interaction, #1656 roadmap standing): `ls
-harness/scenarios/*.toml` returns **234** files, the total `autotest-status.md`'s
+Re-derived 2026-09-09 on `refly-lanes` at `659be2a68` (main `dfd5ff224` merged in, so
+#1658 / #1659 / #1661 / #1662 and the whole RF wave are counted): `ls
+harness/scenarios/*.toml` returns **245** files, the total `autotest-status.md`'s
 `## Test cases` header states and `AutotestStatusScenarioCountTests` pins against
-the committed files (230 at `de5ac6112` after #1648 V27M, #1650 LT-3 / LT-4 / LT-5 /
-H71 and #1653 RH-1; the four added the same day are CI-1, CI-2, GS-7 and GS-8, all
-live-proven; 133 live-proven in that doc's own table, 0 committed-not-yet-green;
-tiers: 125 nightly, 25 daily, 84 operator, parsed from the specs' `tier` keys). The 68
+the committed files (234 at the 2026-09-08 `ghost-replay-tier-a` derivation, itself
+230 at `de5ac6112` after #1648 V27M, #1650 LT-3 / LT-4 / LT-5 / H71 and #1653 RH-1;
+the eleven added since are the re-fly continuation program, RF-1..RF-10 plus RF-7T;
+133 live-proven in that doc's own table, 0 committed-not-yet-green;
+tiers: 125 nightly, 25 daily, 95 operator, parsed from the specs' `tier` keys - the
+operator column carries the whole RF wave). The 68
 below was the 2026-08-04 snapshot;
-the V / GS / W / L / RVR / H41-H71 / LT / RH / CI waves, among others, took it from 68
-to 234 between 2026-08-04 and 2026-09-08.
+the V / GS / W / L / RVR / H41-H71 / LT / RH / CI / RF waves, among others, took it from 68
+to 245 between 2026-08-04 and 2026-09-09.
 
 `ls harness/scenarios/*.toml` returned **68** files when this section was last
 re-derived before that (2026-08-04 at
@@ -85,15 +87,24 @@ these rather than editing them by memory; both numbers have moved many times.
 
 ### Coverage: 170 of 248 registry cells (was 83 of 241 at the baseline, 108 of 242 on 2026-08-04, 162 of 247 on 2026-09-07 before G1 / G3b closed, 163 of 248 on 2026-09-08 before the ghost-replay claim pass, 166 after chain-interaction)
 
-Re-derived 2026-09-08 on `ghost-replay-tier-a` after it merged origin/main (#1654-#1656):
-`hlib.compute_coverage(specs, [], registry)` over the 234 committed specs and
+Re-derived 2026-09-09 on `refly-lanes` at `659be2a68`:
+`hlib.compute_coverage(specs, [], registry)` over the 245 committed specs and
 `harness/coverage/registry.toml` returns exactly:
 
 ```
 values 248   covered 170   uncovered 78   expectedFailValues 0   xpass 0
 ```
 
-Seven cells moved on 2026-09-08 in two branches. `chain-interaction` (register item
+UNCHANGED by the eleven RF specs, and that is the program's own decision rather than
+an accident: none of them claims a NEW cell, so the covered / uncovered SET is
+identical with and without them - only the `coveredBy` membership of six D14
+host-basics cells (`kerbin`, `sandbox`, `scene-flight`, `scene-map`, `scene-ts`,
+`scene-ksc`) moves. See the re-fly program section for what RF-9 and RF-5 now observe
+without claiming.
+
+The previous derivation was 2026-09-08 on `ghost-replay-tier-a` after it merged
+origin/main (#1654-#1656), over 234 specs, and returned the same triple. Seven cells
+moved that day in two branches. `chain-interaction` (register item
 2): D5 `chain-continuation-switch` (GS-3 armed + CI-1), D18
 `committed-interaction-claiming` and D18 `chain-tip-original-pid` (CI-2); D18 is now 4
 of 12 covered. `ghost-replay-tier-a` (register item 3): D6 `reentry-fx` (H52's
@@ -110,7 +121,7 @@ committed specs and `harness/coverage/registry.toml` returns exactly:
 values 248   covered 163   uncovered 85   expectedFailValues 0   xpass 0
 ```
 
-Per dimension (total / uncovered) for the CURRENT derivation above (234 specs,
+Per dimension (total / uncovered) for the CURRENT derivation above (245 specs,
 170 of 248; the retained `de5ac6112` block directly above it is history), with the
 2026-08-04 uncovered count kept in the last column so the delta stays legible:
 
@@ -152,8 +163,9 @@ D13 unchanged at `proximity-offset`, `bbox-block`, `ksc-exclusion`,
 Read with the register below. Sixty-six percent of the declared surface is gated
 and every committed lane has a green run; the residue is UNEVEN, and each thin
 dimension is thin for a different reason. Covered / total per dimension,
-re-derived 2026-09-08 on `ghost-replay-tier-a` after the merge of origin/main (234
-specs; the D5 / D6 / D18 rows moved since `de5ac6112`), with what closing the rest
+re-derived 2026-09-09 on `refly-lanes` at `659be2a68` (245
+specs; unchanged by the RF wave, which claims no new cell - the D5 / D6 / D18 rows
+moved on 2026-09-08 since `de5ac6112`), with what closing the rest
 takes:
 
 | Dim | Subject | Covered | What the residue is, and what closes it |
@@ -254,9 +266,14 @@ This section is the ranked answer to "what next", re-derived on `main` at
 closed V3C). It supersedes the ORDER implied by the Build-order tiers and the
 per-program sequencing notes below; those sections stay the DEFINITIONS of the
 items and the record of why. Re-derive before acting: `ls harness/scenarios/*.toml`
-(230 at `de5ac6112`), `hlib.compute_coverage` (163 of 248 cells, 85 uncovered), and the category
-inventory (**112 of 112 categories driven, 621 of 621 declarations - the in-game
-coverage axis is CLOSED**; #1650 took it to 110 by closing `Contracts`,
+(245 at `659be2a68`), `hlib.compute_coverage` (170 of 248 cells, 78 uncovered), and the category
+inventory (**112 of 112 categories driven, 623 of 623 declarations - the in-game
+coverage axis is CLOSED**; re-derived 2026-09-09 at `659be2a68` with
+`hlib.parse_ingame_test_declarations` over every `.cs` under `Source/Parsek`, and the
+623 is 621 plus the two cells this branch's program added to categories that were
+already driven - #1662's optimizer-split regression cell in `Rewind` and the
+predicted-tail draw-decision cell in `MapRender`, so the axis stays closed;
+#1650 took it to 110 by closing `Contracts`,
 `RouteLiveAnchor`, `ResourceTopBar` and `PartEventFX`, and the 2026-09-08 wave closed
 the last two by refuting the "host-blocked" reading on both - `CrewReservationLive`
 joined `LT-4-long-tail-route-flight` because a RECORDED store carries the spawned pid
@@ -384,6 +401,21 @@ remains is, in order:
     dispatch, and the Tier 4 residue (`manual-gloops`, claw / inventory producers,
     crew swap, milestones, D13 spawn-positioning generator work, D16 storage cells,
     the D11 mission cells).
+11. ~~**The re-fly continuation program** (RF-1..RF-10 + RF-7T): the two defects the
+    operator's manual session found, and the eleven lanes that hold them down.~~
+    LANDED 2026-09-09 across #1658 (the optimizer-split MergeState carry), #1659 (the
+    predicted-tail render), #1661 (the in-game `MergeInterruptionRecovery` isolation
+    fix), #1662 (the INV12 analyzer rule, the regression cells and the
+    `refly-autopilot-recorded` twin) and this PR; nine lanes green, three armed.
+    STILL OPEN, and each is cheap enough to batch with item 7 rather than to rank on
+    its own: RF-4 needs a host that HAS a launch quicksave (H58's own in-run
+    `StartRecording` / `StopRecording` / `CommitTree` prologue, not a re-host); RF-8
+    needs a UT at which its one body-matched ghost is inside the watch RANGE cutoff,
+    or the lane has no host and retires; and RF-9 / RF-5 have EARNED registry cells
+    through gating tokens that nobody has CLAIMED yet, which is the one item here
+    that moves `hlib.compute_coverage` and every number derived from it. Definitions,
+    evidence and the per-lane readings: "The re-fly continuation program (RF-1..RF-10)"
+    below.
 
 Decisions owed rather than work: ~~keep or delete `bdock-station-craft`~~ DECIDED
 2026-09-08, KEEP (it is the clean operator-build base `bdock-station-pad` was stamped
@@ -467,7 +499,7 @@ and are kept so the remaining work is legible against the original list:
 | `Recording` | 1 | D5 `bg-on-rails` |
 | ~~`SwitchSegment`~~ | 6 | DRIVEN since #1358 by `H12` (live-proven 2026-07-27). D1 `switch-segment` gate layer |
 | `SwitchIntentPatch` | 3 | D1 switch-intent arming (partly TRACKSTATION) |
-| `Rewind` | 31 of 37 | D9 `seal-stash-fly`, `unfinished-flights-stash`, `rp-disk-reaper`, `revert-during-refly-dialog`, `tombstones`, `merge-journal`, `terminal-kind-classify`, `read-back-guard` |
+| `Rewind` | 31 of **39** (written 37 until 2026-09-09, then 38 when the recovery-bundle wave's SPACECENTER cell of 2026-08-20 was finally re-derived, then 39 when PR #1662 added the optimizer-split regression cell; the number is kept honest by `CommittedBatchTallySourceSyncTests`, which reds RF-6's pin until it agrees with the source) | D9 `seal-stash-fly`, `unfinished-flights-stash`, `rp-disk-reaper`, `revert-during-refly-dialog`, `tombstones`, `merge-journal`, `terminal-kind-classify`, `read-back-guard` |
 | `GhostLifecycle` | 15 of 17 | D6 `loop-period-modes`, `self-overlap`, `overlap-expiry-soft-caps` (the other 2 are `Scene = TRACKSTATION`, so this is one of the 7 partly-stranded categories) |
 | ~~`GhostAudio`~~ | 9 | DRIVEN since wave-2 by `H30` (live-proven 2026-08-04; needed the W2-SHIP-VOLUME-ZERO provision fix). D6 `ghost-audio` |
 | ~~`MapPresence`~~ | 5 | DRIVEN since wave-2 by `H28` (live-proven 2026-08-04). D6 `ghost-map-presence`; `commnet-relay` NOT closed - its only cell is vacuous under every committed asset (no generator writes AntennaSpecs; see W2-VACUOUS-CELLS) |
@@ -1271,8 +1303,12 @@ What shipped:
   R7-SESSION-BATCH-ISOLATION in `todo-and-known-bugs.md`.
 
 What R7 did NOT close, and why: `unfinished-flights-stash` (the only cell that
-would carry it skips - `ScenarioWriter` emits no `mergeState`, so nothing can
-satisfy `IsUnfinishedFlight`); `tombstones`, `merge-journal`,
+would carry it skipped AT THE TIME because `ScenarioWriter` emitted no
+`mergeState`. CORRECTED 2026-09-09: that is CLOSED, as R7-FIXTURE-GAPS gap 2
+- `RecordingBuilder.WithMergeState` exists and `ScenarioWriter.BuildRecording`
+stamps the key, which is how the `rewind-b9` booster is CommittedProvisional at
+all and how R7c unblocked `UnfinishedFlightsRenderingAndNoHide`. Kept as the
+record of what R7 itself could not close, not as a live blocker); `tombstones`, `merge-journal`,
 `terminal-kind-classify` (these need a FLOWN re-fly, which is CL-3's shape, not a
 seam-only spec). Two permanent fixture gaps blocking five of the 37 are filed as
 R7-FIXTURE-GAPS.
@@ -3540,6 +3576,261 @@ per flight), then item 2 (the long-declined D6 cell), then Tier C item 10 +
 its dependent loop lane (item 12) as one arc. Tier B rides operator judgment -
 item 6's design call costs nothing and should be taken early; Tier D is
 filler between calibration flights.
+
+---
+
+## The re-fly continuation program (RF-1..RF-10)
+
+Added 2026-09-09, after the first Rewind-to-Separation session an operator ever
+flew BY HAND end to end and collected: `logs/2026-09-08_2317_refly-a-manual`,
+save `re-fly-a`, DLL `2effc9d49`. It found two defects the whole automated suite
+had walked past, and the program exists so neither can come back unseen.
+
+**OBJECTIVE.** Cover the two halves of Rewind-to-Separation nothing measures
+today: whether a slot that SHOULD stay open does, and whether what a re-fly
+leaves behind is RENDERED. Those are different subsystems with one shared
+subject, and the seed session failed at both.
+
+**THE SEED SESSION.** A crewed "Kerbal X With Probe" launched; the probe
+decoupled at UT 189.32 into a two-slot RewindPoint (slot 0 the pod, slot 1 the
+probe). The scene exited at UT 1078.5 with the pod ALIVE and SUB-ORBITAL, so the
+scene-exit finalizer extrapolated a re-entry tail - two `isPredicted`
+`OrbitSegment`s running to an impact at UT 2348.5 - and stamped
+`terminal = Destroyed`. That is the DESIGNED outcome and it is the operator's
+friend: `TerminalKindClassifier` maps `Destroyed -> Crashed`, which qualifies
+regardless of focus, and the commit duly promoted slot 0 to
+`CommittedProvisional` (`IsUnfinishedFlight=true ... reason=crashed`).
+
+Then, 230 ms later and inside the SAME commit, `MergeDialog.MergeCommit` reached
+`RecordingStore.RunOptimizationPass()` and a phase-change split cut the promoted
+recording at UT 191.04 into a HEAD and a brand-new chain TIP.
+`RecordingOptimizer.TransferTerminalFieldsToSecondHalf` moves the TERMINAL to the
+tip and does not move the `MergeState`; open/closed is read from the TIP
+(`UnfinishedFlightClassifier.IsSlotEffectiveTipOpen`), and a fresh recording is
+born `Immutable`. So the slot read `reason=sealedTipClosed`, its Unfinished
+Flights row never drew, the first-commit guard then cemented it, and after the
+probe's re-fly merged, `ReapOrphanedRPs: reaped=1` deleted the RewindPoint
+quicksave for good. A recoverable open slot became permanently unrecoverable.
+
+Separately and for unrelated reasons, that pod's predicted tail was drawn by
+NOTHING on the map. Two causes: the polyline's forward-arc pass drops any conic
+whose periapsis is below the body radius (every predicted re-entry conic, by
+construction), and the compensating gap filler only fills BETWEEN two recorded
+points, which a tail has none after; and map-presence source resolution read the
+chain HEAD, which has zero segments after the split, so the ghost was re-sourced
+`orbitSource=state-vector-fallback` onto an instantaneous ellipse it never flew.
+Session-wide: `runArcs+=0` on all 96 render runs of the two tail-bearing
+recordings.
+
+**THE LANE REGISTER**, and what each MEASURES rather than what each drives:
+
+| Lane | Host | What it measures |
+|---|---|---|
+| RF-1 | `gs1-two-stage-pad`, flown | That a non-focus half still airborne at scene exit keeps its slot OPEN and its FLIGHT-AUTHORED RewindPoint alive - and that the slot can then actually be re-flown. GS-1's assertion inverted on the same craft |
+| RF-2 | `bdock-recorded` | The reaper's PER-POINT scope across two merges in one run: one point reaps, its two siblings stand |
+| RF-3 | `bdock-recorded` | That a DISCARD costs nothing - proven by re-invoking the same rewind, not by grepping state |
+| RF-4 | `bdock-recorded` | Rewind-to-LAUNCH over a tree a rewind-to-SEPARATION already forked: the supersede rollback preserves the sealed fork |
+| RF-5 | `bdock-recorded` | The opposite direction: `SealSlot` closes a slot on purpose and the point reaps by design. First consumer of the verb's `rp=` + `slot=` form |
+| RF-6 | `bdock-recorded` | The twelve session-gated in-game `Rewind` cells, executing for the first time anywhere, by ordering `RunTests` after `InvokeRewind` |
+| RF-7M / RF-7T | `refly-a-recorded` | The predicted continuation tail on the flight map and in the Tracking Station. REPRODUCTIONS: authored to red on main on the exact defect tokens |
+| RF-8 | `bdock-recorded` | What renders DURING a live re-fly - the sibling's ghost in watch mode and on the map, with both tracers armed for the first time on any rewind lane |
+| RF-9 | `gs1-two-stage-pad` + the Kerbal X | THE SEALING DEFECT'S OWN SHAPE, FLOWN. The only lane whose promoted recording crosses an environment boundary the optimizer splits on, which is the precondition RF-1 records itself as unable to reach: the probe-cored core is discarded INSIDE the atmosphere and the crewed top stack then coasts OUT through 70 km before the scene exits. Reds on a pre-#1658 DLL by design |
+| RF-10 | `refly-autopilot-recorded` | THE READ SIDE of the same fix, out of committed bytes: the codec omits `mergeState` exactly when it is Immutable and reads a missing key back AS Immutable, so the carried open bit has to survive a ROUND TRIP - and nothing tested that. Six steps, no flight, no re-fly; `ReapOrphanedRPs: reaped=0 remaining=1` is the whole lane. First consumer of the fixture RF-9 produced |
+
+**TWO LIMITATIONS, structural rather than unfinished.**
+
+1. **No seam path drives an F9 mid re-fly.** `TestCommandDispatcher` refuses
+   `LoadGame` with `recording-active` while a recorder is live, and the in-game
+   `F5MidReFlyResume` cell simulates the sweep step for the same reason.
+   `S4.4-refly-quicksave-mid-session` records it verbatim as a HARNESS
+   limitation, not a product finding, and pins the reject as a required token.
+   No RF lane reloads a live session; RF-6 reaches the same surface from inside
+   the game instead.
+2. **The seed's RewindPoint is gone.** The continuation defect reaped it before
+   the save was collected, so the harvested fixture `refly-a-recorded` carries
+   `REWIND_POINTS` empty and CANNOT re-fly. It serves the render lanes and any
+   load-time or classification lane; anything needing a live point either flies
+   one (RF-1) or reads one out of `bdock-recorded`. The fixture README states
+   this where a lane author will meet it.
+
+**WHAT THE FIRST THREE READING RUNS MEASURED (2026-09-08, all on the main-built DLL,
+deployed hash `83b1adea88cd8cd5`, verified to carry neither fix branch's literals).**
+
+- **RF-1 PASS attempt 1** (`2026-09-08_2146`, wall 171 s, mission MISSION-OK in 95.8 s,
+  expectations mismatches=0). The new `siblingAirborneAtExit` exit worked first time
+  (`assert boosterStillAirborne value=FLYING met=True`), the slot was promoted
+  `reason=stableLeafUnconcluded terminal=SubOrbital`, `ReapOrphanedRPs: reaped=0
+  remaining=1`, and the re-fly ran through a RewindPoint id the spec never spelled. Its
+  header's prediction held in the negative too: no `sealedTipClosed`, because a
+  sub-kilometre hop crosses no environment boundary for the optimizer to split on.
+- **RF-7M PARSEK-FAIL, defect (A) reproduced** (`2026-09-08_2156`, mismatches=4). Both
+  anti-vacuity tokens matched, so the renderer reached the tail-bearing recording, built
+  its legs, and still drew no arc.
+- **RF-7T PARSEK-FAIL, defect (B) reproduced** (`2026-09-08_2159`, mismatches=2), and
+  harder than in the seed: ten `ResolveTrackingStationGhostSource` lines over the chain
+  HEAD, every one `source=None orbitSource=none ... hasSegments=False`, zero ghosts.
+
+**BOTH RENDER LANES ARE NOW GREEN AGAINST THE MERGED FIX (2026-09-08).** PR #1659
+merged as `1b2fc0fea`; the branch was rebuilt, re-provisioned (deployed hash
+`cd8ddb6b691e3fb8`, verified to carry both fixes) and both lanes re-flown.
+
+- **RF-7T PASS attempt 1 with no re-pin** - its tokens were right first time.
+- **RF-7M needed a re-pin, and the reason is worth keeping.** Flown against the fixed
+  DLL with its ORIGINAL tokens it still read PARSEK-FAIL on `runArcs+=[1-9]` and
+  `conic=[1-9]`. Reading the log rather than the verdict showed the fix draws the tail
+  as a POLYLINE LEG, by design, not as a forward arc: `Polyline legs: ... count=2 |
+  ... 1:[2186.6-2348.5 162s Kerbin pts=25 alt=70000..0]` - the ballistic descent, 25
+  points sampled off the conic down to altitude zero. `runArcs` / `conic` measure the
+  ORBIT-LINE surface, which needs an engaged ghost this lane cannot produce. They were
+  the wrong instrument, not evidence of an incomplete fix. Re-pinned onto the descent
+  leg, and the re-pin was checked MUTATION-SENSITIVE against the pre-fix log (four
+  independent reds) before being flown.
+
+That distinction - wrong instrument versus incomplete fix - is the single most valuable
+thing this program produced, and it is only available because the lanes were flown
+against BOTH builds.
+
+**A THIRD LIMITATION, MEASURED RATHER THAN PREDICTED.** RF-7M could not reach defect (B)
+at all, on either of two clocks: a seam-only lane over a recorded fixture engages no
+ghost, so flight-map presence tracks nothing (`recordingTracked=0 created=0` at every
+reading position). The Tracking Station runs its own per-recording resolver
+unconditionally and therefore IS the harness subject for that half. Filed as
+RF7M-DEFECT-B-NEEDS-AN-ENGAGED-GHOST; the two defect-(B) tokens moved from RF-7M to RF-7T.
+
+**RF-9, ADDED 2026-09-09: THE SEALING DEFECT'S OWN SHAPE, FLOWN.** The program shipped
+with a hole its own headers named: RF-1 asserts the OPEN branch on a profile that CANNOT
+split, and the split defect's only reproduction was the FIXTURE. RF-9 closes it. The
+precondition is narrow - `RecordingOptimizer.IsSplittableEnvOrBodyBoundary` accepts an
+Atmospheric <-> ExoBallistic crossing and nothing else as `PersistedPhaseChange` - and a
+survey of every mission and fixture found no lane that produces one on a recording a
+RewindPoint slot points at: GS-1/RF-1 hop 700 m inside the physics bubble, GS-2/GS-3
+split in a 100 km parking orbit (`minSafePeriapsisMeters = 75000` keeps it that way),
+GS-4/GS-7 fly the right craft but discard the core at a 60 km apoapsis so the top stack
+peaks INSIDE the atmosphere, and every `bdock-recorded` lane reads an injected point.
+
+The craft was already right: `harness/fixtures/ships/Kerbal X.craft` carries an RC-L01
+`probeStackLarge` on the core stage, so the istg=2 discard is a multi-controllable split
+and KSP physics authors a RewindPoint - the one GS-4 flies past on its way to a
+rewind-to-LAUNCH. So RF-9 is two numbers and one opt-in rather than a new mission:
+`coreDiscardApoapsisMeters = 95000` puts the apex outside the atmosphere, and the new
+`coastExitProfile` on `kx_rewind_watch` refuses to hand the scene over until the stack
+has been OBSERVED at >= 71 km in SUB_ORBITAL on two consecutive frames (COAST ->
+COAST-EXIT -> DONE, nothing commanded, the recorder still live, the spec's own
+`ExitToSpaceCenter` committing - RF-1's shape). A longer `coastSeconds` would have been
+one line and would have made the boundary a COMMANDED reading. Byte-inert when absent,
+replay-proved by `CoastExitProfileTests`.
+
+**AND ONE HARNESS FINDING FELL OUT OF AUTHORING IT.** RF-9's forbidden list was written
+against `RecordingStore.cs` rather than against a quotation, which is how the em dash was
+noticed: the C# writes `already committed/fork [EM DASH] not re-deriving MergeState`, and
+RF-1 forbade the same sentence spelled with an ASCII hyphen - a pattern no log line can
+match, which reads exactly like a pass on every run. Same silence-is-not-success shape as
+the RF-7M defect-(B) tokens, arrived at from the opposite direction. Both lanes now forbid
+the fragment `not re-deriving MergeState`; filed as RF-FORBID-EM-DASH-CANNOT-MATCH.
+
+**THE PROGRAM FLEW OUT ON 2026-09-09**, every lane against the merged-main DLL
+(deployed automation hash `cd8ddb6b691e3fb8`, verified to carry both fixes' literals
+in both encodings). NINE GREEN, two INVALID with named causes - and the lane that was RED BY FINDING is green
+as of run 4, because the finding it opened was fixed by PR #1661 the next morning and this
+program flew the proof:
+
+| Lane | Verdict | Run | What the run added |
+|---|---|---|---|
+| RF-9 | PASS (2 runs) | `2026-09-08_2250`, `_2258` | The sealing defect's precondition reproduced live and the fix holding across it. Two spec-side re-pins |
+| RF-1 | PASS (2 runs) | `2026-09-08_2146`, `RF-1-confirm` | The same DERIVED save-parse windows landing twice, which is what arming asks for |
+| RF-7M | PASS | `2026-09-08_2302` | Confirmation on merged main; green since the fix |
+| RF-7T | PASS | RF-7T re-flight | Confirmation on merged main, no re-pin ever needed |
+| RF-2 | PASS | `RF-2` | The reaper's per-point scope: `rewindPoints=1` of three, `supersedeRows=2` |
+| RF-3 | PASS | `RF-3` | `tombstones` re-pinned 0 -> `{min=1}`; RF-2 measured 0 over the same host and the asymmetry is recorded, not explained |
+| RF-5 | PASS after refutation | `RF-5` | The idempotence premise refuted: the slot-mode seal reaps INSIDE its own call. Step inverted, `Sealed slot=` added as the lane's best line |
+| RF-6 | RED x3 then **PASS** | `RF-6`, then run 4 post-#1661 | Byte-identical tally across the sealing fix said the four failures were not it; #1661 then fixed them and this lane flew the proof (`total=39 passed=11 failed=0 skipped=28`) |
+| RF-4 | INVALID | `RF-4` | `bdock-recorded` carries no rewind-to-launch save at all; the H58 verb pair was borrowed across FIXTURES |
+| RF-8 | INVALID | `RF-8` | A ghost DOES resolve during a live re-fly and is body-matched; the watch RANGE gate declines it |
+| RF-10 | PASS, ARMED | `2026-09-09_0008` / `_0011` / `_0012` | The round trip: the split tip's open bit survives the codec, read by a boot that flew nothing |
+
+**THREE LANES ARE NOW ARMED**, each through the full S4.1 cycle rather than by decree:
+reading run, ARMED re-flight, NEGATIVE CONTROL, revert in the same change.
+
+- **RF-1 `[expectations.rewind]`** - armed run `2026-09-08_2349` PASS; control
+  `2026-09-08_2351` inverted `rewindPoints` to `{2,2}` and red on exactly
+  `rewind.rewindPoints 1 < min 2`. The armed claim is `rewindPoints = {1,1}`:
+  `IsReapEligible` returns false only while a slot's effective tip is
+  `CommittedProvisional`, so a count of one on disk is only reachable when the slot
+  really stayed open.
+- **RF-9 `[expectations.rewind]`** - armed run `2026-09-08_2354` PASS; control
+  `2026-09-08_2358` restored the REFUTED `tombstones = {max = 0}` and red on exactly
+  `rewind.tombstones 8 > max 0`. Arming the CORRECTED window is deliberate: a window
+  that was wrong once is exactly the one a later run must not be able to move quietly.
+- **RF-10 `[expectations.rewind]`** - armed run `2026-09-09_0011` PASS; control
+  `2026-09-09_0012` inverted `supersedeRows` to `{3,3}` and red on exactly
+  `rewind.supersedeRows 2 < min 3`. The safest arming in the program, because the lane
+  cannot move its own subject: no recorder, no re-fly, two settings written. Its three
+  counts are the fixture's identity read back through a boot, and the file-side drift
+  test pins the same numbers - one gate catches a bad re-harvest, the other a load that
+  mutates committed state.
+
+**NO NEW REGISTRY CELL IS CLAIMED**, and that is a decision rather than an oversight.
+Every RF spec carries only the host basics (D14 `kerbin` / `sandbox` / `scene-*`), so
+the covered / uncovered SET `compute_coverage` returns is identical with and without
+the eleven RF specs - only the `coveredBy` membership of six D14 cells moves
+(`kerbin`, `sandbox`, `scene-flight`, `scene-map`, `scene-ts`, `scene-ksc`), and the
+suite's own triple stays 170 of 248 with 78 uncovered. RF-9
+now exercises and OBSERVES `rewind-to-separation`, `refly-gate`,
+`unfinished-flights-stash`, `auto-record-launch`, `commit-scene-exit`, `auto-merge` and
+`controlled-decoupled-child` through gating tokens, and RF-5 does the same for
+`seal-stash-fly` and `rp-disk-reaper` from the seal side. Taking those claims moves
+`hlib.compute_coverage` and every number derived from it; it is a mechanical follow-up
+that deserves its own pass rather than a footnote to a flight night.
+
+**THE TWO INVALIDS ARE THE SAME SHAPE**, and it is worth naming: both are lanes whose
+SUBJECT is unreachable on `bdock-recorded`, and in both cases the reading run measured
+the reason rather than leaving it to be guessed. RF-4's fix is identified and cheap, and it is
+H58's own: no recorded fixture carries a launch quicksave (that is policy, gated in both
+directions), and H58 does not rewind a fixture tree - it PRODUCES its subject in-run,
+because `FlightRecorder.CaptureRewindSave` writes the quicksave at every non-promotion
+recording start. RF-4 gains a `StartRecording` / `StopRecording` / `CommitTree` prologue,
+keeps its host and keeps the `ambiguous-tree` negative control. RF-8's needs an experiment first - which UT, if
+any, puts the one body-matched ghost inside the watch cutoff. Neither was re-pinned to
+expect its own refusal: a lane that asserts the verb does not work has stopped measuring
+its subject.
+
+**THE FIXTURE THE PROGRAM PRODUCED.** `refly-autopilot-recorded` is RF-9's produced save,
+and it is the fixed-behaviour twin of `refly-a-recorded`: same craft, same staging plan,
+same optimizer split, opposite outcome on disk (`mergeState = CommittedProvisional` on
+both chain TIPs where the seed has no key at all). It is also REPRODUCIBLE, which the seed
+is not - re-harvesting it is `python run.py --id RF-9-...` rather than an operator's
+evening - so it is the natural host for any future render lane over a predicted tail.
+
+**THE TWO FIXES.** Neither is in this program's scope. PR #1658
+(`refly-continuation`) MERGED to main on 2026-09-08 as `a783879aa`, after the three
+reading runs above - so they flew a pre-fix DLL, and since that fix emits no new log
+token and moves none of their pins, what is owed is a confirmation re-flight rather
+than a re-derivation. It carries the open bit across an optimizer split - `second.MergeState = original.MergeState` beside the terminal
+move, plus the more-open-wins mirror in `MergeInto` - and emits no new log token,
+so no RF lane moves when it lands. The `refly-render-tail` branch draws the
+predicted tail and routes chain map presence through
+`EffectiveState.EffectiveTipRecordingId`; its design section is
+`design-map-ts-render-architecture.md` -> "Predicted continuation tails on the
+map", and it adds exactly one new Verbose line, which RF-7M and RF-7T
+deliberately do NOT require - a token that cannot exist on the DLL the reading
+run flies would make the reproduction unreadable.
+
+**TWO CORRECTIONS TO THIS DOCUMENT, found while inventorying the surface.**
+
+- The `Rewind` category is **39** declarations as of 2026-09-09 (38 when this line was
+  written, plus PR #1662's optimizer-split regression cell). The count moved on
+  2026-08-20 when the recovery-bundle wave added one SPACECENTER-scoped cell;
+  R7a's and R7c's pinned tallies were re-derived to `total=38` at the time and
+  the coverage table above was not. `hlib.parse_ingame_test_declarations` over
+  `Source/Parsek` is the authority and `CommittedBatchTallySourceSyncTests`
+  keeps the pins in step with it.
+- **`RecordingBuilder.WithMergeState` EXISTS**, so the R7 paragraph saying
+  `unfinished-flights-stash` cannot be satisfied because "`ScenarioWriter` emits
+  no `mergeState`" is stale. It was added as R7-FIXTURE-GAPS gap 2:
+  `Generators/RecordingBuilder.cs:431` declares it and
+  `ScenarioWriter.BuildRecording` stamps the key. Three committed generators use
+  it today, which is how `rewind-b9`'s booster is `CommittedProvisional` at all;
+  R7c's own status row records the cell being unblocked by exactly that fix.
 
 ---
 
