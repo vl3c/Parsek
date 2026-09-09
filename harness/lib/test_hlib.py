@@ -4468,7 +4468,7 @@ class IsolatedBatchWiringGroupTests(unittest.TestCase):
     # trusted; the table exists so a rename reds HERE with both names named.
     GROUP = {
         "H21-scene-exit-merge-isolated": ("SceneExitMerge", 2),
-        "R7a-rewind-session-absent": ("Rewind", 38),
+        "R7a-rewind-session-absent": ("Rewind", 39),
         # The THIRD slice of `Logistics` and the one that is actually the category:
         # H34 owns its 2 SPACECENTER-eligible declarations and H35 the 8 the ORDINARY
         # FLIGHT filter admits, while the other 38 are AllowBatchExecution = false +
@@ -15622,22 +15622,25 @@ S17_MEASURED_REAIM_LINE = (
     "[Parsek][INFO][TestRunner] ReaimedLoop_SynthOracle: pid=3494681962"
     " recordedLAN=0 reaimedLAN=70 | synthDev=0m synthTol=2726m (ZERO) |"
     " faithfulDev=1319093m faithfulTol=2701m (FLAGGED)")
-# The 2026-07-26_1021 flight's own tally, kept verbatim as the archived measurement.
-S17_FLOWN_BATCH_LINE = (
+# The 2026-07-26_1021 flight's own tally, kept verbatim as the archived
+# pre-PredictedTail measurement (total=22, before the MapRender category grew).
+S17_FLOWN_BATCH_LINE_2026_07_26 = (
     "[Parsek][INFO][TestRunner] BATCH_COMPLETE v1 total=22 passed=21 failed=0"
     " skipped=1 category=MapRender scene=FLIGHT")
-# 2026-09-08 INTERIM. PredictedTailMapRenderInGameTest was added to the MapRender
-# category, so the source now declares total=23 and the flown line above can no
-# longer satisfy the spec's pin. `total=` stays LITERAL (it is derivable from the
-# [InGameTest] attributes); passed= and skipped= became a digits class because the
-# new cell's pass/skip split is decided at run time by its own InGameAssert.Skip
-# guards and this branch may not fly. The line below is therefore the SHAPE the pin
-# now accepts, NOT a measurement - S17_FLOWN_BATCH_LINE is the measurement. Replace
-# both with the next green S1.7 flight's line and restore the literal pin.
-S17_INTERIM_BATCH_LINE = (
+# RE-MEASURED late 2026-09-08 (run ids _23xx), on two flights of two different
+# builds. Predicted-
+# TailMapRenderInGameTest moved the category to total=23 on 2026-09-08 and forced a
+# one-day digits-class interim on passed= and skipped=; runs
+# `2026-09-08_2313_S1.7-maprender-parity` (PASS attempt 1, 75 s) and
+# `2026-09-08_2329_S1.7-maprender-parity` (PASS attempt 1, 71 s), both mismatches=0,
+# read the line below TOKEN FOR TOKEN, so the pin is literal again and this constant
+# is a MEASUREMENT rather than a shape. The interim prediction (22 passed / 1
+# skipped) was exactly right: the new cell EXECUTED rather than standing down on its
+# no-usable-body guard.
+S17_FLOWN_BATCH_LINE = (
     "[Parsek][INFO][TestRunner] BATCH_COMPLETE v1 total=23 passed=22 failed=0"
     " skipped=1 category=MapRender scene=FLIGHT")
-S17_MEASURED_BATCH_LINE = S17_INTERIM_BATCH_LINE
+S17_MEASURED_BATCH_LINE = S17_FLOWN_BATCH_LINE
 # The runner's accounting for the single skip.
 S17_MEASURED_BATCH_SKIP_LINE = (
     "[Parsek][INFO][TestRunner] Batch execution skipped 1 single-run-only test(s)")
