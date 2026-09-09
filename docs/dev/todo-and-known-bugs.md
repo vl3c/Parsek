@@ -15,6 +15,45 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## REPUTATION-SEED-CAPTURED-MID-FLIGHT-REAPPLIES-PRE-SEED-AWARDS: the lazy `ReputationInitial` seed is read off the live pool at the first commit, so every reputation award recorded BEFORE that moment is inside the seed AND replayed as a row
+
+Filed 2026-09-10 while shipping the crew-death reputation penalty (branch
+`tombstone-rep-penalty`); pre-existing, not introduced there.
+
+`LedgerOrchestrator.EnsureInitialReputationSeed` has no career-start baseline on a save
+Parsek first meets mid-career, so it seeds `ReputationInitial` from
+`Reputation.Instance.reputation` at the FIRST commit. That value already contains
+every reputation change the recorded flight produced up to that moment, and the
+recording's captured events are then converted into rows and applied ON TOP of it.
+Measured on `2026-09-09_1815_CL-4-refly-crew-standin` (pre-change DLL, career-pad-craft
++ `rewind-crew-loss`): the re-fly's `+1 reputation 'Progression'` milestone raised the
+live pool to 0.999999464, the seed was taken at that value (`Seeded initial reputation:
+amount=0.999999464`), and the walk then applied the milestone row again, so the rebuilt
+pool read one unit above live and the drawdown guard clamped it back with the standing
+`GUARDED UPLIFT clamped resource=Reputation` WARN.
+
+The 2026-09-10 change handles exactly one award class: a `ReputationPenalty(KerbalDeath)`
+row produced before the seed existed, or in the same commit that read the seed off the
+live pool, is flagged `insideRepSeed` and `ReputationModule` does not apply it. (A first
+cut compared the row's UT against the seed's capture UT; `2026-09-09_2225_CL-4` showed
+why that cannot work - the seed was read at game UT 13.8 on the rewound clock with the
+death at UT 124, and the mirror case, a death on a re-fly from a RewindPoint earlier
+than the seed's UT, would be skipped although it postdates the seed in real time. A
+rewind moves the clock, so production order is the only honest discriminator.)
+Milestones, contract rewards and every other pre-seed award are still replayed. Two consequences worth knowing: (1) the guard hides the
+double count on plain recalcs but an authoritative recalc (rewind / re-fly / merge /
+tombstone) writes the doubled figure; (2) a death inside the very first committed
+flight of a save is inside the seed, its row is skipped, and re-flying it away does
+NOT refund the penalty (a later death does) - accepted as the safe direction.
+
+Fix shape: generalize the inside-seed flag to every reputation row produced before
+the seed exists (same production-order rule, same commit-of-capture clause) or, better,
+capture the seed NET of the rows known at capture time so a tombstone can refund a
+pre-seed death. Either
+moves CL-2's armed ledger totals only if that lane's seed is captured after an award
+it also converts, so re-read its oracle before changing the walk. A row written before the flag existed carries no `insideRepSeed` key, reads back false and applies as before.
+
+
 ## ~~RF11-REWINDPOINT-QUICKSAVE-CARRIES-A-PRUNED-REWIND-SAVE-HINT: the harvest clears the rewind-to-launch hint in `persistent.sfs` and not inside the RewindPoint quicksave, so a re-fly reads it back and the analyzer FAILs~~ [FOUND 2026-09-09 by RF-11's reading runs 1 and 2. A FIXTURE / HARVEST-POLICY gap, not a product defect. FIXED 2026-09-09 in the same change]
 
 RF-11 re-flies both slots of `refly-autopilot-recorded`'s RewindPoint. Runs 1 (`_1621`)
@@ -11159,7 +11198,8 @@ item and must not be counted as one:
   first, read ITS facets, then arm - the same three-run promotion S4.1 just went
   through. Stage B scope: the R12 residue block in `docs/dev/autotest-roadmap.md`
   (closed by CL-3 for the two tombstone cells; `stand-ins` by CL-4 on 2026-09-09;
-  `tombstone-rep-penalty` is a product change).
+  `tombstone-rep-penalty` was a product change, SHIPPED 2026-09-10 on branch
+  `tombstone-rep-penalty` and claimed by CL-4 the same day).
 - **R10** runtime-handle plumbing so a live tree / vessel / route id can reach a verb -
   ~~OPEN (`run.py:1157` substitutes exactly one token, `${runSave}`, and no response
   payload is ever captured)~~ **CLOSED 2026-09-08** (PR #1653, branch
@@ -11196,7 +11236,8 @@ item and must not be counted as one:
   extension's stage A shipped 2026-07-30 as `CL-2-pod-impact-ledger`; its tombstone
   stage B ~~remains~~ SHIPPED 2026-08-03 as `CL-3-refly-crew-tombstone` (D9
   `tombstones` and D12 `dead-crew-strip` armed; `stand-ins` followed on
-  `CL-4-refly-crew-standin`, 2026-09-09; `tombstone-rep-penalty` is a product change).
+  `CL-4-refly-crew-standin`, 2026-09-09; `tombstone-rep-penalty` was a product change,
+  shipped 2026-09-10 and claimed by CL-4).
 - **R13** widening `SINGLE_BATCH_SELECTOR_RULE` to N categories with N pinned
   tallies - OPEN.
 - **R14** provisioning `modded-compat` for D17 - ~~OPEN~~ **CLOSED 2026-08-04**

@@ -247,9 +247,10 @@ landedSituations     = ["LANDED", "SPLASHED"]
 D1  = ["auto-record-launch"]
 # `crew-death-in-flight` is NEW vocabulary added to coverage/registry.toml in this same
 # change (the registry growth rule). D12 had no value for a plain in-flight crew death:
-# `dead-crew-strip` and `tombstone-rep-penalty` are both RE-FLY cells and stay
-# uncovered, which is the correct picture - they are what this atom is meant to be
-# extended into, not what it proves.
+# `dead-crew-strip` and `tombstone-rep-penalty` are both RE-FLY cells and stayed
+# uncovered here, which is the correct picture - they are what this atom is meant to
+# be extended into, not what it proves (CL-3 took the first 2026-08-05, CL-4 the
+# second 2026-09-10).
 D12 = ["crew-death-in-flight"]
 D14 = ["kerbin", "career", "scene-flight"]
 

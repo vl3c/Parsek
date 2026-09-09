@@ -83,9 +83,14 @@ EVA / CL / S0.x / H22-H25 / V1 / BDOCK waves and R14's MC-1/MC-2 took it from
 55 to 68. Adding a scenario is not the same as covering a cell. Re-derive
 these rather than editing them by memory; both numbers have moved many times.
 
-### Coverage: 171 of 248 registry cells (was 83 of 241 at the baseline, 108 of 242 on 2026-08-04, 162 of 247 on 2026-09-07 before G1 / G3b closed, 163 of 248 on 2026-09-08 before the ghost-replay claim pass, 166 after chain-interaction)
+### Coverage: 172 of 248 registry cells (was 83 of 241 at the baseline, 108 of 242 on 2026-08-04, 162 of 247 on 2026-09-07 before G1 / G3b closed, 163 of 248 on 2026-09-08 before the ghost-replay claim pass, 166 after chain-interaction, 171 after Stage B)
 
-Re-derived 2026-09-09 on `stage-b-tombstones` (after `refly-lanes` at `659be2a68`
+Re-derived 2026-09-10 on `tombstone-rep-penalty`: `hlib.compute_coverage(specs, [],
+registry)` over the 250 committed specs returns `values 248 covered 172 uncovered 76`.
+The one cell that moved is D12 `tombstone-rep-penalty` (`CL-4-refly-crew-standin`,
+claimed once the product change shipped - see the D12 row above); D12 is 7 of 10.
+
+The previous derivation was 2026-09-09 on `stage-b-tombstones` (after `refly-lanes` at `659be2a68`
 read 170 of 248 over 245 specs): `hlib.compute_coverage(specs, [], registry)` over the
 248 committed specs and `harness/coverage/registry.toml` returns exactly:
 
@@ -181,7 +186,7 @@ takes:
 | D6 | playback / ghosts | 13 / 18 | Register item 3 took the three cells that had subjects on 2026-09-08 (`watch-mode-retarget-explosion-hold`, `zone-transitions`, `reentry-fx`; the reentry replay surface stays open as Tier A item 3's second half); `loop-period-modes`, `self-overlap`, `overlap-expiry-soft-caps`, `attitude-preservation` need loop-cycle instruments (Tier C); `commnet-relay` is vacuous until a generator writes `AntennaSpecs`. |
 | D4 | track sections / optimizer | 6 / 12 | A CLAIM GAP of the H57 kind: `Optimizer` executes whole on LT-2 but `hysteresis`, `env-body-split`, `surface-graze-suppression`, `tail-trim`, `seed-event-split`, `split-at-ut` have no cell-level gating token. Same fix as the D3 / D6 claim pass in register item 3. |
 | D5 | tree topology | 8 / 12 | `staging-debris-ttl` / `-promotion` (Tier A item 5, sized as two lanes), `dock-merge-same-tree` (Tier 4), `bg-on-rails` (`Recording` executes whole on LT-2, claim gap); `chain-continuation-switch` (CI-1) and `crash-coalescing` (GS-7) closed 2026-09-08. |
-| D12 | crew | 6 / 10 | `stand-ins` is CL-4's (Stage B closure, 2026-09-09, live-proven `2026-09-09_1815`; the registry pins the cell to a Parsek-GENERATED stand-in); `tombstone-rep-penalty` is a PRODUCT change, not a flight (the registry's D12 block: no code constructs a KerbalDeath reputation-penalty action, so a death leaves no row a tombstone could reverse); `reservation-auto-hire`, `missed-endut-auto-free`, `crew-swap` are career-lane work and Tier 4 machinery. |
+| D12 | crew | 7 / 10 | `stand-ins` is CL-4's (Stage B closure, 2026-09-09, live-proven `2026-09-09_1815`; the registry pins the cell to a Parsek-GENERATED stand-in); `tombstone-rep-penalty` is CL-4's too since 2026-09-10, once the product change shipped (`LedgerOrchestrator.CreateKerbalDeathRepPenaltyActions` files a `ReputationPenalty(KerbalDeath)` row at commit from the recording's captured `VesselLoss` event and the merge tail tombstones it with the death; token `Tombstoned ... Reputation=[1-9]`, facet `tombstones=2`); `reservation-auto-hire`, `missed-endut-auto-free`, `crew-swap` are career-lane work and Tier 4 machinery. |
 | D3 | reference frames | 3 / 7 | A claim gap: `Pipeline-Anchor` executes whole on H11; `absolute`, `relative-anchored-nonloop`, `relative-loop`, `boundary-seam` need the test-to-cell mapping confirmed and one token each (register item 3, part 0). |
 | D13 | spawn positioning | 4 / 11 | Where a REAL spawn lands (terrain clearance, KSC exclusion, collision, orbit safety): the in-game tests exist and self-skip on every committed fixture. Generator / fixture work (R8 residue), not spec work. |
 | D16 | storage / sidecars | 4 / 12 | Formats, safe-write, path validation. Already covered headlessly by xUnit; the registry asks for a driven lane. Low product risk; several cells could close through one save-parse lane. |
@@ -1692,11 +1697,14 @@ WHAT R12 LEAVES BEHIND, each a separate follow-up and none of it a regression:
   `2026-07-30_1830_CL-2-pod-impact-ledger`). What was still open on 2026-09-09 was
   narrower: D12 `stand-ins` (claimable off CL-3's own `Stand-in generated` line,
   taken by `CL-4-refly-crew-standin`) and D12 `tombstone-rep-penalty`, which the
-  registry records as UNREACHABLE BY ANY FLIGHT (no production code constructs a
-  `ReputationPenaltySource.KerbalDeath` action; stock applies the hit and the event
-  converter drops the `VesselLoss` reputation change, so no `GameAction` exists for a
-  tombstone to reverse) - a product
-  change, decided separately. The original text follows, struck where it is no longer
+  registry recorded as UNREACHABLE BY ANY FLIGHT (no production code constructed a
+  `ReputationPenaltySource.KerbalDeath` action; stock applied the hit and the event
+  converter dropped the `VesselLoss` reputation change, so no `GameAction` existed
+  for a tombstone to reverse) - a product change, decided separately and SHIPPED
+  2026-09-10 on branch `tombstone-rep-penalty`: the commit-time producer files the
+  row from the recording's captured event, the merge tail tombstones it with the
+  death, and CL-4 claims the cell off a REQUIRED `Tombstoned ... Reputation=[1-9]`
+  token (re-pin reading run `2026-09-09_2158_CL-4-refly-crew-standin`). Stage B has no open cell. The original text follows, struck where it is no longer
   true, as the record of why the split was structural. ~~remains UNBUILT~~, and the
   split is structural
   rather than a scoping convenience. `SupersedeCommit` is the ONLY producer of a

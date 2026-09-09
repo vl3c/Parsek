@@ -8565,7 +8565,9 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
             "operator by the reading-run discipline (CL-3's own shape, fixture and "
             "mission): Stage B's last flight-closable cell, D12 stand-ins. LIVE-PROVEN "
             "2026-09-09 (reading _1813 PASS, armed _1815 PASS, negative control "
-            "1817); stays operator for CL-3's reason - a crew-loss rewind on the one "
+            "1817; re-pinned 2026-09-10 for D12 tombstone-rep-penalty on the "
+            "rep-penalty DLL: reading _2158, armed _2313, negative control _2251); "
+            "stays operator for CL-3's reason - a crew-loss rewind on the one "
             "career fixture with a vessel is the reading-run discipline's own tier, not a tag",
         "CI-2-refly-claim-tip-pid.toml":
             "operator by the reading-run discipline (RH-1's precedent, same fixture): "
@@ -9508,7 +9510,9 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
     ARMED_ALLOWLIST = {"S4.1-rewind-merge.toml", "CL-3-refly-crew-tombstone.toml",
                        # CL-4: `rewind` armed 2026-09-09 off its own reading run
                        # `2026-09-09_1813_CL-4-refly-crew-standin` (supersedeRows 1, tombstones 1,
-                       # CL-3's facets on CL-3's shape; rewindPoints unpinned, the RP is reaped).
+                       # CL-3's facets on CL-3's shape; rewindPoints unpinned, the RP is reaped);
+                       # `tombstones` re-pinned 1 -> 2 on 2026-09-10 off `2026-09-09_2158_CL-4-refly-crew-standin`
+                       # (the KerbalDeath reputation penalty row is tombstoned with the death).
                        "CL-4-refly-crew-standin.toml",
                        # RF-11: `rewind` armed 2026-09-09 through the full cycle -
                        # reading run `2026-09-09_1631`, armed re-flight `_1659` on the
