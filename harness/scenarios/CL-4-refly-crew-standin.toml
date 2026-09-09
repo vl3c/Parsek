@@ -107,7 +107,11 @@ tier = "operator"
 # It flew on the intermediate DLL of `_2250` (the re-stamp commit came out of that
 # chain's CL-2 run); the gate is spec-side and the `Tombstoned 2 ... Reputation=1,
 # Kerbal=1` line is byte-identical on `_2250` / `_2251` / `_2313`, so the proof
-# transfers. LIVE-PROVEN on the new cell's own gate.
+# transfers. LIVE-PROVEN on the new cell's own gate. The three-Opus panel's C# fixes
+# (per-recording seed origin when a batch override was NotYetCaptured; magnitude-
+# checked event/row pairing) were re-flown on their DLL: `2026-09-09_2348_CL-4-refly-crew-standin`
+# PASS, same nine WARNs, same `CreatedThisCommitFromLivePool` / `Reputation=1` chain;
+# CL-3 `2026-09-09_2349` and CL-2 `2026-09-09_2350` PASS alongside.
 # =====================================================================================
 description = "Stage B's last flight-closable cell, D12 stand-ins: CL-3's crew-loss re-fly (career-pad-craft + rewind-crew-loss, rewind rp_cl_root slot 1, relaunch, merge) with the tombstone's release of the death-sourced permanent reservation gated through to the Parsek-generated stand-in that release triggers."
 instanceProfile = "stock-minimal"
