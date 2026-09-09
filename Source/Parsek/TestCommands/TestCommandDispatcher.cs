@@ -203,6 +203,11 @@ namespace Parsek.TestCommands
         // Enumerates one live handle family so a later step can name a member the spec
         // author could not have known in advance.
         void ListHandles(ParsedCommand cmd);
+
+        // ----- WarpToUT (the REAL rails warp; additive) -----
+        // Distinct from TimeJump above: that one epoch-shifts the clock with the vessel
+        // frozen in place, this one simulates forward so the vessel travels.
+        void WarpToUT(ParsedCommand cmd);
     }
 
     /// <summary>The scene/state a verb requires before it may execute.</summary>
@@ -353,6 +358,18 @@ namespace Parsek.TestCommands
                 // rather than deferring, since "no live tree" is a true observation and
                 // deferring would hold the FIFO head to the budget in every KSC scene.
                 ["ListHandles"] = VerbSceneRequirement.RequiresGameLoaded,
+                // WarpToUT. RequiresFlight, and here it is a HARD precondition rather
+                // than a convenience: rails warp is a flight-scene mechanism (the KSC and
+                // Tracking Station drive their own warp UI through a different path), and
+                // the whole point of the verb is that the ACTIVE VESSEL travels its
+                // trajectory while the clock advances. RequiresFlight - a DEFER on
+                // not-in-flight - for every other FLIGHT-only verb's reason: the
+                // wrong-scene case is overwhelmingly a scene still settling in from the
+                // previous step, and the budget still bounds a genuinely wrong-scene
+                // spec. The verb's REAL refusals (no TimeWarp controller, a stock TIMEWARP
+                // input lock, a backward or malformed target) are executor-side and typed
+                // REJECTED.
+                ["WarpToUT"] = VerbSceneRequirement.RequiresFlight,
             };
 
         /// <summary>
@@ -695,6 +712,28 @@ namespace Parsek.TestCommands
         /// is parsed and no scene reloads.</summary>
         internal const double StartLoopPlaybackSeconds = 120.0;
 
+        /// <summary>WarpToUT advances the clock by SIMULATING, so its wall-clock cost is
+        /// whatever stock's clamps allow: above a body's rails altitude limit the ladder
+        /// covers hours in seconds, but a vessel under drag inside the atmosphere is
+        /// pinned to 1x and the span costs REAL time one-for-one.
+        ///
+        /// <para>540 s, which is the harness's own deferred-step ceiling
+        /// (hlib MAX_DEFERRED_STEP_BUDGET_SECONDS), and the number is MEASURED rather
+        /// than guessed. RF-12W's first reading run warped a re-flown Kerbal X half from
+        /// the RewindPoint at UT 131.5: the ladder covered 270 game-seconds in 73 real
+        /// seconds while the craft was above ~30 km, and then stock's own altitude ceiling
+        /// dropped to rate index 0 with the craft still descending, so the remainder ran
+        /// at 1x. An initial 300 s (InvokeRewind's size) could not cover that and the step
+        /// would have ERRORed warp-timeout on a warp that was working exactly as
+        /// designed.</para>
+        ///
+        /// <para>It is deliberately NOT sized like TimeJump (120 s): an epoch shift is
+        /// instantaneous and only its spawn-queue settle is watched, while this verb waits
+        /// on a clock that advances in real time whenever a clamp bites. The nearest
+        /// sibling is EvaChuteDeploy (420 s), the other verb that holds the FIFO head
+        /// through a real descent.</para></summary>
+        internal const double WarpToUTSeconds = 540.0;
+
         /// <summary>
         /// The deferral budget (seconds) for <paramref name="verb"/>. For RunTests the
         /// scenario's declared runtime budget is authoritative when supplied via
@@ -730,6 +769,8 @@ namespace Parsek.TestCommands
                     return ExitToSpaceCenterSeconds;
                 case "StartLoopPlayback":
                     return StartLoopPlaybackSeconds;
+                case "WarpToUT":
+                    return WarpToUTSeconds;
                 // KscAction rides the default 60 s (career-ready / SPACECENTER wait; the
                 // action itself is immediate). SimulateStockSwitchClick rides it too: it is
                 // SINGLE-phase (the switch and its consume are synchronous inside

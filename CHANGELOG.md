@@ -10,6 +10,30 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Automated testing: a test run can now let time really pass, instead of only moving
+  the clock.** The only way an automated run could skip ahead was to move the clock and
+  leave everything where it was, which is fine for watching a replay reach a moment far
+  in the future and useless for watching a craft get somewhere. A run can now ask the
+  game to fast-forward the way a player does, so the craft actually flies the time it
+  skips: it coasts, it comes back down, it re-enters, and it arrives wherever it was
+  going to arrive. Asked to reach a moment already past, or given a nonsense speed
+  limit, the request is turned away rather than guessed at, and the fast-forward is
+  always wound back down to normal speed before the run moves on - including when it
+  gives up. Where the game itself refuses to speed up, low in the atmosphere or under
+  load, the run simply waits out the time at normal speed and says so, rather than
+  reporting a skip that never happened.
+
+- **Automated testing: an abandoned flight re-flown by a test run can now reach an
+  ending while the run is still watching it.** A whole family of checks around
+  finishing a re-flown attempt had never once run, because they only apply to an
+  attempt that ended and no automated run could make one end without leaving the
+  flight first. With time now really passing, a re-flown craft reaches its own ending
+  in front of the checks that care about it. Two related things were established
+  along the way and are worth stating plainly: a crash marks the attempt as finished
+  the moment it happens, while a landing does not - a landing is only recorded as the
+  ending when the flight is packed up - so the checks that ask specifically about a
+  landed ending still cannot be reached from a run that stays in flight.
+
 - **Automated testing: a reload that goes ahead while a flight is being recorded now
   says so in the log.** The refusal always explained itself; the one case that is
   allowed through did not, so a reader of the log could not tell a load that skipped

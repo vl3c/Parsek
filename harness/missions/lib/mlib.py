@@ -7126,6 +7126,52 @@ R1_PHASES: Tuple[str, ...] = (R1_ASCENT, R1_COMMIT, R1_STOP, R1_RECORDER_IDLE,
                               R1_RESOLVE, R1_REWIND, R1_VERIFY, R1_REWOUND,
                               R1_RELAUNCH, R1_LOOP_POINTS, R1_LOOP_CLOSED)
 
+# --- the RE-FLY CONCLUSION PROFILE's two phases (opt-in; see R1Params) -------
+# Ride the re-flown craft to a TERMINAL CONCLUSION and hand the scene back with it
+# still in FLIGHT and the Re-Fly session marker still live.
+R1_CONCLUDE_COAST = "CONCLUDE-COAST"
+R1_CONCLUDED = "CONCLUDED"
+# LISTED SEPARATELY FROM R1_PHASES ON PURPOSE, and the reason is not cosmetic.
+# `R1_PHASES` is the graph EVERY R1 lane drives, and CL-3's own identity claim
+# reads it that way (`test_cl3_refly_crew_tombstone`: CL3_PHASES == R1_PHASES minus
+# ASCENT / COMMIT / RESOLVE). These two are reachable ONLY when a spec sets
+# `reflyConclusionProfile`, so folding them into that tuple would say CL-3 dropped
+# two phases it never had. `R1_ALL_PHASES` is the union, for anyone who needs every
+# name this machine can enter.
+R1_CONCLUSION_PHASES: Tuple[str, ...] = (R1_CONCLUDE_COAST, R1_CONCLUDED)
+R1_ALL_PHASES: Tuple[str, ...] = R1_PHASES + R1_CONCLUSION_PHASES
+
+# Phases in which a runner-signalled vessel loss is NOT lethal. REWIND straddles a
+# KSP scene reload, during which the active vessel legitimately ceases to exist;
+# CONCLUDE-COAST is WAITING for exactly that loss - the destruction is the outcome
+# the profile flies for (see R1Params). With the profile off CONCLUDE-COAST is
+# unreachable, so naming it here changes nothing on any lane that does not declare
+# the flag. The exemption is phase-wide, never a blanket fail-open.
+R1_VESSEL_LOSS_EXEMPT_PHASES: Tuple[str, ...] = (R1_REWIND, R1_CONCLUDE_COAST)
+
+# Situations that prove the RE-FLOWN craft actually left the pad. THE LANDED
+# CONCLUSION IS GATED ON HAVING SEEN ONE, and that is not defensive programming:
+# GS-1 flight 1 MEASURED KSP reporting `situation = LANDED` up to ut 30.08, at
+# alt 230 m, climbing at 113 m/s. Without the gate the conclusion branch would read
+# that stale LANDED on the frames right after the relaunch click and conclude a
+# flight that had not happened yet. Same set and same reason as
+# GS1_AIRBORNE_SITUATIONS; kept under its own name because the two machines are
+# separate lanes with separate live histories.
+R1_AIRBORNE_SITUATIONS: Tuple[str, ...] = ("FLYING", "SUB_ORBITAL", "ORBITING",
+                                           "ESCAPING")
+
+# Consecutive agreeing reads before a conclusion certifies, in EITHER direction.
+# Same value and same reasoning as GS1_CANOPY_DEBOUNCE_K: one glitched poll - a
+# stale LANDED on a climbing craft, a transient unreadable handle - must not end a
+# flight, and a terminal that CERTIFIES deserves the treatment one that CONDEMNS
+# gets.
+R1_CONCLUSION_DEBOUNCE_K = 2
+
+# The two `conclusion_outcome` values. "" is the UNREAD sentinel (no conclusion was
+# observed), and it is what the profile's assertion row fails on.
+R1_CONCLUSION_DESTROYED = "destroyed"
+R1_CONCLUSION_LANDED = "landed"
+
 # Per-command tags. Distinct by construction, so the wire ids
 # ("<reserved>.commit" / ".stop" / ".state0" / ".rewind") can never collide --
 # the C# seam skips duplicate ids, which would make the later command a SILENT
@@ -7242,6 +7288,85 @@ class R1Params:
     relaunch_frames: int = 240
     # Bound on the post-rewind RecordingState poll (points > 0).
     loop_points_frames: int = 40
+    # ---- THE RE-FLY CONCLUSION PROFILE (opt-in) ----------------------------
+    # FALSE is the default and it is load-bearing exactly as `coast_exit_profile`'s
+    # is: with it false LOOP-CLOSED stays the terminal it has always been, the two
+    # conclusion phases are unreachable, the emitted actions and the assertion rows
+    # are byte-identical to the pre-profile lane, and
+    # `R1ReflyConclusionInertnessTests` replays a whole flight through both
+    # settings to say so mechanically rather than by reading the diff.
+    #
+    # WHAT IT IS FOR. Nine in-game `Rewind` cells skip because the re-fly's
+    # PROVISIONAL recording carries no terminal state, and
+    # `SupersedeCommit.ValidateSupersedeTarget` refuses a provisional whose
+    # `TerminalStateValue` is null. MEASURED, and it is the constraint that shapes
+    # this whole profile: `TerminalState.Landed` is stamped ONLY at finalization
+    # (`ParsekFlight.FinalizeTreeRecordings`, reached from scene exit /
+    # CommitTreeFlight / CommitTreeRevert / ShowPostDestructionTreeMergeDialog),
+    # never on the frame the wheels touch, while `TerminalState.Destroyed` IS
+    # stamped with the scene still FLIGHT, by
+    # `ParsekFlight.TerminalEvents.ApplyTerminalDestruction` from the
+    # deferred-destruction coroutine. So the only conclusion a LIVE re-fly can
+    # reach without leaving FLIGHT is a DESTRUCTION - the landed branch below is
+    # the honest second reading of "the flight is over", not a second way to get
+    # the stamp.
+    refly_conclusion_profile: bool = False
+    # FRAMES, not game seconds, and the choice is forced twice over. (1) Every
+    # post-ascent phase in this machine is frame-bounded for the reason the section
+    # header gives. (2) The destruction this profile exists for is the very event
+    # that stops telemetry being readable, so a `ut - phase_entry_ut` budget would
+    # freeze exactly when the give-up matters; kxrw's IMPACT-COAST bounds the same
+    # wait the same way for the same reason. At the runner's 0.5 s poll this is
+    # ~450 s of real time, which is a generous ballistic hop.
+    refly_conclusion_frames: int = 900
+    # The situations that count as the LANDED conclusion. Debounced and gated on
+    # having been airborne; see R1_AIRBORNE_SITUATIONS. An EMPTY list reaches the
+    # machine on purpose (the reader takes the key's own value rather than treating
+    # [] as absent) so the conflict predicate can refuse it by name on frame 1.
+    refly_conclusion_situations: Tuple[str, ...] = ("LANDED", "SPLASHED")
+
+
+def r1_refly_conclusion_profile_conflict(params: R1Params) -> str:
+    """The reason ``reflyConclusionProfile`` cannot be flown with the rest of this
+    params set, or "" when it can. Evaluated ONCE, on the machine's first decision
+    frame, so a spec that cannot fly dies before a launch click rather than after a
+    full ascent and a rewind - the same discipline as
+    ``kxrw_impact_profile_conflict`` / ``kxrw_coast_exit_profile_conflict``, and for
+    the same measured reason (a gate that fires after the flight burns the flight
+    and then flakes, which the retry policy flies again).
+
+    TWO CONFLICTS, both structural, both about a wait that could never end.
+
+    An EMPTY ``reflyConclusionSituations`` is a spec author saying "accept no landed
+    reading". That is legal in itself - the destruction branch is the one the
+    profile is built for and it stands alone - but paired with the frame bound it
+    means one whole half of the terminal test is switched off silently, and the
+    author who wrote ``[]`` by accident would read the resulting cap give-up as a
+    product finding. Refused by name instead.
+
+    A non-positive ``reflyConclusionFrames`` is a wait with no bound at all: the
+    phase would give up on its first frame (or never), and either way the reading is
+    about the params rather than about the flight. The schema rejects it first at
+    ADMIT; this is the machine's own second gate for a params dict that reached it
+    unvalidated, exactly as ``kxrw_sweep_steps_valid`` is.
+
+    Returned rather than raised so the caller owns the severity."""
+    if not getattr(params, "refly_conclusion_profile", False):
+        return ""
+    if not tuple(getattr(params, "refly_conclusion_situations", ()) or ()):
+        return ("reflyConclusionProfile declares an EMPTY "
+                "reflyConclusionSituations, so the landed half of the conclusion "
+                "test can never fire and only a destruction could ever end the "
+                "phase. An empty list reaches the machine on purpose - the params "
+                "reader takes the key's own value rather than treating [] as "
+                "absent - so that this refusal happens on frame 1 instead of after "
+                "an ascent and a rewind")
+    if int(getattr(params, "refly_conclusion_frames", 0)) < 1:
+        return ("reflyConclusionProfile declares reflyConclusionFrames=%d, which "
+                "bounds nothing: the conclusion wait would give up before it could "
+                "read a single frame of the re-flight"
+                % int(getattr(params, "refly_conclusion_frames", 0)))
+    return ""
 
 
 def r1_params_from_dict(params: Dict) -> R1Params:
@@ -7268,6 +7393,18 @@ def r1_params_from_dict(params: Dict) -> R1Params:
             params.get("relaunchMinAltitudeGainMeters", 100.0)),
         relaunch_frames=int(params.get("relaunchFrames", 240)),
         loop_points_frames=int(params.get("loopPointsFrames", 40)),
+        # `bool(...)` rather than a bare read: hlib's schema check already rejects a
+        # non-bool at ADMIT, and this is the machine's own fail-safe for a params
+        # dict that reached it unvalidated (the kxrw opt-ins' shape exactly).
+        refly_conclusion_profile=bool(params.get("reflyConclusionProfile", False)),
+        refly_conclusion_frames=int(params.get("reflyConclusionFrames", 900)),
+        # `get(key, default)` rather than `get(key) or default`: an EMPTY list is a
+        # spec author saying "accept nothing", and the `or` form silently turns that
+        # into the default set - a params set that cannot be expressed. The empty
+        # list reaches the machine and the conflict predicate refuses it by name.
+        refly_conclusion_situations=tuple(
+            str(x) for x in params.get("reflyConclusionSituations",
+                                       ("LANDED", "SPLASHED"))),
     )
 
 
@@ -7336,6 +7473,30 @@ class R1State:
     # pre_rewind_ut - post_rewind_ut. POSITIVE = the clock ran backward = the
     # rewind is OBSERVED. NaN = never measured.
     ut_regression: float = float("nan")
+    # ---- RE-FLY CONCLUSION evidence (all inert unless the profile is on) ----
+    # OBSERVED airborne latch for the SECOND flight, sticky, live frames only. The
+    # landed conclusion reads it; see R1_AIRBORNE_SITUATIONS for the measurement
+    # that makes it a hard precondition rather than a nicety.
+    refly_airborne_seen: bool = False
+    # Consecutive agreeing reads, one streak per direction. They are separate
+    # because a craft that reads LANDED once and is then destroyed has agreed with
+    # NEITHER conclusion twice, and a shared counter would let two different
+    # readings certify one outcome.
+    conclusion_destroyed_streak: int = 0
+    conclusion_landed_streak: int = 0
+    # WHICH conclusion was observed: R1_CONCLUSION_DESTROYED / _LANDED, or "" for
+    # none (the fail-closed sentinel the assertion row fails on).
+    conclusion_outcome: str = ""
+    # What the certifying frame carried. Stamped on the SAME frame the conclusion
+    # settled, so the evidence and the verdict cannot drift apart; `conclusion_ut`
+    # falls back to the last finite reading because the frame that WITNESSES a
+    # destruction is very often the frame whose telemetry stopped being readable.
+    conclusion_ut: float = float("nan")
+    conclusion_altitude: float = float("nan")
+    conclusion_situation: str = ""
+    # The last FINITE `ut` any frame carried, tracked from the relaunch onward for
+    # exactly that stamp fallback (kxrw's `last_finite_ut`, same job).
+    conclusion_last_finite_ut: float = float("nan")
     verdict: Optional[str] = None
     flake_phase: Optional[str] = None
     flake_reason: Optional[str] = None
@@ -7359,7 +7520,15 @@ def _r1_enter(state: R1State, new_phase: str, ut: float) -> R1State:
         # LOOP-CLOSED, not REWOUND. A rewind that is never flown again is only
         # half a loop -- and it is the half that leaves the re-fly's provisional
         # recording EMPTY, which is what flight 2 (2026-07-26) exposed.
-        done=(new_phase == R1_LOOP_CLOSED),
+        #
+        # THE CONCLUSION PROFILE MOVES THE TERMINAL ONE PHASE FURTHER OUT and
+        # changes nothing else: with it OFF this reads exactly as it always did
+        # (`new_phase == R1_LOOP_CLOSED`), and with it ON LOOP-CLOSED becomes a
+        # one-frame waypoint - the loop is still closed and both loop rows still
+        # resolve against real evidence - and R1_CONCLUDED is the terminal.
+        done=((new_phase == R1_LOOP_CLOSED
+               and not state.params.refly_conclusion_profile)
+              or new_phase == R1_CONCLUDED),
     )
 
 
@@ -7466,6 +7635,14 @@ def r1_decide(state: R1State, snapshot: TelemetrySnapshot) -> Tuple[R1State, Lis
     flakes, ``rewind-seam-<token>`` / ``rewind-seam-silent``,
     ``rewind-not-observed``, the never-climbed flake, and the points-stayed-zero
     and unreadable-``points`` flakes.
+
+    THE RE-FLY CONCLUSION PROFILE (``reflyConclusionProfile``, off by default) adds
+    exactly one branch and it is taken AFTER the loop has been closed: LOOP-CLOSED
+    stops being the terminal and becomes a one-frame waypoint that cuts the
+    throttle and hands to CONCLUDE-COAST, which waits, debounced and bounded, for
+    the re-flown craft to be DESTROYED or to read landed; CONCLUDED is then the
+    terminal, reached with the scene still FLIGHT. Its give-up is
+    ``refly-never-concluded``.
     """
     if state.done:
         return state, []
@@ -7500,19 +7677,43 @@ def r1_decide(state: R1State, snapshot: TelemetrySnapshot) -> Tuple[R1State, Lis
                 "ListHandles enumeration could be chosen"
                 % (R1_ASCENT, state.params.rewind_point_select,
                    list(R1_REWIND_POINT_SELECT_VALUES))), []
+        # THE OPT-IN CONFLICT GATE, on the same frame and for the same reason as
+        # the two guards above: a params set the conclusion profile cannot honour
+        # must die before the launch click, not after an ascent AND a rewind.
+        # Placed LAST so an existing lane's target fault still reads exactly the
+        # way it always did; the predicate returns "" whenever the flag is off, so
+        # no lane that omits the key can ever reach this branch.
+        conflict = r1_refly_conclusion_profile_conflict(state.params)
+        if conflict:
+            return _r1_flake(state, "phase %s: %s" % (R1_ASCENT, conflict)), []
 
     state = replace(state, phase_frames=state.phase_frames + 1)
 
-    # Runner-signaled vessel loss. SUPPRESSED in REWIND only: InvokeRewind
-    # straddles a KSP scene reload, during which the active vessel legitimately
-    # ceases to exist. It stays LIVE in VERIFY and everywhere else, so a craft
-    # that really was destroyed still terminates (the suppression is one phase
-    # wide, not a blanket fail-open).
-    if snapshot.vessel_lost and state.phase != R1_REWIND:
+    # Runner-signaled vessel loss. SUPPRESSED in the phases named by
+    # R1_VESSEL_LOSS_EXEMPT_PHASES and nowhere else: InvokeRewind straddles a KSP
+    # scene reload, during which the active vessel legitimately ceases to exist,
+    # and the conclusion profile's CONCLUDE-COAST is waiting for the destruction
+    # this same reading carries. It stays LIVE in VERIFY and everywhere else, so a
+    # craft that really was destroyed still terminates (the suppression is
+    # phase-wide, not a blanket fail-open), and with the profile off CONCLUDE-COAST
+    # is unreachable so the exemption set behaves as the single-phase one it was.
+    if snapshot.vessel_lost and state.phase not in R1_VESSEL_LOSS_EXEMPT_PHASES:
         return replace(
             state, done=True, verdict=MISSION_ASSERT_FAIL,
             loss_reason=("vessel-lost (unreadable after repeated telemetry "
                          "failures) in phase %s" % state.phase)), []
+
+    # ---- RE-FLY CONCLUSION latches. Inert unless the profile is on, and scoped
+    # to the SECOND flight's own phases: the airborne latch is about the re-flown
+    # craft, so a situation read from the delegated ascent must not satisfy it.
+    if (state.params.refly_conclusion_profile
+            and state.phase in (R1_RELAUNCH, R1_LOOP_POINTS, R1_LOOP_CLOSED,
+                                R1_CONCLUDE_COAST)):
+        if not snapshot.vessel_lost and _is_finite(snapshot.ut):
+            state = replace(state, conclusion_last_finite_ut=snapshot.ut)
+        if (not snapshot.vessel_lost and not state.refly_airborne_seen
+                and snapshot.situation in R1_AIRBORNE_SITUATIONS):
+            state = replace(state, refly_airborne_seen=True)
 
     if state.phase == R1_ASCENT:
         ascent, actions = b2_decide(state.ascent, snapshot)
@@ -7859,6 +8060,99 @@ def r1_decide(state: R1State, snapshot: TelemetrySnapshot) -> Tuple[R1State, Lis
                 "%d frames" % (R1_LOOP_POINTS, state.params.loop_points_frames)), []
         return state, []
 
+    if state.phase == R1_LOOP_CLOSED:
+        # REACHABLE ONLY ON THE CONCLUSION PROFILE. With the flag off `_r1_enter`
+        # marks this phase done, so `r1_decide` returns on its very first line and
+        # this branch is dead code for every lane that omits the key.
+        #
+        # A one-frame waypoint, exactly REWOUND's shape: the throttle goes to zero
+        # here and CONCLUDE-COAST does the OBSERVING. Cutting the throttle is the
+        # only thing this profile ever commands after the relaunch - what it is
+        # waiting for is what the craft does next, and a still-burning engine is a
+        # flight that never ends.
+        return (_r1_enter(state, R1_CONCLUDE_COAST, snapshot.ut),
+                [Action(ACTION_SET_THROTTLE, 0.0)])
+
+    if state.phase == R1_CONCLUDE_COAST:
+        # THE CONCLUSION GATE. Two readings, each debounced, and they answer the
+        # same question: did the RE-FLOWN craft's flight actually END?
+        #
+        #   (1) `vessel_lost` - the DESTRUCTION, and the outcome this profile is
+        #       built for. `ParsekFlight.TerminalEvents.ApplyTerminalDestruction`
+        #       stamps `TerminalState.Destroyed` from the deferred-destruction
+        #       coroutine with the scene still FLIGHT, so it is the only terminal
+        #       state a live re-fly can reach without leaving the scene.
+        #   (2) a situation in `reflyConclusionSituations` - the craft is DOWN.
+        #       Gated hard on `refly_airborne_seen` (see R1_AIRBORNE_SITUATIONS:
+        #       KSP reports LANDED on a climbing craft for the first ~30 s, and an
+        #       ungated read would conclude a flight that had not happened).
+        #
+        # NOT SYMMETRIC ON THE AIRBORNE PRECONDITION, deliberately: a destruction
+        # is unambiguous whatever the situation field says, and gating it would
+        # make a pad-side loss - a real conclusion with a real Destroyed stamp -
+        # hang to the frame cap and flake.
+        destroyed_streak = (state.conclusion_destroyed_streak + 1
+                            if snapshot.vessel_lost else 0)
+        landed_hit = (not snapshot.vessel_lost
+                      and state.refly_airborne_seen
+                      and snapshot.situation in state.params.refly_conclusion_situations)
+        landed_streak = state.conclusion_landed_streak + 1 if landed_hit else 0
+        st = replace(state, conclusion_destroyed_streak=destroyed_streak,
+                     conclusion_landed_streak=landed_streak)
+        k = max(1, R1_CONCLUSION_DEBOUNCE_K)
+        outcome = ""
+        if destroyed_streak >= k:
+            outcome = R1_CONCLUSION_DESTROYED
+        elif landed_streak >= k:
+            outcome = R1_CONCLUSION_LANDED
+        if outcome:
+            # The stamps ride the SAME frame the conclusion settled on, so the
+            # evidence and the verdict cannot drift apart. `ut` falls back to the
+            # last finite reading because the frame that WITNESSES a destruction is
+            # very often the frame whose telemetry stopped being readable, and a
+            # NaN stamp would leave the row reporting a conclusion it could not
+            # place in time.
+            stamp_ut = (snapshot.ut if _is_finite(snapshot.ut)
+                        else st.conclusion_last_finite_ut)
+            return (_r1_enter(
+                replace(st,
+                        conclusion_outcome=outcome,
+                        conclusion_ut=stamp_ut,
+                        conclusion_altitude=(snapshot.altitude
+                                             if _is_finite(snapshot.altitude)
+                                             else float("nan")),
+                        conclusion_situation=str(snapshot.situation or "")),
+                R1_CONCLUDED, snapshot.ut), [])
+        if st.phase_frames > st.params.refly_conclusion_frames:
+            return _r1_flake(
+                st,
+                "phase %s: the re-flown craft never reached a terminal conclusion "
+                "within %d frames - no %d consecutive vessel-lost reads and no %d "
+                "consecutive situation in %s (last situation=%s, airborne "
+                "seen=%s). WITHOUT a conclusion the re-fly provisional carries a "
+                "NULL TerminalStateValue and "
+                "SupersedeCommit.ValidateSupersedeTarget refuses it, which is the "
+                "exact skip this profile exists to remove"
+                % (R1_CONCLUDE_COAST, st.params.refly_conclusion_frames, k, k,
+                   list(st.params.refly_conclusion_situations),
+                   snapshot.situation or "UNREAD",
+                   "true" if st.refly_airborne_seen else "false")), []
+        return st, []
+
+    if state.phase == R1_CONCLUDED:
+        # THE MISSION ENDS HERE, IN FLIGHT, WITH THE RECORDER LIVE AND THE RE-FLY
+        # SESSION MARKER STILL ARMED. Nothing is commanded and nothing is
+        # committed: the SPEC's own steps are what answer the merge dialog and
+        # close the tree, exactly as kx_rewind_watch's coast-exit profile hands
+        # over, and for the same reason - a mission that drove the merge would own
+        # a decision the scenario is written to observe.
+        #
+        # UNREACHABLE AS A LIVE FRAME: `_r1_enter` marks CONCLUDED done, so
+        # `r1_decide` returns on its first line. The branch exists so the terminal
+        # is a named phase rather than a fall-through to the unreachable-phase
+        # flake below.
+        return state, []
+
     return _r1_flake(state, "phase %s: unreachable machine phase" % state.phase), []
 
 
@@ -7871,7 +8165,14 @@ def evaluate_r1_assertions(frames, params: R1Params,
     (``clockRewound`` / ``vesselStateChanged``); ``rewindSeamAccepted`` is the
     COMMANDED corroboration and is deliberately listed LAST and never alone --
     ``all_assertions_met`` requires every row, so the commanded row can only ever
-    make the mission stricter, never substitute for the observed ones."""
+    make the mission stricter, never substitute for the observed ones.
+
+    THE RE-FLY CONCLUSION PROFILE ADDS ONE ROW AND SUBSTITUTES NONE. With
+    ``reflyConclusionProfile`` off the list is exactly the eight it has always
+    been; with it on a ninth, ``reflyConcludedInFlight``, is appended. Additive
+    rather than substituting because the profile drives every leg the eight
+    describe - it rides PAST the closed loop rather than instead of it, so both
+    loop rows still resolve against real evidence."""
     st = state
     phases = tuple(getattr(st, "phases_reached", ()) or ())
     ascent = getattr(st, "ascent", None)
@@ -7987,7 +8288,60 @@ def evaluate_r1_assertions(frames, params: R1Params,
          "rejectReason": str(getattr(st, "rewind_reject_reason", "") or "") or None,
          "channel": "commanded"})
 
-    return [orbit, committed, recorder_idle, rewound, changed, reflew, recorded, seam]
+    rows = [orbit, committed, recorder_idle, rewound, changed, reflew, recorded,
+            seam]
+
+    if bool(getattr(params, "refly_conclusion_profile", False)):
+        # THE NINTH ROW, and it exists ONLY on the profile - the coast-exit
+        # profile's discipline, applied in the additive direction. With the key
+        # omitted the eight rows above are byte-identical (names, values and detail
+        # keys alike) and this one is absent, because a row over a wait no lane
+        # performed would fail every green flight rather than assert anything.
+        #
+        # WHAT IT SAYS: the re-flown craft was OBSERVED reaching a terminal
+        # conclusion - destroyed, or down in one of the declared situations on K
+        # consecutive frames - with the scene still FLIGHT. That is the whole
+        # precondition the nine skipped in-game `Rewind` cells are downstream of: a
+        # provisional whose `TerminalStateValue` is NULL is refused by
+        # `SupersedeCommit.ValidateSupersedeTarget`, so a re-fly that merely FLEW
+        # is not enough. FAILS when no conclusion was observed inside the bound -
+        # the "" sentinel IS the diagnosis.
+        outcome = str(getattr(st, "conclusion_outcome", "") or "")
+        conclusion_ut = getattr(st, "conclusion_ut", float("nan"))
+        concluded = AssertionOutcome(
+            "reflyConcludedInFlight",
+            bool(outcome) and R1_CONCLUDED in phases,
+            outcome or None,
+            {"required": R1_CONCLUDED,
+             "acceptedSituations": list(
+                 getattr(params, "refly_conclusion_situations", ()) or ()),
+             "observedSituation": (str(getattr(st, "conclusion_situation", "") or "")
+                                   or "UNREAD"),
+             "observedAltitude": _json_safe(
+                 getattr(st, "conclusion_altitude", float("nan"))),
+             "concludedUT": (conclusion_ut if _is_finite(conclusion_ut) else None),
+             "debounceK": R1_CONCLUSION_DEBOUNCE_K,
+             # The airborne latch rides here because it is the LANDED half's hard
+             # precondition: an operator reading a conclusion give-up needs to see
+             # whether the craft was ever observed off the pad before blaming the
+             # situation set.
+             "airborneSeen": bool(getattr(st, "refly_airborne_seen", False)),
+             "airborneAccepted": list(R1_AIRBORNE_SITUATIONS),
+             "frameCap": getattr(params, "refly_conclusion_frames", None),
+             # HONEST SCOPE, the `postRewindFlightRecordedSomewhere` discipline: the
+             # mission observes that the FLIGHT ended, never that Parsek stamped a
+             # TerminalState on the re-fly PROVISIONAL - no seam verb exposes that
+             # id or its terminal. A landed conclusion in particular cannot produce
+             # a stamp while the scene stays FLIGHT: `TerminalState.Landed` is
+             # written only at finalization (ParsekFlight.FinalizeTreeRecordings),
+             # so it is the scenario's own exit step that turns this outcome into
+             # one. A DESTROYED outcome is the case where the stamp lands live.
+             "doesNotProve": ("that the re-fly provisional carries a "
+                              "TerminalState stamp"),
+             "channel": "observed"})
+        rows.append(concluded)
+
+    return rows
 
 
 # ---------------------------------------------------------------------------

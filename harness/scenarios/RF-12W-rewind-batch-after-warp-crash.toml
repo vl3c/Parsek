@@ -1,0 +1,293 @@
+schema = 1
+id = "RF-12W-rewind-batch-after-warp-crash"
+# =====================================================================================
+# THE RE-FLY CONTINUATION PROGRAM, LANE 12W. THE FIRST CONCLUDED RE-FLY IN FLIGHT.
+#
+# RF-6 put a LIVE re-fly session in front of the 39-cell `Rewind` category and measured
+# that NINE of the twelve session-gated cells still skip. Four of them name the same
+# missing property in four different words - the re-fly must be CONCLUDED, so a terminal
+# state is stamped, not merely flown. RF-12 was authored to supply it, refuted BOTH
+# candidate routes on its reading run, and filed the result as
+# RF12-NO-SEAM-PATH-CONCLUDES-A-REFLY-IN-FLIGHT:
+#
+#   `CommitTree` answers `no-active-tree`, because a re-fly's provisional is an in-place
+#   fork attached to a PENDING tree while `CommitTreeImpl` commits `activeTree`.
+#
+#   `TimeJump` is an EPOCH SHIFT, not a warp. `ParsekFlight.TimeJumpTo` ->
+#   `TimeJumpManager.ExecuteJump` stops warp and moves the clock instantly with frozen
+#   relative positions, so a jump "past the impact" leaves the same vessel in the same
+#   place with a later clock. The vessel never travels, so it never arrives.
+#
+# THIS LANE IS THE INSTRUMENT THAT ANSWERS THE SECOND HALF. `WarpToUT` (phase 4, seam
+# doc "#### WarpToUT") drives the stock rails rate ladder instead of the epoch shift, so
+# the world SIMULATES forward: the re-flown half coasts to apoapsis, falls back, re-enters
+# and impacts, and `ParsekFlight.TerminalEvents.ApplyTerminalDestruction` stamps
+# `TerminalState.Destroyed` WHILE THE SCENE IS STILL FLIGHT. That is the one terminal a
+# live re-fly can reach without leaving the scene, and the reason is worth writing down
+# because the sibling lane RF-12L exists to measure the other half of it:
+#
+#   `TerminalState.Landed` is stamped ONLY at finalization - `FinalizeTreeRecordings`,
+#   reached from scene exit, `CommitTreeFlight`, `CommitTreeRevert`, or the
+#   post-destruction merge dialog. There is NO GameEvents touchdown handler that stamps
+#   it, and `RecordingFinalizationCacheProducer`'s live-flight surface terminal goes into
+#   a CACHE, not onto the recording (its one eager write is the DESTROY branch). So a
+#   landing cannot conclude a re-fly in flight and a destruction can. Measured 2026-09-09
+#   by reading the stamp call sites, not inferred from the skip texts.
+#
+# =====================================================================================
+# WHAT THE WARP TARGET IS, AND WHY 600. THE NUMBER IS MEASURED, NOT CHOSEN.
+#
+# The fixture's RewindPoint sits at UT 131.54 with BOTH halves FLYING at ~39.85 km,
+# ascending, on a Kerbal X ascent (`Parsek/RewindPoints/rp_404ea488...sfs`: `sit = FLYING`,
+# `alt = 39854.6` for the crewed stack and `alt = 39852.4` for the probe half, `met` 101.28
+# and 0.52 respectively). A re-fly restores the half with NO control input, so it is a
+# ballistic lob: apoapsis, fall, re-entry, impact.
+#
+# READING RUN 1 (2026-09-09, target UT 900, killed) MEASURED THE PROFILE, and its numbers
+# are why this file says 600 and why the seam's own budget moved:
+#
+#   warptout start ut=900 delta=768.24s maxRate=0 rate=1 ceilingIndex=2
+#   warptout rate requested=2 applied=2 ... remaining=768.24s     (t+0 s real)
+#   warptout rate requested=3 applied=3 ... remaining=743.08s     (t+9 s real)
+#   warptout rate requested=2 applied=2 ... remaining=534.93s     (t+61 s real)
+#   warptout rate requested=0 applied=0 ceilingIndex=0 remaining=498.84s  (t+73 s real)
+#
+# So the ladder covered 269 game-seconds in 73 real seconds while the craft was high, and
+# then STOCK'S OWN altitude ceiling dropped to rate index 0 with the craft still descending
+# - the `ceilingIndex=0` in the last row is `TimeWarp.GetMaxRateForAltitude` answering, not
+# a Parsek decision. Everything after that runs at 1x, one real second per game second.
+# A target of 900 therefore asked for ~499 s of real waiting after a 73 s warp, which the
+# initial 300 s seam budget could not cover; the step would have ERRORed `warp-timeout` on
+# a warp that was working exactly as designed. Two changes came out of that reading:
+# `DeferralBudget.WarpToUTSeconds` is now 540 (the harness's own deferred-step ceiling),
+# and this target is 600 - past the impact of a lob that was already below 30 km and
+# descending at UT ~401, with ~200 s of 1x margin rather than ~500 s of dead clock after
+# the craft is gone.
+#
+# WHAT A READER SHOULD NOT MISTAKE FOR A DEFECT: a clamp is NOT a refusal. `WarpToUT`
+# degrades into a real-time wait that the budget bounds, `warptout progress` keeps printing
+# through it (rate-limited, keyed on the applied index, so a CHANGED clamp prints at once),
+# and `maxRate=` in the terminal payload is what tells a reader whether the span was warped
+# or waited.
+#
+# =====================================================================================
+# PREDICTED CELL MOVEMENT, written BEFORE the first flight so the reading run can refute
+# it. `TerminalKindClassifier.Classify` maps `Destroyed` -> `Crashed` (and `Landed` ->
+# `Landed`, everything else -> `InFlight`), so of RF-6's nine skippers:
+#
+#   MergeCrashedReFlyCreatesCPSupersede    SHOULD EXECUTE - it wants exactly `Crashed`.
+#   MergeInterruptionRecovery              SHOULD EXECUTE - its guard is
+#                                          `ValidateSupersedeTarget`, whose only failing
+#                                          clause on RF-12's run was `null TerminalState`.
+#   MergeAndSealReFlyClosesSlot            MAY EXECUTE - RF-6 skipped it on
+#                                          `labelSource=classifier:noTerminal`, which a
+#                                          terminal removes; it then still needs its
+#                                          RP/slot to resolve.
+#   MergeLandedReFlyCreatesImmutableSupersede  STILL SKIPS - it wants `Landed`, which no
+#                                          in-flight route reaches (see above).
+#   MergeReFlyStructuralMutationAutoSeals  STILL SKIPS, and now for a DIFFERENT reason
+#                                          than RF-6's: its third guard defers when the
+#                                          chain tip is `Destroyed`. The crash closes this
+#                                          one; RF-12L is where it can open.
+#   MergeNonFocusReFlyToOrbitImmutable     STILL SKIPS - RF-12 measured "could not resolve
+#   MergeReFlyToSubOrbitalKeepsSlotOpen    provisional's RP/slot" on BOTH hosts, a DEEPER
+#                                          precondition than the terminal, and their
+#                                          terminal demands (Orbiting / SubOrbital) are
+#                                          not what a crash stamps either.
+#   KerbalRecoveryOnSupersede              STILL SKIPS - needs kerbal-death actions in the
+#                                          SUPERSEDED subtree, which a fresh crash of the
+#                                          new attempt does not put there.
+#   ContractTombstonesAcrossSupersede      STILL SKIPS - sandbox host, no contracts.
+#
+# AND ONE PREDICTED LOSS, stated so it is not read as a regression: RF-12 gained
+# `KerbalDualResidenceCarveOut` because its host re-flies a CREWED stack and the cell
+# gates on `FlightGlobals.ActiveVessel` matching the provisional's pid with crew aboard.
+# Destroying that vessel is expected to take the cell back to a skip. That is the trade
+# this lane makes on purpose, and it is exactly why RF-12, RF-12W and RF-12L are three
+# lanes rather than one: the terminal a lane produces DECIDES which cells it can reach,
+# and no single lane reaches all nine.
+#
+# =====================================================================================
+# WHAT IS NOT FORBIDDEN, and the measurement that says so. RF-6's forensics named
+# `outcome=unbound-refly-provisional` as a free early oracle. RF-12 adopted it, flew, and
+# WITHDREW it in the same change: the raise text is
+# `reason=refly-provisional-has-no-trajectory-at-save`, so the predicate is evaluated at
+# the SAVE the rewind itself takes - before any driven step can fly the attempt. No seam
+# lane can keep that token clear, this one included, and pinning it would red every run
+# for a reason that has nothing to do with the warp. Recorded rather than silently
+# omitted.
+#
+# STATUS: NEVER FLOWN. `total=39` is pinned EXACTLY and is source-derived
+# (`CommittedBatchTallySourceSyncTests` walks `Source/Parsek` and reds until it agrees
+# with the `[InGameTest]` attributes it counts); `passed` and `skipped` stay CLASSES for
+# RF-6's and RF-12's reason - this category gains cells regularly and an exact split would
+# red on every addition while saying nothing about the terminal gate. It is NOT in
+# `IngameBatchWiringGroupTests.INTERIM_PIN_IDS`, and that is not an omission: that group's
+# `GROUP` map covers the H-SERIES batch specs only, so no RF-series spec is a member and
+# adding one would fail the group's own set-equality check. RF-6 and RF-12 record the same
+# fact about themselves. NOTHING ARMED.
+# =====================================================================================
+tier = "operator"
+description = "The 39-cell in-game Rewind category in front of a CONCLUDED re-fly: rewind a slot of refly-autopilot-recorded, then WarpToUT past the restored half's impact so ApplyTerminalDestruction stamps Destroyed while the scene is still FLIGHT, then run the batch inside the still-live session. The first lane anywhere to put a terminal-carrying provisional in front of the terminal-gated cells, and the first consumer of the WarpToUT seam verb."
+instanceProfile = "stock-minimal"
+tags = ["RF-12W", "rewind", "refly", "in-game-batch", "unfinished-flights", "warp",
+        "terminal-state", "runtime-handles", "kerbin", "sandbox", "reading-run"]
+
+[fixture]
+# RF-12's host, unchanged and for RF-12's reason: its RewindPoint restores a stack that is
+# FLYING inside the atmosphere, which is the only fixture in the suite whose re-fly can be
+# warped to an ending. `bdock-recorded`'s three points all restore vessels in stable
+# ORBITS, which no bounded warp brings down.
+saveTemplate       = "fixtures/saves/refly-autopilot-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+
+# NINE STEPS. RF-12's chain with `TimeJump` replaced by the real warp.
+steps = [
+  { cmd = "LoadGame",     args = { save = "${runSave}", name = "persistent" },  expect = "OK", budget = 300 },
+  { cmd = "SetSetting",   args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # LOAD-BEARING: the terminal-destruction line this lane pins is Verbose, and so are the
+  # classifier verdicts and the in-game cells' own skip lines.
+  { cmd = "SetSetting",   args = { name = "verboseLogging", value = "true" },   expect = "OK" },
+  # InvokeRewind's dispatch REJECTs `recording-active`, so every rewind lane stops the
+  # recorder first (H58 flight 1 paid for learning that).
+  { cmd = "StopRecording",                                                      expect = "OK" },
+  { cmd = "ListHandles",  args = { kind = "rewindpoints" }, label = "handles",  expect = "OK" },
+  # Slot 0, RF-12's and RF-9's slot: the half whose restore is FLYING, on a path RF-9
+  # already flew and whose merge wrote real supersede rows, so it is measured rather than
+  # assumed.
+  { cmd = "InvokeRewind", args = { rp = "${handles.rp0}", slot = "0" },         expect = "OK", budget = 300 },
+  # THE STEP THIS LANE EXISTS FOR. See the header for why 900 and what a clamp does.
+  { cmd = "WarpToUT",     args = { ut = "600" },                                expect = "OK", budget = 540 },
+  # R7a's, RF-6's and RF-12's own budget for the same 39-cell category.
+  { cmd = "RunTests",     args = { category = "Rewind" },                       expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                       expect = "OK" },
+]
+
+[dimensionsCovered]
+# BASICS ONLY until the reading run, on RH-1's claim-is-not-gate ground.
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# RF-10 pins this fixture's cold-boot census at exactly 11; the re-fly adds its own
+# provisional. The ceiling has headroom for whatever the restored stack sheds on the way
+# down (a re-entry breakup produces debris recordings).
+count = { min = 11, max = 30 }
+
+[expectations.logContracts]
+# THE TALLY IS RF-6's AND RF-12's, VERBATIM AND FOR THEIR REASONS: `total=39` exact and
+# source-derived, `failed=0` HARD, `passed` / `skipped` as classes.
+#
+# THE FOUR TOKENS THAT MAKE THIS LANE DIFFERENT, in the order the run produces them:
+#   StartInvoke        a re-fly actually started (RF-6's own anti-vacuity token).
+#   warptout start     the REAL warp was driven, not the epoch shift. The `ut=900` in this
+#                      row is what separates it from a `TimeJump` line at a glance.
+#   warptout complete  the clock arrived AND the warp came back down (the terminal is only
+#                      emitted once rate index 0 is observed).
+#
+# THE ANTI-VACUITY CLAUSE IS IN `forbidden`, NOT HERE, and reading run 2 is why. The
+# first cut of this file REQUIRED the destruction log line
+# (`Applied terminal destruction to recording ...`), and the run concluded the re-fly
+# without emitting it: several code paths can stamp a terminal and pinning ONE of them
+# would red a run whose re-fly concluded perfectly well by another route. The clause that
+# actually holds is the FORBIDDEN `reason=null TerminalState` below - it fires on the
+# exact condition the lane exists to remove, and reading run 2 shows it ZERO times where
+# RF-12's log has it as the whole story.
+required = [
+  "listhandles kind=rewindpoints count=1 truncated=false",
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=.* rp=rp_[0-9a-f]{32}",
+  "Invocation complete",
+  "warptout start ut=600",
+  # PINNED ON THE TARGET, NOT ON THE REACHED CLOCK, and the first cut got this wrong.
+  # `HasReached` latches at `target - UtToleranceSeconds` (0.25 s), so a warp that lands
+  # perfectly can report `reachedUT=599.798` - a 5, not a 6 - and a regex anchored on the
+  # reached value reds a completion that was exactly right. `ut=` echoes the CAPTURED
+  # target and is therefore exact by construction.
+  "warptout complete reachedUT=[0-9.]+ ut=600 ",
+  "runtests start category=Rewind",
+  "BATCH_COMPLETE v1 total=39 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=Rewind scene=FLIGHT",
+]
+forbidden = [
+  # THE STANDING ERROR GUARD, NARROWED BY ONE MEASURED EXCEPTION AND BY NOTHING ELSE.
+  # Both phase-4 lanes conclude their re-fly by DESTROYING the craft, and a craft reduced
+  # to zero parts is one KSP itself declines to serialise: the batch-start baseline
+  # quicksave comes back with `activeVessel = -1` (stock writes
+  # `[FlightPersistence]: Vessel <name> not saved because it was dead`), so
+  # `QuickloadResumeHelpers.ValidateQuicksaveStructure` correctly REFUSES to reload it and
+  # the runner logs the refusal at ERROR. Measured on BOTH lanes' first flights
+  # (`2026-09-09_1854` and `2026-09-09_1911`), and the runner's own fallback then does the
+  # right thing - `snapshot rollback NOT armed`, then `Force disk revert
+  # (batch-complete-final-restore:recover): persistent=True sidecars=True`, then a healthy
+  # corruption check. RF-12, which uses `TimeJump` and leaves the craft intact, has ZERO
+  # ERROR lines, which is what isolates the cause to the CRASH rather than to `WarpToUT`
+  # or to the batch machinery.
+  #
+  # The exception is a NEGATIVE LOOKAHEAD rather than a dropped clause on purpose: every
+  # other Parsek ERROR still reds these lanes, so the guard keeps all of its value except
+  # for the one line the lane's own physics makes inevitable. The consequence a reader
+  # needs: because the in-memory restore was refused, the produced-save snapshot is the
+  # BATCH-START state, so `[expectations.rewind]` here must be read against batch-start,
+  # never against what a merging cell did.
+  "\\[Parsek\\]\\[ERROR\\](?!\\[TestRunner\\] Batch baseline restore failure)",
+  # THE TERMINAL-GATE GUARD, AND THE LANE'S ANTI-VACUITY CLAUSE. Every terminal-gated
+  # cell in the batch routes through `SupersedeCommit.ValidateSupersedeTarget`, whose
+  # THIRD clause refuses a provisional with a null `TerminalState` - and that is exactly
+  # the clause RF-6 and RF-12 both died on. MEASURED on reading run 2
+  # (`2026-09-09_1854`): this token appears ZERO times, against RF-12's log where it is
+  # the whole story. If it ever comes back, the warp did not conclude the re-fly and the
+  # lane's premise is refuted rather than merely unmet. It replaces the destruction log
+  # line an earlier cut of this file pinned as `required`, which was the wrong
+  # instrument: it named ONE stamp path when several can stamp a terminal, so it could
+  # red a run whose re-fly concluded perfectly well by another route.
+  "reason=null TerminalState",
+  # The RF family's standing guard: a chain TIP that lost its MergeState reads CLOSED.
+  "reason=sealedTipClosed",
+  #
+  # DELIBERATELY NOT FORBIDDEN, and each line is a measurement rather than an omission:
+  #
+  # `No active re-fly session` - RF-6's and RF-12's inherited guard, and it CANNOT be
+  #   carried by a lane whose batch actually reaches a merging cell. Reading run 2 emitted
+  #   it SEVEN times, and every one of them was correct: `KerbalRecoveryOnSupersede` runs
+  #   a REAL merge, which spends the session, and every `Merge*` cell after it (K sorts
+  #   before M) then honestly reports the session gone. The earlier `F5MidReFlyResume`
+  #   reported it LIVE in the same batch (`sess=sess_3cb7d17543e24d599dc22c172bfeed60`),
+  #   which is the proof the token means "spent by an earlier cell" here rather than
+  #   "never armed". A regex cannot separate the two, so the guard is dropped and its job
+  #   is done by `reason=null TerminalState` above - a strictly better instrument, because
+  #   it fires on the condition the lane exists to remove instead of on a side effect of
+  #   the batch's own discovery order.
+  #
+  # `outcome=unbound-refly-provisional` - RF-12 measured that it is raised at the
+  #   rewind's own SAVE, before any driven step can fly the attempt, so no seam lane can
+  #   keep it clear.
+]
+
+# REPORT-ONLY, and DERIVED from the fixture's committed bytes (RF-10 pins them exactly:
+# 1 point, 2 supersede rows, 8 tombstones) plus what one in-batch merge could add. Floors
+# only; there is no ceiling, because whether a cell merges the session at all is a
+# discovery-order question. ARMING WAITS FOR A MATCHING READING RUN, per the M-C2 rule.
+[expectations.rewind]
+rewindPoints  = { min = 1, max = 1 }
+supersedeRows = { min = 2 }
+tombstones    = { min = 8 }
+
+[runtime]
+# Budget arithmetic (M-A5 S8), deferred verbs at max(step,600)+60 and the rest at
+# max(step, 60+60):
+#   LoadGame 660 + SetSetting x2 240 + StopRecording 120 + ListHandles 120
+#   + InvokeRewind 660 + WarpToUT 660 + RunTests 660 + FlushAndQuit 120 = 3240.
+#   WarpToUT's 540 s step budget still resolves to max(540,600)+60 = 660, so the total is
+#   unchanged by the retarget. 3500 clears it by 260.
+budgetSeconds = 3500
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

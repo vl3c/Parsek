@@ -50,6 +50,7 @@ namespace Parsek.Tests
             public void RouteCommand(ParsedCommand cmd) => Calls.Add("RouteCommand");
             public void DeleteRecording(ParsedCommand cmd) => Calls.Add("DeleteRecording");
             public void ListHandles(ParsedCommand cmd) => Calls.Add("ListHandles");
+            public void WarpToUT(ParsedCommand cmd) => Calls.Add("WarpToUT");
         }
 
         [Fact]
@@ -129,6 +130,7 @@ namespace Parsek.Tests
         // RequiresFlight either: the active family answers with an empty tree outside a
         // live FLIGHT rather than deferring.
         [InlineData("ListHandles", "RequiresGameLoaded")]
+        [InlineData("WarpToUT", "RequiresFlight")]
         public void RequirementFor_MatchesTable(string verb, string expected)
         {
             Assert.Equal(expected, TestCommandDispatcher.RequirementFor(verb).ToString());
@@ -171,6 +173,7 @@ namespace Parsek.Tests
             fake.RouteCommand(cmd);
             fake.DeleteRecording(cmd);
             fake.ListHandles(cmd);
+            fake.WarpToUT(cmd);
 
             // One interface method per implemented v1 verb, no more, no less.
             var interfaceMethods = typeof(ITestCommandExecutor).GetMethods();

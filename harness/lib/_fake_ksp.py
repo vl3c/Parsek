@@ -255,6 +255,33 @@ def main(argv=None):
                 _append(responses_path, "id=%s cmd=%s verdict=OK seq=%d %s\n"
                         % (cid, cmd, seq, handles))
                 continue
+            # WarpToUT. Answered explicitly rather than by the bare-OK default for
+            # two reasons a smoke leg needs: the verb is FAIL-CLOSED on its target
+            # (a missing / non-forward `ut` is REJECTED by the real seam, and a
+            # smoke leg must be able to drive that refusal without a game), and its
+            # OK is accompanied by a `warptout complete` log line that a spec's
+            # logContract can pin. The stub does NOT model the rails ladder: there
+            # is no world to simulate, so it lands the clock at the requested target
+            # and reports maxRate=1, which is exactly the shape a fully-clamped real
+            # warp reports too.
+            if cmd == "WarpToUT":
+                raw_ut = fields.get("ut")
+                try:
+                    warp_ut = float(raw_ut)
+                except (TypeError, ValueError):
+                    _append(responses_path,
+                            "id=%s cmd=%s verdict=REJECTED seq=%d "
+                            "msg=missing-warp-target\n" % (cid, cmd, seq))
+                    continue
+                _append(log_path,
+                        "[LOG] [Parsek][INFO][TestCommands] warptout complete "
+                        "reachedUT=%s ut=%s rate=1 maxRate=1 elapsed=0.1s\n"
+                        % (raw_ut, raw_ut))
+                _append(responses_path,
+                        "id=%s cmd=%s verdict=OK seq=%d ut=%s target=%s "
+                        "delta=%s maxRate=1\n"
+                        % (cid, cmd, seq, raw_ut, raw_ut, warp_ut))
+                continue
             payload = ""
             if verdict == "OK" and cmd == "LoadGame":
                 payload = " scene=%s" % landing_scene

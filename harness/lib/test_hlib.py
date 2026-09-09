@@ -1065,7 +1065,10 @@ class SpecValidationRejectTests(unittest.TestCase):
         # 31 / 5 after DeleteRecording, an ADDITION (the first number moves alone).
         # 32 / 5 after R10's ListHandles, an ADDITION for the same reason: the reserved
         # envelope never carried an enumeration verb, so only the first number moves.
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 32)
+        # 33 / 5 after WarpToUT, an ADDITION again (the first number moves alone):
+        # the reserved envelope never carried a warp verb, and TimeJump - the only
+        # other clock verb - was already implemented and does a DIFFERENT thing.
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 33)
         self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 5)
         # Disjointness, asserted rather than assumed: Classify checks Implemented
         # first in the C# mirror, so a leftover reserved row would be invisible.
@@ -1090,6 +1093,57 @@ class SpecValidationRejectTests(unittest.TestCase):
                          cs_initializer_literals(text, "ImplementedVerbs"),
                          "hlib.IMPLEMENTED_SEAM_VERBS must equal the C# "
                          "ImplementedVerbs initializer as an ORDERED list")
+
+    def test_warptout_is_implemented_and_is_not_a_second_timejump(self):
+        """RF-12 phase 4. WarpToUT is ADDITIVE (never in the reserved envelope) and
+        must coexist with TimeJump rather than replace it: the two drive DIFFERENT
+        mechanisms (a rails warp that simulates the world forward vs an epoch shift
+        that freezes it), and a spec's wire token has to say which one it used."""
+        self.assertIn("WarpToUT", hlib.IMPLEMENTED_SEAM_VERBS)
+        self.assertNotIn("WarpToUT", hlib.RESERVED_SEAM_VERBS)
+        self.assertIn("TimeJump", hlib.IMPLEMENTED_SEAM_VERBS)
+        # Two-phase, and its per-verb budget must be the C# DeferralBudget value or
+        # the harness step-wait can kill a legitimately-warping verb before the seam
+        # surfaces its own TIMEOUT.
+        self.assertIn("WarpToUT", hlib.DEFERRED_SEAM_VERBS)
+        self.assertEqual(540.0, hlib.DISPATCH_DEFERRAL_BUDGET_SECONDS["WarpToUT"])
+        self.assertLessEqual(hlib.DISPATCH_DEFERRAL_BUDGET_SECONDS["WarpToUT"],
+                             hlib.MAX_DEFERRED_STEP_BUDGET_SECONDS)
+        # Its refusal vocabulary is mapped, so a refusal names a driver-* subkind
+        # instead of collapsing into the coarse driver-verdict-mismatch.
+        for reason, subkind in (("missing-warp-target", "driver-arg"),
+                                ("backward-warp", "driver-arg"),
+                                ("max-rate-invalid", "driver-arg"),
+                                ("warp-unavailable", "driver-gate"),
+                                ("warp-locked", "driver-gate")):
+            self.assertEqual(subkind, hlib._SEAM_REFUSAL_SUBKINDS[reason])
+
+    def test_warptout_step_accepted_by_validate_spec(self):
+        """A committed spec must be able to drive it, with and without maxRate."""
+        def m(s):
+            s["driver"]["steps"].insert(
+                1, {"cmd": "WarpToUT", "args": {"ut": "1200"},
+                    "expect": "OK", "budget": 300})
+            s["driver"]["steps"].insert(
+                2, {"cmd": "WarpToUT", "args": {"ut": "1400", "maxRate": "100"},
+                    "expect": "OK", "budget": 300})
+        v = self._reject(m)
+        self.assertFalse(any("WarpToUT" in e for e in v.errors),
+                         "WarpToUT wrongly flagged: %s" % list(v.errors))
+
+    def test_warptout_step_budget_over_the_cap_is_a_spec_error(self):
+        """It is a DEFERRED_SEAM_VERB, so the 540 s cap governs its declared budget.
+        The cap exists because the harness step-wait must be able to out-wait the
+        seam's own budget; a spec that declares more would be killed by the harness
+        before the seam surfaced its TIMEOUT."""
+        def m(s):
+            s["driver"]["steps"].insert(
+                1, {"cmd": "WarpToUT", "args": {"ut": "1200"},
+                    "expect": "OK", "budget": 900})
+        v = self._reject(m)
+        hits = [e for e in v.errors if "WarpToUT" in e]
+        self.assertEqual(1, len(hits), list(v.errors))
+        self.assertIn("540", hits[0])
 
     def test_ma7_export_render_manifest_implemented_not_reserved(self):
         # M-A7: ExportRenderManifest is a NEW implemented verb (never in the RESERVED
@@ -8570,6 +8624,23 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
             "operator by the reading-run discipline; AUTHORED 2026-09-09, NEVER "
             "FLOWN, INTERIM tally pin. RF-6 with the re-fly CONCLUDED before the "
             "batch. Owes a flight, not a human call",
+        "RF-12L-rewind-batch-after-landing.toml":
+            "operator by the reading-run discipline; AUTHORED 2026-09-09 (re-fly "
+            "phase 4), reading pending. R1's rewind loop with the flag-gated "
+            "reflyConclusionProfile, so the re-fly is flown to a NON-DESTROYED "
+            "ending and the 39-cell Rewind batch reads it in flight. Its header "
+            "pre-registers the mixed prediction it exists to test - that a landing "
+            "does NOT stamp a terminal, because every TerminalState.Landed write "
+            "goes through FinalizeTreeRecordings - so the run's product is a "
+            "reading a human interprets. Owes a flight, not a human call",
+        "RF-12W-rewind-batch-after-warp-crash.toml":
+            "operator by the reading-run discipline; AUTHORED 2026-09-09 (re-fly "
+            "phase 4), reading run 1 killed and RE-TARGETED off its own measured "
+            "warp profile. First consumer of the WarpToUT seam verb: it warps a "
+            "re-flown half past its impact so ApplyTerminalDestruction stamps "
+            "Destroyed in flight, which is the one terminal a live re-fly can "
+            "reach. Its header pre-registers per-cell predictions the flight "
+            "refutes or confirms. Owes a flight, not a human call",
         "RH-1-live-rp-handle-rewind.toml":
             "operator by the reading-run discipline (V1/V2/V24W precedent); AUTHORED "
             "2026-09-08, NEVER FLOWN, reading pending. Owes a flight, not a human call",

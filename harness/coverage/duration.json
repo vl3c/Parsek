@@ -1519,6 +1519,26 @@
         "2026-09-09T17:29:48Z": 51.0
       }
     },
+    "RF-12L-rewind-batch-after-landing": {
+      "last": 284.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 284.0,
+      "p95": 284.0,
+      "samples": {
+        "2026-09-09T19:29:37Z": 284.0
+      }
+    },
+    "RF-12W-rewind-batch-after-warp-crash": {
+      "last": 212.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 212.0,
+      "p95": 212.0,
+      "samples": {
+        "2026-09-09T19:33:37Z": 212.0
+      }
+    },
     "RF-2-two-reflies-in-sequence": {
       "last": 64.0,
       "lastVsP50": 1.0,

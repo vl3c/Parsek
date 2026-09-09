@@ -784,6 +784,15 @@ namespace Parsek.TestCommands
                 TryCompleteTimeJump(now);
                 return;
             }
+            if (completionVerb == "WarpToUT")
+            {
+                // The REAL warp's sibling partial. Its completion polls the advancing
+                // clock, steps the rails ladder down on approach, and requires warp back
+                // at rate index 0 before OK - so an OK terminal is proof the game is no
+                // longer warped, and the timeout path forces rate 0 before its ERROR.
+                TryCompleteWarpToUT(now);
+                return;
+            }
 
             // Player-workflow lane, same bounded-completion contract. StartLoopPlayback
             // REUSES TestCommandTimeJump.DecideJumpCompletion (its forward jump is the
@@ -1231,6 +1240,12 @@ namespace Parsek.TestCommands
         // terminal it can produce is an ERROR.
         void ITestCommandExecutor.ListHandles(ParsedCommand cmd) => ListHandlesImpl(cmd);
 
+        // WarpToUT: the body lives in the sibling ParsekTestCommandAddon.WarpToUT.cs
+        // partial. TWO-PHASE, and unlike TimeJump its completion is a genuine poll rather
+        // than a settle - the clock advances over many frames while the vessel travels -
+        // so it owns a bounded TryCompleteWarpToUT in TryCompleteTwoPhaseCore.
+        void ITestCommandExecutor.WarpToUT(ParsedCommand cmd) => WarpToUTImpl(cmd);
+
         private void InvokeExecutor(ParsedCommand cmd)
         {
             // Batch-baseline latch clear (finding 1). Any verb that can change state a
@@ -1282,6 +1297,7 @@ namespace Parsek.TestCommands
                 case "RouteCommand": exec.RouteCommand(cmd); break;
                 case "DeleteRecording": exec.DeleteRecording(cmd); break;
                 case "ListHandles": exec.ListHandles(cmd); break;
+                case "WarpToUT": exec.WarpToUT(cmd); break;
                 default:
                     // Unreachable: DecideDispatch rejects unknown/reserved verbs before Execute.
                     SetExecResult("ERROR", null, "unknown-command");

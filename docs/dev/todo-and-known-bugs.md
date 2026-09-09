@@ -58,7 +58,7 @@ seven lanes now re-fly that fixture green, which is the evidence that the residu
 reach a FAIL there. The class docstring's old "tolerated residual" note is corrected rather
 than deleted - it said "a spec that adds one must re-check this", and this is that re-check.
 
-## RF12-NO-SEAM-PATH-CONCLUDES-A-REFLY-IN-FLIGHT: neither of the two candidate routes can stamp a terminal on a live re-fly, so the FOUR terminal-gated in-game `Rewind` cells stay unreachable from the harness (of the nine that a live session alone does not reach) [MEASURED 2026-09-09 by RF-12's reading run 1. A HARNESS limitation with both causes named, not a product defect. OPEN]
+## ~~RF12-NO-SEAM-PATH-CONCLUDES-A-REFLY-IN-FLIGHT~~: the WARP half is CLOSED by the `WarpToUT` seam verb; what remains is a STRUCTURAL fact about `Landed`, not a missing instrument [FILED 2026-09-09 by RF-12's reading run 1; the warp half CLOSED 2026-09-09 by re-fly phase 4 and PROVEN by RF-12W's reading run 2. The residue is RE-SCOPED below and stays OPEN as a DECISION, not as work]
 
 RF-6 measured that nine of the twelve session-gated `Rewind` cells skip on a precondition
 a live session alone cannot supply, and four of them name the same one: the re-fly must be
@@ -84,19 +84,175 @@ The only conclusion route the seam has is `AnswerMergeDialog`, which DRIVES the 
 and therefore cannot be sequenced before a FLIGHT batch. A crash that has to happen in real
 time cannot be sequenced against a batch either, because there is no wait verb.
 
-WHAT WOULD CLOSE IT, in rough order of cost: a seam affordance that commits or concludes a
-PENDING tree in place (the smallest change, and it has exactly one consumer today); or an
-autopilot mission that flies a re-fly to a crash and hands over with the scene still in
-FLIGHT, which the existing `kx_rewind_watch` `impactProfile` is close to. Not attempted
-here: RF-12 kept its host and banked what the host does buy (see below).
+WHAT CLOSED THE WARP HALF, 2026-09-09 (re-fly phase 4): a NEW seam verb, `WarpToUT`
+(33rd implemented, additive; contract in `design-autotest-command-seam.md` -> "#### WarpToUT").
+It drives the stock rate ladder through `TimeWarp.SetRate` instead of epoch-shifting the
+clock, so the world SIMULATES forward and the re-flown half really coasts, re-enters and
+arrives. Stock owns the clamps and applies them inside `SetRate`, so a clamp is NOT a
+refusal - the verb degrades into a real-time wait its 540 s budget bounds, and `maxRate=`
+in the terminal payload is what tells a reader whether the span was warped or waited. Its
+SUCCESS predicate requires warp back at rate index 0, so an OK terminal is proof the game
+is no longer warped; the timeout and exception paths force the rate down too.
 
-RELATED, and measured on the same run rather than assumed: two of the nine
+PROVEN, not asserted, and the proof is a CELL rather than a token.
+`MergeCrashedReFlyCreatesCPSupersede` - which wants exactly `TerminalKind.Crashed` and had
+never executed anywhere - PASSES on BOTH phase-4 lanes: `RF-12W` (`2026-09-09_1930`, PASS,
+`BATCH_COMPLETE v1 total=39 passed=14 failed=0 skipped=25`) and `RF-12L` (`2026-09-09_1924`,
+PASS, the same tally). Against RF-12's 12 and RF-6's 11. The `null TerminalState` token that
+killed both of those runs appears ZERO times in either phase-4 log.
+
+The terminal is stamped at `ParsekFlight.TryAppendCapturedToTree`
+(`StampTerminalState(TerminalState.Destroyed, "TryAppendCapturedToTree")`) off the
+pending-split destruction override, NOT by `ApplyTerminalDestruction` - worth recording
+because the lane's first cut REQUIRED the latter's log line and would have red a run whose
+re-fly concluded perfectly well by another route. Several paths can stamp a terminal; pin
+the CONDITION (`reason=null TerminalState`, forbidden), never one stamp site.
+
+RF-12W's run 2 (`2026-09-09_1854`) is the run that earned all of this and it was RED:
+`KerbalRecoveryOnSupersede` executed for the first time anywhere and FAILED, which resolved
+to a TEST defect filed and fixed as
+KERBAL-RECOVERY-CELL-IGNORES-THE-PRE-REWIND-TOMBSTONE-GUARD below.
+
+TWO THINGS THE SAME RUN MEASURED, both worth having in one place:
+
+1. **`TimeWarp` has TWO ladders and the first cut read the wrong one.** The log showed
+   `rateIndex=3 rate=4` inside the atmosphere; rails index 3 is 50x, so stock was in
+   PHYSICS warp (`TimeWarp.Modes.LOW`), whose separate `physicsWarpRates` array shares the
+   index space and has completely different values. Fixed in the same pass: the applier
+   re-reads `TimeWarp.WarpMode` per frame and hands the live array to the pure selector,
+   and the ceiling comes from `maxPhysicsRate_index` in LOW mode because the altitude
+   limits are a rails concept. Not a wrong OUTCOME before the fix (the applier always read
+   back what stock applied), but a wrong MODEL, which would have sized every atmospheric
+   lane against rates it could never get.
+
+2. **The warp budget is a MEASURED number.** Run 1 (target UT 900, killed deliberately)
+   covered 269 game-seconds in 73 real seconds above ~30 km and then answered
+   `ceilingIndex=0` with the craft still descending, i.e. the remaining 499 s would have
+   run at 1x. An InvokeRewind-sized 300 s budget could not have covered that and would
+   have ERRORed `warp-timeout` on a warp working exactly as designed;
+   `DeferralBudget.WarpToUTSeconds` is now 540, the harness's own deferred-step ceiling.
+   A rate-limited `warptout progress` line was added at the same time, because run 1 also
+   showed a clamped warp goes silent between ladder changes and a reader cannot tell a
+   working slow warp from a wedged one.
+
+WHAT REMAINS, RE-SCOPED. The `CommitTree` half is untouched: nothing yet commits or
+concludes a PENDING tree in place, and it still has exactly one consumer. But the LANDED
+half turns out not to be an instrument problem at all, and the re-scope is the finding:
+
+**`TerminalState.Landed` IS NEVER STAMPED WHILE THE SCENE IS FLIGHT.** Every write of it
+goes through `ParsekFlight.FinalizeTreeRecordings`, whose five callers are
+`FinalizeTreeOnSceneChangeCore`, `CommitTreeSceneExit`, `CommitTreeFlight`,
+`CommitTreeRevert` and `ShowPostDestructionTreeMergeDialog`. There is no GameEvents
+touchdown handler that stamps it, and the one place that computes a live-flight surface
+terminal (`RecordingFinalizationCacheProducer.TryBuildSurfaceTerminalCache`) writes it into
+a CACHE - its single eager mutation of `recording.TerminalStateValue` is the DESTROY
+branch, added precisely so a transient post-impact LANDED situation could not stamp
+`Landed` on a recording the player watched crash. `TerminalState.Destroyed` IS written
+live, by `ParsekFlight.TerminalEvents.ApplyTerminalDestruction`.
+
+So `MergeLandedReFlyCreatesImmutableSupersede` is unreachable from ANY lane that stays in
+FLIGHT, and no instrument closes that: the only thing that stamps `Landed` is the same
+conclusion that ends the session the cell needs live. What is open is therefore a
+DECISION - whether that cell should keep a shape only a hand-played session can reach, or
+be re-written against the surface a live landing does expose - not a piece of work. Two
+independent readings agree on the mechanism: this one, and the phase-4 mission agent's own
+read of the same call sites while building `reflyConclusionProfile`.
+
+RELATED, and measured on RF-12's run rather than assumed: two of the nine
 (`MergeReFlyToSubOrbitalKeepsSlotOpen`, `MergeNonFocusReFlyToOrbitImmutable`) skip on
 "Could not resolve provisional's RP/slot" on BOTH hosts - a DEEPER precondition than the
 terminal, so the terminal-stamping route would not have been sufficient even if it had
 worked. And `OptimizerSplitKeepsPromotedSlotOpen` skips because `RunOptimizationSplitPass`
 DEFERS the split of an active provisional, i.e. PR #1662's own regression cell is
 unreachable inside a live session by design.
+
+ONE MORE READING FROM RF-12W's RUN 2, recorded here because it changes how a lane should be
+read rather than what it should do: **the session is SPENT by the first cell that merges
+it.** `KerbalRecoveryOnSupersede` ran a real merge, and every `Merge*` cell after it (K
+sorts before M) skipped on "No active re-fly session" - while `F5MidReFlyResume`, which
+runs earlier, reported the session LIVE (`sess=sess_3cb7d17543e24d599dc22c172bfeed60`). So
+a single batch can only ever reach ONE merging cell, and which one is decided by discovery
+order. A lane that wants a different merging cell must remove the earlier one's
+precondition, not add steps.
+
+
+## ~~KERBAL-RECOVERY-CELL-IGNORES-THE-PRE-REWIND-TOMBSTONE-GUARD~~: `KerbalRecoveryOnSupersede` built its expected-tombstone set from subtree membership alone, so a crewed flight rewound after launch made it assert against documented product behaviour [FOUND 2026-09-09 by RF-12W's first flight, the cell's FIRST EXECUTION ANYWHERE. TEST defect, not a product defect. FIXED in the same change]
+
+RF-12W put a terminal-carrying re-fly provisional in front of the 39-cell in-game `Rewind`
+batch for the first time, which let `KerbalRecoveryOnSupersedeTest.KerbalRecoveryOnSupersede`
+past its four guards and into its assertions - and it FAILED:
+
+    KerbalAssignment+Dead action 'act_482bbdeccbb4421fbc3d11f4eed3fc5c'
+    must be tombstoned after merge (7.16)
+
+**THE PRODUCT IS CORRECT, AND SAYS SO IN THE LOG.** `CommitTombstones` applies a SECOND
+screen after subtree membership, `PreRewindTombstoneGuard`
+(`SupersedeCommit.cs` `TOMBSTONE-SCOPE-HAS-NO-UT-GUARD` ->
+`TombstoneAttributionHelper.IsPreRewindAttributedAction`), which KEEPS an in-subtree action
+whose UT lies strictly before the rewind cutoff, because that part of the timeline is the
+part the merge KEEPS. It mirrors `RecordingTreeSplitter`'s step-2.9 ledger retag bit for
+bit and is pinned headlessly by `SupersedeCommitTombstoneTests` (`PreRewindTombstoneGuard:
+kept 1`). The run logged the decision verbatim:
+
+    PreRewindTombstoneGuard: keep action=act_482bbdeccbb4421fbc3d11f4eed3fc5c
+      type=KerbalAssignment rec=4a7739f6cc074185a82cbd10ccaeb01d
+      ut=29.939999999999451 cutoffUT=131.53999999999348
+    PreRewindTombstoneGuard: kept 6 pre-rewind action(s) attributed to the superseded
+      subtree (cutoffUT=131.53999999999348)
+
+**WHY IT WAS ALWAYS GOING TO FAIL ON A CREWED HOST.** The crew BOARD at launch, so their
+`KerbalAssignment` action's UT precedes any rewind point taken later in the same flight.
+The owning recording (`4a7739f6`, the RP's slot-0 parent) spans UT 29.94 -> 413.53, i.e. it
+STRADDLES the rewind at 131.54. So on any crewed rewind-after-launch host the cell's
+expected set is a strict SUPERSET of what the merge can ever write. This is the SECOND time
+this cell has asserted against an unmet precondition; the first (an unflown provisional)
+got the `ValidateSupersedeTarget` guard on 2026-08-04.
+
+**FIXED, test-side, one cell.** The gather now PARTITIONS instead of collecting:
+`KerbalRecoveryOnSupersedeTest.TryPartitionSubtreeDeaths` (pure, pinned headlessly by
+`KerbalRecoveryStraddleGuardTests`, the shape PR #1661 used for
+`MergeInterruptionRecoveryTest.TryBuildUnconcludedReFlySkip`). Two outputs, because the two
+invariants ask different questions: the ACTION set drops guard-kept rows (a post-cutoff row
+IS retired, so asserting on it stays fair), and the KERBAL set drops anyone who owns even
+one kept row, because that row goes on holding a permanent Dead reservation no matter how
+many of their other rows are retired - the run says it verbatim (`Recomputed after
+tombstones: 2 reservations remain (permanent=2 temporary=0)`). When no recoverable kerbal
+remains the cell SKIPS, naming the kept ids, the kerbals and the cutoff. The screen calls
+the PRODUCT predicate and passes its answer in rather than re-deriving `a.UT < cutoff`, so
+a private second convention cannot drift from the merge.
+
+**A DELIBERATE SECOND-ORDER GAIN.** Because the cell now skips on this host, it no longer
+runs its real merge there - and that merge was SPENDING the session for every `Merge*` cell
+after it (K sorts before M). RF-12L's flight with the guard in place read `passed=14
+failed=0`, the best the program has produced. Which merging cell wins next is to be
+MEASURED, not predicted.
+
+**NO TRY/FINALLY MARKER RESTORE, deliberately.** `JournalFinisherMarkerPresentVariantTest`'s
+own comment already argues that restoring a borrowed marker "does NOT hand the borrowed
+session back undamaged", and `CommitSupersede` goes much further than the finisher did (it
+writes supersede rows, tombstones, and flips MergeState). Re-arming afterwards would hand
+later cells a marker pointing at an already-merged provisional. The precondition guard
+subsumes the problem.
+
+## TOMBSTONE-GUARD-SCREENS-AN-INTERVAL-ACTION-BY-ITS-START: a kerbal death encoded at a post-rewind `endUT` survives the merge because the guard reads the action's `UT` [NOTED 2026-09-09 while diagnosing the entry above. An OPEN QUESTION, deliberately not filed as a bug on this evidence]
+
+`KerbalAssignment` is an INTERVAL action (`startUT`..`endUT`) but
+`TombstoneAttributionHelper.IsPreRewindAttributedAction` screens it by its `UT`. On
+RF-12W's host that means a death encoded at `endUT = 413.53` - well after the rewind at
+131.54, on the branch the merge supersedes - is kept, and 7.16's recovery promise is not
+kept for that kerbal: `Reservation: 'Bill Kerman' endUT=INDEFINITE (Dead)`.
+
+NOT FILED AS A DEFECT, for three reasons, all of which a future reader should weigh before
+changing anything: (1) the guard's own contract states the bit-identical mirror of
+`RecordingTreeSplitter`'s retag is LOAD-BEARING and forbids a third convention on the seam;
+(2) the splitter would keep the row under the same predicate, so "split it instead" is not
+an alternative; (3) on this host the outcome is right anyway, because the re-flight ALSO
+killed the crew, so Dead is the correct career state.
+
+WHAT WOULD SETTLE IT: a lane whose re-fly carries pre-rewind-boarded crew and LANDS them
+safely. No committed lane flies that shape - RF-12L was authored for it and its first
+flight concluded `destroyed` instead - so the question stays open rather than being decided
+from a run that cannot distinguish the two answers.
 
 ## REFLY-A-CODEC-TEST-SIBLING-PATH-IS-DEAD-AFTER-MERGE: the fixture resolver in `ReflyARecordedFixtureCodecTests` keeps a sibling-worktree path candidate that can no longer be reached [NOTED 2026-09-09 while reviewing PR #1660. Dead code, not a defect. OPEN as a cleanup]
 

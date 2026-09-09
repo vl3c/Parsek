@@ -158,6 +158,21 @@ namespace Parsek.TestCommands
             // those readers. A REQUIRED kind= keeps each family on its own bounded line
             // and leaves the four-field payload byte-identical.
             "ListHandles",
+            // WarpToUT. ADDITIVE (32 -> 33 implemented, reserved unchanged at 5), the
+            // ExportRenderManifest / ListHandles shape: the reserved envelope never
+            // carried a warp verb. It is emphatically NOT a second spelling of TimeJump,
+            // and the difference is the whole reason it exists. TimeJump is an EPOCH
+            // SHIFT (TimeJumpManager.ExecuteJump stops warp and moves the clock instantly
+            // with frozen relative positions), so the clock advances and the vessel does
+            // not travel. WarpToUT drives the stock rails rate ladder (TimeWarp.SetRate),
+            // so the world SIMULATES forward: a descending vessel really re-enters and
+            // really impacts. RF-12's reading run measured that gap and filed it as
+            // RF12-NO-SEAM-PATH-CONCLUDES-A-REFLY-IN-FLIGHT - no seam path could conclude
+            // a re-fly in flight, because the only clock verb did not move the vessel.
+            // Folding the two into one verb would make the wire token ambiguous about
+            // which of the two clock mechanisms a spec exercised, exactly the argument
+            // that kept InvokeRewindToLaunch separate from InvokeRewind.
+            "WarpToUT",
         };
 
         // Reserved (recognized, not implemented in v1): 5 verbs.

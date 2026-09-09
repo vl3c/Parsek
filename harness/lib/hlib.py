@@ -312,6 +312,20 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     # in-memory state), so it rides the 60 s default budget, which only ever bounds its
     # game-not-loaded dispatch defer.
     "ListHandles",
+    # WarpToUT, the REAL rails warp. ADDITIVE (32 -> 33 implemented, reserved
+    # unchanged at 5): the reserved envelope never carried a warp verb, and this is
+    # NOT a promotion of any reserved name. It is also NOT a second spelling of
+    # TimeJump, and the difference is the reason it exists. TimeJump is an EPOCH
+    # SHIFT - TimeJumpManager.ExecuteJump stops warp and moves the clock instantly
+    # with frozen relative positions - so the clock advances and the vessel does not
+    # travel. WarpToUT drives the stock rails rate ladder (TimeWarp.SetRate), so the
+    # world SIMULATES forward and a descending vessel really re-enters and impacts.
+    # RF-12's reading run measured exactly that gap and filed it as
+    # RF12-NO-SEAM-PATH-CONCLUDES-A-REFLY-IN-FLIGHT: no seam path could conclude a
+    # re-fly in flight because the only clock verb did not move the vessel. TWO-PHASE
+    # and a DEFERRED_SEAM_VERB (below) - its completion polls an advancing clock and
+    # can legitimately run minutes when stock clamps the ladder to 1x.
+    "WarpToUT",
 )
 
 # The M-A7 export verb, named once. Referenced by the verb/block coupling rule in
@@ -563,9 +577,16 @@ STEP_WAIT_MARGIN_SECONDS = 60
 # step-wait margin must govern any budget a spec declares for it. Membership here is
 # about that CAP, not about being two-phase - ExitToSpaceCenter is two-phase and
 # deliberately absent, because a scene EXIT settles where a scene RELOAD does not.
+#
+# WarpToUT joins for a reason of its OWN, and not TimeJump's: TimeJump is here because
+# its jump is instantaneous and only the spawn-queue settle is watched, while WarpToUT's
+# completion watches a clock that advances in REAL time whenever stock clamps the ladder
+# (a vessel under drag inside the atmosphere is pinned to 1x). Its 300 s budget must be
+# out-waited by the harness step-wait, and the 540 s cap must govern any budget a spec
+# declares for it.
 DEFERRED_SEAM_VERBS: Tuple[str, ...] = ("RunTests", "LoadGame", "InvokeRewind", "TimeJump",
                                         "EvaChuteDeploy", "StartLoopPlayback",
-                                        "InvokeRewindToLaunch")
+                                        "InvokeRewindToLaunch", "WarpToUT")
 
 # Per-verb seam-side DISPATCH deferral budgets (seconds), mirroring the C#
 # DeferralBudget.BudgetSeconds table (TestCommands/TestCommandDispatcher.cs). A verb
@@ -587,6 +608,13 @@ DISPATCH_DEFERRAL_BUDGET_SECONDS: Dict[str, float] = {
     "InvokeRewind": 300.0,
     "AnswerMergeDialog": 120.0,
     "TimeJump": 120.0,
+    # WarpToUT, mirroring DeferralBudget.WarpToUTSeconds. NOT sized like TimeJump: an
+    # epoch shift is instant, but a warp costs whatever stock's clamps allow, and a
+    # clamped atmospheric descent costs REAL time one-for-one. 540 is this module's own
+    # MAX_DEFERRED_STEP_BUDGET_SECONDS, and it is MEASURED: RF-12W's first reading run
+    # covered 270 game-seconds in 73 real seconds above ~30 km and then ran the rest of
+    # the descent at 1x when stock's altitude ceiling dropped to rate index 0.
+    "WarpToUT": 540.0,
     "KscAction": 60.0,
     # M-C2 EVA verbs (F5): each per-verb DeferralBudget governs BOTH the head-defer AND the
     # two-phase completion wait (there is ONE C# budget per verb). Without these the harness
@@ -701,6 +729,11 @@ SEAM_VERB_TAIL_ROLE: Dict[str, str] = {
     "InvokeRewind": TAIL_ROLE_WORLD_MUTATING,
     "AnswerMergeDialog": TAIL_ROLE_WORLD_MUTATING,
     "TimeJump": TAIL_ROLE_WORLD_MUTATING,
+    # WarpToUT is world-mutating in the strongest sense in this table: it does not
+    # merely move a clock, it SIMULATES the world forward, so a vessel can re-enter,
+    # break up or impact inside the verb. Driving it on an unmet mission tail would
+    # change the very world the tail is trying to report on.
+    "WarpToUT": TAIL_ROLE_WORLD_MUTATING,
     "KscAction": TAIL_ROLE_WORLD_MUTATING,       # spends funds / hires / upgrades
     "SaveGame": TAIL_ROLE_WORLD_MUTATING,
     "EvaExit": TAIL_ROLE_WORLD_MUTATING,         # irreversible in-world action
@@ -851,6 +884,12 @@ SEAM_VERB_POST_MISSION_ROLE: Dict[str, str] = {
     "InvokeRewind": POST_MISSION_ROLE_RECORDING,      # a Parsek feature under test
     "AnswerMergeDialog": POST_MISSION_ROLE_RECORDING,  # ditto
     "TimeJump": POST_MISSION_ROLE_RECORDING,
+    # WarpToUT: `recording`, deliberately, even though the verb can end a vessel. Its
+    # OK means "the clock reached the target and warp came back down" - a statement
+    # about the SEAM, not about a kerbal's physical in-world state, which is the whole
+    # content of the `outcome` set. What the warp did to the vessel is asserted from
+    # the terminal-state log lines a spec pins, exactly the ExitToSpaceCenter carve-out.
+    "WarpToUT": POST_MISSION_ROLE_RECORDING,
     "KscAction": POST_MISSION_ROLE_RECORDING,    # career mutation, ledger-oracle territory
     "SaveGame": POST_MISSION_ROLE_RECORDING,
     "EvaExit": POST_MISSION_ROLE_OUTCOME,        # "the kerbal is out and clear"
@@ -6597,6 +6636,16 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "backward-jump": "driver-rewind",
     "jump-refused": "driver-rewind",
     "missing-jump-target": "driver-arg",
+    # WarpToUT: a malformed / past target and a bad cap are arg-class; an undriveable
+    # warp (no TimeWarp controller, a stock TIMEWARP input lock) is a gate the verb
+    # asked for and did not get. `target-out-of-range` is shared with TimeJump, which
+    # emits the same token for the same finiteness guard.
+    "missing-warp-target": "driver-arg",
+    "target-out-of-range": "driver-arg",
+    "backward-warp": "driver-arg",
+    "max-rate-invalid": "driver-arg",
+    "warp-unavailable": "driver-gate",
+    "warp-locked": "driver-gate",
     # KscAction: dispatch not-ready + career-state declines are career-class; unknown /
     # missing targets are arg-class.
     "career-not-ready": "driver-career",
