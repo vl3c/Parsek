@@ -198,3 +198,47 @@ required = false
 type = "int"
 min = 1
 max = 10000
+
+# ---- the RE-FLY CONCLUSION PROFILE (opt-in; off by default) ----
+#
+# A closed loop still leaves the re-fly's provisional recording UNCONCLUDED, and
+# `SupersedeCommit.ValidateSupersedeTarget` refuses a provisional whose
+# `TerminalStateValue` is null - which is why nine in-game `Rewind` cells skip.
+# With this on, the mission rides PAST LOOP-CLOSED: it cuts the throttle and waits,
+# debounced and bounded, for the re-flown craft to be DESTROYED or to read landed,
+# then ends the mission IN FLIGHT with the Re-Fly session marker still live and
+# nothing committed - the scenario's own post-mission steps close the tree.
+#
+# MEASURED, and it is why a DESTRUCTION is the outcome this profile is built for:
+# `TerminalState.Landed` is stamped only at finalization
+# (`ParsekFlight.FinalizeTreeRecordings`), never on the frame the wheels touch,
+# while `TerminalState.Destroyed` is stamped with the scene still FLIGHT by
+# `ParsekFlight.TerminalEvents.ApplyTerminalDestruction`.
+#
+# NO `min` / `max` HERE: bounds are consulted only inside hlib's numeric branch, so
+# a bound on a bool reads as checked and checks nothing (the repo-wide sweep
+# `test_bounds_are_only_declared_on_types_that_consult_them` reds on one).
+[params.reflyConclusionProfile]
+required = false
+type = "bool"
+
+# CONCLUDE-COAST's bound. FRAMES, not game seconds, and the choice is forced twice:
+# every post-ascent phase in this machine is frame-bounded (see the rewind-leg
+# header above), and the destruction this wait exists for is the very event that
+# stops telemetry being readable - a `ut`-derived budget would freeze exactly when
+# the give-up matters. At the runner's 0.5 s poll the default 900 is ~450 s.
+[params.reflyConclusionFrames]
+required = false
+type = "int"
+min = 1
+max = 10000
+
+# The situations that count as the LANDED conclusion (default LANDED + SPLASHED).
+# Gated on having been airborne first: KSP reports `situation = LANDED` on a
+# climbing craft for the first ~30 s (MEASURED on GS-1 flight 1 at alt 230 m,
+# +113 m/s), so an ungated read would conclude a flight that had not happened. An
+# EMPTY list is refused BY NAME on frame 1 rather than silently replaced by the
+# default (`mlib.r1_refly_conclusion_profile_conflict`).
+[params.reflyConclusionSituations]
+required = false
+type = "list"

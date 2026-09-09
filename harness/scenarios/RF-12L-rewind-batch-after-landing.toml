@@ -1,0 +1,331 @@
+schema = 1
+id = "RF-12L-rewind-batch-after-landing"
+# =====================================================================================
+# THE RE-FLY CONTINUATION PROGRAM, LANE 12L. THE OTHER HALF OF THE CONCLUSION QUESTION.
+#
+# RF-12W warps a re-flown half to its IMPACT, which stamps `TerminalState.Destroyed`
+# while the scene is still FLIGHT. This lane flies a re-fly to the OTHER kind of ending -
+# it comes down and stays down - and puts THAT in front of the same 39-cell in-game
+# `Rewind` category. The two lanes exist separately because the terminal a lane produces
+# DECIDES which cells it can reach, and the two terminals reach DISJOINT sets:
+#
+#   `MergeCrashedReFlyCreatesCPSupersede` wants Crashed and only RF-12W can give it.
+#   `MergeReFlyStructuralMutationAutoSeals` DEFERS when the chain tip is Destroyed
+#     (`MergeReFlyStructuralMutationAutoSealsTest`'s third guard), so RF-12W closes it
+#     and only a NON-destroyed conclusion can open it.
+#   `KerbalDualResidenceCarveOut` needs `FlightGlobals.ActiveVessel` to still BE the
+#     re-fly vessel with crew aboard, which a destruction ends.
+#
+# =====================================================================================
+# THE MEASURED FINDING THIS LANE CARRIES, and it is the reason the lane is honest about
+# what it does NOT buy.
+#
+# AN EARLIER CUT OF THIS HEADER CLAIMED "`TerminalState.Landed` IS NEVER STAMPED WHILE THE
+# SCENE IS FLIGHT". THE REVIEW PANEL REFUTED IT, and the refutation is more useful than the
+# claim was, so it is recorded here rather than quietly deleted.
+#
+#   FALSE, with counterexamples: `BackgroundRecorder.EndDebrisRecording` stamps
+#   `DetermineTerminalState((int)v.situation, v)` on a debris-TTL tick and that returns
+#   `Landed`; `ParsekFlight.TerminalEvents.PhantomTerrainCrashOverride` stamps it; and
+#   `RecordingFinalizationCacheApplier` stamps it from a BackgroundRecorder-reached path.
+#   The claim also confused `TerminalState` with `TerminalKind`: the cell it was written
+#   about gates on `TerminalKind.Landed`, which `TerminalKindClassifier` maps from SIX
+#   states including `Docked` and `Boarded` - and `ParsekFlight.MergeBranch` stamps both
+#   of those LIVE, on the ACTIVE parent recording, with no scene exit at all.
+#
+#   WHAT IS ACTUALLY TRUE is about the conclusion ROUTE rather than the stamp: a live
+#   re-fly cannot reach any route that would stamp a Landed-kind terminal on ITS OWN
+#   provisional. `CommitTreeFlight` answers `no-active-tree` on a re-fly's pending tree
+#   (RF-12 measured it), `ShowPostDestructionTreeMergeDialog` fires only on a destruction
+#   and stamps `Destroyed`, and `CommitTreeRevert` and scene exit both END the session the
+#   cell needs live. `TryCommitReFlySupersede` has exactly one production caller,
+#   `MergeDialog.MergeCommit`.
+#
+# SO `MergeLandedReFlyCreatesImmutableSupersede` IS NOT UNREACHABLE, and what is owed is a
+# LANE rather than a decision: a re-fly that DOCKS with something, or whose kerbal is
+# BOARDED, stamps `Docked` / `Boarded` through `MergeBranch` while the scene is still
+# FLIGHT and satisfies `TerminalKind.Landed` with the session still live. It needs no new
+# instrument - `EvaBoard` is already an implemented seam verb and this lane's own mission
+# machine already flies a re-fly that could be boarded.
+#
+# WHAT THIS LANE ACTUALLY MEASURED, and it answered the pre-registered prediction
+# SIDEWAYS - which is what a reading run is for and why the prediction was written down
+# before the flight. The lane was authored expecting the re-flight to settle LANDED. What
+# happened on `2026-09-09_1911` is that the un-piloted hop off the pad CONCLUDED DESTROYED:
+# the mission's `reflyConcludedInFlight` row read `value=destroyed concludedUT=58.3
+# airborneSeen=true`, MISSION-OK. So the landed branch of the conclusion profile is BUILT
+# AND PINNED HEADLESSLY BUT UNEXERCISED BY FLIGHT, and the honest statement is that the
+# profile CONCLUDES, not that it lands.
+#
+# =====================================================================================
+# HOW THE RE-FLY IS FLOWN TO ITS ENDING, which is the mission half of phase 4.
+#
+# `r1_rewind_loop` is the ONLY mission that drives the `InvokeRewind` slot re-fly and then
+# flies the restored vessel: VERIFY (the OBSERVED backward clock) -> REWOUND (throttle +
+# stage on the restored craft) -> RELAUNCH (control PROVEN by measured altitude gain, not
+# by the seam's OK) -> LOOP-POINTS -> LOOP-CLOSED. Phase 4 adds the flag-gated
+# `reflyConclusionProfile`: with it on, LOOP-CLOSED becomes a one-frame waypoint that cuts
+# the throttle and hands to CONCLUDE-COAST, a bounded, DEBOUNCED wait for the re-flown
+# craft to reach an ending - either `vessel_lost` (destroyed) or a situation in
+# `reflyConclusionSituations` - and then CONCLUDED, which is MISSION-OK IN FLIGHT with the
+# recorder live and the session marker intact. Nothing is committed; this spec's own steps
+# are what close the tree. That is `kx_rewind_watch`'s `coastExitProfile` discipline
+# verbatim.
+#
+# THE PROFILE IS BYTE-INERT WHEN ABSENT: `R1ReflyConclusionInertnessTests` replays the
+# whole machine with the key absent and with it explicitly false and compares the full
+# `(phase, actions)` trace, so `R1-rewind-loop-flown` is unaffected by its existence.
+#
+# WHICH ENDING THIS HOST PRODUCES IS NOW MEASURED. `rewind-b9` slot 1 restores the crashed
+# booster PRE_LAUNCH ON THE PAD (R1 flight 2 measured `vesselStateChanged
+# value=PRE_LAUNCH`), and R1's relaunch gate is a 100 m altitude-gain FLOOR, not a target -
+# it is a LOOP test, not a second ascent. The craft leaves the pad, the throttle is cut,
+# and it comes back down; reading run 1 measured it BREAKING UP rather than settling, which
+# is still a conclusion and still stamps a terminal in flight. The lane pins the ROW and
+# the SHAPE rather than the outcome word, exactly because a low hop can go either way and
+# both are legitimate - `reflyConcludedInFlight`'s own `outcome` detail carries which.
+#
+# =====================================================================================
+# WHAT READING RUN 1 BOUGHT, and it is the best result the whole program has produced:
+# `BATCH_COMPLETE v1 total=39 passed=14 failed=0 skipped=25`, against RF-12W's 14, RF-12's
+# 12 and RF-6's 11 - and `failed=0`, where RF-12W red on the first-ever execution of
+# `KerbalRecoveryOnSupersede`. The run was PARSEK-FAIL only on two forbid clauses that
+# were themselves wrong, both corrected below off this run's own evidence: the ERROR guard
+# now carries one measured exception, and the `No active re-fly session` guard is
+# withdrawn because a batch that merges the session correctly reports it spent.
+#
+# STATUS: LIVE-PROVEN 2026-09-09 (`2026-09-09_2012`, PASS attempt 1, wall 284 s,
+# MISSION-OK, `BATCH_COMPLETE v1 total=39 passed=14 failed=0 skipped=25`). Reading run 1
+# (`2026-09-09_1911`) read the same tally and went PARSEK-FAIL only on the two forbid
+# clauses corrected below. `MergeCrashedReFlyCreatesCPSupersede` PASSES here too, so both
+# phase-4 lanes reach the cell the program was built to reach.
+# `total=39` is pinned EXACTLY and is source-derived
+# (`CommittedBatchTallySourceSyncTests` walks `Source/Parsek` and reds until it agrees
+# with the `[InGameTest]` attributes it counts); `passed` and `skipped` stay CLASSES for
+# RF-6's reason - this category gains cells regularly and an exact split would red on
+# every addition while saying nothing about the terminal gate. Not in
+# `IngameBatchWiringGroupTests.INTERIM_PIN_IDS`: that group's `GROUP` map covers the
+# H-SERIES batch specs only, so no RF-series spec is a member and adding one would fail
+# the group's own set-equality check. NOTHING ARMED.
+# =====================================================================================
+tier = "operator"
+description = "The 39-cell in-game Rewind category in front of a re-fly that was flown to a NON-DESTROYED ending: R1's rewind loop with the phase-4 reflyConclusionProfile, which cuts the throttle after the relaunch gate and waits, debounced, for the re-flown craft to come down and stay down, then hands over IN FLIGHT with the session live. The mirror of RF-12W, and the lane that measures whether a landing concludes a recording in flight at all."
+instanceProfile = "stock-minimal"
+tags = ["RF-12L", "rewind", "refly", "in-game-batch", "unfinished-flights",
+        "terminal-state", "autopilot", "kerbin", "sandbox", "reading-run"]
+
+[fixture]
+# R1's host, unchanged: the flown B2 ascent mints a real committed tree and the injected
+# rewind-b9 corpus supplies the RewindPoint whose slot 1 the mission re-flies. This is the
+# only committed shape in the suite where a MISSION drives the re-fly, which is what a
+# flown conclusion requires - no seam verb can arm a chute or hold a throttle.
+saveTemplate       = "fixtures/saves/b2-lko-craft"
+injectedRecordings = "rewind-b9"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "r1_rewind_loop"
+
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header (a key
+# after the sub-table header would be scoped to driver.missionParams.steps and the spec
+# would validate as having ZERO steps).
+#
+# THE TAIL IS ONE STEP DIFFERENT FROM R1's, and the difference is the whole lane. R1 ends
+# with `AnswerMergeDialog choice=merge`, which DRIVES THE SCENE EXIT and therefore clears
+# the very session the in-game cells gate on. This lane runs the batch FIRST, inside the
+# still-live session, and never answers the dialog at all - `FlushAndQuit` is the teardown.
+# On an UNMET mission the default skipTailOnUnmetMission drops `RunTests` (world-mutating)
+# and only `FlushAndQuit` runs, so a mission that did not fly can never produce a batch
+# tally this lane would then read as evidence.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
+  # LOAD-BEARING: the in-game cells' own skip lines and the classifier verdicts this lane
+  # reads around its batch are Verbose.
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" },   expect = "OK" },
+  { phase = "mission",                                                   expect = "MISSION-OK", budget = 1800 },
+  # R7a's, RF-6's and RF-12's own budget for the same 39-cell category.
+  { cmd = "RunTests",   args = { category = "Rewind" },                  expect = "OK", budget = 540 },
+  { cmd = "FlushAndQuit",                                                expect = "OK" },
+]
+
+[driver.missionParams]
+# Ascent half: R1's values VERBATIM (the machine delegates to mlib.b2_decide over this
+# same dict, so re-tuning them here would silently fork the live-proven ascent).
+targetApoapsisMeters      = 80000
+targetPeriapsisMeters     = 80000
+apoErrorMeters            = 5000
+periErrorMeters           = 5000
+eccentricityMax           = 0.02
+inclinationErrorDeg       = 2.0
+ascentTimeoutSeconds      = 420
+circularizeTimeoutSeconds = 300
+# Rewind half: rp_b9_root / slot 1 are the identifiers RewindB9Fixture bakes (slot 1 =
+# the crashed booster), the same pair R1 and S4.1 drive.
+rewindPointId             = "rp_b9_root"
+rewindSlot                = 1
+commitFrames              = 40
+stopFrames                = 40
+idleFrames                = 40
+rewindFrames              = 40
+verifyFrames              = 40
+minUtRegressionSeconds    = 5.0
+minAltitudeChangeMeters   = 1000.0
+relaunchThrottle              = 1.0
+relaunchMinAltitudeGainMeters = 100.0
+relaunchFrames                = 240
+loopPointsFrames              = 40
+# THE PHASE-4 ADDITION, and the only line that separates this lane from R1's own spec
+# other than the tail. Defaults are taken for the two knobs: the situation set is
+# ["LANDED", "SPLASHED"] and the frame bound is 900 (~450 s at the runner's 0.5 s poll),
+# which is deep slack for a hop that leaves the pad and returns. The bound is in FRAMES
+# and not seconds deliberately: the event this phase waits for is the one that can make
+# the game clock unreadable, so a `ut - phase_entry_ut` budget would freeze exactly when
+# the give-up matters. `kx_rewind_watch`'s IMPACT-COAST bounds the identical wait the
+# identical way.
+reflyConclusionProfile        = true
+
+[dimensionsCovered]
+# HONEST, and deliberately a SUBSET of R1's claims: this lane does not re-claim the ascent
+# dimensions R1 already banks, and it claims nothing new until the reading run says what
+# the conclusion actually was. D14 basics only, on RH-1's claim-is-not-gate ground.
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# R1's floor and R1's reason: the flown ascent commits its own tree, the injected
+# rewind-b9 corpus is also on disk, and the re-fly adds its provisional. min 1 is the
+# FLOOR that a rewind which lost the committed corpus sinks below. No ceiling - the Kerbal
+# X sheds boosters that each become a parent-anchored debris child, and the conclusion may
+# add more.
+# The floor was `min = 1` on the reading run, which nothing short of total corpus loss
+# could trip. Raised to 11 off the green run's measured 27: the injected rewind-b9 corpus
+# plus the flown ascent's tree is the population a rewind that lost its corpus sinks
+# below. Still no ceiling - the Kerbal X sheds boosters that each become a parent-anchored
+# debris child and the conclusion adds more.
+count = { min = 11 }
+
+[expectations.logContracts]
+# THREE FAMILIES, in the order the run produces them.
+#
+# 1. THE RE-FLY REALLY HAPPENED. R1's own two grep-stable milestones: StartInvoke entered
+#    the pre-load phase AND ConsumePostLoad completed. Both firing is what distinguishes a
+#    real end-to-end re-fly from a verb that merely returned.
+# 2. THE RE-FLY REALLY FLEW AND REALLY ENDED. `Recording started` proves the recorder was
+#    live for the second flight. The mission's own conclusion is asserted by its
+#    `reflyConcludedInFlight` row rather than by a log token, because the ONLY channel
+#    that observes the debounced situation streak is the mission's telemetry.
+# 3. THE BATCH RAN ON THE RIGHT CATEGORY, INSIDE THE SESSION. `total=39` exact and
+#    source-derived, `failed=0` HARD, `passed` / `skipped` as classes.
+#
+# DELIBERATELY NOT PINNED: `Added [1-9][0-9]* supersede relations`, which R1 requires.
+# This lane never answers the merge dialog - answering it would drive the scene exit and
+# clear the session the batch needs - so no merge tail runs and no relation is written by
+# the DRIVER. A cell inside the batch may write one; that is a reading, not a pin.
+required = [
+  "Re-Fly \\(Rewind-to-Separation\\) StartInvoke", "Invocation complete",
+  "ConsumePostLoad: restoring bundle with route-retire cutoffUT=",
+  # THE SECOND FLIGHT'S recorder, named. A bare `Recording started` matches the FIRST
+  # ascent's own start line (5 hits on the green run), so it proved nothing about the
+  # re-flight; the slot's vessel name is what makes it the re-fly's recorder.
+  "Recording started: vessel=\"B9 Slot 1\"",
+  # THE SESSION WAS STILL LIVE WHEN THE BATCH STARTED - see RF-12W for why this row
+  # exists and why it beats the withdrawn `No active re-fly session` forbid.
+  "A live Re-Fly session is already active \\(sess=sess_[0-9a-f]{32}\\)",
+  # THE PREMISE, PINNED ON THE ONE LINE THAT DISCRIMINATES IT (RF-12W carries the full
+  # argument): `qualifies=True` with a non-InFlight terminalKind is the state RF-6 and
+  # RF-12 could not reach, measured 1 hit here and ZERO on both of those.
+  "\\[Supersede\\] provisional=rec_[0-9a-f]{32} mergeState=\\w+ terminalKind=(Crashed|Landed) qualifies=True",
+  # THE CLAIM-TO-TOKEN PIN, and the review panel is why it exists. The strongest thing
+  # either phase-4 lane says is "`MergeCrashedReFlyCreatesCPSupersede` executes and
+  # passes" - the cell that wants exactly `TerminalKind.Crashed` and had never run
+  # anywhere - and until this row that claim was held by NOTHING: the tally pin is
+  # `passed=[1-9][0-9]*`, so the cell could regress to SKIPPED with the lane still green.
+  # The CL family already solves this with committed claim-to-token pins, and RF-12 itself
+  # pins `PASSED: KerbalDualResidenceCarveOutTest\.` for the same reason. MEASURED: present
+  # once on both phase-4 green logs, ZERO on RF-12's unconcluded log and ZERO on RF-6's.
+  "PASSED: MergeCrashedReFlyCreatesCPSupersedeTest\\.MergeCrashedReFlyCreatesCPSupersede",
+  "runtests start category=Rewind",
+  "BATCH_COMPLETE v1 total=39 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=Rewind scene=FLIGHT",
+]
+forbidden = [
+  # THE STANDING ERROR GUARD, NARROWED BY ONE MEASURED EXCEPTION AND BY NOTHING ELSE.
+  # Both phase-4 lanes conclude their re-fly by DESTROYING the craft, and a craft reduced
+  # to zero parts is one KSP itself declines to serialise: the batch-start baseline
+  # quicksave comes back with `activeVessel = -1` (stock writes
+  # `[FlightPersistence]: Vessel <name> not saved because it was dead`), so
+  # `QuickloadResumeHelpers.ValidateQuicksaveStructure` correctly REFUSES to reload it and
+  # the runner logs the refusal at ERROR. Measured on BOTH lanes' first flights
+  # (`2026-09-09_1854` and `2026-09-09_1911`), and the runner's own fallback then does the
+  # right thing - `snapshot rollback NOT armed`, then `Force disk revert
+  # (batch-complete-final-restore:recover): persistent=True sidecars=True`, then a healthy
+  # corruption check. RF-12, which uses `TimeJump` and leaves the craft intact, has ZERO
+  # ERROR lines, which is what isolates the cause to the CRASH rather than to `WarpToUT`
+  # or to the batch machinery.
+  #
+  # The exception is a NEGATIVE LOOKAHEAD rather than a dropped clause on purpose: every
+  # other Parsek ERROR still reds these lanes, so the guard keeps all of its value except
+  # for the one line the lane's own physics makes inevitable. It names the CAUSE and not
+  # just the prefix - `InGameTestSkippedException: ValidateQuicksaveStructure skipped` -
+  # so a genuinely corrupt baseline or an IOException on the same restore still reds. The consequence a reader
+  # needs: because the in-memory restore was refused, the produced-save snapshot is the
+  # BATCH-START state, so `[expectations.rewind]` here must be read against batch-start,
+  # never against what a merging cell did.
+  "\\[Parsek\\]\\[ERROR\\](?!\\[TestRunner\\] Batch baseline restore failure detail \\([^)]*\\): Parsek\\.InGameTests\\.InGameTestSkippedException: ValidateQuicksaveStructure skipped)",
+  # THE TERMINAL-GATE GUARD, and this lane CAN carry it. The header predicted it could
+  # not, on the reasoning that a landing does not stamp a terminal - but the profile's
+  # first flight concluded `outcome=destroyed` rather than landed (the un-piloted hop off
+  # the pad broke up on return), which stamps `Destroyed` in flight and clears the clause.
+  # Kept as a gate rather than relaxed to a reading BECAUSE it now holds: if a future
+  # flight of this lane concludes by LANDING instead, this token comes back and the
+  # header's structural finding is confirmed by a red rather than by prose.
+  "reason=null TerminalState",
+  # The RF family's standing guard: a chain TIP that lost its MergeState reads CLOSED.
+  "reason=sealedTipClosed",
+  #
+  # `No active re-fly session` IS NOT FORBIDDEN, and it is a measurement rather than an
+  # omission. RF-6 and RF-12 both carry that guard, and it CANNOT be carried by a lane
+  # whose batch actually reaches a merging cell. Both phase-4 lanes emitted it (7 times on
+  # RF-12W, 5 on RF-12L) and every one was correct: a cell that merges the session SPENDS
+  # it, and every later cell then honestly reports it gone. `F5MidReFlyResume`, which runs
+  # earlier, skipped in the same batch BECAUSE the session was live
+  # (`A live Re-Fly session is already active (sess=...)`), which is the proof the token
+  # means "spent by an earlier cell" here rather than "never armed". A regex cannot
+  # separate the two, so the guard's job is done instead by `reason=null TerminalState`
+  # above - a strictly better instrument, because it fires on the condition these lanes
+  # exist to remove rather than on a side effect of the batch's own discovery order.
+  #
+  # `outcome=unbound-refly-provisional` is not forbidden either: RF-12 measured that it is
+  # raised at the rewind's own save, before any driven step or mission phase can fly the
+  # attempt.
+]
+
+# REPORT-ONLY. R1 arms nothing here either; these are floors that a rewind which lost the
+# injected corpus sinks below. ARMING WAITS FOR A MATCHING READING RUN plus a negative
+# control, per the M-C2 rule.
+[expectations.rewind]
+rewindPoints = { min = 1 }
+
+[runtime]
+# Budget arithmetic (M-A5 S8), CORRECTED by the review panel. A non-deferred verb with
+# no declared budget waits max(60, dispatchBudget + 60) = 120, not 60 - so:
+#   LoadGame max(240,600)+60 = 660 (deferred verb) + SetSetting x2 240
+#   + mission 1800 (taken verbatim, no +60) + RunTests max(540,600)+60 = 660
+#   + FlushAndQuit 120
+#   -> sum 3480, NOT the 3300 an earlier cut of this comment claimed.
+# The mission budget is R1's 1200 plus the conclusion phase's own 900-frame bound
+# (~450 s at the 0.5 s poll cadence) plus slack, since the profile appends a whole phase
+# after the point where R1 finishes.
+# 3600 rather than 3500: the corrected sum clears by 120 where the mis-stated one
+# appeared to clear by 200 and actually cleared by 20. The green run's wall was 284 s, so
+# this bounds the defer path and nothing else.
+budgetSeconds = 3600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

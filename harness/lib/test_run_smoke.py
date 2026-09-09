@@ -5506,6 +5506,99 @@ class FillStageTests(unittest.TestCase):
         self.assertIn("has no template in this save", self._log())
 
 
+class WarpToUTSmokeTests(unittest.TestCase):
+    """WarpToUT over the REAL run loop (fake runtime): the RF-12 phase-4 verb.
+
+    THE POINT OF THE VERB, restated here because a reader of this file will
+    otherwise see a second TimeJump: TimeJump is an EPOCH SHIFT (the clock moves,
+    the vessel stays put), which is precisely why RF-12's reading run could not
+    crash a re-fly and filed RF12-NO-SEAM-PATH-CONCLUDES-A-REFLY-IN-FLIGHT.
+    WarpToUT drives the stock rails ladder so the world SIMULATES forward.
+
+    Three legs. The happy path proves the target reaches the wire and the run
+    passes with the `warptout complete` line the lanes pin. The maxRate leg proves
+    the optional cap rides the same wire. The refusal leg proves the verb is
+    FAIL-CLOSED on its target - a step with no `ut` is REJECTED, and a spec that
+    expects OK there classifies driver-INVALID rather than sliding through."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="parsek-harness-warp-")
+        self.instance = os.path.join(self.tmp, "instance")
+        os.makedirs(self.instance, exist_ok=True)
+        _write_manifest(self.instance, "stock-minimal")
+        self.template = os.path.join(self.tmp, "fresh-career")
+        os.makedirs(self.template, exist_ok=True)
+        with open(os.path.join(self.template, "persistent.sfs"), "w") as fh:
+            fh.write("GAME { }\n")
+        self._orig_results = run.RESULTS_DIR
+        run.RESULTS_DIR = os.path.join(self.tmp, "results")
+        self.logger = run.HarnessLogger(os.path.join(run.RESULTS_DIR, "warp_harness.log"))
+
+    def tearDown(self):
+        run.RESULTS_DIR = self._orig_results
+        self.logger.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _spec(self, args=None, expect="OK"):
+        spec = _make_spec(self.template, 30, 2400)
+        spec["id"] = "SMOKE-warptout"
+        spec["driver"]["steps"] = [
+            {"cmd": "LoadGame", "args": {"save": "${runSave}", "name": "persistent"},
+             "expect": "OK", "budget": 300},
+            {"cmd": "WarpToUT", "args": args if args is not None else {"ut": "1200"},
+             "expect": expect, "budget": 300},
+            {"cmd": "FlushAndQuit", "expect": "OK"},
+        ]
+        # No RunTests step, so the required pin must not name BATCH_COMPLETE (the
+        # batch-owner rule refuses a spec that demands one with nobody to own it).
+        spec["expectations"]["logContracts"]["required"] = (
+            ["warptout complete reachedUT=1200"] if expect == "OK" else [])
+        return spec
+
+    def _run(self, spec, mode="pass", **kwargs):
+        rt = FakeRuntime(mode, **kwargs)
+        result = run.run_attempt(spec, self.instance, self.tmp, rt, attempt=1,
+                                 prior_boot_crashed=False, logger=self.logger)
+        return result, rt
+
+    def _commands_written(self):
+        path = os.path.join(self.instance, "parsek-test-commands.txt")
+        if not os.path.isfile(path):
+            return []
+        with open(path, "r", encoding="utf-8") as fh:
+            return [l.strip() for l in fh if l.strip()]
+
+    def test_the_target_reaches_the_wire_and_the_run_passes(self):
+        result, _ = self._run(self._spec())
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"],
+                         "expected PASS, got %s (%s)" % (result["verdict"],
+                                                         result.get("subkind")))
+        self.assertTrue(result["driver"]["allExpectedMet"])
+        line = next(l for l in self._commands_written() if "cmd=WarpToUT" in l)
+        self.assertIn("ut=1200", line)
+        # The terminal payload distinguishes a real warp from a clamped wait.
+        responses = os.path.join(self.instance, "parsek-test-responses.txt")
+        with open(responses, "r", encoding="utf-8") as fh:
+            body = fh.read()
+        self.assertIn("cmd=WarpToUT verdict=OK", body)
+        self.assertIn("maxRate=1", body)
+
+    def test_the_optional_rate_cap_rides_the_same_wire(self):
+        result, _ = self._run(self._spec(args={"ut": "1200", "maxRate": "100"}))
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"], result.get("subkind"))
+        line = next(l for l in self._commands_written() if "cmd=WarpToUT" in l)
+        self.assertIn("maxRate=100", line)
+
+    def test_a_targetless_step_is_refused_and_reds_the_driver(self):
+        # FAIL-CLOSED: the seam refuses rather than warping somewhere arbitrary, and
+        # a spec that expected OK is a driver-INVALID, never a quiet pass.
+        result, _ = self._run(self._spec(args={}))
+        self.assertEqual(hlib.VERDICT_INVALID, result["verdict"])
+        row = next(s for s in result["driver"]["steps"] if s.get("cmd") == "WarpToUT")
+        self.assertEqual("REJECTED", row["verdict"])
+        self.assertFalse(row["met"])
+
+
 class RuntimeHandleSmokeTests(unittest.TestCase):
     """R10 over the REAL run loop (fake runtime): the runtime -> spec data path.
 

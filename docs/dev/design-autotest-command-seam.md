@@ -535,6 +535,41 @@ journal, verdicts) is designed once and the later commands slot in without a for
 >
 > Full contract below (`#### DeleteRecording`).
 
+> Update (WarpToUT, 2026-09-09): one further ADDITIVE verb, `WarpToUT ut=<absolute UT>
+> [maxRate=<float>]` - the SaveGame / ExportRenderManifest / ListHandles shape, never in
+> the reserved envelope (which carried no warp verb). It takes the table to **33
+> implemented / 5 reserved**; the reserved list is unchanged.
+>
+> **What it closes: RF12-NO-SEAM-PATH-CONCLUDES-A-REFLY-IN-FLIGHT.** RF-6 measured that
+> nine of the twelve session-gated in-game `Rewind` cells skip on a precondition a live
+> re-fly session alone cannot supply, and four of them name the same one: the re-fly must
+> be CONCLUDED - landed or crashed, so a terminal state is stamped - not merely flown.
+> RF-12 was authored to supply it and its reading run refuted BOTH candidate routes.
+> `CommitTree` answers `no-active-tree`, because a re-fly's provisional is an in-place
+> fork attached to a PENDING tree while `CommitTreeImpl` commits `ParsekFlight.activeTree`.
+> And `TimeJump` - the seam's only clock verb - is an EPOCH SHIFT, not a warp:
+> `ParsekFlight.TimeJumpTo` -> `TimeJumpManager.ExecuteJump` stops warp and moves the
+> clock instantly with frozen relative positions, so a jump "past the impact" leaves the
+> same vessel in the same place with a later clock. There was no wait verb either, so a
+> crash that has to happen in real time could not be sequenced against a batch.
+>
+> **Why it is not a second spelling of TimeJump.** The two drive different mechanisms and
+> a spec's wire token has to say which one it used - the identical argument that kept
+> `InvokeRewindToLaunch` separate from `InvokeRewind` and that keeps `FlySlot` reserved.
+> `TimeJump` moves the clock and freezes the world; `WarpToUT` drives the stock rails rate
+> ladder (`TimeWarp.SetRate`) so the world SIMULATES forward and the vessel really flies
+> its trajectory, re-enters, and can impact. Both stay implemented; neither is deprecated,
+> because a lane that wants a chain tip spawned across a long span without moving the
+> vessel still wants the epoch shift, and paying real seconds for it would be a
+> regression.
+>
+> **Deliberately GENERAL, first consumer notwithstanding.** Nothing about the contract is
+> re-fly-shaped: any lane that wants real elapsed game time (a decaying orbit, a descent,
+> a coast between burns) drives it the same way. The first consumers are RF-12W and
+> RF-12L.
+>
+> Full contract below (`#### WarpToUT`).
+
 > Update (`InvokeRewindToLaunch tree=latest`, 2026-09-02): ONE optional ARGUMENT VALUE,
 > no new verb and no table movement (still 31 implemented / 5 reserved). Additive under
 > the "readers ignore unknown keys" clause; every existing spec is byte-unaffected.
@@ -1258,6 +1293,113 @@ RewindPoints with real `Guid` ids and their quicksaves on disk, three
 `CommittedProvisional` slot tips), `ListHandles kind=rewindpoints` labelled `handles`,
 then `InvokeRewind rp=${handles.rp0} slot=<the open slot>` - the first driven rewind
 whose target id was never written into a spec.
+
+#### WarpToUT (additive; the REAL rails warp)
+
+**What it closes.** See the Update note above:
+RF12-NO-SEAM-PATH-CONCLUDES-A-REFLY-IN-FLIGHT. The short form is that the seam could move
+the CLOCK but not the WORLD, and every terminal-gated in-game `Rewind` cell needs a
+provisional that reached an ending.
+
+**Contract.** `RequiresFlight` - a hard precondition, not a convenience: rails warp is a
+flight-scene mechanism and the whole content of the verb is that the ACTIVE VESSEL travels
+while the clock advances. It is a DEFER on not-in-flight (the wrong-scene case is
+overwhelmingly a scene still settling in from the previous step), like every other
+FLIGHT-only verb. TWO-PHASE, and its completion is a genuine POLL rather than a settle:
+`TimeJump` lands its clock synchronously and only watches the spawn queue drain, while
+this verb watches a clock that advances over many frames. Budget 540 s
+(`DeferralBudget.WarpToUTSeconds`), which is the harness's own
+`MAX_DEFERRED_STEP_BUDGET_SECONDS` and is MEASURED rather than guessed: RF-12W's first
+reading run covered 270 game-seconds in 73 real seconds while the re-flown craft was above
+~30 km, and then stock's altitude ceiling dropped to rate index 0 with the craft still
+descending, so the remainder ran at 1x. An initial 300 s (InvokeRewind's size) could not
+cover that and would have ERRORed `warp-timeout` on a warp working exactly as designed. It
+is a `DEFERRED_SEAM_VERB` on the harness side, so the same 540 s per-step cap governs any
+budget a spec declares.
+
+| arg | values | meaning |
+|---|---|---|
+| `ut` | InvariantCulture float | REQUIRED, ABSOLUTE, and strictly in the future. Absent / unparseable is `REJECTED missing-warp-target` (a locale comma such as `600,0` fails: InvariantCulture only); non-finite or beyond 1e12 is `REJECTED target-out-of-range`; at or before now is `REJECTED backward-warp`. |
+| `maxRate` | InvariantCulture float `>= 1` | OPTIONAL cap on the rails rate the ladder may select. Absent means uncapped. Present-but-unparseable or below 1 is `REJECTED max-rate-invalid` - FAIL-CLOSED rather than ignored, so a mis-typed cap can never read as an uncapped warp. |
+
+**Why `ut` is absolute-only, unlike `TimeJump`'s `ut` / `deltaSeconds` pair.** A warp's own
+duration depends on the clamps stock applies, so a delta-relative target would land
+somewhere the spec author cannot name in a log contract. An absolute target is a number a
+`required` row can pin.
+
+**There are TWO ladders, and the applier picks the live one.** Stock keeps `warpRates`
+(rails) and `physicsWarpRates` (physics warp, `TimeWarp.Modes.LOW`) as separate arrays
+sharing one index space with very different values: rails index 3 is 50x, physics index 3
+is 4x. RF-12W's reading run 2 logged `rate=4 rateIndex=3` inside the atmosphere, which is
+what surfaced the pair. `SafeWarpRates` re-reads `TimeWarp.WarpMode` every frame (stock
+switches ladders on its own as a vessel climbs out of the atmosphere) and hands the live
+array to the pure selector, which never looks either up itself; `SafeMaxRateIndexForActiveVessel`
+answers with `maxPhysicsRate_index` in LOW mode, because the altitude limits are a RAILS
+concept that does not apply to the physics ladder.
+
+**The ladder is advisory; the read-back is truth.** Stock owns the real clamps - a body's
+rails altitude limit, a vessel under acceleration, an SOI-transition guard - and applies
+them inside `TimeWarp.SetRate`. The pure `TestCommandWarpToUT.SelectRateIndex` picks the
+highest rung whose rate is within the optional cap AND can still run for
+`MinRealSecondsAtRate` (2.5 s, stock's own `WarpTo` default `minTimeWarping`) before the
+target arrives, bounded by the ceiling stock publishes
+(`TimeWarp.GetMaxRateForAltitude`, lifted for a landed vessel and for no active vessel).
+The applier then reads `TimeWarp.CurrentRateIndex` back and logs `requested=` beside
+`applied=` and `clamped=`. **A clamp is therefore NOT a refusal.** It is a slower warp, and
+in the limit (a vessel under drag inside the atmosphere, pinned to 1x) the verb degrades
+into a real-time wait that the budget bounds. That is deliberate: refusing there would make
+the verb useless on the exact lane it was built for, and `maxRate=1` in the terminal
+payload is how a reader tells a waited span from a warped one. Only a warp that cannot be
+driven AT ALL is `REJECTED`: no `TimeWarp` controller (`warp-unavailable`) or a stock input
+lock on `ControlTypes.TIMEWARP` (`warp-locked`).
+
+**The warp is always lowered, and the OK is the proof.** The mirror-direction obligation
+(CLAUDE.md: a fix derived from an asymmetry must be checked in the mirror direction) for a
+verb that RAISES warp is that it must LOWER it deterministically. Three mechanisms, in
+increasing order of bluntness: the ladder selector walks itself down on approach and
+returns rung 0 inside the last 2.5 s purely as a function of the shrinking span; the
+applier force-sets rate 0 the instant the target is reached; and the timeout and exception
+paths force rate 0 BEFORE their terminal, so a run that classifies INVALID off this verb
+cannot hand a warped game to whatever runs next. Crucially the SUCCESS predicate itself
+requires `currentRateIndex <= 0`
+(`TestCommandWarpToUT.DecideWarpCompletion`), so an OK terminal is evidence the rate came
+down rather than an assumption about it - mutating that clause out reds exactly one xUnit
+cell, `DecideWarpCompletion_StillWaitingWhileTheGameIsStillWarped`.
+
+**Terminal payload.** `ut=<reached UT> target=<captured target> delta=<target - startUT>
+maxRate=<highest rate actually observed>`, all InvariantCulture round-trip ("R"). The
+timeout terminal is `ERROR msg=warp-timeout`.
+
+**Observability.** All at `[Parsek][INFO][TestCommands]`, InvariantCulture:
+`warptout start ut=<t> delta=<d>s maxRate=<c> rate=<r> ceilingIndex=<i>` once;
+`warptout rate requested=<i> applied=<j> rate=<r> ceilingIndex=<c> clamped=<bool>
+remaining=<s>s ut=<t>` on each ladder CHANGE (bounded by the ladder's own length, so it is
+plain Info rather than rate-limited); `warptout dewarp reason=<r> fromIndex=<i> rate=<r>`
+whenever the rate is forced down; and `warptout complete reachedUT=<u> ut=<t> rate=<r>
+maxRate=<m> elapsed=<e>s` on success. Refusals log `warptout refused reason=<r> ...` at
+Warn and the timeout logs at Error.
+
+**Pure decision.** `TestCommandWarpToUT` (`ResolveTargetUt`, `ResolveMaxRate`,
+`IsForwardWarp`, `EvaluateFeasibility`, `HasReached`, `SelectRateIndex`,
+`DecideWarpCompletion`, `BuildCompletePayload`, and the refusal-reason constants),
+xUnit-covered in `TestCommandWarpToUTTests.cs`. The partial
+`ParsekTestCommandAddon.WarpToUT.cs` only samples live KSP state and calls
+`TimeWarp.SetRate`.
+
+**Role tables.** `SEAM_VERB_TAIL_ROLE`: `world-mutating`, and in the strongest sense in
+that table - it does not merely move a clock, it simulates the world forward, so a vessel
+can re-enter, break up or impact inside the verb. `SEAM_VERB_POST_MISSION_ROLE`:
+`recording`, deliberately, even though the verb can end a vessel: its OK means "the clock
+reached the target and warp came back down", a statement about the SEAM rather than about
+a kerbal's physical in-world state, which is the whole content of the `outcome` set. What
+the warp did to the vessel is asserted from the terminal-state log lines a spec pins - the
+`ExitToSpaceCenter` carve-out verbatim.
+
+**First consumers.** `RF-12W-rewind-batch-after-warp-crash` (warp a re-flown atmospheric
+half past its impact so `ApplyTerminalDestruction` stamps `Destroyed` in flight, then run
+the 39-cell `Rewind` batch inside the still-live session) and
+`RF-12L-rewind-batch-after-landing` (the same shape against a conclusion the mission
+library flies).
 
 #### RF-3/A1 - `LoadGame allowLiveRecorder=refly`
 

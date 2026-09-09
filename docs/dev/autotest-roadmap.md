@@ -429,10 +429,60 @@ remains is, in order:
     (`_1659` armed, `_1700` control), and phase 3 answered the month-old
     REFLY-BATCH-BASELINE-DISCARDS-LIVE-SESSION: a genuine reload does NOT end a live
     re-fly session, so what ended S4.2's was the in-game batch's own preparation.
+    PHASE 4 (2026-09-09) BUILT THE INSTRUMENT RF-12 SAID WAS MISSING, in two halves.
+    The SEAM half is `WarpToUT` (33rd implemented verb, additive): a REAL rails warp
+    driving `TimeWarp.SetRate` up the stock ladder and back down, where `TimeJump` only
+    epoch-shifts the clock with the vessel frozen. Stock owns the clamps and applies them
+    inside `SetRate`, so a clamp is NOT a refusal - the verb degrades into a real-time
+    wait the budget bounds, and `maxRate=` in the payload tells the two apart. Its SUCCESS
+    predicate requires warp back at rate index 0, so an OK terminal is proof the game is
+    no longer warped, and the timeout and exception paths force it down too. The MISSION
+    half is `reflyConclusionProfile` on `r1_rewind_loop`, the only mission that re-flies a
+    slot and then flies the restored vessel: it cuts the throttle after the relaunch gate
+    and waits, debounced, for the re-flight to reach an ending, then hands over IN FLIGHT
+    with the recorder live and the session marker intact. Two lanes consume them, RF-12W
+    (crash) and RF-12L (non-destroyed), and they are two lanes rather than one because the
+    terminal a lane produces DECIDES which cells it can reach.
+    BOTH PHASE-4 LANES FLEW GREEN on 2026-09-09, and the closure is a CELL rather than a
+    token: `MergeCrashedReFlyCreatesCPSupersede`, which wants exactly
+    `TerminalKind.Crashed` and had never executed anywhere, now PASSES on both. Run ids,
+    verdicts and batch tallies live in `autotest-status.md`, which owns them. Two findings
+    came out of the reds on the way there, both filed: the in-game
+    `KerbalRecoveryOnSupersede` cell ignored the product's own pre-rewind tombstone guard
+    (TEST defect, fixed here, and fixing it stopped that cell spending the session for the
+    whole `Merge*` family), and two RF-family forbid clauses were themselves wrong and are
+    corrected off run evidence. One stamp-site correction worth carrying: the terminal
+    those lanes read is stamped at `ParsekFlight.TryAppendCapturedToTree` off the
+    pending-split destruction override, NOT by `ApplyTerminalDestruction`, which fires a
+    frame later on a different branch. Several paths can stamp a terminal; a lane must pin
+    the CONDITION, never one stamp site - RF-12W's first cut pinned the wrong one and would
+    have red a run whose re-fly concluded perfectly well.
+    PHASE 4's OWN FINDING, and the review panel CORRECTED the first version of it - the
+    correction is the useful half, so it is recorded rather than quietly replaced. The
+    first reading said "`TerminalState.Landed` is never stamped while the scene is FLIGHT"
+    and that is FALSE: `BackgroundRecorder.EndDebrisRecording` stamps
+    `DetermineTerminalState((int)v.situation, v)` on a debris-TTL tick, which returns
+    `Landed`, and `PhantomTerrainCrashOverride` and the finalization-cache applier stamp it
+    live too. Worse, the claim confused `TerminalState` with `TerminalKind`: the cell gates
+    on `TerminalKind.Landed`, which `TerminalKindClassifier` maps from SIX states including
+    `Docked` and `Boarded` - and `ParsekFlight.MergeBranch` stamps both of those live, on
+    the ACTIVE parent recording, with no scene exit.
+    WHAT IS ACTUALLY TRUE is about the conclusion ROUTE, not the stamp: a live re-fly
+    cannot reach any route that would stamp one on ITS OWN provisional. `CommitTreeFlight`
+    answers `no-active-tree` on a re-fly's pending tree (RF-12 measured it),
+    `ShowPostDestructionTreeMergeDialog` fires only on a destruction (which stamps
+    `Destroyed`), and `CommitTreeRevert` and scene exit both END the session the cell needs
+    live. `TryCommitReFlySupersede` has exactly one production caller,
+    `MergeDialog.MergeCommit`.
+    SO THE CELL IS NOT STRUCTURALLY UNREACHABLE AFTER ALL, and that is a lane rather than
+    a decision: a re-fly that DOCKS or is BOARDED stamps `Docked` / `Boarded` in flight
+    through `MergeBranch` and satisfies `TerminalKind.Landed` with the session still live.
+    Nobody has flown that shape, and it is now the cheapest route to the cell.
     STILL OPEN, and cheap enough to batch with item 7 rather than to rank on its own:
-    RF12-NO-SEAM-PATH-CONCLUDES-A-REFLY-IN-FLIGHT (both routes measured and named, so
-    the nine terminal-gated in-game cells stay unreachable from the harness); and
-    RF-9 / RF-5 have EARNED registry
+    the LANDED half of RF12-NO-SEAM-PATH-CONCLUDES-A-REFLY-IN-FLIGHT (the crash half is
+    closed by `WarpToUT`; the landed half is the structural finding above, so what is open
+    is the DECISION about whether that cell should exist in its current form, not a
+    missing instrument); and RF-9 / RF-5 have EARNED registry
     cells through gating tokens that nobody has CLAIMED yet, which is the one item here
     that moves `hlib.compute_coverage` and every number derived from it. Definitions,
     evidence and the per-lane readings: "The re-fly continuation program (RF-1..RF-12)"
@@ -596,7 +646,9 @@ mission profile, and no existing verb produces them.**
 
 `TestCommandVerbs.cs` declared 19 implemented verbs and 11 reserved when this was
 written. **At `e01d11f85` (2026-09-07) `hlib.IMPLEMENTED_SEAM_VERBS` carries 31 and
-`RESERVED_SEAM_VERBS` 5** (32 implemented from 2026-09-08, when R10 added `ListHandles`;
+`RESERVED_SEAM_VERBS` 5** (32 implemented from 2026-09-08, when R10 added `ListHandles`,
+and 33 from 2026-09-09, when the re-fly program's phase 4 added `WarpToUT` - the REAL
+rails warp, additive and distinct from the epoch-shifting `TimeJump`;
 the reserved five are unchanged) (`StopPlayback`, `StashSlot`, `FlySlot`,
 `CrashAfterJournalPhase`, `RunInvariantReport`); the struck rows below were
 promoted, each as a strict promotion with the wire token byte-identical. The
@@ -3623,7 +3675,7 @@ filler between calibration flights.
 
 ---
 
-## The re-fly continuation program (RF-1..RF-12)
+## The re-fly continuation program (RF-1..RF-12, RF-12W, RF-12L)
 
 Added 2026-09-09, after the first Rewind-to-Separation session an operator ever
 flew BY HAND end to end and collected: `logs/2026-09-08_2317_refly-a-manual`,
@@ -3682,6 +3734,8 @@ recordings.
 | RF-10 | `refly-autopilot-recorded` | THE READ SIDE of the same fix, out of committed bytes: the codec omits `mergeState` exactly when it is Immutable and reads a missing key back AS Immutable, so the carried open bit has to survive a ROUND TRIP - and nothing tested that. Six steps, no flight, no re-fly; `ReapOrphanedRPs: reaped=0 remaining=1` is the whole lane. First consumer of the fixture RF-9 produced |
 | RF-11 | `refly-autopilot-recorded` | BOTH HALVES of one RewindPoint re-flown in sequence - the lane RF-2 was commissioned as and could not host, because until this fixture landed every committed point had exactly ONE open slot. The reaper's scope is per-POINT-over-ALL-SLOTS, and the ordered half of that claim is carried by a STEP (the second `InvokeRewind` reads its id from a second enumeration) because presence-only matching cannot order two identical summary lines |
 | RF-12 | `refly-autopilot-recorded` | The in-game `Rewind` category in front of a CONCLUDED re-fly, which is what RF-6 measured nine of its twelve session-gated cells still wanting. No seam path can crash a re-fly (`TimeJump` is an epoch shift, not a warp), so the conclusion comes from `CommitTree`'s live-vessel terminal stamp - FLYING maps to SubOrbital - which trades `MergeInterruptionRecovery` (needs NotCommitted) for `MergeReFlyToSubOrbitalKeepsSlotOpen`, the only in-game pin of the whole SubOrbital seal chain |
+| RF-12W | `refly-autopilot-recorded` | PHASE 4. The same category in front of a re-fly CONCLUDED BY A CRASH, through the new `WarpToUT` seam verb: a REAL rails warp instead of `TimeJump`'s epoch shift, so the re-flown half travels its trajectory, re-enters and impacts, and `ApplyTerminalDestruction` stamps `Destroyed` while the scene is still FLIGHT. Closes the second of the two causes RF12-NO-SEAM-PATH-CONCLUDES-A-REFLY-IN-FLIGHT names |
+| RF-12L | `b2-lko-craft` + `rewind-b9`, flown | PHASE 4. The mirror: a re-fly flown to a NON-DESTROYED ending by the R1 machine's flag-gated `reflyConclusionProfile`, because the two terminals reach DISJOINT cell sets - `MergeReFlyStructuralMutationAutoSeals` defers on a `Destroyed` chain tip and `KerbalDualResidenceCarveOut` needs the re-fly vessel alive. It also carries the phase's negative finding as a pre-registered prediction: `TerminalState.Landed` is stamped ONLY through `FinalizeTreeRecordings`, so a landing cannot conclude a recording in flight and `MergeLandedReFlyCreatesImmutableSupersede` stays unreachable from any lane that does not leave FLIGHT |
 
 **ONE LIMITATION IS STRUCTURAL; THE OTHER WAS LIFTED IN PHASE 3.**
 

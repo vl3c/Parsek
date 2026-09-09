@@ -119,7 +119,12 @@ namespace Parsek.Tests
             // reserved envelope never carried a recording-deletion verb.
             // ListHandles is ADDITIVE for the same reason (31 -> 32; reserved unchanged
             // at 5): the reserved envelope never carried a handle-enumeration verb.
-            Assert.Equal(32, TestCommandVerbs.ImplementedVerbNames.Count);
+            // WarpToUT is ADDITIVE for the same reason again (32 -> 33; reserved
+            // unchanged at 5): the reserved envelope never carried a warp verb, and it is
+            // NOT a promotion of any reserved name - TimeJump, the only other clock verb,
+            // was already implemented and does a DIFFERENT thing (an epoch shift with the
+            // vessel frozen, where WarpToUT simulates forward).
+            Assert.Equal(33, TestCommandVerbs.ImplementedVerbNames.Count);
             Assert.Equal(5, TestCommandVerbs.ReservedVerbNames.Count);
         }
 

@@ -10,6 +10,31 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Automated testing: a test run can now let time really pass, instead of only moving
+  the clock.** The only way an automated run could skip ahead was to move the clock and
+  leave everything where it was, which is fine for watching a replay reach a moment far
+  in the future and useless for watching a craft get somewhere. A run can now ask the
+  game to fast-forward the way a player does, so the craft actually flies the time it
+  skips: it coasts, it comes back down, it re-enters, and it arrives wherever it was
+  going to arrive. Asked to reach a moment already past, or given a nonsense speed
+  limit, the request is turned away rather than guessed at, and the fast-forward is
+  always wound back down to normal speed before the run moves on - including when it
+  gives up. Where the game itself refuses to speed up, low in the atmosphere or under
+  load, the run simply waits out the time at normal speed and says so, rather than
+  reporting a skip that never happened.
+
+- **Automated testing: an abandoned flight re-flown by a test run can now reach an
+  ending while the run is still watching it.** A whole family of checks around
+  finishing a re-flown attempt had never once run, because they only apply to an
+  attempt that ended and no automated run could make one end without leaving the
+  flight first. With time now really passing, a re-flown craft reaches its own ending
+  in front of the checks that care about it. One related thing was established along
+  the way and is worth stating plainly: a crash marks the attempt as finished the moment
+  it happens, whereas the peaceful endings are only written down when something closes
+  the flight off - so a test run that never leaves the flight can reach the checks about
+  a crashed attempt, and reaching the ones about a settled attempt needs the run to end
+  the attempt some other way, such as docking it to something.
+
 - **Automated testing: a reload that goes ahead while a flight is being recorded now
   says so in the log.** The refusal always explained itself; the one case that is
   allowed through did not, so a reader of the log could not tell a load that skipped

@@ -12,7 +12,10 @@ covers is stated in its docstring, because a test that passes under its own
 mutation is not covering anything.
 """
 
+import ast
 import math
+import os
+import tomllib
 import unittest
 from dataclasses import replace
 
@@ -1416,6 +1419,512 @@ class R1ResolveParamTests(unittest.TestCase):
     def test_the_selection_is_read_verbatim(self):
         p = mlib.r1_params_from_dict({"rewindPointSelect": "first"})
         self.assertEqual("first", p.rewind_point_select)
+
+
+# ---------------------------------------------------------------------------
+# THE RE-FLY CONCLUSION PROFILE (`reflyConclusionProfile`, off by default).
+# ---------------------------------------------------------------------------
+#
+# WHAT IT IS FOR, and therefore what these cells guard: nine in-game `Rewind`
+# cells skip because the re-fly's PROVISIONAL recording carries no terminal state,
+# and `SupersedeCommit.ValidateSupersedeTarget` refuses a provisional whose
+# `TerminalStateValue` is null. R1 is the only mission that drives the InvokeRewind
+# slot re-fly AND then flies the restored vessel, so it is the only lane that can
+# take that flight to an ENDING. The profile rides past the closed loop, cuts the
+# throttle and waits - debounced, bounded - for the craft to be destroyed or to
+# read landed, then ends the mission IN FLIGHT with nothing committed.
+
+
+# The scripted flight the inertness cells replay. One entry per r1_decide frame,
+# from the top of the rewind cycle to a landed conclusion. Held as data rather than
+# as a sequence of calls so BOTH settings are driven through the IDENTICAL frames -
+# a replay that differed in its own inputs would prove nothing about the flag.
+CONCLUSION_REPLAY_FRAMES = (
+    dict(ut=900.0),                                             # -> COMMIT
+    dict(seam_tag=mlib.R1_TAG_COMMIT, ut=910.0),                # -> STOP
+    dict(seam_tag=mlib.R1_TAG_STOP, ut=911.0),                  # -> RECORDER-IDLE
+    dict(seam_tag=mlib.r1_state_probe_tag(0),                   # -> REWIND
+         payload=(("recording", "false"),), ut=912.0, altitude=80500.0,
+         situation="ORBITING", body="Kerbin"),
+    dict(seam_tag=mlib.R1_TAG_REWIND, ut=913.0),                # -> VERIFY
+    dict(ut=312.0, altitude=100.0, situation="PRE_LAUNCH",      # -> REWOUND
+         body="Kerbin"),
+    dict(ut=313.0, altitude=100.0, situation="PRE_LAUNCH"),     # -> RELAUNCH
+    dict(ut=320.0, altitude=600.0, situation="FLYING"),         # -> LOOP-POINTS
+    dict(seam_tag=mlib.r1_loop_probe_tag(0),                    # -> LOOP-CLOSED
+         payload=(("points", "42"),), ut=321.0, altitude=700.0,
+         situation="FLYING"),
+    # Everything past here is the profile's own leg. On the OFF path the machine is
+    # already done and every one of these frames is a no-op.
+    dict(ut=322.0, altitude=800.0, situation="FLYING"),         # -> CONCLUDE-COAST
+    dict(ut=340.0, altitude=900.0, situation="FLYING"),
+    dict(ut=380.0, altitude=20.0, situation="LANDED"),
+    dict(ut=381.0, altitude=20.0, situation="LANDED"),          # -> CONCLUDED
+)
+
+# The index of the frame whose reading opened the RELAUNCH gate (the climb to
+# 600 m). DERIVED, not hand-counted, so it tracks an edit to the script above.
+RELAUNCH_GATE_FRAME = next(
+    i for i, f in enumerate(CONCLUSION_REPLAY_FRAMES)
+    if f.get("situation") == "FLYING" and "seam_tag" not in f)
+
+
+def _conclusion_frame(spec):
+    """One TelemetrySnapshot from a CONCLUSION_REPLAY_FRAMES entry."""
+    kw = dict(spec)
+    tag = kw.pop("seam_tag", None)
+    payload = kw.pop("payload", ())
+    if tag is None:
+        return snap(**kw)
+    return seam(tag, payload=payload, **kw)
+
+
+def replay_conclusion(**over):
+    """Drive the scripted flight and return (state, trace).
+
+    The trace is what a LIVE run would notice on every frame: the phase it reached
+    and the exact actions it emitted. Comparing terminals alone would not do - two
+    runs can agree at the end and disagree about which frame commanded the stage."""
+    st = at_orbit(mlib.r1_initial_state(r1_params(**over)))
+    trace = []
+    for spec in CONCLUSION_REPLAY_FRAMES:
+        st, acts = mlib.r1_decide(st, _conclusion_frame(spec))
+        # Action is frozen/eq, so the WHOLE dataclass compares - all 13 fields, not the
+        # four an earlier cut picked. seam_args and seam_tag are the fields R1's own seam
+        # commands carry, and a divergence in either used to pass.
+        trace.append((st.phase, tuple(acts)))
+        if st.done:
+            break
+    return st, tuple(trace)
+
+
+def drive_to_conclude_coast(**over):
+    """Machine parked in CONCLUDE-COAST with the throttle already cut, having been
+    OBSERVED airborne on the re-flight."""
+    st = drive_to_loop_closed(reflyConclusionProfile=True, **over)
+    assert not st.done, "LOOP-CLOSED must be a waypoint on the profile"
+    st, acts = mlib.r1_decide(st, snap(ut=322.0, altitude=800.0, situation="FLYING"))
+    assert st.phase == mlib.R1_CONCLUDE_COAST, st.phase
+    assert [a.kind for a in acts] == [mlib.ACTION_SET_THROTTLE], acts
+    assert acts[0].value == 0.0, acts[0].value
+    assert st.refly_airborne_seen
+    return st
+
+
+class R1ReflyConclusionInertnessTests(unittest.TestCase):
+    """THE BYTE-INERTNESS CLAIM, made mechanically rather than by reading the diff.
+
+    The flag adds a waypoint at LOOP-CLOSED, two phases past it, one assertion row
+    and one frame-1 conflict predicate. Every committed R1 lane must drive EXACTLY
+    what it drove before, so this replays one whole scripted flight through the
+    machine with the key ABSENT and with it explicitly `false` and compares the two
+    things a live run would notice - the phase reached on every frame and the
+    action list emitted on every frame."""
+
+    def test_the_off_path_is_byte_identical_with_the_key_absent_or_false(self):
+        """MUTATION: make `_r1_enter`'s `done` unconditional on the new phase (drop
+        the `not ... refly_conclusion_profile` conjunct's mirror, i.e. stop LOOP-
+        CLOSED terminating on the OFF path) and this reds."""
+        self.assertNotIn("reflyConclusionProfile", R1_MISSION_PARAMS,
+                         "the committed R1 params must not carry the key - this "
+                         "cell's whole claim is about what the key's ABSENCE does")
+        absent_state, absent_trace = replay_conclusion()
+        false_state, false_trace = replay_conclusion(reflyConclusionProfile=False)
+        self.assertEqual(absent_trace, false_trace)
+        self.assertEqual(absent_state.phase, false_state.phase)
+        self.assertEqual(absent_state.verdict, false_state.verdict)
+        self.assertEqual(absent_state.phases_reached, false_state.phases_reached)
+
+    def test_the_off_path_still_closes_the_loop_and_stops_there(self):
+        """ANTI-VACUITY for the cell above: the comparison is between two runs that
+        actually got somewhere, and the OFF path really does terminate at the phase
+        the ON path rides past."""
+        state, _trace = replay_conclusion()
+        self.assertTrue(state.done)
+        self.assertIsNone(state.verdict)
+        self.assertEqual(mlib.R1_LOOP_CLOSED, state.phase)
+        self.assertNotIn(mlib.R1_CONCLUDE_COAST, state.phases_reached)
+        self.assertNotIn(mlib.R1_CONCLUDED, state.phases_reached)
+        # ...and none of the profile's own evidence was touched.
+        self.assertEqual("", state.conclusion_outcome)
+        self.assertFalse(state.refly_airborne_seen)
+
+    def test_the_on_path_diverges_only_after_the_relaunch_gate(self):
+        """Where the two paths part, asserted as a FRAME INDEX rather than as a
+        verdict. Everything up to and including the closed loop is the same flight;
+        the flag can only change what happens after it.
+
+        MUTATION: take the branch at the RELAUNCH gate instead of past LOOP-CLOSED
+        and the divergence index moves back onto the loop leg, which is exactly the
+        shape that would strand `postRewindFlightRecordedSomewhere` unmet."""
+        _off_state, off_trace = replay_conclusion()
+        on_state, on_trace = replay_conclusion(reflyConclusionProfile=True)
+        divergence = next(
+            i for i in range(max(len(off_trace), len(on_trace)))
+            if i >= len(off_trace) or i >= len(on_trace)
+            or off_trace[i] != on_trace[i])
+        self.assertGreater(divergence, RELAUNCH_GATE_FRAME)
+        self.assertEqual(off_trace[:divergence], on_trace[:divergence])
+        # The last common frame is the one that CLOSED THE LOOP, so both loop rows
+        # are resolved against real evidence on the profile too.
+        self.assertEqual(mlib.R1_LOOP_CLOSED, off_trace[divergence - 1][0])
+        self.assertEqual(len(off_trace), divergence)
+        self.assertIn(mlib.R1_LOOP_POINTS, on_state.phases_reached)
+        self.assertIn(mlib.R1_LOOP_CLOSED, on_state.phases_reached)
+
+
+class R1ReflyConclusionTests(unittest.TestCase):
+    """The conclusion leg itself: the two outcomes, the debounce, the airborne
+    precondition and the named give-up."""
+
+    def test_the_loop_closed_waypoint_cuts_the_throttle_and_hands_over(self):
+        """MUTATION: emit nothing on the waypoint and a still-burning engine flies
+        a re-flight that never ends - the conclusion wait would then expire on its
+        frame cap and read as a Parsek finding."""
+        st = drive_to_loop_closed(reflyConclusionProfile=True)
+        self.assertFalse(st.done, "LOOP-CLOSED is a waypoint on this profile")
+        st, acts = mlib.r1_decide(st, snap(ut=322.0, altitude=800.0,
+                                           situation="FLYING"))
+        self.assertEqual(mlib.R1_CONCLUDE_COAST, st.phase)
+        self.assertEqual([mlib.ACTION_SET_THROTTLE], [a.kind for a in acts])
+        self.assertEqual(0.0, acts[0].value)
+
+    def test_a_destroyed_re_flight_concludes_in_flight(self):
+        """THE OUTCOME THE PROFILE IS BUILT FOR.
+        `ParsekFlight.TerminalEvents.ApplyTerminalDestruction` stamps
+        `TerminalState.Destroyed` with the scene still FLIGHT, so a destruction is
+        the only terminal state a LIVE re-fly can reach without leaving it."""
+        st = drive_to_conclude_coast()
+        st, _ = mlib.r1_decide(st, snap(ut=400.0, vessel_lost=True))
+        self.assertEqual(mlib.R1_CONCLUDE_COAST, st.phase,
+                         "one read must not settle it - the debounce is 2")
+        self.assertEqual(1, st.conclusion_destroyed_streak)
+        st, acts = mlib.r1_decide(st, snap(ut=401.0, vessel_lost=True))
+        self.assertEqual(mlib.R1_CONCLUDED, st.phase)
+        self.assertTrue(st.done)
+        self.assertIsNone(st.verdict)
+        self.assertIsNone(st.loss_reason,
+                          "vessel loss is the OUTCOME here, never a terminal fail")
+        self.assertEqual(mlib.R1_CONCLUSION_DESTROYED, st.conclusion_outcome)
+        self.assertEqual(401.0, st.conclusion_ut)
+        # NOTHING is commanded on the way out: the mission ends IN FLIGHT with the
+        # recorder live, and the SPEC's own steps close the tree.
+        self.assertEqual([], acts)
+
+    def test_a_destroyed_conclusion_stamps_the_last_finite_clock(self):
+        """The frame that WITNESSES a destruction is very often the frame whose
+        telemetry stopped being readable. MUTATION: stamp `snapshot.ut` blindly and
+        the row reports a conclusion it cannot place in time."""
+        st = drive_to_conclude_coast()
+        st, _ = mlib.r1_decide(st, snap(ut=450.0, altitude=300.0,
+                                        situation="FLYING"))
+        self.assertEqual(450.0, st.conclusion_last_finite_ut)
+        st, _ = mlib.r1_decide(st, snap(ut=float("nan"), vessel_lost=True))
+        st, _ = mlib.r1_decide(st, snap(ut=float("nan"), vessel_lost=True))
+        self.assertEqual(mlib.R1_CONCLUDED, st.phase)
+        self.assertEqual(mlib.R1_CONCLUSION_DESTROYED, st.conclusion_outcome)
+        self.assertEqual(450.0, st.conclusion_ut)
+
+    def test_a_landed_re_flight_concludes_in_flight(self):
+        st = drive_to_conclude_coast()
+        st, _ = mlib.r1_decide(st, snap(ut=400.0, altitude=15.0,
+                                        situation="LANDED"))
+        self.assertEqual(mlib.R1_CONCLUDE_COAST, st.phase)
+        st, acts = mlib.r1_decide(st, snap(ut=401.0, altitude=14.0,
+                                           situation="LANDED"))
+        self.assertEqual(mlib.R1_CONCLUDED, st.phase)
+        self.assertTrue(st.done)
+        self.assertIsNone(st.verdict)
+        self.assertEqual(mlib.R1_CONCLUSION_LANDED, st.conclusion_outcome)
+        self.assertEqual("LANDED", st.conclusion_situation)
+        self.assertEqual(14.0, st.conclusion_altitude)
+        self.assertEqual([], acts)
+
+    def test_a_splashed_reading_concludes_on_the_default_set(self):
+        """SPLASHED ships in the default list, so a water landing is a conclusion
+        rather than a wait that expires."""
+        st = drive_to_conclude_coast()
+        for ut in (400.0, 401.0):
+            st, _ = mlib.r1_decide(st, snap(ut=ut, situation="SPLASHED"))
+        self.assertEqual(mlib.R1_CONCLUDED, st.phase)
+        self.assertEqual(mlib.R1_CONCLUSION_LANDED, st.conclusion_outcome)
+
+    def test_one_stray_landed_frame_does_not_conclude(self):
+        """THE DEBOUNCE, driven. MUTATION: conclude on the first agreeing read and
+        one glitched poll ends a flight that is still climbing."""
+        st = drive_to_conclude_coast()
+        st, _ = mlib.r1_decide(st, snap(ut=400.0, altitude=900.0,
+                                        situation="LANDED"))
+        self.assertEqual(1, st.conclusion_landed_streak)
+        self.assertEqual(mlib.R1_CONCLUDE_COAST, st.phase)
+        st, _ = mlib.r1_decide(st, snap(ut=401.0, altitude=950.0,
+                                        situation="FLYING"))
+        self.assertEqual(0, st.conclusion_landed_streak, "the streak starts over")
+        self.assertEqual(mlib.R1_CONCLUDE_COAST, st.phase)
+        self.assertEqual("", st.conclusion_outcome)
+
+    def test_a_stray_vessel_lost_frame_does_not_conclude(self):
+        """The mirror direction: a terminal that CERTIFIES a destruction gets the
+        same treatment as one that condemns."""
+        st = drive_to_conclude_coast()
+        st, _ = mlib.r1_decide(st, snap(ut=400.0, vessel_lost=True))
+        self.assertEqual(1, st.conclusion_destroyed_streak)
+        st, _ = mlib.r1_decide(st, snap(ut=401.0, altitude=900.0,
+                                        situation="FLYING"))
+        self.assertEqual(0, st.conclusion_destroyed_streak)
+        self.assertEqual(mlib.R1_CONCLUDE_COAST, st.phase)
+        self.assertEqual("", st.conclusion_outcome)
+
+    def test_a_craft_never_seen_airborne_cannot_conclude_landed(self):
+        """THE HARD PRECONDITION, and it is not defensive programming: GS-1 flight
+        1 MEASURED KSP reporting `situation = LANDED` at alt 230 m climbing at
+        113 m/s. MUTATION: drop the `refly_airborne_seen` conjunct and the stale
+        pad read ends the re-flight on the frames right after the relaunch."""
+        st = replace(drive_to_conclude_coast(), refly_airborne_seen=False)
+        for ut in (400.0, 401.0, 402.0):
+            st, _ = mlib.r1_decide(st, snap(ut=ut, altitude=230.0,
+                                            situation="LANDED"))
+        self.assertEqual(mlib.R1_CONCLUDE_COAST, st.phase)
+        self.assertEqual(0, st.conclusion_landed_streak)
+        self.assertEqual("", st.conclusion_outcome)
+
+    def test_a_craft_never_seen_airborne_can_still_be_destroyed(self):
+        """NOT SYMMETRIC, deliberately: a destruction is unambiguous whatever the
+        situation field says, and gating it would make a pad-side loss - a real
+        conclusion with a real Destroyed stamp - hang to the frame cap."""
+        st = replace(drive_to_conclude_coast(), refly_airborne_seen=False)
+        for ut in (400.0, 401.0):
+            st, _ = mlib.r1_decide(st, snap(ut=ut, vessel_lost=True))
+        self.assertEqual(mlib.R1_CONCLUDED, st.phase)
+        self.assertEqual(mlib.R1_CONCLUSION_DESTROYED, st.conclusion_outcome)
+
+    def test_a_re_flight_that_never_concludes_flakes_by_name(self):
+        """A bounded wait, and its give-up says which of the two readings never
+        arrived. MUTATION: let the phase run unbounded and the mission hangs to the
+        whole-run budget with no named give-up - the exact failure the section
+        header's frame-budget discipline exists to prevent."""
+        st = drive_to_conclude_coast(reflyConclusionFrames=4)
+        ut = 400.0
+        for _ in range(10):
+            st, _ = mlib.r1_decide(st, snap(ut=ut, altitude=900.0,
+                                            situation="FLYING"))
+            ut += 1.0
+            if st.done:
+                break
+        self.assertTrue(st.done)
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+        self.assertEqual(mlib.R1_CONCLUDE_COAST, st.flake_phase)
+        self.assertIn("never reached a terminal conclusion", st.flake_reason)
+        self.assertIn("LANDED", st.flake_reason)
+        self.assertIn("airborne seen=true", st.flake_reason)
+        self.assertIn("ValidateSupersedeTarget", st.flake_reason)
+        self.assertEqual("", st.conclusion_outcome)
+
+    def test_a_vessel_lost_outside_the_conclusion_phase_is_still_lethal(self):
+        """The exemption is ONE phase wide, never a blanket fail-open. MUTATION:
+        carve the whole post-rewind block into R1_VESSEL_LOSS_EXEMPT_PHASES and a
+        craft destroyed on the way up reads as a healthy re-flight."""
+        st = drive_to_relaunch(reflyConclusionProfile=True)
+        st, _ = mlib.r1_decide(st, snap(ut=330.0, vessel_lost=True))
+        self.assertTrue(st.done)
+        self.assertEqual(mlib.MISSION_ASSERT_FAIL, st.verdict)
+        self.assertIn(mlib.R1_RELAUNCH, st.loss_reason)
+
+
+class R1ReflyConclusionRowTests(unittest.TestCase):
+    """The ninth row. ADDITIVE, never substituting: the profile drives every leg
+    the eight existing rows describe, so a run that concludes still has to satisfy
+    all of them."""
+
+    def test_the_row_is_absent_with_the_key_off(self):
+        """MUTATION: append it unconditionally and every committed R1 lane grows a
+        row over a wait it never performed - which would fail every green flight."""
+        st, _ = replay_conclusion()
+        rows = mlib.evaluate_r1_assertions([], r1_params(), st)
+        names = [r.name for r in rows]
+        self.assertEqual(8, len(rows), names)
+        self.assertNotIn("reflyConcludedInFlight", names)
+
+    def test_the_row_is_appended_and_met_on_a_concluded_run(self):
+        st, _ = replay_conclusion(reflyConclusionProfile=True)
+        self.assertEqual(mlib.R1_CONCLUDED, st.phase)
+        params = r1_params(reflyConclusionProfile=True)
+        rows = mlib.evaluate_r1_assertions([], params, st)
+        names = [r.name for r in rows]
+        self.assertEqual(9, len(rows), names)
+        self.assertEqual("reflyConcludedInFlight", names[-1])
+        # The eight that were there before are unchanged, in order.
+        self.assertEqual(
+            ["reachedOrbitBeforeRewind", "treeCommittedBeforeRewind",
+             "recorderIdleBeforeRewind", "clockRewound", "vesselStateChanged",
+             "postRewindFlightObserved", "postRewindFlightRecordedSomewhere",
+             "rewindSeamAccepted"], names[:-1])
+        self.assertEqual([], [r.name for r in rows if not r.met],
+                         [r.to_dict() for r in rows])
+        row = rows[-1]
+        self.assertEqual(mlib.R1_CONCLUSION_LANDED, row.value)
+        self.assertEqual("LANDED", row.detail["observedSituation"])
+        self.assertEqual(381.0, row.detail["concludedUT"])
+        self.assertTrue(row.detail["airborneSeen"])
+        self.assertEqual(mlib.R1_CONCLUSION_DEBOUNCE_K, row.detail["debounceK"])
+        self.assertEqual("observed", row.detail["channel"])
+        self.assertEqual(["LANDED", "SPLASHED"], row.detail["acceptedSituations"])
+
+    def test_the_row_fails_when_no_conclusion_was_observed(self):
+        """THE BOUND, read off the row rather than off the flake reason. MUTATION:
+        make the row read `R1_CONCLUDED in phases` alone (or default it to met) and
+        a re-flight that never ended reports a green conclusion."""
+        st = drive_to_conclude_coast()
+        params = r1_params(reflyConclusionProfile=True)
+        rows = mlib.evaluate_r1_assertions([], params, st)
+        row = [r for r in rows if r.name == "reflyConcludedInFlight"][0]
+        self.assertFalse(row.met)
+        self.assertIsNone(row.value)
+        self.assertEqual("UNREAD", row.detail["observedSituation"])
+        self.assertIsNone(row.detail["concludedUT"])
+
+    def test_the_row_names_a_destroyed_outcome(self):
+        st = drive_to_conclude_coast()
+        for ut in (400.0, 401.0):
+            st, _ = mlib.r1_decide(st, snap(ut=ut, vessel_lost=True))
+        rows = mlib.evaluate_r1_assertions(
+            [], r1_params(reflyConclusionProfile=True), st)
+        row = [r for r in rows if r.name == "reflyConcludedInFlight"][0]
+        self.assertTrue(row.met)
+        self.assertEqual(mlib.R1_CONCLUSION_DESTROYED, row.value)
+        # HONEST SCOPE: the mission observes that the FLIGHT ended, never that
+        # Parsek stamped a TerminalState on the re-fly PROVISIONAL.
+        self.assertIn("TerminalState", row.detail["doesNotProve"])
+
+
+class R1ReflyConclusionConflictTests(unittest.TestCase):
+    """The frame-1 conflict predicate: a params set the profile cannot honour dies
+    before the launch click, not after an ascent AND a rewind."""
+
+    def test_the_predicate_is_inert_on_every_lane_that_does_not_declare_it(self):
+        conflict = mlib.r1_refly_conclusion_profile_conflict
+        self.assertEqual("", conflict(r1_params()))
+        self.assertEqual("", conflict(mlib.r1_params_from_dict({})))
+        self.assertEqual("", conflict(r1_params(rewindPointId="",
+                                                rewindPointSelect="first")))
+        self.assertEqual("", conflict(r1_params(reflyConclusionProfile=False,
+                                                reflyConclusionSituations=[])))
+        # ...and the flag ALONE is enough: every knob it needs has a default.
+        self.assertEqual("", conflict(r1_params(reflyConclusionProfile=True)))
+
+    def test_an_empty_situation_list_is_refused_by_name_on_frame_one(self):
+        """`[]` is a spec author saying "accept nothing". The params reader takes
+        the key's own value rather than treating [] as absent precisely so this
+        refusal lands on frame 1. MUTATION: restore an `or (...)` default in the
+        reader and this cell reds because the machine flies happily with the
+        default set the spec did not ask for."""
+        p = r1_params(reflyConclusionProfile=True, reflyConclusionSituations=[])
+        self.assertEqual((), p.refly_conclusion_situations)
+        self.assertIn("EMPTY reflyConclusionSituations",
+                      mlib.r1_refly_conclusion_profile_conflict(p))
+        st = mlib.r1_initial_state(p)
+        st, acts = mlib.r1_decide(st, snap(ut=0.0, situation="PRE_LAUNCH"))
+        self.assertTrue(st.done)
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+        self.assertEqual(mlib.R1_ASCENT, st.flake_phase)
+        self.assertEqual([], acts, "nothing is commanded on a refused params set")
+
+    def test_a_bound_that_bounds_nothing_is_refused_by_name(self):
+        p = r1_params(reflyConclusionProfile=True, reflyConclusionFrames=0)
+        self.assertIn("reflyConclusionFrames=0",
+                      mlib.r1_refly_conclusion_profile_conflict(p))
+        st, acts = mlib.r1_decide(mlib.r1_initial_state(p),
+                                  snap(ut=0.0, situation="PRE_LAUNCH"))
+        self.assertTrue(st.done)
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+        self.assertEqual([], acts)
+
+    def test_the_pre_existing_target_guards_still_fire_first(self):
+        """The new gate is placed LAST in the frame-1 block, so an existing lane's
+        target fault still reads exactly the way it always did."""
+        p = r1_params(rewindSlot=-1, reflyConclusionProfile=True,
+                      reflyConclusionSituations=[])
+        st, _ = mlib.r1_decide(mlib.r1_initial_state(p), snap(ut=0.0))
+        self.assertIn("rewind target unresolved", st.flake_reason)
+
+
+class R1ReflyConclusionPhaseBookkeepingTests(unittest.TestCase):
+    """The phase tuples. The two new names are listed SEPARATELY from R1_PHASES
+    because CL-3's identity claim reads that tuple as the graph every lane drives
+    (`CL3_PHASES == R1_PHASES` minus ASCENT / COMMIT / RESOLVE), and these two are
+    reachable only when a spec sets the flag."""
+
+    def test_the_profile_phases_are_their_own_tuple_and_the_union_is_exact(self):
+        self.assertEqual((mlib.R1_CONCLUDE_COAST, mlib.R1_CONCLUDED),
+                         mlib.R1_CONCLUSION_PHASES)
+        self.assertEqual(mlib.R1_PHASES + mlib.R1_CONCLUSION_PHASES,
+                         mlib.R1_ALL_PHASES)
+        self.assertEqual(len(set(mlib.R1_ALL_PHASES)), len(mlib.R1_ALL_PHASES),
+                         "a duplicated phase NAME would make phases_reached lie")
+        for phase in mlib.R1_CONCLUSION_PHASES:
+            self.assertNotIn(phase, mlib.R1_PHASES)
+
+    def test_only_the_conclusion_phase_is_exempt_from_a_lost_vessel(self):
+        self.assertEqual((mlib.R1_REWIND, mlib.R1_CONCLUDE_COAST),
+                         mlib.R1_VESSEL_LOSS_EXEMPT_PHASES)
+        self.assertNotIn(mlib.R1_CONCLUDED, mlib.R1_VESSEL_LOSS_EXEMPT_PHASES)
+        self.assertNotIn(mlib.R1_VERIFY, mlib.R1_VESSEL_LOSS_EXEMPT_PHASES)
+
+    def test_the_schema_declares_the_flag_as_a_bounded_free_bool(self):
+        """A bound on a bool reads as checked and checks nothing - the repo-wide
+        sweep `test_bounds_are_only_declared_on_types_that_consult_them` reds on
+        one, and this cell names the same rule at the point of authorship."""
+        path = os.path.join(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))), "r1_rewind_loop.schema.toml")
+        with open(path, "rb") as fh:
+            schema = tomllib.load(fh)
+        decl = schema["params"]["reflyConclusionProfile"]
+        self.assertEqual("bool", decl["type"])
+        self.assertFalse(decl["required"])
+        self.assertNotIn("min", decl)
+        self.assertNotIn("max", decl)
+        frames = schema["params"]["reflyConclusionFrames"]
+        self.assertEqual("int", frames["type"])
+        self.assertEqual(1, frames["min"])
+        self.assertEqual("list",
+                         schema["params"]["reflyConclusionSituations"]["type"])
+
+    def test_every_conclusion_key_the_reader_reads_is_declared(self):
+        """AST, never a regex over the source text: a regex also sees comments, and
+        this repo has been bitten by that three times. Walks the reader's own
+        `params.get("<key>")` calls and requires a schema block for each - an
+        undeclared key is never type-checked, so a spec typo lands as a silent
+        default."""
+        with open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               "mlib.py"), encoding="utf-8") as fh:
+            tree = ast.parse(fh.read())
+        fn = next(n for n in ast.walk(tree)
+                  if isinstance(n, ast.FunctionDef)
+                  and n.name == "r1_params_from_dict")
+        read = {n.args[0].value for n in ast.walk(fn)
+                if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                and n.func.attr == "get" and n.args
+                and isinstance(n.args[0], ast.Constant)
+                and isinstance(n.args[0].value, str)}
+        conclusion_keys = {k for k in read if k.startswith("reflyConclusion")}
+        self.assertEqual(
+            {"reflyConclusionProfile", "reflyConclusionFrames",
+             "reflyConclusionSituations"}, conclusion_keys)
+        path = os.path.join(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))), "r1_rewind_loop.schema.toml")
+        with open(path, "rb") as fh:
+            declared = set(tomllib.load(fh)["params"])
+        # BOTH DIRECTIONS. The read-not-declared half catches a params.get() that no
+        # schema block admits; the declared-not-read half (below) catches an INERT schema
+        # block, which is the failure that looks like coverage and is not. The kx cell this
+        # is modelled on asserts both, and the review panel caught that this one did not.
+        self.assertEqual(set(), conclusion_keys - declared,
+                         "the machine reads a key the schema does not declare")
+        self.assertEqual(set(), {k for k in declared if k.startswith("reflyConclusion")}
+                         - conclusion_keys,
+                         "the schema declares a conclusion key the machine never reads "
+                         "(an inert block is the failure that looks like coverage)")
+
 
 if __name__ == "__main__":
     unittest.main()

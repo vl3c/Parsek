@@ -255,6 +255,39 @@ def main(argv=None):
                 _append(responses_path, "id=%s cmd=%s verdict=OK seq=%d %s\n"
                         % (cid, cmd, seq, handles))
                 continue
+            # WarpToUT. Answered explicitly rather than by the bare-OK default for
+            # two reasons a smoke leg needs: the verb is FAIL-CLOSED on a MISSING or
+            # unparseable `ut` (which a smoke leg must be able to drive without a
+            # game), and its OK carries a `warptout complete` log line a spec's
+            # logContract can pin.
+            #
+            # WHAT THE STUB DELIBERATELY DOES NOT MODEL, so nobody writes a spec
+            # against a refusal it cannot reproduce: it has no clock, so it cannot
+            # answer `backward-warp`; it does not range-check, so a non-finite or
+            # absurd target returns OK where the real seam answers
+            # `target-out-of-range`; and it ignores `maxRate` entirely, so
+            # `max-rate-invalid` is unreachable here. It also does NOT model the
+            # rails ladder - there is no world to simulate - so it lands the clock at
+            # the requested target and reports maxRate=1, which is the shape a
+            # fully-clamped real warp reports too.
+            if cmd == "WarpToUT":
+                raw_ut = fields.get("ut")
+                try:
+                    warp_ut = float(raw_ut)
+                except (TypeError, ValueError):
+                    _append(responses_path,
+                            "id=%s cmd=%s verdict=REJECTED seq=%d "
+                            "msg=missing-warp-target\n" % (cid, cmd, seq))
+                    continue
+                _append(log_path,
+                        "[LOG] [Parsek][INFO][TestCommands] warptout complete "
+                        "reachedUT=%s ut=%s rate=1 maxRate=1 elapsed=0.1s\n"
+                        % (raw_ut, raw_ut))
+                _append(responses_path,
+                        "id=%s cmd=%s verdict=OK seq=%d ut=%s target=%s "
+                        "delta=%s maxRate=1\n"
+                        % (cid, cmd, seq, raw_ut, raw_ut, warp_ut))
+                continue
             payload = ""
             if verdict == "OK" and cmd == "LoadGame":
                 payload = " scene=%s" % landing_scene

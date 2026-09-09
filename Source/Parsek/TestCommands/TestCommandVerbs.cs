@@ -27,7 +27,7 @@ namespace Parsek.TestCommands
     /// </summary>
     internal static class TestCommandVerbs
     {
-        // Implemented (v1 + M-C1 batch 1 + M-C1.1 follow-up + M-C2 EVA batch + EVA-4 + R12 + the arrival-validation lane + the player-workflow lane + M-A7 + the map-view pair + InvokeRewindToLaunch + the logistics pair + DeleteRecording + ListHandles): 32 verbs.
+        // Implemented (v1 + M-C1 batch 1 + M-C1.1 follow-up + M-C2 EVA batch + EVA-4 + R12 + the arrival-validation lane + the player-workflow lane + M-A7 + the map-view pair + InvokeRewindToLaunch + the logistics pair + DeleteRecording + ListHandles + WarpToUT): 33 verbs.
         // M-C1 promoted InvokeRewind, AnswerMergeDialog, TimeJump, and KscAction from
         // Reserved to Implemented (design-autotest-seam-verbs-c1.md). The M-C1.1 follow-up
         // added SaveGame (the M-B3 L2/R6 persist-before-reload dependency). M-C2 added the
@@ -158,6 +158,21 @@ namespace Parsek.TestCommands
             // those readers. A REQUIRED kind= keeps each family on its own bounded line
             // and leaves the four-field payload byte-identical.
             "ListHandles",
+            // WarpToUT. ADDITIVE (32 -> 33 implemented, reserved unchanged at 5), the
+            // ExportRenderManifest / ListHandles shape: the reserved envelope never
+            // carried a warp verb. It is emphatically NOT a second spelling of TimeJump,
+            // and the difference is the whole reason it exists. TimeJump is an EPOCH
+            // SHIFT (TimeJumpManager.ExecuteJump stops warp and moves the clock instantly
+            // with frozen relative positions), so the clock advances and the vessel does
+            // not travel. WarpToUT drives the stock rails rate ladder (TimeWarp.SetRate),
+            // so the world SIMULATES forward: a descending vessel really re-enters and
+            // really impacts. RF-12's reading run measured that gap and filed it as
+            // RF12-NO-SEAM-PATH-CONCLUDES-A-REFLY-IN-FLIGHT - no seam path could conclude
+            // a re-fly in flight, because the only clock verb did not move the vessel.
+            // Folding the two into one verb would make the wire token ambiguous about
+            // which of the two clock mechanisms a spec exercised, exactly the argument
+            // that kept InvokeRewindToLaunch separate from InvokeRewind.
+            "WarpToUT",
         };
 
         // Reserved (recognized, not implemented in v1): 5 verbs.
