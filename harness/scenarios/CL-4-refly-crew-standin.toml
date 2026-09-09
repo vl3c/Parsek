@@ -1,0 +1,159 @@
+schema = 1
+id = "CL-4-refly-crew-standin"
+tier = "operator"
+# =====================================================================================
+# R12 STAGE B, THE LAST FLIGHT-CLOSABLE CELL: D12 `stand-ins`.
+#
+# WHAT STAGE B TURNED OUT TO BE. The roadmap's Stage B block ("the TOMBSTONE half
+# remains UNBUILT") was stale when this lane was written: `CL-3-refly-crew-tombstone`
+# already rewinds across a crew loss, re-flies, merges, and claims D9 `tombstones`
+# (2026-08-03) and D12 `dead-crew-strip` (2026-08-05) off armed gates. Of the four cells
+# the block named, `tombstone-rep-penalty` is UNREACHABLE BY ANY FLIGHT (the registry's
+# own D12 record: no production code constructs a `ReputationPenaltySource.KerbalDeath`
+# action, so a crew death produces no Parsek rep row a tombstone could reverse - a
+# product change, not a lane), which leaves exactly one: `stand-ins`.
+#
+# WHAT `stand-ins` MEANS. A Parsek-GENERATED stand-in kerbal: `KerbalRoster
+# .TryCreateGeneratedStandIn` -> `Stand-in generated: '<name>' (<trait>) for slot
+# '<owner>' depth <d>` (KerbalsModule.cs). H31 declined the cell because no committed
+# fixture x preset generates one ("the stand-ins these cells use are pre-existing roster
+# kerbals behind a synthetic original"). CL-3's own runs DO generate one, and the
+# registry's D12 re-pin record says why: the tombstone releases the death-sourced
+# PERMANENT reservation (`permanent=1 -> 0`), the surviving temporary reservation for
+# the re-flown, alive kerbal gets a slot, and `PostWalk` fills that slot with a
+# generated stand-in - `Stand-in generated: 'Tilan Kerman' (Pilot) for slot 'Jebediah
+# Kerman' depth 0` on `2026-08-04_2136`, `'Gusrigh Kerman'` on `2026-08-03_2147` (the
+# archived log under `logs/`). The stand-in is the strip WORKING, which is also why the
+# gate below is REQUIRED and not forbidden: the registry records that a `forbidden
+# "Stand-in generated"` candidate would pass exactly when the tombstone did nothing (a
+# Dead row makes the reservation permanent and permanents get no slot).
+#
+# THE SHAPE IS CL-3's, STEP FOR STEP AND PARAMETER FOR PARAMETER. Same fixture
+# (`career-pad-craft`, the only committed CAREER template with a VESSEL), same injected
+# `rewind-crew-loss` preset (root -> crewless probe in slot 0 + crewed, Destroyed pod
+# `cl-pod-a` in slot 1 + RewindPoint `rp_cl_root`), same mission machine
+# (`cl3_refly_crew_tombstone`: STOP -> RECORDER-IDLE -> REWIND rp_cl_root slot 1 ->
+# VERIFY -> RELAUNCH -> LOOP-POINTS), same `AnswerMergeDialog merge` conclusion. CL-3's
+# header owns the reasoning for every one of those choices (the crewless-probe slot 0
+# trap, the recording-active precondition carried as observed, the AnswerMergeDialog
+# FIFO-starvation finding, the `vesselStateChanged` permanent-red trap); this file does
+# not repeat it. What differs: the claim (`stand-ins`, not the two cells CL-3 owns - a
+# cell pins CL-3's D12 array to exactly `["dead-crew-strip"]`, so the house pattern
+# is a new id, as CL-1 -> CL-2 was), the one added REQUIRED token, and a
+# `verboseLogging=true` step so the reservation walk's own lines are in the log.
+#
+# WHY THE TOMBSTONE TOKENS ARE STILL REQUIRED HERE. The stand-in is downstream of the
+# strip; a merge that supersedes nothing tombstones nothing, releases nothing, and
+# generates no stand-in. Requiring the chain (supersede rows -> Kerbal= tombstone ->
+# permanent=0 -> Stand-in generated) makes the run red at the FIRST broken link instead
+# of at the last, so a red names its cause.
+#
+# READING RUN (2026-09-09, `2026-09-09_1813_CL-4-refly-crew-standin`): PASS attempt 1,
+# every REQUIRED token matched under this id - the chain `Added 1 supersede relations
+# for subtree rooted at cl-pod-a` -> `Tombstoned 1 career actions (... Kerbal=1 ...)`
+# -> `Recomputed after tombstones: 1 reservations remain (permanent=0 temporary=1)` ->
+# `Stand-in generated: '<name>' (Pilot) for slot 'Jebediah Kerman' depth 0` - and the
+# report-only rewind facets read `supersedeRows=1 tombstones=1 rewindPoints=0`, CL-3's
+# exact numbers. The `[expectations.rewind]` block is ARMED on them below. (A first
+# attempt, `2026-09-09_1811`, was INVALID(stage-inject-noop): the fresh worktree had not
+# built `Parsek.Tests`, which the `rewind-crew-loss` injector runs - harness-side.)
+# ARMED RE-FLIGHT `2026-09-09_1815_CL-4-refly-crew-standin`: PASS attempt 1, every
+# verifier PASS/SKIPPED with `[expectations.rewind]` gating. NEGATIVE CONTROL `2026-09-09_1817_CL-4-refly-crew-standin`
+# (`tombstones` temporarily pinned to `min = 2`): PARSEK-FAIL(save-structure) on exactly
+# `rewind.tombstones 1 < min 2`, nothing else moved. LIVE-PROVEN.
+# =====================================================================================
+description = "Stage B's last flight-closable cell, D12 stand-ins: CL-3's crew-loss re-fly (career-pad-craft + rewind-crew-loss, rewind rp_cl_root slot 1, relaunch, merge) with the tombstone's release of the death-sourced permanent reservation gated through to the Parsek-generated stand-in that release triggers."
+instanceProfile = "stock-minimal"
+tags = ["rewind", "refly", "merge", "tombstone", "crew-loss", "stand-in", "CL4", "D12",
+        "kerbin", "career", "reading-run"]
+
+[fixture]
+saveTemplate       = "fixtures/saves/career-pad-craft"
+injectedRecordings = "rewind-crew-loss"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "cl3_refly_crew_tombstone"
+steps = [
+  { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
+  { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "true" }, expect = "OK" },
+  # The reservation walk's per-slot lines (`Reservation: ... endUT=INDEFINITE (Dead)`,
+  # the PostWalk slot creation) are Verbose; `Stand-in generated` itself is Info.
+  { cmd = "SetSetting",        args = { name = "verboseLogging", value = "true" },  expect = "OK" },
+  { phase = "mission",                                                    expect = "MISSION-OK", budget = 600 },
+  { cmd = "AnswerMergeDialog", args = { choice = "merge" },               expect = "OK", budget = 240 },
+  { cmd = "RecordingState",                                               expect = "OK" },
+  { cmd = "FlushAndQuit",                                                 expect = "OK" },
+]
+
+[driver.missionParams]
+# CL-3's, value for value. `rewindSlot = 1` is the crewed pod; slot 0 is the crewless
+# probe, and rewinding onto it would merge cleanly and tombstone nothing.
+rewindPointId             = "rp_cl_root"
+rewindSlot                = 1
+stopFrames                = 40
+idleFrames                = 40
+rewindFrames              = 40
+verifyFrames              = 40
+minUtRegressionSeconds    = 1.0
+relaunchThrottle              = 1.0
+relaunchMinAltitudeGainMeters = 100.0
+relaunchFrames                = 240
+loopPointsFrames              = 40
+
+[dimensionsCovered]
+# CLAIM-IS-NOT-GATE: `stand-ins` is claimed off the REQUIRED `Stand-in generated ... for
+# slot 'Jebediah Kerman'` token, observed under this id on the reading run
+# (`2026-09-09_1813`), on the registry's pinned definition (a Parsek-GENERATED stand-in
+# for a reservation slot). D9 `tombstones` and D12 `dead-crew-strip` are CL-3's and are
+# not re-claimed here.
+D12 = ["stand-ins"]
+D14 = ["kerbin", "career", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+count = { min = 1 }
+
+[expectations.logContracts]
+# The chain, in the order the merge tail runs it. Every token is MEASURED on CL-3's
+# runs (`2026-08-03_1834` / `_1844`, `2026-08-04_2136` / `_2324`); the last one is the
+# subject. The owner name is the fixture's baked pod crew (`RewindCrewLossFixture
+# .DeadCrewName`), so the literal is stable; the stand-in's own name is generated and
+# is a class.
+required  = ["Recording started",
+             "Re-Fly \\(Rewind-to-Separation\\) StartInvoke", "Invocation complete",
+             "ConsumePostLoad: restoring bundle with route-retire cutoffUT=",
+             "Restored: recs=.* pendingScience=",
+             "Added [1-9][0-9]* supersede relations for subtree rooted at",
+             "Tombstoned [1-9][0-9]* career actions \\(.*Kerbal=[1-9]",
+             "Recomputed after tombstones: [0-9]+ reservations remain \\(permanent=0 ",
+             "Stand-in generated: '[A-Za-z]+ Kerman' \\((Pilot|Engineer|Scientist|Tourist)\\) for slot 'Jebediah Kerman' depth 0"]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[expectations.rewind]
+# ARMED 2026-09-09 on the reading run's own facets (`supersedeRows=1 tombstones=1
+# rewindPoints=0`, CL-3's numbers): the save-side half of the chain the log tokens
+# gate. `rewindPoints` is deliberately unpinned - the merge journal reaps the RP, so
+# asserting its presence post-merge would assert the opposite of correct behaviour
+# (CL-3's reasoning).
+gating        = true
+supersedeRows = { min = 1 }
+tombstones    = { min = 1 }
+
+[expectations.unityExceptions]
+maxTotal = 0
+
+[runtime]
+# CL-3's arithmetic plus one SetSetting: LoadGame max(240,600)+60 = 660, SetSetting x2
+# 120, mission 600, AnswerMergeDialog max(240,120+60) = 240, RecordingState 120,
+# FlushAndQuit 120 -> 1860. 2100 clears it by 240.
+budgetSeconds = 2100
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

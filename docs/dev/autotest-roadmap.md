@@ -83,15 +83,18 @@ EVA / CL / S0.x / H22-H25 / V1 / BDOCK waves and R14's MC-1/MC-2 took it from
 55 to 68. Adding a scenario is not the same as covering a cell. Re-derive
 these rather than editing them by memory; both numbers have moved many times.
 
-### Coverage: 170 of 248 registry cells (was 83 of 241 at the baseline, 108 of 242 on 2026-08-04, 162 of 247 on 2026-09-07 before G1 / G3b closed, 163 of 248 on 2026-09-08 before the ghost-replay claim pass, 166 after chain-interaction)
+### Coverage: 171 of 248 registry cells (was 83 of 241 at the baseline, 108 of 242 on 2026-08-04, 162 of 247 on 2026-09-07 before G1 / G3b closed, 163 of 248 on 2026-09-08 before the ghost-replay claim pass, 166 after chain-interaction)
 
-Re-derived 2026-09-09 on `refly-lanes` at `659be2a68`:
-`hlib.compute_coverage(specs, [], registry)` over the 245 committed specs and
-`harness/coverage/registry.toml` returns exactly:
+Re-derived 2026-09-09 on `stage-b-tombstones` (after `refly-lanes` at `659be2a68`
+read 170 of 248 over 245 specs): `hlib.compute_coverage(specs, [], registry)` over the
+248 committed specs and `harness/coverage/registry.toml` returns exactly:
 
 ```
-values 248   covered 170   uncovered 78   expectedFailValues 0   xpass 0
+values 248   covered 171   uncovered 77   expectedFailValues 0   xpass 0
 ```
+
+The one cell that moved is D12 `stand-ins` (`CL-4-refly-crew-standin`, the Stage B
+closure); D12 is 6 of 10.
 
 UNCHANGED by the thirteen RF specs, and that is the program's own decision rather than
 an accident: none of them claims a NEW cell, so the covered / uncovered SET is
@@ -178,7 +181,7 @@ takes:
 | D6 | playback / ghosts | 13 / 18 | Register item 3 took the three cells that had subjects on 2026-09-08 (`watch-mode-retarget-explosion-hold`, `zone-transitions`, `reentry-fx`; the reentry replay surface stays open as Tier A item 3's second half); `loop-period-modes`, `self-overlap`, `overlap-expiry-soft-caps`, `attitude-preservation` need loop-cycle instruments (Tier C); `commnet-relay` is vacuous until a generator writes `AntennaSpecs`. |
 | D4 | track sections / optimizer | 6 / 12 | A CLAIM GAP of the H57 kind: `Optimizer` executes whole on LT-2 but `hysteresis`, `env-body-split`, `surface-graze-suppression`, `tail-trim`, `seed-event-split`, `split-at-ut` have no cell-level gating token. Same fix as the D3 / D6 claim pass in register item 3. |
 | D5 | tree topology | 8 / 12 | `staging-debris-ttl` / `-promotion` (Tier A item 5, sized as two lanes), `dock-merge-same-tree` (Tier 4), `bg-on-rails` (`Recording` executes whole on LT-2, claim gap); `chain-continuation-switch` (CI-1) and `crash-coalescing` (GS-7) closed 2026-09-08. |
-| D12 | crew | 5 / 10 | `tombstone-rep-penalty` and `stand-ins` wait on R12 Stage B (now unblocked by R10); `reservation-auto-hire`, `missed-endut-auto-free`, `crew-swap` are career-lane work and Tier 4 machinery. |
+| D12 | crew | 6 / 10 | `stand-ins` is CL-4's (Stage B closure, 2026-09-09, live-proven `2026-09-09_1815`; the registry pins the cell to a Parsek-GENERATED stand-in); `tombstone-rep-penalty` is a PRODUCT change, not a flight (the registry's D12 block: no code constructs a KerbalDeath reputation-penalty action, so a death leaves no row a tombstone could reverse); `reservation-auto-hire`, `missed-endut-auto-free`, `crew-swap` are career-lane work and Tier 4 machinery. |
 | D3 | reference frames | 3 / 7 | A claim gap: `Pipeline-Anchor` executes whole on H11; `absolute`, `relative-anchored-nonloop`, `relative-loop`, `boundary-seam` need the test-to-cell mapping confirmed and one token each (register item 3, part 0). |
 | D13 | spawn positioning | 4 / 11 | Where a REAL spawn lands (terrain clearance, KSC exclusion, collision, orbit safety): the in-game tests exist and self-skip on every committed fixture. Generator / fixture work (R8 residue), not spec work. |
 | D16 | storage / sidecars | 4 / 12 | Formats, safe-write, path validation. Already covered headlessly by xUnit; the registry asks for a driven lane. Low product risk; several cells could close through one save-parse lane. |
@@ -1623,7 +1626,20 @@ WHAT R12 LEAVES BEHIND, each a separate follow-up and none of it a regression:
   tree(s)` against the archived pre-commit run's `saving 0`. D1
   `commit-scene-exit` + `auto-merge` - the two values S0.7 had to DROP - are now
   claimed with tokens, and D8 gains its first crew-loss claims.
-- **Stage B, the TOMBSTONE half, remains UNBUILT**, and the split is structural
+- **Stage B, the TOMBSTONE half** - THIS BULLET WAS STALE WHEN RE-READ ON 2026-09-09:
+  `CL-3-refly-crew-tombstone` IS Stage B, landed 2026-08-03 and armed, and it claims
+  D9 `tombstones` (2026-08-03) and D12 `dead-crew-strip` (2026-08-05); both
+  prerequisites below were discharged the same week (`dead-crew-strip` pinned
+  2026-08-02 and re-pinned 2026-08-05 in the registry's D12 block; the
+  `KerbalEndState.Unknown` gate fixed 2026-07-30 by PR #1395, live-proven on
+  `2026-07-30_1830_CL-2-pod-impact-ledger`). What was still open on 2026-09-09 was
+  narrower: D12 `stand-ins` (claimable off CL-3's own `Stand-in generated` line,
+  taken by `CL-4-refly-crew-standin`) and D12 `tombstone-rep-penalty`, which the
+  registry records as UNREACHABLE BY ANY FLIGHT (no production code constructs a
+  `ReputationPenaltySource.KerbalDeath` action; stock applies the hit and the ledger
+  absorbs it through the captured-award path a tombstone cannot reverse) - a product
+  change, decided separately. The original text follows as the record of why the
+  split was structural. ~~remains UNBUILT~~, and the split is structural
   rather than a scoping convenience. `SupersedeCommit` is the ONLY producer of a
   `LedgerTombstone` and `CommitTombstones` runs strictly inside the RE-FLY merge
   tail after supersede relations land, so no auto-commit can reach D9 `tombstones`

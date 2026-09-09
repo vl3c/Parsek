@@ -8133,6 +8133,7 @@ class UnityExceptionScanTests(unittest.TestCase):
             "B10-career-passive-safety.toml": 0,
             "CL-2-pod-impact-ledger.toml": 0,
             "CL-3-refly-crew-tombstone.toml": 0,
+            "CL-4-refly-crew-standin.toml": 0,
             "L1-dismiss-kerbal-career.toml": 0,
             "L1-hire-kerbal-career.toml": 0,
             "L1-passive-sandbox.toml": 0,
@@ -8503,6 +8504,12 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # against a HARVESTED RewindPoint reach the same post-load tokens S1.5 proved
         # on an INJECTED one). Nothing armed; D9 / D18 deliberately unclaimed until the
         # reading says otherwise, which is what keeps this off the tag.
+        "CL-4-refly-crew-standin.toml":
+            "operator by the reading-run discipline (CL-3's own shape, fixture and "
+            "mission): Stage B's last flight-closable cell, D12 stand-ins. LIVE-PROVEN "
+            "2026-09-09 (reading _1813 PASS, armed _1815 PASS, negative control "
+            "1817); stays operator for CL-3's reason - a crew-loss rewind on the one "
+            "career fixture with a vessel is the reading-run discipline's own tier, not a tag",
         "CI-2-refly-claim-tip-pid.toml":
             "operator by the reading-run discipline (RH-1's precedent, same fixture): "
             "the two D18 ghost-chain cells on the catalog's definition. LIVE-PROVEN "
@@ -9425,6 +9432,10 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
     # saveParse evaluator, so a second inversion would re-prove the evaluator
     # rather than these windows.
     ARMED_ALLOWLIST = {"S4.1-rewind-merge.toml", "CL-3-refly-crew-tombstone.toml",
+                       # CL-4: `rewind` armed 2026-09-09 off its own reading run
+                       # `2026-09-09_1813_CL-4-refly-crew-standin` (supersedeRows 1, tombstones 1,
+                       # CL-3's facets on CL-3's shape; rewindPoints unpinned, the RP is reaped).
+                       "CL-4-refly-crew-standin.toml",
                        # RF-11: `rewind` armed 2026-09-09 through the full cycle -
                        # reading run `2026-09-09_1631`, armed re-flight `_1659` on the
                        # same three numbers, negative control `_1700` (rewindPoints

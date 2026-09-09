@@ -405,6 +405,21 @@ values = ["default-mission", "leg-trim", "whole-mission-loop", "self-overlap", "
 # UNBLOCKING IT IS A PRODUCT CHANGE, NOT A FLIGHT: Parsek would have to construct a
 # KerbalDeath rep penalty on crew death, which moves CL-2's armed ledger totals and
 # so belongs in its own PR with its own oracle re-pin.
+#
+# `stand-ins` IS PINNED (2026-09-09, Stage B closure). It was a bare word in the
+# catalog; H31 declined it because "no Parsek-generated stand-in is ever created"
+# under its fixtures. The definition a claim must gate on: the reservation walk
+# GENERATES a stand-in kerbal for a reservation slot whose owner is reserved
+# elsewhere - `KerbalRoster.TryCreateGeneratedStandIn`, observable as
+# `KerbalsModule`'s `Stand-in generated: '<name>' (<trait>) for slot '<owner>' depth
+# <d>` line (KerbalsModule.cs). A pre-existing roster kerbal standing behind a
+# synthetic original (H31's shape) is NOT this cell. On the CL family the stand-in
+# is downstream of `dead-crew-strip`: releasing the death-derived PERMANENT
+# reservation is what lets the surviving temporary one get a slot, and the slot is
+# what gets the generated stand-in (measured `'Gusrigh Kerman'` on
+# `2026-08-03_2147`, `'Tilan Kerman'` on `2026-08-04_2136`). The gate direction is
+# REQUIRED, never forbidden: the re-pin record above shows a forbidden `Stand-in
+# generated` passing exactly when the tombstone did nothing.
 values = ["reservation-auto-hire", "stand-ins", "seat-matching", "rescue-marker",
           "crew-death-in-flight",
           "dead-crew-strip", "tombstone-rep-penalty", "missed-endut-auto-free", "crew-swap",

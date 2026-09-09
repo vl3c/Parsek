@@ -10968,7 +10968,7 @@ item and must not be counted as one:
   window, and a reap count wants a second scenario before it gates.
 
 - **CL-2 stage-B calibration, measured off the STAGE-A run** (CL-2 itself IS stage A;
-  stage B is unwritten) [MEASURED 2026-07-31, run
+  stage B is unwritten - it was written 2026-08-03 as `CL-3-refly-crew-tombstone`; see the roadmap's Stage B bullet) [MEASURED 2026-07-31, run
   `2026-07-31_1641_CL-2-pod-impact-ledger` (PASS, 168 s)]. CL-2 declares NO M-C2
   block (`blocks: []`), so its `saveParse` row is pure measurement - which is exactly
   what makes it usable to size stage B's windows. The observed block, verbatim:
@@ -10991,7 +10991,9 @@ item and must not be counted as one:
   re-fly fork. Pinning stage B's windows straight off this block would assert the
   absence of the very thing stage B exists to exercise: author stage B report-only
   first, read ITS facets, then arm - the same three-run promotion S4.1 just went
-  through. Stage B scope: the R12 residue block in `docs/dev/autotest-roadmap.md`.
+  through. Stage B scope: the R12 residue block in `docs/dev/autotest-roadmap.md`
+  (closed by CL-3 for the two tombstone cells; `stand-ins` by CL-4 on 2026-09-09;
+  `tombstone-rep-penalty` is a product change).
 - **R10** runtime-handle plumbing so a live tree / vessel / route id can reach a verb -
   ~~OPEN (`run.py:1157` substitutes exactly one token, `${runSave}`, and no response
   payload is ever captured)~~ **CLOSED 2026-09-08** (PR #1653, branch
