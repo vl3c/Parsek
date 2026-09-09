@@ -329,7 +329,9 @@ required  = ["Recording started",
 #   GUARD against the day something gives it one, not a reproduction. Its reproduction is
 #   the `refly-a-recorded` fixture, whose committed bytes carry that tip.
 #
-#   `not re-deriving MergeState` (RecordingStore.cs:1204-1207) is the first-commit guard
+#   `not re-deriving MergeState` (RecordingStore.cs:1272-1273, the else branch of the
+#   promotion in `ApplyRewindProvisionalMergeStates`; re-grepped 2026-09-09, the old
+#   1204-1207 citation was stale) is the first-commit guard
 #   cementing an `Immutable` nobody chose - the SECOND lock in the seed's chain, and the
 #   one that makes the closure permanent. It is forbidden for the same reason and with
 #   the same caveat.

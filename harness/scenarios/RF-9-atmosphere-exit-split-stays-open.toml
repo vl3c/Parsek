@@ -382,7 +382,8 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]",
 # corrected: `tombstones` moved from `{max = 0}` to `{min = 1}` because the extrapolated
 # tail kills the crew, and run 2 then landed inside every window unchanged. Arming the
 # corrected shape is the point - an unarmed window that was wrong once is exactly the
-# window a future run should not be allowed to move quietly. The NEGATIVE CONTROL flown
+# window a future run should not be allowed to move quietly.
+#
 # WHAT THE ARMING ACTUALLY RESTS ON, stated as a count rather than as a judgement: FIVE
 # flights of this lane, across TWO different DLLs, measured `recordings.count = 11` and
 # `rewindPoints=1 supersedeRows=2 tombstones=8 rewindRetirements=0` - identical every

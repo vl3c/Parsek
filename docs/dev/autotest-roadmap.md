@@ -57,19 +57,21 @@ M-A6 stack provisioner, M-B1 mission library, M-B2 ledger oracle, M-C1 seam verb
 batch 1, M-C2 EVA verbs. Status and per-module proof live in `autotest-status.md`.
 None of the items in this roadmap are blocked on a missing module.
 
-### Scenarios: 234 committed
+### Scenarios: 245 committed
 
-Re-derived 2026-09-08 on `ghost-replay-tier-a` after it merged origin/main (#1654
-fixture lanes, #1655 chain-interaction, #1656 roadmap standing): `ls
-harness/scenarios/*.toml` returns **234** files, the total `autotest-status.md`'s
+Re-derived 2026-09-09 on `refly-lanes` at `659be2a68` (main `dfd5ff224` merged in, so
+#1658 / #1659 / #1661 / #1662 and the whole RF wave are counted): `ls
+harness/scenarios/*.toml` returns **245** files, the total `autotest-status.md`'s
 `## Test cases` header states and `AutotestStatusScenarioCountTests` pins against
-the committed files (230 at `de5ac6112` after #1648 V27M, #1650 LT-3 / LT-4 / LT-5 /
-H71 and #1653 RH-1; the four added the same day are CI-1, CI-2, GS-7 and GS-8, all
-live-proven; 133 live-proven in that doc's own table, 0 committed-not-yet-green;
-tiers: 125 nightly, 25 daily, 84 operator, parsed from the specs' `tier` keys). The 68
+the committed files (234 at the 2026-09-08 `ghost-replay-tier-a` derivation, itself
+230 at `de5ac6112` after #1648 V27M, #1650 LT-3 / LT-4 / LT-5 / H71 and #1653 RH-1;
+the eleven added since are the re-fly continuation program, RF-1..RF-10 plus RF-7T;
+133 live-proven in that doc's own table, 0 committed-not-yet-green;
+tiers: 125 nightly, 25 daily, 95 operator, parsed from the specs' `tier` keys - the
+operator column carries the whole RF wave). The 68
 below was the 2026-08-04 snapshot;
-the V / GS / W / L / RVR / H41-H71 / LT / RH / CI waves, among others, took it from 68
-to 234 between 2026-08-04 and 2026-09-08.
+the V / GS / W / L / RVR / H41-H71 / LT / RH / CI / RF waves, among others, took it from 68
+to 245 between 2026-08-04 and 2026-09-09.
 
 `ls harness/scenarios/*.toml` returned **68** files when this section was last
 re-derived before that (2026-08-04 at
@@ -85,15 +87,24 @@ these rather than editing them by memory; both numbers have moved many times.
 
 ### Coverage: 170 of 248 registry cells (was 83 of 241 at the baseline, 108 of 242 on 2026-08-04, 162 of 247 on 2026-09-07 before G1 / G3b closed, 163 of 248 on 2026-09-08 before the ghost-replay claim pass, 166 after chain-interaction)
 
-Re-derived 2026-09-08 on `ghost-replay-tier-a` after it merged origin/main (#1654-#1656):
-`hlib.compute_coverage(specs, [], registry)` over the 234 committed specs and
+Re-derived 2026-09-09 on `refly-lanes` at `659be2a68`:
+`hlib.compute_coverage(specs, [], registry)` over the 245 committed specs and
 `harness/coverage/registry.toml` returns exactly:
 
 ```
 values 248   covered 170   uncovered 78   expectedFailValues 0   xpass 0
 ```
 
-Seven cells moved on 2026-09-08 in two branches. `chain-interaction` (register item
+UNCHANGED by the eleven RF specs, and that is the program's own decision rather than
+an accident: none of them claims a NEW cell, so the covered / uncovered SET is
+identical with and without them - only the `coveredBy` membership of six D14
+host-basics cells (`kerbin`, `sandbox`, `scene-flight`, `scene-map`, `scene-ts`,
+`scene-ksc`) moves. See the re-fly program section for what RF-9 and RF-5 now observe
+without claiming.
+
+The previous derivation was 2026-09-08 on `ghost-replay-tier-a` after it merged
+origin/main (#1654-#1656), over 234 specs, and returned the same triple. Seven cells
+moved that day in two branches. `chain-interaction` (register item
 2): D5 `chain-continuation-switch` (GS-3 armed + CI-1), D18
 `committed-interaction-claiming` and D18 `chain-tip-original-pid` (CI-2); D18 is now 4
 of 12 covered. `ghost-replay-tier-a` (register item 3): D6 `reentry-fx` (H52's
@@ -110,7 +121,7 @@ committed specs and `harness/coverage/registry.toml` returns exactly:
 values 248   covered 163   uncovered 85   expectedFailValues 0   xpass 0
 ```
 
-Per dimension (total / uncovered) for the CURRENT derivation above (234 specs,
+Per dimension (total / uncovered) for the CURRENT derivation above (245 specs,
 170 of 248; the retained `de5ac6112` block directly above it is history), with the
 2026-08-04 uncovered count kept in the last column so the delta stays legible:
 
@@ -152,8 +163,9 @@ D13 unchanged at `proximity-offset`, `bbox-block`, `ksc-exclusion`,
 Read with the register below. Sixty-six percent of the declared surface is gated
 and every committed lane has a green run; the residue is UNEVEN, and each thin
 dimension is thin for a different reason. Covered / total per dimension,
-re-derived 2026-09-08 on `ghost-replay-tier-a` after the merge of origin/main (234
-specs; the D5 / D6 / D18 rows moved since `de5ac6112`), with what closing the rest
+re-derived 2026-09-09 on `refly-lanes` at `659be2a68` (245
+specs; unchanged by the RF wave, which claims no new cell - the D5 / D6 / D18 rows
+moved on 2026-09-08 since `de5ac6112`), with what closing the rest
 takes:
 
 | Dim | Subject | Covered | What the residue is, and what closes it |
@@ -254,9 +266,14 @@ This section is the ranked answer to "what next", re-derived on `main` at
 closed V3C). It supersedes the ORDER implied by the Build-order tiers and the
 per-program sequencing notes below; those sections stay the DEFINITIONS of the
 items and the record of why. Re-derive before acting: `ls harness/scenarios/*.toml`
-(230 at `de5ac6112`), `hlib.compute_coverage` (163 of 248 cells, 85 uncovered), and the category
-inventory (**112 of 112 categories driven, 621 of 621 declarations - the in-game
-coverage axis is CLOSED**; #1650 took it to 110 by closing `Contracts`,
+(245 at `659be2a68`), `hlib.compute_coverage` (170 of 248 cells, 78 uncovered), and the category
+inventory (**112 of 112 categories driven, 623 of 623 declarations - the in-game
+coverage axis is CLOSED**; re-derived 2026-09-09 at `659be2a68` with
+`hlib.parse_ingame_test_declarations` over every `.cs` under `Source/Parsek`, and the
+623 is 621 plus the two cells this branch's program added to categories that were
+already driven - #1662's optimizer-split regression cell in `Rewind` and the
+predicted-tail draw-decision cell in `MapRender`, so the axis stays closed;
+#1650 took it to 110 by closing `Contracts`,
 `RouteLiveAnchor`, `ResourceTopBar` and `PartEventFX`, and the 2026-09-08 wave closed
 the last two by refuting the "host-blocked" reading on both - `CrewReservationLive`
 joined `LT-4-long-tail-route-flight` because a RECORDED store carries the spawned pid
@@ -384,6 +401,21 @@ remains is, in order:
     dispatch, and the Tier 4 residue (`manual-gloops`, claw / inventory producers,
     crew swap, milestones, D13 spawn-positioning generator work, D16 storage cells,
     the D11 mission cells).
+11. ~~**The re-fly continuation program** (RF-1..RF-10 + RF-7T): the two defects the
+    operator's manual session found, and the eleven lanes that hold them down.~~
+    LANDED 2026-09-09 across #1658 (the optimizer-split MergeState carry), #1659 (the
+    predicted-tail render), #1661 (the in-game `MergeInterruptionRecovery` isolation
+    fix), #1662 (the INV12 analyzer rule, the regression cells and the
+    `refly-autopilot-recorded` twin) and this PR; nine lanes green, three armed.
+    STILL OPEN, and each is cheap enough to batch with item 7 rather than to rank on
+    its own: RF-4 needs a host that HAS a launch quicksave (H58's own in-run
+    `StartRecording` / `StopRecording` / `CommitTree` prologue, not a re-host); RF-8
+    needs a UT at which its one body-matched ghost is inside the watch RANGE cutoff,
+    or the lane has no host and retires; and RF-9 / RF-5 have EARNED registry cells
+    through gating tokens that nobody has CLAIMED yet, which is the one item here
+    that moves `hlib.compute_coverage` and every number derived from it. Definitions,
+    evidence and the per-lane readings: "The re-fly continuation program (RF-1..RF-10)"
+    below.
 
 Decisions owed rather than work: ~~keep or delete `bdock-station-craft`~~ DECIDED
 2026-09-08, KEEP (it is the clean operator-build base `bdock-station-pad` was stamped
@@ -3737,7 +3769,12 @@ reading run, ARMED re-flight, NEGATIVE CONTROL, revert in the same change.
   test pins the same numbers - one gate catches a bad re-harvest, the other a load that
   mutates committed state.
 
-**NO REGISTRY CELL WAS CLAIMED**, and that is a decision rather than an oversight. RF-9
+**NO NEW REGISTRY CELL IS CLAIMED**, and that is a decision rather than an oversight.
+Every RF spec carries only the host basics (D14 `kerbin` / `sandbox` / `scene-*`), so
+the covered / uncovered SET `compute_coverage` returns is identical with and without
+the eleven RF specs - only the `coveredBy` membership of six D14 cells moves
+(`kerbin`, `sandbox`, `scene-flight`, `scene-map`, `scene-ts`, `scene-ksc`), and the
+suite's own triple stays 170 of 248 with 78 uncovered. RF-9
 now exercises and OBSERVES `rewind-to-separation`, `refly-gate`,
 `unfinished-flights-stash`, `auto-record-launch`, `commit-scene-exit`, `auto-merge` and
 `controlled-decoupled-child` through gating tokens, and RF-5 does the same for

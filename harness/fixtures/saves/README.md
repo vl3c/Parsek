@@ -592,6 +592,13 @@ Two further things a future re-harvest must not lose, both asserted by the build
   are what RF-1 and RF-7 are authored against. If a re-harvest against a fixed DLL loses
   either shape, re-fly the lanes against that DLL - do not re-pin the fixture to whatever
   the new bytes say.
+- **THE ANALYZER READS `RED=0 WARN=1` ON IT, AND THE WARN IS EXPECTED.** The one finding
+  is `INV12-SPLIT-CLOSED-SLOT`, added by #1662, and it names this fixture's frozen defect
+  chain: HEAD `32ca5546` `CommittedProvisional` -> TIP `8da7c2c2` `Immutable`. That is
+  the rule doing its job on the corpus's only carrier of the shape, not a fixture fault.
+  Do NOT "fix" it and do not baseline it away; a reading of `WARN=0` here means the
+  defect shape is gone and the note above applies. The twin `refly-autopilot-recorded`
+  reads `WARN=0`, which is the same pair stated in analyzer terms.
 
 ### refly-autopilot-recorded (GAME Mode = SANDBOX, 2 real vessels + asteroids)
 

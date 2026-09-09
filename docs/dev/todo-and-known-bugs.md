@@ -15,6 +15,23 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## REFLY-A-CODEC-TEST-SIBLING-PATH-IS-DEAD-AFTER-MERGE: the fixture resolver in `ReflyARecordedFixtureCodecTests` keeps a sibling-worktree path candidate that can no longer be reached [NOTED 2026-09-09 while reviewing PR #1660. Dead code, not a defect. OPEN as a cleanup]
+
+`Source/Parsek.Tests/ReflyARecordedFixtureCodecTests.cs` lines ~114-116 carry a SECOND
+`FixtureCandidates` entry, `../../../../../../Parsek-refly-lanes/harness/fixtures/saves/refly-a-recorded`.
+PR #1662 added it as a BRIDGE: the fixture was committed on `refly-lanes` while the test
+could still be built from a tree that did not have it, so the resolver reached across to
+the sibling worktree by name. Once PR #1660 merges, the in-repo candidate (the first
+entry, five `..` segments to the repo root) resolves first on every checkout and the
+sibling one can never be taken.
+
+Fix: delete the second candidate and the sentence in the comment above it about "a sixth
+[segment reaching] the umbrella folder that holds the sibling worktrees". Leave
+`ResolveFixtureDir` / `DescribeCandidates` otherwise alone - the candidate LIST shape is
+what makes the skip message legible when the fixture is genuinely absent. No C# change
+was made in #1660: it is a docs-only PR and a hard-coded branch name in a test is worth
+its own commit rather than a footnote to one.
+
 ## RF4-BDOCK-RECORDED-CANNOT-REWIND-TO-LAUNCH: the lane borrowed H58's verb pair across FIXTURES, and its host carries no launch quicksave at all [MEASURED 2026-09-09 by RF-4's reading run. A LANE finding, not a product defect. OPEN, with the fix identified]
 
 RF-4 drives H58's `InvokeRewindToLaunch` pair - bare -> REJECTED `ambiguous-tree`, then
@@ -24,7 +41,10 @@ right and then:
     invokerewindtolaunch target resolved tree=8c677bba... resolvedBy=LatestKeyword
     invokerewindtolaunch refused: rewind-gate No rewind save available tree=8c677bba... rec=5157d655...
 
-verdict INVALID (driver-gate), attempt 1 and 2.
+verdict INVALID (driver-gate), attempt 1 and 2. The run is
+`2026-09-08_2311_RF-4-rewind-to-launch-after-merge_a2` (the `_a2` is attempt 2, whose
+result JSON is the one kept), and the `No rewind save available` line above is quoted
+from it.
 
 THE CAUSE IS THE HOST, AND IT WAS KNOWABLE BEFORE THE FLIGHT: `bdock-recorded` carries
 ZERO `rewindSave` hints and no `Parsek/Saves/` directory, so no tree in it can be rewound
@@ -65,7 +85,9 @@ committed sibling. `EnterWatchMode` refused:
 so of 22 committed recordings exactly ONE (index 9) has a live ghost on the matching
 body, and it fails the RANGE gate. The other 21 have no ghost at all at that clock.
 Verdict INVALID (driver-gate): the step expects OK, so the lane never reached its own
-forbidden `no-watchable-ghost` clause.
+forbidden `no-watchable-ghost` clause. The run is
+`2026-09-08_2323_RF-8-ghost-during-refly_a2` (attempt 2), and the
+`no-watchable-ghost committed=22` refusal above is quoted from it.
 
 WHAT IS AND IS NOT ESTABLISHED. Established: during a live re-fly on `bdock-recorded` a
 ghost DOES resolve and IS body-matched, so the refusal is the distance cutoff rather than
@@ -110,80 +132,6 @@ RESIDUE, deliberately not swept in the same commit: `docs/dev/todo-and-known-bug
 and the two forensics reports quote the hyphenated sentence as PROSE, which is correct
 house style for a doc (plain ASCII, no em dashes) and harmless as long as no spec copies
 it into a regex. Any future forbid over that line takes the fragment.
-
-## ~~RF6-FOUR-REWIND-CELLS-FAIL-ONLY-WITH-A-LIVE-SESSION: the first batch ever to run the in-game `Rewind` category with a live re-fly session executed its twelve session-gated cells and FOUR failed, three of them cells that pass with no session~~ FIXED 2026-09-09 by PR #1661, LIVE-PROVEN by RF-6 the same day
-
-CLOSED 2026-09-09, AND THE LANE THAT FOUND IT IS THE LANE THAT PROVED THE FIX. PR #1661
-(`In-game MergeInterruptionRecovery: restore the merge journal on failure and skip on an
-unconcluded re-fly`) diagnosed the four failures as ONE in-game cell leaking a merge
-journal into the rest of the batch plus its own missing precondition - no product defect,
-which is what the three-runs-identical evidence below already pointed at. Its own entry
-lower in this file carries the diagnosis and states that the owed RF-6 re-flight is the
-live proof.
-
-THAT RE-FLIGHT FLEW 2026-09-09 on `refly-lanes` against the merged-main DLL (deployed
-automation hash `4c5511269aa04a67`): **`BATCH_COMPLETE v1 total=39 passed=11 failed=0
-skipped=28 category=Rewind scene=FLIGHT`**, RF-6 PASS attempt 1, every verifier
-PASS/SKIPPED. Eleven passed where eight did, zero failed where four did, and `total`
-moved 38 -> 39 because PR #1662 added a regression cell to the same category (the spec
-pin moved with it, mechanically, through `CommittedBatchTallySourceSyncTests`).
-
-ONE THING WORTH KEEPING FROM THE INVESTIGATION: run 3, flown on the post-#1658 DLL before
-#1661 existed, read BYTE-IDENTICALLY to runs 1 and 2. That is what said the four failures
-were not the sealing defect, and it is why the diagnosis went looking at batch isolation
-instead. The evidence below is kept for that reason rather than struck out with the
-heading.
-
-
-RF-6 exists to run `RunTests category="Rewind"` AFTER an `InvokeRewind`, because twelve
-cells in that category gate on `scenario.ActiveReFlySessionMarker` and no lane and no
-injected save had ever given them one. They ran. Eight passed. Four failed, identically
-on both runs:
-
-```
-BATCH_COMPLETE v1 total=38 passed=8 failed=4 skipped=26 category=Rewind scene=FLIGHT
-  MergeInterruptionRecoveryTest.MergeInterruptionRecovery
-    - Expected supersede relations to be durable at Durable1Done; got 0
-  ReFlyRevertDialogPrelaunchTest.DiscardReFly_PrelaunchContext_DispatchesEditorWithFacility
-    - DiscardReFlyLoadGameForTesting should fire exactly once
-  ReFlyRevertDialogPrelaunchTest.ReFlyRevertDialog_Prelaunch_BlocksStockRevert_AndShowsDialog
-    - Prelaunch body copy should mention VAB
-  ReFlyRevertDialogTest.DiscardReFly_LaunchContext_PreservesSiblingState_DispatchesSpaceCenter
-    - Marker should be cleared after Discard Re-fly
-```
-
-THE CONTROL, flown on the SAME DLL within the hour: `R7a-rewind-session-absent` reads
-`total=38 passed=16 failed=0 skipped=22`, its historical pin token for token. So the same
-category, same build, zero failures without a session and four with one.
-
-THREE OF THE FOUR ARE `ReFlyRevertDialog*` CELLS, which the category inventory puts in the
-group that needs NEITHER a RewindPoint nor a session and INSTALLS ITS OWN SYNTHETIC MARKER.
-Those are the cells R7a executes and passes. Failing only when a REAL session is live is
-the signature of the R7-SESSION-BATCH-ISOLATION family the roadmap already records from
-R7's abandoned session-live spec ("JournalFinisherMarkerPresentVariant eating the marker
-for nine later members"). If that is what this is, it is a TEST-ISOLATION defect, not a
-product one - but it has never been measured before, and nothing here proves it yet.
-
-ONE HYPOTHESIS WAS TESTED AND REFUTED, which is why this entry does not name a cause.
-`MergeInterruptionRecovery` wanting durable supersede rows and getting zero looked like the
-unflown-provisional route: a re-fly that recorded nothing merges with ZERO rows BY DESIGN
-(`refused-unflown-provisional` / `concluded-no-supersede`), and RF-6 run 1 drove
-`InvokeRewind` straight into `RunTests` with nothing between them. Run 2 added a
-`TimeJump ut=500` so the attempt was FLOWN before the batch read it. The tally was
-BYTE-IDENTICAL - same 8/4/26, same four cells, same four messages. The unflown provisional
-is not the cause. (The step is KEPT anyway: the flown shape matches every sibling RF lane
-and costs nothing.)
-
-ONE CONFOUND REMAINS AND IS NOT CLOSED. RF-6 hosts on `bdock-recorded` and R7a on
-`career-pad-craft`, so the control varies the HOST as well as the session. The cheapest
-way to close it is to fly R7a's spec against `bdock-recorded` (or RF-6 without its
-`InvokeRewind`) and read the tally; either isolates the session as the only moving part.
-That experiment has not been run.
-
-Needs: that isolation run, then a diagnosis per cell. RF-6 keeps `failed=0` pinned HARD and
-therefore stays RED - deliberately. A first-execution failure is a product or test finding
-to diagnose, never a tally to widen, and widening it would retire the only instrument that
-can see these four cells at all.
 
 ## RF7M-DEFECT-B-NEEDS-AN-ENGAGED-GHOST: a seam-only lane over a recorded fixture engages no ghost, so flight-map presence tracks nothing and the chain-HEAD source-resolution defect cannot be reached from it at all [MEASURED 2026-09-08 by RF-7M's two reading runs. A LANE / HARNESS finding, not a product defect. ANSWERED the same day by RF-7T, whose Tracking Station host runs its resolver unconditionally and is therefore that half's harness subject - it reproduced the defect and then went green on the fix. KEPT OPEN as the record of a lane-shaping constraint that will bite the next author of a seam-only render lane]
 
@@ -10210,7 +10158,24 @@ scenario-coverage item.
 
 ---
 
-## RF6-FOUR-REWIND-CELLS-FAIL-ONLY-WITH-A-LIVE-SESSION: one in-game cell leaks a merge journal into the rest of the batch, and its own failure is a missing precondition [FOUND 2026-09-08 by the committed lane `RF-6-rewind-category-live-session`, the first lane to run the `Rewind` category inside a LIVE re-fly session (`passed=8 failed=4 skipped=26`). FIXED 2026-09-09 in `MergeInterruptionRecoveryTest`. No product defect. The owed RF-6 re-flight on branch `refly-lanes` is the live proof]
+## ~~RF6-FOUR-REWIND-CELLS-FAIL-ONLY-WITH-A-LIVE-SESSION: one in-game cell leaks a merge journal into the rest of the batch, and its own failure is a missing precondition~~ [FOUND 2026-09-08 by the committed lane `RF-6-rewind-category-live-session`, the first lane to run the `Rewind` category inside a LIVE re-fly session (`passed=8 failed=4 skipped=26`). FIXED 2026-09-09 in `MergeInterruptionRecoveryTest` by PR #1661. No product defect. CLOSED 2026-09-09 by the owed RF-6 re-flight on branch `refly-lanes`]
+
+CLOSED 2026-09-09, AND THE LANE THAT FOUND IT IS THE LANE THAT PROVED THE FIX. Run 4,
+`2026-09-09_0021_RF-6-rewind-category-live-session`, flown on the merged-main DLL
+(deployed automation hash `4c5511269aa04a67`): **`BATCH_COMPLETE v1 total=39 passed=11
+failed=0 skipped=28 category=Rewind scene=FLIGHT`**, PASS attempt 1, every verifier
+PASS or SKIPPED. Eleven passed where eight did and zero failed where four did. `total`
+moved 38 -> 39 because PR #1662 added a regression cell to the same category, and the
+spec's pin moved with it mechanically through `CommittedBatchTallySourceSyncTests`.
+
+TWO THINGS FROM THE INVESTIGATION ARE WORTH KEEPING. First, run 3 - flown on the
+post-#1658 DLL before #1661 existed - read BYTE-IDENTICALLY to runs 1 and 2
+(`total=38 passed=8 failed=4 skipped=26`). That is what said the four failures were not
+the sealing defect, and it is why the diagnosis went looking at batch isolation instead.
+Second, the CONTROL confound is not closed: RF-6 hosts on `bdock-recorded` and
+`R7a-rewind-session-absent` on `career-pad-craft`, so the control that read
+`passed=16 failed=0 skipped=22` varied the HOST as well as the session. The fix landing
+made that experiment unnecessary rather than answering it.
 
 Four cells failed; ONE cell explains all four.
 
@@ -10246,11 +10211,14 @@ headlessly in `ReFlyConclusionRouteTests`. (b) An outer try/finally restoring
 clearing the fault injection, the fix
 `JournalFinisherMarkerPresentVariantTest` already carries. No `[InGameTest]`
 attribute moved, so `CommittedBatchTallySourceSyncTests` and the R7a / R7c / RF-6
-`total=38` pins are unmoved.
+`total=38` pins were unmoved by THIS fix. (#1662 then added a `Rewind` cell, so
+RF-6's pin is `total=39` and the source-sync gate moved it there mechanically.)
 
-**Re-measure, do not predict.** RF-6's `failed=0` stays HARD; the plausible post-fix
-shape is `passed=10 failed=0 skipped=28`, and `passed` / `skipped` are re-pinned
-whole from the first green flight per the lane's interim rule.
+**Re-measure, do not predict.** RF-6's `failed=0` stayed HARD, and the prediction
+written here was wrong in the right direction: the plausible post-fix shape was
+`passed=10 failed=0 skipped=28` and run 4 measured `passed=11 failed=0 skipped=28`,
+because #1662's new cell also passes. `passed` / `skipped` were re-pinned whole from
+that first green flight per the lane's interim rule.
 
 ---
 
