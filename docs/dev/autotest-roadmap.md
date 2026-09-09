@@ -83,15 +83,18 @@ EVA / CL / S0.x / H22-H25 / V1 / BDOCK waves and R14's MC-1/MC-2 took it from
 55 to 68. Adding a scenario is not the same as covering a cell. Re-derive
 these rather than editing them by memory; both numbers have moved many times.
 
-### Coverage: 170 of 248 registry cells (was 83 of 241 at the baseline, 108 of 242 on 2026-08-04, 162 of 247 on 2026-09-07 before G1 / G3b closed, 163 of 248 on 2026-09-08 before the ghost-replay claim pass, 166 after chain-interaction)
+### Coverage: 171 of 248 registry cells (was 83 of 241 at the baseline, 108 of 242 on 2026-08-04, 162 of 247 on 2026-09-07 before G1 / G3b closed, 163 of 248 on 2026-09-08 before the ghost-replay claim pass, 166 after chain-interaction)
 
-Re-derived 2026-09-09 on `refly-lanes` at `659be2a68`:
-`hlib.compute_coverage(specs, [], registry)` over the 245 committed specs and
-`harness/coverage/registry.toml` returns exactly:
+Re-derived 2026-09-09 on `stage-b-tombstones` (after `refly-lanes` at `659be2a68`
+read 170 of 248 over 245 specs): `hlib.compute_coverage(specs, [], registry)` over the
+248 committed specs and `harness/coverage/registry.toml` returns exactly:
 
 ```
-values 248   covered 170   uncovered 78   expectedFailValues 0   xpass 0
+values 248   covered 171   uncovered 77   expectedFailValues 0   xpass 0
 ```
+
+The one cell that moved is D12 `stand-ins` (`CL-4-refly-crew-standin`, the Stage B
+closure); D12 is 6 of 10.
 
 UNCHANGED by the thirteen RF specs, and that is the program's own decision rather than
 an accident: none of them claims a NEW cell, so the covered / uncovered SET is
@@ -178,7 +181,7 @@ takes:
 | D6 | playback / ghosts | 13 / 18 | Register item 3 took the three cells that had subjects on 2026-09-08 (`watch-mode-retarget-explosion-hold`, `zone-transitions`, `reentry-fx`; the reentry replay surface stays open as Tier A item 3's second half); `loop-period-modes`, `self-overlap`, `overlap-expiry-soft-caps`, `attitude-preservation` need loop-cycle instruments (Tier C); `commnet-relay` is vacuous until a generator writes `AntennaSpecs`. |
 | D4 | track sections / optimizer | 6 / 12 | A CLAIM GAP of the H57 kind: `Optimizer` executes whole on LT-2 but `hysteresis`, `env-body-split`, `surface-graze-suppression`, `tail-trim`, `seed-event-split`, `split-at-ut` have no cell-level gating token. Same fix as the D3 / D6 claim pass in register item 3. |
 | D5 | tree topology | 8 / 12 | `staging-debris-ttl` / `-promotion` (Tier A item 5, sized as two lanes), `dock-merge-same-tree` (Tier 4), `bg-on-rails` (`Recording` executes whole on LT-2, claim gap); `chain-continuation-switch` (CI-1) and `crash-coalescing` (GS-7) closed 2026-09-08. |
-| D12 | crew | 5 / 10 | `tombstone-rep-penalty` and `stand-ins` wait on R12 Stage B (now unblocked by R10); `reservation-auto-hire`, `missed-endut-auto-free`, `crew-swap` are career-lane work and Tier 4 machinery. |
+| D12 | crew | 6 / 10 | `stand-ins` is CL-4's (Stage B closure, 2026-09-09, live-proven `2026-09-09_1815`; the registry pins the cell to a Parsek-GENERATED stand-in); `tombstone-rep-penalty` is a PRODUCT change, not a flight (the registry's D12 block: no code constructs a KerbalDeath reputation-penalty action, so a death leaves no row a tombstone could reverse); `reservation-auto-hire`, `missed-endut-auto-free`, `crew-swap` are career-lane work and Tier 4 machinery. |
 | D3 | reference frames | 3 / 7 | A claim gap: `Pipeline-Anchor` executes whole on H11; `absolute`, `relative-anchored-nonloop`, `relative-loop`, `boundary-seam` need the test-to-cell mapping confirmed and one token each (register item 3, part 0). |
 | D13 | spawn positioning | 4 / 11 | Where a REAL spawn lands (terrain clearance, KSC exclusion, collision, orbit safety): the in-game tests exist and self-skip on every committed fixture. Generator / fixture work (R8 residue), not spec work. |
 | D16 | storage / sidecars | 4 / 12 | Formats, safe-write, path validation. Already covered headlessly by xUnit; the registry asks for a driven lane. Low product risk; several cells could close through one save-parse lane. |
@@ -645,7 +648,10 @@ members (including `TrackingStation`, 10 tests).
 Fixtures are largely NOT the bottleneck. Eleven fixture directories exist under
 `harness/fixtures/saves/`, every forge has run, and no spec is fixture-blocked.
 
-One real gap: **every flyable fixture is SANDBOX.** Counting `VESSEL` nodes in each
+One real gap, AS OF 2026-07 (no longer true since `career-pad-craft`, R11, 2026-07-28,
+which the CL family flies and on which CL-3 / CL-4 claim D9 `tombstones` and D12
+`dead-crew-strip` / `stand-ins`; kept as the reading of its day): **every flyable
+fixture is SANDBOX.** Counting `VESSEL` nodes in each
 fixture's `persistent.sfs`:
 
 | Fixture | Mode | VESSEL nodes |
@@ -1442,7 +1448,9 @@ M-C2 block so the row is pure measurement): `rewind` all-zero, `structure`
 branchPoints {}}`. That is the PRE-REWIND baseline, not stage B's windows -
 stage B rewinds across CL-1's crew loss, so its numbers must be read off stage
 B's own report-only flight (expected `supersedeRows >= 1`, `tombstones >= 1`)
-before arming, exactly as S4.1 just did; (b) ~~`route` / `loop` stay RESERVED -
+before arming, exactly as S4.1 just did - DONE 2026-08-03: `CL-3-refly-crew-tombstone`
+read `supersedeRows 1 tombstones 1` on `2026-08-03_1834` and armed both floors on
+`_1844`; (b) ~~`route` / `loop` stay RESERVED -
 their consumers do not exist (zero committed declarers), so no evaluator was
 built for them~~ - UPDATED 2026-09-07: `route` SHIPPED 2026-09-02 as
 `[expectations.routes]` (PR #1603; declared by 21 specs - H58, H59, V18T, RVR-5,
@@ -1623,7 +1631,22 @@ WHAT R12 LEAVES BEHIND, each a separate follow-up and none of it a regression:
   tree(s)` against the archived pre-commit run's `saving 0`. D1
   `commit-scene-exit` + `auto-merge` - the two values S0.7 had to DROP - are now
   claimed with tokens, and D8 gains its first crew-loss claims.
-- **Stage B, the TOMBSTONE half, remains UNBUILT**, and the split is structural
+- **Stage B, the TOMBSTONE half** - THIS BULLET WAS STALE WHEN RE-READ ON 2026-09-09:
+  `CL-3-refly-crew-tombstone` IS Stage B, landed 2026-08-03 and armed, and it claims
+  D9 `tombstones` (2026-08-03) and D12 `dead-crew-strip` (2026-08-05); both
+  prerequisites below were discharged the same week (`dead-crew-strip` pinned
+  2026-08-02 and re-pinned 2026-08-05 in the registry's D12 block; the
+  `KerbalEndState.Unknown` gate fixed 2026-07-30 by PR #1395, live-proven on
+  `2026-07-30_1830_CL-2-pod-impact-ledger`). What was still open on 2026-09-09 was
+  narrower: D12 `stand-ins` (claimable off CL-3's own `Stand-in generated` line,
+  taken by `CL-4-refly-crew-standin`) and D12 `tombstone-rep-penalty`, which the
+  registry records as UNREACHABLE BY ANY FLIGHT (no production code constructs a
+  `ReputationPenaltySource.KerbalDeath` action; stock applies the hit and the event
+  converter drops the `VesselLoss` reputation change, so no `GameAction` exists for a
+  tombstone to reverse) - a product
+  change, decided separately. The original text follows, struck where it is no longer
+  true, as the record of why the split was structural. ~~remains UNBUILT~~, and the
+  split is structural
   rather than a scoping convenience. `SupersedeCommit` is the ONLY producer of a
   `LedgerTombstone` and `CommitTombstones` runs strictly inside the RE-FLY merge
   tail after supersede relations land, so no auto-commit can reach D9 `tombstones`
@@ -1634,16 +1657,19 @@ WHAT R12 LEAVES BEHIND, each a separate follow-up and none of it a regression:
   committed tree IS the subtree it wants. Stage B cannot be folded back into CL-2:
   it needs `InvokeRewind`, and `hlib.validate_spec` HARD-REJECTS `InvokeRewind`
   paired with `[expectations.ledger]` (a rewind rewrites the career pools from a
-  quicksave the seed+manifest contract cannot reconstruct). Two prerequisites to
+  quicksave the seed+manifest contract cannot reconstruct). ~~Two prerequisites to
   settle first: `dead-crew-strip` has no pinned definition in the registry (see
   `todo-and-known-bugs.md`), and the crew-end-state defect CL-2 flight 1 found
   means the subtree's kerbal-death action currently carries `KerbalEndState.
-  Unknown`, which is exactly what that in-game test skips on.
+  Unknown`, which is exactly what that in-game test skips on.~~ BOTH DISCHARGED before
+  CL-3 flew: the definition pinned 2026-08-02 (re-pinned 2026-08-05) in the registry's
+  D12 block, the end-state gate fixed 2026-07-30 by PR #1395.
   **UPDATED 2026-09-08 (R10):** driving `InvokeRewind` against a LIVE RewindPoint id -
   the one CL-1's own committed tree would produce in-run - is now reachable
   (`ListHandles kind=rewindpoints` then `rp=${<step>.rp<i>}`, which is exactly RH-1's
-  shape). The two prerequisites above are untouched by that, and so is the
-  `InvokeRewind` x `[expectations.ledger]` rejection.
+  shape). The two prerequisites above had already been discharged in August (the
+  struck text records them); the `InvokeRewind` x `[expectations.ledger]` rejection
+  stands.
 - ~~**D5 `chain-continuation-switch` / D18 `committed-interaction-claiming` /
   `chain-tip-original-pid`** are still UNCOVERED. `S0.8`'s measured consume route is
   `standalone` (`parentRecId=<standalone> branchPointId=<none>`), so no chain link is
