@@ -58,7 +58,7 @@ seven lanes now re-fly that fixture green, which is the evidence that the residu
 reach a FAIL there. The class docstring's old "tolerated residual" note is corrected rather
 than deleted - it said "a spec that adds one must re-check this", and this is that re-check.
 
-## RF12-NO-SEAM-PATH-CONCLUDES-A-REFLY-IN-FLIGHT: neither of the two candidate routes can stamp a terminal on a live re-fly, so the nine terminal-gated in-game `Rewind` cells stay unreachable from the harness [MEASURED 2026-09-09 by RF-12's reading run 1. A HARNESS limitation with both causes named, not a product defect. OPEN]
+## RF12-NO-SEAM-PATH-CONCLUDES-A-REFLY-IN-FLIGHT: neither of the two candidate routes can stamp a terminal on a live re-fly, so the FOUR terminal-gated in-game `Rewind` cells stay unreachable from the harness (of the nine that a live session alone does not reach) [MEASURED 2026-09-09 by RF-12's reading run 1. A HARNESS limitation with both causes named, not a product defect. OPEN]
 
 RF-6 measured that nine of the twelve session-gated `Rewind` cells skip on a precondition
 a live session alone cannot supply, and four of them name the same one: the re-fly must be
@@ -163,9 +163,10 @@ committed sibling. Reading run 1 (`2026-09-08_2323_..._a2`) refused:
     enterwatchmode rejected reason=no-watchable-ghost committed=22 tree=(any)
     candidates=[0 ghost=F body=F range=F],...,[9 ghost=T body=T range=F],...
 
-**THE ANSWER WAS FOUR LINES ABOVE THE REFUSAL IN THE SAME LOG**, and reading it is what
-closed the entry without a single new flight of the old shape. The committed census with
-UT spans (`logs/2026-09-09_0224_RF-8-ghost-during-refly/KSP.log:13087-13108`) shows:
+**THE ANSWER WAS IN THE SAME LOG, SIXTY-ODD LINES ABOVE THE REFUSAL**, and reading it is
+what closed the entry without a single new flight of the old shape. The committed census
+sits at `logs/2026-09-09_0224_RF-8-ghost-during-refly/KSP.log:13087-13108` and the refusal
+at `:13173`, with the watch gate's own per-candidate lines in between:
 
     #0  "Kerbal X"       UT  26-196  chain idx=0      #8  "Kerbal X Probe" UT 382-387
     #1  "Kerbal X"       UT 196-387  chain idx=1      #9  "Kerbal X"       UT 391-568
@@ -180,9 +181,11 @@ Nothing was wrong with the watch gate, the tracers or the session.
 
 FIXED by re-targeting the lane to `${handles.rp1}` (UT 693.29), whose slot-0 chain
 (#9 + #10) runs to UT 8949, with the jump at 800 - 107 s past the separation, RF-2's own
-margin. Run 2 took it first time: `enterwatchmode initiated: index=10 recId=3e0207a4...
-auto=true`, `Created ghost vessel 'Ghost: Kerbal X' ... orbitSource=endpoint-terminal-orbit`,
-`EnterMapView` OK, `Polyline legs: rec=3e0207a4... count=3`.
+margin. Run 2 (`2026-09-09_1640`) took it first time: `enterwatchmode initiated: index=10
+recId=<runId> auto=true`, `Created ghost vessel 'Ghost: Kerbal X' ...
+orbitSource=endpoint-terminal-orbit`, `EnterMapView` OK, `Polyline legs: rec=<runId>
+count=3` - the only multi-leg census in that log. Every id here is ELIDED because it is run-minted (a fresh HEAD cut off `5157d655`
+every run); quoting one is how the first cut of this entry ended up citing the RED run.
 
 TWO SPEC-SIDE RE-PINS came with it and the second is the one to remember: the watch token
 was written against the verb's PAYLOAD keys (`watching=true`) rather than its log line,
@@ -11493,7 +11496,7 @@ ZERO raises on any lane; V7T's `icon-off-orbit` red is its own documented findin
 
 ## TS-LOADGAME-RECORDING-ACTIVE-RACE - the scene-entry recorder re-arms after a StopRecording/DiscardTree pair and REJECTS the next `LoadGame` (SECOND SIGHTING 2026-08-09; V5's re-kill mitigation narrows the window, it does not close it)
 
-**What happens.** A `seam`-driver spec that re-enters a second scene mid-run must kill the live recorder first - `TestCommandDispatcher` refuses `LoadGame` with `msg=recording-active` by design, so the load never silently discards a live recording. The TS lanes therefore issue `StopRecording` + `DiscardTree` immediately before the load. On some scene-entry orderings a scene-entry recorder RE-ARMS after that pair and before the load lands, and the load is rejected. The run is driver-INVALID: the second half of the declared sequence never executes.
+**What happens.** A `seam`-driver spec that re-enters a second scene mid-run must kill the live recorder first - `TestCommandDispatcher` refuses `LoadGame` with `msg=recording-active` by design, so the load never silently discards a live recording (the ONE exception, added 2026-09-09, is RF-3/A1's `allowLiveRecorder=refly`, which admits the load only while a re-fly session marker is live). The TS lanes therefore issue `StopRecording` + `DiscardTree` immediately before the load. On some scene-entry orderings a scene-entry recorder RE-ARMS after that pair and before the load lands, and the load is rejected. The run is driver-INVALID: the second half of the declared sequence never executes.
 
 **Sighting 1 (2026-08-08, V5-ts-loop-arrival run 1 attempt 1).** Measured: promotion-recorder start 50.294 -> our StopRecording 50.599 -> a SECOND start 50.842 -> `reject LoadGame reason=recording-active`. Attempt 2 on the identical spec saw no second start. The mitigation adopted then was a re-kill pair placed immediately before the load, described in V5's write-up (and inherited verbatim into V6T / V7T) as "the only placement that makes the outcome deterministic".
 

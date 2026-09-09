@@ -1545,7 +1545,10 @@ namespace Parsek.TestCommands
         // The boot channel: realises the .sfs into a KSP Game and focuses its active
         // vessel via the same Assembly-CSharp-only sequence QuickloadResumeHelpers uses,
         // INCLUDING FlightCameraReloadPin.Arm BEFORE StartAndFocusVessel (stock bug #4803
-        // guard). Dispatch already rejected recording-active / load-in-flight. A null /
+        // guard). Dispatch already rejected load-in-flight, and recording-active UNLESS the
+        // caller passed RF-3/A1's `allowLiveRecorder=refly` with a live re-fly session marker -
+        // so this body CAN be reached with a recorder running, and the start line below says so
+        // explicitly. A null /
         // incompatible game or an out-of-range active-vessel index is a single-phase
         // ERROR load-failed; a focusable game enters two-phase (PENDING), completing when
         // the new scene settles with HighLogic.CurrentGame != null. save=<folder> maps to
@@ -1570,8 +1573,15 @@ namespace Parsek.TestCommands
                 return;
             }
 
+            // THE ADMIT SIDE OF RF-3/A1 IS LOGGED HERE, and it has to be: the refusal Warns
+            // with its reason, but a load that was ADMITTED past the recording-active guard
+            // used to be indistinguishable in KSP.log from a load taken with no recorder at
+            // all. That is the guard-condition-skip the logging rule exists for, and it is
+            // also what lets a spec pin the F9-mid-re-fly half on a token rather than on a
+            // step verdict. Both fields are printed unconditionally so their ABSENCE is
+            // never the signal.
             ParsekLog.Info(Tag,
-                $"loadgame start save={save ?? string.Empty} name={name ?? string.Empty} scene={HighLogic.LoadedScene} requestedScene={requestedScene}");
+                $"loadgame start save={save ?? string.Empty} name={name ?? string.Empty} scene={HighLogic.LoadedScene} requestedScene={requestedScene} allowLiveRecorder={ArgOrNull(cmd, "allowLiveRecorder") ?? "(none)"} recorderLive={(ParsekFlight.HasLiveRecorderForTagging() ? "true" : "false")}");
 
             Game game;
             try

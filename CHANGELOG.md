@@ -10,6 +10,12 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Automated testing: a reload that goes ahead while a flight is being recorded now
+  says so in the log.** The refusal always explained itself; the one case that is
+  allowed through did not, so a reader of the log could not tell a load that skipped
+  the safeguard from one taken when there was nothing to safeguard. Every load now
+  reports whether it was asked to go ahead and whether a recording was running.
+
 - **Automated testing: a reload taken while a re-fly is in progress can now be driven,
   and the first one settled a question that had been open for a month.** Reloading a
   save is refused while a flight is being recorded, so that a reload can never throw
@@ -46,12 +52,14 @@ _(unreleased — entries accumulate here per commit)_
   now watches while both halves still have footage, and the camera takes the sibling as
   intended.
 
-- **Automated testing: two recorded test saves referred to a start-over point that was
+- **Automated testing: the recorded test saves referred to a start-over point that was
   deliberately not kept with them.** Trimming those files had cleared the reference in
   one place and left it in another, so re-flying from one of them re-introduced a
-  pointer to a file that is not there, and the save checker correctly complained. The
-  stale reference is cleared, and both the file's own build check and the standing
-  corpus check now look for any such pointer rather than for one particular spelling.
+  pointer to a file that is not there, and the save checker correctly complained - on
+  one save loudly, and on another quietly enough that it had been passing. Every such
+  reference is now cleared across the whole set, and both the per-file build check and
+  the standing corpus check look for any pointer of that kind rather than for one
+  particular spelling.
 
 - **Automated testing: the harvested save of the closed-slot session is now read
   through the real loader, not only compared byte for byte.** That save is the only

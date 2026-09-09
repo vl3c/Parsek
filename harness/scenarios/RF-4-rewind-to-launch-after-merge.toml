@@ -104,15 +104,28 @@ id = "RF-4-rewind-to-launch-after-merge"
 # (priorTip retired)`), which is a SPEC-SIDE re-pin, not a defect.
 #
 # =====================================================================================
-# STATUS: LIVE-PROVEN IN THIS SHAPE. READING RUN 2 FLOWN 2026-09-09
-# (`2026-09-09_1641`, wall 150 s, MISSION-OK), and the whole subject came back verbatim on
-# the first flight of the re-host:
-#   `sealslot complete mode=slot rp=rp_8b0e2d98... slot=1 tip=rec_e50de50a... alreadySealed=False`
-#   `Reaped rp=rp_8b0e2d98... bp=f00d6d2d... slots=2` / `ReapOrphanedRPs: reaped=1 remaining=0`
-#   `invokerewindtolaunch target resolved tree=d3a44b40... resolvedBy=AutoSingle arg= committedTrees=1`
+# STATUS: LIVE-PROVEN IN THIS SHAPE. GREEN ON `2026-09-09_1645` (PASS attempt 1, wall
+# 151 s, MISSION-OK, expectations mismatches=0, analyzer red=0) and again on
+# `2026-09-09_1730` after the review panel's follow-up, on the DLL that adds the
+# `loadgame start` admit fields.
+#
+# EVERY ID IN THE BLOCK BELOW IS ELIDED TO `<runId>`, deliberately. They are minted
+# fresh on every flight - the RewindPoint by KSP physics, the fork by the merge, the
+# tree by the commit - so a quoted id is stale the next time the lane runs, and the
+# first cut of this block quoted `_1641`, the RED run, under the green run's heading.
+# The panel caught it. What is stable is the SHAPE, which is what the tokens pin. The flight BEFORE it,
+# `2026-09-09_1641`, is the same shape read PARSEK-FAIL on one forbidden token
+# (`outcome=unbound-refly-provisional`) and is what forced that clause's removal - the
+# subject tokens below all matched on it too. Both run ids are named because a status
+# block that cites the red one as the proof is exactly the error this program keeps
+# finding in other people's lanes. The whole subject came back verbatim on the first
+# flight of the re-host:
+#   `sealslot complete mode=slot rp=rp_<runId>... slot=1 tip=rec_<runId>... alreadySealed=False`
+#   `Reaped rp=rp_<runId>... bp=<runId>... slots=2` / `ReapOrphanedRPs: reaped=1 remaining=0`
+#   `invokerewindtolaunch target resolved tree=<runId>... resolvedBy=AutoSingle arg= committedTrees=1`
 #   `Rewind supersede rollback: dropped=0 ... skippedImmutable=1 demotedImmutable=0 rewindUT=11.5
 #    owner='GS1 Auto-Chute Booster'`
-#   `Preserved canon fork across parent rewind: rec=rec_e50de50a... mergeState=Immutable rewindUT=11.5`
+#   `Preserved canon fork across parent rewind: rec=rec_<runId>... mergeState=Immutable rewindUT=11.5`
 # So the sealed fork SURVIVED its parent's rewind, `dropped=0` says nothing was taken, and
 # `resolvedBy=AutoSingle` is the bare auto-select branch no committed lane had ever
 # exercised. TWO SPEC-SIDE CORRECTIONS came out of it, both recorded where they apply: the
@@ -291,7 +304,7 @@ forbidden = [
 #                 READING rather than a mistake being papered over. The derivation said 0:
 #                 RF-1 leaves exactly 1 point, act 3's seal closes its last open slot and
 #                 the reaper runs inside that same call - and the log confirms exactly
-#                 that, `Reaped rp=rp_8b0e2d98... slots=2` then `ReapOrphanedRPs: reaped=1
+#                 that, `Reaped rp=rp_<runId>... slots=2` then `ReapOrphanedRPs: reaped=1
 #                 remaining=0`. The produced save nevertheless carries ONE, because act 4
 #                 runs AFTER the seal: the rewind-to-LAUNCH's go-back reconcile REINSTATES
 #                 the point the seal had reaped. Nothing else in the suite has measured

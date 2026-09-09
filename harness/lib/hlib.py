@@ -3868,10 +3868,13 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
                     % (i, BATCH_ISOLATED_KEY, raw,
                        " or ".join(repr(v) for v in BATCH_ISOLATED_VALUES),
                        BATCH_ISOLATED_KEY))
-        # R12 verb-scoped closed-value args, one row each in VERB_SCOPED_CLOSED_ARGS:
-        #   LoadGame                   scene=
+        # Verb-scoped closed-value args, one row each in VERB_SCOPED_CLOSED_ARGS (five as
+        # of 2026-09-09; the list is here for orientation, the TABLE is the authority):
+        #   LoadGame                   scene=              (R12)
+        #   LoadGame                   allowLiveRecorder=  (RF-3/A1)
         #   SimulateStockSwitchClick   site=
-        #   RunTests                   strict=   (career-ledger B.4)
+        #   RunTests                   strict=             (career-ledger B.4)
+        #   ListHandles                kind=               (R10; also REQUIRED, see below)
         # Same three failures the isolated guard above catches -- a case-variant KEY, the
         # arg on a verb that does not read it, and a value outside the closed set --
         # caught pre-launch instead of costing a KSP boot to learn.

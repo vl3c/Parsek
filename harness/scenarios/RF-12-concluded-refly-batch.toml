@@ -141,12 +141,15 @@ steps = [
   # and its merge wrote real supersede rows, so the path is measured rather than assumed.
   { cmd = "InvokeRewind", args = { rp = "${handles.rp0}", slot = "0" },         expect = "OK", budget = 300 },
   # THE RE-FLY IS FLOWN BEFORE THE BATCH READS IT - RF-6's own lesson, and the step that
-  # replaced the refuted `CommitTree`. `TimeJump` is an EPOCH SHIFT so it cannot conclude
-  # the attempt (see the header), but it does give the provisional Points, which moves
-  # two cells off the "empty Points" skip onto the terminal one and is the difference
-  # between a provisional that recorded nothing and one that recorded something.
-  # CI-2 measured `TimeJump` accepted with a session live; 300 is ~168 s past the point's
-  # UT 131.54.
+  # replaced the refuted `CommitTree`. WHAT IT DOES NOT DO, measured rather than assumed:
+  # the review panel diffed run 1 (no TimeJump) against the green run (TimeJump) and the
+  # batch output is `total=39 passed=12 failed=0 skipped=27` on BOTH, with twelve of the
+  # fifteen skip reasons byte-identical and the other three differing only by a fresh
+  # session id. `KerbalRecoveryOnSupersede` and `MergeInterruptionRecovery` STILL skip on
+  # "empty Points". So the jump changes no cell's verdict; it is kept because every other
+  # RF lane flies its re-fly before reading it and a lane that did not would be the odd
+  # one out for no reason. CI-2 measured `TimeJump` accepted with a session live; 300 is
+  # ~168 s past the point's UT 131.54.
   { cmd = "TimeJump",     args = { ut = "300" },                                expect = "OK", budget = 300 },
   # R7a's and RF-6's own budget for the same 39-cell category.
   { cmd = "RunTests",     args = { category = "Rewind" },                       expect = "OK", budget = 540 },
@@ -175,12 +178,13 @@ count = { min = 11, max = 25 }
 # THE THREE TOKENS THAT MAKE THIS LANE DIFFERENT FROM RF-6, in the order the run produces
 # them:
 #   StartInvoke        a re-fly actually started (RF-6's own anti-vacuity token).
-#   terminalState=     the CONCLUSION, quoted from the production site rather than from a
-#                      log: `FinalizeTreeRecordings: set terminalState=SubOrbital on active
-#                      recording '<id>' (non-leaf, vessel situation=FLYING)`. Pinned with
-#                      the VALUE, because the whole lane is the difference between a
-#                      terminal and no terminal - a commit that stamped nothing would
-#                      still satisfy a value-less pattern.
+#   timejump complete  the attempt was flown before the batch read it.
+#   PASSED: Kerbal...  the lane's ONLY gain over RF-6, and a property of the HOST: the
+#                      cell needs crew aboard the re-flown vessel, which RF-6's fixture
+#                      cannot supply. Removed alongside these two on 2026-09-09: a
+#                      `terminalState=` token left over from the refuted `CommitTree`
+#                      shape, which appears zero times in this lane's log and never was
+#                      in `required`.
 #   runtests start     the batch ran on the right category.
 required = [
   "listhandles kind=rewindpoints count=1 truncated=false",
@@ -197,9 +201,14 @@ required = [
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",
-  # RF-6's guard, kept: if this appears the session was not live when the batch ran and
-  # the lane measured R7a again.
-  "No active re-fly session - invoke a rewind",
+  # RF-6's guard, WIDENED 2026-09-09 by the review panel and this is the second time
+  # this family has paid for the same character. Nine of the eleven cells that print this
+  # skip use an EM DASH; only two use the ASCII hyphen the inherited pin quoted - and
+  # `KerbalDualResidenceCarveOutTest`, whose PASS is this lane's entire gain, is one of
+  # the nine. The clause could not have seen the failure it exists for. Pinned on the
+  # prefix, which every emitter shares. (Same fix applied to RF-6's own copy; the
+  # standing lesson is RF-FORBID-EM-DASH-CANNOT-MATCH.)
+  "No active re-fly session",
   # NOT FORBIDDEN, and the header says why for each: `this test requires SubOrbital` was
   # the subject token of the refuted CommitTree shape, and
   # `outcome=unbound-refly-provisional` is raised at the rewind's own save, before any

@@ -17791,14 +17791,16 @@ class CommittedFixtureRewindSaveTests(unittest.TestCase):
     to read "no seam verb reaches it", true while `InvokeRewind` was the only rewind
     verb (that one is Rewind-to-SEPARATION and targets
     `Parsek/RewindPoints/<rpId>.sfs` through `RewindInvoker`, a different system).
-    `InvokeRewindToLaunch` drives Rewind-to-LAUNCH, so it CAN reach this payload. The
-    cells below are unaffected TODAY because the one committed lane that drives the
-    verb (`GS-4-kerbalx-rewind-watch`, over the kx_rewind_watch mission's seam
-    bridge) rewinds to a quicksave its OWN in-run recording captured, never a
-    fixture-committed one - its fixture (`gs1-two-stage-pad`) carries no
-    `parsek_rw_*` payload, which is exactly what these cells enforce. A spec that
-    drives the verb against a fixture-committed rewind save must re-check both
-    halves here, not just the RewindPoints one.
+    `InvokeRewindToLaunch` drives Rewind-to-LAUNCH, so it CAN reach this payload.
+    THREE committed step sites drive it as of 2026-09-09 - `H58-route-rewind-to-launch`
+    twice and `RF-4-rewind-to-launch-after-merge` once; the enumeration here used to
+    name only `GS-4-kerbalx-rewind-watch`, which reaches it through the kx_rewind_watch
+    mission's seam bridge. The cells below are unaffected by all of them for one reason
+    that has not moved: every one of those lanes rewinds to a quicksave its OWN in-run
+    recording captured, never a fixture-committed one, because no fixture carries a
+    `parsek_rw_*` payload and these cells are what enforce that. A spec that drives the
+    verb against a fixture-committed rewind save must re-check both halves here, not
+    just the RewindPoints one.
 
     The FILE and the HINT must go together. A `rewindSave = ` key pointing at a
     deleted file is a dangling reference: Inv9RewindPoint raises WARN for it, and
@@ -17817,24 +17819,32 @@ class CommittedFixtureRewindSaveTests(unittest.TestCase):
     `bdock-recorded`, and neither consuming spec had an `InvokeRewind` step, so
     "a spec that adds one must re-check this".
 
-    Seven specs now add one (RF-2, RF-3, RF-4, RF-5, RF-8, RH-1, CI-2 over
-    `bdock-recorded`), and they are green - so on THAT fixture the residual still
-    does not surface. It surfaced on the OTHER one. RF-11 re-flew
+    Seven specs now add one over `bdock-recorded` - RF-2, RF-3, RF-5, RF-6, RF-8,
+    RH-1, CI-2 (the roster's first cut named RF-4 instead of RF-6, in the very
+    commit that re-hosted RF-4 onto `gs1-two-stage-pad`; the count survived by
+    coincidence) - and they are green. It surfaced on the OTHER fixture first,
+    and then on this one too, at WARN. RF-11 re-flew
     `refly-autopilot-recorded`'s point and the restore read the pruned name back
     out of the quicksave's `PARSEK_ACTIVE_TREE` (`RewindSaveFileName set for
     restore: '<null>' -> 'parsek_rw_7f15ef'`), `SaveActiveTreeIfAny` copied it to
     the tree ROOT, and Inv9RewindPoint FAILed `missing-rewind-save-provisional` on
     a `CommittedProvisional` recording pointing at a file no fixture carries.
 
-    So the VALUE is now cleared in that fixture's one quicksave (a value-only
-    edit: the key stays, no PART name and no line count moves, so the deep parse
-    and every pinned count are untouched), and the cell below pins it. The three
-    `bdock-recorded` quicksaves keep theirs, deliberately: their bytes are the
-    more load-bearing of the two and seven green lanes are the evidence that the
-    residual does not reach a FAIL there. If one ever does, the same one-line
-    edit is the fix - severity splits on the owning recording's MergeState
-    (`Inv9RewindPoint.cs`), so which fixture reds is a property of where
-    `SaveActiveTreeIfAny` lands the copy, not of the hint."""
+    So the VALUES are now cleared in EVERY committed fixture's RewindPoint
+    quicksaves (value-only edits: the keys stay, no PART name and no line count
+    moves, so the deep parse and every pinned count are untouched), and the cell
+    below pins the absence corpus-wide.
+
+    IT WAS SCOPED TO ONE FIXTURE FOR HALF A DAY, on the argument that bdock's
+    three copies are more load-bearing bytes and that seven lanes re-fly that
+    fixture green. The review panel refuted the second half the same day: RF-8's
+    own green run restores `parsek_rw_2226aa` out of
+    `rp_f4edbb97....sfs`, and its produced analysis carries the identical INV9
+    finding one severity down - `WARN ... missing-rewind-save` rather than the
+    RED `missing-rewind-save-provisional` - because severity splits on the owning
+    recording's MergeState (`Inv9RewindPoint.cs`). bdock's green sat one
+    MergeState away from RF-11's red on the same defect, so "it has not failed
+    yet" was doing work "it cannot fail" would have had to earn."""
 
     def test_no_fixture_commits_a_rewind_to_launch_quicksave(self):
         offenders = []
@@ -17864,35 +17874,54 @@ class CommittedFixtureRewindSaveTests(unittest.TestCase):
                          "dangling reference: Inv9RewindPoint WARNs, and FAILs when "
                          "the owning recording is CommittedProvisional")
 
-    def test_refly_autopilot_rewind_point_quicksave_carries_no_hint(self):
-        # RF-11, 2026-09-09. The quicksave embeds its own ParsekScenario copy, so a
-        # re-fly restores whatever `rewindSave` it names and the analyzer then FAILs on
-        # a dangling reference. Scoped to the fixture that surfaced it rather than
-        # applied corpus-wide, for the reason the class docstring gives: bdock's three
-        # copies are more load-bearing bytes and seven green lanes say they do not
-        # reach a FAIL. Widening this to every fixture is a deliberate follow-up, not
-        # something to do while nothing is red.
-        rp_dir = os.path.join(FIXTURE_SAVES_DIR, "refly-autopilot-recorded",
-                              "Parsek", "RewindPoints")
-        self.assertTrue(os.path.isdir(rp_dir),
-                        "refly-autopilot-recorded lost its RewindPoints")
+    def test_no_fixture_rewind_point_quicksave_references_a_rewind_save(self):
+        # RF-11, 2026-09-09, WIDENED THE SAME DAY BY THE REVIEW PANEL. The quicksave
+        # embeds its own ParsekScenario copy, so a re-fly restores whatever rewind save
+        # it names and the analyzer then reports a dangling reference on the recording
+        # the name lands on.
+        #
+        # The first cut scoped this to `refly-autopilot-recorded` alone, on the argument
+        # that bdock's three copies are more load-bearing bytes and that seven lanes
+        # re-fly that fixture green. The panel refuted the second half: RF-8's OWN green
+        # run restores `parsek_rw_2226aa` out of `rp_f4edbb97...`, and its produced
+        # analysis carries the identical INV9 finding one severity down -
+        # `WARN ... missing-rewind-save recording=5157d655...` instead of the RED
+        # `missing-rewind-save-provisional`. Severity splits on the owning recording's
+        # MergeState (`Inv9RewindPoint.cs`), so bdock's green sat exactly one MergeState
+        # away from RF-11's red, on the same defect. "It has not failed yet" is not the
+        # same claim as "it cannot".
+        #
+        # So the prune is corpus-wide and the edits are value-only: the keys stay, no
+        # PART name and no line count moves, which is what keeps
+        # `RewindInvoker.PartLoaderPrecondition.Check`'s deep parse and every pinned
+        # count (`test_saveparse`'s `rewind_points: 3`) untouched.
+        offenders = []
+        for name in sorted(os.listdir(FIXTURE_SAVES_DIR)):
+            rp_dir = os.path.join(FIXTURE_SAVES_DIR, name, "Parsek", "RewindPoints")
+            if not os.path.isdir(rp_dir):
+                continue
+            offenders.extend(self._rewind_save_refs(rp_dir, name))
+        self.assertEqual([], offenders,
+                         "a rewind-to-launch reference inside a RewindPoint quicksave "
+                         "is restored by a re-fly and copied onto the tree root, where "
+                         "Inv9RewindPoint reports it as a dangling reference (RF-11 "
+                         "reading run 1). Clear the VALUE, keep the key")
+
+    @staticmethod
+    def _rewind_save_refs(rp_dir, label):
         # ANY `parsek_rw_*` reference, not one key's spelling. The name the restore
         # reads is `resumeRewindSave` on the PARSEK_ACTIVE_TREE resume node, NOT the
         # `rewindSave` on the recording - a first pass that matched only the latter
         # cleaned the file and the lane was still red. Matching the VALUE makes this
-        # cell about the property rather than about a key list.
-        offenders = []
+        # about the property rather than about a key list somebody has to keep complete.
+        found = []
         for name in sorted(os.listdir(rp_dir)):
             with open(os.path.join(rp_dir, name), "r",
                       encoding="utf-8", errors="replace") as fh:
                 for lineno, line in enumerate(fh, 1):
                     if re.search(r"parsek_rw_\w+", line):
-                        offenders.append("%s:%d %s" % (name, lineno, line.strip()))
-        self.assertEqual([], offenders,
-                         "a rewind-to-launch reference inside the RewindPoint quicksave "
-                         "is restored by a re-fly and copied onto the tree root, where "
-                         "Inv9RewindPoint FAILs it as missing-rewind-save-provisional "
-                         "(RF-11 reading run 1). Clear the VALUE, keep the key")
+                        found.append("%s/%s:%d %s" % (label, name, lineno, line.strip()))
+        return found
 
     def test_the_rewind_points_payload_is_untouched(self):
         # The other half of the trade. RewindPoints are NOT exhaust - they are

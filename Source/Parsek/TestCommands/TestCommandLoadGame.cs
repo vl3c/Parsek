@@ -116,6 +116,13 @@ namespace Parsek.TestCommands
         /// the opposite direction (there a wrong scene boots; here the asked-for load never
         /// happens and the refusal names a state the caller deliberately created).</para>
         ///
+        /// <para>The out-param is a <c>bool</c> rather than the three-valued enum
+        /// <see cref="TryParseRequestedScene"/> returns, because the accepted set has exactly
+        /// one member. The harness mirror anticipates a second value carrying its own state
+        /// term (<c>hlib.LOADGAME_ALLOW_LIVE_RECORDER_VALUES</c>); the day one arrives this
+        /// becomes an enum and the single call site in
+        /// <c>TestCommandDispatcher.DecideDispatch</c> moves with it.</para>
+        ///
         /// <para>PARSING IS NOT PERMISSION. A parsed <c>refly</c> only makes the opt-in
         /// AVAILABLE; <c>TestCommandDispatcher.DecideDispatch</c> additionally requires a
         /// live re-fly session marker before it lets the load past the
@@ -138,8 +145,10 @@ namespace Parsek.TestCommands
         /// <summary>
         /// Parses the optional <c>scene=</c> arg (R12). FAIL-CLOSED and case-sensitive,
         /// exactly like <c>RunTests</c>' <c>isolated=</c>: the value reaches the wire
-        /// through <c>run.py::encode_value</c> (a bare <c>str(value)</c>), so a lenient
-        /// parse would silently accept a spelling the harness-side validator rejects, and
+        /// PERCENT-ENCODED by <c>run.py::encode_value</c> and is decoded before it gets
+        /// here, so the comparison sees exactly what the spec wrote - a trailing space
+        /// survives the round trip and fails closed. A lenient parse would silently
+        /// accept a spelling the harness-side validator rejects, and
         /// a mis-spelled scene would boot the DEFAULT route while the spec believes it
         /// asked for another one - the B10-shaped fail-open (a silently-wrong-scene boot
         /// reads green through an all-skipped batch). An ABSENT arg is the pre-R12

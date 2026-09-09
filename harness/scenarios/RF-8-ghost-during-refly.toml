@@ -166,10 +166,13 @@ steps = [
 ]
 
 [dimensionsCovered]
-# BASICS ONLY. What the reading run earns: D6 `ghost-map-presence` and
-# `mesh-lifecycle-derender` off the ghost tokens, and D14 `scene-map`. NOT claimed in
-# advance, because whether a sibling ghost renders at all during a live session is the
-# thing being measured - the whole reason this lane exists is that nobody knows.
+# BASICS ONLY, and `scene-map` IS among them - the earlier wording said it was "NOT
+# claimed in advance" while the row below claimed it, which the review panel caught. The
+# four D14 values are host / scene properties that hold the moment the boot lands and the
+# map opens, and `EnterMapView` is a driven step with `expect = "OK"`. What is NOT claimed
+# in advance, and is what the reading run earns: D6 `ghost-map-presence` and
+# `mesh-lifecycle-derender` off the ghost tokens. Taking those moves
+# `hlib.compute_coverage` and belongs to a deliberate pass.
 D14 = ["kerbin", "sandbox", "scene-flight", "scene-map"]
 
 [expectations]
@@ -214,11 +217,16 @@ forbidden = [
   # a driver accident - it would mean the sibling the player is supposed to fly against
   # was not renderable at all.
   "no-watchable-ghost",
-  # The two Tier-C anomalies, armed here for the first time on a rewind lane. A ghost that
-  # renders BADLY during a re-fly is a different defect from one that does not render, and
-  # only these two can separate them.
-  "icon-jump",
-  "line-blink",
+  # `icon-jump` and `line-blink` were forbidden here as "the two Tier-C anomalies". BOTH
+  # clauses are removed (2026-09-09, review panel) and neither removal loses coverage.
+  # `icon-jump` is in `hlib.ANOMALY_TOKENS_DEAD` - "gated once, raised by nothing, REMOVED
+  # from ANOMALY_TOKENS (2026-07-29)" - so the clause could never fail; the live tokens are
+  # `icon-teleport` / `icon-off-orbit`. And a bare substring is the wrong instrument for
+  # either: `_anomaly_reasons` says so by name ("an anomaly RAISE is identified by the
+  # phase marker plus the reason field - never by the bare token appearing somewhere in
+  # KSP.log"), and `allowedAnomalies = []` above already arms the phase-anchored sweep over
+  # every LIVE token, which read `hits=[] counts={}` on the green run. The sweep is the
+  # assertion; these two were a decorative copy of part of it, one of them inert.
   # The seed session's closure token, carried across the RF family as a standing guard.
   "reason=sealedTipClosed",
 ]
@@ -232,9 +240,12 @@ forbidden = [
 
 [runtime]
 # LoadGame 660 + SetSetting x4 480 + StopRecording 120 + ListHandles 120 +
-# InvokeRewind 660 + TimeJump 660 + RecordingState x15 1800 + EnterWatchMode 180 +
-# EnterMapView 180 + ExitMapView 120 + AnswerMergeDialog 180 + FlushAndQuit 120 = 5280.
-# 5600 clears it by 320.
+# InvokeRewind 660 + TimeJump 660 + RecordingState x15 1800 + EnterWatchMode 120 +
+# EnterMapView 120 + ExitMapView 120 + AnswerMergeDialog 180 + FlushAndQuit 120 = 5160.
+# 5600 clears it by 440. (`EnterWatchMode` / `EnterMapView` are NOT in
+# `DEFERRED_SEAM_VERBS`, so they ride the 60 s dispatch default -> 120, not the 180 the
+# first cut priced them at; corrected by the review panel. The ceiling is unchanged
+# because it only ever has to EXCEED the sum.)
 budgetSeconds = 5600
 
 [retry]

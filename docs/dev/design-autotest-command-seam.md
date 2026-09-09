@@ -1288,8 +1288,14 @@ considered and rejected on exactly that ground.
 
 **Why an argument and not a verb** (R12/A1's reasoning, verbatim in shape): the fault
 being fixed is that the dispatch guard is two-valued when the state it guards is
-three-valued - no recorder, a recorder, a recorder that belongs to a re-fly the caller is
-deliberately reloading over. The argument is additive under the "readers ignore unknown
+three-valued - no recorder, a recorder, and a recorder running while a re-fly session
+marker is live. Said precisely, because the code says no more than this: the guard reads
+marker PRESENCE (`DispatchState.ActiveReFlyMarker`, the same bit `AnswerMergeDialog`
+reads), NOT that the live recorder belongs to that session. A stale or synthetic marker
+would therefore admit a load over an unrelated recorder. That is accepted rather than
+overlooked: the whole surface is seam-only (`PARSEK_TEST_COMMANDS=1`), and `LoadTimeSweep`
+culls zombie markers at OnLoad. A binding check would need the marker's tree id, which is
+`ReFlySessionMarker.ResolveInPlaceContinuationTarget`'s own guard and not this verb's. The argument is additive under the "readers ignore unknown
 keys" clause, so every existing spec is byte-unaffected, and the guard's strength for
 every caller that does not pass it is literally unchanged code.
 
@@ -1311,6 +1317,13 @@ by an `allow-live-recorder-arg-invalid` row in the reject-reason class map. Addi
 required lowering that validator's case-variant comparison on BOTH sides - it is the
 table's first non-lowercase key, and `key.lower() == arg_key` could never have fired for
 it.
+
+**Diagnostics.** The refusal side Warns with its reason like every other dispatch reject.
+The ADMIT side is logged on `loadgame start`, which carries `allowLiveRecorder=<raw|(none)>`
+and `recorderLive=<true|false>` unconditionally - without them a load admitted past the
+guard is indistinguishable in `KSP.log` from a load taken with no recorder at all, which is
+exactly the guard-condition-skip the logging rule exists for. It is also what lets a spec
+pin the F9 half on a token instead of on a step verdict.
 
 **Coverage.** `TestCommandDispatchTests` walks the conjunction one leg at a time (arg with
 marker executes; arg without marker still refuses `recording-active`; marker without arg

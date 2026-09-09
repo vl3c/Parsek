@@ -662,7 +662,7 @@ GAME
 			recordingSchemaGeneration = 4
 			activeRecordingId = a32f62f52dc84d6a94daf93460ec6548
 			isActive = True
-			resumeRewindSave = parsek_rw_070b82
+			resumeRewindSave = 
 			RECORDING
 			{
 				recordingId = a32f62f52dc84d6a94daf93460ec6548
@@ -682,7 +682,7 @@ GAME
 				startBiome = Shores
 				startSituation = Prelaunch
 				launchSiteName = Launch Pad
-				rewindSave = parsek_rw_070b82
+				rewindSave = 
 				rewindResFunds = 0
 				rewindResSci = 0
 				rewindResRep = 0

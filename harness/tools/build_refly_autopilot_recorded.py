@@ -228,7 +228,10 @@ def verify() -> List[str]:
         # a second key the first pass missed by matching on the first one's spelling.
         # Matching the VALUE shape is what makes the check about the property (no
         # reference to a payload this fixture does not carry) rather than about a key
-        # list somebody has to keep complete.
+        # list somebody has to keep complete. The corpus-wide half of the same rule is
+        # `CommittedFixtureRewindSaveTests`, which was widened from this one fixture to
+        # every fixture's quicksaves the same day, after the review panel found the
+        # identical finding live on `bdock-recorded` at WARN severity.
         rp_hints = [ln.strip() for ln in _read_lines(rp_file) if "parsek_rw_" in ln]
         if rp_hints:
             problems.append(

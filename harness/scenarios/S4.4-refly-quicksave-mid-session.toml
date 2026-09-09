@@ -135,13 +135,18 @@ craft              = []
 
 [driver]
 kind = "seam"
-# THE ORDERING: SaveGame and the reload sit AFTER InvokeRewind (the session is live) and
-# BEFORE AnswerMergeDialog (the session must still be live to conclude). The SaveGame is
-# accepted and inert; the reload is REJECTED `recording-active` (run 1's finding), which
-# `expect = "REJECTED"` makes the PASS condition - the session is unchanged by it, so the
-# merge then concludes it. The reload's `budget` is dropped to the default: a dispatch
-# reject is immediate, not a two-phase wait. FlushAndQuit writes `persistent`, so the
+# THE ORDERING: SaveGame and BOTH reloads sit AFTER InvokeRewind (the session is live)
+# and BEFORE AnswerMergeDialog (the session must still be live to conclude). The SaveGame
+# is accepted and inert; the FIRST reload is REJECTED `recording-active`, which
+# `expect = "REJECTED"` makes a PASS condition and which is now the negative control for
+# the second; the SECOND reload carries RF-3/A1's opt-in and completes. The merge then
+# concludes the session the reload did not end. FlushAndQuit writes `persistent`, so the
 # produced save the verifiers read is the post-merge world as in S4.2.
+#
+# NOTE ON BUDGETS: `run.py` picks the deferred branch on the VERB NAME, not on `expect`,
+# so BOTH reloads are priced as two-phase loads even though one is a dispatch reject. The
+# arithmetic at the bottom of this file was wrong about that until the review panel
+# corrected it.
 steps = [
   { cmd = "LoadGame",          args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 240 },
   { cmd = "SetSetting",        args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
@@ -162,8 +167,12 @@ steps = [
 ]
 
 [dimensionsCovered]
-# S4.1's seam half, claimed as such. The mid-session save/load reached no new D9 value:
-# the reload was guard-blocked, so nothing new about the rewind machinery was exercised.
+# S4.1's seam half, claimed as such. THE PROSE HERE WAS STALE and is corrected: it read
+# "the reload was guard-blocked, so nothing new about the rewind machinery was
+# exercised", which stopped being true when the lane gained its RF-3/A1 step - the reload
+# now COMPLETES. No new D9 value is claimed anyway, on the claim-is-not-gate rule: what
+# the run newly exercises is the quickload classifier's re-fly carve-out, which has no
+# registry cell of its own, and taking one would be a deliberate coverage pass.
 D9  = ["rewind-to-separation", "refly-gate", "reconciliation-bundle", "read-back-guard"]
 D14 = ["sandbox", "scene-flight"]
 
@@ -184,10 +193,15 @@ required  = [
   # the rewind. The reject fires at DISPATCH, before any `loadgame start`, so this line -
   # not a `loadgame start ... name=quicksave` - is what a green run carries.
   "reject id=\\S+ cmd=LoadGame reason=recording-active",
-  # THE F9 HALF ACTUALLY RAN. `loadgame complete` is the verb's own terminal line and it
-  # can only be reached past the guard step 5 just proved is still closed, so the pair
-  # (reject, then complete) is the whole RF-3/A1 contract read off one log.
-  "loadgame complete",
+  # THE F9 HALF ACTUALLY RAN, and this token had to be sharpened. The first cut pinned
+  # bare `loadgame complete`, which STEP 1 satisfies on its own - a boot from MAINMENU
+  # with no recorder and no opt-in - so it witnessed nothing. The start line names the
+  # slot AND, since 2026-09-09, the two fields that make the admit self-describing:
+  # `allowLiveRecorder=` and `recorderLive=`, printed unconditionally on every load. A
+  # line carrying `recorderLive=true` can only be produced by a load the guard admitted,
+  # which is the whole RF-3/A1 contract in one token - and step 5's reject two lines
+  # above it is the negative control on the same recorder.
+  "loadgame start save=\\S+ name=quicksave .*allowLiveRecorder=refly recorderLive=true",
   "outcome=retired-empty-provisional",
   "AppendRelations outcome=refused-unflown-provisional",
   # THE CLEAN-CONCLUSION TOKEN. S4.2 (via the batch) ended `outcome=concluded-no-supersede`;
@@ -210,12 +224,15 @@ forbidden = [
 ]
 
 [runtime]
-# S4.2's arithmetic with BOTH reloads: the guard-blocked one is a dispatch reject
-# (default 60, no two-phase wait), the opt-in one is a real two-phase load.
-# LoadGame 660 + SetSetting 60 + InvokeRewind 660 + SaveGame 60 + LoadGame(reject) 60
-# + LoadGame(opt-in) 660 + AnswerMergeDialog 120 + RecordingState 60 + FlushAndQuit 60
-# = 2400; +150 margin.
-budgetSeconds = 2550
+# CORRECTED 2026-09-09 BY THE REVIEW PANEL, and the correction is the rule rather than
+# the numbers. `run.py` branches on the VERB NAME (`DEFERRED_SEAM_VERBS`), not on
+# `expect`, so the guard-blocked reload is priced as a full two-phase load; and a
+# non-deferred verb gets `max(step_budget, dispatch + 60)`, i.e. 120 minimum, not 60.
+# LoadGame 660 + SetSetting 120 + InvokeRewind 660 + SaveGame 120 + LoadGame(reject) 660
+# + LoadGame(opt-in) 660 + AnswerMergeDialog 180 + RecordingState 120 + FlushAndQuit 120
+# = 3300. The previous 2550 was BELOW the worst case, which `run.py` kills on rather than
+# surfacing as a per-step timeout - inert at a measured wall of 79 s, and wrong anyway.
+budgetSeconds = 3450
 
 [retry]
 policy = "once"

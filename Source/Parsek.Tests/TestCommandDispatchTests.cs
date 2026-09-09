@@ -275,8 +275,13 @@ namespace Parsek.Tests
         [Fact]
         public void LoadGame_AllowLiveRecorder_BadValue_RejectsEvenWithNoRecorder()
         {
-            // The parse runs BEFORE the recorder term, so a typo is never masked by a
-            // state in which the opt-in would not have been needed at all.
+            // A typo rejects even in a state where the opt-in was never needed, so a spec
+            // that mis-spells the value learns it on the first step rather than on the one
+            // where a recorder happens to be live. NOTE what this does NOT pin: moving the
+            // parse after the recorder term leaves this cell green (with Recording=false the
+            // recorder term is skipped and the relocated parse still rejects). The ORDER is
+            // pinned by the three BadValue_Rejects_ArgInvalid rows, which run with a live
+            // recorder and a live marker.
             var r = TestCommandDispatcher.DecideDispatch(
                 CmdArgs("LoadGame", "allowLiveRecorder=yes"), MainMenu());
             Assert.Equal(DispatchDecision.Reject, r.Decision);

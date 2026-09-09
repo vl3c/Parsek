@@ -93,7 +93,7 @@ Re-derived 2026-09-09 on `refly-lanes` at `659be2a68`:
 values 248   covered 170   uncovered 78   expectedFailValues 0   xpass 0
 ```
 
-UNCHANGED by the eleven RF specs, and that is the program's own decision rather than
+UNCHANGED by the thirteen RF specs, and that is the program's own decision rather than
 an accident: none of them claims a NEW cell, so the covered / uncovered SET is
 identical with and without them - only the `coveredBy` membership of six D14
 host-basics cells (`kerbin`, `sandbox`, `scene-flight`, `scene-map`, `scene-ts`,
@@ -3755,7 +3755,10 @@ match, which reads exactly like a pass on every run. Same silence-is-not-success
 the RF-7M defect-(B) tokens, arrived at from the opposite direction. Both lanes now forbid
 the fragment `not re-deriving MergeState`; filed as RF-FORBID-EM-DASH-CANNOT-MATCH.
 
-**THE PROGRAM FLEW OUT ON 2026-09-09**, every lane against the merged-main DLL
+**THE PROGRAM FLEW OUT ON 2026-09-09** (PHASE 2. Both INVALID rows below were
+re-authored and flown GREEN later the SAME DAY in phase 3 - see "THE TWO INVALIDS WERE
+THE SAME SHAPE" below; the shared date is why this note is here rather than left to a
+reader to notice.), every lane against the merged-main DLL
 (deployed automation hash `cd8ddb6b691e3fb8`, verified to carry both fixes' literals
 in both encodings). NINE GREEN, two INVALID with named causes - and the lane that was RED BY FINDING is green
 as of run 4, because the finding it opened was fixed by PR #1661 the next morning and this
@@ -3775,7 +3778,13 @@ program flew the proof:
 | RF-8 | INVALID | `RF-8` | A ghost DOES resolve during a live re-fly and is body-matched; the watch RANGE gate declines it |
 | RF-10 | PASS, ARMED | `2026-09-09_0008` / `_0011` / `_0012` | The round trip: the split tip's open bit survives the codec, read by a boot that flew nothing |
 
-**THREE LANES ARE NOW ARMED**, each through the full S4.1 cycle rather than by decree:
+**FOUR LANES ARE NOW ARMED** (RF-11 joined on 2026-09-09 through the same cycle:
+reading run `2026-09-09_1631`, armed re-flight `_1659` on the same three numbers,
+negative control `_1700` with `rewindPoints` inverted to `{1,1}` reading PARSEK-FAIL on
+exactly `rewind.rewindPoints 0 < min 1` and nothing else, reverted in the same change.
+Only `rewindPoints` is two-sided there; `supersedeRows` and `tombstones` stay floors,
+because what a subtree closure sheds is not something to pin a ceiling on.)
+THE THREE ARMED BEFORE IT**, each through the full S4.1 cycle rather than by decree:
 reading run, ARMED re-flight, NEGATIVE CONTROL, revert in the same change.
 
 - **RF-1 `[expectations.rewind]`** - armed run `2026-09-08_2349` PASS; control
@@ -3799,7 +3808,7 @@ reading run, ARMED re-flight, NEGATIVE CONTROL, revert in the same change.
 **NO NEW REGISTRY CELL IS CLAIMED**, and that is a decision rather than an oversight.
 Every RF spec carries only the host basics (D14 `kerbin` / `sandbox` / `scene-*`), so
 the covered / uncovered SET `compute_coverage` returns is identical with and without
-the eleven RF specs - only the `coveredBy` membership of six D14 cells moves
+the thirteen RF specs - only the `coveredBy` membership of six D14 cells moves
 (`kerbin`, `sandbox`, `scene-flight`, `scene-map`, `scene-ts`, `scene-ksc`), and the
 suite's own triple stays 170 of 248 with 78 uncovered. RF-9
 now exercises and OBSERVES `rewind-to-separation`, `refly-gate`,
