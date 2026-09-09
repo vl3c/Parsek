@@ -28,26 +28,28 @@ verdict INVALID (driver-gate), attempt 1 and 2.
 
 THE CAUSE IS THE HOST, AND IT WAS KNOWABLE BEFORE THE FLIGHT: `bdock-recorded` carries
 ZERO `rewindSave` hints and no `Parsek/Saves/` directory, so no tree in it can be rewound
-to launch by any argument. H58 passes the same pair because it runs on
-`rover-route-recorded`, which does carry the payload - the pair was borrowed across
-fixtures, and "the verb pair works" was read as a property of the verb rather than of the
-save. This is the program-wide-claim rule in miniature: a claim about a lane needs a data
-point from THAT lane's host.
+to launch by any argument. The pair was borrowed from H58 across FIXTURES, and "the verb
+pair works" was read as a property of the verb rather than of the save. This is the
+program-wide-claim rule in miniature: a claim about a lane needs a data point from THAT
+lane's host.
 
-THE FIX IS AVAILABLE AND IS NOT A RE-PIN. `refly-autopilot-recorded` (harvested
-2026-09-09 from RF-9's produced save) is the only candidate host in the corpus that
-carries BOTH a live RewindPoint and a rewind-to-launch quicksave, which is exactly what
-RF-4's two acts need. Three things land together on the day it is taken:
+THE FIX IS H58's OWN, AND IT IS CHEAPER THAN THE FIRST ANSWER FILED HERE. This entry
+originally proposed re-hosting RF-4 onto `refly-autopilot-recorded` and committing a
+rewind-to-launch quicksave into it. That was WRONG in its premise - H58 does not rewind a
+fixture tree either, and NO recorded fixture carries the payload, by policy: the harvester
+prunes `Parsek/Saves` and clears the hint, `CommittedFixtureRewindSaveTests` forbids it,
+and `build_rover_route_recorded.py` gates the absence in both directions. H58's own header
+states the mechanism it uses instead: `FlightRecorder.CaptureRewindSave` writes the
+`parsek_rw_*` quicksave at EVERY non-promotion recording start, so after a `StopRecording`
+leaves no active tree, a `StartRecording` / `StopRecording` / `CommitTree` triple mints a
+fresh single-node tree WITH a launch quicksave, and `tree=latest` then resolves to it.
 
-1. `build_refly_autopilot_recorded.restore_rewind_payload` is run, so the fixture keeps
-   `Parsek/Saves/parsek_rw_*.sfs` and its `rewindSave` hint.
-2. `CommittedFixtureRewindSaveTests` is amended - its own docstring already names this
-   exception ("a spec that drives the verb against a fixture-committed rewind save must
-   re-check both halves here") - and the drift test's
-   `test_the_live_rewind_point_is_here_and_the_launch_save_is_not` is inverted with it.
-3. RF-4's Act 2 loses the `ambiguous-tree` half: the new host has ONE committed tree, so
-   the bare call resolves rather than refusing. That is a real loss of a negative control
-   and the honest replacement is a second lane or a second tree, not a pretence.
+So RF-4 keeps its host and produces its own rewind subject in Act 2, exactly as H58 does.
+That also keeps the `ambiguous-tree` negative control, which the re-host would have thrown
+away (a single-tree host cannot be ambiguous). What it needs is the three-step prologue
+inserted before `InvokeRewindToLaunch`, and then its two DERIVED tokens
+(`Rewind supersede rollback: ... skippedImmutable=[1-9]`, `Preserved canon fork across
+parent rewind`) read for the first time.
 
 Until then RF-4 stays as authored and RED, because a lane re-pinned to expect the refusal
 would assert that rewind-to-launch does not work, which is the opposite of its subject.

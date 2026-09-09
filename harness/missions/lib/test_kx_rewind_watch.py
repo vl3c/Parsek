@@ -2887,11 +2887,16 @@ class CoastExitProfileTests(unittest.TestCase):
     # ---- (a) the byte-inertness claim, made mechanically --------------------
 
     def test_the_off_path_is_identical_with_the_key_absent_or_false(self):
-        """THE COMPATIBILITY STATEMENT. Every committed KX lane (GS-4, GS-6, GS-7,
-        GS-8) must drive EXACTLY what it drove before, so this replays the same
-        scripted flight through the machine with the key ABSENT and with it
-        explicitly `false` and compares what a live run would notice: the phase
-        reached on every frame and the ACTION LIST emitted on every frame.
+        """THE COMPATIBILITY STATEMENT, and it is scoped to what it replays. This
+        cell drives the DEFAULT-profile flight (no `partSweepSteps`, no
+        `impactProfile`) with `coastExitProfile` ABSENT and with it explicitly
+        `false`, and compares what a live run would notice: the phase reached on
+        every frame and the ACTION LIST emitted on every frame. That covers GS-4 and
+        GS-8, which declare neither other opt-in.
+
+        GS-6 and GS-7 declare one each, and the sibling cell below replays THOSE
+        params sets the same way rather than leaving them to inspection - the first
+        version of this docstring claimed all four lanes off a replay of one.
 
         Comparing the terminal alone would not do - two runs can agree at the end
         and disagree about which frame commanded the stage."""
@@ -2919,6 +2924,54 @@ class CoastExitProfileTests(unittest.TestCase):
         # so the comparison above is between two runs that got somewhere.
         self.assertEqual(mlib.KXRW_TREE_STATE, absent_state.phase)
         self.assertNotIn(mlib.KXRW_COAST_EXIT, absent_state.phases_reached)
+
+    def test_the_other_two_opt_ins_are_untouched_by_the_key(self):
+        """THE OTHER HALF OF THE CLAIM, replayed rather than reasoned about. GS-6
+        declares `partSweepSteps` and GS-7 `impactProfile`; both reach COAST, which
+        is the one phase this feature edits, so both are replayed with the key absent
+        and with it false and compared frame by frame. MUTATION: move the
+        `coast_exit_profile` read in COAST above the sweep decision without the
+        conflict gate and the sweep lane's trace diverges here."""
+        for over in ({"partSweepSteps": ["gear-down"]}, {"impactProfile": True}):
+            def replay(**extra):
+                st = self._to_coast(**dict(over, **extra))
+                trace = []
+                ut = 1160.0
+                for _ in range(6):
+                    st, acts = self._coast_out(st, ut=ut, altitude=72000.0,
+                                               situation="SUB_ORBITAL")
+                    trace.append((st.phase,
+                                  tuple((a.kind, a.value, a.text, a.seam_verb)
+                                        for a in acts)))
+                    ut += 1.0
+                    if st.done:
+                        break
+                return st, tuple(trace)
+
+            absent_state, absent_trace = replay()
+            false_state, false_trace = replay(coastExitProfile=False)
+            self.assertEqual(absent_trace, false_trace, over)
+            self.assertEqual(absent_state.phase, false_state.phase, over)
+            self.assertEqual(absent_state.verdict, false_state.verdict, over)
+            self.assertNotIn(mlib.KXRW_COAST_EXIT, absent_state.phases_reached, over)
+
+    def test_an_empty_situation_list_is_refused_by_name(self):
+        """`[]` is a spec author saying "accept nothing", and the gate could then
+        never open - the flight would run to its frame cap and flake AFTER an ascent.
+        The params reader takes the key's own value rather than treating `[]` as
+        absent precisely so this refusal lands on frame 1. MUTATION: restore the
+        `or (...)` default and this cell reds because the machine flies happily with
+        the default gate the spec did not ask for."""
+        p = mlib.kxrw_params_from_dict(params(coastExitProfile=True,
+                                              coastExitSituations=[]))
+        self.assertEqual((), p.coast_exit_situations)
+        self.assertIn("EMPTY coastExitSituations",
+                      mlib.kxrw_coast_exit_profile_conflict(p))
+        st = machine(coastExitProfile=True, coastExitSituations=[])
+        st, acts = mlib.kxrw_decide(st, snap(ut=0.0, situation="PRE_LAUNCH"))
+        self.assertTrue(st.done)
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+        self.assertEqual([], acts)
 
     def test_the_predicate_is_inert_on_every_lane_that_does_not_declare_it(self):
         conflict = mlib.kxrw_coast_exit_profile_conflict

@@ -88,11 +88,28 @@ id = "RF-6-rewind-category-live-session"
 # the conclusion. RF-1 through RF-4 own the conclusion routes.
 #
 # =====================================================================================
-# STATUS: TWO READING RUNS FLOWN 2026-09-08, plus an R7a control on the same DLL.
-# VERDICT PARSEK-FAIL(results) BOTH TIMES, and the lane STAYS RED BY DESIGN.
-# `tier = "operator"`. The tally pin is now MEASURED on `total=`, and `passed`/`skipped`
-# stay classes until the four failures below are diagnosed - re-pinning them now would
-# encode a failure as the expected shape.
+# STATUS: GREEN AS OF RUN 4. FOUR FLIGHTS: runs 1-2 on 2026-09-08 (plus an R7a control on
+# the same DLL) and run 3 on the post-#1658 DLL all read PARSEK-FAIL(results) with the SAME
+# four failures; run 4, on 2026-09-09 against merged main after PR #1661, reads
+#   `BATCH_COMPLETE v1 total=39 passed=11 failed=0 skipped=28 category=Rewind scene=FLIGHT`
+# and PASS attempt 1, every verifier PASS/SKIPPED.
+#
+# THE LANE THAT FOUND THE FINDING FLEW ITS PROOF. #1661 diagnosed the four as ONE in-game
+# cell leaking a merge journal into the rest of the batch plus its own missing
+# precondition - no product defect, which is what run 3 reading BYTE-IDENTICALLY across
+# the sealing fix had already pointed at. `total` moved 38 -> 39 because #1662 added a
+# regression cell to this category, and the pin moved with it mechanically through
+# `CommittedBatchTallySourceSyncTests`.
+#
+# `passed` / `skipped` STAY AS CLASSES. They could now be pinned at 11 / 28, and
+# deliberately are not: this category gains cells regularly (two in one night), and an
+# exact pin on the split between passed and skipped would red on every such addition while
+# saying nothing about the session gate this lane exists for. `total=` is exact and
+# source-derived, `failed=0` is HARD, and those two are the lane.
+# `tier = "operator"`.
+#
+# WHAT FOLLOWS IS THE INVESTIGATION RECORD, kept rather than struck: run 3 is what said
+# the four failures were not the sealing defect and sent the diagnosis to batch isolation.
 #
 # THE EXPERIMENT WORKED: the twelve session-gated cells RAN, for the first time anywhere.
 #   `BATCH_COMPLETE v1 total=38 passed=8 failed=4 skipped=26 category=Rewind scene=FLIGHT`
@@ -134,7 +151,7 @@ tier = "operator"
 description = "Run the in-game Rewind category with a LIVE re-fly session, so the twelve session-gated cells - the merge-tail supersede rules, the tombstone contract, ghost suppression during a re-fly, and MergeReFlyToSubOrbitalKeepsSlotOpen - execute for the first time. InvokeRewind arms the session off a runtime-enumerated RewindPoint id, then RunTests drives the batch."
 instanceProfile = "stock-minimal"
 tags = ["RF-6", "rewind", "refly", "in-game-tests", "runtests", "session-live",
-        "runtime-handles", "kerbin", "sandbox", "reading-run", "interim-pin"]
+        "runtime-handles", "kerbin", "sandbox", "reading-run"]
 
 [fixture]
 # bdock-recorded: boots into FLIGHT (what a FLIGHT-scoped batch and the RequiresFlight
@@ -193,9 +210,13 @@ count = { min = 2, max = 30 }
 # the pinned tally agrees with the attributes it counts. That gate is the reason this
 # number is never hand-summed.
 #
-# THE PIN. `total=39` is exact and source-derived; `passed` / `skipped` are classes
-# until the first flight measures them, at which point this spec is re-pinned and its id
-# leaves `INTERIM_PIN_IDS`. `failed=0` is HARD - see the header.
+# THE PIN. `total=39` is exact and source-derived; `failed=0` is HARD; `passed` and
+# `skipped` STAY as classes even though four flights have now measured them (11 / 28 on
+# run 4). The header carries the argument: this category gains cells regularly - two in
+# one night - and an exact pin on the passed/skipped split would red on every addition
+# while saying nothing about the session gate this lane exists for. The `interim-pin` tag
+# is gone with the first flight, as the convention says; `INTERIM_PIN_IDS` is empty and
+# this id was never in it.
 #
 # The two anti-vacuity tokens either side of the tally: the batch has to have STARTED on
 # the right category, and the session has to have been armed BEFORE it. A run

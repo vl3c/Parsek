@@ -32,25 +32,18 @@ save an operator flew by hand and can never fly identically again; this one is t
 output of a committed spec plus a committed mission profile, so a future re-harvest
 is a command rather than an evening.
 
-WHAT THIS TOOL CAN ADD, AND WHY THE COMMITTED BYTES DO NOT CARRY IT.
-`restore_rewind_payload()` copies `Parsek/Saves/` and re-points the `rewindSave`
-hint the harvester prunes. That payload is the REWIND-TO-LAUNCH quicksave, and with
-it this fixture would be the only committed host that can BOTH re-fly a RewindPoint
-and rewind to launch (`bdock-recorded` carries RewindPoints and no launch save;
-`rover-route-recorded` carries a launch save and no RewindPoints). RF-4's reading
-run of 2026-09-09 died on exactly that gap
-(`invokerewindtolaunch refused: rewind-gate No rewind save available tree=... `).
-
-IT IS NOT RUN FOR THE COMMITTED FIXTURE, and the reason is a standing rule rather
-than a doubt: `CommittedFixtureRewindSaveTests` forbids any fixture from carrying
-`Parsek/Saves/parsek_rw_*.sfs` or a hint to one, because six recorded fixtures once
-accumulated 137,355 lines of it as harvest exhaust that nothing read. Its own
-docstring names the exception - "a spec that drives the verb against a
-fixture-committed rewind save must re-check both halves here" - so the payload is
-committed on the day a LANE needs it, in the same change as that lane and as the
-gate's amendment, and not one day earlier. Until then this function is the
-documented route back to it, and the produced-save snapshot it reads from is named
-in the fixture's README entry.
+WHAT THIS TOOL DOES, AND WHAT IT DELIBERATELY DOES NOT. It is a POST-CONDITION GATE
+and nothing else. An earlier cut of it also restored `Parsek/Saves/` and the
+`rewindSave` hint the harvester prunes, on the belief that a rewind-to-LAUNCH lane
+would need a fixture-committed launch quicksave. THAT BELIEF WAS WRONG, and H58's own
+header says so in as many words: the absence is POLICY rather than decay
+(`harvest_bdock_station.py` prunes the directory and clears the hint, and
+`build_rover_route_recorded.py` gates the absence in BOTH directions), and H58 does not
+rewind a fixture tree at all - it PRODUCES its own subject in-run, because
+`FlightRecorder.CaptureRewindSave` writes the quicksave at every non-promotion recording
+start, so `StartRecording` / `StopRecording` / `CommitTree` mints a rewindable tree that
+`tree=latest` then resolves to. So the restore was solving a problem no lane has, in a
+way the corpus forbids, and it is gone.
 
 Everything else here is POST-CONDITIONS, and they carry the weight. `--check` runs
 them without touching the tree and is what `harness/lib/test_refly_autopilot_recorded.py`
@@ -72,7 +65,6 @@ from __future__ import annotations
 import argparse
 import io
 import os
-import shutil
 from typing import List, Optional, Sequence
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -145,46 +137,6 @@ def _recording_blocks(lines: List[str]) -> List[dict]:
     return out
 
 
-def restore_rewind_payload(source_dir: str) -> List[str]:
-    """Copy `Parsek/Saves/` back in and re-point the `rewindSave` hint at it.
-
-    The generic harvester prunes both (a fixture normally has no business carrying
-    a rewind-to-launch quicksave), and this fixture's whole added value over
-    `bdock-recorded` is that it does. Returns a list of what it did, for the log."""
-    done: List[str] = []
-    src_saves = os.path.join(source_dir, "Parsek", "Saves")
-    if not os.path.isdir(src_saves):
-        raise SystemExit("source carries no Parsek/Saves: %s" % src_saves)
-    names = sorted(n for n in os.listdir(src_saves) if n.endswith(".sfs"))
-    if len(names) != 1:
-        raise SystemExit("expected exactly one rewind quicksave in %s, found %r"
-                         % (src_saves, names))
-    dst_saves = os.path.join(FIXTURE_DIR, "Parsek", "Saves")
-    os.makedirs(dst_saves, exist_ok=True)
-    shutil.copy2(os.path.join(src_saves, names[0]),
-                 os.path.join(dst_saves, names[0]))
-    done.append("copied Parsek/Saves/%s" % names[0])
-
-    stem = names[0][:-4]
-    lines = _read_lines(FIXTURE_SFS)
-    hits = 0
-    for i, line in enumerate(lines):
-        # The harvester leaves the key with an EMPTY value (`rewindSave =`), so the
-        # match is on the KEY and not on "key + space + value" - a stripped empty line
-        # loses its trailing space and a `"rewindSave = "` prefix test misses it.
-        if line.strip().rstrip() in ("rewindSave =",) or line.strip().startswith("rewindSave = "):
-            indent = line[:len(line) - len(line.lstrip())]
-            lines[i] = indent + "rewindSave = " + stem
-            hits += 1
-    if hits != 1:
-        raise SystemExit("expected exactly one rewindSave hint to re-point, found %d"
-                         % hits)
-    with io.open(FIXTURE_SFS, "w", encoding="utf-8", newline="") as handle:
-        handle.write("\n".join(lines))
-    done.append("re-pointed rewindSave -> %s" % stem)
-    return done
-
-
 def verify() -> List[str]:
     """Failure strings (empty = every post-condition holds)."""
     problems: List[str] = []
@@ -240,19 +192,19 @@ def verify() -> List[str]:
     if not os.path.isfile(rp_file):
         problems.append("the RewindPoint quicksave is missing: %s" % rp_file)
 
-    # THE REWIND-TO-LAUNCH PAYLOAD MUST BE ABSENT, which is the opposite of what an
-    # operator reading `restore_rewind_payload` above might expect and is the
-    # standing rule `CommittedFixtureRewindSaveTests` enforces over every fixture.
-    # Asserted HERE as well so the two statements cannot drift apart: the day a lane
+    # THE REWIND-TO-LAUNCH PAYLOAD, in whichever direction the caller asked for.
+    # Committed, it must be ABSENT - the standing rule `CommittedFixtureRewindSaveTests`
+    # enforces over every fixture. Right after a restore it must be PRESENT and named.
+    # Both are asserted here so the two statements cannot drift apart: the day a lane
     # needs the payload, this gate and that one are amended together.
     saves_dir = os.path.join(FIXTURE_DIR, "Parsek", "Saves")
     saves = sorted(n for n in os.listdir(saves_dir)) if os.path.isdir(saves_dir) else []
     if saves:
         problems.append(
-            "Parsek/Saves carries %r. No fixture may commit a rewind-to-launch "
-            "quicksave until a lane drives InvokeRewindToLaunch against it; see "
-            "CommittedFixtureRewindSaveTests and restore_rewind_payload's own note"
-            % saves)
+            "Parsek/Saves carries %r. NO recorded fixture carries a rewind-to-launch "
+            "quicksave, by policy rather than by accident: the harvester prunes it, "
+            "CommittedFixtureRewindSaveTests forbids it, and a lane that needs one "
+            "PRODUCES it in-run the way H58 does (StartRecording captures it)" % saves)
     hints = [v for v in _values(lines, "rewindSave") if v]
     if hints:
         problems.append("dangling rewindSave hint(s) %r with no committed payload"
@@ -279,16 +231,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--check", action="store_true",
                         help="run the post-conditions only; change nothing")
-    parser.add_argument("--source", default="",
-                        help="the produced-save snapshot to restore the rewind "
-                             "payload from (harness/results/<runId>_save)")
     args = parser.parse_args(list(argv) if argv is not None else None)
-
-    if not args.check:
-        if not args.source:
-            parser.error("--source is required unless --check is given")
-        for line in restore_rewind_payload(args.source):
-            print("[Build] " + line)
+    # `--check` is accepted and ignored-as-a-no-op-difference: this tool has only one
+    # mode now, and keeping the flag means the invocation in the docstring, in the
+    # fixture README and in the drift test all stay valid.
+    _ = args.check
 
     problems = verify()
     for problem in problems:

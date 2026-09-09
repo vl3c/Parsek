@@ -166,11 +166,13 @@ id = "RF-9-atmosphere-exit-split-stays-open"
 # supersede tombstones. A zero there would have meant the lane did NOT take its own
 # subject's branch.
 #
-# MEASURED SAVE SHAPE (report-only): `rewindPoints=1 supersedeRows=2 tombstones=8
-# rewindRetirements=0`; structure `trees=1 committedTrees=1 recordings=11
+# MEASURED SAVE SHAPE (report-only, RUN 1's numbers): `rewindPoints=1 supersedeRows=2
+# tombstones=8 rewindRetirements=0`; structure `trees=1 committedTrees=1 recordings=11
 # terminalStates{Destroyed 10, SubOrbital 1} branchPoints{JointBreak 5}`; points total
-# 1218, largest 560. Nothing is armed: one sample is one sample, and the arming
-# discipline is S4.1's - reading run, armed run, negative control.
+# 1218, largest 560 (run 2 measured 1200 - the points total is the one facet that moves
+# between flights, which is why nothing gates on it). ARMED 2026-09-09 through the full
+# S4.1 cycle, after run 2 landed inside every re-pinned window; the block below carries
+# the record.
 # =====================================================================================
 tier = "operator"
 description = "The sealing defect's shape flown live: the Kerbal X's probe-cored core is discarded INSIDE the atmosphere (authoring a RewindPoint), the crewed top stack then coasts OUT through 70 km and the scene exits while it is still climbing - so the committed focus recording spans an Atmospheric -> ExoBallistic boundary, the optimizer splits it, and the promoted slot must stay open across that split and be re-flyable."
@@ -263,9 +265,11 @@ coastExitFrames = 600
 # The whole-flight bound, raised from GS-4's 420 s default to admit the higher
 # apoapsis target plus the coast out. It bounds COAST-EXIT too (a FLIGHT phase).
 flightMaxSeconds = 700.0
-# DERIVED, wide, and re-pinned by the first reading run: the span is launch ->
-# hand-over, which is GS-4's ascent (~150 s to a 60 km apoapsis) plus the extra climb
-# to 95 km plus the coast through 70 km.
+# DERIVED, wide, and deliberately NOT re-pinned: the span is launch -> hand-over, which
+# is GS-4's ascent (~150 s to a 60 km apoapsis) plus the extra climb to 95 km plus the
+# coast through 70 km. Five flights have landed inside it and none has come near either
+# edge, so tightening it would trade a real budget for a number that says nothing. The
+# STATUS block above lists the two windows that WERE re-pinned; this is not one of them.
 recordedSpanWindowSeconds = { min = 60.0, max = 650.0 }
 
 [dimensionsCovered]

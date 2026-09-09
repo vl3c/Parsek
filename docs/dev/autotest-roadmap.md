@@ -467,7 +467,7 @@ and are kept so the remaining work is legible against the original list:
 | `Recording` | 1 | D5 `bg-on-rails` |
 | ~~`SwitchSegment`~~ | 6 | DRIVEN since #1358 by `H12` (live-proven 2026-07-27). D1 `switch-segment` gate layer |
 | `SwitchIntentPatch` | 3 | D1 switch-intent arming (partly TRACKSTATION) |
-| `Rewind` | 31 of **38** (written 37 until 2026-09-09; the recovery-bundle wave added one SPACECENTER cell on 2026-08-20 and this row was not re-derived - see the re-fly continuation program) | D9 `seal-stash-fly`, `unfinished-flights-stash`, `rp-disk-reaper`, `revert-during-refly-dialog`, `tombstones`, `merge-journal`, `terminal-kind-classify`, `read-back-guard` |
+| `Rewind` | 31 of **39** (written 37 until 2026-09-09, then 38 when the recovery-bundle wave's SPACECENTER cell of 2026-08-20 was finally re-derived, then 39 when PR #1662 added the optimizer-split regression cell; the number is kept honest by `CommittedBatchTallySourceSyncTests`, which reds RF-6's pin until it agrees with the source) | D9 `seal-stash-fly`, `unfinished-flights-stash`, `rp-disk-reaper`, `revert-during-refly-dialog`, `tombstones`, `merge-journal`, `terminal-kind-classify`, `read-back-guard` |
 | `GhostLifecycle` | 15 of 17 | D6 `loop-period-modes`, `self-overlap`, `overlap-expiry-soft-caps` (the other 2 are `Scene = TRACKSTATION`, so this is one of the 7 partly-stranded categories) |
 | ~~`GhostAudio`~~ | 9 | DRIVEN since wave-2 by `H30` (live-proven 2026-08-04; needed the W2-SHIP-VOLUME-ZERO provision fix). D6 `ghost-audio` |
 | ~~`MapPresence`~~ | 5 | DRIVEN since wave-2 by `H28` (live-proven 2026-08-04). D6 `ghost-map-presence`; `commnet-relay` NOT closed - its only cell is vacuous under every committed asset (no generator writes AntennaSpecs; see W2-VACUOUS-CELLS) |
@@ -3747,10 +3747,12 @@ that deserves its own pass rather than a footnote to a flight night.
 
 **THE TWO INVALIDS ARE THE SAME SHAPE**, and it is worth naming: both are lanes whose
 SUBJECT is unreachable on `bdock-recorded`, and in both cases the reading run measured
-the reason rather than leaving it to be guessed. RF-4's fix is identified and costed
-(re-host onto `refly-autopilot-recorded`, restore the launch payload, amend
-`CommittedFixtureRewindSaveTests`, and accept the loss of the `ambiguous-tree` negative
-control that a single-tree host implies). RF-8's needs an experiment first - which UT, if
+the reason rather than leaving it to be guessed. RF-4's fix is identified and cheap, and it is
+H58's own: no recorded fixture carries a launch quicksave (that is policy, gated in both
+directions), and H58 does not rewind a fixture tree - it PRODUCES its subject in-run,
+because `FlightRecorder.CaptureRewindSave` writes the quicksave at every non-promotion
+recording start. RF-4 gains a `StartRecording` / `StopRecording` / `CommitTree` prologue,
+keeps its host and keeps the `ambiguous-tree` negative control. RF-8's needs an experiment first - which UT, if
 any, puts the one body-matched ghost inside the watch cutoff. Neither was re-pinned to
 expect its own refusal: a lane that asserts the verb does not work has stopped measuring
 its subject.
@@ -3778,7 +3780,8 @@ run flies would make the reproduction unreadable.
 
 **TWO CORRECTIONS TO THIS DOCUMENT, found while inventorying the surface.**
 
-- The `Rewind` category is **38** declarations, not 37. The count moved on
+- The `Rewind` category is **39** declarations as of 2026-09-09 (38 when this line was
+  written, plus PR #1662's optimizer-split regression cell). The count moved on
   2026-08-20 when the recovery-bundle wave added one SPACECENTER-scoped cell;
   R7a's and R7c's pinned tallies were re-derived to `total=38` at the time and
   the coverage table above was not. `hlib.parse_ingame_test_declarations` over

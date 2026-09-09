@@ -635,14 +635,15 @@ Two things a lane author must know before choosing it:
 
 - **Its RewindPoint SURVIVED** (`rp_404ea488`, quicksave on disk) - the difference the
   fix makes - so unlike the seed this host CAN be re-flown.
-- **It carries NO rewind-to-LAUNCH save.** The produced save had one and the harvest
-  keeps it out, because `CommittedFixtureRewindSaveTests` forbids the payload in any
-  fixture until a lane drives `InvokeRewindToLaunch` against it. RF-4 is that lane and is
-  not re-hosted yet; `build_refly_autopilot_recorded.restore_rewind_payload` is the
-  documented route back to it, to be run in the same change as the lane and the gate's
-  amendment. RF-4's 2026-09-09 reading run died on this exact gap over `bdock-recorded`
-  (`invokerewindtolaunch refused: rewind-gate No rewind save available`), so the
-  combination is known to be needed and known to be missing everywhere else.
+- **It carries NO rewind-to-LAUNCH save, and neither does any other recorded fixture.**
+  The produced save had one and the harvest keeps it out, which is POLICY:
+  `harvest_bdock_station.py` prunes the directory and clears the hint,
+  `CommittedFixtureRewindSaveTests` forbids it everywhere, and
+  `build_rover_route_recorded.py` gates the absence in both directions. A lane that needs
+  a rewindable tree PRODUCES one in-run instead - `FlightRecorder.CaptureRewindSave`
+  writes the quicksave at every non-promotion recording start, so StartRecording /
+  StopRecording / CommitTree mints one that `tree=latest` resolves to, which is exactly
+  what H58 does and what RF-4's re-host should do rather than carrying payload.
 
 ### rover-route-recorded (GAME Mode = SANDBOX, 3 real vessels + 8 asteroids)
 

@@ -3292,7 +3292,11 @@ class CommittedFixtureSweepTests(unittest.TestCase):
         # OTHER MEASURED BYTES:
         #   tree c3dfd02c0bdb4f7e9fc53bfc1de00768, 11 recordings, pointCount total
         #     1200 (largest 560 = the pod HEAD, and the two 12-point TIPs are the
-        #     post-split tails the atmosphere exit produced).
+        #     post-split tails the atmosphere exit produced). THE POINT TOTAL IS THE
+        #     ONE FACET THAT MOVES BETWEEN RF-9 FLIGHTS - run `_2250` measured 1218,
+        #     `_2258` (the harvest source) 1200, later runs 1179 and 1211 - because it
+        #     counts physics samples over a real ascent. It is pinned here because
+        #     THESE bytes are fixed; no lane gates on it.
         #   `terminalStates` SUMS TO 11: Destroyed 10 (the pod and probe TIPs, six
         #     ascent debris, the superseded pod HEAD's own chain and the re-fly fork),
         #     SubOrbital 1 (the probe HEAD). The Destroyed count is downstream of the

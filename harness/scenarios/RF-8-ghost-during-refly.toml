@@ -47,7 +47,16 @@ id = "RF-8-ghost-during-refly"
 # positive half (a ghost was created, watch mode entered, the map drew something).
 #
 # =====================================================================================
-# STATUS: NEVER FLOWN. `tier = "operator"`. NOTHING ARMED - `ghostLifecycle` is declared
+# STATUS: FLOWN 2026-09-09 AND INVALID, WITH THE CAUSE MEASURED. `EnterWatchMode` refused
+# `no-watchable-ghost committed=22 ... [9 ghost=T body=T range=F]`: of 22 committed
+# recordings exactly ONE has a live ghost on the matching body, and the watch RANGE gate
+# declines it. So a ghost DOES resolve during a live re-fly and IS body-matched - a better
+# answer than the seed had - and what is NOT established is whether any clock on this host
+# puts it inside the cutoff. Filed as RF8-NO-WATCHABLE-GHOST-DURING-A-REFLY-ON-BDOCK with
+# the experiment rather than a re-pin. The step expects OK, so the run never reached this
+# lane`s own forbidden `no-watchable-ghost` clause: an unmet seam step is a driver gate
+# first.
+# FORMERLY: NEVER FLOWN. `tier = "operator"`. NOTHING ARMED - `ghostLifecycle` is declared
 # with no `gating` key precisely so the first run MEASURES a lifecycle rather than being
 # judged against one. GS-4's own header records that a lifecycle block is armed only after
 # a reading run whose facets match the declared windows; this lane has no facets yet.

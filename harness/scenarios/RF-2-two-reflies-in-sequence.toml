@@ -59,7 +59,11 @@ id = "RF-2-two-reflies-in-sequence"
 # whole flight learning that.
 #
 # =====================================================================================
-# STATUS: NEVER FLOWN. `tier = "operator"` while calibrating. Nothing armed; the
+# STATUS: LIVE-PROVEN. READING RUN FLOWN 2026-09-09 (`RF-2`), PASS attempt 1, expectations
+# mismatches=0, saveParse REPORT mismatches=0 with every DERIVED window landing:
+# `rewindPoints=1` where the fixture carries three, `supersedeRows=2`, `tombstones=0`. The
+# per-point scope held. RE-FLOWN on merged main the same day, PASS again. Nothing armed.
+# (Historical note kept below.) FORMERLY: NEVER FLOWN. `tier = "operator"` while calibrating. Nothing armed; the
 # save-parse blocks are report-only by omission and their windows are DERIVED from the
 # fixture's committed bytes (three points, three CommittedProvisional recordings, zero
 # supersede rows) rather than measured.

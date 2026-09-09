@@ -8444,12 +8444,20 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
             "2026-09-08 (reading _1100, armed _1105 PASS, negative control _1106); "
             "stays operator because it rewinds and jumps a harvested docking fixture, "
             "the discipline's own reason, not a tag",
-        # THE RE-FLY CONTINUATION PROGRAM (RF-1..RF-8, authored 2026-09-09). All nine
-        # are `operator` by the READING-RUN discipline, none owes a human call, and
-        # the three lanes below whose reading is EXPECTED TO RED say so in their own
-        # STATUS blocks rather than through a tag: a `pending-operator` on a lane
-        # waiting for a PRODUCT FIX would be the tag meaning something it does not.
-        # What each owes is a flight, and after the two fix PRs land, a re-flight.
+        # THE RE-FLY CONTINUATION PROGRAM (RF-1..RF-10, authored 2026-09-08 and 2026-09-09).
+        # All eleven
+        # are `operator` by the READING-RUN discipline and none owes a human call.
+        #
+        # THE REASON STRINGS BELOW ARE STALE BY DESIGN OF THIS TEST, and it is worth
+        # saying once here rather than editing eleven of them after every flight
+        # night: only the KEYS are asserted (the cell compares the untagged operator
+        # set against this roster), so a reason that still reads NEVER FLOWN is a
+        # note about why the id is here, not a claim about its verdict. The verdicts
+        # live in `docs/dev/autotest-status.md`, which is the single status
+        # authority. As of 2026-09-09 nine of the eleven RF lanes are green, RF-4 and
+        # RF-8 are INVALID with filed causes, and what every one of them still owes
+        # is nothing - they are kept here because an operator-tier spec with no
+        # `pending-operator` tag has to be classified somewhere.
         "RF-1-continuation-stays-open.toml":
             "operator by the reading-run discipline; AUTHORED 2026-09-09, NEVER "
             "FLOWN. Owes a flight, not a human call",

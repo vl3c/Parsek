@@ -62,7 +62,17 @@ id = "RF-4-rewind-to-launch-after-merge"
 # and it proves the keyword is doing work rather than the auto-select.
 #
 # =====================================================================================
-# STATUS: NEVER FLOWN. `tier = "operator"`. Nothing armed.
+# STATUS: FLOWN 2026-09-09 AND INVALID, WITH THE CAUSE MEASURED AND THE FIX IDENTIFIED.
+# Act 1 ran perfectly (re-fly, TimeJump, merge) and the bare `InvokeRewindToLaunch`
+# REJECTED `ambiguous-tree` exactly as designed; then `tree=latest` REJECTED too:
+# `rewind-gate No rewind save available tree=8c677bba... rec=5157d655...`. THE HOST IS THE
+# CAUSE: `bdock-recorded` carries zero `rewindSave` hints and no `Parsek/Saves`, and NO
+# recorded fixture does - that is policy. H58 passes the same pair because it PRODUCES its
+# subject in-run (`FlightRecorder.CaptureRewindSave` writes the quicksave at every
+# non-promotion recording start), which is the prologue this lane needs and which keeps
+# both the host and the `ambiguous-tree` control. Filed as
+# RF4-BDOCK-RECORDED-CANNOT-REWIND-TO-LAUNCH.
+# FORMERLY: NEVER FLOWN. `tier = "operator"`. Nothing armed.
 # =====================================================================================
 tier = "operator"
 description = "Rewind-to-LAUNCH over a tree a rewind-to-SEPARATION has already forked: rewind the open slot of the oldest bdock-recorded RewindPoint, fly it with a TimeJump, merge it so a supersede fork exists, then drive InvokeRewindToLaunch (bare, expecting the ambiguous-tree refusal on this two-tree host, then with tree=latest) and pin the supersede rollback's summary and its per-fork preservation line."

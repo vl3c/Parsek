@@ -88,9 +88,16 @@ class ReflyAutopilotRecordedFixtureDriftTests(unittest.TestCase):
             lines = handle.read().split("\n")
         by_id = {r["recordingId"]: r
                  for r in self.builder._recording_blocks(lines)}
-        tip = by_id.get("8da7c2c2e4d94e5e9a3e3b3f2b3f0f61") or by_id.get(
-            next((k for k, v in by_id.items() if v.get("chainIndex") == "1"), ""))
-        self.assertIsNotNone(tip, "no chain TIP in refly-a-recorded")
+        # THE ID IS NAMED, and there is deliberately no "first chainIndex 1" fallback.
+        # The first cut of this cell carried a wrong id and a fallback that found the
+        # right block anyway, which is a cell that cannot fail for the reason it was
+        # written: a re-harvest adding a second chain would have had it assert over
+        # whichever block parsed first. A missing id is a red.
+        tip = by_id.get("8da7c2c2a6d84505b4bc121fdb9f528f")
+        self.assertIsNotNone(
+            tip, "refly-a-recorded's chain TIP 8da7c2c2 is gone: this cell names the "
+                 "seed's TIP by id, so a re-harvest that changed it must be read "
+                 "rather than absorbed by a fallback")
         self.assertIsNone(
             tip.get("mergeState"),
             "refly-a-recorded's chain TIP grew a mergeState key: it is the DEFECT "
@@ -104,12 +111,15 @@ class ReflyAutopilotRecordedFixtureDriftTests(unittest.TestCase):
         `refly-a-recorded` (whose point the defect reaped before collection), and it
         is what lets a future lane re-fly this host.
 
-        The rewind-to-LAUNCH quicksave is deliberately ABSENT even though the
-        produced save had one: `CommittedFixtureRewindSaveTests` forbids the payload
-        in any fixture until a lane drives `InvokeRewindToLaunch` against it, and
-        RF-4 - the lane that would - is not re-hosted yet. The builder's
-        `restore_rewind_payload` is the documented route back to it on the day both
-        land together."""
+        The rewind-to-LAUNCH quicksave is ABSENT even though the produced save had
+        one, and that is POLICY rather than a gap: `harvest_bdock_station.py` prunes
+        it, `CommittedFixtureRewindSaveTests` forbids it in every fixture, and a lane
+        that needs one PRODUCES it in-run - H58's header spells out the mechanism
+        (`FlightRecorder.CaptureRewindSave` writes the quicksave at every
+        non-promotion recording start, so StartRecording / StopRecording / CommitTree
+        mints a rewindable tree that `tree=latest` resolves to). An earlier cut of the
+        builder restored the payload here on the belief that RF-4 would need it; it
+        does not, and the restore is gone."""
         rp = os.path.join(FIXTURE_DIR, "Parsek", "RewindPoints",
                           self.builder.EXPECT_RP_ID + ".sfs")
         self.assertTrue(os.path.isfile(rp), rp)

@@ -56,7 +56,14 @@ id = "RF-5-seal-closes-the-slot"
 # logged the dialog's own `labels=` line.
 #
 # =====================================================================================
-# STATUS: NEVER FLOWN. `tier = "operator"`. Nothing armed.
+# STATUS: LIVE-PROVEN, AFTER A REFUTED PREMISE. READING RUN 1 (2026-09-09) went INVALID:
+# the idempotence probe rested on a SOURCE READING that slot-mode does not run the reaper,
+# and the flight showed the seal reaping INSIDE its own call. The step was inverted, the
+# `Sealed slot=` line added as a required token and the blanket refusal forbid narrowed;
+# run 2 (`RF-5`) then PASS attempt 1, expectations mismatches=0, saveParse REPORT
+# mismatches=0 (`rewindPoints=2 supersedeRows=0 tombstones=0`). RE-FLOWN on merged main
+# the same day, PASS again. Nothing armed.
+# FORMERLY: NEVER FLOWN. `tier = "operator"`. Nothing armed.
 # =====================================================================================
 tier = "operator"
 description = "The deliberate opposite of the rest of this program: SealSlot in its never-driven rp= + slot= form closes the open slot of the oldest bdock-recorded RewindPoint, and the next OnLoad reaps that point by design - proven by a re-enumeration that counts two where there were three, not by the seal response alone."

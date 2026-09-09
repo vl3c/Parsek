@@ -19183,7 +19183,11 @@ def evaluate_gs1_assertions(frames, params: Gs1Params,
     booster = AssertionOutcome(
         booster_name, booster_met, outcome or None,
         {"watchedVessel": watched or None,
-         "debounceK": GS1_SIBLING_DEBOUNCE_K,
+         # THE CONSTANT THE STREAK ACTUALLY USED. The two are equal today, which is
+         # exactly why reporting the wrong one is invisible until one of them moves.
+         "debounceK": (GS1_SIBLING_AIRBORNE_DEBOUNCE_K
+                       if getattr(params, "sibling_airborne_at_exit", False)
+                       else GS1_SIBLING_DEBOUNCE_K),
          "everObservedPresent": bool(getattr(state, "sibling_seen_present", False)),
          "lastSituation": getattr(state, "sibling_last_situation", "") or "UNREAD",
          "landedAccepted": list(params.landed_situations),
@@ -21375,6 +21379,13 @@ def kxrw_coast_exit_profile_conflict(params: "KxrwParams") -> str:
                 "core discard - this one ends the mission with it ALIVE and above "
                 "the atmosphere, that one waits for it to reach the ground - so a "
                 "spec declaring both would have the decide order pick for it")
+    if not tuple(getattr(params, "coast_exit_situations", ()) or ()):
+        return ("coastExitProfile declares an EMPTY coastExitSituations, so the "
+                "hand-over gate can never open and the flight would run to its frame "
+                "cap and flake. An empty list reaches the machine on purpose - the "
+                "params reader takes the key's own value rather than treating [] as "
+                "absent - so that this refusal happens on frame 1 instead of after an "
+                "ascent")
     steps = tuple(getattr(params, "part_sweep_steps", ()) or ())
     if steps:
         return ("coastExitProfile and partSweepSteps are mutually exclusive: the "
@@ -21689,9 +21700,12 @@ def kxrw_params_from_dict(params: Dict) -> KxrwParams:
         coast_exit_profile=bool(params.get("coastExitProfile", False)),
         coast_exit_min_altitude=float(
             params.get("coastExitMinAltitudeMeters", 71000.0)),
+        # `get(key, default)` rather than `get(key) or default`: an EMPTY list is a
+        # spec author saying "accept nothing", and the `or` form silently turned that
+        # into the default gate - a params set that cannot be expressed. An empty list
+        # now reaches the machine and the conflict predicate refuses it by name.
         coast_exit_situations=tuple(
-            str(x) for x in (params.get("coastExitSituations")
-                             or ("SUB_ORBITAL",))),
+            str(x) for x in params.get("coastExitSituations", ("SUB_ORBITAL",))),
         coast_exit_debounce_frames=int(params.get("coastExitDebounceFrames", 2)),
         coast_exit_frames=int(params.get("coastExitFrames", 600)),
         # `bool(...)` rather than a bare read: hlib's schema check already rejects
@@ -22476,17 +22490,22 @@ def kxrw_decide(state: KxrwState,
             # here because on this profile there is no CommitTree to stamp it:
             # what the recorded span measures is launch -> hand-over, which is the
             # span the scenario's exit then commits.
+            # THE STAMP FALLS BACK TO `last_finite_ut`, which the machine tracks on
+            # every frame for exactly this - the impact profile's crash stamp does the
+            # same. A single unreadable `ut` on the certifying frame would otherwise
+            # pass `handedOverAboveAtmosphere` and fail `recordedSpanSeconds` with a
+            # null commitUT, which is an inconsistent pair rather than a verdict.
+            stamp_ut = (snapshot.ut if _is_finite(snapshot.ut)
+                        else st.last_finite_ut)
             return (_kxrw_enter(
                 replace(st,
                         coast_exit_observed=True,
-                        coast_exit_ut=(snapshot.ut if _is_finite(snapshot.ut)
-                                       else float("nan")),
+                        coast_exit_ut=stamp_ut,
                         coast_exit_altitude=(snapshot.altitude
                                              if _is_finite(snapshot.altitude)
                                              else float("nan")),
                         coast_exit_situation=str(snapshot.situation or ""),
-                        recording_end_ut=(snapshot.ut if _is_finite(snapshot.ut)
-                                          else float("nan"))),
+                        recording_end_ut=stamp_ut),
                 KXRW_DONE, snapshot.ut), [])
         if st.phase_frames > p.coast_exit_frames:
             # A MISSION give-up, by name: the stack never got above the atmosphere

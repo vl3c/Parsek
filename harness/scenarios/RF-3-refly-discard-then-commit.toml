@@ -47,7 +47,12 @@ id = "RF-3-refly-discard-then-commit"
 # forced-merge answer emits `committed`, never that reason.
 #
 # =====================================================================================
-# STATUS: NEVER FLOWN. `tier = "operator"`. Nothing armed; the save-parse block is
+# STATUS: LIVE-PROVEN. READING RUN FLOWN 2026-09-09 (`RF-3`), PASS attempt 1, expectations
+# mismatches=0. ONE REPORT-ONLY WINDOW WAS REFUTED AND RE-PINNED: `tombstones` was authored
+# `{max = 0}` and the run measured FIVE, while RF-2 measured ZERO over the same fixture and
+# the same number of merges - see the `[expectations.rewind]` block for the argument.
+# RE-FLOWN on merged main the same day, PASS again. Nothing armed.
+# FORMERLY: NEVER FLOWN. `tier = "operator"`. Nothing armed; the save-parse block is
 # report-only by omission and its windows are DERIVED from the fixture's bytes.
 # =====================================================================================
 tier = "operator"

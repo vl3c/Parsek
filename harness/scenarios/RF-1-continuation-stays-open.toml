@@ -130,7 +130,8 @@ id = "RF-1-continuation-stays-open"
 # the main-built DLL (deployed hash 83b1adea88cd8cd5). Every verifier PASS or SKIPPED,
 # expectations **mismatches=0** over all 15 required and 4 forbidden patterns, analyzer
 # red=0, logValidate PASS, anomalySweep `hits=[] counts={}`, unityExceptions total=0.
-# `tier = "operator"` while calibrating; nothing armed.
+# `tier = "operator"` while calibrating. ARMED 2026-09-09 - see the
+# `[expectations.rewind]` block below and the ARMING paragraph at the end of this header.
 #
 # THE MISSION VARIANT WORKED ON ITS FIRST FLIGHT: `assert boosterStillAirborne
 # value=FLYING met=True`, MISSION-OK in 95.8 s, phases PRELAUNCH -> ASCENT -> STAGE ->
@@ -165,10 +166,12 @@ id = "RF-1-continuation-stays-open"
 # terminal=Destroyed side=child` - a second, unpinned reading worth recording, because it
 # is the `crashed` branch the seed took and this lane's own booster did not.
 #
-# ARMING IS NOT TAKEN HERE. One sample is one sample, and the two windows worth arming
-# (`rewindPoints = {1,1}` and the SubOrbital terminal) are exactly the ones a second flight
-# should confirm first. The arming discipline is S4.1's: reading run, armed run, negative
-# control.
+# ARMING WAS NOT TAKEN AT THAT POINT, and the reason it could be taken later is the reason
+# it was refused then: one sample is one sample. The second flight came on 2026-09-09 - a
+# confirmation re-flight on merged main - and landed on the SAME three windows, so
+# `[expectations.rewind]` was armed through the full S4.1 cycle that day (reading run,
+# armed run `2026-09-08_2349`, negative control `2026-09-08_2351` red on one facet,
+# reverted in the same change). The block below carries the record.
 # =====================================================================================
 tier = "operator"
 description = "GS-1 inverted: the same two-stage flight exits to the Space Center with the auto-chute booster STILL UNDER CANOPY, so the non-focus slot is promoted CommittedProvisional and its flight-authored RewindPoint survives - then the lane re-enters FLIGHT, reads the live RewindPoint id off ListHandles and RE-FLIES that slot, the first re-fly in the suite of a RewindPoint KSP physics authored during the same run."
