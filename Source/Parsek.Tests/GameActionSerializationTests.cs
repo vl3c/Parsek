@@ -388,6 +388,62 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ReputationInitial_SeedCapturedUT_RoundTrip()
+        {
+            var original = new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.ReputationInitial,
+                InitialReputation = 92.5f,
+                SeedCapturedUT = 173400.25
+            };
+
+            var result = RoundTrip(original);
+
+            Assert.Equal(GameActionType.ReputationInitial, result.Type);
+            Assert.Equal(92.5f, result.InitialReputation);
+            Assert.Equal(173400.25, result.SeedCapturedUT);
+        }
+
+        [Fact]
+        public void ReputationInitial_WithoutSeedCapturedUT_ReadsBackNaN()
+        {
+            // The absent key IS the legacy shape: every save written before the field
+            // existed lands here, and NaN is what disables the pre-seed skip in
+            // ReputationModule so those saves keep the old behaviour.
+            var node = new ConfigNode("GAME_ACTION");
+            node.AddValue("ut", "0");
+            node.AddValue("type", ((int)GameActionType.ReputationInitial).ToString());
+            node.AddValue("initialReputation", "92.5");
+
+            var loaded = GameAction.DeserializeFrom(node);
+
+            Assert.Equal(GameActionType.ReputationInitial, loaded.Type);
+            Assert.Equal(92.5f, loaded.InitialReputation);
+            Assert.True(double.IsNaN(loaded.SeedCapturedUT));
+        }
+
+        [Fact]
+        public void ReputationInitial_UnknownSeedCapturedUT_WritesNoKey()
+        {
+            var original = new GameAction
+            {
+                UT = 0.0,
+                Type = GameActionType.ReputationInitial,
+                InitialReputation = 10f,
+                SeedCapturedUT = double.NaN
+            };
+
+            var parent = new ConfigNode("ROOT");
+            original.SerializeInto(parent);
+            var node = parent.GetNode("GAME_ACTION");
+
+            Assert.NotNull(node);
+            Assert.Null(node.GetValue("seedCapturedUT"));
+            Assert.True(double.IsNaN(GameAction.DeserializeFrom(node).SeedCapturedUT));
+        }
+
+        [Fact]
         public void KerbalAssignment_Recovered_RoundTrip()
         {
             var original = new GameAction

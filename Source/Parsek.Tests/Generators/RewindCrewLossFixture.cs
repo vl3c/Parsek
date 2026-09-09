@@ -109,11 +109,27 @@ namespace Parsek.Tests.Generators
         /// </summary>
         public const string DeadCrewName = "Jebediah Kerman";
 
+        /// <summary>
+        /// The reputation stock takes for a crewed vessel loss, as MEASURED on both
+        /// CL-1-pod-impact flights: <c>Added -9.999828 (-10) reputation: 'VesselLoss'</c>
+        /// (docs/dev/autotest-status.md, CL-1-pod-impact row). The fixture reproduces the
+        /// post-curve number stock actually applied rather than the nominal -10, because
+        /// that is what <c>GameStateRecorder.OnReputationChanged</c> captures and what
+        /// <c>ReputationModule</c> then replays without re-curving.
+        /// </summary>
+        public const double VesselLossReputationApplied = 9.999828;
+
         /// <summary>Slot index of the surviving probe upper stage.</summary>
         public const int ProbeSlotIndex = 0;
 
         /// <summary>Slot index of the crewed destroyed pod - the <c>InvokeRewind slot=1</c> target.</summary>
         public const int PodSlotIndex = 1;
+
+        /// <summary>
+        /// Seconds from the split to the pod's impact - the UT of its last trajectory
+        /// point, and therefore the UT the death (and its reputation hit) lands at.
+        /// </summary>
+        public const double PodTerminalOffsetSeconds = 55.0;
 
         // KSC-relative launch coordinates (flat pad terrain), matching B9 so both
         // fixtures' quicksaves place their slots on the same known-good ground.
@@ -190,6 +206,38 @@ namespace Parsek.Tests.Generators
             });
 
             writer.AddRewindPoint(BuildRewindPoint(splitUt));
+
+            // The pod's death costs reputation in stock, and the ledger row for that
+            // cost is DERIVED (like the death row itself) rather than authored: the
+            // fixture supplies only the captured event, and
+            // LedgerOrchestrator.CreateKerbalDeathRepPenaltyActions turns it into the
+            // ReputationPenalty(KerbalDeath) row that CL-3 / CL-4 then tombstone
+            // alongside the death. Without this event the producer correctly refuses to
+            // invent a magnitude and the merge tombstones the death alone.
+            writer.AddGameStateEvent(
+                BuildVesselLossEvent(splitUt + PodTerminalOffsetSeconds));
+        }
+
+        /// <summary>
+        /// The stock-shaped <see cref="GameStateEventType.ReputationChanged"/> capture for
+        /// the pod's crewed loss, in the exact shape
+        /// <c>GameStateRecorder.OnReputationChanged</c> writes one: keyed by the
+        /// <c>TransactionReasons</c> name, carrying before/after pool values, and TAGGED
+        /// with the owning recording (a live capture is tagged in FLIGHT by
+        /// <c>GameStateRecorder.Emit</c>; an untagged event is a career-level one and is
+        /// deliberately not attributable to any flight).
+        /// </summary>
+        public static GameStateEvent BuildVesselLossEvent(double deathUt)
+        {
+            return new GameStateEvent
+            {
+                ut = deathUt,
+                eventType = GameStateEventType.ReputationChanged,
+                key = KerbalDeathRepPenalty.VesselLossEventKey,
+                valueBefore = 0.0,
+                valueAfter = -VesselLossReputationApplied,
+                recordingId = PodRecordingId,
+            };
         }
 
         // ---- recording builders -------------------------------------------
@@ -278,7 +326,9 @@ namespace Parsek.Tests.Generators
             b.AddPoint(t,      BaseLat, BaseLon, 41000);
             b.AddPoint(t + 25, BaseLat, BaseLon, 18000);
             b.AddPoint(t + 45, BaseLat, BaseLon, 3000);
-            b.AddPoint(t + 55, BaseLat, BaseLon, 75);
+            // PodTerminalOffsetSeconds: the impact UT, which the VesselLoss reputation
+            // capture in PopulateWriter is stamped at. Keep the two in step.
+            b.AddPoint(t + PodTerminalOffsetSeconds, BaseLat, BaseLon, 75);
             b.WithGhostVisualSnapshot(
                 VesselSnapshotBuilder.CrewedShip("CL Pod A", DeadCrewName, pid: 210003)
                     .AsLanded(BaseLat, BaseLon, 75));

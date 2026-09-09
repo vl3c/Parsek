@@ -885,6 +885,161 @@ namespace Parsek.Tests
             RecordingStore.ResetForTesting();
         }
 
+        // ================================================================
+        // CreateKerbalDeathRepPenaltyActions
+        // ================================================================
+
+        private static Recording InstallCrewedRecording(
+            string recordingId, KerbalEndState endState, string crewName = "Jeb Kerman")
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            var part = new ConfigNode("PART");
+            part.AddValue("crew", crewName);
+            snapshot.AddNode(part);
+
+            var rec = new Recording
+            {
+                RecordingId = recordingId,
+                VesselName = "Crewed " + recordingId,
+                GhostVisualSnapshot = snapshot
+            };
+            rec.CrewEndStates = new Dictionary<string, KerbalEndState>
+            {
+                { crewName, endState }
+            };
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+            return rec;
+        }
+
+        private static void AddVesselLossEvent(string recordingId, double ut, double applied)
+        {
+            var evt = new GameStateEvent
+            {
+                ut = ut,
+                eventType = GameStateEventType.ReputationChanged,
+                key = KerbalDeathRepPenalty.VesselLossEventKey,
+                valueBefore = 0.0,
+                valueAfter = -applied,
+                recordingId = recordingId
+            };
+            GameStateStore.AddEvent(ref evt);
+        }
+
+        [Fact]
+        public void CreateKerbalDeathRepPenaltyActions_DeadCrewWithCapturedEvent_EmitsOneRow()
+        {
+            RecordingStore.ResetForTesting();
+            InstallCrewedRecording("rec-death", KerbalEndState.Dead);
+            AddVesselLossEvent("rec-death", 500.0, 9.999828);
+
+            var actions = LedgerOrchestrator.CreateKerbalDeathRepPenaltyActions(
+                "rec-death", 100.0, 500.0);
+
+            Assert.Single(actions);
+            Assert.Equal(GameActionType.ReputationPenalty, actions[0].Type);
+            Assert.Equal(ReputationPenaltySource.KerbalDeath, actions[0].RepPenaltySource);
+            Assert.Equal("rec-death", actions[0].RecordingId);
+            Assert.Equal(500.0, actions[0].UT);
+            Assert.Equal(9.999828f, actions[0].NominalPenalty, 1e-4f);
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("KerbalDeath rep penalty: recording='rec-death'") &&
+                l.Contains("-> ReputationPenalty(KerbalDeath)"));
+
+            RecordingStore.ResetForTesting();
+        }
+
+        [Fact]
+        public void CreateKerbalDeathRepPenaltyActions_NoCapturedEvent_EmitsNothingAndSaysWhy()
+        {
+            // The injected-fixture / suppressed-event / sub-threshold case. No row is the
+            // correct answer - the alternative is inventing a magnitude.
+            RecordingStore.ResetForTesting();
+            InstallCrewedRecording("rec-death-noevent", KerbalEndState.Dead);
+
+            var actions = LedgerOrchestrator.CreateKerbalDeathRepPenaltyActions(
+                "rec-death-noevent", 100.0, 500.0);
+
+            Assert.Empty(actions);
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains(KerbalDeathRepPenalty.ReasonNoVesselLossEvent) &&
+                l.Contains("recording='rec-death-noevent'") &&
+                l.Contains("(dead=1) - no row"));
+
+            RecordingStore.ResetForTesting();
+        }
+
+        [Fact]
+        public void CreateKerbalDeathRepPenaltyActions_SurvivingCrew_EmitsNothingAndStaysQuiet()
+        {
+            RecordingStore.ResetForTesting();
+            InstallCrewedRecording("rec-alive", KerbalEndState.Recovered);
+            AddVesselLossEvent("rec-alive", 500.0, 9.999828);
+
+            var actions = LedgerOrchestrator.CreateKerbalDeathRepPenaltyActions(
+                "rec-alive", 100.0, 500.0);
+
+            Assert.Empty(actions);
+            // No dead crew is the ordinary case for nearly every recording in a save, so
+            // it must not cost a log line per recording per load.
+            Assert.DoesNotContain(logLines, l => l.Contains("KerbalDeath rep penalty"));
+
+            RecordingStore.ResetForTesting();
+        }
+
+        [Fact]
+        public void CreateKerbalDeathRepPenaltyActions_UnknownRecording_ReturnsEmpty()
+        {
+            RecordingStore.ResetForTesting();
+
+            Assert.Empty(LedgerOrchestrator.CreateKerbalDeathRepPenaltyActions(
+                "nonexistent", 100.0, 500.0));
+            Assert.Empty(LedgerOrchestrator.CreateKerbalDeathRepPenaltyActions(
+                null, 100.0, 500.0));
+        }
+
+        [Fact]
+        public void KerbalDeathRepPenalty_HasItsOwnDedupKey()
+        {
+            // Recording + source, so the row cannot be swallowed by a DIFFERENT penalty
+            // that shares its UT (a contract failing because the crewed vessel was
+            // destroyed lands inside the 0.1 s dedup window). Two kerbal-death rows for
+            // one recording still collapse, which is the dedup this key is for.
+            var death = new GameAction
+            {
+                UT = 500.0,
+                Type = GameActionType.ReputationPenalty,
+                RecordingId = "rec-death",
+                NominalPenalty = 9.999828f,
+                RepPenaltySource = ReputationPenaltySource.KerbalDeath
+            };
+            var sameRecordingContractFail = new GameAction
+            {
+                UT = 500.0,
+                Type = GameActionType.ReputationPenalty,
+                RecordingId = "rec-death",
+                NominalPenalty = 25f,
+                RepPenaltySource = ReputationPenaltySource.ContractFail
+            };
+            var otherRecordingDeath = new GameAction
+            {
+                UT = 500.0,
+                Type = GameActionType.ReputationPenalty,
+                RecordingId = "rec-other",
+                NominalPenalty = 9.999828f,
+                RepPenaltySource = ReputationPenaltySource.KerbalDeath
+            };
+
+            Assert.Equal("rec-death:KerbalDeath", LedgerOrchestrator.GetActionKey(death));
+            Assert.NotEqual(
+                LedgerOrchestrator.GetActionKey(death),
+                LedgerOrchestrator.GetActionKey(sameRecordingContractFail));
+            Assert.NotEqual(
+                LedgerOrchestrator.GetActionKey(death),
+                LedgerOrchestrator.GetActionKey(otherRecordingDeath));
+        }
+
         [Fact]
         public void CreateKerbalAssignmentActions_NoCrewEndStates_DefaultsToUnknown()
         {

@@ -783,6 +783,36 @@ namespace Parsek.Tests
                 l.Contains("Supersede tombstone effects: tombstoned 4 recording-scoped career actions"));
         }
 
+        // The shape LedgerOrchestrator actually writes for a crewed loss: the
+        // KerbalAssignment row at the recording's START (crew boards at launch) and the
+        // ReputationPenalty(KerbalDeath) at its END, a whole flight apart. One merge must
+        // retire both - the wide UT gap is exactly what the old UT-window-only pairing
+        // rule could not see.
+        [Fact]
+        public void CommitTombstones_KerbalDeathAndItsRepPenalty_BothTombstoned()
+        {
+            InstallOriginClosureFixture("rec_origin", "rec_inside", "rec_outside");
+            var provisional = AddProvisional("rec_provisional", "tree_1",
+                TerminalState.Landed, supersedeTargetId: "rec_origin");
+            var scenario = InstallScenario(Marker("rec_origin", "rec_provisional"));
+
+            var death = KerbalDeath("rec_origin", 1060.0);
+            var penalty = RepPenalty("rec_origin", 1115.0, ReputationPenaltySource.KerbalDeath);
+            Ledger.AddAction(death);
+            Ledger.AddAction(penalty);
+
+            SupersedeCommit.CommitSupersede(scenario.ActiveReFlySessionMarker, provisional);
+
+            var tombstonedIds = scenario.LedgerTombstones.Select(t => t.ActionId).ToList();
+            Assert.Contains(death.ActionId, tombstonedIds);
+            Assert.Contains(penalty.ActionId, tombstonedIds);
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerSwap]") &&
+                l.Contains("Tombstoned 2 career actions") &&
+                l.Contains("Reputation=1") &&
+                l.Contains("Kerbal=1"));
+        }
+
         [Fact]
         public void CommitTombstones_EmptySubtree_LogsZeroes()
         {

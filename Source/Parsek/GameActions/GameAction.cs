@@ -832,6 +832,25 @@ namespace Parsek
         /// <summary>Existing reputation when Parsek is first installed mid-career.</summary>
         public float InitialReputation;
 
+        /// <summary>
+        /// UT at which <see cref="InitialReputation"/> was CAPTURED off the live pool.
+        /// The seed row itself is always stamped <c>UT = 0.0</c> (it models "career
+        /// start"), so the row alone cannot say whether a given penalty had already
+        /// happened by capture time and is therefore already baked into the seed value.
+        /// A <see cref="ReputationPenaltySource.KerbalDeath"/> penalty at or before this
+        /// UT is skipped by <c>ReputationModule.ProcessRepPenalty</c> instead of being
+        /// subtracted a second time.
+        ///
+        /// <para>
+        /// <see cref="double.NaN"/> means UNKNOWN and is what every save written before
+        /// this field existed deserializes to; the skip is then not applied, so those
+        /// saves keep exactly today's behaviour. Additive value on an existing node: it
+        /// renames no key, changes no layout, and is therefore not a schema SHAPE change
+        /// (.claude/CLAUDE.md, "Recording schema") - no generation bump.
+        /// </para>
+        /// </summary>
+        public double SeedCapturedUT = double.NaN;
+
         // ================================================================
         // Derived fields — set during recalculation walk, NOT serialized
         // ================================================================
@@ -1682,11 +1701,27 @@ namespace Parsek
         private void SerializeReputationInitial(ConfigNode n)
         {
             n.AddValue("initialReputation", InitialReputation.ToString("R", IC));
+            // Absent key means UNKNOWN, which is exactly what a pre-field save
+            // carries, so an unknown capture UT is written as nothing rather than
+            // as the literal "NaN".
+            if (!double.IsNaN(SeedCapturedUT))
+                n.AddValue("seedCapturedUT", SeedCapturedUT.ToString("R", IC));
         }
 
         private static void DeserializeReputationInitial(ConfigNode n, GameAction a)
         {
             TryParseFloat(n, "initialReputation", out a.InitialReputation);
+
+            // Absent or unparseable key -> NaN (unknown), which disables the
+            // pre-seed skip in ReputationModule and keeps legacy behaviour.
+            a.SeedCapturedUT = double.NaN;
+            string capturedUt = n.GetValue("seedCapturedUT");
+            double parsedCapturedUt;
+            if (!string.IsNullOrEmpty(capturedUt)
+                && double.TryParse(capturedUt, NS, IC, out parsedCapturedUt))
+            {
+                a.SeedCapturedUT = parsedCapturedUt;
+            }
         }
 
         // ---- Route action serialization helpers ----

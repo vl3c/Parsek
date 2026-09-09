@@ -311,6 +311,13 @@ namespace Parsek
             var kerbalActions = CreateKerbalAssignmentActions(recordingId, startUT, endUT);
             actions.AddRange(kerbalActions);
 
+            // 3d. The reputation penalty stock already applied for a crew death on this
+            // recording (one row per vessel loss, magnitude read off the captured
+            // VesselLoss event - never synthesized). Separate producer: see the method's
+            // docstring for why it must not ride inside CreateKerbalAssignmentActions.
+            var deathRepActions = CreateKerbalDeathRepPenaltyActions(recordingId, startUT, endUT);
+            actions.AddRange(deathRepActions);
+
             // 4. Deduplicate: remove actions already in the ledger from KSC real-time writes.
             // KSC events (tech, facility, hire, milestone) written via OnKscSpending may overlap
             // with the recording's time range. Compare by type + UT + key to avoid double-adding.
@@ -1005,6 +1012,18 @@ namespace Parsek
                         when a.RepPenaltySource == ReputationPenaltySource.StrategyConverter:
                     return (a.RecordingId ?? "") + ":" +
                            a.NominalPenalty.ToString("R", CultureInfo.InvariantCulture);
+                // The kerbal-death leg. Keyed by recording + source rather than left on
+                // the historical "" so it cannot collide with a DIFFERENT penalty that
+                // happens to share its UT - a contract failing BECAUSE the crewed vessel
+                // was destroyed lands within the 0.1 s dedup window, and with the shared
+                // "" key one of the two rows would be silently dropped as a duplicate.
+                // Two kerbal-death rows for the same recording still collapse, which is
+                // the dedup this door exists for (re-commit, backfill after commit).
+                // Non-death penalties keep the "" key, so this narrows nothing that was
+                // previously unique.
+                case GameActionType.ReputationPenalty
+                        when a.RepPenaltySource == ReputationPenaltySource.KerbalDeath:
+                    return (a.RecordingId ?? "") + ":KerbalDeath";
                 case GameActionType.FundsEarning: return a.RecordingId ?? "";
                 // FundsSpending: RecordingId alone collides when multiple KSC part
                 // purchases share a null/empty RecordingId. DedupKey is the part name
@@ -1286,6 +1305,157 @@ namespace Parsek
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// Creates the kerbal-death <see cref="GameActionType.ReputationPenalty"/> row
+        /// for a recording, or none. AT MOST ONE row per recording no matter how many
+        /// crew died: stock applies one <c>VesselLoss</c> reputation hit per vessel
+        /// loss, not one per kerbal.
+        ///
+        /// <para>
+        /// SEPARATE FROM <see cref="CreateKerbalAssignmentActions"/> ON PURPOSE. That
+        /// method is also the source of truth for <see cref="MigrateKerbalAssignments"/>,
+        /// which compares its output against the ledger's KerbalAssignment slice and then
+        /// calls <c>Ledger.ReplaceActionsForRecording(KerbalAssignment, ...)</c> with the
+        /// whole returned list. A foreign row in that list would (a) make
+        /// <c>KerbalAssignmentActionsMatch</c> fail on every load and (b) be RE-INSERTED
+        /// on every load while only KerbalAssignment rows are removed - an unbounded
+        /// duplicate leak. Keeping the penalty in its own producer leaves that migration
+        /// exactly as it was.
+        /// </para>
+        ///
+        /// <para>
+        /// The decision itself is pure (<see cref="KerbalDeathRepPenalty.Decide"/>); this
+        /// wrapper supplies the recording's crew end states and the captured event store,
+        /// and owns the logging.
+        /// </para>
+        /// </summary>
+        /// <param name="recordingId">Recording to derive the row for.</param>
+        /// <param name="startUT">Recording start UT (unused by the decision; kept for call-site symmetry).</param>
+        /// <param name="endUT">Recording end UT - the reference point a death lands at.</param>
+        internal static List<GameAction> CreateKerbalDeathRepPenaltyActions(
+            string recordingId, double startUT, double endUT)
+        {
+            var result = new List<GameAction>();
+
+            var rec = FindRecordingById(recordingId);
+            if (rec == null) return result;
+
+            // Mirror CreateKerbalAssignmentActions' ghost-only carve-out (#432): a
+            // Gloops recording has zero career footprint, so it cannot owe a penalty.
+            if (rec.IsGhostOnly) return result;
+
+            if (NeedsCrewEndStatePopulation(rec))
+                KerbalsModule.PopulateCrewEndStates(rec);
+
+            var crew = ExtractCrewFromRecording(rec);
+            if (crew == null || crew.Count == 0) return result;
+
+            var endStates = new List<KerbalEndState>(crew.Count);
+            for (int i = 0; i < crew.Count; i++)
+                endStates.Add(crew[i].EndState);
+
+            var decision = KerbalDeathRepPenalty.Decide(
+                endStates, GameStateStore.Events, recordingId, endUT);
+
+            if (decision.DeadCount == 0)
+                return result;
+
+            if (!decision.Emit)
+            {
+                // Named refusal, not a silent one: a fixture-injected recording, a
+                // suppressed event, and a sub-threshold penalty all land here, and the
+                // reason is the only way to tell them apart from a producer defect.
+                ParsekLog.Info(Tag,
+                    $"KerbalDeath rep penalty: {decision.Reason} for recording='{recordingId}' " +
+                    $"(dead={decision.DeadCount.ToString(CultureInfo.InvariantCulture)}) - no row");
+                return result;
+            }
+
+            if (decision.CandidateCount > 1)
+            {
+                ParsekLog.Info(Tag,
+                    $"KerbalDeath rep penalty: {decision.CandidateCount.ToString(CultureInfo.InvariantCulture)} " +
+                    $"VesselLoss events scoped to recording='{recordingId}' - took the one nearest " +
+                    $"endUT={endUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"(ut={decision.UT.ToString("R", CultureInfo.InvariantCulture)})");
+            }
+
+            result.Add(new GameAction
+            {
+                UT = decision.UT,
+                Type = GameActionType.ReputationPenalty,
+                RecordingId = recordingId,
+                RepPenaltySource = ReputationPenaltySource.KerbalDeath,
+                NominalPenalty = decision.Magnitude
+            });
+
+            ParsekLog.Info(Tag,
+                $"KerbalDeath rep penalty: recording='{recordingId}' " +
+                $"applied={decision.Magnitude.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"ut={decision.UT.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"dead={decision.DeadCount.ToString(CultureInfo.InvariantCulture)} " +
+                "-> ReputationPenalty(KerbalDeath)");
+
+            return result;
+        }
+
+        /// <summary>
+        /// Load-time backfill for the kerbal-death reputation penalty row. The
+        /// KerbalAssignment rows themselves are DERIVED at load by
+        /// <see cref="MigrateKerbalAssignments"/> for recordings that were injected or
+        /// committed by a build without this producer, so the paired penalty has to be
+        /// derivable there too - otherwise a save whose deaths only ever existed as
+        /// derived rows could never carry one.
+        ///
+        /// <para>
+        /// ADD-ONLY and idempotent: a recording that already has a
+        /// <see cref="ReputationPenaltySource.KerbalDeath"/> row is skipped untouched.
+        /// Deliberately NOT a <c>ReplaceActionsForRecording(ReputationPenalty, ...)</c> -
+        /// that would delete a recording's contract-fail / decline penalties as
+        /// collateral.
+        /// </para>
+        /// </summary>
+        private static void BackfillKerbalDeathRepPenalties()
+        {
+            var recordings = RecordingStore.CommittedRecordings;
+            if (recordings == null || recordings.Count == 0) return;
+
+            var alreadyPresent = new HashSet<string>(StringComparer.Ordinal);
+            var ledgerActions = Ledger.Actions;
+            for (int i = 0; i < ledgerActions.Count; i++)
+            {
+                var action = ledgerActions[i];
+                if (action == null) continue;
+                if (action.Type != GameActionType.ReputationPenalty) continue;
+                if (action.RepPenaltySource != ReputationPenaltySource.KerbalDeath) continue;
+                if (string.IsNullOrEmpty(action.RecordingId)) continue;
+                alreadyPresent.Add(action.RecordingId);
+            }
+
+            var added = new List<GameAction>();
+            int skippedPresent = 0;
+            for (int i = 0; i < recordings.Count; i++)
+            {
+                var rec = recordings[i];
+                if (rec == null || string.IsNullOrEmpty(rec.RecordingId)) continue;
+                if (alreadyPresent.Contains(rec.RecordingId))
+                {
+                    skippedPresent++;
+                    continue;
+                }
+
+                added.AddRange(CreateKerbalDeathRepPenaltyActions(
+                    rec.RecordingId, rec.StartUT, rec.EndUT));
+            }
+
+            if (added.Count == 0) return;
+
+            Ledger.AddActions(added);
+            ParsekLog.Info(Tag,
+                $"BackfillKerbalDeathRepPenalties: added {added.Count.ToString(CultureInfo.InvariantCulture)} row(s); " +
+                $"skipped {skippedPresent.ToString(CultureInfo.InvariantCulture)} recording(s) that already had one");
         }
 
         /// <summary>
@@ -1700,15 +1870,22 @@ namespace Parsek
             if (LedgerHasSeed(GameActionType.ReputationInitial))
                 return true;
 
+            // The CAPTURE UT differs per branch and is not the seed row's own UT (that
+            // stays 0.0). It is what ReputationModule needs to tell a kerbal-death
+            // penalty already baked into the seed value from one still to be applied.
             if (hasInitialBaseline)
             {
-                Ledger.SeedInitialReputation(initialBaseline.reputation);
+                // A career-start baseline carries its own capture UT - typically 0 on a
+                // fresh template, non-zero for a baseline taken mid-career.
+                Ledger.SeedInitialReputation(initialBaseline.reputation, initialBaseline.ut);
                 return true;
             }
 
             if (LedgerHasReputationTimelineActions())
             {
-                Ledger.SeedInitialReputation(0f);
+                // This branch DELIBERATELY refuses the live pool and seeds career start,
+                // so the capture UT is career start too - not now.
+                Ledger.SeedInitialReputation(0f, 0.0);
                 ParsekLog.Warn(Tag,
                     "SeedInitialReputation: refusing to treat current reputation as initial " +
                     "because reputation timeline actions already exist and no baseline was available");
@@ -1719,8 +1896,29 @@ namespace Parsek
                 || Math.Abs(global::Reputation.Instance.reputation) <= 0.01f)
                 return false;
 
-            Ledger.SeedInitialReputation(global::Reputation.Instance.reputation);
+            // Live-pool read: the capture UT is NOW, and any death that already lowered
+            // the pool is inside the value being seeded.
+            Ledger.SeedInitialReputation(global::Reputation.Instance.reputation, SafeNowUT());
             return true;
+        }
+
+        /// <summary>
+        /// <see cref="GetNowUT"/> that answers 0.0 instead of throwing when the universe
+        /// clock is unavailable (the Unity-static-free xUnit harness, or a cold load
+        /// before Planetarium exists). Used only where a missing clock must not abort the
+        /// caller - the reputation seed's capture UT, which is metadata about the seed
+        /// rather than a value the walk depends on.
+        /// </summary>
+        private static double SafeNowUT()
+        {
+            try
+            {
+                return GetNowUT();
+            }
+            catch
+            {
+                return 0.0;
+            }
         }
 
         private static bool TryGetInitialResourceBaseline(out GameStateBaseline initialBaseline)
@@ -2735,6 +2933,12 @@ namespace Parsek
             // Old saves predating the KerbalAssignment feature have recordings but no
             // kerbal actions in the ledger.
             MigrateKerbalAssignments();
+
+            // Same argument for the penalty stock applied for those deaths: a save whose
+            // KerbalAssignment+Dead rows only exist because the line above derived them
+            // has no committed penalty row either. Add-only and skips recordings that
+            // already have one, so a second load writes nothing.
+            BackfillKerbalDeathRepPenalties();
 
             // #401/#396 one-shot save recovery now runs here, after committed recordings
             // (and any cold-start pending active tree) have been loaded. That gives the

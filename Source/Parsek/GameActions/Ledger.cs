@@ -1094,6 +1094,23 @@ namespace Parsek
         /// </summary>
         internal static void SeedInitialReputation(float initialReputation)
         {
+            // No capture UT supplied: the seed records "unknown", which leaves the
+            // pre-seed skip in ReputationModule disabled. Every production caller
+            // passes one through the overload below.
+            SeedInitialReputation(initialReputation, double.NaN);
+        }
+
+        /// <summary>
+        /// <see cref="SeedInitialReputation(float)"/> plus the UT the value was
+        /// CAPTURED at. The seed row's own <see cref="GameAction.UT"/> stays 0.0 (it
+        /// models career start); <see cref="GameAction.SeedCapturedUT"/> is what lets
+        /// <c>ReputationModule</c> tell a kerbal-death penalty that is ALREADY inside
+        /// <paramref name="initialReputation"/> from one that still has to be applied.
+        /// Pass <see cref="double.NaN"/> only when the capture time is genuinely
+        /// unknown.
+        /// </summary>
+        internal static void SeedInitialReputation(float initialReputation, double capturedUT)
+        {
             for (int i = 0; i < actions.Count; i++)
             {
                 if (actions[i].Type == GameActionType.ReputationInitial)
@@ -1110,13 +1127,15 @@ namespace Parsek
             {
                 UT = 0.0,
                 Type = GameActionType.ReputationInitial,
-                InitialReputation = initialReputation
+                InitialReputation = initialReputation,
+                SeedCapturedUT = capturedUT
             };
 
             actions.Add(seed);
             BumpStateVersion();
             ParsekLog.Info("Ledger",
-                $"Seeded initial reputation: amount={initialReputation.ToString("R", CultureInfo.InvariantCulture)}, total={actions.Count}");
+                $"Seeded initial reputation: amount={initialReputation.ToString("R", CultureInfo.InvariantCulture)}, " +
+                $"capturedUT={capturedUT.ToString("R", CultureInfo.InvariantCulture)}, total={actions.Count}");
         }
 
         // ================================================================
