@@ -45,17 +45,37 @@ tier = "daily"
 # BATCH_COMPLETE line of a green flight and update the required pattern AND this
 # block together.
 #
-# 2026-09-08 INTERIM PIN. PredictedTailMapRenderInGameTest was added for the
-# predicted-continuation-tail render contract (see
+# RE-MEASURED AND RE-PINNED WHOLE late 2026-09-08 (run ids _23xx), and the
+# interim is over.
+# PredictedTailMapRenderInGameTest was added 2026-09-08 for the predicted-
+# continuation-tail render contract (see
 # docs/dev/design-map-ts-render-architecture.md, "Predicted continuation tails on
-# the map"), so the source now declares total=23 = 0 scene-skipped + 1
-# batch-skipped + 22 executable. `total=` is pinned EXACTLY, as the one token
-# derivable from the [InGameTest] attributes; passed= and skipped= are the
-# never-flown convention (a digits class with failed=0 still pinned literally)
-# because the new cell's pass/skip split is decided at run time by its own
-# InGameAssert.Skip guards - it stands down when the scene has no usable body -
-# and this branch is not permitted to fly. RE-MEASURE both halves off the
-# BATCH_COMPLETE line of the next green S1.7 flight and restore the literal pin.
+# the map"), which moved the source to total=23 = 0 scene-skipped + 1
+# batch-skipped + 22 executable and forced a digits-class interim on passed= and
+# skipped= because the new cell's split is decided at run time by its own
+# InGameAssert.Skip guards (it stands down when the scene has no usable body).
+# FLOWN GREEN TWICE late 2026-09-08 (run ids _23xx), on two different builds,
+# reading the same line:
+# `2026-09-08_2313_S1.7-maprender-parity` (PASS attempt 1, 75 s) and, after a
+# review pass changed an unrelated in-game cell and forced a re-provision,
+# `2026-09-08_2329_S1.7-maprender-parity` (PASS attempt 1, 71 s). Both: every
+# verifier PASS or REPORT, expectations mismatches=0, analyzer red=0, anomalySweep
+# hits=[] counts={}. The line read TOKEN FOR TOKEN on both:
+#
+#   BATCH_COMPLETE v1 total=23 passed=22 failed=0 skipped=1 category=MapRender scene=FLIGHT
+#
+# so the literal pin is restored: the interim prediction (22/1) was exactly right,
+# the new cell EXECUTED rather than standing down, and `skipped=1` is still the
+# single AllowBatchExecution = false canary and nothing else. The cell's own
+# measurement line from that run, kept because a tally cannot say the render
+# decision was reached:
+#
+#   PredictedTailMapRender: body=Kerbin radius=600000 atm=70000 sma=840500
+#     ecc=0.296847 tail=[3811.9,5022.0] entry=4853.3 legs=2 arcs=1 hole=0.0s
+#     tailPts=26 worstBelowSurface=0.000m tol=0.457m
+#
+# One REPORT-ONLY Unity exception on that run (a single NullReferenceException,
+# not gating and not armed), recorded so it is not rediscovered as new.
 #
 # The measurement lines, transcribed from the archived 1015 log (identical in shape
 # on 1021, whose expectations verifier matched all three patterns):
@@ -263,7 +283,7 @@ count = { min = 274, max = 274 }
 # All are ParsekLog.Info, so they survive with verbose off.
 required = [
   "BATCH_COMPLETE v1 .* failed=0\\b",
-  "BATCH_COMPLETE v1 total=23 passed=[1-9][0-9]* failed=0 skipped=[1-9][0-9]* category=MapRender scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=23 passed=22 failed=0 skipped=1 category=MapRender scene=FLIGHT",
   "\\[Parsek\\]\\[INFO\\]\\[TestRunner\\] MultiBodyConcurrent Kerbin: pid=\\d+ body=Kerbin sampled=True skip=\\(none\\) hasMeas=True maxDev=[0-9.]+m tol=[0-9.]+m over=False",
   "\\[Parsek\\]\\[INFO\\]\\[TestRunner\\] MultiBodyConcurrent Mun: pid=\\d+ body=Mun sampled=True skip=\\(none\\) hasMeas=True maxDev=[0-9.]+m tol=[0-9.]+m over=False",
   "\\[Parsek\\]\\[INFO\\]\\[TestRunner\\] ReaimedLoop_SynthOracle: pid=\\d+ recordedLAN=\\d+ reaimedLAN=\\d+ \\| synthDev=\\d+m synthTol=\\d+m \\(ZERO\\) \\| faithfulDev=\\d+m faithfulTol=\\d+m \\(FLAGGED\\)",

@@ -21,8 +21,8 @@ namespace Parsek.Analyzer
         /// <summary>
         /// The pure-core subset the in-game H5 <c>RecordingInvariants</c> category runs
         /// (module M-A3, design "H5 - RecordingInvariants in-game category"): INV1-INV8
-        /// plus INV11, the rules that are pure over an <see cref="AnalyzerModel"/> with no
-        /// loader-supplied inputs. The loader-scoped rules (LoadFaultRule, INV7b, INV9,
+        /// plus INV11 and INV12, the rules that are pure over an <see cref="AnalyzerModel"/>
+        /// with no loader-supplied inputs. The loader-scoped rules (LoadFaultRule, INV7b, INV9,
         /// INV10) depend on on-disk sidecar / rewind-point files + LoadFault data the
         /// in-game builder does not populate, and FixtureStampRule is unreachable (the
         /// in-game model carries a null FixtureStamp); excluding them keeps the in-game
@@ -42,6 +42,7 @@ namespace Parsek.Analyzer
                 new Inv7TreeTopology(),
                 new Inv8Ledger(),
                 new Inv11EmptyTrackSection(),
+                new Inv12SplitClosedSlot(),
             };
 
         private static IReadOnlyList<IRecordingInvariant> BuildRules()
@@ -61,6 +62,7 @@ namespace Parsek.Analyzer
                 new Inv9RewindPoint(),
                 new Inv8Ledger(),
                 new Inv11EmptyTrackSection(),
+                new Inv12SplitClosedSlot(),
                 new FixtureStampRule(),
             };
 

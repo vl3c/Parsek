@@ -10,6 +10,60 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Automated testing: the harvested save of the closed-slot session is now read
+  through the real loader, not only compared byte for byte.** That save is the only
+  copy of what the defect actually wrote, and the damage is invisible in its text: the
+  later half of the split flight carries no merge-state line at all, and the whole
+  problem is that an absent line means "sealed" when the code reads it back. A drift
+  test over the same bytes cannot see that, because there is nothing there to drift.
+  Five checks now load the save the way the game does and pin what it decodes to - the
+  earlier half open, the later half sealed, the ending and the two predicted
+  continuation arcs on the later half, the two halves one chain cut at one instant, and
+  the new analyzer report firing on the decoded result. A sixth records the loss
+  itself: the save has no rewind point left anywhere, which is why the report has to be
+  keyed on the pair of halves rather than on the slot. Stated plainly because it is a
+  real limit: the save itself is not in this branch yet, and until it lands all six
+  checks stand down and pass without asserting anything - they name the places they
+  looked, and they become load-bearing on their own the moment the save is committed.
+
+- **Automated testing: the recording analyzer now reports a re-fly slot that reads
+  closed while the flight it belongs to is still open.** When the optimizer used to cut
+  a flight in two it moved the flight's ending onto the later half without the flag
+  that says the half is still re-flyable, and everything that asks "can this be flown
+  again" reads the later half - so the answer silently became no and the rewind point
+  was deleted. The producer was fixed, but saves written before the fix carry the
+  damage forever, and the only trace left is the pair of halves: an open earlier half
+  followed by a closed one that holds the ending. The analyzer now reports that pair on
+  any save it reads, one line per flight, naming both halves and both states. The
+  report is careful about what it claims, because the same pair is also what an
+  ordinary sealed slot looks like: sealing closes the later half and leaves the earlier
+  one open, exactly like the fault did, and nothing stored on disk separates the two.
+  So the line offers both readings rather than announcing a defect, and it reports
+  rather than fails - failing would flag a correct state a player reaches by clicking a
+  button. What it is still worth: every automated run analyzes the save it produced, so
+  a run that seals nothing and starts printing this line has lost the fix again. Read
+  across all 57 saved games the test suite ships: exactly one carries the pair, the
+  harvested save of the original session, and it is the only one that reports.
+
+- **Automated testing: the optimizer-split regression that silently closed a re-fly
+  slot now has an in-game cell that drives the real optimizer pass.** The fix that
+  carries a recording's merge state onto the half the terminal moves to was proven
+  headlessly, by calling the splitter and the store directly; nothing ran it through
+  the pass a live commit actually takes, which is also the pass that merges, trims,
+  rebuilds the background map and flushes to disk. The new `Rewind` cell installs a
+  synthetic committed tree and a two-slot rewind point entirely in memory, runs the
+  in-game optimization pass over them, and then asks the two production predicates the
+  player's affordance is read from - is this slot still open, is its rewind point now
+  deletable - plus a real reap pass that must delete nothing. It pins the reap harder
+  than the headless sibling can, because its rewind point is authored past the session
+  flag that short-circuits the eligibility check. It cleans up after itself, sidecars
+  included, and stands down with a named reason while a re-fly session is live, since
+  the pass deliberately defers that split, and stands down the same way on a save that
+  already holds committed recordings, since the pass it drives would rewrite those in
+  place and no in-game teardown can undo that. `R7a-rewind-session-absent` moves to
+  `total=39 passed=17` and `R7c-rewind-spacecenter` to `total=39 skipped=33`; R7a was
+  flown twice to measure it, the new check executing and passing on both runs.
+
 - **`collect-logs.py` no longer copies a render manifest that belongs to a different
   session.** The manifest lives at the KSP root like the test-results file, but nothing
   clears it between runs, so a bundle collected with the recorder inert carried a
@@ -27,10 +81,12 @@ _(unreleased — entries accumulate here per commit)_
   what is on screen: it requires the built trajectory legs plus the selected forward arcs
   to cover the whole tail, and requires no drawn tail point to lie inside the body within
   the scene's own float-grid tolerance. It stands down with a named reason when the scene
-  offers no usable body. `S1.7-maprender-parity`'s batch tally moves to `total=23` with
-  the pass / skip split on the never-flown digits-class convention until the next green
-  flight re-measures it; the flown 2026-07-26 line is kept verbatim beside it so the pin
-  does not overwrite the measurement.
+  offers no usable body. `S1.7-maprender-parity`'s batch tally moves to `total=23`. That
+  move went in with the pass / skip split on the never-flown digits-class convention; it
+  has since been flown green twice and the whole line is pinned literally again, the new
+  check having executed rather than stood down, so the split is a measurement rather than
+  a prediction. The older flown line is kept verbatim beside it so the re-pin does not
+  overwrite the earlier measurement.
 
 - **A flight the recording optimizer split in two no longer shows a map orbit it never
   flew.** When the optimizer cuts one flight at an environment boundary, the earlier half
@@ -893,6 +949,16 @@ _(unreleased — entries accumulate here per commit)_
   charged, and then correctly refused a second dispatch it could no longer afford.
 
 ### Dev
+
+- **An in-game test left a merge journal installed on the live scenario when it failed,
+  and three later tests failed because of it.** The merge-interruption test deliberately
+  crashes a real merge halfway through and then repairs it; when its own assertion red
+  first, the half-finished journal stayed behind and every later test that touches a
+  revert dialog was refused by the product's "a merge is in progress" guards - one
+  broken test reported as four. It now restores the journal and session marker in a
+  finally block, and stands down with a named reason when the re-fly it needs has not
+  been concluded (landed or crashed and saved) rather than asserting against a merge
+  that correctly declines to run. Test-side only; no gameplay change.
 
 - **Roadmap gaps G1 (route-driven rendering) and G3b (the surface endpoint fallback at
   a render surface) are closed on measured runs.** The tracking-station route lane

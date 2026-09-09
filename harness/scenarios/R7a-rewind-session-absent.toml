@@ -146,6 +146,22 @@ count = { min = 0, max = 0 }
 # run proves the guard does not fire here (no session is active, so it executes and
 # the tally is unmoved).
 #
+# THAT PAIR IS NOT THE MEASUREMENT BEHIND THE CURRENT PIN. It measured the
+# then-current total=37 line; the tally has moved twice since (2026-08-20, and
+# the re-fly regression-net wave recorded further below). The pin as it stands,
+# `total=39 passed=17 failed=0 skipped=22`, rests on a SECOND pair flown late
+# 2026-09-08 (run ids `_23xx`): `2026-09-08_2314_R7a-rewind-session-absent`
+# (PASS attempt 1, 76 s) and `2026-09-08_2328_R7a-rewind-session-absent` (PASS
+# attempt 1, 75 s, on a DIFFERENT build - a review pass added the new cell's
+# empty-store guard and forced a re-provision). Both read the line TOKEN FOR
+# TOKEN, both with every verifier PASS or REPORT, expectations mismatches=0,
+# analyzer red=0, anomalySweep hits=[] counts={}. The new FLIGHT-scoped cell
+# EXECUTED and PASSED on both (45 ms; tipMergeState=CommittedProvisional
+# tipTerminal=Destroyed slotOpen=True rpReapEligible=False reaped=0), its
+# empty-store guard did NOT fire (the pass measured committed=3, this cell's own
+# two plus the split half), and its teardown read recordingsRemoved=3
+# sidecarSetsDeleted=3 with zero optsplit* residue in either produced save.
+#
 # The pin is a LITERAL pattern and evaluate_expectations requires it to match, so a
 # PASS means the runner printed this line TOKEN FOR TOKEN. THE WHOLE PRE-FLIGHT
 # DERIVATION HELD, which is worth recording: 24 of the 37 bodies carry run-time
@@ -156,7 +172,7 @@ count = { min = 0, max = 0 }
 # out of the log and correct the derivation below.
 #
 # WHAT EACH TOKEN RESTS ON:
-#  - total=38 is ATTRIBUTE-EXACT and the only statically certain token: 38
+#  - total=39 is ATTRIBUTE-EXACT and the only statically certain token: 39
 #    [InGameTest(Category = "Rewind")] declarations. BATCH_COMPLETE's
 #    total is allTests.Count(Status != NotRun) over the single batch, so it counts
 #    filtered tests too. Kept in sync by CommittedBatchTallySourceSyncTests.
@@ -167,11 +183,24 @@ count = { min = 0, max = 0 }
 #    `skipped` even though nothing about the FLIGHT slice changed - the token
 #    counts the whole category, and the new cell scene-skips here. Derived, not
 #    guessed: `hlib.derive_batch_tally(decls, "Rewind", "FLIGHT", isolated=True)`
-#    returns total=38 scene_skipped=6 batch_skipped=0 executable=32. The isolated
-#    argument is REQUIRED to reproduce: this spec drives RunTests with
+#    returned total=38 scene_skipped=6 batch_skipped=0 executable=32 AT THAT TIME;
+#    it returns total=39 ... executable=33 since the 2026-09-09 move recorded below.
+#    The isolated argument is REQUIRED to reproduce: this spec drives RunTests with
 #    isolated = "true", and the call WITHOUT it models the ordinary entry point and
-#    returns batch_skipped=6 executable=26, which is not the path R7a flies.
-#  - skipped=22 = 6 ATTRIBUTE-FORCED + 16 RUN-TIME.
+#    returns batch_skipped=6 executable=27 (26 before the 2026-09-09 move), which is
+#    not the path R7a flies.
+#    MOVED 38 -> 39 on 2026-09-09 by the re-fly regression-net wave, which added ONE
+#    FLIGHT-scoped Rewind cell (OptimizerSplitOfPromotedSlotKeepsSlotOpen,
+#    Source/Parsek/InGameTests/OptimizerSplitKeepsPromotedSlotOpenTest.cs) - the
+#    in-game regression cell for PR #1658's optimizer-split MergeState carry. It is
+#    the FLIGHT-scoped half of the move, so it lands in `passed`, not in `skipped`:
+#    it self-sets-up a synthetic committed tree plus a two-slot RewindPoint entirely
+#    in memory and needs nothing of the host save, and it skips only when a re-fly
+#    session is LIVE - which R7a's whole premise excludes. Derived, not guessed:
+#    hlib.derive_batch_tally(decls, "Rewind", "FLIGHT", isolated=True) now returns
+#    total=39 scene_skipped=6 batch_skipped=0 executable=33.
+#  - skipped=22 = 6 ATTRIBUTE-FORCED + 16 RUN-TIME. UNMOVED by the 2026-09-09
+#    addition for the reason above: the new cell executes on this boot.
 #      The 6 attribute-forced are scene-ineligible at FLIGHT (all SPACECENTER-scoped,
 #      and all six are R7c's payload): ReFlyFromSpannedRecording_PreservesLaunchRow-
 #      AndTombstonesPostRewindCrew, ReFlyMergeRetiresRecoveryBundleAndStopsCareer-
@@ -189,7 +218,9 @@ count = { min = 0, max = 0 }
 #      WarpZeroedDuringSave - see the fixture note), and InvokeRPStripAndActivate
 #      ("No Unfinished Flight in current save", per the mergeState gap above).
 #  - failed=0 is the ASSERTION.
-#  - passed=16 follows, and is the list this spec exists to execute:
+#  - passed=17 follows (16 -> 17 on 2026-09-09 with
+#      OptimizerSplitOfPromotedSlotKeepsSlotOpen), and is the list this spec exists
+#      to execute:
 #      DiscardReFly_LaunchContext_PreservesSiblingState_DispatchesSpaceCenter,
 #      DiscardReFly_PrelaunchContext_DispatchesEditorWithFacility, F5MidReFlyResume,
 #      Gate_DoesNotClobber_LegitimateFlagTrue_WhenInactive,
@@ -202,6 +233,7 @@ count = { min = 0, max = 0 }
 #      ReFlyRevertDialog_Prelaunch_BlocksStockRevert_AndShowsDialog,
 #      ReFlyRevertDialog_Prelaunch_NoSession_AllowsStockRevert,
 #      RewindReadbackGuard_WarnsOnDivergence_LeavesLiveUnchanged,
+#      OptimizerSplitOfPromotedSlotKeepsSlotOpen,
 #      TagForkInitialSegmentPhase_FromLiveActiveVessel_ProducesPhaseAndBody,
 #      TreeDiscardRemovesSupersedesAndTombstones.
 #  - scene=FLIGHT is the career-pad-craft Focusable route, MEASURED by CL-2 / CL-3
@@ -216,7 +248,7 @@ count = { min = 0, max = 0 }
 # tally: 6 is the restore-flagged count, NOT total - H21's 2 coincided with its
 # total and that coincidence was baked into the group test until this commit.
 required  = [
-  "BATCH_COMPLETE v1 total=38 passed=16 failed=0 skipped=22 category=Rewind scene=FLIGHT",
+  "BATCH_COMPLETE v1 total=39 passed=17 failed=0 skipped=22 category=Rewind scene=FLIGHT",
   "runtests start category=Rewind isolated=true",
   "Using batch baseline slot .* for 6 restore-after-run test\\(s\\)",
 ]
