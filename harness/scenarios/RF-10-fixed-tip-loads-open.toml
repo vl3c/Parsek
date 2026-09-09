@@ -1,0 +1,191 @@
+schema = 1
+id = "RF-10-fixed-tip-loads-open"
+# =====================================================================================
+# THE RE-FLY CONTINUATION PROGRAM, LANE 10. THE OTHER HALF OF THE FIX.
+#
+# RF-9 proves the fix on the WRITE side: it flies the shape, the optimizer splits the
+# promoted recording at the atmosphere exit, and the slot is still open when the same
+# process reads it back. This lane proves the READ side, out of committed bytes, in a
+# process that flew nothing.
+#
+# WHY THAT IS A DIFFERENT CLAIM. The sealing defect had two surfaces, and only one of
+# them is about what a running commit does. `RecordingTreeRecordCodec` OMITS the
+# `mergeState` key exactly when the value is `Immutable` and reads a MISSING key back AS
+# `Immutable`, so a chain TIP written without the open bit is indistinguishable on disk
+# from one deliberately sealed. `refly-a-recorded` carries that shape: TIP `8da7c2c2`,
+# `chainIndex = 1`, no `mergeState` key at all. Anything that loads it - the reaper on
+# OnLoad, the Unfinished Flights surface, `EffectiveState.EffectiveTipRecordingId` -
+# answers CLOSED, and the RewindPoint is then deleted by design.
+#
+# So the fix has to survive a ROUND TRIP, and the round trip is what this lane is. It
+# boots `refly-autopilot-recorded` - RF-9's own produced save, whose two chain TIPs carry
+# `mergeState = CommittedProvisional` - and asserts that the load-time sweep reads the
+# slot as OPEN and DECLINES to reap its point. Nothing is flown, nothing is re-flown, and
+# no recorder starts: the only thing under test is what the bytes mean to a cold boot.
+#
+# =====================================================================================
+# THE ONE REQUIRED TOKEN THAT CARRIES THE LANE.
+#
+#   `ReapOrphanedRPs: reaped=0 remaining=1`
+#
+# `RewindPointReaper.IsReapEligible` returns false the moment ANY slot's effective tip is
+# `CommittedProvisional`, and the effective tip here is the SPLIT tip - the recording the
+# defect used to mint `Immutable`. So `reaped=0` is not a statement that the sweep was
+# lazy; it is the sweep having walked to the tip, read the carried open bit, and refused.
+# On a save written by a pre-#1658 DLL the same sweep answers `reaped=1 remaining=0` and
+# deletes the quicksave, which is exactly what happened to the seed and is why
+# `refly-a-recorded` has no RewindPoint to offer any lane.
+#
+# `remaining=1` is the second half and it is not redundant: `reaped=0` alone is also what
+# a save with NO points produces, and this fixture has exactly one.
+#
+# THE FORBIDDEN PAIR IS THE SAME PAIR RF-9 FORBIDS, read from the opposite side.
+# `reason=sealedTipClosed` is the verdict a mergeState-less tip produces at load;
+# `Reaped rp=` is the irreversible consequence. Neither can be reached from these bytes
+# unless the CODEC or the walker regressed, which is precisely the regression this lane
+# is cheap enough to run for.
+#
+# =====================================================================================
+# WHY A LANE AND NOT JUST THE FIXTURE'S DRIFT TEST.
+# `harness/lib/test_refly_autopilot_recorded.py` already asserts the two TIPs carry
+# `mergeState = CommittedProvisional`, cell by cell, with no game. That is a statement
+# about the FILE. It cannot say what Parsek DOES with the file, and the whole defect
+# lived in the gap between those two things - the seed's bytes were also perfectly
+# well-formed. A drift test guards the subject; this lane reads it back through the
+# product.
+#
+# =====================================================================================
+# WHAT THIS LANE DELIBERATELY DOES NOT DO. It does not re-fly the point (RF-9 does that
+# in-process, and a re-fly here would mutate the very state the load is being judged on),
+# it does not open the Unfinished Flights surface (no seam verb does), and it asserts
+# nothing about rendering (the fixture's predicted tail belongs to a render lane that
+# does not exist yet - see the fixture's README entry). Its whole contract is: these
+# bytes load, and they load OPEN.
+#
+# =====================================================================================
+# STATUS: LIVE-PROVEN. READING RUN FLOWN 2026-09-09 (`RF-10`), PASS attempt 1, every
+# verifier PASS or SKIPPED, expectations mismatches=0 over 3 required and 4 forbidden
+# patterns, saveParse REPORT mismatches=0. THE DECISIVE LINE CAME BACK VERBATIM:
+#   `[Parsek][VERBOSE][Rewind] ReapOrphanedRPs: reaped=0 remaining=1`
+# followed by `listhandles kind=rewindpoints count=1 truncated=false`, and neither
+# `reason=sealedTipClosed` nor `Reaped rp=` anywhere in the session. So the split tip's
+# carried open bit SURVIVES the round trip through the codec, which is the half of
+# PR #1658 no test had read back out of committed bytes.
+#
+# THE LANE ALSO LEFT THE FIXTURE EXACTLY AS IT FOUND IT, which its own report windows
+# now assert: `supersedeRows=2 tombstones=8 rewindPoints=1`, points total 1200, largest
+# 560 - the fixture's pinned shape to the number. That is worth having: a load that
+# quietly rewrites committed state would show here and nowhere else.
+#
+# ARMED the same day, through the full cycle: reading run `2026-09-09_0008` PASS, ARMED
+# re-flight `2026-09-09_0011` PASS attempt 1 (`saveParse status=PASS gating=True
+# armed=['rewind']`), NEGATIVE CONTROL `2026-09-09_0012` with `supersedeRows` inverted to
+# `{3,3}`, reading PARSEK-FAIL on exactly `rewind.supersedeRows 2 < min 3` and nothing
+# else, reverted in the same change.
+# =====================================================================================
+tier = "operator"
+description = "The read side of PR #1658: boot RF-9's own produced save, whose two chain TIPs carry mergeState = CommittedProvisional, and assert that the load-time sweep walks to the split tip, reads the carried open bit and DECLINES to reap the RewindPoint - the round trip the codec's omit-when-Immutable rule makes a separate claim from the write."
+instanceProfile = "stock-minimal"
+tags = ["RF-10", "rewind", "refly", "unfinished-flights", "continuation",
+        "load-time", "regression-floor", "reading-run"]
+
+[fixture]
+# RF-9's produced save, harvested 2026-09-09 (run `2026-09-08_2258`, PASS attempt 1 on
+# the post-#1658 / post-#1659 DLL). Its shape is pinned in `RECORDED_FIXTURES` and gated
+# by `harness/lib/test_refly_autopilot_recorded.py`; the two chain TIPs carrying the open
+# bit are the whole reason it is committed, and this lane is the first consumer.
+saveTemplate       = "fixtures/saves/refly-autopilot-recorded"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind = "seam"
+
+# SIX STEPS AND NO FLIGHT. `autoRecordOnLaunch` goes false so the boot cannot open a
+# recorder over the committed tip (RF-1's guard, taken here as hygiene rather than as a
+# precondition - nothing in this lane launches). `verboseLogging` is LOAD-BEARING: the
+# reaper's per-sweep summary is `ParsekLog.Verbose`. `StopRecording` is idempotent-OK and
+# is R1's own order for a lane that reads committed state.
+steps = [
+  { cmd = "LoadGame",      args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting",    args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",    args = { name = "verboseLogging", value = "true" },  expect = "OK" },
+  { cmd = "StopRecording",                                                      expect = "OK" },
+  # THE POINT IS STILL THERE, read back through the seam rather than off the disk: the
+  # enumeration is what says the reaper's refusal left a usable object behind, and a
+  # count of 0 here would mean the sweep took it whatever the summary line said.
+  { cmd = "ListHandles",   args = { kind = "rewindpoints" }, label = "handles", expect = "OK" },
+  { cmd = "RecordingState",                                                     expect = "OK" },
+  { cmd = "FlushAndQuit",                                                       expect = "OK" },
+]
+
+[dimensionsCovered]
+# BASICS ONLY until the reading run, on RH-1's claim-is-not-gate ground. What it would
+# earn is D9 `load-time-sweep` off the reaper summary, which this lane gates rather than
+# merely produces - but a dimension claim moves `hlib.compute_coverage` and belongs to a
+# deliberate pass, not to a lane's first flight.
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The fixture's own measured census, pinned exactly because nothing in this lane can
+# change it: no recorder starts, no re-fly runs, and the only writes are settings.
+# A different number means the save loaded a different subset than it carries, which is
+# a finding in itself.
+count = { min = 11, max = 11 }
+
+[expectations.logContracts]
+# THREE REQUIRED TOKENS.
+#   the save loaded          `loadgame complete` with the sandbox save name
+#   the sweep DECLINED       `ReapOrphanedRPs: reaped=0 remaining=1`   <- the lane
+#   the object survived it   `listhandles kind=rewindpoints count=1 truncated=false`
+# The last two fail differently on purpose: a reaper that logged a refusal it did not
+# honour satisfies only the first of them.
+required = ["loadgame complete",
+            "ReapOrphanedRPs: reaped=0 remaining=1",
+            "listhandles kind=rewindpoints count=1 truncated=false"]
+# THE REGRESSION FLOOR, stated as two absences. `reason=sealedTipClosed` is what a
+# mergeState-less chain TIP produces at load; `Reaped rp=` is the deletion that follows
+# it and is irreversible. On a pre-#1658 save both fire here, which is why
+# `refly-a-recorded` cannot host this lane - and why the two fixtures are only fully
+# legible as a pair.
+forbidden = ["\\[Parsek\\]\\[ERROR\\]",
+             "reason=sealedTipClosed",
+             "not re-deriving MergeState",
+             "Reaped rp="]
+
+# REPORT-ONLY, and every window is the fixture's own MEASURED shape rather than a
+# prediction: this lane must leave it exactly as it found it. A move here is either the
+# load mutating committed state (a finding) or a fixture re-harvest that forgot to
+# re-pin.
+# ARMED 2026-09-09. These windows are UNUSUALLY safe to arm and the reason is what the
+# lane is: nothing here can move them. No recorder starts, no re-fly runs, the only
+# writes are two settings - so the three counts are the FIXTURE's identity read back
+# through a boot, and the drift test already pins the same numbers off the file. Arming
+# them makes the pair mutually checking: the file gate catches a bad re-harvest, this
+# gate catches a load that mutates committed state.
+[expectations.rewind]
+gating        = true
+rewindPoints  = { min = 1, max = 1 }
+supersedeRows = { min = 2, max = 2 }
+tombstones    = { min = 8, max = 8 }
+
+[expectations.recordings.structure]
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 11, max = 11 }
+branchPoints   = { JointBreak = { min = 5, max = 5 } }
+terminalStates = { Destroyed = { min = 10, max = 10 }, SubOrbital = { min = 1, max = 1 } }
+
+[runtime]
+# Budget arithmetic (M-A5 S8): LoadGame 660 + SetSetting x2 240 + StopRecording 120 +
+# ListHandles 120 + RecordingState 120 + FlushAndQuit 120 = 1380. 1600 clears it by 220.
+budgetSeconds = 1600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

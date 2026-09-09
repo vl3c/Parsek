@@ -3547,7 +3547,7 @@ filler between calibration flights.
 
 ---
 
-## The re-fly continuation program (RF-1..RF-9)
+## The re-fly continuation program (RF-1..RF-10)
 
 Added 2026-09-09, after the first Rewind-to-Separation session an operator ever
 flew BY HAND end to end and collected: `logs/2026-09-08_2317_refly-a-manual`,
@@ -3603,6 +3603,7 @@ recordings.
 | RF-7M / RF-7T | `refly-a-recorded` | The predicted continuation tail on the flight map and in the Tracking Station. REPRODUCTIONS: authored to red on main on the exact defect tokens |
 | RF-8 | `bdock-recorded` | What renders DURING a live re-fly - the sibling's ghost in watch mode and on the map, with both tracers armed for the first time on any rewind lane |
 | RF-9 | `gs1-two-stage-pad` + the Kerbal X | THE SEALING DEFECT'S OWN SHAPE, FLOWN. The only lane whose promoted recording crosses an environment boundary the optimizer splits on, which is the precondition RF-1 records itself as unable to reach: the probe-cored core is discarded INSIDE the atmosphere and the crewed top stack then coasts OUT through 70 km before the scene exits. Reds on a pre-#1658 DLL by design |
+| RF-10 | `refly-autopilot-recorded` | THE READ SIDE of the same fix, out of committed bytes: the codec omits `mergeState` exactly when it is Immutable and reads a missing key back AS Immutable, so the carried open bit has to survive a ROUND TRIP - and nothing tested that. Six steps, no flight, no re-fly; `ReapOrphanedRPs: reaped=0 remaining=1` is the whole lane. First consumer of the fixture RF-9 produced |
 
 **TWO LIMITATIONS, structural rather than unfinished.**
 
@@ -3711,8 +3712,9 @@ in both encodings). SEVEN GREEN, one RED BY FINDING, two INVALID with named caus
 | RF-6 | PARSEK-FAIL (finding) | `RF-6` | Byte-identical tally on the fixed DLL: the four failures are NOT the sealing defect |
 | RF-4 | INVALID | `RF-4` | `bdock-recorded` carries no rewind-to-launch save at all; the H58 verb pair was borrowed across FIXTURES |
 | RF-8 | INVALID | `RF-8` | A ghost DOES resolve during a live re-fly and is body-matched; the watch RANGE gate declines it |
+| RF-10 | PASS, ARMED | `2026-09-09_0008` / `_0011` / `_0012` | The round trip: the split tip's open bit survives the codec, read by a boot that flew nothing |
 
-**TWO LANES ARE NOW ARMED**, both through the full S4.1 cycle rather than by decree:
+**THREE LANES ARE NOW ARMED**, each through the full S4.1 cycle rather than by decree:
 reading run, ARMED re-flight, NEGATIVE CONTROL, revert in the same change.
 
 - **RF-1 `[expectations.rewind]`** - armed run `2026-09-08_2349` PASS; control
@@ -3725,6 +3727,13 @@ reading run, ARMED re-flight, NEGATIVE CONTROL, revert in the same change.
   `2026-09-08_2358` restored the REFUTED `tombstones = {max = 0}` and red on exactly
   `rewind.tombstones 8 > max 0`. Arming the CORRECTED window is deliberate: a window
   that was wrong once is exactly the one a later run must not be able to move quietly.
+- **RF-10 `[expectations.rewind]`** - armed run `2026-09-09_0011` PASS; control
+  `2026-09-09_0012` inverted `supersedeRows` to `{3,3}` and red on exactly
+  `rewind.supersedeRows 2 < min 3`. The safest arming in the program, because the lane
+  cannot move its own subject: no recorder, no re-fly, two settings written. Its three
+  counts are the fixture's identity read back through a boot, and the file-side drift
+  test pins the same numbers - one gate catches a bad re-harvest, the other a load that
+  mutates committed state.
 
 **NO REGISTRY CELL WAS CLAIMED**, and that is a decision rather than an oversight. RF-9
 now exercises and OBSERVES `rewind-to-separation`, `refly-gate`,

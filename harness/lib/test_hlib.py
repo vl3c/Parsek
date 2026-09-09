@@ -8479,6 +8479,10 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
             "operator by the reading-run discipline; AUTHORED 2026-09-09, NEVER "
             "FLOWN. Declares ghostLifecycle report-only with NO windows, which is "
             "what the reading run is for. Owes a flight",
+        "RF-10-fixed-tip-loads-open.toml":
+            "operator by the reading-run discipline; AUTHORED 2026-09-09, NEVER "
+            "FLOWN. The READ side of PR #1658 over RF-9's own harvested save, and "
+            "the first consumer of refly-autopilot-recorded. Owes a flight",
         "RF-9-atmosphere-exit-split-stays-open.toml":
             "operator by the reading-run discipline; AUTHORED 2026-09-09, NEVER "
             "FLOWN. The sealing defect's live reproduction (the only lane whose "
@@ -9356,6 +9360,14 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # `rewindPoints = {1,1}` is the armed claim: the reaper declines
                        # only while a slot's effective tip is CommittedProvisional.
                        "RF-1-continuation-stays-open.toml",
+                       # RF-10: `rewind` armed 2026-09-09 off its reading run. The
+                       # safest arming in the program: the lane starts no recorder and
+                       # runs no re-fly, so the three counts are the FIXTURE's identity
+                       # read back through a boot, and `test_refly_autopilot_recorded`
+                       # pins the same numbers off the file. The pair is mutually
+                       # checking - one catches a bad re-harvest, the other a load that
+                       # mutates committed state.
+                       "RF-10-fixed-tip-loads-open.toml",
                        # RF-9: `rewind` armed 2026-09-09 off its two reading runs. The
                        # windows were RE-PINNED from run 1 (tombstones 0 -> {min 1}) and
                        # then landed unchanged on run 2, which is the same two-sample
