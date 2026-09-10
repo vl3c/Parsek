@@ -292,9 +292,10 @@ values = ["default-mission", "leg-trim", "whole-mission-loop", "self-overlap", "
 # RE-FLY consequence of a death that already happened (`dead-crew-strip`,
 # `tombstone-rep-penalty`). The death itself - Parsek's recording of it and the
 # `KerbalAssignment` / `KerbalEndState.Dead` ledger row it produces at commit - was
-# not nameable. The two re-fly cells stay uncovered on purpose: they are what this
-# atom is meant to be extended into, and the coverage report should keep showing them
-# as the backlog rather than absorbing them into this claim.
+# not nameable. The two re-fly cells stayed uncovered on purpose - they are what this
+# atom is meant to be extended into, not what it proves - until their own lanes took
+# them: `dead-crew-strip` by CL-3 (2026-08-05), `tombstone-rep-penalty` by CL-4
+# (2026-09-10, once the product change shipped).
 #
 # STILL UNCOVERED after `CL-2-pod-impact-ledger` (the extension's STAGE A, 2026-07-30),
 # and deliberately so: CL-2 reaches the pending-tree AUTO-COMMIT and claims the D8
@@ -386,27 +387,45 @@ values = ["default-mission", "leg-trim", "whole-mission-loop", "self-overlap", "
 # ship with that branch's DLL, so the same-PR confirm fly is the live proof of the
 # token's exact shape. Full forensic write-up in docs/dev/todo-and-known-bugs.md.
 #
-# `tombstone-rep-penalty` IS UNREACHABLE BY ANY FLIGHT, not merely uncovered
-# (2026-08-02, CL stage B; mechanical, re-check by grep before ever claiming it).
-# The cell needs a `GameActionType.ReputationPenalty` action in the supersede subtree.
-# `Source/Parsek/` has exactly ONE PRODUCTION construction site for that type (the only other occurrence in the tree is a synthetic in-game-test fixture, `InGameTests/RuntimeTests.cs`, which builds one with `RepPenaltySource = Other` and is not a flight path) -
-# `GameActions/GameStateEventConverter.cs` (the Bail-Out Grant), which hardcodes
-# `RepPenaltySource = ReputationPenaltySource.Strategy`. No code path ever constructs
-# a `ReputationPenaltySource.KerbalDeath` action, so a crew death produces NO Parsek
-# rep row: stock applies the hit directly (`Added -9.999828 (-10) reputation:
-# 'VesselLoss'.`, measured by CL-1 and CL-2) and the event converter DROPS it
-# (`GameStateEventConverter.ConvertStrategyExchangeReputation` returns null for every
-# reason but StrategyInput), so no `GameAction` exists for a tombstone to reverse; the
-# ledger's only contact with the hit is the log-only `ReconcileEarningsWindow` WARN.
-# `TombstoneEligibility.TryPairBundledRepPenalty` therefore has nothing to pair on a
-# flown death - and note it is called ONLY from `SupersedeCommit`'s autoseal /
-# retry-blocking classifier (`IsWorldStateChangingRecordingAction`), NEVER from
-# `CommitTombstones`, which gates on `IsSupersedeTombstoneEligible`. So the older
-# note naming it "the named producer" for this cell was doubly wrong: it produces no
-# tombstone, and its input never exists.
-# UNBLOCKING IT IS A PRODUCT CHANGE, NOT A FLIGHT: Parsek would have to construct a
-# KerbalDeath rep penalty on crew death, which moves CL-2's armed ledger totals and
-# so belongs in its own PR with its own oracle re-pin.
+# `tombstone-rep-penalty` IS REACHABLE since 2026-09-10 (branch `tombstone-rep-penalty`)
+# and IS PINNED. Until that day it was UNREACHABLE BY ANY FLIGHT (2026-08-02 record):
+# `Source/Parsek/` had one production construction site for
+# `GameActionType.ReputationPenalty` (the Bail-Out Grant in
+# `GameStateEventConverter.cs`, hardcoded `Strategy`), nothing constructed a
+# `ReputationPenaltySource.KerbalDeath` action, stock applied the hit directly (`Added
+# -9.999828 (-10) reputation: 'VesselLoss'.`, measured by CL-1 and CL-2) and the event
+# converter DROPPED it (`ConvertStrategyExchangeReputation` returns null for every
+# reason but StrategyInput), so the rebuilt pool came out ten above live and any
+# recalc that reached the pool wrote it back up (no `GUARDED UPLIFT` clamp appears in
+# any CL log; `2026-09-09_1815` shows the analogous +1 milestone double-apply written
+# straight through), and a supersede merge refunded a death it could not see. The
+# product change:
+# `LedgerOrchestrator.CreateKerbalDeathRepPenaltyActions` (commit step 3d, through
+# `DeduplicateAgainstLedger`) files ONE `ReputationPenalty` row with `RepPenaltySource
+# = KerbalDeath` per recording that has a dead crew member AND a recording-scoped
+# `VesselLoss` `ReputationChanged` event, copying that event's UT and magnitude (pure
+# decision: `GameActions/KerbalDeathRepPenalty.cs`; no event captured -> no row
+# invented). `TombstoneEligibility.IsSupersedeTombstoneEligible` already listed the
+# type, so `SupersedeCommit.CommitTombstones` tombstones the row with the death.
+# THE DEFINITION A CLAIM MUST GATE ON: a `ReputationPenalty(KerbalDeath)` row in the
+# superseded subtree tombstoned by the re-fly merge, observable as a non-zero
+# `Reputation=` term in the merge tail's summary -
+# `Tombstoned [1-9][0-9]* career actions \(.*Reputation=[1-9]` (the same line whose
+# `Kerbal=[1-9]` term is CL-3's `tombstones` token; CL-3 read `Reputation=0`). First
+# measured `2026-09-09_2158_CL-4-refly-crew-standin`: `Tombstoned 2 career actions
+# (... Reputation=1, Kerbal=1 ...)` with the save facet `tombstones=2`.
+# `CL-4-refly-crew-standin` claims the cell off that REQUIRED token (2026-09-10).
+# WHAT THE ROW DOES NOT DO, so nobody over-reads the claim: a row produced before the
+# `ReputationInitial` seed existed, or in the same tree commit that read the seed off
+# the live pool, is stamped `insideRepSeed` (the lazy seed is read at the first commit,
+# after the death, so that value already contains the penalty) and `ReputationModule`
+# does not apply it; every other KerbalDeath row applies regardless of game UT (a
+# rewind moves the clock, so UT cannot order a death against the seed - the first cut
+# compared UTs and `2026-09-09_2225` seeded at UT 13.8 with the death at UT 124). The
+# CL fixture carries no seed, so the seed is read at the merge commit and the row is
+# inside it: on this lane the tombstone removes a row the walk was not applying and
+# the pool does not move. The cell is the TOMBSTONE of the row, not a pool delta; a
+# pool-delta claim needs a death filed after the seed existed and a lane of its own.
 #
 # `stand-ins` IS PINNED (2026-09-09, Stage B closure). It was a bare word in the
 # catalog; H31 declined it because "no Parsek-generated stand-in is ever created"

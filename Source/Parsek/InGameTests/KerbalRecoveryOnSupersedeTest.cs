@@ -84,11 +84,28 @@ namespace Parsek.InGameTests
             // kind of second convention the helper's own contract forbids.
             double rewindCutoffUT = SupersedeCommit.ComputeTombstoneRewindCutoffUT(marker);
             var rows = new List<StraddlingDeathRow>();
+            // Section 7.16's third invariant: the reputation penalty stock applied FOR
+            // those deaths. Gathered through the SAME pre-rewind screen as the death
+            // rows for the same reason - a row the guard keeps is on the timeline the
+            // merge KEEPS, so asserting it is tombstoned asserts against correct
+            // behaviour. In practice the penalty lands at the recording's END and so
+            // sits after the cutoff even when its own KerbalAssignment row straddles.
+            var deathRepActionIds = new HashSet<string>();
             foreach (var a in Ledger.Actions)
             {
                 if (a == null) continue;
                 if (string.IsNullOrEmpty(a.RecordingId)) continue;
                 if (!subtreeSet.Contains(a.RecordingId)) continue;
+
+                if (a.Type == GameActionType.ReputationPenalty
+                    && a.RepPenaltySource == ReputationPenaltySource.KerbalDeath
+                    && !string.IsNullOrEmpty(a.ActionId)
+                    && !TombstoneAttributionHelper.IsPreRewindAttributedAction(a, rewindCutoffUT))
+                {
+                    deathRepActionIds.Add(a.ActionId);
+                    continue;
+                }
+
                 if (a.Type != GameActionType.KerbalAssignment) continue;
                 if (a.KerbalEndStateField != KerbalEndState.Dead) continue;
                 rows.Add(new StraddlingDeathRow(
@@ -163,6 +180,24 @@ namespace Parsek.InGameTests
             {
                 InGameAssert.IsTrue(tombstonedActionIds.Contains(aid),
                     $"KerbalAssignment+Dead action '{aid}' must be tombstoned after merge (§7.16)");
+            }
+
+            // Invariant 1b: the bundled kerbal-death reputation penalty goes with the
+            // death. SKIP-FREE by design: a subtree with no such row (an older save, or
+            // a death whose VesselLoss event was never captured) asserts nothing here
+            // and says so, rather than failing on an absent subject.
+            if (deathRepActionIds.Count == 0)
+            {
+                ParsekLog.Info("RewindTest",
+                    "KerbalRecoveryOnSupersede: no KerbalDeath rep penalty in subtree");
+            }
+            else
+            {
+                foreach (var aid in deathRepActionIds)
+                {
+                    InGameAssert.IsTrue(tombstonedActionIds.Contains(aid),
+                        $"ReputationPenalty(KerbalDeath) action '{aid}' must be tombstoned after merge (§7.16)");
+                }
             }
 
             // Invariant 2: each previously-Dead kerbal is no longer Dead in the roster.

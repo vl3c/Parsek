@@ -96,12 +96,14 @@ namespace Parsek.Tests
         }
 
         /// <summary>The crew-death penalty row the ledger would carry for a CL-1-shaped death.</summary>
-        private static GameAction KerbalDeathPenalty(double ut = 500, float effectiveRep = -10f)
+        private static GameAction KerbalDeathPenalty(
+            double ut = 500, float effectiveRep = -10f, string recordingId = null)
         {
             return new GameAction
             {
                 UT = ut,
                 Type = GameActionType.ReputationPenalty,
+                RecordingId = recordingId,
                 NominalPenalty = 10f,
                 RepPenaltySource = ReputationPenaltySource.KerbalDeath,
                 EffectiveRep = effectiveRep
@@ -200,6 +202,238 @@ namespace Parsek.Tests
                 l.Contains("ReputationPenalty") &&
                 l.Contains("keyed 'VesselLoss'") &&
                 l.Contains("expected=-10.0"));
+        }
+
+        // ==================================================================
+        // Live-coverage gate for RECORDING-SCOPED anchorless rows.
+        //
+        // Measured on CL-4-refly-crew-standin (2026-09-09_2158): the crew-death
+        // ReputationPenalty(KerbalDeath) row for cl-pod-a paired cleanly on the
+        // first commit and then WARNed on every recalc afterwards, because the
+        // re-fly session suppressed cl-pod-a's subtree. The recalc still walks
+        // the row (suppression hides recordings, it does not delete ledger rows)
+        // but every observed-side read filters through
+        // GameStateStore.IsEventVisibleToCurrentTimeline, so the row's own
+        // VesselLoss capture became invisible and the pair became impossible.
+        // ReputationPenalty has no source-anchor event type, and the anchorless
+        // arm used to declare "in coverage" unconditionally.
+        // ==================================================================
+
+        /// <summary>The recorder-shaped crew-death capture: keyed VesselLoss, tagged, a loss.</summary>
+        private static GameStateEvent VesselLossEvent(
+            double ut, string recordingId, double applied = 9.999828)
+        {
+            return new GameStateEvent
+            {
+                ut = ut,
+                eventType = GameStateEventType.ReputationChanged,
+                key = "VesselLoss",
+                valueBefore = 0.0,
+                valueAfter = -applied,
+                recordingId = recordingId
+            };
+        }
+
+        private static Recording CommittedRecording(string recordingId)
+        {
+            var rec = new Recording
+            {
+                RecordingId = recordingId,
+                VesselName = "CL Pod A",
+                MergeState = MergeState.Immutable
+            };
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+            return rec;
+        }
+
+        [Fact]
+        public void ReconcilePostWalk_KerbalDeath_RecordingLeftTheTimeline_SkipsInsteadOfWarning()
+        {
+            // The exact CL-4 fixture shape: row UT == event UT, key VesselLoss,
+            // valueBefore 0, valueAfter -9.999828, recordingId cl-pod-a - with
+            // cl-pod-a no longer in the effective recording set.
+            var events = new List<GameStateEvent> { VesselLossEvent(124.06, "cl-pod-a") };
+            var actions = new List<GameAction>
+            {
+                KerbalDeathPenalty(ut: 124.06, effectiveRep: -9.999828f, recordingId: "cl-pod-a")
+            };
+
+            Assert.False(RecordingStore.IsCurrentTimelineRecordingId("cl-pod-a"));
+
+            LedgerOrchestrator.ReconcilePostWalk(events, actions, utCutoff: null);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (post-walk,"));
+            Assert.Contains(logLines, l =>
+                l.Contains("Post-walk live-coverage skip") &&
+                l.Contains("ReputationPenalty") &&
+                l.Contains("id=cl-pod-a") &&
+                l.Contains("the observed reward leg is present but tagged to a recording " +
+                          "outside the current timeline"));
+            Assert.Contains("actions=0", SummaryLine(logLines));
+        }
+
+        // THE AMOUNT IS PART OF "would this have paired?". The hidden-coverage skip
+        // suppresses the WARN outright, so it may only stand in for a comparison that
+        // would have MATCHED. A hidden capture of a different magnitude would have been a
+        // MISMATCH, and swallowing it would hide a divergence behind a visibility fact.
+        [Fact]
+        public void ReconcilePostWalk_HiddenCaptureMagnitudeDrifted_StillWarns()
+        {
+            // Same CL-4 shape as the skip case, one field changed: the hidden capture
+            // says -5.0 where the row expects -9.999828.
+            var events = new List<GameStateEvent>
+            {
+                VesselLossEvent(124.06, "cl-pod-a", applied: 5.0)
+            };
+            var actions = new List<GameAction>
+            {
+                KerbalDeathPenalty(ut: 124.06, effectiveRep: -9.999828f, recordingId: "cl-pod-a")
+            };
+
+            Assert.False(RecordingStore.IsCurrentTimelineRecordingId("cl-pod-a"));
+
+            LedgerOrchestrator.ReconcilePostWalk(events, actions, utCutoff: null);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("Earnings reconciliation (post-walk, rep)") &&
+                l.Contains("id=cl-pod-a") &&
+                l.Contains("keyed 'VesselLoss'") &&
+                l.Contains("expected=-10.0"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("the observed reward leg is present but tagged to a recording " +
+                          "outside the current timeline"));
+            Assert.Contains("mismatches(funds/rep/sci)=0/1/0", SummaryLine(logLines));
+        }
+
+        // The mirror at the same seam: a hidden capture whose magnitude agrees within the
+        // rep tolerance is the pair the skip is for, and stays silent. Stock's own
+        // -9.999828 against a nominal -10 lives inside that tolerance.
+        [Fact]
+        public void ReconcilePostWalk_HiddenCaptureMagnitudeAgrees_SkipsQuietly()
+        {
+            var events = new List<GameStateEvent>
+            {
+                VesselLossEvent(124.06, "cl-pod-a", applied: 9.999828)
+            };
+            var actions = new List<GameAction>
+            {
+                KerbalDeathPenalty(ut: 124.06, effectiveRep: -10f, recordingId: "cl-pod-a")
+            };
+
+            Assert.False(RecordingStore.IsCurrentTimelineRecordingId("cl-pod-a"));
+
+            LedgerOrchestrator.ReconcilePostWalk(events, actions, utCutoff: null);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (post-walk,"));
+            Assert.Contains(logLines, l =>
+                l.Contains("Post-walk live-coverage skip") &&
+                l.Contains("the observed reward leg is present but tagged to a recording " +
+                          "outside the current timeline"));
+            Assert.Contains("actions=0", SummaryLine(logLines));
+        }
+
+        [Fact]
+        public void GetPostWalkLegTolerance_MatchesTheCompareStagePerResource()
+        {
+            // The probe reads the same numbers ReconcilePostWalk passes to CompareLeg.
+            Assert.Equal(
+                1.0,
+                PostWalkActionReconciler.GetPostWalkLegTolerance(GameStateEventType.FundsChanged));
+            Assert.Equal(
+                0.1,
+                PostWalkActionReconciler.GetPostWalkLegTolerance(GameStateEventType.ReputationChanged));
+            Assert.Equal(
+                0.1,
+                PostWalkActionReconciler.GetPostWalkLegTolerance(GameStateEventType.ScienceChanged));
+        }
+
+        [Fact]
+        public void ReconcilePostWalk_RecordingLeftTheTimeline_ButNoCaptureAtAll_StillWarns()
+        {
+            // The gate is narrow on purpose: it needs the hidden capture to exist.
+            // A row with NO matching event anywhere is a genuine missing earning
+            // channel whatever its recording's visibility, and must still WARN.
+            var actions = new List<GameAction>
+            {
+                KerbalDeathPenalty(ut: 124.06, effectiveRep: -9.999828f, recordingId: "cl-pod-a")
+            };
+
+            Assert.False(RecordingStore.IsCurrentTimelineRecordingId("cl-pod-a"));
+
+            LedgerOrchestrator.ReconcilePostWalk(
+                new List<GameStateEvent>(), actions, utCutoff: null);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("Earnings reconciliation (post-walk, rep)") &&
+                l.Contains("id=cl-pod-a") &&
+                l.Contains("keyed 'VesselLoss'"));
+        }
+
+        [Fact]
+        public void ReconcilePostWalk_KerbalDeath_RecordingStillInTimeline_StillPairs()
+        {
+            // The mirror direction: the SAME fixture with cl-pod-a visible must
+            // still be compared and matched, so the gate above buys silence only
+            // where the pair is genuinely unreachable.
+            CommittedRecording("cl-pod-a");
+            var events = new List<GameStateEvent> { VesselLossEvent(124.06, "cl-pod-a") };
+            var actions = new List<GameAction>
+            {
+                KerbalDeathPenalty(ut: 124.06, effectiveRep: -9.999828f, recordingId: "cl-pod-a")
+            };
+
+            Assert.True(RecordingStore.IsCurrentTimelineRecordingId("cl-pod-a"));
+
+            LedgerOrchestrator.ReconcilePostWalk(events, actions, utCutoff: null);
+
+            Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (post-walk,"));
+            Assert.Contains("matches=1", SummaryLine(logLines));
+            Assert.Contains("mismatches(funds/rep/sci)=0/0/0", SummaryLine(logLines));
+        }
+
+        [Fact]
+        public void ReconcilePostWalk_RecordingStillInTimeline_ButNoEventCaptured_StillWarns()
+        {
+            // The mirror the gate must not swallow: a row whose recording IS in the
+            // effective set and whose event is genuinely missing is a real
+            // "missing earning channel" and must still WARN.
+            CommittedRecording("cl-pod-a");
+            var actions = new List<GameAction>
+            {
+                KerbalDeathPenalty(ut: 124.06, effectiveRep: -9.999828f, recordingId: "cl-pod-a")
+            };
+
+            LedgerOrchestrator.ReconcilePostWalk(
+                new List<GameStateEvent>(), actions, utCutoff: null);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("Earnings reconciliation (post-walk, rep)") &&
+                l.Contains("id=cl-pod-a") &&
+                l.Contains("keyed 'VesselLoss'"));
+        }
+
+        [Fact]
+        public void IsActionRecordingVisibleToCurrentTimeline_UntaggedRowIsAlwaysVisible()
+        {
+            // An untagged row's expected event is untagged too, and an untagged
+            // event is never hidden - so the historical answer must survive.
+            Assert.True(PostWalkActionReconciler.IsActionRecordingVisibleToCurrentTimeline(
+                KerbalDeathPenalty()));
+            Assert.True(PostWalkActionReconciler.IsActionRecordingVisibleToCurrentTimeline(
+                KerbalDeathPenalty(recordingId: "")));
+            Assert.True(PostWalkActionReconciler.IsActionRecordingVisibleToCurrentTimeline(null));
+        }
+
+        [Fact]
+        public void IsActionRecordingVisibleToCurrentTimeline_TaggedRowFollowsTheEffectiveSet()
+        {
+            Assert.False(PostWalkActionReconciler.IsActionRecordingVisibleToCurrentTimeline(
+                KerbalDeathPenalty(recordingId: "cl-pod-a")));
+
+            CommittedRecording("cl-pod-a");
+
+            Assert.True(PostWalkActionReconciler.IsActionRecordingVisibleToCurrentTimeline(
+                KerbalDeathPenalty(recordingId: "cl-pod-a")));
         }
 
         // ==================================================================

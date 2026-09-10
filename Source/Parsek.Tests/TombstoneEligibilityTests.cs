@@ -272,13 +272,67 @@ namespace Parsek.Tests
         [Fact]
         public void RepPenalty_UTTooFar_NotPaired()
         {
+            // The UT window is the SOURCE-AGNOSTIC arm: a penalty that does not declare
+            // itself a kerbal-death penalty has nothing but coincident timing to make
+            // it part of the death bundle, and 5 s apart is not coincident.
             var death = Kerbal("rec_1", KerbalEndState.Dead, ut: 100.0);
-            var rep = Rep("rec_1", ReputationPenaltySource.KerbalDeath, ut: 105.0);
+            var rep = Rep("rec_1", ReputationPenaltySource.Other, ut: 105.0);
             var slice = new List<GameAction> { death, rep };
 
             GameAction paired;
             Assert.False(TombstoneEligibility.TryPairBundledRepPenalty(rep, slice, out paired));
             Assert.Null(paired);
+        }
+
+        [Fact]
+        public void RepPenalty_KerbalDeathSource_PairsAcrossTheProducersRealUtGap()
+        {
+            // The shape the producer actually writes: the KerbalAssignment row is
+            // stamped at the recording's START (crew boards at launch) and the death's
+            // VesselLoss penalty at its END. 55 s here, minutes on a real flight - far
+            // outside BundledRepUtWindow. The declared source is the bundling proof.
+            var death = Kerbal("rec_1", KerbalEndState.Dead, ut: 1060.0);
+            var rep = Rep("rec_1", ReputationPenaltySource.KerbalDeath, ut: 1115.0);
+            var slice = new List<GameAction> { death, rep };
+
+            GameAction paired;
+            Assert.True(TombstoneEligibility.TryPairBundledRepPenalty(rep, slice, out paired));
+            Assert.Same(death, paired);
+        }
+
+        [Fact]
+        public void RepPenalty_KerbalDeathSource_StillNeedsADeathOnTheRecording()
+        {
+            // The source arm relaxes the UT window, nothing else: without an eligible
+            // death row on the same recording there is no bundle to join.
+            var recovered = Kerbal("rec_1", KerbalEndState.Recovered, ut: 1060.0);
+            var rep = Rep("rec_1", ReputationPenaltySource.KerbalDeath, ut: 1115.0);
+            var slice = new List<GameAction> { recovered, rep };
+
+            GameAction paired;
+            Assert.False(TombstoneEligibility.TryPairBundledRepPenalty(rep, slice, out paired));
+            Assert.Null(paired);
+        }
+
+        [Fact]
+        public void RepPenalty_KerbalDeathPair_IsNotWorldStateChanging()
+        {
+            // Design section 2.8: the death bundle stays RETRYABLE. Without the source
+            // arm above, the producer's row would fall through to `return true` and a
+            // crew death would start strict-blocking and retry-blocking auto-seal - a
+            // behaviour change the new row must not smuggle in.
+            var death = Kerbal("rec_1", KerbalEndState.Dead, ut: 1060.0);
+            var rep = Rep("rec_1", ReputationPenaltySource.KerbalDeath, ut: 1115.0);
+            var slice = new List<GameAction> { death, rep };
+
+            Assert.False(SupersedeCommit.IsWorldStateChangingRecordingAction(rep, slice));
+            Assert.False(SupersedeCommit.IsRetryBlockingRecordingAction(rep, slice));
+
+            // And the unpaired case is unchanged: an ordinary penalty with no death on
+            // the recording still blocks.
+            var lonePenalty = Rep("rec_1", ReputationPenaltySource.Other, ut: 1115.0);
+            Assert.True(SupersedeCommit.IsWorldStateChangingRecordingAction(
+                lonePenalty, new List<GameAction> { lonePenalty }));
         }
 
         [Fact]

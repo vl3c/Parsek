@@ -440,17 +440,18 @@ D14 = ["kerbin", "career", "scene-flight"]
 #   `permanent=0` term. The entry is kept rather than deleted because the shape of the
 #   omission is the useful part: a claim waited on a GATE, not on an opinion.)
 #
-#   D12 `tombstone-rep-penalty` WILL NEVER BE CLAIMED HERE, and not because the flight is
-#   pending: the registry records it as UNREACHABLE BY ANY FLIGHT (2026-08-02, mechanical).
-#   The cell needs a `GameActionType.ReputationPenalty` action inside the supersede
-#   subtree, and `Source/Parsek/` has exactly ONE PRODUCTION construction site for that type (the only other occurrence in the tree is a synthetic in-game-test fixture, `InGameTests/RuntimeTests.cs`, which builds one with `RepPenaltySource = Other` and is not a flight path) -
-#   `GameStateEventConverter.cs`'s Bail-Out Grant, which hardcodes
-#   `ReputationPenaltySource.Strategy`. No code path ever constructs a
-#   `ReputationPenaltySource.KerbalDeath` action, so a crew death produces no Parsek rep
-#   row at all: stock applies the hit directly and the ledger absorbs it through the
-#   generic captured-award path, which is not a `GameAction` and cannot be tombstoned.
-#   Unblocking it is a PRODUCT change (with its own oracle re-pin of CL-2's armed
-#   totals), not a flight.
+#   D12 `tombstone-rep-penalty` IS NOT CLAIMED HERE. Until 2026-09-10 the registry
+#   recorded it UNREACHABLE BY ANY FLIGHT (no production code constructed a
+#   `ReputationPenaltySource.KerbalDeath` action; stock applied the hit and the event
+#   converter dropped the `VesselLoss` reputation change, so no `GameAction` existed for
+#   a tombstone to reverse). The product change shipped that day (branch
+#   `tombstone-rep-penalty`: `LedgerOrchestrator.CreateKerbalDeathRepPenaltyActions`
+#   files the row at commit from the recording's captured event, the merge tail
+#   tombstones it with the death) and `CL-4-refly-crew-standin` claims the cell off a
+#   REQUIRED `Tombstoned ... Reputation=[1-9]` token. THIS spec keeps its original
+#   `Kerbal=[1-9]` token only (the line now reads `Tombstoned 2 ... Reputation=1,
+#   Kerbal=1`, which still matches), so it carries no gate for the cell and stays the
+#   owner of `tombstones` / `dead-crew-strip` alone.
 #
 #   D8 anything. The merge does recalc the ledger, but no token in this file names a
 #   ledger module or the recalc engine, and this spec cannot carry the oracle facets

@@ -26,10 +26,22 @@ namespace Parsek
     {
         /// <summary>
         /// Maximum allowed |UT delta| between a <see cref="GameActionType.ReputationPenalty"/>
-        /// candidate and the <see cref="GameActionType.KerbalAssignment"/>+Dead
-        /// action it pairs with. The two are emitted by the same KSP death-event
-        /// callback path, so in practice the UT delta is zero; 1.0s is a safety
-        /// margin for sampling jitter and floating-point drift.
+        /// candidate and the <see cref="GameActionType.KerbalAssignment"/>+Dead action it
+        /// pairs with, for candidates that do not declare
+        /// <see cref="ReputationPenaltySource.KerbalDeath"/> themselves.
+        ///
+        /// <para>
+        /// THE UT DELTA IS NOT ZERO IN PRACTICE, contrary to what this comment used to
+        /// assert. A KerbalAssignment row is stamped at the recording's START
+        /// (<c>LedgerOrchestrator.CreateKerbalAssignmentActions</c> uses <c>startUT</c> -
+        /// the crew boards at launch), while the death's <c>VesselLoss</c> reputation hit
+        /// lands at the recording's END, which is where
+        /// <c>CreateKerbalDeathRepPenaltyActions</c> stamps its row. Any flight longer
+        /// than a second fails this window. It is kept for source-agnostic candidates,
+        /// whose only available evidence of bundling IS coincident timing; a
+        /// KerbalDeath-sourced candidate carries its own proof and pairs on recording
+        /// identity instead - see <see cref="TryPairBundledRepPenalty"/>.
+        /// </para>
         /// </summary>
         internal const double BundledRepUtWindow = 1.0;
 
@@ -120,9 +132,23 @@ namespace Parsek
         /// Pairing rule for <see cref="GameActionType.ReputationPenalty"/>
         /// actions. A rep penalty is v1 tombstone-eligible iff it shares a
         /// <see cref="GameAction.RecordingId"/> with a tombstone-eligible
-        /// kerbal-death action (per <see cref="IsEligible"/>) and their UT
-        /// values are within <see cref="BundledRepUtWindow"/> seconds of each
-        /// other.
+        /// kerbal-death action (per <see cref="IsEligible"/>) AND either declares
+        /// <see cref="ReputationPenaltySource.KerbalDeath"/> itself, or carries a
+        /// UT within <see cref="BundledRepUtWindow"/> seconds of the death
+        /// action's.
+        ///
+        /// <para>
+        /// The source arm exists because the timing arm cannot see the bundle it was
+        /// written for: the death row sits at the recording's START and the penalty at
+        /// its END (see <see cref="BundledRepUtWindow"/>). A KerbalDeath-sourced row is
+        /// produced from that recording's OWN captured <c>VesselLoss</c> event by
+        /// <c>LedgerOrchestrator.CreateKerbalDeathRepPenaltyActions</c>, so shared
+        /// recording identity IS the bundle - stronger evidence than coincident UT, not
+        /// weaker. Without this arm a crew death would start strict-blocking and
+        /// retry-blocking auto-seal through
+        /// <c>SupersedeCommit.IsWorldStateChangingRecordingAction</c>, which design
+        /// section 2.8 says the pair must not do.
+        /// </para>
         ///
         /// <para>
         /// Null-scoped candidates (<see cref="GameAction.RecordingId"/> == null)
@@ -159,6 +185,12 @@ namespace Parsek
                 if (!IsEligible(other)) continue;
                 if (!string.Equals(other.RecordingId, candidate.RecordingId, StringComparison.Ordinal))
                     continue;
+
+                if (candidate.RepPenaltySource == ReputationPenaltySource.KerbalDeath)
+                {
+                    pairedDeathAction = other;
+                    return true;
+                }
 
                 double delta = Math.Abs(other.UT - candidate.UT);
                 if (delta <= BundledRepUtWindow)

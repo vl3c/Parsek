@@ -603,13 +603,16 @@ namespace Parsek.Tests
                 LedgerOrchestrator.GetActionKey(second));
 
             // A non-converter reputation penalty keeps the historical empty key, so this
-            // narrows nothing that was previously unique.
+            // narrows nothing that was previously unique. The example used to be a
+            // KerbalDeath row; that source now carries a key of its own (see
+            // LedgerOrchestratorTests.KerbalDeathRepPenalty_HasItsOwnDedupKey), so a
+            // contract failure stands in for the untouched majority.
             var unrelated = new GameAction
             {
                 UT = 123.0,
                 Type = GameActionType.ReputationPenalty,
                 NominalPenalty = 1.0f,
-                RepPenaltySource = ReputationPenaltySource.KerbalDeath
+                RepPenaltySource = ReputationPenaltySource.ContractFail
             };
             Assert.Equal("", LedgerOrchestrator.GetActionKey(unrelated));
         }

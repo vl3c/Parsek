@@ -273,10 +273,36 @@ namespace Parsek
             public double EndUT;
         }
 
+        /// <param name="repSeedOriginOverride">
+        /// The <see cref="ReputationSeedOrigin"/> already established for the surrounding
+        /// commit BATCH, or null to establish it here. A whole tree is one commit as far
+        /// as the reputation seed is concerned: the seed is captured off the live pool
+        /// once, at the first recording of the batch, and that pool has already taken
+        /// every death the batch is about to file. Establishing it per recording instead
+        /// would let the batch's FIRST recording create the seed and then read
+        /// <see cref="ReputationSeedOrigin.PreExisting"/> for a death filed by a LATER
+        /// recording of the same batch, which is the double-subtraction this parameter
+        /// exists to prevent. <see cref="NotifyLedgerTreeCommitted"/> passes it; the
+        /// single-recording commit paths pass null.
+        /// <para>
+        /// ONE OVERRIDE VALUE IS NOT CARRIED FORWARD:
+        /// <see cref="ReputationSeedOrigin.NotYetCaptured"/> describes no seed at all -
+        /// it is the batch's PREDICTION that one will be captured later off a live pool.
+        /// A recording earlier in the same batch falsifies that prediction whenever its
+        /// own step-6 recalc creates the seed
+        /// (<see cref="SeedInitialResourceBalances"/> -> EnsureInitialReputationSeed),
+        /// and <see cref="RestampInsideSeedRowsAgainstCareerStartSeed"/> can only flip
+        /// rows that already exist, so a later recording stamped from the stale
+        /// prediction would never be repaired. A null or NotYetCaptured override is
+        /// therefore RE-ESTABLISHED per recording at step 3c-post; every definite value
+        /// is used exactly as passed.
+        /// </para>
+        /// </param>
         internal static void OnRecordingCommitted(
             string recordingId, double startUT, double endUT,
             IReadOnlyList<PendingScienceSubject> pendingScienceOverride,
-            ref bool scienceActionsAddedToLedger)
+            ref bool scienceActionsAddedToLedger,
+            ReputationSeedOrigin? repSeedOriginOverride = null)
         {
             // Test-only fault injection (see OnRecordingCommittedFaultInjector doc).
             OnRecordingCommittedFaultInjector?.Invoke(recordingId);
@@ -310,6 +336,41 @@ namespace Parsek
             // 3c. Generate KerbalAssignment actions from vessel crew data
             var kerbalActions = CreateKerbalAssignmentActions(recordingId, startUT, endUT);
             actions.AddRange(kerbalActions);
+
+            // 3c-post. Ensure the ReputationInitial seed BEFORE the death-penalty
+            // producer runs. The recalc at step 6 would otherwise be the first ensure,
+            // which is too late twice over: the producer could not tell a seed that will
+            // be read off the live pool (and therefore already carries the death) from
+            // one that predates the flight, and the seed's refusal branch would see this
+            // commit's own fresh KerbalDeath row and decline the live pool because of it.
+            //
+            // A NotYetCaptured batch override (or none) is re-established here rather
+            // than reused: it names no seed, only the expectation of one, and an earlier
+            // recording of the same batch can have created the seed in its own step-6
+            // recalc since. Re-running the ensure then reads PreExisting off that seed -
+            // or lands in the refusal branch itself and flips the earlier rows - instead
+            // of stamping this recording's death inside a value that never contained it.
+            // See the repSeedOriginOverride docstring.
+            ReputationSeedOrigin repSeedOrigin =
+                repSeedOriginOverride.HasValue
+                && repSeedOriginOverride.Value != ReputationSeedOrigin.NotYetCaptured
+                    ? repSeedOriginOverride.Value
+                    : EnsureReputationSeedForCommit();
+            if (repSeedOriginOverride.HasValue && repSeedOrigin != repSeedOriginOverride.Value)
+            {
+                ParsekLog.Info(Tag,
+                    $"Reputation seed origin re-established for recording '{recordingId}': " +
+                    $"batch override {repSeedOriginOverride.Value} no longer describes the " +
+                    $"ledger, this commit reads {repSeedOrigin}");
+            }
+
+            // 3d. The reputation penalty stock already applied for a crew death on this
+            // recording (one row per vessel loss, magnitude read off the captured
+            // VesselLoss event - never synthesized). Separate producer: see the method's
+            // docstring for why it must not ride inside CreateKerbalAssignmentActions.
+            var deathRepActions = CreateKerbalDeathRepPenaltyActions(
+                recordingId, startUT, endUT, repSeedOrigin);
+            actions.AddRange(deathRepActions);
 
             // 4. Deduplicate: remove actions already in the ledger from KSC real-time writes.
             // KSC events (tech, facility, hire, milestone) written via OnKscSpending may overlap
@@ -410,14 +471,24 @@ namespace Parsek
                 return;
             }
 
+            // [ERS-exempt] The ledger slice is read raw on purpose: the question this
+            // answers is "does a KerbalDeath row for this recording exist ANYWHERE in the
+            // ledger", including one an effective-state walk would hide, because the
+            // VesselLoss event it is a copy of is equally still in the store.
+            var ledgerActions = Ledger.Actions;
+
             var storeDeltas = ComputeEarningsWindowStoreDeltas(
                 events,
                 startUT,
                 endUT,
-                recordingId);
+                recordingId,
+                newActions,
+                ledgerActions);
             LogEarningsWindowScopeSkipped(storeDeltas, startUT, endUT, recordingId);
 
-            var emittedDeltas = ComputeEarningsWindowEmittedDeltas(newActions);
+            var emittedDeltas = ComputeEarningsWindowEmittedDeltas(newActions, events);
+            LogEarningsWindowKerbalDeathPairing(
+                storeDeltas, emittedDeltas, startUT, endUT, recordingId);
 
             if (scienceTracked)
             {
@@ -443,6 +514,16 @@ namespace Parsek
                 repTracked);
         }
 
+        /// <summary>
+        /// Reputation tolerance of the earnings-window comparison, and of the
+        /// kerbal-death pairing that decides what that comparison may drop. The two
+        /// share one constant on purpose: a pair is excluded only when it would have
+        /// compared equal anyway, so the exclusion can never hide a rep discrepancy the
+        /// walk would otherwise have WARNed about. Kept at the historical <c>0.1f</c>
+        /// literal so the comparison is bit-for-bit what it was.
+        /// </summary>
+        internal const double EarningsWindowRepTolerance = 0.1f;
+
         private struct EarningsWindowStoreDeltas
         {
             public double DroppedFundsDelta;
@@ -450,6 +531,7 @@ namespace Parsek
             public double DroppedSciDelta;
             public double WindowScopedSciDelta;
             public int ScopeSkipped;
+            public int KerbalDeathPairedSkipped;
         }
 
         private struct EarningsWindowEmittedDeltas
@@ -462,13 +544,16 @@ namespace Parsek
             public int ContractAcceptCount;
             public int FacilityUpgradeCount;
             public int FacilityRepairCount;
+            public int KerbalDeathPairedSkipped;
         }
 
         private static EarningsWindowStoreDeltas ComputeEarningsWindowStoreDeltas(
             IReadOnlyList<GameStateEvent> events,
             double startUT,
             double endUT,
-            string recordingId)
+            string recordingId,
+            IReadOnlyList<GameAction> emittedActions,
+            IReadOnlyList<GameAction> ledgerActions)
         {
             var deltas = new EarningsWindowStoreDeltas();
             if (events != null)
@@ -491,6 +576,22 @@ namespace Parsek
                     if (!scoped)
                     {
                         deltas.ScopeSkipped++;
+                        continue;
+                    }
+                    if (IsKerbalDeathPairedVesselLossEvent(e, emittedActions, ledgerActions))
+                    {
+                        // Reconciled BY CONSTRUCTION, so neither side counts it. The
+                        // ReputationPenalty(KerbalDeath) row IS a copy of this event
+                        // (CreateKerbalDeathRepPenaltyActions reads its UT and its
+                        // magnitude off it), and on a RE-commit of the same recording the
+                        // row is dropped by DeduplicateAgainstLedger because the ledger
+                        // already holds it - leaving the event on the store side with
+                        // nothing to face it, which is the -10 vs 0 WARN this excludes.
+                        // An event with NO paired row anywhere (the producer refused: no
+                        // dead crew) is NOT excluded and still WARNs, and neither is one
+                        // whose row disagrees in magnitude - "by construction" is a claim
+                        // about one measurement, so the numbers have to match.
+                        deltas.KerbalDeathPairedSkipped++;
                         continue;
                     }
                     switch (e.eventType)
@@ -525,8 +626,128 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// True for a <see cref="GameActionType.ReputationPenalty"/> row written by
+        /// <see cref="CreateKerbalDeathRepPenaltyActions"/>. Pure.
+        /// </summary>
+        internal static bool IsKerbalDeathRepPenaltyRow(GameAction a)
+        {
+            return a != null
+                && a.Type == GameActionType.ReputationPenalty
+                && a.RepPenaltySource == ReputationPenaltySource.KerbalDeath;
+        }
+
+        /// <summary>
+        /// True when <paramref name="actions"/> holds a kerbal-death reputation penalty
+        /// row scoped to <paramref name="recordingId"/> AND carrying
+        /// <paramref name="appliedMagnitude"/> within
+        /// <see cref="EarningsWindowRepTolerance"/>. Pure; an empty id never matches.
+        /// <para>
+        /// THE MAGNITUDE IS PART OF THE IDENTITY. The producer copies the VesselLoss
+        /// event's own magnitude onto the row, so an agreeing pair is one measurement
+        /// seen twice and excluding both sides is exact. A row that does NOT agree is a
+        /// different quantity - a producer defect, a hand-edited ledger, a second loss
+        /// under the same tag - and a shape-only match would have silently cancelled
+        /// exactly the discrepancy this reconciliation exists to surface.
+        /// </para>
+        /// </summary>
+        internal static bool HasKerbalDeathRepPenaltyRowForRecording(
+            IReadOnlyList<GameAction> actions, string recordingId, double appliedMagnitude)
+        {
+            if (actions == null || string.IsNullOrEmpty(recordingId)) return false;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var a = actions[i];
+                if (!IsKerbalDeathRepPenaltyRow(a)) continue;
+                if (!string.Equals(a.RecordingId ?? "", recordingId, StringComparison.Ordinal))
+                    continue;
+                if (Math.Abs(a.NominalPenalty - appliedMagnitude) > EarningsWindowRepTolerance)
+                    continue;
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// The mirror of <see cref="HasKerbalDeathRepPenaltyRowForRecording"/> read from
+        /// the ROW's side: true when <paramref name="events"/> holds the recording-scoped
+        /// VesselLoss capture this kerbal-death penalty row was copied from, magnitudes
+        /// agreeing within <see cref="EarningsWindowRepTolerance"/>. Only such a row is
+        /// excluded from the emitted side of <see cref="ReconcileEarningsWindow"/>; a
+        /// magnitude-drifted one stays counted so the pair it does not form still WARNs.
+        /// Pure.
+        /// </summary>
+        internal static bool IsMagnitudePairedKerbalDeathRepPenaltyRow(
+            GameAction row, IReadOnlyList<GameStateEvent> events)
+        {
+            if (!IsKerbalDeathRepPenaltyRow(row)) return false;
+            string tag = row.RecordingId ?? "";
+            if (string.IsNullOrEmpty(tag)) return false;
+            if (events == null) return false;
+
+            for (int i = 0; i < events.Count; i++)
+            {
+                var e = events[i];
+                if (!KerbalDeathRepPenalty.IsRecordingScopedVesselLoss(e, tag)) continue;
+                double applied = e.valueBefore - e.valueAfter;
+                if (Math.Abs(row.NominalPenalty - applied) > EarningsWindowRepTolerance)
+                    continue;
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// True when <paramref name="evt"/> is the recording-scoped VesselLoss reputation
+        /// capture that a kerbal-death <see cref="GameActionType.ReputationPenalty"/> row
+        /// was copied from, with that row present either in the commit's emitted list
+        /// (first commit) or already in the ledger (re-commit, where
+        /// <see cref="DeduplicateAgainstLedger"/> removes the fresh candidate). Such a
+        /// pair reconciles by construction and is excluded from both sides of
+        /// <see cref="ReconcileEarningsWindow"/>. An unpaired VesselLoss event - the
+        /// producer refused because no crew died - returns false and still counts, so the
+        /// "missing earning channel" WARN it deserves still fires. So does an event whose
+        /// magnitude and row's magnitude DISAGREE: the two are then not one measurement
+        /// seen twice, and both sides keep counting. Pure.
+        /// </summary>
+        internal static bool IsKerbalDeathPairedVesselLossEvent(
+            GameStateEvent evt,
+            IReadOnlyList<GameAction> emittedActions,
+            IReadOnlyList<GameAction> ledgerActions)
+        {
+            string tag = evt.recordingId ?? "";
+            if (string.IsNullOrEmpty(tag)) return false;
+            // Same predicate the producer selects candidates with, so the two cannot drift:
+            // ReputationChanged + VesselLoss key + exact tag + a positive drop.
+            if (!KerbalDeathRepPenalty.IsRecordingScopedVesselLoss(evt, tag)) return false;
+            double applied = evt.valueBefore - evt.valueAfter;
+            return HasKerbalDeathRepPenaltyRowForRecording(emittedActions, tag, applied)
+                || HasKerbalDeathRepPenaltyRowForRecording(ledgerActions, tag, applied);
+        }
+
+        private static void LogEarningsWindowKerbalDeathPairing(
+            EarningsWindowStoreDeltas storeDeltas,
+            EarningsWindowEmittedDeltas emittedDeltas,
+            double startUT,
+            double endUT,
+            string recordingId)
+        {
+            if (storeDeltas.KerbalDeathPairedSkipped == 0
+                && emittedDeltas.KerbalDeathPairedSkipped == 0)
+            {
+                return;
+            }
+
+            ParsekLog.Verbose(Tag,
+                $"ReconcileEarningsWindow: excluded {storeDeltas.KerbalDeathPairedSkipped.ToString(CultureInfo.InvariantCulture)} " +
+                $"paired VesselLoss event(s) and {emittedDeltas.KerbalDeathPairedSkipped.ToString(CultureInfo.InvariantCulture)} " +
+                $"KerbalDeath penalty row(s) from the rep comparison (self-paired by construction) " +
+                $"(scope='{recordingId ?? "(none)"}', window=[{FormatFixed1(startUT)},{FormatFixed1(endUT)}])");
+        }
+
         private static EarningsWindowEmittedDeltas ComputeEarningsWindowEmittedDeltas(
-            List<GameAction> newActions)
+            List<GameAction> newActions,
+            IReadOnlyList<GameStateEvent> events)
         {
             var deltas = new EarningsWindowEmittedDeltas
             {
@@ -558,6 +779,19 @@ namespace Parsek
                             deltas.EmittedRepDelta += a.EffectiveRep;
                             break;
                         case GameActionType.ReputationPenalty:
+                            // The kerbal-death leg is excluded on BOTH sides (see
+                            // ComputeEarningsWindowStoreDeltas): the row is a copy of the
+                            // VesselLoss event, so counting it here while a re-commit
+                            // drops the row would make first commit and re-commit
+                            // disagree. Every other penalty source stays - and so does a
+                            // kerbal-death row whose magnitude does NOT agree with the
+                            // event it claims to copy, because that pair does not cancel
+                            // and the discrepancy is exactly what this walk is for.
+                            if (IsMagnitudePairedKerbalDeathRepPenaltyRow(a, events))
+                            {
+                                deltas.KerbalDeathPairedSkipped++;
+                                break;
+                            }
                             // #440B: EffectiveRep is signed negative for penalties
                             // (ReputationModule.ProcessContractPenaltyRep). No unary minus.
                             deltas.EmittedRepDelta += a.EffectiveRep;
@@ -673,7 +907,7 @@ namespace Parsek
             bool repTracked)
         {
             const double fundsTol = 1.0;   // 1 funds tolerance for rounding
-            const double repTol = 0.1f;
+            const double repTol = EarningsWindowRepTolerance;
             const double sciTol = 0.1f;
 
             if (fundsTracked && Math.Abs(storeDeltas.DroppedFundsDelta - emittedDeltas.EmittedFundsDelta) > fundsTol)
@@ -1005,6 +1239,18 @@ namespace Parsek
                         when a.RepPenaltySource == ReputationPenaltySource.StrategyConverter:
                     return (a.RecordingId ?? "") + ":" +
                            a.NominalPenalty.ToString("R", CultureInfo.InvariantCulture);
+                // The kerbal-death leg. Keyed by recording + source rather than left on
+                // the historical "" so it cannot collide with a DIFFERENT penalty that
+                // happens to share its UT - a contract failing BECAUSE the crewed vessel
+                // was destroyed lands within the 0.1 s dedup window, and with the shared
+                // "" key one of the two rows would be silently dropped as a duplicate.
+                // Two kerbal-death rows for the same recording still collapse, which is
+                // the dedup this door exists for (a re-commit of the same recording).
+                // Non-death penalties keep the "" key, so this narrows nothing that was
+                // previously unique.
+                case GameActionType.ReputationPenalty
+                        when a.RepPenaltySource == ReputationPenaltySource.KerbalDeath:
+                    return (a.RecordingId ?? "") + ":KerbalDeath";
                 case GameActionType.FundsEarning: return a.RecordingId ?? "";
                 // FundsSpending: RecordingId alone collides when multiple KSC part
                 // purchases share a null/empty RecordingId. DedupKey is the part name
@@ -1284,6 +1530,117 @@ namespace Parsek
                 ParsekLog.Info(Tag,
                     $"CreateKerbalAssignmentActions: {result.Count} crew members from '{recordingId}'");
             }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Creates the kerbal-death <see cref="GameActionType.ReputationPenalty"/> row
+        /// for a recording, or none. AT MOST ONE row per recording no matter how many
+        /// crew died: stock applies one <c>VesselLoss</c> reputation hit per vessel
+        /// loss, not one per kerbal.
+        ///
+        /// <para>
+        /// SEPARATE FROM <see cref="CreateKerbalAssignmentActions"/> ON PURPOSE. That
+        /// method is also the source of truth for <see cref="MigrateKerbalAssignments"/>,
+        /// which compares its output against the ledger's KerbalAssignment slice and then
+        /// calls <c>Ledger.ReplaceActionsForRecording(KerbalAssignment, ...)</c> with the
+        /// whole returned list. A foreign row in that list would (a) make
+        /// <c>KerbalAssignmentActionsMatch</c> fail on every load and (b) be RE-INSERTED
+        /// on every load while only KerbalAssignment rows are removed - an unbounded
+        /// duplicate leak. Keeping the penalty in its own producer leaves that migration
+        /// exactly as it was.
+        /// </para>
+        ///
+        /// <para>
+        /// The decision itself is pure (<see cref="KerbalDeathRepPenalty.Decide"/>); this
+        /// wrapper supplies the recording's crew end states and the captured event store,
+        /// and owns the logging.
+        /// </para>
+        /// </summary>
+        /// <param name="recordingId">Recording to derive the row for.</param>
+        /// <param name="startUT">Recording start UT (unused by the decision; kept for call-site symmetry).</param>
+        /// <param name="endUT">Recording end UT - the reference point a death lands at.</param>
+        /// <param name="repSeedOrigin">
+        /// Where the career's reputation seed came from as of THIS commit, established
+        /// before this producer ran. It decides
+        /// <see cref="GameAction.InsideReputationSeed"/> on the emitted row - the one
+        /// question the module cannot answer for itself, because game UT does not order
+        /// events across a rewind.
+        /// </param>
+        internal static List<GameAction> CreateKerbalDeathRepPenaltyActions(
+            string recordingId, double startUT, double endUT,
+            ReputationSeedOrigin repSeedOrigin)
+        {
+            var result = new List<GameAction>();
+
+            var rec = FindRecordingById(recordingId);
+            if (rec == null) return result;
+
+            // Mirror CreateKerbalAssignmentActions' ghost-only carve-out (#432): a
+            // Gloops recording has zero career footprint, so it cannot owe a penalty.
+            if (rec.IsGhostOnly) return result;
+
+            if (NeedsCrewEndStatePopulation(rec))
+                KerbalsModule.PopulateCrewEndStates(rec);
+
+            var crew = ExtractCrewFromRecording(rec);
+            if (crew == null || crew.Count == 0) return result;
+
+            var endStates = new List<KerbalEndState>(crew.Count);
+            for (int i = 0; i < crew.Count; i++)
+                endStates.Add(crew[i].EndState);
+
+            var decision = KerbalDeathRepPenalty.Decide(
+                endStates, GameStateStore.Events, recordingId, endUT);
+
+            if (decision.DeadCount == 0)
+                return result;
+
+            if (!decision.Emit)
+            {
+                // Named refusal, not a silent one: a fixture-injected recording, a
+                // suppressed event, and a sub-threshold penalty all land here, and the
+                // reason is the only way to tell them apart from a producer defect.
+                ParsekLog.Info(Tag,
+                    $"KerbalDeath rep penalty: {decision.Reason} for recording='{recordingId}' " +
+                    $"(dead={decision.DeadCount.ToString(CultureInfo.InvariantCulture)}) - no row");
+                return result;
+            }
+
+            if (decision.CandidateCount > 1)
+            {
+                ParsekLog.Info(Tag,
+                    $"KerbalDeath rep penalty: {decision.CandidateCount.ToString(CultureInfo.InvariantCulture)} " +
+                    $"VesselLoss events scoped to recording='{recordingId}' - took the one nearest " +
+                    $"endUT={endUT.ToString("R", CultureInfo.InvariantCulture)} " +
+                    $"(ut={decision.UT.ToString("R", CultureInfo.InvariantCulture)})");
+            }
+
+            bool insideSeed = KerbalDeathRepPenalty.IsInsideReputationSeed(repSeedOrigin);
+
+            result.Add(new GameAction
+            {
+                UT = decision.UT,
+                Type = GameActionType.ReputationPenalty,
+                RecordingId = recordingId,
+                RepPenaltySource = ReputationPenaltySource.KerbalDeath,
+                NominalPenalty = decision.Magnitude,
+                InsideReputationSeed = insideSeed
+            });
+
+            // A CANDIDATE, not a decision: this producer runs on every commit of the
+            // recording, and on a re-commit DeduplicateAgainstLedger drops the row it
+            // returns because the ledger already carries one. The line would otherwise
+            // read like a fresh penalty was filed each time. The truth for "did a row
+            // land" is OnRecordingCommitted's "Committed recording ... dedup=N" summary.
+            ParsekLog.Info(Tag,
+                $"KerbalDeath rep penalty: recording='{recordingId}' " +
+                $"applied={decision.Magnitude.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"ut={decision.UT.ToString("R", CultureInfo.InvariantCulture)} " +
+                $"dead={decision.DeadCount.ToString(CultureInfo.InvariantCulture)} " +
+                $"repSeedOrigin={repSeedOrigin} insideRepSeed={insideSeed} " +
+                "-> ReputationPenalty(KerbalDeath) candidate (dedup decides)");
 
             return result;
         }
@@ -1620,7 +1977,48 @@ namespace Parsek
             if (!scienceSeedDone)
                 scienceSeedDone = EnsureInitialScienceSeed(hasInitialBaseline, initialBaseline);
             if (!repSeedDone)
-                repSeedDone = EnsureInitialReputationSeed(hasInitialBaseline, initialBaseline);
+            {
+                ReputationSeedOrigin repSeedOrigin;
+                repSeedDone = EnsureInitialReputationSeed(
+                    hasInitialBaseline, initialBaseline, out repSeedOrigin);
+            }
+        }
+
+        /// <summary>
+        /// Ensures the career's <see cref="GameActionType.ReputationInitial"/> seed exists
+        /// AT THE START OF A COMMIT and reports WHERE it came from, so the kerbal-death
+        /// reputation-penalty producer can decide whether the penalty it is about to file
+        /// is already inside that seed value.
+        ///
+        /// <para>
+        /// ORDERING IS THE WHOLE POINT. The seed is otherwise ensured deep inside
+        /// <see cref="RecalculateAndPatchCore"/>, which a commit reaches only at its LAST
+        /// step - after the producer has already run and after its row is in the ledger.
+        /// Two things break in that order: the producer cannot see whether the seed will
+        /// be a live-pool read (which would already contain the death), and the seed's
+        /// own refusal branch would see this commit's fresh KerbalDeath
+        /// <see cref="GameActionType.ReputationPenalty"/> row through
+        /// <see cref="LedgerHasReputationTimelineActions"/> and refuse the live pool
+        /// because of it. Running the ensure BEFORE the producer removes both.
+        /// </para>
+        ///
+        /// <para>
+        /// Idempotent: the later call inside the recalc finds the seed already present,
+        /// or still legitimately deferred, and does nothing new.
+        /// </para>
+        /// </summary>
+        internal static ReputationSeedOrigin EnsureReputationSeedForCommit()
+        {
+            GameStateBaseline initialBaseline;
+            bool hasInitialBaseline = TryGetInitialResourceBaseline(out initialBaseline);
+
+            ReputationSeedOrigin origin;
+            bool done = EnsureInitialReputationSeed(
+                hasInitialBaseline, initialBaseline, out origin);
+            if (done)
+                repSeedDone = true;
+
+            return origin;
         }
 
         private static bool EnsureInitialFundsSeed(bool hasInitialBaseline, GameStateBaseline initialBaseline)
@@ -1695,32 +2093,160 @@ namespace Parsek
             return true;
         }
 
-        private static bool EnsureInitialReputationSeed(bool hasInitialBaseline, GameStateBaseline initialBaseline)
+        /// <summary>
+        /// Creates the career's single <see cref="GameActionType.ReputationInitial"/> row
+        /// if it does not exist yet. Returns true once a seed exists (created here or
+        /// already present), false while the live-pool read is still legitimately
+        /// deferred.
+        /// </summary>
+        /// <param name="hasInitialBaseline">Whether a career-start baseline was found.</param>
+        /// <param name="initialBaseline">That baseline; read only when the flag is true.</param>
+        /// <param name="origin">
+        /// WHERE the seed came from as seen by THIS call. The kerbal-death rep-penalty
+        /// producer reads it to decide whether the penalty it is about to file is already
+        /// inside the seeded value; every other caller discards it.
+        /// </param>
+        private static bool EnsureInitialReputationSeed(
+            bool hasInitialBaseline,
+            GameStateBaseline initialBaseline,
+            out ReputationSeedOrigin origin)
         {
             if (LedgerHasSeed(GameActionType.ReputationInitial))
+            {
+                origin = ReputationSeedOrigin.PreExisting;
                 return true;
+            }
 
             if (hasInitialBaseline)
             {
+                // A career-start value: it predates every flight this commit files.
                 Ledger.SeedInitialReputation(initialBaseline.reputation);
+                origin = ReputationSeedOrigin.CreatedThisCommitFromCareerBaseline;
+                RestampInsideSeedRowsAgainstCareerStartSeed(origin);
                 return true;
             }
 
             if (LedgerHasReputationTimelineActions())
             {
+                // This branch DELIBERATELY refuses the live pool and seeds career start
+                // (0 - what a stock career begins at), so its value predates the flight
+                // just as a baseline does.
                 Ledger.SeedInitialReputation(0f);
                 ParsekLog.Warn(Tag,
                     "SeedInitialReputation: refusing to treat current reputation as initial " +
                     "because reputation timeline actions already exist and no baseline was available");
+                origin = ReputationSeedOrigin.CreatedThisCommitFromRefusalFallback;
+                RestampInsideSeedRowsAgainstCareerStartSeed(origin);
                 return true;
             }
 
-            if (global::Reputation.Instance == null
+            bool noReputationInstance = global::Reputation.Instance == null;
+            if (noReputationInstance
                 || Math.Abs(global::Reputation.Instance.reputation) <= 0.01f)
+            {
+                // Still deferred: the seed is EXPECTED to be captured off a LATER live
+                // pool, one that has already taken any death this commit is filing. If
+                // that later capture turns out to be a career-start branch instead, the
+                // rows stamped on this expectation are flipped back outside there.
+                //
+                // The reason matters when reading a flight back: a null singleton is a
+                // scene/load-order fact (the scene-exit commit runs during OnLoad, before
+                // the destination scene's career ScenarioModules have awoken), while a
+                // ~0 pool is a genuinely fresh career. CL-2-pod-impact-ledger's deferral
+                // looked like the second and was the first.
+                origin = ReputationSeedOrigin.NotYetCaptured;
+                ParsekLog.Verbose(Tag,
+                    "EnsureInitialReputationSeed: deferring the reputation seed - " +
+                    (noReputationInstance
+                        ? "Reputation.Instance null"
+                        : "pool ~0, deferring (reputation="
+                            + global::Reputation.Instance.reputation.ToString("R", CultureInfo.InvariantCulture)
+                            + ")"));
                 return false;
+            }
 
+            // Live-pool read: any death that already lowered the pool is inside the
+            // value being seeded.
+            //
+            // KNOWN LIMITATION, filed rather than fixed. The live pool is a snapshot of
+            // EVERY stock change to date, including deaths from flights that are already
+            // RECORDED but whose recording has not been committed yet. Those deaths are
+            // inside this value, yet their rows are produced later, by a commit that
+            // reads PreExisting - stamped outside the seed and applied a second time.
+            // It needs the very first seed capture in a career to coincide with a second
+            // pending tree that carries a death, so it is not reachable from the normal
+            // one-tree-at-a-time flow; closing it means correlating the pool against
+            // uncommitted trees, which is a bigger change than the state deserves.
             Ledger.SeedInitialReputation(global::Reputation.Instance.reputation);
+            origin = ReputationSeedOrigin.CreatedThisCommitFromLivePool;
             return true;
+        }
+
+        /// <summary>
+        /// Flips every KerbalDeath <see cref="GameActionType.ReputationPenalty"/> row that
+        /// is stamped INSIDE the reputation seed back to OUTSIDE, because the seed this
+        /// call just created carries a career-start value that cannot contain those deaths.
+        ///
+        /// <para>
+        /// The stamp a producer writes is an assumption about how the seed WILL be
+        /// captured: <see cref="ReputationSeedOrigin.NotYetCaptured"/> means "deferred, so
+        /// a later LIVE pool will already have taken this hit". When the seed is finally
+        /// created by a branch whose value predates the flights - the career-start baseline
+        /// or the refusal fallback - that assumption is falsified, and every row resting on
+        /// it would otherwise be skipped by <c>ReputationModule.ProcessRepPenalty</c>
+        /// against a seed that never contained it. Measured on CL-2-pod-impact-ledger
+        /// (2026-09-09_2253): one -10 death row stamped inside at the commit, the seed
+        /// created 4 ms later by the refusal branch at 0, the walk reading +2 against a
+        /// live -7.99.
+        /// </para>
+        ///
+        /// <para>
+        /// A seed created FROM THE LIVE POOL is the case this must NOT touch: that value
+        /// already contains every death filed before it, so its inside-seed rows stay
+        /// inside and applying them would subtract the same penalty twice. The predicate
+        /// (<see cref="KerbalDeathRepPenalty.CareerStartSeedInvalidatesInsideStamps"/>)
+        /// carries that distinction; this method only executes it.
+        /// </para>
+        ///
+        /// <para>
+        /// Runs at the seed's own creation site so the flip is ATOMIC with the seed row -
+        /// no second pass, and no window in which the ledger holds a career-start seed and
+        /// a row claiming to be inside it.
+        /// </para>
+        /// </summary>
+        internal static void RestampInsideSeedRowsAgainstCareerStartSeed(ReputationSeedOrigin origin)
+        {
+            if (!KerbalDeathRepPenalty.CareerStartSeedInvalidatesInsideStamps(origin))
+                return;
+
+            var actions = Ledger.Actions;
+            int restamped = 0;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var action = actions[i];
+                if (action == null) continue;
+                if (action.Type != GameActionType.ReputationPenalty) continue;
+                if (action.RepPenaltySource != ReputationPenaltySource.KerbalDeath) continue;
+                if (!action.InsideReputationSeed) continue;
+
+                action.InsideReputationSeed = false;
+                restamped++;
+            }
+
+            if (restamped == 0)
+                return;
+
+            // Cached ERS / ELS / recalc consumers key off StateVersion; a flip that does
+            // not bump leaves them serving the pre-flip stamps.
+            Ledger.BumpStateVersion();
+
+            string seedSource = origin == ReputationSeedOrigin.CreatedThisCommitFromRefusalFallback
+                ? "career start"
+                : "the career-start baseline";
+            ParsekLog.Info(Tag,
+                $"SeedInitialReputation: {restamped.ToString(CultureInfo.InvariantCulture)} " +
+                $"KerbalDeath rep penalty row(s) were stamped inside a seed that was then " +
+                $"read from {seedSource}; re-stamped outside so the walk applies them");
         }
 
         private static bool TryGetInitialResourceBaseline(out GameStateBaseline initialBaseline)
@@ -1788,6 +2314,16 @@ namespace Parsek
             for (int i = 0; i < actions.Count; i++)
             {
                 var action = actions[i];
+
+                // A row that already declares itself INSIDE the seed is not independent
+                // reputation history: it is part of whatever value the seed will carry,
+                // and the module never applies it. Counting it here would let a commit's
+                // own KerbalDeath row talk the seed out of the live pool it belongs to,
+                // seeding career start with a WARN on a save that was only waiting for a
+                // non-zero pool.
+                if (action != null && action.InsideReputationSeed)
+                    continue;
+
                 if (ActionTouchesReputationBudget(action))
                     return true;
             }
@@ -2735,6 +3271,17 @@ namespace Parsek
             // Old saves predating the KerbalAssignment feature have recordings but no
             // kerbal actions in the ledger.
             MigrateKerbalAssignments();
+
+            // NO load-time backfill for the paired kerbal-death reputation penalty.
+            // KerbalAssignment rows are safe to derive at load because they carry no
+            // pool arithmetic; the penalty does, and the inside-the-seed answer is only
+            // available at PRODUCTION time - it is what the commit knew about where the
+            // seed came from, and a load can no longer reconstruct it (the seed is taken
+            // lazily at the first commit, i.e. usually AFTER the crash already lowered
+            // the live pool). Adding a row here would subtract the same penalty a second
+            // time, and an authoritative merge recalc would write live-10 to the career.
+            // Flights filed before this producer shipped therefore keep exactly the rows
+            // they had; only newly committed recordings get one.
 
             // #401/#396 one-shot save recovery now runs here, after committed recordings
             // (and any cold-start pending active tree) have been loaded. That gives the
@@ -6142,6 +6689,19 @@ namespace Parsek
                 routedPending += routed.Count;
             int removedPending = 0;
 
+            // ONE reputation-seed ensure for the WHOLE tree, before any recording of it
+            // is committed. A tree is filed as a single act: the live pool read here has
+            // already taken every death in it, so a death filed by the tree's third
+            // recording is just as inside that seed as one filed by its first. Ensuring
+            // per recording would report PreExisting to every recording after the first
+            // and subtract those deaths twice.
+            //
+            // The one answer that does NOT survive the batch is NotYetCaptured, which
+            // names no seed: OnRecordingCommitted re-establishes it per recording,
+            // because a recording committed earlier in this same loop can create the
+            // seed in its own recalc. See the repSeedOriginOverride docstring.
+            ReputationSeedOrigin repSeedOrigin = EnsureReputationSeedForCommit();
+
             int gapsClosed = 0;
             bool commitSucceeded = false;
             try
@@ -6168,7 +6728,8 @@ namespace Parsek
                             startUT,
                             endUT,
                             perRecordingPending,
-                            ref scienceAddedToLedger);
+                            ref scienceAddedToLedger,
+                            repSeedOrigin);
                         removedPending += RemovePendingSubjectsFromStatic(perRecordingPending);
                     }
                     catch

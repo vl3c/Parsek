@@ -8,12 +8,26 @@ tier = "operator"
 # remains UNBUILT") was stale when this lane was written: `CL-3-refly-crew-tombstone`
 # already rewinds across a crew loss, re-flies, merges, and claims D9 `tombstones`
 # (2026-08-03) and D12 `dead-crew-strip` (2026-08-05) off armed gates. Of the three cells
-# the block named, those two are CL-3's and `tombstone-rep-penalty` is UNREACHABLE BY
-# ANY FLIGHT (the registry's own D12 record: no production code constructs a
-# `ReputationPenaltySource.KerbalDeath` action - the event converter drops the
-# `VesselLoss` reputation change, so no `GameAction` exists for a tombstone to reverse;
-# a product change, not a lane). The D12 residue row named a fourth, `stand-ins`, and
-# that one is claimable: this lane.
+# the block named, those two are CL-3's and `tombstone-rep-penalty` WAS unreachable by
+# any flight until 2026-09-10 (the registry's D12 record of that day: no production
+# code constructed a `ReputationPenaltySource.KerbalDeath` action - the event converter
+# drops the `VesselLoss` reputation change, so no `GameAction` existed for a tombstone
+# to reverse; a product change, not a lane). The D12 residue row named a fourth,
+# `stand-ins`, and that one was claimable on the day this lane was written.
+#
+# 2026-09-10, branch `tombstone-rep-penalty`: THE PRODUCT CHANGE SHIPPED and this lane
+# claims the cell too. `LedgerOrchestrator.CreateKerbalDeathRepPenaltyActions` now
+# files a `ReputationPenalty(KerbalDeath)` row at commit, scoped to the recording and
+# copied (UT and magnitude) from the recording's own captured `VesselLoss`
+# `ReputationChanged` event, and `SupersedeCommit.CommitTombstones` tombstones it with
+# the death (`TombstoneEligibility.IsSupersedeTombstoneEligible` already listed the
+# type). The observable is ONE term in a line this lane already required:
+# `Tombstoned 2 career actions (... Reputation=1, Kerbal=1 ...)` where CL-3 read
+# `Tombstoned 1 ... Reputation=0, Kerbal=1`. The added REQUIRED token below pins
+# `Reputation=[1-9]` on its own so a red names the new cell, and the armed
+# `tombstones` floor moved 1 -> 2 off the re-pin reading run. The fixture carries the
+# event since the same change (`RewindCrewLossFixture.BuildVesselLossEvent`, the
+# recorder-shaped line a live crewed loss captures).
 #
 # WHAT `stand-ins` MEANS. A Parsek-GENERATED stand-in kerbal: `KerbalsModule
 # .IKerbalRosterFacade.TryCreateGeneratedStandIn` -> `Stand-in generated: '<name>' (<trait>) for slot
@@ -68,6 +82,36 @@ tier = "operator"
 # required stand-in regex changed to `depth 1`, run `2026-09-09_1834_CL-4-refly-crew-standin` red
 # PARSEK-FAIL(expectation) on exactly that one `logContracts.required not matched`
 # entry, every other verifier unchanged. LIVE-PROVEN on its own gate.
+#
+# RE-PIN READING RUN 2026-09-10 (`2026-09-09_2158_CL-4-refly-crew-standin`, the first flight on the
+# `tombstone-rep-penalty` DLL, spec unchanged): PASS attempt 1; the log read
+# `Tombstoned 2 career actions (Contract=0, Milestone=0, Facility=0, Strategy=0,
+# ScienceSpending=0, Science=0, Funds=0, Reputation=1, Kerbal=1, Other=0)` followed by
+# the same `Stand-in generated` -> `Recomputed after tombstones ... (permanent=0
+# temporary=1)` pair, and the rewind facets read `supersedeRows=1 tombstones=2
+# rewindPoints=0`. The `Reputation=[1-9]` token and the `tombstones min = 2` floor
+# below are pinned on that reading. Three C# follow-ups came out of the flights that
+# followed (a load-time backfill, a game-UT seed rule and a stamp left inside a seed
+# later read from career start, each replaced - see the CHANGELOG; the intermediate
+# armed attempts `2026-09-09_2225` and `_2250` PASSED on their DLLs and are how the
+# next follow-up was caught each time), so the ARMED RE-FLIGHT flew on the final DLL:
+# `2026-09-09_2313_CL-4-refly-crew-standin` PASS attempt 1, every gating verifier
+# PASS/SKIPPED (ghostLifecycle / renderCompose REPORT as always) with
+# `tombstones min = 2` gating, the death row stamped `insideRepSeed=True` (seed origin
+# `CreatedThisCommitFromLivePool`) and not re-applied by the walk, `Tombstoned 2 ...
+# Reputation=1, Kerbal=1`, WARN count 9, the pre-change CL-4 count (`2026-09-09_1815` in
+# the `stage-b-tombstones` results) with no ledger WARN. NEGATIVE CONTROL
+# `2026-09-09_2251_CL-4-refly-crew-standin`
+# (the new token temporarily `Reputation=[2-9]`): PARSEK-FAIL(expectation) on exactly
+# that one `logContracts.required not matched` entry, every other verifier unchanged.
+# It flew on the intermediate DLL of `_2250` (the re-stamp commit came out of that
+# chain's CL-2 run); the gate is spec-side and the `Tombstoned 2 ... Reputation=1,
+# Kerbal=1` line is byte-identical on `_2250` / `_2251` / `_2313`, so the proof
+# transfers. LIVE-PROVEN on the new cell's own gate. The three-Opus panel's C# fixes
+# (per-recording seed origin when a batch override was NotYetCaptured; magnitude-
+# checked event/row pairing) were re-flown on their DLL: `2026-09-09_2348_CL-4-refly-crew-standin`
+# PASS, same nine WARNs, same `CreatedThisCommitFromLivePool` / `Reputation=1` chain;
+# CL-3 `2026-09-09_2349` and CL-2 `2026-09-09_2350` PASS alongside.
 # =====================================================================================
 description = "Stage B's last flight-closable cell, D12 stand-ins: CL-3's crew-loss re-fly (career-pad-craft + rewind-crew-loss, rewind rp_cl_root slot 1, relaunch, merge) with the tombstone's release of the death-sourced permanent reservation gated through to the Parsek-generated stand-in that release triggers."
 instanceProfile = "stock-minimal"
@@ -114,8 +158,11 @@ loopPointsFrames              = 40
 # slot 'Jebediah Kerman'` token, observed under this id on the reading run
 # (`2026-09-09_1813`), on the registry's pinned definition (a Parsek-GENERATED stand-in
 # for a reservation slot). D9 `tombstones` and D12 `dead-crew-strip` are CL-3's and are
-# not re-claimed here.
-D12 = ["stand-ins"]
+# not re-claimed here. `tombstone-rep-penalty` (2026-09-10) is claimed off the REQUIRED
+# `Tombstoned ... Reputation=[1-9]` token, observed under this id on the re-pin reading
+# run (`2026-09-09_2158_CL-4-refly-crew-standin`), on the registry's pinned definition (a
+# `ReputationPenalty(KerbalDeath)` row tombstoned by the supersede merge).
+D12 = ["stand-ins", "tombstone-rep-penalty"]
 D14 = ["kerbin", "career", "scene-flight"]
 
 [expectations]
@@ -137,6 +184,9 @@ required  = ["Recording started",
              "Restored: recs=.* pendingScience=",
              "Added [1-9][0-9]* supersede relations for subtree rooted at",
              "Tombstoned [1-9][0-9]* career actions \\(.*Kerbal=[1-9]",
+             # D12 `tombstone-rep-penalty` (2026-09-10): the KerbalDeath reputation
+             # penalty row tombstoned WITH the death. Its own token, so a red names it.
+             "Tombstoned [1-9][0-9]* career actions \\(.*Reputation=[1-9]",
              "Recomputed after tombstones: [0-9]+ reservations remain \\(permanent=0 ",
              "Stand-in generated: '[A-Za-z]+ Kerman' \\((Pilot|Engineer|Scientist|Tourist)\\) for slot 'Jebediah Kerman' depth 0"]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
@@ -144,12 +194,13 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 [expectations.rewind]
 # ARMED 2026-09-09 on the reading run's own facets (`supersedeRows=1 tombstones=1
 # rewindPoints=0`, CL-3's numbers): the save-side half of the chain the log tokens
-# gate. `rewindPoints` is deliberately unpinned - the merge journal reaps the RP, so
+# gate. `tombstones` RE-PINNED 1 -> 2 on 2026-09-10 off `2026-09-09_2158_CL-4-refly-crew-standin`
+# (the death row plus its KerbalDeath reputation penalty, both tombstoned). `rewindPoints` is deliberately unpinned - the merge journal reaps the RP, so
 # asserting its presence post-merge would assert the opposite of correct behaviour
 # (CL-3's reasoning).
 gating        = true
 supersedeRows = { min = 1 }
-tombstones    = { min = 1 }
+tombstones    = { min = 2 }
 
 [expectations.unityExceptions]
 maxTotal = 0

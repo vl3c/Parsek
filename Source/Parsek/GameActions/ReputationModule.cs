@@ -115,6 +115,30 @@ namespace Parsek
 
         private void ProcessRepPenalty(GameAction action)
         {
+            // THE SEED HAZARD, and it applies to KerbalDeath rows alone. The
+            // ReputationInitial seed is a single absolute figure, and when it was read
+            // off the LIVE pool that pool had already taken the death's hit - applying
+            // the row too subtracts the penalty twice. The MODULE does not decide that:
+            // the producer does, once, in production order
+            // (KerbalDeathRepPenalty.IsInsideReputationSeed), and stamps the answer on
+            // the row. Deciding it here from UTs cannot work, because a rewind moves the
+            // game clock backwards and the seed row is stamped UT=0.0 either way.
+            //
+            // Scoped to this source on purpose: the same hazard exists for milestone
+            // rows and is a separate, pre-existing defect (a live +1 applied twice,
+            // observed on CL-4's run 2026-09-09_1815). Widening the skip to other types
+            // here would change reconstruction for every save in one undiscussed step.
+            if (action.RepPenaltySource == ReputationPenaltySource.KerbalDeath
+                && action.InsideReputationSeed)
+            {
+                action.EffectiveRep = 0f;
+                ParsekLog.Verbose(Tag,
+                    $"KerbalDeath rep penalty is inside the reputation seed " +
+                    $"(recording={action.RecordingId ?? "null"}, " +
+                    $"ut={action.UT.ToString("R", IC)}) - not re-applied");
+                return;
+            }
+
             // Strategy currency-exchange losses (Bail-Out Grant CurrencyExchanger input,
             // TransactionReasons.StrategyInput) are captured straight from the
             // ReputationChanged event, so NominalPenalty already holds the ACTUAL
@@ -122,21 +146,32 @@ namespace Parsek
             // double-apply the curve, so this source is treated as already-effective and
             // bypasses the curve. See docs/dev/plans/fix-bailout-grant-currency-exchange-capture.md.
             //
+            // KerbalDeath is the SECOND pre-curved source, for the same reason and no
+            // other: LedgerOrchestrator.CreateKerbalDeathRepPenaltyActions reads its
+            // magnitude off the captured ReputationChanged(VesselLoss) event, i.e. the
+            // amount KSP measured off its own pool AFTER curving it (both CL-1
+            // pod-impact flights: "Added -9.999828 (-10) reputation: 'VesselLoss'").
+            // Re-curving it here would apply the curve twice. Both pre-curved sources
+            // are captures of what stock already applied; every other source carries a
+            // NOMINAL amount and must be curved.
+            //
             // ReputationPenaltySource.StrategyConverter DELIBERATELY DOES NOT MATCH HERE.
             // That source is the QUERY family's debit leg and carries the query's
             // PRE-curve effect delta - the argument stock's
             // Reputation.OnCurrenciesModified hands to addReputation_granular - so it
             // must fall through to the ordinary curve arm below and be re-derived at the
-            // reconstruction's own running rep. The equality test is what keeps the two
-            // apart; widening it to a source SET would silently break the debit leg.
-            if (action.RepPenaltySource == ReputationPenaltySource.Strategy)
+            // reconstruction's own running rep. This stays an OR of exactly two
+            // equalities, never a source SET: a set is how the debit leg gets silently
+            // swept in.
+            if (action.RepPenaltySource == ReputationPenaltySource.Strategy
+                || action.RepPenaltySource == ReputationPenaltySource.KerbalDeath)
             {
                 float effective = -action.NominalPenalty; // already-effective (negative)
                 action.EffectiveRep = effective;
                 runningRep += effective;
 
                 ParsekLog.Verbose(Tag,
-                    $"RepPenalty (Strategy, pre-curved) at UT={action.UT.ToString("F1", IC)}: " +
+                    $"RepPenalty ({action.RepPenaltySource}, pre-curved) at UT={action.UT.ToString("F1", IC)}: " +
                     $"nominalPenalty={action.NominalPenalty.ToString("F2", IC)}, " +
                     $"effective={effective.ToString("F2", IC)}, runningRep={runningRep.ToString("F2", IC)}" +
                     $" (recording={action.RecordingId ?? "null"})");

@@ -388,6 +388,68 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RepPenalty_InsideReputationSeed_RoundTrip()
+        {
+            var original = new GameAction
+            {
+                UT = 500.0,
+                Type = GameActionType.ReputationPenalty,
+                RecordingId = "rec_010",
+                NominalPenalty = 9.999828f,
+                RepPenaltySource = ReputationPenaltySource.KerbalDeath,
+                InsideReputationSeed = true
+            };
+
+            var result = RoundTrip(original);
+
+            Assert.Equal(GameActionType.ReputationPenalty, result.Type);
+            Assert.Equal(ReputationPenaltySource.KerbalDeath, result.RepPenaltySource);
+            Assert.True(result.InsideReputationSeed);
+        }
+
+        [Fact]
+        public void RepPenalty_OutsideReputationSeed_WritesNoKey()
+        {
+            // Sparse on purpose: false is the overwhelming majority (every non-KerbalDeath
+            // source, and every death filed against a seed that predates it).
+            var original = new GameAction
+            {
+                UT = 500.0,
+                Type = GameActionType.ReputationPenalty,
+                RecordingId = "rec_011",
+                NominalPenalty = 9.999828f,
+                RepPenaltySource = ReputationPenaltySource.KerbalDeath,
+                InsideReputationSeed = false
+            };
+
+            var parent = new ConfigNode("ROOT");
+            original.SerializeInto(parent);
+            var node = parent.GetNode("GAME_ACTION");
+
+            Assert.NotNull(node);
+            Assert.Null(node.GetValue("insideRepSeed"));
+            Assert.False(GameAction.DeserializeFrom(node).InsideReputationSeed);
+        }
+
+        [Fact]
+        public void RepPenalty_WithoutInsideRepSeedKey_ReadsBackFalse()
+        {
+            // The absent key IS the legacy shape: a row written before the field existed
+            // lands here and reads as "apply", which is the old behaviour.
+            var node = new ConfigNode("GAME_ACTION");
+            node.AddValue("ut", "500");
+            node.AddValue("type", ((int)GameActionType.ReputationPenalty).ToString());
+            node.AddValue("nominalPenalty", "9.999828");
+            node.AddValue("repPenaltySource", ((int)ReputationPenaltySource.KerbalDeath).ToString());
+
+            var loaded = GameAction.DeserializeFrom(node);
+
+            Assert.Equal(GameActionType.ReputationPenalty, loaded.Type);
+            Assert.Equal(ReputationPenaltySource.KerbalDeath, loaded.RepPenaltySource);
+            Assert.False(loaded.InsideReputationSeed);
+        }
+
+        [Fact]
         public void KerbalAssignment_Recovered_RoundTrip()
         {
             var original = new GameAction

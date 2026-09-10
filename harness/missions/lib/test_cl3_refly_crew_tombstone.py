@@ -2020,8 +2020,9 @@ class Cl3SpecCoverageClaimTests(unittest.TestCase):
         # direction: a no-op tombstone leaves `permanent=1` and reds. The two
         # cells above are its gate.
         #
-        # `tombstone-rep-penalty` stays unclaimed for a DIFFERENT reason - see the
-        # cell below: a product change, not a flight.
+        # `tombstone-rep-penalty` stays unclaimed HERE for a different reason - see
+        # the cell below: it is CL-4's since 2026-09-10, off a token this spec does
+        # not carry.
         self.assertIn("tombstones", self.claimed.get("D9", []))
         self.assertNotIn("tombstones", self.claimed.get("D8", []))
         self.assertNotIn("tombstone-rep-penalty", self.claimed.get("D12", []))
@@ -2031,22 +2032,26 @@ class Cl3SpecCoverageClaimTests(unittest.TestCase):
         # alongside InvokeRewind).
         self.assertEqual([], self.claimed.get("D8", []))
 
-    def test_the_rep_penalty_cell_is_recorded_unreachable_not_merely_uncovered(self):
-        # A DIFFERENT kind of absence, and the distinction is why this cell is
-        # separate from the one above: `tombstone-rep-penalty` is not waiting on a
-        # flight, it is waiting on a PRODUCT change. Nothing in Source/Parsek/ ever
-        # constructs a `ReputationPenaltySource.KerbalDeath` action, so a crew death
-        # produces no Parsek rep row to tombstone. If the registry ever stops saying
-        # so, this spec's "will never be claimed here" comment has gone stale.
-        self.assertIn("UNREACHABLE BY ANY FLIGHT", self.registry_text)
+    def test_the_rep_penalty_cell_is_cl4s_and_this_spec_carries_no_token_for_it(self):
+        # Until 2026-09-10 the registry recorded `tombstone-rep-penalty` UNREACHABLE
+        # BY ANY FLIGHT (no production code constructed a KerbalDeath rep-penalty
+        # action). The product change shipped that day and `CL-4-refly-crew-standin`
+        # claims the cell off a REQUIRED `Tombstoned ... Reputation=[1-9]` token. This
+        # spec keeps CL-3's original `Kerbal=[1-9]` token only, so it MUST NOT claim
+        # the cell: the claim would have no gate here.
+        self.assertIn("`tombstone-rep-penalty` IS REACHABLE", self.registry_text)
+        self.assertFalse(any("Reputation=[1-9]" in tok for tok in
+                             self.spec["expectations"]["logContracts"]["required"]))
         # This used to assert `claimed["D12"] == []`, which stopped being the
         # honest check on 2026-08-05 when `dead-crew-strip` was claimed. The
         # guarantee it was really buying is narrower and survives the change:
         # THIS value cannot arrive by an edit that only touches a list...
         self.assertNotIn("tombstone-rep-penalty", self.claimed.get("D12", []))
         # ...and the spec carries the REASON, not merely the omission, so the
-        # next author does not re-derive it from the product.
-        self.assertIn("UNREACHABLE", _spec_text())
+        # next author does not re-derive it from the product: the past-tense record
+        # of why it was unreachable, and whose it is now.
+        self.assertIn("recorded it UNREACHABLE BY ANY FLIGHT", _spec_text())
+        self.assertIn("`CL-4-refly-crew-standin` claims the cell", _spec_text())
 
     def test_head_tip_split_and_terminal_kind_classify_stay_unclaimed(self):
         # `head-tip-split` fires only when the closure-root recording SPANS the

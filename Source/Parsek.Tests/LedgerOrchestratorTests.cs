@@ -885,6 +885,226 @@ namespace Parsek.Tests
             RecordingStore.ResetForTesting();
         }
 
+        // ================================================================
+        // CreateKerbalDeathRepPenaltyActions
+        // ================================================================
+
+        private static Recording InstallCrewedRecording(
+            string recordingId, KerbalEndState endState, string crewName = "Jeb Kerman")
+        {
+            var snapshot = new ConfigNode("VESSEL");
+            var part = new ConfigNode("PART");
+            part.AddValue("crew", crewName);
+            snapshot.AddNode(part);
+
+            var rec = new Recording
+            {
+                RecordingId = recordingId,
+                VesselName = "Crewed " + recordingId,
+                GhostVisualSnapshot = snapshot
+            };
+            rec.CrewEndStates = new Dictionary<string, KerbalEndState>
+            {
+                { crewName, endState }
+            };
+            RecordingStore.AddRecordingWithTreeForTesting(rec);
+            return rec;
+        }
+
+        private static void AddVesselLossEvent(string recordingId, double ut, double applied)
+        {
+            var evt = new GameStateEvent
+            {
+                ut = ut,
+                eventType = GameStateEventType.ReputationChanged,
+                key = KerbalDeathRepPenalty.VesselLossEventKey,
+                valueBefore = 0.0,
+                valueAfter = -applied,
+                recordingId = recordingId
+            };
+            GameStateStore.AddEvent(ref evt);
+        }
+
+        [Fact]
+        public void CreateKerbalDeathRepPenaltyActions_DeadCrewWithCapturedEvent_EmitsOneRow()
+        {
+            RecordingStore.ResetForTesting();
+            InstallCrewedRecording("rec-death", KerbalEndState.Dead);
+            AddVesselLossEvent("rec-death", 500.0, 9.999828);
+
+            var actions = LedgerOrchestrator.CreateKerbalDeathRepPenaltyActions(
+                "rec-death", 100.0, 500.0, ReputationSeedOrigin.PreExisting);
+
+            Assert.Single(actions);
+            Assert.Equal(GameActionType.ReputationPenalty, actions[0].Type);
+            Assert.Equal(ReputationPenaltySource.KerbalDeath, actions[0].RepPenaltySource);
+            Assert.Equal("rec-death", actions[0].RecordingId);
+            Assert.Equal(500.0, actions[0].UT);
+            Assert.Equal(9.999828f, actions[0].NominalPenalty, 1e-4f);
+            // A seed that already existed before this commit cannot contain this death.
+            Assert.False(actions[0].InsideReputationSeed);
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("KerbalDeath rep penalty: recording='rec-death'") &&
+                // "candidate (dedup decides)" is load-bearing wording: this producer runs
+                // on every commit of the recording and DeduplicateAgainstLedger drops the
+                // row on a re-commit, so the line must not read as a filed penalty.
+                l.Contains("repSeedOrigin=PreExisting insideRepSeed=False") &&
+                l.Contains("-> ReputationPenalty(KerbalDeath) candidate (dedup decides)"));
+
+            RecordingStore.ResetForTesting();
+        }
+
+        // The seed this commit is about to take off the LIVE pool has already had the
+        // death subtracted from it, so the row must be stamped inside-seed and the
+        // module must not subtract it a second time.
+        [Fact]
+        public void CreateKerbalDeathRepPenaltyActions_LivePoolSeedThisCommit_StampsInsideSeed()
+        {
+            RecordingStore.ResetForTesting();
+            InstallCrewedRecording("rec-death-live", KerbalEndState.Dead);
+            AddVesselLossEvent("rec-death-live", 500.0, 9.999828);
+
+            var actions = LedgerOrchestrator.CreateKerbalDeathRepPenaltyActions(
+                "rec-death-live", 100.0, 500.0,
+                ReputationSeedOrigin.CreatedThisCommitFromLivePool);
+
+            Assert.Single(actions);
+            Assert.True(actions[0].InsideReputationSeed);
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("repSeedOrigin=CreatedThisCommitFromLivePool insideRepSeed=True"));
+
+            RecordingStore.ResetForTesting();
+        }
+
+        // No seed yet: it will be captured later, off a pool this death has already
+        // lowered. Same answer as the live-pool branch, for the same reason.
+        [Fact]
+        public void CreateKerbalDeathRepPenaltyActions_SeedNotYetCaptured_StampsInsideSeed()
+        {
+            RecordingStore.ResetForTesting();
+            InstallCrewedRecording("rec-death-deferred", KerbalEndState.Dead);
+            AddVesselLossEvent("rec-death-deferred", 500.0, 9.999828);
+
+            var actions = LedgerOrchestrator.CreateKerbalDeathRepPenaltyActions(
+                "rec-death-deferred", 100.0, 500.0, ReputationSeedOrigin.NotYetCaptured);
+
+            Assert.Single(actions);
+            Assert.True(actions[0].InsideReputationSeed);
+
+            RecordingStore.ResetForTesting();
+        }
+
+        // A career-start baseline predates the flight, so the death is NOT inside it.
+        [Fact]
+        public void CreateKerbalDeathRepPenaltyActions_CareerBaselineSeedThisCommit_StampsOutsideSeed()
+        {
+            RecordingStore.ResetForTesting();
+            InstallCrewedRecording("rec-death-baseline", KerbalEndState.Dead);
+            AddVesselLossEvent("rec-death-baseline", 500.0, 9.999828);
+
+            var actions = LedgerOrchestrator.CreateKerbalDeathRepPenaltyActions(
+                "rec-death-baseline", 100.0, 500.0,
+                ReputationSeedOrigin.CreatedThisCommitFromCareerBaseline);
+
+            Assert.Single(actions);
+            Assert.False(actions[0].InsideReputationSeed);
+
+            RecordingStore.ResetForTesting();
+        }
+
+        [Fact]
+        public void CreateKerbalDeathRepPenaltyActions_NoCapturedEvent_EmitsNothingAndSaysWhy()
+        {
+            // The injected-fixture / suppressed-event / sub-threshold case. No row is the
+            // correct answer - the alternative is inventing a magnitude.
+            RecordingStore.ResetForTesting();
+            InstallCrewedRecording("rec-death-noevent", KerbalEndState.Dead);
+
+            var actions = LedgerOrchestrator.CreateKerbalDeathRepPenaltyActions(
+                "rec-death-noevent", 100.0, 500.0, ReputationSeedOrigin.PreExisting);
+
+            Assert.Empty(actions);
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains(KerbalDeathRepPenalty.ReasonNoVesselLossEvent) &&
+                l.Contains("recording='rec-death-noevent'") &&
+                l.Contains("(dead=1) - no row"));
+
+            RecordingStore.ResetForTesting();
+        }
+
+        [Fact]
+        public void CreateKerbalDeathRepPenaltyActions_SurvivingCrew_EmitsNothingAndStaysQuiet()
+        {
+            RecordingStore.ResetForTesting();
+            InstallCrewedRecording("rec-alive", KerbalEndState.Recovered);
+            AddVesselLossEvent("rec-alive", 500.0, 9.999828);
+
+            var actions = LedgerOrchestrator.CreateKerbalDeathRepPenaltyActions(
+                "rec-alive", 100.0, 500.0, ReputationSeedOrigin.PreExisting);
+
+            Assert.Empty(actions);
+            // No dead crew is the ordinary case for nearly every recording in a save, so
+            // it must not cost a log line per recording per load.
+            Assert.DoesNotContain(logLines, l => l.Contains("KerbalDeath rep penalty"));
+
+            RecordingStore.ResetForTesting();
+        }
+
+        [Fact]
+        public void CreateKerbalDeathRepPenaltyActions_UnknownRecording_ReturnsEmpty()
+        {
+            RecordingStore.ResetForTesting();
+
+            Assert.Empty(LedgerOrchestrator.CreateKerbalDeathRepPenaltyActions(
+                "nonexistent", 100.0, 500.0, ReputationSeedOrigin.PreExisting));
+            Assert.Empty(LedgerOrchestrator.CreateKerbalDeathRepPenaltyActions(
+                null, 100.0, 500.0, ReputationSeedOrigin.PreExisting));
+        }
+
+        [Fact]
+        public void KerbalDeathRepPenalty_HasItsOwnDedupKey()
+        {
+            // Recording + source, so the row cannot be swallowed by a DIFFERENT penalty
+            // that shares its UT (a contract failing because the crewed vessel was
+            // destroyed lands inside the 0.1 s dedup window). Two kerbal-death rows for
+            // one recording still collapse, which is the dedup this key is for.
+            var death = new GameAction
+            {
+                UT = 500.0,
+                Type = GameActionType.ReputationPenalty,
+                RecordingId = "rec-death",
+                NominalPenalty = 9.999828f,
+                RepPenaltySource = ReputationPenaltySource.KerbalDeath
+            };
+            var sameRecordingContractFail = new GameAction
+            {
+                UT = 500.0,
+                Type = GameActionType.ReputationPenalty,
+                RecordingId = "rec-death",
+                NominalPenalty = 25f,
+                RepPenaltySource = ReputationPenaltySource.ContractFail
+            };
+            var otherRecordingDeath = new GameAction
+            {
+                UT = 500.0,
+                Type = GameActionType.ReputationPenalty,
+                RecordingId = "rec-other",
+                NominalPenalty = 9.999828f,
+                RepPenaltySource = ReputationPenaltySource.KerbalDeath
+            };
+
+            Assert.Equal("rec-death:KerbalDeath", LedgerOrchestrator.GetActionKey(death));
+            Assert.NotEqual(
+                LedgerOrchestrator.GetActionKey(death),
+                LedgerOrchestrator.GetActionKey(sameRecordingContractFail));
+            Assert.NotEqual(
+                LedgerOrchestrator.GetActionKey(death),
+                LedgerOrchestrator.GetActionKey(otherRecordingDeath));
+        }
+
         [Fact]
         public void CreateKerbalAssignmentActions_NoCrewEndStates_DefaultsToUnknown()
         {
@@ -2852,6 +3072,312 @@ namespace Parsek.Tests
             Assert.Equal(142.9, startUT);
             Assert.Single(subset);
             Assert.Equal("inside@subject", subset[0].subjectId);
+        }
+
+        // ================================================================
+        // Reputation seed: re-stamping inside-seed KerbalDeath rows
+        // ================================================================
+
+        private static GameAction MakeMilestoneRepRow(string milestoneId, double ut, float rep)
+        {
+            return new GameAction
+            {
+                Type = GameActionType.MilestoneAchievement,
+                UT = ut,
+                RecordingId = "rec_pod",
+                MilestoneId = milestoneId,
+                MilestoneRepAwarded = rep,
+                Effective = true
+            };
+        }
+
+        private static GameAction MakeInsideSeedKerbalDeathRow(double ut, float applied)
+        {
+            return new GameAction
+            {
+                Type = GameActionType.ReputationPenalty,
+                UT = ut,
+                RecordingId = "rec_pod",
+                RepPenaltySource = ReputationPenaltySource.KerbalDeath,
+                NominalPenalty = applied,
+                InsideReputationSeed = true
+            };
+        }
+
+        // Walks the ledger's reputation rows through a fresh ReputationModule in UT order
+        // and returns the running reputation the recalc would land on.
+        private static float WalkReputation()
+        {
+            var module = new ReputationModule();
+            var rows = new List<GameAction>(Ledger.Actions);
+            // The seed sits at UT 0.0, so plain UT order puts it first exactly as the
+            // recalc walk does.
+            rows.Sort((a, b) => a.UT.CompareTo(b.UT));
+
+            foreach (var row in rows)
+                module.ProcessAction(row);
+
+            return module.GetRunningRep();
+        }
+
+        // THE CL-2-pod-impact-ledger SEQUENCE (run 2026-09-09_2253), reproduced.
+        //
+        // The commit's 3c-post ensure deferred (no seed, no baseline, no live pool), so
+        // the producer stamped the death row INSIDE the seed on the expectation that the
+        // seed would later be read off a live pool containing it. Four milliseconds later
+        // the SAME commit's recalc created the seed through the refusal fallback - the
+        // milestone reputation rows this commit had just added made
+        // LedgerHasReputationTimelineActions true - and a refusal seed is career start (0),
+        // which contains no death. Left alone the walk skips the -10 and lands on +2
+        // against a live -7.99.
+        [Fact]
+        public void EnsureReputationSeed_RefusalFallbackAfterInsideStamp_ReStampsRowOutside()
+        {
+            Ledger.AddAction(MakeMilestoneRepRow("RecordsSpeed", 11.54, 1f));
+            Ledger.AddAction(MakeMilestoneRepRow("RecordsAltitude", 14.96, 1f));
+            var deathRow = MakeInsideSeedKerbalDeathRow(119.92, 9.999828f);
+            Ledger.AddAction(deathRow);
+
+            var origin = LedgerOrchestrator.EnsureReputationSeedForCommit();
+
+            Assert.Equal(ReputationSeedOrigin.CreatedThisCommitFromRefusalFallback, origin);
+            Assert.False(deathRow.InsideReputationSeed);
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("1 KerbalDeath rep penalty row(s) were stamped inside a seed") &&
+                l.Contains("read from career start") &&
+                l.Contains("re-stamped outside so the walk applies them"));
+
+            // The walk now applies the row: 0 seed + 1 + 1 - 9.999828, matching the live
+            // pool the flight left behind rather than the +2 the skip produced.
+            Assert.Equal(-7.999828f, WalkReputation(), 1e-4f);
+            Assert.Equal(-9.999828f, deathRow.EffectiveRep, 1e-4f);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("KerbalDeath rep penalty is inside the reputation seed"));
+        }
+
+        // Same repair through the other career-start branch: a career-start baseline is
+        // read from GameStateStore, its value predates the flight, and the wording names
+        // the baseline rather than career start.
+        [Fact]
+        public void EnsureReputationSeed_CareerBaselineAfterInsideStamp_ReStampsRowOutside()
+        {
+            GameStateStore.AddBaseline(new GameStateBaseline
+            {
+                ut = 0.0,
+                funds = 500000.0,
+                science = 0.0,
+                reputation = 0f
+            });
+
+            var deathRow = MakeInsideSeedKerbalDeathRow(119.92, 9.999828f);
+            Ledger.AddAction(deathRow);
+
+            var origin = LedgerOrchestrator.EnsureReputationSeedForCommit();
+
+            Assert.Equal(ReputationSeedOrigin.CreatedThisCommitFromCareerBaseline, origin);
+            Assert.False(deathRow.InsideReputationSeed);
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("read from the career-start baseline"));
+        }
+
+        // THE MIRROR, at the level the fix lives: a seed created from the LIVE POOL
+        // already contains every death filed before it, so its inside-seed rows stay
+        // inside and the walk keeps skipping them. Flipping here would subtract the same
+        // penalty twice. PreExisting and NotYetCaptured create no seed at all and are
+        // equally inert - NotYetCaptured in particular is the origin that WROTE the stamp.
+        [Fact]
+        public void RestampInsideSeedRows_NonCareerStartOrigins_LeaveTheStampAlone()
+        {
+            var deathRow = MakeInsideSeedKerbalDeathRow(119.92, 9.999828f);
+            Ledger.AddAction(deathRow);
+
+            LedgerOrchestrator.RestampInsideSeedRowsAgainstCareerStartSeed(
+                ReputationSeedOrigin.CreatedThisCommitFromLivePool);
+            Assert.True(deathRow.InsideReputationSeed);
+
+            LedgerOrchestrator.RestampInsideSeedRowsAgainstCareerStartSeed(
+                ReputationSeedOrigin.PreExisting);
+            Assert.True(deathRow.InsideReputationSeed);
+
+            LedgerOrchestrator.RestampInsideSeedRowsAgainstCareerStartSeed(
+                ReputationSeedOrigin.NotYetCaptured);
+            Assert.True(deathRow.InsideReputationSeed);
+
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("re-stamped outside so the walk applies them"));
+
+            // And the module still honours the stamp: seed 90, row skipped, pool held.
+            var module = new ReputationModule();
+            module.ProcessAction(new GameAction
+            {
+                Type = GameActionType.ReputationInitial,
+                UT = 0.0,
+                InitialReputation = 90f
+            });
+            module.ProcessAction(deathRow);
+            Assert.Equal(90f, module.GetRunningRep());
+            Assert.Equal(0f, deathRow.EffectiveRep);
+        }
+
+        // Only KerbalDeath rows carry the seed hazard, so only they are re-stamped. A
+        // non-KerbalDeath penalty stamped inside is left exactly as it was: the module
+        // applies it regardless of the stamp, and touching it here would widen the fix
+        // into reconstruction changes nobody asked for.
+        [Fact]
+        public void RestampInsideSeedRows_NonKerbalDeathRow_IsLeftAlone()
+        {
+            var otherRow = new GameAction
+            {
+                Type = GameActionType.ReputationPenalty,
+                UT = 50.0,
+                RecordingId = "rec_other",
+                RepPenaltySource = ReputationPenaltySource.Other,
+                NominalPenalty = 5f,
+                InsideReputationSeed = true
+            };
+            Ledger.AddAction(otherRow);
+
+            LedgerOrchestrator.RestampInsideSeedRowsAgainstCareerStartSeed(
+                ReputationSeedOrigin.CreatedThisCommitFromRefusalFallback);
+
+            Assert.True(otherRow.InsideReputationSeed);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("re-stamped outside so the walk applies them"));
+        }
+
+        // ================================================================
+        // Reputation seed: a NotYetCaptured BATCH origin goes stale mid-batch
+        // ================================================================
+
+        private static void AddMilestoneRepEvent(
+            string recordingId, double ut, string milestoneId, float rep)
+        {
+            var evt = new GameStateEvent
+            {
+                ut = ut,
+                eventType = GameStateEventType.MilestoneAchieved,
+                key = milestoneId,
+                detail = "rep=" + rep.ToString("R", System.Globalization.CultureInfo.InvariantCulture),
+                recordingId = recordingId
+            };
+            GameStateStore.AddEvent(ref evt);
+        }
+
+        private static GameAction FindKerbalDeathRow(string recordingId)
+        {
+            foreach (var a in Ledger.Actions)
+            {
+                if (a == null) continue;
+                if (a.Type != GameActionType.ReputationPenalty) continue;
+                if (a.RepPenaltySource != ReputationPenaltySource.KerbalDeath) continue;
+                if (string.Equals(a.RecordingId ?? "", recordingId, StringComparison.Ordinal))
+                    return a;
+            }
+            return null;
+        }
+
+        // THE STALE BATCH ORIGIN, at the seam NotifyLedgerTreeCommitted drives.
+        //
+        // The batch establishes NotYetCaptured once (no seed, no career baseline, no
+        // Reputation.Instance) and hands the same value to every recording. Recording A
+        // then commits a milestone reputation row, and its own step-6 recalc creates the
+        // seed through the refusal branch - career start, 0 - which re-stamps A's death
+        // row outside. Recording B's death is filed AFTER that seed exists; carrying the
+        // batch's now-falsified prediction would stamp it inside a value that never
+        // contained it, and RestampInsideSeedRowsAgainstCareerStartSeed has already run,
+        // so nothing would ever flip it back. The walk would then skip B's penalty for
+        // good.
+        [Fact]
+        public void OnRecordingCommitted_BatchOriginWentStaleMidBatch_LaterDeathIsStampedOutside()
+        {
+            RecordingStore.ResetForTesting();
+            InstallCrewedRecording("rec-batch-a", KerbalEndState.Dead, "Jeb Kerman");
+            InstallCrewedRecording("rec-batch-b", KerbalEndState.Dead, "Bill Kerman");
+            AddVesselLossEvent("rec-batch-a", 100.0, 9.999828);
+            AddVesselLossEvent("rec-batch-b", 200.0, 9.999828);
+            // The row that makes A's recalc refuse the live pool and seed career start,
+            // exactly as the CL-2 milestone rows did.
+            AddMilestoneRepEvent("rec-batch-a", 90.0, "RecordsSpeed", 1f);
+
+            // What NotifyLedgerTreeCommitted computes once for the whole tree.
+            var batchOrigin = LedgerOrchestrator.EnsureReputationSeedForCommit();
+            Assert.Equal(ReputationSeedOrigin.NotYetCaptured, batchOrigin);
+
+            bool scienceAdded = false;
+            LedgerOrchestrator.OnRecordingCommitted(
+                "rec-batch-a", 50.0, 150.0, null, ref scienceAdded, batchOrigin);
+            LedgerOrchestrator.OnRecordingCommitted(
+                "rec-batch-b", 150.0, 250.0, null, ref scienceAdded, batchOrigin);
+
+            var rowA = FindKerbalDeathRow("rec-batch-a");
+            var rowB = FindKerbalDeathRow("rec-batch-b");
+            Assert.NotNull(rowA);
+            Assert.NotNull(rowB);
+
+            // A was stamped inside on the batch's prediction and flipped back by its own
+            // recalc; B was never inside at all, because the ensure was re-run for it.
+            Assert.False(rowA.InsideReputationSeed);
+            Assert.False(rowB.InsideReputationSeed);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("Reputation seed origin re-established for recording 'rec-batch-b'") &&
+                l.Contains("batch override NotYetCaptured no longer describes the ledger") &&
+                l.Contains("this commit reads PreExisting"));
+            // A's own commit re-ran the ensure too and got the same deferred answer, so
+            // the line must not fire for it.
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("Reputation seed origin re-established for recording 'rec-batch-a'"));
+
+            RecordingStore.ResetForTesting();
+        }
+
+        // THE MIRROR: a DEFINITE batch override still describes reality for the whole
+        // batch and is used verbatim. A live-pool seed created at the top of the batch
+        // has already taken every death in it, so the tree's second death must stay
+        // stamped inside - re-establishing here would read PreExisting and subtract it
+        // twice, which is the double-subtraction the override exists to prevent.
+        [Fact]
+        public void OnRecordingCommitted_LivePoolBatchOrigin_IsCarriedToEveryRecording()
+        {
+            RecordingStore.ResetForTesting();
+            InstallCrewedRecording("rec-live-a", KerbalEndState.Dead, "Jeb Kerman");
+            InstallCrewedRecording("rec-live-b", KerbalEndState.Dead, "Bill Kerman");
+            AddVesselLossEvent("rec-live-a", 100.0, 9.999828);
+            AddVesselLossEvent("rec-live-b", 200.0, 9.999828);
+
+            bool scienceAdded = false;
+            LedgerOrchestrator.OnRecordingCommitted(
+                "rec-live-a", 50.0, 150.0, null, ref scienceAdded,
+                ReputationSeedOrigin.CreatedThisCommitFromLivePool);
+            LedgerOrchestrator.OnRecordingCommitted(
+                "rec-live-b", 150.0, 250.0, null, ref scienceAdded,
+                ReputationSeedOrigin.CreatedThisCommitFromLivePool);
+
+            var rowB = FindKerbalDeathRow("rec-live-b");
+            Assert.NotNull(rowB);
+            Assert.True(rowB.InsideReputationSeed);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("Reputation seed origin re-established"));
+
+            RecordingStore.ResetForTesting();
+        }
+
+        // Cached ERS / ELS / recalc consumers key off StateVersion. A flip that does not
+        // bump leaves them serving the pre-flip stamps, which is the same class of stale
+        // read TruncateActionsForTesting's bump exists to prevent.
+        [Fact]
+        public void RestampInsideSeedRows_BumpsLedgerStateVersion()
+        {
+            Ledger.AddAction(MakeInsideSeedKerbalDeathRow(119.92, 9.999828f));
+            int before = Ledger.StateVersion;
+
+            LedgerOrchestrator.RestampInsideSeedRowsAgainstCareerStartSeed(
+                ReputationSeedOrigin.CreatedThisCommitFromRefusalFallback);
+
+            Assert.NotEqual(before, Ledger.StateVersion);
         }
     }
 }

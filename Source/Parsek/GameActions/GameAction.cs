@@ -541,6 +541,31 @@ namespace Parsek
         /// <summary>Source of reputation penalty.</summary>
         public ReputationPenaltySource RepPenaltySource;
 
+        /// <summary>
+        /// True when this <see cref="ReputationPenaltySource.KerbalDeath"/> row's
+        /// magnitude is ALREADY contained in the career's
+        /// <see cref="GameActionType.ReputationInitial"/> seed value, so
+        /// <c>ReputationModule.ProcessRepPenalty</c> must not subtract it a second time.
+        ///
+        /// <para>
+        /// Decided ONCE, by the producer, in PRODUCTION order rather than in game UT
+        /// (<c>KerbalDeathRepPenalty.IsInsideReputationSeed</c>): a rewind moves the game
+        /// clock backwards, so "the death's UT precedes the seed's capture UT" orders
+        /// nothing across a re-fly. What the producer knows instead is whether the live
+        /// pool the seed was, or will be, read from had already taken this hit.
+        /// </para>
+        ///
+        /// <para>
+        /// Meaningless on every other <see cref="ReputationPenaltySource"/>; only the
+        /// KerbalDeath arm reads it. Written only when true and absent means false, so a
+        /// save from before the field existed reads as "apply", which is the old
+        /// behaviour. Additive value on an existing node: it renames no key and changes
+        /// no layout, so it is not a schema SHAPE change (.claude/CLAUDE.md, "Recording
+        /// schema") - no generation bump.
+        /// </para>
+        /// </summary>
+        public bool InsideReputationSeed;
+
         // ---- Milestone fields ----
 
         /// <summary>Milestone identifier, e.g. "FirstOrbitKerbin".</summary>
@@ -1501,12 +1526,19 @@ namespace Parsek
         {
             n.AddValue("nominalPenalty", NominalPenalty.ToString("R", IC));
             n.AddValue("repPenaltySource", ((int)RepPenaltySource).ToString(IC));
+            // Sparse on purpose: absent means false, which is what a pre-field save
+            // carries and what every non-KerbalDeath source is.
+            if (InsideReputationSeed)
+                n.AddValue("insideRepSeed", InsideReputationSeed.ToString());
         }
 
         private static void DeserializeRepPenalty(ConfigNode n, GameAction a)
         {
             TryParseFloat(n, "nominalPenalty", out a.NominalPenalty);
             TryParseEnum(n, "repPenaltySource", out a.RepPenaltySource);
+            string insideSeedStr = n.GetValue("insideRepSeed");
+            if (insideSeedStr != null)
+                bool.TryParse(insideSeedStr, out a.InsideReputationSeed);
         }
 
         private void SerializeKerbalAssignment(ConfigNode n)

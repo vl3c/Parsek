@@ -210,6 +210,62 @@ namespace Parsek.Tests
             });
         }
 
+        // ---- the captured VesselLoss event -------------------------------
+
+        // The second half of "product-derived, not fixture-authored": the fixture
+        // authors the stock CAPTURE, and Parsek's own producer turns it into the
+        // ReputationPenalty(KerbalDeath) row that CL-3 / CL-4 tombstone alongside the
+        // death. Pinned by running the real decision over the authored event, so a
+        // fixture that stopped producing a row would red here rather than fly green and
+        // tombstone half the consequence.
+        [Fact]
+        public void TheFixturesVesselLossEventMakesTheProducerEmitOneRow()
+        {
+            double splitUt = 1000.0 + 60.0;
+            double deathUt = splitUt + RewindCrewLossFixture.PodTerminalOffsetSeconds;
+            var evt = RewindCrewLossFixture.BuildVesselLossEvent(deathUt);
+
+            // Recorder shape: reason-keyed, before/after pool values, tagged to the pod.
+            Assert.Equal(GameStateEventType.ReputationChanged, evt.eventType);
+            Assert.Equal(KerbalDeathRepPenalty.VesselLossEventKey, evt.key);
+            Assert.Equal(RewindCrewLossFixture.PodRecordingId, evt.recordingId);
+            Assert.Equal(deathUt, evt.ut);
+            Assert.Equal(0.0, evt.valueBefore);
+            Assert.Equal(-RewindCrewLossFixture.VesselLossReputationApplied, evt.valueAfter);
+
+            var decision = KerbalDeathRepPenalty.Decide(
+                new List<KerbalEndState> { KerbalEndState.Dead },
+                new List<GameStateEvent> { evt },
+                RewindCrewLossFixture.PodRecordingId,
+                deathReferenceUT: deathUt);
+
+            Assert.True(decision.Emit,
+                "the fixture's captured VesselLoss event must produce a kerbal-death "
+                + "reputation penalty row, or CL-3 / CL-4 tombstone the death alone");
+            Assert.Equal(deathUt, decision.UT);
+            Assert.Equal(
+                (float)RewindCrewLossFixture.VesselLossReputationApplied,
+                decision.Magnitude, 1e-4f);
+        }
+
+        [Fact]
+        public void TheVesselLossEventIsWrittenIntoTheInjectedEventsFile()
+        {
+            string text = WithInjectedSave(savePath =>
+            {
+                string eventsPath = Path.Combine(
+                    Path.GetDirectoryName(savePath), "Parsek", "GameState", "events.pgse");
+                Assert.True(File.Exists(eventsPath),
+                    "the fixture must write its captured events to " + eventsPath);
+                return File.ReadAllText(eventsPath);
+            });
+
+            Assert.Contains("key = " + KerbalDeathRepPenalty.VesselLossEventKey, text);
+            Assert.Contains("recordingId = " + RewindCrewLossFixture.PodRecordingId, text);
+            // The stamped UT is the pod's impact, not the split.
+            Assert.Contains("ut = 1115", text);
+        }
+
         // ---- RP usability prerequisites (mirrors RewindB9FixtureTests) ------
 
         [Fact]

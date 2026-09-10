@@ -74,8 +74,10 @@ id = "CL-2-pod-impact-ledger"
 # claiming it. D9 `tombstones`, D12 `dead-crew-strip` and D12 `tombstone-rep-penalty`
 # are ALL re-fly-merge-tail behaviour: `SupersedeCommit` is the only producer of a
 # `LedgerTombstone`, and `CommitTombstones` runs strictly inside the re-fly merge
-# tail after supersede relations land. No auto-commit reaches it. Closing them is
-# STAGE B: a rewind ACROSS this crew loss plus a `RunTests` step driving the in-game
+# tail after supersede relations land. No auto-commit reaches it. Closing them was
+# STAGE B (done: `CL-3-refly-crew-tombstone` took `tombstones` / `dead-crew-strip`
+# 2026-08-03/05, `CL-4-refly-crew-standin` took `tombstone-rep-penalty` 2026-09-10
+# once the product change shipped): a rewind ACROSS this crew loss plus a `RunTests` step driving the in-game
 # `Rewind` category, so `InGameTests/KerbalRecoveryOnSupersedeTest` stops
 # auto-skipping with "No kerbal-death actions in supersede subtree" - CL-1's
 # committed tree IS the subtree it needs. Stage B cannot carry
@@ -327,14 +329,18 @@ count = { min = 1, max = 1 }
 # logged `saving 0` three times BEFORE the exit and `saving 1` after it, so the token
 # is a genuine before/after discriminator rather than a coincidence of wording.
 #
-# NOT REQUIRED, and this is a FINDING rather than an omission:
-# `PopulateCrewEndStates: ... dead=1` was drafted here from the call site and DOES NOT
-# EXIST on this path. Flight 1 measured zero occurrences of `PopulateCrewEndStates`
-# anywhere in the log, because `LedgerOrchestrator.NeedsCrewEndStatePopulation`
-# requires `rec.VesselSnapshot != null` and a DESTROYED vessel has none. The crew row
-# is therefore created with `KerbalEndState.Unknown`. See the header; the defect is
-# filed, and pinning a token that the product does not emit would have red'd a
-# correct run for the wrong reason.
+# NOT REQUIRED, and the history is a FINDING rather than an omission:
+# `PopulateCrewEndStates: ... dead=1` was drafted here from the call site and DID NOT
+# EXIST on this path when the lane was written. Flight 1 measured zero occurrences of
+# `PopulateCrewEndStates` anywhere in the log, because
+# `LedgerOrchestrator.NeedsCrewEndStatePopulation` required `rec.VesselSnapshot != null`
+# and a DESTROYED vessel has none, so the crew row was created with
+# `KerbalEndState.Unknown` (the defect PR #1395 fixed on 2026-07-30). Since that fix the
+# line DOES print here - `PopulateCrewEndStates: recording='Jumping Flea' ... crew=1
+# aboard=0 dead=1 recovered=0 unknown=0` on the 2026-09-10 re-fly - and the row carries
+# `Dead`, which is what lets the crew-death rep penalty producer find a dead crew
+# member on this recording. Still not pinned: the lane's claims are the ledger facets,
+# and the crew-loss chain is CL-3's / CL-4's to gate.
 required  = ["Recording started",
              "Destroy-reason override: .* reason=destroy_event",
              "Active vessel destroyed during recording",
@@ -506,12 +512,24 @@ captureCrossCheck = "gate"
 # run and no recovery transmits nothing, and the produced pool is the seed pool
 # unchanged. An empty science declaration is the correct statement, not an omission.
 [[expectations.ledger.manifest]]
-  # The crew death's reputation hit. It is applied by STOCK KSP, not by Parsek's
-  # ledger: nothing in Source/Parsek/ ever CONSTRUCTS a
-  # `ReputationPenaltySource.KerbalDeath` action (the enum member is referenced only
-  # by the UI label formatter, the post-walk reason-key map and deserialization), so
-  # Parsek's ledger absorbs the penalty through the generic captured-award path. That
-  # is why the kind is the generic `stock-reputation-award` and not a crew-loss kind:
+  # The crew death's reputation hit. It is applied by STOCK KSP. Since 2026-09-10
+  # Parsek's ledger ALSO files a `ReputationPenalty(KerbalDeath)` row at commit, copied
+  # (UT and magnitude) from this very `ReputationChanged` event
+  # (`LedgerOrchestrator.CreateKerbalDeathRepPenaltyActions`). MEASURED on the re-fly
+  # `2026-09-09_2316_CL-2-pod-impact-ledger`: this lane's commit is the scene-exit
+  # auto-commit, which runs while `Reputation.Instance` is still null, so the seed is
+  # deferred (`EnsureInitialReputationSeed: deferring the reputation seed -
+  # Reputation.Instance null`), the row is stamped `insideRepSeed=True` on that
+  # deferral, and the step-6 recalc then seeds career start (0) through the
+  # pre-existing refusal branch (`SeedInitialReputation: refusing to treat current
+  # reputation as initial ...`, the two milestone rows) and RE-STAMPS the row outside
+  # (`1 KerbalDeath rep penalty row(s) were stamped inside a seed that was then read
+  # from career start; re-stamped outside so the walk applies them`). The walk then
+  # reads `RepPenalty (KerbalDeath, pre-curved) ... runningRep=-8.00` against a live
+  # -7.99983: the ledger now MODELS the hit instead of clamping around it, and the
+  # produced pool this oracle reads is stock's, unchanged (`ledgerOracle`
+  # hardDivergences=0 on that run). The kind stays the generic
+  # `stock-reputation-award` because the measured line is stock's:
   # the oracle has no `kerbal-death` kind, deliberately - a real stock award line
   # names its `TransactionReasons` key and nothing else, so the capture cannot
   # honestly classify one as a scenario semantic.
