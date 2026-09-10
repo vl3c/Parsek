@@ -223,17 +223,27 @@ allowedAnomalies = []
 # recording reds. The analyzer (Forbid) over the produced recording is the
 # Parsek correctness gate.
 #
-# P3 - the max models touchdown BREAKUP debris. Both inspectable 2026-07-19/20 runs
-# actually produced exactly ONE .prec: the "4 breakup-child pids" from those crashes
-# were in-memory rows created by ProcessBreakupEvent at the ~300 m/s impact, and none
-# of them persisted as recordings. Those were terminal-velocity impacts, not the canopy
-# touchdowns this spec now flies, and a ~8-9 m/s canopy touchdown destroys parts rather
-# than shedding debris vessels, so expect 1-2. The window is deliberately left wide rather
-# than re-pinned from a profile nobody has flown yet: redding on breakup-timing
-# variance would be a false negative, and the analyzer over the produced recordings
-# is the real Parsek correctness gate. Re-pin from the first live run.
+# P3 - RE-PINNED 2026-09-10 FROM TWO READINGS (wave package A2, stock-minimal, wave
+# DLL a0abbed1). The old `{1, 6}` modelled touchdown BREAKUP debris off the 2026-07-19/20
+# terminal-velocity crashes, whose "4 breakup-child pids" were in-memory rows that never
+# persisted as recordings; it was left wide until a canopy-borne profile had flown. Two
+# have now, each a separate flight of this spec unedited:
+#   `2026-09-10_1759_B1-pad-hop`  PASS attempt 1, MISSION-OK, LANDED, count 1, points 544
+#   `2026-09-10_1807_B1-pad-hop`  PASS attempt 1, MISSION-OK, LANDED, count 1, points 545
+# Both: ONE committed tree holding ONE recording (terminal Landed, no branch point), ZERO
+# `ProcessBreakupEvent: debris child created` lines, zero debris-TTL lines. The
+# population IS the main recording, so the window is its measured value. The ending is
+# not a variable on a green run: the mission accepts only `landedSituations` LANDED or
+# SPLASHED under a canopy observed open, so a DOWN impact - the only profile that ever
+# produced breakup rows - is a mission failure (driver-INVALID), never a PASS this window
+# has to admit. A second recording now reds: a canopy touchdown that sheds a debris
+# VESSEL, or a split of the one flight, is new behaviour worth reading, not timing
+# variance. `min = 1` still keeps the REC-001/REC-003 log rules mandatory (above).
+# OWED when this was pinned: the armed re-flight and a live negative control (this
+# window inverted in place to a floor of 2, which must red on exactly
+# `recordings.count 1 < min 2`).
 [expectations.recordings]
-count = { min = 1, max = 6 }
+count = { min = 1, max = 1 }
 
 [expectations.logContracts]
 # The two Part-event tokens are the PARSEK-SIDE proof of the canopy, and the reason

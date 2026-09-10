@@ -15,6 +15,45 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## BDOCK1-STATION-COMMIT-READOPT-LIMBO-FALLBACK-DIALOG: after BDOCK-1's mid-mission CommitTree, the re-adopted station continuation is stashed to Limbo by the interceptor launch and surfaces as a whole-tree merge dialog over already-committed recordings [FILED 2026-09-10 by wave package A2 (`cheap-flights-arming`) off its BDOCK-1 reading run. OPEN PRODUCT QUESTION, intermittent (2 of 18 BDOCK-1 logs); not fixed in this wave]
+
+**What happens**, from `2026-09-10_1815_BDOCK-1-station-interceptor`'s own KSP.log (local
+21:19):
+
+1. STATION-COMMIT: the seam `CommitTree` (exec id 0003) returns OK and
+   `CommitTreeFlight: committed tree "Kerbal X"` commits the 8-recording station tree.
+2. The still-active station is re-adopted into a fresh active tree (the known CommitTree
+   re-adoption trap). 0.8 s later INT-LAUNCH's `launch_vessel` changes scene and
+   `StashActiveTreeAsPendingLimbo: stashing tree 'Kerbal X'` stashes it (8 recordings,
+   state Limbo).
+3. In the new scene, `RestoreActiveTreeFromPending: refusing to adopt fresh-rollout vessel
+   'Kerbal X'` (same craft, so the same baked pid but a different guid: the refusal is
+   correct) -> `leaving tree in Limbo` -> `[WARN][Flight] Pending tree 'Kerbal X' reached
+   OnFlightReady ... showing tree merge dialog (fallback)`, seen live by the operator as a
+   "Confirm: Merge to Timeline" dialog. OnSave then WARNs `SavePendingTreeIfAny: skipped
+   dirty sidecar save for committed-overlap recording ...` and `skipped pending tree
+   'Kerbal X'` (22 `SavePendingTreeIfAny: skipped` WARNs in the run).
+
+The mission was unaffected: it kept flying through the input lock (MISSION-OK, count 19,
+log validation PASS). The other occurrence is `2026-07-24_1501_BDOCK-1-station-interceptor`,
+whose log validation also PASSED with the same WARNs. Frequency: 1 of the 17 archived
+BDOCK-1 logs plus this run, 2 of 18. No other entry covers it.
+
+**The open product question.** Should the re-adopted continuation of a JUST-COMMITTED
+tree, stashed by a scene change before any new flight, end in a whole-tree merge dialog
+over committed-overlap recordings (`recordings=8, spawnable=1`)? And what would Merge or
+Discard on that dialog do to the history that is already committed? The harness never
+answers the dialog, so neither path is measured.
+
+**Harness-side mitigation to evaluate, not taken here.** A `StopRecording` between the
+commit and INT-LAUNCH, the same answer the operator traps give for `InvokeRewindToLaunch`
+after a commit. Not done in this wave because it changes the lane's subject.
+
+**How the wave handled it.** The reading measured the dialog shape only, so BDOCK-1's
+count min was raised only to a value both shapes satisfy (19, attributed per type, every
+member produced before or apart from the stash) and the max kept at 20. No token that
+exists in only one shape (the fallback-dialog / Limbo lines) is required or forbidden.
+
 ## D17-MAKING-HISTORY-NEEDS-A-DEFINITION: the registry cell `making-history` has no subject, because Parsek has no Making-History-specific compatibility path to witness [FILED 2026-09-10 by wave package A2 (`cheap-flights-arming`) planning. A DEFINITION question for the operator, not a defect and not instance-blocked. OPEN; no experiment flight is authorized until it is answered]
 
 **What is true.** Unlike BetterTimeWarp (one concrete interaction, `StockWarpAltitudeLimits`,
@@ -11068,6 +11107,15 @@ only; the D2 claim waits for this wave's own BDOCK-1 reading and armed run (wave
 G1), and the B1 / BDOCK-1 count windows wait for theirs.
 Rule, unchanged: one token per claimed class, and never loosen a token to keep a
 claim.
+
+**2026-09-10, the readings (wave package A2).** B1-pad-hop read count 1 on both
+`2026-09-10_1759` and `_1807` (LANDED, zero breakup-child lines), so its window is
+`{1, 1}`. BDOCK-1 read 19 on `2026-09-10_1815`, attributed per type, so its min is 19
+(max kept: the reading landed the fallback merge-dialog shape, see
+BDOCK1-STATION-COMMIT-READOPT-LIMBO-FALLBACK-DIALOG), and the 5.0 Hz
+`Sample rate changed` band (15 lines) plus the debris-creation line are now REQUIRED
+there. D2 `proximity-cadence-bg` is claimed only after the armed run and its negative
+controls. D5 stays OPEN as above.
 
 **R2. Two registry cells cannot be honestly claimed as written. Decide before anyone
 claims against them.**

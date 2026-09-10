@@ -958,13 +958,13 @@ admits the main recording alone:
 
 | Scenario | window | span | status |
 |---|---|---|---|
-| B1-pad-hop | {1, 6} | 5 | OPEN - not a Kerbal X; breakup-child count is documented as genuinely per-run variable, so it needs its own measurement |
+| B1-pad-hop | {1, 6} | 5 | CLOSED 2026-09-10 -> `{1, 1}` (MEASURED 1 on both wave readings `2026-09-10_1759` / `_1807`, LANDED, zero breakup-child lines: the population is the main recording, and a DOWN ending is a mission failure, never a PASS; armed re-flight + live negative control queued) |
 | B2-lko-ascent | {1, 8} | 7 | CLOSED -> `{7, 8}` + debris token (b2_decide: no flameout stage, so population 7; MEASURED 7 on `2026-07-25_0824`) |
 | B4-reentry-splashdown | {1, 9} | 8 | CLOSED -> `{8, 9}` + debris token (b4_decide has no flameout stage, but commands a service-stage drop on the SOLE path into B4_REENTRY; MEASURED 8 on `2026-07-25_0828`, confirming the structural derivation) |
 | B5-mun-flyby | {1, 9} | 8 | CLOSED -> `{8, 9}` + debris token (b5_decide reaches `_b5_flameout_stage`; MEASURED 8 on `2026-07-25_0643` and `_0847`) |
 | B6-minmus-flyby | {1, 9} | 8 | CLOSED -> `{8, 9}` + debris token (same `b5_decide` as B5/B7; MEASURED 8 on `2026-07-25_0636` and `_0856`, confirming the inference) |
 | B7-duna-flyby | {1, 8} | 7 | CLOSED -> `{8, 8}` + debris token (MEASURED 8 on `2026-07-25_0916_a2`; agrees with B15's pin) |
-| BDOCK-1-station-interceptor | {2, 20} | 18 | OPEN - window spans TWO trees and is commented "never tightened"; wants its own measurement |
+| BDOCK-1-station-interceptor | {2, 20} | 18 | CLOSED 2026-09-10 -> `{19, 20}` + debris token (MEASURED 19 on `2026-09-10_1815`, attributed debris 12 + mains 2 + probes 2 + dock 1 + undock 2 across both trees; max kept because the reading landed the fallback merge-dialog shape only; armed re-flight + controls queued) |
 
 Every one of them would still read PASS if Parsek stopped writing child /
 debris recordings entirely. The wide MAX is defensible and deliberately
@@ -1092,7 +1092,9 @@ B1 or BDOCK-1 (`Debris TTL expired` in 0 of 17 BDOCK-1 and 0 of 8 B1 archives; 6
 program-wide, all intermittent - GS-7 4 of 10, B29 2 of 4), so it stays open for Tier A
 item 5; D2 `proximity-cadence-bg` is reachable on BDOCK-1 (`Sample rate changed: pid=` in
 17 of 17 archives) and is claimed only off this wave's own BDOCK-1 reading and armed
-run. Detail in the todo's R1 entry.
+run. Detail in the todo's R1 entry. The reading `2026-09-10_1815` measured the 5.0 Hz
+band 15 times; the token is REQUIRED on BDOCK-1 since then, and the claim waits for
+the armed run and its negative controls.
 Rule: one token per claimed class; never loosen a token to keep a claim.
 
 **R2. Resolve the two registry defects.** Registry-only. **STILL OPEN** -
