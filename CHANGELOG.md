@@ -10,6 +10,19 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Automated testing: a test run can now take screenshots of Parsek's own windows.**
+  Every run already collected any screenshots it found, and the run report already had a
+  place to show them - but nothing ever took one, because the only way to take a
+  screenshot in the game is to press the key yourself. And a screenshot on its own would
+  have caught an empty sky: the Parsek windows only open when somebody clicks the
+  toolbar, which an unattended run never does. A run can now open, close, resize and tab
+  through the windows the way a player would, ask which windows a scene has and which
+  are open, switch between the simple and full interface, and take a picture at each
+  step - and it waits for each picture to finish being written before moving on, so a
+  later step cannot get in front of it. Two new run definitions walk the whole set: one
+  at the Space Center, one in flight. None of this adds anything a player can see or
+  reach in the game; it drives the same switches the existing buttons do.
+
 - **Automated testing: a test run can now let time really pass, instead of only moving
   the clock.** The only way an automated run could skip ahead was to move the clock and
   leave everything where it was, which is fine for watching a replay reach a moment far

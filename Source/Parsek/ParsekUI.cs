@@ -125,6 +125,13 @@ namespace Parsek
         internal SpawnControlUI GetSpawnControlUI() { return spawnControlUI; }
         internal TestRunnerUI GetTestRunnerUI() { return testRunnerUI; }
 
+        // The two remaining sub-windows, exposed for the automation-only UiAction seam verb
+        // (the GUI census opens every window in turn and photographs it). Neither is in the
+        // Advanced -> Basic close set, which is why neither needed an accessor before.
+        internal LogisticsWindowUI GetLogisticsUI() { return logisticsUI; }
+        internal StructureListWindowUI GetStructureListUI() { return structureListUI; }
+
+
         /// <summary>
         /// Why the Real Spawn Control launcher is greyed out. The window turns a recorded
         /// craft that is passing close by into a real vessel, so with nothing in range
@@ -643,6 +650,21 @@ namespace Parsek
         internal static bool ShouldRefuseModeChange(UiComplexityMode next, bool gloopsRecording)
         {
             return next == UiComplexityMode.Basic && gloopsRecording;
+        }
+
+        /// <summary>
+        /// The live form of <see cref="ShouldRefuseModeChange"/>: would a switch to
+        /// <paramref name="next"/> be refused right now?
+        /// <para>Exists so the automation-only <c>UiAction op=complexity</c> seam op can NAME
+        /// the one production refusal in its response instead of inferring it from a failed
+        /// read-back. Inferring would be wrong in both directions: it would report
+        /// "refused because a Gloops recording is running" for any future refusal reason,
+        /// and it reads the live recorder state that only this class can see (the probe hook
+        /// and the null-safe flight walk are both private).</para>
+        /// </summary>
+        internal static bool WouldRefuseModeChange(UiComplexityMode next)
+        {
+            return ShouldRefuseModeChange(next, IsGloopsRecordingNow());
         }
 
         public void DrawWindow(int windowID)

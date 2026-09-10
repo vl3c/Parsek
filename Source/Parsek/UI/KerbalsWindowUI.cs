@@ -19,6 +19,21 @@ namespace Parsek
 
         private bool showKerbalsWindow;
         private Rect kerbalsWindowRect;
+        /// <summary>
+        /// The live window rect, readable and writable from outside the draw pass.
+        /// <para>Two consumers: an in-game test that needs the measured rect, and the
+        /// automation-only <c>UiAction op=rect</c> seam op, which places and enlarges a
+        /// window so one capture shows more rows than the default size fits. Writing it is
+        /// safe before the first draw as well as after: <c>DrawIfOpen</c> only seeds its
+        /// default when <c>width &lt; 1</c>, so a commanded rect suppresses the seed rather
+        /// than being overwritten by it.</para>
+        /// </summary>
+        internal Rect WindowRectForTesting
+        {
+            get { return kerbalsWindowRect; }
+            set { kerbalsWindowRect = value; }
+        }
+
         private bool kerbalsWindowHasInputLock;
         private bool isResizingKerbalsWindow;
         private Vector2 kerbalsScrollPos;
@@ -70,6 +85,23 @@ namespace Parsek
 
         // Transient tab selection for the Kerbals window. Matches the Career State pattern.
         private int selectedTab;
+
+        /// <summary>
+        /// The transient tab selection, exposed the way <c>RecordingsTableUI</c> and
+        /// <c>CareerStateWindowUI</c> expose theirs: so a test can pin the order, and so the
+        /// automation-only <c>UiAction op=tab</c> seam op can select a tab for a screenshot
+        /// without a synthetic click. Transient either way - nothing persists it.
+        /// </summary>
+        internal int SelectedTabForTesting
+        {
+            get { return selectedTab; }
+            set { selectedTab = value; }
+        }
+
+        /// <summary>How many tabs the toolbar draws. Read by the seam's tab-vocabulary
+        /// coverage cell so the wire token list cannot drift from the real toolbar.</summary>
+        internal static int TabCountForTesting { get { return TabLabels.Length; } }
+
 
         // GUIContent (not bare strings) so each tab explains itself in the bottom help
         // strip on hover - the tab names are the two least obvious words in the window.

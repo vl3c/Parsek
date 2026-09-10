@@ -208,6 +208,12 @@ namespace Parsek.TestCommands
         // Distinct from TimeJump above: that one epoch-shifts the clock with the vessel
         // frozen in place, this one simulates forward so the vessel travels.
         void WarpToUT(ParsedCommand cmd);
+
+        // ----- GUI census (additive) -----
+        // CaptureScreenshot takes one PNG into the directory run.py harvests; UiAction
+        // opens / tabs / sizes the Parsek windows so there is something in the frame.
+        void CaptureScreenshot(ParsedCommand cmd);
+        void UiAction(ParsedCommand cmd);
     }
 
     /// <summary>The scene/state a verb requires before it may execute.</summary>
@@ -370,6 +376,18 @@ namespace Parsek.TestCommands
                 // input lock, a backward or malformed target) are executor-side and typed
                 // REJECTED.
                 ["WarpToUT"] = VerbSceneRequirement.RequiresFlight,
+                // GUI census. CaptureScreenshot is AnyScene, the ExportRenderManifest
+                // row: a screenshot is meaningful in every settled scene (that is the
+                // point of a census that walks KSC and FLIGHT), and the safe-point gate
+                // above already refuses to run during LOADING, a transition or the
+                // settle window - which is exactly when a capture would photograph a
+                // black frame. UiAction is RequiresGameLoaded, NOT RequiresFlight, for
+                // the ListHandles reason: the Parsek UI is hosted in SPACECENTER as well
+                // as FLIGHT, and a KSC census under a RequiresFlight row would defer to
+                // its budget and TIMEOUT. A scene that hosts no Parsek UI at all is the
+                // verb's own REJECTED (ui-host-unavailable), not a defer.
+                ["CaptureScreenshot"] = VerbSceneRequirement.AnyScene,
+                ["UiAction"] = VerbSceneRequirement.RequiresGameLoaded,
             };
 
         /// <summary>

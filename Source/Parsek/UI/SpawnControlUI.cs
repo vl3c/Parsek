@@ -15,6 +15,21 @@ namespace Parsek
         // Spawn Control window
         private bool showSpawnControlWindow;
         private Rect spawnControlWindowRect;
+        /// <summary>
+        /// The live window rect, readable and writable from outside the draw pass.
+        /// <para>Two consumers: an in-game test that needs the measured rect, and the
+        /// automation-only <c>UiAction op=rect</c> seam op, which places and enlarges a
+        /// window so one capture shows more rows than the default size fits. Writing it is
+        /// safe before the first draw as well as after: <c>DrawIfOpen</c> only seeds its
+        /// default when <c>width &lt; 1</c>, so a commanded rect suppresses the seed rather
+        /// than being overwritten by it.</para>
+        /// </summary>
+        internal Rect WindowRectForTesting
+        {
+            get { return spawnControlWindowRect; }
+            set { spawnControlWindowRect = value; }
+        }
+
         private bool spawnControlWindowHasInputLock;
         // Internal: see CareerStateWindowUI.CareerStateInputLockId (design 7.2 close set).
         internal const string SpawnControlInputLockId = "Parsek_SpawnControlWindow";

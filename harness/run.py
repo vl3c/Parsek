@@ -912,6 +912,14 @@ def stage_fixture(spec: Dict, instance_dir: str, runtime: Runtime,
         # Fixtures may not be committed (heavy); a missing template is a staging
         # failure, surfaced by the caller as INVALID(admission-adjacent staging).
         logger.error("Stage", "save template missing: %s" % template_abs)
+        # An OPERATOR-LOCAL template (fixtures/local-saves/...) is EXPECTED to be
+        # absent on any machine but the operator's, so the useful thing to add is the
+        # command that produces it rather than a second way of saying it is missing.
+        # The verdict is unchanged either way - this is one extra error LINE, not a
+        # different classification.
+        hint = hlib.local_fixture_hint(save_template)
+        if hint:
+            logger.error("Stage", "save template: %s" % hint)
         return False, run_save_name, "staging"
     if os.path.isdir(target_save):
         shutil.rmtree(target_save, ignore_errors=True)

@@ -1068,7 +1068,12 @@ class SpecValidationRejectTests(unittest.TestCase):
         # 33 / 5 after WarpToUT, an ADDITION again (the first number moves alone):
         # the reserved envelope never carried a warp verb, and TimeJump - the only
         # other clock verb - was already implemented and does a DIFFERENT thing.
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 33)
+        # 35 / 5 after the GUI-census pair (CaptureScreenshot + UiAction), an ADDITION
+        # again and therefore the first number moving alone - by TWO this time, which is
+        # the other half of the arithmetic signature: an addition of N verbs moves one
+        # number by N, a promotion of N moves both by N in opposite directions, and a
+        # half-done promotion moves the first without the second.
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 35)
         self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 5)
         # Disjointness, asserted rather than assumed: Classify checks Implemented
         # first in the C# mirror, so a leftover reserved row would be invisible.
@@ -13875,6 +13880,263 @@ class SeamVerbTailRoleTests(unittest.TestCase):
                              hlib.seam_verb_tail_role(unknown), unknown)
 
 
+class GuiCensusSeamVerbTests(unittest.TestCase):
+    """The GUI-census pair (`CaptureScreenshot` + `UiAction`), whose harness-side
+    surface is three tables and two step validators.
+
+    The pair exists because a GUI review had no evidence surface: the always-collect leg
+    has harvested `<instance>/Screenshots/` since V3 and `tools/contact_sheet.py` has
+    rendered whatever it found, but nothing ever wrote a file there, and every Parsek
+    window's open flag is only ever written by a player click. These cells hold the
+    harness half of that: the vocabularies a spec names must agree with the C# ones, and
+    each verb's role must be the one its side effects actually justify."""
+
+    def test_both_are_implemented_and_neither_is_a_promotion(self):
+        for verb in ("CaptureScreenshot", "UiAction"):
+            with self.subTest(verb=verb):
+                self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
+                self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
+
+    def test_neither_is_a_deferred_verb_and_both_ride_the_default_budget(self):
+        # CaptureScreenshot IS two-phase, and this is the interesting row: it is
+        # deliberately NOT a DEFERRED_SEAM_VERB, because its completion is a file poll
+        # that lands in a frame or two rather than a wait that can legitimately run
+        # minutes. The EnterWatchMode shape exactly - a capture that has not landed
+        # within the 60 s default is broken, not slow, and putting it in the deferred
+        # family would make the harness out-wait a real failure.
+        for verb in ("CaptureScreenshot", "UiAction"):
+            with self.subTest(verb=verb):
+                self.assertNotIn(verb, hlib.DEFERRED_SEAM_VERBS)
+                self.assertNotIn(verb, hlib.DISPATCH_DEFERRAL_BUDGET_SECONDS)
+                self.assertEqual(hlib.DISPATCH_DEFERRAL_DEFAULT_SECONDS,
+                                 hlib.dispatch_deferral_budget(verb))
+
+    def test_the_two_role_tables_disagree_about_them_on_purpose(self):
+        # CaptureScreenshot writes ONE png and touches nothing else: ExportRenderManifest's
+        # `inert` row. UiAction's `op=complexity` PERSISTS uiComplexityMode through
+        # ParsekSettingsPersistence and then runs the Advanced -> Basic close set, which
+        # is SetSetting's own `world-mutating` row - so the pair splits on the tail axis
+        # even though both are `recording` on the post-mission axis.
+        self.assertEqual(hlib.TAIL_ROLE_INERT,
+                         hlib.SEAM_VERB_TAIL_ROLE["CaptureScreenshot"])
+        self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING,
+                         hlib.SEAM_VERB_TAIL_ROLE["UiAction"])
+        for verb in ("CaptureScreenshot", "UiAction"):
+            with self.subTest(verb=verb):
+                self.assertEqual(hlib.POST_MISSION_ROLE_RECORDING,
+                                 hlib.SEAM_VERB_POST_MISSION_ROLE[verb])
+                self.assertFalse(hlib.post_mission_step_gates(verb))
+
+    def test_the_non_mutating_list_agrees_with_the_c_sharp_source(self):
+        """Reads OUTSIDE harness/, like the implemented-verb mirror above and for the
+        same reason: the C# `NonMutatingVerbs` set drives FlushAndQuit's save
+        suppression and is DOCUMENTED as picked on the same underlying fact as this
+        module's TAIL_ROLE_INERT members. The one deliberate difference is
+        FlushAndQuit, which hlib calls cleanup (it is the READER of the latch, so
+        treating it as mutating would clear the latch on the very dispatch that
+        consults it), so it is excluded by name.
+
+        Without this cell, adding an inert verb to one side and not the other is
+        invisible: a verb hlib calls inert but C# calls mutating merely saves once more
+        than it needed, while the reverse - C# non-mutating, hlib world-mutating -
+        SUPPRESSES a save the run wanted."""
+        path = os.path.join(PARSEK_SOURCE_DIR, "TestCommands", "TestCommandVerbs.cs")
+        self.assertTrue(os.path.isfile(path),
+                        "the C# verb table moved; this mirror is vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            text = fh.read()
+        cs_non_mutating = set(cs_initializer_literals(text, "NonMutatingVerbs"))
+        self.assertIn("CaptureScreenshot", cs_non_mutating,
+                      "CaptureScreenshot must be non-mutating on the C# side too, or "
+                      "FlushAndQuit saves again after a capture that changed nothing")
+        self.assertNotIn("UiAction", cs_non_mutating,
+                         "UiAction persists uiComplexityMode on op=complexity, so a "
+                         "non-mutating row there would SUPPRESS a save the run wanted")
+        hlib_inert = {v for v, role in hlib.SEAM_VERB_TAIL_ROLE.items()
+                      if role == hlib.TAIL_ROLE_INERT}
+        self.assertEqual(hlib_inert, cs_non_mutating - {"FlushAndQuit"},
+                         "the two inert sets have drifted (FlushAndQuit excluded by "
+                         "name - it is the latch's reader, not a mutator)")
+
+    def test_the_window_and_op_vocabularies_mirror_the_c_sharp_tables(self):
+        """Reads OUTSIDE harness/ as well. A window token is named twice in a census
+        spec - once in the step and once inside the capture label - so a rename on the
+        C# side that this table did not follow is a typed REJECTED after a whole KSP
+        boot, and the closed-value validator would happily pass the stale spelling."""
+        path = os.path.join(PARSEK_SOURCE_DIR, "TestCommands", "TestCommandUiAction.cs")
+        self.assertTrue(os.path.isfile(path),
+                        "the C# UiAction table moved; this mirror is vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            text = fh.read()
+        # The window tokens are declared as `internal const string <Name>Window = "x";`
+        # rows; read the VALUES so a constant rename does not red this while a token
+        # rename does.
+        found = re.findall(r'internal const string \w+Window = "([a-z]+)";', text)
+        self.assertEqual(sorted(hlib.UIACTION_WINDOW_VALUES), sorted(found),
+                         "hlib.UIACTION_WINDOW_VALUES must be exactly the C# window "
+                         "tokens")
+        for op in hlib.UIACTION_OP_VALUES:
+            with self.subTest(op=op):
+                self.assertIn('OpToken = "%s"' % op, text)
+        for mode in hlib.UIACTION_MODE_VALUES:
+            with self.subTest(mode=mode):
+                self.assertIn('ModeToken = "%s"' % mode, text)
+        # Every tab token this module offers must appear in the C# table too.
+        for window, tabs in sorted(hlib.UIACTION_WINDOW_TABS.items()):
+            for tab in tabs:
+                with self.subTest(window=window, tab=tab):
+                    self.assertIn('"%s"' % tab, text)
+        # And the windows this module says have NO tabs must not be in the tab map: the
+        # absence is what makes op=tab on them a `window-has-no-tabs` REJECTED rather
+        # than a silently ignored arg.
+        for window in hlib.UIACTION_WINDOW_VALUES:
+            if window not in hlib.UIACTION_WINDOW_TABS:
+                with self.subTest(window=window):
+                    self.assertNotIn(window, hlib.UIACTION_WINDOW_TABS)
+
+    # ----- the two step validators -----
+
+    def test_capture_requires_a_filename_safe_label(self):
+        self.assertTrue(any("REQUIRES" in e for e in
+                            hlib.validate_capture_screenshot_step(0, {})))
+        self.assertEqual([], hlib.validate_capture_screenshot_step(
+            0, {"label": "ksc-main-advanced"}))
+        for bad in ("../escape", "dir/label", "has space", "-leading", "", "."):
+            with self.subTest(label=bad):
+                errors = hlib.validate_capture_screenshot_step(0, {"label": bad})
+                self.assertTrue(any("filename-safe" in e for e in errors),
+                                "%r must be rejected: %s" % (bad, errors))
+
+    def test_capture_supersize_is_optional_but_range_checked(self):
+        self.assertEqual([], hlib.validate_capture_screenshot_step(0, {"label": "a"}))
+        self.assertEqual([], hlib.validate_capture_screenshot_step(
+            0, {"label": "a", "superSize": "2"}))
+        for bad in ("0", "5", "-1", "1.5", "two"):
+            with self.subTest(superSize=bad):
+                errors = hlib.validate_capture_screenshot_step(
+                    0, {"label": "a", "superSize": bad})
+                self.assertTrue(any("integer 1.." in e for e in errors), errors)
+
+    def test_uiaction_requires_an_op(self):
+        errors = hlib.validate_ui_action_step(0, {})
+        self.assertTrue(any("REQUIRES" in e and "op" in e for e in errors), errors)
+
+    def test_uiaction_window_ops_require_a_window_and_the_others_refuse_one(self):
+        for op in ("open", "close", "tab", "rect"):
+            with self.subTest(op=op):
+                errors = hlib.validate_ui_action_step(0, {"op": op})
+                self.assertTrue(any("window-arg-missing" in e for e in errors), errors)
+        for op in ("complexity", "describe"):
+            with self.subTest(op=op):
+                errors = hlib.validate_ui_action_step(
+                    0, {"op": op, "window": "settings"})
+                self.assertTrue(any("silently ignored" in e for e in errors), errors)
+
+    def test_uiaction_tab_is_validated_against_that_windows_own_vocabulary(self):
+        # The typo class this exists for: `tab = "recordings"` on the career window is a
+        # real tab NAME on a DIFFERENT window, so a flat closed-value set over the union
+        # of every tab token would pass it and the spec would cost a boot to fix.
+        self.assertEqual([], hlib.validate_ui_action_step(
+            0, {"op": "tab", "window": "career", "tab": "facilities"}))
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "tab", "window": "career", "tab": "recordings"})
+        self.assertTrue(any("not a tab of window" in e for e in errors), errors)
+
+    def test_uiaction_tab_on_an_untabbed_window_names_the_tabbed_ones(self):
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "tab", "window": "settings", "tab": "looping"})
+        self.assertTrue(any("has NO tab selector" in e for e in errors), errors)
+
+    def test_uiaction_rect_requires_all_four_coordinates(self):
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "rect", "window": "missions", "x": "0", "y": "0", "w": "800"})
+        self.assertTrue(any("rect-arg-missing" in e and "h" in e for e in errors), errors)
+        self.assertEqual([], hlib.validate_ui_action_step(
+            0, {"op": "rect", "window": "missions", "x": "0", "y": "0",
+                "w": "800", "h": "600"}))
+
+    def test_uiaction_rect_coordinates_must_be_dot_decimal(self):
+        # The wire is dot-decimal by contract and the seam parses with InvariantCulture,
+        # so a comma decimal from a ro-RO / de-DE author is a REJECTED after a boot.
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "rect", "window": "missions", "x": "0,5", "y": "0",
+                "w": "800", "h": "600"})
+        self.assertTrue(any("dot-decimal" in e for e in errors), errors)
+
+    def test_uiaction_stray_op_specific_args_are_flagged(self):
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "open", "window": "settings", "x": "0", "y": "0",
+                "w": "800", "h": "600"})
+        self.assertTrue(any("only mean anything on op=rect" in e for e in errors), errors)
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "open", "window": "settings", "mode": "basic"})
+        self.assertTrue(any("only op=complexity reads it" in e for e in errors), errors)
+
+    def test_uiaction_complexity_requires_a_mode(self):
+        errors = hlib.validate_ui_action_step(0, {"op": "complexity"})
+        self.assertTrue(any("mode-arg-missing" in e for e in errors), errors)
+        self.assertEqual([], hlib.validate_ui_action_step(
+            0, {"op": "complexity", "mode": "advanced"}))
+
+    def test_an_unknown_op_does_not_cascade_into_per_op_complaints(self):
+        # The closed-value row in validate_spec already errors on the op VALUE; adding a
+        # second message about a missing `window` for an op that does not exist would
+        # send an author looking at the wrong arg.
+        self.assertEqual([], hlib.validate_ui_action_step(0, {"op": "toggle"}))
+
+    def test_describe_needs_nothing(self):
+        self.assertEqual([], hlib.validate_ui_action_step(0, {"op": "describe"}))
+
+
+class LocalFixtureTemplateTests(unittest.TestCase):
+    """The operator-local fixture prefix (`fixtures/local-saves/`).
+
+    A GUI census wants a host with enough real content that every window has rows to
+    draw - the operator's own multi-megabyte career - which cannot be committed and
+    cannot be synthesised (the point is the density, not a shape). These cells hold the
+    two properties that make an uncommitted template safe: the classification is derived
+    from the PATH rather than from a spec-id list, and a missing local fixture's error
+    names the command that produces it instead of only saying a directory is absent."""
+
+    def test_only_the_local_prefix_classifies_as_local(self):
+        self.assertTrue(hlib.is_local_fixture_template("fixtures/local-saves/c1-gui"))
+        # Backslashes too: a spec authored on Windows may carry them.
+        self.assertTrue(hlib.is_local_fixture_template(
+            "fixtures\\local-saves\\c1-gui"))
+        for committed in ("fixtures/saves/fresh-career", "fixtures/saves/b1-pad-craft",
+                          "", None):
+            with self.subTest(template=committed):
+                self.assertFalse(hlib.is_local_fixture_template(committed))
+
+    def test_the_prefix_is_not_under_the_committed_fixture_dir(self):
+        # THE deciding property, and it is a claim about a DIFFERENT suite:
+        # test_saveparse's committed-set sweep lists the directories under
+        # fixtures/saves/ and compares them to a pinned set, so a staged local fixture
+        # THERE would red that cell on the one machine that can actually fly the lane.
+        self.assertFalse(hlib.LOCAL_FIXTURE_PREFIX.startswith("fixtures/saves/"))
+        self.assertTrue(hlib.LOCAL_FIXTURE_PREFIX.startswith("fixtures/"))
+
+    def test_the_hint_names_the_staging_tool_and_the_leaf(self):
+        hint = hlib.local_fixture_hint("fixtures/local-saves/c1-gui")
+        self.assertIsNotNone(hint)
+        self.assertIn(hlib.LOCAL_FIXTURE_STAGING_TOOL, hint)
+        self.assertIn("--as c1-gui", hint)
+
+    def test_no_hint_for_a_committed_template(self):
+        # A missing COMMITTED fixture is a repo fault ("that directory should be here"),
+        # so attaching a staging command to it would be misleading advice.
+        self.assertIsNone(hlib.local_fixture_hint("fixtures/saves/fresh-career"))
+
+    def test_the_staging_tool_exists(self):
+        # Anti-vacuity: the hint tells an operator to run a script, so the script must
+        # be there. Reads outside harness/lib on purpose.
+        path = os.path.join(os.path.dirname(HARNESS_ROOT),
+                            *hlib.LOCAL_FIXTURE_STAGING_TOOL.split("/"))
+        self.assertTrue(os.path.isfile(path),
+                        "the hint names %s, which does not exist"
+                        % hlib.LOCAL_FIXTURE_STAGING_TOOL)
+
+
 class PlanUnmetMissionTailTests(unittest.TestCase):
     """Guards (design "The unmet-mission tail"): after an UNMET mission step only the
     CLEANUP tail runs. The motivating incident is EVA-4-atmo-chute flight 1
@@ -17532,6 +17794,15 @@ class SharedShipsManifestTests(unittest.TestCase):
             if name in self.PENDING_FIXTURE_LANES:
                 # Committed ahead of its fixture; guarded by the self-retiring
                 # cell above rather than skipped silently.
+                continue
+            if hlib.is_local_fixture_template(template):
+                # An OPERATOR-LOCAL template (fixtures/local-saves/...) is UNCOMMITTED by
+                # construction - the directory is gitignored and only the operator can
+                # stage it - so "names a real fixture directory" is not a property this
+                # sweep can assert. It is asserted at RUN time instead, fail-closed and
+                # pre-boot: `stage_fixture` refuses with INVALID(staging) and names the
+                # staging script (hlib.local_fixture_hint). Skipped by PATH rather than by
+                # a spec-id list so a new local lane cannot drift out of step with it.
                 continue
             leaf = template.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
             self.assertIn(leaf, saves,

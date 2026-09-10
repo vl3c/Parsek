@@ -784,6 +784,14 @@ namespace Parsek.TestCommands
                 TryCompleteTimeJump(now);
                 return;
             }
+            // GUI census: the capture poll. Its own bounded completion (the LoadGame
+            // contract) - the file has to exist at a stable size before the terminal, so
+            // a following step is ordered after the write.
+            if (completionVerb == "CaptureScreenshot")
+            {
+                TryCompleteCaptureScreenshot(now);
+                return;
+            }
             if (completionVerb == "WarpToUT")
             {
                 // The REAL warp's sibling partial. Its completion polls the advancing
@@ -1246,6 +1254,13 @@ namespace Parsek.TestCommands
         // so it owns a bounded TryCompleteWarpToUT in TryCompleteTwoPhaseCore.
         void ITestCommandExecutor.WarpToUT(ParsedCommand cmd) => WarpToUTImpl(cmd);
 
+        // GUI census. CaptureScreenshot is TWO-PHASE (Unity writes the PNG at the end of
+        // a later frame, so it owns a bounded TryCompleteCaptureScreenshot); UiAction is
+        // SINGLE-PHASE in every op and has no TryComplete* counterpart. Bodies live in
+        // the sibling ParsekTestCommandAddon.CaptureScreenshot.cs / .UiAction.cs partials.
+        void ITestCommandExecutor.CaptureScreenshot(ParsedCommand cmd) => CaptureScreenshotImpl(cmd);
+        void ITestCommandExecutor.UiAction(ParsedCommand cmd) => UiActionImpl(cmd);
+
         private void InvokeExecutor(ParsedCommand cmd)
         {
             // Batch-baseline latch clear (finding 1). Any verb that can change state a
@@ -1298,6 +1313,8 @@ namespace Parsek.TestCommands
                 case "DeleteRecording": exec.DeleteRecording(cmd); break;
                 case "ListHandles": exec.ListHandles(cmd); break;
                 case "WarpToUT": exec.WarpToUT(cmd); break;
+                case "CaptureScreenshot": exec.CaptureScreenshot(cmd); break;
+                case "UiAction": exec.UiAction(cmd); break;
                 default:
                     // Unreachable: DecideDispatch rejects unknown/reserved verbs before Execute.
                     SetExecResult("ERROR", null, "unknown-command");

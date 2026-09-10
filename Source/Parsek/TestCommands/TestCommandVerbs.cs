@@ -173,6 +173,32 @@ namespace Parsek.TestCommands
             // which of the two clock mechanisms a spec exercised, exactly the argument
             // that kept InvokeRewindToLaunch separate from InvokeRewind.
             "WarpToUT",
+            // The GUI-census pair. ADDITIVE (33 -> 35 implemented, reserved unchanged
+            // at 5): the reserved envelope never carried a screenshot or a UI-driving
+            // verb, so neither is a promotion. They exist because a GUI review has no
+            // evidence surface at all: the harness already harvests the instance's
+            // Screenshots/ dir into results/<runId>_shots/ and the V3 contact sheet
+            // already renders whatever it finds, but nothing ever WROTE a file there
+            // (the only screenshot path in the game is the player's F1 key), and every
+            // Parsek window's open flag is only ever written by a player click - so an
+            // unattended run draws no window and photographs nothing.
+            //   CaptureScreenshot label=<name> [superSize=1-4] takes one PNG into the
+            //     harvested directory. TWO-PHASE, because ScreenCapture.CaptureScreenshot
+            //     returns before Unity has written the file: the head is held until the
+            //     file exists at a stable size, which is what makes the NEXT step
+            //     ordered after the capture. Rides the 60 s default budget (the
+            //     EnterWatchMode shape) - a capture that has not landed in a minute is
+            //     broken, not slow.
+            //   UiAction op=<open|close|tab|complexity|rect|describe> drives the
+            //     EXISTING internal state (IsOpen, the tab fields,
+            //     the production Basic/Advanced interface-mode setter) and adds no
+            //     player-facing surface.
+            //     SINGLE-PHASE in every op, including complexity: the production setter
+            //     only queues the draw-visible value, and the applier then calls the
+            //     production Update-latch, which is legitimate because the pump itself
+            //     runs in Update.
+            "CaptureScreenshot",
+            "UiAction",
         };
 
         // Reserved (recognized, not implemented in v1): 5 verbs.
@@ -225,6 +251,13 @@ namespace Parsek.TestCommands
             "MissionMark",           // stamps one log line, nothing else (hlib: TAIL_ROLE_INERT)
             "ExportRenderManifest",  // read-only w.r.t. the game world; writes only the manifest file
             "ListHandles",           // enumerates live handles, writes nothing (hlib: TAIL_ROLE_INERT)
+            // CaptureScreenshot writes ONE png in the KSP tree and touches no vessel,
+            // save, career or Parsek persisted state: the ExportRenderManifest row
+            // exactly (hlib: TAIL_ROLE_INERT). Its sibling UiAction is deliberately
+            // ABSENT from this list - `op=complexity` persists the interface-mode setting
+            // ParsekSettingsPersistence, which is SetSetting's own row, so it is
+            // state-mutating and FlushAndQuit must still save after it.
+            "CaptureScreenshot",     // writes one png, nothing else (hlib: TAIL_ROLE_INERT)
             "FlushAndQuit",          // the reader of the latch, not a mutator of the world
         };
 

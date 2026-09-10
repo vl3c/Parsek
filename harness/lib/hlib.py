@@ -326,6 +326,29 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     # and a DEFERRED_SEAM_VERB (below) - its completion polls an advancing clock and
     # can legitimately run minutes when stock clamps the ladder to 1x.
     "WarpToUT",
+    # The GUI-census pair. ADDITIVE (33 -> 35 implemented, reserved unchanged at 5):
+    # the reserved envelope never carried a screenshot verb or a UI-driving verb, so
+    # neither is a promotion of any reserved name. They exist because a GUI review had
+    # NO evidence surface at all, and both halves of that gap were measured rather
+    # than assumed:
+    #   - the always-collect leg has harvested `<instance>/Screenshots/` into
+    #     `results/<runId>_shots/` since V3 and `tools/contact_sheet.py` renders
+    #     whatever it finds, but nothing ever WROTE a file there - the only screenshot
+    #     path in the game is the player's F1 key, so that tool's empty-state text
+    #     ("no screenshots captured (the V4 capture verbs feed this)") has been the
+    #     truth on every run to date;
+    #   - every Parsek window's open flag is only ever written by a player click (the
+    #     toolbar for the main window, then one button per sub-window), so an
+    #     unattended run draws no window and a capture would photograph an empty scene.
+    # CaptureScreenshot is TWO-PHASE (Unity writes the PNG at the end of a later frame,
+    # so the head is held until the file exists at a stable size - which is what makes
+    # the NEXT step ordered after the capture) but is deliberately NOT a
+    # DEFERRED_SEAM_VERB: it rides the 60 s default budget, the EnterWatchMode shape,
+    # because a capture that has not landed within a minute is broken and not slow.
+    # UiAction is SINGLE-PHASE in every op, including `complexity` - the production
+    # setter only queues the draw-visible value and the applier then calls the
+    # production Update-latch, which is legitimate because the seam pump runs in Update.
+    "CaptureScreenshot", "UiAction",
 )
 
 # The M-A7 export verb, named once. Referenced by the verb/block coupling rule in
@@ -832,6 +855,23 @@ SEAM_VERB_TAIL_ROLE: Dict[str, str] = {
     # but because an enumeration taken on a run that is already terminally INVALID
     # observes nothing anyone will act on.
     "ListHandles": TAIL_ROLE_INERT,
+    # The GUI-census pair, and the two rows DISAGREE - which is the point of having
+    # both.
+    #   CaptureScreenshot is `inert` for ExportRenderManifest's reason exactly: it
+    #     writes ONE png under the KSP root and touches no vessel, no save, no career
+    #     and no Parsek persisted state. On an UNMET tail it is the kind of step worth
+    #     still driving (a picture of the failed flight is forensics), and it is skipped
+    #     there anyway only because the tail runs cleanup alone.
+    #   UiAction is `world-mutating`, and NOT because it opens windows. `op=complexity`
+    #     goes through the production ParsekUI.SetUiComplexityMode, which PERSISTS
+    #     uiComplexityMode via ParsekSettingsPersistence and then runs the Advanced ->
+    #     Basic close set and the Missions tab clamp - a persisted Parsek setting, which
+    #     is SetSetting's own row. The other ops are weaker (a window open flag is
+    #     transient), but this table is per-VERB and its fail-safe direction is
+    #     world-mutating, so the honest label costs nothing: the unmet tail skips
+    #     `inert` too.
+    "CaptureScreenshot": TAIL_ROLE_INERT,
+    "UiAction": TAIL_ROLE_WORLD_MUTATING,
 }
 
 # ---------------------------------------------------------------------------
@@ -976,6 +1016,16 @@ SEAM_VERB_POST_MISSION_ROLE: Dict[str, str] = {
     # RewindPoints / committed recordings / background members exist), never a claim
     # about a kerbal's physical in-world state, which is the whole content of `outcome`.
     "ListHandles": POST_MISSION_ROLE_RECORDING,
+    # The GUI-census pair. Both `recording`, and neither is near the line: the
+    # `outcome` set is exactly the verbs whose verdict is a claim about a KERBAL's
+    # physical in-world state that no other verifier re-derives. CaptureScreenshot's OK
+    # means "a png of N bytes is on disk" and UiAction's means "the window / tab / mode
+    # is as commanded" - statements about instrumentation and about Parsek's own UI
+    # state. Gating on either would route a harvest hiccup or a UI-state defect through
+    # the mission-outcome subkind, which is reserved for a flight that failed after the
+    # handoff.
+    "CaptureScreenshot": POST_MISSION_ROLE_RECORDING,
+    "UiAction": POST_MISSION_ROLE_RECORDING,
 }
 
 
@@ -1967,13 +2017,254 @@ LISTHANDLES_KIND_VALUES: Tuple[str, ...] = ("rewindpoints", "committed", "active
 
 # arg key -> (the ONLY verb that reads it, its closed value set). Iterated by
 # validate_spec, so a fifth such arg is one row rather than a fifth copied block.
+# GUI census: the UiAction vocabularies, mirrored from the C# pure half
+# (TestCommands/TestCommandUiAction.cs). Mirrored rather than derived for the reason
+# every other closed-arg row is: a spec that names a window or an op the seam does not
+# know is a typed REJECTED that costs a whole KSP boot to learn, and these tables catch
+# it before launch. The ORDER of UIACTION_WINDOW_VALUES is the C# table's order, which
+# is the main window's own button order.
+UIACTION_OP_KEY = "op"
+UIACTION_OP_VALUES: Tuple[str, ...] = (
+    "open", "close", "tab", "complexity", "rect", "describe")
+UIACTION_WINDOW_KEY = "window"
+UIACTION_WINDOW_VALUES: Tuple[str, ...] = (
+    "main", "missions", "timeline", "kerbals", "career", "logistics", "structure",
+    "settings", "spawncontrol", "gloops", "testrunner")
+UIACTION_MODE_KEY = "mode"
+UIACTION_MODE_VALUES: Tuple[str, ...] = ("basic", "advanced")
+
+# Per-window tab vocabularies. A window absent from this map has NO tab selector, and
+# `op=tab` against it is the seam's `window-has-no-tabs` REJECTED - which is why the
+# absence is meaningful here and not just missing data. Settings is the one that looks
+# tabbed and is not: its six sections all draw in one pass (three hidden in Basic), so
+# the Basic/Advanced capture PAIR is its section coverage. Logistics' section bubbles
+# are expand-collapse, not a selector.
+UIACTION_WINDOW_TABS: Dict[str, Tuple[str, ...]] = {
+    "missions": ("missions", "recordings"),
+    "timeline": ("overview", "details", "rewindff", "refly"),
+    "kerbals": ("roster", "outcomes"),
+    "career": ("contracts", "strategies", "facilities", "milestones"),
+}
+
+# The ops that REQUIRE a `window=` arg (mirroring TestCommandUiAction.OpNeedsWindow).
+UIACTION_OPS_NEEDING_WINDOW: Tuple[str, ...] = ("open", "close", "tab", "rect")
+
+# The four rect args, all REQUIRED together on `op=rect`: a partial rect mixes a
+# commanded position with a stale size, so the capture it produces is not reproducible.
+UIACTION_RECT_KEYS: Tuple[str, ...] = ("x", "y", "w", "h")
+
+# CaptureScreenshot's label rule, mirroring TestCommandCaptureScreenshot.IsValidLabel -
+# which is itself the harness's own filename-safe id shape (`_ID_RE`), because the label
+# becomes a filename in the harvested artifact directory.
+CAPTURE_LABEL_KEY = "label"
+CAPTURE_LABEL_MAX_LENGTH = 96
+_CAPTURE_LABEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+CAPTURE_SUPERSIZE_KEY = "superSize"
+CAPTURE_SUPERSIZE_MAX = 4
+
+
+def validate_capture_screenshot_step(index: int, step_args: Dict) -> List[str]:
+    """Pre-launch shape checks for one ``CaptureScreenshot`` step.
+
+    ``label=`` is REQUIRED and filename-safe; ``superSize=`` is optional and an integer
+    in ``[1, 4]``. Both mirror the C# parses exactly, so every fault this catches would
+    otherwise be a typed REJECTED after a whole KSP boot. Note ``label`` is deliberately
+    NOT a ``VERB_SCOPED_CLOSED_ARGS`` row: ``MissionMark`` already owns that arg name,
+    and that table asserts a single owner verb per key."""
+    errors: List[str] = []
+    raw = step_args.get(CAPTURE_LABEL_KEY)
+    if raw is None:
+        errors.append(
+            "driver.steps[%d].args.%s: CaptureScreenshot REQUIRES it - the label is the "
+            "capture's filename and the verb has no default, so the seam answers "
+            "REJECTED label-arg-missing" % (index, CAPTURE_LABEL_KEY))
+    else:
+        text = str(raw)
+        if not _CAPTURE_LABEL_RE.match(text) or len(text) > CAPTURE_LABEL_MAX_LENGTH:
+            errors.append(
+                "driver.steps[%d].args.%s: %r is not filename-safe (must start "
+                "alphanumeric, then alphanumerics / . / - / _ only, max %d chars). The "
+                "label becomes a file in the harvested artifact directory, so the seam "
+                "is fail-closed and answers REJECTED label-arg-invalid"
+                % (index, CAPTURE_LABEL_KEY, text, CAPTURE_LABEL_MAX_LENGTH))
+    if CAPTURE_SUPERSIZE_KEY in step_args:
+        text = str(step_args.get(CAPTURE_SUPERSIZE_KEY))
+        ok = text.isdigit() and 1 <= int(text) <= CAPTURE_SUPERSIZE_MAX
+        if not ok:
+            errors.append(
+                "driver.steps[%d].args.%s: %r must be an integer 1..%d. The seam "
+                "REJECTS anything else rather than clamping, because a typo that "
+                "silently captured at 1x would read as a resolution problem"
+                % (index, CAPTURE_SUPERSIZE_KEY, text, CAPTURE_SUPERSIZE_MAX))
+    return errors
+
+
+def validate_ui_action_step(index: int, step_args: Dict) -> List[str]:
+    """Pre-launch shape checks for one ``UiAction`` step.
+
+    ``op=`` is REQUIRED (the ListHandles ``kind=`` rule: there is no default op, and
+    guessing one would let a typo'd spec mutate the UI in a way it never asked for), and
+    each op's own required args are checked against it. The CLOSED-VALUE half of
+    ``op`` / ``window`` / ``mode`` is handled by ``VERB_SCOPED_CLOSED_ARGS``; this
+    function owns the per-op REQUIREDNESS and the window-dependent ``tab`` vocabulary,
+    neither of which that flat table can express."""
+    errors: List[str] = []
+    op = step_args.get(UIACTION_OP_KEY)
+    if op is None:
+        errors.append(
+            "driver.steps[%d].args.%s: UiAction REQUIRES it (one of %s). There is no "
+            "default op, so the seam answers REJECTED op-arg-missing"
+            % (index, UIACTION_OP_KEY,
+               " or ".join(repr(v) for v in UIACTION_OP_VALUES)))
+        return errors
+    op = str(op)
+    if op not in UIACTION_OP_VALUES:
+        # The closed-value row already errors on this; return early so the per-op
+        # checks below do not add a second, more confusing message about a `window`
+        # arg for an op that does not exist.
+        return errors
+
+    window = step_args.get(UIACTION_WINDOW_KEY)
+    if op in UIACTION_OPS_NEEDING_WINDOW and window is None:
+        errors.append(
+            "driver.steps[%d].args.%s: op=%s REQUIRES it (one of %s); the seam answers "
+            "REJECTED window-arg-missing"
+            % (index, UIACTION_WINDOW_KEY, op,
+               ",".join(UIACTION_WINDOW_VALUES)))
+    if op not in UIACTION_OPS_NEEDING_WINDOW and window is not None:
+        errors.append(
+            "driver.steps[%d].args.%s: op=%s does not read it, so the arg would be "
+            "silently ignored" % (index, UIACTION_WINDOW_KEY, op))
+
+    if op == "tab":
+        window_name = str(window) if window is not None else None
+        tab = step_args.get("tab")
+        if tab is None:
+            errors.append(
+                "driver.steps[%d].args.tab: op=tab REQUIRES it; the seam answers "
+                "REJECTED tab-arg-missing" % index)
+        elif window_name in UIACTION_WINDOW_VALUES:
+            allowed = UIACTION_WINDOW_TABS.get(window_name)
+            if not allowed:
+                errors.append(
+                    "driver.steps[%d].args.tab: window %r has NO tab selector, so the "
+                    "seam answers REJECTED window-has-no-tabs. The tabbed windows are "
+                    "%s" % (index, window_name,
+                            ", ".join(sorted(UIACTION_WINDOW_TABS))))
+            elif str(tab) not in allowed:
+                errors.append(
+                    "driver.steps[%d].args.tab: %r is not a tab of window %r (its tabs "
+                    "are %s). The seam's parse is fail-closed and CASE-SENSITIVE, so "
+                    "any other spelling is a typed REJECTED that costs a whole KSP boot"
+                    % (index, str(tab), window_name, ",".join(allowed)))
+    elif "tab" in step_args:
+        errors.append(
+            "driver.steps[%d].args.tab: only op=tab reads it, but this step is op=%s -- "
+            "the arg would be silently ignored" % (index, op))
+
+    if op == "complexity" and step_args.get(UIACTION_MODE_KEY) is None:
+        errors.append(
+            "driver.steps[%d].args.%s: op=complexity REQUIRES it (one of %s); the seam "
+            "answers REJECTED mode-arg-missing"
+            % (index, UIACTION_MODE_KEY,
+               " or ".join(repr(v) for v in UIACTION_MODE_VALUES)))
+    if op != "complexity" and UIACTION_MODE_KEY in step_args:
+        errors.append(
+            "driver.steps[%d].args.%s: only op=complexity reads it, but this step is "
+            "op=%s -- the arg would be silently ignored"
+            % (index, UIACTION_MODE_KEY, op))
+
+    if op == "rect":
+        missing = [k for k in UIACTION_RECT_KEYS if step_args.get(k) is None]
+        if missing:
+            errors.append(
+                "driver.steps[%d].args: op=rect REQUIRES all four of %s (missing: %s). "
+                "A partial rect mixes a commanded position with a stale size, so the "
+                "seam answers REJECTED rect-arg-missing"
+                % (index, ",".join(UIACTION_RECT_KEYS), ",".join(missing)))
+        for key in UIACTION_RECT_KEYS:
+            raw = step_args.get(key)
+            if raw is None:
+                continue
+            try:
+                float(str(raw))
+            except ValueError:
+                errors.append(
+                    "driver.steps[%d].args.%s: %r must be a dot-decimal number; the "
+                    "seam parses it with InvariantCulture and REJECTS anything else"
+                    % (index, key, str(raw)))
+    else:
+        stray = [k for k in UIACTION_RECT_KEYS if k in step_args]
+        if stray:
+            errors.append(
+                "driver.steps[%d].args: %s only mean anything on op=rect, but this step "
+                "is op=%s -- they would be silently ignored"
+                % (index, ",".join(stray), op))
+    return errors
+
+
 VERB_SCOPED_CLOSED_ARGS: Dict[str, Tuple[str, Tuple[str, ...]]] = {
     LOADGAME_SCENE_KEY: ("LoadGame", LOADGAME_SCENE_VALUES),
     LOADGAME_ALLOW_LIVE_RECORDER_KEY: ("LoadGame", LOADGAME_ALLOW_LIVE_RECORDER_VALUES),
     SWITCHCLICK_SITE_KEY: ("SimulateStockSwitchClick", SWITCHCLICK_SITE_VALUES),
     RUNTESTS_STRICT_KEY: ("RunTests", RUNTESTS_STRICT_VALUES),
     LISTHANDLES_KIND_KEY: ("ListHandles", LISTHANDLES_KIND_VALUES),
+    UIACTION_OP_KEY: ("UiAction", UIACTION_OP_VALUES),
+    UIACTION_WINDOW_KEY: ("UiAction", UIACTION_WINDOW_VALUES),
+    UIACTION_MODE_KEY: ("UiAction", UIACTION_MODE_VALUES),
 }
+
+
+# ---------------------------------------------------------------------------
+# OPERATOR-LOCAL fixture saves (GUI census).
+#
+# Every committed fixture lives under `fixtures/saves/<leaf>/` and is small enough to
+# commit. A GUI census wants the opposite kind of host: a save with enough real content
+# that every window has rows to draw - the operator's own 42 MB career, 110 recordings,
+# 323 ledger actions. That cannot be committed, and it cannot be synthesised either
+# (the point is the density, not a shape).
+#
+# So a lane may name a template under this SEPARATE prefix, staged by
+# `harness/tools/stage_local_fixture.py` from a save the operator already has. The
+# directory is gitignored, so a clone has the spec and not the bytes.
+#
+# WHY A SEPARATE PREFIX rather than another `fixtures/saves/` entry, and this is the
+# deciding reason rather than tidiness: `test_saveparse.
+# test_fixture_set_is_exactly_the_committed_set` lists the DIRECTORIES under
+# `fixtures/saves/` and compares them to a pinned set. A staged local fixture there
+# would red that cell on the operator's own machine the moment he staged it - the
+# suite would be green for everyone who cannot run the lane and red for the one person
+# who can. Under its own prefix the committed-set sweep is untouched in both states.
+LOCAL_FIXTURE_PREFIX = "fixtures/local-saves/"
+
+# The staging tool, named once. Referenced by the admission-error hint so a missing
+# fixture says what to RUN rather than only what is absent.
+LOCAL_FIXTURE_STAGING_TOOL = "harness/tools/stage_local_fixture.py"
+
+
+def is_local_fixture_template(save_template: Optional[str]) -> bool:
+    """True when ``save_template`` names an operator-local (uncommitted) fixture.
+
+    Derived from the PATH rather than from a spec-id list, deliberately: a spec is then
+    self-declaring, and the per-spec suites that must skip such a lane (they read the
+    template off disk) cannot drift out of step with a hand-maintained set."""
+    return str(save_template or "").replace("\\", "/").startswith(LOCAL_FIXTURE_PREFIX)
+
+
+def local_fixture_hint(save_template: Optional[str]) -> Optional[str]:
+    """The extra staging line a missing LOCAL fixture's error carries, or None for an
+    ordinary committed template.
+
+    A missing committed fixture is a repo fault ("that directory should be here"); a
+    missing local one is an expected state on any machine but the operator's, and the
+    only useful thing to say is which command produces it."""
+    if not is_local_fixture_template(save_template):
+        return None
+    leaf = str(save_template or "").replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+    return ("this is an OPERATOR-LOCAL fixture and is not committed (the directory is "
+            "gitignored); stage it with `python %s --from \"<a real KSP save dir>\" "
+            "--as %s` before flying this lane"
+            % (LOCAL_FIXTURE_STAGING_TOOL, leaf))
 
 
 def spec_batch_isolated(spec: Dict) -> bool:
@@ -3907,13 +4198,16 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
                     % (i, BATCH_ISOLATED_KEY, raw,
                        " or ".join(repr(v) for v in BATCH_ISOLATED_VALUES),
                        BATCH_ISOLATED_KEY))
-        # Verb-scoped closed-value args, one row each in VERB_SCOPED_CLOSED_ARGS (five as
-        # of 2026-09-09; the list is here for orientation, the TABLE is the authority):
+        # Verb-scoped closed-value args, one row each in VERB_SCOPED_CLOSED_ARGS (eight
+        # as of 2026-09-10; the list is here for orientation, the TABLE is the authority):
         #   LoadGame                   scene=              (R12)
         #   LoadGame                   allowLiveRecorder=  (RF-3/A1)
         #   SimulateStockSwitchClick   site=
         #   RunTests                   strict=             (career-ledger B.4)
         #   ListHandles                kind=               (R10; also REQUIRED, see below)
+        #   UiAction                   op=                 (GUI census; also REQUIRED)
+        #   UiAction                   window=             (GUI census)
+        #   UiAction                   mode=               (GUI census)
         # Same three failures the isolated guard above catches -- a case-variant KEY, the
         # arg on a verb that does not read it, and a value outside the closed set --
         # caught pre-launch instead of costing a KSP boot to learn.
@@ -3956,6 +4250,13 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
                 "seam answers REJECTED kind-arg-missing."
                 % (i, LISTHANDLES_KIND_KEY,
                    " or ".join(repr(v) for v in LISTHANDLES_KIND_VALUES)))
+        # GUI census: the two verbs whose required args and per-op arg sets cannot be
+        # expressed by the flat closed-value table above. Same purpose as the
+        # ListHandles block: catch a spec fault pre-launch instead of after a boot.
+        if cmd == "CaptureScreenshot":
+            errors.extend(validate_capture_screenshot_step(i, step_args))
+        elif cmd == "UiAction":
+            errors.extend(validate_ui_action_step(i, step_args))
         # R10 STATIC tier, pass 2 of 2: every ${ref.field} in this step's args must
         # be well-formed AND name an EARLIER seam step that expects OK. A fault here
         # would otherwise put a literal ${...} on the wire, where the seam resolves an
