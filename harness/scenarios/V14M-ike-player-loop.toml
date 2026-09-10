@@ -541,6 +541,22 @@ id = "V14M-ike-player-loop"
 # deliberately NOT honoured in this pass (RC-WARP assertions come at arming, on a lane
 # whose drive shape can carry them).
 # =====================================================================================
+# -------------------------------------------------------------------------------------
+# CRITERION (b) RENDER-TOKEN CONTROL, FLOWN 2026-09-10 (todo
+# V-PAIR-CRITERION-B-RENDER-CONTROL-DEBT; wave DLL, deployed sha a0abbed1)
+# -------------------------------------------------------------------------------------
+#   Run `2026-09-10_1910`, PARSEK-FAIL(expectation) attempt 1, wall 50 s. One in-place,
+#   line-anchored edit of one required element, flown alone, then reverted with `git
+#   status --short` clean:
+#     original: `phase=body-orbit surface=ProtoOrbitLine .*body=Ike`
+#     inverted: `phase=body-orbit surface=ProtoOrbitLine .*body=Eeloo`
+#   It red on EXACTLY that one element (one mismatch); saveParse PASS gating=True;
+#   renderCompose PASS gating=True; driverValidity allMet; anomalySweep hits=[]. DRIFT
+#   GATE, counted in the run's own KSP.log: original 2 line(s), inverted 0. This is the
+#   lane's logContracts-lens control. `2026-08-19_0003` (the pair's shared supersedeRows
+#   inversion) stays its save-structure control, and `2026-08-25_1052` its
+#   renderComposition-lens control.
+#
 tier = "operator"
 description = "LIVE-PROVEN AND ARMED on the full three-run discipline (BUT SEE SECTION 4: the 2026-08-28 watch-entry fix briefly flipped the two `EnterWatchMode` pins to `OK`; reading runs `2026-08-28_1932`/`_1933_a2` measured `candidates=[0 ghost=T body=T range=F]` at 449.6/449.9 km - the BODY term now PASSES via `evidence=trajectory-resolved ghostBody=Ike cached=Duna`, the RANGE term refuses, and 449.7 km > 2a = 340.9 km falsifies the co-orbital premise the chord arithmetic rested on, so the pins are back at `REJECTED`, now MEASURED with the refusing term named. The renderComposition block went off and back on in the same change - de-armed with the pin flip, RE-ARMED unchanged off confirming run `2026-08-28_1940` once the reading removed the premise, no window value moved): reading 2026-08-18_2336 (PASS attempt 1, 50 s), armed re-flight 2026-08-19_0001 (PASS attempt 1, 51 s, every gated window green), negative control 2026-08-19_0003 (correctly PARSEK-FAIL(save-structure), reverted). The player workflow (arm -> Warp-to -> cross the arrival -> Watch), twice over, on B23's Duna->Ike recording - the suite's first loop subject whose LAUNCH BODY is not Kerbin. Ike is tidally locked to Duna, so Rotation(Duna) 65,517.859 s and Orbital(Ike) 65,517.862 s are equal to 3 ms, 22x inside MissionPeriodicity's 1e-6 relative equality band: the sharpest pre-flight prediction is that the product takes a THIRD road - `method=tidal-collapse` with `zeroDrift=no` and a UNIFORM one-P cadence - distinct from both V4's re-aim and V6M's non-uniform zero-drift schedule. MEASURED: the OUTCOMES held (`zeroDrift=no`, cadence exactly one P) but the MECHANISM did not - `method=single-orbital`, because `ExtractConstraints` emits `constraints=1` with NO Rotation(Duna) at all. An ORBIT-ROOTED recording has no surface phase, so the tidal-collapse branch never gets a second constraint to collapse and phase-lock is EXACT rather than within-tolerance. The predicted anchor held to 0.04 s and the load-time optimizer kept the same-parent crossing cohesive (`exoCoastBodyChangeKept=1`)."
 instanceProfile = "stock-minimal"

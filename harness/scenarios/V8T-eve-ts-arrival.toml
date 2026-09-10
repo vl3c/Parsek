@@ -104,6 +104,21 @@
 
 schema = 1
 id = "V8T-eve-ts-arrival"
+# -------------------------------------------------------------------------------------
+# CRITERION (b) RENDER-TOKEN CONTROL, FLOWN 2026-09-10 (todo
+# V-PAIR-CRITERION-B-RENDER-CONTROL-DEBT; wave DLL, deployed sha a0abbed1)
+# -------------------------------------------------------------------------------------
+#   Run `2026-09-10_2037`, PARSEK-FAIL(expectation) attempt 1, wall 49 s. One in-place,
+#   line-anchored edit of one required element, flown alone, then reverted with `git
+#   status --short` clean:
+#     original: `phase=GhostCreated surface=ProtoIcon pid=\d+ .*body=Eve scene=TRACKSTATION`
+#     inverted: `phase=GhostCreated surface=ProtoIcon pid=\d+ .*body=Eeloo scene=TRACKSTATION`
+#   It red on EXACTLY that one element (one mismatch); saveParse PASS gating=True;
+#   renderCompose REPORT; driverValidity allMet; anomalySweep hits=[]. DRIFT GATE,
+#   counted in the run's own KSP.log: original 2 line(s), inverted 0. This is the lane's
+#   logContracts-lens control. V8's `2026-08-11_0830` (shared) stays its save-structure
+#   control.
+#
 tier = "operator"
 instanceProfile = "stock-minimal"
 tags = ["V8T", "tracking-station", "loop-arrival", "interplanetary", "reaim",

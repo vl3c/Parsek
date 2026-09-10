@@ -172,6 +172,24 @@ id = "V13A-jool-loop-arrival"
 # SEPARATE key=value fragments, so an insertion between them cannot break it. Same rule
 # for the tilt line, whose `bound=`/`targetInc=` pair V12A also arms contiguously.
 # =====================================================================================
+# -------------------------------------------------------------------------------------
+# CRITERION (b) RENDER-TOKEN CONTROL, FLOWN 2026-09-10 (todo
+# V-PAIR-CRITERION-B-RENDER-CONTROL-DEBT; wave DLL, deployed sha a0abbed1)
+# -------------------------------------------------------------------------------------
+#   Run `2026-09-10_2100`, PARSEK-FAIL(expectation) attempt 1, wall 52 s. One in-place,
+#   line-anchored edit of one required element, flown alone, then reverted with `git
+#   status --short` clean:
+#     original: `seam-endpoint summary evaluated=1 outsideSoi=0`
+#     inverted: `seam-endpoint summary evaluated=1 outsideSoi=9`
+#   It red on EXACTLY that one element (one mismatch); saveParse REPORT (facets only:
+#   the lane declares no saveParse block, so gating=False); renderCompose REPORT;
+#   driverValidity allMet; anomalySweep hits=[]. DRIFT GATE, counted in the run's own
+#   KSP.log: original 1 line(s), inverted 0. This is the lane's logContracts-lens
+#   control. This is the lane's FIRST negative control of any kind. The inverted form
+#   cannot match by construction (outsideSoi <= evaluated), the V10 `_1852` / V11A
+#   `_1853` / V12A `_1854` shape. The run carried exactly one `seam-endpoint summary`
+#   line.
+#
 tier = "operator"
 description = "ARMED: the Jool program's arrival lane -- TimeJump into the re-aimed Kerbin->Jool transfer so the per-window synthesizer runs, and read the tilt disposition, the tof band, the three synth-geometry proximity checks and the seam-endpoint census at the largest SOI in the system. The seven jumps are recomputed from V13's MEASURED schedule (D0 34,417,886.418945849, tof 22,327,520.392697673 -> soiEntryUT 55,582,515.124523856 as EMITTED -- D0 + tof = 56,745,406.811643526 is the geometry line arrivalUT, not the seam) on V12A's pattern, with the coast midpoint taken as tof/2 rather than V12A's absolute offset, which would land 9.76e6 s late on a shorter coast. MEASURED and armed (all predicted in writing first, all confirmed): tilt bound=1.8040 targetInc=1.3040 with state=noop reason=in-plane (a fortiori from the Eeloo finding), band eTarget=0.0500 halfWidthFraction=0.0850 cap not engaged, SOI literal 2455985185 from the asset derivation. The candidate count 35 is NOT armable -- it is emitted only on the failure path. CANNOT DISCHARGE THE TILT DEBT: Jool's 1.304 deg is the LOWEST inclination in the V-lane ladder, below the already-covered Eve point."
 instanceProfile = "stock-minimal"

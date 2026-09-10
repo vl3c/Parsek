@@ -287,14 +287,22 @@ id = "V23M-mun-landing-player-loop"
 # them. G3a's lanes diverge FURTHER than V19's did, so each of the five owes its own.
 # Designed at ARMING off the reading run's own bytes, then REVERTED.
 #
-# THE INVERSION OF RECORD FOR THIS LANE:
+# THE INVERSION OF RECORD FOR THIS LANE, CORRECTED 2026-09-10. Authored, this section
+# pre-registered
 #     required: "Orbit line decision: pid=\\d+ reason=polyline-owns-phase .*iconSuppressed=True belowAtmosphere=False"
 #     inverted: "... .*iconSuppressed=False belowAtmosphere=False"
-#
-# `iconSuppressed=False` is chosen over a body swap because it inverts the CLAIM
-# rather than the subject: it asserts the icon was NOT suppressed at a landed arrival,
-# which is precisely the render behaviour this lane exists to confirm. The run must
-# red on exactly that token and nothing else.
+# which inverts the CLAIM rather than the subject. That token LEFT `required` in the
+# three-round lens calibration (a landed-terminal loop member gets no map/TS proto, so
+# the class's flight-scene lens is the mesh lifecycle), and the control flown at arming,
+# `2026-08-24_2114`, inverted a phase-lock CONSTRAINT token instead
+# (`Orbital\(Mun\) same-parent` -> Minmus), which proves nothing about a render pin.
+# THE RENDER-TOKEN CONTROL OF RECORD is `2026-09-10_2102`, on the mesh-lifecycle lens:
+#     required: "phase=MeshSpawned .*reason=ghost-created"
+#     inverted: "phase=MeshSpawned .*reason=chain-loop unit"
+# The only MeshSpawned emitter hard-codes `ghost-created`, so the inversion is zero by
+# source; the MeshDestroyed element was left alone because its reason vocabulary
+# includes run-time-dependent teardown reasons. Its run record is the CRITERION (b)
+# block above `tier`.
 #
 # -------------------------------------------------------------------------------------
 # 6. POSTURE, AND THE SCOPING NOTE THAT IS NOT AN OMISSION
@@ -414,6 +422,30 @@ id = "V23M-mun-landing-player-loop"
 #            loops render flight-mesh only, so a thin ownership half is the expected
 #            reading, not a defect.
 # -------------------------------------------------------------------------------------
+# -------------------------------------------------------------------------------------
+# CRITERION (b) RENDER-TOKEN CONTROL, FLOWN 2026-09-10 (todo
+# V-PAIR-CRITERION-B-RENDER-CONTROL-DEBT; wave DLL, deployed sha a0abbed1)
+# -------------------------------------------------------------------------------------
+#   Run `2026-09-10_2102`, PARSEK-FAIL(expectation) attempt 1, wall 85 s. One in-place,
+#   line-anchored edit of one required element, flown alone, then reverted with `git
+#   status --short` clean:
+#     original: `phase=MeshSpawned .*reason=ghost-created`
+#     inverted: `phase=MeshSpawned .*reason=chain-loop unit`
+#   It red on EXACTLY that one element (one mismatch); saveParse PASS gating=True;
+#   renderCompose REPORT; driverValidity allMet; anomalySweep hits=[]. DRIFT GATE,
+#   counted in the run's own KSP.log: original 2 line(s), inverted 0. This is the lane's
+#   logContracts-lens control. `2026-08-24_2114` inverted a phase-lock CONSTRAINT token
+#   (`Orbital(Mun) same-parent` -> `Orbital(Minmus)`), not a render token; it stays the
+#   lane's constraint-token control, and section 5 now names this run. Mesh census:
+#   MeshSpawned `reason=ghost-created` 2; MeshDestroyed `chain-loop unit member outside
+#   its window` 2 and `chain-loop unit cycle change` 1. The MeshDestroyed element was
+#   untouched. unityExceptions (report-only) read 10,800 NREs, all stock
+#   `VehiclePhysics.VPWheelCollider` with zero Parsek frames; the archived V23M logs
+#   `2026-08-24_2000` / `2026-08-25_0016` carry 10,684 / 10,695 EXC lines, so this is
+#   the lane's standing stock wheel stream, not new. The bare renderCompose block read
+#   one report-only `RC-COVER [FAIL]` (a 120 s dark window at a 0.02 s warp resolution;
+#   todo RC-COVER-DARK-WINDOWS-READ-ON-BARE-LANES).
+#
 tier = "operator"
 description = "**DISCIPLINE-COMPLETE 2026-08-24.** Reading `_2054` PASS attempt 1, ARMED, armed re-flight `_2106` PASS attempt 1, own control `_2114` red EXACTLY on the inverted `Orbital(Minmus) same-parent` constraint (a constraint this subject cannot produce; saveParse PASS), reverted. **RE-PINNED 2026-08-24 OFF ITS FIXTURE'S REAL BYTES**, `PENDING_FIXTURE_LANES` entry retired in the same commit. `fixtures/saves/mun-landing-recorded` EXISTS, harvested `--keep-parsek` from `B13-mun-landing` run 2026-08-24_1449 - PASS attempt 1, wall 2,811 s / mission wall 2,764.1 s, MISSION-OK across all twenty-one phases through SURFACE-COMMITTED, `landedOnTargetBody value=Mun` and `landedStable value=SURFACE-COMMIT` both met, every verifier PASS/SKIPPED, anomalySweep clean. Real tree id; measured UT0 34.520 / span 23,222.425 / seam 16,425.169 (offset 16,390.649) / 8 recordings / terminal Landed on Mun / a 2,290.5 s segment-less descent-and-landed tail. THE EIGHT JUMP UTs WERE **RE-DERIVED IN ROUND 2 OFF THE MEASURED PHASE-LOCK CLOCK** after reading run 1 (`2026-08-24_1623`, retry `_1624`) red INVALID(driver-rewind) on `timejump refused reason=backward-jump` at all eight - the pre-registered calibration catch, no render pin reached, nothing about the lens measured yet. Round 2 pins L1 = 1,249,901.1806192098 and L2 = 1,530,043.7079993775 straight off `startloopplayback initiated: relaunchUt=`, arrivals at relaunch + the MEASURED 23,091.405 s touchdown offset (altitude settles to 3,854.15 m over 3,850.03 m terrain - NOT the span, which the unit reports as a 23,123.425 s TRACK_SECTION envelope, 99 s SHORTER than the recording). **AND RUN 1 PRODUCED THE A/B THIS PAIR EXISTS FOR.** Against V6M's committed line, moving the endpoint from Mun ORBIT to Mun SURFACE left `method=joint-best-fit`, `P=1250859.3891702818`, cadence `280142.527...`, `fixedCadenceResidual=992.72855107198848`, `fixedCadenceWithinTol=no` and `zeroDrift=yes` IDENTICAL TO THE DIGIT, and changed exactly two fields: `firstLaunch` 280,176.947 -> 1,249,901.181 and `scheduleWorstResidual` 4,347.548 -> 1,797.140 (better). The cause is a THIRD constraint V6M does not have - `Rotation(Mun) P=138984.37657447575 off=22937.185293623374`, which a recording only acquires by ENDING ON A SURFACE; the Mun is tidally locked so it shares `Orbital(Mun)`'s period exactly and contributes only a phase offset, which is why every period-derived field is untouched while the first admissible window moves ~970 ks. Round 1's derived CADENCE was right to the digit (280,142.527 = 13 x 21,549.425) and its derived ANCHOR was wrong by 970 ks - a formula that reproduces a cadence is not thereby a formula that reproduces an anchor. The same line also CONFIRMS the seam: `Orbital(Mun) same-parent ... off=16390.648888550266`, matching the ORBIT_SEGMENT chain read to nine decimals. B13 was already LIVE-PROVEN full PASS on flight 1 (2026-07-25, wall 2,747.9 s, `terminalState=Landed terminalOrbitBody=Mun`) and THE MISSION LIBRARY HAS BEEN ABLE TO LAND SINCE WELL BEFORE THE PARENT-RELAY MODE EXISTED (`landingEnabled` is a flag-gated inert-by-default phase driving MechJeb `LandingAutopilot.LandUntargeted` through `mission_runner._perform_land_untargeted`, verified against the INSTALLED darchambault KRPC.MechJeb v0.8.1 pin rather than inferred). No new mission mode, no new mlib phase, no runner seam. **THIS LANE IS V6 WITH THE ENDPOINT MOVED FROM ORBIT TO SURFACE**: same launch body, target, parent, road, craft family and fixture ancestry as V6M/V6T, with EXACTLY ONE shape dimension moved. That is the form the induction caveat asks for and which V17T could not have (it moved two and its icon-off-orbit non-recurrence is unattributable), and which the sibling V22M cannot have either (a Kerbin splashdown moves the endpoint AND the recording count, because no single-recording landed subject exists) - **so this pair is the CONTROL THAT SEPARATES V22's TWO VARIABLES**, which is a reason to fly it despite the Mun being the more expensive subject. ROUTING IS REQUIRED HERE, WHICH IS A DEPARTURE FROM V17M AND V22M and is justified rather than assumed: on those lanes the routing IS the measurement so requiring a road gates the reading on its own answer, whereas Kerbin -> its own moon is the phase-lock road measured five times at four parents and V6M/V6T are Kerbin -> Mun exactly - the routing is the control variable, not the question. So the phase-lock artifacts are required in V6M's own vocabulary (including `zeroDrift=yes` and `scheduleWithinTol=yes`, the QUALITY assertions a landed arrival is the first thing ever asked to satisfy) and V6M's re-aim trio is forbidden; if a surface endpoint perturbs the solver, this lane reds on the artifact that moved instead of quietly reporting a fallback nobody asked about. THE ONE PIN THAT MUST NOT BE COPIED FROM V6M is its `surface=Proto(Icon|OrbitLine) .*body=Mun` arrival pin - not because it would fail but because it would PASS, satisfied by the Mun-ORBIT coast the same loop spends most of every cycle in, saying nothing about the touchdown. Vacuous, not unsatisfiable, and worse for it: a vacuous green prompts no second look. AND THE MUN IS AIRLESS, so the suppression reason token is `polyline-owns-phase` with `belowAtmosphere=False` - `below-atmosphere` never fires here and copying V22M's Kerbin line would be structurally unsatisfiable. The two sibling lanes pin different reason tokens ON PURPOSE. NO KSC HALF EXISTS and that is a scoping fact rather than a gap - though the reason is narrower than \"the host is vacuous\", and the loose version is wrong: this recording LAUNCHES FROM KERBIN, so `IsKscStructurallyEligible` (which gates on `Points[0].bodyName`, the FIRST point only) ADMITS it and the KSC host would render its Kerbin ascent leg. What it cannot render is the part this pair measures - the per-frame pose resolvers gate EVERY point, so the whole Mun-frame descent and touchdown are skipped. THE ARRIVAL is vacuous on that host, not the recording, and an arrival lane is what a KSC half would have to be; the asymmetry with V22K, whose subject is Kerbin-frame END TO END, is the gate working. `allowedAnomalies = []` on purpose, expecting the gated Tier-C `rigid-seam-tangent-discontinuity` raise at the owned descent draw; whether an AIRLESS powered descent agrees with V22M's atmospheric one on that raise is a reading the pair produces for free. NOTHING IS ARMED."
 instanceProfile = "stock-minimal"

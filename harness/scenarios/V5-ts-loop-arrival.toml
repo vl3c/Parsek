@@ -118,6 +118,23 @@ id = "V5-ts-loop-arrival"
 #            correspondingly un-inverted on BOTH specs; that is the honest limit
 #            of what these two controls demonstrate.
 # =====================================================================================
+# -------------------------------------------------------------------------------------
+# CRITERION (b) RENDER-TOKEN CONTROL, FLOWN 2026-09-10 (todo
+# V-PAIR-CRITERION-B-RENDER-CONTROL-DEBT; wave DLL, deployed sha a0abbed1)
+# -------------------------------------------------------------------------------------
+#   Run `2026-09-10_2036`, PARSEK-FAIL(expectation) attempt 1, wall 50 s. One in-place,
+#   line-anchored edit of one required element, flown alone, then reverted with `git
+#   status --short` clean:
+#     original: `phase=GhostCreated surface=ProtoIcon pid=\d+ .*body=Duna scene=TRACKSTATION`
+#     inverted: `phase=GhostCreated surface=ProtoIcon pid=\d+ .*body=Eeloo scene=TRACKSTATION`
+#   It red on EXACTLY that one element (one mismatch); saveParse PASS gating=True;
+#   renderCompose REPORT; driverValidity allMet; anomalySweep hits=[]. DRIFT GATE,
+#   counted in the run's own KSP.log: original 2 line(s), inverted 0. This is the lane's
+#   logContracts-lens control. V4's `2026-08-08_1156` (the shared supersedeRows
+#   inversion) stays its save-structure control. These are the first wave-DLL bytes
+#   showing the pin holds: the only archived V5 log (`2026-08-08_1440`) never booted
+#   TRACKSTATION. ProtoIcon GhostCreated census: Duna FLIGHT 1, Duna TRACKSTATION 2.
+#
 tier = "operator"
 description = "The FIRST tracking-station observation of a looped, re-aimed, INTERPLANETARY ghost: arm the loop and jump the clock past the corrected cycle-0 Duna arrival seam in FLIGHT, SaveGame, then re-enter through LoadGame scene=trackstation and dwell with mapRenderTracing armed. Flown + armed 2026-08-08: the TS host's own ghost-creation count is the anti-vacuity gate and it answered 1 (a zero there would still be the finding), and both save-structure blocks now gate - the one committed spec that writes a save mid-run and reads it back through a second scene load must author nothing durable."
 instanceProfile = "stock-minimal"

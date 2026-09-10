@@ -43,6 +43,25 @@ id = "V2-loop-arrival-dwell"
 # holds against the engine's own loop clock is itself a reading-run measurement
 # (the dwelledAllWindows row carries the stamped UTs for comparison).
 # =====================================================================================
+# -------------------------------------------------------------------------------------
+# CRITERION (b) RENDER-TOKEN CONTROL, FLOWN 2026-09-10 (todo
+# V-PAIR-CRITERION-B-RENDER-CONTROL-DEBT; wave DLL, deployed sha a0abbed1)
+# -------------------------------------------------------------------------------------
+#   Run `2026-09-10_2104`, PARSEK-FAIL(expectation) attempt 1, wall 978 s. One in-place,
+#   line-anchored edit of one required element, flown alone, then reverted with `git
+#   status --short` clean:
+#     original: `phase=body-orbit surface=ProtoOrbitLine pid=\d+ recId=\w+ frame=\d+ currentUT=[0-9.]+ effUT=[0-9.]+ body=Duna`
+#     inverted: `phase=body-orbit surface=ProtoOrbitLine pid=\d+ recId=\w+ frame=\d+ currentUT=[0-9.]+ effUT=[0-9.]+ body=Eeloo`
+#   It red on EXACTLY that one element (one mismatch); saveParse PASS gating=True;
+#   renderCompose REPORT; driverValidity allMet; anomalySweep hits=[]. DRIFT GATE,
+#   counted in the run's own KSP.log: original 1 line(s), inverted 0. This is the lane's
+#   logContracts-lens control. Its status-row control of record (the shared
+#   `rewind.supersedeRows` inversion of 2026-08-06) stays its save-structure control.
+#   The run's ProtoOrbitLine body-orbit census read Kerbin 1, Sun 1, Duna 1, so the pin
+#   rests on one Duna emission. The chain's whole-worktree clean check read FALSE after
+#   the revert only because this commit's other uncommitted edits were in the worktree;
+#   the V2 spec itself diffed empty.
+#
 tier = "operator"
 description = "Arm mission-level loop on the committed duna-direct tree (MissionConfig seam verb) and dwell the map camera through the recorded Kerbin->Sun and Sun->Duna handoffs and the parked Duna tail with mapRenderTracing armed: the Tier-2 playback half of the re-aim option-3 validation lane. Flown + armed 2026-08-06: re-aim engages, both handoffs sweep clean at map scale, and the Duna-frame arrival hand-off is a hard-required token - a red here is a real regression, not an expected calibration outcome."
 instanceProfile = "stock-minimal"

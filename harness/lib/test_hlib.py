@@ -8486,12 +8486,11 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # Kerbin-framed at any observation epoch, and on the TS half it is the
         # OLDEST and therefore the last to spawn under the 2-per-tick throttle.
         # THE KSC THIRD IS DELIBERATELY NOT THEIRS: `V20K` over the same bytes is
-        # where the KSC-host question becomes either a closed payoff or a cited
-        # limitation, and under roadmap confirmation criterion (c) no limitation
-        # may be written up before that run exists. V20K itself was AUTHORED
-        # 2026-09-10 as a reading-run spec (the entry below); what it owes is the
-        # FLIGHT.
-        "V20K-jool-kerbin-ksc-arrival.toml": "tier=operator by the calibration discipline as a READING-RUN spec, NOT debt: AUTHORED 2026-09-10 and NEVER FLOWN - G2's KSC third over `kerbin-return-recorded`, three outcomes pre-registered in the spec header (zero eligible / eligible with a pose / eligible without a pose at this epoch) and all three PASS; nothing armed, no `gating = true`, renderComposition bare. What is owed is the FLIGHT, not a human review call",
+        # where the KSC-host question became a cited limitation. Its reading run
+        # `2026-09-10_1858` measured `1 committed recordings, 0 eligible`, so the
+        # host excludes this subject whole (criterion (c) is met by that run id).
+        # V20K was armed off those bytes the same day (the entry below).
+        "V20K-jool-kerbin-ksc-arrival.toml": "tier=operator by the calibration discipline, NOT debt: G2's KSC third over `kerbin-return-recorded`. READING `2026-09-10_1858` PASS attempt 1 measured outcome (A), zero eligible - a limitation measured, not a payoff - and the lane was ARMED off those bytes (literal init pins, the pose line forbidden, rewind + structure gating; renderComposition stays bare). What is owed is the armed re-flight and its own negative control, not a human review call",
         # W1: the GS-4 follow-up the ghost-derender lane deliberately did not carry
         # (`docs/dev/todo-and-known-bugs.md` -> GS4-WATCH-DISTANCE-CUTOFF). Same
         # posture as the V20 pair above: tier=operator by the calibration discipline,
@@ -9045,7 +9044,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # nightly PROMOTION call, which is a cadence decision for a human and not
         # a review debt.
         "V4-player-loop-workflow.toml":     "FLOWN GREEN 2026-08-08 (1135 reading, 1154 armed, 1156 min=1 negative control PARSEK-FAIL(save-structure)) and ARMED on both save-structure blocks; both EnterWatchMode verdicts came back REJECTED as predicted from the camera-only range gate (this lane's 643,913 m parked-tail draw is 2.15x outside the production 300 km WatchEnterCutoffMeters and 5.4x outside the entry boundary V7M later measured, so its verdicts stand under every correction and it discriminates nothing between them; the finding is owned by docs/dev/todo-and-known-bugs.md -> WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE). Operator tier is now an open PROMOTION call, not debt",
-        "V5-ts-loop-arrival.toml":          "FLOWN GREEN 2026-08-08 (1144 reading, 1155 armed; negative control shared with V4's 1156) and ARMED on both save-structure blocks; the TS host's own ghost-creation count answered 1, so the anti-vacuity gate is satisfied by measurement. Operator tier is now an open PROMOTION call, not debt",
+        "V5-ts-loop-arrival.toml":          "FLOWN GREEN 2026-08-08 (1144 reading, 1155 armed; negative control shared with V4's 1156; criterion-(b) render-token control 2026-09-10_2036) and ARMED on both save-structure blocks; the TS host's own ghost-creation count answered 1, so the anti-vacuity gate is satisfied by measurement. Operator tier is now an open PROMOTION call, not debt",
         # The V6/V7 MOON quartet (Mun/Minmus x FLIGHT/TRACKSTATION), operator by the
         # SAME calibration discipline as V1/V2/V3/V4/V5 and for one extra structural
         # reason worth recording: their TimeJump targets are PRE-FLIGHT PREDICTIONS of
@@ -9496,6 +9495,10 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
     # immediately (the committed spec is the armed one). One inversion, not two: the
     # lanes gate through the single shared saveParse evaluator, so a second would
     # re-prove the evaluator rather than these windows (the V4/V5 precedent).
+    # CRITERION (b), 2026-09-10: that shared inversion re-proves the evaluator, not the
+    # render pins, so each lane has since flown its OWN render-token control on its
+    # logContracts destination pin (body -> Eeloo): V14M `2026-09-10_1910`, V14T
+    # `2026-09-10_1912`, each red on exactly the inverted element, drift gate met.
     # THE V15 GILLY PAIR, armed 2026-08-19 off their OWN reading runs
     # (`2026-08-19_1736` V15M PASS attempt 1; `2026-08-19_1739` V15T
     # PARSEK-FAIL(anomaly) attempt 1 - the pre-registered correct catch, whose
@@ -9510,6 +9513,9 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
     # pair - the V4/V5/V14 precedent, since they gate through the single shared
     # saveParse evaluator, so a second inversion would re-prove the evaluator
     # rather than these windows.
+    # CRITERION (b), 2026-09-10: per-lane render-token controls on the destination
+    # pin (body -> Eeloo), V15M `2026-09-10_1914` and V15T `2026-09-10_1917`, each
+    # red on exactly the inverted element, drift gate met.
     ARMED_ALLOWLIST = {"S4.1-rewind-merge.toml", "CL-3-refly-crew-tombstone.toml",
                        # CL-4: `rewind` armed 2026-09-09 off its own reading run
                        # `2026-09-09_1813_CL-4-refly-crew-standin` (supersedeRows 1, tombstones 1,
@@ -9577,6 +9583,10 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # which red exactly on `rewind.supersedeRows 0 < min 1` and
                        # nowhere else, then reverted (the V4/V5/V14/V15 precedent -
                        # both gate through the single shared saveParse evaluator).
+                       # CRITERION (b), 2026-09-10: per-lane render-token controls
+                       # on the destination pin (body -> Eeloo), V16M
+                       # `2026-09-10_2032` and V16T `2026-09-10_2034`, each red on
+                       # exactly the inverted element, drift gate met.
                        "V16M-laythe-player-loop.toml", "V16T-laythe-ts-arrival.toml",
                        # V17M: `rewind` (all max 0 - the family's replay-observation
                        # claim, now across a SELF-OVERLAPPING 20-instance loop whose
@@ -9602,6 +9612,10 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # control shared across the pair flown on V17M (`_1941`,
                        # red EXACTLY on `rewind.supersedeRows 0 < min 1` and
                        # nowhere else, then reverted).
+                       # CRITERION (b), 2026-09-10: per-lane render-token controls,
+                       # V17M `2026-09-10_2042` (TracedPath shadow Vall -> Eeloo)
+                       # and V17T `2026-09-10_2045` (TS ProtoIcon Vall -> Eeloo),
+                       # each red on exactly the inverted element, drift gate met.
                        "V17M-laythe-vall-player-loop.toml",
                        "V17T-laythe-vall-ts-arrival.toml",
                        # V19M / V19T, the first RETURN-DIRECTION loop pair (G2),
@@ -9732,6 +9746,9 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # with 1841 at V23; terminal Landed=1, plus Destroyed
                        # min 1 on the M halves - the measured M-vs-T save
                        # asymmetry). V22K is the first armed KSC-scene lane.
+                       # V23M's arming control `_2114` inverted a constraint
+                       # token; its render-token control is `2026-09-10_2102`
+                       # (MeshSpawned reason inverted, drift gate met).
                        "V22M-kerbin-splashdown-player-loop.toml",
                        "V22T-kerbin-splashdown-ts-arrival.toml",
                        "V22K-kerbin-splashdown-ksc-arrival.toml",
@@ -9752,6 +9769,8 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # 2026-08-06 on the three-run discipline; reading runs =
                        # V2 flights 4-6 (all reads 0 / committedTrees 1), armed
                        # + negative-control runs cited in the status doc row.
+                       # CRITERION (b), 2026-09-10: render-token control
+                       # `2026-09-10_2104` (ProtoOrbitLine body Duna -> Eeloo).
                        "V2-loop-arrival-dwell.toml",
                        # V4: rewind (all max 0 - the player workflow arms, warps,
                        # watches and jumps but authors nothing durable) +
@@ -9791,6 +9810,12 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # shared saveParse evaluator, so a second identical
                        # inversion would re-prove the evaluator rather than
                        # these windows, at the cost of a flight.
+                       # CRITERION (b), 2026-09-10: that shared inversion proves the
+                       # evaluator, not the render pins; each lane has since flown
+                       # its OWN render-token control (destination body -> Eeloo):
+                       # V6M `2026-09-10_1901`, V6T `2026-09-10_1905_a2`, V7M
+                       # `2026-09-10_1907`, each red on exactly the inverted
+                       # element, drift gate met.
                        # The FOURTH moon lane, V7T-minmus-ts-arrival, is
                        # DELIBERATELY ABSENT: it flew RED BY FINDING (a
                        # deterministic `icon-off-orbit` raise) and a lane whose
@@ -9805,16 +9830,23 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # committedTrees=1); armed + negative-control run ids
                        # on the spec header's ARMING LEDGER and the status
                        # row.
+                       # CRITERION (b), 2026-09-10: render-token control
+                       # `2026-09-10_2039` on the census element (outsideSoi=0 ->
+                       # outsideSoi=9), one mismatch, drift gate met.
                        "V8-eve-player-loop.toml",
                        # V8T: armed 2026-08-11 off its reading run (_0836
                        # a2, all-zero rewind facets, trees=1,
                        # committedTrees=1); negative control shared with
                        # V8's _0830 (the shared-evaluator precedent).
+                       # CRITERION (b), 2026-09-10: its own render-token control
+                       # `2026-09-10_2037` (TS ProtoIcon Eve -> Eeloo).
                        "V8T-eve-ts-arrival.toml",
                        # V8F: armed 2026-08-11 off its two consecutive
                        # clean runs (_0853/_0854, the five-raise set; four
                        # of five ratios to four decimals, fifth 1 ulp; armed run
                        # _0857); control shared with V8's _0830.
+                       # CRITERION (b), 2026-09-10: its own render-token control
+                       # `2026-09-10_2041` (toBody=Eve -> toBody=Moho).
                        "V8F-eve-loop-faithful.toml",
                        # V18T: THE FIRST DECLARER OF THE FOURTH M-C2 BLOCK,
                        # `[expectations.routes]` (the ROUTES node), armed
@@ -9979,7 +10011,16 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # where this block has a parse, a normalisation and a bucketing
                        # step of its own between the bytes and that evaluator. Nothing
                        # is owed.
-                       "RVR-20-rover-relay-c-destination-slots-full-tank-empty.toml"}
+                       "RVR-20-rover-relay-c-destination-slots-full-tank-empty.toml",
+                       # V20K: rewind (all max 0) + structure (committedTrees 1,
+                       # recordings 1, terminalStates Orbiting 1, trees kept at the
+                       # family's duplicate-writer width 1 to 2) armed 2026-09-10 off
+                       # its OWN green reading run `2026-09-10_1858` (PASS attempt 1,
+                       # facets 0/0/0/0 and 1/1/1, points 739), in the commit that
+                       # pinned its KSC init literals (outcome A, zero eligible) and
+                       # forbade the pose line. The armed re-flight and its own
+                       # negative control (`0 eligible` -> `1 eligible`) are OWED.
+                       "V20K-jool-kerbin-ksc-arrival.toml"}
 
     def test_no_committed_spec_arms_gating(self):
         armed = []
@@ -10880,11 +10921,11 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
                                     #     exposure note apply unchanged.
                                     "V20T-jool-kerbin-ts-arrival.toml",
                                     # [K] the KSC third of the same pair, 2026-09-10:
-                                    #     bare, NEVER FLOWN, a reading-run spec. The
-                                    #     second KSC-host manifest after V22K's, and the
-                                    #     first over a subject the structural gate may
-                                    #     refuse; what the manifest holds then is part
-                                    #     of the reading.
+                                    #     bare. Its reading `2026-09-10_1858` took the
+                                    #     second KSC-host manifest after V22K's, over a
+                                    #     subject the structural gate refuses: planUnits
+                                    #     1, dwells 0, no findings. Still bare: one
+                                    #     manifest is a reading, not a window.
                                     "V20K-jool-kerbin-ksc-arrival.toml",
                                     # -- PHASE 4 / WAVE B, 2026-08-26: TWO NEW SUBJECTS,
                                     # both bare, both reading-pending, and neither a
