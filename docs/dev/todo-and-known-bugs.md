@@ -82,6 +82,35 @@ that window's populated form, is an ADDITIVE `UiAction op=target` (or a `target=
 a `${step.field}` handle off a `ListHandles kind=committed` row. Left as a follow-up with
 the shape written down rather than as a silent thin capture.
 
+## GUI-CENSUS-TWO-WINDOWS-EXCEED-THE-INSTANCE-WIDTH: the Missions and Logistics windows are laid out wider than the harness profile's screen, so their census captures clip their right-hand columns
+
+MEASURED 2026-09-10 off the window sources rather than off an image (the lanes have never
+flown). `RecordingsTableUI` is laid out for 1355 px - the width its `TooltipEchoBox`
+single-line budget is calculated against - and `LogisticsWindowUI` declares
+`MinWindowWidth = 1410` with a first-open default of 1556. The `stock-minimal` profile
+runs KSP at 1280x720. Both windows pass `GUILayout.Width(windowRect.width)` and neither
+wraps its rows in a horizontal `BeginScrollView`, so a window narrower than its layout
+CLIPS the right-hand columns; it does not scroll them. (`ParsekUI.HandleResizeDrag`
+enforces the 1410 minimum only DURING a resize drag, so the seam's direct rect write is
+not clamped up - which is what lets the census command 1280 at all.)
+
+WHAT SHIPPED. `GUI-1-census-ksc` and `GUI-2-census-flight` command both windows to
+`x = 0 w = 1280`, the whole instance width and therefore the smallest clip this profile
+can produce: 75 px for Missions, 130 px for Logistics against its minimum. At that width
+the sub-window also covers the main window, which is unavoidable - every sub-window draw
+in both hosts sits inside the host's `showUI` gate, so the main window cannot be closed
+while a sub-window is being photographed.
+
+THE OPTIONS, none free, which is why this is filed rather than fixed: (1) run the
+provisioned instance at a wider resolution for these two lanes - a per-profile screen size
+the provisioner does not model today, and one that changes what every OTHER lane on that
+profile photographs; (2) capture with `superSize = 2`, which Unity implements by
+re-rendering through the cameras, and screen-space IMGUI is not guaranteed to survive that
+- it could drop the very windows the census exists to photograph, so it needs a flight to
+prove before a lane relies on it; (3) accept the clip and read the two windows' right-hand
+columns from the source. A GUI review of the images is the natural moment to decide, since
+it is the reviewer who finds out whether the clipped columns mattered.
+
 ## REPUTATION-SEED-CAPTURED-MID-FLIGHT-REAPPLIES-PRE-SEED-AWARDS: the lazy `ReputationInitial` seed is read off the live pool at the first commit, so every reputation award recorded BEFORE that moment is inside the seed AND replayed as a row
 
 Filed 2026-09-10 while shipping the crew-death reputation penalty (branch

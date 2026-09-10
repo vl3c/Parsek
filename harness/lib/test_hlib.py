@@ -9099,8 +9099,8 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # for a missing directory. Neither owes outstanding HUMAN work in the sense this
         # tag names - what they owe is a first flight, and the images that flight
         # produces ARE the deliverable rather than a verdict to calibrate.
-        "GUI-1-census-ksc.toml": "tier=operator by MECHANISM (the FORGE class): its host is an operator-local, uncommitted fixture no clone can stage, so a cadence tier would red everywhere for a missing directory. Never flown; the first flight is expected to read EXPECTED-FAIL(analyzer) on the host's own pre-existing findings (measured 2026-09-10: FAIL=25 RED=1, all INV2-NO-DOUBLE-COVER, on recordings months older than the lane), which is why the spec quarantines exactly that subkind. No human call is outstanding.",
-        "GUI-2-census-flight.toml": "tier=operator by MECHANISM, identical to GUI-1's (same operator-local host, same quarantined subkind). Never flown. It carries ONE thing the first flight must be read for and the spec header names it: the host's activeVessel is a SUB_ORBITAL probe, so the subject descends for the whole census and may impact before the last capture - the remedy is a re-stage from a LANDED/ORBITING focus, not a spec change. No human call is outstanding.",
+        "GUI-1-census-ksc.toml": "tier=operator by MECHANISM (the FORGE class): its host is an operator-local, uncommitted fixture no clone can stage, so a cadence tier would red everywhere for a missing directory - a TERMINAL INVALID(staging), which tier_runner classifies RED. Never flown. Its host's own pre-existing analyzer findings (measured 2026-09-10: FAIL=25 RED=1, all INV2-NO-DOUBLE-COVER, on recordings months older than the lane) are handled by declaring the analyzer row REPORT-ONLY (`[expectations.analyzer] gating = false`, allowlisted in AnalyzerReportOnlyModeTests) rather than by an `[expectedFail]` quarantine - the quarantine short-circuited the whole verifier chain, so the lane's own log contracts were never evaluated at all. No human call is outstanding.",
+        "GUI-2-census-flight.toml": "tier=operator by MECHANISM, identical to GUI-1's (same operator-local host, same report-only analyzer row). Never flown. The thing its first flight must be read for is a WINDOW, not the clock, and the first draft of this row had it backwards: the subject's situation reads SUB_ORBITAL, but its orbit (SMA 3621574.94, ECC 0.815, periapsis 69.55 km, apoapsis 5973.6 km, 6.400 h) is ASCENDING at load - 5469.8 km up, 1.07 h from apoapsis, and its periapsis is 69.55 km above the GROUND, so it cannot impact on this orbit at all; the situation word only reflects that periapsis sitting 0.4 km under Kerbin's 70 km atmosphere line. What can genuinely stop the lane is `op=open window=spawncontrol`: SpawnControlUI.DrawIfOpen force-closes itself on its FIRST draw with zero nearby spawn candidates, so the two-phase settle answers ERROR window-self-closed and the lane reads driver-INVALID with the cause named. The remedy there is a re-stage (the same save carries five LANDED probes, three ORBITING relays and one ORBITING probe), not a spec change. No human call is outstanding.",
         "V26T-interbody-route-ts-arrival.toml": "operator by the calibration discipline; FLOWN 2026-09-02, ARMED-DISCIPLINE COMPLETE (reading run, pins tightened off it, armed re-flight PASS attempt 1, and a negative control that red PARSEK-FAIL(expectation) on exactly the seeded token). V18T's tracking-station grammar on the inter-body subject. It carries ONE genuinely open question the reading run must answer rather than pass: V18T's front-door tokens (`ghostDriving=[1-9]`, `routeMissions=[1-9]`) are deliberately NOT required, because this subject's Duna route has `loopAnchorUT = -1` and has never run a cycle, so whether a never-dispatched route enters the GhostDriving selection is unmeasured - and RUN 1 ANSWERED IT: `ghostDriving=1` and `routeMissions=1` both printed, so dispatch history is NOT a precondition for a route driving a tracking-station ghost, and both tokens are REQUIRED from the armed re-flight onward. The renderComposition arming pass this lane owed was TAKEN 2026-09-07 (package P16, after reading run 3 `2026-09-06_2115` PASS attempt 1): armed on `routeLineBuilds = {min = 2}` + `routeCoDrawViolations = {max = 0}`, deliberately symmetric with V26M and with no `unevaluable` ceiling on either. The armed re-flight and the negative control are OWED.",
     }
 
@@ -14158,6 +14158,84 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
 
     def test_describe_needs_nothing(self):
         self.assertEqual([], hlib.validate_ui_action_step(0, {"op": "describe"}))
+
+    # ----- the census specs' pinned describe echoes -----
+
+    # The window table's ORDER, which is the order the describe line's `openWindows=`
+    # list is built in. Read off hlib rather than re-listed, and the mirror cell above
+    # already pins hlib against the C# table.
+    @staticmethod
+    def _open_window_list(open_set):
+        names = [w for w in hlib.UIACTION_WINDOW_VALUES if w in open_set]
+        return ",".join(names) if names else "-"
+
+    def test_the_census_specs_pinned_describe_echoes_match_their_own_steps(self):
+        """The two GUI-census lanes pin every `describe` echo as a LITERAL, including
+        `open=<n> openWindows=<names>`. That is what makes the echo an exact claim - a
+        third open window moves the count - and it is also the one thing about these
+        specs that a later step edit silently invalidates: inserting an `open` without
+        its matching `close` shifts every literal after it, and the lane would then red
+        on its own log contract after a whole KSP boot.
+
+        Simulated from the SPEC's own steps, so it is a self-consistency check and not
+        a second copy of a truth: walk the open / close ops, and at every `describe`
+        require the pinned set to contain exactly the echo this state produces. Both
+        directions, so an orphaned literal reds too."""
+        for name, scene in (("GUI-1-census-ksc.toml", "SPACECENTER"),
+                            ("GUI-2-census-flight.toml", "FLIGHT")):
+            with self.subTest(spec=name):
+                spec = load_spec(name)
+                required = ((spec["expectations"].get("logContracts") or {})
+                            .get("required") or [])
+                pinned = set()
+                for pattern in required:
+                    m = re.search(r"uiaction describe scene=(\w+) complexity=(\w+) "
+                                  r"windows=(\d+) open=(\d+) openWindows=(\S+)", pattern)
+                    if m:
+                        pinned.add((m.group(1), m.group(2), int(m.group(3)),
+                                    int(m.group(4)), m.group(5)))
+                self.assertTrue(pinned, "%s pins no describe echo at all" % name)
+
+                open_set = set()
+                mode = "advanced"
+                observed = set()
+                describes = 0
+                for i, step in enumerate(spec["driver"]["steps"]):
+                    if step.get("cmd") != "UiAction":
+                        continue
+                    args = step.get("args", {}) or {}
+                    op = args.get("op")
+                    if op == "open":
+                        open_set.add(args["window"])
+                    elif op == "close":
+                        open_set.discard(args["window"])
+                    elif op == "complexity":
+                        # A census must CLOSE what it opened rather than leaning on the
+                        # Advanced -> Basic latch's own close set to tidy up: the latch
+                        # closes only the GATED windows (career / kerbals / testrunner /
+                        # gloops / spawncontrol), so a spec that left `logistics` open
+                        # across the switch would carry it into every Basic capture. This
+                        # assertion is also what lets the simulation above ignore the
+                        # latch entirely.
+                        self.assertTrue(
+                            open_set <= {"main"},
+                            "%s step %d switches to %s with %s still open; a census must "
+                            "close what it opened (the mode latch closes only the gated "
+                            "windows)" % (name, i, args.get("mode"),
+                                          sorted(open_set - {"main"})))
+                        mode = args["mode"]
+                    elif op == "describe":
+                        describes += 1
+                        observed.add((scene, mode, len(hlib.UIACTION_WINDOW_VALUES),
+                                      len(open_set),
+                                      self._open_window_list(open_set)))
+                self.assertEqual(describes, len(required) - 1,
+                                 "%s: %d describe steps against %d required patterns "
+                                 "(expected one capture line beside them)"
+                                 % (name, describes, len(required)))
+                self.assertEqual(observed, pinned,
+                                 "%s: the pinned describe echoes and the states its own "
+                                 "steps produce have drifted" % name)
 
 
 class LocalFixtureTemplateTests(unittest.TestCase):

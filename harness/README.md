@@ -200,6 +200,12 @@ counting). The two tools cannot collide: this one owns `index.html` inside a
 results ROOT. Neither is part of the run flow - this one is run by hand, after
 the fact.
 
+COPY A CENSUS OUT IF IT MATTERS. `results/<runId>_shots/` is the one artifact
+directory the retention pass bounds (`hlib.select_shots_dirs_to_prune`: newest 40
+dirs / 2 GiB), and a 20-PNG census is not small. The sheet lives inside that
+directory, so pruning takes the page with the pictures; the V3 `_contact.html`
+survives and then points at images that are gone.
+
 ## The produced-save snapshot (harvest from here, not from the instance)
 
 Every attempt also copies its PRODUCED SAVE into
@@ -374,6 +380,26 @@ invocation is exactly that - not a `--cadence` sweep that would pick the tier up
 implicitly. The cost the carve-out protects against is real, though (a
 (b)-tiered spec is EXPENSIVE AND UNFLOWN, e.g. B16-eve-orbit at ~2.6 h per
 attempt), so treat that tier as a deliberate, occasional request.
+
+**`--tier operator` now contains two lanes that need a hand-staged fixture.**
+`GUI-1-census-ksc` and `GUI-2-census-flight` name an OPERATOR-LOCAL template
+(`fixtures/local-saves/c1-gui`, see "Operator-local fixture saves" below), which
+is gitignored and exists only where somebody staged it. Without it each is
+refused PRE-BOOT as `INVALID(staging)` with the staging command in the error -
+and that subkind is TERMINAL (not in `hlib.RETRYABLE_INVALID_SUBKINDS`), so it
+does not retry, and it is not an admission-drift shape either, so
+`tier_runner.py` classifies the whole invocation **RED** rather than
+NEEDS-PROVISION. Nothing is broken when that happens and no other spec is
+affected, but the tier's exit code is 1 and somebody has to read why. So before
+asking for `--tier operator`, either stage the fixture
+
+```
+python tools/stage_local_fixture.py --from "<KSP>/saves/c1" --as c1-gui --no-quicksaves
+```
+
+or run the tier by id, naming the specs you actually want
+(`python run.py --id ...`), which is the normal shape for a census anyway - its
+product is images somebody is about to look at.
 
 **Policies the runner enforces:**
 
@@ -558,6 +584,21 @@ it cannot run at all) and may assert that a window DREW, never WHAT it drew: the
 host is unreproducible by construction, so every gating expectation -
 `recordings.count`, `saveParse` blocks, the ledger oracle - belongs on a
 committed fixture. Full rationale: `fixtures/local-saves/README.md`.
+
+Two consequences worth knowing BEFORE asking for such a lane:
+
+- **`--tier operator` reds without the fixture.** The two GUI-census lanes live
+  in that tier, and an unstaged local template is a TERMINAL
+  `INVALID(staging)` - it does not retry, and it is not an admission-drift
+  shape, so `tier_runner.py` classifies the whole invocation RED rather than
+  NEEDS-PROVISION. Stage the fixture first, or run the specs you want by
+  `--id`. See "Running a tier on request" above.
+- **The images are NOT permanent.** A census's product lands in
+  `results/<runId>_shots/`, which is the one artifact directory the retention
+  pass bounds (`hlib.select_shots_dirs_to_prune`: newest 40 dirs / 2 GiB, and a
+  20-PNG census is not small). A run whose pictures are worth keeping must be
+  COPIED OUT of `results/` - the per-run `_contact.html` / `index.html` survive
+  pruning, but they then point at images that are gone.
 
 ### Per-spec live endpoint state (`[[fixture.liveState]]`)
 

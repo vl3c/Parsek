@@ -345,9 +345,14 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     # the NEXT step ordered after the capture) but is deliberately NOT a
     # DEFERRED_SEAM_VERB: it rides the 60 s default budget, the EnterWatchMode shape,
     # because a capture that has not landed within a minute is broken and not slow.
-    # UiAction is SINGLE-PHASE in every op, including `complexity` - the production
-    # setter only queues the draw-visible value and the applier then calls the
-    # production Update-latch, which is legitimate because the seam pump runs in Update.
+    # UiAction is TWO-PHASE in exactly TWO of its six ops - `open` and `rect`, whose
+    # read-back is only a statement about the game after a frame has been DRAWN (a window
+    # can force-close itself on its first draw, and a GUILayout window's rect is resolved
+    # during the draw) - and single-phase in `close` / `tab` / `complexity` / `describe`.
+    # `complexity` only LOOKS deferred: the production setter queues the draw-visible
+    # value and the applier then calls the production Update-latch, which is legitimate
+    # because the seam pump runs in Update. Neither op joins DEFERRED_SEAM_VERBS: the
+    # settle is one frame, so the 60 s default is the right bound.
     "CaptureScreenshot", "UiAction",
 )
 
