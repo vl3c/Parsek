@@ -306,6 +306,33 @@ count = { min = 2, max = 8 }
 # GROUP 5 - THE RE-FLY. RH-1's four tokens verbatim, plus the ListHandles line with
 # `count=1`: this run authored exactly one RewindPoint, so a zero-member enumeration -
 # which would make the `${handles.rp0}` substitution unresolvable - cannot read green.
+#
+# GROUP 6 - THE TWO ENVIRONMENT / OPTIMIZER CELLS THIS PROFILE EXERCISES. Added
+# 2026-09-10 (claim-gap wave A1-6) off reading run
+# `2026-09-10_1739_RF-1-continuation-stays-open` (wave DLL a0abbed1, PASS attempt 1,
+# mismatches=0, all 15 older required tokens matched). The D4 claims they support land
+# only after this lane's armed re-flight and one negative control per token.
+#   `Environment transition: SurfaceStationary -> SurfaceMobile at UT=29.76
+#    (debounce=3.0s)` (INFO, EnvironmentDetector's DEBOUNCED branch: the pending
+#   classification is confirmed only after the 3.0 s surface-speed debounce elapsed).
+#   The basis for D4 `hysteresis`, which the catalog places under environment
+#   classification. The immediate branch prints `(immediate, debounce=0.0s)` and cannot
+#   match. NOT FlightRecorder's `Atmosphere boundary confirmed` timer or
+#   BackgroundRecorder's `Environment transition: pid=` line (0 of each in the reading).
+#   UT=29.76 is LITERAL: it is byte-equal on all seven flights of this profile read
+#   (GS-1 `2026-08-05_1025` / `_1026` / `_1052` / `_1110` / `_1141`, RF-1
+#   `2026-09-09_0254`, the reading). The reading's other two debounced transitions
+#   (SurfaceMobile -> Atmospheric, Atmospheric -> SurfaceStationary, both 0.5 s) are
+#   not pinned.
+#   `Split summary: rec=<id> evaluated=2 ... surfaceGrazeForward=1
+#    surfaceGrazeBackward=1 ...` (Verbose, RecordingOptimizer; the `verboseLogging` step
+#   is load-bearing for it too). The basis for D4 `surface-graze-suppression`. The pod's
+#   recording ('GS1 Auto-Chute Booster', the launch vessel, rec 45da7d5e in the reading)
+#   crosses Surface -> Atmospheric -> Surface on the hop, and predicate step 5
+#   (IsSurfaceGrazePattern) suppresses both boundaries. That is why this profile takes no
+#   split; the header's "no boundary" means no Atmospheric <-> Exo boundary. The reading
+#   printed the line twice with identical text (the mission commit and the re-fly commit
+#   each run the pass). The rec id is a per-run guid and is regexed.
 required  = ["Recording started",
              "Controllable split children: \\[[0-9]+,[0-9]+\\]",
              "ProcessBreakupEvent: controlled child created: pid=[0-9]+",
@@ -320,7 +347,9 @@ required  = ["Recording started",
              "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=.* rp=rp_[0-9a-f]{32}",
              "Invocation complete",
              "ConsumePostLoad: restoring bundle with route-retire cutoffUT=",
-             "Restored: recs=.* pendingScience="]
+             "Restored: recs=.* pendingScience=",
+             "Environment transition: SurfaceStationary -> SurfaceMobile at UT=29\\.76 \\(debounce=3\\.0s\\)",
+             "Split summary: rec=[0-9a-f]{32} evaluated=2 grazeForward=0 grazeBackward=0 surfaceGrazeForward=1 surfaceGrazeBackward=1 seamSkipped=0 exoCoastBodyChangeKept=0 splittableButRejected=0"]
 # THE THREE FORBIDDEN PATTERNS, and what each would mean.
 #
 #   `reason=sealedTipClosed` (EffectiveState.cs:1064-1072) is the verdict the seed's slot

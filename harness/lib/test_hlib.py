@@ -6963,7 +6963,7 @@ class MultiCategoryBatchWiringGroupTests(unittest.TestCase):
             "WarpToTime": 1,
             "TestRunnerIsolation": 2,
             "SwitchIntentPatch": 3,
-            # Appended 2026-09-10 in reading shape; see INTERIM_CONSTITUENTS.
+            # Appended 2026-09-10; pinned whole off reading run 2026-09-10_1734.
             "SceneAndPatch": 7,
         }),
         # The 2026-09-07 second census moved three LT-1 constituents to hosts that
@@ -6990,7 +6990,7 @@ class MultiCategoryBatchWiringGroupTests(unittest.TestCase):
     # for every constituent. It must stay a set LITERAL of ids (or `set()` when
     # empty, NEVER a `{}` literal, which would be an empty DICT and make every
     # membership read False).
-    INTERIM_PIN_IDS: set = {"LT-2-long-tail-spacecenter"}
+    INTERIM_PIN_IDS: set = set()
 
     # PER-CONSTITUENT NARROWING of INTERIM_PIN_IDS. A member listed here has only
     # the named constituents interim, and every OTHER constituent must stay pinned
@@ -6999,12 +6999,10 @@ class MultiCategoryBatchWiringGroupTests(unittest.TestCase):
     # switch cannot express: a flown lane that GAINS a constituent keeps its
     # measured lines gating while the new one waits for its reading. Loosening the
     # measured lines to fit the switch would un-gate them for no reason.
-    #   LT-2: `SceneAndPatch` appended 2026-09-10 (claim-gap wave A1-4); its
-    #   SPACECENTER slice has never executed. Remove both entries when the reading
-    #   converts the line to measured.
-    INTERIM_CONSTITUENTS: dict = {
-        "LT-2-long-tail-spacecenter": {"SceneAndPatch"},
-    }
+    # EMPTY IS ITS HEALTHY STATE (a dict literal, unlike INTERIM_PIN_IDS). First
+    # used by LT-2's `SceneAndPatch`, appended 2026-09-10 (claim-gap wave A1-4) and
+    # converted to measured by reading run 2026-09-10_1734.
+    INTERIM_CONSTITUENTS: dict = {}
 
     def _constituent_is_interim(self, sid, category):
         if sid not in self.INTERIM_PIN_IDS:

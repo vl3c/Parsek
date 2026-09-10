@@ -335,6 +335,24 @@ count = { min = 11, max = 11 }
 # only reachable when the slot really is open ACROSS THE SPLIT - which is precisely
 # what the defect broke. Then RH-1's four re-fly tokens, with `count=1` on the
 # enumeration because a zero-member one would make `${handles.rp0}` unresolvable.
+#
+# GROUP 6 - THE SPLIT SEEDS THE SECOND HALF. Added 2026-09-10 (claim-gap wave A1-7) off
+# reading run `2026-09-10_1743_RF-9-atmosphere-exit-split-stays-open` (wave DLL
+# a0abbed1, PASS attempt 1, mismatches=0, all 17 older required tokens matched). The D4
+# `seed-event-split` claim these support lands only after this lane's armed re-flight
+# and a negative control.
+#   `RecordingOptimizer.SplitAtSection` seeds the second half at the split boundary
+#   (InsertTransientStateSeeds, then ForwardPermanentStateEvents), and each logs an INFO
+#   count. SplitAtSection is their only caller: the optimizer pass reaches it directly
+#   and SplitAtUT through it (this lane prints no `SplitAtUT:` line).
+#   WHICH SPLIT EACH PAIR BELONGS TO, read off the raw window: each split prints its
+#   `Built` / `Inserted` / `Forwarded` lines BEFORE its own `SplitAtSection: split <rec>`
+#   summary. 12 / 19 belong to the promoted focus recording ('Kerbal X', slot 0, the
+#   lane's subject); 1 / 1 belong to the probe ('Kerbal X Probe', slot 1).
+#   The counts are literal: 12 / 19 and 1 / 1 on all three flights read
+#   (`2026-09-09_0154`, `2026-09-09_0301`, the reading). The UT moved every flight
+#   (173.0, 172.4, 172.7), so it is regexed. `Inserted 1 transient` cannot match the
+#   `Inserted 12` line, because the pattern needs a space after the 1.
 required  = ["Recording started",
              "Controllable split children: \\[[0-9]+,[0-9]+\\]",
              "ProcessBreakupEvent: controlled child created: pid=[0-9]+",
@@ -351,7 +369,11 @@ required  = ["Recording started",
              "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=.* rp=rp_[0-9a-f]{32}",
              "Invocation complete",
              "ConsumePostLoad: restoring bundle with route-retire cutoffUT=",
-             "Restored: recs=.* pendingScience="]
+             "Restored: recs=.* pendingScience=",
+             "Inserted 12 transient state seed event\\(s\\) at split UT=[0-9.]+ \\(skippedExistingBoundary=0\\)",
+             "Forwarded 19 permanent state event\\(s\\) as seeds at UT=[0-9.]+",
+             "Inserted 1 transient state seed event\\(s\\) at split UT=[0-9.]+ \\(skippedExistingBoundary=0\\)",
+             "Forwarded 1 permanent state event\\(s\\) as seeds at UT=[0-9.]+"]
 # THE FOUR FORBIDDEN PATTERNS. The middle two are the DEFECT; see the header for why
 # the second is pinned on a fragment rather than on the whole sentence.
 forbidden = ["\\[Parsek\\]\\[ERROR\\]",

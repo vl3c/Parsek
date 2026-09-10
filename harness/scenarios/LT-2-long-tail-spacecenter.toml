@@ -46,13 +46,15 @@ tier = "nightly"
 #   WHY LAST: the KSC cell inserts a committed tree (removed in its finally), and
 #   `Optimizer` skips whenever a committed recording is present. Last means it cannot
 #   disturb any measured constituent.
-#   THE PIN: `total=7` literal, `passed` / `skipped` regexed, and the aggregate
-#   `total=17 ... category=multi:7` with its split regexed. Registered in
+#   THE PIN, NOW MEASURED (see THE READING below). The reading shape was `total=7`
+#   literal with the split regexed, and the aggregate likewise, registered in
 #   `MultiCategoryBatchWiringGroupTests.INTERIM_PIN_IDS` + `INTERIM_CONSTITUENTS` (this
-#   constituent only) until the reading, then converted to measured.
-#   `verboseLogging=true` is DEFENSIVE, not load-bearing: the setting defaults true and
-#   run `_1508`'s log already carries VERBOSE lines with no such step. The KSC probe's
-#   post-assert line is Verbose.
+#   constituent only). The reading converted both lines to whole pins and the id left
+#   both tables.
+#   `verboseLogging=true` is now LOAD-BEARING for two required tokens: the KSC probe's
+#   post-assert line and the positioner's `RELATIVE KSC playback resolved` line are both
+#   Verbose. The setting defaults true (run `_1508`'s log carries VERBOSE lines with no
+#   such step); the step pins it against a persisted false.
 #   ORDER SIDE EFFECT: both `Optimizer` cells set `RecordingStore.SuppressLogging = true`
 #   and never restore it, so every `RecordingStore.Log` line after them is silent for the
 #   rest of the process, including the KSC cell's own tree insert / remove lines. The
@@ -72,9 +74,21 @@ tier = "nightly"
 #     (D) `recordings.count` reads nonzero: the KSC cell's cleanup leaked its tree into
 #         the produced save. A finding.
 #     (E) Any of the six whole lines moves: an ordering regression. A finding.
-#   The same reading also measures the wave DLL's `BgOnRailsNoEnvSectionsWitness` line
-#   (the `Recording` constituent, package A1-2). Nothing is pinned or claimed off it here.
-description = "Run the seven SPACECENTER-scoped long-tail in-game categories as one multi-category batch over an empty store: six constituents pinned whole, the seventh (SceneAndPatch, appended 2026-09-10) in reading shape until its first flight."
+#   THE READING, FLOWN 2026-09-10 (`2026-09-10_1734_LT-2-long-tail-spacecenter`, wave
+#   DLL a0abbed1, PASS attempt 1, 51 s wall, mismatches=0, recordings=0, zero ERROR
+#   lines, zero WARN lines in the SceneAndPatch window): OUTCOME (A).
+#   `BATCH_COMPLETE v1 total=7 passed=3 failed=0 skipped=4 category=SceneAndPatch
+#   scene=SPACECENTER`. All three eligible cells PASSED (`ParsekKscExistsInSpaceCenter`,
+#   `ParsekKscRelativePlaybackUsesRecordedAnchor`, `PreTransitionForVesselSwitch_
+#   LiveTreeShape_Bug266`). The four skips are the runner's pre-run scene filter
+#   (`Scene eligibility skip summary: skipped=4 currentScene=SPACECENTER
+#   byRequiredScene=FLIGHT:3,TRACKSTATION:1`), which prints no per-cell line. Aggregate
+#   `total=17 passed=10 failed=0 skipped=7 category=multi:7`. The six whole lines
+#   re-read token for token. Both new lines are now pinned WHOLE.
+#   The same reading measured the wave DLL's `BgOnRailsNoEnvSectionsWitness` line (the
+#   `Recording` constituent, package A1-2) and the Optimizer's production
+#   `TrimBoringTail` line. Both are required below, with the KSC probe pair.
+description = "Run the seven SPACECENTER-scoped long-tail in-game categories as one multi-category batch over an empty store: all seven constituents and the aggregate pinned whole (SceneAndPatch appended 2026-09-10 and measured by its reading run), plus four cell tokens."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "multi-category", "long-tail", "LT-2"]
 
@@ -104,10 +118,40 @@ allowedAnomalies = []
 count = { min = 0, max = 0 }
 
 [expectations.logContracts]
-# ANTI-VACUITY, PER CONSTITUENT: the measured empty-store census lines, whole, for the
-# six measured constituents. The SceneAndPatch line and the aggregate are INTERIM (see
-# the header): `total=` literal, the split regexed, `passed=[1-9][0-9]*` so a vacuous
-# slice still reds, `failed=0` the assertion.
+# ANTI-VACUITY, PER CONSTITUENT: every per-category line and the aggregate pinned
+# WHOLE. The six original lines are the empty-store census off run `2026-09-07_1516`;
+# the SceneAndPatch line and the multi:7 aggregate are measured off the reading run
+# `2026-09-10_1734` (see the header).
+#
+# THE CELL TOKENS, added 2026-09-10 off the same reading (claim-gap wave A1). The
+# registry claims they support land only after this lane's armed re-flight and one
+# negative control per token.
+#  - `TrimBoringTail: trimmed ...` (INFO, the Optimizer's tail trim inside the
+#    production RunOptimizationPass that EccentricGrazing_StaysOneSegment_InGame
+#    drives). The basis for D4 `tail-trim`. Every value in it is a fixture literal (the
+#    rec id, endUT 21580.0, the 5 trimmed points), byte-equal to run `_1508`'s line, so
+#    the pattern is literal. UNSCOPED ON PURPOSE: the first Optimizer cell runs before
+#    the runner logs `runtests start` (13 lines earlier in the reading), so this token
+#    must never be bracketed by the start token.
+#  - `BgOnRailsNoEnvSectionsWitness: ...` (INFO, the wave's one C# line, printed only
+#    after every assertion of BgGrazingPeriapsisInvariantTest held). The basis for D5
+#    `bg-on-rails`. Its numbers (50 orbits, pid 8888001, 0 per-frame env sections, 50
+#    checkpoint sections, 50 orbit segments) are the cell's fixture constants.
+#    WHAT THE CELL BYPASSES, so nobody overreads it: it seeds the on-rails state with
+#    InjectOnRailsStateForTesting (OnVesselGoOnRails does not run), injects each open
+#    OrbitSegment with InjectOpenOrbitSegmentForTesting (segment opening does not
+#    run), and passes a null vessel finder (OnBackgroundPhysicsFrame's packed
+#    early-return is not reached; xUnit EccentricOrbitOptimizerInvariantTests covers
+#    it). What IS production is the CheckpointAllVessels close path and the section
+#    emission it drives.
+#  - `KSC relative runtime probe resolved ... error=N.NNNm` (Verbose, printed after the
+#    asserts of ParsekKscRelativePlaybackUsesRecordedAnchor) plus the positioner's own
+#    `RELATIVE KSC playback resolved: ... anchorRec=runtime-ksc-recorded-anchor` line
+#    (Verbose, ParsekKSC.Playback, emitted only on a successful Relative pose). The
+#    basis for D3 `relative-anchored-nonloop`. The reading measured `error=0.000m`; the
+#    error is a float residual whose size depends on the scene's floating origin, so it
+#    is regexed to under 1 m (the cell itself asserts under 0.25 m). The positioner
+#    line's dx / dy / dz and |offset| are the cell's fixture offset and are literal.
 required  = [
   "runtests start category=Optimizer,Recording,ResourceReconciliation,WarpToTime,TestRunnerIsolation,SwitchIntentPatch,SceneAndPatch isolated=false strict=false multi=7",
   "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=Optimizer scene=SPACECENTER",
@@ -116,8 +160,12 @@ required  = [
   "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=WarpToTime scene=SPACECENTER",
   "BATCH_COMPLETE v1 total=2 passed=1 failed=0 skipped=1 category=TestRunnerIsolation scene=SPACECENTER",
   "BATCH_COMPLETE v1 total=3 passed=1 failed=0 skipped=2 category=SwitchIntentPatch scene=SPACECENTER",
-  "BATCH_COMPLETE v1 total=7 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=SceneAndPatch scene=SPACECENTER",
-  "BATCH_COMPLETE v1 total=17 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=multi:7 scene=SPACECENTER",
+  "BATCH_COMPLETE v1 total=7 passed=3 failed=0 skipped=4 category=SceneAndPatch scene=SPACECENTER",
+  "BATCH_COMPLETE v1 total=17 passed=10 failed=0 skipped=7 category=multi:7 scene=SPACECENTER",
+  "TrimBoringTail: trimmed 'Persistence Smoke Grazing Probe' \\(rec_persistence_smoke_grazing\\) from endUT=21580\\.0 to 20080\\.0 \\(removed 1500\\.0s, 5 points; trimUT=20090\\.0 lastInterestingUT=20080\\.0\\)",
+  "BgOnRailsNoEnvSectionsWitness: on-rails BG vessel emitted no env-classified TrackSections across 50 orbits pid=8888001 perFrameEnvSections=0 checkpointSections=50 orbitSegments=50",
+  "KSC relative runtime probe resolved anchorRec=runtime-ksc-recorded-anchor error=0\\.[0-9]{3}m",
+  "RELATIVE KSC playback resolved: recording=rec\\[runtime-\\|Runtime KSC Relative Probe\\|tree\\|-\\] contract=anchor-local version=1 dx=15\\.00 dy=25\\.00 dz=35\\.00 anchorRec=runtime-ksc-recorded-anchor \\|offset\\|=45\\.55m",
 ]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 
