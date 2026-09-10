@@ -1805,7 +1805,12 @@ neither is in the Advanced -> Basic close set), `ParsekUI.WouldRefuseModeChange`
 `ParsekUI.PersistedUiComplexityMode` + `ParsekUI.TryRequeuePersistedUiComplexityMode()`
 (the setting-vs-latch pair the `complexity` no-op test needs; the second is deliberately
 not a general mode setter - it can only queue the value the settings object already
-holds),
+holds, and its decision is the pure
+`ParsekUI.TryDecidePersistedUiComplexityRequeue(applied, persisted, out queue)`,
+xUnit-covered in `UiComplexityModeCloseHandlerTests.cs` along with the live wrapper's
+drift / agree / no-settings arms. The REQUESTED mode is not an input: the only caller
+that has one calls `SetUiComplexityMode` first, so the setting already equals the request
+by the time it gets here),
 `ParsekFlight.MainWindowRectForTesting`, and `ShowUIForTesting` +
 `MainWindowRectForTesting` on `ParsekKSC` (whose `showUI` had no accessor at all - only
 the two toolbar callbacks wrote it). The KSC host is found with

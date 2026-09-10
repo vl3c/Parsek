@@ -704,13 +704,40 @@ namespace Parsek
         {
             ParsekSettings settings = ParsekSettings.Current;
             if (settings == null) return false;
-            UiComplexityMode persisted = settings.UiComplexityModeLevel;
-            if (persisted == appliedUiComplexityMode) return false;
-            pendingUiComplexityMode = persisted;
+            if (!TryDecidePersistedUiComplexityRequeue(
+                    appliedUiComplexityMode, settings.UiComplexityModeLevel,
+                    out UiComplexityMode queue))
+                return false;
             ParsekLog.Verbose("UI",
                 "Persisted UI mode re-queued for the latch: uiComplexityMode="
-                + $"{appliedUiComplexityMode}->{persisted} (setting and latch had drifted)");
+                + $"{appliedUiComplexityMode}->{queue} (setting and latch had drifted)");
+            pendingUiComplexityMode = queue;
             return true;
+        }
+
+        /// <summary>
+        /// The pure decision inside <see cref="TryRequeuePersistedUiComplexityMode"/>: given
+        /// the LATCH's current value and the PERSISTED setting, is there anything to queue,
+        /// and what? True with <paramref name="queue"/> set iff the two have DRIFTED.
+        ///
+        /// <para>The queued value can only ever be <paramref name="persisted"/>, and that is
+        /// the helper's safety property rather than an implementation detail: it cannot
+        /// apply a mode the save does not carry, so it cannot route around
+        /// <see cref="ShouldRefuseModeChange"/> (a refused change never reached the setting
+        /// in the first place).</para>
+        ///
+        /// <para>THE REQUESTED MODE IS NOT AN INPUT, deliberately. The one caller that has
+        /// a request - the <c>UiAction op=complexity</c> seam - calls
+        /// <see cref="SetUiComplexityMode"/> FIRST, so the setting already equals the
+        /// request by the time it gets here and a `requested` parameter could not change
+        /// the answer. Taking one would state a dependency that does not exist, and invite
+        /// a future caller to queue a mode the settings object never held.</para>
+        /// </summary>
+        internal static bool TryDecidePersistedUiComplexityRequeue(
+            UiComplexityMode applied, UiComplexityMode persisted, out UiComplexityMode queue)
+        {
+            queue = persisted;
+            return persisted != applied;
         }
 
         public void DrawWindow(int windowID)
