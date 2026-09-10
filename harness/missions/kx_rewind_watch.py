@@ -169,6 +169,18 @@ throughout - it says a scene changed, never that a tree was committed, so
 SC-COMMITTED goes and reads the count. Nothing here saves or reloads a game: the
 rewind is commanded in the same process the arrival's in-memory commit landed in.
 
+THE REPEAT-REWIND OPT-IN (``rewindCycles``, default 1) is GS-9's: fly the ordinary
+plan once, then, instead of ending at the first PLAYBACK-WAIT's target, OBSERVE the
+recorder idle in-phase and re-enter REWIND off the SAME committed tree, walking
+REWIND -> SPACECENTER -> AUTORECORD-OFF -> WATCHER-LAUNCH -> ... -> PLAYBACK-WAIT
+again under fresh per-cycle wire tags (the C# seam skips duplicate ids). It asks
+whether the ``parsek_rw_*`` launch quicksave is reusable and whether the second
+replay renders what the first did. The loop stays inside the post-rewind block, so
+nothing about vessel_lost tolerance moves; with the key omitted every action and
+row is byte-identical. One ninth row, ``rewindCyclesCompleted``, carries each
+cycle's frozen record. Refused above 1 with ``coastExitProfile`` or
+``impactProfile``.
+
 WATCH HOLDS AND THEN KEEPS ASKING, and the GS-4 reading run is why. It issued one
 EnterWatchMode at 00:48:27, five seconds before the parent ghost's
 ``phase=MeshSpawned ... vessel=Kerbal X`` at 00:48:32, and Parsek rightly answered

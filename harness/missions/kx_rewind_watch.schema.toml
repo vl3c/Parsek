@@ -548,6 +548,34 @@ max = 10000
 # SetSetting verb, so a second key would be two names for one number and the one
 # that drifts is the one nobody re-pins.
 
+# ---- the REPEAT-REWIND opt-in (OPTIONAL; omitted = one cycle) -----------------
+#
+# How many rewind -> watcher -> watch -> playback cycles to fly off the SAME
+# committed tree (ghost-replay Tier B item 8, GS-9). With it omitted or 1 the phase
+# graph, the emitted actions and the eight assertion rows are byte-identical to the
+# lane before the key existed. Above 1, a completed PLAYBACK-WAIT OBSERVES the
+# recorder idle in-phase (a RecordingState probe under a fresh `c<N>idle*` tag,
+# bounded by `idleFrames`), then re-enters REWIND under the next cycle's wire tags
+# (`rewindc<N>`, `autorecc<N>`, `mapc<N>`, `mapexitc<N>`; the WATCH counter just
+# continues) - the loop never leaves the post-rewind block, so the vessel_lost
+# carve-out is untouched. One NINTH row, `rewindCyclesCompleted`, carries every
+# cycle's frozen record.
+#
+# BUDGET: every extra cycle costs a rewind reload, a watcher launch and a second
+# REAL-TIME playback wait (span + 45 s at 1x), so size the scenario's mission phase
+# and `[runtime] budgetSeconds` for it. `playbackWaitFrames` is per cycle (the phase
+# counter resets on every entry).
+#
+# REFUSED (on the machine's first decision frame, `mlib.kxrw_rewind_cycles_conflict`)
+# above 1 with `coastExitProfile` (that profile never rewinds) and with
+# `impactProfile` (v1: a second rewind over the post-crash all-Missing roster is its
+# own unmeasured lane). The max is pinned equal to `mlib.KXRW_REWIND_CYCLES_MAX`.
+[params.rewindCycles]
+required = false
+type = "int"
+min = 1
+max = 3
+
 # ---- FRAME budgets ------------------------------------------------------------
 #
 # FRAMES, not game seconds, and the reason is structural: Rewind-to-Launch puts

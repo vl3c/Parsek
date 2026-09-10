@@ -21471,6 +21471,82 @@ def kxrw_sc_commit_probe_tag(probe: int) -> str:
     return "sccommit%d" % int(probe)
 
 
+# ---- THE REPEAT-REWIND OPT-IN (`rewindCycles`, GS-9; default 1) ---------------
+#
+# WHAT IT IS FOR. Ghost-replay Tier B item 8: rewind, watch the replay to its end,
+# rewind AGAIN from the same committed tree, and watch it again. The questions are
+# whether the `parsek_rw_*` launch quicksave is REUSABLE or one-shot, and whether the
+# second replay renders and derenders exactly what the first did. It cannot be
+# written as post-mission seam steps: after a rewind the world sits in SPACECENTER
+# with no vessel, no seam verb launches a watcher, and the ghost engine runs only in
+# FLIGHT - so the second cycle needs this machine's own WATCHER-LAUNCH.
+#
+# THE LOOP STAYS INSIDE KXRW_POST_REWIND_PHASES. When cycles remain, PLAYBACK-WAIT
+# does not end the mission. It OBSERVES the recorder idle first (an in-phase
+# RecordingState probe under a fresh per-cycle tag: the watcher scene is a live
+# FLIGHT scene and the dispatcher refuses a rewind `recording-active`, so ordering
+# alone would be the assumption RECORDER-IDLE exists to replace), stamps
+# `pre_rewind_ut` on the frame the idle reading lands, resets the per-cycle
+# bookkeeping and re-enters REWIND. No phase is added and nothing is re-entered
+# outside the contiguous post-rewind block, so the vessel_lost carve-out does not
+# move.
+#
+# EVERY PER-CYCLE COMMAND GETS A FRESH WIRE TAG, because the C# seam SKIPS DUPLICATE
+# IDS and `_seam_result` matches by tag alone: a second `rewind` would be a silent
+# no-op whose poll then expires as a TIMEOUT that reads like a wedged addon. Cycle 0
+# keeps the historical constants VERBATIM, so GS-4 / GS-6 / GS-7 / GS-8 emit
+# byte-identical actions; cycle N >= 1 appends `c<N>`. The WATCH family needs no
+# cycle suffix: its probe counter simply continues past the last tag the previous
+# cycle used.
+#
+# DEFAULT 1 IS THE PRE-OPT-IN LANE EXACTLY: PLAYBACK-WAIT reaching its target with
+# one cycle completed goes to DONE on the same frame it always did, the phase graph
+# and the emitted actions are unchanged, and the assertion rows stay eight. The one
+# row this opt-in ADDS (`rewindCyclesCompleted`) exists only when a spec declares
+# more than one cycle.
+KXRW_REWIND_CYCLES_MAX = 3
+
+
+def kxrw_cycle_tag(base: str, cycle: int) -> str:
+    """Per-cycle wire tag: ``base`` verbatim for cycle 0, ``<base>c<N>`` for cycle N.
+
+    Cycle 0 returning the historical constant unchanged IS the byte-identity
+    argument for every lane that declares no ``rewindCycles``."""
+    c = int(cycle)
+    return str(base) if c <= 0 else "%sc%d" % (base, c)
+
+
+def kxrw_rewind_tag(cycle: int) -> str:
+    """The InvokeRewindToLaunch tag for rewind cycle ``cycle`` (0-based)."""
+    return kxrw_cycle_tag(KXRW_TAG_REWIND, cycle)
+
+
+def kxrw_autorecord_tag(cycle: int) -> str:
+    """The post-rewind AUTORECORD-OFF SetSetting tag for cycle ``cycle``. Distinct
+    from ``impautorec`` at every cycle (that family has no cycle suffix and is
+    only ever sent before the FIRST rewind)."""
+    return kxrw_cycle_tag(KXRW_TAG_AUTORECORD, cycle)
+
+
+def kxrw_map_tag(cycle: int) -> str:
+    """The EnterMapView tag for cycle ``cycle``."""
+    return kxrw_cycle_tag(KXRW_TAG_MAP, cycle)
+
+
+def kxrw_map_exit_tag(cycle: int) -> str:
+    """The ExitMapView tag for cycle ``cycle``."""
+    return kxrw_cycle_tag(KXRW_TAG_MAP_EXIT, cycle)
+
+
+def kxrw_cycle_idle_probe_tag(cycle: int, probe: int) -> str:
+    """Tag for the cycle-advance RecordingState probe ``probe`` issued BEFORE the
+    rewind of cycle ``cycle`` (``c1idle0``, ``c1idle1``, ...). Its OWN family: it
+    re-issues the same verb until the recorder reads idle, and it must never
+    collide with RECORDER-IDLE's ``idle*`` family, whose ids the seam has already
+    seen on cycle 0."""
+    return "c%didle%d" % (int(cycle), int(probe))
+
+
 # Situations that prove the Kerbal X actually left the pad. GS-1's measured
 # reason: KSP reports `situation = LANDED` well past the pad, so an ungated read
 # resolves rows against a craft still climbing.
@@ -21750,6 +21826,44 @@ def kxrw_coast_exit_profile_conflict(params: "KxrwParams") -> str:
     return ""
 
 
+def kxrw_rewind_cycles_conflict(params: "KxrwParams") -> str:
+    """The reason ``rewindCycles`` cannot be flown with the rest of this params
+    set, or "" when it can. Evaluated on the machine's first decision frame beside
+    the two profile predicates, for their reason: a spec that cannot fly dies
+    before a stage click rather than after an ascent.
+
+    The RANGE is refused by name (the schema bounds it at ADMIT; this is the
+    machine's own fail-safe for a params dict that reached it unvalidated). Above
+    one cycle TWO opt-ins are refused:
+      - ``coastExitProfile`` ends the mission at COAST-EXIT and never rewinds at
+        all, so a second cycle would be a declaration the phase graph silently
+        ignores (GS-6's vocabulary-typo lesson applied to a param).
+      - ``impactProfile``, in v1. Its post-crash roster is all-Missing and its
+        cycle-1 watcher relaunch over that roster is already a measured special
+        case (a probe-cored watcher); a second rewind over it is its own
+        unmeasured lane, not a free extension of this one.
+
+    Returned rather than raised so the caller owns the severity, exactly as the
+    sibling predicates do."""
+    n = int(getattr(params, "rewind_cycles", 1))
+    if n < 1 or n > KXRW_REWIND_CYCLES_MAX:
+        return ("rewindCycles=%d is outside [1, %d]: one cycle is the ordinary lane, "
+                "and every cycle past the first costs a full rewind reload, a watcher "
+                "launch and a real-time playback wait" % (n, KXRW_REWIND_CYCLES_MAX))
+    if n == 1:
+        return ""
+    if getattr(params, "coast_exit_profile", False):
+        return ("rewindCycles=%d and coastExitProfile are mutually exclusive: that "
+                "profile ends the mission at COAST-EXIT without ever rewinding, so "
+                "the declared cycles would be silently ignored" % n)
+    if getattr(params, "impact_profile", False):
+        return ("rewindCycles=%d and impactProfile are refused together in v1: the "
+                "impact profile's post-crash roster is all-Missing and a second "
+                "rewind + watcher relaunch over it is an unmeasured lane of its own"
+                % n)
+    return ""
+
+
 def kxrw_coast_exit_gate_met(altitude: float, situation: str,
                              min_altitude: float,
                              accepted: Tuple[str, ...]) -> bool:
@@ -21997,6 +22111,13 @@ class KxrwParams:
     recorded_span_window: Tuple[float, float] = (60.0, 600.0)
     frozen_sample_limit: int = 10
 
+    # --- the REPEAT-REWIND opt-in (GS-9; see the section above the params) ---
+    # How many rewind -> watcher -> watch -> playback cycles to fly off the SAME
+    # committed tree. ONE is the default and it is load-bearing exactly as the
+    # other opt-ins' defaults are: with it the phase graph, the emitted actions and
+    # the assertion rows are byte-identical to the pre-opt-in lane.
+    rewind_cycles: int = 1
+
 
 def kxrw_params_from_dict(params: Dict) -> KxrwParams:
     """Build ``KxrwParams`` from a spec ``missionParams`` dict. Tolerant of
@@ -22093,7 +22214,59 @@ def kxrw_params_from_dict(params: Dict) -> KxrwParams:
         recorded_span_window=(float(window.get("min", 60.0)),
                               float(window.get("max", 600.0))),
         frozen_sample_limit=int(params.get("frozenTelemetrySamples", 10)),
+        rewind_cycles=int(params.get("rewindCycles", 1)),
     )
+
+
+@dataclass(frozen=True)
+class KxrwCycleRecord:
+    """What ONE rewind cycle observed, frozen on the frame its PLAYBACK-WAIT
+    reached the target. The machine's live fields are RESET for the next cycle,
+    so without this record the result JSON of a multi-cycle run would describe
+    only the LAST cycle - and "the second cycle looked exactly like the first" is
+    the claim the repeat-rewind lane exists to make. ``cycle`` is 1-based."""
+    cycle: int
+    pre_rewind_idle_reading: str
+    rewind_result: str
+    pre_rewind_ut: float
+    post_rewind_ut: float
+    ut_regression: float
+    autorecord_off_result: str
+    watcher_ready_observed: bool
+    watcher_ready_vessel_name: str
+    map_view_result: str
+    map_exit_result: str
+    watch_result: str
+    watch_reject_reason: str
+    watch_selected_index: str
+    watch_selected_rec_id: str
+    watch_attempts: int
+    playback_reached: bool
+    playback_target_ut: float
+    playback_last_ut: float
+
+    def to_dict(self) -> Dict:
+        def fin(v):
+            return float(v) if _is_finite(v) else None
+        return {"cycle": self.cycle,
+                "preRewindIdleReading": self.pre_rewind_idle_reading or "UNREAD",
+                "rewindResult": self.rewind_result or "NONE",
+                "preRewindUT": fin(self.pre_rewind_ut),
+                "postRewindUT": fin(self.post_rewind_ut),
+                "utRegression": fin(self.ut_regression),
+                "autoRecordDisabled": self.autorecord_off_result or "NONE",
+                "watcherOnPad": bool(self.watcher_ready_observed),
+                "watcherObservedName": self.watcher_ready_vessel_name or "UNREAD",
+                "enterMapViewResult": self.map_view_result or "NONE",
+                "exitMapViewResult": self.map_exit_result or "NONE",
+                "enterWatchModeResult": self.watch_result or "NONE",
+                "enterWatchModeReason": self.watch_reject_reason or None,
+                "enterWatchModeSelectedIndex": self.watch_selected_index or None,
+                "enterWatchModeSelectedRecId": self.watch_selected_rec_id or None,
+                "enterWatchModeAttempts": int(self.watch_attempts),
+                "playbackWatchedOut": bool(self.playback_reached),
+                "playbackTargetUT": fin(self.playback_target_ut),
+                "playbackLastUT": fin(self.playback_last_ut)}
 
 
 @dataclass(frozen=True)
@@ -22277,8 +22450,26 @@ class KxrwState:
     playback_last_ut: float = float("nan")
     playback_reached: bool = False
     # Post-rewind frames that arrived with no readable vessel. EXPECTED (the
-    # SPACECENTER gap), carried for the record rather than for a gate.
+    # SPACECENTER gap), carried for the record rather than for a gate. CUMULATIVE
+    # across rewind cycles (the repeat-rewind opt-in does not reset it).
     post_rewind_vessel_lost_frames: int = 0
+
+    # --- the REPEAT-REWIND opt-in (all inert at the default rewindCycles=1) --
+    # 0-based index of the rewind cycle in progress; it selects every per-cycle
+    # wire tag (`kxrw_rewind_tag` and siblings), and cycle 0 selects the
+    # historical constants verbatim.
+    rewind_cycle: int = 0
+    # PLAYBACK-WAITs that reached their target. Written on every lane (1 at the end
+    # of an ordinary run); only a multi-cycle lane reads it back into a row.
+    cycles_completed: int = 0
+    # The in-phase cycle-advance idle probe: -1 = none issued in this
+    # PLAYBACK-WAIT, else the index into the `c<N>idle*` tag family.
+    cycle_idle_probe: int = -1
+    # `phase_frames` on the frame the FIRST cycle-advance probe went out - the one
+    # stamp the probe's bound (`idleFrames`) is measured from.
+    cycle_idle_since: int = -1
+    cycle_idle_reading: str = ""
+    cycle_history: Tuple[KxrwCycleRecord, ...] = ()
 
     verdict: Optional[str] = None
     flake_phase: Optional[str] = None
@@ -22298,6 +22489,84 @@ def kxrw_initial_state(params: KxrwParams) -> KxrwState:
     left there. Params ride in the state so the per-frame ``kxrw_decide`` keeps the
     ``(state, snapshot)`` signature."""
     return KxrwState(params=params)
+
+
+def kxrw_cycle_record(state: KxrwState) -> KxrwCycleRecord:
+    """Freeze what the CURRENT rewind cycle observed (called on the frame its
+    PLAYBACK-WAIT reaches the target, before anything is reset). The pre-rewind
+    idle reading is RECORDER-IDLE's on cycle 0 and the in-phase cycle-advance
+    probe's on every later cycle."""
+    idle = (state.recorder_idle_reading if state.rewind_cycle == 0
+            else state.cycle_idle_reading)
+    return KxrwCycleRecord(
+        cycle=state.rewind_cycle + 1,
+        pre_rewind_idle_reading=idle or "",
+        rewind_result=state.rewind_result,
+        pre_rewind_ut=state.pre_rewind_ut,
+        post_rewind_ut=state.post_rewind_ut,
+        ut_regression=state.ut_regression,
+        autorecord_off_result=state.autorecord_off_result,
+        watcher_ready_observed=state.watcher_ready_observed,
+        watcher_ready_vessel_name=state.watcher_ready_vessel_name,
+        map_view_result=state.map_view_result,
+        map_exit_result=state.map_exit_result,
+        watch_result=state.watch_result,
+        watch_reject_reason=state.watch_reject_reason,
+        watch_selected_index=state.watch_selected_index,
+        watch_selected_rec_id=state.watch_selected_rec_id,
+        watch_attempts=state.watch_attempts,
+        playback_reached=state.playback_reached,
+        playback_target_ut=state.playback_target_ut,
+        playback_last_ut=state.playback_last_ut)
+
+
+def kxrw_begin_next_cycle(state: KxrwState, pre_rewind_ut: float) -> KxrwState:
+    """Open the NEXT rewind cycle: bump the cycle index, stamp its pre-rewind
+    clock, and reset every field the post-rewind block writes, so the next
+    cycle's gates read their own evidence rather than the previous cycle's.
+
+    NOT reset, each deliberately: ``tree_id`` (the rewind addresses the SAME
+    tree), ``launch_ut`` / ``recording_end_ut`` (the committed recording is the
+    same, so the watch window and the playback target are the same arithmetic),
+    the cycle-0 bridge evidence (commit / stop / recorder-idle - those rows
+    describe the flight, which happened once), the cumulative
+    ``post_rewind_vessel_lost_frames``, ``cycles_completed`` and
+    ``cycle_history``. ``watch_probe`` ADVANCES rather than resetting: the WATCH
+    tag family is shared across cycles, so the next cycle's first attempt must
+    use an id the seam has never seen."""
+    nan = float("nan")
+    return replace(
+        state,
+        rewind_cycle=state.rewind_cycle + 1,
+        cycle_idle_probe=-1,
+        cycle_idle_since=-1,
+        pre_rewind_ut=pre_rewind_ut,
+        post_rewind_ut=nan,
+        ut_regression=nan,
+        rewind_result="",
+        rewind_reject_reason="",
+        autorecord_off_result="",
+        watcher_launch_commanded=False,
+        watcher_ready_streak=0,
+        watcher_ready_situation="",
+        watcher_ready_vessel_name="",
+        watcher_ready_observed=False,
+        map_view_result="",
+        map_view_reject_reason="",
+        map_exit_result="",
+        map_exit_reject_reason="",
+        watch_result="",
+        watch_reject_reason="",
+        watch_selected_index="",
+        watch_selected_rec_id="",
+        watch_probe=state.watch_probe + 1,
+        watch_attempts=0,
+        watch_first_attempt_frame=-1,
+        watch_awaiting_since=-1,
+        watch_last_reject_frame=-1,
+        playback_target_ut=nan,
+        playback_last_ut=nan,
+        playback_reached=False)
 
 
 def _kxrw_enter(state: KxrwState, new_phase: str, ut: float) -> KxrwState:
@@ -22458,6 +22727,83 @@ def _kxrw_pitch_actions(state: KxrwState,
                     pitch_heading=(float(pitch), float(state.params.turn_heading)))])
 
 
+def _kxrw_cycle_advance(state: KxrwState,
+                        snapshot: TelemetrySnapshot) -> Tuple[KxrwState, List[Action]]:
+    """PLAYBACK-WAIT's second half on a multi-cycle lane: a cycle has completed,
+    more remain, and the machine must OBSERVE the recorder idle before it commands
+    the next InvokeRewindToLaunch - RECORDER-IDLE's discipline, run in-phase so
+    the loop never leaves the contiguous post-rewind block.
+
+    The same three readings RECORDER-IDLE distinguishes, with the same severities:
+      - ``recording=false`` on a frame whose ``ut`` reads: stamp that ``ut`` as the
+        next cycle's pre-rewind clock (the SPACECENTER gate's only "before") and
+        command the rewind under the next cycle's tag;
+      - ``recording=false`` on an unreadable clock, or ``recording=true``: re-probe
+        under a fresh tag until ``idleFrames``, then give up BY NAME. A live
+        recorder here is NOT a driver fact - AUTORECORD-OFF disarmed the trigger
+        before the watcher launched and nothing in this lane starts one - so that
+        give-up says so, for the operator to file rather than re-fly;
+      - an OK with no readable ``recording`` field: FAIL CLOSED, never a rewind
+        against an unverified gate."""
+    p = state.params
+    next_cycle = state.rewind_cycle + 1
+    tag = kxrw_cycle_idle_probe_tag(next_cycle, state.cycle_idle_probe)
+    result = _seam_result(snapshot, tag)
+    waited = state.phase_frames - state.cycle_idle_since
+    where = ("phase %s (cycle-advance to rewind %d of %d)"
+             % (KXRW_PLAYBACK_WAIT, next_cycle + 1, p.rewind_cycles))
+    if result == "OK":
+        reading = _seam_payload(snapshot, tag, "recording")
+        if reading == "false" and _is_finite(snapshot.ut):
+            st = kxrw_begin_next_cycle(replace(state, cycle_idle_reading=reading),
+                                       snapshot.ut)
+            return (_kxrw_enter(st, KXRW_REWIND, snapshot.ut),
+                    [_kxrw_seam_action(
+                        "InvokeRewindToLaunch", kxrw_rewind_tag(st.rewind_cycle),
+                        (("tree", str(st.tree_id)),))])
+        if reading in ("false", "true"):
+            st = replace(state, cycle_idle_reading=reading,
+                         cycle_idle_probe=state.cycle_idle_probe + 1)
+            if waited > p.idle_frames:
+                if reading == "true":
+                    return _kxrw_flake(
+                        st,
+                        "%s: RecordingState still read recording=true after %d "
+                        "frames (%d probe(s)) in the watcher scene. AUTORECORD-OFF "
+                        "disarmed autoRecordOnLaunch before the watcher launched and "
+                        "this lane starts no recorder, so a live one here is a "
+                        "PARSEK-SIDE observation to file, not a driver flake to "
+                        "re-fly; InvokeRewindToLaunch would be REJECTED "
+                        "`recording-active`" % (where, p.idle_frames, st.cycle_idle_probe)), []
+                return _kxrw_flake(
+                    st,
+                    "%s: the recorder READ idle but `ut` was unreadable on every "
+                    "frame within %d frames (%d probe(s)); the pre-rewind clock "
+                    "stamp is the SPACECENTER gate's only `before`, so refusing to "
+                    "command an irreversible rewind against a stamp nothing can be "
+                    "compared to" % (where, p.idle_frames, st.cycle_idle_probe)), []
+            return st, [_kxrw_seam_action(
+                "RecordingState",
+                kxrw_cycle_idle_probe_tag(next_cycle, st.cycle_idle_probe))]
+        return _kxrw_flake(
+            replace(state, cycle_idle_reading=reading),
+            "%s: the RecordingState reply carried no readable `recording` field "
+            "(read %r), so the recorder cannot be confirmed idle; refusing to "
+            "command InvokeRewindToLaunch on an unverified gate" % (where, reading)), []
+    if result in ("ERROR", "TIMEOUT"):
+        return _kxrw_flake(
+            state,
+            "%s: the RecordingState seam command returned %s (%s); the "
+            "recorder-idle precondition of the next rewind could not be observed"
+            % (where, result, _seam_because(_seam_reject_reason(snapshot, tag)))), []
+    if waited > p.idle_frames:
+        return _kxrw_flake(
+            state,
+            "%s: the RecordingState seam command never answered within %d frames"
+            % (where, p.idle_frames)), []
+    return state, []
+
+
 def kxrw_decide(state: KxrwState,
                 snapshot: TelemetrySnapshot) -> Tuple[KxrwState, List[Action]]:
     """Advance the kx_rewind_watch machine one frame; return (new_state, actions).
@@ -22485,7 +22831,10 @@ def kxrw_decide(state: KxrwState,
     the replay window has opened, SCOPED to the captured tree so its auto-select
     cannot land on this flight's own booster debris, and RE-ASKED while Parsek
     answers `no-watchable-ghost`) and RECORD their verdicts without ever failing;
-    PLAYBACK-WAIT walks the clock past the recorded span. DONE is terminal with
+    PLAYBACK-WAIT walks the clock past the recorded span. With ``rewindCycles`` > 1
+    a completed PLAYBACK-WAIT with cycles remaining OBSERVES the recorder idle
+    in-phase and re-enters REWIND under the next cycle's wire tags instead of
+    ending (see the repeat-rewind section above the params). DONE is terminal with
     verdict None.
 
     Once ``done`` the machine is idempotent."""
@@ -22524,7 +22873,8 @@ def kxrw_decide(state: KxrwState,
     # again. The first frame is ROLLOUT with no click yet issued.
     if state.phase == KXRW_ROLLOUT and not state.rollout_launch_commanded:
         conflict = (kxrw_impact_profile_conflict(p)
-                    or kxrw_coast_exit_profile_conflict(p))
+                    or kxrw_coast_exit_profile_conflict(p)
+                    or kxrw_rewind_cycles_conflict(p))
         if conflict:
             return _kxrw_flake(state, "phase %s: %s" % (KXRW_ROLLOUT, conflict)), []
 
@@ -23066,7 +23416,7 @@ def kxrw_decide(state: KxrwState,
                              pre_rewind_ut=snapshot.ut)
                 return (_kxrw_enter(st, KXRW_REWIND, snapshot.ut),
                         [_kxrw_seam_action(
-                            "InvokeRewindToLaunch", KXRW_TAG_REWIND,
+                            "InvokeRewindToLaunch", kxrw_rewind_tag(st.rewind_cycle),
                             (("tree", str(st.tree_id)),))])
             if reading == "true":
                 st = replace(state, recorder_idle_reading=reading,
@@ -23376,7 +23726,7 @@ def kxrw_decide(state: KxrwState,
             st = replace(st, temp_ready_observed=True, pre_rewind_ut=snapshot.ut)
             return (_kxrw_enter(st, KXRW_REWIND, snapshot.ut),
                     [_kxrw_seam_action(
-                        "InvokeRewindToLaunch", KXRW_TAG_REWIND,
+                        "InvokeRewindToLaunch", kxrw_rewind_tag(st.rewind_cycle),
                         (("tree", str(st.tree_id)),))])
         if st.phase_frames > p.watcher_launch_frames:
             return _kxrw_flake(
@@ -23403,7 +23753,8 @@ def kxrw_decide(state: KxrwState,
 
     # ---- REWIND -------------------------------------------------------------
     if state.phase == KXRW_REWIND:
-        result = _seam_result(snapshot, KXRW_TAG_REWIND)
+        rewind_tag = kxrw_rewind_tag(state.rewind_cycle)
+        result = _seam_result(snapshot, rewind_tag)
         if result == "OK":
             return (_kxrw_enter(replace(state, rewind_result="OK"),
                                 KXRW_SPACECENTER, snapshot.ut), [])
@@ -23413,7 +23764,7 @@ def kxrw_decide(state: KxrwState,
             # <reason>` plus the dispatch refusals `merge-journal-in-flight |
             # load-in-flight | recording-active`; guessing at which one fired is
             # what sent R1's operator hunting the wrong object on flight 1.
-            reason = _seam_reject_reason(snapshot, KXRW_TAG_REWIND)
+            reason = _seam_reject_reason(snapshot, rewind_tag)
             return _kxrw_flake(
                 replace(state, rewind_result=result, rewind_reject_reason=reason),
                 "phase %s: InvokeRewindToLaunch returned %s for tree=%s; %s"
@@ -23446,7 +23797,7 @@ def kxrw_decide(state: KxrwState,
             # longer means the watcher's launch auto-starts a second recorder.
             return (_kxrw_enter(st, KXRW_AUTORECORD_OFF, snapshot.ut),
                     [_kxrw_seam_action(
-                        "SetSetting", KXRW_TAG_AUTORECORD,
+                        "SetSetting", kxrw_autorecord_tag(st.rewind_cycle),
                         (("name", KXRW_AUTORECORD_SETTING),
                          ("value", KXRW_AUTORECORD_OFF_VALUE)))])
         if state.phase_frames > p.space_center_frames:
@@ -23463,7 +23814,8 @@ def kxrw_decide(state: KxrwState,
 
     # ---- AUTORECORD-OFF: stop the watcher launch starting a second recorder -
     if state.phase == KXRW_AUTORECORD_OFF:
-        result = _seam_result(snapshot, KXRW_TAG_AUTORECORD)
+        autorec_tag = kxrw_autorecord_tag(state.rewind_cycle)
+        result = _seam_result(snapshot, autorec_tag)
         if result == "OK":
             return (_kxrw_enter(replace(state, autorecord_off_result="OK"),
                                 KXRW_WATCHER_LAUNCH, snapshot.ut), [])
@@ -23482,7 +23834,7 @@ def kxrw_decide(state: KxrwState,
                 % (KXRW_AUTORECORD_OFF, KXRW_AUTORECORD_SETTING,
                    KXRW_AUTORECORD_OFF_VALUE, result,
                    _seam_because(_seam_reject_reason(snapshot,
-                                                     KXRW_TAG_AUTORECORD)))), []
+                                                     autorec_tag)))), []
         if state.phase_frames > p.auto_record_off_frames:
             return _kxrw_flake(
                 state,
@@ -23520,7 +23872,8 @@ def kxrw_decide(state: KxrwState,
         if streak >= max(1, p.watcher_ready_debounce):
             return (_kxrw_enter(replace(st, watcher_ready_observed=True),
                                 KXRW_MAP_VIEW, snapshot.ut),
-                    [_kxrw_seam_action("EnterMapView", KXRW_TAG_MAP)])
+                    [_kxrw_seam_action("EnterMapView",
+                                       kxrw_map_tag(st.rewind_cycle))])
         if st.phase_frames > p.watcher_launch_frames:
             return _kxrw_flake(
                 st,
@@ -23541,7 +23894,8 @@ def kxrw_decide(state: KxrwState,
 
     # ---- MAP-VIEW / MAP-EXIT / WATCH: RECORD the verdict, never fail on it --
     if state.phase == KXRW_MAP_VIEW:
-        result = _seam_result(snapshot, KXRW_TAG_MAP)
+        map_tag = kxrw_map_tag(state.rewind_cycle)
+        result = _seam_result(snapshot, map_tag)
         if result:
             # ANY terminal token advances - OK, or the "ERROR" the runner maps a
             # REJECTED verdict onto. A refused render verb is a PARSEK finding and
@@ -23550,14 +23904,15 @@ def kxrw_decide(state: KxrwState,
             # read and retries a product defect into a PASS.
             st = replace(state, map_view_result=result,
                          map_view_reject_reason=_seam_reject_reason(
-                             snapshot, KXRW_TAG_MAP))
+                             snapshot, map_tag))
             # NO EnterWatchMode rides this transition any more. WATCH now HOLDS for
             # the replay window before its first attempt (see the phase below); the
             # command used to go out here, one frame after the map opened, which is
             # exactly what put it five seconds ahead of the ghost on GS-4's reading
             # run. What DOES ride it is the map CLOSE - see MAP-EXIT.
             return (_kxrw_enter(st, KXRW_MAP_EXIT, snapshot.ut),
-                    [_kxrw_seam_action("ExitMapView", KXRW_TAG_MAP_EXIT)])
+                    [_kxrw_seam_action("ExitMapView",
+                                       kxrw_map_exit_tag(state.rewind_cycle))])
         if state.phase_frames > p.map_view_frames:
             # A SILENT seam is a different animal from a refused verb: no verdict
             # was rendered at all, so there is nothing to record and the transport
@@ -23591,11 +23946,12 @@ def kxrw_decide(state: KxrwState,
     # very next frame - so a second knob would be two names for one number, and the
     # one that drifts is the one nobody re-pins.
     if state.phase == KXRW_MAP_EXIT:
-        result = _seam_result(snapshot, KXRW_TAG_MAP_EXIT)
+        map_exit_tag = kxrw_map_exit_tag(state.rewind_cycle)
+        result = _seam_result(snapshot, map_exit_tag)
         if result:
             st = replace(state, map_exit_result=result,
                          map_exit_reject_reason=_seam_reject_reason(
-                             snapshot, KXRW_TAG_MAP_EXIT))
+                             snapshot, map_exit_tag))
             return _kxrw_enter(st, KXRW_WATCH, snapshot.ut), []
         if state.phase_frames > p.map_view_frames:
             return _kxrw_flake(
@@ -23729,9 +24085,24 @@ def kxrw_decide(state: KxrwState,
         st = replace(state,
                      playback_last_ut=(snapshot.ut if _is_finite(snapshot.ut)
                                        else state.playback_last_ut))
+        # THE REPEAT-REWIND OPT-IN'S SECOND HALF. Reachable only after a cycle
+        # completed with more declared - never at the default rewindCycles=1.
+        if st.cycle_idle_probe >= 0:
+            return _kxrw_cycle_advance(st, snapshot)
         if kxrw_playback_complete(snapshot.ut, st.playback_target_ut):
-            return _kxrw_enter(replace(st, playback_reached=True), KXRW_DONE,
-                               snapshot.ut), []
+            st = replace(st, playback_reached=True)
+            st = replace(st, cycles_completed=st.cycles_completed + 1,
+                         cycle_history=st.cycle_history + (kxrw_cycle_record(st),))
+            if st.cycles_completed >= max(1, int(p.rewind_cycles)):
+                return _kxrw_enter(st, KXRW_DONE, snapshot.ut), []
+            # Cycles remain: OBSERVE the recorder idle before the next rewind
+            # (see `_kxrw_cycle_advance`). The probe goes out on THIS frame, the
+            # way RECORDER-IDLE's first probe rides STOP's terminal.
+            st = replace(st, cycle_idle_probe=0, cycle_idle_since=st.phase_frames,
+                         cycle_idle_reading="")
+            return st, [_kxrw_seam_action(
+                "RecordingState",
+                kxrw_cycle_idle_probe_tag(st.rewind_cycle + 1, 0))]
         if st.phase_frames > p.playback_wait_frames:
             # THE CAP. Frames, not UT: a STUCK clock is precisely the failure a UT
             # budget cannot see, and this give-up is the only thing between it and
@@ -23785,6 +24156,14 @@ def evaluate_kxrw_assertions(frames, params: KxrwParams,
       defect into a retryable driver-INVALID and throw the evidence away.
     - ``playbackWatchedOut``: the clock passed recordedEnd + playbackMarginSeconds,
       so the whole ghost lifecycle (spawn -> replay -> retire) is inside the log.
+
+    THE REPEAT-REWIND OPT-IN (``rewindCycles`` > 1) ADDS ONE NINTH ROW,
+    ``rewindCyclesCompleted``, and substitutes none. The eight rows above read the
+    LIVE state, which after a multi-cycle run is the LAST cycle's; the ninth row
+    carries every cycle's frozen record and is met only when each declared cycle
+    rewound (clock observed backward), settled its watcher and watched its
+    playback out. At the default of one cycle the row does not exist and the
+    count stays eight.
 
     THE IMPACT PROFILE SUBSTITUTES ONE ROW IN PLACE and adds none: the count stays
     eight, and with the key omitted every row is byte-identical - names, values and
@@ -24061,4 +24440,40 @@ def evaluate_kxrw_assertions(frames, params: KxrwParams,
          "recordedEndUT": end_ut if _is_finite(end_ut) else None,
          "frameCap": params.playback_wait_frames})
 
-    return [core, boosters, span_row, committed, rewound, watcher, render, playback]
+    rows = [core, boosters, span_row, committed, rewound, watcher, render, playback]
+    required_cycles = int(getattr(params, "rewind_cycles", 1))
+    if required_cycles > 1:
+        rows.append(_kxrw_rewind_cycles_row(params, state, required_cycles))
+    return rows
+
+
+def _kxrw_rewind_cycles_row(params: KxrwParams, state,
+                            required: int) -> AssertionOutcome:
+    """The ONE row the repeat-rewind opt-in adds, and only above one cycle.
+
+    MET iff every declared cycle completed AND each one's own frozen record shows
+    the three facts the ordinary rows certify for the last cycle: the rewind
+    answered OK with the clock OBSERVED running backward, the watcher settled on
+    the pad, and the playback wait reached its target. The render verbs ride the
+    per-cycle detail and are met on rejection by design, exactly as
+    ``renderVerbsDriven`` is - what Parsek answered is the spec's log contracts'
+    to judge. The eight ordinary rows keep reading the LIVE state, i.e. the LAST
+    cycle; this row's ``cycles`` list is where every earlier one lives."""
+    history = tuple(getattr(state, "cycle_history", ()) or ())
+    completed = int(getattr(state, "cycles_completed", 0))
+
+    def cycle_ok(rec) -> bool:
+        return bool(rec.rewind_result == "OK"
+                    and _is_finite(rec.ut_regression)
+                    and rec.ut_regression >= params.min_ut_regression
+                    and rec.watcher_ready_observed
+                    and rec.playback_reached)
+
+    met = bool(completed >= required and len(history) >= required
+               and all(cycle_ok(r) for r in history[:required]))
+    return AssertionOutcome(
+        "rewindCyclesCompleted", met, completed,
+        {"required": required,
+         "completed": completed,
+         "cycles": [r.to_dict() for r in history],
+         "metOnRejectionByDesign": True})
