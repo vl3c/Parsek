@@ -79,6 +79,21 @@ _(unreleased — entries accumulate here per commit)_
     the title is one of the things that can legitimately go missing; and the one test that
     checks all of this no longer fails when a designed fallback does its job.
 
+  An automated run can now ASK for one of these descriptions, which nothing outside the
+  game could do before: the only way in was a call no test run had a way to make. A run
+  asks by name, exactly the way it asks for a screenshot and with the same rules about
+  what a name may contain, so the picture and the description of one window land side by
+  side under one name and can be read together afterwards. The run then waits until the
+  description has actually been written before it does anything else - not merely so the
+  file is finished, but because the very next thing a window tour does is move or close
+  the window the pending capture is about to describe. If nothing draws in time, or the
+  listening trips over itself while the frame is being written down, the run says which
+  of the two happened rather than quietly handing over a half-finished description. Each
+  answer also reports how many windows and how many individual items were written down,
+  and how many of the game's own drawing routines were successfully listened in on - which
+  is the number that will finally say whether the listening works at all, the first time
+  any of this runs inside the game.
+
   Nothing about the windows themselves changed: not one line of the drawing code was
   touched, nothing is listened to unless something asks for a capture, and while nothing
   is asking, the game runs exactly as it did before.

@@ -1,7 +1,9 @@
 # Design: IMGUI tree dump (`GuiTreeRecorder`)
 
-Status: SPIKE, landed 2026-09-10 on `gui-dump-spike`. The pure layer is unit-tested;
-the Harmony interception layer has NEVER RUN INSIDE KSP - see "What is unproven".
+Status: SPIKE, landed 2026-09-10 on `gui-dump-spike`; the `DumpGuiTree` seam verb and the
+two census lanes' dump steps landed 2026-09-11. The pure layer is unit-tested; the Harmony
+interception layer has NEVER RUN INSIDE KSP - see "What is unproven". The census lanes pin
+`patched=17/17` on every dump, so their first flight is the measurement.
 
 ## The problem
 
@@ -318,8 +320,24 @@ with the run's screenshots into `results/<runId>_shots/`. `SanitizeLabel` reduce
 label to `[A-Za-z0-9._-]`, capped at 96 chars, so a caller cannot walk out of the
 directory.
 
-There is deliberately NO command-seam verb yet. The API is `internal static` and a verb
-is a separate change (a sibling branch owns the seam dispatcher).
+The command-seam verb is `DumpGuiTree label=<name>` (2026-09-11, ADDITIVE, 36 implemented
+verbs). It arms the recorder from the seam's Update-phase executor - never from inside
+OnGUI, which the arm refuses - and is TWO-PHASE: it holds the FIFO head until the recorder
+reports THIS arm's dump written, so a following seam step is ordered after the write rather
+than racing it and changing the UI the pending capture is about to record. Its OK line
+carries `windows`, `nodes`, `patched=<ok>/<of>` and `hits`, which is what lets a spec pin
+the funnel reading (`patched=17/17`) as a literal. Full contract:
+`design-autotest-command-seam.md` -> `#### DumpGuiTree`.
+
+Three per-arm readings exist on this class FOR that verb, because until it there was no
+consumer that needed them out of the log: `LastArmRefusalReason` (why the last arm
+refused, cleared at every arm), `LastDisarmReason` (the reason of the last `Disarm` since
+the arm - `armed-no-repaint` being the one a caller acts on) and `FaultsSinceArm` (the
+per-arm fault counter, distinct from `LastRecordFaults`, which describes the last COMPLETED
+capture). A fault does not imply no dump: `Fault` clears `ArmedFlag` but leaves an OPEN
+capture for the pump to flush, so a partial tree can still reach disk - which is why the
+verb reads the counter rather than inferring "faulted" from a missing file, and why its
+poll decides FAULTED ahead of SETTLED.
 
 ## Screen-space conversion
 
@@ -658,6 +676,8 @@ What only a flight can settle:
 | `Source/Parsek/GuiTreeFunnels.cs` | the 17 target signatures, wire names, hit counters, arm-time `patched` snapshot |
 | `Source/Parsek/GuiTreeRecorder.cs` | arm / record / flush, the Unity seam, and `GuiTreeRecorderPump` |
 | `Source/Parsek/Patches/GuiTreeRecorderPatches.cs` | the applier + the 17 attribute-less Harmony patch classes |
+| `Source/Parsek/TestCommands/TestCommandDumpGuiTree.cs` | pure: the `DumpGuiTree` seam verb's arg parse, poll decision and payload |
+| `Source/Parsek/TestCommands/ParsekTestCommandAddon.DumpGuiTree.cs` | that verb's applier: the arm, the recorder polls, the file stat |
 | `Source/Parsek/InGameTests/GuiTreeDumpImguiTest.cs` | the live `GuiTree` cell + its probe window |
 | `Source/Parsek.Tests/GuiTree*Tests.cs` | headless coverage of everything above that is pure |
 | `harness/tools/gui_tree_view.py` | the offline viewer |

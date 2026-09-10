@@ -210,6 +210,26 @@ namespace Parsek.TestCommands
             //     Update.
             "CaptureScreenshot",
             "UiAction",
+            // DumpGuiTree. ADDITIVE (35 -> 36 implemented, reserved unchanged at 5): the
+            // reserved envelope never carried a UI-introspection verb. It is the THIRD
+            // member of the census family and it closes the half a picture cannot carry:
+            // an IMGUI window has no retained widget tree, no GameObject hierarchy and no
+            // accessibility surface, so a screenshot cannot say which rows a filter left
+            // visible, which control was disabled, what nests inside what or which tooltip
+            // a control published. GuiTreeRecorder records exactly that for ONE Repaint
+            // pass and writes it as `Screenshots/<label>.gui.json`, which
+            // hlib.ARTIFACT_SHOTS_SUFFIXES harvests alongside the PNGs.
+            //   TWO-PHASE, and not optionally: arming only asks for the NEXT Repaint pass,
+            //   which the recorder then assembles and writes from the following
+            //   LateUpdate. A single-phase OK would claim a file that does not exist yet,
+            //   and the next step would race the write while CHANGING the very UI the
+            //   pending capture is about to record.
+            //   Rides the 60 s default budget (the CaptureScreenshot shape) behind the
+            //   recorder's own shorter 900-frame give-up.
+            //   It is NOT a second spelling of CaptureScreenshot: one produces pixels and
+            //   the other structure, they are driven as a PAIR under one label, and a
+            //   census reader needs to know which artefact a step produced.
+            "DumpGuiTree",
         };
 
         // Reserved (recognized, not implemented in v1): 5 verbs.
@@ -269,6 +289,13 @@ namespace Parsek.TestCommands
             // ParsekSettingsPersistence, which is SetSetting's own row, so it is
             // state-mutating and FlushAndQuit must still save after it.
             "CaptureScreenshot",     // writes one png, nothing else (hlib: TAIL_ROLE_INERT)
+            // DumpGuiTree writes ONE json in the KSP tree and touches no vessel, save,
+            // career or Parsek persisted state - CaptureScreenshot's row exactly (hlib:
+            // TAIL_ROLE_INERT). The Harmony interceptions it installs are the one thing
+            // that could argue otherwise, and they do not: they are applied at arm and
+            // removed when the capture flushes, they only OBSERVE, and none of them is on
+            // a Parsek method at all.
+            "DumpGuiTree",           // writes one json, nothing else (hlib: TAIL_ROLE_INERT)
             "FlushAndQuit",          // the reader of the latch, not a mutator of the world
         };
 

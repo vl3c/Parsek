@@ -181,6 +181,49 @@ namespace Parsek
         /// <summary>True when the last capture ran under a non-identity <c>GUI.matrix</c>.</summary>
         internal static bool LastMatrixNonIdentity { get; private set; }
 
+        /// <summary>
+        /// Why the LAST <see cref="ArmForNextRepaint"/> call refused, or null when it
+        /// armed. Cleared at the start of every arm, so it always describes the most
+        /// recent request and never an older one.
+        ///
+        /// <para>Exists because the arm reports a refusal by returning null and LOGGING
+        /// the reason, which is enough for a person reading KSP.log and not enough for the
+        /// command seam: a verb whose terminal says only "refused" costs a whole KSP boot
+        /// to diagnose. The <c>DumpGuiTree</c> verb puts this string on its ERROR message
+        /// (<c>gui-tree-arm-refused reason=inside-gui-pass</c>).</para>
+        /// </summary>
+        internal static string LastArmRefusalReason { get; private set; }
+
+        /// <summary>
+        /// The reason passed to the last <see cref="Disarm"/> since the last arm, or null
+        /// when none has run. <c>armed-no-repaint</c> is the one a caller cares about: it
+        /// is the pump giving the arm up because nothing drew IMGUI through a patched
+        /// funnel within <see cref="ArmTimeoutFrames"/>.
+        ///
+        /// <para>It distinguishes the two ways a poll can find the recorder idle with no
+        /// dump: that give-up, and a flush whose <c>File.WriteAllText</c> threw (which logs
+        /// its own Error and leaves this null). The seam's terminal is the same for both -
+        /// there is no dump either way - but the log line says which.</para>
+        /// </summary>
+        internal static string LastDisarmReason { get; private set; }
+
+        /// <summary>
+        /// Patch-body exceptions counted SINCE THE LAST ARM. Cleared by
+        /// <see cref="ResetBuffers"/> on every arm, which is what makes it a statement
+        /// about THIS capture - unlike <see cref="LastRecordFaults"/>, which is the last
+        /// COMPLETED capture's reading and survives the next arm until that capture
+        /// flushes.
+        ///
+        /// <para>A fault does not necessarily mean no dump: <see cref="Fault"/> clears
+        /// <see cref="ArmedFlag"/> but leaves an OPEN capture for the pump to flush, so a
+        /// partial tree can still reach disk. That is why the seam reads this rather than
+        /// inferring "faulted" from a missing file.</para>
+        /// </summary>
+        internal static int FaultsSinceArm
+        {
+            get { return recordFaults; }
+        }
+
         /// <summary>True while a captured frame is waiting to be flushed by the pump.</summary>
         internal static bool HasPendingFlush
         {
@@ -274,6 +317,10 @@ namespace Parsek
             ResetGuiDepthProbe();
             int depthAtArm = ReadGuiDepth();
             string refusal = ClassifyArmRefusal(ClassifyInsideGuiPass(depthAtArm));
+            // Both reasons are per-arm state: cleared here so a caller polling them can
+            // never read a previous arm's refusal or a previous arm's give-up.
+            LastArmRefusalReason = refusal;
+            LastDisarmReason = null;
             if (refusal != null)
             {
                 ParsekLog.Warn("GuiTree", "arm refused reason=" + refusal
@@ -317,6 +364,7 @@ namespace Parsek
         internal static void Disarm(string reason)
         {
             bool wasArmed = ArmedFlag || capturing;
+            LastDisarmReason = reason;
             ArmedFlag = false;
             capturing = false;
             captureFrame = -1;
@@ -343,6 +391,8 @@ namespace Parsek
             LastRecordFaults = 0;
             LastDroppedOverCap = 0;
             LastMatrixNonIdentity = false;
+            LastArmRefusalReason = null;
+            LastDisarmReason = null;
             faultLogged = false;
             unpatchPending = false;
             ResetGuiDepthProbe();

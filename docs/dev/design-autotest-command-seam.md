@@ -568,6 +568,27 @@ journal, verdicts) is designed once and the later commands slot in without a for
 > no button and nothing reachable in a normal game; the only production entry points it
 > calls are `ParsekUI.SetUiComplexityMode` and `ApplyPendingUiComplexityModeIfAny`.
 
+> Update (the GUI census, half two, 2026-09-11): ONE further ADDITIVE verb,
+> `DumpGuiTree label=<name>`, the same shape again - never in the reserved list, so the
+> implemented table moves alone: **36 implemented / 5 reserved**.
+>
+> It closes the half a picture cannot carry. An IMGUI window has no retained widget tree,
+> no `GameObject` hierarchy and no accessibility surface: the only artefact of a window is
+> the pixels it drew that frame, so a screenshot cannot say which rows a filter left
+> visible, which control was disabled, what nests inside what, or which tooltip a control
+> published. `GuiTreeRecorder` (`docs/dev/design-gui-tree-dump.md`) records exactly that
+> for ONE Repaint pass and writes it as `Screenshots/<label>.gui.json`, which
+> `hlib.ARTIFACT_SHOTS_SUFFIXES` already harvests alongside the PNGs and
+> `harness/tools/gui_tree_view.py` renders as boxes over the matching screenshot. The
+> recorder shipped with NO seam verb on purpose - its API is `internal` and a verb was a
+> separate change on a sibling branch - so until now nothing unattended could arm it.
+>
+> TWO-PHASE, and not optionally: arming asks for the NEXT Repaint pass, which the recorder
+> records and then assembles + serialises + writes from the FOLLOWING `LateUpdate`. A
+> single-phase OK would claim a file that does not exist yet, and the next step would not
+> merely race the write - it would change the very UI the pending capture is about to
+> record. Full contract below (`#### DumpGuiTree`).
+
 > Update (WarpToUT, 2026-09-09): one further ADDITIVE verb, `WarpToUT ut=<absolute UT>
 > [maxRate=<float>]` - the SaveGame / ExportRenderManifest / ListHandles shape, never in
 > the reserved envelope (which carried no warp verb). It takes the table to **33
@@ -1854,6 +1875,92 @@ Basic) and `GUI-2-census-flight` (the flight-only windows plus the flight form o
 window). Both on an OPERATOR-LOCAL fixture, both never flown; see
 `harness/fixtures/local-saves/README.md` for why a census host cannot be committed.
 
+#### DumpGuiTree (additive; one IMGUI control tree beside the PNG)
+
+`DumpGuiTree label=<filename-safe name>`. Precondition `AnyScene`, `CaptureScreenshot`'s
+row and for a slightly different reason: the recorder intercepts the PROCESS's IMGUI
+funnels rather than Parsek's, so a dump is meaningful wherever anything draws, and the
+safe-point gate already excludes LOADING, a transition and the settle window - which is
+when nothing worth recording is on screen. Deliberately NOT `RequiresGameLoaded` like its
+census partner `UiAction`: that verb drives PARSEK's windows and needs a save behind them.
+Rides the 60 s DEFAULT budget and is absent from `DEFERRED_SEAM_VERBS`, the
+`CaptureScreenshot` shape.
+
+**What it is for.** `CaptureScreenshot` gave a GUI review pixels; this gives it structure,
+and the two are driven as a PAIR under one label so a reviewer can read the tree beside the
+image. The recorder's own design doc (`design-gui-tree-dump.md`) owns the mechanism - 17
+opt-in Harmony interceptions of UnityEngine IMGUI funnels, applied at arm and removed when
+the capture flushes, so a disarmed recorder costs the process nothing.
+
+**The `label` rule is `CaptureScreenshot`'s, by delegation rather than by copy.**
+`TestCommandDumpGuiTree.IsValidLabel` CALLS the capture verb's predicate and re-exports its
+two reject tokens (`label-arg-missing`, `label-arg-invalid`). A census pairs one dump with
+one PNG under one label, so a label one verb accepted and the other refused would leave a
+PNG with no tree beside it. The rule is also strictly TIGHTER than the recorder's own
+`SanitizeLabel`, so an accepted label survives sanitisation unchanged and the path the
+payload reports is the path the recorder writes - pinned in the mirror direction by a unit
+cell rather than argued in a comment.
+
+**No pre-delete, and no two-sample size rule** - the two places this verb deliberately
+differs from its sibling. `CaptureScreenshot` needs both because UNITY writes its PNG
+asynchronously into the path the poll reads: a stale file would settle immediately, and a
+first sighting can be half a file. Here the completion signal is the recorder's own
+`LastCaptureWritten` + `LastWrittenPath` pair, which the arm clears before anything else
+(so a stale file cannot satisfy it), and the writer is Parsek's own `FlushCapture`, whose
+`File.WriteAllText` has RETURNED before the flag is set (so the file cannot be partial).
+
+**The poll's first rule is that a FAULT beats a written dump.** `GuiTreeRecorder.Fault`
+clears `ArmedFlag` but leaves an OPEN capture for the pump to flush, so a faulted arm can
+leave a real file on disk describing a frame the recorder stopped following. The file is
+left in place - it is evidence about the fault - but the verdict refuses to call it a
+product, because a partial control tree in a census folder reads as a Parsek UI defect
+rather than as a recorder fault. `Settled` is then decided BEFORE the budget, the
+`CaptureScreenshot.DecidePoll` rule.
+
+**Terminals.** `REJECTED`: `label-arg-missing`, `label-arg-invalid` (the same two tokens
+the capture verb emits, deliberately). `ERROR`: `gui-tree-arm-refused reason=<why>` (the
+recorder refused to arm and named why - today the only reason is `inside-gui-pass`. ERROR
+rather than REJECTED because the seam pump runs in `Update`, which Unity runs BEFORE the
+frame's `OnGUI`, so the refusal is unreachable by construction: if it fires, the dispatch
+moved), `gui-tree-timeout` (NO dump - either the recorder gave itself up on its own
+900-frame `armed-no-repaint` bound because nothing drew IMGUI through a patched funnel, or
+the verb's budget expired first; ONE token because the actionable fact is identical and the
+log line carries `gaveUp=` plus the recorder's own reason), and `gui-tree-faulted` (a patch
+body threw during the captured frame, or applying the patches threw).
+
+**`OK` payload: `label`, `path`, `bytes`, `windows`, `nodes`, `patched`, `hits`.** The last
+four are the capture's own reading, on the WIRE rather than only in the file because a spec
+can only regex what reaches the response line and the log, and they answer three different
+failures: `windows` / `nodes` say the capture has CONTENT (a dump of an empty frame is a
+valid file and a useless product), `patched=<ok>/<of>` says the interceptions were
+INSTALLED (the recorder's arm-time `Harmony.GetPatchInfo` reading, owner-scoped to its own
+Harmony id - a flush-time reading would report false for everything, because the capture
+removes its own patches), and `hits` says they FIRED (the sum of the per-funnel body-run
+counters; a funnel Mono inlined reads `patched: true, hits: 0`). `patched` is one token
+rather than two because the reading only means anything as a pair - which is what lets a
+census lane pin `patched=17/17` as a literal while leaving `hits` to a reader, since a hit
+count is a property of whatever the frame happened to contain.
+
+**Pure decision.** `TestCommandDumpGuiTree` (`IsValidLabel`, `TryParseLabel`, `DecidePoll`,
+`RelativePathFor`, `FormatPatched`, `BuildPayload`), xUnit-covered in
+`TestCommandDumpGuiTreeTests.cs`. The partial `ParsekTestCommandAddon.DumpGuiTree.cs` owns
+the arm, the recorder polls and the `FileInfo` stat, and nothing else. Three per-arm
+readings were added to the recorder for it - `LastArmRefusalReason`, `LastDisarmReason`,
+`FaultsSinceArm` - because the recorder previously reported all three only to the log,
+which is enough for a person and not for a verb whose terminal a spec reads.
+
+**Tail / post-mission roles.** `inert` and `recording`, `CaptureScreenshot`'s pair exactly:
+it writes ONE file under the KSP root and touches no vessel, no save, no career and no
+Parsek persisted state. The Harmony interceptions are the one thing that could argue
+otherwise and they do not - applied at arm, removed at flush, observation-only, and none of
+them on a Parsek method at all. Mirrored in the C# `NonMutatingVerbs` set, which a harness
+cell reads out of the source.
+
+**First consumers.** `GUI-1-census-ksc` (22 dumps, one after every capture) and
+`GUI-2-census-flight` (5). Both pin `patched=17/17` on every dump's OK line, which is what
+makes the census's first flight a MEASUREMENT of the interception layer rather than only a
+picture gallery.
+
 ## Behavior
 
 ### Addon lifecycle
@@ -1919,6 +2026,7 @@ parsed, N deferred), with bounded per-command Info lines (command counts are sma
 | `MissionMark` | any scene | emit a stable `[Parsek][Info][TestCommands] MISSIONMARK label=<label> ut=<ut>` log line (H3-style correlation) | `label` echoed |
 | `CaptureScreenshot` | any scene (the `ExportRenderManifest` row; the safe-point gate already excludes LOADING / a transition / the settle window, which is when a capture would photograph a black frame) | pre-delete a colliding target, then the reflectively-resolved `UnityEngine.ScreenCapture.CaptureScreenshot(<KSP root>/Screenshots/<label>.png, superSize)`; TWO-PHASE, holding the head until the file reports the same non-zero size on two consecutive polls | `label`, `path` (relative), `bytes` (settled), `superSize`, `overwrote` |
 | `UiAction` | game loaded, any scene that HOSTS the Parsek UI (FLIGHT / SPACECENTER); a scene with no host is `REJECTED ui-host-unavailable`, never a defer | per `op`: write a window's `IsOpen`, write a tab selector, `ParsekUI.SetUiComplexityMode` + the production `Update` latch, write a window rect, or walk the window table read-only. Every op read-back-verified - and `open` / `rect` TWO-PHASE, holding the head for one DRAWN frame so the read-back describes what the window's own draw resolved rather than the value just written | per op: `op window open already` / `op window tab index already` / `op mode already` / `op window rect` / the describe inventory (`scene complexity count` + six keys per window) |
+| `DumpGuiTree` | any scene (the `CaptureScreenshot` row) | `GuiTreeRecorder.ArmForNextRepaint(label)` from the Update-phase pump (the recorder REFUSES to arm from inside an IMGUI pass), then TWO-PHASE, holding the head until the recorder reports THIS arm's dump written to `<KSP root>/Screenshots/<label>.gui.json` | `label`, `path` (relative), `bytes`, `windows`, `nodes`, `patched` (`<ok>/<of>`, the arm-time reading), `hits` |
 | `FlushAndQuit` | any scene (incl. menus) | if a game is loaded, force a scenario/game save so committed data is durable, THEN `Application.Quit()` deferred one frame; response + journal `DONE` written and flushed BEFORE quitting. Deliberately replaces kRPC master's `Quit()` RPC (a bare `Application.Quit()`, not commit-safe). | `saved` bool |
 
 Notes:
@@ -1970,6 +2078,7 @@ wall-clock. Some verbs need a different bound and override the default:
 | `RunTests` | batch budget from the scenario spec | a full in-game batch can run minutes; the budget comes from the scenario's declared runtime budget, not a fixed default |
 | `LoadGame` | load budget (e.g. 300 s) | a cold `GamePersistence.LoadGame` + scene settle can take minutes on a large save; longer than the default, shorter than an infinite hang |
 | `CaptureScreenshot` | (default) 60 s | TWO-PHASE but deliberately NOT in `DEFERRED_SEAM_VERBS`, the `EnterWatchMode` shape: the completion is a file poll that lands in a frame or two, so a capture still unwritten after a minute is broken rather than slow, and a longer budget would only delay the diagnosis |
+| `DumpGuiTree` | (default) 60 s | TWO-PHASE and NOT in `DEFERRED_SEAM_VERBS`, the `CaptureScreenshot` shape: the wait is one Repaint pass plus the `LateUpdate` that flushes it, and the RECORDER gives the arm up on its own after 900 frames (`GuiTreeRecorder.ArmTimeoutFrames`, ~15 s at 60 fps) - so this budget is a backstop behind a shorter bound, not the primary one |
 | `UiAction` | (default) 60 s | bounds the game-not-loaded dispatch defer AND the one-frame settle wait of its two two-phase ops. A settle that has not landed in a minute means the game stopped drawing, not that it is slow, so the default is the right size and the terminal is named `ui-action-not-settled` rather than spelled like a refusal |
 
 Budgets are measured from when the command first reaches the head and begins deferring. On
