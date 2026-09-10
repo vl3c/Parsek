@@ -131,7 +131,6 @@ namespace Parsek
         internal LogisticsWindowUI GetLogisticsUI() { return logisticsUI; }
         internal StructureListWindowUI GetStructureListUI() { return structureListUI; }
 
-
         /// <summary>
         /// Why the Real Spawn Control launcher is greyed out. The window turns a recorded
         /// craft that is passing close by into a real vessel, so with nothing in range
@@ -665,6 +664,53 @@ namespace Parsek
         internal static bool WouldRefuseModeChange(UiComplexityMode next)
         {
             return ShouldRefuseModeChange(next, IsGloopsRecordingNow());
+        }
+
+        /// <summary>
+        /// The PERSISTED interface mode - what <see cref="SetUiComplexityMode"/> compares
+        /// against when it decides a request is a no-op. Fails open to Advanced with no
+        /// settings object, exactly as the latch seed does.
+        /// <para>Exists because the setting and the LATCH can legitimately disagree - a
+        /// <see cref="ParsekUI"/> constructed before <c>ParsekSettings.Current</c> exists
+        /// seeds the latch to Advanced while the save carries Basic - and a caller that
+        /// reads only <see cref="AppliedUiComplexityMode"/> cannot tell "already there"
+        /// from "the setter is about to decline to queue anything". The automation-only
+        /// <c>UiAction op=complexity</c> seam op is that caller.</para>
+        /// </summary>
+        internal static UiComplexityMode PersistedUiComplexityMode
+        {
+            get
+            {
+                ParsekSettings settings = ParsekSettings.Current;
+                return settings != null
+                    ? settings.UiComplexityModeLevel
+                    : UiComplexityMode.Advanced;
+            }
+        }
+
+        /// <summary>
+        /// Re-queues the PERSISTED mode for the latch when the latch has drifted away from
+        /// it. Returns true when something was queued.
+        /// <para>Deliberately NOT a general "queue this mode" setter: it can only ever queue
+        /// the value the settings object already holds, so it cannot apply a mode the save
+        /// does not carry and it cannot get around
+        /// <see cref="ShouldRefuseModeChange"/> (a refused change never reached the setting
+        /// in the first place). It closes the one gap <see cref="SetUiComplexityMode"/>
+        /// leaves by design: that setter no-ops when the requested mode equals the SETTING,
+        /// so a drifted latch could never be corrected by asking for the mode the save
+        /// already has.</para>
+        /// </summary>
+        internal static bool TryRequeuePersistedUiComplexityMode()
+        {
+            ParsekSettings settings = ParsekSettings.Current;
+            if (settings == null) return false;
+            UiComplexityMode persisted = settings.UiComplexityModeLevel;
+            if (persisted == appliedUiComplexityMode) return false;
+            pendingUiComplexityMode = persisted;
+            ParsekLog.Verbose("UI",
+                "Persisted UI mode re-queued for the latch: uiComplexityMode="
+                + $"{appliedUiComplexityMode}->{persisted} (setting and latch had drifted)");
+            return true;
         }
 
         public void DrawWindow(int windowID)

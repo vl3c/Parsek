@@ -1,7 +1,7 @@
 using System;
 using System.Globalization;
 using System.IO;
-using System.Reflection;
+using UnityEngine;
 
 namespace Parsek.TestCommands
 {
@@ -9,8 +9,10 @@ namespace Parsek.TestCommands
     /// GUI-census partial: the thin Unity applier for the TWO-PHASE
     /// <c>CaptureScreenshot</c> verb. Every decision is delegated to the pure sibling
     /// <see cref="TestCommandCaptureScreenshot"/>; this file resolves the target path,
-    /// makes the one <c>ScreenCapture.CaptureScreenshot</c> call, and polls the file until
-    /// its size settles.
+    /// makes the one <c>UnityEngine.ScreenCapture.CaptureScreenshot</c> call (a plain
+    /// compile-time call - <c>Parsek.csproj</c> references
+    /// <c>UnityEngine.ScreenCaptureModule</c>), and polls the file until its size
+    /// settles.
     ///
     /// <para>
     /// WHY THE TARGET DIRECTORY IS NOT A CHOICE. <c>run.py</c>'s always-collect leg copies
@@ -44,63 +46,6 @@ namespace Parsek.TestCommands
         // two-agreeing-samples rule lives on this field: a first sighting can be a
         // partially written PNG (see the pure half's header).
         private long capturePreviousBytes;
-
-        // Cached `UnityEngine.ScreenCapture.CaptureScreenshot(string, int)`. Resolved once
-        // and then reused; `resolvedOnce` distinguishes "not looked up yet" from "looked up
-        // and absent", so a missing API costs one reflection pass rather than one per call.
-        private static MethodInfo cachedCaptureMethod;
-        private static bool captureMethodResolved;
-
-        /// <summary>
-        /// Resolves the screenshot API REFLECTIVELY rather than through a compile-time
-        /// reference, and the reason is a build constraint rather than a style preference.
-        ///
-        /// <para><c>UnityEngine.ScreenCapture</c> lives in
-        /// <c>UnityEngine.ScreenCaptureModule.dll</c>, which <c>Parsek.csproj</c> does not
-        /// reference - it names only the ten Unity modules the mod already needed. Adding an
-        /// eleventh would be fine on a Windows dev box, but the CLOUD / CI build resolves its
-        /// reference DLLs from the PRIVATE <c>vl3c/ksp-refs</c> repo rather than from a KSP
-        /// install, and a reference that repo does not carry is a hard compile error on the
-        /// required <c>tests</c> check - which nothing in this worktree can fix. Reflection
-        /// keeps the build's dependency surface exactly as it was.</para>
-        ///
-        /// <para>Returns null when the type or the overload cannot be found, which the caller
-        /// answers as <see cref="TestCommandCaptureScreenshot.ApiUnavailableReason"/>. It is
-        /// a REJECTED and never a defer: a missing engine API cannot appear by waiting.</para>
-        /// </summary>
-        private static MethodInfo ResolveCaptureMethod()
-        {
-            if (captureMethodResolved) return cachedCaptureMethod;
-            captureMethodResolved = true;
-            try
-            {
-                // Assembly-qualified first (the Unity 2019 layout KSP 1.12.5 ships), then the
-                // bare name so a differently-split runtime still resolves.
-                Type type = Type.GetType(
-                        "UnityEngine.ScreenCapture, UnityEngine.ScreenCaptureModule")
-                    ?? Type.GetType("UnityEngine.ScreenCapture, UnityEngine")
-                    ?? Type.GetType("UnityEngine.ScreenCapture");
-                if (type != null)
-                {
-                    cachedCaptureMethod = type.GetMethod(
-                        "CaptureScreenshot",
-                        BindingFlags.Public | BindingFlags.Static,
-                        null,
-                        new[] { typeof(string), typeof(int) },
-                        null);
-                }
-            }
-            catch (Exception ex)
-            {
-                ParsekLog.Warn(Tag, "capturescreenshot api resolve failed: "
-                    + $"{ex.GetType().Name}: {ex.Message}");
-                cachedCaptureMethod = null;
-            }
-            if (cachedCaptureMethod == null)
-                ParsekLog.Warn(Tag, "capturescreenshot api unavailable: "
-                    + "UnityEngine.ScreenCapture.CaptureScreenshot(string,int) not found");
-            return cachedCaptureMethod;
-        }
 
         private void CaptureScreenshotImpl(ParsedCommand cmd)
         {
@@ -175,29 +120,23 @@ namespace Parsek.TestCommands
                 return;
             }
 
-            // (4) The one engine call, through reflection (see ResolveCaptureMethod for
-            // why). It returns immediately; Unity encodes the PNG at the end of a later
-            // frame, which is why this verb is two-phase.
-            MethodInfo capture = ResolveCaptureMethod();
-            if (capture == null)
-            {
-                ParsekLog.Warn(Tag, "capturescreenshot rejected reason="
-                    + TestCommandCaptureScreenshot.ApiUnavailableReason);
-                SetExecResult("REJECTED", null,
-                    TestCommandCaptureScreenshot.ApiUnavailableReason);
-                return;
-            }
+            // (4) The one engine call. It returns immediately; Unity encodes the PNG at
+            // the end of a later frame, which is why this verb is two-phase.
+            // `UnityEngine.ScreenCapture` lives in UnityEngine.ScreenCaptureModule.dll,
+            // which Parsek.csproj now references directly (verified present in the
+            // private vl3c/ksp-refs repo the cloud / CI build resolves from, so the
+            // required `tests` check compiles it too). A compile-time reference is
+            // deliberate: the reflective form it replaced could only report a missing API
+            // as a run-time REJECTED, i.e. after a whole KSP boot, and it hid a real
+            // build dependency behind a string.
             try
             {
-                capture.Invoke(null, new object[] { path, superSize });
+                ScreenCapture.CaptureScreenshot(path, superSize);
             }
             catch (Exception ex)
             {
-                // A reflected invoke wraps the real fault, so unwrap it for the log - the
-                // token stays the same either way.
-                Exception inner = (ex as TargetInvocationException)?.InnerException ?? ex;
                 ParsekLog.Error(Tag, $"capturescreenshot threw path={path}: "
-                    + $"{inner.GetType().Name}: {inner.Message}");
+                    + $"{ex.GetType().Name}: {ex.Message}");
                 SetExecResult("ERROR", null, TestCommandCaptureScreenshot.ThrewReason);
                 return;
             }

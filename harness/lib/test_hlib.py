@@ -13968,41 +13968,103 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
                          "the two inert sets have drifted (FlushAndQuit excluded by "
                          "name - it is the latch's reader, not a mutator)")
 
+    @staticmethod
+    def _parse_cs_window_table(text):
+        """The C# `WindowTable` as an ORDERED list of `(window token, (tab tokens...))`.
+
+        Anchored to the UNCOMMENTED array assignment and with `//` comments STRIPPED
+        from the region, per the house rule: that table's header comment quotes window
+        names, tab names and window-class names verbatim (`"Parsek - Missions"`,
+        `Active / Paused / Dormant`), so a regex over the raw source reads prose as
+        code and a bare-substring check passes against a table that does not carry the
+        token at all."""
+        start = text.index("private static readonly UiWindowSpec[] WindowTable = new[]")
+        end = text.index("\n        };", start)
+        region = "\n".join(
+            line.split("//", 1)[0] for line in text[start:end].splitlines())
+        rows = []
+        for m in re.finditer(
+                r"NewSpec\(\s*(\w+)\s*,\s*(?:true|false)\s*,\s*(?:true|false)\s*"
+                r"((?:,\s*\"[a-z]+\"\s*)*)\)", region, re.S):
+            const, tail = m.group(1), m.group(2)
+            token = re.search(
+                r'internal const string %s = "([a-z]+)";' % re.escape(const), text)
+            assert token is not None, "no token constant for NewSpec(%s, ...)" % const
+            rows.append((token.group(1), tuple(re.findall(r'"([a-z]+)"', tail))))
+        return rows
+
     def test_the_window_and_op_vocabularies_mirror_the_c_sharp_tables(self):
         """Reads OUTSIDE harness/ as well. A window token is named twice in a census
         spec - once in the step and once inside the capture label - so a rename on the
         C# side that this table did not follow is a typed REJECTED after a whole KSP
-        boot, and the closed-value validator would happily pass the stale spelling."""
+        boot, and the closed-value validator would happily pass the stale spelling.
+
+        It reads the ORDERED table rather than a set, and the tab vocabularies OFF THAT
+        TABLE rather than by substring, because the previous form could not fail on the
+        two things most likely to go wrong. A bare `assertIn('"roster"', text)` passes
+        against a source file that merely MENTIONS the word - including in the table's
+        own header comment - and a sorted set comparison says nothing about ORDER, which
+        is load-bearing twice over: the window order is the order a describe payload and
+        a census's capture labels read in, and each tab's INDEX is the value the live
+        selector field takes, so a reordered tab vocabulary would photograph the wrong
+        tab under the right label."""
         path = os.path.join(PARSEK_SOURCE_DIR, "TestCommands", "TestCommandUiAction.cs")
         self.assertTrue(os.path.isfile(path),
                         "the C# UiAction table moved; this mirror is vacuous: %s" % path)
         with open(path, encoding="utf-8-sig") as fh:
             text = fh.read()
-        # The window tokens are declared as `internal const string <Name>Window = "x";`
-        # rows; read the VALUES so a constant rename does not red this while a token
-        # rename does.
-        found = re.findall(r'internal const string \w+Window = "([a-z]+)";', text)
-        self.assertEqual(sorted(hlib.UIACTION_WINDOW_VALUES), sorted(found),
-                         "hlib.UIACTION_WINDOW_VALUES must be exactly the C# window "
-                         "tokens")
+        rows = self._parse_cs_window_table(text)
+        self.assertEqual(len(hlib.UIACTION_WINDOW_VALUES), len(rows),
+                         "parsed %d NewSpec rows out of the C# WindowTable against %d "
+                         "hlib window values - the parse or the table moved"
+                         % (len(rows), len(hlib.UIACTION_WINDOW_VALUES)))
+        self.assertEqual(list(hlib.UIACTION_WINDOW_VALUES), [w for w, _ in rows],
+                         "hlib.UIACTION_WINDOW_VALUES must equal the C# WindowTable's "
+                         "window tokens as an ORDERED list (the order is the main "
+                         "window's own button order)")
+        # Per window, the ORDERED tab vocabulary, read off the same rows. A window the
+        # Python map omits must carry an EMPTY C# tab list - that absence is exactly what
+        # makes op=tab on it a `window-has-no-tabs` REJECTED rather than a silently
+        # ignored arg, so it is asserted rather than skipped.
+        for window, cs_tabs in rows:
+            with self.subTest(window=window):
+                self.assertEqual(hlib.UIACTION_WINDOW_TABS.get(window, ()), cs_tabs,
+                                 "window %r: hlib tabs %r vs C# tabs %r (order included "
+                                 "- the index IS the live selector value)"
+                                 % (window, hlib.UIACTION_WINDOW_TABS.get(window, ()),
+                                    cs_tabs))
+        # And no window in the Python tab map is missing from the C# table entirely.
+        self.assertEqual(set(), set(hlib.UIACTION_WINDOW_TABS) - {w for w, _ in rows})
         for op in hlib.UIACTION_OP_VALUES:
             with self.subTest(op=op):
                 self.assertIn('OpToken = "%s"' % op, text)
         for mode in hlib.UIACTION_MODE_VALUES:
             with self.subTest(mode=mode):
                 self.assertIn('ModeToken = "%s"' % mode, text)
-        # Every tab token this module offers must appear in the C# table too.
-        for window, tabs in sorted(hlib.UIACTION_WINDOW_TABS.items()):
-            for tab in tabs:
-                with self.subTest(window=window, tab=tab):
-                    self.assertIn('"%s"' % tab, text)
-        # And the windows this module says have NO tabs must not be in the tab map: the
-        # absence is what makes op=tab on them a `window-has-no-tabs` REJECTED rather
-        # than a silently ignored arg.
-        for window in hlib.UIACTION_WINDOW_VALUES:
-            if window not in hlib.UIACTION_WINDOW_TABS:
-                with self.subTest(window=window):
-                    self.assertNotIn(window, hlib.UIACTION_WINDOW_TABS)
+
+    def test_the_window_table_parse_is_not_vacuous(self):
+        """Anti-vacuity for the parse above, and specifically for the comment-stripping
+        half: the C# table's header comment mentions tab-shaped and window-shaped words,
+        so a parse that read comments would find rows that are not there. Driven over a
+        SYNTHETIC source rather than the real file, so this cell states what the parse
+        does rather than what the current table happens to contain."""
+        synthetic = '\n'.join([
+            '        internal const string MainWindow = "main";',
+            '        internal const string MissionsWindow = "missions";',
+            '        // A comment naming NewSpec(MainWindow, true, true, "ghost") and',
+            '        // the words "roster" and "outcomes", which must NOT be parsed.',
+            '        private static readonly UiWindowSpec[] WindowTable = new[]',
+            '        {',
+            '            // NewSpec(MissionsWindow, true, true, "decoy")',
+            '            NewSpec(MainWindow, true, true),',
+            '            NewSpec(MissionsWindow, true, true,',
+            '                "missions", "recordings"),  // trailing prose "decoy2"',
+            '        };',
+            '',
+        ])
+        self.assertEqual(
+            [("main", ()), ("missions", ("missions", "recordings"))],
+            self._parse_cs_window_table(synthetic))
 
     # ----- the two step validators -----
 

@@ -27,7 +27,11 @@ namespace Parsek.TestCommands
     /// </summary>
     internal static class TestCommandVerbs
     {
-        // Implemented (v1 + M-C1 batch 1 + M-C1.1 follow-up + M-C2 EVA batch + EVA-4 + R12 + the arrival-validation lane + the player-workflow lane + M-A7 + the map-view pair + InvokeRewindToLaunch + the logistics pair + DeleteRecording + ListHandles + WarpToUT): 33 verbs.
+        // Implemented (v1 + M-C1 batch 1 + M-C1.1 follow-up + M-C2 EVA batch + EVA-4 + R12 + the arrival-validation lane + the player-workflow lane + M-A7 + the map-view pair + InvokeRewindToLaunch + the logistics pair + DeleteRecording + ListHandles + WarpToUT + the GUI-census pair): 35 verbs. The NUMBER is prose and
+        // the SET below is the authority - test_hlib's
+        // test_the_implemented_verb_tuple_mirrors_the_c_sharp_initializer reads that
+        // initializer out of this file and pins it against hlib.IMPLEMENTED_SEAM_VERBS as
+        // an ordered list, and a sibling cell pins the length.
         // M-C1 promoted InvokeRewind, AnswerMergeDialog, TimeJump, and KscAction from
         // Reserved to Implemented (design-autotest-seam-verbs-c1.md). The M-C1.1 follow-up
         // added SaveGame (the M-B3 L2/R6 persist-before-reload dependency). M-C2 added the
@@ -193,10 +197,17 @@ namespace Parsek.TestCommands
             //     EXISTING internal state (IsOpen, the tab fields,
             //     the production Basic/Advanced interface-mode setter) and adds no
             //     player-facing surface.
-            //     SINGLE-PHASE in every op, including complexity: the production setter
-            //     only queues the draw-visible value, and the applier then calls the
-            //     production Update-latch, which is legitimate because the pump itself
-            //     runs in Update.
+            //     TWO OF ITS SIX OPS ARE TWO-PHASE - `open` and `rect` - and neither is
+            //     optionally so: a window can force-close itself on its FIRST draw (Real
+            //     Spawn Control does, with nothing in range), and a GUILayout window's
+            //     rect is only resolved during the draw. Both hold the head for one drawn
+            //     frame and then read back; before that frame a read-back compares the
+            //     field with the value just written to it and proves nothing.
+            //     `close` / `tab` / `describe` stay single-phase, and so does
+            //     `complexity`, which only LOOKS deferred: the production setter queues
+            //     the draw-visible value and the applier then calls the production
+            //     Update-latch, which is legitimate because the pump itself runs in
+            //     Update.
             "CaptureScreenshot",
             "UiAction",
         };

@@ -792,6 +792,16 @@ namespace Parsek.TestCommands
                 TryCompleteCaptureScreenshot(now);
                 return;
             }
+            // GUI census: the settle poll for the two two-phase UiAction ops (`open` and
+            // `rect`). Same bounded-completion contract; it waits for ONE drawn frame,
+            // because before a draw the read-back would compare the field with the value
+            // just written to it - and a window that force-closes itself on its first draw
+            // (SpawnControlUI with nothing in range) would report OK and then not be there.
+            if (completionVerb == "UiAction")
+            {
+                TryCompleteUiAction(now);
+                return;
+            }
             if (completionVerb == "WarpToUT")
             {
                 // The REAL warp's sibling partial. Its completion polls the advancing
@@ -1255,9 +1265,12 @@ namespace Parsek.TestCommands
         void ITestCommandExecutor.WarpToUT(ParsedCommand cmd) => WarpToUTImpl(cmd);
 
         // GUI census. CaptureScreenshot is TWO-PHASE (Unity writes the PNG at the end of
-        // a later frame, so it owns a bounded TryCompleteCaptureScreenshot); UiAction is
-        // SINGLE-PHASE in every op and has no TryComplete* counterpart. Bodies live in
-        // the sibling ParsekTestCommandAddon.CaptureScreenshot.cs / .UiAction.cs partials.
+        // a later frame, so it owns a bounded TryCompleteCaptureScreenshot). UiAction is
+        // two-phase in exactly TWO of its six ops - `open` and `rect`, whose read-back is
+        // only a statement about the game after a frame has been DRAWN - and it owns a
+        // bounded TryCompleteUiAction for those; `close` / `tab` / `complexity` /
+        // `describe` terminate inside Execute. Bodies live in the sibling
+        // ParsekTestCommandAddon.CaptureScreenshot.cs / .UiAction.cs partials.
         void ITestCommandExecutor.CaptureScreenshot(ParsedCommand cmd) => CaptureScreenshotImpl(cmd);
         void ITestCommandExecutor.UiAction(ParsedCommand cmd) => UiActionImpl(cmd);
 

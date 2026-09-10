@@ -12,12 +12,16 @@ namespace Parsek.Tests
     /// the op / window / tab / mode / rect vocabularies, the scene-availability rule, the
     /// asymmetric rect read-back, and the describe payload shape.
     ///
-    /// <para>Two properties carry the most weight. First, a window the current scene does
+    /// <para>Three properties carry the most weight. First, a window the current scene does
     /// not draw must be a REJECTED rather than a cheerful OK: an "opened" Gloops recorder at
     /// the Space Center would produce a capture of the scene WITHOUT it, which a reviewer
     /// reads as a render defect. Second, the describe payload must be complete and stable -
     /// it is the inventory a supervisor reads instead of the source, so a row that
-    /// disappears when a window is unavailable would silently shorten the census.</para>
+    /// disappears when a window is unavailable would silently shorten the census. Third, a
+    /// read-back must be a statement about the GAME and not about the write: the settle rule
+    /// (<see cref="TestCommandUiAction.DecideSettlePoll"/>) is what makes the rect tolerance
+    /// predicate load-bearing at all, and what stops an <c>open</c> whose window
+    /// force-closes itself on its first draw from reporting OK over empty scenery.</para>
     /// </summary>
     public class TestCommandUiActionTests
     {
@@ -434,9 +438,10 @@ namespace Parsek.Tests
         [Fact]
         public void HostControlledSize_ChecksPositionOnly()
         {
-            // The main window's hosts pass a fixed GUILayout.Width(250) and the KSC host
-            // zeroes the height every frame, so only its POSITION can be commanded. Checking
-            // its size would ERROR on every single rect op against it.
+            // BOTH of the main window's hosts pass a fixed GUILayout.Width(250) and BOTH
+            // zero its height every frame (ParsekFlight.OnGUI and ParsekKSC.OnGUI each open
+            // with `windowRect.height = 0f`), so only its POSITION can be commanded.
+            // Checking its size would ERROR on every single rect op against it.
             Assert.True(TestCommandUiAction.SizeIsHostControlled("main"));
             foreach (UiWindowSpec spec in TestCommandUiAction.Windows.Skip(1))
                 Assert.False(TestCommandUiAction.SizeIsHostControlled(spec.Name));
@@ -447,6 +452,106 @@ namespace Parsek.Tests
                 want, host, sizeIsHostControlled: true));
             Assert.False(TestCommandUiAction.RectAppliedWithinTolerance(
                 new UiActionRect { X = 11.5f, Y = 20f, W = 900f, H = 700f }, host, true));
+        }
+
+        // ----- the two-phase ops -----
+
+        [Theory]
+        [InlineData(1, true)]     // open
+        [InlineData(5, true)]     // rect
+        [InlineData(2, false)]    // close
+        [InlineData(3, false)]    // tab
+        [InlineData(4, false)]    // complexity
+        [InlineData(6, false)]    // describe
+        public void OpIsTwoPhase_IsExactlyOpenAndRect(int op, bool twoPhase)
+        {
+            // The set is pinned rather than counted, because each membership is its own
+            // argument. `open` and `rect` are in it because their read-back only means
+            // something AFTER a frame has been drawn - a window can force-close itself on
+            // its first draw (SpawnControlUI with zero candidates in range), and a
+            // GUILayout window's rect is resolved during the draw, so before a frame both
+            // read back exactly the value just written and prove nothing.
+            //
+            // `close` is OUT after checking the MIRROR DIRECTION rather than by symmetry:
+            // a drawing window can LOWER its own flag and nothing in the mod raises one
+            // from a draw path, so there is no self-opening window a settled close
+            // read-back could catch. `tab` is out because the one live clamp
+            // (RecordingsTableUI's Basic tab clamp) runs from the complexity LATCH, which
+            // the applier drives synchronously in Update, not from a draw.
+            Assert.Equal(twoPhase, TestCommandUiAction.OpIsTwoPhase((UiActionOp)op));
+        }
+
+        [Fact]
+        public void FirstSettlePoll_BeforeAFrameIsDrawn_IsNeverSettled()
+        {
+            // THE headline property: zero elapsed frames cannot settle, which is what makes
+            // the read-back a statement about the game rather than about the write.
+            Assert.Equal(UiActionSettleOutcome.NotYet,
+                TestCommandUiAction.DecideSettlePoll(framesElapsed: 0, budgetExpired: false));
+            Assert.Equal(UiActionSettleOutcome.Settled,
+                TestCommandUiAction.DecideSettlePoll(framesElapsed: 1, budgetExpired: false));
+            Assert.Equal(1, TestCommandUiAction.SettleFrames);
+        }
+
+        [Fact]
+        public void SettlePoll_TimesOutOnlyBeforeAFrame_AndSettledWinsOverTheBudget()
+        {
+            // ORDER MATTERS, the CaptureScreenshot.DecidePoll rule: a frame that landed on
+            // the very poll the budget expired is a success, not an ERROR over state that
+            // is already correct.
+            Assert.Equal(UiActionSettleOutcome.TimedOut,
+                TestCommandUiAction.DecideSettlePoll(framesElapsed: 0, budgetExpired: true));
+            Assert.Equal(UiActionSettleOutcome.Settled,
+                TestCommandUiAction.DecideSettlePoll(framesElapsed: 1, budgetExpired: true));
+            // A negative elapsed count (Time.frameCount wrapping, or a re-armed field read
+            // out of order) must not settle either - fail-closed on nonsense input.
+            Assert.Equal(UiActionSettleOutcome.NotYet,
+                TestCommandUiAction.DecideSettlePoll(framesElapsed: -3, budgetExpired: false));
+        }
+
+        // ----- the complexity no-op predicate -----
+
+        [Fact]
+        public void ComplexityAlreadySatisfied_RequiresBothTheLatchAndTheSetting()
+        {
+            // THE defect this closes: ParsekUI.SetUiComplexityMode no-ops when the request
+            // equals the PERSISTED setting, so a save that persisted Basic under a fail-open
+            // Advanced latch used to look "not already satisfied" on a Basic request, call a
+            // setter that queued nothing, and then terminate complexity-not-applied on the
+            // mode the save actually carried.
+            Assert.True(TestCommandUiAction.IsComplexityAlreadySatisfied(
+                UiComplexityMode.Basic, UiComplexityMode.Basic, UiComplexityMode.Basic));
+            // Latch agrees, setting does not: NOT already - the setter still has to persist.
+            Assert.False(TestCommandUiAction.IsComplexityAlreadySatisfied(
+                UiComplexityMode.Basic, UiComplexityMode.Advanced, UiComplexityMode.Basic));
+            // Setting agrees, latch does not (the drifted case): NOT already - the latch
+            // still has to be driven, which is what TryRequeuePersistedUiComplexityMode is
+            // for.
+            Assert.False(TestCommandUiAction.IsComplexityAlreadySatisfied(
+                UiComplexityMode.Advanced, UiComplexityMode.Basic, UiComplexityMode.Basic));
+            Assert.False(TestCommandUiAction.IsComplexityAlreadySatisfied(
+                UiComplexityMode.Advanced, UiComplexityMode.Advanced, UiComplexityMode.Basic));
+        }
+
+        // ----- the describe log line's open-window list -----
+
+        [Fact]
+        public void OpenWindowList_IsTableOrdered_AndDashWhenNoneIsOpen()
+        {
+            // It exists for the LOG line: the per-window w<i>open= keys are on the wire,
+            // which never reaches KSP.log, so a census spec's logContracts could not
+            // otherwise assert which windows were open. Table order makes the string
+            // deterministic across runs, which is what lets a spec pin it as a literal.
+            Assert.Equal("-", TestCommandUiAction.FormatOpenWindowList(
+                new List<UiWindowState>()));
+            Assert.Equal("-", TestCommandUiAction.FormatOpenWindowList(null));
+            var rows = new List<UiWindowState>
+            {
+                new UiWindowState { Name = "main", Open = true },
+                new UiWindowState { Name = "missions", Open = false },
+                new UiWindowState { Name = "timeline", Open = true },
+            };
+            Assert.Equal("main,timeline", TestCommandUiAction.FormatOpenWindowList(rows));
         }
 
         // ----- payloads -----
@@ -611,6 +716,8 @@ namespace Parsek.Tests
                 TestCommandUiAction.ComplexityRefusedRecordingReason,
                 TestCommandUiAction.ComplexityNotAppliedReason,
                 TestCommandUiAction.WindowNotToggledReason,
+                TestCommandUiAction.WindowSelfClosedReason,
+                TestCommandUiAction.NotSettledReason,
                 TestCommandUiAction.TabNotAppliedReason,
                 TestCommandUiAction.RectNotAppliedReason,
                 TestCommandUiAction.ThrewReason,

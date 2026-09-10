@@ -89,8 +89,18 @@ steps = [
   { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "flight-main-advanced" }, expect = "OK" },
 
-  # Real Spawn Control - flight-only. Its launcher is greyed out with nothing in range,
-  # but the WINDOW opens regardless, which is what a layout review needs to see.
+  # Real Spawn Control - flight-only, AND THIS IS THE ONE STEP THE FIRST FLIGHT MUST BE
+  # READ FOR. The window does NOT open regardless: `SpawnControlUI.DrawIfOpen` force-closes
+  # itself on its FIRST draw whenever `ResolveAutoCloseReason` fires, and one of its three
+  # reasons is ZERO nearby spawn candidates - which is the normal state of a craft with
+  # nothing recorded passing close by, i.e. the likely state of this host's subject. The
+  # `open` op is TWO-PHASE precisely so that shows up: it holds the head for one drawn
+  # frame and answers `ERROR window-self-closed` instead of reporting OK over a capture of
+  # a scene without the window in it. So this step is a real question about the HOST rather
+  # than a formality - if it errors, the lane stops here as driver-INVALID with the cause
+  # named, and the remedy is a re-stage from a save whose focus has a recorded craft in
+  # range, not a spec change. Photographing the window is the whole point of the step; a
+  # census that quietly skipped it would leave the layout unreviewed.
   { cmd = "UiAction", args = { op = "open", window = "spawncontrol" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "rect", window = "spawncontrol", x = "270", y = "8", w = "900", h = "420" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "flight-spawncontrol-advanced" }, expect = "OK" },

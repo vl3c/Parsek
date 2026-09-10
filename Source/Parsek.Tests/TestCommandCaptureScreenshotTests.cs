@@ -63,7 +63,10 @@ namespace Parsek.Tests
         [InlineData("star*")]
         [InlineData("quote\"")]
         [InlineData("percent%20")]
-        [InlineData("naïve")]               // non-ASCII
+        // Written as an escape rather than as a literal: the house style is plain-ASCII
+        // source, and the test subject is the BYTE being non-ASCII rather than how it is
+        // spelled in this file.
+        [InlineData("na\u00efve")]      // non-ASCII
         public void UnsafeLabels_AreRejected(string raw)
         {
             // The label becomes a filename in the harvested artifact directory, so the rule

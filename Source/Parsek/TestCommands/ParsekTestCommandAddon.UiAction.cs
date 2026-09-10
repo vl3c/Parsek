@@ -5,11 +5,38 @@ using UnityEngine;
 namespace Parsek.TestCommands
 {
     /// <summary>
-    /// GUI-census partial: the thin Unity applier for the SINGLE-PHASE <c>UiAction</c> verb.
-    /// Every decision - the op / window / tab / mode / rect vocabulary, the scene
-    /// availability rule, the read-back tolerance and every payload shape - is delegated to
-    /// the pure sibling <see cref="TestCommandUiAction"/>. This file only reaches live
-    /// <c>ParsekUI</c> state and reads it back.
+    /// One driveable window's live state, reached through the ONE resolver below rather
+    /// than through a per-axis switch.
+    ///
+    /// <para>WHY A HANDLE AND NOT FOUR SWITCHES. The first draft had four parallel switches
+    /// over the same eleven window names - read/write open, read/write tab, read/write rect
+    /// - so a mapping error (the kerbals arm reaching the career window's field) lived in
+    /// ONE of eight arms while the other seven stayed right, and the whole xUnit suite
+    /// passed either way: the pure half never touches a live window, so nothing could
+    /// witness it. Collapsing them into one row per window makes that class of error a
+    /// single site, which is the only defence a headless suite can offer here.</para>
+    ///
+    /// <para><see cref="GetTab"/> / <see cref="SetTab"/> are NULL for a window with no tab
+    /// selector, which is the same fact <c>TestCommandUiAction.TryResolveTab</c> reports as
+    /// <c>window-has-no-tabs</c>. The null is never dereferenced through the verb (that
+    /// REJECTED fires first) and describe asks only where the table declares tabs.</para>
+    /// </summary>
+    internal struct UiWindowHandle
+    {
+        internal Func<bool> GetOpen;
+        internal Action<bool> SetOpen;
+        internal Func<Rect> GetRect;
+        internal Action<Rect> SetRect;
+        internal Func<int> GetTab;
+        internal Action<int> SetTab;
+    }
+
+    /// <summary>
+    /// GUI-census partial: the thin Unity applier for the <c>UiAction</c> verb. Every
+    /// decision - the op / window / tab / mode / rect vocabulary, the scene availability
+    /// rule, the settle rule, the read-back tolerance and every payload shape - is
+    /// delegated to the pure sibling <see cref="TestCommandUiAction"/>. This file only
+    /// reaches live <c>ParsekUI</c> state and reads it back.
     ///
     /// <para>
     /// WHY IT DRIVES INTERNAL STATE RATHER THAN SYNTHESISING CLICKS. Each window's open flag
@@ -23,13 +50,21 @@ namespace Parsek.TestCommands
     /// </para>
     ///
     /// <para>
-    /// THE ONE EXCEPTION IS THE COMPLEXITY MODE, which is deliberately NOT a field write:
-    /// it goes through the production <c>ParsekUI.SetUiComplexityMode</c> so the whole
-    /// documented chain runs (persist, then the Advanced -> Basic gated-window close set,
-    /// then the Missions tab clamp). That setter only QUEUES the draw-visible value, so the
-    /// applier then calls <c>ApplyPendingUiComplexityModeIfAny</c> - which is contractually
-    /// an <c>Update</c>-only call, and the seam pump runs in <c>Update</c>. That is what
-    /// keeps the op single-phase without a second owner of the latch.
+    /// TWO OPS HOLD THE HEAD FOR A FRAME. <c>open</c> and <c>rect</c> are TWO-PHASE
+    /// (<c>TestCommandUiAction.OpIsTwoPhase</c>) because their read-back is only a
+    /// statement about the game AFTER an OnGUI pass has run: a window can force-close
+    /// itself on its first draw, and a <c>GUILayout</c> window's rect is resolved during
+    /// the draw. Everything else is a synchronous write-then-read.
+    /// </para>
+    ///
+    /// <para>
+    /// THE COMPLEXITY MODE is deliberately NOT a field write: it goes through the
+    /// production <c>ParsekUI.SetUiComplexityMode</c> so the whole documented chain runs
+    /// (persist, then the Advanced -&gt; Basic gated-window close set, then the Missions tab
+    /// clamp). That setter only QUEUES the draw-visible value, so the applier then calls
+    /// <c>ApplyPendingUiComplexityModeIfAny</c> - which is contractually an <c>Update</c>-only
+    /// call, and the seam pump runs in <c>Update</c>. That is what keeps the op
+    /// single-phase without a second owner of the latch.
     /// </para>
     ///
     /// <para>
@@ -37,12 +72,22 @@ namespace Parsek.TestCommands
     /// inside the host's <c>showUI</c> gate, so with the toolbar never clicked an unattended
     /// run draws NOTHING - a sub-window with <c>IsOpen = true</c> and the main window hidden
     /// is invisible. <c>UiAction op=open window=main</c> is therefore the first step of any
-    /// census, and it is the only op that touches the scene host rather than
+    /// census, and it is the only window whose handle reaches the scene host rather than
     /// <c>ParsekUI</c>.
     /// </para>
     /// </summary>
     public partial class ParsekTestCommandAddon
     {
+        // Two-phase state for an in-flight `open` / `rect`. Re-armed wholesale at the start
+        // of every two-phase arm, so a stale value can never be read across commands (the
+        // TimeJump field contract).
+        private UiActionOp uiActionOp;
+        private string uiActionWindow;
+        private UiActionRect uiActionCommandedRect;
+        private bool uiActionAlready;
+        private bool uiActionSizeHostControlled;
+        private int uiActionStartFrame;
+
         private void UiActionImpl(ParsedCommand cmd)
         {
             // (1) The op. A missing / unknown op is terminal-with-no-side-effect.
@@ -138,34 +183,35 @@ namespace Parsek.TestCommands
                 return;
             }
 
+            UiWindowHandle handle = ResolveWindowHandle(ui, spec.Name);
             switch (op)
             {
                 case UiActionOp.Open:
                 case UiActionOp.Close:
-                    UiActionToggle(ui, spec, op);
+                    UiActionToggle(handle, spec, op);
                     return;
                 case UiActionOp.Tab:
-                    UiActionTab(cmd, ui, spec);
+                    UiActionTab(cmd, handle, spec);
                     return;
                 default:
-                    UiActionRectOp(cmd, ui, spec);
+                    UiActionRectOp(cmd, handle, spec);
                     return;
             }
         }
 
-        private void UiActionToggle(ParsekUI ui, UiWindowSpec spec, UiActionOp op)
+        private void UiActionToggle(UiWindowHandle handle, UiWindowSpec spec, UiActionOp op)
         {
             bool want = op == UiActionOp.Open;
-            bool before = ReadWindowOpen(ui, spec.Name);
+            bool before = handle.GetOpen();
             bool already = before == want;
             if (!already)
-                WriteWindowOpen(ui, spec.Name, want);
-            bool after = ReadWindowOpen(ui, spec.Name);
+                handle.SetOpen(want);
+            bool after = handle.GetOpen();
 
             if (after != want)
             {
-                // Only reachable if a window's own setter declines (a self-closing window
-                // out of its scene). ERROR, not REJECTED: we acted and the game did not
+                // Only reachable if a window's own setter declines the value outright, with
+                // no draw in between. ERROR, not REJECTED: we acted and the game did not
                 // follow - the map-not-entered line.
                 ParsekLog.Error(Tag, "uiaction error reason="
                     + TestCommandUiAction.WindowNotToggledReason
@@ -175,13 +221,28 @@ namespace Parsek.TestCommands
                 return;
             }
 
-            ParsekLog.Info(Tag, $"uiaction {TestCommandUiAction.OpToken(op)} "
-                + $"window={spec.Name} open={Bool(after)} already={Bool(already)}");
-            SetExecResult("OK",
-                TestCommandUiAction.BuildTogglePayload(op, spec.Name, after, already), null);
+            if (!TestCommandUiAction.OpIsTwoPhase(op))
+            {
+                // `close` terminates here. The mirror direction was checked before this
+                // asymmetry was accepted: a drawing window can LOWER its own flag
+                // (SpawnControlUI.DrawIfOpen), and nothing in the mod RAISES one from a
+                // draw path - so there is no self-opening window a settled close read-back
+                // could catch, and holding the head for it would buy a frame of nothing.
+                ParsekLog.Info(Tag, $"uiaction {TestCommandUiAction.OpToken(op)} "
+                    + $"window={spec.Name} open={Bool(after)} already={Bool(already)}");
+                SetExecResult("OK",
+                    TestCommandUiAction.BuildTogglePayload(op, spec.Name, after, already),
+                    null);
+                return;
+            }
+
+            ArmUiActionSettle(op, spec, already, hostControlled: false);
+            ParsekLog.Info(Tag, $"uiaction open initiated window={spec.Name} "
+                + $"already={Bool(already)} (awaiting one drawn frame)");
+            SetExecResult(PendingVerdict, null, null);
         }
 
-        private void UiActionTab(ParsedCommand cmd, ParsekUI ui, UiWindowSpec spec)
+        private void UiActionTab(ParsedCommand cmd, UiWindowHandle handle, UiWindowSpec spec)
         {
             if (!TestCommandUiAction.TryResolveTab(
                     spec, ArgOrNull(cmd, "tab"), out int index, out string tabReject))
@@ -197,11 +258,11 @@ namespace Parsek.TestCommands
                 return;
             }
 
-            int before = ReadWindowTab(ui, spec.Name);
+            int before = handle.GetTab();
             bool already = before == index;
             if (!already)
-                WriteWindowTab(ui, spec.Name, index);
-            int after = ReadWindowTab(ui, spec.Name);
+                handle.SetTab(index);
+            int after = handle.GetTab();
 
             if (after != index)
             {
@@ -209,7 +270,8 @@ namespace Parsek.TestCommands
                 // index 0 (RecordingsTableUI.ApplyTabClamp), so `tab=recordings` cannot
                 // hold there. Reported rather than silently accepted - a census that
                 // believes it photographed the Recordings tab in Basic photographed
-                // Missions.
+                // Missions. Single-phase is right here: that clamp runs from the
+                // complexity LATCH (which the applier drives in Update), not from a draw.
                 ParsekLog.Error(Tag, "uiaction error reason="
                     + TestCommandUiAction.TabNotAppliedReason
                     + $" window={spec.Name} want={Int(index)} after={Int(after)}");
@@ -226,7 +288,8 @@ namespace Parsek.TestCommands
                 TestCommandUiAction.BuildTabPayload(spec.Name, token, index, already), null);
         }
 
-        private void UiActionRectOp(ParsedCommand cmd, ParsekUI ui, UiWindowSpec spec)
+        private void UiActionRectOp(ParsedCommand cmd, UiWindowHandle handle,
+                                    UiWindowSpec spec)
         {
             if (!TestCommandUiAction.TryParseRect(
                     ArgOrNull(cmd, "x"), ArgOrNull(cmd, "y"),
@@ -239,25 +302,134 @@ namespace Parsek.TestCommands
                 return;
             }
 
-            WriteWindowRect(ui, spec.Name, want);
-            UiActionRect after = ReadWindowRect(ui, spec.Name);
-            bool hostControlled = TestCommandUiAction.SizeIsHostControlled(spec.Name);
+            handle.SetRect(new Rect(want.X, want.Y, want.W, want.H));
 
-            if (!TestCommandUiAction.RectAppliedWithinTolerance(want, after, hostControlled))
+            // TWO-PHASE, and this is the whole reason: a GUILayout window's rect is
+            // resolved during the DRAW (GUILayout.Window returns the resolved rect and the
+            // window class assigns it back), so reading it back in the same Update compares
+            // the field with the value just written to it - which is what the first draft
+            // did, leaving RectAppliedWithinTolerance unable to fire on any input.
+            uiActionCommandedRect = want;
+            ArmUiActionSettle(UiActionOp.Rect, spec, already: false,
+                hostControlled: TestCommandUiAction.SizeIsHostControlled(spec.Name));
+            ParsekLog.Info(Tag, $"uiaction rect initiated window={spec.Name} "
+                + $"want={TestCommandUiAction.FormatRect(want)} (awaiting one drawn frame)");
+            SetExecResult(PendingVerdict, null, null);
+        }
+
+        private void ArmUiActionSettle(UiActionOp op, UiWindowSpec spec, bool already,
+                                       bool hostControlled)
+        {
+            uiActionOp = op;
+            uiActionWindow = spec.Name;
+            uiActionAlready = already;
+            uiActionSizeHostControlled = hostControlled;
+            uiActionStartFrame = Time.frameCount;
+        }
+
+        // Bounded, observable completion (the LoadGame contract): wait for ONE drawn frame,
+        // then read the live state back. Unity runs Update (where this pump lives) before
+        // OnGUI, so a single advanced frame guarantees a full IMGUI pass has happened -
+        // the pass in which a self-closing window closes itself and in which GUILayout
+        // resolves a window rect.
+        private void TryCompleteUiAction(double now)
+        {
+            int framesElapsed = Time.frameCount - uiActionStartFrame;
+            double budget = DeferralBudget.BudgetSeconds("UiAction");
+            bool expired = DeferralBudget.ShouldTimeout(completionStartedAt, now, budget);
+            UiActionSettleOutcome outcome =
+                TestCommandUiAction.DecideSettlePoll(framesElapsed, expired);
+            if (outcome == UiActionSettleOutcome.NotYet)
+                return;
+
+            string id = completionId;
+            long seq = completionSeq;
+            string verb = completionVerb;
+            UiActionOp op = uiActionOp;
+            string window = uiActionWindow;
+            bool already = uiActionAlready;
+            UiActionRect commanded = uiActionCommandedRect;
+            bool hostControlled = uiActionSizeHostControlled;
+            ClearTwoPhase();
+
+            if (outcome == UiActionSettleOutcome.TimedOut)
             {
+                // Not a refusal: the budget ran out before the game drew a single frame,
+                // which means the renderer stopped or the pump never reached another safe
+                // point. Named separately so it cannot be read as "the window said no".
                 ParsekLog.Error(Tag, "uiaction error reason="
-                    + TestCommandUiAction.RectNotAppliedReason
-                    + $" window={spec.Name} want={TestCommandUiAction.FormatRect(want)} "
-                    + $"after={TestCommandUiAction.FormatRect(after)}");
-                SetExecResult("ERROR", null,
-                    $"{TestCommandUiAction.RectNotAppliedReason} window={spec.Name}");
+                    + TestCommandUiAction.NotSettledReason
+                    + $" op={TestCommandUiAction.OpToken(op)} window={window} "
+                    + $"frames={Int(framesElapsed)}");
+                EmitExecutedTerminal(id, seq, verb, "ERROR", null,
+                    $"{TestCommandUiAction.NotSettledReason} window={window}",
+                    dequeueHead: true);
                 return;
             }
 
-            ParsekLog.Info(Tag, $"uiaction rect window={spec.Name} "
-                + $"rect={TestCommandUiAction.FormatRect(after)}");
-            SetExecResult("OK",
-                TestCommandUiAction.BuildRectPayload(spec.Name, after), null);
+            ParsekUI ui = ParsekUI.ActiveInstance;
+            if (ui == null)
+            {
+                // The scene lost its host between the write and the settle. Treat it as the
+                // same pre-call class the execute path answers, rather than dereferencing.
+                ParsekLog.Error(Tag, "uiaction error reason="
+                    + TestCommandUiAction.NotSettledReason
+                    + $" op={TestCommandUiAction.OpToken(op)} window={window} "
+                    + "(ui host gone between write and settle)");
+                EmitExecutedTerminal(id, seq, verb, "ERROR", null,
+                    $"{TestCommandUiAction.NotSettledReason} window={window}",
+                    dequeueHead: true);
+                return;
+            }
+
+            UiWindowHandle handle = ResolveWindowHandle(ui, window);
+
+            if (op == UiActionOp.Open)
+            {
+                bool after = handle.GetOpen();
+                if (!after)
+                {
+                    // The flag WAS raised (the execute path verified that) and a window
+                    // that drew itself put it back down - SpawnControlUI.DrawIfOpen's
+                    // zero-candidates auto-close being the live case. Without this the
+                    // census would report OK and then photograph a scene with no window.
+                    ParsekLog.Error(Tag, "uiaction error reason="
+                        + TestCommandUiAction.WindowSelfClosedReason
+                        + $" window={window} frames={Int(framesElapsed)}");
+                    EmitExecutedTerminal(id, seq, verb, "ERROR", null,
+                        $"{TestCommandUiAction.WindowSelfClosedReason} window={window}",
+                        dequeueHead: true);
+                    return;
+                }
+                ParsekLog.Info(Tag, $"uiaction open window={window} open=true "
+                    + $"already={Bool(already)} frames={Int(framesElapsed)}");
+                EmitExecutedTerminal(id, seq, verb, "OK",
+                    TestCommandUiAction.BuildTogglePayload(
+                        UiActionOp.Open, window, true, already),
+                    null, dequeueHead: true);
+                return;
+            }
+
+            UiActionRect settled = ToRect(handle.GetRect());
+            if (!TestCommandUiAction.RectAppliedWithinTolerance(
+                    commanded, settled, hostControlled))
+            {
+                ParsekLog.Error(Tag, "uiaction error reason="
+                    + TestCommandUiAction.RectNotAppliedReason
+                    + $" window={window} want={TestCommandUiAction.FormatRect(commanded)} "
+                    + $"after={TestCommandUiAction.FormatRect(settled)}");
+                EmitExecutedTerminal(id, seq, verb, "ERROR", null,
+                    $"{TestCommandUiAction.RectNotAppliedReason} window={window}",
+                    dequeueHead: true);
+                return;
+            }
+
+            ParsekLog.Info(Tag, $"uiaction rect window={window} "
+                + $"rect={TestCommandUiAction.FormatRect(settled)} "
+                + $"frames={Int(framesElapsed)}");
+            EmitExecutedTerminal(id, seq, verb, "OK",
+                TestCommandUiAction.BuildRectPayload(window, settled), null,
+                dequeueHead: true);
         }
 
         // ----- op=complexity -----
@@ -279,7 +451,13 @@ namespace Parsek.TestCommands
             }
 
             UiComplexityMode want = basic ? UiComplexityMode.Basic : UiComplexityMode.Advanced;
-            bool already = ParsekUI.AppliedUiComplexityMode == want;
+            // BOTH the latch AND the persisted setting have to agree before this is a
+            // no-op, because SetUiComplexityMode no-ops on the SETTING: with a save that
+            // persisted Basic under a fail-open Advanced latch, checking only the latch
+            // called a setter that queued nothing and then ERRORed complexity-not-applied
+            // on the mode the save actually carried.
+            bool already = TestCommandUiAction.IsComplexityAlreadySatisfied(
+                ParsekUI.AppliedUiComplexityMode, ParsekUI.PersistedUiComplexityMode, want);
 
             // PRE-CALL: the one production refusal, named rather than inferred from a failed
             // read-back (the EnterWatchMode discipline). Advanced is never refused.
@@ -295,9 +473,12 @@ namespace Parsek.TestCommands
 
             if (!already)
             {
-                // The production setter (persist + queue), then the production latch. The
-                // latch is Update-only by contract and the pump runs in Update.
+                // The production setter (persist + queue when the SETTING differs), then
+                // the production re-queue for the case it does not (setting already right,
+                // latch drifted), then the production latch. All three are ParsekUI's own;
+                // the seam adds no fourth writer of the pending value.
                 ParsekUI.SetUiComplexityMode(want);
+                ParsekUI.TryRequeuePersistedUiComplexityMode();
                 ParsekUI.ApplyPendingUiComplexityModeIfAny();
             }
 
@@ -306,7 +487,8 @@ namespace Parsek.TestCommands
             {
                 ParsekLog.Error(Tag, "uiaction error reason="
                     + TestCommandUiAction.ComplexityNotAppliedReason
-                    + $" want={TestCommandUiAction.ModeToken(basic)} after={after}");
+                    + $" want={TestCommandUiAction.ModeToken(basic)} after={after} "
+                    + $"persisted={ParsekUI.PersistedUiComplexityMode}");
                 SetExecResult("ERROR", null,
                     TestCommandUiAction.ComplexityNotAppliedReason);
                 return;
@@ -329,8 +511,9 @@ namespace Parsek.TestCommands
                 var row = new UiWindowState { Name = spec.Name, Available = available };
                 if (available)
                 {
-                    row.Open = ReadWindowOpen(ui, spec.Name);
-                    UiActionRect rect = ReadWindowRect(ui, spec.Name);
+                    UiWindowHandle handle = ResolveWindowHandle(ui, spec.Name);
+                    row.Open = handle.GetOpen();
+                    UiActionRect rect = ToRect(handle.GetRect());
                     // A rect field is all-zero until the window's first draw seeds its
                     // default from the main window's position. Reporting that zero as a
                     // position would send a reader hunting an off-screen window, so an
@@ -339,8 +522,7 @@ namespace Parsek.TestCommands
                     row.RectKnown = rect.W >= 1f;
                     row.Rect = rect;
                     if (spec.Tabs != null && spec.Tabs.Length > 0)
-                        row.Tab = TestCommandUiAction.TabTokenAt(
-                            spec, ReadWindowTab(ui, spec.Name));
+                        row.Tab = TestCommandUiAction.TabTokenAt(spec, handle.GetTab());
                 }
                 rows.Add(row);
             }
@@ -348,136 +530,121 @@ namespace Parsek.TestCommands
             bool basic = ParsekUI.AppliedUiComplexityMode == UiComplexityMode.Basic;
             int openCount = 0;
             foreach (UiWindowState row in rows) if (row.Open) openCount++;
+            // `openWindows=` is on the LOG line and not only in the payload, because the
+            // payload never reaches KSP.log: a census spec's [expectations.logContracts]
+            // can only assert what is written here. Paired with `open=<n>` it is an EXACT
+            // claim - `open=2 openWindows=main,missions` cannot match a scene with a third
+            // window open - which is the in-run check a describe-after-open step buys.
             ParsekLog.Info(Tag, $"uiaction describe scene="
                 + $"{TestCommandUiAction.SceneToken(scene)} "
                 + $"complexity={TestCommandUiAction.ModeToken(basic)} "
-                + $"windows={Int(rows.Count)} open={Int(openCount)}");
+                + $"windows={Int(rows.Count)} open={Int(openCount)} "
+                + $"openWindows={TestCommandUiAction.FormatOpenWindowList(rows)}");
             SetExecResult("OK", TestCommandUiAction.BuildDescribePayload(
                 TestCommandUiAction.SceneToken(scene), basic, rows), null);
         }
 
-        // ----- live-state plumbing -----
+        // ----- live-state plumbing: ONE resolver, one row per window -----
         //
-        // One switch per axis over the canonical window name. Deliberately a switch rather
-        // than a delegate table on the pure side: the pure half must stay free of
-        // UnityEngine / ParsekUI references (it is the half xUnit exercises without KSP), so
-        // the mapping from a wire token to a live field can only live here. Every arm is one
-        // line, and a name the table has but this switch does not would fail loudly at the
-        // default rather than silently reading false.
+        // It cannot live on the pure side: that half must stay free of UnityEngine /
+        // ParsekUI references, which is what lets xUnit exercise it without KSP. So the
+        // mapping from a wire token to live fields lives here - but as ONE row per window
+        // rather than as four parallel switches, so a mis-wired window is a single site.
+        // A name the table has but this resolver does not fails loudly at the default
+        // rather than silently reading false.
 
-        private static bool ReadWindowOpen(ParsekUI ui, string window)
+        private static UiWindowHandle ResolveWindowHandle(ParsekUI ui, string window)
         {
             switch (window)
             {
-                case TestCommandUiAction.MainWindow: return ReadHostShowUi();
-                case TestCommandUiAction.MissionsWindow: return ui.GetRecordingsTableUI().IsOpen;
-                case TestCommandUiAction.TimelineWindow: return ui.GetTimelineUI().IsOpen;
-                case TestCommandUiAction.KerbalsWindow: return ui.GetKerbalsUI().IsOpen;
-                case TestCommandUiAction.CareerWindow: return ui.GetCareerStateUI().IsOpen;
-                case TestCommandUiAction.LogisticsWindow: return ui.GetLogisticsUI().IsOpen;
-                case TestCommandUiAction.StructureWindow: return ui.GetStructureListUI().IsOpen;
-                case TestCommandUiAction.SettingsWindow: return ui.GetSettingsWindowUI().IsOpen;
-                case TestCommandUiAction.SpawnControlWindow: return ui.GetSpawnControlUI().IsOpen;
-                case TestCommandUiAction.GloopsWindow: return ui.GetGloopsUI().IsOpen;
-                case TestCommandUiAction.TestRunnerWindow: return ui.GetTestRunnerUI().IsOpen;
-                default: throw new ArgumentOutOfRangeException(nameof(window), window);
-            }
-        }
-
-        private static void WriteWindowOpen(ParsekUI ui, string window, bool open)
-        {
-            switch (window)
-            {
-                case TestCommandUiAction.MainWindow: WriteHostShowUi(open); return;
-                case TestCommandUiAction.MissionsWindow: ui.GetRecordingsTableUI().IsOpen = open; return;
-                case TestCommandUiAction.TimelineWindow: ui.GetTimelineUI().IsOpen = open; return;
-                case TestCommandUiAction.KerbalsWindow: ui.GetKerbalsUI().IsOpen = open; return;
-                case TestCommandUiAction.CareerWindow: ui.GetCareerStateUI().IsOpen = open; return;
-                case TestCommandUiAction.LogisticsWindow: ui.GetLogisticsUI().IsOpen = open; return;
-                case TestCommandUiAction.StructureWindow: ui.GetStructureListUI().IsOpen = open; return;
-                case TestCommandUiAction.SettingsWindow: ui.GetSettingsWindowUI().IsOpen = open; return;
-                case TestCommandUiAction.SpawnControlWindow: ui.GetSpawnControlUI().IsOpen = open; return;
-                case TestCommandUiAction.GloopsWindow: ui.GetGloopsUI().IsOpen = open; return;
-                case TestCommandUiAction.TestRunnerWindow: ui.GetTestRunnerUI().IsOpen = open; return;
-                default: throw new ArgumentOutOfRangeException(nameof(window), window);
-            }
-        }
-
-        private static int ReadWindowTab(ParsekUI ui, string window)
-        {
-            switch (window)
-            {
+                case TestCommandUiAction.MainWindow:
+                    // The only row that reaches the SCENE HOST rather than ParsekUI - see
+                    // the host accessors at the bottom of this file.
+                    return Handle(ReadHostShowUi, WriteHostShowUi,
+                                  ReadHostMainRect, WriteHostMainRect);
                 case TestCommandUiAction.MissionsWindow:
-                    return ui.GetRecordingsTableUI().SelectedTabForTesting;
+                {
+                    RecordingsTableUI w = ui.GetRecordingsTableUI();
+                    return Handle(() => w.IsOpen, v => w.IsOpen = v,
+                                  () => w.WindowRectForTesting, r => w.WindowRectForTesting = r,
+                                  () => w.SelectedTabForTesting, i => w.SelectedTabForTesting = i);
+                }
                 case TestCommandUiAction.TimelineWindow:
-                    return ui.GetTimelineUI().TierFilterModeIndexForTesting;
+                {
+                    TimelineWindowUI w = ui.GetTimelineUI();
+                    return Handle(() => w.IsOpen, v => w.IsOpen = v,
+                                  () => w.WindowRectForTesting, r => w.WindowRectForTesting = r,
+                                  () => w.TierFilterModeIndexForTesting,
+                                  i => w.TierFilterModeIndexForTesting = i);
+                }
                 case TestCommandUiAction.KerbalsWindow:
-                    return ui.GetKerbalsUI().SelectedTabForTesting;
+                {
+                    KerbalsWindowUI w = ui.GetKerbalsUI();
+                    return Handle(() => w.IsOpen, v => w.IsOpen = v,
+                                  () => w.WindowRectForTesting, r => w.WindowRectForTesting = r,
+                                  () => w.SelectedTabForTesting, i => w.SelectedTabForTesting = i);
+                }
                 case TestCommandUiAction.CareerWindow:
-                    return ui.GetCareerStateUI().SelectedTabForTesting;
+                {
+                    CareerStateWindowUI w = ui.GetCareerStateUI();
+                    return Handle(() => w.IsOpen, v => w.IsOpen = v,
+                                  () => w.WindowRectForTesting, r => w.WindowRectForTesting = r,
+                                  () => w.SelectedTabForTesting, i => w.SelectedTabForTesting = i);
+                }
+                case TestCommandUiAction.LogisticsWindow:
+                {
+                    LogisticsWindowUI w = ui.GetLogisticsUI();
+                    return Handle(() => w.IsOpen, v => w.IsOpen = v,
+                                  () => w.WindowRectForTesting, r => w.WindowRectForTesting = r);
+                }
+                case TestCommandUiAction.StructureWindow:
+                {
+                    StructureListWindowUI w = ui.GetStructureListUI();
+                    return Handle(() => w.IsOpen, v => w.IsOpen = v,
+                                  () => w.WindowRectForTesting, r => w.WindowRectForTesting = r);
+                }
+                case TestCommandUiAction.SettingsWindow:
+                {
+                    SettingsWindowUI w = ui.GetSettingsWindowUI();
+                    return Handle(() => w.IsOpen, v => w.IsOpen = v,
+                                  () => w.WindowRectForTesting, r => w.WindowRectForTesting = r);
+                }
+                case TestCommandUiAction.SpawnControlWindow:
+                {
+                    SpawnControlUI w = ui.GetSpawnControlUI();
+                    return Handle(() => w.IsOpen, v => w.IsOpen = v,
+                                  () => w.WindowRectForTesting, r => w.WindowRectForTesting = r);
+                }
+                case TestCommandUiAction.GloopsWindow:
+                {
+                    GloopsRecorderUI w = ui.GetGloopsUI();
+                    return Handle(() => w.IsOpen, v => w.IsOpen = v,
+                                  () => w.WindowRectForTesting, r => w.WindowRectForTesting = r);
+                }
+                case TestCommandUiAction.TestRunnerWindow:
+                {
+                    TestRunnerUI w = ui.GetTestRunnerUI();
+                    return Handle(() => w.IsOpen, v => w.IsOpen = v,
+                                  () => w.WindowRectForTesting, r => w.WindowRectForTesting = r);
+                }
                 default:
-                    // Unreachable through the verb: TryResolveTab answers
-                    // WindowHasNoTabsReason for every window absent from this switch, and
-                    // describe only asks for a tab when the table declares one.
                     throw new ArgumentOutOfRangeException(nameof(window), window);
             }
         }
 
-        private static void WriteWindowTab(ParsekUI ui, string window, int index)
-        {
-            switch (window)
+        private static UiWindowHandle Handle(Func<bool> getOpen, Action<bool> setOpen,
+                                             Func<Rect> getRect, Action<Rect> setRect,
+                                             Func<int> getTab = null,
+                                             Action<int> setTab = null)
+            => new UiWindowHandle
             {
-                case TestCommandUiAction.MissionsWindow:
-                    ui.GetRecordingsTableUI().SelectedTabForTesting = index; return;
-                case TestCommandUiAction.TimelineWindow:
-                    ui.GetTimelineUI().TierFilterModeIndexForTesting = index; return;
-                case TestCommandUiAction.KerbalsWindow:
-                    ui.GetKerbalsUI().SelectedTabForTesting = index; return;
-                case TestCommandUiAction.CareerWindow:
-                    ui.GetCareerStateUI().SelectedTabForTesting = index; return;
-                default:
-                    throw new ArgumentOutOfRangeException(nameof(window), window);
-            }
-        }
-
-        private static UiActionRect ReadWindowRect(ParsekUI ui, string window)
-        {
-            switch (window)
-            {
-                case TestCommandUiAction.MainWindow: return ToRect(ReadHostMainRect());
-                case TestCommandUiAction.MissionsWindow: return ToRect(ui.GetRecordingsTableUI().WindowRectForTesting);
-                case TestCommandUiAction.TimelineWindow: return ToRect(ui.GetTimelineUI().WindowRectForTesting);
-                case TestCommandUiAction.KerbalsWindow: return ToRect(ui.GetKerbalsUI().WindowRectForTesting);
-                case TestCommandUiAction.CareerWindow: return ToRect(ui.GetCareerStateUI().WindowRectForTesting);
-                case TestCommandUiAction.LogisticsWindow: return ToRect(ui.GetLogisticsUI().WindowRectForTesting);
-                case TestCommandUiAction.StructureWindow: return ToRect(ui.GetStructureListUI().WindowRectForTesting);
-                case TestCommandUiAction.SettingsWindow: return ToRect(ui.GetSettingsWindowUI().WindowRectForTesting);
-                case TestCommandUiAction.SpawnControlWindow: return ToRect(ui.GetSpawnControlUI().WindowRectForTesting);
-                case TestCommandUiAction.GloopsWindow: return ToRect(ui.GetGloopsUI().WindowRectForTesting);
-                case TestCommandUiAction.TestRunnerWindow: return ToRect(ui.GetTestRunnerUI().WindowRectForTesting);
-                default: throw new ArgumentOutOfRangeException(nameof(window), window);
-            }
-        }
-
-        private static void WriteWindowRect(ParsekUI ui, string window, UiActionRect r)
-        {
-            Rect rect = new Rect(r.X, r.Y, r.W, r.H);
-            switch (window)
-            {
-                case TestCommandUiAction.MainWindow: WriteHostMainRect(rect); return;
-                case TestCommandUiAction.MissionsWindow: ui.GetRecordingsTableUI().WindowRectForTesting = rect; return;
-                case TestCommandUiAction.TimelineWindow: ui.GetTimelineUI().WindowRectForTesting = rect; return;
-                case TestCommandUiAction.KerbalsWindow: ui.GetKerbalsUI().WindowRectForTesting = rect; return;
-                case TestCommandUiAction.CareerWindow: ui.GetCareerStateUI().WindowRectForTesting = rect; return;
-                case TestCommandUiAction.LogisticsWindow: ui.GetLogisticsUI().WindowRectForTesting = rect; return;
-                case TestCommandUiAction.StructureWindow: ui.GetStructureListUI().WindowRectForTesting = rect; return;
-                case TestCommandUiAction.SettingsWindow: ui.GetSettingsWindowUI().WindowRectForTesting = rect; return;
-                case TestCommandUiAction.SpawnControlWindow: ui.GetSpawnControlUI().WindowRectForTesting = rect; return;
-                case TestCommandUiAction.GloopsWindow: ui.GetGloopsUI().WindowRectForTesting = rect; return;
-                case TestCommandUiAction.TestRunnerWindow: ui.GetTestRunnerUI().WindowRectForTesting = rect; return;
-                default: throw new ArgumentOutOfRangeException(nameof(window), window);
-            }
-        }
+                GetOpen = getOpen,
+                SetOpen = setOpen,
+                GetRect = getRect,
+                SetRect = setRect,
+                GetTab = getTab,
+                SetTab = setTab,
+            };
 
         private static UiActionRect ToRect(Rect r)
             => new UiActionRect { X = r.x, Y = r.y, W = r.width, H = r.height };

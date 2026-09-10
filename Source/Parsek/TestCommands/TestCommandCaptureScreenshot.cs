@@ -21,7 +21,7 @@ namespace Parsek.TestCommands
     /// Pure decision / payload half of the ADDITIVE, automation-only
     /// <c>CaptureScreenshot label=&lt;name&gt; [superSize=&lt;1-4&gt;]</c> seam verb. The applier
     /// (<c>ParsekTestCommandAddon.CaptureScreenshot.cs</c>) owns the one Unity call
-    /// (<c>ScreenCapture.CaptureScreenshot</c>) and the file stats; the arg parse, the poll
+    /// (<c>UnityEngine.ScreenCapture.CaptureScreenshot</c>) and the file stats; the arg parse, the poll
     /// decision and the payload shape live here so a spec's <c>expect</c> has xUnit cells
     /// behind it.
     ///
@@ -82,12 +82,12 @@ namespace Parsek.TestCommands
         /// never called and nothing was written.</summary>
         internal const string DirUnavailableReason = "screenshot-dir-unavailable";
 
-        /// <summary>PRE-CALL gate: the engine's screenshot API could not be resolved. The
-        /// applier reaches <c>UnityEngine.ScreenCapture.CaptureScreenshot</c> reflectively
-        /// (its module is not a compile-time reference of this project - see
-        /// <c>ResolveCaptureMethod</c>), so "the API is not there" is a real, nameable state.
-        /// REJECTED and never a defer: a missing engine API cannot appear by waiting.</summary>
-        internal const string ApiUnavailableReason = "screenshot-api-unavailable";
+        // There is deliberately NO `screenshot-api-unavailable` reason. The applier calls
+        // `UnityEngine.ScreenCapture.CaptureScreenshot` directly against a compile-time
+        // reference (`UnityEngine.ScreenCaptureModule` in Parsek.csproj), so a missing API
+        // is a BUILD failure and can never be a run-time state - which is strictly better
+        // than the reflective form this replaced, where the same fault could only surface
+        // as a typed REJECTED after a whole KSP boot.
 
         /// <summary>POST-CALL terminal: the budget expired with no settled file. ERROR, the
         /// <c>map-not-entered</c> line - we acted and the engine did not produce the

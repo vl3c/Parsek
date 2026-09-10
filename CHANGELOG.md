@@ -19,9 +19,12 @@ _(unreleased — entries accumulate here per commit)_
   through the windows the way a player would, ask which windows a scene has and which
   are open, switch between the simple and full interface, and take a picture at each
   step - and it waits for each picture to finish being written before moving on, so a
-  later step cannot get in front of it. Two new run definitions walk the whole set: one
-  at the Space Center, one in flight. None of this adds anything a player can see or
-  reach in the game; it drives the same switches the existing buttons do.
+  later step cannot get in front of it. Opening and resizing a window likewise wait for
+  the game to draw a frame before believing the result, because one window closes itself
+  again the moment it draws with nothing to show, and a run that did not wait would have
+  reported success and then photographed empty scenery. Two new run definitions walk the
+  whole set: one at the Space Center, one in flight. None of this adds anything a player
+  can see or reach in the game; it drives the same switches the existing buttons do.
 
 - **Automated testing: a run definition can now ask for one particular check to be
   reported rather than acted on.** The recording-health check runs over whatever save a

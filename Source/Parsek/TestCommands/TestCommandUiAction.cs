@@ -33,6 +33,22 @@ namespace Parsek.TestCommands
         Describe = 6,
     }
 
+    /// <summary>What one settle poll of a TWO-PHASE <c>UiAction</c> op concludes.</summary>
+    internal enum UiActionSettleOutcome
+    {
+        /// <summary>Not enough frames have elapsed for an <c>OnGUI</c> pass to have run:
+        /// poll again next frame.</summary>
+        NotYet,
+
+        /// <summary>A frame has been drawn since the write, so the read-back describes the
+        /// SETTLED state and the terminal may be emitted.</summary>
+        Settled,
+
+        /// <summary>The budget ran out before a frame was drawn (a wedged renderer, or a
+        /// pump that never reached another safe point): terminal ERROR.</summary>
+        TimedOut,
+    }
+
     /// <summary>A window rect, Unity-free so the parse and the payload stay pure.</summary>
     internal struct UiActionRect
     {
@@ -102,15 +118,27 @@ namespace Parsek.TestCommands
     /// (<c>IsOpen</c>, the tab fields, <c>ParsekUI.SetUiComplexityMode</c>) and adds no
     /// player-facing surface - no new window, no new button, nothing a player can reach.</para>
     ///
-    /// <para><b>SINGLE-PHASE, every op.</b> Each op is a synchronous field write followed by
-    /// a read-back, so there is nothing to wait for and no <c>TryComplete*</c> counterpart -
-    /// the <c>EnterMapView</c> / <c>DeleteRecording</c> shape. The one op that LOOKS
-    /// deferred is <c>complexity</c>: <c>ParsekUI.SetUiComplexityMode</c> only QUEUES the
-    /// draw-visible value, which a later <c>Update</c> latches through
+    /// <para><b>TWO OPS ARE TWO-PHASE; the rest are single-phase.</b>
+    /// <see cref="OpIsTwoPhase"/> is the authority, and it names <c>open</c> and
+    /// <c>rect</c> - the two whose read-back means nothing until a frame has been DRAWN.
+    /// <c>open</c> writes a flag a drawing window can put straight back down
+    /// (<c>SpawnControlUI.DrawIfOpen</c> force-closes itself with zero candidates in
+    /// range, so a single-phase OK would have let a census photograph empty scenery under
+    /// a plausible label), and <c>rect</c> writes a rect <c>GUILayout</c> only resolves
+    /// during the draw - so an immediate read-back compared the field with the value just
+    /// written to it, and <see cref="RectAppliedWithinTolerance"/> could never fire. Both
+    /// hold the FIFO head for one frame and then read back;
+    /// <see cref="DecideSettlePoll"/> owns that decision.</para>
+    ///
+    /// <para><c>close</c>, <c>tab</c>, <c>complexity</c> and <c>describe</c> stay
+    /// SINGLE-PHASE - a synchronous write followed by a read-back, the
+    /// <c>EnterMapView</c> / <c>DeleteRecording</c> shape. The one that LOOKS deferred is
+    /// <c>complexity</c>: <c>ParsekUI.SetUiComplexityMode</c> only QUEUES the draw-visible
+    /// value, which a later <c>Update</c> latches through
     /// <c>ApplyPendingUiComplexityModeIfAny</c>. The seam pump itself runs in <c>Update</c>,
     /// which is exactly where that latch is contractually allowed to be called (never from
     /// OnGUI), so the applier calls it directly and reads back
-    /// <c>AppliedUiComplexityMode</c>. That makes the op single-phase AND leaves the
+    /// <c>AppliedUiComplexityMode</c>. That keeps the op single-phase AND leaves the
     /// production latch as the only path that ever applies a mode.</para>
     ///
     /// <para><b>WHY THE WINDOW VOCABULARY IS A TABLE HERE.</b> A census spec names each
@@ -221,10 +249,37 @@ namespace Parsek.TestCommands
         /// did not follow.</summary>
         internal const string ComplexityNotAppliedReason = "complexity-not-applied";
 
-        /// <summary>POST-CALL terminal: the open flag was written and reads back wrong. Only
-        /// reachable if a window's setter refuses (e.g. a self-closing window that is out of
-        /// its scene), which is why it is an ERROR rather than a silent OK.</summary>
+        /// <summary>POST-CALL terminal, checked IMMEDIATELY after the write: the open flag
+        /// reads back wrong before any frame has been drawn. Only reachable if a window's
+        /// own setter refuses the value outright, which is why it is an ERROR rather than a
+        /// silent OK. Distinct from <see cref="WindowSelfClosedReason"/> - see there.</summary>
         internal const string WindowNotToggledReason = "window-not-toggled";
+
+        /// <summary>
+        /// POST-SETTLE terminal for <c>op=open</c>: the flag WAS raised, and a window that
+        /// drew itself put it back down.
+        ///
+        /// <para>This is why <c>op=open</c> is two-phase, and the case is real rather than
+        /// hypothetical: <c>SpawnControlUI.DrawIfOpen</c> force-closes itself on its FIRST
+        /// draw whenever <c>ResolveAutoCloseReason</c> fires (not in flight, no flight
+        /// reference, or ZERO nearby spawn candidates - the last of which is the normal
+        /// state of any craft with nothing recorded passing close by). A single-phase OK
+        /// reported the flag it had just written, so a census would have captured a PNG of
+        /// empty scenery under the label <c>flight-spawncontrol-advanced</c> and a reviewer
+        /// would have read it as a render defect.</para>
+        ///
+        /// <para>Kept apart from <see cref="WindowNotToggledReason"/> because the two send
+        /// an operator to different places: "the setter refused" is a Parsek-side defect in
+        /// the window class, while "it drew and closed itself" is a statement about the
+        /// SCENE the lane is flying, whose remedy is a different host.</para>
+        /// </summary>
+        internal const string WindowSelfClosedReason = "window-self-closed";
+
+        /// <summary>POST-CALL terminal for the two-phase ops: the verb's budget expired
+        /// before a single frame was drawn, so the read-back could never have described a
+        /// settled state. ERROR, and it means the game stopped rendering or the pump never
+        /// reached another safe point - not that the op was refused.</summary>
+        internal const string NotSettledReason = "ui-action-not-settled";
 
         /// <summary>POST-CALL terminal: the tab index was written and reads back wrong.</summary>
         internal const string TabNotAppliedReason = "tab-not-applied";
@@ -274,12 +329,33 @@ namespace Parsek.TestCommands
         // ORDER IS THE MAIN WINDOW'S OWN BUTTON ORDER (ParsekUI.DrawWindow), so a describe
         // payload reads down the same list a reviewer sees on screen, and a census spec's
         // capture labels sort into that order too. `main` leads because it hosts the rest.
+        //
+        // THE THREE DELIBERATE EXCLUSIONS, derived from a grep of every
+        // ClickThruBlocker.GUILayoutWindow / GUILayout.Window host under Source/Parsek
+        // rather than from memory, so "eleven windows" is a claim about the whole program:
+        //   - GroupPickerUI (UI/GroupPickerUI.cs, "Set Parent Group" / "Manage Groups") is
+        //     a real window with its own rect and its own input lock, and it IS in the
+        //     Advanced -> Basic close set. It is excluded because it cannot be opened
+        //     MEANINGFULLY: it is a popup over a SELECTION (a recording row, a group node),
+        //     so raising its flag with no selection armed would photograph an empty picker
+        //     - the GUI-CENSUS-STRUCTURE-WINDOW-HAS-NO-DRIVEABLE-TARGET shape, and worse.
+        //   - LogisticsWindowUI's round-trip LINK PICKER (UI/LogisticsWindowUI.cs, its own
+        //     GUILayoutWindow drawn from DrawIfOpen) is excluded for exactly that reason:
+        //     it is armed from a Logistics ROW and carries that row's source state.
+        //   - TestRunnerShortcut (InGameTests/TestRunnerShortcut.cs) shares the Test Runner
+        //     title but is a SEPARATE MonoBehaviour with no accessor and no complexity
+        //     gate; the `testrunner` token below is the Settings-launched TestRunnerUI.
+        // Adding any of the three needs a way to drive its CONTEXT first, not just a table
+        // row - that is the honest cost, and it is why they are named here rather than
+        // silently absent.
 
         private static readonly UiWindowSpec[] WindowTable = new[]
         {
             // The host-owned toolbar window. No tabs; its own rect is content-sized
-            // (both hosts pass GUILayout.Width(250), and the KSC host zeroes the height
-            // every frame), so an `op=rect` on it moves it and does not resize it.
+            // (BOTH hosts pass GUILayout.Width(250) and BOTH zero the height every
+            // frame - ParsekFlight.cs's `windowRect.height = 0f` sits inside its showUI
+            // gate exactly as ParsekKSC.cs's does), so an `op=rect` on it moves it and
+            // does not resize it.
             NewSpec(MainWindow, true, true),
 
             // RecordingsTableUI. Titled "Parsek - Missions": the window IS the Missions
@@ -415,6 +491,74 @@ namespace Parsek.TestCommands
         internal static bool OpNeedsWindow(UiActionOp op)
             => op == UiActionOp.Open || op == UiActionOp.Close
                || op == UiActionOp.Tab || op == UiActionOp.Rect;
+
+        // ----- the two-phase ops -----
+
+        /// <summary>Frames that must be DRAWN between the write and the read-back of a
+        /// two-phase op. ONE is enough and is what the shape needs: Unity runs
+        /// <c>Update</c> (where the seam pump lives) before <c>OnGUI</c>, so a single
+        /// advanced frame guarantees at least one full IMGUI pass - the pass in which a
+        /// self-closing window closes itself and in which <c>GUILayout</c> resolves a
+        /// window's rect.</summary>
+        internal const int SettleFrames = 1;
+
+        /// <summary>
+        /// True for the ops whose read-back is only meaningful AFTER a frame has been
+        /// drawn, i.e. the ops that hold the FIFO head for one frame.
+        ///
+        /// <para><c>open</c> and <c>rect</c>, and neither is arbitrary. <c>open</c> writes
+        /// a flag a drawing window can put back down
+        /// (<see cref="WindowSelfClosedReason"/>), and <c>rect</c> writes a rect
+        /// <c>GUILayout</c> resolves during the draw - so before a frame runs, both read
+        /// back exactly the value just written and the read-back proves nothing at all.
+        /// That was the defect: <see cref="RectAppliedWithinTolerance"/> was comparing a
+        /// field with itself.</para>
+        ///
+        /// <para>The MIRROR DIRECTION, checked rather than assumed: <c>close</c> is
+        /// deliberately NOT here. The asymmetry is real - a drawing window can lower its
+        /// own flag (`showSpawnControlWindow = false` in
+        /// <c>SpawnControlUI.DrawIfOpen</c>) and nothing in the mod RAISES one from a draw
+        /// path, so there is no self-opening window for a settled close read-back to catch.
+        /// <c>tab</c> and <c>complexity</c> are likewise single-phase: the tab clamp runs
+        /// from the complexity latch (which the applier drives synchronously in
+        /// <c>Update</c>, before any draw), not from a draw.</para>
+        /// </summary>
+        internal static bool OpIsTwoPhase(UiActionOp op)
+            => op == UiActionOp.Open || op == UiActionOp.Rect;
+
+        /// <summary>
+        /// One settle poll of a two-phase op.
+        ///
+        /// <para>ORDER MATTERS, the <c>CaptureScreenshot.DecidePoll</c> rule: settled is
+        /// decided BEFORE the budget, so a frame that landed on the very poll the budget
+        /// expired is a success rather than an ERROR over state that is already correct.</para>
+        /// </summary>
+        /// <param name="framesElapsed">Frames drawn since the write (the applier passes
+        /// <c>Time.frameCount</c> minus the frame it wrote in).</param>
+        /// <param name="budgetExpired">Whether the verb's deferral budget has run out.</param>
+        internal static UiActionSettleOutcome DecideSettlePoll(int framesElapsed,
+                                                               bool budgetExpired)
+        {
+            if (framesElapsed >= SettleFrames) return UiActionSettleOutcome.Settled;
+            if (budgetExpired) return UiActionSettleOutcome.TimedOut;
+            return UiActionSettleOutcome.NotYet;
+        }
+
+        /// <summary>
+        /// Whether <c>op=complexity</c> has nothing to do.
+        ///
+        /// <para>BOTH halves are required, and the second is the one that was missing:
+        /// <c>ParsekUI.SetUiComplexityMode</c> NO-OPS when the requested mode already
+        /// equals the PERSISTED setting, so on a save whose setting says Basic while the
+        /// latch is the fail-open Advanced (a <c>ParsekUI</c> constructed before
+        /// <c>ParsekSettings.Current</c> existed), a request for Basic looked "not already
+        /// satisfied", called a setter that queued nothing, and terminated
+        /// <see cref="ComplexityNotAppliedReason"/> on a mode the save actually
+        /// carried.</para>
+        /// </summary>
+        internal static bool IsComplexityAlreadySatisfied(
+            UiComplexityMode applied, UiComplexityMode persisted, UiComplexityMode want)
+            => applied == want && persisted == want;
 
         /// <summary>
         /// Resolves a <c>window=</c> token against the table. A missing arg and an unknown
@@ -578,10 +722,11 @@ namespace Parsek.TestCommands
         /// failure. The asymmetry is the whole reason this predicate is a named, tested
         /// function instead of four inline comparisons.</para>
         ///
-        /// <para>The MAIN window is exempt from the width check as well (its hosts pass a
-        /// fixed <c>GUILayout.Width(250)</c> and the KSC host zeroes the height every
-        /// frame), which the applier expresses by passing
-        /// <paramref name="sizeIsHostControlled"/>.</para>
+        /// <para>The MAIN window is exempt from the width check as well: BOTH hosts pass a
+        /// fixed <c>GUILayout.Width(250)</c> and BOTH zero its height every frame
+        /// (<c>ParsekFlight.OnGUI</c> and <c>ParsekKSC.OnGUI</c> each open with
+        /// <c>windowRect.height = 0f</c>), so only its POSITION is commandable. The applier
+        /// expresses that by passing <paramref name="sizeIsHostControlled"/>.</para>
         /// </summary>
         internal static bool RectAppliedWithinTolerance(
             UiActionRect commanded, UiActionRect observed, bool sizeIsHostControlled)
@@ -712,6 +857,27 @@ namespace Parsek.TestCommands
                 payload.Add(Kv(prefix + "tab", string.IsNullOrEmpty(row.Tab) ? "-" : row.Tab));
             }
             return payload;
+        }
+
+        /// <summary>
+        /// The names of the windows this describe found OPEN, comma-joined in table order,
+        /// or <c>-</c> when none is.
+        ///
+        /// <para>It exists for the LOG line rather than for the payload. The per-window
+        /// <c>w&lt;i&gt;open=</c> keys are on the wire, which never reaches
+        /// <c>KSP.log</c> - so a census spec's <c>[expectations.logContracts]</c> could not
+        /// assert "exactly this window is open" at all. Paired with the <c>open=&lt;n&gt;</c>
+        /// count on the same line it is an EXACT claim: `open=2 openWindows=main,missions`
+        /// cannot match a scene with a third window open, because the count would differ,
+        /// which a bare per-window regex could never have expressed.</para>
+        /// </summary>
+        internal static string FormatOpenWindowList(IReadOnlyList<UiWindowState> rows)
+        {
+            if (rows == null) return "-";
+            var open = new List<string>();
+            for (int i = 0; i < rows.Count; i++)
+                if (rows[i].Open) open.Add(rows[i].Name ?? string.Empty);
+            return open.Count == 0 ? "-" : string.Join(",", open.ToArray());
         }
 
         /// <summary>The <c>tabs=</c> value for a window name: its comma-joined vocabulary,
