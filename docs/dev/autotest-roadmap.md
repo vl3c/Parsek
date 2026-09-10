@@ -375,9 +375,9 @@ remains is, in order:
 5. **Ghost-replay Tier C as one arc**: ghostlife v2 (item 10) then loop-cycle
    rendering on the GS-4 subject (item 12, blocked on 10), with the replay-parity
    evaluator (11) alongside.
-6. **Loop-render residue, in this order**: G2's KSC third (`V20K`, one reading run,
-   nothing blocks it, criterion (c) forbids writing the KSC limitation up before it
-   flies); the criterion (b) control debt on every V pair that still shares the
+6. **Loop-render residue, in this order**: G2's KSC third (`V20K`, spec authored
+   2026-09-10 in reading shape, one reading run owed, nothing blocks it, criterion
+   (c) forbids writing the KSC limitation up before it flies); the criterion (b) control debt on every V pair that still shares the
    `rewind.supersedeRows` inversion; G8 (long-horizon recurrence + co-residency -
    instrument work first, then the three roads; the one player-visible risk still
    unmeasured in this program); G5 and G9 as breadth behind them. `V18M`, `B31`

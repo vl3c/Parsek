@@ -8488,7 +8488,10 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # THE KSC THIRD IS DELIBERATELY NOT THEIRS: `V20K` over the same bytes is
         # where the KSC-host question becomes either a closed payoff or a cited
         # limitation, and under roadmap confirmation criterion (c) no limitation
-        # may be written up before that run exists.
+        # may be written up before that run exists. V20K itself was AUTHORED
+        # 2026-09-10 as a reading-run spec (the entry below); what it owes is the
+        # FLIGHT.
+        "V20K-jool-kerbin-ksc-arrival.toml": "tier=operator by the calibration discipline as a READING-RUN spec, NOT debt: AUTHORED 2026-09-10 and NEVER FLOWN - G2's KSC third over `kerbin-return-recorded`, three outcomes pre-registered in the spec header (zero eligible / eligible with a pose / eligible without a pose at this epoch) and all three PASS; nothing armed, no `gating = true`, renderComposition bare. What is owed is the FLIGHT, not a human review call",
         # W1: the GS-4 follow-up the ghost-derender lane deliberately did not carry
         # (`docs/dev/todo-and-known-bugs.md` -> GS4-WATCH-DISTANCE-CUTOFF). Same
         # posture as the V20 pair above: tier=operator by the calibration discipline,
@@ -10876,6 +10879,13 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
                                     #     a declarer - V14T's TS-host precedent and its
                                     #     exposure note apply unchanged.
                                     "V20T-jool-kerbin-ts-arrival.toml",
+                                    # [K] the KSC third of the same pair, 2026-09-10:
+                                    #     bare, NEVER FLOWN, a reading-run spec. The
+                                    #     second KSC-host manifest after V22K's, and the
+                                    #     first over a subject the structural gate may
+                                    #     refuse; what the manifest holds then is part
+                                    #     of the reading.
+                                    "V20K-jool-kerbin-ksc-arrival.toml",
                                     # -- PHASE 4 / WAVE B, 2026-08-26: TWO NEW SUBJECTS,
                                     # both bare, both reading-pending, and neither a
                                     # re-declaration of an existing shape. Unlike Wave A -

@@ -5313,7 +5313,7 @@ being found by hand.
 
 ---
 
-## B29-KERBIN-RETURN-V20K-KSC-LANE-OWED: the KSC host third of G2's planet-to-Kerbin close [OPENED 2026-08-26 on branch `b29-duna-return` as B29-JOOL-KERBIN-RETURN-AUTHORED-NEVER-FLOWN. FLIGHTS 1-2 FLOWN 2026-08-27 (both INVALID, both calibration reads); RE-SCOPED ONTO THE PARENT-RELAY MODE the same day; **FLIGHT 3 PASS ATTEMPT 1 the same day** - the subject EXISTS, harvested as `fixtures/saves/kerbin-return-recorded` (one recording, 739 points, seams Jool->Sun / Sun->Kerbin, Orbiting-at-Kerbin terminal). **RE-HEADED 2026-08-29 ONTO THE SOLE RESIDUAL**: both the old name and the old `REMAINING: the V20 lanes` clause were false - the producer flew three times, and `V20M-jool-kerbin-player-loop` + `V20T-jool-kerbin-ts-arrival` shipped DISCIPLINE-COMPLETE and ARMED in PR #1548 (merged 2026-08-27). WHAT REMAINS IS ONE THING: `V20K`, the KSC host lane over these same bytes, which has NO spec file anywhere in the tree - corroborated by `docs/dev/autotest-roadmap.md` and by PR #1548's own body. The three deferred operator decisions and the operator -> nightly promotion calls are explicitly NOT debt. TODO, not a defect]
+## B29-KERBIN-RETURN-V20K-KSC-LANE-OWED: the KSC host third of G2's planet-to-Kerbin close [OPENED 2026-08-26 on branch `b29-duna-return` as B29-JOOL-KERBIN-RETURN-AUTHORED-NEVER-FLOWN. FLIGHTS 1-2 FLOWN 2026-08-27 (both INVALID, both calibration reads); RE-SCOPED ONTO THE PARENT-RELAY MODE the same day; **FLIGHT 3 PASS ATTEMPT 1 the same day** - the subject EXISTS, harvested as `fixtures/saves/kerbin-return-recorded` (one recording, 739 points, seams Jool->Sun / Sun->Kerbin, Orbiting-at-Kerbin terminal). **RE-HEADED 2026-08-29 ONTO THE SOLE RESIDUAL**: both the old name and the old `REMAINING: the V20 lanes` clause were false - the producer flew three times, and `V20M-jool-kerbin-player-loop` + `V20T-jool-kerbin-ts-arrival` shipped DISCIPLINE-COMPLETE and ARMED in PR #1548 (merged 2026-08-27). WHAT REMAINS IS ONE THING: `V20K`, the KSC host lane over these same bytes, which had NO spec file anywhere in the tree until 2026-09-10 (corroborated then by `docs/dev/autotest-roadmap.md` and by PR #1548's own body). **SPEC AUTHORED 2026-09-10** on branch `loop-render-residue` as a READING-RUN spec (`harness/scenarios/V20K-jool-kerbin-ksc-arrival.toml`: three outcomes pre-registered in its header, all three PASS, nothing armed); what remains is its READING RUN. The three deferred operator decisions and the operator -> nightly promotion calls are explicitly NOT debt. TODO, not a defect]
 
 `B29-jool-kerbin-return` is committed: spec, mission shell, schema, registration
 cells and a bare `[expectations.renderComposition]` declaration. FLIGHT 1
@@ -5503,7 +5503,8 @@ decision. Both lanes are in `test_hlib`'s `ARMED_ALLOWLIST` with the arming rati
     lens asymmetry stated rather than smoothed over.
 
 **REMAINING, AND IT IS SHORT.**
-  1. **`V20K`** - the KSC host lane over these same bytes. Still reserved, still the only thing
+  1. **`V20K`** - the KSC host lane over these same bytes. Spec AUTHORED 2026-09-10
+     (`V20K-jool-kerbin-ksc-arrival`, reading-run shape); its reading run is still the only thing
      standing between G2 and closure, and still ungated by confirmation criterion (c): until that
      run exists, nothing about the KSC host may be written up as a documented limitation anywhere.
      The question is now SHARPER rather than answered - `kerbin-return-recorded`'s first POINT is
