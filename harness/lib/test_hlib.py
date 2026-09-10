@@ -14158,13 +14158,40 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
         calls the capture verb's predicate); here both validators read the same
         `_CAPTURE_LABEL_RE`, and this cell is what keeps that true."""
         for raw in ("ksc-main-advanced", "A1", "has space", "../escape", "dir/label",
-                    "-leading-dash", "", "a" * (hlib.CAPTURE_LABEL_MAX_LENGTH + 1)):
+                    "-leading-dash", "", "a" * (hlib.CAPTURE_LABEL_MAX_LENGTH + 1),
+                    # The tail rule, over all four endings: `a` and `a-` are accepted,
+                    # `a_` and `a.` are not, and the two validators must agree either way.
+                    "a", "a-", "a_", "a."):
             with self.subTest(label=raw):
                 args = {hlib.CAPTURE_LABEL_KEY: raw}
                 cap = hlib.validate_capture_screenshot_step(0, args)
                 dump = hlib.validate_dump_gui_tree_step(0, args)
                 self.assertEqual(bool(cap), bool(dump),
                                  "the two census verbs disagree about label %r" % raw)
+
+    def test_a_label_the_dump_writers_sanitiser_would_trim_is_refused(self):
+        """The tail half of the rule, and the defect it closes. The C# recorder's
+        `GuiTreeRecorder.SanitizeLabel` ends in `.Trim('.', '_')`, so a label ending
+        in either would produce `ksc-settings_.png` (CaptureScreenshot trims nothing)
+        beside `ksc-settings.gui.json`, with `DumpGuiTree`'s payload naming a path
+        that does not exist - all three disagreeing, and every step reporting OK. Both
+        validators are therefore TIGHTER than `_ID_RE` at the tail. A trailing '-' is
+        NOT trimmed by the sanitiser and stays legal, which this cell pins too so the
+        tightening cannot quietly grow."""
+        for good in ("a", "a-", "ksc-main-", "ksc-main-advanced"):
+            with self.subTest(label=good, expect="accepted"):
+                self.assertEqual([], hlib.validate_capture_screenshot_step(
+                    0, {hlib.CAPTURE_LABEL_KEY: good}))
+                self.assertEqual([], hlib.validate_dump_gui_tree_step(
+                    0, {hlib.CAPTURE_LABEL_KEY: good}))
+        for bad in ("a_", "a.", "ksc-settings_", "ksc-settings."):
+            with self.subTest(label=bad, expect="refused"):
+                for errors in (hlib.validate_capture_screenshot_step(
+                                   0, {hlib.CAPTURE_LABEL_KEY: bad}),
+                               hlib.validate_dump_gui_tree_step(
+                                   0, {hlib.CAPTURE_LABEL_KEY: bad})):
+                    self.assertTrue(any("filename-safe" in e for e in errors),
+                                    "%r must be rejected: %s" % (bad, errors))
 
     def test_a_labelless_dump_step_is_caught_pre_launch(self):
         # The label is the dump's FILENAME and the verb has no default, so the seam
@@ -14310,7 +14337,8 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
                             hlib.validate_capture_screenshot_step(0, {})))
         self.assertEqual([], hlib.validate_capture_screenshot_step(
             0, {"label": "ksc-main-advanced"}))
-        for bad in ("../escape", "dir/label", "has space", "-leading", "", "."):
+        for bad in ("../escape", "dir/label", "has space", "-leading", "", ".",
+                    "a_", "a."):
             with self.subTest(label=bad):
                 errors = hlib.validate_capture_screenshot_step(0, {"label": bad})
                 self.assertTrue(any("filename-safe" in e for e in errors),

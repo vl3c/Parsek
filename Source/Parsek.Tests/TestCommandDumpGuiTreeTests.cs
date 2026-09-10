@@ -42,6 +42,7 @@ namespace Parsek.Tests
         [InlineData("ksc-career.contracts")]
         [InlineData("a")]
         [InlineData("A1")]
+        [InlineData("a-")]
         public void FilenameSafeLabels_Parse(string raw)
         {
             Assert.True(TestCommandDumpGuiTree.TryParseLabel(
@@ -61,6 +62,11 @@ namespace Parsek.Tests
         [InlineData("-leading-dash")]
         [InlineData("has space")]
         [InlineData("label!")]
+        // Trailing '.' / '_': refused because the recorder's sanitiser would trim them,
+        // which would make THIS verb's reported path disagree with the file it wrote and
+        // with the screenshot under the same label. See the sanitiser cells below.
+        [InlineData("a_")]
+        [InlineData("a.")]
         public void UnsafeLabels_AreRejectedFailClosed(string raw)
         {
             Assert.False(TestCommandDumpGuiTree.IsValidLabel(raw));
@@ -77,6 +83,10 @@ namespace Parsek.Tests
         [InlineData("../escape")]
         [InlineData("")]
         [InlineData(null)]
+        [InlineData("a")]
+        [InlineData("a-")]
+        [InlineData("a_")]
+        [InlineData("a.")]
         public void TheLabelRuleIsTheCaptureVerbsRule_NotACopyOfIt(string raw)
         {
             // A census drives the two verbs as a PAIR under ONE label, so a label one verb
@@ -97,6 +107,10 @@ namespace Parsek.Tests
         [InlineData("flight_settings_basic")]
         [InlineData("ksc-career.contracts")]
         [InlineData("A1")]
+        [InlineData("a")]
+        // The trailing DASH the tightened rule deliberately still accepts: `SanitizeLabel`
+        // trims '.' and '_' only, so '-' survives it and the two sides agree.
+        [InlineData("a-")]
         public void AnAcceptedLabelSurvivesTheRecordersSanitiserUnchanged(string raw)
         {
             // THE MIRROR DIRECTION, and it is the reason the payload may state a path at
@@ -105,10 +119,29 @@ namespace Parsek.Tests
             // anything outside [A-Za-z0-9._-] with an underscore and trimming leading and
             // trailing dots and underscores. If the verb's rule were the looser of the two,
             // the reported path would name a file that does not exist. It is the tighter
-            // one (it additionally requires an alphanumeric first character), so the two
-            // agree - asserted here rather than argued in a comment.
+            // one (it additionally requires an alphanumeric first character AND refuses a
+            // trailing '.' or '_', which is exactly the trim), so the two agree - asserted
+            // here rather than argued in a comment.
             Assert.True(TestCommandDumpGuiTree.IsValidLabel(raw));
             Assert.Equal(raw, GuiTreeRecorder.SanitizeLabel(raw));
+        }
+
+        [Theory]
+        [InlineData("a_")]
+        [InlineData("a.")]
+        [InlineData("ksc-settings_")]
+        [InlineData("ksc-settings.")]
+        public void ALabelTheSanitiserWouldTrim_IsRefusedRatherThanReportedWrong(string raw)
+        {
+            // THE DEFECT THIS PAIR EXISTS FOR, stated from both ends. The sanitiser really
+            // does change these strings, so accepting one would have written
+            // `ksc-settings_.png` (CaptureScreenshot does no trimming) beside
+            // `ksc-settings.gui.json`, with the DumpGuiTree payload naming a third thing -
+            // `Screenshots/ksc-settings_.gui.json` - that never existed. The verb's rule is
+            // the tighter one, so the disagreement is refused pre-flight instead.
+            Assert.NotEqual(raw, GuiTreeRecorder.SanitizeLabel(raw));
+            Assert.False(TestCommandDumpGuiTree.IsValidLabel(raw));
+            Assert.False(TestCommandCaptureScreenshot.IsValidLabel(raw));
         }
 
         // ----- poll decision -----

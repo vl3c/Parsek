@@ -39,6 +39,11 @@ namespace Parsek.Tests
         [InlineData("ksc-career.contracts")]
         [InlineData("a")]
         [InlineData("A1")]
+        // A trailing DASH is legal, unlike a trailing dot or underscore below: the dump
+        // writer's `GuiTreeRecorder.SanitizeLabel` trims '.' and '_' from the ends and
+        // leaves '-' alone, so the two census verbs still agree about this filename.
+        [InlineData("a-")]
+        [InlineData("ksc-main-")]
         public void FilenameSafeLabels_Parse(string raw)
         {
             Assert.True(TestCommandCaptureScreenshot.TryParseLabel(
@@ -67,6 +72,15 @@ namespace Parsek.Tests
         // source, and the test subject is the BYTE being non-ASCII rather than how it is
         // spelled in this file.
         [InlineData("na\u00efve")]      // non-ASCII
+        // The TAIL half of the rule, which is what makes it tighter than `_ID_RE`: a
+        // trailing '.' or '_' is trimmed by `GuiTreeRecorder.SanitizeLabel`, so a census
+        // driving this verb and `DumpGuiTree` under one label would write
+        // `ksc-settings_.png` beside `ksc-settings.gui.json` and report a path that does
+        // not exist.
+        [InlineData("a_")]
+        [InlineData("a.")]
+        [InlineData("ksc-settings_")]
+        [InlineData("ksc-settings.")]
         public void UnsafeLabels_AreRejected(string raw)
         {
             // The label becomes a filename in the harvested artifact directory, so the rule

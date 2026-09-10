@@ -2091,11 +2091,17 @@ UIACTION_OPS_NEEDING_WINDOW: Tuple[str, ...] = ("open", "close", "tab", "rect")
 UIACTION_RECT_KEYS: Tuple[str, ...] = ("x", "y", "w", "h")
 
 # CaptureScreenshot's label rule, mirroring TestCommandCaptureScreenshot.IsValidLabel -
-# which is itself the harness's own filename-safe id shape (`_ID_RE`), because the label
-# becomes a filename in the harvested artifact directory.
+# the harness's own filename-safe id shape (`_ID_RE`) for the head, because the label
+# becomes a filename in the harvested artifact directory, plus one TIGHTENING at the
+# tail: no trailing `.` or `_`. That half exists because the census pairs this verb with
+# `DumpGuiTree` under ONE label and the dump's writer runs
+# `GuiTreeRecorder.SanitizeLabel`, which ends in `.Trim('.', '_')` - so `ksc-settings_`
+# would produce `ksc-settings_.png` beside `ksc-settings.gui.json`, and the verb would
+# report a path that does not exist. A trailing `-` stays legal: the sanitiser does not
+# trim one, so both sides agree on it.
 CAPTURE_LABEL_KEY = "label"
 CAPTURE_LABEL_MAX_LENGTH = 96
-_CAPTURE_LABEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+_CAPTURE_LABEL_RE = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9-])?$")
 CAPTURE_SUPERSIZE_KEY = "superSize"
 CAPTURE_SUPERSIZE_MAX = 4
 
@@ -2120,7 +2126,9 @@ def validate_capture_screenshot_step(index: int, step_args: Dict) -> List[str]:
         if not _CAPTURE_LABEL_RE.match(text) or len(text) > CAPTURE_LABEL_MAX_LENGTH:
             errors.append(
                 "driver.steps[%d].args.%s: %r is not filename-safe (must start "
-                "alphanumeric, then alphanumerics / . / - / _ only, max %d chars). The "
+                "alphanumeric, then alphanumerics / . / - / _ only, must not END in a "
+                "'.' or a '_' - the dump writer's sanitiser trims those, so the two "
+                "census verbs would disagree about the filename - max %d chars). The "
                 "label becomes a file in the harvested artifact directory, so the seam "
                 "is fail-closed and answers REJECTED label-arg-invalid"
                 % (index, CAPTURE_LABEL_KEY, text, CAPTURE_LABEL_MAX_LENGTH))
@@ -2162,7 +2170,9 @@ def validate_dump_gui_tree_step(index: int, step_args: Dict) -> List[str]:
         if not _CAPTURE_LABEL_RE.match(text) or len(text) > CAPTURE_LABEL_MAX_LENGTH:
             errors.append(
                 "driver.steps[%d].args.%s: %r is not filename-safe (must start "
-                "alphanumeric, then alphanumerics / . / - / _ only, max %d chars). The "
+                "alphanumeric, then alphanumerics / . / - / _ only, must not END in a "
+                "'.' or a '_' - the dump writer's sanitiser trims those, so the two "
+                "census verbs would disagree about the filename - max %d chars). The "
                 "label becomes a file in the harvested artifact directory, so the seam "
                 "is fail-closed and answers REJECTED label-arg-invalid"
                 % (index, CAPTURE_LABEL_KEY, text, CAPTURE_LABEL_MAX_LENGTH))

@@ -1587,9 +1587,12 @@ therefore NO `screenshot-api-unavailable` terminal - a missing API is a build fa
 **Terminals.** `REJECTED`: `label-arg-missing` (required, never defaulted - an invented
 name would collide across steps and silently overwrite an earlier capture),
 `label-arg-invalid` (the label becomes a filename in the harvested directory, so the rule
-is the harness's own filename-safe id shape: start alphanumeric, then alphanumerics / dot
-/ dash / underscore, max 96 - which excludes every path separator, `..`, whitespace and
-every non-ASCII byte), `supersize-arg-invalid` (rejected rather than clamped: a typo that
+is `^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9-])?$`, max 96 - the harness's own filename-safe
+id shape at the head, which excludes every path separator, `..`, whitespace and every
+non-ASCII byte, plus one TIGHTENING at the tail: no trailing `.` or `_`, because the paired
+`DumpGuiTree`'s writer runs `GuiTreeRecorder.SanitizeLabel`, which trims exactly those two,
+so `ksc-settings_` would name three different files across the pair. A trailing `-` is not
+trimmed and stays legal), `supersize-arg-invalid` (rejected rather than clamped: a typo that
 silently captured at 1x would read as a resolution problem),
 `screenshot-dir-unavailable`. `ERROR`:
 `screenshot-not-written` (the budget expired with no settled file) and `screenshot-threw`
@@ -1897,9 +1900,12 @@ the capture flushes, so a disarmed recorder costs the process nothing.
 two reject tokens (`label-arg-missing`, `label-arg-invalid`). A census pairs one dump with
 one PNG under one label, so a label one verb accepted and the other refused would leave a
 PNG with no tree beside it. The rule is also strictly TIGHTER than the recorder's own
-`SanitizeLabel`, so an accepted label survives sanitisation unchanged and the path the
-payload reports is the path the recorder writes - pinned in the mirror direction by a unit
-cell rather than argued in a comment.
+`SanitizeLabel` AT BOTH ENDS - it requires an alphanumeric first character and refuses a
+trailing `.` or `_`, which is exactly what `SanitizeLabel`'s closing `.Trim('.', '_')`
+removes - so an accepted label survives sanitisation unchanged and the path the payload
+reports is the path the recorder writes. Pinned in the mirror direction by two unit cells
+rather than argued in a comment: an accepted label is unchanged by the sanitiser, and a
+label the sanitiser WOULD change is refused by both verbs.
 
 **No pre-delete, and no two-sample size rule** - the two places this verb deliberately
 differs from its sibling. `CaptureScreenshot` needs both because UNITY writes its PNG

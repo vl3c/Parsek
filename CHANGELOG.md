@@ -83,7 +83,11 @@ _(unreleased — entries accumulate here per commit)_
   game could do before: the only way in was a call no test run had a way to make. A run
   asks by name, exactly the way it asks for a screenshot and with the same rules about
   what a name may contain, so the picture and the description of one window land side by
-  side under one name and can be read together afterwards. The run then waits until the
+  side under one name and can be read together afterwards. A name ending in a dot or an
+  underscore is refused outright rather than accepted, because the part that writes the
+  description quietly trims those off the end and the part that writes the picture does
+  not - a name like that would have filed the two halves under different names and then
+  reported a location with nothing at it. The run then waits until the
   description has actually been written before it does anything else - not merely so the
   file is finished, but because the very next thing a window tour does is move or close
   the window the pending capture is about to describe. If nothing draws in time, or the

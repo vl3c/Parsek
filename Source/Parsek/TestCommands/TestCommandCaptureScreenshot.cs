@@ -132,33 +132,49 @@ namespace Parsek.TestCommands
         /// <summary>
         /// True when <paramref name="label"/> is safe to use as a bare filename stem.
         ///
-        /// <para>Deliberately the SAME rule as the harness's own filename-safe id
-        /// (<c>hlib._ID_RE</c>, <c>^[A-Za-z0-9][A-Za-z0-9._-]*$</c>): must start
-        /// alphanumeric, then alphanumerics / dot / dash / underscore only. That excludes
-        /// every path separator, every drive-letter colon, <c>..</c>, whitespace (which the
-        /// wire codec would percent-encode and a shell would then re-split), and every
-        /// non-ASCII byte. A label the harness would reject as an id must not become a file
-        /// the harness then harvests.</para>
+        /// <para>The rule is <c>^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9-])?$</c>: must start
+        /// alphanumeric, then alphanumerics / dot / dash / underscore only, and must not
+        /// END in a dot or an underscore. The head half is the harness's own filename-safe
+        /// id shape (<c>hlib._ID_RE</c>) and excludes every path separator, every
+        /// drive-letter colon, <c>..</c>, whitespace (which the wire codec would
+        /// percent-encode and a shell would then re-split), and every non-ASCII byte. A
+        /// label the harness would reject as an id must not become a file the harness then
+        /// harvests.</para>
+        ///
+        /// <para>THE TAIL HALF IS NOT COSMETIC and it is why this rule is strictly TIGHTER
+        /// than <c>_ID_RE</c>: the GUI-census pair drives this verb and <c>DumpGuiTree</c>
+        /// under ONE label, and the dump's writer runs
+        /// <c>GuiTreeRecorder.SanitizeLabel</c>, which ends in <c>.Trim('.', '_')</c>. So
+        /// <c>ksc-settings_</c> would write <c>ksc-settings_.png</c> here and
+        /// <c>ksc-settings.gui.json</c> there, while <c>DumpGuiTree</c>'s payload named a
+        /// path that does not exist - a pair the viewer could never re-pair, reported OK. A
+        /// trailing dash stays legal because the sanitiser does not trim one, so the two
+        /// sides still agree on it (pinned by
+        /// <c>AnAcceptedLabelSurvivesTheRecordersSanitiserUnchanged</c>).</para>
         /// </summary>
         internal static bool IsValidLabel(string label)
         {
             if (string.IsNullOrEmpty(label)) return false;
             if (label.Length > MaxLabelLength) return false;
             char first = label[0];
-            bool firstOk = (first >= 'a' && first <= 'z')
-                || (first >= 'A' && first <= 'Z')
-                || (first >= '0' && first <= '9');
-            if (!firstOk) return false;
+            if (!IsLabelAlphanumeric(first)) return false;
             for (int i = 1; i < label.Length; i++)
             {
                 char c = label[i];
-                bool ok = (c >= 'a' && c <= 'z')
-                    || (c >= 'A' && c <= 'Z')
-                    || (c >= '0' && c <= '9')
-                    || c == '.' || c == '-' || c == '_';
+                bool ok = IsLabelAlphanumeric(c) || c == '.' || c == '-' || c == '_';
                 if (!ok) return false;
             }
-            return true;
+            // The tail character, checked after the body so a one-character label is
+            // decided by the first-character rule alone.
+            char last = label[label.Length - 1];
+            return IsLabelAlphanumeric(last) || last == '-';
+        }
+
+        private static bool IsLabelAlphanumeric(char c)
+        {
+            return (c >= 'a' && c <= 'z')
+                || (c >= 'A' && c <= 'Z')
+                || (c >= '0' && c <= '9');
         }
 
         /// <summary>
