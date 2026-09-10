@@ -232,13 +232,15 @@ namespace Parsek
             {
                 if (!Accepting(funnel))
                     return;
-                GuiTreeEvent e = NewEvent(GuiTreeOp.Begin, kind, rect, content, style);
-                // Measured BEFORE Unity pushes the clip, so the depth direct children
-                // will report is one deeper. Normalising here keeps the pure assembler
-                // on a single rule (see GuiTreeEvent.ClipDepth).
-                if (e.ClipDepth >= 0)
-                    e.ClipDepth++;
-                events.Add(e);
+                // Recorded from a POSTFIX, i.e. AFTER Unity pushed the clip, so the
+                // depth measured here is already the one direct children will report -
+                // no normalisation, which is what keeps the assembler on one rule.
+                // The postfix is also what fixes an ordering bug a prefix had:
+                // GUI.BeginScrollView draws its own two scrollbars BEFORE
+                // GUIClip.Push, at the OUTER depth, so a scroll-view node opened
+                // before them was closed again by its own scrollbar and ended up
+                // holding nothing.
+                events.Add(NewEvent(GuiTreeOp.Begin, kind, rect, content, style));
             }
             catch (Exception ex)
             {

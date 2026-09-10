@@ -174,6 +174,121 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ASiblingGroupClosesTheOpenOneAtTheSameClipDepth()
+        {
+            // The OTHER half of the clip rule, and the one a single comparison loses.
+            // A clip container's recorded depth is its CHILDREN's depth, so two SIBLING
+            // groups carry the SAME number. With GUI.EndGroup inlined away, only
+            // "a container Begin at equal depth closes the open container" keeps them
+            // siblings instead of nesting group B inside group A forever.
+            var events = new List<GuiTreeEvent>
+            {
+                Begin(GuiNodeKind.Window, 0, 0, 400, 400, 1),
+                Begin(GuiNodeKind.Group, 5, 5, 100, 100, 2),
+                Leaf(GuiNodeKind.Label, 8, 8, 50, 18, 2, "in-a"),
+                // no End(Group)
+                Begin(GuiNodeKind.Group, 5, 200, 100, 100, 2),
+                Leaf(GuiNodeKind.Label, 8, 208, 50, 18, 2, "in-b"),
+                End(GuiNodeKind.Group),
+                End(GuiNodeKind.Window),
+            };
+
+            GuiTreeResult r = GuiTreeAssembler.Assemble(events);
+
+            GuiTreeNode window = r.Roots[0];
+            Assert.Equal(2, window.Children.Count);
+            Assert.Equal("in-a", window.Children[0].Children[0].Text);
+            Assert.Equal("in-b", window.Children[1].Children[0].Text);
+            Assert.Equal(1, r.AutoClosedByClip);
+            Assert.Equal(0, r.UnclosedAtEnd);
+        }
+
+        [Fact]
+        public void ANestedGroupStillNestsRatherThanClosingItsParent()
+        {
+            // The mirror of the cell above: the equal-depth rule must not evict a
+            // GENUINELY nested container, whose depth is strictly greater.
+            var events = new List<GuiTreeEvent>
+            {
+                Begin(GuiNodeKind.Window, 0, 0, 400, 400, 1),
+                Begin(GuiNodeKind.Group, 5, 5, 300, 300, 2),
+                Begin(GuiNodeKind.ScrollView, 10, 10, 200, 200, 3),
+                Leaf(GuiNodeKind.Label, 12, 12, 50, 18, 3, "deep"),
+                End(GuiNodeKind.ScrollView),
+                End(GuiNodeKind.Group),
+                End(GuiNodeKind.Window),
+            };
+
+            GuiTreeResult r = GuiTreeAssembler.Assemble(events);
+
+            GuiTreeNode group = r.Roots[0].Children[0];
+            Assert.Equal(GuiNodeKind.ScrollView, group.Children[0].Kind);
+            Assert.Equal("deep", group.Children[0].Children[0].Text);
+            Assert.Equal(0, r.AutoClosedByClip);
+        }
+
+        [Fact]
+        public void ALeafAtTheSameDepthStaysInsideItsContainer()
+        {
+            // The other side of the asymmetry: a LEAF at equal depth is INSIDE, and must
+            // never be treated as a sibling that closes the container.
+            var events = new List<GuiTreeEvent>
+            {
+                Begin(GuiNodeKind.ScrollView, 0, 0, 200, 200, 2),
+                Leaf(GuiNodeKind.Label, 2, 2, 50, 18, 2, "row-1"),
+                Leaf(GuiNodeKind.Label, 2, 22, 50, 18, 2, "row-2"),
+            };
+
+            GuiTreeResult r = GuiTreeAssembler.Assemble(events);
+
+            Assert.Single(r.Roots);
+            Assert.Equal(2, r.Roots[0].Children.Count);
+            Assert.Equal(0, r.AutoClosedByClip);
+        }
+
+        [Fact]
+        public void ALayoutGroupBeginAtTheSameDepthAlsoStaysInside()
+        {
+            // A LayoutGroup pushes no clip, so its Begin reports the depth it was drawn
+            // AT - the same rule as a leaf, not the same rule as a group.
+            var events = new List<GuiTreeEvent>
+            {
+                Begin(GuiNodeKind.Group, 0, 0, 200, 200, 2),
+                Begin(GuiNodeKind.LayoutGroup, 2, 2, 190, 190, 2),
+                Leaf(GuiNodeKind.Label, 4, 4, 50, 18, 2, "row"),
+            };
+
+            GuiTreeResult r = GuiTreeAssembler.Assemble(events);
+
+            Assert.Single(r.Roots);
+            Assert.Equal(GuiNodeKind.LayoutGroup, r.Roots[0].Children[0].Kind);
+            Assert.Equal("row", r.Roots[0].Children[0].Children[0].Text);
+            Assert.Equal(0, r.AutoClosedByClip);
+        }
+
+        [Fact]
+        public void ASecondWindowIsASiblingEvenWithItsPredecessorsEndMissing()
+        {
+            var events = new List<GuiTreeEvent>
+            {
+                Begin(GuiNodeKind.Window, 0, 0, 100, 100, 1, "A"),
+                Leaf(GuiNodeKind.Label, 2, 2, 20, 10, 1, "a"),
+                // no End(Window)
+                Begin(GuiNodeKind.Window, 200, 0, 100, 100, 1, "B"),
+                Leaf(GuiNodeKind.Label, 202, 2, 20, 10, 1, "b"),
+                End(GuiNodeKind.Window),
+            };
+
+            GuiTreeResult r = GuiTreeAssembler.Assemble(events);
+
+            Assert.Equal(2, r.Roots.Count);
+            Assert.Equal(2, r.WindowCount);
+            Assert.Equal("a", r.Roots[0].Children[0].Text);
+            Assert.Equal("b", r.Roots[1].Children[0].Text);
+            Assert.Equal(1, r.AutoClosedByClip);
+        }
+
+        [Fact]
         public void MissingEndVerticalIsRecoveredFromRectContainment()
         {
             // A LayoutGroup pushes no clip, so the clip rule cannot see it. The next

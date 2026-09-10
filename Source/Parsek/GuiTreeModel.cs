@@ -89,10 +89,10 @@ namespace Parsek
         internal GuiRect LocalRect;
 
         /// <summary>
-        /// For a <see cref="GuiTreeOp.Leaf"/> or a non-clip Begin: the clip-stack depth
-        /// measured at record time. For a clip-pushing Begin
-        /// (Window / Group / ScrollView): the depth that its DIRECT CHILDREN will report.
-        /// The recorder normalises that difference so the assembler has one rule.
+        /// The clip-stack depth measured at record time. For a clip-pushing Begin
+        /// (Window / Group / ScrollView) this is the depth its DIRECT CHILDREN report,
+        /// because the recorder takes those from a Harmony POSTFIX - i.e. after Unity
+        /// pushed the clip - rather than normalising the number afterwards.
         /// A negative value means "unknown" (the depth probe was unavailable) and the
         /// clip-based recovery rule is then skipped for that event.
         /// </summary>
@@ -285,10 +285,34 @@ namespace Parsek
             open.RemoveRange(match, open.Count - match);
         }
 
+        /// <summary>
+        /// True for the kinds that push a Unity clip rect, and whose Begin event
+        /// therefore carries the depth their CHILDREN report rather than the depth they
+        /// were opened at.
+        /// </summary>
+        private static bool IsClipKind(GuiNodeKind kind)
+        {
+            return kind == GuiNodeKind.Window
+                || kind == GuiNodeKind.Group
+                || kind == GuiNodeKind.ScrollView;
+        }
+
         private static void CloseByClipDepth(List<GuiTreeNode> open, GuiTreeEvent e, GuiTreeResult result)
         {
             if (e.ClipDepth < 0)
                 return;
+
+            // THE ASYMMETRY, and it is the whole reason this rule works without a
+            // reliable End. Both an open clip container's ClipDepth and a clip-container
+            // Begin's ClipDepth are CHILD depths, so two SIBLING containers carry the
+            // SAME number and a nested one carries a strictly greater one - a sibling
+            // must therefore close the open one at EQUAL depth. A leaf, or a LayoutGroup
+            // Begin, carries the depth it was drawn AT, which equals its parent
+            // container's child depth - so for those, equal means "still inside" and only
+            // a strictly smaller depth closes. Collapsing the two into one comparison
+            // either loses every sibling group whose End was inlined, or evicts every
+            // leaf from the container it belongs to.
+            bool siblingClosesAtEqualDepth = e.Op == GuiTreeOp.Begin && IsClipKind(e.Kind);
 
             while (open.Count > 0)
             {
@@ -308,18 +332,28 @@ namespace Parsek
                     }
                     if (deepestClip < 0)
                         return;
-                    if (open[deepestClip].ClipDepth < 0 || e.ClipDepth >= open[deepestClip].ClipDepth)
+                    if (!ClipDepthForcesClose(open[deepestClip], e, siblingClosesAtEqualDepth))
                         return;
                     result.AutoClosedByClip += open.Count - deepestClip;
                     open.RemoveRange(deepestClip, open.Count - deepestClip);
                     continue;
                 }
 
-                if (top.ClipDepth < 0 || e.ClipDepth >= top.ClipDepth)
+                if (!ClipDepthForcesClose(top, e, siblingClosesAtEqualDepth))
                     return;
                 result.AutoClosedByClip++;
                 open.RemoveAt(open.Count - 1);
             }
+        }
+
+        private static bool ClipDepthForcesClose(GuiTreeNode container, GuiTreeEvent e,
+            bool siblingClosesAtEqualDepth)
+        {
+            if (container.ClipDepth < 0)
+                return false;
+            return siblingClosesAtEqualDepth
+                ? e.ClipDepth <= container.ClipDepth
+                : e.ClipDepth < container.ClipDepth;
         }
 
         private static void CloseByRectContainment(List<GuiTreeNode> open, GuiTreeEvent e, GuiTreeResult result)

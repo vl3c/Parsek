@@ -97,7 +97,11 @@ namespace Parsek.Patches
             return GuiTreeFunnels.Target(GuiFunnel.BeginGroup);
         }
 
-        static void Prefix(Rect position, GUIContent content, GUIStyle style)
+        // POSTFIX, so the clip depth recorded on the node is the one its children
+        // will report. Nothing is lost by waiting: the group's own background is
+        // drawn through GUIStyle.Draw, below the managed surface, so no leaf event
+        // can arrive between the prefix and the postfix.
+        static void Postfix(Rect position, GUIContent content, GUIStyle style)
         {
             if (!GuiTreeRecorder.ArmedFlag)
                 return;
@@ -131,8 +135,13 @@ namespace Parsek.Patches
     /// <summary>
     /// <c>GUI.BeginScrollView(Rect, Vector2, Rect, bool, bool, GUIStyle x3)</c> - the
     /// internal 8-argument funnel behind every public <c>GUI.BeginScrollView</c> and
-    /// <c>GUILayout.BeginScrollView</c>. Patched as a PREFIX so the two scrollbars the
-    /// method draws itself land inside the scroll view node, where they belong.
+    /// <c>GUILayout.BeginScrollView</c>. Patched as a POSTFIX, which is load-bearing:
+    /// the method draws its own two scrollbars BEFORE it pushes the clip, so a scroll
+    /// view opened on the prefix was immediately closed again by its own scrollbar's
+    /// (outer) clip depth and ended up holding none of its rows. As a postfix the
+    /// scrollbars are recorded as SIBLINGS just before the scroll view, which is also
+    /// the truth about them - they are drawn in the enclosing coordinate space, outside
+    /// the scrolled content.
     /// </summary>
     [HarmonyPatch]
     internal static class GuiTreeBeginScrollViewPatch
@@ -142,7 +151,7 @@ namespace Parsek.Patches
             return GuiTreeFunnels.Target(GuiFunnel.BeginScrollView);
         }
 
-        static void Prefix(Rect position, GUIStyle background)
+        static void Postfix(Rect position, GUIStyle background)
         {
             if (!GuiTreeRecorder.ArmedFlag)
                 return;
@@ -280,8 +289,10 @@ namespace Parsek.Patches
     /// <summary>
     /// <c>GUI.Box(Rect, GUIContent, GUIStyle)</c> - every Box overload and
     /// <c>GUILayout.Box</c>. Also reached by a STYLED <c>GUILayout.BeginHorizontal</c> /
-    /// <c>BeginVertical</c>, which draws its group background through it; that box then
-    /// legitimately appears as the group's first child.
+    /// <c>BeginVertical</c>, which draws its group background through it. That box is
+    /// drawn before the group's own postfix records the group, so it appears as the
+    /// SIBLING immediately preceding the group rather than as its first child, carrying
+    /// the same rect. Real, not a duplicate.
     /// </summary>
     [HarmonyPatch]
     internal static class GuiTreeBoxPatch

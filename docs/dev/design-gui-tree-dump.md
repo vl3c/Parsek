@@ -188,9 +188,17 @@ clip-pushing containers:
 1. An `End` closes the nearest open node of that kind, counting anything closed on the
    way there as `autoClosedByEnd`. An End with NO match closes nothing and is counted as
    `strayEnds` - guessing there would let one stray End reparent the rest of the window.
-2. Before any Begin or Leaf, open Window / Group / ScrollView nodes whose recorded
-   child-depth exceeds the incoming event's `clipDepth` are closed (`autoClosedByClip`),
-   along with any LayoutGroups stranded above them.
+2. Before any Begin or Leaf, open Window / Group / ScrollView nodes the incoming
+   event's `clipDepth` proves are gone are closed (`autoClosedByClip`), along with any
+   LayoutGroups stranded above them. The comparison is ASYMMETRIC, and the asymmetry is
+   what makes the rule work without a reliable End. A clip container's recorded
+   `clipDepth` and a clip-container Begin's `clipDepth` are both CHILD depths, so two
+   SIBLING containers carry the same number and a nested one carries a strictly greater
+   one - a container Begin therefore closes an open container at EQUAL depth. A leaf, or
+   a LayoutGroup Begin, carries the depth it was drawn AT, which equals its parent's
+   child depth - so for those, equal means "still inside" and only a strictly smaller
+   depth closes. One comparison for both either loses every sibling group whose End was
+   inlined, or evicts every leaf from the container it belongs to.
 3. A LayoutGroup pushes no clip, so its recovery is rect containment: it closes when the
    next event's rect falls outside it by more than
    `GuiTreeAssembler.LayoutGroupContainmentSlackPx` (4 px, because GUILayout rounds group
@@ -198,9 +206,15 @@ clip-pushing containers:
    trigger it.
 4. Anything still open at stream end is counted as `unclosedAtEnd`.
 
-`clipDepth` is normalised at the recorder seam so the assembler has one rule: a
-clip-pushing Begin records the depth its DIRECT CHILDREN will report. `-1` means the
-probe was unavailable, and the clip rule then goes quiet and falls back to pairing alone.
+A clip-pushing Begin records the depth its DIRECT CHILDREN will report, and it gets
+that number for free by being a Harmony POSTFIX - `GUI.BeginGroup` and
+`GUI.BeginScrollView` are recorded after Unity pushed the clip, so no normalisation
+arithmetic is involved. For `GUI.BeginScrollView` the postfix is load-bearing rather
+than tidy: the method draws its own two scrollbars BEFORE `GUIClip.Push`, at the OUTER
+depth, so a scroll-view node opened on the prefix was closed again by its own scrollbar
+and held none of its rows. As a postfix the scrollbars land as SIBLINGS just before the
+scroll view, which is where they are actually drawn. `-1` means the probe was
+unavailable, and the clip rule then goes quiet and falls back to pairing alone.
 
 Every repair is counted and reported, so a reader can tell a clean capture
 (`strayEnds: 0, autoClosed*: 0, unclosedAtEnd: 0`) from a patched-but-inlined one.
@@ -319,9 +333,11 @@ What only a flight can settle:
   view still records its rect, which will lie outside the scroll view's. The viewer draws
   it anyway; the scroll view's own rect is the clip bound if a consumer wants to cull.
 - **PasswordField records the MASKED content.** `secureText` is deliberately not read.
-- **A styled `GUILayout.BeginHorizontal` / `BeginVertical` emits a `box` leaf** as the
-  group's first child, because that is literally how Unity draws the group background
-  (`GUI.Box(group.rect, content, style)`). It is real, not a duplicate.
+- **A styled `GUILayout.BeginHorizontal` / `BeginVertical` emits a `box` leaf** with the
+  group's own rect, because that is literally how Unity draws the group background
+  (`GUI.Box(group.rect, content, style)`). It arrives BEFORE the group node - the group
+  is recorded from a postfix, so its rect can be read off the layout cache - so it reads
+  as the sibling immediately preceding the group. Real, not a duplicate.
 - **One capture is one frame.** A window that only draws on some frames, or a control
   behind a hover state, needs the arm to coincide with it.
 
