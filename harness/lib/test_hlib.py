@@ -1068,7 +1068,12 @@ class SpecValidationRejectTests(unittest.TestCase):
         # 33 / 5 after WarpToUT, an ADDITION again (the first number moves alone):
         # the reserved envelope never carried a warp verb, and TimeJump - the only
         # other clock verb - was already implemented and does a DIFFERENT thing.
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 33)
+        # 35 / 5 after the GUI-census pair (CaptureScreenshot + UiAction), an ADDITION
+        # again and therefore the first number moving alone - by TWO this time, which is
+        # the other half of the arithmetic signature: an addition of N verbs moves one
+        # number by N, a promotion of N moves both by N in opposite directions, and a
+        # half-done promotion moves the first without the second.
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 35)
         self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 5)
         # Disjointness, asserted rather than assumed: Classify checks Implemented
         # first in the C# mirror, so a leftover reserved row would be invisible.
@@ -9086,6 +9091,16 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # header carries is what makes that flight readable rather than a fishing trip.
         "B32-interbody-route-scope.toml":    "operator by the calibration discipline; FLOWN 2026-09-02, ARMED-DISCIPLINE COMPLETE (reading run, pins tightened off it, armed re-flight PASS attempt 1, and a negative control that red PARSEK-FAIL(expectation) on exactly the seeded token). THE FIRST LANE ANYWHERE THAT HAS READ `ClassifyRouteScope = InterBody`, over the `interbody-route-recorded` harvest. It stays untagged because what it owed was an ordinary reading, not a human call, and that reading is in: the product change that made the verdict reachable (todo ROUTE-INTERBODY-SCOPE-NEVER-REACHABLE) landed in the same PR, the tokens are derived from the classifier source rather than predicted, and the two FORBIDS carry the pre-fix reading as a control the lane brings with it. Nothing is armed, so the flights confirmed without a promotion decision attached; the `[expectations.routes]` arming pass is the one still outstanding.",
         "V26M-interbody-route-map-lines.toml": "operator by the calibration discipline; FLOWN 2026-09-02, ARMED-DISCIPLINE COMPLETE (reading run, pins tightened off it, armed re-flight PASS attempt 1, and a negative control that red PARSEK-FAIL(expectation) on exactly the seeded token). The RENDER-COMPOSITION half of G10 - the manifest census of an inter-body route line. It read `transferLegsDropped=0`, which is OUTCOME B of the two its header pre-registered: the filter RUNS but found no third-body leg, so G10's `never dropped a leg on a driven run` gap REMAINS OPEN. `[expectations.renderComposition]` stayed DECLARED BARE at that point and the arming pass was left as the human call. THAT CALL WAS TAKEN 2026-09-07 (package P16, after reading run 3 `2026-09-06_2113` PASS attempt 1 matched run 1 facet for facet): the block is ARMED on `routeLineBuilds = {min = 2}` + `routeCoDrawViolations = {max = 0}` and nothing else - no `unevaluable` ceiling, because 1065 here against V26T's 6 on the SAME fixture says that census scales with the observed population rather than with the composition. The same run ALSO closed G10's leg-drop gap: `transferDropped=2` on three consecutive runs, now pinned as a literal. The armed re-flight and the negative control are OWED.",
+        # THE TWO GUI-CENSUS LANES. Operator-tier by MECHANISM, the FORGE class rather
+        # than the calibration class, and the mechanism is the HOST: both fly an
+        # OPERATOR-LOCAL fixture (`fixtures/local-saves/c1-gui`) that no other machine
+        # can stage, because a layout census needs a window with rows in it and only a
+        # long-lived personal career has that. A cadence tier would red on every clone
+        # for a missing directory. Neither owes outstanding HUMAN work in the sense this
+        # tag names - what they owe is a first flight, and the images that flight
+        # produces ARE the deliverable rather than a verdict to calibrate.
+        "GUI-1-census-ksc.toml": "tier=operator by MECHANISM (the FORGE class): its host is an operator-local, uncommitted fixture no clone can stage, so a cadence tier would red everywhere for a missing directory - a TERMINAL INVALID(staging), which tier_runner classifies RED. Never flown. Its host's own pre-existing analyzer findings (measured 2026-09-10: FAIL=25 RED=1, all INV2-NO-DOUBLE-COVER, on recordings months older than the lane) are handled by declaring the analyzer row REPORT-ONLY (`[expectations.analyzer] gating = false`, allowlisted in AnalyzerReportOnlyModeTests) rather than by an `[expectedFail]` quarantine - the quarantine short-circuited the whole verifier chain, so the lane's own log contracts were never evaluated at all. No human call is outstanding.",
+        "GUI-2-census-flight.toml": "tier=operator by MECHANISM, identical to GUI-1's (same operator-local host, same report-only analyzer row). Never flown. The thing its first flight must be read for is a WINDOW, not the clock, and the first draft of this row had it backwards: the subject's situation reads SUB_ORBITAL, but its orbit (SMA 3621574.94, ECC 0.815, periapsis 69.55 km, apoapsis 5973.6 km, 6.400 h) is ASCENDING at load - 5469.8 km up, 1.07 h from apoapsis, and its periapsis is 69.55 km above the GROUND, so it cannot impact on this orbit at all; the situation word only reflects that periapsis sitting 0.4 km under Kerbin's 70 km atmosphere line. What can genuinely stop the lane is `op=open window=spawncontrol`: SpawnControlUI.DrawIfOpen force-closes itself on its FIRST draw with zero nearby spawn candidates, so the two-phase settle answers ERROR window-self-closed and the lane reads driver-INVALID with the cause named. The remedy there is a re-stage (the same save carries five LANDED probes, three ORBITING relays and one ORBITING probe), not a spec change. No human call is outstanding.",
         "V26T-interbody-route-ts-arrival.toml": "operator by the calibration discipline; FLOWN 2026-09-02, ARMED-DISCIPLINE COMPLETE (reading run, pins tightened off it, armed re-flight PASS attempt 1, and a negative control that red PARSEK-FAIL(expectation) on exactly the seeded token). V18T's tracking-station grammar on the inter-body subject. It carries ONE genuinely open question the reading run must answer rather than pass: V18T's front-door tokens (`ghostDriving=[1-9]`, `routeMissions=[1-9]`) are deliberately NOT required, because this subject's Duna route has `loopAnchorUT = -1` and has never run a cycle, so whether a never-dispatched route enters the GhostDriving selection is unmeasured - and RUN 1 ANSWERED IT: `ghostDriving=1` and `routeMissions=1` both printed, so dispatch history is NOT a precondition for a route driving a tracking-station ghost, and both tokens are REQUIRED from the armed re-flight onward. The renderComposition arming pass this lane owed was TAKEN 2026-09-07 (package P16, after reading run 3 `2026-09-06_2115` PASS attempt 1): armed on `routeLineBuilds = {min = 2}` + `routeCoDrawViolations = {max = 0}`, deliberately symmetric with V26M and with no `unevaluable` ceiling on either. The armed re-flight and the negative control are OWED.",
     }
 
@@ -13881,6 +13896,648 @@ class SeamVerbTailRoleTests(unittest.TestCase):
                              hlib.seam_verb_tail_role(unknown), unknown)
 
 
+class GuiCensusSeamVerbTests(unittest.TestCase):
+    """The GUI-census pair (`CaptureScreenshot` + `UiAction`), whose harness-side
+    surface is three tables and two step validators.
+
+    The pair exists because a GUI review had no evidence surface: the always-collect leg
+    has harvested `<instance>/Screenshots/` since V3 and `tools/contact_sheet.py` has
+    rendered whatever it found, but nothing ever wrote a file there, and every Parsek
+    window's open flag is only ever written by a player click. These cells hold the
+    harness half of that: the vocabularies a spec names must agree with the C# ones, and
+    each verb's role must be the one its side effects actually justify."""
+
+    def test_both_are_implemented_and_neither_is_a_promotion(self):
+        for verb in ("CaptureScreenshot", "UiAction"):
+            with self.subTest(verb=verb):
+                self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
+                self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
+
+    def test_neither_is_a_deferred_verb_and_both_ride_the_default_budget(self):
+        # CaptureScreenshot IS two-phase, and this is the interesting row: it is
+        # deliberately NOT a DEFERRED_SEAM_VERB, because its completion is a file poll
+        # that lands in a frame or two rather than a wait that can legitimately run
+        # minutes. The EnterWatchMode shape exactly - a capture that has not landed
+        # within the 60 s default is broken, not slow, and putting it in the deferred
+        # family would make the harness out-wait a real failure.
+        for verb in ("CaptureScreenshot", "UiAction"):
+            with self.subTest(verb=verb):
+                self.assertNotIn(verb, hlib.DEFERRED_SEAM_VERBS)
+                self.assertNotIn(verb, hlib.DISPATCH_DEFERRAL_BUDGET_SECONDS)
+                self.assertEqual(hlib.DISPATCH_DEFERRAL_DEFAULT_SECONDS,
+                                 hlib.dispatch_deferral_budget(verb))
+
+    def test_the_two_role_tables_disagree_about_them_on_purpose(self):
+        # CaptureScreenshot writes ONE png and touches nothing else: ExportRenderManifest's
+        # `inert` row. UiAction's `op=complexity` PERSISTS uiComplexityMode through
+        # ParsekSettingsPersistence and then runs the Advanced -> Basic close set, which
+        # is SetSetting's own `world-mutating` row - so the pair splits on the tail axis
+        # even though both are `recording` on the post-mission axis.
+        self.assertEqual(hlib.TAIL_ROLE_INERT,
+                         hlib.SEAM_VERB_TAIL_ROLE["CaptureScreenshot"])
+        self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING,
+                         hlib.SEAM_VERB_TAIL_ROLE["UiAction"])
+        for verb in ("CaptureScreenshot", "UiAction"):
+            with self.subTest(verb=verb):
+                self.assertEqual(hlib.POST_MISSION_ROLE_RECORDING,
+                                 hlib.SEAM_VERB_POST_MISSION_ROLE[verb])
+                self.assertFalse(hlib.post_mission_step_gates(verb))
+
+    def test_the_non_mutating_list_agrees_with_the_c_sharp_source(self):
+        """Reads OUTSIDE harness/, like the implemented-verb mirror above and for the
+        same reason: the C# `NonMutatingVerbs` set drives FlushAndQuit's save
+        suppression and is DOCUMENTED as picked on the same underlying fact as this
+        module's TAIL_ROLE_INERT members. The one deliberate difference is
+        FlushAndQuit, which hlib calls cleanup (it is the READER of the latch, so
+        treating it as mutating would clear the latch on the very dispatch that
+        consults it), so it is excluded by name.
+
+        Without this cell, adding an inert verb to one side and not the other is
+        invisible: a verb hlib calls inert but C# calls mutating merely saves once more
+        than it needed, while the reverse - C# non-mutating, hlib world-mutating -
+        SUPPRESSES a save the run wanted."""
+        path = os.path.join(PARSEK_SOURCE_DIR, "TestCommands", "TestCommandVerbs.cs")
+        self.assertTrue(os.path.isfile(path),
+                        "the C# verb table moved; this mirror is vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            text = fh.read()
+        cs_non_mutating = set(cs_initializer_literals(text, "NonMutatingVerbs"))
+        self.assertIn("CaptureScreenshot", cs_non_mutating,
+                      "CaptureScreenshot must be non-mutating on the C# side too, or "
+                      "FlushAndQuit saves again after a capture that changed nothing")
+        self.assertNotIn("UiAction", cs_non_mutating,
+                         "UiAction persists uiComplexityMode on op=complexity, so a "
+                         "non-mutating row there would SUPPRESS a save the run wanted")
+        hlib_inert = {v for v, role in hlib.SEAM_VERB_TAIL_ROLE.items()
+                      if role == hlib.TAIL_ROLE_INERT}
+        self.assertEqual(hlib_inert, cs_non_mutating - {"FlushAndQuit"},
+                         "the two inert sets have drifted (FlushAndQuit excluded by "
+                         "name - it is the latch's reader, not a mutator)")
+
+    @staticmethod
+    def _parse_cs_window_table(text):
+        """The C# `WindowTable` as an ORDERED list of `(window token, (tab tokens...))`.
+
+        Anchored to the UNCOMMENTED array assignment and with `//` comments STRIPPED
+        from the region, per the house rule: that table's header comment quotes window
+        names, tab names and window-class names verbatim (`"Parsek - Missions"`,
+        `Active / Paused / Dormant`), so a regex over the raw source reads prose as
+        code and a bare-substring check passes against a table that does not carry the
+        token at all.
+
+        The per-row `internal const string X = "..."` lookup is anchored the SAME way,
+        over a comment-stripped copy of the WHOLE file rather than over the raw text:
+        every one of those constants carries a doc comment above it, several of which
+        quote token spellings, so a raw search could resolve a row's token off prose
+        instead of off the declaration."""
+        stripped = "\n".join(
+            line.split("//", 1)[0] for line in text.splitlines())
+        start = stripped.index(
+            "private static readonly UiWindowSpec[] WindowTable = new[]")
+        end = stripped.index("\n        };", start)
+        region = stripped[start:end]
+        rows = []
+        for m in re.finditer(
+                r"NewSpec\(\s*(\w+)\s*,\s*(?:true|false)\s*,\s*(?:true|false)\s*"
+                r"((?:,\s*\"[a-z]+\"\s*)*)\)", region, re.S):
+            const, tail = m.group(1), m.group(2)
+            token = re.search(
+                r'internal const string %s = "([a-z]+)";' % re.escape(const), stripped)
+            assert token is not None, "no token constant for NewSpec(%s, ...)" % const
+            rows.append((token.group(1), tuple(re.findall(r'"([a-z]+)"', tail))))
+        return rows
+
+    def test_the_window_and_op_vocabularies_mirror_the_c_sharp_tables(self):
+        """Reads OUTSIDE harness/ as well. A window token is named twice in a census
+        spec - once in the step and once inside the capture label - so a rename on the
+        C# side that this table did not follow is a typed REJECTED after a whole KSP
+        boot, and the closed-value validator would happily pass the stale spelling.
+
+        It reads the ORDERED table rather than a set, and the tab vocabularies OFF THAT
+        TABLE rather than by substring, because the previous form could not fail on the
+        two things most likely to go wrong. A bare `assertIn('"roster"', text)` passes
+        against a source file that merely MENTIONS the word - including in the table's
+        own header comment - and a sorted set comparison says nothing about ORDER, which
+        is load-bearing twice over: the window order is the order a describe payload and
+        a census's capture labels read in, and each tab's INDEX is the value the live
+        selector field takes, so a reordered tab vocabulary would photograph the wrong
+        tab under the right label."""
+        path = os.path.join(PARSEK_SOURCE_DIR, "TestCommands", "TestCommandUiAction.cs")
+        self.assertTrue(os.path.isfile(path),
+                        "the C# UiAction table moved; this mirror is vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            text = fh.read()
+        rows = self._parse_cs_window_table(text)
+        self.assertEqual(len(hlib.UIACTION_WINDOW_VALUES), len(rows),
+                         "parsed %d NewSpec rows out of the C# WindowTable against %d "
+                         "hlib window values - the parse or the table moved"
+                         % (len(rows), len(hlib.UIACTION_WINDOW_VALUES)))
+        self.assertEqual(list(hlib.UIACTION_WINDOW_VALUES), [w for w, _ in rows],
+                         "hlib.UIACTION_WINDOW_VALUES must equal the C# WindowTable's "
+                         "window tokens as an ORDERED list (the order is the main "
+                         "window's own button order)")
+        # Per window, the ORDERED tab vocabulary, read off the same rows. A window the
+        # Python map omits must carry an EMPTY C# tab list - that absence is exactly what
+        # makes op=tab on it a `window-has-no-tabs` REJECTED rather than a silently
+        # ignored arg, so it is asserted rather than skipped.
+        for window, cs_tabs in rows:
+            with self.subTest(window=window):
+                self.assertEqual(hlib.UIACTION_WINDOW_TABS.get(window, ()), cs_tabs,
+                                 "window %r: hlib tabs %r vs C# tabs %r (order included "
+                                 "- the index IS the live selector value)"
+                                 % (window, hlib.UIACTION_WINDOW_TABS.get(window, ()),
+                                    cs_tabs))
+        # And no window in the Python tab map is missing from the C# table entirely.
+        self.assertEqual(set(), set(hlib.UIACTION_WINDOW_TABS) - {w for w, _ in rows})
+        for op in hlib.UIACTION_OP_VALUES:
+            with self.subTest(op=op):
+                self.assertIn('OpToken = "%s"' % op, text)
+        for mode in hlib.UIACTION_MODE_VALUES:
+            with self.subTest(mode=mode):
+                self.assertIn('ModeToken = "%s"' % mode, text)
+
+    def test_the_window_table_parse_is_not_vacuous(self):
+        """Anti-vacuity for the parse above, and specifically for the comment-stripping
+        half: the C# table's header comment mentions tab-shaped and window-shaped words,
+        so a parse that read comments would find rows that are not there. Driven over a
+        SYNTHETIC source rather than the real file, so this cell states what the parse
+        does rather than what the current table happens to contain.
+
+        It covers the TOKEN LOOKUP's anchoring too: the first two lines below are a
+        commented decoy declaration for each constant, spelled exactly like the real
+        thing, placed BEFORE the real ones. A lookup over the raw text finds those
+        first and resolves both rows to the wrong tokens."""
+        synthetic = '\n'.join([
+            '        // internal const string MainWindow = "decoymain";',
+            '        // internal const string MissionsWindow = "decoymissions";',
+            '        internal const string MainWindow = "main";',
+            '        internal const string MissionsWindow = "missions";',
+            '        // A comment naming NewSpec(MainWindow, true, true, "ghost") and',
+            '        // the words "roster" and "outcomes", which must NOT be parsed.',
+            '        private static readonly UiWindowSpec[] WindowTable = new[]',
+            '        {',
+            '            // NewSpec(MissionsWindow, true, true, "decoy")',
+            '            NewSpec(MainWindow, true, true),',
+            '            NewSpec(MissionsWindow, true, true,',
+            '                "missions", "recordings"),  // trailing prose "decoy2"',
+            '        };',
+            '',
+        ])
+        self.assertEqual(
+            [("main", ()), ("missions", ("missions", "recordings"))],
+            self._parse_cs_window_table(synthetic))
+
+    # ----- the two step validators -----
+
+    def test_capture_requires_a_filename_safe_label(self):
+        self.assertTrue(any("REQUIRES" in e for e in
+                            hlib.validate_capture_screenshot_step(0, {})))
+        self.assertEqual([], hlib.validate_capture_screenshot_step(
+            0, {"label": "ksc-main-advanced"}))
+        for bad in ("../escape", "dir/label", "has space", "-leading", "", "."):
+            with self.subTest(label=bad):
+                errors = hlib.validate_capture_screenshot_step(0, {"label": bad})
+                self.assertTrue(any("filename-safe" in e for e in errors),
+                                "%r must be rejected: %s" % (bad, errors))
+
+    def test_capture_supersize_is_optional_but_range_checked(self):
+        self.assertEqual([], hlib.validate_capture_screenshot_step(0, {"label": "a"}))
+        self.assertEqual([], hlib.validate_capture_screenshot_step(
+            0, {"label": "a", "superSize": "2"}))
+        for bad in ("0", "5", "-1", "1.5", "two"):
+            with self.subTest(superSize=bad):
+                errors = hlib.validate_capture_screenshot_step(
+                    0, {"label": "a", "superSize": bad})
+                self.assertTrue(any("integer 1.." in e for e in errors), errors)
+
+    def test_uiaction_requires_an_op(self):
+        errors = hlib.validate_ui_action_step(0, {})
+        self.assertTrue(any("REQUIRES" in e and "op" in e for e in errors), errors)
+
+    def test_uiaction_window_ops_require_a_window_and_the_others_refuse_one(self):
+        for op in ("open", "close", "tab", "rect"):
+            with self.subTest(op=op):
+                errors = hlib.validate_ui_action_step(0, {"op": op})
+                self.assertTrue(any("window-arg-missing" in e for e in errors), errors)
+        for op in ("complexity", "describe"):
+            with self.subTest(op=op):
+                errors = hlib.validate_ui_action_step(
+                    0, {"op": op, "window": "settings"})
+                self.assertTrue(any("silently ignored" in e for e in errors), errors)
+
+    def test_uiaction_tab_is_validated_against_that_windows_own_vocabulary(self):
+        # The typo class this exists for: `tab = "recordings"` on the career window is a
+        # real tab NAME on a DIFFERENT window, so a flat closed-value set over the union
+        # of every tab token would pass it and the spec would cost a boot to fix.
+        self.assertEqual([], hlib.validate_ui_action_step(
+            0, {"op": "tab", "window": "career", "tab": "facilities"}))
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "tab", "window": "career", "tab": "recordings"})
+        self.assertTrue(any("not a tab of window" in e for e in errors), errors)
+
+    def test_uiaction_tab_on_an_untabbed_window_names_the_tabbed_ones(self):
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "tab", "window": "settings", "tab": "looping"})
+        self.assertTrue(any("has NO tab selector" in e for e in errors), errors)
+
+    def test_uiaction_rect_requires_all_four_coordinates(self):
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "rect", "window": "missions", "x": "0", "y": "0", "w": "800"})
+        self.assertTrue(any("rect-arg-missing" in e and "h" in e for e in errors), errors)
+        self.assertEqual([], hlib.validate_ui_action_step(
+            0, {"op": "rect", "window": "missions", "x": "0", "y": "0",
+                "w": "800", "h": "600"}))
+
+    def test_uiaction_rect_coordinates_must_be_dot_decimal(self):
+        # The wire is dot-decimal by contract and the seam parses with InvariantCulture,
+        # so a comma decimal from a ro-RO / de-DE author is a REJECTED after a boot.
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "rect", "window": "missions", "x": "0,5", "y": "0",
+                "w": "800", "h": "600"})
+        self.assertTrue(any("dot-decimal" in e for e in errors), errors)
+
+    def test_uiaction_stray_op_specific_args_are_flagged(self):
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "open", "window": "settings", "x": "0", "y": "0",
+                "w": "800", "h": "600"})
+        self.assertTrue(any("only mean anything on op=rect" in e for e in errors), errors)
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "open", "window": "settings", "mode": "basic"})
+        self.assertTrue(any("only op=complexity reads it" in e for e in errors), errors)
+
+    def test_uiaction_complexity_requires_a_mode(self):
+        errors = hlib.validate_ui_action_step(0, {"op": "complexity"})
+        self.assertTrue(any("mode-arg-missing" in e for e in errors), errors)
+        self.assertEqual([], hlib.validate_ui_action_step(
+            0, {"op": "complexity", "mode": "advanced"}))
+
+    def test_an_unknown_op_does_not_cascade_into_per_op_complaints(self):
+        # The closed-value row in validate_spec already errors on the op VALUE; adding a
+        # second message about a missing `window` for an op that does not exist would
+        # send an author looking at the wrong arg.
+        self.assertEqual([], hlib.validate_ui_action_step(0, {"op": "toggle"}))
+
+    def test_describe_needs_nothing(self):
+        self.assertEqual([], hlib.validate_ui_action_step(0, {"op": "describe"}))
+
+    # ----- the census specs' pinned describe echoes -----
+
+    # The window table's ORDER, which is the order the describe line's `openWindows=`
+    # list is built in. Read off hlib rather than re-listed, and the mirror cell above
+    # already pins hlib against the C# table.
+    @staticmethod
+    def _open_window_list(open_set):
+        names = [w for w in hlib.UIACTION_WINDOW_VALUES if w in open_set]
+        return ",".join(names) if names else "-"
+
+    def test_the_census_specs_pinned_describe_echoes_match_their_own_steps(self):
+        """The two GUI-census lanes pin every `describe` echo as a LITERAL, including
+        `open=<n> openWindows=<names>`. That is what makes the echo an exact claim - a
+        third open window moves the count - and it is also the one thing about these
+        specs that a later step edit silently invalidates: inserting an `open` without
+        its matching `close` shifts every literal after it, and the lane would then red
+        on its own log contract after a whole KSP boot.
+
+        Simulated from the SPEC's own steps, so it is a self-consistency check and not
+        a second copy of a truth: walk the open / close ops, and at every `describe`
+        require the pinned set to contain exactly the echo this state produces. Both
+        directions, so an orphaned literal reds too."""
+        for name, scene in (("GUI-1-census-ksc.toml", "SPACECENTER"),
+                            ("GUI-2-census-flight.toml", "FLIGHT")):
+            with self.subTest(spec=name):
+                spec = load_spec(name)
+                required = ((spec["expectations"].get("logContracts") or {})
+                            .get("required") or [])
+                pinned = set()
+                for pattern in required:
+                    m = re.search(r"uiaction describe scene=(\w+) complexity=(\w+) "
+                                  r"windows=(\d+) open=(\d+) openWindows=(\S+)", pattern)
+                    if m:
+                        pinned.add((m.group(1), m.group(2), int(m.group(3)),
+                                    int(m.group(4)), m.group(5)))
+                self.assertTrue(pinned, "%s pins no describe echo at all" % name)
+
+                open_set = set()
+                mode = "advanced"
+                observed = set()
+                describes = 0
+                for i, step in enumerate(spec["driver"]["steps"]):
+                    if step.get("cmd") != "UiAction":
+                        continue
+                    args = step.get("args", {}) or {}
+                    op = args.get("op")
+                    if op == "open":
+                        open_set.add(args["window"])
+                    elif op == "close":
+                        open_set.discard(args["window"])
+                    elif op == "complexity":
+                        # A census must CLOSE what it opened rather than leaning on the
+                        # Advanced -> Basic latch's own close set to tidy up: the latch
+                        # closes only the GATED windows (career / kerbals / testrunner /
+                        # gloops / spawncontrol), so a spec that left `logistics` open
+                        # across the switch would carry it into every Basic capture. This
+                        # assertion is also what lets the simulation above ignore the
+                        # latch entirely.
+                        self.assertTrue(
+                            open_set <= {"main"},
+                            "%s step %d switches to %s with %s still open; a census must "
+                            "close what it opened (the mode latch closes only the gated "
+                            "windows)" % (name, i, args.get("mode"),
+                                          sorted(open_set - {"main"})))
+                        mode = args["mode"]
+                    elif op == "describe":
+                        describes += 1
+                        observed.add((scene, mode, len(hlib.UIACTION_WINDOW_VALUES),
+                                      len(open_set),
+                                      self._open_window_list(open_set)))
+                self.assertEqual(describes, len(required) - 1,
+                                 "%s: %d describe steps against %d required patterns "
+                                 "(expected one capture line beside them)"
+                                 % (name, describes, len(required)))
+                self.assertEqual(observed, pinned,
+                                 "%s: the pinned describe echoes and the states its own "
+                                 "steps produce have drifted" % name)
+
+
+class LocalFixtureTemplateTests(unittest.TestCase):
+    """The operator-local fixture prefix (`fixtures/local-saves/`).
+
+    A GUI census wants a host with enough real content that every window has rows to
+    draw - the operator's own multi-megabyte career - which cannot be committed and
+    cannot be synthesised (the point is the density, not a shape). These cells hold the
+    two properties that make an uncommitted template safe: the classification is derived
+    from the PATH rather than from a spec-id list, and a missing local fixture's error
+    names the command that produces it instead of only saying a directory is absent."""
+
+    def test_only_the_local_prefix_classifies_as_local(self):
+        self.assertTrue(hlib.is_local_fixture_template("fixtures/local-saves/c1-gui"))
+        # Backslashes too: a spec authored on Windows may carry them.
+        self.assertTrue(hlib.is_local_fixture_template(
+            "fixtures\\local-saves\\c1-gui"))
+        for committed in ("fixtures/saves/fresh-career", "fixtures/saves/b1-pad-craft",
+                          "", None):
+            with self.subTest(template=committed):
+                self.assertFalse(hlib.is_local_fixture_template(committed))
+
+    def test_the_prefix_is_not_under_the_committed_fixture_dir(self):
+        # THE deciding property, and it is a claim about a DIFFERENT suite:
+        # test_saveparse's committed-set sweep lists the directories under
+        # fixtures/saves/ and compares them to a pinned set, so a staged local fixture
+        # THERE would red that cell on the one machine that can actually fly the lane.
+        self.assertFalse(hlib.LOCAL_FIXTURE_PREFIX.startswith("fixtures/saves/"))
+        self.assertTrue(hlib.LOCAL_FIXTURE_PREFIX.startswith("fixtures/"))
+
+    def test_the_hint_names_the_staging_tool_and_the_leaf(self):
+        hint = hlib.local_fixture_hint("fixtures/local-saves/c1-gui")
+        self.assertIsNotNone(hint)
+        self.assertIn(hlib.LOCAL_FIXTURE_STAGING_TOOL, hint)
+        self.assertIn("--as c1-gui", hint)
+
+    def test_no_hint_for_a_committed_template(self):
+        # A missing COMMITTED fixture is a repo fault ("that directory should be here"),
+        # so attaching a staging command to it would be misleading advice.
+        self.assertIsNone(hlib.local_fixture_hint("fixtures/saves/fresh-career"))
+
+    def test_the_staging_tool_exists(self):
+        # Anti-vacuity: the hint tells an operator to run a script, so the script must
+        # be there. Reads outside harness/lib on purpose.
+        path = os.path.join(os.path.dirname(HARNESS_ROOT),
+                            *hlib.LOCAL_FIXTURE_STAGING_TOOL.split("/"))
+        self.assertTrue(os.path.isfile(path),
+                        "the hint names %s, which does not exist"
+                        % hlib.LOCAL_FIXTURE_STAGING_TOOL)
+
+
+class AnalyzerReportOnlyModeTests(unittest.TestCase):
+    """`[expectations.analyzer] gating = false` - the spec-declared REPORT-ONLY
+    analyzer row, and the allowlist that keeps turning it off a deliberate act.
+
+    THE DEFECT IT REPLACES, which is why the safety property here is worth as much
+    as the feature: `run.py`'s verifier chain SHORT-CIRCUITS on a non-PASS analyzer,
+    so a lane quarantined with `[expectedFail] subkind = "analyzer"` had every LATER
+    verifier SKIPPED - its `[expectations.logContracts]` were never evaluated, and a
+    census that produced zero screenshots would have read EXPECTED-FAIL (green)
+    while its own header claimed those contracts pinned the capture lines. The
+    quarantine did not weaken one gate; it deleted all of them.
+
+    The mode fixes that by leaving the analyzer RECORDED but inert, so the rest of
+    the chain runs. Its cost is the mirror risk - a spec that switches it off
+    silently loses a real gate - which is what the allowlist below is for."""
+
+    # The specs permitted to declare `gating = false`, mirroring M-C2's
+    # save-structure roster in the opposite direction: that one names the specs that
+    # turned a report-only row ON, this one names the specs that turned a gating row
+    # OFF. Both are deliberate per-scenario acts and both cost an edit HERE.
+    #
+    # NOTE the name deliberately does not carry the substring `ARMED_ALLOWLIST`:
+    # `Cl3SpecArmedTests` scrapes the save-structure roster out of this file's SOURCE
+    # with a first-match regex on that name, so a sibling constant ending in it would
+    # hand CL-3 the wrong list (see the RUNTESTS_STRICT_ARMED_SPECS comment).
+    ANALYZER_REPORT_ONLY_ALLOWLIST = {
+        # The two GUI-census lanes, 2026-09-10. HOST-DRIVEN, not lane-driven: their
+        # host is the operator's own long-lived career (staged as the operator-local
+        # `c1-gui`), whose recordings carry 25 pre-existing `INV2-NO-DOUBLE-COVER`
+        # FAILs measured 2026-09-10 - `FAIL=25 WARN=6 INFO=3 RED=1`, all on
+        # recordings months older than the lanes, and its own committed
+        # `analysis/c1.analysis.txt` from 2026-08-11 reads RED=1 too. A census takes
+        # SCREENSHOTS: it neither causes nor observes a recording-invariant finding,
+        # and gating a layout review on career bookkeeping would red it forever. The
+        # findings themselves are filed as
+        # U1-GUI-CENSUS-LOCAL-HOST-REDS-THE-ANALYZER, which is where the decision
+        # about them lives; this row only says the census is not the lane that
+        # decides it.
+        "GUI-1-census-ksc.toml",
+        "GUI-2-census-flight.toml",
+    }
+
+    def test_no_other_committed_spec_turns_the_analyzer_row_off(self):
+        declared = []
+        for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
+            with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
+                spec = tomllib.load(fh)
+            if not hlib.analyzer_gating(spec.get("expectations") or {}):
+                declared.append(name)
+        self.assertEqual(sorted(self.ANALYZER_REPORT_ONLY_ALLOWLIST), declared,
+                         "the set of specs declaring [expectations.analyzer] "
+                         "gating = false changed. Turning the analyzer row off is a "
+                         "per-scenario operator decision - it is only ever right when "
+                         "the HOST carries findings the lane neither causes nor "
+                         "observes - so add the spec here in the same commit that "
+                         "declares it, with the measurement behind it")
+
+    def test_the_two_census_lanes_declare_it_and_carry_no_expected_fail_quarantine(self):
+        # The pair is one decision: the report-only row REPLACES the analyzer
+        # quarantine, it does not sit beside it. A lane carrying both would be back to
+        # a skipped chain the moment any other verifier red.
+        for name in sorted(self.ANALYZER_REPORT_ONLY_ALLOWLIST):
+            with self.subTest(spec=name):
+                spec = load_spec(name)
+                self.assertFalse(hlib.analyzer_gating(spec.get("expectations") or {}))
+                bug = (spec.get("expectedFail", {}) or {}).get("bugId", "") or ""
+                self.assertEqual("", bug,
+                                 "%s declares BOTH a report-only analyzer row and an "
+                                 "expectedFail quarantine; the quarantine short-circuits "
+                                 "the very chain the mode exists to keep running" % name)
+                # And the contracts the mode makes reachable are actually there: a
+                # report-only analyzer on a lane with no log contract would assert
+                # nothing at all, which is the state this whole change removes.
+                required = (((spec.get("expectations") or {}).get("logContracts") or {})
+                            .get("required") or [])
+                self.assertTrue(required,
+                                "%s turns the analyzer row off and declares no "
+                                "logContracts.required, so it would gate on nothing"
+                                % name)
+
+    # ----- the mode read -----
+
+    def test_gating_is_the_default_in_every_absent_shape(self):
+        # Fail-safe direction: anything that is not the literal `false` gates.
+        for expectations in ({}, None, {"analyzer": {}},
+                             {"analyzer": {"gating": True}},
+                             {"analyzer": "nonsense"}):
+            with self.subTest(expectations=expectations):
+                self.assertTrue(hlib.analyzer_gating(expectations))
+
+    def test_only_the_literal_false_turns_it_off(self):
+        self.assertFalse(hlib.analyzer_gating({"analyzer": {"gating": False}}))
+        # A STRING "false" does NOT: it is a spec fault, caught pre-launch by
+        # validate_analyzer_expectations rather than silently read as gating-on.
+        self.assertTrue(hlib.analyzer_gating({"analyzer": {"gating": "false"}}))
+
+    def test_a_malformed_block_is_a_pre_launch_error(self):
+        self.assertEqual([], hlib.validate_analyzer_expectations(None))
+        self.assertEqual([], hlib.validate_analyzer_expectations({"gating": False}))
+        self.assertTrue(any("must be a TOML boolean" in e for e in
+                            hlib.validate_analyzer_expectations({"gating": "false"})))
+        self.assertTrue(any("unknown key" in e for e in
+                            hlib.validate_analyzer_expectations({"gatng": False})))
+        self.assertTrue(any("must be a table" in e for e in
+                            hlib.validate_analyzer_expectations(["gating"])))
+
+    def test_validate_spec_rejects_a_malformed_block(self):
+        spec = load_spec("GUI-1-census-ksc.toml")
+        spec["expectations"]["analyzer"] = {"gating": "false"}
+        v = hlib.validate_spec(spec, load_registry())
+        self.assertFalse(v.ok)
+        self.assertTrue(any("expectations.analyzer.gating" in e for e in v.errors),
+                        list(v.errors))
+
+    # ----- the row fold -----
+
+    def test_a_gating_row_is_byte_for_byte_todays_behaviour(self):
+        for status, short in (("PASS", False), ("PARSEK-FAIL", True),
+                              ("INVALID", True)):
+            with self.subTest(status=status):
+                verdict = hlib.AnalyzerVerdict(status, "analyzer", "INV2-NO-DOUBLE-COVER")
+                row = hlib.evaluate_analyzer_row(verdict, gating=True)
+                self.assertEqual(status, row.status)
+                self.assertTrue(row.gating)
+                self.assertIs(verdict, row.verdict)
+                self.assertEqual(short, row.short_circuit)
+
+    def test_a_report_only_row_records_but_neither_gates_nor_short_circuits(self):
+        # THE headline property, and both halves matter. `verdict is None` is what
+        # keeps the row out of classify_verdict; `short_circuit is False` is what lets
+        # logValidate / testResults / anomaly / expectations run at all - which is the
+        # entire reason the mode exists.
+        verdict = hlib.AnalyzerVerdict("PARSEK-FAIL", "analyzer", "INV2-NO-DOUBLE-COVER")
+        row = hlib.evaluate_analyzer_row(verdict, gating=False)
+        self.assertEqual(hlib.ANALYZER_STATUS_REPORT, row.status)
+        self.assertFalse(row.gating)
+        self.assertIsNone(row.verdict)
+        self.assertFalse(row.short_circuit)
+
+    def test_report_only_does_NOT_swallow_an_analyzer_tooling_invalid(self):
+        # The carve-out, and the cell this file used to assert the INVERSE of. A wedged
+        # pwsh analyzer is INVALID(tooling) after _run_analyzer_retrying has already
+        # spent its retry. `gating = false` says the HOST's findings are not this
+        # lane's subject; it cannot also say "an analyzer that never read the save
+        # reports nothing", so the INVALID stays a verdict and still short-circuits.
+        row = hlib.evaluate_analyzer_row(
+            hlib.AnalyzerVerdict("INVALID", "tooling", None), gating=False)
+        self.assertEqual("INVALID", row.status)
+        self.assertIsNotNone(row.verdict)
+        self.assertEqual("tooling", row.verdict.subkind)
+        self.assertTrue(row.short_circuit)
+        # `gating` is "this row ACTED", which is what run.py's REPORT relabel keys off:
+        # a demoted row would have had its status rewritten to REPORT and its INVALID
+        # hidden behind it.
+        self.assertTrue(row.gating)
+
+    def test_report_only_does_NOT_swallow_an_analyzer_error_invalid(self):
+        # No terminal `RED=` token, i.e. the analyzer produced no gate at all
+        # (classify_analyzer's `red is None` arm). This is the subkind a demotion reads
+        # WORST on: it would report a clean review of a run that reviewed nothing.
+        row = hlib.evaluate_analyzer_row(
+            hlib.AnalyzerVerdict("INVALID", "analyzer-error", None), gating=False)
+        self.assertEqual("INVALID", row.status)
+        self.assertIsNotNone(row.verdict)
+        self.assertEqual("analyzer-error", row.verdict.subkind)
+        self.assertTrue(row.short_circuit)
+
+    def test_report_only_does_NOT_swallow_a_fixture_authoring_invalid(self):
+        # BASELINE-FORBIDDEN in a produced save. The census lanes are the ones staging
+        # a LOCAL fixture, so this is the INVALID they are most likely to hit - and it
+        # is the exact outcome stage_local_fixture.py's `analysis/` drop cites as the
+        # reason it drops that directory, a claim a demotion would have made false.
+        for subkind in ("fixture-authoring", "fixture-stale"):
+            with self.subTest(subkind=subkind):
+                row = hlib.evaluate_analyzer_row(
+                    hlib.AnalyzerVerdict("INVALID", subkind, "BASELINE-FORBIDDEN"),
+                    gating=False)
+                self.assertEqual("INVALID", row.status)
+                self.assertIsNotNone(row.verdict)
+                self.assertTrue(row.short_circuit)
+
+    def test_the_carve_out_reaches_the_verdict_under_report_only(self):
+        # End-to-end through classify_verdict, because the row fold is only half the
+        # path: the point of keeping the verdict is that the RUN reads INVALID rather
+        # than PASS. Paired with test_the_verdict_a_report_only_row_drops_would_have_red
+        # (the PARSEK-FAIL direction), the two together pin the split.
+        verdict = hlib.AnalyzerVerdict("INVALID", "analyzer-error", None)
+        row = hlib.evaluate_analyzer_row(verdict, gating=False)
+        out = hlib.classify_verdict(
+            {"valid": True}, {"analyzer": row.verdict}, {"bugId": ""}, 1, "once")
+        self.assertEqual(hlib.VERDICT_INVALID, out.verdict)
+
+    def test_report_only_covers_findings_and_nothing_else(self):
+        # The predicate on its own, stated as a table so the split is readable in one
+        # place: PASS and every PARSEK-FAIL are covered, no INVALID is.
+        self.assertTrue(hlib.analyzer_report_only_covers(None))
+        self.assertTrue(hlib.analyzer_report_only_covers(
+            hlib.AnalyzerVerdict("PASS", "", None)))
+        self.assertTrue(hlib.analyzer_report_only_covers(
+            hlib.AnalyzerVerdict("PARSEK-FAIL", "analyzer", "INV2-NO-DOUBLE-COVER")))
+        for subkind in ("analyzer-error", "tooling", "fixture-authoring",
+                        "fixture-stale", ""):
+            with self.subTest(subkind=subkind):
+                self.assertFalse(hlib.analyzer_report_only_covers(
+                    hlib.AnalyzerVerdict("INVALID", subkind, None)))
+
+    def test_a_none_verdict_on_a_gating_row_is_recorded_as_skipped(self):
+        # The total-function guard. run.py's triage-only path never reaches this fold
+        # (it records _run_analyzer's own detail directly), so this branch exists so
+        # the function has no undefined input rather than because a caller uses it.
+        row = hlib.evaluate_analyzer_row(None, gating=True)
+        self.assertEqual("SKIPPED", row.status)
+        self.assertIsNone(row.verdict)
+        self.assertFalse(row.short_circuit)
+
+    def test_the_verdict_a_report_only_row_drops_would_have_red(self):
+        # Anti-vacuity in the direction that matters: prove the dropped verdict was a
+        # real PARSEK-FAIL, so this cell fails if a future refactor makes the mode
+        # meaningless by only ever dropping PASSes.
+        verdict = hlib.AnalyzerVerdict("PARSEK-FAIL", "analyzer", "INV2-NO-DOUBLE-COVER")
+        gated = hlib.classify_verdict(
+            {"valid": True}, {"analyzer": verdict}, {"bugId": ""}, 1, "once")
+        self.assertEqual(hlib.VERDICT_PARSEK_FAIL, gated.verdict)
+        ungated = hlib.classify_verdict(
+            {"valid": True},
+            {"analyzer": hlib.evaluate_analyzer_row(verdict, gating=False).verdict},
+            {"bugId": ""}, 1, "once")
+        self.assertEqual(hlib.VERDICT_PASS, ungated.verdict)
+
+
 class PlanUnmetMissionTailTests(unittest.TestCase):
     """Guards (design "The unmet-mission tail"): after an UNMET mission step only the
     CLEANUP tail runs. The motivating incident is EVA-4-atmo-chute flight 1
@@ -17538,6 +18195,15 @@ class SharedShipsManifestTests(unittest.TestCase):
             if name in self.PENDING_FIXTURE_LANES:
                 # Committed ahead of its fixture; guarded by the self-retiring
                 # cell above rather than skipped silently.
+                continue
+            if hlib.is_local_fixture_template(template):
+                # An OPERATOR-LOCAL template (fixtures/local-saves/...) is UNCOMMITTED by
+                # construction - the directory is gitignored and only the operator can
+                # stage it - so "names a real fixture directory" is not a property this
+                # sweep can assert. It is asserted at RUN time instead, fail-closed and
+                # pre-boot: `stage_fixture` refuses with INVALID(staging) and names the
+                # staging script (hlib.local_fixture_hint). Skipped by PATH rather than by
+                # a spec-id list so a new local lane cannot drift out of step with it.
                 continue
             leaf = template.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
             self.assertIn(leaf, saves,

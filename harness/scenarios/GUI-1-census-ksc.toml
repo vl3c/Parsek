@@ -1,0 +1,357 @@
+schema = 1
+id = "GUI-1-census-ksc"
+tier = "operator"
+# THE GUI CENSUS, KSC HALF. Walk every Parsek window the Space Center draws, size it
+# generously, and take one PNG per window and per tab - in Advanced first, then in Basic.
+# The product is not a verdict but the IMAGES: `results/<runId>_shots/*.png`, which
+# `harness/tools/gui_contact_sheet.py` turns into one browsable `index.html`. That is the
+# evidence a GUI review has never had.
+#
+# WHY IT NEEDS TWO NEW VERBS, and both halves were measured rather than assumed:
+#   - the always-collect leg has harvested `<instance>/Screenshots/` into
+#     `results/<runId>_shots/` since V3 (hlib.select_run_screenshots, 64-file cap) and
+#     `tools/contact_sheet.py` renders whatever it finds, but NOTHING ever wrote a file
+#     there: the only screenshot path in the game is the player's F1 key. That tool's own
+#     empty-state text ("no screenshots captured (the V4 capture verbs feed this)") has
+#     been the literal truth on every run to date;
+#   - every Parsek window's open flag is only ever written by a player click, so an
+#     unattended run draws NOTHING and a capture would photograph an empty scene.
+# `CaptureScreenshot` closes the first; `UiAction` closes the second by driving the
+# EXISTING internal state (IsOpen, the tab fields, ParsekUI.SetUiComplexityMode). Neither
+# adds a player-facing surface.
+#
+# HOST: an OPERATOR-LOCAL fixture (`fixtures/local-saves/c1-gui`), not a committed one,
+# and the reason is density rather than convenience. A census photographs LAYOUT, and a
+# window with no rows photographs as an empty box - so it needs a Missions window with
+# missions, a Recordings table with rows, a Career State window with contracts and
+# strategies, a Kerbals roster with kerbals, a Logistics window with routes. The only
+# save like that is the operator's own long-lived career (42 MB, 704 recording sidecars,
+# 12 vessels, CAREER mode), which cannot be committed and cannot be minted by a builder -
+# the point IS the accumulated content. Stage it first:
+#
+#   python harness/tools/stage_local_fixture.py \
+#       --from "../Kerbal Space Program/saves/c1" --as c1-gui --no-quicksaves
+#
+# Without that the run is refused PRE-BOOT as INVALID(staging) with the command in the
+# error (hlib.local_fixture_hint); every committed suite stays green either way. Full
+# rationale + the two load-bearing properties: `harness/fixtures/local-saves/README.md`.
+#
+# WHY `scene = "spacecenter"` IS REQUIRED HERE. The host's `activeVessel = 0` names a
+# focusable vessel, so a plain LoadGame takes `TestCommandLoadGame.DecideLoadRoute`'s
+# Focusable branch and boots into FLIGHT. R12's additive `scene=` arg forces the
+# NoVesselSpaceCenter route instead. The flight half of the census is its sibling
+# GUI-2-census-flight, which takes the DEFAULT route on purpose.
+#
+# WHY THE ANALYZER ROW IS REPORT-ONLY HERE (`[expectations.analyzer] gating = false`),
+# and this is MEASURED, not defensive: the offline analyzer over this host reports
+# `FAIL=25 WARN=6 INFO=3 RED=1`, all 25 FAILs `INV2-NO-DOUBLE-COVER`, on recordings that
+# predate this lane by months (run 2026-09-10 with `-ResultsDir` outside the save, so the
+# operator's save was not touched). `run.py` always passes `-FailOnRed`, so a gating row
+# would red this lane for findings the census neither causes nor observes. It is NOT
+# quarantined with `[expectedFail]`, which is what this lane shipped with first and which
+# was the wrong instrument: the verifier chain SHORT-CIRCUITS on a non-PASS analyzer, so
+# a quarantine skipped every LATER row - the `[expectations.logContracts]` below INCLUDED
+# - and a run that captured NOTHING would have read EXPECTED-FAIL, i.e. green. The full
+# argument is in the `[expectations.analyzer]` block at the bottom; the findings
+# themselves stay filed as U1-GUI-CENSUS-LOCAL-HOST-REDS-THE-ANALYZER.
+#
+# WINDOW COVERAGE. Nine windows are drawn at the Space Center (`ParsekKSC.OnGUI`):
+# main, missions, timeline, kerbals, career, logistics, structure, settings, testrunner.
+# The two flight-only windows - spawncontrol and gloops - belong to GUI-2; asking for
+# either here is a REJECTED (`window-not-in-scene`) by design rather than a capture of a
+# scene without them. Twelve of the captures are TABS: missions x2, timeline x4 (its
+# filter modes), kerbals x2, career x4. Settings has six SECTIONS rather than tabs (they
+# all draw in one pass, and three are hidden in Basic), so the Advanced/Basic pair IS its
+# section coverage; Logistics' bubbles are expand-collapse, not a selector.
+#
+# 22 PNGs: 17 Advanced + 5 Basic, against the harvest's 64-file cap. At most ONE
+# sub-window is open at a time, so no capture has another SUB-window overlapping it. The
+# main window is the exception and has to be: every sub-window draw in both hosts sits
+# inside the host's `showUI` gate, so it stays open throughout, and the two full-width
+# windows below cover it.
+#
+# `op=open window=main` FIRST IS A PRECONDITION, not just the natural order. The settle
+# for a non-`main` `open` / `rect` REFUSES while the host's `showUI` is false
+# (`ERROR window-host-hidden`), because the frame that advanced the count never drew this
+# window and the read-back would only be reading the write back. This lane already opens
+# `main` as its first UiAction step and leaves it open, so the gate never fires here.
+#
+# TWO WINDOWS DO NOT FIT THIS INSTANCE, measured off their own source rather than off the
+# images: `missions` (RecordingsTableUI, laid out for 1355 px - the width its tooltip-echo
+# strip is budgeted against) and `logistics` (LogisticsWindowUI, `MinWindowWidth = 1410`,
+# first-open default 1556). The profile's screen is 1280x720. WHAT A NARROWER WINDOW DOES
+# is neither a clean clip nor clean scrolling, and the mechanism is per-surface: the
+# WINDOW itself does not scroll, so `missions`' fixed HEADER ROW - drawn outside the
+# scroll view (RecordingsTableUI.cs:1647) - clips its right-hand columns outright, while
+# the table BODY under it sits in `BeginScrollView(pos, false, true, ...)` (:1650-1651)
+# and grows a HORIZONTAL BAR when its rows are wider than the view. `logistics` wraps its
+# whole section stack the same way through the options-only overload
+# (LogisticsWindowUI.cs:541), which defaults to the same show-if-needed behaviour. So a
+# capture shows only the left-hand columns either way, but the body's are reachable
+# behind a bar rather than gone. Both are therefore commanded to `x = 0 w = 1280` - the
+# whole instance width, which is the smallest mismatch this instance can produce - and
+# the residue is filed as GUI-CENSUS-TWO-WINDOWS-EXCEED-THE-INSTANCE-WIDTH rather than
+# left to surprise a reviewer who counts columns.
+#
+# KNOWN THIN CAPTURE: `structure` opens with no target, so it photographs the empty
+# "Parsek - Structure" chrome. Its populated forms are reached from a Missions or
+# Logistics ROW, which no seam op drives today - a follow-up, named here rather than
+# faked (GUI-CENSUS-STRUCTURE-WINDOW-HAS-NO-DRIVEABLE-TARGET).
+#
+# NEVER FLOWN. The `[expectations.logContracts]` lines below pin ONLY the seam log lines
+# this lane's own verbs write, and nothing about the host: a local fixture is
+# unreproducible by construction (one person's save at one moment), so a lane on it may
+# assert that a window DREW and never what it drew. A `describe` step follows every
+# `open`, and its `open=<n> openWindows=<names>` echo is pinned exactly - which is the
+# cheap in-run check that the seam's window-token -> live-object mapping points at the
+# window the step named. The labelled screenshot is still the final instrument.
+description = "GUI census, Space Center half: open every KSC-drawn Parsek window and tab in Advanced then Basic and capture one PNG each, for a layout review."
+instanceProfile = "stock-minimal"
+tags = ["gui-census", "screenshots", "ui", "operator-local-fixture", "GUI-1"]
+
+[fixture]
+saveTemplate = "fixtures/local-saves/c1-gui"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  # --- boot, forced to the Space Center ---
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+
+  # --- Advanced pass ---
+  { cmd = "UiAction", args = { op = "complexity", mode = "advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "open", window = "main" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "main", x = "8", y = "8", w = "250", h = "700" }, expect = "OK" },
+  # The inventory the reviewer reads next to the images: scene, mode, and every window's
+  # availability / open state / rect / tabs. Taken with only the main window open so the
+  # baseline it reports is the untouched one.
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ksc-main-advanced" }, expect = "OK" },
+
+  # missions (the RecordingsTableUI window; its second tab is the raw table)
+  { cmd = "UiAction", args = { op = "open", window = "missions" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "missions", x = "0", y = "8", w = "1280", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "missions", tab = "missions" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ksc-missions-missions-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "missions", tab = "recordings" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ksc-missions-recordings-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "missions" }, expect = "OK" },
+
+  # timeline (four filter modes, treated as tabs: four mutually exclusive views)
+  { cmd = "UiAction", args = { op = "open", window = "timeline" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "timeline", x = "270", y = "8", w = "1000", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "timeline", tab = "overview" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ksc-timeline-overview-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "timeline", tab = "details" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ksc-timeline-details-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "timeline", tab = "rewindff" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ksc-timeline-rewindff-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "timeline", tab = "refly" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ksc-timeline-refly-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "timeline" }, expect = "OK" },
+
+  # kerbals (Advanced only - Basic hides its launcher)
+  { cmd = "UiAction", args = { op = "open", window = "kerbals" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "kerbals", x = "270", y = "8", w = "1000", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "kerbals", tab = "roster" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ksc-kerbals-roster-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "kerbals", tab = "outcomes" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ksc-kerbals-outcomes-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "kerbals" }, expect = "OK" },
+
+  # career state (Advanced only, four tabs)
+  { cmd = "UiAction", args = { op = "open", window = "career" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "career", x = "270", y = "8", w = "1000", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "career", tab = "contracts" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ksc-career-contracts-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "career", tab = "strategies" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ksc-career-strategies-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "career", tab = "facilities" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ksc-career-facilities-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "career", tab = "milestones" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ksc-career-milestones-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "career" }, expect = "OK" },
+
+  # logistics - ONE OF THE TWO WINDOWS THAT DOES NOT FIT THE INSTANCE. Its own
+  # MinWindowWidth is 1410 px (LogisticsWindowUI) and its first-open default is 1556, both
+  # wider than the profile's 1280x720 screen. The WINDOW does not scroll, but its whole
+  # section stack is inside a BeginScrollView (LogisticsWindowUI.cs:541, the options-only
+  # overload - horizontal bar when needed), so a narrower window shows the left-hand
+  # columns with the rest behind a bar rather than simply losing them. Commanded to the
+  # full instance width at x=0 so the mismatch is as small as this instance can make it;
+  # the residue is filed as GUI-CENSUS-TWO-WINDOWS-EXCEED-THE-INSTANCE-WIDTH.
+  { cmd = "UiAction", args = { op = "open", window = "logistics" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "logistics", x = "0", y = "8", w = "1280", h = "700" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ksc-logistics-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "logistics" }, expect = "OK" },
+
+  # structure list (empty chrome - see KNOWN THIN CAPTURE above)
+  { cmd = "UiAction", args = { op = "open", window = "structure" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "structure", x = "270", y = "8", w = "1000", h = "420" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ksc-structure-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "structure" }, expect = "OK" },
+
+  # settings, all six sections (three of them Advanced-only)
+  { cmd = "UiAction", args = { op = "open", window = "settings" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "settings", x = "270", y = "8", w = "360", h = "700" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ksc-settings-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "settings" }, expect = "OK" },
+
+  # the Settings-launched test runner (NOT the global Ctrl+Shift+T window)
+  { cmd = "UiAction", args = { op = "open", window = "testrunner" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "testrunner", x = "270", y = "8", w = "620", h = "700" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ksc-testrunner-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "testrunner" }, expect = "OK" },
+
+  # --- Basic pass ---
+  # The mode switch itself CLOSES the gated, lock-owning windows (career, kerbals,
+  # testrunner, gloops, spawncontrol, group picker) and clamps the Missions window's tab
+  # to index 0. Everything is already shut here, so the switch is only doing the surface
+  # gating - which is the thing being photographed.
+  { cmd = "UiAction", args = { op = "complexity", mode = "basic" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ksc-main-basic" }, expect = "OK" },
+
+  # Only the windows Basic still OFFERS. No `op=tab` on missions here, deliberately:
+  # Basic draws NO tab bar and clamps the selection to the Missions tab, so
+  # `tab=recordings` would be an honest ERROR (`tab-not-applied`) rather than a capture.
+  { cmd = "UiAction", args = { op = "open", window = "missions" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "missions", x = "0", y = "8", w = "1280", h = "700" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ksc-missions-basic" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "missions" }, expect = "OK" },
+
+  { cmd = "UiAction", args = { op = "open", window = "timeline" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "timeline", x = "270", y = "8", w = "1000", h = "700" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ksc-timeline-basic" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "timeline" }, expect = "OK" },
+
+  { cmd = "UiAction", args = { op = "open", window = "logistics" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "logistics", x = "0", y = "8", w = "1280", h = "700" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ksc-logistics-basic" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "logistics" }, expect = "OK" },
+
+  { cmd = "UiAction", args = { op = "open", window = "settings" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "settings", x = "270", y = "8", w = "360", h = "700" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "ksc-settings-basic" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "settings" }, expect = "OK" },
+
+  # Leave the install in Advanced. BELT AND BRACES on a harness run rather than
+  # load-bearing: the mode IS persisted (ParsekSettingsPersistence), but run.py rewrites
+  # the instance's `GameData/Parsek/PluginData/settings.cfg` to its own baseline at BOTH
+  # stage and teardown (`reset_settings_sidecar`), and that baseline carries only the
+  # three tracer flags - so whatever this lane persisted is gone either way. The step
+  # stays because it costs one op and it is the right thing to do to an install a person
+  # also uses.
+  { cmd = "UiAction", args = { op = "complexity", mode = "advanced" }, expect = "OK" },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["career", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.logContracts]
+# Only this lane's OWN verbs, and every line here is a seam INFO record rather than a
+# claim about the host.
+#
+# THE DESCRIBE ECHOES ARE THE IN-RUN MAPPING CHECK. Each `open` is followed by a
+# `describe`, whose log line carries `open=<n> openWindows=<comma-joined names>`; pinning
+# the pair as a literal is an EXACT claim, because a third open window would move the
+# count. That is what catches a seam whose `window=timeline` token is wired to some other
+# window's fields - a class of error the headless suite cannot see, since the pure half
+# never touches a live window. `scene=SPACECENTER` on every line additionally proves the
+# whole census ran where it said (GUI-2's twin pins `scene=FLIGHT`), and `complexity=`
+# separates the two passes.
+#
+# ONE CAPTURE LINE is pinned, not twenty-two: `capturescreenshot ok` is emitted only after
+# the file settled at a stable non-zero size, so one is proof the write-and-poll path
+# works end to end, and the other twenty-one are the PRODUCT - a reviewer counts them in
+# the contact sheet. `bytes=` is deliberately not pinned; it is a real file size and would
+# pin a machine.
+required = [
+  # --- Advanced pass: main alone, then one per window opened ---
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,missions",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,timeline",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,kerbals",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,career",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,logistics",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,structure",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,settings",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,testrunner",
+  # --- Basic pass: the mode switch itself, then the windows Basic still offers ---
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=11 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=11 open=2 openWindows=main,missions",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=11 open=2 openWindows=main,timeline",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=11 open=2 openWindows=main,logistics",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=11 open=2 openWindows=main,settings",
+  # --- and one capture, proving the write-and-settle path end to end ---
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] capturescreenshot ok label=ksc-main-advanced",
+]
+# EMPTY, deliberately, and this is a HOST decision rather than a weakened gate: the
+# `[Parsek][ERROR]` surface of a real multi-year career's cold OnLoad (route reconcile,
+# ledger recalc over 300+ actions) is not something this lane controls, observes, or is
+# about. A forbidden pattern here would red a layout review over career bookkeeping. The
+# ERROR surface is gated on the committed fixtures, where it is attributable.
+forbidden = []
+
+[expectations.analyzer]
+# THE ANALYZER ROW IS REPORT-ONLY ON THIS LANE, and this is the one spec-level
+# declaration the census needs. MEASURED, not defensive: the offline analyzer over this
+# host reports `FAIL=25 WARN=6 INFO=3 RED=1`, all 25 FAILs `INV2-NO-DOUBLE-COVER`, on
+# recordings that predate this lane by months (run 2026-09-10 with `-ResultsDir` outside
+# the save, so the operator's save was not touched; its own committed
+# `analysis/c1.analysis.txt` from 2026-08-11 reads RED=1 too). A census takes SCREENSHOTS
+# - it neither causes nor observes a recording-invariant finding - so gating a layout
+# review on career bookkeeping would red it forever.
+#
+# WHY NOT `[expectedFail] subkind = "analyzer"`, which is what this lane shipped with
+# first: `run.py`'s verifier chain SHORT-CIRCUITS on a non-PASS analyzer, so a quarantine
+# would leave every LATER row SKIPPED - `[expectations.logContracts]` INCLUDED. A run that
+# produced ZERO screenshots would then read EXPECTED-FAIL, i.e. green, while the header
+# above claimed those contracts pinned the capture lines. Report-only keeps the analyzer
+# RECORDED (status REPORT, with its classified verdict, RED token and counts beside it)
+# and lets the rest of the chain evaluate, so this lane gates on its OWN log contracts
+# instead of on nothing.
+#
+# WHY NOT A FINDINGS BASELINE: `run.py` hard-codes `-FreshSaveGate`, and
+# `analyze-recordings.ps1` REFUSES `-UseBaseline` together with it, so a per-save baseline
+# was never a route from here. Filed as U1-GUI-CENSUS-LOCAL-HOST-REDS-THE-ANALYZER, whose
+# open decision is about the 25 findings themselves and not about this lane.
+#
+# Pinned by `ANALYZER_REPORT_ONLY_ALLOWLIST` in `harness/lib/test_hlib.py`: any OTHER
+# committed spec declaring `gating = false` reds that cell.
+gating = false
+
+[runtime]
+# 22 captures, each holding the FIFO head for a couple of frames, plus a 300 s cold load
+# of a 42 MB career and ~60 single-phase UI ops. 1200 s is generous on purpose: the
+# product is the images, and a KILLED run leaves none.
+budgetSeconds = 1200
+
+[retry]
+policy = "once"
+
+[expectedFail]
+# EMPTY, like every other committed spec. The analyzer quarantine this lane shipped with
+# is GONE, replaced by `[expectations.analyzer] gating = false` above - see that block for
+# why a quarantine was the wrong instrument: it short-circuited the whole verifier chain,
+# log contracts included.
+bugId = ""

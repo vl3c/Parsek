@@ -535,6 +535,39 @@ journal, verdicts) is designed once and the later commands slot in without a for
 >
 > Full contract below (`#### DeleteRecording`).
 
+> Update (the GUI census, 2026-09-10): TWO further ADDITIVE verbs, `CaptureScreenshot
+> label=<name> [superSize=<1-4>]` and
+> `UiAction op=<open|close|tab|complexity|rect|describe> ...` - the
+> SaveGame / ExportRenderManifest / ListHandles / WarpToUT shape, never in the reserved
+> list above, so neither is a promotion and the implemented table moves alone: **35
+> implemented / 5 reserved**.
+>
+> They exist because a GUI review had no evidence surface AT ALL, and both halves of that
+> gap are measured rather than argued. First: the always-collect leg has copied
+> run-window files out of `<instance>/Screenshots/` into `results/<runId>_shots/` since V3
+> (`hlib.select_run_screenshots`, 64-file / 256 MB caps) and `tools/contact_sheet.py` has
+> rendered whatever it found there - but nothing ever WROTE a file, because the only
+> screenshot path in the game is the player's F1 key. That tool's own empty-state text
+> ("no screenshots captured (the V4 capture verbs feed this)") has been the literal truth
+> on every run to date. Second: every Parsek window's open flag is only ever written by a
+> player click - the toolbar callback for the main window, then one button per sub-window -
+> so an unattended run draws NOTHING and a capture verb on its own would have photographed
+> an empty scene. One verb without the other buys nothing.
+>
+> `CaptureScreenshot` is the only TWO-PHASE verb in the seam whose completion is a FILE
+> poll, and the two-phase shape is not optional: `ScreenCapture.CaptureScreenshot` returns
+> immediately and Unity encodes the PNG at the end of a later frame, so a single-phase OK
+> would claim a file that may not exist and the NEXT step (another capture, a window close,
+> a scene exit) would race the write. `UiAction` is two-phase in exactly TWO of its six
+> ops - `open` and `rect`, whose read-back only means something after a frame has been
+> DRAWN - and single-phase in the other four, including the one that LOOKS deferred; see
+> its section for both. Full contracts below (`#### CaptureScreenshot`, `#### UiAction`).
+>
+> NO NEW PLAYER-FACING SURFACE, which is a house rule rather than a preference: `UiAction`
+> writes the same fields the existing buttons write and reads them back. It adds no window,
+> no button and nothing reachable in a normal game; the only production entry points it
+> calls are `ParsekUI.SetUiComplexityMode` and `ApplyPendingUiComplexityModeIfAny`.
+
 > Update (WarpToUT, 2026-09-09): one further ADDITIVE verb, `WarpToUT ut=<absolute UT>
 > [maxRate=<float>]` - the SaveGame / ExportRenderManifest / ListHandles shape, never in
 > the reserved envelope (which carried no warp verb). It takes the table to **33
@@ -1478,6 +1511,349 @@ experiment its header describes: the bare reload keeps `expect = "REJECTED"` as 
 negative control for the guard, and the very next step reloads the same quicksave with the
 opt-in. The pair is the mutation test carried inside the flight.
 
+#### CaptureScreenshot (additive; one PNG into the harvested directory)
+
+`CaptureScreenshot label=<filename-safe name> [superSize=<1-4>]`. Precondition
+`AnyScene`, the `ExportRenderManifest` row: a screenshot is meaningful in every settled
+scene (a census walks KSC and FLIGHT), and the dispatcher's safe-point gate already
+refuses to dispatch during LOADING, a scene transition or the settle window - which is
+exactly when a capture would photograph a black frame. Rides the 60 s DEFAULT budget and
+is deliberately absent from `DEFERRED_SEAM_VERBS`, the `EnterWatchMode` shape: it IS
+two-phase, but its completion lands in a frame or two, and a capture that has not landed
+within a minute is broken rather than slow.
+
+**The target directory is not a choice.** `run.py`'s artifact leg harvests
+`<instance>/Screenshots/` and nowhere else, so the path is derived from
+`KSPUtil.ApplicationRootPath` + `Screenshots` and the directory is created when absent (a
+fresh provisioned instance may not have one until the first F1). A capture written
+anywhere else would exist on the operator's disk and never reach a result folder. The
+payload reports the RELATIVE path (`Screenshots/<label>.png`, forward slashes) because the
+absolute one names a machine.
+
+**Two agreeing size samples before OK.** A first sighting can be a partially written file -
+Unity encodes the PNG into the same path the poll reads - so "exists and non-empty" is not
+proof of a complete image, and a truncated PNG in a contact sheet reads as a Parsek render
+defect rather than as a harvest artifact. The poll therefore requires the same non-zero
+size on two consecutive frames. `Settled` is decided BEFORE the budget, so a capture that
+landed on the very frame the budget expired is a success rather than a red over a file
+sitting in the artifact folder.
+
+**A colliding label is overwritten, not refused.** Re-running a census over the same
+instance re-uses the labels, so the applier DELETES a colliding target before calling the
+engine - otherwise the poll would see a settled file immediately and report OK for the OLD
+image - and reports `overwrote=true`. A REJECTED there would make every second run
+useless.
+
+**`superSize` defaults to 1 on purpose.** Unity's supersize path re-renders through the
+cameras at the multiplied resolution, and screen-space IMGUI is not guaranteed to survive
+that - which would silently drop the very windows a census exists to photograph. The arg
+is offered for a scene shot that wants the detail; the census lanes stay at 1 until a run
+proves otherwise.
+
+**The engine call is a plain compile-time call.** `UnityEngine.ScreenCapture` lives in
+`UnityEngine.ScreenCaptureModule.dll`, and `Parsek.csproj` now references it as an
+eleventh Unity module. The worry that made the first draft reflective was real but
+UNMEASURED: the cloud / CI build resolves its reference DLLs from the PRIVATE
+`vl3c/ksp-refs` repo rather than from a KSP install, and a reference that repo does not
+carry is a hard compile error on the required `tests` check. That repo DOES carry it
+(`KSP_x64_Data/Managed/UnityEngine.ScreenCaptureModule.dll`, checked with `gh api` over
+the repo contents, and `cloud-test.sh` copies the whole `Managed` directory next to the
+test host so runtime resolution is covered too), so the reflection bought nothing and
+cost something: a missing API could only ever surface as a run-time `REJECTED` after a
+whole KSP boot, and a real build dependency was hidden behind a string. There is
+therefore NO `screenshot-api-unavailable` terminal - a missing API is a build failure.
+
+**Terminals.** `REJECTED`: `label-arg-missing` (required, never defaulted - an invented
+name would collide across steps and silently overwrite an earlier capture),
+`label-arg-invalid` (the label becomes a filename in the harvested directory, so the rule
+is the harness's own filename-safe id shape: start alphanumeric, then alphanumerics / dot
+/ dash / underscore, max 96 - which excludes every path separator, `..`, whitespace and
+every non-ASCII byte), `supersize-arg-invalid` (rejected rather than clamped: a typo that
+silently captured at 1x would read as a resolution problem),
+`screenshot-dir-unavailable`. `ERROR`:
+`screenshot-not-written` (the budget expired with no settled file) and `screenshot-threw`
+(kept apart from the silent paths for the reason `SimulateStockSwitchClick` keeps
+`switch-threw` apart from `switch-refused-by-stock` - a throw is a different
+investigation). `OK` payload: `label`, `path`, `bytes` (the SETTLED size, so a reader tells
+a real capture from a 0-byte stub without opening the folder), `superSize`, `overwrote`
+(always present, both values - the `EnterMapView alreadyOpen` rule).
+
+**Pure decision.** `TestCommandCaptureScreenshot` (`IsValidLabel`, `TryParseLabel`,
+`TryParseSuperSize`, `DecidePoll`, `RelativePathFor`, `BuildPayload`), xUnit-covered in
+`TestCommandCaptureScreenshotTests.cs`. The partial
+`ParsekTestCommandAddon.CaptureScreenshot.cs` owns the path resolution, the pre-delete, the
+reflective invoke and the `FileInfo` polls, and nothing else.
+
+**Tail / post-mission roles.** `inert` and `recording`. `inert` is not a borderline call:
+it writes ONE file under the KSP root and touches no vessel, no save, no career and no
+Parsek persisted state - the `ExportRenderManifest` row exactly. Mirrored in the C#
+`NonMutatingVerbs` set (so `FlushAndQuit`'s save suppression is not cleared by a capture),
+and a harness cell reads that set out of the source to keep the two from drifting.
+
+#### UiAction (additive; drive the Parsek windows for a capture)
+
+`UiAction op=<open|close|tab|complexity|rect|describe> [window=] [tab=] [mode=]
+[x= y= w= h=]`. Precondition `RequiresGameLoaded`, NOT `RequiresFlight`, and the choice is
+the `ListHandles` one: the Parsek UI is hosted in SPACECENTER as well as FLIGHT, so a KSC
+census under a flight row would defer to its budget and TIMEOUT. A scene that hosts no
+Parsek UI at all - the Tracking Station draws markers only (`ParsekTrackingStation.OnGUI`)
+and no editor host exists - is the verb's own `REJECTED ui-host-unavailable`, not a defer:
+the dispatcher already waited for a loaded game, and waiting longer cannot make a host
+appear.
+
+**It drives internal state rather than synthesising clicks.** Each window's open flag is a
+plain field behind `IsOpen` that the main window's own buttons write; the tab selectors are
+plain ints. Faking a click would need an IMGUI event injected into a specific window's
+layout at a specific rect - not reproducible, and not better proof of anything, because
+the button handler's whole body IS the field write. The seam writes the same fields and
+READS THEM BACK.
+
+**TWO OPS ARE TWO-PHASE: `open` and `rect`** (`TestCommandUiAction.OpIsTwoPhase`), and
+neither is optionally so. Both write a value whose read-back only means something after an
+OnGUI pass has run, so before a frame is DRAWN both read back exactly what was just
+written and prove nothing. For `open` that is not academic: `SpawnControlUI.DrawIfOpen`
+force-closes itself on its FIRST draw whenever `ResolveAutoCloseReason` fires - and
+"ZERO nearby spawn candidates" is the normal state of any craft with nothing recorded
+passing close by - so a single-phase OK let a census photograph empty scenery under the
+label `flight-spawncontrol-advanced`, which a reviewer reads as a render defect. For
+`rect` it was worse in a quieter way: the tolerance predicate below was comparing a field
+with the value assigned to it one line earlier, so it could not fail on ANY input. Both
+ops hold the FIFO head for ONE drawn frame (`DecideSettlePoll`, `SettleFrames = 1`;
+Unity runs `Update` - where the pump lives - before `OnGUI`, so one advanced frame
+guarantees a full IMGUI pass) and then read the live state back.
+
+**`close`, `tab`, `complexity` and `describe` stay SINGLE-PHASE.** `close` is out of the
+two-phase set after walking the MIRROR DIRECTION rather than by symmetry: a drawing window
+can LOWER its own flag UNPROMPTED, while nothing raises one WITHOUT A PLAYER CLICK. Draw
+paths DO raise open flags - the RouteRunPrompt banner's "Open Logistics" button inside
+`ParsekUI.DrawWindow` (`ParsekUI.cs:809`), `RecordingsTableUI.ShowMissionForRecording` /
+`ScrollToRecording` (`:467` / `:521`, reached from the Missions digest GoTo and the two
+Timeline GoTo buttons), and `StructureListWindowUI.OpenForMission` / `OpenForRoute`
+(`:89` / `:100`, reached from the Missions "Log" and Logistics "Log (Route)" /
+"Log (Mission)" buttons) - but every one of those sites is a `GUILayout.Button` handler,
+and the seam synthesises no clicks. So no drawn frame in an unattended run raises a flag
+the seam just lowered, and there is no self-opening window a settled close read-back could
+catch. `tab` is out because its one
+live clamp (`RecordingsTableUI`'s Basic tab clamp) runs from the complexity LATCH, which
+the applier drives synchronously in `Update`, not from a draw. `complexity` is the one
+that LOOKS deferred: `ParsekUI.SetUiComplexityMode` persists the value and only QUEUES the
+draw-visible one, which a later `Update` latches through
+`ApplyPendingUiComplexityModeIfAny`. The seam pump runs in `Update`, which is exactly
+where that latch is contractually allowed to be called (never from OnGUI), so the applier
+calls it directly and reads back `AppliedUiComplexityMode`. The production latch stays the
+only path that applies a mode, and the op needs no `TryComplete*` counterpart.
+
+**`op=complexity`'s no-op test reads BOTH the latch and the persisted setting**
+(`IsComplexityAlreadySatisfied`), because `SetUiComplexityMode` no-ops on the SETTING: a
+save that persisted Basic under the fail-open Advanced latch (a `ParsekUI` constructed
+before `ParsekSettings.Current` existed) looked "not already satisfied" on a Basic
+request, called a setter that queued nothing, and then ERRORed `complexity-not-applied` on
+the mode the save actually carried. When the setting is already right and only the latch
+has drifted, the applier calls the new `ParsekUI.TryRequeuePersistedUiComplexityMode()` -
+which can only ever queue the value the settings object already holds, so it adds no way
+to apply a mode the save does not carry and no way around `ShouldRefuseModeChange`.
+
+**The window vocabulary is a table, in the main window's own button order** (so a describe
+payload reads down the same list a reviewer sees on screen): `main`, `missions`,
+`timeline`, `kerbals`, `career`, `logistics`, `structure`, `settings`, `spawncontrol`,
+`gloops`, `testrunner`. `main` is in it because every sub-window draw in both hosts sits
+inside the host's `showUI` gate, so a sub-window with `IsOpen = true` and the main window
+hidden is invisible - `op=open window=main` is the first step of any census, and the only
+op that touches the scene host rather than `ParsekUI`. `spawncontrol` and `gloops` are
+FLIGHT-ONLY (`ParsekKSC.OnGUI` draws neither), and asking for either at the Space Center
+is a `REJECTED window-not-in-scene` NAMING THE SCENE: an "opened" Gloops recorder there
+would produce a capture of the scene without it, which reads as a render defect rather
+than as a spec that asked for the wrong scene.
+
+THREE WINDOW HOSTS ARE DELIBERATELY EXCLUDED, and the list comes from a grep of every
+`ClickThruBlocker.GUILayoutWindow` / `GUILayout.Window` site under `Source/Parsek` rather
+than from memory, so "eleven windows" is a claim about the whole program: `GroupPickerUI`
+("Set Parent Group" / "Manage Groups" - a real window with its own rect and input lock,
+and IN the Advanced -> Basic close set), `LogisticsWindowUI`'s round-trip LINK PICKER, and
+`TestRunnerShortcut` (the global Ctrl+Shift+T window, which shares the Test Runner title
+but is a separate MonoBehaviour with no accessor and no complexity gate - the `testrunner`
+token is the Settings-launched `TestRunnerUI`). The first two are excluded for the same
+reason as each other: they are popups over a SELECTION (a recordings row, a logistics
+row), so raising their flag with nothing armed would photograph an empty picker - the
+`GUI-CENSUS-STRUCTURE-WINDOW-HAS-NO-DRIVEABLE-TARGET` shape, and worse. Adding any of the
+three needs a way to drive its CONTEXT first, not just a table row.
+
+**Tabs, and the two windows that only look tabbed.** Four windows carry a selector:
+`missions` (`missions`, `recordings`), `timeline` (`overview`, `details`, `rewindff`,
+`refly` - its filter modes, four mutually exclusive views of one window, which is the same
+thing as tabs for a census), `kerbals` (`roster`, `outcomes`), `career` (`contracts`,
+`strategies`, `facilities`, `milestones`). Settings has six SECTIONS that all draw in one
+pass, three of them Basic-hidden, so the Advanced/Basic capture PAIR is its section
+coverage; Logistics' Active / Paused / Dormant / Candidate bubbles are expand-collapse
+rather than a selector. `op=tab` on either is `REJECTED window-has-no-tabs`, deliberately
+distinct from `tab-unknown`: "this window has no tabs" and "this window has tabs but not
+that one" send an author to different fixes.
+
+**`op=rect` and its ASYMMETRIC read-back.** The op exists so a census can place and
+enlarge a window and show more rows than the default size fits. All four of `x/y/w/h` are
+required - a partial rect mixes a commanded position with a stale size, so the capture
+would not be reproducible - and each is a finite invariant-culture float in range (a
+zero-width window photographs as a MISSING window, which is the exact false reading a
+census must not produce). The read-back happens after the settle frame, on the rect the
+window's own draw resolved - which is what makes the predicate a measurement rather than
+an echo - and it checks position and WIDTH to a 1 px tolerance but
+HEIGHT AS A FLOOR, because every one of these is a `GUILayout` window and resolves to
+`Max(passedHeight, contentMin)`: a window whose content is taller legitimately grows, and
+strict equality would ERROR on a rect that was applied exactly as asked. The MAIN window
+is exempt from the size half entirely (BOTH hosts pass a fixed `GUILayout.Width(250)` and
+BOTH zero its height every frame - `ParsekFlight.OnGUI` and `ParsekKSC.OnGUI` each open
+with `windowRect.height = 0f`), so only its position can be commanded. The
+asymmetry is walked in the mirror direction too: a height BELOW the commanded floor is
+still a failure.
+
+**`op=describe` is the reviewer's inventory**, and it is what a supervising agent reads
+next to the images: `op=describe scene=<token> complexity=<mode> count=<n>` then, per
+window in table order, `w<i>`, `w<i>avail`, `w<i>open`, `w<i>rect`, `w<i>tabs`, `w<i>tab`.
+Its LOG line carries a second, coarser form that the payload does not need and a SPEC
+does: `open=<n> openWindows=<comma-joined names, or ->`. The per-window keys are on the
+WIRE, which never reaches `KSP.log`, so an `[expectations.logContracts]` regex could not
+assert which windows were open at all. Paired with the count, the list is an EXACT claim -
+`open=2 openWindows=main,missions` cannot match a scene with a third window open, because
+the count would differ - which is what makes a `describe`-after-`open` step a cheap in-run
+check that the four window-token -> live-object mappings are wired to the windows they
+name. The labelled screenshot is still the final instrument; this catches a mis-wire
+before anyone opens the folder.
+EVERY window gets a row including the ones this scene does not draw, and every row carries
+all six keys: an absent row would be indistinguishable from an older seam build, and a
+reader comparing a KSC describe with a FLIGHT one needs the flight-only rows
+present-and-unavailable rather than missing. Absent values report a `-` sentinel rather
+than an empty value, because a trailing `key=` on the wire is easy to misread as a
+truncated line. An unmeasured rect (a window whose rect field is still all-zero before its
+first draw seeds the default from the main window's position) reports `rect=-` rather than
+`0,0,0,0`, which would send a reader hunting an off-screen window. The list is NOT capped,
+unlike `ListHandles`: this one is bounded BY CONSTRUCTION at the table's length, a
+compile-time literal.
+
+**Terminals.** `REJECTED`: `op-arg-missing` / `op-arg-invalid` (the message carries the
+valid op list), `window-arg-missing` / `window-unknown` (the message carries the whole
+valid window list, which is the only place a spec author learns the spelling without
+reading the source), `window-not-in-scene`, `tab-arg-missing` / `tab-unknown` (message
+carries THAT window's tabs) / `window-has-no-tabs`, `mode-arg-missing` /
+`mode-arg-invalid`, `rect-arg-missing` / `rect-arg-invalid`, `ui-host-unavailable`, and
+`complexity-refused-gloops-recording` - the ONE production refusal
+(`ParsekUI.ShouldRefuseModeChange`: switching to Basic while a Gloops recording runs would
+hide the window without stopping the recorder), checked PRE-CALL through a new
+`ParsekUI.WouldRefuseModeChange` so the response NAMES the cause instead of inferring it
+from a failed read-back (the `EnterWatchMode` discipline). `ERROR`, all post-call:
+`window-not-toggled` (the flag read back wrong IMMEDIATELY, i.e. the window's own setter
+declined the value outright), `window-self-closed` (the flag WAS raised and a window that
+drew itself put it back down - kept apart from the previous one because they send an
+operator to different places: a setter refusing is a Parsek-side defect in the window
+class, while a window self-closing is a statement about the SCENE the lane is flying,
+whose remedy is a different host), `tab-not-applied` (reachable live - Basic clamps the
+Missions window's tab back to index 0, so `tab=recordings` cannot hold there, and a census
+that believed it photographed the Recordings tab in Basic photographed Missions),
+`complexity-not-applied`, `rect-not-applied`, `ui-action-not-settled` (the budget expired
+before a single frame was drawn: the renderer stopped or the pump never reached another
+safe point - NOT a refusal, which is why it is not spelled like one),
+`window-host-hidden` (see below), `ui-action-threw`.
+
+**THE SETTLE'S HOST-VISIBILITY GATE (`window-host-hidden`).** A frame count says a frame
+HAPPENED, never that this window was in it. Both hosts gate the WHOLE Parsek surface
+behind their own `showUI` - `ParsekKSC.OnGUI` returns at `if (!showUI) return;` (`:229`,
+with the pause gate right after at `:234-235`) and `ParsekFlight.OnGUI` draws the window
+only inside `if (showUI)` (`:2096` / `:2108`) - and every sub-window draw sits inside that
+gate. So with `main` closed, a settled `open` or `rect` on a SUB-window read back a value
+no draw pass had touched, which is the "comparing a field with itself" defect the
+two-phase settle exists to remove. `rect` is the worse half: an unresolved rect still
+holds exactly the commanded value, so `RectAppliedWithinTolerance` PASSES and the census
+then photographs a scene with no Parsek window in it. The settle therefore refuses a
+non-`main` `open` / `rect` while the host's `showUI` is false, as a terminal `ERROR
+window-host-hidden` (its own token rather than folded into `ui-action-not-settled`,
+because the remedy is different: open `main` first, not "the renderer stopped"). `main`
+itself is EXEMPT and must be - its open flag IS that `showUI`, so gating it would refuse
+the op that turns the surface on. Decision: `TestCommandUiAction.SettleRefusedForHiddenHost`
+(pure, and it fails CLOSED on an unrecognised token). Both settle log lines now carry
+`hostShowUi=<true|false>`, so a reader can tell a settled read-back's premise from the
+log alone. NOT gated: the PAUSE overlay, which suppresses the `main` draw too and so is a
+different shape from this window-scoped refusal - and nothing an unattended run drives
+opens the Esc menu. Both census specs open `main` as their first `UiAction` step, which
+is now a stated PRECONDITION of any non-`main` `open` / `rect` rather than a convention.
+
+**Pure decision.** `TestCommandUiAction` (the window / op / mode / tab tables,
+`TryParseOp`, `TryResolveWindow`, `IsAvailableInScene`, `TryResolveTab`, `TryParseMode`,
+`TryParseRect`, `RectAppliedWithinTolerance`, `OpIsTwoPhase`, `DecideSettlePoll`,
+`SettleRefusedForHiddenHost`, `IsComplexityAlreadySatisfied`, `FormatOpenWindowList`,
+and every payload builder),
+xUnit-covered in `TestCommandUiActionTests.cs`.
+
+The partial `ParsekTestCommandAddon.UiAction.cs` owns ONE resolver -
+`ResolveWindowHandle(ui, window)`, returning a small `UiWindowHandle` adapter (open
+get/set, rect get/set, tab get/set, the last pair null for a window with no selector) -
+plus the settle completion and nothing else. The first draft had FOUR parallel switches
+over the same eleven names, which is the shape to avoid here for a specific reason: a
+mapping error (the kerbals arm reaching the career window's field) lived in one of eight
+arms while the other seven stayed right, and the whole xUnit suite passed either way,
+because the pure half never touches a live window and nothing headless could witness it.
+One row per window makes that class of error a single site - and the spec-side
+`describe`-after-`open` step above is the in-run check that the rows point where they say.
+The mapping cannot live on the pure side at all: that half must stay free of
+`UnityEngine` / `ParsekUI` references, which is what lets xUnit exercise it without KSP.
+
+**Accessors added** (all `internal`, no new player-facing surface): a
+`WindowRectForTesting` get/set on each of the ten window classes (`SettingsWindowUI`
+already had the getter), `SelectedTabForTesting` + `TabCountForTesting` on
+`KerbalsWindowUI`, `TierFilterModeIndexForTesting` on `TimelineWindowUI` (an INT over the
+private filter-mode enum, so the enum stays private), `GetLogisticsUI()` /
+`GetStructureListUI()` on `ParsekUI` (the two sub-windows with no accessor, because
+neither is in the Advanced -> Basic close set), `ParsekUI.WouldRefuseModeChange`,
+`ParsekUI.PersistedUiComplexityMode` + `ParsekUI.TryRequeuePersistedUiComplexityMode()`
+(the setting-vs-latch pair the `complexity` no-op test needs; the second is deliberately
+not a general mode setter - it can only queue the value the settings object already
+holds, and its decision is the pure
+`ParsekUI.TryDecidePersistedUiComplexityRequeue(applied, persisted, out queue)`,
+xUnit-covered in `UiComplexityModeCloseHandlerTests.cs` along with the live wrapper's
+drift / agree / no-settings arms. The REQUESTED mode is not an input: the only caller
+that has one calls `SetUiComplexityMode` first, so the setting already equals the request
+by the time it gets here),
+`ParsekFlight.MainWindowRectForTesting`, and `ShowUIForTesting` +
+`MainWindowRectForTesting` on `ParsekKSC` (whose `showUI` had no accessor at all - only
+the two toolbar callbacks wrote it). The KSC host is found with
+`FindObjectOfType<ParsekKSC>()` rather than a new static `Instance`: a UiAction step runs
+a few times per run, and adding a static plus its lifecycle would be a bigger change - and
+a new stale-reference risk across scene loads - than this caller justifies.
+
+**Harness-side validation.** `op` / `window` / `mode` are `VERB_SCOPED_CLOSED_ARGS` rows
+(taking that table from five to eight), and two dedicated validators own what a flat table
+cannot express: `validate_ui_action_step` holds the per-op REQUIREDNESS (`op` itself, the
+window for the four window-ops, `tab` for `op=tab`, `mode` for `op=complexity`, all four
+coordinates for `op=rect`), flags an arg an op does not read, and validates `tab` against
+THAT WINDOW's own vocabulary - the typo class this exists for is
+`tab = "recordings"` on the `career` window, a real tab name on a DIFFERENT window, which
+a flat closed set over the union of every tab token would pass and which would then cost a
+whole boot. `validate_capture_screenshot_step` mirrors the label and superSize parses;
+`label` is deliberately NOT a closed-arg row because `MissionMark` already owns that arg
+name and that table asserts one owner verb per key.
+
+The mirror itself is checked rather than trusted:
+`GuiCensusSeamVerbTests.test_the_window_and_op_vocabularies_mirror_the_c_sharp_tables`
+PARSES the C# `WindowTable` - anchored to the uncommented array assignment, with `//`
+comments stripped from the region, because that table's header comment quotes window
+names, tab names and window titles verbatim - and pins `UIACTION_WINDOW_VALUES` against it
+as an ORDERED list and each window's tab tuple against its `NewSpec` row IN ORDER. Order
+is load-bearing twice: the window order is the order a describe payload and a census's
+capture labels read in, and each tab's INDEX is the value the live selector field takes,
+so a reordered vocabulary would photograph the wrong tab under the right label. A sibling
+cell drives the parse over a SYNTHETIC source carrying decoy `NewSpec(...)` text inside
+comments, so the comment-stripping half cannot go vacuous.
+
+**Tail / post-mission roles.** `world-mutating` and `recording`, and the tail role is NOT
+about opening windows: `op=complexity` PERSISTS `uiComplexityMode` through
+`ParsekSettingsPersistence` and then runs the Advanced -> Basic gated-window close set and
+the Missions tab clamp, which is `SetSetting`'s own row. The other ops are weaker (a
+window open flag is transient), but the table is per-VERB and its fail-safe direction is
+world-mutating, so the honest label costs nothing - the unmet tail skips `inert` too.
+
+**First consumers.** `GUI-1-census-ksc` (nine KSC windows, 22 captures across Advanced and
+Basic) and `GUI-2-census-flight` (the flight-only windows plus the flight form of the main
+window). Both on an OPERATOR-LOCAL fixture, both never flown; see
+`harness/fixtures/local-saves/README.md` for why a census host cannot be committed.
+
 ## Behavior
 
 ### Addon lifecycle
@@ -1541,6 +1917,8 @@ parsed, N deferred), with bounded per-command Info lines (command counts are sma
 | `RunTests` | any scene the runner supports; else Defer | `InGameTestRunner.RunAll()` (no `category`) or `RunCategory(category)`; with `isolated=true` (R5) the `*IncludingFlightRestore` variant instead, which also admits `RestoreBatchFlightBaselineAfterExecution` tests and restores a flight baseline after each. An `isolated` value other than the exact lowercase `true`/`false` is REJECTED `isolated-arg-invalid` (fail-closed: a silent fallback would run the ordinary filter and print an all-skipped tally that reads like a Parsek defect). Response deferred until `IsRunning` goes true->false and `ExportResultsFile` ran | `passed`, `failed`, `skipped`, `results=parsek-test-results.txt` |
 | `LoadGame` | any scene incl. MAINMENU (the BOOT CHANNEL); Reject if a recorder is live (`msg=recording-active`, unless `allowLiveRecorder=refly` is passed AND a re-fly session marker is live - RF-3/A1) or a load is already in flight (`msg=load-in-flight`) | long-running two-phase (like `RunTests`): journal `CLAIMED` -> initiate load (`HighLogic.SaveFolder = dir`; `GamePersistence.LoadGame(...)`; `FlightDriver.StartAndFocusVessel(...)` - the same Assembly-CSharp-only sequence as v0.5.4 `TestingTools.LoadSave`, no kRPC types); response deferred until the new scene settles (pure `TestCommandLoadGame.DecideLoadCompletion`): a settled FLIGHT scene with `HighLogic.CurrentGame != null` -> journal `EXECUTED` + terminal `OK`; a settle-back to MAINMENU -> `ERROR msg=load-failed-returned-to-menu` (a failed flight boot, e.g. an NRE in `FlightDriver.Start` on an incompatible save); the LoadGame budget expiring -> `ERROR msg=load-timeout`. A null / incompatible game detected up front (before two-phase) is still `ERROR msg=load-failed` | `scene`, `save`, `allowLiveRecorder` |
 | `MissionMark` | any scene | emit a stable `[Parsek][Info][TestCommands] MISSIONMARK label=<label> ut=<ut>` log line (H3-style correlation) | `label` echoed |
+| `CaptureScreenshot` | any scene (the `ExportRenderManifest` row; the safe-point gate already excludes LOADING / a transition / the settle window, which is when a capture would photograph a black frame) | pre-delete a colliding target, then the reflectively-resolved `UnityEngine.ScreenCapture.CaptureScreenshot(<KSP root>/Screenshots/<label>.png, superSize)`; TWO-PHASE, holding the head until the file reports the same non-zero size on two consecutive polls | `label`, `path` (relative), `bytes` (settled), `superSize`, `overwrote` |
+| `UiAction` | game loaded, any scene that HOSTS the Parsek UI (FLIGHT / SPACECENTER); a scene with no host is `REJECTED ui-host-unavailable`, never a defer | per `op`: write a window's `IsOpen`, write a tab selector, `ParsekUI.SetUiComplexityMode` + the production `Update` latch, write a window rect, or walk the window table read-only. Every op read-back-verified - and `open` / `rect` TWO-PHASE, holding the head for one DRAWN frame so the read-back describes what the window's own draw resolved rather than the value just written | per op: `op window open already` / `op window tab index already` / `op mode already` / `op window rect` / the describe inventory (`scene complexity count` + six keys per window) |
 | `FlushAndQuit` | any scene (incl. menus) | if a game is loaded, force a scenario/game save so committed data is durable, THEN `Application.Quit()` deferred one frame; response + journal `DONE` written and flushed BEFORE quitting. Deliberately replaces kRPC master's `Quit()` RPC (a bare `Application.Quit()`, not commit-safe). | `saved` bool |
 
 Notes:
@@ -1591,6 +1969,8 @@ wall-clock. Some verbs need a different bound and override the default:
 | `StartRecording` | scene-wait budget | may wait for FLIGHT with an unpacked active vessel; sized to the scene-arrival wait rather than a fixed 60 s |
 | `RunTests` | batch budget from the scenario spec | a full in-game batch can run minutes; the budget comes from the scenario's declared runtime budget, not a fixed default |
 | `LoadGame` | load budget (e.g. 300 s) | a cold `GamePersistence.LoadGame` + scene settle can take minutes on a large save; longer than the default, shorter than an infinite hang |
+| `CaptureScreenshot` | (default) 60 s | TWO-PHASE but deliberately NOT in `DEFERRED_SEAM_VERBS`, the `EnterWatchMode` shape: the completion is a file poll that lands in a frame or two, so a capture still unwritten after a minute is broken rather than slow, and a longer budget would only delay the diagnosis |
+| `UiAction` | (default) 60 s | bounds the game-not-loaded dispatch defer AND the one-frame settle wait of its two two-phase ops. A settle that has not landed in a minute means the game stopped drawing, not that it is slow, so the default is the right size and the terminal is named `ui-action-not-settled` rather than spelled like a refusal |
 
 Budgets are measured from when the command first reaches the head and begins deferring. On
 expiry the pump writes `TIMEOUT` with `msg` carrying the last defer reason and advances.

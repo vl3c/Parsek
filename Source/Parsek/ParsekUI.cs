@@ -125,6 +125,12 @@ namespace Parsek
         internal SpawnControlUI GetSpawnControlUI() { return spawnControlUI; }
         internal TestRunnerUI GetTestRunnerUI() { return testRunnerUI; }
 
+        // The two remaining sub-windows, exposed for the automation-only UiAction seam verb
+        // (the GUI census opens every window in turn and photographs it). Neither is in the
+        // Advanced -> Basic close set, which is why neither needed an accessor before.
+        internal LogisticsWindowUI GetLogisticsUI() { return logisticsUI; }
+        internal StructureListWindowUI GetStructureListUI() { return structureListUI; }
+
         /// <summary>
         /// Why the Real Spawn Control launcher is greyed out. The window turns a recorded
         /// craft that is passing close by into a real vessel, so with nothing in range
@@ -643,6 +649,95 @@ namespace Parsek
         internal static bool ShouldRefuseModeChange(UiComplexityMode next, bool gloopsRecording)
         {
             return next == UiComplexityMode.Basic && gloopsRecording;
+        }
+
+        /// <summary>
+        /// The live form of <see cref="ShouldRefuseModeChange"/>: would a switch to
+        /// <paramref name="next"/> be refused right now?
+        /// <para>Exists so the automation-only <c>UiAction op=complexity</c> seam op can NAME
+        /// the one production refusal in its response instead of inferring it from a failed
+        /// read-back. Inferring would be wrong in both directions: it would report
+        /// "refused because a Gloops recording is running" for any future refusal reason,
+        /// and it reads the live recorder state that only this class can see (the probe hook
+        /// and the null-safe flight walk are both private).</para>
+        /// </summary>
+        internal static bool WouldRefuseModeChange(UiComplexityMode next)
+        {
+            return ShouldRefuseModeChange(next, IsGloopsRecordingNow());
+        }
+
+        /// <summary>
+        /// The PERSISTED interface mode - what <see cref="SetUiComplexityMode"/> compares
+        /// against when it decides a request is a no-op. Fails open to Advanced with no
+        /// settings object, exactly as the latch seed does.
+        /// <para>Exists because the setting and the LATCH can legitimately disagree - a
+        /// <see cref="ParsekUI"/> constructed before <c>ParsekSettings.Current</c> exists
+        /// seeds the latch to Advanced while the save carries Basic - and a caller that
+        /// reads only <see cref="AppliedUiComplexityMode"/> cannot tell "already there"
+        /// from "the setter is about to decline to queue anything". The automation-only
+        /// <c>UiAction op=complexity</c> seam op is that caller.</para>
+        /// </summary>
+        internal static UiComplexityMode PersistedUiComplexityMode
+        {
+            get
+            {
+                ParsekSettings settings = ParsekSettings.Current;
+                return settings != null
+                    ? settings.UiComplexityModeLevel
+                    : UiComplexityMode.Advanced;
+            }
+        }
+
+        /// <summary>
+        /// Re-queues the PERSISTED mode for the latch when the latch has drifted away from
+        /// it. Returns true when something was queued.
+        /// <para>Deliberately NOT a general "queue this mode" setter: it can only ever queue
+        /// the value the settings object already holds, so it cannot apply a mode the save
+        /// does not carry and it cannot get around
+        /// <see cref="ShouldRefuseModeChange"/> (a refused change never reached the setting
+        /// in the first place). It closes the one gap <see cref="SetUiComplexityMode"/>
+        /// leaves by design: that setter no-ops when the requested mode equals the SETTING,
+        /// so a drifted latch could never be corrected by asking for the mode the save
+        /// already has.</para>
+        /// </summary>
+        internal static bool TryRequeuePersistedUiComplexityMode()
+        {
+            ParsekSettings settings = ParsekSettings.Current;
+            if (settings == null) return false;
+            if (!TryDecidePersistedUiComplexityRequeue(
+                    appliedUiComplexityMode, settings.UiComplexityModeLevel,
+                    out UiComplexityMode queue))
+                return false;
+            ParsekLog.Verbose("UI",
+                "Persisted UI mode re-queued for the latch: uiComplexityMode="
+                + $"{appliedUiComplexityMode}->{queue} (setting and latch had drifted)");
+            pendingUiComplexityMode = queue;
+            return true;
+        }
+
+        /// <summary>
+        /// The pure decision inside <see cref="TryRequeuePersistedUiComplexityMode"/>: given
+        /// the LATCH's current value and the PERSISTED setting, is there anything to queue,
+        /// and what? True with <paramref name="queue"/> set iff the two have DRIFTED.
+        ///
+        /// <para>The queued value can only ever be <paramref name="persisted"/>, and that is
+        /// the helper's safety property rather than an implementation detail: it cannot
+        /// apply a mode the save does not carry, so it cannot route around
+        /// <see cref="ShouldRefuseModeChange"/> (a refused change never reached the setting
+        /// in the first place).</para>
+        ///
+        /// <para>THE REQUESTED MODE IS NOT AN INPUT, deliberately. The one caller that has
+        /// a request - the <c>UiAction op=complexity</c> seam - calls
+        /// <see cref="SetUiComplexityMode"/> FIRST, so the setting already equals the
+        /// request by the time it gets here and a `requested` parameter could not change
+        /// the answer. Taking one would state a dependency that does not exist, and invite
+        /// a future caller to queue a mode the settings object never held.</para>
+        /// </summary>
+        internal static bool TryDecidePersistedUiComplexityRequeue(
+            UiComplexityMode applied, UiComplexityMode persisted, out UiComplexityMode queue)
+        {
+            queue = persisted;
+            return persisted != applied;
         }
 
         public void DrawWindow(int windowID)

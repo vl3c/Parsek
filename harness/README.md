@@ -149,8 +149,11 @@ Every attempt - PASS included - runs a light UNCONDITIONAL artifact step in
 `run.py`: the run's `KSP.log` (bounded - whole file up to 64 MiB, else first
 8 MiB + last 56 MiB with an explicit truncation marker; decision in
 `hlib.plan_artifact_log_copy`) plus any `Screenshots/` files stamped inside
-the run's wall-clock window (`hlib.select_run_screenshots`; the V4 capture
-verbs will feed this) land in `results/<runId>_shots/`. The heavy non-PASS
+the run's wall-clock window (`hlib.select_run_screenshots`) land in
+`results/<runId>_shots/`. That last clause was DEAD until 2026-09-10: nothing in
+the game ever wrote a file there except the player's F1 key, so every run's
+image half was empty. The `CaptureScreenshot` seam verb feeds it now (see the
+GUI census below). The heavy non-PASS
 collect-logs snapshot is unchanged, and the verdict is written durably BEFORE
 the artifact copy starts (a kill mid-copy can never cost a result). A
 retention pass then bounds cross-run growth (`hlib.select_shots_dirs_to_prune`:
@@ -202,6 +205,36 @@ NOTHING HAS PRODUCED A DUMP YET. The recorder's interception layer has never run
 inside KSP (the design note's "What is unproven"), and no committed spec drives the
 `GuiTree` in-game category, so `--batch results/<runId>_shots` finds nothing today.
 The viewer and the harvest are in place for the first one.
+
+### The GUI-census sheet (`tools/gui_contact_sheet.py`)
+
+A second, narrower sheet for the one case the V3 page is the wrong shape for: a
+GUI census, whose product is 20+ full-size window screenshots and no log at all.
+The V3 sheet is a per-run VERDICT page - small thumbnails next to key log lines
+and verifier rows, answering "did this run pass and does it look right". A layout
+review asks "show me every window big enough to read", which wants large images,
+label-grouped ordering, no log panel, and a page in the SAME directory as the PNGs
+so the folder can be handed to a viewer as one unit.
+
+```
+python tools/gui_contact_sheet.py results/<runId>_shots
+python tools/gui_contact_sheet.py --run-id <runId> [--title "KSC census"]
+```
+
+It writes `index.html` INSIDE the shots directory, grouped by the capture label's
+scene prefix (`ksc-`, `flight-`, `map-`, `trackstation-`, `editor-`, then
+anything else under `other` - a label it does not model is still SHOWN, because
+this is a viewer and a silently dropped image shortens a census a reviewer is
+counting). The two tools cannot collide: this one owns `index.html` inside a
+`*_shots` dir, the V3 sheet owns `<runId>_contact.html` and `index.html` at the
+results ROOT. Neither is part of the run flow - this one is run by hand, after
+the fact.
+
+COPY A CENSUS OUT IF IT MATTERS. `results/<runId>_shots/` is the one artifact
+directory the retention pass bounds (`hlib.select_shots_dirs_to_prune`: newest 40
+dirs / 2 GiB), and a 20-PNG census is not small. The sheet lives inside that
+directory, so pruning takes the page with the pictures; the V3 `_contact.html`
+survives and then points at images that are gone.
 
 ## The produced-save snapshot (harvest from here, not from the instance)
 
@@ -378,6 +411,26 @@ implicitly. The cost the carve-out protects against is real, though (a
 (b)-tiered spec is EXPENSIVE AND UNFLOWN, e.g. B16-eve-orbit at ~2.6 h per
 attempt), so treat that tier as a deliberate, occasional request.
 
+**`--tier operator` now contains two lanes that need a hand-staged fixture.**
+`GUI-1-census-ksc` and `GUI-2-census-flight` name an OPERATOR-LOCAL template
+(`fixtures/local-saves/c1-gui`, see "Operator-local fixture saves" below), which
+is gitignored and exists only where somebody staged it. Without it each is
+refused PRE-BOOT as `INVALID(staging)` with the staging command in the error -
+and that subkind is TERMINAL (not in `hlib.RETRYABLE_INVALID_SUBKINDS`), so it
+does not retry, and it is not an admission-drift shape either, so
+`tier_runner.py` classifies the whole invocation **RED** rather than
+NEEDS-PROVISION. Nothing is broken when that happens and no other spec is
+affected, but the tier's exit code is 1 and somebody has to read why. So before
+asking for `--tier operator`, either stage the fixture
+
+```
+python tools/stage_local_fixture.py --from "<KSP>/saves/c1" --as c1-gui --no-quicksaves
+```
+
+or run the tier by id, naming the specs you actually want
+(`python run.py --id ...`), which is the normal shape for a census anyway - its
+product is images somebody is about to look at.
+
 **Policies the runner enforces:**
 
 - **Wake hold.** The runner pins the system awake for the whole invocation
@@ -430,6 +483,35 @@ What a red means:
 - **XPASS** - amber. An expected-fail guard now passes: confirm the bug is
   closed, then remove the `expectedFail` key so it stops being expected.
 
+### The analyzer row's mode (`[expectations.analyzer] gating = false`)
+
+The offline-analyzer row (verifier 3) GATES by default, and every committed spec
+but the two GUI-census lanes leaves it that way. A spec may declare
+`[expectations.analyzer] gating = false` to make it REPORT-ONLY: the analyzer
+still runs, its verdict is still recorded (`status = "REPORT"` beside
+`verdictStatus` / `red` / `subkind` / `topRule`, plus a WARN naming them), and it
+neither short-circuits the chain nor moves the verdict.
+
+Read a `REPORT` analyzer row as "measured, not judged on" - the findings are in
+`results/<runId>.json` and are worth reading; the run's verdict came from the
+other rows.
+
+It exists because the alternative was worse in a way that is easy to miss. The
+chain SHORT-CIRCUITS on a non-PASS analyzer, so quarantining a lane with
+`[expectedFail] subkind = "analyzer"` left every later row SKIPPED - log
+validation, results, anomalies, `expectations` and its log contracts, saveParse,
+render composition, ghost lifecycle, the ledger oracle. The lane then asserted
+nothing at all while its spec header claimed otherwise. Turning ONE row off is a
+smaller loss than turning them all off.
+
+Because it IS a loss, the declaring set is an allowlist:
+`ANALYZER_REPORT_ONLY_ALLOWLIST` in `lib/test_hlib.py` names the specs permitted
+to declare it, and that cell reds when any other committed spec does. Declare it
+only when the HOST carries findings the lane neither causes nor observes (the
+census case: someone's long-lived career, whose old recordings a screenshot lane
+has nothing to do with), never to get past a finding the lane produced. Full
+contract: `docs/dev/design-autotest-harness-core.md`, verifier 3.
+
 ### What accumulates, and what may be pruned
 
 Permanent by design, and NOT to be pruned by any automation: `results/*.json`,
@@ -476,6 +558,77 @@ Two rules when adding or harvesting a fixture:
 - **Craft used by exactly one fixture?** It stays physically in that fixture and is
   NOT listed (`gloops-airshow/Ships/VAB/Auto-Saved Ship.craft` is the only one
   today). The same test reds a library craft that drops to one consumer.
+
+### Operator-local fixture saves (`fixtures/local-saves/`)
+
+One lane family needs the opposite of a committed fixture. Every save under
+`fixtures/saves/` is small, synthetic and SHAPED - a clean-slate career, a pad
+craft, a harvested recorded tree - which is right for a lane that asserts a
+mechanism. The GUI census asserts nothing about a mechanism: it opens every
+Parsek window and photographs it, and what it needs from a host is DENSITY. A
+Missions window with missions in it, a Recordings table with rows, a Career State
+window with contracts, a Kerbals roster with kerbals, a Logistics window with
+routes. A window with nothing in it photographs as an empty box, which tells a
+reviewer nothing.
+
+The only save like that is the operator's own long-lived career. It cannot be
+committed (tens of megabytes, and it is a personal save) and it cannot be
+synthesised - the point IS the accumulated content, not a shape a builder script
+could mint. So a spec may name a template under the SEPARATE prefix
+`fixtures/local-saves/<leaf>`, which the operator fills from a save he already
+has:
+
+```
+python tools/stage_local_fixture.py --from "<KSP>/saves/c1" --as c1-gui --no-quicksaves
+python tools/stage_local_fixture.py --list
+python tools/stage_local_fixture.py --as c1-gui --remove
+```
+
+The copy is verbatim by default (`persistent.sfs`, `persistent.loadmeta`, every
+`Parsek/<dir>` sidecar tree, `Ships/`, `AddOns/`); `--no-quicksaves` drops the
+save's own quicksave / backup `.sfs` files - keeping `persistent.sfs` and
+everything under `Parsek/`, `RewindPoints/*.sfs` included - which on a long
+career is usually most of the bytes and none of the content a census reads. The
+leaf is also the RUN SAVE NAME inside the instance, so it follows the same
+filename-safe rule `validate_spec` applies to `runSaveName`.
+
+Three properties hold with the fixture ABSENT, which is every machine but the
+operator's:
+
+- Every committed suite stays green. `hlib.is_local_fixture_template` classifies
+  such a template from its PATH, not from a hand-maintained spec-id list, and the
+  per-spec cells that read a template off disk skip a local lane with a stated
+  reason.
+- A run that tries to fly one is refused PRE-BOOT as `INVALID(staging)` with the
+  staging command in the error (`hlib.local_fixture_hint`), not with a bare
+  "directory missing".
+- The prefix is deliberately NOT under `fixtures/saves/`. That is the deciding
+  reason rather than tidiness: `test_saveparse.
+  test_fixture_set_is_exactly_the_committed_set` lists the DIRECTORIES under
+  `fixtures/saves/` and compares them to a pinned set, so a staged local fixture
+  there would red that cell on the one machine that can actually fly the lane -
+  green for everyone who cannot, red for the operator.
+
+A local-fixture lane is `tier = "operator"` (run on request; on any other machine
+it cannot run at all) and may assert that a window DREW, never WHAT it drew: the
+host is unreproducible by construction, so every gating expectation -
+`recordings.count`, `saveParse` blocks, the ledger oracle - belongs on a
+committed fixture. Full rationale: `fixtures/local-saves/README.md`.
+
+Two consequences worth knowing BEFORE asking for such a lane:
+
+- **`--tier operator` reds without the fixture.** The two GUI-census lanes live
+  in that tier, and an unstaged local template is a TERMINAL
+  `INVALID(staging)` - it does not retry, and it is not an admission-drift
+  shape, so `tier_runner.py` classifies the whole invocation RED rather than
+  NEEDS-PROVISION. Stage the fixture first, or run the specs you want by
+  `--id`. See "Running a tier on request" above.
+- **The images are NOT permanent.** A census's product lands in
+  `results/<runId>_shots/`, which is the one artifact directory the retention
+  pass bounds (`hlib.select_shots_dirs_to_prune`: newest 40 dirs / 2 GiB, and a
+  20-PNG census is not small). A run whose pictures are worth keeping must be
+  COPIED OUT of `results/` - the per-run `_contact.html` / `index.html` survive
+  pruning, but they then point at images that are gone.
 
 ### Per-spec live endpoint state (`[[fixture.liveState]]`)
 

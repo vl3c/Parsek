@@ -15,6 +15,124 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## U1-GUI-CENSUS-LOCAL-HOST-REDS-THE-ANALYZER: the GUI census's only viable host carries 25 pre-existing analyzer FAILs; the lanes now declare the analyzer row REPORT-ONLY, and what those 25 findings ARE is still open
+
+MEASURED 2026-09-10 while authoring the GUI census (branch `gui-census`), not predicted.
+The offline analyzer over the operator's `c1` career - the lane's host, staged as
+`fixtures/local-saves/c1-gui` - reports `save=c1 generation=4 FAIL=25 WARN=6 INFO=3
+STALE=0 BASELINED=0 RED=1`. All 25 FAILs are `INV2-NO-DOUBLE-COVER` (overlapping section
+spans) across seven recordings, plus six `INV2-UNCOVERED-SPAN` / `INV11-EMPTY-SECTION`
+warnings. The run was taken read-only, with `-ResultsDir` pointing outside the save, so
+the operator's save was not touched; its own committed `analysis/c1.analysis.txt` from
+2026-08-11 reads `RED=1` too, so this is not new.
+
+WHY IT BLOCKS A CENSUS. `run.py` always invokes `analyze-recordings.ps1` with
+`-FailOnRed`, so a GATING analyzer row would classify both census lanes
+`PARSEK-FAIL(analyzer)` on findings that predate them by months and that the census
+neither causes nor observes - it takes screenshots of windows.
+
+WHAT SHIPPED, AND WHY THIS ROUTE. Both lanes declare
+`[expectations.analyzer] gating = false`: the analyzer still runs and its verdict is
+still recorded (`status = "REPORT"` with `verdictStatus` / `red` / `subkind` / `topRule`
+beside it), but it neither short-circuits the verifier chain nor reaches
+`classify_verdict`. The declaring set is pinned by `ANALYZER_REPORT_ONLY_ALLOWLIST` in
+`harness/lib/test_hlib.py`; contract in `design-autotest-harness-core.md`, verifier 3.
+
+THE DECLARATION DEMOTES FINDINGS ONLY. An analyzer `INVALID` still gates and still
+short-circuits (`hlib.analyzer_report_only_covers`): `analyzer-error` (no terminal
+`RED=` token), `tooling` (the subprocess timed out twice), `fixture-authoring` /
+`fixture-stale` (`BASELINE-FORBIDDEN`, or a baseline nothing matches). Those are
+statements about the analyzer RUN rather than about the 25 findings this entry is about,
+and the fixture pair is the one these two lanes are most exposed to - they are the specs
+staging a local fixture. The first cut of the fold returned REPORT before it looked at
+the verdict at all, so a wedged analyzer or a mis-staged fixture would have greened the
+lane; fixed 2026-09-10 in the same branch.
+
+The first draft used `[expectedFail] subkind = "analyzer"` instead, and THAT WAS WRONG in
+a way worth recording, because it looks strictly safer and is not: `run.py`'s verifier
+chain SHORT-CIRCUITS on a non-PASS analyzer, so a quarantined lane had every LATER row
+SKIPPED - `logValidate`, `testResults`, `anomalySweep`, `unityExceptions`,
+`expectations` (its log contracts included), `saveParse`, `renderCompose`,
+`ghostLifecycle`, `ledgerOracle`. A census that captured ZERO screenshots would have read
+EXPECTED-FAIL - green - while its own spec header and the status doc claimed those
+contracts "pin" the capture lines. The quarantine did not weaken one gate; it deleted all
+of them. Turning one row off is the smaller loss, and it is the only one that leaves the
+lane gated on anything.
+
+A FINDINGS BASELINE WAS NEVER A ROUTE, which the first draft listed as an option it was
+not: `run.py` hard-codes `-FreshSaveGate`, and `analyze-recordings.ps1` REFUSES
+`-UseBaseline` / `-WriteBaseline` together with it (they are three incompatible modes),
+so the host's own hand-written `analysis/baseline.cfg` could not have been consulted even
+if it were staged. It is not staged either: `stage_local_fixture.py` now drops the
+top-level `analysis/` directory unconditionally, because under Forbid mode a staged
+`baseline.cfg` is itself a `BASELINE-FORBIDDEN` FAIL -> `INVALID(fixture-authoring)`.
+
+WHAT IS STILL OPEN, and it is a question about the FINDINGS rather than about the lanes:
+are the 25 `INV2-NO-DOUBLE-COVER` overlaps a real recorder defect from an earlier era?
+They are on recordings months old, on a save that has been through many builds, and
+nothing has ever looked at them. If they are real, they are worth a todo of their own; if
+they are an artifact of a since-changed writer, the report-only row is the right permanent
+answer for a census host. Either way that reading is an investigation, not a re-run, and
+the census lanes are no longer blocked on it.
+
+## GUI-CENSUS-STRUCTURE-WINDOW-HAS-NO-DRIVEABLE-TARGET: the Structure List window can be opened by the seam but not POPULATED, so the census photographs its empty chrome
+
+NOTED 2026-09-10 while authoring the GUI census. `StructureListWindowUI` is retargeted
+through `OpenForMission(treeId, title)` / `OpenForRoute(routeId, title)`, both reached
+from a row inside the Missions or Logistics window. `UiAction op=open window=structure`
+raises its `IsOpen` and the window draws, but with `mode = TargetMode.None` and no
+`targetId` it renders the empty "Parsek - Structure" chrome - so `GUI-1-census-ksc`'s
+`ksc-structure-advanced` capture shows a window with no content.
+
+NOT A DEFECT and deliberately not faked: the seam has no row-click op, and inventing one
+that reached into a mission or route id would be a second, weaker owner of a retarget
+that the two production entry points already own. The honest fix, when a review wants
+that window's populated form, is an ADDITIVE `UiAction op=target` (or a `target=` arg on
+`op=open`) that calls those two internal methods with an id a spec names - or, cheaper,
+a `${step.field}` handle off a `ListHandles kind=committed` row. Left as a follow-up with
+the shape written down rather than as a silent thin capture.
+
+## GUI-CENSUS-TWO-WINDOWS-EXCEED-THE-INSTANCE-WIDTH: the Missions and Logistics windows are laid out wider than the harness profile's screen, so their census captures leave their right-hand columns off screen
+
+MEASURED 2026-09-10 off the window sources rather than off an image (the lanes have never
+flown). `RecordingsTableUI` is laid out for 1355 px - the width its `TooltipEchoBox`
+single-line budget is calculated against - and `LogisticsWindowUI` declares
+`MinWindowWidth = 1410` with a first-open default of 1556. The `stock-minimal` profile
+runs KSP at 1280x720.
+
+WHAT A NARROWER WINDOW ACTUALLY DOES, per surface - the earlier wording here said "no
+horizontal scroll view, so it clips", and the source says otherwise. The WINDOW itself
+does not scroll, so anything drawn directly in it is clipped. In `RecordingsTableUI` that
+is the FIXED HEADER ROW: `DrawRecordingsTableHeader` runs outside the scroll view
+(`RecordingsTableUI.cs:1647`), and the table BODY under it is wrapped in
+`BeginScrollView(recordingsScrollPos, false, true, ...)` (`:1650-1651`) whose
+`alwaysShowHorizontal = false` means show-if-needed, i.e. a horizontal bar appears once
+the rows are wider than the view. `LogisticsWindowUI` wraps its whole section stack -
+per-section headers included - in the options-only overload (`:541`), which defaults to
+the same show-if-needed behaviour on both axes. So the visible result is the same for a
+reviewer (only the left-hand columns are on screen) but the body's columns are REACHABLE
+behind a bar rather than gone, and only the Missions header is truly clipped.
+(`ParsekUI.HandleResizeDrag` enforces the 1410 minimum only DURING a resize drag, so the
+seam's direct rect write is not clamped up - which is what lets the census command 1280
+at all.)
+
+WHAT SHIPPED. `GUI-1-census-ksc` and `GUI-2-census-flight` command both windows to
+`x = 0 w = 1280`, the whole instance width and therefore the smallest shortfall this
+profile can produce: 75 px for Missions, 130 px for Logistics against its minimum. At that width
+the sub-window also covers the main window, which is unavoidable - every sub-window draw
+in both hosts sits inside the host's `showUI` gate, so the main window cannot be closed
+while a sub-window is being photographed.
+
+THE OPTIONS, none free, which is why this is filed rather than fixed: (1) run the
+provisioned instance at a wider resolution for these two lanes - a per-profile screen size
+the provisioner does not model today, and one that changes what every OTHER lane on that
+profile photographs; (2) capture with `superSize = 2`, which Unity implements by
+re-rendering through the cameras, and screen-space IMGUI is not guaranteed to survive that
+- it could drop the very windows the census exists to photograph, so it needs a flight to
+prove before a lane relies on it; (3) accept it and read the two windows' right-hand
+columns from the source. A GUI review of the images is the natural moment to decide, since
+it is the reviewer who finds out whether the off-screen columns mattered.
+
 ## GUITREE-INTERCEPTION-LAYER-NEVER-RUN: the GUI-tree dump's Harmony interception of the UnityEngine IMGUI funnels has never executed inside KSP, so four premises the whole design rests on are unmeasured [Filed 2026-09-10 on branch `gui-dump-spike`. Code green, NOT YET FLOWN - and unlike the usual entry in this style, what is unflown is not a fix but the FEATURE]
 
 The pure half is fully covered headlessly (the assembler, the JSON writer, the geometry

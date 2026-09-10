@@ -10,6 +10,39 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Automated testing: a test run can now take screenshots of Parsek's own windows.**
+  Every run already collected any screenshots it found, and the run report already had a
+  place to show them - but nothing ever took one, because the only way to take a
+  screenshot in the game is to press the key yourself. And a screenshot on its own would
+  have caught an empty sky: the Parsek windows only open when somebody clicks the
+  toolbar, which an unattended run never does. A run can now open, close, resize and tab
+  through the windows the way a player would, ask which windows a scene has and which
+  are open, switch between the simple and full interface, and take a picture at each
+  step - and it waits for each picture to finish being written before moving on, so a
+  later step cannot get in front of it. Opening and resizing a window likewise wait for
+  the game to draw a frame before believing the result, because one window closes itself
+  again the moment it draws with nothing to show, and a run that did not wait would have
+  reported success and then photographed empty scenery. Waiting for a frame is only worth
+  anything if the frame drew the window in question, so a run that asks to open or resize
+  one of the smaller windows while the main window is shut now says so plainly instead of
+  reporting success over a picture with no Parsek window in it. Two new run definitions walk the
+  whole set: one at the Space Center, one in flight. None of this adds anything a player
+  can see or reach in the game; it drives the same switches the existing buttons do.
+
+- **Automated testing: a run definition can now ask for one particular check to be
+  reported rather than acted on.** The recording-health check runs over whatever save a
+  run produced, and on a run whose starting point is somebody's own long-played career
+  it reports things that career already had - nothing the run did. Marking such a run
+  "expected to fail" looked like the answer and was far worse than it sounds: the first
+  check that fails stops all the later ones, so the run stopped checking anything at all
+  and still reported a comfortable colour. A run definition can now ask for that one
+  check to be reported instead, which leaves every other check doing its job. It is off
+  by default everywhere, and the list of runs allowed to ask for it is written down so
+  it cannot spread quietly. Asking for it sets aside only what the check FOUND: if the
+  check could not run at all - it timed out twice, it produced no verdict, or the
+  starting save was staged wrong - the run still fails, because "nothing to report" and
+  "nobody looked" are not the same answer.
+
 - **Development tooling, A FIRST DRAFT THAT HAS NOT YET BEEN PROVEN: groundwork for the
   mod writing down exactly what its windows look like, for a helper that cannot see the
   screen.** Everything Parsek draws is decided fresh every frame by code, and until now

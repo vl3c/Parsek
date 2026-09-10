@@ -52,3 +52,25 @@ Source/Parsek/ParsekKSC.cs
 # reaches it.
 Source/Parsek/ParsekSettings.cs
 Source/Parsek/ParsekSettingsPersistence.cs
+
+# --- The automation-only M-A2 seam (GUI census, 2026-09-10) ---
+# The `UiAction op=complexity` seam op sets the mode for a SCREENSHOT: the GUI
+# census captures every window in Advanced and then in Basic, which is the whole
+# point of photographing a visibility gate. It is allowlisted rather than exempt
+# on a technicality, and it satisfies this gate's actual premise - "the mode may
+# appear only where visibility is decided" - in the strongest available form:
+# these two files never BRANCH on the mode. They map two wire tokens to the enum,
+# call the production ParsekUI.SetUiComplexityMode + the production Update latch,
+# and read AppliedUiComplexityMode back to verify and to report. No recording,
+# playback, logistics, ledger or rewind behavior is reachable from either, and the
+# verbs are inert unless PARSEK_TEST_COMMANDS=1 arms the addon.
+#
+# Deliberately only these TWO files. ParsekTestCommandAddon.cs (the pump) and
+# TestCommandVerbs.cs (the known-verb table) are NOT listed: the pump dispatches
+# `UiAction` by name and never names the mode, and the verb table's rationale
+# comment was reworded to describe "the interface-mode setting" rather than to
+# quote the identifier - because this gate matches plain substrings, so a comment
+# reads as code, and an allowlist entry bought by a comment would widen the gate
+# for the whole file's future contents.
+Source/Parsek/TestCommands/TestCommandUiAction.cs
+Source/Parsek/TestCommands/ParsekTestCommandAddon.UiAction.cs

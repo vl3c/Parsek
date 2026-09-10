@@ -208,6 +208,12 @@ namespace Parsek.TestCommands
         // Distinct from TimeJump above: that one epoch-shifts the clock with the vessel
         // frozen in place, this one simulates forward so the vessel travels.
         void WarpToUT(ParsedCommand cmd);
+
+        // ----- GUI census (additive) -----
+        // CaptureScreenshot takes one PNG into the directory run.py harvests; UiAction
+        // opens / tabs / sizes the Parsek windows so there is something in the frame.
+        void CaptureScreenshot(ParsedCommand cmd);
+        void UiAction(ParsedCommand cmd);
     }
 
     /// <summary>The scene/state a verb requires before it may execute.</summary>
@@ -370,6 +376,18 @@ namespace Parsek.TestCommands
                 // input lock, a backward or malformed target) are executor-side and typed
                 // REJECTED.
                 ["WarpToUT"] = VerbSceneRequirement.RequiresFlight,
+                // GUI census. CaptureScreenshot is AnyScene, the ExportRenderManifest
+                // row: a screenshot is meaningful in every settled scene (that is the
+                // point of a census that walks KSC and FLIGHT), and the safe-point gate
+                // above already refuses to run during LOADING, a transition or the
+                // settle window - which is exactly when a capture would photograph a
+                // black frame. UiAction is RequiresGameLoaded, NOT RequiresFlight, for
+                // the ListHandles reason: the Parsek UI is hosted in SPACECENTER as well
+                // as FLIGHT, and a KSC census under a RequiresFlight row would defer to
+                // its budget and TIMEOUT. A scene that hosts no Parsek UI at all is the
+                // verb's own REJECTED (ui-host-unavailable), not a defer.
+                ["CaptureScreenshot"] = VerbSceneRequirement.AnyScene,
+                ["UiAction"] = VerbSceneRequirement.RequiresGameLoaded,
             };
 
         /// <summary>
@@ -779,8 +797,12 @@ namespace Parsek.TestCommands
                 // it as well, deliberately: it IS two-phase, but its completion is a
                 // camera-session read-back that lands within a frame or two of the call, so
                 // the 60 s default bounds the not-in-flight defer AND a silently-refused
-                // entry with room to spare. A verb only needs a row here when its own wait
-                // can legitimately exceed the default.
+                // entry with room to spare. The GUI-census pair rides it for the same
+                // reason: UiAction is two-phase in `open` / `rect`, whose whole wait is ONE
+                // drawn frame, and CaptureScreenshot polls a PNG's size to a stable value -
+                // either of which failing to land inside a minute means the game stopped
+                // drawing, not that it is slow. A verb only needs a row here when its own
+                // wait can legitimately exceed the default.
                 default:
                     return DefaultSeconds;
             }
