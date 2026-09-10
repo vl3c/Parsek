@@ -10,6 +10,18 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Development tooling: the mod can now write down exactly what its windows look like,
+  for a helper that cannot see the screen.** Everything Parsek draws is decided fresh
+  every frame by code, and until now the only record of what a window actually contained
+  was a picture of it. A single frame can now be written out as a description instead:
+  every panel, every row, every button and box and tick and typing field, where each one
+  sat, what it said, what its hover text was, whether it was greyed out, and what sits
+  inside what. Nothing about the windows themselves changed - not one line of the drawing
+  code was touched, and the recording is off unless something asks for it, which nothing
+  in normal play does. There is also a small offline viewer that turns one of those
+  descriptions into a web page: the boxes drawn over the matching screenshot, with a
+  side panel listing the whole structure.
+
 - **Automated testing: a test run can now let time really pass, instead of only moving
   the clock.** The only way an automated run could skip ahead was to move the clock and
   leave everything where it was, which is fine for watching a replay reach a moment far
