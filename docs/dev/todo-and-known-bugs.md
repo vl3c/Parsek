@@ -15,6 +15,58 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## GUITREE-INTERCEPTION-LAYER-NEVER-RUN: the GUI-tree dump's Harmony interception of the UnityEngine IMGUI funnels has never executed inside KSP, so four premises the whole design rests on are unmeasured [Filed 2026-09-10 on branch `gui-dump-spike`. Code green, NOT YET FLOWN - and unlike the usual entry in this style, what is unflown is not a fix but the FEATURE]
+
+The pure half is fully covered headlessly (the assembler, the JSON writer, the geometry
+derivations, funnel-signature resolution, the opt-in patch gate) and the whole design is
+reasoned from the decompiled `UnityEngine.IMGUIModule`. Nobody has started the game and
+taken a capture, because the spike's author cannot launch it. Full statement of each
+premise: `docs/dev/design-gui-tree-dump.md` -> "What is unproven".
+
+WHAT ONLY A FLIGHT SETTLES:
+
+1. **Mono inlining.** Harmony rewrites a method; Mono's inliner reads a callee's IL from
+   metadata rather than through the detour, so a small callee can still be inlined into a
+   caller JITted after the patch. The exposed targets are `GUI.EndGroup` (14 bytes of IL),
+   `GUI.DoWindow` (26), `GUI.DoButton` (33) and `GUI.DoToggle` (34). Each has a designed
+   fallback, and the dump's `funnels` block plus the live cell's Begin/End parity
+   assertions exist to NAME a bypass rather than survive it quietly.
+2. **`GUIUtility.GUIToScreenRect` inside a `GUI.Window` callback.** Both endpoints bottom
+   out in native ICalls, so this cannot be settled by reading the assembly. The recorder
+   keeps `localRect` beside `rect` as the instrument, and `GuiTreeGeometry.Inspect` turns
+   a disagreement into a named failure.
+3. **Whether a scroll view's clip scroll offset reaches that conversion.** The live cell
+   measures a deliberately scrolled row against its own viewport; nothing else in the
+   design exercises it.
+4. **The reflection probes** - `GUIClip.Internal_GetCount` for clip depth, and
+   `GUILayoutEntry.rect` / `GUILayoutGroup.isVertical` for a layout group's rect and
+   orientation. Both fail soft (depth -1, zero rects, one Warn each) and are re-resolved
+   at every arm, so a failure degrades the dump rather than breaking it - but a
+   permanently unavailable clip probe would leave the tree resting on Begin/End pairing
+   alone, which is exactly what the recovery rules were written not to trust.
+
+Also unmeasured: the COST while armed - one frame of allocation for a few hundred small
+objects, plus a one-off assemble + serialise + write hitch in the flush LateUpdate. It
+does not matter for a one-frame capture and is not budgeted for anything else.
+
+KNOWN GAPS, all by design rather than defects, listed so a first reading of a dump does
+not report them as bugs: a `Toolbar` / `SelectionGrid` is ONE node (the per-cell rects are
+computed privately and the cells draw through `GUIStyle.Draw`, below the managed surface);
+`GUI.DrawTexture`, a `GUI.Label` with a Texture and anything drawn straight through a
+`GUIStyle` are not captured at all, and icon-only content records `text: null`; there is
+no z-order across windows (roots are in callback order, which is draw order, but an
+overlapping window is not marked as occluding another); scroll-clipped children are
+RECORDED, not culled, so a row scrolled out of view still carries a rect outside its
+scroll view's; and a layout group carries no `text`, because
+`GUILayoutUtility.BeginLayoutGroup` never sees the caller's `GUIContent`.
+
+Fix: fly it. The work is one `RunTests` step on any existing host - the cell needs no
+fixture, no scene and no seam verb, since it draws its own probe window - and it is
+roadmap item 12. Expect a red or a skip on attempt 1 and read it as a reading rather than
+a regression: every exact per-kind pin in the cell is a prediction from decompiled source,
+and the cell self-skips if its probe window sees no Repaint pass within 240 frames. Until
+that flight, nothing should be built ON the dump.
+
 ## REPUTATION-SEED-CAPTURED-MID-FLIGHT-REAPPLIES-PRE-SEED-AWARDS: the lazy `ReputationInitial` seed is read off the live pool at the first commit, so every reputation award recorded BEFORE that moment is inside the seed AND replayed as a row
 
 Filed 2026-09-10 while shipping the crew-death reputation penalty (branch
