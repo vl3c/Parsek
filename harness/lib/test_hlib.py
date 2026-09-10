@@ -9364,18 +9364,24 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                             for w in v.warnings), v.warnings)
         self.assertIn("route", hlib.RESERVED_EXPECTATION_BLOCKS)
 
-    def test_eva2_declares_the_points_block_unarmed(self):
+    def test_eva2_declares_the_points_block_armed(self):
         # Gate 12 landed REPORT-ONLY on EVA-2 (the scenario whose green
-        # `count = {min=2,max=2}` let the empty-recording defect through).
-        # UNARMED is the whole point of the landing: the window is measured
-        # from live runs BEFORE it may move a verdict, so this cell must be
-        # flipped in the same commit that arms it - alongside the allowlist
-        # below and the run ids that justify it.
+        # `count = {min=2,max=2}` let the empty-recording defect through), and
+        # its window was measured from a live run of the COMMITTED block before
+        # it could move a verdict: ARMED 2026-09-10 off
+        # `2026-09-10_1720_EVA-2-orbital-board` (largest 5, trivialRecordings 1,
+        # recordings 2, unparsed 0 - both declared windows held, no number
+        # moved). The allowlist entry below carries the run ids. The two windows
+        # are pinned here too, because the arming authorized THESE numbers.
         exp = load_spec("EVA-2-orbital-board.toml")["expectations"]
         self.assertEqual(("recordings.points",),
                          saveparse.declared_structure_blocks(exp))
-        self.assertEqual((), saveparse.armed_structure_blocks(exp))
-        self.assertFalse(saveparse.gating_armed(exp))
+        self.assertEqual(("recordings.points",),
+                         saveparse.armed_structure_blocks(exp))
+        self.assertTrue(saveparse.gating_armed(exp))
+        points = exp["recordings"]["points"]
+        self.assertEqual({"min": 2}, points["largest"])
+        self.assertEqual({"max": 1}, points["trivialRecordings"])
         # It must still ASSERT something, or it is an inert header that reports
         # nothing (the warn case) and could never be promoted from a reading.
         self.assertTrue(
@@ -9979,7 +9985,15 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # where this block has a parse, a normalisation and a bucketing
                        # step of its own between the bytes and that evaluator. Nothing
                        # is owed.
-                       "RVR-20-rover-relay-c-destination-slots-full-tank-empty.toml"}
+                       "RVR-20-rover-relay-c-destination-slots-full-tank-empty.toml",
+                       # EVA-2: `recordings.points` armed 2026-09-10 (wave package A2)
+                       # off its reading run `2026-09-10_1720_EVA-2-orbital-board` -
+                       # largest 5, trivialRecordings 1 (the pod, exactly as sized),
+                       # recordings 2, unparsed 0 - on the wave DLL a0abbed1. The
+                       # first armed points block anywhere; no number moved. Owed: the
+                       # armed re-flight and its own negative control (largest
+                       # inverted to a 99-point floor, in place, reverted).
+                       "EVA-2-orbital-board.toml"}
 
     def test_no_committed_spec_arms_gating(self):
         armed = []

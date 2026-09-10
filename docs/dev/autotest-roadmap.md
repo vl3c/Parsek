@@ -384,7 +384,8 @@ remains is, in order:
    and the FLIGHT variant of B27 stay reserved, not blockers.
 7. **Cheap flights and arming calls, batch them between the items above**:
    Operator item 8 (EVA-2 points-window reading run + negative control, ~64 s
-   each); H59's report-only `[expectations.routes]` reading and the promotion of
+   each; 2026-09-10: read on `2026-09-10_1720` and ARMED, re-flight + control
+   queued); H59's report-only `[expectations.routes]` reading and the promotion of
    the other report-only route declarers; ~~the `operator -> nightly` PROMOTION
    calls for V18T, V20M, V20T, V25M, B29, V3C and GS-6~~ DONE 2026-09-08 (operator
    decision: all seven to nightly, B29's ~36 min and V3C's ~15 min included; the

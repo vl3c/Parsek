@@ -3959,8 +3959,8 @@ class Gate12CalibrationTests(unittest.TestCase):
                      ["expectations"]["recordings"]["points"])
         # Evaluate as if ARMED so the verdict is PASS/FAIL, not REPORT. This
         # cell asserts the window's DISCRIMINATING POWER; whether it is armed is
-        # a separate operator decision pinned by
-        # test_eva2_declares_the_points_block_unarmed in test_hlib.py.
+        # a separate operator decision (taken 2026-09-10) pinned by
+        # test_eva2_declares_the_points_block_armed in test_hlib.py.
         block["gating"] = True
         healthy = self._evaluate(self.HEALTHY, block)
         self.assertEqual(saveparse.STATUS_PASS, healthy.status,
