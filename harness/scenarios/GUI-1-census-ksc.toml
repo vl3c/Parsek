@@ -81,8 +81,10 @@ tier = "operator"
 # (hlib.ARTIFACT_MAX_SCREENSHOTS). That is why the dump steps do not need the cap raised
 # and why a 23rd capture would want the arithmetic re-checked rather than just added.
 # The batch's own dump is a BONUS artefact, not a product of this lane: it is the probe
-# window, not a Parsek one, and the viewer will render it beside the census pages. At most ONE sub-window is open at a time, so no capture has
-# another SUB-window overlapping it. The main window is the exception and has to be:
+# window, not a Parsek one, and the viewer will render it beside the census pages.
+#
+# At most ONE sub-window is open at a time, so no capture has another SUB-window
+# overlapping it. The main window is the exception and has to be:
 # every sub-window draw in both hosts sits inside the host's `showUI` gate, so it stays
 # open throughout, and the two full-width windows below cover it.
 #
@@ -370,7 +372,11 @@ allowedAnomalies = []
 # way that goes. `passed=[1-9][0-9]*` still rejects the whole vacuous family, which is
 # what the anti-vacuity rule asks of it. Registered in
 # IngameBatchWiringGroupTests.INTERIM_PIN_IDS until the first flight, after which the
-# split is pinned WHOLE off the measured line.
+# split is pinned WHOLE off the measured line. A SELF-SKIP THEREFORE REDS THIS LANE ON
+# THE logContract ROW, and that is the intended reading rather than a gap: the lane claims
+# the cell RAN, `passed=[0-9]+` is not available because `hlib.batch_contract_vacuity_gap`
+# requires ONE pattern to reject the whole vacuous family, and the remedy for a red here
+# is a HOST where the probe draws - never a looser pin.
 required = [
   # --- Advanced pass: main alone, then one per window opened ---
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=1 openWindows=main",

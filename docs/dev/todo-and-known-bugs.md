@@ -263,7 +263,11 @@ on REAL Parsek windows rather than on a probe, and a funnel that fails to patch 
 lane at the dump where it happened. Roadmap item 12. Expect a red or a skip on attempt 1
 and read it as a reading rather than a regression: every exact per-kind pin in the cell is
 a prediction from decompiled source, and the cell self-skips if its probe window sees no
-Repaint pass within 240 frames. Until that flight, nothing should be built ON the dump -
+Repaint pass within 240 frames. That SELF-SKIP REDS THE LANE on GUI-1's `logContract` row
+by design and not by oversight - the interim pin `total=1 passed=[1-9][0-9]* failed=0
+skipped=[0-9]+` claims the cell RAN, and `passed=[0-9]+` is unavailable because
+`hlib.batch_contract_vacuity_gap` requires one pattern to reject the whole vacuous family -
+so the remedy for such a red is a HOST where the probe draws, never a looser pin. Until that flight, nothing should be built ON the dump -
 which is why the census lanes only pin `patched=`, and leave `windows` / `nodes` / `hits`
 for a reader.
 
