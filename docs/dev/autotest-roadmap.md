@@ -190,7 +190,7 @@ takes:
 | D3 | reference frames | 3 / 7 | A claim gap: `Pipeline-Anchor` executes whole on H11; `absolute`, `relative-anchored-nonloop`, `relative-loop`, `boundary-seam` need the test-to-cell mapping confirmed and one token each (register item 3, part 0). |
 | D13 | spawn positioning | 4 / 11 | Where a REAL spawn lands (terrain clearance, KSC exclusion, collision, orbit safety): the in-game tests exist and self-skip on every committed fixture. Generator / fixture work (R8 residue), not spec work. |
 | D16 | storage / sidecars | 4 / 12 | Formats, safe-write, path validation. Already covered headlessly by xUnit; the registry asks for a driven lane. Low product risk; several cells could close through one save-parse lane. |
-| D17 | mod compatibility | 2 / 6 | `better-time-warp` has a committed, never-flown reading lane, `MC-3-better-time-warp` (2026-09-10; an AIRLESS-body recording, because only there is the recovered warp limit consumed); `making-history` is DEFINITION-blocked, not instance-blocked - Making History ships through the SquadExpansion junction on BOTH instances (todo D17-MAKING-HISTORY-NEEDS-A-DEFINITION); `persistent-rotation`, `remotetech-commnet` are source-blocked. |
+| D17 | mod compatibility | 2 / 6 | `better-time-warp` has a reading lane, `MC-3-better-time-warp` (2026-09-10; an AIRLESS-body recording, because only there is the recovered warp limit consumed), READ green on outcome (A) on `2026-09-10_2025` and pinned from it - the claim waits for its armed re-flight and negative control; `making-history` is DEFINITION-blocked, not instance-blocked - Making History ships through the SquadExpansion junction on BOTH instances (todo D17-MAKING-HISTORY-NEEDS-A-DEFINITION); `persistent-rotation`, `remotetech-commnet` are source-blocked. |
 | D18 | re-fly / interaction | 4 / 12 | THE LARGEST RESIDUE and the interaction surface of the v0.9 headline feature: what happens when the player spawns a ghost as a real vessel, docks with it, and how chains link afterwards. Register item 2 (in flight) claims `committed-interaction-claiming` and `chain-tip-original-pid`; the other eight (`ghost-conversion-quicksave`, `intermediate-spawn-suppression`, `cross-tree-chain-linking`, `ghost-extension-past-endut`, `background-event-claims`, `chain-terminated-destruction-recovery`, `chain-state-rederived`, `loop-first-run-is-real`) need the same spawn-in-run driving item 2 has to build, so they are its natural follow-on wave. CI-2 closed `committed-interaction-claiming` and `chain-tip-original-pid` on 2026-09-08. |
 | D2 | sampling | 3 / 4 | `proximity-cadence-bg` (R1 residue: grep an archived B-lane log first). |
 | D15 | timeline | 0 / 1 | `timeline-projection`, one cell, no subject yet. |
@@ -393,8 +393,9 @@ remains is, in order:
    nightly p50 sum moves from ~6.2 h to ~7.3 h); the R1 residue windows on
    `B1-pad-hop` and `BDOCK-1`;
    R14's two instance-ready specs (`better-time-warp`, `making-history`). 2026-09-10:
-   `better-time-warp` is `MC-3-better-time-warp`, committed in reading shape and waiting
-   for its modded-compat reading run; `making-history` needs a cell definition first
+   `better-time-warp` is `MC-3-better-time-warp`, READ green on outcome (A) on
+   `2026-09-10_2025` and pinned from those bytes, armed re-flight + stock-minimal
+   negative control queued; `making-history` needs a cell definition first
    (todo D17-MAKING-HISTORY-NEEDS-A-DEFINITION).
 8. **Tier D D1 residue** as filler: `switch-segment-noop-discard`, `commit-abort`
    (needs its definition first), `sub-2-point-drop`, and the R2 registry decision
@@ -1856,7 +1857,11 @@ the Parsek-stripped Mun park (`mun-park-kerbalx`) on modded-compat, because the
 recovered `timeWarpAltitudeLimits[4]` is CONSUMED only on an airless body (the
 recorder's `ReseedAltitudeState` threshold); on Kerbin it is computed and
 discarded, so a Kerbin witness would prove snapshot recovery and nothing about
-recording behavior. Committed in reading shape, not yet flown. `making-history`
+recording behavior. Its reading run `2026-09-10_2025` (after modded-compat was
+re-provisioned to the wave DLL and MC-1 / MC-2 re-flew green on it) measured outcome
+(A): BTW zeroed the Mun's live limit, the snapshot recovered 25000 m, and the recorder
+consumed it. The lane is pinned from those bytes and owes its armed re-flight and the
+stock-minimal negative control before the claim. `making-history`
 turned out to be a definition question rather than an instance one (todo
 D17-MAKING-HISTORY-NEEDS-A-DEFINITION).
 

@@ -11367,7 +11367,8 @@ item and must not be counted as one:
   `persistent-rotation` and `remotetech-commnet` stay source-blocked (GT-8 /
   not in the profile); `better-time-warp` and `making-history` have the
   instance but no committed spec (2026-09-10: `better-time-warp` now has a
-  committed, never-flown reading lane, `MC-3-better-time-warp`; `making-history`
+  reading lane, `MC-3-better-time-warp`, READ green on outcome (A) on
+  `2026-09-10_2025` and pinned from it, armed re-flight + negative control queued; `making-history`
   is definition-blocked, see D17-MAKING-HISTORY-NEEDS-A-DEFINITION); the FX-fingerprint A/B diff ran REPORT-ONLY
   and surfaced a corpus limitation filed as **T48 under TODO — Compatibility**
   (the synthetic corpus is trajectory-only for all but a handful of
