@@ -6,7 +6,7 @@
 **Worktree:** TBD at kickoff (`../Parsek-coop-multiplayer` off `origin/main`)
 **Build state:** TBD at kickoff
 
-The mechanics below were verified in code on 2026-09-01 (commit `3b18e1faf` lineage) by three investigation passes during design; line references are accurate to that date and must be refreshed by the kickoff Explore agents (step 0.4) before any task plan cites them. The FACTS are the load-bearing part; the line numbers are conveniences.
+The mechanics below were verified in code on 2026-09-01 (commit `3b18e1faf` lineage) by three investigation passes during design, and extended on 2026-09-02 by four refactor-lens passes whose findings live in `coop-async-multiplayer-prerefactor.md` (registration seam split, mutation chokepoints, sidecar path loaders, optimizer sub-passes, recalc overload flag matrix, spawn-gate pinning, the leaf spawner bypassing the gate, ERS double composition, test-reset gaps). Line references are accurate to those dates and must be refreshed by the kickoff Explore agents (step 0.4) before any task plan cites them. The FACTS are the load-bearing part; the line numbers are conveniences.
 
 ---
 
@@ -14,7 +14,8 @@ The mechanics below were verified in code on 2026-09-01 (commit `3b18e1faf` line
 
 | File | Role | Changes Needed | Complexity | Status |
 |------|------|----------------|------------|--------|
-| `Source/Parsek/Recording.cs` | Recording model; `SidecarEpoch` at :76-82 | Owner / Exported / OrphanedBy / MissingParts fields | Low | Pending |
+| `Source/Parsek/Recording.cs` | Recording model; `SidecarEpoch` at :76-82; generation stamps :12-13 | Owner / Exported / OrphanedBy / ContinuesForeign / MissingParts fields; generation 5 | Low | Pending |
+| `Source/Parsek/RecordingStore.cs` (constants) | `CurrentRecordingFormatVersion = 1` :105; `CurrentRecordingSchemaGeneration = 4` :131 (history comment :106-130); `IsRecordingSchemaCompatible` :154-185 | Bump to 5 + history comment; fixture re-stamp (`Fixtures/C1Career`, `Fixtures/C2CareerPostFix`, `harness/fixtures/saves/**`, rebuild `career-earned-pad`) | Low | Pending |
 | `Source/Parsek/RecordingTree.cs` | Tree model; `Load` gen gate :206-218; `RebuildBackgroundMap` :376-430 | OwnerPlayerId | Low | Pending |
 | `Source/Parsek/RecordingTreeRecordCodec.cs` | RECORDING node codec (84 AddValue sites); `spawnedPid` :307/:720-733 | Owner field round-trip | Low | Pending |
 | `Source/Parsek/RecordingStore.cs` | Static store; `CommitTree` :944 (7-step orchestrator :1076-1084); `FinalizeTreeCommit` :1472-1559 (append at END :1509, `BumpStateVersion` :1512, `RebuildBackgroundMap` :1522); `ShouldReplaceCommittedTree` :2075; `InsertCommittedAfter` :696 (mid-list, splitter only); `StateVersion` :502-512 | Import registration seam mirroring CommitTree; fence guards | Med | Pending |
@@ -52,8 +53,9 @@ The mechanics below were verified in code on 2026-09-01 (commit `3b18e1faf` line
 | `Source/Parsek/EffectiveState.cs` | `EffectiveRecordingId` :111 (TODO at :109 proposes a cross-tree HALT - to be DELETED, not implemented); `ComputeERS` cache key :1380-1391; `ComputeELS` :1463-1473; O(N^2) note :918-929 | Masks at ERS level; TODO deletion | Med | Pending |
 | `Source/Parsek/SupersedeCommit.cs` | `AppendRelations` :194; `CommitTombstones` :2302; relation ids :422 | Retirement export/import reuse | Low | Pending |
 | `Source/Parsek/RewindInvoker.cs`, `TreeDiscardPurge.cs`, `LoadTimeSweep.cs` | Own destructive verbs; `LoadTimeSweep` orphan-row handling | Retirement emission hooks | Low | Pending |
-| `Source/Parsek/Patches/GhostTrackingStationPatch.cs` | Ghost blocks: `FlyVessel` :620, `OnVesselDeleteConfirm` :725, `SetVessel` :765, `OnRecoverConfirm` :860 | Second pid set (foreign spawns) | Low | Pending |
-| `Source/Parsek/Patches/KscVesselMarkerFlyPatch.cs` (:42), `Patches/MapFocusObjectOnSelectPatch.cs`, `Patches/GhostVesselLoadPatch.cs` (`SetActiveVessel` :474) | Ghost entry-point guards | Foreign-spawn guards | Low | Pending |
+| `Source/Parsek/Patches/GhostTrackingStationPatch.cs` | Ghost blocks: `FlyVessel` :620, `OnVesselDeleteConfirm` :725, `SetVessel` :765, `OnRecoverConfirm` :860; real vessels pass through | None for foreign spawns (no ownership guards); the TS Recover passthrough is where the Recover claim hook attaches for foreign spawns (verify own-vessel recovery marking at M4.11 plan time) | Low | Pending |
+| `Source/Parsek/Patches/KscVesselMarkerFlyPatch.cs` (:42), `Patches/MapFocusObjectOnSelectPatch.cs`, `Patches/GhostTrackingStationPatch.cs` (`SwitchIntentTrackingStationFlyPatch`) | Arm `StockActionIntentMarker` on real-vessel Fly / Switch-To | Unchanged: the marker flows into `TryConsumeStockActionIntent`, whose new fourth branch handles foreign targets | - | - |
+| `Source/Parsek/SwitchSegmentBuilder.cs`, `SwitchSegmentConsume.cs`, `SwitchSegmentNoOpClassifier.cs`, `SwitchSegmentSession.cs` | Continuation segment creation (parent or standalone), consume decision routes, no-op auto-discard, session marker | Foreign-continuation route: standalone tree with `ContinuesForeignRecordingId`; no-op discard reused verbatim | Med | Pending |
 | `Source/Parsek/Logistics/RouteStore.cs` | `RevalidateSources` :1379 (ERS-based) ; endpoint resolution by pid | Endpoint ownership gate | Low | Pending |
 | `Source/Parsek/RecordingGroupStore.cs` | `AutoGroupTreeRecordings` :71-150 (runs BEFORE recordings are in the list); `GenerateUniqueGroupName` :859-909 (local scan, `#N`) | Foreign name handling | Low | Pending |
 | `Source/Parsek/MissionStore.cs` | `EnsureDefaultsForTrees` :43-68 (OnLoad + Missions draw, not CommitTree) | Read-only foreign seeding | Low | Pending |
