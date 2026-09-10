@@ -273,15 +273,39 @@ flightMaxSeconds = 700.0
 recordedSpanWindowSeconds = { min = 60.0, max = 650.0 }
 
 [dimensionsCovered]
-# BASICS ONLY on a never-flown lane, on RH-1's claim-is-not-gate ground: a dimension
-# claim states that a value was EXERCISED AND OBSERVED, not that a step was written.
-#
-# WHAT THE READING RUN WOULD EARN, listed so the follow-up commit is mechanical:
-# `rewind-to-separation` and `refly-gate` off the StartInvoke / Invocation-complete
-# pair; `unfinished-flights-stash` off the promotion line; `auto-record-launch` /
-# `commit-scene-exit` / `auto-merge` off the group-2 tokens; and
-# `controlled-decoupled-child` off the breakup line. NOT `rp-disk-reaper`: this lane
-# asserts the reaper DECLINED, which is the opposite of exercising it.
+# CLAIMED 2026-09-10 (claim-gap wave A1-7), claim-only under the wave's G1 exception.
+# Every cell below rests on a token that was ALREADY REQUIRED on this armed lane. The
+# lane was re-flown unedited on the wave DLL as armed run `2026-09-10_2050` (PASS
+# attempt 1, mismatches=0 over 21 required + 4 forbidden, rewind block PASS), and every
+# count below is from that run. One token set per cell:
+#  - D4 `env-body-split` <- GROUP 3: `Split candidate (PersistedPhaseChange): ...
+#    prev=Atmospheric next=ExoBallistic` (3 lines) + `SplitAtSection: split` (2). It is
+#    the only live-flight Atmospheric -> ExoBallistic optimizer split in the suite.
+#  - D9 `rewind-to-separation` <- `Re-Fly (Rewind-to-Separation) StartInvoke` +
+#    `Invocation complete` (1 each).
+#  - D9 `refly-gate` <- the same StartInvoke line. It is reachable only after
+#    InvokeRewind's precondition gate answered OK (the step's expect is OK; a closed
+#    slot REJECTs `refly-gate`), so it witnesses the gate's positive branch.
+#  - D9 `unfinished-flights-stash` <- `IsUnfinishedFlight=true ... reason=crashed
+#    terminal=Destroyed` (3) + `CommitTree promoted ... slot=0 ... to
+#    CommittedProvisional` (1).
+#  - D1 `auto-record-launch` <- `Recording started` (5). The pattern is generic; the
+#    cell comes from the lane shape (no StartRecording step, `autoRecordOnLaunch=true`).
+#    The run's Verbose `Auto-record started (first staging on pad, stage=6)` is
+#    corroboration, not a pin.
+#  - D1 `commit-scene-exit` <- `Silent full-fidelity auto-commit (scene-exit)` (1).
+#  - D1 `auto-merge` <- `exittospacecenter start ... autoMerge=true ...` (1) + the silent
+#    auto-commit.
+#  - D5 `controlled-decoupled-child` <- `ProcessBreakupEvent: controlled child created`
+#    (1) + the two-pid `Controllable split children` (1).
+# NOT YET: D4 `seed-event-split` (GROUP 6's four seed tokens). They are NEW tokens, so
+# they need their own negative control (`Inserted 12` -> `Inserted 13`), which has not
+# flown. NOT `rp-disk-reaper`: this lane asserts the reaper DECLINED, which is the
+# opposite of exercising it.
+D1  = ["auto-record-launch", "commit-scene-exit", "auto-merge"]
+D4  = ["env-body-split"]
+D5  = ["controlled-decoupled-child"]
+D9  = ["rewind-to-separation", "refly-gate", "unfinished-flights-stash"]
 D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
 
 [expectations]
@@ -339,8 +363,10 @@ count = { min = 11, max = 11 }
 # GROUP 6 - THE SPLIT SEEDS THE SECOND HALF. Added 2026-09-10 (claim-gap wave A1-7) off
 # reading run `2026-09-10_1743_RF-9-atmosphere-exit-split-stays-open` (wave DLL
 # a0abbed1, PASS attempt 1, mismatches=0, all 17 older required tokens matched). The D4
-# `seed-event-split` claim these support lands only after this lane's armed re-flight
-# and a negative control.
+# `seed-event-split` claim these support needs this lane's armed re-flight and a
+# negative control. The armed re-flight flew: `2026-09-10_2050`, PASS attempt 1, each of
+# the four matched once. The control (`Inserted 12` -> `Inserted 13`) has NOT flown, so
+# the claim is not taken.
 #   `RecordingOptimizer.SplitAtSection` seeds the second half at the split boundary
 #   (InsertTransientStateSeeds, then ForwardPermanentStateEvents), and each logs an INFO
 #   count. SplitAtSection is their only caller: the optimizer pass reaches it directly
@@ -349,10 +375,14 @@ count = { min = 11, max = 11 }
 #   `Built` / `Inserted` / `Forwarded` lines BEFORE its own `SplitAtSection: split <rec>`
 #   summary. 12 / 19 belong to the promoted focus recording ('Kerbal X', slot 0, the
 #   lane's subject); 1 / 1 belong to the probe ('Kerbal X Probe', slot 1).
-#   The counts are literal: 12 / 19 and 1 / 1 on all three flights read
-#   (`2026-09-09_0154`, `2026-09-09_0301`, the reading). The UT moved every flight
-#   (173.0, 172.4, 172.7), so it is regexed. `Inserted 1 transient` cannot match the
-#   `Inserted 12` line, because the pattern needs a space after the 1.
+#   The counts are literal: 12 / 19 and 1 / 1 on all four flights read
+#   (`2026-09-09_0154`, `2026-09-09_0301`, the reading, the armed re-flight). The UT
+#   moved every flight (173.0, 172.4, 172.7, 172.6), so it is regexed. `Inserted 1
+#   transient` cannot match the `Inserted 12` line, because the pattern needs a space
+#   after the 1. In the armed re-flight, 12 / 19 at UT=172.6 preceded `SplitAtSection:
+#   split 6c241246...` ('Kerbal X', promoted slot 0), and 1 / 1 at UT=172.7 preceded
+#   `fb3c2c02...` ('Kerbal X Probe', promoted slot 1). The promoted ids equal the split
+#   ids.
 required  = ["Recording started",
              "Controllable split children: \\[[0-9]+,[0-9]+\\]",
              "ProcessBreakupEvent: controlled child created: pid=[0-9]+",

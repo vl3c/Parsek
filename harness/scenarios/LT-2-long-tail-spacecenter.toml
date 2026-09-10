@@ -30,7 +30,7 @@ tier = "nightly"
 #
 # THE SEVENTH CONSTITUENT, `SceneAndPatch`, APPENDED 2026-09-10 IN READING SHAPE (the
 # claim-gap wave, package A1-4). The six constituents above stay pinned WHOLE off run
-# `2026-09-07_1516`; only the new line and the aggregate are interim.
+# `2026-09-07_1516`; the new line and the aggregate were interim until the reading below.
 #   WHY IT IS HERE: `ParsekKscRelativePlaybackUsesRecordedAnchor`
 #   (ExtendedRuntimeTests.cs, SPACECENTER) commits a tree whose probe carries a
 #   `ReferenceFrame.Relative` section with `anchorRecordingId`, plays it through the
@@ -88,7 +88,21 @@ tier = "nightly"
 #   The same reading measured the wave DLL's `BgOnRailsNoEnvSectionsWitness` line (the
 #   `Recording` constituent, package A1-2) and the Optimizer's production
 #   `TrimBoringTail` line. Both are required below, with the KSC probe pair.
-description = "Run the seven SPACECENTER-scoped long-tail in-game categories as one multi-category batch over an empty store: all seven constituents and the aggregate pinned whole (SceneAndPatch appended 2026-09-10 and measured by its reading run), plus four cell tokens."
+#   THE ARMED RE-FLIGHT AND THE THREE CONTROLS, 2026-09-10, all on the wave DLL a0abbed1
+#   against the committed spec (5f201f2c5), one inverted token per control flight:
+#     armed    `2026-09-10_1957_LT-2-long-tail-spacecenter` PASS attempt 1, 48 s,
+#              mismatches=0 over 13 required + 1 forbidden, recordings=0, zero ERROR
+#              lines; every cell token matched exactly once.
+#     control  `2026-09-10_2000` `5 points` -> `6 points` (D4 tail-trim)
+#     control  `2026-09-10_2002` `perFrameEnvSections=0` -> `=1` (D5 bg-on-rails)
+#     control  `2026-09-10_2005` `error=0\.[0-9]{3}m` -> `error=[1-9][0-9]*\.[0-9]{3}m`
+#              (D3 relative-anchored-nonloop; the positioner line stayed matched)
+#   Each control read PARSEK-FAIL(expectation) with exactly one mismatch, on its own
+#   inverted entry, with every other verifier row PASS / REPORT / SKIPPED. The drift
+#   gate held in each control's own KSP.log: the original pattern matched 1 line, the
+#   inverted 0. Each was reverted with `git checkout`. The three claims in
+#   [dimensionsCovered] rest on this record.
+description = "Run the seven SPACECENTER-scoped long-tail in-game categories as one multi-category batch over an empty store: all seven constituents and the aggregate pinned whole (SceneAndPatch appended 2026-09-10 and measured by its reading run), plus four cell tokens that gate D3 relative-anchored-nonloop, D4 tail-trim and D5 bg-on-rails (armed re-flight and one negative control per token, 2026-09-10)."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "multi-category", "long-tail", "LT-2"]
 
@@ -108,7 +122,24 @@ steps = [
 ]
 
 [dimensionsCovered]
-# Environment axes only; see LT-1 for why a tally pin claims no behaviour cell.
+# The environment axes, plus three cells claimed 2026-09-10 (claim-gap wave A1) after the
+# armed re-flight and one negative control per token (see the header). A tally pin claims
+# no behaviour cell (see LT-1), so each claim below rests on a CELL token instead:
+#  - D3 `relative-anchored-nonloop`: the KSC probe's post-assert line plus the
+#    positioner's own `RELATIVE KSC playback resolved` line.
+#    ParsekKscRelativePlaybackUsesRecordedAnchor plays a Relative section carrying
+#    `anchorRecordingId` through the production KSC positioner. The probe line prints
+#    only after the < 0.25 m assert held.
+#  - D4 `tail-trim`: the production `TrimBoringTail: trimmed ...` line from
+#    RunOptimizationPass's tail trim. The grazing cell does not assert the trim, so the
+#    claim rests on the production line itself, which is fixture-literal and
+#    deterministic.
+#  - D5 `bg-on-rails`: the post-assert `BgOnRailsNoEnvSectionsWitness` line, WITH the
+#    three bypasses the logContracts comment names. Only the CheckpointAllVessels close
+#    path is production.
+D3  = ["relative-anchored-nonloop"]
+D4  = ["tail-trim"]
+D5  = ["bg-on-rails"]
 D14 = ["sandbox", "scene-ksc"]
 
 [expectations]
@@ -124,8 +155,9 @@ count = { min = 0, max = 0 }
 # `2026-09-10_1734` (see the header).
 #
 # THE CELL TOKENS, added 2026-09-10 off the same reading (claim-gap wave A1). The
-# registry claims they support land only after this lane's armed re-flight and one
-# negative control per token.
+# registry claims they support were taken after this lane's armed re-flight
+# (`2026-09-10_1957`) and one negative control per token (`_2000`, `_2002`, `_2005`);
+# see the header.
 #  - `TrimBoringTail: trimmed ...` (INFO, the Optimizer's tail trim inside the
 #    production RunOptimizationPass that EccentricGrazing_StaysOneSegment_InGame
 #    drives). The basis for D4 `tail-trim`. Every value in it is a fixture literal (the
