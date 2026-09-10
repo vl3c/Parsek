@@ -6943,14 +6943,40 @@ class AnalyzerRow:
     """How one attempt's analyzer result is RECORDED and whether it acts.
 
     ``status`` is the row's own status - the classified verdict status when the row
-    gates, ``REPORT`` when the spec turned gating off. ``verdict`` is what reaches
-    ``classify_verdict``: None on a report-only row, which is what keeps it out of
-    the verdict. ``short_circuit`` is whether the rest of the verifier chain is
-    skipped."""
+    ACTS, ``REPORT`` when the spec's declaration demoted it. ``verdict`` is what
+    reaches ``classify_verdict``: None on a demoted row, which is what keeps it out
+    of the verdict. ``gating`` is whether THIS row acted, not what the spec
+    declared - the two differ for the INVALID carve-out below, and ``run.py``'s
+    "relabel the status to REPORT" branch keys off it. ``short_circuit`` is whether
+    the rest of the verifier chain is skipped."""
     status: str
     gating: bool
     verdict: Optional[AnalyzerVerdict]
     short_circuit: bool
+
+
+def analyzer_report_only_covers(verdict: Optional[AnalyzerVerdict]) -> bool:
+    """Whether `gating = false` demotes THIS analyzer verdict.
+
+    It covers a PASS and a PARSEK-FAIL FINDING - a statement about the recordings
+    on the host, which is exactly what a report-only lane declares is not its
+    subject. It does NOT cover an INVALID: every INVALID subkind is a statement
+    about the ANALYZER RUN, not about the save it read.
+
+      - ``analyzer-error``: no terminal ``RED=`` token, i.e. the analyzer produced
+        no gate at all. Demoting it reports "nothing found" for a run in which
+        nothing was read.
+      - ``tooling``: the subprocess timed out TWICE (``_run_analyzer_retrying``
+        already spent its retry). A wedged pwsh is a harness fault, and a lane
+        whose analyzer never ran cannot claim its findings were reviewed.
+      - ``fixture-authoring`` / ``fixture-stale``: ``BASELINE-FORBIDDEN`` in a
+        produced save, or a baseline nothing matches. Both point at the fixture /
+        re-harvest queue, and the census lanes are the ones staging a LOCAL fixture
+        (``harness/tools/stage_local_fixture.py``), so this is the INVALID they are
+        most likely to hit and the least safe to swallow.
+
+    ``verdict`` None (the triage-only path) is covered: there is no reading to keep."""
+    return verdict is None or verdict.status != "INVALID"
 
 
 def evaluate_analyzer_row(verdict: Optional[AnalyzerVerdict],
@@ -6959,12 +6985,21 @@ def evaluate_analyzer_row(verdict: Optional[AnalyzerVerdict],
 
     GATING (the default, and every committed spec but the two census lanes): the
     row IS the verdict and a non-PASS short-circuits the chain - byte-for-byte
-    today's behaviour. REPORT-ONLY: the verdict is still carried in the row for the
-    result JSON, but it drives nothing and stops nothing.
+    today's behaviour.
+
+    REPORT-ONLY demotes FINDINGS ONLY. The declaration says "this host's recordings
+    are not my subject"; it does not say "read the lane green when the analyzer
+    could not read them at all". So an INVALID stays a verdict and still
+    short-circuits, exactly as under gating - see ``analyzer_report_only_covers``.
+    Without that carve-out a census lane greened on a wedged analyzer, on a missing
+    ``RED=`` token, and on a ``BASELINE-FORBIDDEN`` its own staging tool could
+    carry in - which is the very outcome the comments in
+    ``harness/tools/stage_local_fixture.py`` cite as the reason they drop
+    ``analysis/``.
 
     ``verdict`` None is the triage-only path (a driver-INVALID save the chain never
     reaches); it is recorded as-is and acts either way."""
-    if not gating:
+    if not gating and analyzer_report_only_covers(verdict):
         return AnalyzerRow(ANALYZER_STATUS_REPORT, False, None, False)
     if verdict is None:
         return AnalyzerRow("SKIPPED", True, None, False)

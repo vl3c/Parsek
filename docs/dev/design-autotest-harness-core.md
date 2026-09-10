@@ -1473,11 +1473,28 @@ retry re-runs only that verifier subprocess, not a fresh KSP boot).
    permitted to declare it, and its cell reds when any other committed spec does. A
    second cell requires such a spec to carry a non-empty `logContracts.required` (a
    lane that gates on nothing is the state this replaces) and forbids it from ALSO
-   carrying an `[expectedFail]` quarantine. A report-only row also swallows an
-   analyzer `INVALID(tooling)`, deliberately: the declaration says this row does not
-   move the verdict, and the M-A5.1 subprocess retry still fires and is still
-   recorded in `subprocessRetry`. Driven end to end over the SAME RED=1 analyzer
-   output in both directions by `AnalyzerReportOnlySmokeTests`.
+   carrying an `[expectedFail]` quarantine.
+
+   **THE DECLARATION DEMOTES FINDINGS ONLY.** An analyzer `INVALID` is NOT demoted:
+   it stays a verdict and still short-circuits, exactly as under gating
+   (`hlib.analyzer_report_only_covers`). `gating = false` says "this HOST's
+   recordings are not my subject", which is a statement about the SAVE; every
+   INVALID subkind is a statement about the analyzer RUN instead - `analyzer-error`
+   (no terminal `RED=` token, so no gate was produced at all), `tooling` (the
+   subprocess timed out TWICE, the M-A5.1 subprocess retry already spent),
+   `fixture-authoring` / `fixture-stale` (`BASELINE-FORBIDDEN` in a produced save, or
+   a baseline nothing matches). Swallowing those reads a lane green over a save the
+   analyzer never opened, and the fixture pair is the one the census lanes are MOST
+   exposed to, since they are the specs staging a local fixture
+   (`harness/tools/stage_local_fixture.py`, whose `analysis/` drop cites exactly this
+   INVALID as its reason). `AnalyzerRow.gating` is therefore "this row ACTED" rather
+   than "the spec asked for gating", and `run.py`'s REPORT relabel keys off it; a
+   declared-report-only row that acted anyway gets its own WARN line so an operator
+   does not read the INVALID as the declaration failing to take effect. The
+   subprocess retry still fires and is still recorded in `subprocessRetry` either
+   way. Driven end to end over the SAME RED=1 analyzer output in both directions -
+   and over a wedged analyzer under `gating = false` - by
+   `AnalyzerReportOnlySmokeTests`.
 4. **Log validation + LogContract** via `scripts/validate-ksp-log.ps1 -LogPath
    <instanceDir>/KSP.log`. A failure here -> PARSEK-FAIL (log-contract). The
    validator's rules carry stable codes: `SES-000`/`SES-001` (session start/end

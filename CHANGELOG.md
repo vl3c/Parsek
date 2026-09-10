@@ -35,7 +35,10 @@ _(unreleased — entries accumulate here per commit)_
   and still reported a comfortable colour. A run definition can now ask for that one
   check to be reported instead, which leaves every other check doing its job. It is off
   by default everywhere, and the list of runs allowed to ask for it is written down so
-  it cannot spread quietly.
+  it cannot spread quietly. Asking for it sets aside only what the check FOUND: if the
+  check could not run at all - it timed out twice, it produced no verdict, or the
+  starting save was staged wrong - the run still fails, because "nothing to report" and
+  "nobody looked" are not the same answer.
 
 - **Automated testing: a test run can now let time really pass, instead of only moving
   the clock.** The only way an automated run could skip ahead was to move the clock and

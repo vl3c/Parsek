@@ -1069,6 +1069,32 @@ class AnalyzerReportOnlySmokeTests(unittest.TestCase):
             with self.subTest(row=row):
                 self.assertEqual("PASS", v[row]["status"])
 
+    def test_report_only_still_reds_on_a_wedged_analyzer(self):
+        # The carve-out END TO END: `gating = false` demotes FINDINGS, not an analyzer
+        # that never ran. The first call AND the subprocess retry inside
+        # _run_analyzer_retrying are both wedged (analyzer_fail_calls=2), so the row
+        # classifies INVALID(tooling) - and it still ACTS, so the run reads INVALID and
+        # the chain short-circuits exactly as it would under gating. Before the fix
+        # this leg read PASS, with every later row PASSing over a save the analyzer
+        # never opened.
+        spec = _make_spec(self.template, 30, 600)
+        spec["id"] = "SMOKE-analyzer-report-wedged"
+        spec["expectations"]["analyzer"] = {"gating": False}
+        rt = FakeRuntime("pass", analyzer_fail_calls=2)
+        result = run.run_attempt(spec, self.instance, self.tmp, rt, attempt=1,
+                                 prior_boot_crashed=False, logger=self.logger)
+        self.assertEqual(hlib.VERDICT_INVALID, result["verdict"])
+        self.assertEqual("tooling", result["subkind"])
+        v = result["verifiers"]
+        self.assertEqual("INVALID", v["analyzer"]["status"])
+        # Not relabelled to REPORT: the row acted, so run.py's REPORT relabel (which
+        # keys off row.gating) must not have fired and hidden the INVALID behind it.
+        self.assertTrue(v["analyzer"]["gating"])
+        self.assertNotIn("verdictStatus", v["analyzer"])
+        for row in ("logValidate", "testResults", "anomalySweep", "expectations"):
+            with self.subTest(row=row):
+                self.assertEqual("SKIPPED", v[row]["status"])
+
     def test_report_only_does_not_disarm_the_other_gates(self):
         # The mirror direction: turning the analyzer row off must not turn anything
         # ELSE off. A run whose log contract fails still reds - on the log contract,

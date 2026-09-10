@@ -38,6 +38,16 @@ beside it), but it neither short-circuits the verifier chain nor reaches
 `classify_verdict`. The declaring set is pinned by `ANALYZER_REPORT_ONLY_ALLOWLIST` in
 `harness/lib/test_hlib.py`; contract in `design-autotest-harness-core.md`, verifier 3.
 
+THE DECLARATION DEMOTES FINDINGS ONLY. An analyzer `INVALID` still gates and still
+short-circuits (`hlib.analyzer_report_only_covers`): `analyzer-error` (no terminal
+`RED=` token), `tooling` (the subprocess timed out twice), `fixture-authoring` /
+`fixture-stale` (`BASELINE-FORBIDDEN`, or a baseline nothing matches). Those are
+statements about the analyzer RUN rather than about the 25 findings this entry is about,
+and the fixture pair is the one these two lanes are most exposed to - they are the specs
+staging a local fixture. The first cut of the fold returned REPORT before it looked at
+the verdict at all, so a wedged analyzer or a mis-staged fixture would have greened the
+lane; fixed 2026-09-10 in the same branch.
+
 The first draft used `[expectedFail] subkind = "analyzer"` instead, and THAT WAS WRONG in
 a way worth recording, because it looks strictly safer and is not: `run.py`'s verifier
 chain SHORT-CIRCUITS on a non-PASS analyzer, so a quarantined lane had every LATER row

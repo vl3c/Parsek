@@ -111,6 +111,10 @@ def classify_entry(rel_path: str, keep_quicksaves: bool) -> Tuple[bool, str]:
         # therefore make the lane INVALID before it read a single window, with a cause
         # that names fixture authoring rather than the copy that carried it in. The
         # census reads no analyzer output either way.
+        # The census lanes' `[expectations.analyzer] gating = false` does NOT cover
+        # that INVALID: report-only demotes FINDINGS only, and an INVALID stays a
+        # verdict (`hlib.analyzer_report_only_covers`). So this drop is load-bearing
+        # for exactly the two specs most likely to reach this code.
         return False, "analyzer output dir"
     if keep_quicksaves:
         return True, ""

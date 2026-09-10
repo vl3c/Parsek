@@ -14426,16 +14426,72 @@ class AnalyzerReportOnlyModeTests(unittest.TestCase):
         self.assertIsNone(row.verdict)
         self.assertFalse(row.short_circuit)
 
-    def test_report_only_swallows_an_analyzer_tooling_invalid_too(self):
-        # Deliberate and worth a cell: a wedged pwsh analyzer is INVALID(tooling),
-        # which normally drives a retryable INVALID. The declaration says this row does
-        # not move the verdict, and a tooling fault is no more this lane's subject than
-        # a finding is. The subprocess-scoped retry still fires inside
-        # _run_analyzer_retrying and is still recorded in `subprocessRetry`.
+    def test_report_only_does_NOT_swallow_an_analyzer_tooling_invalid(self):
+        # The carve-out, and the cell this file used to assert the INVERSE of. A wedged
+        # pwsh analyzer is INVALID(tooling) after _run_analyzer_retrying has already
+        # spent its retry. `gating = false` says the HOST's findings are not this
+        # lane's subject; it cannot also say "an analyzer that never read the save
+        # reports nothing", so the INVALID stays a verdict and still short-circuits.
         row = hlib.evaluate_analyzer_row(
             hlib.AnalyzerVerdict("INVALID", "tooling", None), gating=False)
-        self.assertIsNone(row.verdict)
-        self.assertFalse(row.short_circuit)
+        self.assertEqual("INVALID", row.status)
+        self.assertIsNotNone(row.verdict)
+        self.assertEqual("tooling", row.verdict.subkind)
+        self.assertTrue(row.short_circuit)
+        # `gating` is "this row ACTED", which is what run.py's REPORT relabel keys off:
+        # a demoted row would have had its status rewritten to REPORT and its INVALID
+        # hidden behind it.
+        self.assertTrue(row.gating)
+
+    def test_report_only_does_NOT_swallow_an_analyzer_error_invalid(self):
+        # No terminal `RED=` token, i.e. the analyzer produced no gate at all
+        # (classify_analyzer's `red is None` arm). This is the subkind a demotion reads
+        # WORST on: it would report a clean review of a run that reviewed nothing.
+        row = hlib.evaluate_analyzer_row(
+            hlib.AnalyzerVerdict("INVALID", "analyzer-error", None), gating=False)
+        self.assertEqual("INVALID", row.status)
+        self.assertIsNotNone(row.verdict)
+        self.assertEqual("analyzer-error", row.verdict.subkind)
+        self.assertTrue(row.short_circuit)
+
+    def test_report_only_does_NOT_swallow_a_fixture_authoring_invalid(self):
+        # BASELINE-FORBIDDEN in a produced save. The census lanes are the ones staging
+        # a LOCAL fixture, so this is the INVALID they are most likely to hit - and it
+        # is the exact outcome stage_local_fixture.py's `analysis/` drop cites as the
+        # reason it drops that directory, a claim a demotion would have made false.
+        for subkind in ("fixture-authoring", "fixture-stale"):
+            with self.subTest(subkind=subkind):
+                row = hlib.evaluate_analyzer_row(
+                    hlib.AnalyzerVerdict("INVALID", subkind, "BASELINE-FORBIDDEN"),
+                    gating=False)
+                self.assertEqual("INVALID", row.status)
+                self.assertIsNotNone(row.verdict)
+                self.assertTrue(row.short_circuit)
+
+    def test_the_carve_out_reaches_the_verdict_under_report_only(self):
+        # End-to-end through classify_verdict, because the row fold is only half the
+        # path: the point of keeping the verdict is that the RUN reads INVALID rather
+        # than PASS. Paired with test_the_verdict_a_report_only_row_drops_would_have_red
+        # (the PARSEK-FAIL direction), the two together pin the split.
+        verdict = hlib.AnalyzerVerdict("INVALID", "analyzer-error", None)
+        row = hlib.evaluate_analyzer_row(verdict, gating=False)
+        out = hlib.classify_verdict(
+            {"valid": True}, {"analyzer": row.verdict}, {"bugId": ""}, 1, "once")
+        self.assertEqual(hlib.VERDICT_INVALID, out.verdict)
+
+    def test_report_only_covers_findings_and_nothing_else(self):
+        # The predicate on its own, stated as a table so the split is readable in one
+        # place: PASS and every PARSEK-FAIL are covered, no INVALID is.
+        self.assertTrue(hlib.analyzer_report_only_covers(None))
+        self.assertTrue(hlib.analyzer_report_only_covers(
+            hlib.AnalyzerVerdict("PASS", "", None)))
+        self.assertTrue(hlib.analyzer_report_only_covers(
+            hlib.AnalyzerVerdict("PARSEK-FAIL", "analyzer", "INV2-NO-DOUBLE-COVER")))
+        for subkind in ("analyzer-error", "tooling", "fixture-authoring",
+                        "fixture-stale", ""):
+            with self.subTest(subkind=subkind):
+                self.assertFalse(hlib.analyzer_report_only_covers(
+                    hlib.AnalyzerVerdict("INVALID", subkind, None)))
 
     def test_a_none_verdict_on_a_gating_row_is_recorded_as_skipped(self):
         # The total-function guard. run.py's triage-only path never reaches this fold

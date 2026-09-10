@@ -2561,6 +2561,13 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
     # nor reaches classify_verdict, so every LATER verifier evaluates. See
     # hlib.evaluate_analyzer_row for why the alternative (an `[expectedFail]`
     # analyzer quarantine) silently deletes the rest of the chain.
+    #
+    # The declaration demotes FINDINGS ONLY: an analyzer INVALID (analyzer-error /
+    # tooling / fixture-*) stays a verdict and still short-circuits, because it is a
+    # statement about the analyzer RUN rather than about the host's recordings
+    # (hlib.analyzer_report_only_covers). `row.gating` is therefore "this row
+    # ACTED", not "the spec asked for gating", which is what the two branches below
+    # split on.
     analyzer_verdict = None
     analyzer_gating = hlib.analyzer_gating(expectations)
     if driver_valid:
@@ -2585,6 +2592,17 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
                            analyzer_detail.get("subkind"),
                            analyzer_detail.get("topRule"),
                            analyzer_detail.get("failNonBaselined")))
+        elif not analyzer_gating:
+            # Declared report-only, and the row acted anyway: the carve-out fired.
+            # Named on its own line because the operator who wrote `gating = false`
+            # will otherwise read an INVALID on this lane as the declaration failing
+            # to take effect.
+            logger.warn("Verify",
+                        "verify analyzer status=%s subkind=%s - the spec declares "
+                        "gating=false, which demotes FINDINGS ONLY; an analyzer "
+                        "INVALID is a statement about the analyzer RUN and stays a "
+                        "verdict (hlib.analyzer_report_only_covers)"
+                        % (row.status, analyzer_detail.get("subkind")))
         detail["analyzer"] = analyzer_detail
         if analyzer_retry is not None:
             subprocess_retries.append(analyzer_retry)

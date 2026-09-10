@@ -217,7 +217,10 @@ class StageLocalFixtureTests(unittest.TestCase):
         # a failure (BASELINE-FORBIDDEN -> INVALID(fixture-authoring)). A staged
         # `analysis/baseline.cfg` would therefore make the lane INVALID before it read a
         # single window, naming fixture authoring rather than the copy that carried it
-        # in. Unconditional: it is dropped even with quicksaves KEPT.
+        # in - and the census lanes' `[expectations.analyzer] gating = false` does not
+        # cover it, because report-only demotes FINDINGS only and an analyzer INVALID
+        # stays a verdict (hlib.analyzer_report_only_covers). Unconditional: it is
+        # dropped even with quicksaves KEPT.
         for keep_quicksaves in (True, False):
             for rel in ("analysis/baseline.cfg", "analysis/c1.analysis.txt",
                         "analysis/c1.analysis.json", "Analysis/baseline.cfg"):
