@@ -1436,6 +1436,48 @@ retry re-runs only that verifier subprocess, not a fresh KSP boot).
    since Forbid, Apply, and Write are three incompatible modes. This is the one
    small production-adjacent seam M-A5 introduces; it is inert until the harness
    passes it.
+
+   **REPORT-ONLY MODE (`[expectations.analyzer] gating = false`, 2026-09-10).** The
+   row above is GATING by default and stays byte-for-byte so for every spec that
+   declares nothing - which is every committed spec but the two GUI-census lanes. A
+   spec may declare the block to make the row REPORT-ONLY: the analyzer still RUNS,
+   its verdict is still classified and recorded (`status = "REPORT"` with
+   `verdictStatus` / `subkind` / `topRule` / `red` / `failNonBaselined` beside it,
+   and a WARN naming all of them), but it neither SHORT-CIRCUITS the chain nor
+   reaches `classify_verdict`. Decision in `hlib.analyzer_gating` +
+   `hlib.evaluate_analyzer_row`; shape validated pre-launch by
+   `hlib.validate_analyzer_expectations` (a STRING `"false"` is a hard error, not a
+   silently-still-gating no-op).
+
+   WHY IT EXISTS, and it is a CHAIN property rather than a classification one. The
+   only prior way to fly a lane whose HOST carries pre-existing findings was
+   `[expectedFail] subkind = "analyzer"` - and because a non-PASS analyzer sets
+   `short_circuited`, that quarantine left every LATER row SKIPPED: `logValidate`,
+   `testResults`, `anomalySweep`, `unityExceptions`, `expectations`, `saveParse`,
+   `renderCompose`, `ghostLifecycle`, `ledgerOracle`. A quarantined lane therefore
+   asserted NOTHING - a GUI census that captured zero screenshots would have read
+   EXPECTED-FAIL, i.e. green, while its own spec header claimed
+   `[expectations.logContracts]` pinned the capture lines. The mode keeps the
+   analyzer's reading in the record and lets the rest of the chain do its job.
+
+   WHY NOT A FINDINGS BASELINE, which is the other apparent route: `run.py` invokes
+   the script with `-FreshSaveGate` hard-coded, and that switch is mutually
+   exclusive with `-UseBaseline` (N1 above), so a per-save baseline was never
+   reachable from the harness. Plumbing one through is a change to the gating
+   architecture and stays an operator decision, filed as
+   `U1-GUI-CENSUS-LOCAL-HOST-REDS-THE-ANALYZER` in `todo-and-known-bugs.md`.
+
+   SAFETY. Report-only is a real loss of a gate, so the declaring set is an
+   ALLOWLIST in the M-C2 `ARMED_ALLOWLIST` shape but in the opposite direction:
+   `ANALYZER_REPORT_ONLY_ALLOWLIST` in `harness/lib/test_hlib.py` names the specs
+   permitted to declare it, and its cell reds when any other committed spec does. A
+   second cell requires such a spec to carry a non-empty `logContracts.required` (a
+   lane that gates on nothing is the state this replaces) and forbids it from ALSO
+   carrying an `[expectedFail]` quarantine. A report-only row also swallows an
+   analyzer `INVALID(tooling)`, deliberately: the declaration says this row does not
+   move the verdict, and the M-A5.1 subprocess retry still fires and is still
+   recorded in `subprocessRetry`. Driven end to end over the SAME RED=1 analyzer
+   output in both directions by `AnalyzerReportOnlySmokeTests`.
 4. **Log validation + LogContract** via `scripts/validate-ksp-log.ps1 -LogPath
    <instanceDir>/KSP.log`. A failure here -> PARSEK-FAIL (log-contract). The
    validator's rules carry stable codes: `SES-000`/`SES-001` (session start/end

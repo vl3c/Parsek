@@ -23,6 +23,17 @@ _(unreleased — entries accumulate here per commit)_
   at the Space Center, one in flight. None of this adds anything a player can see or
   reach in the game; it drives the same switches the existing buttons do.
 
+- **Automated testing: a run definition can now ask for one particular check to be
+  reported rather than acted on.** The recording-health check runs over whatever save a
+  run produced, and on a run whose starting point is somebody's own long-played career
+  it reports things that career already had - nothing the run did. Marking such a run
+  "expected to fail" looked like the answer and was far worse than it sounds: the first
+  check that fails stops all the later ones, so the run stopped checking anything at all
+  and still reported a comfortable colour. A run definition can now ask for that one
+  check to be reported instead, which leaves every other check doing its job. It is off
+  by default everywhere, and the list of runs allowed to ask for it is written down so
+  it cannot spread quietly.
+
 - **Automated testing: a test run can now let time really pass, instead of only moving
   the clock.** The only way an automated run could skip ahead was to move the clock and
   leave everything where it was, which is fine for watching a replay reach a moment far

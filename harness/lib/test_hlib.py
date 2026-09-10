@@ -14147,6 +14147,180 @@ class LocalFixtureTemplateTests(unittest.TestCase):
                         % hlib.LOCAL_FIXTURE_STAGING_TOOL)
 
 
+class AnalyzerReportOnlyModeTests(unittest.TestCase):
+    """`[expectations.analyzer] gating = false` - the spec-declared REPORT-ONLY
+    analyzer row, and the allowlist that keeps turning it off a deliberate act.
+
+    THE DEFECT IT REPLACES, which is why the safety property here is worth as much
+    as the feature: `run.py`'s verifier chain SHORT-CIRCUITS on a non-PASS analyzer,
+    so a lane quarantined with `[expectedFail] subkind = "analyzer"` had every LATER
+    verifier SKIPPED - its `[expectations.logContracts]` were never evaluated, and a
+    census that produced zero screenshots would have read EXPECTED-FAIL (green)
+    while its own header claimed those contracts pinned the capture lines. The
+    quarantine did not weaken one gate; it deleted all of them.
+
+    The mode fixes that by leaving the analyzer RECORDED but inert, so the rest of
+    the chain runs. Its cost is the mirror risk - a spec that switches it off
+    silently loses a real gate - which is what the allowlist below is for."""
+
+    # The specs permitted to declare `gating = false`, mirroring M-C2's
+    # save-structure roster in the opposite direction: that one names the specs that
+    # turned a report-only row ON, this one names the specs that turned a gating row
+    # OFF. Both are deliberate per-scenario acts and both cost an edit HERE.
+    #
+    # NOTE the name deliberately does not carry the substring `ARMED_ALLOWLIST`:
+    # `Cl3SpecArmedTests` scrapes the save-structure roster out of this file's SOURCE
+    # with a first-match regex on that name, so a sibling constant ending in it would
+    # hand CL-3 the wrong list (see the RUNTESTS_STRICT_ARMED_SPECS comment).
+    ANALYZER_REPORT_ONLY_ALLOWLIST = {
+        # The two GUI-census lanes, 2026-09-10. HOST-DRIVEN, not lane-driven: their
+        # host is the operator's own long-lived career (staged as the operator-local
+        # `c1-gui`), whose recordings carry 25 pre-existing `INV2-NO-DOUBLE-COVER`
+        # FAILs measured 2026-09-10 - `FAIL=25 WARN=6 INFO=3 RED=1`, all on
+        # recordings months older than the lanes, and its own committed
+        # `analysis/c1.analysis.txt` from 2026-08-11 reads RED=1 too. A census takes
+        # SCREENSHOTS: it neither causes nor observes a recording-invariant finding,
+        # and gating a layout review on career bookkeeping would red it forever. The
+        # findings themselves are filed as
+        # U1-GUI-CENSUS-LOCAL-HOST-REDS-THE-ANALYZER, which is where the decision
+        # about them lives; this row only says the census is not the lane that
+        # decides it.
+        "GUI-1-census-ksc.toml",
+        "GUI-2-census-flight.toml",
+    }
+
+    def test_no_other_committed_spec_turns_the_analyzer_row_off(self):
+        declared = []
+        for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
+            with open(os.path.join(SCENARIOS_DIR, name), "rb") as fh:
+                spec = tomllib.load(fh)
+            if not hlib.analyzer_gating(spec.get("expectations") or {}):
+                declared.append(name)
+        self.assertEqual(sorted(self.ANALYZER_REPORT_ONLY_ALLOWLIST), declared,
+                         "the set of specs declaring [expectations.analyzer] "
+                         "gating = false changed. Turning the analyzer row off is a "
+                         "per-scenario operator decision - it is only ever right when "
+                         "the HOST carries findings the lane neither causes nor "
+                         "observes - so add the spec here in the same commit that "
+                         "declares it, with the measurement behind it")
+
+    def test_the_two_census_lanes_declare_it_and_carry_no_expected_fail_quarantine(self):
+        # The pair is one decision: the report-only row REPLACES the analyzer
+        # quarantine, it does not sit beside it. A lane carrying both would be back to
+        # a skipped chain the moment any other verifier red.
+        for name in sorted(self.ANALYZER_REPORT_ONLY_ALLOWLIST):
+            with self.subTest(spec=name):
+                spec = load_spec(name)
+                self.assertFalse(hlib.analyzer_gating(spec.get("expectations") or {}))
+                bug = (spec.get("expectedFail", {}) or {}).get("bugId", "") or ""
+                self.assertEqual("", bug,
+                                 "%s declares BOTH a report-only analyzer row and an "
+                                 "expectedFail quarantine; the quarantine short-circuits "
+                                 "the very chain the mode exists to keep running" % name)
+                # And the contracts the mode makes reachable are actually there: a
+                # report-only analyzer on a lane with no log contract would assert
+                # nothing at all, which is the state this whole change removes.
+                required = (((spec.get("expectations") or {}).get("logContracts") or {})
+                            .get("required") or [])
+                self.assertTrue(required,
+                                "%s turns the analyzer row off and declares no "
+                                "logContracts.required, so it would gate on nothing"
+                                % name)
+
+    # ----- the mode read -----
+
+    def test_gating_is_the_default_in_every_absent_shape(self):
+        # Fail-safe direction: anything that is not the literal `false` gates.
+        for expectations in ({}, None, {"analyzer": {}},
+                             {"analyzer": {"gating": True}},
+                             {"analyzer": "nonsense"}):
+            with self.subTest(expectations=expectations):
+                self.assertTrue(hlib.analyzer_gating(expectations))
+
+    def test_only_the_literal_false_turns_it_off(self):
+        self.assertFalse(hlib.analyzer_gating({"analyzer": {"gating": False}}))
+        # A STRING "false" does NOT: it is a spec fault, caught pre-launch by
+        # validate_analyzer_expectations rather than silently read as gating-on.
+        self.assertTrue(hlib.analyzer_gating({"analyzer": {"gating": "false"}}))
+
+    def test_a_malformed_block_is_a_pre_launch_error(self):
+        self.assertEqual([], hlib.validate_analyzer_expectations(None))
+        self.assertEqual([], hlib.validate_analyzer_expectations({"gating": False}))
+        self.assertTrue(any("must be a TOML boolean" in e for e in
+                            hlib.validate_analyzer_expectations({"gating": "false"})))
+        self.assertTrue(any("unknown key" in e for e in
+                            hlib.validate_analyzer_expectations({"gatng": False})))
+        self.assertTrue(any("must be a table" in e for e in
+                            hlib.validate_analyzer_expectations(["gating"])))
+
+    def test_validate_spec_rejects_a_malformed_block(self):
+        spec = load_spec("GUI-1-census-ksc.toml")
+        spec["expectations"]["analyzer"] = {"gating": "false"}
+        v = hlib.validate_spec(spec, load_registry())
+        self.assertFalse(v.ok)
+        self.assertTrue(any("expectations.analyzer.gating" in e for e in v.errors),
+                        list(v.errors))
+
+    # ----- the row fold -----
+
+    def test_a_gating_row_is_byte_for_byte_todays_behaviour(self):
+        for status, short in (("PASS", False), ("PARSEK-FAIL", True),
+                              ("INVALID", True)):
+            with self.subTest(status=status):
+                verdict = hlib.AnalyzerVerdict(status, "analyzer", "INV2-NO-DOUBLE-COVER")
+                row = hlib.evaluate_analyzer_row(verdict, gating=True)
+                self.assertEqual(status, row.status)
+                self.assertTrue(row.gating)
+                self.assertIs(verdict, row.verdict)
+                self.assertEqual(short, row.short_circuit)
+
+    def test_a_report_only_row_records_but_neither_gates_nor_short_circuits(self):
+        # THE headline property, and both halves matter. `verdict is None` is what
+        # keeps the row out of classify_verdict; `short_circuit is False` is what lets
+        # logValidate / testResults / anomaly / expectations run at all - which is the
+        # entire reason the mode exists.
+        verdict = hlib.AnalyzerVerdict("PARSEK-FAIL", "analyzer", "INV2-NO-DOUBLE-COVER")
+        row = hlib.evaluate_analyzer_row(verdict, gating=False)
+        self.assertEqual(hlib.ANALYZER_STATUS_REPORT, row.status)
+        self.assertFalse(row.gating)
+        self.assertIsNone(row.verdict)
+        self.assertFalse(row.short_circuit)
+
+    def test_report_only_swallows_an_analyzer_tooling_invalid_too(self):
+        # Deliberate and worth a cell: a wedged pwsh analyzer is INVALID(tooling),
+        # which normally drives a retryable INVALID. The declaration says this row does
+        # not move the verdict, and a tooling fault is no more this lane's subject than
+        # a finding is. The subprocess-scoped retry still fires inside
+        # _run_analyzer_retrying and is still recorded in `subprocessRetry`.
+        row = hlib.evaluate_analyzer_row(
+            hlib.AnalyzerVerdict("INVALID", "tooling", None), gating=False)
+        self.assertIsNone(row.verdict)
+        self.assertFalse(row.short_circuit)
+
+    def test_a_none_verdict_on_a_gating_row_is_recorded_as_skipped(self):
+        # The total-function guard. run.py's triage-only path never reaches this fold
+        # (it records _run_analyzer's own detail directly), so this branch exists so
+        # the function has no undefined input rather than because a caller uses it.
+        row = hlib.evaluate_analyzer_row(None, gating=True)
+        self.assertEqual("SKIPPED", row.status)
+        self.assertIsNone(row.verdict)
+        self.assertFalse(row.short_circuit)
+
+    def test_the_verdict_a_report_only_row_drops_would_have_red(self):
+        # Anti-vacuity in the direction that matters: prove the dropped verdict was a
+        # real PARSEK-FAIL, so this cell fails if a future refactor makes the mode
+        # meaningless by only ever dropping PASSes.
+        verdict = hlib.AnalyzerVerdict("PARSEK-FAIL", "analyzer", "INV2-NO-DOUBLE-COVER")
+        gated = hlib.classify_verdict(
+            {"valid": True}, {"analyzer": verdict}, {"bugId": ""}, 1, "once")
+        self.assertEqual(hlib.VERDICT_PARSEK_FAIL, gated.verdict)
+        ungated = hlib.classify_verdict(
+            {"valid": True},
+            {"analyzer": hlib.evaluate_analyzer_row(verdict, gating=False).verdict},
+            {"bugId": ""}, 1, "once")
+        self.assertEqual(hlib.VERDICT_PASS, ungated.verdict)
+
+
 class PlanUnmetMissionTailTests(unittest.TestCase):
     """Guards (design "The unmet-mission tail"): after an UNMET mission step only the
     CLEANUP tail runs. The motivating incident is EVA-4-atmo-chute flight 1

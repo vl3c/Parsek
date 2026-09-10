@@ -30,9 +30,13 @@ Usage::
 
 The copy is VERBATIM by default (`persistent.sfs`, `persistent.loadmeta`, every
 `Parsek/<dir>` sidecar tree, `Ships/`, `AddOns/`) because a fixture the harness stages
-must be what KSP would have loaded. `--no-quicksaves` drops the `*.sfs` files that are
-neither `persistent.sfs` nor under `Parsek/`, which on a long-lived career is usually
-most of the bytes and none of the content a census reads.
+must be what KSP would have loaded - with ONE unconditional exception, the top-level
+`analysis/` directory, which is the offline analyzer's own OUTPUT and whose
+`baseline.cfg` would make the lane INVALID under the harness's `-FreshSaveGate` (see
+``classify_entry``). `--no-quicksaves` additionally drops the `*.sfs` files that are
+neither `persistent.sfs` nor under `Parsek/`, together with their `.loadmeta` siblings,
+which on a long-lived career is usually most of the bytes and none of the content a
+census reads.
 
 Stdlib only; ASCII only.
 """
@@ -58,6 +62,14 @@ _LEAF_RE = re.compile(r"^[A-Za-z0-9 _-]+$")
 # Files a KSP save carries that a fixture never needs and that are pure noise in a diff.
 _ALWAYS_SKIP_NAMES = ("thumbs.db", ".ds_store")
 
+# The offline analyzer's per-save output directory. Dropped unconditionally - see
+# classify_entry for why a staged `analysis/baseline.cfg` would make the lane INVALID
+# under the harness's hard-coded `-FreshSaveGate`.
+_ANALYSIS_DIR_NAME = "analysis"
+
+# KSP's per-save-file metadata sidecar. Classified by its `.sfs` twin, never on its own.
+_LOADMETA_EXT = ".loadmeta"
+
 
 def validate_leaf(leaf: str) -> Optional[str]:
     """None when ``leaf`` is a usable fixture name, else the reason it is not."""
@@ -78,21 +90,42 @@ def classify_entry(rel_path: str, keep_quicksaves: bool) -> Tuple[bool, str]:
     ``rel_path`` uses forward slashes and is relative to the save directory.
 
     The rule is COPY-BY-DEFAULT: a fixture the harness stages must be what KSP would
-    have loaded, so anything not positively identified as noise is kept. Only two
-    classes are dropped - the OS junk files, and (with ``keep_quicksaves`` false) the
-    save's own quicksave / backup `.sfs` files, which are neither `persistent.sfs` nor
-    part of a `Parsek/` sidecar tree."""
+    have loaded, so anything not positively identified as noise is kept. Three classes
+    are dropped - the OS junk files, the analyzer's OUTPUT directory (unconditionally,
+    see below), and (with ``keep_quicksaves`` false) the save's own quicksave / backup
+    `.sfs` files plus THEIR `.loadmeta` siblings, which are neither `persistent.sfs`
+    nor part of a `Parsek/` sidecar tree."""
     parts = [p for p in rel_path.replace("\\", "/").split("/") if p]
     if not parts:
         return False, "empty path"
     name = parts[-1]
     if name.lower() in _ALWAYS_SKIP_NAMES:
         return False, "os junk"
+    if parts[0].lower() == _ANALYSIS_DIR_NAME:
+        # THE TOP-LEVEL `analysis/` DIRECTORY, dropped UNCONDITIONALLY and not as
+        # tidiness. It is the offline analyzer's OUTPUT (`<leaf>.analysis.txt` /
+        # `.json`) plus, on a save that has ever had one written, `baseline.cfg` - and
+        # `run.py` invokes the analyzer with `-FreshSaveGate`, whose `Forbid` mode
+        # treats the PRESENCE of a baseline in a produced save as a failure
+        # (`BASELINE-FORBIDDEN` -> `INVALID(fixture-authoring)`). Staging one would
+        # therefore make the lane INVALID before it read a single window, with a cause
+        # that names fixture authoring rather than the copy that carried it in. The
+        # census reads no analyzer output either way.
+        return False, "analyzer output dir"
     if keep_quicksaves:
         return True, ""
-    if not name.lower().endswith(".sfs"):
+    lowered = name.lower()
+    if lowered.endswith(_LOADMETA_EXT):
+        # A `.loadmeta` is KSP's sidecar for the `.sfs` of the same stem, so it is
+        # classified BY THAT FILE rather than on its own: dropping `quicksave.sfs` and
+        # keeping `quicksave.loadmeta` would leave the save folder advertising a
+        # quicksave whose bytes are gone. `persistent.loadmeta` rides along with
+        # `persistent.sfs` and is kept for exactly the same reason.
+        sibling = parts[:-1] + [name[:-len(_LOADMETA_EXT)] + ".sfs"]
+        return classify_entry("/".join(sibling), keep_quicksaves)
+    if not lowered.endswith(".sfs"):
         return True, ""
-    if name.lower() in ("persistent.sfs",) and len(parts) == 1:
+    if lowered == "persistent.sfs" and len(parts) == 1:
         return True, ""
     if parts[0] == "Parsek":
         # RewindPoints/<id>.sfs and anything else Parsek keeps: load-bearing.
@@ -229,7 +262,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--remove", action="store_true",
                     help="delete the staged fixture named by --as")
     ap.add_argument("--no-quicksaves", action="store_true",
-                    help="drop quicksave / backup .sfs files (keeps persistent.sfs and "
+                    help="drop quicksave / backup .sfs files and their .loadmeta "
+                         "siblings (keeps persistent.sfs, persistent.loadmeta and "
                          "every Parsek/ sidecar)")
     ap.add_argument("--force", action="store_true",
                     help="replace an existing staged fixture of the same name")

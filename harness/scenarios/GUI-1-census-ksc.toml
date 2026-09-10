@@ -42,16 +42,18 @@ tier = "operator"
 # NoVesselSpaceCenter route instead. The flight half of the census is its sibling
 # GUI-2-census-flight, which takes the DEFAULT route on purpose.
 #
-# WHY IT IS QUARANTINED (`[expectedFail] subkind = "analyzer"`), and this is MEASURED,
-# not defensive: the offline analyzer over this host reports
+# WHY THE ANALYZER ROW IS REPORT-ONLY HERE (`[expectations.analyzer] gating = false`),
+# and this is MEASURED, not defensive: the offline analyzer over this host reports
 # `FAIL=25 WARN=6 INFO=3 RED=1`, all 25 FAILs `INV2-NO-DOUBLE-COVER`, on recordings that
 # predate this lane by months (run 2026-09-10 with `-ResultsDir` outside the save, so the
-# operator's save was not touched). `run.py` always passes `-FailOnRed` and has no
-# baseline pass-through, so the analyzer row would red this lane for findings the census
-# neither causes nor observes. The subkind is spelled out rather than left as a
-# bugId-only quarantine, so this lane can never absorb a DIFFERENT failure class, and a
-# host whose findings are gone reports XPASS instead of silently going green. Filed as
-# U1-GUI-CENSUS-LOCAL-HOST-REDS-THE-ANALYZER.
+# operator's save was not touched). `run.py` always passes `-FailOnRed`, so a gating row
+# would red this lane for findings the census neither causes nor observes. It is NOT
+# quarantined with `[expectedFail]`, which is what this lane shipped with first and which
+# was the wrong instrument: the verifier chain SHORT-CIRCUITS on a non-PASS analyzer, so
+# a quarantine skipped every LATER row - the `[expectations.logContracts]` below INCLUDED
+# - and a run that captured NOTHING would have read EXPECTED-FAIL, i.e. green. The full
+# argument is in the `[expectations.analyzer]` block at the bottom; the findings
+# themselves stay filed as U1-GUI-CENSUS-LOCAL-HOST-REDS-THE-ANALYZER.
 #
 # WINDOW COVERAGE. Nine windows are drawn at the Space Center (`ParsekKSC.OnGUI`):
 # main, missions, timeline, kerbals, career, logistics, structure, settings, testrunner.
@@ -230,6 +232,34 @@ required = [
 # ERROR surface is gated on the committed fixtures, where it is attributable.
 forbidden = []
 
+[expectations.analyzer]
+# THE ANALYZER ROW IS REPORT-ONLY ON THIS LANE, and this is the one spec-level
+# declaration the census needs. MEASURED, not defensive: the offline analyzer over this
+# host reports `FAIL=25 WARN=6 INFO=3 RED=1`, all 25 FAILs `INV2-NO-DOUBLE-COVER`, on
+# recordings that predate this lane by months (run 2026-09-10 with `-ResultsDir` outside
+# the save, so the operator's save was not touched; its own committed
+# `analysis/c1.analysis.txt` from 2026-08-11 reads RED=1 too). A census takes SCREENSHOTS
+# - it neither causes nor observes a recording-invariant finding - so gating a layout
+# review on career bookkeeping would red it forever.
+#
+# WHY NOT `[expectedFail] subkind = "analyzer"`, which is what this lane shipped with
+# first: `run.py`'s verifier chain SHORT-CIRCUITS on a non-PASS analyzer, so a quarantine
+# would leave every LATER row SKIPPED - `[expectations.logContracts]` INCLUDED. A run that
+# produced ZERO screenshots would then read EXPECTED-FAIL, i.e. green, while the header
+# above claimed those contracts pinned the capture lines. Report-only keeps the analyzer
+# RECORDED (status REPORT, with its classified verdict, RED token and counts beside it)
+# and lets the rest of the chain evaluate, so this lane gates on its OWN log contracts
+# instead of on nothing.
+#
+# WHY NOT A FINDINGS BASELINE: `run.py` hard-codes `-FreshSaveGate`, and
+# `analyze-recordings.ps1` REFUSES `-UseBaseline` together with it, so a per-save baseline
+# was never a route from here. Filed as U1-GUI-CENSUS-LOCAL-HOST-REDS-THE-ANALYZER, whose
+# open decision is about the 25 findings themselves and not about this lane.
+#
+# Pinned by `ANALYZER_REPORT_ONLY_ALLOWLIST` in `harness/lib/test_hlib.py`: any OTHER
+# committed spec declaring `gating = false` reds that cell.
+gating = false
+
 [runtime]
 # 22 captures, each holding the FIFO head for a couple of frames, plus a 300 s cold load
 # of a 42 MB career and ~60 single-phase UI ops. 1200 s is generous on purpose: the
@@ -240,7 +270,8 @@ budgetSeconds = 1200
 policy = "once"
 
 [expectedFail]
-# MEASURED, not defensive - see "WHY IT IS QUARANTINED" above. The subkind is spelled out
-# so this quarantine can only ever absorb the analyzer class.
-bugId = "U1-GUI-CENSUS-LOCAL-HOST-REDS-THE-ANALYZER"
-subkind = "analyzer"
+# EMPTY, like every other committed spec. The analyzer quarantine this lane shipped with
+# is GONE, replaced by `[expectations.analyzer] gating = false` above - see that block for
+# why a quarantine was the wrong instrument: it short-circuited the whole verifier chain,
+# log contracts included.
+bugId = ""

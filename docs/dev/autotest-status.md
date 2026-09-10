@@ -26,11 +26,25 @@ committed (the operator's 42 MB career) and cannot be synthesised (the point is 
 accumulated content: a window with no rows photographs as an empty box). The prefix is
 deliberately NOT under `fixtures/saves/`, because `test_saveparse`'s committed-set sweep
 lists the directories there and a staged local fixture would red that cell on the one
-machine that can fly the lane. Both lanes are quarantined `subkind = "analyzer"` off a
-MEASURED reading: the offline analyzer over that host reports `FAIL=25 WARN=6 INFO=3
-RED=1`, all 25 `INV2-NO-DOUBLE-COVER`, on recordings months older than the lanes
-(U1-GUI-CENSUS-LOCAL-HOST-REDS-THE-ANALYZER). `harness/tools/gui_contact_sheet.py` turns
-a run's `_shots` directory into one browsable `index.html`.) Previously 2026-09-08
+machine that can fly the lane. Both lanes declare the ANALYZER ROW REPORT-ONLY
+(`[expectations.analyzer] gating = false`, a NEW spec surface landing in the same wave)
+off a MEASURED reading: the offline analyzer over that host reports `FAIL=25 WARN=6
+INFO=3 RED=1`, all 25 `INV2-NO-DOUBLE-COVER`, on recordings months older than the lanes
+(U1-GUI-CENSUS-LOCAL-HOST-REDS-THE-ANALYZER). The row still RUNS and is still recorded
+(`status = "REPORT"` beside `verdictStatus` / `red` / `subkind` / `topRule`); it simply
+neither short-circuits the chain nor reaches `classify_verdict`. That is NOT the same as
+the `[expectedFail] subkind = "analyzer"` quarantine the pair first shipped with, and the
+difference is the whole point: a non-PASS analyzer sets `short_circuited`, so the
+quarantine left EVERY later row SKIPPED - log validation, results, anomalies,
+`expectations` AND ITS LOG CONTRACTS, saveParse, render composition, ghost lifecycle, the
+ledger oracle - and a census that captured ZERO screenshots would have read
+EXPECTED-FAIL, i.e. green, while this doc claimed those contracts pinned the capture
+lines. Gating stays the DEFAULT and is byte-for-byte unchanged for every other committed
+spec; the declaring set is an allowlist (`ANALYZER_REPORT_ONLY_ALLOWLIST` in
+`harness/lib/test_hlib.py`) whose cell reds if any other spec declares it, and a second
+cell refuses a declaring spec that has no `logContracts.required` to gate on instead.
+`harness/tools/gui_contact_sheet.py` turns a run's `_shots` directory into one browsable
+`index.html`.) Previously 2026-09-08
 (**`ListHandles` ADDED to the M-A2 seam - 31 -> 32
 implemented, reserved unchanged at 5 - and R10 RUNTIME-HANDLE PLUMBING SHIPPED**, branch
 `r10-runtime-handles`, PR #1653. R10 is the runtime -> spec data path: the harness
@@ -1315,7 +1329,7 @@ so a cadence tier would red everywhere for a missing directory.
 
 | Test case | Tier | Parsek surface verified | Coverage cells |
 |---|---|---|---|
-| GUI-1-census-ksc | operator (mechanism: operator-local host) | NOT YET FLOWN. THE GUI CENSUS, KSC HALF: opens all nine windows `ParsekKSC.OnGUI` draws, sizes each generously, and captures 22 PNGs - 17 Advanced (including the 12 TAB captures: `missions` x2, `timeline` x4 filter modes, `kerbals` x2, `career` x4) then 5 Basic (main + the windows Basic still offers). One window open at a time so no capture has another overlapping it, and `LoadGame scene="spacecenter"` is REQUIRED because the host's `activeVessel` is focusable and the default route boots into FLIGHT. What it verifies is LAYOUT, and it verifies it by producing evidence rather than by asserting: the two pinned log contracts are its own `uiaction describe scene=SPACECENTER` and one named `capturescreenshot ok label=` line, nothing about the host, because a local fixture is unreproducible by construction (one person's save at one moment) and a lane on it may assert that a window DREW and never what it drew. `forbidden` is EMPTY deliberately - a real multi-year career's cold-OnLoad ERROR surface (route reconcile, ledger recalc over 300+ actions) is not this lane's subject, and gating on it would red a layout review over career bookkeeping. Quarantined `subkind = "analyzer"` off the measured `RED=1` on that host. KNOWN THIN CAPTURE, named rather than faked: `structure` opens with no target and photographs the empty "Parsek - Structure" chrome, because its populated forms are reached from a Missions / Logistics ROW and no seam op drives one yet | D14 career, scene-ksc |
+| GUI-1-census-ksc | operator (mechanism: operator-local host) | NOT YET FLOWN. THE GUI CENSUS, KSC HALF: opens all nine windows `ParsekKSC.OnGUI` draws, sizes each generously, and captures 22 PNGs - 17 Advanced (including the 12 TAB captures: `missions` x2, `timeline` x4 filter modes, `kerbals` x2, `career` x4) then 5 Basic (main + the windows Basic still offers). One window open at a time so no capture has another overlapping it, and `LoadGame scene="spacecenter"` is REQUIRED because the host's `activeVessel` is focusable and the default route boots into FLIGHT. What it verifies is LAYOUT, and it verifies it by producing evidence rather than by asserting: the two pinned log contracts are its own `uiaction describe scene=SPACECENTER` and one named `capturescreenshot ok label=` line, nothing about the host, because a local fixture is unreproducible by construction (one person's save at one moment) and a lane on it may assert that a window DREW and never what it drew. `forbidden` is EMPTY deliberately - a real multi-year career's cold-OnLoad ERROR surface (route reconcile, ledger recalc over 300+ actions) is not this lane's subject, and gating on it would red a layout review over career bookkeeping. The ANALYZER ROW IS DECLARED REPORT-ONLY (`[expectations.analyzer] gating = false`) off the measured `RED=1` on that host, NOT quarantined with `[expectedFail]`: a non-PASS analyzer short-circuits the verifier chain, so a quarantine would have left the two log contracts above SKIPPED and a run that captured nothing would have read EXPECTED-FAIL. KNOWN THIN CAPTURE, named rather than faked: `structure` opens with no target and photographs the empty "Parsek - Structure" chrome, because its populated forms are reached from a Missions / Logistics ROW and no seam op drives one yet | D14 career, scene-ksc |
 | GUI-2-census-flight | operator (mechanism: operator-local host) | NOT YET FLOWN. THE GUI CENSUS, FLIGHT HALF, and SHORT on purpose: both hosts draw the same nine shared windows from the same classes over the same store, so a second full tab walk in flight would produce nine near-identical images and cost wall time that is itself the hazard here. It captures seven - the flight form of the MAIN window (which gains `DrawFlightStatus` and the Real Spawn Control launcher), the two windows `ParsekKSC.OnGUI` does not draw at all (`spawncontrol`, `gloops`), one shared window's chrome over a live scene, and the Basic main window. `gloops` is captured even though `UiSurface.MainButtonGloops` is RETIRED in both modes: no player can reach the window any more but its BODY still draws, so it is either dead weight to delete or a surface to re-offer, and neither call can be made from a window nobody has looked at. THE ONE HAZARD, named because the first flight has to be read for it: the host's `activeVessel` is a SUB_ORBITAL probe, so the subject descends for the whole census at 1x and may impact before the last capture - the images before it are still good (each is on disk the moment its OK lands) and the remedy is a RE-STAGE from one of the same save's four LANDED probes or four ORBITING relays, not a spec change. This lane does not warp, jump or otherwise touch the clock. Its absent `scene=` arg is the whole difference in the boot | D14 career, scene-flight |
 
 BACK TO ONE AND DOWN TO ZERO ON 2026-09-09 (`stage-b-tombstones`, Stage B closure):

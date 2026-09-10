@@ -4707,6 +4707,15 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
         warnings.extend(unity_exception_expectation_warnings(
             expectations.get(UNITY_EXCEPTIONS_BLOCK)))
 
+    # [expectations.analyzer] - the analyzer row's MODE (GUI census, 2026-09-10).
+    # Same rationale as the block above: a malformed table must be a pre-launch
+    # rejection, never a block that reads as gating-on while its author believed it
+    # was off (or the reverse). Absent block = gating, which is every committed spec
+    # but the two census lanes.
+    if ANALYZER_BLOCK in expectations:
+        errors.extend(validate_analyzer_expectations(
+            expectations.get(ANALYZER_BLOCK)))
+
     # M-B2 ledger-oracle spec surface (design ~226): a malformed
     # [expectations.ledger] block must never launch KSP. The block surface is
     # checked directly; the per-entry surface DELEGATES to
@@ -6830,6 +6839,131 @@ def classify_analyzer(red: Optional[int], analysis_json: Optional[AnalysisJson])
     # RED=1 but the JSON shows no non-baselined fail/stale: a gate/JSON
     # disagreement; never read green -> treat as an analyzer defect.
     return AnalyzerVerdict("PARSEK-FAIL", "analyzer", None)
+
+
+# ---------------------------------------------------------------------------
+# The spec-declared analyzer MODE (`[expectations.analyzer] gating = false`). Pure.
+#
+# The analyzer row is GATING by default and stays byte-for-byte that way for every
+# spec that declares nothing - which today is every committed spec but the two GUI
+# census lanes. The block exists for ONE shape the chain could not express: a lane
+# whose HOST carries pre-existing findings the lane neither causes nor observes.
+#
+# WHY A MODE RATHER THAN A QUARANTINE. `[expectedFail] subkind = "analyzer"` looks
+# like the answer and is not, because `run.py`'s verifier chain SHORT-CIRCUITS on a
+# non-PASS analyzer: every later row (logValidate, testResults, anomaly,
+# expectations, saveParse, ...) is SKIPPED, so a quarantined lane's
+# `[expectations.logContracts]` are never evaluated at all. A census that produced
+# ZERO screenshots would then read EXPECTED-FAIL - green - while its spec header
+# claimed the contracts "pin" the capture lines. The quarantine did not weaken the
+# gate; it deleted every other gate on the lane.
+#
+# WHY NOT A BASELINE. The other apparent route is the analyzer's own per-save
+# findings baseline (`<save>/analysis/baseline.cfg`, modes Forbid / Apply / Ignore).
+# It is not reachable from here: `run.py` invokes `analyze-recordings.ps1` with
+# `-FreshSaveGate` hard-coded, and the script REFUSES `-UseBaseline` together with
+# it - the fresh-save gate's whole premise is that a produced save carries no
+# baseline. Plumbing a baseline through would be a change to the gating
+# architecture, which is an operator decision (see U1 in the todo doc), not a thing
+# to take while authoring a lane.
+#
+# WHAT REPORT-ONLY MEANS, exactly: the analyzer still RUNS, its verdict is still
+# computed and recorded (status REPORT, with the classified verdict status /
+# subkind / topRule and the RED token beside it), and it neither short-circuits the
+# chain nor reaches `classify_verdict`. Every OTHER verifier then evaluates
+# normally, which is the whole point - the lane is gated on its own log contracts
+# instead of on nothing.
+#
+# The armed set is an ALLOWLIST, mirroring M-C2's `ARMED_ALLOWLIST` discipline in
+# the opposite direction: `test_hlib.ANALYZER_REPORT_ONLY_ALLOWLIST` names the specs
+# permitted to switch the row off, and its cell reds when any other committed spec
+# declares `gating = false`.
+# ---------------------------------------------------------------------------
+
+ANALYZER_BLOCK = "analyzer"
+ANALYZER_GATING_KEY = "gating"
+
+# The row's status when the spec turned gating off. Same spelling as the
+# unityExceptions REPORT row, and for the same reason: a reader scanning statuses
+# must be able to tell "measured, not judged" from PASS at a glance.
+ANALYZER_STATUS_REPORT = "REPORT"
+
+
+def analyzer_gating(expectations: Optional[Dict]) -> bool:
+    """Whether the analyzer row GATES this scenario's verdict.
+
+    True unless `[expectations.analyzer]` declares `gating = false`. Absent block,
+    absent key and a non-bool value all read True: the fail-safe direction here is
+    "the analyzer still gates", so a malformed block can only ever be stricter than
+    the author meant (and `validate_analyzer_expectations` rejects it pre-launch
+    anyway)."""
+    block = (expectations or {}).get(ANALYZER_BLOCK)
+    if not isinstance(block, dict):
+        return True
+    return block.get(ANALYZER_GATING_KEY) is not False
+
+
+def validate_analyzer_expectations(block: object) -> List[str]:
+    """Pre-launch shape check for `[expectations.analyzer]`.
+
+    The block carries exactly one key. An unknown key or a non-bool `gating` is a
+    hard error rather than a tolerated no-op: `gating = "false"` (a STRING) would
+    read as gating-on under `is not False`, so a lane the author believed was
+    report-only would short-circuit its whole verifier chain on the first flight -
+    the exact failure this block exists to remove."""
+    errors: List[str] = []
+    if block is None:
+        return errors
+    if not isinstance(block, dict):
+        errors.append("expectations.%s: must be a table, got %r"
+                      % (ANALYZER_BLOCK, block))
+        return errors
+    for key in sorted(block):
+        if key != ANALYZER_GATING_KEY:
+            errors.append("expectations.%s.%s: unknown key (the only key is %r)"
+                          % (ANALYZER_BLOCK, key, ANALYZER_GATING_KEY))
+    if ANALYZER_GATING_KEY in block:
+        value = block.get(ANALYZER_GATING_KEY)
+        if not isinstance(value, bool):
+            errors.append(
+                "expectations.%s.%s: %r must be a TOML boolean (true / false), not a "
+                "string - only the literal `false` turns the row report-only, so a "
+                "quoted value would silently leave the analyzer gating"
+                % (ANALYZER_BLOCK, ANALYZER_GATING_KEY, value))
+    return errors
+
+
+@dataclass(frozen=True)
+class AnalyzerRow:
+    """How one attempt's analyzer result is RECORDED and whether it acts.
+
+    ``status`` is the row's own status - the classified verdict status when the row
+    gates, ``REPORT`` when the spec turned gating off. ``verdict`` is what reaches
+    ``classify_verdict``: None on a report-only row, which is what keeps it out of
+    the verdict. ``short_circuit`` is whether the rest of the verifier chain is
+    skipped."""
+    status: str
+    gating: bool
+    verdict: Optional[AnalyzerVerdict]
+    short_circuit: bool
+
+
+def evaluate_analyzer_row(verdict: Optional[AnalyzerVerdict],
+                          gating: bool) -> AnalyzerRow:
+    """Fold an analyzer verdict and the spec-declared mode into the recorded row.
+
+    GATING (the default, and every committed spec but the two census lanes): the
+    row IS the verdict and a non-PASS short-circuits the chain - byte-for-byte
+    today's behaviour. REPORT-ONLY: the verdict is still carried in the row for the
+    result JSON, but it drives nothing and stops nothing.
+
+    ``verdict`` None is the triage-only path (a driver-INVALID save the chain never
+    reaches); it is recorded as-is and acts either way."""
+    if not gating:
+        return AnalyzerRow(ANALYZER_STATUS_REPORT, False, None, False)
+    if verdict is None:
+        return AnalyzerRow("SKIPPED", True, None, False)
+    return AnalyzerRow(verdict.status, True, verdict, verdict.status != "PASS")
 
 
 # ---------------------------------------------------------------------------

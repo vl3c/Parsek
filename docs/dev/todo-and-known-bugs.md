@@ -15,7 +15,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## U1-GUI-CENSUS-LOCAL-HOST-REDS-THE-ANALYZER: the GUI census's only viable host carries 25 pre-existing analyzer FAILs, and `run.py` has no baseline pass-through, so both census lanes are quarantined on the analyzer subkind
+## U1-GUI-CENSUS-LOCAL-HOST-REDS-THE-ANALYZER: the GUI census's only viable host carries 25 pre-existing analyzer FAILs; the lanes now declare the analyzer row REPORT-ONLY, and what those 25 findings ARE is still open
 
 MEASURED 2026-09-10 while authoring the GUI census (branch `gui-census`), not predicted.
 The offline analyzer over the operator's `c1` career - the lane's host, staged as
@@ -26,31 +26,46 @@ warnings. The run was taken read-only, with `-ResultsDir` pointing outside the s
 the operator's save was not touched; its own committed `analysis/c1.analysis.txt` from
 2026-08-11 reads `RED=1` too, so this is not new.
 
-WHY IT BLOCKS. `run.py` always invokes `analyze-recordings.ps1` with `-FailOnRed` and
-never passes `-UseBaseline`, so the `analyzer` verifier row would classify both census
-lanes `PARSEK-FAIL(analyzer)` on findings that predate them by months and that the census
+WHY IT BLOCKS A CENSUS. `run.py` always invokes `analyze-recordings.ps1` with
+`-FailOnRed`, so a GATING analyzer row would classify both census lanes
+`PARSEK-FAIL(analyzer)` on findings that predate them by months and that the census
 neither causes nor observes - it takes screenshots of windows.
 
-WHAT SHIPPED INSTEAD. `GUI-1-census-ksc` and `GUI-2-census-flight` each declare
-`[expectedFail] bugId = "U1-GUI-CENSUS-LOCAL-HOST-REDS-THE-ANALYZER"` with
-`subkind = "analyzer"`. The subkind is SPELLED OUT rather than left as a bugId-only
-quarantine so the lanes can never absorb a different failure class, and a host whose
-findings are gone reports XPASS ("expected-fail bugId=... unexpectedly passed") instead
-of silently going green. They are the FIRST committed specs anywhere to use
-`expectedFail`; every other spec leaves it empty.
+WHAT SHIPPED, AND WHY THIS ROUTE. Both lanes declare
+`[expectations.analyzer] gating = false`: the analyzer still runs and its verdict is
+still recorded (`status = "REPORT"` with `verdictStatus` / `red` / `subkind` / `topRule`
+beside it), but it neither short-circuits the verifier chain nor reaches
+`classify_verdict`. The declaring set is pinned by `ANALYZER_REPORT_ONLY_ALLOWLIST` in
+`harness/lib/test_hlib.py`; contract in `design-autotest-harness-core.md`, verifier 3.
 
-THE DECISION THAT IS OPEN, and it is an operator call rather than work: three routes
-exist and none is obviously right. (1) Plumb `-UseBaseline` +
-`PARSEK_ANALYZER_BASELINE_MODE` through `run.py` so a local host can carry its own
-findings baseline - the host already HAS a `analysis/baseline.cfg`, written by hand in
-July - which is a change to the gating architecture and therefore not something to take
-unilaterally. (2) Investigate the 25 INV2 overlaps: they may be a real recorder defect
-from an earlier era, in which case the quarantine is hiding a finding worth having. (3)
-Accept the quarantine permanently on the grounds that a layout census is not an analyzer
-subject. Filed to be decided, not to be re-run away.
+The first draft used `[expectedFail] subkind = "analyzer"` instead, and THAT WAS WRONG in
+a way worth recording, because it looks strictly safer and is not: `run.py`'s verifier
+chain SHORT-CIRCUITS on a non-PASS analyzer, so a quarantined lane had every LATER row
+SKIPPED - `logValidate`, `testResults`, `anomalySweep`, `unityExceptions`,
+`expectations` (its log contracts included), `saveParse`, `renderCompose`,
+`ghostLifecycle`, `ledgerOracle`. A census that captured ZERO screenshots would have read
+EXPECTED-FAIL - green - while its own spec header and the status doc claimed those
+contracts "pin" the capture lines. The quarantine did not weaken one gate; it deleted all
+of them. Turning one row off is the smaller loss, and it is the only one that leaves the
+lane gated on anything.
 
-## GUI-CENSUS-STRUCTURE-WINDOW-HAS-NO-DRIVEABLE-TARGET: the Structure List window can be
-opened by the seam but not POPULATED, so the census photographs its empty chrome
+A FINDINGS BASELINE WAS NEVER A ROUTE, which the first draft listed as an option it was
+not: `run.py` hard-codes `-FreshSaveGate`, and `analyze-recordings.ps1` REFUSES
+`-UseBaseline` / `-WriteBaseline` together with it (they are three incompatible modes),
+so the host's own hand-written `analysis/baseline.cfg` could not have been consulted even
+if it were staged. It is not staged either: `stage_local_fixture.py` now drops the
+top-level `analysis/` directory unconditionally, because under Forbid mode a staged
+`baseline.cfg` is itself a `BASELINE-FORBIDDEN` FAIL -> `INVALID(fixture-authoring)`.
+
+WHAT IS STILL OPEN, and it is a question about the FINDINGS rather than about the lanes:
+are the 25 `INV2-NO-DOUBLE-COVER` overlaps a real recorder defect from an earlier era?
+They are on recordings months old, on a save that has been through many builds, and
+nothing has ever looked at them. If they are real, they are worth a todo of their own; if
+they are an artifact of a since-changed writer, the report-only row is the right permanent
+answer for a census host. Either way that reading is an investigation, not a re-run, and
+the census lanes are no longer blocked on it.
+
+## GUI-CENSUS-STRUCTURE-WINDOW-HAS-NO-DRIVEABLE-TARGET: the Structure List window can be opened by the seam but not POPULATED, so the census photographs its empty chrome
 
 NOTED 2026-09-10 while authoring the GUI census. `StructureListWindowUI` is retargeted
 through `OpenForMission(treeId, title)` / `OpenForRoute(routeId, title)`, both reached
@@ -66,6 +81,7 @@ that window's populated form, is an ADDITIVE `UiAction op=target` (or a `target=
 `op=open`) that calls those two internal methods with an id a spec names - or, cheaper,
 a `${step.field}` handle off a `ListHandles kind=committed` row. Left as a follow-up with
 the shape written down rather than as a silent thin capture.
+
 ## REPUTATION-SEED-CAPTURED-MID-FLIGHT-REAPPLIES-PRE-SEED-AWARDS: the lazy `ReputationInitial` seed is read off the live pool at the first commit, so every reputation award recorded BEFORE that moment is inside the seed AND replayed as a row
 
 Filed 2026-09-10 while shipping the crew-death reputation penalty (branch

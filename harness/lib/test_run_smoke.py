@@ -75,7 +75,8 @@ class FakeRuntime(run.Runtime):
     def __init__(self, mode, mission_mode="ok", venv_ok=True, seed_mode="ok",
                  career_funds=25000.0, career_science=0.0, career_rep=0.0,
                  analyzer_fail_calls=0, produced_parsed=True, inject_noop=False,
-                 render_manifest_text=None, ghost_lifecycle_log_text=None):
+                 render_manifest_text=None, ghost_lifecycle_log_text=None,
+                 analyzer_red=False):
         self.mode = mode
         # The GhostRenderTrace mesh-lifecycle lines the fake KSP "writes" into its
         # KSP.log, APPENDED at launch for the render-manifest reason below (after
@@ -106,6 +107,12 @@ class FakeRuntime(run.Runtime):
         # across BOTH the in-attempt subprocess retry and any whole-attempt retry.
         self.analyzer_fail_calls = analyzer_fail_calls
         self.analyzer_call_count = 0
+        # GUI-census seam: when True the produced-save report carries RED=1 with one
+        # real non-baselined FAIL, i.e. the shape a HOST with pre-existing findings
+        # produces. It is the input the `[expectations.analyzer] gating = false` legs
+        # need, and the only way to prove report-only differs from gating over the
+        # SAME analyzer output.
+        self.analyzer_red = analyzer_red
         # M-B2 seed baseline seam. seed_mode scripts the pre-launch analyzer over the
         # STAGED template: "ok" (parsed career pools), "sandbox" (parsed, no pools ->
         # fixture-authoring INVALID), "unparsed" (parsed:false -> tooling INVALID),
@@ -223,13 +230,20 @@ class FakeRuntime(run.Runtime):
         analysis = os.path.join(save_dir, "analysis")
         os.makedirs(analysis, exist_ok=True)
         leaf = os.path.basename(save_dir.rstrip("/\\"))
+        red = 1 if self.analyzer_red else 0
+        fails = 1 if self.analyzer_red else 0
+        findings = ([{"ruleId": "INV2-NO-DOUBLE-COVER", "level": "FAIL",
+                      "target": "rec00", "baselined": False}]
+                    if self.analyzer_red else [])
         with open(os.path.join(analysis, "%s.analysis.txt" % leaf), "w", encoding="utf-8") as fh:
-            fh.write("[Analyzer] save=%s findings=0 FAIL=0 STALE=0 RED=0\n" % leaf)
+            fh.write("[Analyzer] save=%s findings=%d FAIL=%d STALE=0 RED=%d\n"
+                     % (leaf, fails, fails, red))
         with open(os.path.join(analysis, "%s.analysis.json" % leaf), "w", encoding="utf-8") as fh:
             # Additive careerSave block (leg B) so an active ledger-oracle slot 8 has a
             # produced-save careerSave to read; inert for non-ledger scenarios.
-            json.dump({"counts": {"failNonBaselined": 0, "staleNonBaselined": 0},
-                       "findings": [], "careerSave": self._career_block_json(produced=True)}, fh)
+            json.dump({"counts": {"failNonBaselined": fails, "staleNonBaselined": 0},
+                       "findings": findings,
+                       "careerSave": self._career_block_json(produced=True)}, fh)
         return run.ToolResult(0, False)
 
     def run_seed_analyzer(self, save_dir, out_dir, timeout):
@@ -978,6 +992,99 @@ class FakeKspSmokeTests(unittest.TestCase):
         self.assertEqual("boot-crash", result["subkind"])
         v = hlib.Verdict(result["verdict"], result["subkind"], False, "")
         self.assertTrue(hlib.should_retry(v, attempt=1, retry_policy="once"))
+
+
+class AnalyzerReportOnlySmokeTests(unittest.TestCase):
+    """`[expectations.analyzer] gating = false` driven END TO END through
+    run.run_attempt over the fake Runtime seam, against the SAME RED=1 analyzer
+    output in both directions.
+
+    This is the leg the pure cells cannot supply. The defect the mode replaces was
+    not in the classification - it was in the CHAIN: a non-PASS analyzer sets
+    `short_circuited`, and every verifier after it records SKIPPED. So the property
+    that matters is not "the verdict changed" but "logValidate / testResults /
+    anomaly / expectations ALL RAN", which only a real run.py pass can show."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="parsek-harness-analyzer-")
+        self.instance = os.path.join(self.tmp, "instance")
+        os.makedirs(self.instance, exist_ok=True)
+        _write_manifest(self.instance, "stock-minimal")
+        self.template = os.path.join(self.tmp, "fresh-career")
+        os.makedirs(self.template, exist_ok=True)
+        with open(os.path.join(self.template, "persistent.sfs"), "w") as fh:
+            fh.write("GAME { }\n")
+        self._orig_results = run.RESULTS_DIR
+        run.RESULTS_DIR = os.path.join(self.tmp, "results")
+        self.logger = run.HarnessLogger(
+            os.path.join(run.RESULTS_DIR, "analyzer_harness.log"))
+
+    def tearDown(self):
+        run.RESULTS_DIR = self._orig_results
+        self.logger.close()
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _run(self, gating):
+        spec = _make_spec(self.template, 30, 600)
+        spec["id"] = "SMOKE-analyzer-%s" % ("gating" if gating else "report")
+        if not gating:
+            spec["expectations"]["analyzer"] = {"gating": False}
+        rt = FakeRuntime("pass", analyzer_red=True)
+        result = run.run_attempt(spec, self.instance, self.tmp, rt, attempt=1,
+                                 prior_boot_crashed=False, logger=self.logger)
+        return result, rt
+
+    def test_gating_is_unchanged_and_short_circuits_the_chain(self):
+        # The CONTROL, and it is what makes the leg below a measurement rather than
+        # an assertion: the identical RED=1 output still reds, and still costs every
+        # later row.
+        result, _ = self._run(gating=True)
+        self.assertEqual(hlib.VERDICT_PARSEK_FAIL, result["verdict"])
+        self.assertEqual("analyzer", result["subkind"])
+        v = result["verifiers"]
+        self.assertEqual("PARSEK-FAIL", v["analyzer"]["status"])
+        self.assertTrue(v["analyzer"]["gating"])
+        self.assertEqual(1, v["analyzer"]["red"])
+        for row in ("logValidate", "testResults", "anomalySweep", "expectations"):
+            with self.subTest(row=row):
+                self.assertEqual("SKIPPED", v[row]["status"],
+                                 "%s should be skipped behind a gating analyzer" % row)
+
+    def test_report_only_records_the_same_red_and_lets_the_chain_run(self):
+        result, _ = self._run(gating=False)
+        self.assertEqual(hlib.VERDICT_PASS, result["verdict"])
+        v = result["verifiers"]
+        # RECORDED: the row still carries the analyzer's own reading, so a reader of
+        # results/<runId>.json sees WHAT it found - only `status` says it was not
+        # judged on, and `verdictStatus` preserves the classification.
+        self.assertEqual(hlib.ANALYZER_STATUS_REPORT, v["analyzer"]["status"])
+        self.assertFalse(v["analyzer"]["gating"])
+        self.assertEqual("PARSEK-FAIL", v["analyzer"]["verdictStatus"])
+        self.assertEqual(1, v["analyzer"]["red"])
+        self.assertEqual(1, v["analyzer"]["failNonBaselined"])
+        self.assertEqual("INV2-NO-DOUBLE-COVER", v["analyzer"]["topRule"])
+        # THE HEADLINE: every later row EVALUATED. Before this change they were all
+        # SKIPPED behind the quarantine, so a lane's logContracts asserted nothing.
+        for row in ("logValidate", "testResults", "anomalySweep", "expectations"):
+            with self.subTest(row=row):
+                self.assertEqual("PASS", v[row]["status"])
+
+    def test_report_only_does_not_disarm_the_other_gates(self):
+        # The mirror direction: turning the analyzer row off must not turn anything
+        # ELSE off. A run whose log contract fails still reds - on the log contract,
+        # which is exactly the gate the mode exists to make reachable.
+        spec = _make_spec(self.template, 30, 600)
+        spec["id"] = "SMOKE-analyzer-report-contract"
+        spec["expectations"]["analyzer"] = {"gating": False}
+        spec["expectations"]["logContracts"]["required"] = [
+            "a-token-the-fake-ksp-never-writes-4f2a"]
+        rt = FakeRuntime("pass", analyzer_red=True)
+        result = run.run_attempt(spec, self.instance, self.tmp, rt, attempt=1,
+                                 prior_boot_crashed=False, logger=self.logger)
+        self.assertEqual(hlib.VERDICT_PARSEK_FAIL, result["verdict"])
+        self.assertEqual("expectation", result["subkind"])
+        self.assertEqual(hlib.ANALYZER_STATUS_REPORT,
+                         result["verifiers"]["analyzer"]["status"])
 
 
 class LedgerSeedBaselineSmokeTests(unittest.TestCase):

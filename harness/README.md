@@ -427,6 +427,35 @@ What a red means:
 - **XPASS** - amber. An expected-fail guard now passes: confirm the bug is
   closed, then remove the `expectedFail` key so it stops being expected.
 
+### The analyzer row's mode (`[expectations.analyzer] gating = false`)
+
+The offline-analyzer row (verifier 3) GATES by default, and every committed spec
+but the two GUI-census lanes leaves it that way. A spec may declare
+`[expectations.analyzer] gating = false` to make it REPORT-ONLY: the analyzer
+still runs, its verdict is still recorded (`status = "REPORT"` beside
+`verdictStatus` / `red` / `subkind` / `topRule`, plus a WARN naming them), and it
+neither short-circuits the chain nor moves the verdict.
+
+Read a `REPORT` analyzer row as "measured, not judged on" - the findings are in
+`results/<runId>.json` and are worth reading; the run's verdict came from the
+other rows.
+
+It exists because the alternative was worse in a way that is easy to miss. The
+chain SHORT-CIRCUITS on a non-PASS analyzer, so quarantining a lane with
+`[expectedFail] subkind = "analyzer"` left every later row SKIPPED - log
+validation, results, anomalies, `expectations` and its log contracts, saveParse,
+render composition, ghost lifecycle, the ledger oracle. The lane then asserted
+nothing at all while its spec header claimed otherwise. Turning ONE row off is a
+smaller loss than turning them all off.
+
+Because it IS a loss, the declaring set is an allowlist:
+`ANALYZER_REPORT_ONLY_ALLOWLIST` in `lib/test_hlib.py` names the specs permitted
+to declare it, and that cell reds when any other committed spec does. Declare it
+only when the HOST carries findings the lane neither causes nor observes (the
+census case: someone's long-lived career, whose old recordings a screenshot lane
+has nothing to do with), never to get past a finding the lane produced. Full
+contract: `docs/dev/design-autotest-harness-core.md`, verifier 3.
+
 ### What accumulates, and what may be pruned
 
 Permanent by design, and NOT to be pruned by any automation: `results/*.json`,

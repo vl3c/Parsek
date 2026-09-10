@@ -211,16 +211,54 @@ class StageLocalFixtureTests(unittest.TestCase):
                 self.assertFalse(keep)
                 self.assertEqual("os junk", why)
 
+    def test_the_analyzer_output_dir_is_dropped_unconditionally(self):
+        # NOT tidiness. `run.py` invokes the analyzer with `-FreshSaveGate`, whose
+        # Forbid mode treats the PRESENCE of a findings baseline in the produced save as
+        # a failure (BASELINE-FORBIDDEN -> INVALID(fixture-authoring)). A staged
+        # `analysis/baseline.cfg` would therefore make the lane INVALID before it read a
+        # single window, naming fixture authoring rather than the copy that carried it
+        # in. Unconditional: it is dropped even with quicksaves KEPT.
+        for keep_quicksaves in (True, False):
+            for rel in ("analysis/baseline.cfg", "analysis/c1.analysis.txt",
+                        "analysis/c1.analysis.json", "Analysis/baseline.cfg"):
+                with self.subTest(rel=rel, keep_quicksaves=keep_quicksaves):
+                    keep, why = slf.classify_entry(rel, keep_quicksaves)
+                    self.assertFalse(keep)
+                    self.assertEqual("analyzer output dir", why)
+        # ...and only at the TOP level: a Parsek sidecar tree that happens to carry an
+        # `analysis` segment deeper down is untouched.
+        self.assertTrue(slf.classify_entry("Parsek/analysis/keep.cfg",
+                                           keep_quicksaves=False)[0])
+
+    def test_a_loadmeta_follows_its_own_sfs_in_both_directions(self):
+        # A `.loadmeta` is KSP's sidecar for the `.sfs` of the same stem. Dropping
+        # `quicksave.sfs` while keeping `quicksave.loadmeta` would leave the save folder
+        # advertising a quicksave whose bytes are gone; keeping `persistent.loadmeta` is
+        # the same rule read the other way.
+        keep, why = slf.classify_entry("quicksave.loadmeta", keep_quicksaves=False)
+        self.assertFalse(keep)
+        self.assertIn("quicksave", why)
+        self.assertTrue(slf.classify_entry("persistent.loadmeta",
+                                           keep_quicksaves=False)[0])
+        # With the flag off (the default) nothing is dropped either way.
+        self.assertTrue(slf.classify_entry("quicksave.loadmeta",
+                                           keep_quicksaves=True)[0])
+
     def test_plan_copy_walks_a_fake_save(self):
         src = tempfile.mkdtemp(prefix="parsek-fake-save-")
         self.addCleanup(shutil.rmtree, src, True)
         _touch(os.path.join(src, "persistent.sfs"))
+        _touch(os.path.join(src, "persistent.loadmeta"))
         _touch(os.path.join(src, "quicksave.sfs"))
+        _touch(os.path.join(src, "quicksave.loadmeta"))
         _touch(os.path.join(src, "Parsek", "Recordings", "a.prec"))
+        _touch(os.path.join(src, "analysis", "baseline.cfg"))
         _touch(os.path.join(src, "Thumbs.db"))
         copy, skipped = slf.plan_copy(src, keep_quicksaves=False)
-        self.assertEqual(["Parsek/Recordings/a.prec", "persistent.sfs"], copy)
-        self.assertEqual(["Thumbs.db", "quicksave.sfs"], skipped)
+        self.assertEqual(["Parsek/Recordings/a.prec", "persistent.loadmeta",
+                          "persistent.sfs"], copy)
+        self.assertEqual(["Thumbs.db", "analysis/baseline.cfg",
+                          "quicksave.loadmeta", "quicksave.sfs"], skipped)
 
     def test_the_local_saves_dir_is_the_prefix_hlib_classifies(self):
         # The tool and hlib must agree on the directory, or a staged fixture would sit

@@ -7,8 +7,8 @@ tier = "operator"
 # WHY IT IS SHORT, and this is a deliberate scope decision rather than an omission.
 # `ParsekFlight.OnGUI` and `ParsekKSC.OnGUI` draw the SAME nine shared windows from the
 # SAME classes over the SAME store, so a second full tab walk in flight would produce
-# nine near-identical images and cost the run several more minutes (see THE ONE HAZARD
-# below, which is a function of wall time). What genuinely differs in flight is:
+# nine near-identical images and buy nothing GUI-1 has not already photographed. What
+# genuinely differs in flight is:
 #   - the MAIN window, which gains the flight status box (`DrawFlightStatus`: State,
 #     Recorded Points, Duration, Active Ghosts) and the Real Spawn Control launcher;
 #   - `spawncontrol` (Real Spawn Control) and `gloops` (the Gloops Flight Recorder),
@@ -24,23 +24,31 @@ tier = "operator"
 # layout. A GUI review should see it: it is either dead weight to delete or a surface to
 # re-offer, and neither call can be made from a window nobody has looked at.
 #
-# THE ONE HAZARD, named because the first flight has to be read for it. The host's
-# `activeVessel = 0` is `R2-B2-S7`, a Probe in situation SUB_ORBITAL, so the subject is
-# DESCENDING for the whole census at 1x and may impact before the last capture. If that
-# happens the images before it are still good (they are on disk the moment each capture's
-# OK lands) and the tail steps read whatever the scene became. The remedy is a re-stage
-# rather than a spec change: the same save carries four LANDED probes and four ORBITING
-# relays, so staging from a save whose focus is one of those - `stage_local_fixture.py
-# --from` accepts any KSP save directory, including a quicksave-derived one - removes the
-# hazard entirely. This lane does NOT warp, jump or otherwise touch the clock: it takes
-# pictures.
+# THE SUBJECT, measured off the host's `persistent.sfs` rather than inferred from its
+# situation word, because the situation word is misleading here. `activeVessel = 0` is
+# `R2-B2-S7`, a Probe whose situation reads SUB_ORBITAL - which sounds like a craft on
+# its way down and is not. Its orbit is `SMA = 3621574.94 ECC = 0.81512051
+# MNA = 0.00833046 EPH = 203585.508 REF = 1`: a 6.400 h Kerbin orbit with periapsis
+# 69.55 km and apoapsis 5973.6 km. The situation reads SUB_ORBITAL only because that
+# periapsis sits 0.4 km UNDER Kerbin's 70 km atmosphere line; it is 69.55 km above the
+# ground, so the craft does not impact on this orbit at all. And it is not near periapsis
+# either: the element epoch is 1851092 s (80.33 orbits) before the save's
+# `UT = 2054677.56`, so at load KSP propagates it to a mean anomaly of 119.9 deg -
+# 5469.8 km up, true anomaly 168.9 deg, ASCENDING, 1.07 h from apoapsis and over five
+# hours from the next periapsis pass. The census has hours of margin at 1x and this lane
+# does not warp, jump or otherwise touch the clock: it takes pictures.
 #
-# HOST + QUARANTINE + STAGING: identical to GUI-1's, whose header carries the full
+# THE ONE THING THE FIRST FLIGHT MUST BE READ FOR is a WINDOW, not the clock: see the
+# Real Spawn Control step below, which self-closes when nothing is in range.
+#
+# HOST + ANALYZER MODE + STAGING: identical to GUI-1's, whose header carries the full
 # argument. In one line each: an OPERATOR-LOCAL fixture because a census photographs
-# LAYOUT and only a long-lived career has rows in every window; quarantined
-# `subkind = "analyzer"` because the offline analyzer over that host measures
-# `FAIL=25 RED=1` on recordings months older than this lane (U1-GUI-CENSUS-LOCAL-HOST-
-# REDS-THE-ANALYZER); staged with
+# LAYOUT and only a long-lived career has rows in every window; the analyzer row declared
+# REPORT-ONLY (`[expectations.analyzer] gating = false`, at the bottom) because the
+# offline analyzer over that host measures `FAIL=25 RED=1` on recordings months older
+# than this lane (U1-GUI-CENSUS-LOCAL-HOST-REDS-THE-ANALYZER) - and NOT quarantined with
+# `[expectedFail]`, which would short-circuit the verifier chain and skip the very log
+# contracts below; staged with
 #
 #   python harness/tools/stage_local_fixture.py \
 #       --from "../Kerbal Space Program/saves/c1" --as c1-gui --no-quicksaves
@@ -132,6 +140,34 @@ required = [
 # lane's subject, and gating on it would red a layout review over career bookkeeping.
 forbidden = []
 
+[expectations.analyzer]
+# THE ANALYZER ROW IS REPORT-ONLY ON THIS LANE, and this is the one spec-level
+# declaration the census needs. MEASURED, not defensive: the offline analyzer over this
+# host reports `FAIL=25 WARN=6 INFO=3 RED=1`, all 25 FAILs `INV2-NO-DOUBLE-COVER`, on
+# recordings that predate this lane by months (run 2026-09-10 with `-ResultsDir` outside
+# the save, so the operator's save was not touched; its own committed
+# `analysis/c1.analysis.txt` from 2026-08-11 reads RED=1 too). A census takes SCREENSHOTS
+# - it neither causes nor observes a recording-invariant finding - so gating a layout
+# review on career bookkeeping would red it forever.
+#
+# WHY NOT `[expectedFail] subkind = "analyzer"`, which is what this lane shipped with
+# first: `run.py`'s verifier chain SHORT-CIRCUITS on a non-PASS analyzer, so a quarantine
+# would leave every LATER row SKIPPED - `[expectations.logContracts]` INCLUDED. A run that
+# produced ZERO screenshots would then read EXPECTED-FAIL, i.e. green, while the header
+# above claimed those contracts pinned the capture lines. Report-only keeps the analyzer
+# RECORDED (status REPORT, with its classified verdict, RED token and counts beside it)
+# and lets the rest of the chain evaluate, so this lane gates on its OWN log contracts
+# instead of on nothing.
+#
+# WHY NOT A FINDINGS BASELINE: `run.py` hard-codes `-FreshSaveGate`, and
+# `analyze-recordings.ps1` REFUSES `-UseBaseline` together with it, so a per-save baseline
+# was never a route from here. Filed as U1-GUI-CENSUS-LOCAL-HOST-REDS-THE-ANALYZER, whose
+# open decision is about the 25 findings themselves and not about this lane.
+#
+# Pinned by `ANALYZER_REPORT_ONLY_ALLOWLIST` in `harness/lib/test_hlib.py`: any OTHER
+# committed spec declaring `gating = false` reds that cell.
+gating = false
+
 [runtime]
 # Seven captures and ~20 single-phase UI ops on top of a 300 s cold load. Deliberately
 # tighter than GUI-1's: in flight the wall clock is the hazard (see the header), so a
@@ -142,5 +178,8 @@ budgetSeconds = 900
 policy = "once"
 
 [expectedFail]
-bugId = "U1-GUI-CENSUS-LOCAL-HOST-REDS-THE-ANALYZER"
-subkind = "analyzer"
+# EMPTY, like every other committed spec. The analyzer quarantine this lane shipped with
+# is GONE, replaced by `[expectations.analyzer] gating = false` above - see that block for
+# why a quarantine was the wrong instrument: it short-circuited the whole verifier chain,
+# log contracts included.
+bugId = ""

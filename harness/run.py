@@ -2553,14 +2553,42 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
     short_circuited = False
 
     # 3. Offline analyzer over the produced save, Forbid (fresh-save gate).
+    #
+    # The row's MODE comes from the spec: GATING by default (every committed spec
+    # but the two GUI-census lanes), REPORT-ONLY when `[expectations.analyzer]`
+    # declares `gating = false`. A report-only row still RUNS the analyzer and still
+    # records its classified verdict - it simply neither short-circuits the chain
+    # nor reaches classify_verdict, so every LATER verifier evaluates. See
+    # hlib.evaluate_analyzer_row for why the alternative (an `[expectedFail]`
+    # analyzer quarantine) silently deletes the rest of the chain.
     analyzer_verdict = None
+    analyzer_gating = hlib.analyzer_gating(expectations)
     if driver_valid:
-        analyzer_verdict, analyzer_detail, analyzer_retry = _run_analyzer_retrying(
+        analyzer_raw, analyzer_detail, analyzer_retry = _run_analyzer_retrying(
             save_dir, runtime, logger)
+        row = hlib.evaluate_analyzer_row(analyzer_raw, analyzer_gating)
+        analyzer_verdict = row.verdict
+        analyzer_detail["gating"] = row.gating
+        if not row.gating:
+            # The classified verdict stays in the row (`verdictStatus` / `subkind` /
+            # `topRule` / `red` are already in analyzer_detail) so a reader still sees
+            # WHAT the analyzer found; only `status` says it was not judged on.
+            analyzer_detail["verdictStatus"] = analyzer_detail.get("status")
+            analyzer_detail["status"] = row.status
+            logger.warn("Verify",
+                        "verify analyzer status=REPORT (gating=false, declared by "
+                        "[expectations.analyzer]) verdictStatus=%s red=%s subkind=%s "
+                        "topRule=%s failNonBaselined=%s - RECORDED, NOT GATING, and the "
+                        "chain is NOT short-circuited"
+                        % (analyzer_detail.get("verdictStatus"),
+                           analyzer_detail.get("red"),
+                           analyzer_detail.get("subkind"),
+                           analyzer_detail.get("topRule"),
+                           analyzer_detail.get("failNonBaselined")))
         detail["analyzer"] = analyzer_detail
         if analyzer_retry is not None:
             subprocess_retries.append(analyzer_retry)
-        if analyzer_verdict is not None and analyzer_verdict.status != "PASS":
+        if row.short_circuit:
             short_circuited = True
     else:
         # N6: even on a terminal driver-INVALID, run the analyzer ONCE triage-only
@@ -2569,7 +2597,11 @@ def run_verifiers(spec: Dict, instance_dir: str, run_save_name: str,
         # INVALID driver save is non-verdict, so re-running a wedged subprocess is
         # pure waste (call _run_analyzer directly, not the retrying wrapper).
         _, analyzer_detail = _run_analyzer(save_dir, runtime, logger, triage_only=True)
+        analyzer_detail["gating"] = analyzer_gating
         detail["analyzer"] = analyzer_detail
+    # `analyzer_verdict` is already None on the triage path AND on a report-only row
+    # (evaluate_analyzer_row drops it there), so this stays the single feed into
+    # classify_verdict.
     verifiers["analyzer"] = analyzer_verdict if driver_valid else None
 
     # 4. Log validation + LogContract.
