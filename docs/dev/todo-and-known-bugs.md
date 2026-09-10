@@ -750,7 +750,7 @@ tree is merely committed, not one whose committed tree is RESTORABLE, and the tw
 identical in a fixture listing. Recorded in the inventory's `AutoRecord` row and its B5
 residue table.
 
-## EVAKERBALGHOSTHASVESSELSNAPSHOT-HAS-NO-HOST-THAT-FLIES-LOW: the one `AutoRecord` cell that executes NOWHERE wants a crewed vessel FLYING low over terrain, and no committed fixture is one and no seam verb lofts one [MEASURED across the four `AutoRecord` hosts - H61 `gs1-two-stage-pad`, H68 `gs2-orbital-stack`, H69 `rover-route-recorded`, H70 `eva3-pad-3crew`, whose union executes 8 of 10. Filed 2026-09-08 as the last named unreachable cell on the in-game category axis, which is otherwise CLOSED at 112 of 112 categories]
+## EVAKERBALGHOSTHASVESSELSNAPSHOT-HAS-NO-HOST-THAT-FLIES-LOW: the one `AutoRecord` cell that executes NOWHERE wants a crewed vessel FLYING low over terrain, and no committed fixture is one and no seam verb lofts one [MEASURED across the four `AutoRecord` hosts - H61 `gs1-two-stage-pad`, H68 `gs2-orbital-stack`, H69 `rover-route-recorded`, H70 `eva3-pad-3crew`, whose union executes 8 of 10. Filed 2026-09-08 as the last named unreachable cell on the in-game category axis, which was otherwise CLOSED at 112 of 112 categories; since 2026-09-10 the axis reads 112 of 113, the extra row being the GUI-tree dump spike's `GuiTree` category, which needs only a spec]
 
 The cell EVAs a kerbal and asserts the resulting ghost carries a `VesselSnapshot`, then
 waits 10 s for the kerbal to settle and reads its terminal. That bounds the host from
@@ -843,8 +843,9 @@ there and CEN-10 (`_1030`) the same on `bdock-recorded`, so the property belongs
 recorded stores generally rather than to one fixture.
 
 Closed: `CrewReservationLive` is `LT-4-long-tail-route-flight`'s fourth constituent,
-pinned `total=2 passed=2 failed=0 skipped=0`, which takes the in-game category axis to
-112 of 112.
+pinned `total=2 passed=2 failed=0 skipped=0`, which took the in-game category axis to
+112 of 112. It reads 112 of 113 since 2026-09-10, when the GUI-tree dump spike added
+the `GuiTree` category; that row needs a `RunTests` step, not a host.
 
 STILL WANTED, at a lower value than this entry used to claim: teach the corpus writer to
 author spawned-endpoint recordings. `RecordingBuilder.WithSpawnedPid` exists and has

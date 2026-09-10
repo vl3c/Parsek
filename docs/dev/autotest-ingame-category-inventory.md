@@ -1,4 +1,4 @@
-# In-game test category inventory (all 112 categories)
+# In-game test category inventory (all 113 categories)
 
 Machine-derived from `Source/Parsek` by `hlib.parse_ingame_test_declarations` +
 `hlib.derive_batch_tally`. Do NOT hand-edit the table: re-derive it. The generator
@@ -118,6 +118,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `GhostMapOrbits` | 2 | 2 | 1 | 1 | 0 | 1 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 1 of 2; the map cell wants ghost map vessels, which no unattended FLIGHT batch arms). NOT an LT-2 constituent: its SPACECENTER slice measured the same skip on the census | B |
 | `GhostPlayback` | 42 | 41 | 1 | 1 | 1 | 12 | S1.4 | B |
 | `GhostVisuals` | 4 | 4 | 3 | 3 | 0 | 0 | H15 | A |
+| `GuiTree` | 1 | 1 | 1 | 1 | 0 | 0 | - (NOT DRIVEN, and deliberately so for now: the cell ships with the 2026-09-10 GUI-tree dump SPIKE, whose C# half cannot be flown by the agent that wrote it. It is scene-agnostic and batch-safe, so pointing a lane at it is a spec edit rather than a fixture hunt - it wants only a scene where SOME IMGUI Repaint happens, which every committed host has) | B |
 | `IdentityLoss` | 3 | 3 | 0 | 0 | 0 | 3 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 3 of 3 - the whole category at FLIGHT with zero skips) | A |
 | `IncompleteBallistic` | 11 | 11 | 0 | 0 | 0 | 0 | H9 | A |
 | `KSP` | 6 | 6 | 4 | 4 | 0 | 0 | H13 | A |
@@ -206,8 +207,8 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **112 categories / 623 declarations**. Buckets **A 86 categories
-(349 declarations)**, **B 26 categories (274 declarations)**, **C 0 categories (0
+Totals, re-derived: **113 categories / 624 declarations**. Buckets **A 86 categories
+(349 declarations)**, **B 27 categories (275 declarations)**, **C 0 categories (0
 declarations)** - all three re-derived mechanically 2026-09-08 by counting the table's
 rows per Bucket cell and summing their Decls column, which is also how the bucket
 section headers below are derived. The bucket numbers in this line had drifted
@@ -307,7 +308,7 @@ Tier B item-4 subject the roadmap wrote as a manual flight and H56's probe retir
 ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE, fixed in the same commit as these cells, so
 nothing has ever exercised the fixed producer live.
 
-Driven by a committed spec: **112 of 112 categories**, covering **623 of 623
+Driven by a committed spec: **112 of 113 categories**, covering **623 of 624
 declarations** (re-derived mechanically 2026-09-08: count the table rows whose
 Driven-by cell is not `-`, and sum their Decls column).
 
@@ -1061,7 +1062,7 @@ drive WHOLE: `Contracts` (2 of 2, LT-3), `RouteLiveAnchor` (1 of 1, LT-4) and
 to be read against, and LT-1 flew its own 30-constituent pin green the same evening
 (`2026-09-07_2030`, 292 s).
 
-### Bucket B - wireable, but needs something first (26 categories, 274 declarations)
+### Bucket B - wireable, but needs something first (27 categories, 275 declarations)
 
 Not one list but six reasons, and the reason is what decides whether it is worth
 doing.
@@ -1448,7 +1449,13 @@ is LT-4's fourth constituent at 2 of 2. `DisabledHoverEcho` did not need "nothin
 available" - no HARNESS verb can move the OS pointer, but the test process runs inside
 the game window and can, so the cell places the pointer itself (CEN-12 `_1035`); it is
 LT-1's 31st constituent at 1 of 1. Both lanes flew the closure on runs `2026-09-08_1041` (LT-1) and `2026-09-08_1040` (LT-4), both PASS attempt 1,
-and the axis reads 112 of 112 categories.
+and the axis read 112 of 112 categories.
+
+**RE-OPENED BY ONE ROW ON 2026-09-10, and not by a host question.** The 113th
+category, `GuiTree`, arrived with the GUI-tree dump spike; the axis reads 112 of
+113 / 623 of 624 until a lane points at it. It is not residue in the sense the
+table below means: its cell is scene-agnostic and batch-safe and every committed
+host would execute it, so what is missing is a `RunTests` step, not a fixture.
 
 **WHAT REMAINS IS RESIDUE RATHER THAN UNDRIVEN CATEGORIES, and it is worth listing
 because each item is a bound on a lane that already exists:**
@@ -1592,6 +1599,15 @@ and `EvaTwiceFromSameCapsuleProducesTwoBranches` a host with 2+ crew. Note the l
 is not a free swap: `eva3-pad-3crew` would buy it, but its launch clamps trip
 `RealSpawnControl_WarpToRecordingEnd_OnPad_*`'s own skip, so it trades one cell for
 another rather than closing the lane.
+
+**B7 - needs only a spec, nothing else.** `GuiTree` (1 declaration, added
+2026-09-10 with the GUI-tree dump spike). Its cell arms
+`GuiTreeRecorder.ArmForNextRepaint` for one frame over a probe window it draws
+itself and asserts the captured tree, so it needs no fixture, no scene and no
+seam verb - only a lane that runs the category. It is undriven because the spike
+could not be flown by its author, not because anything blocks it; the reason it is
+its OWN category is the standing one - adding a cell to an existing category moves
+a `BATCH_COMPLETE` tally committed specs pin.
 
 ### Bucket C - not batch-runnable (0 categories, 0 declarations)
 

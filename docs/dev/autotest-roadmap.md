@@ -273,8 +273,9 @@ closed V3C). It supersedes the ORDER implied by the Build-order tiers and the
 per-program sequencing notes below; those sections stay the DEFINITIONS of the
 items and the record of why. Re-derive before acting: `ls harness/scenarios/*.toml`
 (245 at `659be2a68`), `hlib.compute_coverage` (170 of 248 cells, 78 uncovered), and the category
-inventory (**112 of 112 categories driven, 623 of 623 declarations - the in-game
-coverage axis is CLOSED**; re-derived 2026-09-09 at `659be2a68` with
+inventory (**112 of 113 categories driven, 623 of 624 declarations - the in-game
+coverage axis is CLOSED except for the one row the 2026-09-10 GUI-tree dump spike
+added, `GuiTree`, which wants a `RunTests` step and nothing else**; re-derived 2026-09-09 at `659be2a68` with
 `hlib.parse_ingame_test_declarations` over every `.cs` under `Source/Parsek`, and the
 623 is 621 plus the two cells this branch's program added to categories that were
 already driven - #1662's optimizer-split regression cell in `Rewind` and the
@@ -1798,9 +1799,12 @@ so this item's remaining work has left the batch mechanism entirely.~~ A THIRD C
 (2026-09-08, scratch CEN-8..CEN-12) closed both without leaving the batch mechanism at
 all: `CrewReservationLive` is LT-4's fourth constituent (a recorded store carries the
 spawned pid; no injected corpus does) and `DisabledHoverEcho` is LT-1's 31st (the cell
-places the OS pointer itself). The item is CLOSED at 112 of 112 categories, and both
+places the OS pointer itself). The item was CLOSED at 112 of 112 categories, and both
 "no host closes it" claims were bounds on which hosts had been asked and on which
-layer could move a pointer.
+layer could move a pointer. RE-OPENED BY ONE ROW 2026-09-10: the GUI-tree dump
+spike added the `GuiTree` category (1 scene-agnostic, batch-safe cell), so the axis
+reads 112 of 113 / 623 of 624 until some lane runs that category. Not a host
+question - any committed host executes it - so it is a spec edit, not a census.
 Flight? ALL SIX FLOWN 2026-09-07 AND GREEN ON ATTEMPT 1. The first pair are LT-1
 (`2026-09-07_1511`) and LT-2 (`_1516`); the second wave flew the same evening -
 LT-1's 30-constituent re-pin `2026-09-07_2030` (292 s), LT-3 `_2035` (64 s), LT-4
