@@ -377,8 +377,9 @@ remains is, in order:
    evaluator (11) alongside.
 6. **Loop-render residue, in this order**: G2's KSC third (`V20K`, spec authored
    2026-09-10 in reading shape, one reading run owed, nothing blocks it, criterion
-   (c) forbids writing the KSC limitation up before it flies); the criterion (b) control debt on every V pair that still shares the
-   `rewind.supersedeRows` inversion; G8 (long-horizon recurrence + co-residency -
+   (c) forbids writing the KSC limitation up before it flies); the criterion (b)
+   control debt, lane by lane in todo V-PAIR-CRITERION-B-RENDER-CONTROL-DEBT
+   (re-derived 2026-09-10); G8 (long-horizon recurrence + co-residency -
    instrument work first, then the three roads; the one player-visible risk still
    unmeasured in this program); G5 and G9 as breadth behind them. `V18M`, `B31`
    and the FLIGHT variant of B27 stay reserved, not blockers.
@@ -2163,8 +2164,11 @@ SHARED, IS PART OF THE DISCHARGE AND NOT REDUNDANCY:** the halves pin DIFFERENT
 LENSES - the proto orbit line on the flight map, the proto icon in the Tracking
 Station - so a single shared inversion would have proven exactly one of them.
 A pair whose halves pin the same lens may share one; a pair whose halves pin
-different lenses owes one each. Every OTHER committed V pair still shares the
-`rewind.supersedeRows` inversion and still owes this.
+different lenses owes one each. Which lanes still
+owe this is re-derived lane by lane in `docs/dev/todo-and-known-bugs.md` ->
+V-PAIR-CRITERION-B-RENDER-CONTROL-DEBT (2026-09-10). The rule applied there: every
+required render LENS must have been inverted, and a routing-only lane that reaches no
+render epoch discharges by a spec-header statement.
 
 **(c) A documented-limitation escape under clause (b) of the definition of done
 must CITE A FLOWN RUN ID.** Limitations of this system are discovered by
@@ -2585,8 +2589,11 @@ load-bearing because the halves have different owners:
 
 - **G3a, the MISSION-LOOP form - CLOSED 2026-08-24.** All five lanes
   (V22M/V22T/V22K over a Kerbin surface arrival, V23M/V23T over a Mun landing)
-  completed the reading -> armed -> per-lane render-token control discipline in
-  one day. THE MEASURED CLASS ANSWER moved the lens model: a landed-terminal
+  completed the reading -> armed -> per-lane control discipline in one day, four of
+  the five on a render token. V23M's control `2026-08-24_2114` inverted a phase-lock
+  CONSTRAINT token (`Orbital\(Mun\) same-parent`), so its render-token control is
+  still owed (todo V-PAIR-CRITERION-B-RENDER-CONTROL-DEBT).
+  THE MEASURED CLASS ANSWER moved the lens model: a landed-terminal
   loop member gets NO map/TS proto at ANY epoch (deliberate policy - see
   LANDED-TERMINAL-LOOP-HAS-NO-MAP-PRESENCE-OUTSIDE-THE-FLIGHT-SCENE), so the
   class's lenses are the FLIGHT-scene mesh lifecycle, the TS init-walk hidden

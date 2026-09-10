@@ -243,6 +243,17 @@ id = "V4-player-loop-workflow"
 #   flake signature, and arming a count off a single observation is exactly the
 #   move this discipline exists to prevent. Noted so a future reader does not
 #   mistake it for a new invariant.
+#   CRITERION (b), 2026-09-10 (todo V-PAIR-CRITERION-B-RENDER-CONTROL-DEBT): NO
+#            render-token control is flown on this lane, by statement. The CONTROL above
+#            proves the saveParse evaluator only. The lane's render pins are the
+#            value-regexed seam-endpoint census (`evaluated=\d+ outsideSoi=\d+`,
+#            `evaluated=[1-9]`); the only inversion that discriminates,
+#            `outsideSoi=[1-9]`, is sound only if this lane reads outsideSoi=0 on every
+#            summary, and its one archived log
+#            (`logs/2026-08-08_1457_V4-player-loop-workflow/KSP.log`) predates the census
+#            (zero `seam-endpoint` lines). Flying it would be a guess. The first V4 run
+#            whose OWN log shows the census converts this statement into a flyable
+#            control.
 # =====================================================================================
 tier = "operator"
 description = "THE PLAYER WORKFLOW, unattended and end to end: load the committed duna-direct save, arm mission loop (MissionConfig), press Warp-to (StartLoopPlayback -> the product's own FastForwardToEventUT jump), press Watch (EnterWatchMode) at the departure epoch, follow the engaged replay forward across the corrected cycle-0 arrival seam, and press Watch again at the ghost's parked Duna tail. Flown + armed 2026-08-08: both Watch verdicts came back REJECTED as predicted, the parked-tail refusal at 643,913 m being 2.15x outside the production range term (WatchEnterCutoffMeters = 300,000 m, WatchModeController.cs:698) and 5.4x outside the entry boundary V7M later measured - see docs/dev/todo-and-known-bugs.md -> WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE, which owns that finding. Both save-structure blocks now gate - a durable write out of this pure replay-observation lane is a real red, not a REPORT footnote."

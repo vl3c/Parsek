@@ -5313,6 +5313,93 @@ being found by hand.
 
 ---
 
+## V-PAIR-CRITERION-B-RENDER-CONTROL-DEBT: the V lanes whose control of record inverts no required RENDER token [OPENED 2026-09-10 on branch `loop-render-residue` (roadmap priority register item 6). TODO, a harness-evidence gap, not a product defect]
+
+Roadmap confirmation criterion (b): a V lane's negative control must invert a REQUIRED
+RENDER TOKEN, or the spec must state why a render-token inversion is structurally
+impossible for that lane. THE RULE APPLIED (supervisor ruling 2026-09-10): EVERY required
+render LENS must have been inverted. A lane's renderComposition-window control proves its
+rendercompose lens and nothing about its logContracts destination-frame pin, so V6M
+(`2026-08-26_1840`), V14M (`2026-08-25_1052`) and V8 (`2026-08-25_1054`) stay owed on the
+logContracts lens, while V24W and V25M are discharged because their renderComposition
+block is their only render lens.
+
+OWED, one in-place line-anchored inversion each, tomllib-verified before launch, flown
+alone, reverted. A control counts only if it reds PARSEK-FAIL(expectation) on exactly the
+inverted element with saveParse PASS AND, in the control run's OWN KSP.log, the original
+regex matches >= 1 line while the inverted one matches 0 (the drift gate: an in-place
+edit never evaluates the original, so without it a drifted pin would still read as a
+perfect one-mismatch control).
+  * Phase-lock row, destination body -> `Eeloo`: V6M, V6T, V7M, V14M, V14T, V15M, V15T,
+    V16M, V16T. Control of record today is the shared `rewind.supersedeRows` inversion
+    (`2026-08-08_1644` for the moon trio, `2026-08-19_0003` V14, `2026-08-19_1810` V15,
+    `2026-08-19_2213` V16).
+  * Re-aim row: V5 and V8T, TS ProtoIcon body -> `Eeloo` (control of record V4's
+    `2026-08-08_1156` and V8's `2026-08-11_0830`); V8, census
+    `seam-endpoint summary evaluated=[1-9] outsideSoi=0` -> `outsideSoi=9`; V8F,
+    `reason=seam-endpoint-outside-soi fromBody=Sun toBody=Eve seamUT=322253` ->
+    `toBody=Moho` (control of record V8's `2026-08-11_0830`).
+  * Moon-to-sibling row: V17M, the TracedPath shadow `... .*body=Vall` -> `body=Eeloo`, and
+    V17T, the ProtoIcon `body=Vall` -> `body=Eeloo`. Control of record the shared
+    `2026-08-20_1941` supersedeRows inversion (not V20M's `2026-08-27_1941`). The halves
+    pin different lenses, so they owe two controls.
+  * V13A: NO control is recorded anywhere (status row or spec). Census
+    `seam-endpoint summary evaluated=1 outsideSoi=0` -> `outsideSoi=9`, the V10 `_1852` /
+    V11A `_1853` / V12A `_1854` shape (zero by construction, since outsideSoi <= evaluated).
+  * V23M: its control `2026-08-24_2114` inverted `Orbital\(Mun\) same-parent`, a phase-lock
+    CONSTRAINT token, and its header section 5 pre-registers an icon-suppression inversion
+    whose token is no longer in `required`. Owed: `phase=MeshSpawned .*reason=ghost-created`
+    -> `phase=MeshSpawned .*reason=chain-loop unit`. The only MeshSpawned emitter
+    (`GhostPlaybackEngine.EmitMeshLifecycleTrace("MeshSpawned", ..., "ghost-created")`)
+    hard-codes the reason, so the inverted form is zero by source; the MeshDestroyed element
+    is left alone because its reason vocabulary includes run-time-dependent teardown reasons.
+  * V2: `phase=body-orbit surface=ProtoOrbitLine ... body=Duna` -> `body=Eeloo` (about 955 s,
+    so it flies last).
+WHY EELOO: not precedent (V19 and V21 flew `Vall`, V20 flew `Duna`; V22T and V23T only
+pre-registered Eeloo) but a mechanical check, counted 2026-09-10: zero `body = Eeloo`, and
+zero `Eeloo` anywhere, in every `.prec.txt` of the ten control fixtures (mun-orbit,
+minmus-orbit, ike-orbit, gilly-orbit, laythe-orbit, duna-direct, eve-orbit, vall-transfer,
+jool-orbit, mun-landing `-recorded`); `Moho` likewise zero in eve-orbit-recorded.
+
+DISCHARGED BY STATEMENT in the commit that filed this entry (criterion (b)'s second branch,
+no flight), each statement in its spec header and noted in its status row:
+  * V9, V11, V12, V13: routing-only reading lanes. Each quits about 1 s after
+    StartLoopPlayback and reaches no render epoch, and each `required` array holds routing
+    tokens only, so there is no render token to invert.
+  * V4: its render pins are the value-regexed seam-endpoint census. The only inversion that
+    discriminates (`outsideSoi=[1-9]`) is sound only if V4 reads outsideSoi=0 on every
+    summary, and its one archived log (`../logs/2026-08-08_1457_V4-player-loop-workflow/KSP.log`)
+    predates the census (zero `seam-endpoint` lines), so the inversion would be a guess. The
+    statement converts to a flyable control the first time a V4 run's own log shows the census.
+
+NOT DEBT: V7T and V1 (red by finding, and no control is flown off a red); V3F and V3R
+(reading posture, no armed block, no render token; V3C owns the seam and ran
+`2026-09-07_1955`); and the lanes already discharged per lane (V19M/T, V20M/T, V21M/T,
+V22M/T/K, V23T, V3C, V10, V11A, V12A, V18T, V24W, V25M, V27M).
+
+Fix: fly the owed controls (wave 2026-09-10 queue: the fifteen core lanes, then V13A, then
+V23M, with V2 last), record each run id, the exact inverted token and the drift-gate counts
+in the lane's status row and spec header ledger, and strike this entry when the last row
+lands. A control that PASSES, or whose original regex matches 0 lines in its own log, is
+recorded here as a failed control or a drift finding, never as a discharge.
+
+---
+
+## V26-CONTROLS-FLOWN-ON-B32X-COPIES: the V26 pair's negative controls ran on uncommitted copies of B32, not on either V26 spec [OPENED 2026-09-10 on branch `loop-render-residue`. TODO, an operator decision, not a defect]
+
+The V26M and V26T status rows record two NEGATIVE CONTROLS, both on uncommitted
+supervisor-scratchpad copies of B32: `B32X-interbody-scope-negative-control` (`_1917`, one
+token seeded `scope=InterBody` -> `scope=SameBody`) and `B32X-legdrop-negative-control`
+(`_2214`, the `71a983a1` build token flipped to `transferDropped=0`). V26's route-line
+tokens are byte-identical to B32's, which is the argument that the copies stand in for
+both lanes.
+Criterion (b) asks for a control on the lane's own required render token. Decide one of:
+(a) accept the byte-identity argument and write it into both V26 spec headers as their
+criterion-(b) statement; (b) fly one in-place control per V26 lane on its own route-line
+token. Not in the 2026-09-10 wave queue.
+
+---
+
 ## B29-KERBIN-RETURN-V20K-KSC-LANE-OWED: the KSC host third of G2's planet-to-Kerbin close [OPENED 2026-08-26 on branch `b29-duna-return` as B29-JOOL-KERBIN-RETURN-AUTHORED-NEVER-FLOWN. FLIGHTS 1-2 FLOWN 2026-08-27 (both INVALID, both calibration reads); RE-SCOPED ONTO THE PARENT-RELAY MODE the same day; **FLIGHT 3 PASS ATTEMPT 1 the same day** - the subject EXISTS, harvested as `fixtures/saves/kerbin-return-recorded` (one recording, 739 points, seams Jool->Sun / Sun->Kerbin, Orbiting-at-Kerbin terminal). **RE-HEADED 2026-08-29 ONTO THE SOLE RESIDUAL**: both the old name and the old `REMAINING: the V20 lanes` clause were false - the producer flew three times, and `V20M-jool-kerbin-player-loop` + `V20T-jool-kerbin-ts-arrival` shipped DISCIPLINE-COMPLETE and ARMED in PR #1548 (merged 2026-08-27). WHAT REMAINS IS ONE THING: `V20K`, the KSC host lane over these same bytes, which had NO spec file anywhere in the tree until 2026-09-10 (corroborated then by `docs/dev/autotest-roadmap.md` and by PR #1548's own body). **SPEC AUTHORED 2026-09-10** on branch `loop-render-residue` as a READING-RUN spec (`harness/scenarios/V20K-jool-kerbin-ksc-arrival.toml`: three outcomes pre-registered in its header, all three PASS, nothing armed); what remains is its READING RUN. The three deferred operator decisions and the operator -> nightly promotion calls are explicitly NOT debt. TODO, not a defect]
 
 `B29-jool-kerbin-return` is committed: spec, mission shell, schema, registration
@@ -6137,7 +6224,10 @@ REMAINING PHASES.
     each red lands on that lane's armed clause rather than re-proving the shared
     `rendercompose` evaluator, and on both controls every sibling verifier row
     (saveParse / anomalySweep / driverValidity / logValidate / analyzer) stayed
-    PASS. Also measured: V14M's armed run confirmed the sticky-bit fix
+    PASS. SCOPE (2026-09-10): these two controls discharge each lane's
+    RENDER-COMPOSITION lens only; criterion (b)'s logContracts destination lens is
+    still owed on both and is tracked in V-PAIR-CRITERION-B-RENDER-CONTROL-DEBT.
+    Also measured: V14M's armed run confirmed the sticky-bit fix
     (`mapRenderTracingOn=true`, `seam-data-unavailable-tracing-off` gone) while
     its unevaluable TOTAL rose 56 -> 108 on `seam-endpoint-skipped` variance
     (106 vs 53) - inside the `{max 200}` runaway guard by design.

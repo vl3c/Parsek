@@ -157,6 +157,13 @@ id = "V13-jool-player-loop"
 #   NOTE     EXPECT A THIN READING, for V9's reason (quits ~1 s after
 #            StartLoopPlayback): an arm-only baseline on the Jool B22 fixture, not a
 #            dwell.
+#   CRITERION (b), 2026-09-10 (roadmap confirmation criterion (b); todo
+#            V-PAIR-CRITERION-B-RENDER-CONTROL-DEBT): a render-token inversion is
+#            STRUCTURALLY IMPOSSIBLE on this lane. It quits about 1 s after
+#            StartLoopPlayback and reaches no render epoch, and its `required` array
+#            holds routing tokens only (the MissionConfig / StartLoopPlayback echoes,
+#            the classifier, re-aim, cadence and loiter lines), so there is no render
+#            token to invert, and pinning one would be structurally unsatisfiable.
 # =====================================================================================
 tier = "operator"
 description = "ARMED: the player loop workflow on the Jool program's committed B22 recording. Shipped as an iteration-1 READING run (plumbing triple, wide count, decline reasons unforbidden so a Jool decline could be recorded rather than red) and armed off the reading run's own bytes (`2026-08-17_2055`, PASS, wall 48 s). Jool ENGAGES: re-aim Kerbin->Jool via Sun on a 25-segment member, synodic 10,090,901.710279949 measured against a pre-flight prediction of 10,090,901.7102799 (agreement 4.8e-8 s), cadence 30,272,705.130839847 = EXACTLY 3x the synodic as predicted from span/synodic 2.7537 -> Ceiling 3, against Moho 1x / Dres 2x / Eeloo 5x. The loiter compressor cuts 4,105,620 s = 14.8% of the 27,787,292 s span (tof 80.4%), which places Jool between Dres (41.4% on a 20.39e6 span) and Eeloo (10.8% on 47.04e6) in span order -- but the program has FIVE such measurements, and Moho (13.6% on the smallest span in the suite) and Eve (75.0%) break that ordering, so the shrinking reading holds for Dres/Jool/Eeloo only and is not a program-wide trend. Count pinned at the measured 6. Fixture verified moons=0 on its harvested bytes. Does NOT discharge the tilt debt: Jool's 1.304 deg is the LOWEST inclination in the V-lane ladder."
