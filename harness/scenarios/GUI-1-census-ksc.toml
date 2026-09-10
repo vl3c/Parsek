@@ -73,13 +73,19 @@ tier = "operator"
 # TWO WINDOWS DO NOT FIT THIS INSTANCE, measured off their own source rather than off the
 # images: `missions` (RecordingsTableUI, laid out for 1355 px - the width its tooltip-echo
 # strip is budgeted against) and `logistics` (LogisticsWindowUI, `MinWindowWidth = 1410`,
-# first-open default 1556). The profile's screen is 1280x720. Both pass
-# `GUILayout.Width(windowRect.width)` with NO horizontal scroll view, so a narrower window
-# CLIPS its right-hand columns rather than scrolling them. Both are therefore commanded to
-# `x = 0 w = 1280` - the whole instance width, which is the smallest clip this instance
-# can produce - and the residue is filed as
-# GUI-CENSUS-TWO-WINDOWS-EXCEED-THE-INSTANCE-WIDTH rather than left to surprise a
-# reviewer who counts columns.
+# first-open default 1556). The profile's screen is 1280x720. WHAT A NARROWER WINDOW DOES
+# is neither a clean clip nor clean scrolling, and the mechanism is per-surface: the
+# WINDOW itself does not scroll, so `missions`' fixed HEADER ROW - drawn outside the
+# scroll view (RecordingsTableUI.cs:1647) - clips its right-hand columns outright, while
+# the table BODY under it sits in `BeginScrollView(pos, false, true, ...)` (:1650-1651)
+# and grows a HORIZONTAL BAR when its rows are wider than the view. `logistics` wraps its
+# whole section stack the same way through the options-only overload
+# (LogisticsWindowUI.cs:541), which defaults to the same show-if-needed behaviour. So a
+# capture shows only the left-hand columns either way, but the body's are reachable
+# behind a bar rather than gone. Both are therefore commanded to `x = 0 w = 1280` - the
+# whole instance width, which is the smallest mismatch this instance can produce - and
+# the residue is filed as GUI-CENSUS-TWO-WINDOWS-EXCEED-THE-INSTANCE-WIDTH rather than
+# left to surprise a reviewer who counts columns.
 #
 # KNOWN THIN CAPTURE: `structure` opens with no target, so it photographs the empty
 # "Parsek - Structure" chrome. Its populated forms are reached from a Missions or
@@ -169,11 +175,12 @@ steps = [
 
   # logistics - ONE OF THE TWO WINDOWS THAT DOES NOT FIT THE INSTANCE. Its own
   # MinWindowWidth is 1410 px (LogisticsWindowUI) and its first-open default is 1556, both
-  # wider than the profile's 1280x720 screen. It passes GUILayout.Width(windowRect.width)
-  # with no horizontal scroll view, so a narrower window CLIPS its right-hand columns - it
-  # does not scroll, and the first draft said it would. Commanded to the full instance
-  # width at x=0 so the clip is as small as this instance can make it; the residue is
-  # filed as GUI-CENSUS-TWO-WINDOWS-EXCEED-THE-INSTANCE-WIDTH.
+  # wider than the profile's 1280x720 screen. The WINDOW does not scroll, but its whole
+  # section stack is inside a BeginScrollView (LogisticsWindowUI.cs:541, the options-only
+  # overload - horizontal bar when needed), so a narrower window shows the left-hand
+  # columns with the rest behind a bar rather than simply losing them. Commanded to the
+  # full instance width at x=0 so the mismatch is as small as this instance can make it;
+  # the residue is filed as GUI-CENSUS-TWO-WINDOWS-EXCEED-THE-INSTANCE-WIDTH.
   { cmd = "UiAction", args = { op = "open", window = "logistics" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "rect", window = "logistics", x = "0", y = "8", w = "1280", h = "700" }, expect = "OK" },

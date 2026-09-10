@@ -122,10 +122,12 @@ steps = [
 
   # One shared window over a live scene, to show the chrome in flight. Its tab walk
   # belongs to GUI-1. Commanded to `x = 0 w = 1280` - the whole instance width - because
-  # RecordingsTableUI is laid out for 1355 px and passes
-  # GUILayout.Width(windowRect.width) with no horizontal scroll view, so anything narrower
-  # CLIPS its right-hand columns rather than scrolling them. It still clips by 75 px on a
-  # 1280x720 profile; that residue is filed as
+  # RecordingsTableUI is laid out for 1355 px. The WINDOW does not scroll, so anything
+  # narrower clips its FIXED HEADER ROW (drawn outside the scroll view,
+  # RecordingsTableUI.cs:1647) while the table BODY grows a horizontal bar
+  # (BeginScrollView(pos, false, true, ...) at :1650-1651) - the right-hand columns are
+  # off-screen either way. It is still 75 px short on a 1280x720 profile; that residue is
+  # filed as
   # GUI-CENSUS-TWO-WINDOWS-EXCEED-THE-INSTANCE-WIDTH, and at this width it also covers the
   # main window, which is unavoidable (the host's showUI gate keeps main open).
   { cmd = "UiAction", args = { op = "open", window = "missions" }, expect = "OK" },
