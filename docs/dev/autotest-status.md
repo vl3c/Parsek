@@ -3599,7 +3599,11 @@ lines + live status CLI (`harness/status.py`). Full forensics per finding:
   `harness/lib/ghostlife.py`) joined report-only 2026-08-27, between
   `renderCompose` and `ledgerOracle`: flight-scene GhostRenderTrace
   MeshSpawned/MeshDestroyed parse, per-recId spawn/destroy BALANCE, a
-  spawn-census window and a zero-spawn vacuity floor; gates as
+  spawn-census window, spawn / destroy LINE-count windows (`spawnLines` /
+  `destroyLines`, added 2026-09-10 for the repeat-rewind lane: the distinct
+  census and the set-based balance cannot see a second replay of the SAME
+  recordings leak a ghost; honest only on a non-looping lane) and a zero-spawn
+  vacuity floor; gates as
   `PARSEK-FAIL(ghost-lifecycle)` only for specs on `GHOSTLIFE_ARMED_SPECS`
   (empty as shipped - `GS-4-kerbalx-rewind-watch` is the first DECLARER and
   stays report-only until its reading run).
