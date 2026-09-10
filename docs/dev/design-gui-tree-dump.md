@@ -539,7 +539,9 @@ that control kind that frame).
 page - inline CSS and JS, no CDN, the screenshot embedded as a data URI when one sits
 beside the JSON. Boxes at each node's rect coloured by kind, over the screenshot; a
 collapsible tree panel beside it; hovering either side highlights the other.
-`--batch <dir>` writes one page per dump plus an `index.html`. Its pure half is unit
+`--batch <dir>` writes one page per dump plus a `gui-tree-index.html` - NOT
+`index.html`, which `tools/gui_contact_sheet.py` owns inside the same `*_shots`
+directory a census runs both tools over. Its pure half is unit
 tested in `harness/lib/test_gui_tree_view.py` - under `lib/`, not next to the tool,
 because CI runs `discover -s lib` and a test beside the tool would never run (the same
 placement as `lib/test_contact_sheet.py` for `tools/contact_sheet.py`).

@@ -194,7 +194,7 @@ under `lib/` rather than beside the tool because CI discovers `lib/` only.
 
 ```
 python tools/gui_tree_view.py <label>.gui.json          # one page beside the dump
-python tools/gui_tree_view.py --batch results/<runId>_shots   # every dump + index
+python tools/gui_tree_view.py --batch results/<runId>_shots   # every dump + gui-tree-index.html
 ```
 
 Read the page's amber notes strip FIRST. A dump whose Harmony interceptions were
@@ -232,10 +232,12 @@ It writes `index.html` INSIDE the shots directory, grouped by the capture label'
 scene prefix (`ksc-`, `flight-`, `map-`, `trackstation-`, `editor-`, then
 anything else under `other` - a label it does not model is still SHOWN, because
 this is a viewer and a silently dropped image shortens a census a reviewer is
-counting). The two tools cannot collide: this one owns `index.html` inside a
-`*_shots` dir, the V3 sheet owns `<runId>_contact.html` and `index.html` at the
-results ROOT. Neither is part of the run flow - this one is run by hand, after
-the fact.
+counting). No two of the three page tools write the same path: this one owns
+`index.html` inside a `*_shots` dir, the V3 sheet owns `<runId>_contact.html` and
+`index.html` at the results ROOT, and `tools/gui_tree_view.py --batch` - the other
+tool a census points at that SAME shots dir - owns `gui-tree-index.html` there,
+which is why its index does not carry the plain name. Neither is part of the run
+flow - this one is run by hand, after the fact.
 
 COPY A CENSUS OUT IF IT MATTERS. `results/<runId>_shots/` is the one artifact
 directory the retention pass bounds (`hlib.select_shots_dirs_to_prune`: newest 40
@@ -291,10 +293,12 @@ Both lanes are `tier = "operator"` and fly on request only. In order:
    python tools/gui_tree_view.py --batch results/<runId>_shots
    ```
 
-   `--batch` writes one `<label>.gui.html` per dump plus an `index.html` in that
-   directory, each page inlining the matching `<label>.png` behind the boxes - which
-   works because the two verbs are driven as a PAIR under one label. Read each page's
-   amber notes strip FIRST.
+   `--batch` writes one `<label>.gui.html` per dump plus a `gui-tree-index.html` in
+   that directory, each page inlining the matching `<label>.png` behind the boxes -
+   which works because the two verbs are driven as a PAIR under one label. The index
+   is deliberately NOT `index.html`: step 4 above wrote that file into the same
+   directory, and a shared name would mean this step silently replaced the picture
+   sheet. Read each page's amber notes strip FIRST.
 
 6. **Copy the directory out** if the census matters (the retention pass above).
 
