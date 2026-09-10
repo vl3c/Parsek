@@ -91,44 +91,54 @@ namespace Parsek.Tests
         /// Every patch class in <c>Patches/GuiTreeRecorderPatches.cs</c> declares its
         /// prefix / postfix parameters by NAME, and Harmony matches those names against
         /// the target method's. A rename on either side throws at patch time inside the
-        /// game. Checked here instead: for each patch class, every declared parameter that
-        /// is not a Harmony special (<c>__instance</c>, <c>__result</c>, <c>__state</c>,
-        /// <c>___field</c>) must exist on the target method with an assignable type.
+        /// game. Checked here instead: for each patch class in the applier's own table,
+        /// every declared parameter that is not a Harmony special (<c>__instance</c>,
+        /// <c>__result</c>, <c>__state</c>, <c>___field</c>) must exist on the target
+        /// method with an assignable type.
+        ///
+        /// <para>Discovery is <c>GuiTreeRecorderPatches.All</c>, not the
+        /// <c>[HarmonyPatch]</c> attribute: these classes deliberately carry no attribute
+        /// (see <see cref="NoGuiTreePatchClassIsDiscoverableByTheAssemblySweep"/>), and
+        /// that table is now the only thing that applies them.</para>
         /// </summary>
         [Fact]
         public void PatchParameterNamesAndTypesMatchTheirTargets()
         {
-            Assembly parsek = typeof(GuiTreeFunnels).Assembly;
-            Type patchAttribute = typeof(HarmonyLib.HarmonyPatch);
             int classesChecked = 0;
             int parametersChecked = 0;
+            var funnelsSeen = new HashSet<GuiFunnel>();
 
-            foreach (Type type in parsek.GetTypes())
+            foreach (var row in Parsek.Patches.GuiTreeRecorderPatches.All)
             {
-                if (type.Namespace != "Parsek.Patches")
-                    continue;
-                if (!type.Name.StartsWith("GuiTree", StringComparison.Ordinal))
-                    continue;
-                if (type.GetCustomAttributes(patchAttribute, false).Length == 0)
-                    continue;
+                GuiFunnel funnel = row.Item1;
+                Type type = row.Item2;
+                Assert.True(funnelsSeen.Add(funnel),
+                    "funnel " + GuiTreeFunnels.Name(funnel) + " is listed twice in "
+                    + "GuiTreeRecorderPatches.All");
 
                 MethodInfo targetResolver = type.GetMethod("TargetMethod",
                     BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
                 Assert.NotNull(targetResolver);
                 var target = (MethodBase)targetResolver.Invoke(null, null);
                 Assert.NotNull(target);
+                // The class's own TargetMethod and the table's funnel must name the SAME
+                // method, or the applier patches one thing while the report describes
+                // another.
+                Assert.Equal((MethodBase)GuiTreeFunnels.Target(funnel), target);
                 classesChecked++;
 
                 var targetParameters = new Dictionary<string, Type>();
                 foreach (ParameterInfo p in target.GetParameters())
                     targetParameters[p.Name] = p.ParameterType;
 
+                bool hasHook = false;
                 foreach (string hookName in new[] { "Prefix", "Postfix" })
                 {
                     MethodInfo hook = type.GetMethod(hookName,
                         BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
                     if (hook == null)
                         continue;
+                    hasHook = true;
                     foreach (ParameterInfo p in hook.GetParameters())
                     {
                         if (p.Name.StartsWith("__", StringComparison.Ordinal))
@@ -144,14 +154,106 @@ namespace Parsek.Tests
                         parametersChecked++;
                     }
                 }
+                Assert.True(hasHook, type.Name + " declares neither a Prefix nor a Postfix");
             }
 
-            // One class per funnel, so a patch class silently dropped from the file reds
+            // One class per funnel, so a patch class silently dropped from the table reds
             // here rather than showing up as a missing control kind in a dump.
             Assert.Equal(GuiTreeFunnels.Count, classesChecked);
-            Assert.True(parametersChecked >= 40,
-                "expected the patch bodies to bind at least 40 named parameters, saw "
+            Assert.True(parametersChecked >= 35,
+                "expected the patch bodies to bind at least 35 named parameters, saw "
                 + parametersChecked);
+        }
+
+        /// <summary>
+        /// THE opt-in gate. <c>ParsekHarmony.Awake</c> discovers patch classes by
+        /// <c>t.GetCustomAttributes(typeof(HarmonyPatch), false).Length &gt; 0</c> and
+        /// applies every one it finds, permanently. A <c>[HarmonyPatch]</c> attribute
+        /// anywhere in the GUI-tree patch file would therefore put a Harmony detour on
+        /// <c>GUI.DoLabel</c> and friends for the whole session - a cost paid by every
+        /// IMGUI consumer in the process, on every control of every event pass, for a
+        /// recorder that is armed for single frames minutes apart. This cell re-runs the
+        /// sweep's OWN predicate over the assembly and requires it to find none of them.
+        /// </summary>
+        [Fact]
+        public void NoGuiTreePatchClassIsDiscoverableByTheAssemblySweep()
+        {
+            Assembly parsek = typeof(GuiTreeFunnels).Assembly;
+            Type patchAttribute = typeof(HarmonyLib.HarmonyPatch);
+            var offenders = new List<string>();
+
+            foreach (Type type in parsek.GetTypes())
+            {
+                if (!type.Name.StartsWith("GuiTree", StringComparison.Ordinal))
+                    continue;
+                // Exactly ParsekHarmony.Awake's predicate.
+                if (type.GetCustomAttributes(patchAttribute, false).Length > 0)
+                    offenders.Add(type.FullName);
+            }
+
+            Assert.True(offenders.Count == 0,
+                "these GUI-tree types carry [HarmonyPatch], so ParsekHarmony's sweep would "
+                + "apply them permanently at Awake instead of leaving them to "
+                + "GuiTreeRecorderPatches.Apply(): " + string.Join(", ", offenders.ToArray()));
+        }
+
+        /// <summary>
+        /// The applier's table must cover every funnel and nothing else, because the
+        /// arm-time <c>patched</c> report is derived from the funnel enum while the
+        /// patching is driven from the table. A funnel present in one and absent from the
+        /// other reads as "signature drift" in a dump and is nothing of the sort.
+        /// </summary>
+        [Fact]
+        public void TheApplierTableCoversExactlyTheFunnelEnum()
+        {
+            var tabled = new HashSet<GuiFunnel>();
+            foreach (var row in Parsek.Patches.GuiTreeRecorderPatches.All)
+                tabled.Add(row.Item1);
+
+            foreach (GuiFunnel f in Enum.GetValues(typeof(GuiFunnel)))
+            {
+                Assert.True(tabled.Contains(f),
+                    "funnel " + GuiTreeFunnels.Name(f) + " has no patch class in "
+                    + "GuiTreeRecorderPatches.All, so nothing will ever intercept it");
+            }
+            Assert.Equal(GuiTreeFunnels.Count, tabled.Count);
+            Assert.Equal(GuiTreeFunnels.Count, GuiTreeFunnels.PatchedAtArm.Length);
+        }
+
+        /// <summary>
+        /// The two layout-group funnels are the ones that replaced four inline-prone
+        /// patches, so their identity is pinned by name here: a future edit that quietly
+        /// points them back at <c>GUILayout.BeginHorizontal</c> / <c>EndHorizontal</c>
+        /// (8 bytes of IL, well inside Mono's inline limit) would restore the very failure
+        /// mode the swap removed, and every other cell in this file would still pass.
+        /// </summary>
+        [Fact]
+        public void TheLayoutGroupFunnelsAreTheLargeGUILayoutUtilityPair()
+        {
+            MethodInfo begin = GuiTreeFunnels.Target(GuiFunnel.BeginLayoutGroup);
+            MethodInfo end = GuiTreeFunnels.Target(GuiFunnel.EndLayoutGroup);
+            Assert.NotNull(begin);
+            Assert.NotNull(end);
+            Assert.Equal(typeof(UnityEngine.GUILayoutUtility), begin.DeclaringType);
+            Assert.Equal(typeof(UnityEngine.GUILayoutUtility), end.DeclaringType);
+            Assert.Equal("BeginLayoutGroup", begin.Name);
+            Assert.Equal("EndLayoutGroup", end.Name);
+            // BeginLayoutGroup's third parameter is the layout TYPE, which is the only
+            // thing that tells a real BeginHorizontal / BeginVertical from the carrier
+            // GUILayout.BeginScrollView opens for its GUIScrollGroup.
+            Assert.Equal(3, begin.GetParameters().Length);
+            Assert.Equal(typeof(Type), begin.GetParameters()[2].ParameterType);
+            Assert.Empty(end.GetParameters());
+
+            // And the four funnels it replaced are gone, so nothing patches an 8-byte End.
+            foreach (GuiFunnel f in Enum.GetValues(typeof(GuiFunnel)))
+            {
+                string name = GuiTreeFunnels.Name(f);
+                Assert.False(name == "GUILayout.BeginHorizontal" || name == "GUILayout.EndHorizontal"
+                    || name == "GUILayout.BeginVertical" || name == "GUILayout.EndVertical",
+                    name + " is patched again; those Ends are 8 bytes of IL and Mono "
+                    + "inlines them regardless of Harmony");
+            }
         }
     }
 
@@ -178,6 +280,18 @@ namespace Parsek.Tests
         {
             string result = GuiTreeRecorder.SanitizeLabel(new string('a', 400));
             Assert.Equal(96, result.Length);
+        }
+
+        [Theory]
+        [InlineData(true, "inside-gui-pass")]
+        [InlineData(false, null)]
+        public void ArmingIsRefusedFromInsideAGuiPass(bool insideGuiPass, string expected)
+        {
+            // Arming installs Harmony patches on the very IMGUI methods an in-progress
+            // pass is executing, and a pass already half-drawn would give a truncated
+            // capture. The live path reads Event.current; the DECISION is pure so it can
+            // be pinned without a Unity GUI pass.
+            Assert.Equal(expected, GuiTreeRecorder.ClassifyArmRefusal(insideGuiPass));
         }
 
         [Fact]

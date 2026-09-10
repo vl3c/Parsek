@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Globalization;
 using Parsek;
 using Xunit;
 
@@ -231,6 +232,231 @@ namespace Parsek.Tests
 
             Assert.Equal(0, GuiTreeGeometry.Inspect(tree, Title, null).ProbeControlsFound);
             Assert.Equal(0, GuiTreeGeometry.Inspect(tree, Title, "").ProbeControlsFound);
+        }
+
+        // ------------------------------------------------------------------------
+        // Cells below cover the containment box, the per-kind counts the live cell
+        // asserts against, the scroll-offset reading, and the two things that would
+        // otherwise only fail on a different machine (culture, window nesting).
+        // ------------------------------------------------------------------------
+
+        [Fact]
+        public void TheMeasuredContentBoxWinsOverTheDeclaredRect()
+        {
+            // The declared rect is what the CALLER passed to GUILayout.Window before
+            // this frame moved the window, and it is never screen-converted; the
+            // measured pair is a GUIToScreenPoint taken inside the callback the children
+            // were drawn in. A control drawn where the window ACTUALLY is must pass, and
+            // the stale declaration must not be what decides it.
+            GuiTreeEvent window = Window(60, 60, 320, 260);
+            window.ContentOriginX = 500f;   // the window really moved to (500, 300)
+            window.ContentOriginY = 300f;
+            window.ArgWidth = 320f;
+            window.ArgHeight = 260f;
+
+            GuiTreeResult tree = Build(
+                window,
+                Control(Marker + "label", 506, 324, 200, 18),
+                new GuiTreeEvent { Op = GuiTreeOp.End, Kind = GuiNodeKind.Window });
+
+            GuiTreeGeometryReport r = GuiTreeGeometry.Inspect(tree, Title, Marker);
+
+            Assert.True(r.ContentBoxMeasured);
+            Assert.Equal(0, r.ControlsOutsideWindow);
+            Assert.Contains("measured contentOrigin+argSize", r.DescribeContainmentBox());
+            // ... and the declaration is still reported, as the second reading.
+            Assert.Equal("[60,60,320,260]", r.DescribeWindowRect());
+        }
+
+        [Fact]
+        public void WithNoMeasuredPairTheDeclaredRectIsTheFallbackAndSaysSo()
+        {
+            GuiTreeResult tree = Build(
+                Window(60, 60, 320, 260),
+                Control(Marker + "label", 66, 84, 200, 18),
+                new GuiTreeEvent { Op = GuiTreeOp.End, Kind = GuiNodeKind.Window });
+
+            GuiTreeGeometryReport r = GuiTreeGeometry.Inspect(tree, Title, Marker);
+
+            Assert.False(r.ContentBoxMeasured);
+            Assert.Equal(0, r.ControlsOutsideWindow);
+            Assert.Contains("declared rect", r.DescribeContainmentBox());
+        }
+
+        [Fact]
+        public void AWindowBelowTheRootsIsStillFound()
+        {
+            // FindWindow recurses because a window is not necessarily a root: an OnGUI
+            // container that opens a group before drawing its window puts the window one
+            // level down. Mutation killed: a flat scan of tree.Roots, which would report
+            // "window not found" and skip every geometry check in the live cell.
+            var events = new List<GuiTreeEvent>
+            {
+                new GuiTreeEvent
+                {
+                    Op = GuiTreeOp.Begin,
+                    Kind = GuiNodeKind.Group,
+                    Rect = new GuiRect(0f, 0f, 800f, 600f),
+                    ClipDepth = 1,
+                },
+                Window(60, 60, 320, 260),
+                Control(Marker + "label", 66, 84, 200, 18),
+                new GuiTreeEvent { Op = GuiTreeOp.End, Kind = GuiNodeKind.Window },
+                new GuiTreeEvent { Op = GuiTreeOp.End, Kind = GuiNodeKind.Group },
+            };
+
+            GuiTreeResult tree = GuiTreeAssembler.Assemble(events);
+            GuiTreeGeometryReport r = GuiTreeGeometry.Inspect(tree, Title, Marker);
+
+            Assert.True(r.WindowFound);
+            Assert.Equal(1, r.ProbeControlsFound);
+        }
+
+        [Fact]
+        public void PerKindCountsAreScopedToTheWindowAndExcludeItself()
+        {
+            // The live cell's EXACT expectations rest on these counts, precisely because
+            // the per-funnel hit counters are process-wide. The window itself must not be
+            // counted (it is the scope, not a member), and a second window's contents
+            // must not leak in.
+            var events = new List<GuiTreeEvent>
+            {
+                Window(60, 60, 320, 260),
+                Group(),
+                Control(Marker + "a", 66, 84, 200, 18),
+                Control(Marker + "b", 66, 106, 200, 18),
+                new GuiTreeEvent { Op = GuiTreeOp.End, Kind = GuiNodeKind.LayoutGroup },
+                new GuiTreeEvent { Op = GuiTreeOp.End, Kind = GuiNodeKind.Window },
+                new GuiTreeEvent
+                {
+                    Op = GuiTreeOp.Begin,
+                    Kind = GuiNodeKind.Window,
+                    Rect = new GuiRect(0f, 0f, 100f, 100f),
+                    ClipDepth = 1,
+                    Text = "Some other window",
+                },
+                Control("not-the-probe", 10, 10, 20, 20),
+                new GuiTreeEvent { Op = GuiTreeOp.End, Kind = GuiNodeKind.Window },
+            };
+
+            GuiTreeResult tree = GuiTreeAssembler.Assemble(events);
+            GuiTreeGeometryReport r = GuiTreeGeometry.Inspect(tree, Title, Marker);
+
+            Assert.Equal(2, r.CountOf(GuiNodeKind.Label));
+            Assert.Equal(1, r.CountOf(GuiNodeKind.LayoutGroup));
+            Assert.Equal(0, r.CountOf(GuiNodeKind.Window));
+            Assert.Equal(0, r.CountOf(GuiNodeKind.Button));
+            Assert.Equal("layoutgroup=1 label=2", r.DescribeKindCounts());
+        }
+
+        [Fact]
+        public void TheScrollOffsetReadingMeasuresTheRowAgainstTheViewport()
+        {
+            // A scroll view scrolled down by 25 px draws its first row 25 px ABOVE its
+            // own viewport, clipped away. That difference is the only observable proof
+            // that the scroll offset a scroll view pushes onto the clip stack reached
+            // GUIUtility.GUIToScreenRect at all.
+            var events = new List<GuiTreeEvent>
+            {
+                Window(60, 60, 320, 260),
+                new GuiTreeEvent
+                {
+                    Op = GuiTreeOp.Begin,
+                    Kind = GuiNodeKind.ScrollView,
+                    Rect = new GuiRect(66f, 200f, 300f, 70f),
+                    ClipDepth = 2,
+                },
+                Control("row-0", 68, 175, 200, 18, 2),
+                new GuiTreeEvent { Op = GuiTreeOp.End, Kind = GuiNodeKind.ScrollView },
+                new GuiTreeEvent { Op = GuiTreeOp.End, Kind = GuiNodeKind.Window },
+            };
+
+            GuiTreeResult tree = GuiTreeAssembler.Assemble(events);
+            GuiTreeScrollOffsetReport r = GuiTreeGeometry.MeasureScrollOffset(tree, Title, "row-0");
+
+            Assert.True(r.ScrollViewFound);
+            Assert.True(r.RowFound);
+            Assert.Equal(25f, r.OffsetAbovePx, 3f);
+            Assert.Contains("offsetAbove=25", r.Describe());
+        }
+
+        [Fact]
+        public void AnUnscrolledViewReadsAsNoOffsetRatherThanAsSuccess()
+        {
+            // The negative control for the cell above: if the clip's scroll offset were
+            // dropped, the first row would land AT the viewport's top and the reading
+            // would be 0.
+            var events = new List<GuiTreeEvent>
+            {
+                Window(60, 60, 320, 260),
+                new GuiTreeEvent
+                {
+                    Op = GuiTreeOp.Begin,
+                    Kind = GuiNodeKind.ScrollView,
+                    Rect = new GuiRect(66f, 200f, 300f, 70f),
+                    ClipDepth = 2,
+                },
+                Control("row-0", 68, 200, 200, 18, 2),
+                new GuiTreeEvent { Op = GuiTreeOp.End, Kind = GuiNodeKind.ScrollView },
+                new GuiTreeEvent { Op = GuiTreeOp.End, Kind = GuiNodeKind.Window },
+            };
+
+            GuiTreeResult tree = GuiTreeAssembler.Assemble(events);
+            GuiTreeScrollOffsetReport r = GuiTreeGeometry.MeasureScrollOffset(tree, Title, "row-0");
+
+            Assert.True(r.RowFound);
+            Assert.Equal(0f, r.OffsetAbovePx, 3f);
+        }
+
+        [Fact]
+        public void MissingScrollViewOrRowIsDescribedRatherThanThrown()
+        {
+            GuiTreeResult empty = Build(
+                Window(0, 0, 100, 100),
+                new GuiTreeEvent { Op = GuiTreeOp.End, Kind = GuiNodeKind.Window });
+
+            GuiTreeScrollOffsetReport none = GuiTreeGeometry.MeasureScrollOffset(empty, Title, "row-0");
+            Assert.False(none.ScrollViewFound);
+            Assert.Contains("no scroll view", none.Describe());
+
+            Assert.False(GuiTreeGeometry.MeasureScrollOffset(null, Title, "row-0").ScrollViewFound);
+        }
+
+        [Fact]
+        public void EveryFormattedNumberIsInvariantUnderAGermanCulture()
+        {
+            // These strings go into an InGameAssert failure message and into
+            // parsek-test-results.txt, which a person and a parser both read. Under
+            // de-DE a bare ToString would print "60,5" - a comma inside a
+            // comma-separated rect. de-DE is pinned here to PROVE the site is invariant,
+            // never to make a culture-dependent one pass.
+            CultureInfo previous = CultureInfo.CurrentCulture;
+            try
+            {
+                CultureInfo.CurrentCulture = new CultureInfo("de-DE");
+
+                GuiTreeEvent window = Window(60.5f, 60.25f, 320.75f, 260.5f);
+                window.ContentOriginX = 60.5f;
+                window.ContentOriginY = 60.25f;
+                window.ArgWidth = 320.75f;
+                window.ArgHeight = 260.5f;
+
+                GuiTreeResult tree = Build(
+                    window,
+                    Control(Marker + "outside", 4000.5f, 12.25f, 10.5f, 10.5f),
+                    new GuiTreeEvent { Op = GuiTreeOp.End, Kind = GuiNodeKind.Window });
+
+                GuiTreeGeometryReport r = GuiTreeGeometry.Inspect(tree, Title, Marker);
+
+                Assert.Equal("[60.5,60.25,320.75,260.5]", r.DescribeWindowRect());
+                Assert.StartsWith("[60.5,60.25,320.75,260.5]", r.DescribeContainmentBox());
+                Assert.Contains("rect=[4000.5,12.25,10.5,10.5]", r.FirstOffender);
+                Assert.DoesNotContain(",25", r.FirstOffender);
+            }
+            finally
+            {
+                CultureInfo.CurrentCulture = previous;
+            }
         }
     }
 }

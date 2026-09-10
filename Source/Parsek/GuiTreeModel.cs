@@ -149,16 +149,13 @@ namespace Parsek
 
         /// <summary>
         /// True for a node that pushed a Unity clip rect, so the clip-depth recovery rule
-        /// applies to it. LayoutGroup pushes none.
+        /// applies to it. LayoutGroup pushes none. ONE definition, shared with the
+        /// event-side check: <see cref="GuiTreeAssembler.IsClipKind"/>. Two copies of this
+        /// predicate is how the asymmetric clip rule silently stops agreeing with itself.
         /// </summary>
         internal bool IsClipContainer
         {
-            get
-            {
-                return Kind == GuiNodeKind.Window
-                    || Kind == GuiNodeKind.Group
-                    || Kind == GuiNodeKind.ScrollView;
-            }
+            get { return GuiTreeAssembler.IsClipKind(Kind); }
         }
     }
 
@@ -184,6 +181,16 @@ namespace Parsek
 
         /// <summary>LayoutGroups closed because the next rect fell outside them.</summary>
         internal int AutoClosedByRect;
+
+        /// <summary>
+        /// Events at which the rect rule could not be applied at all, because every open
+        /// LayoutGroup down to the enclosing clip container had a degenerate rect. Not an
+        /// error - a zero-size carrier group is ordinary GUILayout - but it means the
+        /// layout nesting at that point rests on the End pairing alone, with no
+        /// independent check behind it. The viewer reports a non-zero count as "layout
+        /// nesting unverified".
+        /// </summary>
+        internal int RectRuleInert;
 
         /// <summary>Containers still open when the stream ended.</summary>
         internal int UnclosedAtEnd;
@@ -228,7 +235,7 @@ namespace Parsek
 
                 if (e.Op == GuiTreeOp.End)
                 {
-                    CloseMatching(open, e.Kind, result);
+                    CloseMatching(open, e, result);
                     continue;
                 }
 
@@ -258,21 +265,34 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Pops down to and including the nearest open node of <paramref name="kind"/>.
-        /// Anything closed on the way there was left open by its own producer and is
-        /// counted in <see cref="GuiTreeResult.AutoClosedByEnd"/>. An End with no match
-        /// closes nothing at all - never guess, or one stray End collapses the tree.
+        /// Pops down to and including the NEAREST open node of the End's kind. Anything
+        /// closed on the way there was left open by its own producer and is counted in
+        /// <see cref="GuiTreeResult.AutoClosedByEnd"/>. An End with no match closes
+        /// nothing at all - never guess, or one stray End collapses the tree.
+        ///
+        /// <para>A LayoutGroup End additionally carries its own ORIENTATION (the recorder
+        /// pops it off its Begin stack, because <c>GUILayoutUtility.EndLayoutGroup</c>
+        /// takes no arguments). Matching on it means a stranded horizontal group cannot
+        /// swallow the End of the vertical group that encloses it - it is skipped, the
+        /// vertical one matches, and the stranded group is counted as
+        /// <c>autoClosedByEnd</c> where it belongs. An End with NO orientation (the
+        /// recorder's stack was empty) matches either, which is the older behaviour.</para>
         /// </summary>
-        private static void CloseMatching(List<GuiTreeNode> open, GuiNodeKind kind, GuiTreeResult result)
+        private static void CloseMatching(List<GuiTreeNode> open, GuiTreeEvent e, GuiTreeResult result)
         {
             int match = -1;
             for (int i = open.Count - 1; i >= 0; i--)
             {
-                if (open[i].Kind == kind)
+                if (open[i].Kind != e.Kind)
+                    continue;
+                if (e.Kind == GuiNodeKind.LayoutGroup
+                    && e.Horizontal.HasValue && open[i].Horizontal.HasValue
+                    && open[i].Horizontal.Value != e.Horizontal.Value)
                 {
-                    match = i;
-                    break;
+                    continue;
                 }
+                match = i;
+                break;
             }
 
             if (match < 0)
@@ -290,7 +310,7 @@ namespace Parsek
         /// therefore carries the depth their CHILDREN report rather than the depth they
         /// were opened at.
         /// </summary>
-        private static bool IsClipKind(GuiNodeKind kind)
+        internal static bool IsClipKind(GuiNodeKind kind)
         {
             return kind == GuiNodeKind.Window
                 || kind == GuiNodeKind.Group
@@ -356,6 +376,20 @@ namespace Parsek
                 : e.ClipDepth < container.ClipDepth;
         }
 
+        /// <summary>
+        /// The LayoutGroup recovery rule: a group closes when the next event's rect falls
+        /// outside it by more than <see cref="LayoutGroupContainmentSlackPx"/>.
+        ///
+        /// <para>A DEGENERATE top group used to stop the rule dead, which loses the whole
+        /// check whenever GUILayout puts a zero-size carrier on top (a spacer, a group
+        /// that ended up empty). It now LOOKS PAST it to the nearest enclosing LayoutGroup
+        /// with a usable rect, mirroring the clip rule's lookback, and closes the whole run
+        /// down to that group when the incoming rect is outside IT. The search stops at the
+        /// enclosing clip container, whose own containment is the clip rule's business.
+        /// When no usable rect exists at all, the event is counted in
+        /// <see cref="GuiTreeResult.RectRuleInert"/> - the nesting there rests on the End
+        /// pairing alone and the reader is told so.</para>
+        /// </summary>
         private static void CloseByRectContainment(List<GuiTreeNode> open, GuiTreeEvent e, GuiTreeResult result)
         {
             if (e.Rect.IsDegenerate)
@@ -364,8 +398,37 @@ namespace Parsek
             while (open.Count > 0)
             {
                 GuiTreeNode top = open[open.Count - 1];
-                if (top.Kind != GuiNodeKind.LayoutGroup || top.Rect.IsDegenerate)
+                if (top.Kind != GuiNodeKind.LayoutGroup)
                     return;
+
+                if (top.Rect.IsDegenerate)
+                {
+                    int usable = -1;
+                    for (int i = open.Count - 1; i >= 0; i--)
+                    {
+                        if (open[i].Kind != GuiNodeKind.LayoutGroup)
+                            break;
+                        if (!open[i].Rect.IsDegenerate)
+                        {
+                            usable = i;
+                            break;
+                        }
+                    }
+                    if (usable < 0)
+                    {
+                        result.RectRuleInert++;
+                        return;
+                    }
+                    if (open[usable].Rect.ContainsWithSlack(
+                            e.Rect.X, e.Rect.Y, LayoutGroupContainmentSlackPx))
+                    {
+                        return;
+                    }
+                    result.AutoClosedByRect += open.Count - usable;
+                    open.RemoveRange(usable, open.Count - usable);
+                    continue;
+                }
+
                 if (top.Rect.ContainsWithSlack(e.Rect.X, e.Rect.Y, LayoutGroupContainmentSlackPx))
                     return;
                 result.AutoClosedByRect++;

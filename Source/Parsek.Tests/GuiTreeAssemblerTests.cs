@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Parsek;
 using Xunit;
@@ -522,6 +523,342 @@ namespace Parsek.Tests
         {
             Assert.Equal((GuiNodeKind)expected,
                 GuiTreeAssembler.ClassifyFromStyleName(styleName, on));
+        }
+
+        // ------------------------------------------------------------------------
+        // The cells below kill mutations that survived the first review: each one
+        // fails against a specific plausible wrong implementation, named in its own
+        // comment, and passes against the real one.
+        // ------------------------------------------------------------------------
+
+        [Fact]
+        public void AnEndClosesTheNearestOpenGroupNotTheOutermost()
+        {
+            // Mutation killed: CloseMatching searching FORWARD (0..n) instead of
+            // backward. With two nested layout groups the outermost would match, both
+            // would close, and the second leaf would land on the root - which every
+            // other cell in this file tolerates, because none of them nests two of a
+            // kind and then closes only one.
+            var events = new List<GuiTreeEvent>
+            {
+                Begin(GuiNodeKind.LayoutGroup, 10, 10, 200, 200, 1, "A"),
+                Begin(GuiNodeKind.LayoutGroup, 20, 20, 100, 100, 1, "B"),
+                Leaf(GuiNodeKind.Label, 25, 25, 50, 18, 1, "in-B"),
+                End(GuiNodeKind.LayoutGroup),
+                Leaf(GuiNodeKind.Label, 30, 130, 50, 18, 1, "in-A"),
+                End(GuiNodeKind.LayoutGroup),
+            };
+
+            GuiTreeResult r = GuiTreeAssembler.Assemble(events);
+
+            Assert.Single(r.Roots);
+            GuiTreeNode a = r.Roots[0];
+            Assert.Equal("A", a.Text);
+            Assert.Equal(2, a.Children.Count);
+            Assert.Equal("B", a.Children[0].Text);
+            Assert.Equal("in-B", a.Children[0].Children[0].Text);
+            Assert.Equal("in-A", a.Children[1].Text);
+            Assert.Equal(0, r.AutoClosedByEnd);
+            Assert.Equal(0, r.StrayEnds);
+        }
+
+        [Fact]
+        public void ALayoutGroupEndMatchesItsOwnOrientationNotJustItsKind()
+        {
+            // The recorder pops the orientation off its own Begin stack, because
+            // GUILayoutUtility.EndLayoutGroup takes no arguments. Mutation killed:
+            // ignoring Horizontal in CloseMatching. Here a HORIZONTAL group was left
+            // open (its own End inlined or lost) inside a VERTICAL one; the vertical
+            // End must skip past it rather than close it and leak the vertical group.
+            var events = new List<GuiTreeEvent>
+            {
+                Begin(GuiNodeKind.Window, 0, 0, 400, 400, 1),
+                BeginLayoutGroup(false, 10, 10, 300, 300, 1, "vertical"),
+                BeginLayoutGroup(true, 12, 12, 280, 24, 1, "horizontal-stranded"),
+                Leaf(GuiNodeKind.Label, 14, 14, 60, 18, 1, "row"),
+                // no End for the horizontal group
+                EndLayoutGroup(false),
+                End(GuiNodeKind.Window),
+            };
+
+            GuiTreeResult r = GuiTreeAssembler.Assemble(events);
+
+            GuiTreeNode window = r.Roots[0];
+            Assert.Single(window.Children);
+            Assert.Equal("vertical", window.Children[0].Text);
+            Assert.Equal("horizontal-stranded", window.Children[0].Children[0].Text);
+            // The stranded horizontal group is closed on the way out, and counted.
+            Assert.Equal(1, r.AutoClosedByEnd);
+            Assert.Equal(0, r.StrayEnds);
+            Assert.Equal(0, r.UnclosedAtEnd);
+        }
+
+        [Fact]
+        public void AnOrientationLessLayoutGroupEndStillMatchesEitherKind()
+        {
+            // The recorder emits an End with no orientation when its Begin stack was
+            // empty (the per-frame cap tripped between the two). That End must still
+            // close something, or the group leaks.
+            var events = new List<GuiTreeEvent>
+            {
+                BeginLayoutGroup(true, 0, 0, 100, 100, 0, "horizontal"),
+                EndLayoutGroup(null),
+            };
+
+            GuiTreeResult r = GuiTreeAssembler.Assemble(events);
+
+            Assert.Equal(0, r.StrayEnds);
+            Assert.Equal(0, r.UnclosedAtEnd);
+        }
+
+        [Fact]
+        public void MissingEndScrollViewIsRecoveredFromTheClipDepth()
+        {
+            // The mirror of MissingEndGroupIsRecoveredFromTheClipDepth. A scroll view
+            // pushes a clip exactly like a group, so the same asymmetric rule must
+            // close it - a rule that special-cased Group would leave every scroll view
+            // open and swallow the rest of the window.
+            var events = new List<GuiTreeEvent>
+            {
+                Begin(GuiNodeKind.Window, 0, 0, 400, 400, 1),
+                Begin(GuiNodeKind.ScrollView, 10, 10, 200, 70, 2),
+                Leaf(GuiNodeKind.Label, 12, 12, 100, 18, 2, "row"),
+                // no End(ScrollView)
+                Leaf(GuiNodeKind.Label, 12, 300, 100, 18, 1, "after-the-scroll-view"),
+                End(GuiNodeKind.Window),
+            };
+
+            GuiTreeResult r = GuiTreeAssembler.Assemble(events);
+
+            GuiTreeNode window = r.Roots[0];
+            Assert.Equal(2, window.Children.Count);
+            Assert.Equal(GuiNodeKind.ScrollView, window.Children[0].Kind);
+            Assert.Equal("row", window.Children[0].Children[0].Text);
+            Assert.Equal("after-the-scroll-view", window.Children[1].Text);
+            Assert.Equal(1, r.AutoClosedByClip);
+        }
+
+        [Fact]
+        public void TheRectRuleClosesOnTheXAxisToo()
+        {
+            // Mutation killed: a containment test that only compares Y. Inside a
+            // HORIZONTAL layout group the next sibling moves RIGHT, not down, so a
+            // y-only rule would keep every horizontal group open to the end of the
+            // window.
+            var events = new List<GuiTreeEvent>
+            {
+                Begin(GuiNodeKind.Window, 0, 0, 400, 400, 1),
+                BeginLayoutGroup(true, 10, 10, 100, 24, 1, "horizontal"),
+                Leaf(GuiNodeKind.Label, 12, 12, 40, 18, 1, "inside"),
+                // no End; the next control is to the RIGHT of the group, same y band
+                Leaf(GuiNodeKind.Label, 300, 12, 40, 18, 1, "far-right"),
+                End(GuiNodeKind.Window),
+            };
+
+            GuiTreeResult r = GuiTreeAssembler.Assemble(events);
+
+            GuiTreeNode window = r.Roots[0];
+            Assert.Equal(2, window.Children.Count);
+            Assert.Equal("inside", window.Children[0].Children[0].Text);
+            Assert.Equal("far-right", window.Children[1].Text);
+            Assert.Equal(1, r.AutoClosedByRect);
+        }
+
+        [Fact]
+        public void TheClipRuleClosesTwoContainersOnOneEvent()
+        {
+            // Mutation killed: an `if` instead of a `while` in CloseByClipDepth. Two
+            // nested containers whose Ends were both inlined must both close on the
+            // first event that proves it; one iteration would leave the outer one open
+            // and reparent everything after it.
+            var events = new List<GuiTreeEvent>
+            {
+                Begin(GuiNodeKind.Window, 0, 0, 400, 400, 1),
+                Begin(GuiNodeKind.Group, 10, 10, 200, 200, 2),
+                Begin(GuiNodeKind.Group, 20, 20, 100, 100, 3),
+                Leaf(GuiNodeKind.Label, 22, 22, 50, 18, 3, "deep"),
+                // both Ends inlined; the next leaf is back at the window's own depth
+                Leaf(GuiNodeKind.Label, 12, 300, 50, 18, 1, "back-out"),
+                End(GuiNodeKind.Window),
+            };
+
+            GuiTreeResult r = GuiTreeAssembler.Assemble(events);
+
+            GuiTreeNode window = r.Roots[0];
+            Assert.Equal(2, window.Children.Count);
+            Assert.Equal("back-out", window.Children[1].Text);
+            Assert.Equal(2, r.AutoClosedByClip);
+        }
+
+        [Fact]
+        public void TheRectRuleClosesTwoLayoutGroupsOnOneEvent()
+        {
+            // The rect-rule mirror of the cell above, and the same mutation.
+            var events = new List<GuiTreeEvent>
+            {
+                Begin(GuiNodeKind.Window, 0, 0, 400, 400, 1),
+                BeginLayoutGroup(false, 10, 10, 200, 100, 1, "outer"),
+                BeginLayoutGroup(true, 12, 12, 100, 24, 1, "inner"),
+                Leaf(GuiNodeKind.Label, 14, 14, 40, 18, 1, "inside"),
+                // neither End arrives; the next control is outside BOTH
+                Leaf(GuiNodeKind.Label, 14, 350, 40, 18, 1, "far-below"),
+                End(GuiNodeKind.Window),
+            };
+
+            GuiTreeResult r = GuiTreeAssembler.Assemble(events);
+
+            GuiTreeNode window = r.Roots[0];
+            Assert.Equal(2, window.Children.Count);
+            Assert.Equal("far-below", window.Children[1].Text);
+            Assert.Equal(2, r.AutoClosedByRect);
+        }
+
+        [Fact]
+        public void ADegenerateLayoutGroupIsLookedPastToTheNearestUsableAncestor()
+        {
+            // Mutation killed: the old "top rect degenerate -> return" stopped the rect
+            // rule dead whenever GUILayout left a zero-size carrier on top, which is
+            // ordinary. The rule now looks past it to the enclosing group with a real
+            // rect, and closes BOTH when the incoming rect is outside that one.
+            var events = new List<GuiTreeEvent>
+            {
+                Begin(GuiNodeKind.Window, 0, 0, 400, 400, 1),
+                BeginLayoutGroup(false, 10, 10, 200, 100, 1, "real"),
+                BeginLayoutGroup(false, 0, 0, 0, 0, 1, "zero-size-carrier"),
+                Leaf(GuiNodeKind.Label, 14, 14, 40, 18, 1, "inside"),
+                Leaf(GuiNodeKind.Label, 14, 350, 40, 18, 1, "far-below"),
+                End(GuiNodeKind.Window),
+            };
+
+            GuiTreeResult r = GuiTreeAssembler.Assemble(events);
+
+            GuiTreeNode window = r.Roots[0];
+            Assert.Equal(2, window.Children.Count);
+            Assert.Equal("far-below", window.Children[1].Text);
+            Assert.Equal(2, r.AutoClosedByRect);
+            Assert.Equal(0, r.RectRuleInert);
+        }
+
+        [Fact]
+        public void WithNoUsableAncestorRectTheRuleIsCountedInertRatherThanGuessing()
+        {
+            // ... and when there is NO usable rect anywhere in the open layout-group
+            // run, the rule cannot say anything. It must not guess, and the reader has
+            // to be told that the nesting there rests on the End pairing alone.
+            var events = new List<GuiTreeEvent>
+            {
+                Begin(GuiNodeKind.Window, 0, 0, 400, 400, 1),
+                BeginLayoutGroup(false, 0, 0, 0, 0, 1, "carrier"),
+                Leaf(GuiNodeKind.Label, 14, 350, 40, 18, 1, "anywhere"),
+                End(GuiNodeKind.Window),
+            };
+
+            GuiTreeResult r = GuiTreeAssembler.Assemble(events);
+
+            Assert.Equal(0, r.AutoClosedByRect);
+            Assert.Equal(1, r.RectRuleInert);
+            // The leaf stayed in the carrier: nothing was guessed.
+            Assert.Equal("anywhere", r.Roots[0].Children[0].Children[0].Text);
+        }
+
+        [Fact]
+        public void KnownAndUnknownClipDepthsMixWithoutPoisoningEachOther()
+        {
+            // The containers resolved a real depth; the leaves did not (a transient
+            // failure of GUIClip.Internal_GetCount now degrades PER EVENT rather than
+            // parking the probe for the rest of the capture). Mutation killed: treating
+            // -1 as a small number, which would evict every unknown-depth leaf from the
+            // container it belongs to.
+            var events = new List<GuiTreeEvent>
+            {
+                Begin(GuiNodeKind.Window, 0, 0, 400, 400, 1),
+                Begin(GuiNodeKind.Group, 10, 10, 200, 200, 2),
+                Leaf(GuiNodeKind.Label, 12, 12, 50, 18, -1, "unknown-depth"),
+                Leaf(GuiNodeKind.Label, 12, 40, 50, 18, -1, "also-unknown"),
+                End(GuiNodeKind.Group),
+                End(GuiNodeKind.Window),
+            };
+
+            GuiTreeResult r = GuiTreeAssembler.Assemble(events);
+
+            GuiTreeNode group = r.Roots[0].Children[0];
+            Assert.Equal(2, group.Children.Count);
+            Assert.Equal(0, r.AutoClosedByClip);
+            Assert.Equal(0, r.StrayEnds);
+        }
+
+        [Fact]
+        public void TheRectSlackIsAnUpperBoundNotJustALowerOne()
+        {
+            // RectRuleKeepsALayoutGroupOpenForSubPixelDisagreement pins that a small
+            // overhang is tolerated. Nothing pinned that a LARGER one is not - a slack
+            // mutated to 400 px would pass every other cell in this file. Both sides
+            // are expressed against the constant itself, so a deliberate change moves
+            // them together and an accidental one reds here.
+            float slack = GuiTreeAssembler.LayoutGroupContainmentSlackPx;
+            var tolerated = new List<GuiTreeEvent>
+            {
+                BeginLayoutGroup(false, 100, 100, 100, 100, 0, "group"),
+                Leaf(GuiNodeKind.Label, 100 - (slack - 1f), 100, 40, 18, 0, "just-inside"),
+            };
+            var closing = new List<GuiTreeEvent>
+            {
+                BeginLayoutGroup(false, 100, 100, 100, 100, 0, "group"),
+                Leaf(GuiNodeKind.Label, 100 - (slack + 1f), 100, 40, 18, 0, "just-outside"),
+            };
+
+            Assert.Equal(0, GuiTreeAssembler.Assemble(tolerated).AutoClosedByRect);
+            Assert.Equal(1, GuiTreeAssembler.Assemble(closing).AutoClosedByRect);
+        }
+
+        [Theory]
+        [InlineData(0.6f, 0.6f, false)]
+        [InlineData(0.5f, 10f, true)]
+        [InlineData(10f, 0.5f, true)]
+        [InlineData(0.51f, 0.51f, false)]
+        [InlineData(0f, 0f, true)]
+        public void DegeneracyIsDecidedAtExactlyHalfAPixel(float w, float h, bool degenerate)
+        {
+            // The 0.5 threshold is a CONTRACT shared with the Python viewer, whose
+            // rect_of() drops a box on the same edge (test_gui_tree_view.py pins the
+            // other side of it). A rect exactly 0.5 px wide is degenerate; 0.51 is not.
+            Assert.Equal(degenerate, new GuiRect(0f, 0f, w, h).IsDegenerate);
+        }
+
+        [Fact]
+        public void TheClipContainerPredicateHasExactlyOneDefinition()
+        {
+            // GuiTreeNode.IsClipContainer and the assembler's IsClipKind used to be two
+            // copies of the same list, and the asymmetric clip rule compares one against
+            // the other - so a kind added to one copy and not the other makes the rule
+            // silently disagree with itself. One definition now; this pins it.
+            foreach (GuiNodeKind kind in Enum.GetValues(typeof(GuiNodeKind)))
+            {
+                var node = new GuiTreeNode { Kind = kind };
+                Assert.Equal(GuiTreeAssembler.IsClipKind(kind), node.IsClipContainer);
+            }
+            Assert.True(GuiTreeAssembler.IsClipKind(GuiNodeKind.Window));
+            Assert.True(GuiTreeAssembler.IsClipKind(GuiNodeKind.Group));
+            Assert.True(GuiTreeAssembler.IsClipKind(GuiNodeKind.ScrollView));
+            Assert.False(GuiTreeAssembler.IsClipKind(GuiNodeKind.LayoutGroup));
+        }
+
+        private static GuiTreeEvent BeginLayoutGroup(bool horizontal, float x, float y,
+            float w, float h, int clipDepth, string text = null)
+        {
+            GuiTreeEvent e = Begin(GuiNodeKind.LayoutGroup, x, y, w, h, clipDepth, text);
+            e.Horizontal = horizontal;
+            return e;
+        }
+
+        private static GuiTreeEvent EndLayoutGroup(bool? horizontal)
+        {
+            return new GuiTreeEvent
+            {
+                Op = GuiTreeOp.End,
+                Kind = GuiNodeKind.LayoutGroup,
+                Horizontal = horizontal,
+            };
         }
     }
 }

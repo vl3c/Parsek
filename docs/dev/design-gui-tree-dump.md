@@ -24,11 +24,55 @@ rot immediately, and a per-control call at every draw site would be a permanent 
 every frame of normal play. The whole capture is therefore a Harmony interception of
 UnityEngine's own IMGUI funnels, armed for a single frame and inert otherwise.
 
+## The patches are OPT-IN, and that is the cost story
+
+The interceptions are NOT part of `com.parsek.mod`'s permanent patch set. No class in
+`Patches/GuiTreeRecorderPatches.cs` carries a `[HarmonyPatch]` attribute, so
+`ParsekHarmony.Awake`'s assembly sweep - which applies every attributed class it finds,
+for the life of the process - cannot discover them. Instead:
+
+- `GuiTreeRecorder.ArmForNextRepaint` calls `GuiTreeRecorderPatches.Apply()`, which
+  patches each funnel through the recorder's OWN `Harmony("com.parsek.guitree")`
+  instance, one funnel at a time, logging rather than throwing on a failure. It is
+  idempotent: a second arm before the first capture flushed patches nothing again.
+- Immediately after, the arm reads
+  `Harmony.GetPatchInfo(...).Owners.Contains("com.parsek.guitree")` for every funnel into
+  `GuiTreeFunnels.PatchedAtArm`. That array - not a flush-time reading, which would report
+  `false` for everything - is what the JSON's `funnels` block reports as `patched`.
+- `FlushCapture` ends with `UnpatchAll("com.parsek.guitree")`; so do `Disarm` and
+  `Fault`.
+
+**Why this matters.** A Harmony detour on `GUI.DoLabel` is paid by every IMGUI consumer
+in the process - KSP's own debug UI, MechJeb, KER, ClickThroughBlocker - on every control
+of every event pass, forever. The earlier draft's claim that the cost was "one static
+bool read" described the patch BODY and quietly ignored the detour around it. Disarmed,
+the cost is now **zero patches**, which is a different claim and a true one. The
+`if (!ArmedFlag) return;` at the top of every body still matters, because the patches can
+outlive the capture by one frame (below).
+
+**The unpatch is deferred out of the GUI pass.** Rewriting a method the current call
+stack is executing is worse than leaving a patch on for one more frame, so
+`RequestUnpatch()` checks `Event.current != null` and, inside a pass, sets a flag the
+LateUpdate pump acts on. `Disarm` and `Fault` therefore normally unpatch one frame late;
+`FlushCapture` already runs in LateUpdate and unpatches immediately.
+
+**Arming refuses from inside a GUI pass.** `ArmForNextRepaint` returns null and logs
+`arm refused reason=inside-gui-pass` when `Event.current != null`, for two reasons: it
+would install patches on the methods the current stack is running, and a pass already
+half-drawn would give a truncated capture. The decision is
+`GuiTreeRecorder.ClassifyArmRefusal(bool)`, pure and unit-tested; callers arm from
+Update, a coroutine or the command seam.
+
+Gates: `GuiTreeFunnelTests.NoGuiTreePatchClassIsDiscoverableByTheAssemblySweep` re-runs
+`ParsekHarmony.Awake`'s own predicate over the assembly and requires it to find none of
+these classes, and `TheApplierTableCoversExactlyTheFunnelEnum` keeps the applier's table
+and the funnel enum in step.
+
 ## Which funnels are patched, and why those
 
 Verified by decompiling the shipped `UnityEngine.IMGUIModule.dll` (KSP 1.12.5, Unity
 2019.4) with `ilspycmd -t UnityEngine.GUI` / `GUILayout` / `GUILayoutUtility` /
-`GUIClip` / `GUIUtility`.
+`GUIClip` / `GUIUtility`, and the IL sizes below with `ilspycmd -il`.
 
 Every `GUILayout` control resolves its rect through `GUILayoutUtility.GetRect` and then
 calls the rect-taking `GUI.*` method, so ONE patch per control kind on the `GUI` side
@@ -37,37 +81,96 @@ covers both the `GUI` and the `GUILayout` spelling. For example
 `GUI.Label(GUILayoutUtility.GetRect(content, style, options), content, style)`, and all
 six `GUI.Label` overloads funnel into the one private `GUI.DoLabel`.
 
-The chosen method per funnel is the DEEPEST MANAGED one. Below these the module is all
-`[MethodImpl(InternalCall)]` - `GUIStyle.Internal_Draw2`, `GUIClip.Internal_Push`,
+The chosen method per funnel is **the deepest funnel that still knows the control kind**.
+It is NOT the deepest managed method: `GUIStyle.Draw` is managed, public, and below all
+of these, but it knows only a rect and a style. Below the funnels listed here the module
+is `[MethodImpl(InternalCall)]` - `GUIStyle.Internal_Draw2`, `GUIClip.Internal_Push`,
 `GUI.Internal_DoWindow`, every `*_Injected` - and an ICall has no IL body for Harmony to
 rewrite. `GuiTreeFunnelTests.NoFunnelIsAnUnpatchableInternalCall` pins that none of the
-19 targets is one.
+17 targets is one.
 
 Target signatures live in exactly one place, `GuiTreeFunnels.Target`, which each patch
 class's `TargetMethod()` returns AND which the arm-time funnel report resolves, so a
 patched signature and a reported one cannot drift apart.
 
-| Funnel | Signature (decompiled) | Access | Role |
-|---|---|---|---|
-| `GUI.DoWindow` | `static Rect DoWindow(int id, Rect clientRect, WindowFunction func, GUIContent title, GUIStyle style, GUISkin skin, bool forceRectOnLayout)` | private | window rect + title, keyed by id |
-| `GUI.CallWindowDelegate` | `static void CallWindowDelegate(WindowFunction func, int id, int instanceID, GUISkin _skin, int forceRect, float width, float height, GUIStyle style)` | internal, `[RequiredByNativeCode]` | opens / closes the window NODE |
-| `GUI.BeginGroup` | `static void BeginGroup(Rect position, GUIContent content, GUIStyle style, Vector2 scrollOffset)` | internal | group / `GUILayout.BeginArea` |
-| `GUI.EndGroup` | `static void EndGroup()` | public | closes a group |
-| `GUI.BeginScrollView` | `static Vector2 BeginScrollView(Rect position, Vector2 scrollPosition, Rect viewRect, bool alwaysShowHorizontal, bool alwaysShowVertical, GUIStyle horizontalScrollbar, GUIStyle verticalScrollbar, GUIStyle background)` | internal | scroll view |
-| `GUI.EndScrollView` | `static void EndScrollView(bool handleScrollWheel)` | public | closes a scroll view |
-| `GUILayout.BeginHorizontal` | `static void BeginHorizontal(GUIContent content, GUIStyle style, params GUILayoutOption[] options)` | public | horizontal layout group |
-| `GUILayout.EndHorizontal` | `static void EndHorizontal()` | public | closes it |
-| `GUILayout.BeginVertical` | `static void BeginVertical(GUIContent content, GUIStyle style, params GUILayoutOption[] options)` | public | vertical layout group |
-| `GUILayout.EndVertical` | `static void EndVertical()` | public | closes it |
-| `GUI.DoLabel` | `static void DoLabel(Rect position, GUIContent content, GUIStyle style)` | private | Label |
-| `GUI.Box` | `static void Box(Rect position, GUIContent content, GUIStyle style)` | public | Box, and a STYLED layout group's background |
-| `GUI.DoControl` | `static bool DoControl(Rect position, int id, bool on, bool hover, GUIContent content, GUIStyle style)` | private | the shared Button / Toggle body |
-| `GUI.DoButton` | `static bool DoButton(Rect position, int id, GUIContent content, GUIStyle style)` | internal | names the kind for `DoControl` |
-| `GUI.DoToggle` | `static bool DoToggle(Rect position, int id, bool value, GUIContent content, GUIStyle style)` | internal | ditto, plus the toggle's value |
-| `GUI.DoRepeatButton` | `static bool DoRepeatButton(Rect position, GUIContent content, GUIStyle style, FocusType focusType)` | private | RepeatButton |
-| `GUI.DoTextField` | `static void DoTextField(Rect position, int id, GUIContent content, bool multiline, int maxLength, GUIStyle style, string secureText, char maskChar)` | internal | TextField / TextArea / PasswordField |
-| `GUI.DoButtonGrid` | `static int DoButtonGrid(Rect position, int selected, GUIContent[] contents, string[] controlNames, int xCount, GUIStyle style, GUIStyle firstStyle, GUIStyle midStyle, GUIStyle lastStyle, ToolbarButtonSize buttonSize, bool[] contentsEnabled)` | private | Toolbar / SelectionGrid, as ONE node |
-| `GUI.Slider` | `static float Slider(Rect position, float value, float size, float start, float end, GUIStyle slider, GUIStyle thumb, bool horiz, int id, GUIStyle thumbExtent)` | public | sliders and, via `GUI.Scroller`, scrollbars |
+| Funnel | Signature (decompiled) | Access | IL | Role |
+|---|---|---|---|---|
+| `GUI.DoWindow` | `static Rect DoWindow(int id, Rect clientRect, WindowFunction func, GUIContent title, GUIStyle style, GUISkin skin, bool forceRectOnLayout)` | private | 26 | window rect + title, keyed by id |
+| `GUI.CallWindowDelegate` | `static void CallWindowDelegate(WindowFunction func, int id, int instanceID, GUISkin _skin, int forceRect, float width, float height, GUIStyle style)` | internal, `[RequiredByNativeCode]` | large | opens / closes the window NODE |
+| `GUI.BeginGroup` | `static void BeginGroup(Rect position, GUIContent content, GUIStyle style, Vector2 scrollOffset)` | internal | large | group / `GUILayout.BeginArea` |
+| `GUI.EndGroup` | `static void EndGroup()` | public | 14 | closes a group - but see the clip rule |
+| `GUI.BeginScrollView` | `static Vector2 BeginScrollView(Rect position, Vector2 scrollPosition, Rect viewRect, bool alwaysShowHorizontal, bool alwaysShowVertical, GUIStyle horizontalScrollbar, GUIStyle verticalScrollbar, GUIStyle background)` | internal | large | scroll view |
+| `GUI.EndScrollView` | `static void EndScrollView(bool handleScrollWheel)` | public | large | closes a scroll view |
+| `GUILayoutUtility.BeginLayoutGroup` | `static GUILayoutGroup BeginLayoutGroup(GUIStyle style, GUILayoutOption[] options, Type layoutType)` | internal | 180 | EVERY horizontal / vertical layout group |
+| `GUILayoutUtility.EndLayoutGroup` | `static void EndLayoutGroup()` | internal | 123 | closes one |
+| `GUI.DoLabel` | `static void DoLabel(Rect position, GUIContent content, GUIStyle style)` | private | large | Label |
+| `GUI.Box` | `static void Box(Rect position, GUIContent content, GUIStyle style)` | public | large | Box, and a STYLED layout group's background |
+| `GUI.DoControl` | `static bool DoControl(Rect position, int id, bool on, bool hover, GUIContent content, GUIStyle style)` | private | large | the shared Button / Toggle body |
+| `GUI.DoButton` | `static bool DoButton(Rect position, int id, GUIContent content, GUIStyle style)` | internal | 33 | names the kind for `DoControl` |
+| `GUI.DoToggle` | `static bool DoToggle(Rect position, int id, bool value, GUIContent content, GUIStyle style)` | internal | 34 | ditto, plus the toggle's value |
+| `GUI.DoRepeatButton` | `static bool DoRepeatButton(Rect position, GUIContent content, GUIStyle style, FocusType focusType)` | private | large | RepeatButton, incl. a scrollbar's arrows |
+| `GUI.DoTextField` | `static void DoTextField(Rect position, int id, GUIContent content, bool multiline, int maxLength, GUIStyle style, string secureText, char maskChar)` | internal | large | TextField / TextArea / PasswordField |
+| `GUI.DoButtonGrid` | `static int DoButtonGrid(Rect position, int selected, GUIContent[] contents, string[] controlNames, int xCount, GUIStyle style, GUIStyle firstStyle, GUIStyle midStyle, GUIStyle lastStyle, ToolbarButtonSize buttonSize, bool[] contentsEnabled)` | private | large | Toolbar / SelectionGrid, as ONE node |
+| `GUI.Slider` | `static float Slider(Rect position, float value, float size, float start, float end, GUIStyle slider, GUIStyle thumb, bool horiz, int id, GUIStyle thumbExtent)` | public | large | sliders and, via `GUI.Scroller`, scrollbars |
+
+**Exposure to Mono inlining, corrected.** `DoButton` (33 bytes) and `DoToggle` (34) are
+the exposed leaf funnels; `GUI.EndGroup` (14) and `GUI.DoWindow` (26) are the exposed
+container ones. `CallWindowDelegate` is `[RequiredByNativeCode]` and invoked FROM native
+code, so it cannot be inlined at all. Neither `DoButton` nor `DoToggle` is exposed API -
+both are `internal` - which changes nothing about the inlining risk (Mono's inliner does
+not care about accessibility) but does mean no third party calls them directly.
+
+### The layout-group swap, and its caller analysis
+
+The first draft patched `GUILayout.BeginHorizontal` / `EndHorizontal` / `BeginVertical` /
+`EndVertical`. The two Ends are **8 bytes of IL each** - a single
+`call GUILayoutUtility::EndLayoutGroup()` and a `ret` - far inside Mono's inline limit
+(20-30 bytes), and Mono's inliner reads a callee's IL from METADATA, not through the
+detour, so Harmony patching a small method does not protect it from being inlined into a
+caller JITted afterwards. Those two patches were, in all probability, dead.
+
+They are replaced by `GUILayoutUtility.BeginLayoutGroup` (180 bytes) and
+`EndLayoutGroup` (123), which every layout group passes through and which are far too
+large to inline.
+
+**Who calls them** (grepped over the WHOLE decompiled module, not just `GUILayout`):
+
+| Caller | `layoutType` | Recorded? |
+|---|---|---|
+| `GUILayout.BeginHorizontal(GUIContent, GUIStyle, GUILayoutOption[])` | `GUILayoutGroup` | yes, `horizontal: true` |
+| `GUILayout.BeginVertical(GUIContent, GUIStyle, GUILayoutOption[])` | `GUILayoutGroup` | yes, `horizontal: false` |
+| `GUILayout.BeginScrollView(...)` | `GUIScrollGroup` | NO - filtered |
+
+and `EndLayoutGroup` has exactly the three mirroring callers (`EndHorizontal`,
+`EndVertical`, `EndScrollView(bool)`).
+
+Two neighbours deliberately do NOT come through here, which is what keeps the filter
+simple: **`GUILayout.BeginArea` uses `GUILayoutUtility.BeginLayoutArea`** (a different
+method; `EndArea` pops `layoutGroups` by hand and never calls `EndLayoutGroup`), and
+**`GUILayoutUtility.BeginWindow` assigns `current.topLevel` directly**. So neither an
+area's root layout group nor a window's can be mistaken for a user group - the area is
+already recorded as a `group` by `GUI.BeginGroup`, and the window by
+`CallWindowDelegate`.
+
+The scroll group IS filtered, by `layoutType.FullName != "UnityEngine.GUILayoutGroup"`,
+because `GUI.BeginScrollView` already records the scroll view as its own node. Recording
+the carrier too would duplicate the container, and its `EndLayoutGroup` arrives BEFORE
+`GUI.EndScrollView` (`GUILayout.EndScrollView` calls them in that order), so the
+duplicate's End would close the real scroll view early.
+
+`EndLayoutGroup` takes no arguments, so the recorder pairs it against its own Begin
+stack (`layoutGroupStack`, a `List<bool?>`): a `null` entry is a filtered carrier and
+emits nothing, a value is the group's ORIENTATION and rides on the End event. That
+orientation is load-bearing in the assembler - see rule 1 below.
+
+Read off `__result` in the Begin postfix, by reflection (`GUILayoutGroup` and its
+`GUILayoutEntry` base are internal): `rect` and `isVertical`. During Repaint the returned
+group is the object the LAYOUT pass created and sized, so both are final. The caller sets
+`isVertical` AFTER `BeginLayoutGroup` returns, which does not matter for the same reason.
+
+One thing was lost in the swap: `BeginLayoutGroup` never sees the caller's `GUIContent`,
+so a layout group node no longer carries `text`. A STYLED group's content is drawn
+through `GUI.Box` and shows up there instead.
 
 ### The window path, including ClickThruBlocker
 
@@ -89,12 +192,13 @@ ClickThruBlocker.GUILayoutWindow(id, rect, func, text, style, options)
 `GUILayout.Window`, so `ClickThruBlocker` needs no patch of its own.
 
 The two are patched for different reasons. `CallWindowDelegate` brackets the window body
-EXACTLY and is a large method, so it is the load-bearing one: it opens the window node on
+EXACTLY and cannot be inlined, so it is the load-bearing one: it opens the window node on
 its prefix and closes it on its postfix. `DoWindow` only contributes the declared rect
-and the title, matched to the node by window id. If `DoWindow` were ever bypassed the
-window node still exists, carrying instead an independently measured `contentOrigin`
-(`GUIUtility.GUIToScreenPoint(Vector2.zero)` inside the callback) and the `argSize`
-Unity handed the callback.
+and the title, matched to the node by window id, and its 26 bytes may well be inlined. If
+it is, the window node still exists, carrying instead an independently measured
+`contentOrigin` (`GUIUtility.GUIToScreenPoint(Vector2.zero)` inside the callback) and the
+`argSize` Unity handed the callback - which is also the pair the geometry check uses as
+its containment box, so nothing load-bearing depends on the declaration.
 
 ### Button vs Toggle: the staging hint
 
@@ -104,8 +208,8 @@ Toggle as `DoControl(pos, id, value, hover, content, style)`. So the KIND is sta
 the caller's own patch (`DoButton` / `DoToggle` prefix) and claimed by the `DoControl`
 prefix.
 
-That pair is self-healing in both directions, which matters because both `DoButton` and
-`DoToggle` are two-statement methods:
+That pair is self-healing in both directions, which matters because `DoButton` and
+`DoToggle` are 33 and 34 bytes:
 
 - `DoButton`/`DoToggle` bypassed, `DoControl` runs: no hint, so the leaf is emitted with
   the kind classified from the style name (`GuiTreeAssembler.ClassifyFromStyleName`), and
@@ -117,34 +221,41 @@ That pair is self-healing in both directions, which matters because both `DoButt
 
 ## Armed-frame semantics
 
-- `GuiTreeRecorder.ArmForNextRepaint(label)` sets `ArmedFlag`, clears the buffers and the
-  per-funnel hit counters, and returns the path the dump will be written to.
-- Every patch body's first statement is `if (!GuiTreeRecorder.ArmedFlag) return;`. That
-  is one static bool read, and it is the entire cost while disarmed - on every IMGUI
-  control of every frame, which is why the flag is a plain static field and not a
-  property, a settings lookup or an event.
+- `GuiTreeRecorder.ArmForNextRepaint(label)` refuses from inside a GUI pass, else clears
+  the buffers and the per-funnel hit counters, applies the patches, snapshots
+  `PatchedAtArm`, sets `ArmedFlag`, and returns the path the dump will be written to.
 - The capture only accepts `Event.current.type == EventType.Repaint`. IMGUI runs a Layout
   pass first with the same call sequence but no final rects, and recording it would double
   every node.
-- The FIRST accepted event fixes `captureFrame = Time.frameCount`. Events from a later
-  frame are refused, so a capture is exactly one frame even across several `OnGUI`
-  containers (Parsek has one per window-owning MonoBehaviour; each becomes its own root).
+- The FIRST accepted event opens the capture: it fixes `captureFrame = Time.frameCount`
+  AND reads the two things that have to be read inside the frame being described -
+  `Screen.width/height` and `GUI.matrix`. Events from a later frame are refused, so a
+  capture is exactly one frame even across several `OnGUI` containers (each becomes its
+  own root). Note that a capture is PROCESS-WIDE while it is open: every mod's windows are
+  in it, not just Parsek's.
 - `GuiTreeRecorderPump` (a `[KSPAddon(EveryScene)]` MonoBehaviour with no `OnGUI`) calls
   `PumpPendingFlush()` from `LateUpdate`. Unity runs `LateUpdate` before the frame's
   `OnGUI` and therefore after the PREVIOUS frame's, which is where a completed capture
-  gets assembled, serialised and written - never file I/O inside an IMGUI pass. The pump
-  returns on a static bool read when nothing is pending.
+  gets assembled, serialised and written - never file I/O inside an IMGUI pass - and where
+  a deferred unpatch is performed. The pump returns on a static bool read when there is
+  nothing to do.
+- **The flush is one synchronous pass, and it hitches.** Assembling a few hundred small
+  objects, building a string and writing a file all happen in one LateUpdate. On a big
+  window that is a visible stutter, and it is accepted: a capture is a deliberate one-off,
+  and splitting it across frames would mean holding the event buffer into a frame where
+  the UI has already moved on.
 - Any exception inside a record entry point is caught, counted, logged ONCE, and disarms
   the recorder (`GuiTreeRecorder.Fault`). An exception escaping into `OnGUI` would abort
   Unity's GUI pass mid-window and desync the layout cache for the rest of the frame, so
   the recorder gives up rather than retrying.
 - One Info line per capture:
-  `[Parsek][INFO][GuiTree] label=... windows=N nodes=M events=E strayEnds=.. autoClosed=.. unclosed=.. faults=.. written=1 path=...`
+  `[Parsek][INFO][GuiTree] label=... windows=N nodes=M events=E strayEnds=.. autoClosed=.. rectRuleInert=.. unclosed=.. faults=.. written=1 path=...`
 
 Output: `<KSP root>/Screenshots/<label>.gui.json`. That directory because the harness
-already harvests it by mtime, so a dump travels with the run's screenshots for free.
-`SanitizeLabel` reduces the label to `[A-Za-z0-9._-]`, capped at 96 chars, so a caller
-cannot walk out of the directory.
+harvests it by mtime; `.gui.json` is in `hlib.ARTIFACT_SHOTS_SUFFIXES`, so a dump travels
+with the run's screenshots into `results/<runId>_shots/`. `SanitizeLabel` reduces the
+label to `[A-Za-z0-9._-]`, capped at 96 chars, so a caller cannot walk out of the
+directory.
 
 There is deliberately NO command-seam verb yet. The API is `internal static` and a verb
 is a separate change (a sibling branch owns the seam dispatcher).
@@ -152,42 +263,66 @@ is a separate change (a sibling branch owns the seam dispatcher).
 ## Screen-space conversion
 
 Each node carries two rects: `localRect` exactly as the funnel received it, and `rect`
-converted with `GUIUtility.GUIToScreenRect`.
+converted for screen space.
 
-Decompiled, that conversion is
+Decompiled, the conversion is
 
 ```
-GUIUtility.GUIToScreenPoint(p) => InternalWindowToScreenPoint(GUIClip.UnclipToWindow(p))
+GUIUtility.GUIToScreenRect(r):
+    p = GUIToScreenPoint(new Vector2(r.x, r.y))   // = InternalWindowToScreenPoint(GUIClip.UnclipToWindow(p))
+    r.x = p.x; r.y = p.y; return r                // <- WIDTH AND HEIGHT ARE UNTOUCHED
 ```
 
 `GUIClip.UnclipToWindow` walks the clip stack out to the enclosing window - so it
 accounts for every `BeginGroup`, `BeginArea` and `BeginScrollView` push, including the
-scroll offset a scroll view pushes as its clip's `scrollOffset` - and
-`InternalWindowToScreenPoint` then adds the window's own screen origin. That is what
-makes it correct INSIDE a `GUI.Window` callback, where the rects the funnels see are
-window-local.
+scroll offset a scroll view pushes as its clip's `scrollOffset` - and applies
+`GUI.matrix`; `InternalWindowToScreenPoint` then adds the window's own screen origin.
+That is what makes it correct INSIDE a `GUI.Window` callback, where the rects the funnels
+see are window-local.
 
-Both endpoints bottom out in ICalls, so this cannot be settled by reading the assembly:
-it is a measurement, and the live cell is what takes it. Keeping `localRect` alongside
-`rect` is the instrument - a conversion that ever goes wrong shows up as a disagreement
-in the dump, and `GuiTreeGeometry.Inspect` turns it into a named failure ("a control's
-screen rect fell outside its own window") instead of a silently misplaced overlay.
+**The size gets none of that.** Under a non-identity `GUI.matrix` the origin is
+transformed and the width and height are not, which would silently produce boxes of the
+wrong size. So the recorder reads `GUI.matrix` when the capture opens, multiplies every
+recorded width by `m00` and height by `m11`, logs one Warn, and writes the matrix into the
+dump's header:
 
-The window node additionally carries `contentOrigin`, an independent
-`GUIToScreenPoint(Vector2.zero)` taken inside the callback.
+```json
+"guiMatrix": {"identity": false, "m00": 1.5, "m11": 1.5, "m03": 0, "m13": 0}
+```
+
+so a reader can undo it. (Only the four elements that matter for an axis-aligned rect are
+recorded; a rotating or shearing `GUI.matrix` would need more, and nothing in KSP or
+Parsek sets one.) The viewer reports a non-identity matrix in its notes strip.
+
+Both endpoints bottom out in ICalls, so none of this can be settled by reading the
+assembly: it is a measurement, and the live cell is what takes it. Keeping `localRect`
+alongside `rect` is the instrument - a conversion that ever goes wrong shows up as a
+disagreement in the dump, and `GuiTreeGeometry.Inspect` turns it into a named failure
+("a control's screen rect fell outside its own window") instead of a silently misplaced
+overlay.
+
+**The containment box is the MEASURED pair, not the declared rect.** `Inspect` builds it
+from the window node's `contentOrigin` + `argSize`, both taken inside the callback the
+children were drawn in. The declared `DoWindow` rect is kept as the second reading and
+reported alongside, but it cannot be the box: it is unconverted, and it is the rect the
+caller passed to `GUILayout.Window` BEFORE this frame moved the window, which makes it one
+frame stale for the whole duration of a drag.
 
 ## Nesting, and why the tree repairs itself
 
 Explicit Begin/End pairing is not trusted, because the End side of several pairs is a
-method Mono is free to inline into its caller (`GUI.EndGroup` is two statements;
-`GUILayout.EndHorizontal` is one). So every event also carries `clipDepth`, read from
-`UnityEngine.GUIClip.Internal_GetCount()` by reflection - an ICall can be INVOKED even
-though it cannot be patched - and `GuiTreeAssembler` uses it as the authority for
-clip-pushing containers:
+method Mono is free to inline into its caller (`GUI.EndGroup` is 14 bytes). So every event
+also carries `clipDepth`, read from `UnityEngine.GUIClip.Internal_GetCount()` through a
+cached `Func<int>` delegate - an ICall can be INVOKED even though it cannot be patched,
+and a delegate avoids `MethodInfo.Invoke`'s `object[]` plus boxed return on every recorded
+control - and `GuiTreeAssembler` uses it as the authority for clip-pushing containers:
 
 1. An `End` closes the nearest open node of that kind, counting anything closed on the
    way there as `autoClosedByEnd`. An End with NO match closes nothing and is counted as
    `strayEnds` - guessing there would let one stray End reparent the rest of the window.
+   A LayoutGroup End additionally matches on ORIENTATION, so a stranded horizontal group
+   cannot swallow the End of the vertical group enclosing it; an End with no orientation
+   (the recorder's Begin stack was empty) matches either.
 2. Before any Begin or Leaf, open Window / Group / ScrollView nodes the incoming
    event's `clipDepth` proves are gone are closed (`autoClosedByClip`), along with any
    LayoutGroups stranded above them. The comparison is ASYMMETRIC, and the asymmetry is
@@ -202,8 +337,12 @@ clip-pushing containers:
 3. A LayoutGroup pushes no clip, so its recovery is rect containment: it closes when the
    next event's rect falls outside it by more than
    `GuiTreeAssembler.LayoutGroupContainmentSlackPx` (4 px, because GUILayout rounds group
-   and child rects independently). Degenerate rects - zero-size carriers, spacers - never
-   trigger it.
+   and child rects independently). A DEGENERATE group rect - a zero-size carrier, a
+   spacer - no longer stops the rule: it is looked past, to the nearest enclosing
+   LayoutGroup with a usable rect (the search stops at the enclosing clip container), and
+   the whole run closes together when the incoming rect is outside THAT one. When no
+   usable rect exists in the run, the event is counted in `rectRuleInert` and nothing is
+   guessed; the viewer reports a non-zero count as "layout nesting unverified".
 4. Anything still open at stream end is counted as `unclosedAtEnd`.
 
 A clip-pushing Begin records the depth its DIRECT CHILDREN will report, and it gets
@@ -214,7 +353,8 @@ than tidy: the method draws its own two scrollbars BEFORE `GUIClip.Push`, at the
 depth, so a scroll-view node opened on the prefix was closed again by its own scrollbar
 and held none of its rows. As a postfix the scrollbars land as SIBLINGS just before the
 scroll view, which is where they are actually drawn. `-1` means the probe was
-unavailable, and the clip rule then goes quiet and falls back to pairing alone.
+unavailable for that event, and the clip rule then goes quiet for it and falls back to
+pairing alone.
 
 Every repair is counted and reported, so a reader can tell a clean capture
 (`strayEnds: 0, autoClosed*: 0, unclosedAtEnd: 0`) from a patched-but-inlined one.
@@ -229,10 +369,11 @@ Every repair is counted and reported, so a reader can tell a clean capture
   "frame": 4242,
   "screen": {"width": 1920, "height": 1080},
   "screenshotHint": "parsek-guitree-probe.png",
+  "guiMatrix": {"identity": true, "m00": 1, "m11": 1, "m03": 0, "m13": 0},
   "counts": {
     "windows": 1, "nodes": 12, "events": 20,
     "strayEnds": 0, "autoClosedByClip": 0, "autoClosedByEnd": 0,
-    "autoClosedByRect": 0, "unclosedAtEnd": 0,
+    "autoClosedByRect": 0, "rectRuleInert": 0, "unclosedAtEnd": 0,
     "recordFaults": 0, "droppedOverCap": 0
   },
   "funnels": [
@@ -268,12 +409,15 @@ strings are a contract (`GuiTreeAssembler.KindName`), not a `ToString()`.
 
 `rect` is `[x, y, w, h]` in screen space, y DOWN from the top-left - the same frame as a
 screenshot's pixels. Numbers are invariant-culture, rounded to 2 decimals; NaN and
-infinity serialise as `null`.
+infinity serialise as `null`. Strings escape the C escapes, every control character AND
+every surrogate as `\uXXXX`: an unpaired surrogate in a label cannot be encoded as UTF-8,
+so without that escape one bad character costs the whole dump at `File.WriteAllText`.
 
-The `funnels` block is the feasibility instrument. `patched` is read from
-`Harmony.GetPatchInfo` at arm time, so `patched: false` means the signature drifted out
-from under the patch, and `patched: true, hits: 0` means the interception was bypassed
-(inlined, or nothing drew that control kind that frame).
+The `funnels` block is the feasibility instrument. `patched` is the arm-time
+`Harmony.GetPatchInfo` reading, owner-scoped to `com.parsek.guitree`, so `patched: false`
+means the signature drifted out from under the patch or the patch failed to apply, and
+`patched: true, hits: 0` means the interception was bypassed (inlined, or nothing drew
+that control kind that frame).
 
 ## The offline viewer
 
@@ -282,42 +426,51 @@ page - inline CSS and JS, no CDN, the screenshot embedded as a data URI when one
 beside the JSON. Boxes at each node's rect coloured by kind, over the screenshot; a
 collapsible tree panel beside it; hovering either side highlights the other.
 `--batch <dir>` writes one page per dump plus an `index.html`. Its pure half is unit
-tested in `harness/tools/test_gui_tree_view.py`.
+tested in `harness/lib/test_gui_tree_view.py` - under `lib/`, not next to the tool,
+because CI runs `discover -s lib` and a test beside the tool would never run (the same
+placement as `lib/test_contact_sheet.py` for `tools/contact_sheet.py`).
 
 ## What is unproven
 
 **The interception layer has never run inside KSP.** The spike's author cannot launch the
 game. What IS mechanically proven, headlessly:
 
-- all 19 funnel signatures resolve against the shipped `UnityEngine.IMGUIModule.dll`,
+- all 17 funnel signatures resolve against the shipped `UnityEngine.IMGUIModule.dll`,
   are static, and are not ICalls or P/Invokes (`GuiTreeFunnelTests`);
 - every patch body's declared parameter names and types match its target's, which is
   what Harmony throws on at patch time (`PatchParameterNamesAndTypesMatchTheirTargets`);
-- the assembler's nesting and all four recovery rules, the JSON escaping and its culture
-  invariance, and the geometry derivation the live cell asserts against.
+- no patch class is discoverable by `ParsekHarmony`'s permanent sweep
+  (`NoGuiTreePatchClassIsDiscoverableByTheAssemblySweep`);
+- the assembler's nesting and all its recovery rules, the JSON escaping and its culture
+  invariance (including a strict-parser round trip of a rich document), and the geometry
+  derivations the live cell asserts against.
 
 What only a flight can settle:
 
 1. **Mono inlining.** Harmony rewrites a method; a caller Mono already JITted with that
-   method inlined keeps the old code, and Mono's inliner works from IL, so a small callee
-   can be inlined into a caller JITted after the patch. The four two-statement targets
-   (`GUI.DoWindow`, `GUI.EndGroup`, `GUILayout.EndHorizontal` / `EndVertical`) plus
-   `GUI.DoButton` / `GUI.DoToggle` are the exposed ones. Every one of them has a designed
-   fallback (the window scope comes from `CallWindowDelegate`; the End pairs are repaired
-   from clip depth or rect containment; the kind hint degrades to style-name
-   classification), and the `funnels` block names any that were bypassed. Should a
-   fallback prove insufficient, the escape hatch is `GUIStyle.Draw` - the instance method
-   every leaf's Repaint path calls, moderately sized and public - which yields rect and
-   style for everything at the cost of losing the control kind.
-2. **`GUIToScreenRect` inside a window callback**, as above.
+   method inlined keeps the old code, and Mono's inliner works from IL METADATA, so a
+   small callee can be inlined into a caller JITted after the patch. The exposed targets
+   are `GUI.EndGroup` (14), `GUI.DoWindow` (26), `GUI.DoButton` (33) and `GUI.DoToggle`
+   (34). Every one has a designed fallback (the window scope comes from
+   `CallWindowDelegate`; a group's close comes from the clip depth; the kind hint degrades
+   to style-name classification), and the `funnels` block names any that were bypassed.
+   The live cell asserts Begin/End PARITY per funnel, which is how a bypass is DETECTED
+   rather than merely survived. Should a fallback prove insufficient, the escape hatch is
+   `GUIStyle.Draw` - the instance method every leaf's Repaint path calls, moderately sized
+   and public - which yields rect and style for everything at the cost of losing the
+   control kind.
+2. **`GUIToScreenRect` inside a window callback**, as above, and whether a scroll view's
+   clip offset reaches it (the live cell measures a scrolled row against its viewport).
 3. **The `GUIClip.Internal_GetCount` probe** resolving at all, and the
-   `GUILayoutUtility.topLevel` / `GUILayoutEntry.rect` reflection that gives layout
-   groups their rect. Both fail soft: a missing clip probe reports `clipDepth: -1`
-   everywhere, a missing layout-rect probe records zero rects for layout groups, and
-   either logs one Warn.
-4. **Cost while armed.** One frame's worth of allocation for a few hundred small objects.
-   Never measured, and it does not matter for a one-frame capture - but arming it every
-   frame would be a different feature with a different budget.
+   `GUILayoutEntry.rect` / `GUILayoutGroup.isVertical` reflection that gives layout groups
+   their rect and orientation. Both fail soft: a missing clip probe reports
+   `clipDepth: -1` everywhere, a missing layout probe records zero rects, and either logs
+   one Warn. Both are re-resolved at every arm, so a transient failure does not park the
+   probe for the process lifetime.
+4. **Cost while armed.** One frame's worth of allocation for a few hundred small objects,
+   plus the one-off assemble + serialise + write hitch in the flush LateUpdate. Never
+   measured. It does not matter for a one-frame capture - but arming it every frame would
+   be a different feature with a different budget.
 
 ## Known gaps
 
@@ -335,11 +488,16 @@ What only a flight can settle:
 - **PasswordField records the MASKED content.** `secureText` is deliberately not read.
 - **A styled `GUILayout.BeginHorizontal` / `BeginVertical` emits a `box` leaf** with the
   group's own rect, because that is literally how Unity draws the group background
-  (`GUI.Box(group.rect, content, style)`). It arrives BEFORE the group node - the group
-  is recorded from a postfix, so its rect can be read off the layout cache - so it reads
-  as the sibling immediately preceding the group. Real, not a duplicate.
-- **One capture is one frame.** A window that only draws on some frames, or a control
-  behind a hover state, needs the arm to coincide with it.
+  (`GUI.Box(group.rect, content, style)`). Since the group node is now opened from
+  `BeginLayoutGroup`'s postfix - which runs BEFORE the caller draws that background - the
+  box arrives as the group's FIRST CHILD, carrying the group's own rect. Real, not a
+  duplicate. (Under the old `GUILayout.BeginHorizontal` patch it arrived as the preceding
+  SIBLING instead.)
+- **A layout group carries no `text`.** `GUILayoutUtility.BeginLayoutGroup` never sees the
+  caller's `GUIContent`; a styled group's content shows up on the `box` leaf above.
+- **One capture is one frame, and it is process-wide.** A window that only draws on some
+  frames, or a control behind a hover state, needs the arm to coincide with it - and every
+  other mod's windows are captured alongside Parsek's.
 
 ## Files
 
@@ -347,11 +505,11 @@ What only a flight can settle:
 |---|---|
 | `Source/Parsek/GuiTreeModel.cs` | pure: `GuiRect`, `GuiTreeEvent`, `GuiTreeNode`, `GuiTreeResult`, `GuiTreeAssembler` |
 | `Source/Parsek/GuiTreeJson.cs` | pure: hand-rolled invariant-culture JSON writer |
-| `Source/Parsek/GuiTreeGeometry.cs` | pure: the containment / depth derivation the live cell asserts |
-| `Source/Parsek/GuiTreeFunnels.cs` | the 19 target signatures, wire names, hit counters, `patched` probe |
+| `Source/Parsek/GuiTreeGeometry.cs` | pure: the containment / per-kind / scroll-offset derivations the live cell asserts |
+| `Source/Parsek/GuiTreeFunnels.cs` | the 17 target signatures, wire names, hit counters, arm-time `patched` snapshot |
 | `Source/Parsek/GuiTreeRecorder.cs` | arm / record / flush, the Unity seam, and `GuiTreeRecorderPump` |
-| `Source/Parsek/Patches/GuiTreeRecorderPatches.cs` | the 19 Harmony patch classes |
+| `Source/Parsek/Patches/GuiTreeRecorderPatches.cs` | the applier + the 17 attribute-less Harmony patch classes |
 | `Source/Parsek/InGameTests/GuiTreeDumpImguiTest.cs` | the live `GuiTree` cell + its probe window |
 | `Source/Parsek.Tests/GuiTree*Tests.cs` | headless coverage of everything above that is pure |
 | `harness/tools/gui_tree_view.py` | the offline viewer |
-| `harness/tools/test_gui_tree_view.py` | its unit tests |
+| `harness/lib/test_gui_tree_view.py` | its unit tests (under `lib/`, so CI runs them) |

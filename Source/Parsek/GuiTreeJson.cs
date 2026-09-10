@@ -35,6 +35,18 @@ namespace Parsek
         /// <summary>Events dropped because the per-frame cap was reached.</summary>
         internal int DroppedOverCap;
 
+        /// <summary>
+        /// <c>GUI.matrix</c> as read when the capture opened. It matters because
+        /// <c>GUIUtility.GUIToScreenRect</c> converts only a rect's ORIGIN, so under a
+        /// scaling matrix the recorder multiplies widths and heights through by hand - and
+        /// a reader of the dump has to know that happened, and with what.
+        /// </summary>
+        internal bool MatrixIsIdentity = true;
+        internal float MatrixM00 = 1f;
+        internal float MatrixM11 = 1f;
+        internal float MatrixM03;
+        internal float MatrixM13;
+
         internal readonly List<GuiTreeFunnelReport> Funnels = new List<GuiTreeFunnelReport>();
     }
 
@@ -68,6 +80,14 @@ namespace Parsek
             sb.Append("  \"screenshotHint\": ")
               .Append(Str(header == null ? null : header.ScreenshotHint)).Append(",\n");
 
+            bool identity = header == null || header.MatrixIsIdentity;
+            sb.Append("  \"guiMatrix\": {\"identity\": ").Append(identity ? "true" : "false");
+            sb.Append(", \"m00\": ").Append(Num(header == null ? 1f : header.MatrixM00));
+            sb.Append(", \"m11\": ").Append(Num(header == null ? 1f : header.MatrixM11));
+            sb.Append(", \"m03\": ").Append(Num(header == null ? 0f : header.MatrixM03));
+            sb.Append(", \"m13\": ").Append(Num(header == null ? 0f : header.MatrixM13));
+            sb.Append("},\n");
+
             GuiTreeResult t = tree ?? new GuiTreeResult();
             sb.Append("  \"counts\": {");
             sb.Append("\"windows\": ").Append(Num(t.WindowCount));
@@ -77,6 +97,7 @@ namespace Parsek
             sb.Append(", \"autoClosedByClip\": ").Append(Num(t.AutoClosedByClip));
             sb.Append(", \"autoClosedByEnd\": ").Append(Num(t.AutoClosedByEnd));
             sb.Append(", \"autoClosedByRect\": ").Append(Num(t.AutoClosedByRect));
+            sb.Append(", \"rectRuleInert\": ").Append(Num(t.RectRuleInert));
             sb.Append(", \"unclosedAtEnd\": ").Append(Num(t.UnclosedAtEnd));
             sb.Append(", \"recordFaults\": ").Append(Num(header == null ? 0 : header.RecordFaults));
             sb.Append(", \"droppedOverCap\": ").Append(Num(header == null ? 0 : header.DroppedOverCap));
@@ -193,9 +214,18 @@ namespace Parsek
 
         /// <summary>
         /// JSON string literal, or the <c>null</c> literal. Escapes the two mandatory
-        /// characters, the C escapes, and every remaining control character as
-        /// <c>\uXXXX</c>; a stray control byte in a KSP part title would otherwise
-        /// produce a file no parser accepts.
+        /// characters, the C escapes, every remaining control character, and EVERY
+        /// SURROGATE as <c>\uXXXX</c>; a stray control byte in a KSP part title would
+        /// otherwise produce a file no parser accepts.
+        ///
+        /// <para><b>Why every surrogate, not just a lone one.</b> A UTF-16 string
+        /// containing an unpaired surrogate - trivially produced by truncating a string
+        /// with an emoji in it, which a UI label or a vessel name may well be - cannot be
+        /// encoded as UTF-8 at all: <c>File.WriteAllText</c> substitutes U+FFFD or throws,
+        /// and one bad character costs the ENTIRE dump. Escaping the whole surrogate range
+        /// side-steps the question: a well-formed pair round-trips through its two
+        /// <c>\uXXXX</c> escapes byte-for-byte (that is exactly how JSON encodes an astral
+        /// character), and a lone one survives as an escape every parser accepts.</para>
         /// </summary>
         internal static string Str(string s)
         {
@@ -216,7 +246,7 @@ namespace Parsek
                     case '\b': sb.Append("\\b"); break;
                     case '\f': sb.Append("\\f"); break;
                     default:
-                        if (c < ' ' || c == '\u007f')
+                        if (c < ' ' || c == '\u007f' || char.IsSurrogate(c))
                         {
                             sb.Append("\\u")
                               .Append(((int)c).ToString("x4", CultureInfo.InvariantCulture));

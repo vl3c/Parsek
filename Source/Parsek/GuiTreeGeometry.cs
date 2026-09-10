@@ -8,12 +8,28 @@ namespace Parsek
     internal sealed class GuiTreeGeometryReport
     {
         internal bool WindowFound;
+
+        /// <summary>
+        /// The window's DECLARED rect, as <c>GUI.DoWindow</c> received it. The SECOND
+        /// reading, kept for comparison - it is one frame stale while a window is being
+        /// dragged, and it is unconverted, which is exactly why it is not the box.
+        /// </summary>
         internal GuiRect WindowRect;
+
+        /// <summary>
+        /// The containment box actually used: <c>contentOrigin</c> + <c>argSize</c>, both
+        /// measured INSIDE the window callback of the frame being captured
+        /// (<see cref="ContentBoxMeasured"/> true), else the declared rect as a fallback.
+        /// </summary>
+        internal GuiRect ContainmentBox;
+
+        /// <summary>True when <see cref="ContainmentBox"/> came from the measured pair.</summary>
+        internal bool ContentBoxMeasured;
 
         /// <summary>Leaves under the window whose text carries the caller's marker.</summary>
         internal int ProbeControlsFound;
 
-        /// <summary>Marked leaves whose screen rect origin fell outside the window.</summary>
+        /// <summary>Marked leaves whose screen rect fell outside the containment box.</summary>
         internal int ControlsOutsideWindow;
 
         /// <summary>Marked leaves that recorded no drawable area.</summary>
@@ -25,12 +41,90 @@ namespace Parsek
         /// <summary>Deepest nesting under the window, counting the window itself as 1.</summary>
         internal int MaxDepth;
 
+        /// <summary>
+        /// Node count per kind in the window's SUBTREE, the window itself excluded. This
+        /// is the SCOPED instrument: per-funnel hit counters are process-wide (every
+        /// window on screen during the armed frame feeds them, and during an in-game batch
+        /// the Test Runner window is one of them), so an EXACT expectation can only be
+        /// stated over one window's own subtree.
+        /// </summary>
+        internal readonly int[] KindCounts =
+            new int[Enum.GetValues(typeof(GuiNodeKind)).Length];
+
+        internal int CountOf(GuiNodeKind kind)
+        {
+            int i = (int)kind;
+            return i >= 0 && i < KindCounts.Length ? KindCounts[i] : 0;
+        }
+
+        /// <summary>Every non-zero kind count, for a failure message that can be acted on.</summary>
+        internal string DescribeKindCounts()
+        {
+            var parts = new List<string>();
+            for (int i = 0; i < KindCounts.Length; i++)
+            {
+                if (KindCounts[i] > 0)
+                {
+                    parts.Add(GuiTreeAssembler.KindName((GuiNodeKind)i) + "="
+                        + KindCounts[i].ToString(CultureInfo.InvariantCulture));
+                }
+            }
+            return parts.Count == 0 ? "<empty>" : string.Join(" ", parts.ToArray());
+        }
+
         internal string DescribeWindowRect()
+        {
+            return WindowFound ? Describe(WindowRect) : "<not found>";
+        }
+
+        internal string DescribeContainmentBox()
         {
             if (!WindowFound)
                 return "<not found>";
-            return "[" + F(WindowRect.X) + "," + F(WindowRect.Y) + ","
-                + F(WindowRect.W) + "," + F(WindowRect.H) + "]";
+            return Describe(ContainmentBox)
+                + (ContentBoxMeasured ? " (measured contentOrigin+argSize)" : " (declared rect)");
+        }
+
+        private static string Describe(GuiRect r)
+        {
+            return "[" + Fmt(r.X) + "," + Fmt(r.Y) + "," + Fmt(r.W) + "," + Fmt(r.H) + "]";
+        }
+
+        private static string Fmt(float v)
+        {
+            return v.ToString("0.##", CultureInfo.InvariantCulture);
+        }
+    }
+
+    /// <summary>What <see cref="GuiTreeGeometry.MeasureScrollOffset"/> measured.</summary>
+    internal sealed class GuiTreeScrollOffsetReport
+    {
+        internal bool ScrollViewFound;
+        internal bool RowFound;
+        internal GuiRect ScrollViewRect;
+        internal GuiRect RowRect;
+
+        /// <summary>
+        /// How far ABOVE the scroll view's own top the row was drawn, in screen pixels.
+        /// A scroll view scrolled down by N pixels draws its first row N pixels above its
+        /// viewport, clipped away - which is the only observable proof that the scroll
+        /// offset a scroll view pushes onto the clip stack reached the recorder's screen
+        /// conversion at all.
+        /// </summary>
+        internal float OffsetAbovePx;
+
+        internal string Describe()
+        {
+            if (!ScrollViewFound)
+                return "<no scroll view under the window>";
+            if (!RowFound)
+            {
+                return "<no marked row under the scroll view> scrollView=["
+                    + F(ScrollViewRect.X) + "," + F(ScrollViewRect.Y) + ","
+                    + F(ScrollViewRect.W) + "," + F(ScrollViewRect.H) + "]";
+            }
+            return "row.y=" + F(RowRect.Y) + " scrollView.y=" + F(ScrollViewRect.Y)
+                + " offsetAbove=" + F(OffsetAbovePx);
         }
 
         private static string F(float v)
@@ -55,8 +149,8 @@ namespace Parsek
     {
         /// <summary>
         /// Pixels of tolerance on the containment test. A control may legitimately
-        /// overhang its window by a border's worth (styles draw outside their rect), and
-        /// the window rect itself is the frame rather than the content area.
+        /// overhang by a border's worth (styles draw outside their rect), and GUILayout
+        /// rounds a group's rect independently of the child rects it hands out.
         /// </summary>
         internal const float ContainmentSlackPx = 8f;
 
@@ -73,7 +167,55 @@ namespace Parsek
 
             report.WindowFound = true;
             report.WindowRect = window.Rect;
-            Walk(window, 1, window.Rect, controlTextMarker, report);
+            // The containment box is the pair MEASURED INSIDE the callback, not the
+            // declared rect: the declaration is the rect the caller passed to
+            // GUILayout.Window BEFORE this frame moved it (one frame stale for the whole
+            // duration of a drag) and it is never screen-converted. contentOrigin is a
+            // GUIToScreenPoint(Vector2.zero) taken inside the same callback the children
+            // were drawn in, and argSize is the size Unity handed that callback, so the
+            // two together are the frame the children actually live in.
+            if (window.ContentOriginX.HasValue && window.ContentOriginY.HasValue
+                && window.ArgWidth.HasValue && window.ArgHeight.HasValue)
+            {
+                report.ContentBoxMeasured = true;
+                report.ContainmentBox = new GuiRect(
+                    window.ContentOriginX.Value, window.ContentOriginY.Value,
+                    window.ArgWidth.Value, window.ArgHeight.Value);
+            }
+            else
+            {
+                report.ContainmentBox = window.Rect;
+            }
+
+            Walk(window, 1, report.ContainmentBox, controlTextMarker, report);
+            return report;
+        }
+
+        /// <summary>
+        /// The scroll-offset reading: the marked row's screen y against the scroll view's
+        /// own screen y, both taken from the assembled tree.
+        /// </summary>
+        internal static GuiTreeScrollOffsetReport MeasureScrollOffset(GuiTreeResult tree,
+            string windowTitle, string rowText)
+        {
+            var report = new GuiTreeScrollOffsetReport();
+            if (tree == null)
+                return report;
+            GuiTreeNode window = FindWindow(tree.Roots, windowTitle);
+            if (window == null)
+                return report;
+            GuiTreeNode scrollView = FindKind(window, GuiNodeKind.ScrollView);
+            if (scrollView == null)
+                return report;
+
+            report.ScrollViewFound = true;
+            report.ScrollViewRect = scrollView.Rect;
+            GuiTreeNode row = FindByText(scrollView, rowText);
+            if (row == null)
+                return report;
+            report.RowFound = true;
+            report.RowRect = row.Rect;
+            report.OffsetAbovePx = scrollView.Rect.Y - row.Rect.Y;
             return report;
         }
 
@@ -91,6 +233,10 @@ namespace Parsek
                 {
                     return n;
                 }
+                // Recursive on purpose: a window is not necessarily a root. An OnGUI
+                // container that opens a group or a layout group before drawing its
+                // window puts the window BELOW the roots, and the nested-window case
+                // (which Parsek does not draw today, but Unity permits) puts it deeper.
                 GuiTreeNode nested = FindWindow(n.Children, title);
                 if (nested != null)
                     return nested;
@@ -98,26 +244,65 @@ namespace Parsek
             return null;
         }
 
-        private static void Walk(GuiTreeNode node, int depth, GuiRect windowRect,
+        private static GuiTreeNode FindKind(GuiTreeNode node, GuiNodeKind kind)
+        {
+            for (int i = 0; i < node.Children.Count; i++)
+            {
+                GuiTreeNode child = node.Children[i];
+                if (child == null)
+                    continue;
+                if (child.Kind == kind)
+                    return child;
+                GuiTreeNode nested = FindKind(child, kind);
+                if (nested != null)
+                    return nested;
+            }
+            return null;
+        }
+
+        private static GuiTreeNode FindByText(GuiTreeNode node, string text)
+        {
+            for (int i = 0; i < node.Children.Count; i++)
+            {
+                GuiTreeNode child = node.Children[i];
+                if (child == null)
+                    continue;
+                if (string.Equals(child.Text, text, StringComparison.Ordinal))
+                    return child;
+                GuiTreeNode nested = FindByText(child, text);
+                if (nested != null)
+                    return nested;
+            }
+            return null;
+        }
+
+        private static void Walk(GuiTreeNode node, int depth, GuiRect box,
             string marker, GuiTreeGeometryReport report)
         {
             if (depth > report.MaxDepth)
                 report.MaxDepth = depth;
 
-            if (depth > 1 && IsMarked(node, marker))
+            if (depth > 1)
             {
-                report.ProbeControlsFound++;
-                if (node.Rect.IsDegenerate)
+                int kind = (int)node.Kind;
+                if (kind >= 0 && kind < report.KindCounts.Length)
+                    report.KindCounts[kind]++;
+
+                if (IsMarked(node, marker))
                 {
-                    report.ControlsWithDegenerateRect++;
-                    NoteOffender(report, node, "degenerate");
-                }
-                else if (!windowRect.ContainsWithSlack(node.Rect.X, node.Rect.Y, ContainmentSlackPx)
-                    || !windowRect.ContainsWithSlack(
-                        node.Rect.X + node.Rect.W, node.Rect.Y + node.Rect.H, ContainmentSlackPx))
-                {
-                    report.ControlsOutsideWindow++;
-                    NoteOffender(report, node, "outside");
+                    report.ProbeControlsFound++;
+                    if (node.Rect.IsDegenerate)
+                    {
+                        report.ControlsWithDegenerateRect++;
+                        NoteOffender(report, node, "degenerate");
+                    }
+                    else if (!box.ContainsWithSlack(node.Rect.X, node.Rect.Y, ContainmentSlackPx)
+                        || !box.ContainsWithSlack(
+                            node.Rect.X + node.Rect.W, node.Rect.Y + node.Rect.H, ContainmentSlackPx))
+                    {
+                        report.ControlsOutsideWindow++;
+                        NoteOffender(report, node, "outside");
+                    }
                 }
             }
 
@@ -125,7 +310,7 @@ namespace Parsek
             {
                 GuiTreeNode child = node.Children[i];
                 if (child != null)
-                    Walk(child, depth + 1, windowRect, marker, report);
+                    Walk(child, depth + 1, box, marker, report);
             }
         }
 

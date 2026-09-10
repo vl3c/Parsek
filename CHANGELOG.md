@@ -10,17 +10,21 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
-- **Development tooling: the mod can now write down exactly what its windows look like,
-  for a helper that cannot see the screen.** Everything Parsek draws is decided fresh
-  every frame by code, and until now the only record of what a window actually contained
-  was a picture of it. A single frame can now be written out as a description instead:
-  every panel, every row, every button and box and tick and typing field, where each one
-  sat, what it said, what its hover text was, whether it was greyed out, and what sits
-  inside what. Nothing about the windows themselves changed - not one line of the drawing
-  code was touched, and the recording is off unless something asks for it, which nothing
-  in normal play does. There is also a small offline viewer that turns one of those
-  descriptions into a web page: the boxes drawn over the matching screenshot, with a
-  side panel listing the whole structure.
+- **Development tooling, A FIRST DRAFT THAT HAS NOT YET BEEN PROVEN: groundwork for the
+  mod writing down exactly what its windows look like, for a helper that cannot see the
+  screen.** Everything Parsek draws is decided fresh every frame by code, and until now
+  the only record of what a window actually contained was a picture of it. The groundwork
+  is here for writing a single frame out as a description instead: every panel, every row,
+  every button and box and tick and typing field, where each one sat, what it said, what
+  its hover text was, whether it was greyed out, and what sits inside what. There is also
+  a small offline viewer that turns one of those descriptions into a web page: the boxes
+  drawn over the matching screenshot, with a side panel listing the whole structure.
+  **The part that listens in on the game's own drawing has never once run inside KSP.**
+  It is written, and everything that can be checked without the game has been checked,
+  but nobody has yet started the game and taken a capture - so this is not a working
+  capability to rely on yet. Nothing about the windows themselves changed: not one line
+  of the drawing code was touched, nothing is listened to unless something asks for a
+  capture, and while nothing is asking, the game runs exactly as it did before.
 
 - **Automated testing: a test run can now let time really pass, instead of only moving
   the clock.** The only way an automated run could skip ahead was to move the clock and

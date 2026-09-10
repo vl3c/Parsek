@@ -19,10 +19,8 @@ namespace Parsek
         EndGroup,
         BeginScrollView,
         EndScrollView,
-        BeginHorizontal,
-        EndHorizontal,
-        BeginVertical,
-        EndVertical,
+        BeginLayoutGroup,
+        EndLayoutGroup,
         DoLabel,
         Box,
         DoControl,
@@ -40,19 +38,38 @@ namespace Parsek
     ///
     /// <para><b>Signatures verified against the shipped
     /// <c>UnityEngine.IMGUIModule.dll</c> (KSP 1.12.5 / Unity 2019.4)</b> by decompiling
-    /// <c>UnityEngine.GUI</c>, <c>GUILayout</c> and <c>GUILayoutUtility</c>. The chosen
-    /// methods are the deepest MANAGED funnel per control kind: everything below them is
-    /// <c>[MethodImpl(InternalCall)]</c> and cannot be Harmony-patched
-    /// (<c>GUIStyle.Internal_Draw2</c>, <c>GUIClip.Internal_Push</c>,
-    /// <c>GUI.Internal_DoWindow</c>). See <c>docs/dev/design-gui-tree-dump.md</c> for the
-    /// call chains and the inlining analysis.</para>
+    /// <c>UnityEngine.GUI</c>, <c>GUILayout</c> and <c>GUILayoutUtility</c>. Each is the
+    /// deepest funnel THAT STILL KNOWS THE CONTROL KIND - not the deepest managed method,
+    /// which is <c>GUIStyle.Draw</c> and knows only a rect and a style. Below these the
+    /// module is <c>[MethodImpl(InternalCall)]</c> (<c>GUIStyle.Internal_Draw2</c>,
+    /// <c>GUIClip.Internal_Push</c>, <c>GUI.Internal_DoWindow</c>) and cannot be
+    /// Harmony-patched at all. See <c>docs/dev/design-gui-tree-dump.md</c> for the call
+    /// chains, the IL sizes and the inlining analysis.</para>
     /// </summary>
     internal static class GuiTreeFunnels
     {
         internal const int Count = (int)GuiFunnel.Slider + 1;
 
+        /// <summary>
+        /// Harmony id of the recorder's OWN instance. These patches are not part of
+        /// <c>com.parsek.mod</c>'s permanent set: they are applied at arm time and removed
+        /// again after the capture, so every IMGUI consumer in the process (KSP's debug
+        /// UI, MechJeb, KER, ClickThroughBlocker) pays nothing at all while the recorder
+        /// is disarmed. Owner-scoping the <c>patched</c> probe on this id is what keeps
+        /// another mod's patch on the same method from reading as ours.
+        /// </summary>
+        internal const string HarmonyId = "com.parsek.guitree";
+
         /// <summary>Per-funnel hit counter for the captured frame. Reset at arm time.</summary>
         internal static readonly int[] Hits = new int[Count];
+
+        /// <summary>
+        /// Whether each funnel's target actually carried our patch, MEASURED AT ARM -
+        /// the only time it can be measured, because the patches are removed again when
+        /// the capture flushes and a flush-time reading would report <c>false</c> for
+        /// every funnel. This is what the JSON's <c>funnels</c> block reports.
+        /// </summary>
+        internal static readonly bool[] PatchedAtArm = new bool[Count];
 
         internal static string Name(GuiFunnel funnel)
         {
@@ -64,10 +81,8 @@ namespace Parsek
                 case GuiFunnel.EndGroup: return "GUI.EndGroup";
                 case GuiFunnel.BeginScrollView: return "GUI.BeginScrollView";
                 case GuiFunnel.EndScrollView: return "GUI.EndScrollView";
-                case GuiFunnel.BeginHorizontal: return "GUILayout.BeginHorizontal";
-                case GuiFunnel.EndHorizontal: return "GUILayout.EndHorizontal";
-                case GuiFunnel.BeginVertical: return "GUILayout.BeginVertical";
-                case GuiFunnel.EndVertical: return "GUILayout.EndVertical";
+                case GuiFunnel.BeginLayoutGroup: return "GUILayoutUtility.BeginLayoutGroup";
+                case GuiFunnel.EndLayoutGroup: return "GUILayoutUtility.EndLayoutGroup";
                 case GuiFunnel.DoLabel: return "GUI.DoLabel";
                 case GuiFunnel.Box: return "GUI.Box";
                 case GuiFunnel.DoControl: return "GUI.DoControl";
@@ -83,9 +98,9 @@ namespace Parsek
 
         /// <summary>
         /// The exact method a funnel patches, or null when the signature is not present
-        /// in this Unity build. Null is reported rather than thrown: ParsekHarmony applies
-        /// each patch class independently, and a null target degrades to "that one funnel
-        /// is missing" instead of losing the whole capture.
+        /// in this Unity build. Null is reported rather than thrown: the applier patches
+        /// each funnel independently, so a null target degrades to "that one funnel is
+        /// missing" instead of losing the whole capture.
         /// </summary>
         internal static MethodInfo Target(GuiFunnel funnel)
         {
@@ -118,20 +133,14 @@ namespace Parsek
                     });
                 case GuiFunnel.EndScrollView:
                     return AccessTools.Method(typeof(GUI), "EndScrollView", new[] { typeof(bool) });
-                case GuiFunnel.BeginHorizontal:
-                    return AccessTools.Method(typeof(GUILayout), "BeginHorizontal", new[]
+                case GuiFunnel.BeginLayoutGroup:
+                    return AccessTools.Method(typeof(GUILayoutUtility), "BeginLayoutGroup", new[]
                     {
-                        typeof(GUIContent), typeof(GUIStyle), typeof(GUILayoutOption[]),
+                        typeof(GUIStyle), typeof(GUILayoutOption[]), typeof(Type),
                     });
-                case GuiFunnel.EndHorizontal:
-                    return AccessTools.Method(typeof(GUILayout), "EndHorizontal", Type.EmptyTypes);
-                case GuiFunnel.BeginVertical:
-                    return AccessTools.Method(typeof(GUILayout), "BeginVertical", new[]
-                    {
-                        typeof(GUIContent), typeof(GUIStyle), typeof(GUILayoutOption[]),
-                    });
-                case GuiFunnel.EndVertical:
-                    return AccessTools.Method(typeof(GUILayout), "EndVertical", Type.EmptyTypes);
+                case GuiFunnel.EndLayoutGroup:
+                    return AccessTools.Method(typeof(GUILayoutUtility), "EndLayoutGroup",
+                        Type.EmptyTypes);
                 case GuiFunnel.DoLabel:
                     return AccessTools.Method(typeof(GUI), "DoLabel", new[]
                     {
@@ -188,11 +197,9 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Whether Harmony currently holds a prefix or postfix on this funnel's target.
-        /// Read at arm time so the capture carries proof of which interceptions are live:
-        /// a funnel that reports <c>patched=false</c> lost its signature to a Unity bump,
-        /// and one that reports <c>patched=true, hits=0</c> was bypassed (Mono inlined it,
-        /// or nothing in that frame drew that control kind).
+        /// Whether <see cref="HarmonyId"/> currently owns a patch on this funnel's target.
+        /// Read at ARM time into <see cref="PatchedAtArm"/>; see that field for why a
+        /// flush-time reading would be worthless.
         /// </summary>
         internal static bool IsPatched(GuiFunnel funnel)
         {
@@ -202,10 +209,9 @@ namespace Parsek
                 if (target == null)
                     return false;
                 HarmonyLib.Patches info = Harmony.GetPatchInfo(target);
-                if (info == null)
+                if (info == null || info.Owners == null)
                     return false;
-                return (info.Prefixes != null && info.Prefixes.Count > 0)
-                    || (info.Postfixes != null && info.Postfixes.Count > 0);
+                return info.Owners.Contains(HarmonyId);
             }
             catch (Exception)
             {

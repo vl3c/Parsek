@@ -1,3 +1,4 @@
+using System;
 using System.Reflection;
 using HarmonyLib;
 using UnityEngine;
@@ -6,27 +7,148 @@ namespace Parsek.Patches
 {
     /// <summary>
     /// Harmony interceptions of the UnityEngine IMGUI funnels that feed
-    /// <see cref="GuiTreeRecorder"/>. Applied by <c>ParsekHarmony</c>'s generic
-    /// <c>[HarmonyPatch]</c> sweep, which patches each class independently and logs a
-    /// failure rather than aborting, so one drifted signature costs one funnel.
+    /// <see cref="GuiTreeRecorder"/>.
+    ///
+    /// <para><b>NOT part of ParsekHarmony's permanent patch set.</b> No class in this
+    /// file carries a <c>[HarmonyPatch]</c> attribute, so the assembly sweep in
+    /// <c>ParsekHarmony.Awake</c> cannot discover them. They are applied by
+    /// <see cref="GuiTreeRecorderPatches.Apply"/> from
+    /// <c>GuiTreeRecorder.ArmForNextRepaint</c> and removed again by
+    /// <see cref="GuiTreeRecorderPatches.Remove"/> when the capture flushes (or on
+    /// disarm / fault). The reason is cost: a Harmony detour on <c>GUI.DoLabel</c> is
+    /// paid by EVERY IMGUI consumer in the process - KSP's own debug UI, MechJeb, KER,
+    /// ClickThroughBlocker - on every control of every event pass, forever. A patch
+    /// body's <c>if (!ArmedFlag) return;</c> is one static bool read, but the detour
+    /// around it is not free, and the recorder is armed for single frames minutes apart
+    /// at most. Disarmed, the cost is now ZERO patches rather than a cheap patch.</para>
     ///
     /// <para><b>Contract every body in this file obeys.</b> First statement is
-    /// <c>if (!GuiTreeRecorder.ArmedFlag) return;</c> - a single static bool read, which
-    /// is the whole cost while disarmed. No body throws: all the work happens behind
-    /// <c>GuiTreeRecorder</c>'s try/catch entry points, because an exception escaping
-    /// here would abort Unity's GUI pass mid-window.</para>
+    /// <c>if (!GuiTreeRecorder.ArmedFlag) return;</c> - the patches can outlive a capture
+    /// by one frame (the unpatch is deferred out of the GUI pass), so the flag still
+    /// gates. No body throws: all the work happens behind <c>GuiTreeRecorder</c>'s
+    /// try/catch entry points, because an exception escaping here would abort Unity's GUI
+    /// pass mid-window.</para>
     ///
-    /// <para><b>Why these methods.</b> Each is the deepest MANAGED method on its control's
-    /// path; everything below is an ICall. Target signatures live in one place,
+    /// <para><b>Why these methods.</b> Each is the deepest funnel that still knows the
+    /// control kind. Target signatures live in one place,
     /// <see cref="GuiTreeFunnels.Target"/>, which each <c>TargetMethod()</c> returns, so
     /// the patched signature and the JSON's funnel report cannot disagree. Rationale,
-    /// call chains and the Mono-inlining analysis: <c>docs/dev/design-gui-tree-dump.md</c>.
-    /// </para>
+    /// call chains, IL sizes and the Mono-inlining analysis:
+    /// <c>docs/dev/design-gui-tree-dump.md</c>.</para>
     /// </summary>
     internal static class GuiTreeRecorderPatches
     {
-        // Marker type only: the real work is in the nested patch classes below, which
-        // ParsekHarmony discovers by their own [HarmonyPatch] attributes.
+        /// <summary>
+        /// One row per funnel: the funnel and the class holding its Prefix / Postfix.
+        /// This table is the ONLY discovery mechanism now that the attributes are gone,
+        /// so a patch class dropped from the file reds
+        /// <c>GuiTreeFunnelTests.PatchParameterNamesAndTypesMatchTheirTargets</c> instead
+        /// of costing one silent control kind in a dump.
+        /// </summary>
+        internal static readonly Tuple<GuiFunnel, Type>[] All =
+        {
+            Tuple.Create(GuiFunnel.DoWindow, typeof(GuiTreeDoWindowPatch)),
+            Tuple.Create(GuiFunnel.CallWindowDelegate, typeof(GuiTreeCallWindowDelegatePatch)),
+            Tuple.Create(GuiFunnel.BeginGroup, typeof(GuiTreeBeginGroupPatch)),
+            Tuple.Create(GuiFunnel.EndGroup, typeof(GuiTreeEndGroupPatch)),
+            Tuple.Create(GuiFunnel.BeginScrollView, typeof(GuiTreeBeginScrollViewPatch)),
+            Tuple.Create(GuiFunnel.EndScrollView, typeof(GuiTreeEndScrollViewPatch)),
+            Tuple.Create(GuiFunnel.BeginLayoutGroup, typeof(GuiTreeBeginLayoutGroupPatch)),
+            Tuple.Create(GuiFunnel.EndLayoutGroup, typeof(GuiTreeEndLayoutGroupPatch)),
+            Tuple.Create(GuiFunnel.DoLabel, typeof(GuiTreeDoLabelPatch)),
+            Tuple.Create(GuiFunnel.Box, typeof(GuiTreeBoxPatch)),
+            Tuple.Create(GuiFunnel.DoControl, typeof(GuiTreeDoControlPatch)),
+            Tuple.Create(GuiFunnel.DoButton, typeof(GuiTreeDoButtonPatch)),
+            Tuple.Create(GuiFunnel.DoToggle, typeof(GuiTreeDoTogglePatch)),
+            Tuple.Create(GuiFunnel.DoRepeatButton, typeof(GuiTreeDoRepeatButtonPatch)),
+            Tuple.Create(GuiFunnel.DoTextField, typeof(GuiTreeDoTextFieldPatch)),
+            Tuple.Create(GuiFunnel.DoButtonGrid, typeof(GuiTreeDoButtonGridPatch)),
+            Tuple.Create(GuiFunnel.Slider, typeof(GuiTreeSliderPatch)),
+        };
+
+        private static Harmony harmony;
+
+        /// <summary>True while the interceptions are installed.</summary>
+        internal static bool Applied { get; private set; }
+
+        /// <summary>
+        /// Installs every funnel interception. Idempotent: a second arm before the first
+        /// capture flushed is a no-op rather than a second detour. Each funnel is applied
+        /// independently, so one drifted signature costs one funnel and is reported in
+        /// the dump's <c>funnels</c> block as <c>patched: false</c>.
+        /// </summary>
+        internal static void Apply()
+        {
+            if (Applied)
+                return;
+            if (harmony == null)
+                harmony = new Harmony(GuiTreeFunnels.HarmonyId);
+
+            // Applied is set BEFORE the loop: a mid-loop throw must still leave Remove()
+            // able to unpatch whatever did get installed.
+            Applied = true;
+            int ok = 0;
+            int failed = 0;
+            for (int i = 0; i < All.Length; i++)
+            {
+                GuiFunnel funnel = All[i].Item1;
+                try
+                {
+                    MethodInfo target = GuiTreeFunnels.Target(funnel);
+                    if (target == null)
+                    {
+                        failed++;
+                        ParsekLog.Warn("GuiTree", "funnel target missing funnel="
+                            + GuiTreeFunnels.Name(funnel)
+                            + "; that control kind will be absent from the dump");
+                        continue;
+                    }
+                    harmony.Patch(target,
+                        Hook(All[i].Item2, "Prefix"), Hook(All[i].Item2, "Postfix"));
+                    ok++;
+                }
+                catch (Exception ex)
+                {
+                    failed++;
+                    ParsekLog.Warn("GuiTree", "funnel patch failed funnel="
+                        + GuiTreeFunnels.Name(funnel) + ": " + ex.GetType().Name + ": " + ex.Message);
+                }
+            }
+            ParsekLog.Info("GuiTree", "patches applied id=" + GuiTreeFunnels.HarmonyId
+                + " ok=" + ok + " failed=" + failed + " of=" + All.Length);
+        }
+
+        /// <summary>
+        /// Removes every interception this class installed. Idempotent. MUST NOT be called
+        /// from inside an IMGUI pass - rewriting a method the current call stack is
+        /// executing is worse than leaving the patch on for one more frame - which is why
+        /// <c>GuiTreeRecorder</c> defers to its LateUpdate pump whenever
+        /// <c>Event.current != null</c>.
+        /// </summary>
+        internal static void Remove()
+        {
+            if (!Applied)
+                return;
+            Applied = false;
+            try
+            {
+                if (harmony != null)
+                    harmony.UnpatchAll(GuiTreeFunnels.HarmonyId);
+                ParsekLog.Info("GuiTree", "patches removed id=" + GuiTreeFunnels.HarmonyId);
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Error("GuiTree", "unpatch failed id=" + GuiTreeFunnels.HarmonyId
+                    + ": " + ex.GetType().Name + ": " + ex.Message);
+            }
+        }
+
+        private static HarmonyMethod Hook(Type patchClass, string name)
+        {
+            MethodInfo hook = patchClass.GetMethod(name,
+                BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
+            return hook == null ? null : new HarmonyMethod(hook);
+        }
     }
 
     // ------------------------------------------------------------------------ windows
@@ -38,7 +160,6 @@ namespace Parsek.Patches
     /// lands. Carries the declared rect and the title; the window NODE is opened by
     /// <see cref="GuiTreeCallWindowDelegatePatch"/>.
     /// </summary>
-    [HarmonyPatch]
     internal static class GuiTreeDoWindowPatch
     {
         static MethodBase TargetMethod()
@@ -56,10 +177,10 @@ namespace Parsek.Patches
 
     /// <summary>
     /// <c>GUI.CallWindowDelegate</c> - the managed method the NATIVE window host calls to
-    /// run a window's body. It brackets the window body exactly, and it is large enough
-    /// that Mono will not inline it, which makes it the load-bearing window funnel.
+    /// run a window's body. It brackets the window body exactly, it is large, and it is
+    /// <c>[RequiredByNativeCode]</c> invoked FROM native code, so it cannot be inlined at
+    /// all. That makes it the load-bearing window funnel.
     /// </summary>
-    [HarmonyPatch]
     internal static class GuiTreeCallWindowDelegatePatch
     {
         static MethodBase TargetMethod()
@@ -87,9 +208,9 @@ namespace Parsek.Patches
     /// <summary>
     /// <c>GUI.BeginGroup(Rect, GUIContent, GUIStyle, Vector2)</c> - the internal funnel
     /// behind every public <c>GUI.BeginGroup</c> overload and behind
-    /// <c>GUILayout.BeginArea</c>.
+    /// <c>GUILayout.BeginArea</c>. <c>GUI.BeginScrollView</c> does NOT come through here:
+    /// it pushes its own clip, which is why the scroll view has a funnel of its own.
     /// </summary>
-    [HarmonyPatch]
     internal static class GuiTreeBeginGroupPatch
     {
         static MethodBase TargetMethod()
@@ -111,12 +232,12 @@ namespace Parsek.Patches
     }
 
     /// <summary>
-    /// <c>GUI.EndGroup</c>. Two statements, so Mono may well inline it into
-    /// <c>GUILayout.EndArea</c> and the callers; the assembler therefore does not depend
-    /// on this End arriving - the clip depth carried by the next event closes the group
-    /// either way.
+    /// <c>GUI.EndGroup</c>. 14 bytes of IL, inside Mono's inline limit, so this End is
+    /// EXPECTED to be bypassed and the clip-depth rule is the real close mechanism for a
+    /// group. The patch stays because when it does fire it closes the group exactly, and
+    /// because <c>hits: 0</c> against <c>patched: true</c> is the measurement that says
+    /// the inlining happened.
     /// </summary>
-    [HarmonyPatch]
     internal static class GuiTreeEndGroupPatch
     {
         static MethodBase TargetMethod()
@@ -143,7 +264,6 @@ namespace Parsek.Patches
     /// the truth about them - they are drawn in the enclosing coordinate space, outside
     /// the scrolled content.
     /// </summary>
-    [HarmonyPatch]
     internal static class GuiTreeBeginScrollViewPatch
     {
         static MethodBase TargetMethod()
@@ -164,7 +284,6 @@ namespace Parsek.Patches
     /// <c>GUI.EndScrollView(bool)</c> - the funnel for both overloads. Patched as a
     /// POSTFIX: the scroll-wheel handling inside it belongs to the scroll view.
     /// </summary>
-    [HarmonyPatch]
     internal static class GuiTreeEndScrollViewPatch
     {
         static MethodBase TargetMethod()
@@ -183,81 +302,65 @@ namespace Parsek.Patches
     // --------------------------------------------------------------- layout groups
 
     /// <summary>
-    /// <c>GUILayout.BeginHorizontal(GUIContent, GUIStyle, GUILayoutOption[])</c> - the
-    /// funnel for all five overloads. A layout group pushes no clip, so its rect comes
-    /// from the layout cache and its nesting relies on the matching End (with rect
-    /// containment as the recovery).
+    /// <c>GUILayoutUtility.BeginLayoutGroup(GUIStyle, GUILayoutOption[], Type)</c> - 180
+    /// bytes of IL, far past Mono's inline limit, and the ONE funnel every layout group
+    /// passes through. It replaced patches on <c>GUILayout.BeginHorizontal</c> /
+    /// <c>BeginVertical</c> / <c>EndHorizontal</c> / <c>EndVertical</c>, whose End sides
+    /// are 8 bytes each and are therefore almost certainly inlined - Mono's inliner reads
+    /// IL from metadata, not the detour, so Harmony does not protect a small callee.
+    ///
+    /// <para><b>Its callers, module-wide</b> (grepped over the whole decompiled
+    /// <c>UnityEngine.IMGUIModule</c>, not just <c>GUILayout</c>): exactly three -
+    /// <c>GUILayout.BeginHorizontal(GUIContent, GUIStyle, GUILayoutOption[])</c> and
+    /// <c>BeginVertical(...)</c>, both with <c>typeof(GUILayoutGroup)</c>, and
+    /// <c>GUILayout.BeginScrollView(...)</c> with <c>typeof(GUIScrollGroup)</c>.
+    /// <c>GUILayout.BeginArea</c> goes through <c>BeginLayoutArea</c> instead and
+    /// <c>GUILayoutUtility.BeginWindow</c> assigns <c>topLevel</c> directly, so neither
+    /// an area's nor a window's root layout group can be mistaken for a user group. The
+    /// scroll group IS filtered out (by <c>layoutType</c>), because the scroll view
+    /// already has its own node from <c>GUI.BeginScrollView</c>.</para>
     /// </summary>
-    [HarmonyPatch]
-    internal static class GuiTreeBeginHorizontalPatch
+    internal static class GuiTreeBeginLayoutGroupPatch
     {
         static MethodBase TargetMethod()
         {
-            return GuiTreeFunnels.Target(GuiFunnel.BeginHorizontal);
+            return GuiTreeFunnels.Target(GuiFunnel.BeginLayoutGroup);
         }
 
-        static void Postfix(GUIContent content, GUIStyle style)
+        // POSTFIX for two reasons: __result IS the GUILayoutGroup - its rect and its
+        // isVertical both final during Repaint, because the group object is the one the
+        // Layout pass created and sized - and the group has to be on the layout stack
+        // before anything can be read off it. __result is declared as `object` because
+        // UnityEngine.GUILayoutGroup is internal; Harmony accepts any type the return
+        // type is assignable to (MethodPatcher's __result branch).
+        static void Postfix(GUIStyle style, Type layoutType, object __result)
         {
             if (!GuiTreeRecorder.ArmedFlag)
                 return;
-            // POSTFIX: the group has to be on the layout stack before its rect can be read.
-            GuiTreeRecorder.RecordBeginLayoutGroup(
-                GuiFunnel.BeginHorizontal, true, content, style);
-        }
-    }
-
-    /// <summary><c>GUILayout.EndHorizontal</c>.</summary>
-    [HarmonyPatch]
-    internal static class GuiTreeEndHorizontalPatch
-    {
-        static MethodBase TargetMethod()
-        {
-            return GuiTreeFunnels.Target(GuiFunnel.EndHorizontal);
-        }
-
-        static void Prefix()
-        {
-            if (!GuiTreeRecorder.ArmedFlag)
-                return;
-            GuiTreeRecorder.RecordEnd(GuiFunnel.EndHorizontal, GuiNodeKind.LayoutGroup);
+            GuiTreeRecorder.RecordBeginLayoutGroup(style, layoutType, __result);
         }
     }
 
     /// <summary>
-    /// <c>GUILayout.BeginVertical(GUIContent, GUIStyle, GUILayoutOption[])</c> - the
-    /// funnel for all five overloads.
+    /// <c>GUILayoutUtility.EndLayoutGroup()</c> - 123 bytes, also past the inline limit,
+    /// and the single End for all three <c>BeginLayoutGroup</c> callers. It carries no
+    /// arguments, so the recorder pairs it against its own Begin stack: that is what
+    /// tells a scroll view's layout carrier (recorded as nothing) from a real group, and
+    /// what gives the End event its ORIENTATION so a stranded horizontal group cannot
+    /// swallow the End of the vertical group enclosing it.
     /// </summary>
-    [HarmonyPatch]
-    internal static class GuiTreeBeginVerticalPatch
+    internal static class GuiTreeEndLayoutGroupPatch
     {
         static MethodBase TargetMethod()
         {
-            return GuiTreeFunnels.Target(GuiFunnel.BeginVertical);
-        }
-
-        static void Postfix(GUIContent content, GUIStyle style)
-        {
-            if (!GuiTreeRecorder.ArmedFlag)
-                return;
-            GuiTreeRecorder.RecordBeginLayoutGroup(
-                GuiFunnel.BeginVertical, false, content, style);
-        }
-    }
-
-    /// <summary><c>GUILayout.EndVertical</c>.</summary>
-    [HarmonyPatch]
-    internal static class GuiTreeEndVerticalPatch
-    {
-        static MethodBase TargetMethod()
-        {
-            return GuiTreeFunnels.Target(GuiFunnel.EndVertical);
+            return GuiTreeFunnels.Target(GuiFunnel.EndLayoutGroup);
         }
 
         static void Prefix()
         {
             if (!GuiTreeRecorder.ArmedFlag)
                 return;
-            GuiTreeRecorder.RecordEnd(GuiFunnel.EndVertical, GuiNodeKind.LayoutGroup);
+            GuiTreeRecorder.RecordEndLayoutGroup();
         }
     }
 
@@ -269,7 +372,6 @@ namespace Parsek.Patches
     /// tooltip-publish sites in the module, which is why the tooltip on a Label is
     /// always the real one.
     /// </summary>
-    [HarmonyPatch]
     internal static class GuiTreeDoLabelPatch
     {
         static MethodBase TargetMethod()
@@ -289,12 +391,12 @@ namespace Parsek.Patches
     /// <summary>
     /// <c>GUI.Box(Rect, GUIContent, GUIStyle)</c> - every Box overload and
     /// <c>GUILayout.Box</c>. Also reached by a STYLED <c>GUILayout.BeginHorizontal</c> /
-    /// <c>BeginVertical</c>, which draws its group background through it. That box is
-    /// drawn before the group's own postfix records the group, so it appears as the
-    /// SIBLING immediately preceding the group rather than as its first child, carrying
-    /// the same rect. Real, not a duplicate.
+    /// <c>BeginVertical</c>, which draws its group background through it
+    /// (<c>GUI.Box(group.rect, content, style)</c>) AFTER <c>BeginLayoutGroup</c> has
+    /// returned - so with the layout group now recorded from that funnel's postfix, the
+    /// box lands as the group's FIRST CHILD carrying the group's own rect. Real, not a
+    /// duplicate.
     /// </summary>
-    [HarmonyPatch]
     internal static class GuiTreeBoxPatch
     {
         static MethodBase TargetMethod()
@@ -317,7 +419,6 @@ namespace Parsek.Patches
     /// from the staging hint the caller's own patch leaves; with no hint it falls back to
     /// the style name.
     /// </summary>
-    [HarmonyPatch]
     internal static class GuiTreeDoControlPatch
     {
         static MethodBase TargetMethod()
@@ -334,12 +435,12 @@ namespace Parsek.Patches
     }
 
     /// <summary>
-    /// <c>GUI.DoButton</c> - two statements, so this patch exists only to name the KIND
-    /// for the <c>DoControl</c> body underneath. If Mono inlined THIS method the kind
-    /// degrades to the style-name classification; if Mono inlined <c>DoControl</c>
-    /// instead, the postfix emits the staged leaf so nothing is lost either way.
+    /// <c>GUI.DoButton</c> - 33 bytes of IL, so Mono may inline it. This patch exists only
+    /// to name the KIND for the <c>DoControl</c> body underneath: if Mono inlined THIS
+    /// method the kind degrades to the style-name classification; if Mono inlined
+    /// <c>DoControl</c> instead, the postfix emits the staged leaf, so nothing is lost
+    /// either way.
     /// </summary>
-    [HarmonyPatch]
     internal static class GuiTreeDoButtonPatch
     {
         static MethodBase TargetMethod()
@@ -363,8 +464,7 @@ namespace Parsek.Patches
         }
     }
 
-    /// <summary><c>GUI.DoToggle</c> - the Toggle side of the same staging pair.</summary>
-    [HarmonyPatch]
+    /// <summary><c>GUI.DoToggle</c> - the Toggle side of the same staging pair (34 bytes).</summary>
     internal static class GuiTreeDoTogglePatch
     {
         static MethodBase TargetMethod()
@@ -388,8 +488,10 @@ namespace Parsek.Patches
         }
     }
 
-    /// <summary><c>GUI.DoRepeatButton</c> - every RepeatButton overload.</summary>
-    [HarmonyPatch]
+    /// <summary>
+    /// <c>GUI.DoRepeatButton</c> - every RepeatButton overload, including the two arrow
+    /// buttons a scrollbar draws through <c>GUI.Scroller</c>.
+    /// </summary>
     internal static class GuiTreeDoRepeatButtonPatch
     {
         static MethodBase TargetMethod()
@@ -412,7 +514,6 @@ namespace Parsek.Patches
     /// text arrives in <c>content.text</c>; <c>secureText</c> is deliberately NOT read,
     /// so a password field records only the masked content Unity is drawing.
     /// </summary>
-    [HarmonyPatch]
     internal static class GuiTreeDoTextFieldPatch
     {
         static MethodBase TargetMethod()
@@ -436,7 +537,6 @@ namespace Parsek.Patches
     /// method and the individual cells are drawn through <c>GUIStyle.Draw</c>, below the
     /// managed surface.
     /// </summary>
-    [HarmonyPatch]
     internal static class GuiTreeDoButtonGridPatch
     {
         static MethodBase TargetMethod()
@@ -464,7 +564,6 @@ namespace Parsek.Patches
     /// <c>VerticalSlider</c> and, through <c>GUI.Scroller</c>, both scrollbars including
     /// the ones a scroll view draws for itself.
     /// </summary>
-    [HarmonyPatch]
     internal static class GuiTreeSliderPatch
     {
         static MethodBase TargetMethod()
