@@ -173,6 +173,28 @@ python tools/contact_sheet.py --run-id <id>  # one run's sheet + index
 python tools/contact_sheet.py --index-only   # just the index
 ```
 
+`tools/gui_tree_view.py` is its sibling for GUI-TREE DUMPS. When something arms
+`GuiTreeRecorder` in-game, the mod writes one Repaint pass's whole control tree to
+`<KSP root>/Screenshots/<label>.gui.json` - kind, screen rect, text, tooltip, style,
+enabled state and nesting for every window, group, scroll view and control it drew -
+and the shots collector picks it up with the screenshots. This renders one into
+`<label>.gui.html`: outlined boxes at every node's rect over the matching screenshot,
+coloured by kind, beside a collapsible, filterable tree of the whole structure. It is
+what makes a Parsek window readable to someone who cannot see the game. Same contracts
+as the contact sheet - stdlib only, self-contained static HTML (the screenshot inlined
+as a data URI), read-only, and safe on a malformed or truncated dump, which it reports
+on the page rather than raising. Schema and producer:
+`docs/dev/design-gui-tree-dump.md`.
+
+```
+python tools/gui_tree_view.py <label>.gui.json          # one page beside the dump
+python tools/gui_tree_view.py --batch results/<runId>_shots   # every dump + index
+```
+
+Read the page's amber notes strip FIRST. A dump whose Harmony interceptions were
+bypassed still parses and still renders, and is still missing controls; the strip is
+where `NOT PATCHED` and `patched but never hit` show up.
+
 ## The produced-save snapshot (harvest from here, not from the instance)
 
 Every attempt also copies its PRODUCED SAVE into
