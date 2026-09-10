@@ -15,6 +15,36 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## D3-BOUNDARY-SEAM-HAS-NO-DETERMINISTIC-WITNESS: the registry cell `boundary-seam` has a production token, but no lane emits it on every flight, so no spec can gate it
+
+Filed 2026-09-10 by the claim-gap wave (package A1-9). A COVERAGE gap, not a defect. OPEN.
+
+**The token.** When a loaded background vessel goes on rails mid-section, `BackgroundRecorder.FlushLoadedStateForOnRailsTransition` writes the INFO line `Persisted no-payload on-rails boundary section: pid=<pid> <prev>-><next> at UT=<ut> (seam=1)` (BackgroundRecorder.cs:5054-5056). The section it closes carries `isBoundarySeam=true`, which step 1 of `RecordingOptimizer.IsSplittableEnvOrBodyBoundary` honours.
+
+**Why no claim.** A 2026-09-10 scan of the 508 archived `KSP.log` files under `logs/` found the `(seam=1)` line in 30. It is intermittent within every lane that shows it:
+- B2 2 of 10, B4 1 of 8, B5 6 of 27, B6 3 of 6, B7 1 of 9, B11 1 of 3, B15 3 of 11
+- BDOCK-1 8 of 17, R1 2 of 4, V1 1 of 6
+- one rover session, and RF-12L 1 of 1 (`2026-09-09_2215`, its only archived run)
+
+The optimizer's `Split summary ... seamSkipped=[1-9]` appears in none of the 508. No in-game test under `Source/Parsek/InGameTests/` references `isBoundarySeam`. A token that fires on some healthy runs of a lane cannot be a required pattern.
+
+**What would close it.** Either of:
+- A lane where a loaded background vessel deterministically goes on rails mid-section. RF-12L is the first candidate: a stability reading pair would show whether its one sample is a property of the lane.
+- An in-game test driving `FlushLoadedStateForOnRailsTransition` with a post-assert line. This is C#, outside the harness-only claim-gap wave.
+
+After either, re-read before pinning.
+
+## D3-RELATIVE-LOOP-HAS-NO-PRODUCTION-PATH-CELL: no flown cell plays a loop-anchored Relative section through the production `LoopAnchorVesselId` path with the production positioner
+
+Filed 2026-09-10 by the claim-gap wave (package A1-9). A COVERAGE gap, not a defect. OPEN.
+
+**What exists and why it does not count.**
+- The V13 loop-anchored debris cells (`GhostPlayback`, RuntimeTests.cs; the loop-anchor pid is stamped at :23124) position through `V13DebrisRuntimePositioner` (instantiated at :22732-:22974), a test `IGhostPositioner`.
+- H11's phase-6 loop fixture (`rec.LoopAnchorVesselId = 9001u`, :25886) runs under `AnchorPropagator.ResolverOverrideForTesting = stub` (:25893).
+- `RouteLiveAnchor`'s `LoopedRelativeMemberDocksWithLiveAnchor` (IncompleteBallisticRuntimeTests.cs:2222, flown on LT-4) asserts the anchor POSE from `RecordedRelativeAnchorPoseResolver.TryResolveSectionAnchorPose`: the recorded-anchor live bind, not the live-PID contract the cell names.
+
+**What would close it.** A new in-game cell that plays a loop Relative section through the production flight positioner and asserts the placed ghost against the live anchor, with a post-assert line. This is C#, outside the harness-only claim-gap wave.
+
 ## OPTIMIZER-INGAME-CELLS-LEAK-RECORDINGSTORE-SUPPRESSLOGGING: both `Optimizer` in-game cells set `RecordingStore.SuppressLogging = true` and never restore it, so every `RecordingStore.Log` site stays silent for the rest of the KSP process
 
 Filed 2026-09-10 by the claim-gap wave (package A1) while appending `SceneAndPatch` to LT-2. A TEST defect, not a product defect. OPEN.
