@@ -1,0 +1,238 @@
+schema = 1
+id = "GUI-2-census-flight"
+tier = "operator"
+# THE GUI CENSUS, FLIGHT HALF. Its sibling GUI-1-census-ksc walks every window the Space
+# Center draws; this lane covers what only the FLIGHT scene has.
+#
+# WHY IT IS SHORT, and this is a deliberate scope decision rather than an omission.
+# `ParsekFlight.OnGUI` and `ParsekKSC.OnGUI` draw the SAME nine shared windows from the
+# SAME classes over the SAME store, so a second full tab walk in flight would produce
+# nine near-identical images and buy nothing GUI-1 has not already photographed. What
+# genuinely differs in flight is:
+#   - the MAIN window, which gains the flight status box (`DrawFlightStatus`: State,
+#     Recorded Points, Duration, Active Ghosts) and the Real Spawn Control launcher;
+#   - `spawncontrol` (Real Spawn Control) and `gloops` (the Gloops Flight Recorder),
+#     the two windows `ParsekKSC.OnGUI` does not draw at all - asking for either at the
+#     Space Center is a REJECTED (`window-not-in-scene`) by design;
+#   - the chrome one shared window wears over a live scene, sampled once (`missions`).
+# Everything else is GUI-1's job. If a review finds a shared window looks different in
+# flight, widening this lane is one step per capture.
+#
+# `gloops` IS CAPTURED EVEN THOUGH ITS LAUNCHER IS RETIRED. `UiSurface.MainButtonGloops`
+# is hidden in BOTH modes (`UiSurfaceVisibility.IsRetired`), so no player can reach the
+# window any more - but the window BODY is never gated, so it still draws and still has a
+# layout. A GUI review should see it: it is either dead weight to delete or a surface to
+# re-offer, and neither call can be made from a window nobody has looked at.
+#
+# THE SUBJECT, measured off the host's `persistent.sfs` rather than inferred from its
+# situation word, because the situation word is misleading here. `activeVessel = 0` is
+# `R2-B2-S7`, a Probe whose situation reads SUB_ORBITAL - which sounds like a craft on
+# its way down and is not. Its orbit is `SMA = 3621574.94 ECC = 0.81512051
+# MNA = 0.00833046 EPH = 203585.508 REF = 1`: a 6.400 h Kerbin orbit with periapsis
+# 69.55 km and apoapsis 5973.6 km. The situation reads SUB_ORBITAL only because that
+# periapsis sits 0.4 km UNDER Kerbin's 70 km atmosphere line; it is 69.55 km above the
+# ground, so the craft does not impact on this orbit at all. And it is not near periapsis
+# either: the element epoch is 1851092 s (80.33 orbits) before the save's
+# `UT = 2054677.56`, so at load KSP propagates it to a mean anomaly of 119.9 deg -
+# 5469.8 km up, true anomaly 168.9 deg, ASCENDING, 1.07 h from apoapsis and over five
+# hours from the next periapsis pass. The census has hours of margin at 1x and this lane
+# does not warp, jump or otherwise touch the clock: it takes pictures.
+#
+# THE ONE THING THE FIRST FLIGHT MUST BE READ FOR is a WINDOW, not the clock: see the
+# Real Spawn Control step below, which self-closes when nothing is in range.
+#
+# `op=open window=main` FIRST IS A PRECONDITION, not just the natural order. The settle
+# for a non-`main` `open` / `rect` REFUSES while the host's `showUI` is false
+# (`ERROR window-host-hidden`), because the frame that advanced the count never drew this
+# window and the read-back would only be reading the write back. This lane already opens
+# `main` as its first UiAction step and leaves it open, so the gate never fires here.
+#
+# HOST + ANALYZER MODE + STAGING: identical to GUI-1's, whose header carries the full
+# argument. In one line each: an OPERATOR-LOCAL fixture because a census photographs
+# LAYOUT and only a long-lived career has rows in every window; the analyzer row declared
+# REPORT-ONLY (`[expectations.analyzer] gating = false`, at the bottom) because the
+# offline analyzer over that host measures `FAIL=25 RED=1` on recordings months older
+# than this lane (U1-GUI-CENSUS-LOCAL-HOST-REDS-THE-ANALYZER) - and NOT quarantined with
+# `[expectedFail]`, which would short-circuit the verifier chain and skip the very log
+# contracts below; staged with
+#
+#   python harness/tools/stage_local_fixture.py \
+#       --from "../Kerbal Space Program/saves/c1" --as c1-gui --no-quicksaves
+#
+# NOTE THE ABSENT `scene=` ARG. That is the whole difference in the boot: the host's
+# `activeVessel` is focusable, so LoadGame's DEFAULT route
+# (`TestCommandLoadGame.DecideLoadRoute` -> Focusable) boots straight into FLIGHT. GUI-1
+# has to pass `scene = "spacecenter"` to get the other one.
+#
+# NEVER FLOWN. Same pinning discipline as GUI-1: the log contract names only this lane's
+# own seam lines, because a local fixture is unreproducible by construction.
+description = "GUI census, flight half: capture the flight-only Parsek windows and the flight form of the main window, in Advanced and Basic, for a layout review."
+instanceProfile = "stock-minimal"
+tags = ["gui-census", "screenshots", "ui", "operator-local-fixture", "GUI-2"]
+
+[fixture]
+saveTemplate = "fixtures/local-saves/c1-gui"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  # No `scene=`: the focusable activeVessel takes the default FLIGHT route.
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  # BELT AND BRACES, and inert on THIS host - kept because the comment can be true rather
+  # than because the step does work. Auto-record-on-launch fires only on a
+  # PRELAUNCH -> flying transition, a settled-LANDED lift-off, or first staging while on
+  # the pad (ParsekFlight.EvaluateAutoRecordLaunchDecision /
+  # EvaluateAutoRecordStagingDecision); this host's activeVessel is already SUB_ORBITAL, so
+  # no such transition can occur, and the step lands after the flight is live anyway. It
+  # stays so a re-stage onto a LANDED or PRELAUNCH focus - the remedy this header names
+  # elsewhere - does not silently start a recorder on a lane that only takes pictures.
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+
+  # --- Advanced ---
+  { cmd = "UiAction", args = { op = "complexity", mode = "advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "open", window = "main" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "main", x = "8", y = "8", w = "250", h = "700" }, expect = "OK" },
+  # The flight inventory. Worth taking on its own next to GUI-1's: the same describe at
+  # SPACECENTER reports `spawncontrol` and `gloops` as unavailable, so the two payloads
+  # side by side ARE the scene-availability record.
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "flight-main-advanced" }, expect = "OK" },
+
+  # Real Spawn Control - flight-only, AND THIS IS THE ONE STEP THE FIRST FLIGHT MUST BE
+  # READ FOR. The window does NOT open regardless: `SpawnControlUI.DrawIfOpen` force-closes
+  # itself on its FIRST draw whenever `ResolveAutoCloseReason` fires, and one of its three
+  # reasons is ZERO nearby spawn candidates - which is the normal state of a craft with
+  # nothing recorded passing close by, i.e. the likely state of this host's subject. The
+  # `open` op is TWO-PHASE precisely so that shows up: it holds the head for one drawn
+  # frame and answers `ERROR window-self-closed` instead of reporting OK over a capture of
+  # a scene without the window in it. So this step is a real question about the HOST rather
+  # than a formality - if it errors, the lane stops here as driver-INVALID with the cause
+  # named, and the remedy is a re-stage from a save whose focus has a recorded craft in
+  # range, not a spec change. Photographing the window is the whole point of the step; a
+  # census that quietly skipped it would leave the layout unreviewed.
+  { cmd = "UiAction", args = { op = "open", window = "spawncontrol" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "spawncontrol", x = "270", y = "8", w = "900", h = "420" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "flight-spawncontrol-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "spawncontrol" }, expect = "OK" },
+
+  # Gloops Flight Recorder - flight-only AND launcher-retired (see the header).
+  { cmd = "UiAction", args = { op = "open", window = "gloops" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "gloops", x = "270", y = "8", w = "340", h = "300" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "flight-gloops-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "gloops" }, expect = "OK" },
+
+  # One shared window over a live scene, to show the chrome in flight. Its tab walk
+  # belongs to GUI-1. Commanded to `x = 0 w = 1280` - the whole instance width - because
+  # RecordingsTableUI is laid out for 1355 px. The WINDOW does not scroll, so anything
+  # narrower clips its FIXED HEADER ROW (drawn outside the scroll view,
+  # RecordingsTableUI.cs:1647) while the table BODY grows a horizontal bar
+  # (BeginScrollView(pos, false, true, ...) at :1650-1651) - the right-hand columns are
+  # off-screen either way. It is still 75 px short on a 1280x720 profile; that residue is
+  # filed as
+  # GUI-CENSUS-TWO-WINDOWS-EXCEED-THE-INSTANCE-WIDTH, and at this width it also covers the
+  # main window, which is unavoidable (the host's showUI gate keeps main open).
+  { cmd = "UiAction", args = { op = "open", window = "missions" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "missions", x = "0", y = "8", w = "1280", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "missions", tab = "missions" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "flight-missions-missions-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "missions" }, expect = "OK" },
+
+  # --- Basic ---
+  # The main window is the subject here: Basic drops the Real Spawn Control, Kerbals and
+  # Career launchers, so the two main-window captures side by side are the mode diff.
+  { cmd = "UiAction", args = { op = "complexity", mode = "basic" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "flight-main-basic" }, expect = "OK" },
+
+  # Leave the install in Advanced. BELT AND BRACES on a harness run: the mode IS persisted
+  # (ParsekSettingsPersistence), but run.py rewrites the instance's settings sidecar to its
+  # own three-tracer baseline at BOTH stage and teardown (`reset_settings_sidecar`), so
+  # whatever this lane persisted is gone either way. It costs one op and it is the right
+  # thing to do to an install a person also uses.
+  { cmd = "UiAction", args = { op = "complexity", mode = "advanced" }, expect = "OK" },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+D14 = ["career", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.logContracts]
+# This lane's own seam lines only. `scene=FLIGHT` on every describe echo is the
+# load-bearing half: it proves the census really ran in flight rather than in a scene that
+# settled somewhere else, which is exactly the surprise the B10 defect was. The
+# `open=<n> openWindows=<names>` pair is pinned as a literal after every `open`, which is
+# an EXACT claim (a third open window would move the count) and the cheap in-run check
+# that the seam's window token is wired to the window it names - GUI-1's header carries
+# the full argument. `spawncontrol` and `gloops` appear ONLY here, so these two lines are
+# also the record that the two flight-only windows really drew in flight.
+required = [
+  # --- Advanced: main alone, then each flight-only window, then the shared one ---
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=11 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=11 open=2 openWindows=main,spawncontrol",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=11 open=2 openWindows=main,gloops",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=11 open=2 openWindows=main,missions",
+  # --- Basic: the main window alone, which is this pass's whole subject ---
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=basic windows=11 open=1 openWindows=main",
+  # --- and one capture, proving the write-and-settle path end to end ---
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] capturescreenshot ok label=flight-main-advanced",
+]
+# EMPTY for GUI-1's reason exactly: a real career's cold OnLoad ERROR surface is not this
+# lane's subject, and gating on it would red a layout review over career bookkeeping.
+forbidden = []
+
+[expectations.analyzer]
+# THE ANALYZER ROW IS REPORT-ONLY ON THIS LANE, and this is the one spec-level
+# declaration the census needs. MEASURED, not defensive: the offline analyzer over this
+# host reports `FAIL=25 WARN=6 INFO=3 RED=1`, all 25 FAILs `INV2-NO-DOUBLE-COVER`, on
+# recordings that predate this lane by months (run 2026-09-10 with `-ResultsDir` outside
+# the save, so the operator's save was not touched; its own committed
+# `analysis/c1.analysis.txt` from 2026-08-11 reads RED=1 too). A census takes SCREENSHOTS
+# - it neither causes nor observes a recording-invariant finding - so gating a layout
+# review on career bookkeeping would red it forever.
+#
+# WHY NOT `[expectedFail] subkind = "analyzer"`, which is what this lane shipped with
+# first: `run.py`'s verifier chain SHORT-CIRCUITS on a non-PASS analyzer, so a quarantine
+# would leave every LATER row SKIPPED - `[expectations.logContracts]` INCLUDED. A run that
+# produced ZERO screenshots would then read EXPECTED-FAIL, i.e. green, while the header
+# above claimed those contracts pinned the capture lines. Report-only keeps the analyzer
+# RECORDED (status REPORT, with its classified verdict, RED token and counts beside it)
+# and lets the rest of the chain evaluate, so this lane gates on its OWN log contracts
+# instead of on nothing.
+#
+# WHY NOT A FINDINGS BASELINE: `run.py` hard-codes `-FreshSaveGate`, and
+# `analyze-recordings.ps1` REFUSES `-UseBaseline` together with it, so a per-save baseline
+# was never a route from here. Filed as U1-GUI-CENSUS-LOCAL-HOST-REDS-THE-ANALYZER, whose
+# open decision is about the 25 findings themselves and not about this lane.
+#
+# Pinned by `ANALYZER_REPORT_ONLY_ALLOWLIST` in `harness/lib/test_hlib.py`: any OTHER
+# committed spec declaring `gating = false` reds that cell.
+gating = false
+
+[runtime]
+# FIVE captures (flight-main-advanced, flight-spawncontrol-advanced,
+# flight-gloops-advanced, flight-missions-missions-advanced, flight-main-basic) and about
+# twenty UI ops on top of a 300 s cold load. Tighter than GUI-1's 1200 s simply because
+# the lane is a quarter of the size - NOT because the clock is a hazard here: the subject
+# is on a 6.4 h eccentric orbit whose periapsis is 69.55 km above the ground, ascending,
+# hours from anything (see the header). 900 s is generous for what it does, and a lane
+# that somehow overruns it should be KILLED and read rather than left running.
+budgetSeconds = 900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+# EMPTY, like every other committed spec. The analyzer quarantine this lane shipped with
+# is GONE, replaced by `[expectations.analyzer] gating = false` above - see that block for
+# why a quarantine was the wrong instrument: it short-circuited the whole verifier chain,
+# log contracts included.
+bugId = ""

@@ -33,6 +33,21 @@ namespace Parsek
 
         private bool showWindow;
         private Rect windowRect;
+        /// <summary>
+        /// The live window rect, readable and writable from outside the draw pass.
+        /// <para>Two consumers: an in-game test that needs the measured rect, and the
+        /// automation-only <c>UiAction op=rect</c> seam op, which places and enlarges a
+        /// window so one capture shows more rows than the default size fits. Writing it is
+        /// safe before the first draw as well as after: <c>DrawIfOpen</c> only seeds its
+        /// default when <c>width &lt; 1</c>, so a commanded rect suppresses the seed rather
+        /// than being overwritten by it.</para>
+        /// </summary>
+        internal Rect WindowRectForTesting
+        {
+            get { return windowRect; }
+            set { windowRect = value; }
+        }
+
         // Persist the window rect (position + size) across scene changes. ParsekUI
         // and all its sub-windows are re-instantiated per scene (the two ParsekUI
         // constructors each do `new LogisticsWindowUI(this)`), so an instance-only

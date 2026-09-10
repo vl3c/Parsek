@@ -503,6 +503,86 @@ namespace Parsek.Tests
             Assert.Equal(expected, SettingsWindowUI.IsModeOptionDisabled(mode, gloopsRecording));
         }
 
+        // ------------------------------------------------------------------
+        // The persisted-mode re-queue (the UiAction op=complexity third step)
+        // ------------------------------------------------------------------
+
+        // applied / persisted / requeue expected. The ONLY true case is a DRIFT, and the
+        // queued value is always the persisted one - which is the helper's whole safety
+        // property: it cannot apply a mode the save does not carry, so it cannot route
+        // around ShouldRefuseModeChange.
+        [Theory]
+        [InlineData(false, false, false)]  // Advanced latch, Advanced setting: nothing to do
+        [InlineData(true, true, false)]    // Basic latch, Basic setting: likewise
+        [InlineData(false, true, true)]    // fail-open Advanced latch over a Basic save
+        [InlineData(true, false, true)]    // the mirror drift
+        public void RequeueDecisionFiresOnlyOnDriftAndQueuesThePersistedValue(
+            bool appliedIsBasic, bool persistedIsBasic, bool expected)
+        {
+            UiComplexityMode applied = appliedIsBasic ? UiComplexityMode.Basic : UiComplexityMode.Advanced;
+            UiComplexityMode persisted = persistedIsBasic ? UiComplexityMode.Basic : UiComplexityMode.Advanced;
+
+            bool requeue = ParsekUI.TryDecidePersistedUiComplexityRequeue(
+                applied, persisted, out UiComplexityMode queue);
+
+            Assert.Equal(expected, requeue);
+            // Asserted in BOTH directions on purpose: the out value is the persisted mode
+            // even when nothing is queued, so a caller that ignored the bool could still
+            // only ever queue what the settings object holds.
+            Assert.Equal(persisted, queue);
+        }
+
+        /// <summary>
+        /// The live wrapper over that decision, which is what the seam calls. Drives the
+        /// motivating state: a save that persisted Basic under the fail-open Advanced latch
+        /// (a `ParsekUI` constructed before `ParsekSettings.Current` existed).
+        /// `SetUiComplexityMode` NO-OPS there - the request already equals the setting - so
+        /// without this re-queue the latch could never be corrected by asking for the mode
+        /// the save already carries.
+        /// </summary>
+        [Fact]
+        public void RequeueCorrectsADriftedLatchAndLogsTheTransition()
+        {
+            ParsekSettings.CurrentOverrideForTesting =
+                new ParsekSettings { uiComplexityMode = (int)UiComplexityMode.Basic };
+            // The latch is the reset default (Advanced), i.e. the drift.
+            Assert.Equal(UiComplexityMode.Advanced, ParsekUI.AppliedUiComplexityMode);
+            Assert.Equal(UiComplexityMode.Basic, ParsekUI.PersistedUiComplexityMode);
+
+            Assert.True(ParsekUI.TryRequeuePersistedUiComplexityMode());
+
+            Assert.Equal(UiComplexityMode.Basic, ParsekUI.PendingUiComplexityModeForTesting);
+            Assert.Contains(logLines, l =>
+                l.Contains("[UI]") && l.Contains("Persisted UI mode re-queued for the latch")
+                && l.Contains("Advanced->Basic"));
+        }
+
+        [Fact]
+        public void RequeueQueuesNothingWhenTheLatchAndTheSettingAgree()
+        {
+            ParsekSettings.CurrentOverrideForTesting =
+                new ParsekSettings { uiComplexityMode = (int)UiComplexityMode.Advanced };
+
+            Assert.False(ParsekUI.TryRequeuePersistedUiComplexityMode());
+
+            Assert.Null(ParsekUI.PendingUiComplexityModeForTesting);
+            Assert.DoesNotContain(logLines, l => l.Contains("Persisted UI mode re-queued"));
+        }
+
+        [Fact]
+        public void RequeueIsANoOpWithNoSettingsObject()
+        {
+            // No ParsekSettings at all (the pre-`ParsekSettings.Current` window this helper
+            // exists for). PersistedUiComplexityMode fails OPEN to Advanced, exactly as the
+            // latch seed does, and the re-queue writes nothing rather than queueing that
+            // fail-open value as if the save carried it.
+            ParsekSettings.CurrentOverrideForTesting = null;
+
+            Assert.Equal(UiComplexityMode.Advanced, ParsekUI.PersistedUiComplexityMode);
+            Assert.False(ParsekUI.TryRequeuePersistedUiComplexityMode());
+            Assert.Null(ParsekUI.PendingUiComplexityModeForTesting);
+        }
+
         [Fact]
         public void InterfaceHintCarriesTheGloopsReasonOnlyWhileRecording()
         {
