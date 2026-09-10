@@ -208,6 +208,14 @@ namespace Parsek
         internal static string LastDisarmReason { get; private set; }
 
         /// <summary>
+        /// The <see cref="Disarm"/> reason for an arm that THREW after
+        /// <c>GuiTreeRecorderPatches.Apply()</c> had run. One constant so the recorder's
+        /// own guard and the seam verb's catch (<c>ParsekTestCommandAddon.DumpGuiTree</c>)
+        /// cannot drift into two spellings of the same event in KSP.log.
+        /// </summary>
+        internal const string ArmThrewDisarmReason = "arm-threw";
+
+        /// <summary>
         /// Patch-body exceptions counted SINCE THE LAST ARM. Cleared by
         /// <see cref="ResetBuffers"/> on every arm, which is what makes it a statement
         /// about THIS capture - unlike <see cref="LastRecordFaults"/>, which is the last
@@ -338,26 +346,50 @@ namespace Parsek
             LastWrittenPath = null;
             LastTree = null;
 
-            Patches.GuiTreeRecorderPatches.Apply();
-            unpatchPending = false;
-            int patched = 0;
-            for (int i = 0; i < GuiTreeFunnels.Count; i++)
+            // EVERY PATH OUT OF THE REGION BELOW MUST END ARMED OR UNPATCHED, and this
+            // try/catch is what makes that true. Once Apply() has run the interceptions
+            // are installed (possibly only some of them - it catches per funnel and
+            // reports `failed=`), and the only two things that ever take them off are the
+            // flush of a capture and Disarm's RequestUnpatch. Neither can be reached
+            // without ArmedFlag: the pump's give-up branch runs only while armed, and its
+            // deferred-unpatch branch only while unpatchPending, which the line below
+            // clears. So a throw anywhere between Apply() and `ArmedFlag = true` - out of
+            // Apply's own tail after it set Applied, or out of the funnel readback - would
+            // leave 17 detours installed with the pump idle for the rest of the session.
+            // The exception is RETHROWN: the caller decides the verdict (the seam verb
+            // reports gui-tree-faulted), this method only guarantees the cleanup.
+            try
             {
-                GuiTreeFunnels.PatchedAtArm[i] = GuiTreeFunnels.IsPatched((GuiFunnel)i);
-                if (GuiTreeFunnels.PatchedAtArm[i])
-                    patched++;
-            }
+                Patches.GuiTreeRecorderPatches.Apply();
+                unpatchPending = false;
+                int patched = 0;
+                for (int i = 0; i < GuiTreeFunnels.Count; i++)
+                {
+                    GuiTreeFunnels.PatchedAtArm[i] = GuiTreeFunnels.IsPatched((GuiFunnel)i);
+                    if (GuiTreeFunnels.PatchedAtArm[i])
+                        patched++;
+                }
 
-            ArmedFlag = true;
-            armFrame = ReadFrameCount();
-            ParsekLog.Info("GuiTree", "armed label=" + safe
-                // The predicate the arm guard actually used: 0 is "outside OnGUI, from
-                // GUIUtility.guiDepth", -1 is "probe unavailable, fell back to outside".
-                + " guiDepth=" + depthAtArm.ToString(CultureInfo.InvariantCulture)
-                + " patchedFunnels=" + patched.ToString(CultureInfo.InvariantCulture)
-                + "/" + GuiTreeFunnels.Count.ToString(CultureInfo.InvariantCulture)
-                + " path=" + pendingPath);
-            return pendingPath;
+                ArmedFlag = true;
+                armFrame = ReadFrameCount();
+                ParsekLog.Info("GuiTree", "armed label=" + safe
+                    // The predicate the arm guard actually used: 0 is "outside OnGUI, from
+                    // GUIUtility.guiDepth", -1 is "probe unavailable, fell back to outside".
+                    + " guiDepth=" + depthAtArm.ToString(CultureInfo.InvariantCulture)
+                    + " patchedFunnels=" + patched.ToString(CultureInfo.InvariantCulture)
+                    + "/" + GuiTreeFunnels.Count.ToString(CultureInfo.InvariantCulture)
+                    + " path=" + pendingPath);
+                return pendingPath;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Error("GuiTree", "arm threw after applying the interceptions label="
+                    + safe + ": " + ex.GetType().Name + ": " + ex.Message
+                    + "; disarming so they come off rather than leaving them installed "
+                    + "with nothing left to remove them");
+                Disarm(ArmThrewDisarmReason);
+                throw;
+            }
         }
 
         /// <summary>Disarms without writing anything. Safe to call at any time.</summary>

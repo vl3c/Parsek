@@ -445,6 +445,75 @@ namespace Parsek.Tests
     }
 
     /// <summary>
+    /// The OTHER way an arm can leave the interceptions installed with nothing left to
+    /// remove them: it THROWS after <c>GuiTreeRecorderPatches.Apply()</c> has run.
+    ///
+    /// <para>The give-up above cannot help there, because it runs only while
+    /// <c>ArmedFlag</c> is set and the throw window is precisely the region between
+    /// <c>Apply()</c> and that assignment - Apply's own tail after it set
+    /// <c>Applied</c>, and the funnel readback loop. The recorder therefore disarms
+    /// itself on that path (<c>ArmForNextRepaint</c>'s catch, which rethrows), which
+    /// covers BOTH callers, and the seam verb repeats the call at its own exit. These
+    /// cells pin the state the disarm has to reach and the one reason token both sites
+    /// use.</para>
+    /// </summary>
+    [Collection("Sequential")]
+    public class GuiTreeArmThrewDisarmTests : IDisposable
+    {
+        public GuiTreeArmThrewDisarmTests()
+        {
+            GuiTreeRecorder.ResetForTesting();
+        }
+
+        public void Dispose()
+        {
+            GuiTreeRecorder.ResetForTesting();
+        }
+
+        [Fact]
+        public void DisarmingAThrownArmLeavesNothingForThePumpToOwn()
+        {
+            // The state a throw after Apply() leaves behind, in the harder of its two
+            // shapes: the flag already raised, so the recorder counts as having work.
+            GuiTreeRecorder.ArmedFlag = true;
+            Assert.True(GuiTreeRecorder.HasPendingWork);
+
+            GuiTreeRecorder.Disarm(GuiTreeRecorder.ArmThrewDisarmReason);
+
+            Assert.False(GuiTreeRecorder.ArmedFlag);
+            Assert.False(GuiTreeRecorder.HasPendingWork);
+            Assert.Equal(GuiTreeRecorder.ArmThrewDisarmReason,
+                GuiTreeRecorder.LastDisarmReason);
+        }
+
+        [Fact]
+        public void TheSeamsRepeatOfTheDisarmIsANoOp()
+        {
+            // The recorder disarms itself and rethrows; the seam's catch then disarms
+            // again. That second call must be inert, which is what lets both sites keep
+            // the guarantee without either having to know the other ran.
+            GuiTreeRecorder.ArmedFlag = true;
+            GuiTreeRecorder.Disarm(GuiTreeRecorder.ArmThrewDisarmReason);
+            GuiTreeRecorder.Disarm(GuiTreeRecorder.ArmThrewDisarmReason);
+
+            Assert.False(GuiTreeRecorder.ArmedFlag);
+            Assert.False(GuiTreeRecorder.HasPendingWork);
+            Assert.Equal(GuiTreeRecorder.ArmThrewDisarmReason,
+                GuiTreeRecorder.LastDisarmReason);
+        }
+
+        [Fact]
+        public void TheReasonTokenIsOneGrepStableSpelling()
+        {
+            // KSP.log is the instrument here, and the recorder's Error line and the seam's
+            // own Error line are read together. Two spellings of one event would split a
+            // search that has to find both.
+            Assert.Equal("arm-threw", GuiTreeRecorder.ArmThrewDisarmReason);
+            Assert.NotEqual("armed-no-repaint", GuiTreeRecorder.ArmThrewDisarmReason);
+        }
+    }
+
+    /// <summary>
     /// The applier's two decisions. Both directions ARE the defect: Harmony 2.2.1's
     /// <c>PatchInfo.Add</c> does not deduplicate, so a funnel patched twice records every
     /// control twice, and a <c>Remove()</c> whose <c>UnpatchAll</c> threw must NOT report

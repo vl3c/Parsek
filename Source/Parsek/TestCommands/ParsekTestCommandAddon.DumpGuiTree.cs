@@ -73,6 +73,16 @@ namespace Parsek.TestCommands
                 // gui-tree-faulted names, and the exception type is on the Error line.
                 ParsekLog.Error(Tag, $"dumpguitree arm threw label={label}: "
                     + $"{ex.GetType().Name}: {ex.Message}");
+                // THE CONSTRAINT: a thrown arm may have left interceptions installed, and
+                // nothing else would ever take them off - the recorder's own pump gives an
+                // arm up only while ArmedFlag is set, and a throw before that assignment
+                // leaves the flag false with the patches on for the rest of the session.
+                // The recorder disarms itself on that path (ArmForNextRepaint's own catch),
+                // so this call is the belt to that braces and is idempotent by
+                // construction: Disarm on an already-disarmed recorder clears nothing and
+                // logs nothing. It stays because this is the seam's ONLY exit for a
+                // throwing arm and the guarantee must not depend on the callee's internals.
+                GuiTreeRecorder.Disarm(GuiTreeRecorder.ArmThrewDisarmReason);
                 SetExecResult("ERROR", null, TestCommandDumpGuiTree.FaultedReason);
                 return;
             }

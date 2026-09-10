@@ -197,6 +197,16 @@ decompiled module rather than by flying:
   ever unpatched. The arm now stamps the frame, the pump keeps running while armed, and
   after `ArmTimeoutFrames` it Warns and `Disarm("armed-no-repaint")`s
   (`ClassifyArmTimeout`).
+- **A THROWING ARM leaked them the same way** (found 2026-09-11, in review of the seam
+  verb). The give-up above only runs while `ArmedFlag` is set, and the window it cannot
+  see is the region between `GuiTreeRecorderPatches.Apply()` and `ArmedFlag = true` -
+  `Apply`'s own tail after it has set `Applied`, and the funnel readback loop. A throw
+  there left 17 detours installed with the pump idle for the session, and the seam's
+  `DumpGuiTree` catch reported `gui-tree-faulted` over it without disarming.
+  `ArmForNextRepaint` now wraps that whole region and its `catch` logs one Error, calls
+  `Disarm("arm-threw")` and RETHROWS, so the cleanup covers BOTH callers (the in-game
+  cell already had a `finally` of its own) while the verdict stays the caller's; the seam
+  repeats the disarm at its own exit, where it is inert.
 - **A throwing unpatch could double every patch.** `Remove()` cleared `Applied` BEFORE
   `UnpatchAll`, whose throw is caught - so detours stayed installed while the flag said
   none were, and Harmony 2.2.1's `PatchInfo.Add` does not deduplicate. `Applied` is now

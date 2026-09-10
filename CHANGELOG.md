@@ -71,6 +71,10 @@ _(unreleased — entries accumulate here per commit)_
   - a request for a capture that never got its chance - nothing was drawing, or the window
     had gone away in the meantime - used to leave the listening switched on for the rest
     of the session. It now gives up by itself after a while and switches everything off.
+  - a request that fell over WHILE switching the listening on left it switched on the same
+    way, and out of reach of that giving-up: the part that gives up only watches requests
+    that got as far as being armed. Switching it on is now guarded from end to end, so a
+    failure there switches it all back off before reporting itself.
   - if switching the listening off ever failed halfway, the next capture would have
     written every row down twice. It now sees what is still switched on and adds only what
     is missing.

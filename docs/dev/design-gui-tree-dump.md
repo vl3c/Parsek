@@ -50,7 +50,9 @@ for the life of the process - cannot discover them. Instead:
   `GuiTreeFunnels.PatchedAtArm`. That array - not a flush-time reading, which would report
   `false` for everything - is what the JSON's `funnels` block reports as `patched`.
 - `FlushCapture` ends with `UnpatchAll("com.parsek.guitree")`; so do `Disarm` and
-  `Fault`.
+  `Fault`. Those three are the ONLY removers, and two of them are reachable only from an
+  armed or capturing recorder - which is why the arm's own throw path has to call `Disarm`
+  itself (below).
 
 **Why this matters.** A Harmony detour on `GUI.DoLabel` is paid by every IMGUI consumer
 in the process - KSP's own debug UI, MechJeb, KER, ClickThroughBlocker - on every control
@@ -296,6 +298,15 @@ That pair is self-healing in both directions, which matters because `DoButton` a
   an unreadable reading disables the feature. The budget is deliberately clear of the live
   cell's own 300-frame wait after arming, so a give-up cannot fire inside a wait a caller
   is legitimately performing.
+- **An arm that THROWS after `Apply()` disarms itself.** The give-up above cannot reach
+  that case: it runs only while `ArmedFlag` is set, and the throw window is exactly the
+  region between `Apply()` and `ArmedFlag = true` (Apply's own tail after it has set
+  `Applied`, and the funnel readback). A throw there would leave 17 detours installed with
+  the pump idle for the rest of the session - the same permanent cost, reached a different
+  way. `ArmForNextRepaint` therefore wraps that whole region in a `try` whose `catch` logs
+  one Error, calls `Disarm("arm-threw")` and RETHROWS: the cleanup is the recorder's
+  guarantee to BOTH callers, while the verdict stays the caller's (the seam verb reports
+  `gui-tree-faulted`, and repeats the disarm at its own exit, where it is a no-op).
 - `GuiTreeRecorderPump` (a `[KSPAddon(EveryScene)]` MonoBehaviour with no `OnGUI`) calls
   `PumpPendingFlush()` from `LateUpdate`. Unity runs `LateUpdate` before the frame's
   `OnGUI` and therefore after the PREVIOUS frame's, which is where a completed capture
