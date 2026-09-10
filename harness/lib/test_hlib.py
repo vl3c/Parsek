@@ -11959,7 +11959,11 @@ class IngameCategoryInventoryDocTests(unittest.TestCase):
         # probe window it draws itself and asserts the captured control tree. Its own
         # category for the standing reason - a cell added to an existing category moves
         # a `BATCH_COMPLETE` tally committed specs pin - and it is the first row to
-        # re-open the driven axis since it closed on 2026-09-08, at 112 of 113.
+        # re-open the driven axis since it closed on 2026-09-08, at 112 of 113. That
+        # gap lasted a day: `GUI-1-census-ksc` claimed the row on 2026-09-11 with one
+        # `RunTests category="GuiTree"` step, so the DRIVEN axis is whole again (by spec
+        # coverage - that lane has never flown). Neither number in the assertion below
+        # moves either way: this cell counts declarations, not lanes.
         self.assertIn("**113 categories / %d declarations**" % stated_decls, body,
                       "the triage totals line disagrees with the table it summarises "
                       "(table sums to %d declarations across %d categories)"
