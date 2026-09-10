@@ -10,10 +10,11 @@ id = "S0.12-switch-noop-discard"
 # only the DEFERRED shape (`disposition=BgMemberOrMixed is deferred`, report-only
 # there).
 #
-# AUTHORED 2026-09-10 (`ghost-replay-tier-b`), NEVER FLOWN. READING SHAPE: every token
-# is INTERIM (re-cut from the reading bytes), and NOTHING is claimed in
-# [dimensionsCovered] (the D1 claim enters only after the confirm run and the negative
-# control).
+# AUTHORED 2026-09-10 (`ghost-replay-tier-b`) and READ the same day: reading run
+# `2026-09-10_1942` flew PASS attempt 1 and classified OUTCOME (P1), the Standalone
+# no-op discard (the STATUS block below). Every token is RE-CUT to the measured line.
+# NOTHING is claimed in [dimensionsCovered] yet: the D1 claim enters after the confirm
+# re-flight and the negative control.
 #
 # =====================================================================================
 # THE CODE FACTS THIS SPEC RESTS ON - read, not assumed.
@@ -75,24 +76,38 @@ id = "S0.12-switch-noop-discard"
 #   (P5) recordings.count > 0 WITH the claim token present: the discard ran but a
 #        sidecar survived `reapSidecars: true` - an orphaned-sidecar FINDING.
 #
-# WHAT THE READING MUST MEASURE (and the confirm commit re-cuts from bytes): the gate
-# line verbatim with `hasActiveRecording=false`; the route line's `createdFreshTree`;
-# the classifier line verbatim; the claim token; the teardown line; any `Committed
-# tree '` line (count 0 expected); the produced save's `.prec` count; and the segment
-# recorder's `Recording started` shape.
+# STATUS - READING RUN `2026-09-10_1942` (wave DLL, PASS attempt 1, 50 s wall), OUTCOME
+# (P1). Every INTERIM token matched and each is re-cut below to its measured line:
+#   - the gate read `hasActiveRecording=false hasActiveSession=false
+#     priorFocusedPid=0 ... dialogDecision=NoPriorSession`, and the route read
+#     `route=standalone ... sourcePid=0 ... fallthroughReason=<none>
+#     createdFreshTree=True`: a FRESH tree, the Standalone premise (fact 2) held;
+#   - the segment recorder started `on rails` on an orbit segment (fact 3 held), and
+#     2.8 s after the click the classifier read `disposition=Standalone
+#     subtreeCount=1 hasDescendants=False noOp=True reason=no-op`. The claim token and
+#     the `AutoDiscardActiveTreeCore` teardown followed within 1 ms, and
+#     `exittospacecenter complete` landed 1.7 s after the exit began (fact 4 held);
+#   - 0 `Committed tree '`, 0 `[Parsek][ERROR]`, 0 of the deferred line; the produced
+#     save's `Parsek/Recordings` directory was EMPTY (recordings.count 0), and
+#     logValidate PASSed with REC-001/003 suppressed (fact 6).
 #
-# THE NEGATIVE CONTROL (stage 2, after the confirm run - NOT here): S0.8's
-# `StartRecording` inserted before the click. The segment then joins the live tree, the
-# disposition is BgMemberOrMixed, `TryAutoDiscardNoOpSwitchSegment: no-op detected but
-# disposition=BgMemberOrMixed is deferred` is the MIRROR-DIRECTION measurement (only
-# GS-3's collected log carries it today), and the run must red naming the missing
-# `(Standalone)` claim token - a red that is ONLY the REC-rule flip the insertion also
-# causes does not discharge the control.
+# THE CONTROLS (stage 2 - flown on uncommitted edits, never committed):
+#   - THE NEGATIVE CONTROL (the counting one, one mismatch): the claim token's
+#     disposition word inverted to one this run never prints; it must red
+#     PARSEK-FAIL(expectation) on exactly that token, with the original matching >= 1
+#     line in the control's own log and the inverted one 0.
+#   - THE MIRROR MEASUREMENT: S0.8's `StartRecording` in place of the
+#     autoRecordOnLaunch setting. The segment then joins the live tree, the disposition
+#     is BgMemberOrMixed, and `TryAutoDiscardNoOpSwitchSegment: no-op detected but
+#     disposition=BgMemberOrMixed is deferred` is the mirror-direction line (only
+#     GS-3's collected log carries it today). The run must red naming the missing
+#     `(Standalone)` claim token. A red that is ONLY the REC-rule flip the insertion
+#     also causes does not discharge it.
 # =====================================================================================
 tier = "operator"
-description = "The no-op switch-segment auto-discard end to end (D1 switch-segment-noop-discard, roadmap Tier D item 13): S0.8's map-site Switch-To click onto the co-orbiting loaded probe core WITHOUT a live recording, so the standalone consume builds a FRESH tree holding only the segment (disposition Standalone); a short dwell in which nothing happens; then ExitToSpaceCenter, whose scene-exit prefix (step 3.5) must classify the segment no-op and discard the whole throwaway tree before any commit routing. READING SHAPE: never flown, every token INTERIM, five outcomes pre-registered in the header, no dimension claims."
+description = "The no-op switch-segment auto-discard end to end (D1 switch-segment-noop-discard, roadmap Tier D item 13): S0.8's map-site Switch-To click onto the co-orbiting loaded probe core WITHOUT a live recording, so the standalone consume builds a FRESH tree holding only the segment (disposition Standalone); a short dwell in which nothing happens; then ExitToSpaceCenter, whose scene-exit prefix (step 3.5) must classify the segment no-op and discard the whole throwaway tree before any commit routing. READ 2026-09-10 (`2026-09-10_1942`, PASS attempt 1, outcome P1) and every token re-cut to its measured line; the confirm re-flight and the negative control are pending, and no dimension is claimed until both."
 instanceProfile = "stock-minimal"
-tags = ["switch-segment", "stock-click", "S0.12", "noop-discard", "D1", "pending-flight"]
+tags = ["switch-segment", "stock-click", "S0.12", "noop-discard", "D1"]
 
 [fixture]
 # eva2-lko-crewed, S0.8's fixture verbatim: TWO LOADED, ORBITING vessels ~16.4 m apart
@@ -152,31 +167,37 @@ allowedAnomalies = []
 count = { min = 0, max = 0 }
 
 [expectations.logContracts]
-# [INTERIM] throughout - never flown. Ordered as the mechanism runs: verb gate ->
-# marker armed -> consume opens the segment in a FRESH tree -> marker consumed -> verb
-# terminal -> scene exit -> classifier -> discard -> teardown -> exit terminal.
+# [MEASURED] throughout - re-cut 2026-09-10 from the reading run `2026-09-10_1942`,
+# each the whole measured line with ONLY the per-run values regexed (the intent /
+# session / tree / segment GUIDs, the captured UT and the exit's elapsed time); the
+# target pid and name are baked into the fixture and stay literal. Ordered as the
+# mechanism runs: verb gate -> marker armed -> consume opens the segment in a FRESH
+# tree -> marker consumed -> verb terminal -> scene exit -> classifier -> discard ->
+# teardown -> exit terminal.
 #
-# Tokens 1-6 are S0.8's MEASURED lines (`2026-07-30_1841`) with the two values this
-# lane moves: the gate's `hasActiveRecording=false` (regexed around the unmeasured
-# rest of the input set) and the route line's `createdFreshTree=True` (C# bool
-# rendering, the Info-level witness of the variable the negative control flips).
-# Token 7 is the classifier line GS-3 MEASURED with `disposition=BgMemberOrMixed`
-# (`2026-08-05_1448`, line 11723), here with Standalone. Token 8 is THE CLAIM TOKEN
-# (SceneExitInterceptor, Info). Token 9 is the teardown
-# (`ParsekFlight.AutoDiscardActiveTreeCore` via `AutoDiscardNoOpStandaloneSwitchSegment`,
-# whose reason string is the interceptor's `scene-exit no-op switch-segment
-# auto-discard dest=SPACECENTER`). Token 10 is the verb terminal (GS-3 measured shape).
+# Token 1 is the gate with its WHOLE input set (the no-live-recording state S0.8 never
+# measured). Token 4 carries `createdFreshTree=True`, the Info-level witness of the
+# variable the mirror measurement flips. Token 7 is the classifier (Verbose, which is
+# why verboseLogging is mandatory). Token 8 is THE CLAIM TOKEN (SceneExitInterceptor,
+# Info). Token 9 is the teardown (`ParsekFlight.AutoDiscardActiveTreeCore` via
+# `AutoDiscardNoOpStandaloneSwitchSegment`, whose reason string is the interceptor's
+# `scene-exit no-op switch-segment auto-discard dest=SPACECENTER`). Token 10 is the verb
+# terminal. Token 11 ties the chain by BACKREFERENCE: the session and segment the
+# click's `created` line opened are the SAME ones the route line names and the
+# classifier judged Standalone no-op, so the classifier cannot be reading some other
+# segment.
 required  = [
-  "switchclick gate targetPid=2614652043 targetName=Kerbal X Probe .*hasActiveRecording=false hasActiveSession=false .*dialogDecision=NoPriorSession",
-  "switchclick armed intent: intentId=.* action=MapSwitchTo targetPid=2614652043 sourceScene=Flight .* ttl=2s route=plain-arm-and-switch",
-  "\\[SwitchSegment\\] created intentId=.* parentRecId=<standalone> .*focusedPid=2614652043 focusedName='Kerbal X Probe' reason=MapSwitchTo",
-  "\\[SwitchSegment\\] route=standalone intentId=.* focusedPid=2614652043 fallthroughReason=<none> createdFreshTree=True",
-  "\\[SwitchIntent\\] cleared: intentId=.* targetPid=2614652043 reason=consumed-into-segment",
-  "switchclick complete site=map targetPid=2614652043 targetName=Kerbal X Probe .* activeVesselPid=2614652043 switched=true",
-  "TryClassifyActiveSwitchSegmentNoOp: sessionId=\\S+ segId=\\S+ disposition=Standalone subtreeCount=1 hasDescendants=False noOp=True reason=no-op",
+  "switchclick gate targetPid=2614652043 targetName=Kerbal X Probe scenarioReady=true canSwitchVesselsFar=true targetIsActiveVessel=false targetIsUnloaded=false hasActiveRecording=false hasActiveSession=false priorFocusedPid=0 anotherDialogOpen=false targetIsSeparateCommittedVessel=false dialogDecision=NoPriorSession",
+  "switchclick armed intent: intentId=[0-9a-f-]{36} action=MapSwitchTo targetPid=2614652043 sourceScene=Flight capturedUT=[0-9.]+ ttl=2s route=plain-arm-and-switch",
+  "\\[SwitchSegment\\] created intentId=[0-9a-f-]{36} sessionId=[0-9a-f-]{36} treeId=[0-9a-f-]{36} parentRecId=<standalone> segmentRecId=[0-9a-f-]{36} branchPointId=<none> sourcePid=0 focusedPid=2614652043 focusedName='Kerbal X Probe' reason=MapSwitchTo ut=[0-9.]+",
+  "\\[SwitchSegment\\] route=standalone intentId=[0-9a-f-]{36} sessionId=[0-9a-f-]{36} treeId=[0-9a-f-]{36} segmentRecId=[0-9a-f-]{36} sourcePid=0 focusedPid=2614652043 fallthroughReason=<none> createdFreshTree=True",
+  "\\[SwitchIntent\\] cleared: intentId=[0-9a-f-]{36} action=MapSwitchTo targetPid=2614652043 reason=consumed-into-segment",
+  "switchclick complete site=map targetPid=2614652043 targetName=Kerbal X Probe intentId=[0-9a-f-]{36} route=plain-arm-and-switch activeVesselPid=2614652043 switched=true",
+  "TryClassifyActiveSwitchSegmentNoOp: sessionId=[0-9a-f-]{36} segId=[0-9a-f-]{36} disposition=Standalone subtreeCount=1 hasDescendants=False noOp=True reason=no-op",
   "TryAutoDiscardNoOpSwitchSegment: no-op switch segment \\(Standalone\\) detected dest=SPACECENTER - discarding without commit",
   "AutoDiscardActiveTreeCore: discarding live tree reason='scene-exit no-op switch-segment auto-discard dest=SPACECENTER' ledgerRecalcReason='noop-switch-segment-discard'",
-  "exittospacecenter complete scene=SPACECENTER game-loaded=true",
+  "exittospacecenter complete scene=SPACECENTER game-loaded=true elapsed=[0-9.]+s",
+  "\\[SwitchSegment\\] created [^\\n]*sessionId=([0-9a-f-]{36}) [^\\n]*segmentRecId=([0-9a-f-]{36}) [\\s\\S]*?\\[SwitchSegment\\] route=standalone [^\\n]*sessionId=\\1 [^\\n]*segmentRecId=\\2 [\\s\\S]*?TryClassifyActiveSwitchSegmentNoOp: sessionId=\\1 segId=\\2 disposition=Standalone subtreeCount=1 hasDescendants=False noOp=True reason=no-op",
 ]
 # The suite-wide ERROR pattern; the DEFERRED shape (P3 / the negative control's
 # mirror line); and any commit at all - the discard must pre-empt commit routing.
