@@ -1073,7 +1073,11 @@ class SpecValidationRejectTests(unittest.TestCase):
         # the other half of the arithmetic signature: an addition of N verbs moves one
         # number by N, a promotion of N moves both by N in opposite directions, and a
         # half-done promotion moves the first without the second.
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 35)
+        # 36 / 5 after DumpGuiTree, an ADDITION again and the first number moving
+        # alone by ONE: the reserved envelope never carried a UI-introspection verb,
+        # and it is not a second spelling of CaptureScreenshot - one produces pixels
+        # and the other an IMGUI control tree, and a census drives them as a PAIR.
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 36)
         self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 5)
         # Disjointness, asserted rather than assumed: Classify checks Implemented
         # first in the C# mirror, so a leftover reserved row would be invisible.
@@ -13907,8 +13911,8 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
     harness half of that: the vocabularies a spec names must agree with the C# ones, and
     each verb's role must be the one its side effects actually justify."""
 
-    def test_both_are_implemented_and_neither_is_a_promotion(self):
-        for verb in ("CaptureScreenshot", "UiAction"):
+    def test_all_three_are_implemented_and_none_is_a_promotion(self):
+        for verb in ("CaptureScreenshot", "UiAction", "DumpGuiTree"):
             with self.subTest(verb=verb):
                 self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
                 self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
@@ -13920,7 +13924,11 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
         # minutes. The EnterWatchMode shape exactly - a capture that has not landed
         # within the 60 s default is broken, not slow, and putting it in the deferred
         # family would make the harness out-wait a real failure.
-        for verb in ("CaptureScreenshot", "UiAction"):
+        # DumpGuiTree is the third two-phase member and rides the default for a
+        # THIRD reason worth stating: the recorder gives the arm up on its own after
+        # 900 frames (GuiTreeRecorder.ArmTimeoutFrames, ~15 s at 60 fps), so the 60 s
+        # budget is a backstop behind a shorter bound rather than the primary one.
+        for verb in ("CaptureScreenshot", "UiAction", "DumpGuiTree"):
             with self.subTest(verb=verb):
                 self.assertNotIn(verb, hlib.DEFERRED_SEAM_VERBS)
                 self.assertNotIn(verb, hlib.DISPATCH_DEFERRAL_BUDGET_SECONDS)
@@ -13937,7 +13945,13 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
                          hlib.SEAM_VERB_TAIL_ROLE["CaptureScreenshot"])
         self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING,
                          hlib.SEAM_VERB_TAIL_ROLE["UiAction"])
-        for verb in ("CaptureScreenshot", "UiAction"):
+        # DumpGuiTree sits on CaptureScreenshot's side of the tail split: it writes ONE
+        # json and persists nothing. The Harmony interceptions are the one thing that
+        # could argue otherwise and do not - applied at arm, removed at flush,
+        # observation-only, and none of the 17 targets is a Parsek method.
+        self.assertEqual(hlib.TAIL_ROLE_INERT,
+                         hlib.SEAM_VERB_TAIL_ROLE["DumpGuiTree"])
+        for verb in ("CaptureScreenshot", "UiAction", "DumpGuiTree"):
             with self.subTest(verb=verb):
                 self.assertEqual(hlib.POST_MISSION_ROLE_RECORDING,
                                  hlib.SEAM_VERB_POST_MISSION_ROLE[verb])
@@ -13965,6 +13979,10 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
         self.assertIn("CaptureScreenshot", cs_non_mutating,
                       "CaptureScreenshot must be non-mutating on the C# side too, or "
                       "FlushAndQuit saves again after a capture that changed nothing")
+        self.assertIn("DumpGuiTree", cs_non_mutating,
+                      "DumpGuiTree must be non-mutating on the C# side too: it writes "
+                      "one json and persists nothing, so a mutating row there would "
+                      "make FlushAndQuit save again after a dump that changed nothing")
         self.assertNotIn("UiAction", cs_non_mutating,
                          "UiAction persists uiComplexityMode on op=complexity, so a "
                          "non-mutating row there would SUPPRESS a save the run wanted")
@@ -13973,6 +13991,48 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
         self.assertEqual(hlib_inert, cs_non_mutating - {"FlushAndQuit"},
                          "the two inert sets have drifted (FlushAndQuit excluded by "
                          "name - it is the latch's reader, not a mutator)")
+
+    def test_the_dump_verbs_label_rule_is_the_capture_verbs_rule(self):
+        """The pair property, from the harness side. A census drives the two verbs
+        under ONE label (`<label>.png` beside `<label>.gui.json`, which is what lets
+        `tools/gui_tree_view.py` pair a dump with its screenshot), so a label one
+        validator accepted and the other refused would leave a picture with no control
+        tree - and the fault would only surface as a typed REJECTED after a whole KSP
+        boot. The C# side holds this by DELEGATION (TestCommandDumpGuiTree.IsValidLabel
+        calls the capture verb's predicate); here both validators read the same
+        `_CAPTURE_LABEL_RE`, and this cell is what keeps that true."""
+        for raw in ("ksc-main-advanced", "A1", "has space", "../escape", "dir/label",
+                    "-leading-dash", "", "a" * (hlib.CAPTURE_LABEL_MAX_LENGTH + 1)):
+            with self.subTest(label=raw):
+                args = {hlib.CAPTURE_LABEL_KEY: raw}
+                cap = hlib.validate_capture_screenshot_step(0, args)
+                dump = hlib.validate_dump_gui_tree_step(0, args)
+                self.assertEqual(bool(cap), bool(dump),
+                                 "the two census verbs disagree about label %r" % raw)
+
+    def test_a_labelless_dump_step_is_caught_pre_launch(self):
+        # The label is the dump's FILENAME and the verb has no default, so the seam
+        # answers REJECTED label-arg-missing - after a whole boot. Same shape as the
+        # ListHandles `kind=` block: catch it in validation instead.
+        errors = hlib.validate_dump_gui_tree_step(3, {})
+        self.assertEqual(1, len(errors), errors)
+        self.assertIn("driver.steps[3].args.label", errors[0])
+        self.assertIn("label-arg-missing", errors[0])
+
+    def test_the_dump_verb_takes_no_other_arg_vocabulary(self):
+        # There is no superSize counterpart - a control tree has no resolution - and
+        # `label` is deliberately NOT a VERB_SCOPED_CLOSED_ARGS row (MissionMark owns
+        # that key, and that table asserts one owner verb per key). This cell pins both
+        # halves so a future arg cannot be added on one side only.
+        self.assertNotIn(hlib.CAPTURE_LABEL_KEY, hlib.VERB_SCOPED_CLOSED_ARGS,
+                         "`label` is a FREE-VALUE arg shared by MissionMark, "
+                         "CaptureScreenshot and DumpGuiTree; that table asserts a "
+                         "single owner verb per key, so a row there would claim it "
+                         "for one of the three and flag the other two")
+        for key, (owner, _values) in hlib.VERB_SCOPED_CLOSED_ARGS.items():
+            self.assertNotEqual("DumpGuiTree", owner,
+                                "DumpGuiTree gained a closed-value arg (%s) without a "
+                                "validator row" % key)
 
     @staticmethod
     def _parse_cs_window_table(text):
