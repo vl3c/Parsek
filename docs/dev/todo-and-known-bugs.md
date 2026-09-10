@@ -15,6 +15,57 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## U1-GUI-CENSUS-LOCAL-HOST-REDS-THE-ANALYZER: the GUI census's only viable host carries 25 pre-existing analyzer FAILs, and `run.py` has no baseline pass-through, so both census lanes are quarantined on the analyzer subkind
+
+MEASURED 2026-09-10 while authoring the GUI census (branch `gui-census`), not predicted.
+The offline analyzer over the operator's `c1` career - the lane's host, staged as
+`fixtures/local-saves/c1-gui` - reports `save=c1 generation=4 FAIL=25 WARN=6 INFO=3
+STALE=0 BASELINED=0 RED=1`. All 25 FAILs are `INV2-NO-DOUBLE-COVER` (overlapping section
+spans) across seven recordings, plus six `INV2-UNCOVERED-SPAN` / `INV11-EMPTY-SECTION`
+warnings. The run was taken read-only, with `-ResultsDir` pointing outside the save, so
+the operator's save was not touched; its own committed `analysis/c1.analysis.txt` from
+2026-08-11 reads `RED=1` too, so this is not new.
+
+WHY IT BLOCKS. `run.py` always invokes `analyze-recordings.ps1` with `-FailOnRed` and
+never passes `-UseBaseline`, so the `analyzer` verifier row would classify both census
+lanes `PARSEK-FAIL(analyzer)` on findings that predate them by months and that the census
+neither causes nor observes - it takes screenshots of windows.
+
+WHAT SHIPPED INSTEAD. `GUI-1-census-ksc` and `GUI-2-census-flight` each declare
+`[expectedFail] bugId = "U1-GUI-CENSUS-LOCAL-HOST-REDS-THE-ANALYZER"` with
+`subkind = "analyzer"`. The subkind is SPELLED OUT rather than left as a bugId-only
+quarantine so the lanes can never absorb a different failure class, and a host whose
+findings are gone reports XPASS ("expected-fail bugId=... unexpectedly passed") instead
+of silently going green. They are the FIRST committed specs anywhere to use
+`expectedFail`; every other spec leaves it empty.
+
+THE DECISION THAT IS OPEN, and it is an operator call rather than work: three routes
+exist and none is obviously right. (1) Plumb `-UseBaseline` +
+`PARSEK_ANALYZER_BASELINE_MODE` through `run.py` so a local host can carry its own
+findings baseline - the host already HAS a `analysis/baseline.cfg`, written by hand in
+July - which is a change to the gating architecture and therefore not something to take
+unilaterally. (2) Investigate the 25 INV2 overlaps: they may be a real recorder defect
+from an earlier era, in which case the quarantine is hiding a finding worth having. (3)
+Accept the quarantine permanently on the grounds that a layout census is not an analyzer
+subject. Filed to be decided, not to be re-run away.
+
+## GUI-CENSUS-STRUCTURE-WINDOW-HAS-NO-DRIVEABLE-TARGET: the Structure List window can be
+opened by the seam but not POPULATED, so the census photographs its empty chrome
+
+NOTED 2026-09-10 while authoring the GUI census. `StructureListWindowUI` is retargeted
+through `OpenForMission(treeId, title)` / `OpenForRoute(routeId, title)`, both reached
+from a row inside the Missions or Logistics window. `UiAction op=open window=structure`
+raises its `IsOpen` and the window draws, but with `mode = TargetMode.None` and no
+`targetId` it renders the empty "Parsek - Structure" chrome - so `GUI-1-census-ksc`'s
+`ksc-structure-advanced` capture shows a window with no content.
+
+NOT A DEFECT and deliberately not faked: the seam has no row-click op, and inventing one
+that reached into a mission or route id would be a second, weaker owner of a retarget
+that the two production entry points already own. The honest fix, when a review wants
+that window's populated form, is an ADDITIVE `UiAction op=target` (or a `target=` arg on
+`op=open`) that calls those two internal methods with an id a spec names - or, cheaper,
+a `${step.field}` handle off a `ListHandles kind=committed` row. Left as a follow-up with
+the shape written down rather than as a silent thin capture.
 ## REPUTATION-SEED-CAPTURED-MID-FLIGHT-REAPPLIES-PRE-SEED-AWARDS: the lazy `ReputationInitial` seed is read off the live pool at the first commit, so every reputation award recorded BEFORE that moment is inside the seed AND replayed as a row
 
 Filed 2026-09-10 while shipping the crew-death reputation penalty (branch
