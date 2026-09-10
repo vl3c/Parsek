@@ -256,6 +256,9 @@ namespace Parsek
             matrixM03 = 0f;
             matrixM13 = 0f;
             Array.Clear(GuiTreeFunnels.Hits, 0, GuiTreeFunnels.Count);
+            // Cleared here and re-snapshotted right after Apply(), so a refused or
+            // aborted arm can never leave a previous capture's reading standing.
+            Array.Clear(GuiTreeFunnels.PatchedAtArm, 0, GuiTreeFunnels.Count);
             // Re-resolve the reflection probes on every arm rather than parking them for
             // the process lifetime: a probe that failed once - a transient during scene
             // load, a type not yet loaded - must not silently cost every later capture
