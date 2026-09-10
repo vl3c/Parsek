@@ -1,0 +1,198 @@
+schema = 1
+id = "S0.12-switch-noop-discard"
+# =====================================================================================
+# THE NO-OP SWITCH-SEGMENT AUTO-DISCARD, driven end to end: a map-site Switch-To click
+# onto a co-orbiting loaded vessel opens a STANDALONE continuation segment in a FRESH
+# tree, nothing happens on it, and the scene exit to the Space Center discards the
+# whole throwaway tree before any commit routing runs. D1
+# `switch-segment-noop-discard` (roadmap Tier D item 13) - UNCOVERED until this lane
+# flies: H12 declines the cell (it drives only the arming decision), and GS-3 reaches
+# only the DEFERRED shape (`disposition=BgMemberOrMixed is deferred`, report-only
+# there).
+#
+# AUTHORED 2026-09-10 (`ghost-replay-tier-b`), NEVER FLOWN. READING SHAPE: every token
+# is INTERIM (re-cut from the reading bytes), and NOTHING is claimed in
+# [dimensionsCovered] (the D1 claim enters only after the confirm run and the negative
+# control).
+#
+# =====================================================================================
+# THE CODE FACTS THIS SPEC RESTS ON - read, not assumed.
+#
+# (1) THE DISCARD IS SCENE-EXIT PREFIX STEP 3.5. `HighLogic_LoadScene_Patch.Prefix`
+#     calls `SceneExitInterceptor.TryAutoDiscardNoOpSwitchSegment` BEFORE the
+#     active-tree commit routing. It classifies through
+#     `RecordingStore.TryClassifyActiveSwitchSegmentNoOp`: disposition `Standalone`
+#     iff the session tree's recording count equals the segment's subtree count,
+#     `BgMemberOrMixed` otherwise, and ONLY Standalone / CommittedRestoreClone are
+#     discarded - BgMemberOrMixed is DEFERRED to the normal commit.
+# (2) WHY S0.8 WITHOUT `StartRecording`. S0.8 (same fixture, same click) runs WITH a
+#     live recording, and the standalone segment then attaches to that SAME live tree
+#     (S0.8 measured count = 2, and `createdFreshTree=False` on its route line), so
+#     the disposition is BgMemberOrMixed and the discard defers. With NO live tree,
+#     `ParsekFlight.StartStandaloneContinuationSegment` builds a FRESH tree
+#     (`createdFreshTree = true`) holding only the segment - the Standalone
+#     disposition, and the one this lane needs.
+# (3) THE SEGMENT STILL RECORDS. `BindLiveRecorderToSwitchSegment` starts a recorder
+#     on the target even with no prior one, and the orbiting probe core records an
+#     on-rails orbit segment at once (S0.8's collected log carries the Recorder's
+#     `Recording started on rails` line for the segment), so the classifier's
+#     `insufficient-data` keep path
+#     (fewer than 2 points AND no sections AND no orbit segments) should not bite.
+#     GS-3 measured the SAME core classifying `noOp=True reason=no-op` 0.6 s after
+#     its click (`2026-08-05_1448`, line 11723), with its disposition the deferred one.
+# (4) THE EXIT IS ALLOWED. ExitToSpaceCenter's wedge guard refuses only a RegularMerge
+#     (autoMerge OFF), a Re-Fly attempt, or a SwitchSegmentSession with NO live
+#     active tree. With `autoMerge = true` and the fresh tree live, none applies.
+# (5) THE TARGET IS ORBITING, which avoids the verb's surface trap
+#     (`Refused_OnSurfaceTarget`), and LOADED, which avoids `target-unloaded` - the
+#     two properties S0.8's header spells out for `eva2-lko-crewed`.
+# (6) REC-001 / REC-003 ARE SUPPRESSED HERE: no `StartRecording` step and
+#     `autoRecordOnLaunch = false`, so `hlib.spec_expects_live_recording` is False and
+#     the recorder pairing rules do not gate this run (the segment recorder's start
+#     has no scene-exit stop line by design - the discard tears the tree down).
+#
+# =====================================================================================
+# PRE-REGISTERED OUTCOMES (the reading classifies into exactly one):
+#
+#   (P1) STANDALONE NO-OP DISCARD - the expected shape. The gate line with
+#        `hasActiveRecording=false`, the route line with `createdFreshTree=True`, the
+#        classifier line `disposition=Standalone subtreeCount=1 hasDescendants=False
+#        noOp=True reason=no-op`, the claim token, the `AutoDiscardActiveTreeCore`
+#        teardown with `ledgerRecalcReason='noop-switch-segment-discard'`, NO
+#        `Committed tree '` line, and recordings.count = 0 (sidecars reaped).
+#   (P2) THE CLASSIFIER KEEPS THE SEGMENT (`noOp=False reason=<keepReason>`): no
+#        discard, the fresh tree auto-merges at the exit and a `Committed tree '`
+#        line appears. `insufficient-data` = the dwell was too short (lengthen it -
+#        not a finding); `part-event:<type>` / `non-boring-section:<env>` on a
+#        segment that did nothing = a PRODUCT question about the classifier's
+#        definition of meaningful, filed in docs/dev/todo-and-known-bugs.md.
+#   (P3) NOT A FRESH TREE: `createdFreshTree=False` or a `route=` other than
+#        standalone - something was live at boot that S0.8's fixture reading did not
+#        predict; the disposition then defers. Re-derive the premise from the bytes.
+#   (P4) THE EXIT IS REFUSED (`ExitToSpaceCenter` REJECTED `dialog-required ...`):
+#        the wedge-guard reading of fact (4) was wrong; re-derive from the refusal's
+#        own variant.
+#   (P5) recordings.count > 0 WITH the claim token present: the discard ran but a
+#        sidecar survived `reapSidecars: true` - an orphaned-sidecar FINDING.
+#
+# WHAT THE READING MUST MEASURE (and the confirm commit re-cuts from bytes): the gate
+# line verbatim with `hasActiveRecording=false`; the route line's `createdFreshTree`;
+# the classifier line verbatim; the claim token; the teardown line; any `Committed
+# tree '` line (count 0 expected); the produced save's `.prec` count; and the segment
+# recorder's `Recording started` shape.
+#
+# THE NEGATIVE CONTROL (stage 2, after the confirm run - NOT here): S0.8's
+# `StartRecording` inserted before the click. The segment then joins the live tree, the
+# disposition is BgMemberOrMixed, `TryAutoDiscardNoOpSwitchSegment: no-op detected but
+# disposition=BgMemberOrMixed is deferred` is the MIRROR-DIRECTION measurement (only
+# GS-3's collected log carries it today), and the run must red naming the missing
+# `(Standalone)` claim token - a red that is ONLY the REC-rule flip the insertion also
+# causes does not discharge the control.
+# =====================================================================================
+tier = "operator"
+description = "The no-op switch-segment auto-discard end to end (D1 switch-segment-noop-discard, roadmap Tier D item 13): S0.8's map-site Switch-To click onto the co-orbiting loaded probe core WITHOUT a live recording, so the standalone consume builds a FRESH tree holding only the segment (disposition Standalone); a short dwell in which nothing happens; then ExitToSpaceCenter, whose scene-exit prefix (step 3.5) must classify the segment no-op and discard the whole throwaway tree before any commit routing. READING SHAPE: never flown, every token INTERIM, five outcomes pre-registered in the header, no dimension claims."
+instanceProfile = "stock-minimal"
+tags = ["switch-segment", "stock-click", "S0.12", "noop-discard", "D1", "pending-flight"]
+
+[fixture]
+# eva2-lko-crewed, S0.8's fixture verbatim: TWO LOADED, ORBITING vessels ~16.4 m apart
+# ("Kerbal X", the active crewed stack, and "Kerbal X Probe", the 21-part spent core,
+# pid 2614652043 baked into the fixture), and NO committed recordings (S0.8's count of
+# 2 was the live root plus its segment, nothing committed).
+saveTemplate = "fixtures/saves/eva2-lko-crewed"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# NO `StartRecording` - fact (2): a live tree is exactly what defers the discard.
+# `autoMerge = true` is LOAD-BEARING: autoMerge OFF refuses ExitToSpaceCenter
+# `dialog-required variant=RegularMerge` (fact 4). `verboseLogging = true` is
+# MANDATORY: the classifier line is Verbose. The vessel arg is the RAW name (run.py
+# percent-encodes on the wire; S0.8's note). The RecordingState dwell is ~10 poll
+# round-trips of game time at 1x with nothing commanded - enough for the segment
+# recorder to author its on-rails coverage (fact 3), and a knob the reading re-sizes
+# only if it measures `insufficient-data`.
+steps = [
+  { cmd = "LoadGame",                 args = { save = "${runSave}", name = "persistent" },     expect = "OK", budget = 300 },
+  { cmd = "SetSetting",               args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",               args = { name = "autoMerge", value = "true" },           expect = "OK" },
+  { cmd = "SetSetting",               args = { name = "verboseLogging", value = "true" },      expect = "OK" },
+  { cmd = "SimulateStockSwitchClick", args = { vessel = "Kerbal X Probe" },                    expect = "OK", budget = 120 },
+  { cmd = "RecordingState",                                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                                    expect = "OK" },
+  { cmd = "RecordingState",                                                                    expect = "OK" },
+  { cmd = "ExitToSpaceCenter",                                                                 expect = "OK", budget = 120 },
+  { cmd = "FlushAndQuit",                                                                      expect = "OK" },
+]
+
+[dimensionsCovered]
+# NOTHING CLAIMED YET. D1 `switch-segment-noop-discard` (the one count-moving cell),
+# plus the D1 `switch-segment` / D14 `scene-ksc` re-claims, enter in the commit made
+# after the confirm run and the negative control, off the re-cut tokens.
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING: `allowedAnomalies` must precede every
+# [expectations.<sub>] header.
+allowedAnomalies = []
+
+[expectations.recordings]
+# PRE-REGISTERED (P1): ZERO. The fixture carries no committed recording, the only
+# recording this run authors is the no-op segment, and `AutoDiscardActiveTreeCore`
+# runs with `reapSidecars: true`. The NUMERIC guard on the discard: every token below
+# is a presence check, so a discard that logged and then left a sidecar behind would
+# satisfy them all and move only this number (P5).
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# [INTERIM] throughout - never flown. Ordered as the mechanism runs: verb gate ->
+# marker armed -> consume opens the segment in a FRESH tree -> marker consumed -> verb
+# terminal -> scene exit -> classifier -> discard -> teardown -> exit terminal.
+#
+# Tokens 1-6 are S0.8's MEASURED lines (`2026-07-30_1841`) with the two values this
+# lane moves: the gate's `hasActiveRecording=false` (regexed around the unmeasured
+# rest of the input set) and the route line's `createdFreshTree=True` (C# bool
+# rendering, the Info-level witness of the variable the negative control flips).
+# Token 7 is the classifier line GS-3 MEASURED with `disposition=BgMemberOrMixed`
+# (`2026-08-05_1448`, line 11723), here with Standalone. Token 8 is THE CLAIM TOKEN
+# (SceneExitInterceptor, Info). Token 9 is the teardown
+# (`ParsekFlight.AutoDiscardActiveTreeCore` via `AutoDiscardNoOpStandaloneSwitchSegment`,
+# whose reason string is the interceptor's `scene-exit no-op switch-segment
+# auto-discard dest=SPACECENTER`). Token 10 is the verb terminal (GS-3 measured shape).
+required  = [
+  "switchclick gate targetPid=2614652043 targetName=Kerbal X Probe .*hasActiveRecording=false hasActiveSession=false .*dialogDecision=NoPriorSession",
+  "switchclick armed intent: intentId=.* action=MapSwitchTo targetPid=2614652043 sourceScene=Flight .* ttl=2s route=plain-arm-and-switch",
+  "\\[SwitchSegment\\] created intentId=.* parentRecId=<standalone> .*focusedPid=2614652043 focusedName='Kerbal X Probe' reason=MapSwitchTo",
+  "\\[SwitchSegment\\] route=standalone intentId=.* focusedPid=2614652043 fallthroughReason=<none> createdFreshTree=True",
+  "\\[SwitchIntent\\] cleared: intentId=.* targetPid=2614652043 reason=consumed-into-segment",
+  "switchclick complete site=map targetPid=2614652043 targetName=Kerbal X Probe .* activeVesselPid=2614652043 switched=true",
+  "TryClassifyActiveSwitchSegmentNoOp: sessionId=\\S+ segId=\\S+ disposition=Standalone subtreeCount=1 hasDescendants=False noOp=True reason=no-op",
+  "TryAutoDiscardNoOpSwitchSegment: no-op switch segment \\(Standalone\\) detected dest=SPACECENTER - discarding without commit",
+  "AutoDiscardActiveTreeCore: discarding live tree reason='scene-exit no-op switch-segment auto-discard dest=SPACECENTER' ledgerRecalcReason='noop-switch-segment-discard'",
+  "exittospacecenter complete scene=SPACECENTER game-loaded=true",
+]
+# The suite-wide ERROR pattern; the DEFERRED shape (P3 / the negative control's
+# mirror line); and any commit at all - the discard must pre-empt commit routing.
+forbidden = ["\\[Parsek\\]\\[ERROR\\]",
+             "TryAutoDiscardNoOpSwitchSegment: no-op detected but disposition=",
+             "Committed tree '"]
+
+[runtime]
+# Budget arithmetic (M-A5 S8): 300 LoadGame + 120 SimulateStockSwitchClick + 120
+# ExitToSpaceCenter + ten fast RecordingState polls + the fast SetSetting /
+# FlushAndQuit verbs + KSP boot and margin. S0.8 flies at p50 46 s and S0.7's exit
+# lane at 48 s; 900 is a kill backstop, not a target.
+budgetSeconds = 900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

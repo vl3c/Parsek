@@ -179,7 +179,7 @@ takes:
 | D8 | ledger / career | 18 / 18 | Done. |
 | D9 | rewind / re-fly | 16 / 17 | `load-time-sweep` only, a unit-level sweep no lane drives (ghost-replay Tier B item 7). |
 | D10 | logistics / routes | 23 / 24 | `harvest-provenance` only; an operator ore-drill flight (supply-route hand-off). |
-| D1 | recording lifecycle | 13 / 18 | `manual-gloops`, `stop-on-switch` (R2 registry call), `commit-abort` (needs its definition), `sub-2-point-drop`, `switch-segment-noop-discard`: the Tier D authoring pass, register item 8. |
+| D1 | recording lifecycle | 13 / 18 | `manual-gloops`, `stop-on-switch` (R2 registry call), `commit-abort` (needs its definition), `sub-2-point-drop`, `switch-segment-noop-discard` (lane `S0.12-switch-noop-discard` authored 2026-09-10, reading pending): the Tier D authoring pass, register item 8. |
 | D7 | part events / FX | 12 / 16 | `chute-cut`, `bays` (GS-6 residues, need a descent variant and a ServiceBay tail), `engine-fx-effects`, `inventory-place-remove` (Tier 4 producer). |
 | D14 | bodies / scenes | 24 / 32 | Tylo / Bop / Pol (G9), `atmosphere`, `situation`, `warp-1x`, `warp-phys`, `scene-editor`: breadth, behind everything else. |
 | D11 | missions abstraction | 12 / 18 | `default-mission`, `leg-trim`, `whole-mission-loop`, `clone`, `station-phase-lock`, `s4-arrival-restitch`: Missions-tab semantics that need seam verbs equivalent to the tab's buttons (`MissionConfig` exists; the rest do not). |
@@ -3685,6 +3685,11 @@ first spawn frame (hold-then-retry, never a single eager ask).
 13. `stop-on-switch`, `switch-segment-noop-discard`, `commit-abort`,
     `discard-rollback`, `sub-2-point-drop` - all UNCOVERED, all reachable
     with existing verbs; batch as one authoring pass, one flight each.
+    2026-09-10 (`ghost-replay-tier-b`): `switch-segment-noop-discard` AUTHORED as
+    `S0.12-switch-noop-discard` (S0.8's click with NO live recording, so the
+    consume builds a fresh tree and the scene exit discards a Standalone no-op
+    segment; a live tree gives the deferred BgMemberOrMixed shape GS-3 measured).
+    Reading run pending; row in the status doc's Committed-not-yet-green table.
 
 Sequencing recommendation, stated once: Tier A item 1 first (largest coverage
 per flight), then item 2 (the long-declined D6 cell), then Tier C item 10 +
