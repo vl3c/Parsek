@@ -1495,6 +1495,15 @@ retry re-runs only that verifier subprocess, not a fresh KSP boot).
    way. Driven end to end over the SAME RED=1 analyzer output in both directions -
    and over a wedged analyzer under `gating = false` - by
    `AnalyzerReportOnlySmokeTests`.
+
+   **THE `gating` KEY IS NOW ON EVERY ANALYZER ROW**, all 252 committed specs, not only
+   the 2 that declare the block: `run.py` writes `analyzer_detail["gating"]` on both
+   paths (the row fold's `row.gating` when the chain ran the analyzer for a valid
+   driver, the spec-declared value on the triage-only path). On the 250 undeclared
+   specs it is `true` and INERT - a reader's confirmation that the row acted, nothing
+   more - which matches the `saveParse` / `renderCompose` / `ghostLifecycle` rows,
+   whose own `gating` keys are likewise present-and-usually-false everywhere. Nothing
+   BRANCHES on it downstream; the fold already decided.
 4. **Log validation + LogContract** via `scripts/validate-ksp-log.ps1 -LogPath
    <instanceDir>/KSP.log`. A failure here -> PARSEK-FAIL (log-contract). The
    validator's rules carry stable codes: `SES-000`/`SES-001` (session start/end

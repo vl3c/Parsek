@@ -78,9 +78,12 @@ namespace Parsek.TestCommands
     /// </summary>
     public partial class ParsekTestCommandAddon
     {
-        // Two-phase state for an in-flight `open` / `rect`. Re-armed wholesale at the start
-        // of every two-phase arm, so a stale value can never be read across commands (the
-        // TimeJump field contract).
+        // Two-phase state for an in-flight `open` / `rect`. ALL SIX are re-armed wholesale
+        // by ArmUiActionSettle, so a stale value can never be read across commands (the
+        // TimeJump field contract). The commanded rect is a PARAMETER of that arm rather
+        // than a write the caller makes beside it: `open` passes default(UiActionRect) and
+        // `rect` passes what it wrote, so there is no ordering in which the settle can read
+        // a previous command's rect.
         private UiActionOp uiActionOp;
         private string uiActionWindow;
         private UiActionRect uiActionCommandedRect;
@@ -316,21 +319,26 @@ namespace Parsek.TestCommands
             // window class assigns it back), so reading it back in the same Update compares
             // the field with the value just written to it - which is what the first draft
             // did, leaving RectAppliedWithinTolerance unable to fire on any input.
-            uiActionCommandedRect = want;
             ArmUiActionSettle(UiActionOp.Rect, spec, already: false,
-                hostControlled: TestCommandUiAction.SizeIsHostControlled(spec.Name));
+                hostControlled: TestCommandUiAction.SizeIsHostControlled(spec.Name),
+                commandedRect: want);
             ParsekLog.Info(Tag, $"uiaction rect initiated window={spec.Name} "
                 + $"want={TestCommandUiAction.FormatRect(want)} (awaiting one drawn frame)");
             SetExecResult(PendingVerdict, null, null);
         }
 
+        // `commandedRect` is only meaningful for op=rect; `open` passes the default, which
+        // is what makes this arm WHOLESALE - every field the settle reads is written here,
+        // so no caller can leave a previous command's rect behind for it to read.
         private void ArmUiActionSettle(UiActionOp op, UiWindowSpec spec, bool already,
-                                       bool hostControlled)
+                                       bool hostControlled,
+                                       UiActionRect commandedRect = default(UiActionRect))
         {
             uiActionOp = op;
             uiActionWindow = spec.Name;
             uiActionAlready = already;
             uiActionSizeHostControlled = hostControlled;
+            uiActionCommandedRect = commandedRect;
             uiActionStartFrame = Time.frameCount;
         }
 
@@ -396,6 +404,12 @@ namespace Parsek.TestCommands
             // the written value with itself - the very defect the settle exists to remove.
             // `main` is exempt because its own open flag IS that showUI (see
             // TestCommandUiAction.WindowHostHiddenReason).
+            //
+            // ReadHostShowUi answers false when NEITHER host object can be found, which
+            // would report this reason where `ui-action-not-settled` reads better. The
+            // ui == null check above already covers a lost host (ParsekUI.ActiveInstance is
+            // set by those same hosts), so that combination is not reachable - and if it
+            // ever were, "nothing was drawing" is still the true statement.
             bool hostShowUi = ReadHostShowUi();
             if (TestCommandUiAction.SettleRefusedForHiddenHost(window, hostShowUi))
             {

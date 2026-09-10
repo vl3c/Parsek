@@ -13977,18 +13977,26 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
         names, tab names and window-class names verbatim (`"Parsek - Missions"`,
         `Active / Paused / Dormant`), so a regex over the raw source reads prose as
         code and a bare-substring check passes against a table that does not carry the
-        token at all."""
-        start = text.index("private static readonly UiWindowSpec[] WindowTable = new[]")
-        end = text.index("\n        };", start)
-        region = "\n".join(
-            line.split("//", 1)[0] for line in text[start:end].splitlines())
+        token at all.
+
+        The per-row `internal const string X = "..."` lookup is anchored the SAME way,
+        over a comment-stripped copy of the WHOLE file rather than over the raw text:
+        every one of those constants carries a doc comment above it, several of which
+        quote token spellings, so a raw search could resolve a row's token off prose
+        instead of off the declaration."""
+        stripped = "\n".join(
+            line.split("//", 1)[0] for line in text.splitlines())
+        start = stripped.index(
+            "private static readonly UiWindowSpec[] WindowTable = new[]")
+        end = stripped.index("\n        };", start)
+        region = stripped[start:end]
         rows = []
         for m in re.finditer(
                 r"NewSpec\(\s*(\w+)\s*,\s*(?:true|false)\s*,\s*(?:true|false)\s*"
                 r"((?:,\s*\"[a-z]+\"\s*)*)\)", region, re.S):
             const, tail = m.group(1), m.group(2)
             token = re.search(
-                r'internal const string %s = "([a-z]+)";' % re.escape(const), text)
+                r'internal const string %s = "([a-z]+)";' % re.escape(const), stripped)
             assert token is not None, "no token constant for NewSpec(%s, ...)" % const
             rows.append((token.group(1), tuple(re.findall(r'"([a-z]+)"', tail))))
         return rows
@@ -14047,8 +14055,15 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
         half: the C# table's header comment mentions tab-shaped and window-shaped words,
         so a parse that read comments would find rows that are not there. Driven over a
         SYNTHETIC source rather than the real file, so this cell states what the parse
-        does rather than what the current table happens to contain."""
+        does rather than what the current table happens to contain.
+
+        It covers the TOKEN LOOKUP's anchoring too: the first two lines below are a
+        commented decoy declaration for each constant, spelled exactly like the real
+        thing, placed BEFORE the real ones. A lookup over the raw text finds those
+        first and resolves both rows to the wrong tokens."""
         synthetic = '\n'.join([
+            '        // internal const string MainWindow = "decoymain";',
+            '        // internal const string MissionsWindow = "decoymissions";',
             '        internal const string MainWindow = "main";',
             '        internal const string MissionsWindow = "missions";',
             '        // A comment naming NewSpec(MainWindow, true, true, "ghost") and',

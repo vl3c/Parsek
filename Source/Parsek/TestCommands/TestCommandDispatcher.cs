@@ -797,8 +797,12 @@ namespace Parsek.TestCommands
                 // it as well, deliberately: it IS two-phase, but its completion is a
                 // camera-session read-back that lands within a frame or two of the call, so
                 // the 60 s default bounds the not-in-flight defer AND a silently-refused
-                // entry with room to spare. A verb only needs a row here when its own wait
-                // can legitimately exceed the default.
+                // entry with room to spare. The GUI-census pair rides it for the same
+                // reason: UiAction is two-phase in `open` / `rect`, whose whole wait is ONE
+                // drawn frame, and CaptureScreenshot polls a PNG's size to a stable value -
+                // either of which failing to land inside a minute means the game stopped
+                // drawing, not that it is slow. A verb only needs a row here when its own
+                // wait can legitimately exceed the default.
                 default:
                     return DefaultSeconds;
             }
