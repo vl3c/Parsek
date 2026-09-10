@@ -8173,7 +8173,7 @@ class UnityExceptionScanTests(unittest.TestCase):
         #   produced, and a finding rather than a flake to be papered over with a
         #   ceiling.
         #
-        #   CEILINGS (3 specs) - each has at least one nonzero driver-valid reading, so
+        #   CEILINGS (4 specs) - each has at least one nonzero driver-valid reading, so
         #   0 would be a flake rather than a gate:
         #     H23  n=29: 25x0 plus 2, 2, 2, 4 (observed max 4). Those raises are the
         #          gate-13 stock buildVesselsList SHUTDOWN race, counted twice each,
@@ -8237,6 +8237,17 @@ class UnityExceptionScanTests(unittest.TestCase):
             "H23-tracking-station.toml": 6,
             "S4.1-rewind-merge.toml": 3,
             "H5-invariants-corpus.toml": 5,
+            # GS-4, armed 2026-09-10 (ghost-replay Tier B item 9). n=5 readings, every
+            # one driver-valid PASS or MISSION-OK: 4 (`2026-08-27_2145`), 1 (`_2204`), 2
+            # (`2026-08-28_1550`), then two wave-DLL readings, 2 (`2026-09-10_1924`:
+            # STAGING 1 + MECHJEB-ONDESTROY 1) and 1 (`2026-09-10_1930`: HATCH-TOOLTIP
+            # 1). 4 is the OBSERVED BAND TOP, NOT a mechanism bound (the H5 shape, not
+            # H23's), and the wave's own GS-9 flight of this machine measured 4 on the
+            # same DLL (FLIGHT-CAMERA-STARTUP 1 + MECHJEB-ONDESTROY 1 + the MAP-FOCUS
+            # pair 2), so the wave-only top of 2 would red a measured legal total. THE
+            # LEGAL SHAPE ABOVE IT: every class at its per-run count in one flight = 6.
+            # Every class is stock KSP or MechJeb, with no `Parsek.` frame in any stack.
+            "GS-4-kerbalx-rewind-watch.toml": 4,
         }
         armed = {}
         for name in sorted(n for n in os.listdir(SCENARIOS_DIR) if n.endswith(".toml")):
@@ -8504,7 +8515,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # re-points the probes at the coast and descent members off that run's own
         # bytes; nothing is armed and no evaluator block is declared. What is open is
         # the next FLIGHT, not a human review call.
-        "W1-watch-distance-cutoff.toml":     "tier=operator by the calibration discipline (derived geometry, the first runs are calibration readings), NOT debt; AUTHORED 2026-08-28 over V22M's `kerbin-splashdown-recorded`, READING RUN 1 flew INVALID and refuted the spec's SUBJECT MAP rather than the product, round 2 re-derived off that run's bytes and NOT YET FLOWN GREEN - the watch-entry 300 km cutoff as the single measured variable (REFUSED at 1,069.7 km on the coast chain member then ENTERED at 0.46 km on the descent member, both MEASURED), nothing armed; what is open is the FLIGHT itself, not a human review call",
+        "W1-watch-distance-cutoff.toml":     "tier=operator by the calibration discipline (derived geometry, the first runs are calibration readings), NOT debt; AUTHORED 2026-08-28 over V22M's `kerbin-splashdown-recorded`, READING RUN 1 flew INVALID and refuted the spec's SUBJECT MAP rather than the product, round 2 re-derived off that run's bytes and FLOWN GREEN 2026-08-28 (`_1624`) and twice more 2026-09-10 (`_1936`, `_1939`, both PASS attempt 1) - the watch-entry 300 km cutoff as the single measured variable (REFUSED at 1,069.7 km on the coast chain member then ENTERED at 0.46 km on the descent member, both MEASURED), nothing armed (unityExceptions deliberately left report-only: readings 0 and 2, the second's NREs in the stock / MechJeb teardown while watching - known-gate 11); what is open is the ordinary promotion call, not a human review call",
         # THE G4 REPLICATION LANE, tier=operator by the same calibration
         # discipline the whole B18-B28 family carries: its windows are DERIVED
         # (from the fixture's own bytes, from cited stock constants and from

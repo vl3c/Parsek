@@ -123,9 +123,25 @@ id = "GS-4-kerbalx-rewind-watch"
 #     saveParse rewindPoints=0) - the rewind lands before its branch point.
 #     Recorded here so the [expectations.rewind] block's silence on
 #     rewindPoints stays a decision, not an oversight.
-#   - unityExceptions REPORT: 4 NREs on the reading run, 1 on the green run,
-#     all stock KSP scene-change/teardown noise (KnowledgeBase / UIApp
-#     OnDestroy), none from a Parsek call site.
+#   - unityExceptions: 4 NREs on the reading run, 1 on the green run
+#     (report-only then; ARMED 2026-09-10, see the block). CORRECTED
+#     2026-09-10 from the census rather than the scene-change / teardown
+#     guess this line used to carry. The classes measured on this machine,
+#     every one stock KSP or MechJeb, none with a `Parsek.` frame:
+#       STAGING - `DeltaVEngineStageSet.get_OperatingStageInfo` via
+#         `VesselDeltaV.ResetStagePartCaches`, in flight;
+#       MAP-FOCUS - KnowledgeBase `onPlanetariumTargetChange` via
+#         `KbApp_PlanetResources.ActivateApp` or
+#         `KbApp_PlanetParameters.ActivateApp`, which counts TWICE (the
+#         `[ERR] Exception handling event` line and the `[EXC]` line both
+#         match the NRE pattern);
+#       HATCH-TOOLTIP - `CrewHatchController.get_CrewHatchTooltip` ->
+#         `DialogCanvasUtil.get_DialogCanvasRect`, at teardown;
+#       MECHJEB-ONDESTROY - `MuMech.MechJebCore.OnDestroy` ->
+#         `FlightGlobals.get_ActiveVessel`, after `Application.Quit`;
+#       FLIGHT-CAMERA-STARTUP - `FlightCamera` `Startup` ->
+#         `FlightGlobals.getFoR`, at the first flight-scene load (seen once,
+#         on GS-9's flight of this machine).
 # The debris NAME and the census of 8 were pre-measured off the operator's s15
 # save bytes (vesselName = "Kerbal X" (1) + "Kerbal X Debris" (6) +
 # "Kerbal X Probe" (1)) and both flights confirmed them live. Pre-flight risk
@@ -400,6 +416,25 @@ committedTrees = { min = 1, max = 1 }
 recordings     = { min = 8 }
 branchPoints   = { JointBreak = { min = 4 } }
 terminalStates = { SubOrbital = { min = 2 }, Destroyed = { min = 4 } }
+
+# ARMED 2026-09-10 (`ghost-replay-tier-b`, ghost-replay Tier B item 9). THE CEILING
+# IS AN OBSERVED BAND TOP, not a mechanism bound: nothing in the code bounds any
+# class at its observed count. The readings on record, n=5: `2026-08-27_2145` 4,
+# `2026-08-27_2204` 1, `2026-08-28_1550` 2 (older DLLs), and this wave's two readings
+# `2026-09-10_1924` 2 and `2026-09-10_1930` 1. The wave-DLL pair alone tops at 2, but
+# the same wave's GS-9 reading `2026-09-10_1944` - this machine with cycle 1
+# unchanged and the same watch teardown - measured 4 on that DLL, all stock or
+# MechJeb. A ceiling of 2 would therefore sit below a legal total already measured
+# on the DLL it gates. The per-reading classes are in the STATUS list above. No
+# reading carried a `Parsek.` frame in any NRE stack.
+# THE LEGAL SHAPE ABOVE THE CEILING: every measured class at its per-run observed
+# count in ONE flight - STAGING 1 + MAP-FOCUS 2 + HATCH-TOOLTIP 1 +
+# MECHJEB-ONDESTROY 1 + FLIGHT-CAMERA-STARTUP 1 = 6 (GS-9's four plus a staging NRE =
+# 5). If a red at 5 or 6 has stacks that carry no `Parsek.` frame, it is that shape:
+# file it with its per-class census and re-pin with the new n. A `Parsek.` frame is a
+# finding at any count, and is never a reason to raise the ceiling.
+[expectations.unityExceptions]
+maxTotal = 4
 
 [runtime]
 # WALL clock for the WHOLE drive phase including KSP boot: 300 LoadGame + 1600

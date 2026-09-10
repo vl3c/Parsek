@@ -3663,6 +3663,13 @@ first spawn frame (hold-then-retry, never a single eager ask).
    Committed-not-yet-green table, five outcomes pre-registered in the spec.
 9. **Arm `unityExceptions`** on GS-4 and W1 (`maxTotal` windows) - the NRE
    census is stable at 1-4 stock scene-change lines across four flights.
+   2026-09-10 (`ghost-replay-tier-b`): READ twice each on the wave DLL. GS-4 is ARMED
+   at `maxTotal = 4`: the observed band top over n=5 GS-4 readings, corroborated by
+   GS-9's 4 on the same machine and DLL. Its armed re-flight + negative control are
+   pending. W1 is LEFT REPORT-ONLY: it read 0 and 2, and the second run's two NREs
+   come in the stock / MechJeb teardown while watching (the V7M precedent). The class
+   census, which is not the scene-change shape this item assumed, is in the status
+   doc's known-gate 11.
 
 ### Tier C - machinery that raises the ceiling (build before the lanes that need it)
 
