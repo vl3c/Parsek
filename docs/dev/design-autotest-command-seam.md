@@ -1624,8 +1624,16 @@ guarantees a full IMGUI pass) and then read the live state back.
 
 **`close`, `tab`, `complexity` and `describe` stay SINGLE-PHASE.** `close` is out of the
 two-phase set after walking the MIRROR DIRECTION rather than by symmetry: a drawing window
-can LOWER its own flag and nothing in the mod raises one from a draw path, so there is no
-self-opening window a settled close read-back could catch. `tab` is out because its one
+can LOWER its own flag UNPROMPTED, while nothing raises one WITHOUT A PLAYER CLICK. Draw
+paths DO raise open flags - the RouteRunPrompt banner's "Open Logistics" button inside
+`ParsekUI.DrawWindow` (`ParsekUI.cs:809`), `RecordingsTableUI.ShowMissionForRecording` /
+`ScrollToRecording` (`:467` / `:521`, reached from the Missions digest GoTo and the two
+Timeline GoTo buttons), and `StructureListWindowUI.OpenForMission` / `OpenForRoute`
+(`:89` / `:100`, reached from the Missions "Log" and Logistics "Log (Route)" /
+"Log (Mission)" buttons) - but every one of those sites is a `GUILayout.Button` handler,
+and the seam synthesises no clicks. So no drawn frame in an unattended run raises a flag
+the seam just lowered, and there is no self-opening window a settled close read-back could
+catch. `tab` is out because its one
 live clamp (`RecordingsTableUI`'s Basic tab clamp) runs from the complexity LATCH, which
 the applier drives synchronously in `Update`, not from a draw. `complexity` is the one
 that LOOKS deferred: `ParsekUI.SetUiComplexityMode` persists the value and only QUEUES the

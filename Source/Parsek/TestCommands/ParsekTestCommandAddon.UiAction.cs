@@ -225,9 +225,16 @@ namespace Parsek.TestCommands
             {
                 // `close` terminates here. The mirror direction was checked before this
                 // asymmetry was accepted: a drawing window can LOWER its own flag
-                // (SpawnControlUI.DrawIfOpen), and nothing in the mod RAISES one from a
-                // draw path - so there is no self-opening window a settled close read-back
-                // could catch, and holding the head for it would buy a frame of nothing.
+                // UNPROMPTED (SpawnControlUI.DrawIfOpen), while nothing raises one WITHOUT
+                // A PLAYER CLICK. Draw paths do raise open flags - ParsekUI.cs:809's
+                // RouteRunPrompt "Open Logistics" banner button,
+                // RecordingsTableUI.cs:467/:521 (the Missions and Timeline GoTo buttons),
+                // StructureListWindowUI.cs:89/:100 (the Missions / Logistics "Log"
+                // buttons) - but every one of those sites is a GUILayout.Button handler,
+                // and this seam synthesises no clicks. So no drawn frame in an unattended
+                // run raises a flag the seam just lowered: there is no self-opening window
+                // a settled close read-back could catch, and holding the head for it would
+                // buy a frame of nothing.
                 ParsekLog.Info(Tag, $"uiaction {TestCommandUiAction.OpToken(op)} "
                     + $"window={spec.Name} open={Bool(after)} already={Bool(already)}");
                 SetExecResult("OK",

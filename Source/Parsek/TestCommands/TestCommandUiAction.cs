@@ -516,9 +516,20 @@ namespace Parsek.TestCommands
         ///
         /// <para>The MIRROR DIRECTION, checked rather than assumed: <c>close</c> is
         /// deliberately NOT here. The asymmetry is real - a drawing window can lower its
-        /// own flag (`showSpawnControlWindow = false` in
-        /// <c>SpawnControlUI.DrawIfOpen</c>) and nothing in the mod RAISES one from a draw
-        /// path, so there is no self-opening window for a settled close read-back to catch.
+        /// own flag UNPROMPTED (`showSpawnControlWindow = false` in
+        /// <c>SpawnControlUI.DrawIfOpen</c>), while nothing raises one WITHOUT A PLAYER
+        /// CLICK. Draw paths do raise open flags, but every raise site is a
+        /// <c>GUILayout.Button</c> handler: the RouteRunPrompt banner's "Open Logistics"
+        /// button inside <c>ParsekUI.DrawWindow</c> (<c>ParsekUI.cs:809</c>);
+        /// <c>RecordingsTableUI.ShowMissionForRecording</c> / <c>ScrollToRecording</c>
+        /// (<c>RecordingsTableUI.cs:467</c> / <c>:521</c>), reached from the Missions
+        /// digest GoTo and the two Timeline GoTo buttons; and
+        /// <c>StructureListWindowUI.OpenForMission</c> / <c>OpenForRoute</c>
+        /// (<c>StructureListWindowUI.cs:89</c> / <c>:100</c>), reached from the Missions
+        /// "Log" and Logistics "Log (Route)" / "Log (Mission)" buttons. The seam
+        /// synthesises no clicks (see the applier's file header), so no drawn frame in an
+        /// unattended run can raise a flag it just lowered and a settled close read-back
+        /// has nothing to catch.
         /// <c>tab</c> and <c>complexity</c> are likewise single-phase: the tab clamp runs
         /// from the complexity latch (which the applier drives synchronously in
         /// <c>Update</c>, before any draw), not from a draw.</para>

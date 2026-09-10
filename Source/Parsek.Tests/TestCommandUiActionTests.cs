@@ -473,9 +473,12 @@ namespace Parsek.Tests
             // read back exactly the value just written and prove nothing.
             //
             // `close` is OUT after checking the MIRROR DIRECTION rather than by symmetry:
-            // a drawing window can LOWER its own flag and nothing in the mod raises one
-            // from a draw path, so there is no self-opening window a settled close
-            // read-back could catch. `tab` is out because the one live clamp
+            // a drawing window can LOWER its own flag UNPROMPTED, while nothing raises one
+            // WITHOUT A PLAYER CLICK. Draw paths do raise open flags (ParsekUI.cs:809's
+            // RouteRunPrompt banner, RecordingsTableUI.cs:467/:521,
+            // StructureListWindowUI.cs:89/:100) but all of those are GUILayout.Button
+            // handlers, and the seam synthesises no clicks - so there is no self-opening
+            // window a settled close read-back could catch. `tab` is out because the one live clamp
             // (RecordingsTableUI's Basic tab clamp) runs from the complexity LATCH, which
             // the applier drives synchronously in Update, not from a draw.
             Assert.Equal(twoPhase, TestCommandUiAction.OpIsTwoPhase((UiActionOp)op));
