@@ -15,6 +15,16 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## OPTIMIZER-INGAME-CELLS-LEAK-RECORDINGSTORE-SUPPRESSLOGGING: both `Optimizer` in-game cells set `RecordingStore.SuppressLogging = true` and never restore it, so every `RecordingStore.Log` site stays silent for the rest of the KSP process
+
+Filed 2026-09-10 by the claim-gap wave (package A1) while appending `SceneAndPatch` to LT-2. A TEST defect, not a product defect. OPEN.
+
+**The shape.** `RealAscentReentry_ProducesPerPhaseChain_InGame` and `EccentricGrazing_StaysOneSegment_InGame` (`Source/Parsek/InGameTests/PersistenceSplitOptimizerTest.cs`, lines 63 and 168) set the static flag at the top of the body. Neither `finally` restores it, and `InGameTestRunner.cs` never references it. The flag gates `RecordingStore.Log` and the sites that read it directly, so once the category has run, those lines are silent until the process exits. Direct `ParsekLog.*` calls are unaffected, which is why LT-2 run `_1508` still printed its `Split recording` and `TrimBoringTail` lines.
+
+**Who it touches.** `LT-2-long-tail-spacecenter` is the only committed spec that batches `Optimizer`, and it batches it FIRST, so every later constituent runs with the flag set. Since 2026-09-10 that includes `SceneAndPatch`: the KSC cell's own tree insert / remove lines are silent, while its post-assert probe line (a direct `ParsekLog.Verbose`) prints. Any manual Ctrl+Shift+T batch that reaches `Optimizer` early is affected the same way. None of LT-2's required tokens comes from a gated site: the start echo and the `BATCH_COMPLETE` lines are direct `ParsekLog` calls. So nothing reds today; the cost is lost diagnostics.
+
+**Fix.** Capture the previous value on entry and restore it in each cell's `finally`. That is a test-body change, outside the harness-only claim-gap wave, so it is filed here rather than fixed.
+
 ## REPUTATION-SEED-CAPTURED-MID-FLIGHT-REAPPLIES-PRE-SEED-AWARDS: the lazy `ReputationInitial` seed is read off the live pool at the first commit, so every reputation award recorded BEFORE that moment is inside the seed AND replayed as a row
 
 Filed 2026-09-10 while shipping the crew-death reputation penalty (branch

@@ -27,7 +27,54 @@ tier = "nightly"
 # far-future ForwardOnly resolution and the defined UT-0 plan kind here; its
 # rewind-reachability half needs a rewind target and a moved clock, which this
 # empty-store host does not provide, so that half is exercised by no committed lane.
-description = "Run the six SPACECENTER-scoped long-tail in-game categories as one multi-category batch over an empty store, every constituent pinned whole."
+#
+# THE SEVENTH CONSTITUENT, `SceneAndPatch`, APPENDED 2026-09-10 IN READING SHAPE (the
+# claim-gap wave, package A1-4). The six constituents above stay pinned WHOLE off run
+# `2026-09-07_1516`; only the new line and the aggregate are interim.
+#   WHY IT IS HERE: `ParsekKscRelativePlaybackUsesRecordedAnchor`
+#   (ExtendedRuntimeTests.cs, SPACECENTER) commits a tree whose probe carries a
+#   `ReferenceFrame.Relative` section with `anchorRecordingId`, plays it through the
+#   PRODUCTION KSC positioner (`ParsekKSC.InterpolateAndPositionKsc` -> the Relative
+#   branch -> the recorded-anchor pose resolver) and asserts the ghost lands within
+#   0.25 m of the anchor-local offset. It is the only production KSC Relative-playback
+#   assertion in the suite, and no lane executes it: H53 batches the category at
+#   FLIGHT, where both SPACECENTER cells scene-skip.
+#   WHAT THE ATTRIBUTES ADMIT HERE: 7 declared, 3 eligible at SPACECENTER (the two
+#   SPACECENTER cells plus the scene-agnostic `PreTransitionForVesselSwitch_LiveTreeShape_
+#   Bug266`), 4 scene-skipped (three FLIGHT, one TRACKSTATION). All three eligible cells
+#   meet this scene for the first time.
+#   WHY LAST: the KSC cell inserts a committed tree (removed in its finally), and
+#   `Optimizer` skips whenever a committed recording is present. Last means it cannot
+#   disturb any measured constituent.
+#   THE PIN: `total=7` literal, `passed` / `skipped` regexed, and the aggregate
+#   `total=17 ... category=multi:7` with its split regexed. Registered in
+#   `MultiCategoryBatchWiringGroupTests.INTERIM_PIN_IDS` + `INTERIM_CONSTITUENTS` (this
+#   constituent only) until the reading, then converted to measured.
+#   `verboseLogging=true` is DEFENSIVE, not load-bearing: the setting defaults true and
+#   run `_1508`'s log already carries VERBOSE lines with no such step. The KSC probe's
+#   post-assert line is Verbose.
+#   ORDER SIDE EFFECT: both `Optimizer` cells set `RecordingStore.SuppressLogging = true`
+#   and never restore it, so every `RecordingStore.Log` line after them is silent for the
+#   rest of the process, including the KSC cell's own tree insert / remove lines. The
+#   probe line is a direct `ParsekLog.Verbose` call and is unaffected. Filed in
+#   docs/dev/todo-and-known-bugs.md as OPTIMIZER-INGAME-CELLS-LEAK-RECORDINGSTORE-
+#   SUPPRESSLOGGING.
+#   PRE-REGISTERED OUTCOMES OF THE READING (classified before the flight):
+#     (A) `total=7 passed=3 failed=0 skipped=4` and one
+#         `KSC relative runtime probe resolved anchorRec=runtime-ksc-recorded-anchor
+#         error=0.NNNm` line. Then: pin whole, require the probe line, fly armed + a
+#         negative control, and only then claim D3 `relative-anchored-nonloop`.
+#     (B) The KSC cell SKIPS on its own guard ("No ParsekKSC instance" / "Kerbin body
+#         unavailable"): `passed=2 skipped=5` and no probe line. No D3 claim; whether
+#         the constituent stays (it still executes 2) is a supervisor decision.
+#     (C) Any SceneAndPatch cell FAILS: PARSEK-FAIL, a finding filed in the todo, never
+#         re-flown away, no claim.
+#     (D) `recordings.count` reads nonzero: the KSC cell's cleanup leaked its tree into
+#         the produced save. A finding.
+#     (E) Any of the six whole lines moves: an ordering regression. A finding.
+#   The same reading also measures the wave DLL's `BgOnRailsNoEnvSectionsWitness` line
+#   (the `Recording` constituent, package A1-2). Nothing is pinned or claimed off it here.
+description = "Run the seven SPACECENTER-scoped long-tail in-game categories as one multi-category batch over an empty store: six constituents pinned whole, the seventh (SceneAndPatch, appended 2026-09-10) in reading shape until its first flight."
 instanceProfile = "stock-minimal"
 tags = ["ingame-batch", "multi-category", "long-tail", "LT-2"]
 
@@ -41,7 +88,8 @@ kind = "seam"
 steps = [
   { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
   { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
-  { cmd = "RunTests",   args = { category = "Optimizer,Recording,ResourceReconciliation,WarpToTime,TestRunnerIsolation,SwitchIntentPatch" }, expect = "OK", budget = 540 },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  { cmd = "RunTests",   args = { category = "Optimizer,Recording,ResourceReconciliation,WarpToTime,TestRunnerIsolation,SwitchIntentPatch,SceneAndPatch" }, expect = "OK", budget = 540 },
   { cmd = "FlushAndQuit",                                                     expect = "OK" },
 ]
 
@@ -56,16 +104,20 @@ allowedAnomalies = []
 count = { min = 0, max = 0 }
 
 [expectations.logContracts]
-# ANTI-VACUITY, PER CONSTITUENT: the measured empty-store census lines, whole.
+# ANTI-VACUITY, PER CONSTITUENT: the measured empty-store census lines, whole, for the
+# six measured constituents. The SceneAndPatch line and the aggregate are INTERIM (see
+# the header): `total=` literal, the split regexed, `passed=[1-9][0-9]*` so a vacuous
+# slice still reds, `failed=0` the assertion.
 required  = [
-  "runtests start category=Optimizer,Recording,ResourceReconciliation,WarpToTime,TestRunnerIsolation,SwitchIntentPatch isolated=false strict=false multi=6",
+  "runtests start category=Optimizer,Recording,ResourceReconciliation,WarpToTime,TestRunnerIsolation,SwitchIntentPatch,SceneAndPatch isolated=false strict=false multi=7",
   "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=Optimizer scene=SPACECENTER",
   "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=Recording scene=SPACECENTER",
   "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=ResourceReconciliation scene=SPACECENTER",
   "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=WarpToTime scene=SPACECENTER",
   "BATCH_COMPLETE v1 total=2 passed=1 failed=0 skipped=1 category=TestRunnerIsolation scene=SPACECENTER",
   "BATCH_COMPLETE v1 total=3 passed=1 failed=0 skipped=2 category=SwitchIntentPatch scene=SPACECENTER",
-  "BATCH_COMPLETE v1 total=10 passed=7 failed=0 skipped=3 category=multi:6 scene=SPACECENTER",
+  "BATCH_COMPLETE v1 total=7 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=SceneAndPatch scene=SPACECENTER",
+  "BATCH_COMPLETE v1 total=17 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=multi:7 scene=SPACECENTER",
 ]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 

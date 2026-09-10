@@ -6963,6 +6963,8 @@ class MultiCategoryBatchWiringGroupTests(unittest.TestCase):
             "WarpToTime": 1,
             "TestRunnerIsolation": 2,
             "SwitchIntentPatch": 3,
+            # Appended 2026-09-10 in reading shape; see INTERIM_CONSTITUENTS.
+            "SceneAndPatch": 7,
         }),
         # The 2026-09-07 second census moved three LT-1 constituents to hosts that
         # execute more of them and added the cells only those hosts reach.
@@ -6988,7 +6990,27 @@ class MultiCategoryBatchWiringGroupTests(unittest.TestCase):
     # for every constituent. It must stay a set LITERAL of ids (or `set()` when
     # empty, NEVER a `{}` literal, which would be an empty DICT and make every
     # membership read False).
-    INTERIM_PIN_IDS: set = set()
+    INTERIM_PIN_IDS: set = {"LT-2-long-tail-spacecenter"}
+
+    # PER-CONSTITUENT NARROWING of INTERIM_PIN_IDS. A member listed here has only
+    # the named constituents interim, and every OTHER constituent must stay pinned
+    # whole. A member listed in INTERIM_PIN_IDS but NOT here is interim in every
+    # constituent (a never-flown lane). This exists for the case the whole-spec
+    # switch cannot express: a flown lane that GAINS a constituent keeps its
+    # measured lines gating while the new one waits for its reading. Loosening the
+    # measured lines to fit the switch would un-gate them for no reason.
+    #   LT-2: `SceneAndPatch` appended 2026-09-10 (claim-gap wave A1-4); its
+    #   SPACECENTER slice has never executed. Remove both entries when the reading
+    #   converts the line to measured.
+    INTERIM_CONSTITUENTS: dict = {
+        "LT-2-long-tail-spacecenter": {"SceneAndPatch"},
+    }
+
+    def _constituent_is_interim(self, sid, category):
+        if sid not in self.INTERIM_PIN_IDS:
+            return False
+        narrowed = self.INTERIM_CONSTITUENTS.get(sid)
+        return narrowed is None or category in narrowed
 
     @classmethod
     def setUpClass(cls):
@@ -7083,6 +7105,38 @@ class MultiCategoryBatchWiringGroupTests(unittest.TestCase):
             self.INTERIM_PIN_IDS, set(self.GROUP),
             "INTERIM_PIN_IDS names ids that are not GROUP members: %s"
             % sorted(self.INTERIM_PIN_IDS - set(self.GROUP)))
+
+    def test_the_interim_constituent_map_narrows_only_interim_members(self):
+        # The narrowing is only meaningful under the switch it narrows: an entry
+        # for a member NOT in INTERIM_PIN_IDS would be read by nothing, and a
+        # constituent the member does not batch would exempt nothing while looking
+        # like it exempts something. Each value must be a non-empty SET (a `{}`
+        # value is an empty dict, the trap the sibling cell guards).
+        self.assertIsInstance(self.INTERIM_CONSTITUENTS, dict)
+        self.assertLessEqual(
+            set(self.INTERIM_CONSTITUENTS), self.INTERIM_PIN_IDS,
+            "INTERIM_CONSTITUENTS names ids missing from INTERIM_PIN_IDS: %s"
+            % sorted(set(self.INTERIM_CONSTITUENTS) - self.INTERIM_PIN_IDS))
+        for sid, cats in sorted(self.INTERIM_CONSTITUENTS.items()):
+            with self.subTest(spec=sid):
+                self.assertIsInstance(cats, set)
+                self.assertTrue(cats, "%s: an empty narrowing exempts nothing" % sid)
+                self.assertLessEqual(
+                    cats, set(self.GROUP[sid][1]),
+                    "%s: INTERIM_CONSTITUENTS names categories the member does "
+                    "not batch: %s" % (sid, sorted(cats - set(self.GROUP[sid][1]))))
+
+    def test_the_narrowing_rule_reads_both_tables(self):
+        # Synthetic, so it holds whatever is registered today: listed + narrowed
+        # -> only the named constituent; listed + not narrowed -> every
+        # constituent; not listed -> none.
+        probe = MultiCategoryBatchWiringGroupTests("test_the_narrowing_rule_reads_both_tables")
+        probe.INTERIM_PIN_IDS = {"ZZ-narrowed", "ZZ-whole-spec"}
+        probe.INTERIM_CONSTITUENTS = {"ZZ-narrowed": {"Watch"}}
+        self.assertTrue(probe._constituent_is_interim("ZZ-narrowed", "Watch"))
+        self.assertFalse(probe._constituent_is_interim("ZZ-narrowed", "Unity"))
+        self.assertTrue(probe._constituent_is_interim("ZZ-whole-spec", "Unity"))
+        self.assertFalse(probe._constituent_is_interim("ZZ-unlisted", "Watch"))
 
     def test_the_group_is_exactly_the_committed_set(self):
         # SET EQUALITY against disk. Passes at zero on both sides, and fires the
@@ -7193,9 +7247,9 @@ class MultiCategoryBatchWiringGroupTests(unittest.TestCase):
                     self.assertIsNotNone(pin, sid)
                     loose = pin.passed is None or pin.skipped is None
                     self.assertEqual(
-                        sid in self.INTERIM_PIN_IDS, loose,
+                        self._constituent_is_interim(sid, category), loose,
                         "%s / %s: interim-vs-whole pin state disagrees with "
-                        "INTERIM_PIN_IDS" % (sid, category))
+                        "INTERIM_PIN_IDS / INTERIM_CONSTITUENTS" % (sid, category))
                     self.assertIsNotNone(
                         pin.total,
                         "%s must pin total= for %s even when the split is "
