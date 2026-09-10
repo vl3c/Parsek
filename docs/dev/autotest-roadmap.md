@@ -377,7 +377,9 @@ remains is, in order:
    evaluator (11) alongside.
 6. **Loop-render residue, in this order**: G2's KSC third (`V20K`: reading
    `2026-09-10_1858` PASS measured 0 eligible, a LIMITATION MEASURED rather than a
-   payoff; armed off those bytes, its armed re-flight and own control owed); the criterion (b)
+   payoff; armed off those bytes, armed re-flight `2026-09-10_2159_a2` PASS and own
+   control `2026-09-10_2202` valid - discipline complete, D14 scene-ksc / sandbox claimed
+   with no count moved); the criterion (b)
    control debt, lane by lane in todo V-PAIR-CRITERION-B-RENDER-CONTROL-DEBT
    (re-derived and DISCHARGED 2026-09-10: all eighteen owed controls flown valid); G8 (long-horizon recurrence + co-residency -
    instrument work first, then the three roads; the one player-visible risk still
@@ -2590,8 +2592,9 @@ initialized, 1 committed recordings, 0 eligible`, breakdown `ineligible(Orbiting
 pose, point-skipped or segment-skipped lines. The outright-rejection gate fires, so the
 Kerbin-bodied final section never reaches the per-point gate. Under criterion (c) this is now a
 LIMITATION MEASURED, run `2026-09-10_1858`: G2's KSC third is not delivered by a foreign-rooted
-subject. V20K is armed on what it measured (literal pins, the pose line forbidden); its armed
-re-flight and own control are owed.
+subject. V20K is armed on what it measured (literal pins, the pose line forbidden), and its armed
+re-flight `2026-09-10_2159_a2` (PASS) and own control `2026-09-10_2202` (red on exactly the
+inverted `0 eligible` literal, drift gate met) landed the same night: discipline complete.
 
 **G3 - Surface endpoints.** Every committed loop lane ends at an ORBIT. A loop
 whose recording ENDS LANDED OR SPLASHED exercises a different render stack, and

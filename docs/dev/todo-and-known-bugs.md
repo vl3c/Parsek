@@ -5332,16 +5332,16 @@ regex matches >= 1 line while the inverted one matches 0 (the drift gate: an in-
 edit never evaluates the original, so without it a drifted pin would still read as a
 perfect one-mismatch control).
   * Phase-lock row, destination body -> `Eeloo`: V6M, V6T, V7M, V14M, V14T, V15M, V15T,
-    V16M, V16T. Control of record today is the shared `rewind.supersedeRows` inversion
+    V16M, V16T. Control of record when this entry was filed: the shared `rewind.supersedeRows` inversion
     (`2026-08-08_1644` for the moon trio, `2026-08-19_0003` V14, `2026-08-19_1810` V15,
     `2026-08-19_2213` V16).
-  * Re-aim row: V5 and V8T, TS ProtoIcon body -> `Eeloo` (control of record V4's
+  * Re-aim row: V5 and V8T, TS ProtoIcon body -> `Eeloo` (control of record when filed: V4's
     `2026-08-08_1156` and V8's `2026-08-11_0830`); V8, census
     `seam-endpoint summary evaluated=[1-9] outsideSoi=0` -> `outsideSoi=9`; V8F,
     `reason=seam-endpoint-outside-soi fromBody=Sun toBody=Eve seamUT=322253` ->
     `toBody=Moho` (control of record V8's `2026-08-11_0830`).
   * Moon-to-sibling row: V17M, the TracedPath shadow `... .*body=Vall` -> `body=Eeloo`, and
-    V17T, the ProtoIcon `body=Vall` -> `body=Eeloo`. Control of record the shared
+    V17T, the ProtoIcon `body=Vall` -> `body=Eeloo`. Control of record when filed: the shared
     `2026-08-20_1941` supersedeRows inversion (not V20M's `2026-08-27_1941`). The halves
     pin different lenses, so they owe two controls.
   * V13A: NO control is recorded anywhere (status row or spec). Census
@@ -5401,7 +5401,8 @@ in the lane's status row and in its spec-header CRITERION (b) block.
   * V13A `_2100` 1/0 (census outsideSoi=0 -> 9), the lane's first control of any kind.
   * V23M `_2102` 2/0 (`phase=MeshSpawned .*reason=ghost-created` -> `reason=chain-loop unit`).
   * V2 `2026-09-10_2104` 1/0 (ProtoOrbitLine Duna -> Eeloo).
-No control passed and none drifted. Side readings are filed separately: GHOST-MAP-ENSURE-ORBIT-RENDERERS-TEARDOWN-NRE (V15T, Parsek frames at
+No control passed and none drifted. Each lane's shared `rewind.supersedeRows` inversion is retired as
+its control of record and stays its save-structure control only. Side readings are filed separately: GHOST-MAP-ENSURE-ORBIT-RENDERERS-TEARDOWN-NRE (V15T, Parsek frames at
 teardown) and RC-COVER-DARK-WINDOWS-READ-ON-BARE-LANES (V17M, V23M, report-only).
 
 ---
@@ -5465,7 +5466,7 @@ windows before it is resolved.
 
 ---
 
-## B29-KERBIN-RETURN-V20K-KSC-LANE-OWED: the KSC host third of G2's planet-to-Kerbin close [OPENED 2026-08-26 on branch `b29-duna-return` as B29-JOOL-KERBIN-RETURN-AUTHORED-NEVER-FLOWN. FLIGHTS 1-2 FLOWN 2026-08-27 (both INVALID, both calibration reads); RE-SCOPED ONTO THE PARENT-RELAY MODE the same day; **FLIGHT 3 PASS ATTEMPT 1 the same day** - the subject EXISTS, harvested as `fixtures/saves/kerbin-return-recorded` (one recording, 739 points, seams Jool->Sun / Sun->Kerbin, Orbiting-at-Kerbin terminal). **RE-HEADED 2026-08-29 ONTO THE SOLE RESIDUAL**: both the old name and the old `REMAINING: the V20 lanes` clause were false - the producer flew three times, and `V20M-jool-kerbin-player-loop` + `V20T-jool-kerbin-ts-arrival` shipped DISCIPLINE-COMPLETE and ARMED in PR #1548 (merged 2026-08-27). WHAT REMAINS IS ONE THING: `V20K`, the KSC host lane over these same bytes, which had NO spec file anywhere in the tree until 2026-09-10 (corroborated then by `docs/dev/autotest-roadmap.md` and by PR #1548's own body). **SPEC AUTHORED 2026-09-10** on branch `loop-render-residue` as a READING-RUN spec (`harness/scenarios/V20K-jool-kerbin-ksc-arrival.toml`: three outcomes pre-registered in its header, all three PASS, nothing armed); what remains is its READING RUN. The three deferred operator decisions and the operator -> nightly promotion calls are explicitly NOT debt. TODO, not a defect]
+## ~~B29-KERBIN-RETURN-V20K-KSC-LANE-OWED: the KSC host third of G2's planet-to-Kerbin close~~ [**CLOSED 2026-09-10 on branch `loop-render-residue`: V20K DISCIPLINE-COMPLETE - reading `2026-09-10_1858`, armed re-flight `2026-09-10_2159_a2` PASS, own control `2026-09-10_2202` valid. The KSC third is a LIMITATION MEASURED (0 eligible), not a closed payoff.** OPENED 2026-08-26 on branch `b29-duna-return` as B29-JOOL-KERBIN-RETURN-AUTHORED-NEVER-FLOWN. FLIGHTS 1-2 FLOWN 2026-08-27 (both INVALID, both calibration reads); RE-SCOPED ONTO THE PARENT-RELAY MODE the same day; **FLIGHT 3 PASS ATTEMPT 1 the same day** - the subject EXISTS, harvested as `fixtures/saves/kerbin-return-recorded` (one recording, 739 points, seams Jool->Sun / Sun->Kerbin, Orbiting-at-Kerbin terminal). **RE-HEADED 2026-08-29 ONTO THE SOLE RESIDUAL**: both the old name and the old `REMAINING: the V20 lanes` clause were false - the producer flew three times, and `V20M-jool-kerbin-player-loop` + `V20T-jool-kerbin-ts-arrival` shipped DISCIPLINE-COMPLETE and ARMED in PR #1548 (merged 2026-08-27). WHAT REMAINS IS ONE THING: `V20K`, the KSC host lane over these same bytes, which had NO spec file anywhere in the tree until 2026-09-10 (corroborated then by `docs/dev/autotest-roadmap.md` and by PR #1548's own body). **SPEC AUTHORED 2026-09-10** on branch `loop-render-residue` as a READING-RUN spec (`harness/scenarios/V20K-jool-kerbin-ksc-arrival.toml`: three outcomes pre-registered in its header, all three PASS, nothing armed); its reading, arming, armed re-flight and own control all flew the same day (REMAINING item 1 below). The three deferred operator decisions and the operator -> nightly promotion calls are explicitly NOT debt. TODO, not a defect]
 
 `B29-jool-kerbin-return` is committed: spec, mission shell, schema, registration
 cells and a bare `[expectations.renderComposition]` declaration. FLIGHT 1
@@ -5654,7 +5655,7 @@ decision. Both lanes are in `test_hlib`'s `ARMED_ALLOWLIST` with the arming rati
     planet-to-Kerbin half is CLOSED FOR PRODUCTION on the flight-map and TS thirds, with the
     lens asymmetry stated rather than smoothed over.
 
-**REMAINING, AND IT IS SHORT.**
+**REMAINING, AND IT IS SHORT (item 1 DONE 2026-09-10; items 2 and 3 are not debt).**
   1. **`V20K`** - the KSC host lane over these same bytes. Spec AUTHORED 2026-09-10
      (`V20K-jool-kerbin-ksc-arrival`) and its reading `2026-09-10_1858` FLOWN the same day, PASS
      attempt 1 with every verifier green. OUTCOME (A), the source prediction:
@@ -5664,8 +5665,11 @@ decision. Both lanes are in `test_hlib`'s `ARMED_ALLOWLIST` with the arming rati
      Kerbin-bodied points in the final section never reach the per-point gate. Under criterion (c)
      G2's KSC third is now a LIMITATION MEASURED, run `2026-09-10_1858`, not a closed payoff.
      ARMED off those bytes the same day (literal init pins, the pose line forbidden, rewind and
-     structure gating). STILL OWED, and this entry closes when they land: the armed re-flight and
-     the lane's own negative control (`0 eligible` -> `1 eligible`).
+     structure gating). **DONE 2026-09-10**: armed re-flight `2026-09-10_2159_a2` PASS (attempt 1
+     `_2158` INVALID on the LoadGame race, absorbed by the retry) and the lane's own negative
+     control `2026-09-10_2202` (`0 eligible` -> `1 eligible`), PARSEK-FAIL(expectation) on exactly
+     that element with the drift gate met (original 1 / inverted 0), reverted. D14 scene-ksc and
+     sandbox claimed after both (no count moves); `kerbin` deliberately not claimed.
   2. **Deferred OPERATOR decisions, none of them debt.** (a) The `renderComposition` windows on
      both lanes - declared bare on purpose; windows are written from facets accumulated on tier
      cadence under the M-A7 wave process. (b) V20T's `created 0 ghost vessel\(s\)` forbid -
