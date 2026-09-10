@@ -8785,10 +8785,10 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "GS-8-kerbalx-zone-round-trip.toml":  "calibration-discipline - AUTHORED 2026-09-08 (the 120 km render-ladder step both ways, a longer core burn and a late watch entry on the unchanged kx machine); operator tier is the never-flown calibration hold, discharged by the reading run + re-pin + armed re-flight + negative control, not a debt",
         # Ghost-replay Tier B item 8 (2026-09-10, `ghost-replay-tier-b`): GS-4's
         # subject rewound TWICE off one committed tree through the kx machine's new
-        # `rewindCycles` opt-in. Same calibration discipline as GS-7 / GS-8, and
-        # never flown: its outcomes are pre-registered in the spec header and what
-        # is owed is the READING RUN, carried by the `pending-flight` tag.
-        "GS-9-kerbalx-repeat-rewind.toml":    "calibration-discipline - AUTHORED 2026-09-10 (repeat-rewind idempotence: a second Rewind-to-Launch off the SAME committed tree, rewindCycles=2 on the kx machine, five outcomes pre-registered in the header); operator tier is the never-flown calibration hold, discharged by the reading run + re-pin + armed re-flight + negative control, not a debt",
+        # `rewindCycles` opt-in. Same calibration discipline as GS-7 / GS-8: read
+        # 2026-09-10 (outcome O1) and armed off that run's bytes; what is owed is
+        # the armed re-flight and the negative control, then the promotion call.
+        "GS-9-kerbalx-repeat-rewind.toml":    "calibration-discipline - AUTHORED and READ 2026-09-10 (repeat-rewind idempotence: a second Rewind-to-Launch off the SAME committed tree, rewindCycles=2 on the kx machine; reading `2026-09-10_1944` PASS attempt 1, outcome O1 IDEMPOTENT) and ARMED off those bytes; operator tier is the calibration hold, discharged by the armed re-flight + negative control, not a debt",
         # tier=operator by PROMOTION POLICY on a NEVER-FLOWN lane, the GS-1 shape
         # exactly: GS-6 is authored and registered but has not flown, so it cannot
         # sit on a cadence. Its debt is the READING RUN, carried by the
@@ -11345,6 +11345,15 @@ class GhostLifecycleVerifierWiringTests(unittest.TestCase):
         # uncommitted, reverted) red PARSEK-FAIL(ghost-lifecycle) attempt 1 on
         # exactly that clause with every other verifier green.
         "GS-7-kerbalx-crash-watch-hold.toml",
+        # ARMED 2026-09-10 off the reading run `2026-09-10_1944_GS-9-kerbalx-repeat-rewind`
+        # (PASS attempt 1, outcome O1 IDEMPOTENT): ghostLifecycle spawned=8 spawnLines=16
+        # destroyLines=16 unbalanced=0 malformed=0, the pre-registered values exactly, and
+        # 8 MeshSpawned + 8 MeshDestroyed in EACH cycle split at the second rewind line.
+        # The first spec to ARM the line-count windows, at EXACT pins (the same 8
+        # committed recordings replayed twice). ARMED RE-FLIGHT and NEGATIVE CONTROL
+        # (`destroyLines` to 17, uncommitted, reverted) are pending and are recorded here
+        # when they fly.
+        "GS-9-kerbalx-repeat-rewind.toml",
         # ARMED 2026-09-08 off two readings of the identical census: reading run 1
         # `2026-09-08_1119_GS-8-kerbalx-zone-round-trip` (PARSEK-FAIL on the late
         # watch entry, spawned=8/8/8 unbalanced=0 regardless) and round 2
@@ -11592,9 +11601,9 @@ class GhostLifecycleVerifierWiringTests(unittest.TestCase):
         #     twice, so the distinct `spawned` census stays at GS-4's 8 and the
         #     set-based balance ledger cannot see a cycle-2 leak of a recording
         #     that derendered in cycle 1 - which is why ghostlife gained
-        #     `spawnLines` / `destroyLines` windows the same day. REPORT-ONLY,
-        #     never flown, floors at the pre-registered 8 / 16 / 16; windows and
-        #     arming follow the reading run through GHOSTLIFE_ARMED_SPECS.
+        #     `spawnLines` / `destroyLines` windows the same day. READ 2026-09-10
+        #     (`2026-09-10_1944`, the pre-registered 8 / 16 / 16 exactly) and ARMED
+        #     at exact pins through GHOSTLIFE_ARMED_SPECS.
         "GS-9-kerbalx-repeat-rewind.toml",
         # THE FIRST DECLARER WITH A LIVE RE-FLY SESSION (RF-8, 2026-09-09), and
         # declared with NO WINDOWS AT ALL. Every other member arrived carrying a

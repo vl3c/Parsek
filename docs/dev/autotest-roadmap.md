@@ -3659,8 +3659,12 @@ first spawn frame (hold-then-retry, never a single eager ask).
    cycle cannot be seam steps: no verb launches a watcher and the ghost engine
    runs only in FLIGHT) and ghostlife's new `spawnLines` / `destroyLines` windows
    (the set-based balance ledger cannot see a second-replay leak of a recording
-   that derendered in the first). Reading run pending; row in the status doc's
-   Committed-not-yet-green table, five outcomes pre-registered in the spec.
+   that derendered in the first). READ 2026-09-10 (`2026-09-10_1944`, PASS attempt 1):
+   outcome (O1) IDEMPOTENT - the same `parsek_rw_` quicksave reloaded twice and 8
+   MeshSpawned + 8 MeshDestroyed in each cycle, so the quicksave lifecycle is
+   reusable. ARMED off those bytes (exact 8 / 16 / 16 ghostLifecycle windows plus a
+   per-cycle exactly-8 census); the armed re-flight and the negative control are
+   pending. Row in the status doc's Committed-not-yet-green table until they fly.
 9. **Arm `unityExceptions`** on GS-4 and W1 (`maxTotal` windows) - the NRE
    census is stable at 1-4 stock scene-change lines across four flights.
    2026-09-10 (`ghost-replay-tier-b`): READ twice each on the wave DLL. GS-4 is ARMED
