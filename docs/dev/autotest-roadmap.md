@@ -1085,6 +1085,12 @@ and are Info, but neither is structurally guaranteed the way creation is -
 destroyed on reentry inside that window ends its recording by another reason. Claiming
 on "likely" is what this section's own rule forbids. Close them by grepping an
 archived B-lane KSP.log for both tokens first.
+THAT GREP RAN 2026-09-10 (wave package A2): D5 `staging-debris-ttl` is not reachable on
+B1 or BDOCK-1 (`Debris TTL expired` in 0 of 17 BDOCK-1 and 0 of 8 B1 archives; 6 of 508
+program-wide, all intermittent - GS-7 4 of 10, B29 2 of 4), so it stays open for Tier A
+item 5; D2 `proximity-cadence-bg` is reachable on BDOCK-1 (`Sample rate changed: pid=` in
+17 of 17 archives) and is claimed only off this wave's own BDOCK-1 reading and armed
+run. Detail in the todo's R1 entry.
 Rule: one token per claimed class; never loosen a token to keep a claim.
 
 **R2. Resolve the two registry defects.** Registry-only. **STILL OPEN** -

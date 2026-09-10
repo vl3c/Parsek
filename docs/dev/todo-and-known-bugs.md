@@ -11052,6 +11052,20 @@ KSP.log for both tokens, then claim in a follow-up. `B1-pad-hop` ({1,6}) and
 the Kerbal X so neither inherits this evidence: B1's breakup-child count is
 documented as genuinely per-run variable, and BDOCK-1's window spans two trees and
 is commented "never tightened". Both want their own measurement, not this one.
+
+**2026-09-10, the archive grep this paragraph asked for (wave package A2): D5
+`staging-debris-ttl` is NOT reachable on B1-pad-hop or BDOCK-1, and stays OPEN.**
+`Debris TTL expired, ending recording:` appears in 0 of the 17 archived BDOCK-1 KSP.logs
+and 0 of the 8 B1-pad-hop logs under `../logs`, and in only 6 of 508 archives
+program-wide: GS-7 in 4 of its 10 (`2026-09-08_1457` / `_1525` / `_1631` / `_1700`,
+absent from the six later GS-7 runs) and B29 in 2 of its 4 (`2026-08-27_1854` /
+`_1937`). It is intermittent everywhere it appears, so the claim rule forbids it on any
+of those lanes; it needs a subject where TTL expiry is structurally guaranteed (roadmap
+Tier A item 5, "debris TTL / promotion sized as two lanes"). The D2 half is different:
+`Sample rate changed: pid=` is in 17 of 17 archived BDOCK-1 logs (18 to 39 lines each),
+so `proximity-cadence-bg` IS reachable there. The archives are ground truth for TOKENS
+only; the D2 claim waits for this wave's own BDOCK-1 reading and armed run (wave ruling
+G1), and the B1 / BDOCK-1 count windows wait for theirs.
 Rule, unchanged: one token per claimed class, and never loosen a token to keep a
 claim.
 
