@@ -269,6 +269,16 @@ terminalStates = { Landed = { min = 5 }, Docked = { min = 2 } }
 branchPoints   = { Dock = { min = 2, max = 2 }, Undock = { min = 2, max = 2 } }
 
 [expectations.routes]
+# ARMED 2026-09-10 (`gating = true`, wave package A2) off the reading run
+# `2026-09-10_1731` (stock-minimal, wave DLL a0abbed1, PASS attempt 1): every declared
+# window read exactly as declared - count=1 dormant=0 stops=2 sourceRefs=3
+# completedCycles=1 skippedCycles=1 (the floor) statuses={Active:1}; measured-only
+# holdKinds={} - so the arming moved NO number. Any report-only wording below is the
+# authoring record. `recordings.structure` above stays a report-only reading. Owed:
+# the armed re-flight. The windows gate through the routes evaluator paths already
+# inverted live (RVR-7 skippedCycles, RVR-20 completedCycles, V18T statuses); the one
+# path never inverted, the set-key facet, takes its control on RVR-18.
+#
 # REPORT-ONLY. `count` / `dormant` / `stops` / `sourceRefs` are RVR-7's MEASURED values
 # and cannot move (nothing here creates a second route or edits the source set).
 # `completedCycles = 1` is exact: cycle 0 delivered and cycle 1 can only block.
@@ -276,6 +286,7 @@ branchPoints   = { Dock = { min = 2, max = 2 }, Undock = { min = 2, max = 2 } }
 # for the reason in the header: the final `activate` leaves the route Active, and whether
 # it takes one more (necessarily blocked) crossing before `SaveGame` lands is frame
 # timing. A window that guessed would be a prediction dressed as a measurement.
+gating          = true
 count           = { min = 1, max = 1 }
 dormant         = { min = 0, max = 0 }
 stops           = { min = 2, max = 2 }

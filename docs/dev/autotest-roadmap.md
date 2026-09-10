@@ -386,7 +386,8 @@ remains is, in order:
    Operator item 8 (EVA-2 points-window reading run + negative control, ~64 s
    each; 2026-09-10: read on `2026-09-10_1720` and ARMED, re-flight + control
    queued); H59's report-only `[expectations.routes]` reading and the promotion of
-   the other report-only route declarers; ~~the `operator -> nightly` PROMOTION
+   the other report-only route declarers (2026-09-10: RVR-8..RVR-19 read and
+   ARMED; the other six declarers' readings queued); ~~the `operator -> nightly` PROMOTION
    calls for V18T, V20M, V20T, V25M, B29, V3C and GS-6~~ DONE 2026-09-08 (operator
    decision: all seven to nightly, B29's ~36 min and V3C's ~15 min included; the
    nightly p50 sum moves from ~6.2 h to ~7.3 h); the R1 residue windows on
@@ -1523,12 +1524,14 @@ read `supersedeRows 1 tombstones 1` on `2026-08-03_1834` and armed both floors o
 `_1844`; (b) ~~`route` / `loop` stay RESERVED -
 their consumers do not exist (zero committed declarers), so no evaluator was
 built for them~~ - UPDATED 2026-09-07: `route` SHIPPED 2026-09-02 as
-`[expectations.routes]` (PR #1603; declared by 21 specs - H58, H59, V18T, RVR-5,
-RVR-7, B32, V26M, V26T and the RVR-8..RVR-20 matrix; ARMED on exactly three at
-HEAD: RVR-7 (2026-09-03), RVR-20 and V18T, whose armed block passed gating with
-zero mismatches on its 2026-09-06 re-flight; V26T's block is report-only),
-so what is open in (b) is the promotion of the report-only declarers, per the
-supply-route program's machinery register; `loop` stays RESERVED by choice with
+`[expectations.routes]` (PR #1603; declared by 22 specs by a tomllib sweep - H58,
+H59, V18T, V27M, RVR-5, RVR-7, B32, V26M, V26T and the RVR-8..RVR-20 matrix; ARMED
+on RVR-7 (2026-09-03), RVR-20, V18T (whose armed block passed gating with zero
+mismatches on its 2026-09-06 re-flight) and V27M (2026-09-07), then on the twelve
+RVR-8..RVR-19 matrix lanes 2026-09-10 off their own wave reading runs, wave package
+A2), so what is open in (b) is the promotion of the six remaining report-only
+declarers (RVR-5, H58, H59, B32, V26M, V26T), per the supply-route program's
+machinery register; `loop` stays RESERVED by choice with
 zero declarers; (c) the analyzer-PR half (TrackSection frame/anchor +
 per-recording body asserts over the analyzer's parsed model) - the .sfs surface
 deliberately does not carry those, they live in `.prec` sidecars the analyzer

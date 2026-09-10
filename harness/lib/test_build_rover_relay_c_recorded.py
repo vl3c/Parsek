@@ -910,9 +910,21 @@ class RoverRelayCEndpointMatrixTests(unittest.TestCase):
             routes = self.spec[name]["expectations"]["routes"]
             self.assertEqual({"min": 0, "max": 0}, routes["completedCycles"], name)
             self.assertEqual({"min": 1, "max": 1}, routes["skippedCycles"], name)
-            self.assertNotIn("gating", routes,
-                             "%s must stay REPORT-ONLY: arming is a per-scenario "
-                             "operator decision after a reading run" % name)
+            self.assertIs(True, routes.get("gating"),
+                          "%s: `routes` was ARMED 2026-09-10 off its own reading "
+                          "run (wave package A2); un-arming it is a decision, "
+                          "not a drift" % name)
+
+    def test_every_matrix_lane_arms_routes_and_only_routes(self):
+        """ARMED 2026-09-10 (wave package A2): each of the eight lanes' `routes`
+        block, off its own reading run on the wave DLL, every window matching as
+        declared. `recordings.structure` stays a REPORT-ONLY reading on all
+        eight: the arming ruling named `routes`, and a structure arming would owe
+        its own inversion."""
+        for name in self.MATRIX:
+            exp = self.spec[name]["expectations"]
+            self.assertIs(True, exp["routes"].get("gating"), name)
+            self.assertNotIn("gating", exp["recordings"]["structure"], name)
 
     def test_only_rvr8_drives_a_second_cycle(self):
         for name in self.MATRIX:

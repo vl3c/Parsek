@@ -9993,7 +9993,34 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # first armed points block anywhere; no number moved. Owed: the
                        # armed re-flight and its own negative control (largest
                        # inverted to a 99-point floor, in place, reverted).
-                       "EVA-2-orbital-board.toml"}
+                       "EVA-2-orbital-board.toml",
+                       # RVR-8..RVR-19, the supply-route matrix: `routes` armed
+                       # 2026-09-10 (wave package A2), each lane off its OWN reading
+                       # run on the wave DLL a0abbed1, flown in one `--tag matrix`
+                       # batch - RVR-10 `_1721`, RVR-11 `_1722`, RVR-12 `_1723`,
+                       # RVR-13 `_1724`, RVR-14 `_1725`, RVR-15 `_1726`, RVR-16
+                       # `_1726`, RVR-17 `_1727`, RVR-18 `_1728`, RVR-19 `_1729`,
+                       # RVR-8 `_1731`, RVR-9 `_1731`. Every declared window read as
+                       # declared, so no number moved. RVR-20, already armed, rode
+                       # the same batch as the control and read gating PASS with no
+                       # mismatch. The count, cycle and status windows share the
+                       # evaluator paths RVR-7, RVR-20 and V18T already inverted
+                       # live; the one path never inverted, the set-key facet, takes
+                       # its negative control on RVR-18. Owed: the armed re-flights
+                       # and that control. `recordings.structure` stays report-only
+                       # on all twelve.
+                       "RVR-8-rover-relay-c-second-cycle-hold.toml",
+                       "RVR-9-rover-relay-c-surface-cadence.toml",
+                       "RVR-10-rover-relay-c-origin-empty.toml",
+                       "RVR-11-rover-relay-c-origin-partial.toml",
+                       "RVR-12-rover-relay-c-origin-cargo-missing.toml",
+                       "RVR-13-rover-relay-c-destination-full.toml",
+                       "RVR-14-rover-relay-c-destination-partial.toml",
+                       "RVR-15-rover-relay-c-destination-empty.toml",
+                       "RVR-16-rover-route-destination-slots-full.toml",
+                       "RVR-17-rover-route-career-funds-short.toml",
+                       "RVR-18-rover-route-endpoint-removed.toml",
+                       "RVR-19-rover-route-endpoint-transport-only.toml"}
 
     def test_no_committed_spec_arms_gating(self):
         armed = []
