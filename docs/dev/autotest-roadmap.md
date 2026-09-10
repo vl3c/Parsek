@@ -179,7 +179,7 @@ takes:
 | D8 | ledger / career | 18 / 18 | Done. |
 | D9 | rewind / re-fly | 16 / 17 | `load-time-sweep` only, a unit-level sweep no lane drives (ghost-replay Tier B item 7). |
 | D10 | logistics / routes | 23 / 24 | `harvest-provenance` only; an operator ore-drill flight (supply-route hand-off). |
-| D1 | recording lifecycle | 13 / 18 | `manual-gloops`, `stop-on-switch` (R2 registry call), `commit-abort` (needs its definition), `sub-2-point-drop`, `switch-segment-noop-discard` (lane `S0.12-switch-noop-discard` authored 2026-09-10, reading pending): the Tier D authoring pass, register item 8. |
+| D1 | recording lifecycle | 13 / 18 | `manual-gloops`, `stop-on-switch` (R2 registry call), `commit-abort` (needs its definition), `sub-2-point-drop` (a registry / verb decision, todo D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE), `switch-segment-noop-discard` (lane `S0.12-switch-noop-discard` authored 2026-09-10, reading pending): the Tier D authoring pass, register item 8. |
 | D7 | part events / FX | 12 / 16 | `chute-cut`, `bays` (GS-6 residues, need a descent variant and a ServiceBay tail), `engine-fx-effects`, `inventory-place-remove` (Tier 4 producer). |
 | D14 | bodies / scenes | 24 / 32 | Tylo / Bop / Pol (G9), `atmosphere`, `situation`, `warp-1x`, `warp-phys`, `scene-editor`: breadth, behind everything else. |
 | D11 | missions abstraction | 12 / 18 | `default-mission`, `leg-trim`, `whole-mission-loop`, `clone`, `station-phase-lock`, `s4-arrival-restitch`: Missions-tab semantics that need seam verbs equivalent to the tab's buttons (`MissionConfig` exists; the rest do not). |
@@ -396,6 +396,11 @@ remains is, in order:
    on `stop-on-switch` (still unclaimable as written; the other R2 cell,
    `surface-body-fixed`, is claimed by `H17-flight-integration`, so R2 is down to
    one cell and its "two unclaimable cells" text is stale).
+   2026-09-10 (`ghost-replay-tier-b`): `switch-segment-noop-discard` authored as
+   `S0.12-switch-noop-discard` (reading pending); `sub-2-point-drop` is BLOCKED on a
+   registry / verb decision to take together with R2 - its only producer is reached
+   in always-tree mode only through rare split-edge aborts no verb drives (todo
+   D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE).
 9. **Trust risks** that no lane moves by itself: risk 4 (the ledger oracle's
    independence check is a structural no-op; needs a reputation-producing scenario
    carrying a ledger block), risk 8 (no mutation tool), known-gate 14 (strict
@@ -3690,6 +3695,11 @@ first spawn frame (hold-then-retry, never a single eager ask).
     consume builds a fresh tree and the scene exit discards a Standalone no-op
     segment; a live tree gives the deferred BgMemberOrMixed shape GS-3 measured).
     Reading run pending; row in the status doc's Committed-not-yet-green table.
+    `sub-2-point-drop` is NOT reachable with existing verbs after all: its only
+    producer is reached in always-tree mode only through rare split-edge aborts
+    (`TryAppendCapturedToTree`'s <2-point guard into `FallbackCommitSplitRecorder`),
+    0 hits in 508 collected logs, and no verb aborts a split edge early - BLOCKED on
+    a registry / verb decision, todo D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE.
 
 Sequencing recommendation, stated once: Tier A item 1 first (largest coverage
 per flight), then item 2 (the long-declined D6 cell), then Tier C item 10 +

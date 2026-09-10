@@ -15,6 +15,77 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE: the registry cell's only producer is reached in always-tree mode only through rare split-edge aborts, and no seam verb drives one [FILED 2026-09-10 by the ghost-replay Tier B / Tier D wave (`ghost-replay-tier-b`) while authoring the Tier D residue. A REGISTRY / VERB DECISION, not a product defect. BLOCKED on the operator, paired with the R2 `stop-on-switch` call]
+
+**What the cell names.** `harness/coverage/registry.toml` D1 `sub-2-point-drop`: a
+recording shorter than two points is dropped instead of committed. The only producer
+of that behaviour is `RecordingStore.CreateRecordingFromFlightData`
+(`RecordingStore.cs` ~530-549), whose two lines read `Recording too short for
+'<name>' (N points, need >= 2)` and `Recording too short after trimming for '<name>'
+(N points)`, each followed by `discarded`.
+
+**Its callers, re-derived from the full caller set** (grep of
+`CreateRecordingFromFlightData(` and `FallbackCommitSplitRecorder(` over
+`Source/Parsek`):
+
+1. `ChainSegmentManager.CommitSegmentCore` (`ChainSegmentManager.cs:648`, plus its
+   Verbose `CommitSegmentCore: segment too short`). Its entry points are dead or
+   circular in always-tree mode:
+   - `CommitChainSegment` from `ParsekFlight.cs:1386`, gated on
+     `chainManager.PendingContinuation`, which nothing in `Source/Parsek` ever sets
+     true (grep `PendingContinuation = true`: 0 hits), and from `ParsekFlight.cs:12828`
+     (the chain boarding transition), gated on `chainManager.ActiveChainId != null`;
+   - `CommitVesselSwitchTermination` (`ParsekFlight.cs:11900`), also behind
+     `ActiveChainId != null`;
+   - `ActiveChainId` is assigned ONLY inside the commit core itself
+     (`ChainSegmentManager.cs:672`, "First transition: initialize chain"), so both
+     gates are circular;
+   - `CommitBoundarySplit` (`ParsekFlight.cs:11908` / `:12860`): all three boundary
+     triggers early-return `Atmosphere|SOI change|Altitude boundary suppressed in tree
+     mode` (`ParsekFlight.cs:12896` / `:12930` / `:12982`);
+   - `CommitDockUndockSegment` (`ParsekFlight.cs:12710-12744`) sits behind the
+     dock-merge path after `HandleTreeDockMerge`; not proven dead - see the census.
+2. `ParsekFlight.FallbackCommitSplitRecorder` (`ParsekFlight.cs:6829`, Warn `Split
+   branch failed` ... `recording too short to commit, data lost`). THIS IS THE LIVE
+   TREE-MODE ROUTE: it first tries `TryAppendCapturedToTree`, which returns false on
+   `captured.Points.Count < 2` EVEN WITH a live tree (`ParsekFlight.cs:4759`), and only
+   then calls the factory. Every caller is an abnormal split-edge abort:
+   `CreateSplitBranch` with no active recording (`:5665`), `ResumeSplitRecorder`'s
+   destroyed-vessel and resume-failed branches (`:6946`, `:6964`),
+   `DeferredUndockBranch` invalid state (`:6999`), `DeferredEvaBranch` invalid state /
+   null EVA vessel (`:7078`, `:7091`), `DeferredJointBreakCheck` with no active vessel
+   (`:7238`), and the orphaned-`CaptureAtStop` commit before a new recording starts
+   with no live tree (`:13477`).
+3. The Gloops manual recorder (`ParsekFlight.cs:17058`, ScreenMessage `Gloops recording
+   too short - discarded`). No seam verb drives Gloops, which is also why D1
+   `manual-gloops` is uncovered.
+
+**Census.** 0 occurrences of `Recording too short|segment too short|Split branch
+failed` across the 508 collected KSP.logs in `../logs` (the wave plan's scan,
+reproduced by its critique). These lines log at Info / Warn, never Verbose, so the zero
+is real: the edges are RARE, not proven dead.
+
+**Why no lane closes it now.** No existing seam verb reliably makes a split edge abort
+before the split recorder's second sample, and the wave allows no C# change.
+
+**Fix options (operator decision; take it together with R2's `stop-on-switch`):**
+(1) keep the cell and add a Gloops seam verb (a C# change), so `manual-gloops` and
+`sub-2-point-drop` close together - the drop driven by a Gloops recording stopped
+before its second sample;
+(2) redefine the cell against the live tree-mode route (the `TryAppendCapturedToTree`
+<2-point guard plus `FallbackCommitSplitRecorder`'s `Split branch failed` line) and
+give it a verb or fault seam that aborts a split edge early. NOT
+`ParsekFlight.IsZeroPointLeaf` (`ParsekFlight.TerminalOrbit.cs:348`): that prune is a
+DIFFERENT predicate (`Points.Count == 0`);
+(3) delete the value with a rationale comment - DEMOTED, because a same-predicate
+tree-mode path exists and deletion would drop a real behaviour from the registry.
+
+**Stale comments to correct in the PR that takes the decision (not a drive-by):** the
+"stationary-pod sub-2-point-drop" remarks at
+`harness/scenarios/S0.5-live-record-discard.toml:74` and
+`harness/scenarios/S0.6-live-record-commit.toml:62` predate always-tree mode; a tree
+commit never passes through `CreateRecordingFromFlightData`.
+
 ## REPUTATION-SEED-CAPTURED-MID-FLIGHT-REAPPLIES-PRE-SEED-AWARDS: the lazy `ReputationInitial` seed is read off the live pool at the first commit, so every reputation award recorded BEFORE that moment is inside the seed AND replayed as a row
 
 Filed 2026-09-10 while shipping the crew-death reputation penalty (branch
