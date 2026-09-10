@@ -3649,6 +3649,13 @@ first spawn frame (hold-then-retry, never a single eager ask).
 8. **Repeat-rewind idempotence.** Rewind, watch to completion, rewind AGAIN
    from the same committed tree. Cheap; proves the `parsek_rw_*` quicksave
    lifecycle is reusable rather than one-shot.
+   AUTHORED 2026-09-10 (`ghost-replay-tier-b`): `GS-9-kerbalx-repeat-rewind`,
+   GS-4's subject with the kx machine's new `rewindCycles = 2` opt-in (the second
+   cycle cannot be seam steps: no verb launches a watcher and the ghost engine
+   runs only in FLIGHT) and ghostlife's new `spawnLines` / `destroyLines` windows
+   (the set-based balance ledger cannot see a second-replay leak of a recording
+   that derendered in the first). Reading run pending; row in the status doc's
+   Committed-not-yet-green table, five outcomes pre-registered in the spec.
 9. **Arm `unityExceptions`** on GS-4 and W1 (`maxTotal` windows) - the NRE
    census is stable at 1-4 stock scene-change lines across four flights.
 

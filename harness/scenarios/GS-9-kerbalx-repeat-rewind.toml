@@ -1,0 +1,240 @@
+schema = 1
+id = "GS-9-kerbalx-repeat-rewind"
+# =====================================================================================
+# REPEAT-REWIND IDEMPOTENCE on the GS-4 subject (ghost-replay Tier B item 8): fly the
+# staged Kerbal X, commit, REWIND TO LAUNCH, put the Jumping Flea on the pad, watch the
+# replay to its end - and then REWIND AGAIN from the SAME committed tree, relaunch the
+# SAME watcher, and watch the SAME replay a second time. The question the roadmap asks
+# is whether the `parsek_rw_*` launch quicksave is REUSABLE or one-shot, and whether
+# the second replay renders and derenders exactly what the first did.
+#
+# AUTHORED 2026-09-10 (`ghost-replay-tier-b`), NEVER FLOWN. READING SHAPE: every
+# cycle-2 token below is a presence regex anchored after the SECOND rewind line, every
+# evaluator block is REPORT-ONLY, and NOTHING is claimed in [dimensionsCovered] (a
+# claim enters only after the armed run and its negative control).
+#
+# =====================================================================================
+# THE CODE FACTS THIS SPEC RESTS ON - read, not assumed.
+#
+# (1) THE REWIND SAVE IS COPIED, NOT CONSUMED. `RecordingStore.ExecuteRewindSaveLoad`
+#     copies `Parsek/Saves/parsek_rw_<id>.sfs` to the saves root, loads the copy, and
+#     deletes ONLY that temporary copy (`TryDeleteFileQuietly(tempPath)`). The source
+#     quicksave stays, and the committed root keeps its `RewindSaveFileName` hint.
+# (2) `CanRewind` NEEDS ONLY: a resolved save name, the file on disk, no live
+#     recorder, no pending tree, no rewind in progress (RecordingStore.cs
+#     `CanRewindPreFileCheck` / `CanRewindWithResolvedSaveState`). After cycle 1's
+#     playback wait every one of those should hold: autoRecordOnLaunch was turned off
+#     before the watcher launched, so the watcher is not recorded.
+# (3) THE ORPHAN SWEEP DOES NOT TOUCH IT. `FlightRecorder.CleanupOrphanedRewindSave`
+#     deletes only the recorder's OWN previous hint when a NEW recording captures a
+#     quicksave, and no recording starts in this lane after the first launch.
+#     `ParsekScenario`'s stale sweep deletes `parsek_rw_*.sfs` from the saves ROOT
+#     (crash-left temp copies), not from `Parsek/Saves`. Whether the file actually
+#     survives is exactly what the second `Rewind: loading save` line below reads.
+# (4) NO COMMITTED LANE HAS EVER REWOUND TWICE. InvokeRewindToLaunch appears once in
+#     GS-4, GS-6, GS-7 and RF-4, and H58's second call is a REJECTED probe.
+#
+# THE MACHINERY. The second cycle cannot be post-mission seam steps: after a rewind
+# the world sits in SPACECENTER with no vessel, no seam verb launches a craft, and the
+# ghost engine runs only in FLIGHT. So the kx_rewind_watch machine gained the
+# `rewindCycles` opt-in (mlib, 2026-09-10): a completed PLAYBACK-WAIT with cycles
+# remaining OBSERVES the recorder idle in-phase (RecordingState under the fresh tag
+# `c1idle*`, RECORDER-IDLE's discipline), stamps the pre-rewind clock, and re-enters
+# REWIND under fresh per-cycle wire tags (`rewindc1`, `autorecc1`, `mapc1`,
+# `mapexitc1`; the WATCH counter just continues). The loop never leaves the
+# post-rewind block. The mission's ninth row, `rewindCyclesCompleted`, carries each
+# cycle's frozen record.
+#
+# THE WATCHER IS THE JUMPING FLEA BOTH CYCLES (supervisor ruling), GS-4's craft. Its
+# Mk1 pod needs a kerbal; GS-4's Flea flies on the stand-in
+# `CrewReservationManager.ReserveCrewIn` hires for the LIVING reserved Kerbal X crew.
+# Whether that stand-in is re-provided after the SECOND rewind is unmeasured, and it
+# is one of the outcomes pre-registered below rather than a reason to change craft.
+#
+# =====================================================================================
+# PRE-REGISTERED OUTCOMES (the reading classifies into exactly one; a Parsek-side
+# outcome is a FINDING filed in docs/dev/todo-and-known-bugs.md, never re-flown away).
+#
+#   (O1) IDEMPOTENT - the expected shape. A second `Rewind-to-Launch initiated to UT
+#        <same StartUT> (save: <same parsek_rw_ id>)`, a second `Rewind: loading save
+#        '<same id>' into SpaceCenter`, both `invokerewindtolaunch complete` terminals,
+#        watch entered twice, and the cycle-2 census equal to cycle 1's: 8 MeshSpawned
+#        + 8 MeshDestroyed after the second rewind line (parent, 6 booster debris, the
+#        "Kerbal X Probe" core). ghostLifecycle spawned=8 (distinct recIds - the SAME
+#        recordings replay) spawnLines=16 destroyLines=16 unbalanced=0; recordings=8;
+#        rows 9/9 met.
+#   (O2) ONE-SHOT QUICKSAVE. The cycle-2 rewind is REJECTED `rewind-gate Rewind save
+#        file missing` (the file was consumed) or `rewind-gate No rewind save
+#        available` (the hint was cleared): the mission flakes in REWIND naming
+#        Parsek's own reason. The roadmap question is answered "no" - a PRODUCT
+#        finding.
+#   (O3) CYCLE-2 CENSUS DIVERGES: fewer spawn / destroy lines after the second rewind,
+#        a population missing (a cycle-2 required token reds), or a ghost that leaks
+#        in cycle 2 (destroyLines < spawnLines). The idempotence finding this lane
+#        exists to catch.
+#   (O4) CYCLE-2 WATCHER NEVER SETTLES: WATCHER-READY flakes on the Flea after the
+#        second rewind (the NoControlSources hang - the stand-in not re-provided).
+#        Driver-INVALID by verdict, but a ROSTER finding about repeat rewinds: file it.
+#   (O5) A LIVE RECORDER IN THE WATCHER SCENE: the cycle-advance probe flakes naming
+#        a PARSEK-SIDE observation (`recording=true` after AUTORECORD-OFF). File it.
+#
+# WHAT THE READING RUN MUST MEASURE (and the arming commit then pins from bytes):
+# per-cycle MeshSpawned / MeshDestroyed line counts split at the second
+# `Rewind-to-Launch initiated` line, each cycle's destroy-reason census, both
+# `invokerewindtolaunch complete` terminals, the second `Rewind: loading save` id
+# against the first, the mission's `rewindCyclesCompleted` detail (both cycles'
+# regression / watcher / render verbs / playback), and the saveParse facets. A
+# per-cycle 8/8 split may then become a bracketed logContract (a cost-checked regex)
+# if the reading shows it is affordable on this log size.
+#
+# =====================================================================================
+tier = "operator"
+description = "Repeat-rewind idempotence on the GS-4 subject (ghost-replay Tier B item 8): staged Kerbal X ascent, commit, Rewind-to-Launch, Jumping Flea watch anchor, map view + watch mode, playback to completion - then a SECOND Rewind-to-Launch off the SAME committed tree with the same watcher and the same watch, via the kx machine's new rewindCycles=2 opt-in. Asks whether the parsek_rw_* quicksave is reusable and whether the second replay renders and derenders exactly what the first did. READING SHAPE: never flown, cycle-2 tokens anchored after the second rewind line, every evaluator block report-only, no dimension claims."
+instanceProfile = "stock-minimal"
+tags = ["GS9", "rewind-to-launch", "repeat-rewind", "watch-mode", "ghost-render", "derender", "ghost-lifecycle", "pending-flight"]
+
+[fixture]
+# GS-4's fixture, verbatim: gs1-two-stage-pad (the inert ParsekScenario node, a
+# pad-scene sandbox world, the committed Jumping Flea with its literal `ship =` line).
+saveTemplate       = "fixtures/saves/gs1-two-stage-pad"
+injectedRecordings = "none"
+craft              = []
+
+[driver]
+kind    = "autopilot"
+mission = "kx_rewind_watch"
+
+# `steps` MUST stay in the [driver] table, ABOVE the [driver.missionParams] header.
+# GS-4's six steps exactly; only the mission budget moves (see [runtime]). No
+# `StartRecording` (the recording begins at the launch click so the rewind save is a
+# pad save), no `RunTests`, autoMerge / verboseLogging / ghostRenderTracing for GS-4's
+# stated reasons.
+steps = [
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" },      expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "true" },   expect = "OK" },
+  { cmd = "SetSetting", args = { name = "autoMerge", value = "true" },            expect = "OK" },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" },       expect = "OK" },
+  { cmd = "SetSetting", args = { name = "ghostRenderTracing", value = "true" },   expect = "OK" },
+  { phase = "mission",                                                            expect = "MISSION-OK", budget = 3000 },
+  { cmd = "FlushAndQuit",                                                         expect = "OK" },
+]
+
+[driver.missionParams]
+craftName        = "Kerbal X"
+launchSite       = "LaunchPad"
+watcherCraftName = "Jumping Flea"
+# THE ONE PARAM THAT MAKES THIS GS-9 RATHER THAN GS-4.
+rewindCycles     = 2
+
+[dimensionsCovered]
+# NOTHING CLAIMED. This is a never-flown reading-shape spec, and a claim enters the
+# committed spec only after its armed run and negative control. The registry has no
+# repeat-rewind value; the candidate D9 re-claims (`rewind-to-launch`) and D6
+# (`basic-playback`, `mesh-lifecycle-derender`) would move no count, and a new
+# registry value is an operator decision, not this wave's.
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING: `allowedAnomalies` must precede every
+# [expectations.<sub>] header.
+allowedAnomalies = []
+
+[expectations.recordings]
+# PRE-REGISTERED: GS-4's census, unchanged by a second rewind. The committed tree is
+# the same 8 recordings (parent + 6 booster debris + the core child); the cycle-2
+# Flea launches with autoRecordOnLaunch OFF and authors nothing. A ninth recording is
+# outcome (O3)/(O5) territory.
+count = { min = 8, max = 8 }
+
+[expectations.logContracts]
+# GROUPS 1-5 are GS-4's sixteen tokens, verbatim (see GS-4's header for each one's
+# producer); in a two-cycle run each matches cycle 1 first.
+#
+# GROUP 6 - THE SECOND CYCLE, the lane's heart. [INTERIM - never flown; re-cut from
+# the reading bytes.] Cross-line `[\s\S]*?` sequences (the PPB-1 idiom; lazy, and
+# anchored on literals that occur once or twice per log):
+#   - the product's rewind line TWICE, with the SAME StartUT and the SAME quicksave
+#     (backreferences): the same owner, rewound twice;
+#   - the load line TWICE with the SAME `parsek_rw_` id: the file survived cycle 1;
+#   - the seam's rewind terminal twice, and genuine watch entry twice;
+#   - each ghost population's MeshSpawned and MeshDestroyed AFTER the second rewind
+#     line: the second replay rendered AND derendered the parent, the core and the
+#     booster debris.
+required  = ["Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
+             "Recording started",
+             "Controllable split children: \\[[0-9]+,[0-9]+\\]",
+             "ProcessBreakupEvent: controlled child created: pid=[0-9]+",
+             "Committed tree '.+' \\([1-9][0-9]* recordings\\)",
+             "Rewind-to-Launch initiated to UT",
+             "invokerewindtolaunch complete rec=",
+             "entermapview ok mapOpen=true",
+             "exitmapview ok mapOpen=false",
+             "enterwatchmode complete: index=",
+             "phase=MeshSpawned [^\\r\\n]*vessel=Kerbal X reason=ghost-created",
+             "phase=MeshSpawned [^\\r\\n]*vessel=Kerbal X Probe reason=ghost-created",
+             "phase=MeshSpawned [^\\r\\n]*vessel=Kerbal X Debris",
+             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X reason=(?:watch hold expired|playback completed|auto-followed)",
+             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Probe reason=",
+             "phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Debris",
+             "Rewind-to-Launch initiated to UT (\\S+) \\(save: (parsek_rw_[0-9a-f]+)\\)[\\s\\S]*?Rewind-to-Launch initiated to UT \\1 \\(save: \\2\\)",
+             "Rewind: loading save '(parsek_rw_[0-9a-f]+)' into SpaceCenter[\\s\\S]*?Rewind: loading save '\\1' into SpaceCenter",
+             "invokerewindtolaunch complete rec=[\\s\\S]*?invokerewindtolaunch complete rec=",
+             "enterwatchmode complete: index=[\\s\\S]*?enterwatchmode complete: index=",
+             "Rewind-to-Launch initiated to UT[\\s\\S]*?Rewind-to-Launch initiated to UT[\\s\\S]*?phase=MeshSpawned [^\\r\\n]*vessel=Kerbal X reason=ghost-created",
+             "Rewind-to-Launch initiated to UT[\\s\\S]*?Rewind-to-Launch initiated to UT[\\s\\S]*?phase=MeshSpawned [^\\r\\n]*vessel=Kerbal X Probe reason=ghost-created",
+             "Rewind-to-Launch initiated to UT[\\s\\S]*?Rewind-to-Launch initiated to UT[\\s\\S]*?phase=MeshSpawned [^\\r\\n]*vessel=Kerbal X Debris",
+             "Rewind-to-Launch initiated to UT[\\s\\S]*?Rewind-to-Launch initiated to UT[\\s\\S]*?phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X reason=(?:watch hold expired|playback completed|auto-followed)",
+             "Rewind-to-Launch initiated to UT[\\s\\S]*?Rewind-to-Launch initiated to UT[\\s\\S]*?phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Probe reason=",
+             "Rewind-to-Launch initiated to UT[\\s\\S]*?Rewind-to-Launch initiated to UT[\\s\\S]*?phase=MeshDestroyed [^\\r\\n]*vessel=Kerbal X Debris"]
+# The suite-wide ERROR pattern (it also covers the seam verbs' own failure terminals:
+# rewind-failed / rewind-timeout / enterwatchmode timeout log at ERROR), plus the
+# one-shot-quicksave refusal text (outcome O2) wherever the product or the seam
+# prints it.
+forbidden = ["\\[Parsek\\]\\[ERROR\\]",
+             "Rewind save file missing"]
+
+# REPORT-ONLY (gating absent). PRE-REGISTERED exact values: spawned=8 (distinct
+# recIds - both replays are of the SAME committed recordings), spawnLines=16 and
+# destroyLines=16 (8 per replay; GS-4 measured 8/8/8 on every flight). The line
+# windows are the new ghostlife keys (2026-09-10): the set-based balance ledger calls
+# a recording balanced once ANY of its ghosts was destroyed, so a cycle-2 leak of a
+# recording that derendered in cycle 1 is invisible to requireBalanced and visible
+# only as destroyLines < spawnLines. Floors, not pins, until the reading measures.
+[expectations.ghostLifecycle]
+spawned         = { min = 8 }
+spawnLines      = { min = 16 }
+destroyLines    = { min = 16 }
+requireBalanced = true
+
+# REPORT-ONLY, GS-4's block: Rewind-to-Launch builds neither supersede rows nor
+# tombstones, twice over.
+[expectations.rewind]
+supersedeRows = { max = 0 }
+tombstones    = { max = 0 }
+
+# REPORT-ONLY structural shape, GS-4's floors: a second rewind adds no recording, no
+# branch point and no terminal state.
+[expectations.recordings.structure]
+trees          = { min = 1, max = 1 }
+committedTrees = { min = 1, max = 1 }
+recordings     = { min = 8 }
+branchPoints   = { JointBreak = { min = 4 } }
+terminalStates = { SubOrbital = { min = 2 }, Destroyed = { min = 4 } }
+
+[runtime]
+# WALL clock for the WHOLE drive phase including KSP boot. GS-4's healthy worst case
+# at every cap was ~1275 s of mission (its header sums it); the second cycle adds the
+# in-phase idle probe (a few frames), a second rewind reload (the machine's own poll
+# window allows 420 s), a second watcher rollout (~120 s) and a second REAL-TIME
+# playback wait (span + 45 s, ~455 s at the flight cap) - ~1000 s more at the caps,
+# so ~2300 s. Mission budget 3000; 300 LoadGame + 3000 + ~900 boot and margin = 4200.
+# Nominal is far lower (GS-4 p50 338 s; two cycles ~700-800 s). A kill backstop, not a
+# target.
+budgetSeconds = 4200
+
+[retry]
+policy = "once"
+
+[expectedFail]
+# EMPTY, deliberately: an expectedFail key would demote the exact idempotence
+# regression this lane exists to catch.
+bugId = ""

@@ -8771,6 +8771,12 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # operator is the cadence call that follows, not outstanding human work.
         "GS-7-kerbalx-crash-watch-hold.toml": "calibration-discipline - AUTHORED 2026-09-08 (the watched explosion hold over a deliberate crash profile, the kx machine's impactProfile branch); operator tier is the never-flown calibration hold, discharged by the reading run + re-pin + armed re-flight + negative control, not a debt",
         "GS-8-kerbalx-zone-round-trip.toml":  "calibration-discipline - AUTHORED 2026-09-08 (the 120 km render-ladder step both ways, a longer core burn and a late watch entry on the unchanged kx machine); operator tier is the never-flown calibration hold, discharged by the reading run + re-pin + armed re-flight + negative control, not a debt",
+        # Ghost-replay Tier B item 8 (2026-09-10, `ghost-replay-tier-b`): GS-4's
+        # subject rewound TWICE off one committed tree through the kx machine's new
+        # `rewindCycles` opt-in. Same calibration discipline as GS-7 / GS-8, and
+        # never flown: its outcomes are pre-registered in the spec header and what
+        # is owed is the READING RUN, carried by the `pending-flight` tag.
+        "GS-9-kerbalx-repeat-rewind.toml":    "calibration-discipline - AUTHORED 2026-09-10 (repeat-rewind idempotence: a second Rewind-to-Launch off the SAME committed tree, rewindCycles=2 on the kx machine, five outcomes pre-registered in the header); operator tier is the never-flown calibration hold, discharged by the reading run + re-pin + armed re-flight + negative control, not a debt",
         # tier=operator by PROMOTION POLICY on a NEVER-FLOWN lane, the GS-1 shape
         # exactly: GS-6 is authored and registered but has not flown, so it cannot
         # sit on a cadence. Its debt is the READING RUN, carried by the
@@ -11569,6 +11575,15 @@ class GhostLifecycleVerifierWiringTests(unittest.TestCase):
         # the reading runs through GHOSTLIFE_ARMED_SPECS.
         "GS-7-kerbalx-crash-watch-hold.toml",
         "GS-8-kerbalx-zone-round-trip.toml",
+        # [D] THE FIRST DECLARER OF THE LINE-COUNT WINDOWS (GS-9, 2026-09-10,
+        #     ghost-replay Tier B item 8). It replays the SAME committed recordings
+        #     twice, so the distinct `spawned` census stays at GS-4's 8 and the
+        #     set-based balance ledger cannot see a cycle-2 leak of a recording
+        #     that derendered in cycle 1 - which is why ghostlife gained
+        #     `spawnLines` / `destroyLines` windows the same day. REPORT-ONLY,
+        #     never flown, floors at the pre-registered 8 / 16 / 16; windows and
+        #     arming follow the reading run through GHOSTLIFE_ARMED_SPECS.
+        "GS-9-kerbalx-repeat-rewind.toml",
         # THE FIRST DECLARER WITH A LIVE RE-FLY SESSION (RF-8, 2026-09-09), and
         # declared with NO WINDOWS AT ALL. Every other member arrived carrying a
         # spawned floor derived from a sibling lane's census; this one has no
