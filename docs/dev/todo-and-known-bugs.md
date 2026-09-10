@@ -15,6 +15,49 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## D17-MAKING-HISTORY-NEEDS-A-DEFINITION: the registry cell `making-history` has no subject, because Parsek has no Making-History-specific compatibility path to witness [FILED 2026-09-10 by wave package A2 (`cheap-flights-arming`) planning. A DEFINITION question for the operator, not a defect and not instance-blocked. OPEN; no experiment flight is authorized until it is answered]
+
+**What is true.** Unlike BetterTimeWarp (one concrete interaction, `StockWarpAltitudeLimits`,
+now read by `MC-3-better-time-warp`), there is no Making-History mechanism in Parsek to
+compat-test. What Parsek DOES touch when a player uses Making History content:
+
+- launch-site capture and persistence: the per-recording `launchSiteName`
+  (`RecordingTreeRecordCodec`), `FlightRecorder.ResolveLaunchSiteName` /
+  `HumanizeLaunchSiteName` (whose comment says the MH site names are already
+  human-readable), and the Verbose `Start location captured: body=..., situation=...,
+  launchSite=...` line;
+- `LedgerRolloutAdoption`'s distinct-launch-site guard (career only);
+- the fresh-launch-UT capture in `ParsekScenario`, documented as running regardless of
+  launch site (KSC pad / runway, Desert, Woomerang);
+- `GhostVisualBuilder`'s `ExtractShortTransformName` for MH multi-MODEL parts;
+- logistics KSC-origin classification: `RouteAnalysisEngine.IsKscOriginRecording` treats
+  any non-empty Kerbin `LaunchSiteName` as KSC origin, so a Desert launch counts as a
+  KSC-origin route.
+
+**Why the registry header does not fit it.** D17 says "modded-compat instance profile
+only", but Making History (and Breaking Ground) ship through the `SquadExpansion`
+JUNCTION to the dev GameData on BOTH automation instances (`stock-minimal.toml` and
+`modded-compat.toml` both junction it). So MH is not a modded-compat distinguisher.
+Measured 2026-09-10: all 14 `launchSite =` values across `harness/scenarios` are
+`"LaunchPad"`, and none of the 508 collected KSP.logs under `../logs` names
+`Desert_Launch_Site`, `Woomerang_Launch_Site` or `Desert_Airfield`. No lane has ever
+launched from an MH site, no `saveparse` facet reads `launchSiteName`, and no in-game
+test touches MH.
+
+**The question.** Which of these is the cell: (1) launch-site capture at an alt site, (2)
+the rollout-adoption distinct-site guard (a career lane), (3) KSC-origin classification of
+an alt-site launch (a route lane), or (4) ghost build of MH multi-MODEL parts? And does it
+belong to stock-minimal, since MH is present there too? Candidate subject once defined: a
+`GS-4-kerbalx-rewind-watch` clone (mission `kx_rewind_watch`, whose schema exposes
+`launchSite`) with `launchSite = "Desert_Launch_Site"`, witness
+`Start location captured: .*launchSite=` plus replay at the alt site. That is an
+experiment on a mission path never flown off-KSC (a MechJeb ascent from the Desert, with
+rollout and watcher at the same site); a mission failure there classifies driver-INVALID,
+never PARSEK-FAIL, and the site string must be pinned from bytes because
+`HumanizeLaunchSiteName` may rewrite it.
+
+---
+
 ## REPUTATION-SEED-CAPTURED-MID-FLIGHT-REAPPLIES-PRE-SEED-AWARDS: the lazy `ReputationInitial` seed is read off the live pool at the first commit, so every reputation award recorded BEFORE that moment is inside the seed AND replayed as a row
 
 Filed 2026-09-10 while shipping the crew-death reputation penalty (branch
@@ -11261,7 +11304,9 @@ item and must not be counted as one:
   `restock` and D7 `engine-fx-waterfall-fallback` claimed. RESIDUE:
   `persistent-rotation` and `remotetech-commnet` stay source-blocked (GT-8 /
   not in the profile); `better-time-warp` and `making-history` have the
-  instance but no committed spec; the FX-fingerprint A/B diff ran REPORT-ONLY
+  instance but no committed spec (2026-09-10: `better-time-warp` now has a
+  committed, never-flown reading lane, `MC-3-better-time-warp`; `making-history`
+  is definition-blocked, see D17-MAKING-HISTORY-NEEDS-A-DEFINITION); the FX-fingerprint A/B diff ran REPORT-ONLY
   and surfaced a corpus limitation filed as **T48 under TODO — Compatibility**
   (the synthetic corpus is trajectory-only for all but a handful of
   recordings, so a save-based A/B exercises ~1 engine key; a dedicated
