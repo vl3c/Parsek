@@ -123,7 +123,9 @@ namespace Parsek.Patches
         /// from inside an IMGUI pass - rewriting a method the current call stack is
         /// executing is worse than leaving the patch on for one more frame - which is why
         /// <c>GuiTreeRecorder</c> defers to its LateUpdate pump whenever
-        /// <c>Event.current != null</c>.
+        /// <c>GUIUtility.guiDepth &gt; 0</c>. (NOT <c>Event.current != null</c>: that is
+        /// non-null forever once the process has drawn one frame, so it deferred every
+        /// unpatch and refused every arm.)
         /// </summary>
         internal static void Remove()
         {

@@ -342,6 +342,10 @@ namespace Parsek.InGameTests
 
             private void OnGUI()
             {
+                // Inside OnGUI by construction, so Event.current is this pass's own event
+                // and .type is the pass type. (The recorder's arm / unpatch guard cannot
+                // use Event.current for the same reading - see IsInsideGuiPass - but a
+                // .type test reached only from inside a pass is unaffected by that.)
                 EventType evt = Event.current.type;
                 if (evt != EventType.Layout && evt != EventType.Repaint)
                     return;

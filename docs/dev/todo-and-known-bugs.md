@@ -38,12 +38,23 @@ WHAT ONLY A FLIGHT SETTLES:
 3. **Whether a scroll view's clip scroll offset reaches that conversion.** The live cell
    measures a deliberately scrolled row against its own viewport; nothing else in the
    design exercises it.
-4. **The reflection probes** - `GUIClip.Internal_GetCount` for clip depth, and
+4. **The reflection probes** - `GUIClip.Internal_GetCount` for clip depth,
    `GUILayoutEntry.rect` / `GUILayoutGroup.isVertical` for a layout group's rect and
-   orientation. Both fail soft (depth -1, zero rects, one Warn each) and are re-resolved
-   at every arm, so a failure degrades the dump rather than breaking it - but a
-   permanently unavailable clip probe would leave the tree resting on Begin/End pairing
-   alone, which is exactly what the recovery rules were written not to trust.
+   orientation, and `GUIUtility.guiDepth` for the inside-OnGUI guard. All fail soft (depth
+   -1, zero rects, "not inside a GUI pass", one Warn each) and are re-resolved at every
+   arm, so a failure degrades the dump rather than breaking it - but a permanently
+   unavailable clip probe would leave the tree resting on Begin/End pairing alone, which
+   is exactly what the recovery rules were written not to trust. The depth probe's reading
+   is printed on the arm's own Info line (`armed label=... guiDepth=0 ...`), so one flight
+   settles that one: `0` means the ICall answered, `-1` means the fallback carried the arm.
+
+FIXED BEFORE THE FIRST FLIGHT (2026-09-10, same branch): the arm guard and the deferred
+unpatch asked `Event.current != null`, which the decompiled `UnityEngine.Event` shows is
+non-null forever after the process draws one frame (`Internal_MakeMasterEventCurrent`
+assigns `s_MasterEvent` to `s_Current`, and the setter maps a null assignment back to it).
+Every `ArmForNextRepaint` would have refused with `reason=inside-gui-pass`, so the feature
+was dead on its first flight regardless of the four premises above. The guard is now
+`GUIUtility.guiDepth > 0`, Unity's own predicate - the one `GUIUtility.CheckOnGUI` tests.
 
 Also unmeasured: the COST while armed - one frame of allocation for a few hundred small
 objects, plus a one-off assemble + serialise + write hitch in the flush LateUpdate. It

@@ -221,6 +221,61 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// The inside-OnGUI guard's member, resolved against the shipped
+        /// <c>UnityEngine.IMGUIModule</c> with the EXACT declared signature the recorder
+        /// binds a <c>Func&lt;int&gt;</c> from: <c>internal static extern int
+        /// GUIUtility.guiDepth { get; }</c>. Same reason as the funnel cells above - it is
+        /// not API, a Unity bump can rename it, and the failure mode is silent (the guard
+        /// falls back and says so in one Warn nobody is reading).
+        ///
+        /// <para>This is the member that REPLACED <c>Event.current != null</c>, whose
+        /// getter is <c>return s_Current;</c> with no depth gating and which is therefore
+        /// never null again once the process has drawn a frame - so the old guard refused
+        /// every arm. <c>guiDepth</c> is what <c>GUIUtility.CheckOnGUI</c> itself tests
+        /// (<c>guiDepth &lt;= 0</c> throws "You can only call GUI functions from inside
+        /// OnGUI").</para>
+        ///
+        /// <para>RESOLUTION is all a headless host can check. The getter is an ICall, so
+        /// CALLING it here raises <c>SecurityException</c> on the Windows CLR (and a
+        /// <c>MissingMethodException</c> under mono) - which is the fallback path, pinned
+        /// purely by
+        /// <see cref="GuiDepthDecidesInsideAGuiPassAndAnUnreadableDepthFallsBackToOutside"/>
+        /// rather than exercised here.</para>
+        /// </summary>
+        [Fact]
+        public void TheGuiDepthGuardMemberResolvesWithItsDeclaredSignature()
+        {
+            MethodInfo getter = GuiTreeFunnels.GuiDepthGetter();
+            Assert.NotNull(getter);
+            Assert.Equal(typeof(UnityEngine.GUIUtility), getter.DeclaringType);
+            Assert.Equal("get_guiDepth", getter.Name);
+            Assert.True(getter.IsStatic,
+                "GUIUtility.guiDepth must be static; the recorder invokes it with a null "
+                + "target");
+            Assert.Equal(typeof(int), getter.ReturnType);
+            Assert.Empty(getter.GetParameters());
+        }
+
+        /// <summary>
+        /// It is an ICall: invokable by reflection, never patchable, and never callable
+        /// from a headless host. That last part is the whole reason the guard needs a
+        /// STATED fallback rather than a bare try/catch, and it is also why the recorder
+        /// calls this one through <c>MethodInfo.Invoke</c> instead of a bound delegate -
+        /// <c>Delegate.CreateDelegate</c> over an ECall is refused outside the declaring
+        /// module ("ECall methods must be packaged into a system module").
+        /// </summary>
+        [Fact]
+        public void TheGuiDepthGuardMemberIsAnInternalCall()
+        {
+            MethodInfo getter = GuiTreeFunnels.GuiDepthGetter();
+            Assert.NotNull(getter);
+            Assert.True((getter.GetMethodImplementationFlags()
+                & MethodImplAttributes.InternalCall) != 0,
+                "GUIUtility.guiDepth's getter is expected to be an InternalCall; if it "
+                + "gained a managed body the fallback reasoning needs re-reading");
+        }
+
+        /// <summary>
         /// The two layout-group funnels are the ones that replaced four inline-prone
         /// patches, so their identity is pinned by name here: a future edit that quietly
         /// points them back at <c>GUILayout.BeginHorizontal</c> / <c>EndHorizontal</c>
@@ -289,9 +344,41 @@ namespace Parsek.Tests
         {
             // Arming installs Harmony patches on the very IMGUI methods an in-progress
             // pass is executing, and a pass already half-drawn would give a truncated
-            // capture. The live path reads Event.current; the DECISION is pure so it can
-            // be pinned without a Unity GUI pass.
+            // capture. The live path reads GUIUtility.guiDepth; the DECISION is pure so it
+            // can be pinned without a Unity GUI pass.
             Assert.Equal(expected, GuiTreeRecorder.ClassifyArmRefusal(insideGuiPass));
+        }
+
+        /// <summary>
+        /// The guard predicate and its FALLBACK, both pure.
+        ///
+        /// <para><c>0</c> is the real "outside OnGUI" reading (the pump's LateUpdate, an
+        /// Update, a coroutine, the command seam). Anything positive is a live pass -
+        /// <c>GUIUtility.CheckOnGUI</c> uses the same threshold. And the negative sentinel,
+        /// which the recorder returns when the probe did not resolve or the ICall threw,
+        /// counts as NOT inside: an unreadable depth must let an arm proceed, because
+        /// refusing on it is exactly the always-refuse behaviour the
+        /// <c>Event.current != null</c> guard had, and both call sites are outside the GUI
+        /// pass by construction anyway.</para>
+        /// </summary>
+        [Theory]
+        [InlineData(1, true)]
+        [InlineData(2, true)]
+        [InlineData(0, false)]
+        [InlineData(-1, false)]
+        [InlineData(-7, false)]
+        public void GuiDepthDecidesInsideAGuiPassAndAnUnreadableDepthFallsBackToOutside(
+            int reading, bool expected)
+        {
+            Assert.Equal(expected, GuiTreeRecorder.ClassifyInsideGuiPass(reading));
+        }
+
+        [Fact]
+        public void TheUnavailableGuiDepthSentinelIsOnTheFallbackSideOfThePredicate()
+        {
+            Assert.True(GuiTreeRecorder.GuiDepthUnavailable < 0);
+            Assert.False(GuiTreeRecorder.ClassifyInsideGuiPass(
+                GuiTreeRecorder.GuiDepthUnavailable));
         }
 
         [Fact]

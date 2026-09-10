@@ -197,6 +197,43 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Unity's OWN "am I inside OnGUI" predicate: the getter of
+        /// <c>UnityEngine.GUIUtility.guiDepth</c>, declared in the shipped
+        /// <c>UnityEngine.IMGUIModule.dll</c> (KSP 1.12.5 / Unity 2019.4) as
+        /// <c>[NativeProperty("GetGUIState().m_OnGUIDepth", true, TargetType.Field)]
+        /// internal static extern int guiDepth { get; }</c>. It is the exact reading
+        /// <c>GUIUtility.CheckOnGUI</c> tests with <c>guiDepth &lt;= 0</c> before throwing
+        /// "You can only call GUI functions from inside OnGUI", so <c>&gt; 0</c> IS
+        /// "inside a GUI pass".
+        ///
+        /// <para>Internal and an InternalCall, so it can be INVOKED but never patched -
+        /// which is all the recorder needs. Returns null when a Unity build does not
+        /// declare it; <c>GuiTreeRecorder</c> then falls back (see its
+        /// <c>ClassifyInsideGuiPass</c>).</para>
+        ///
+        /// <para><b>Not <c>Event.current</c>.</b> Decompiled, that getter is
+        /// <c>return s_Current;</c> with no depth gating, and
+        /// <c>Event.Internal_MakeMasterEventCurrent</c> assigns <c>s_MasterEvent</c> to
+        /// <c>s_Current</c> on the first GUI pass while the setter maps a null assignment
+        /// back to the master event. <c>Event.current</c> is therefore never null again in
+        /// the player after the process draws its first frame, and a guard built on it
+        /// refuses EVERY arm.</para>
+        /// </summary>
+        internal static MethodInfo GuiDepthGetter()
+        {
+            try
+            {
+                PropertyInfo property = typeof(GUIUtility).GetProperty("guiDepth",
+                    BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
+                return property == null ? null : property.GetGetMethod(true);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
         /// Whether <see cref="HarmonyId"/> currently owns a patch on this funnel's target.
         /// Read at ARM time into <see cref="PatchedAtArm"/>; see that field for why a
         /// flush-time reading would be worthless.

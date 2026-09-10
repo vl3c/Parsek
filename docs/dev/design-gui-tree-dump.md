@@ -50,18 +50,57 @@ the cost is now **zero patches**, which is a different claim and a true one. The
 `if (!ArmedFlag) return;` at the top of every body still matters, because the patches can
 outlive the capture by one frame (below).
 
+**The "am I inside OnGUI" predicate is `GUIUtility.guiDepth > 0`, NOT
+`Event.current != null`.** Stated first, because both paragraphs below rest on it and the
+first draft got it wrong. Decompiled from the shipped `UnityEngine.IMGUIModule.dll`,
+`Event.current`'s getter is `return s_Current;` with no depth gating;
+`Event.Internal_MakeMasterEventCurrent` assigns `s_MasterEvent` to `s_Current` on the
+first GUI pass, and the setter maps a null assignment straight back to it
+(`s_Current = value ?? s_MasterEvent;`). Only `Event.CleanupRoots` ever nulls it, so in
+the player `Event.current` is non-null forever after the process draws its first frame -
+so a guard built on it answered "inside a GUI pass" from EVERY context, refused every arm,
+and left the feature dead on its first flight. Unity's own predicate is
+`GUIUtility.guiDepth` (`[NativeProperty("GetGUIState().m_OnGUIDepth", true,
+TargetType.Field)] internal static extern int`), the very reading `GUIUtility.CheckOnGUI`
+tests with `guiDepth <= 0` before throwing "You can only call GUI functions from inside
+OnGUI". `GuiTreeFunnels.GuiDepthGetter()` resolves it, `GuiTreeRecorder.ReadGuiDepth()`
+invokes it, and it is re-resolved at every arm like the other reflection probes.
+
+It is an ICall - invokable, never patchable - and it is called through `MethodInfo.Invoke`
+rather than a bound delegate: this guard is read at most twice per capture (unlike the clip
+probe, which runs per control), so the boxed int costs nothing, and
+`Delegate.CreateDelegate` over an ECall is refused outside the declaring module ("ECall
+methods must be packaged into a system module", which is what the xUnit host raises).
+**Fallback when the depth cannot be read** - unresolvable member, or the invoke throwing,
+which is what a headless host does: `ReadGuiDepth` returns
+`GuiTreeRecorder.GuiDepthUnavailable` (-1) and `ClassifyInsideGuiPass` treats that as NOT
+inside, so an arm proceeds and an unpatch runs immediately. That direction is deliberate:
+both call sites are outside a GUI pass BY CONSTRUCTION (the seam / coroutine / Update that
+arms, and the LateUpdate pump), the guard is defensive only, and failing the other way
+would reproduce the always-refuse bug it replaced. One Warn per arm names the fallback.
+
 **The unpatch is deferred out of the GUI pass.** Rewriting a method the current call
 stack is executing is worse than leaving a patch on for one more frame, so
-`RequestUnpatch()` checks `Event.current != null` and, inside a pass, sets a flag the
-LateUpdate pump acts on. `Disarm` and `Fault` therefore normally unpatch one frame late;
-`FlushCapture` already runs in LateUpdate and unpatches immediately.
+`RequestUnpatch()` checks `guiDepth > 0` and, inside a pass, sets a flag the LateUpdate
+pump acts on (`PumpPendingFlush` performs it as soon as `!capturing && !ArmedFlag`).
+`Disarm` and `Fault` therefore normally unpatch one frame late; `FlushCapture` already runs
+in LateUpdate and unpatches immediately.
 
 **Arming refuses from inside a GUI pass.** `ArmForNextRepaint` returns null and logs
-`arm refused reason=inside-gui-pass` when `Event.current != null`, for two reasons: it
+`arm refused reason=inside-gui-pass guiDepth=<n>` when `guiDepth > 0`, for two reasons: it
 would install patches on the methods the current stack is running, and a pass already
 half-drawn would give a truncated capture. The decision is
-`GuiTreeRecorder.ClassifyArmRefusal(bool)`, pure and unit-tested; callers arm from
-Update, a coroutine or the command seam.
+`GuiTreeRecorder.ClassifyArmRefusal(bool)` over `ClassifyInsideGuiPass(int)`, both pure and
+unit-tested (the second including the -1 fallback); callers arm from Update, a coroutine or
+the command seam. The depth that actually answered rides on the arm's Info line
+(`armed label=... guiDepth=0 patchedFunnels=...`), so a flight can see WHICH predicate was
+used: `0` is a real outside-OnGUI reading, `-1` is the fallback.
+
+One `Event.current` read remains in the recorder, and it answers a different question:
+`Accepting()` tests `Event.current.type == EventType.Repaint`. Every caller of it is a
+patch body on an IMGUI funnel, so it only ever runs INSIDE a GUI pass, where
+`Event.current` is that pass's own event and `.type` is exactly the reading wanted. The
+stale-master-event trap cannot mislead a `.type` check reached only from inside a pass.
 
 Gates: `GuiTreeFunnelTests.NoGuiTreePatchClassIsDiscoverableByTheAssemblySweep` re-runs
 `ParsekHarmony.Awake`'s own predicate over the assembly and requires it to find none of
@@ -441,6 +480,11 @@ game. What IS mechanically proven, headlessly:
   what Harmony throws on at patch time (`PatchParameterNamesAndTypesMatchTheirTargets`);
 - no patch class is discoverable by `ParsekHarmony`'s permanent sweep
   (`NoGuiTreePatchClassIsDiscoverableByTheAssemblySweep`);
+- the inside-OnGUI guard's member resolves with its declared signature and is an ICall
+  (`TheGuiDepthGuardMemberResolvesWithItsDeclaredSignature`,
+  `TheGuiDepthGuardMemberIsAnInternalCall`), and both the predicate and its unreadable-depth
+  fallback are pinned
+  (`GuiDepthDecidesInsideAGuiPassAndAnUnreadableDepthFallsBackToOutside`);
 - the assembler's nesting and all its recovery rules, the JSON escaping and its culture
   invariance (including a strict-parser round trip of a rich document), and the geometry
   derivations the live cell asserts against.
@@ -461,12 +505,15 @@ What only a flight can settle:
    control kind.
 2. **`GUIToScreenRect` inside a window callback**, as above, and whether a scroll view's
    clip offset reaches it (the live cell measures a scrolled row against its viewport).
-3. **The `GUIClip.Internal_GetCount` probe** resolving at all, and the
+3. **The `GUIClip.Internal_GetCount` probe** resolving at all, the
    `GUILayoutEntry.rect` / `GUILayoutGroup.isVertical` reflection that gives layout groups
-   their rect and orientation. Both fail soft: a missing clip probe reports
-   `clipDepth: -1` everywhere, a missing layout probe records zero rects, and either logs
-   one Warn. Both are re-resolved at every arm, so a transient failure does not park the
-   probe for the process lifetime.
+   their rect and orientation, and the `GUIUtility.guiDepth` reading behind the
+   inside-OnGUI guard. All fail soft: a missing clip probe reports `clipDepth: -1`
+   everywhere, a missing layout probe records zero rects, an unreadable depth falls back to
+   "not inside a GUI pass", and each logs one Warn. All are re-resolved at every arm, so a
+   transient failure does not park a probe for the process lifetime. The depth probe is the
+   one whose reading is printed on the arm line, so its first flight settles it outright:
+   `guiDepth=0` means it worked, `guiDepth=-1` means the fallback carried the arm.
 4. **Cost while armed.** One frame's worth of allocation for a few hundred small objects,
    plus the one-off assemble + serialise + write hitch in the flush LateUpdate. Never
    measured. It does not matter for a one-frame capture - but arming it every frame would

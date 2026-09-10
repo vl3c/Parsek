@@ -22,7 +22,12 @@ _(unreleased — entries accumulate here per commit)_
   **The part that listens in on the game's own drawing has never once run inside KSP.**
   It is written, and everything that can be checked without the game has been checked,
   but nobody has yet started the game and taken a capture - so this is not a working
-  capability to rely on yet. Nothing about the windows themselves changed: not one line
+  capability to rely on yet. One thing that checking DID catch, before any capture was
+  ever taken: the safety check that asks "is the game mid-draw right now, so hold off?"
+  was asking a question that is always answered yes once the game has drawn its very first
+  frame, so every request for a capture would have been politely turned away and nothing
+  would ever have been written. It now asks the question the engine itself asks, and
+  writes down which answer it got. Nothing about the windows themselves changed: not one line
   of the drawing code was touched, nothing is listened to unless something asks for a
   capture, and while nothing is asking, the game runs exactly as it did before.
 

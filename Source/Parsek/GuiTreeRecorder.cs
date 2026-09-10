@@ -165,16 +165,48 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Sentinel <see cref="ReadGuiDepth"/> returns when the depth probe is
+        /// unavailable - the member did not resolve, or invoking the ICall threw (which is
+        /// what a headless host does).
+        /// </summary>
+        internal const int GuiDepthUnavailable = -1;
+
+        /// <summary>
+        /// "Is the caller inside an IMGUI pass", from a <c>GUIUtility.guiDepth</c> reading.
+        /// Pure, so both the predicate and its FALLBACK are pinned without a Unity GUI
+        /// pass.
+        ///
+        /// <para><b>The fallback is "not inside"</b>
+        /// (<see cref="GuiDepthUnavailable"/> is negative). Both call sites are outside a
+        /// GUI pass BY CONSTRUCTION - the seam / coroutine / Update that arms, and the
+        /// LateUpdate pump that unpatches - so the guard is defensive only, and refusing
+        /// on an unreadable depth would disable the whole feature exactly the way the
+        /// <c>Event.current != null</c> guard it replaced did. An unresolvable probe logs
+        /// one Warn (<see cref="ReadGuiDepth"/>) so a flight can see which predicate was
+        /// used.</para>
+        /// </summary>
+        internal static bool ClassifyInsideGuiPass(int guiDepthReading)
+        {
+            return guiDepthReading > 0;
+        }
+
+        /// <summary>
         /// Arms the recorder for the next IMGUI Repaint pass and returns the path the dump
         /// will be written to, or null when the request was refused. Re-arming discards
         /// any capture in progress.
         /// </summary>
         internal static string ArmForNextRepaint(string label)
         {
-            string refusal = ClassifyArmRefusal(IsInsideGuiPass());
+            // Re-resolved here rather than in ResetBuffers like the other reflection
+            // probes: this one is READ before the buffers are cleared, so resetting it
+            // there would leave the guard on the previous arm's binding.
+            ResetGuiDepthProbe();
+            int depthAtArm = ReadGuiDepth();
+            string refusal = ClassifyArmRefusal(ClassifyInsideGuiPass(depthAtArm));
             if (refusal != null)
             {
                 ParsekLog.Warn("GuiTree", "arm refused reason=" + refusal
+                    + " guiDepth=" + depthAtArm.ToString(CultureInfo.InvariantCulture)
                     + "; arm from Update or a coroutine, never from inside OnGUI");
                 return null;
             }
@@ -200,6 +232,9 @@ namespace Parsek
 
             ArmedFlag = true;
             ParsekLog.Info("GuiTree", "armed label=" + safe
+                // The predicate the arm guard actually used: 0 is "outside OnGUI, from
+                // GUIUtility.guiDepth", -1 is "probe unavailable, fell back to outside".
+                + " guiDepth=" + depthAtArm.ToString(CultureInfo.InvariantCulture)
                 + " patchedFunnels=" + patched.ToString(CultureInfo.InvariantCulture)
                 + "/" + GuiTreeFunnels.Count.ToString(CultureInfo.InvariantCulture)
                 + " path=" + pendingPath);
@@ -236,6 +271,7 @@ namespace Parsek
             LastMatrixNonIdentity = false;
             faultLogged = false;
             unpatchPending = false;
+            ResetGuiDepthProbe();
         }
 
         private static void ResetBuffers()
@@ -307,6 +343,13 @@ namespace Parsek
         {
             if (!ArmedFlag)
                 return false;
+            // Event.current is SAFE here, unlike in the arm / unpatch guard: every caller
+            // of Accepting is a patch body on an IMGUI funnel, so this only ever runs
+            // inside a GUI pass, where Event.current is the pass's real event and its
+            // .type is the reading we want. What made it wrong as an "am I inside OnGUI"
+            // predicate - the master event staying installed after the pass - cannot
+            // mislead a Repaint check reached only from inside a pass. The null guard is
+            // kept as belt-and-braces for a host that never drew a frame.
             Event current = Event.current;
             if (current == null || current.type != EventType.Repaint)
                 return false;
@@ -765,26 +808,108 @@ namespace Parsek
         }
 
         /// <summary>
-        /// True when the caller is inside an IMGUI event pass. <c>Event.current</c> is a
-        /// plain static field read (decompiled), so this is safe in a headless host, where
-        /// it is always null.
+        /// True when the caller is inside an IMGUI event pass, read from
+        /// <c>GUIUtility.guiDepth</c> - Unity's own predicate for this (see
+        /// <see cref="GuiTreeFunnels.GuiDepthGetter"/>).
+        ///
+        /// <para><b>NOT <c>Event.current != null</c>, which is what this guard used to be
+        /// and which is always true.</b> Decompiled from the shipped
+        /// <c>UnityEngine.IMGUIModule.dll</c>: the getter is <c>return s_Current;</c> with
+        /// no depth gating, <c>Internal_MakeMasterEventCurrent</c> assigns
+        /// <c>s_MasterEvent</c> to <c>s_Current</c> on the first GUI pass, and the setter
+        /// maps a null assignment back to the master event
+        /// (<c>s_Current = value ?? s_MasterEvent;</c>). Nothing but
+        /// <c>Event.CleanupRoots</c> ever nulls it again, so in the player
+        /// <c>Event.current</c> is non-null forever after the first frame - which refused
+        /// every arm and made the whole feature dead on arrival.</para>
         /// </summary>
         private static bool IsInsideGuiPass()
         {
+            return ClassifyInsideGuiPass(ReadGuiDepth());
+        }
+
+        // GUIUtility.guiDepth is internal AND an ICall, so it is reachable only by
+        // reflection and can never be patched. Called through MethodInfo.Invoke rather
+        // than a bound delegate, unlike clipCount: this guard is read at most twice per
+        // capture (the arm, and the unpatch) instead of once per recorded control, so the
+        // boxed int costs nothing - and Delegate.CreateDelegate over an ECall is itself
+        // refused by the CLR outside the module that declares it ("ECall methods must be
+        // packaged into a system module", which is what the xUnit host raises). Invoke has
+        // no such restriction. Re-resolved at every arm (see ArmForNextRepaint).
+        private static MethodInfo guiDepthGetter;
+        private static bool guiDepthResolved;
+        private static bool guiDepthWarned;
+
+        private static void ResetGuiDepthProbe()
+        {
+            guiDepthResolved = false;
+            guiDepthGetter = null;
+            guiDepthWarned = false;
+        }
+
+        /// <summary>
+        /// The current OnGUI depth, or <see cref="GuiDepthUnavailable"/> when the probe
+        /// cannot be resolved or invoking it throws - which is what a HEADLESS host does,
+        /// since the getter bottoms out in a Unity ICall. Never throws: it is reached from
+        /// <see cref="Fault"/> via <see cref="RequestUnpatch"/>, i.e. from inside an OnGUI
+        /// pass that must not see an exception.
+        /// </summary>
+        private static int ReadGuiDepth()
+        {
             try
             {
-                return Event.current != null;
+                if (!guiDepthResolved)
+                {
+                    guiDepthResolved = true;
+                    guiDepthGetter = GuiTreeFunnels.GuiDepthGetter();
+                    if (guiDepthGetter == null)
+                        WarnGuiDepthFallback("UnityEngine.GUIUtility.guiDepth did not resolve");
+                }
+                if (guiDepthGetter == null)
+                    return GuiDepthUnavailable;
+                object value = guiDepthGetter.Invoke(null, null);
+                if (!(value is int))
+                {
+                    WarnGuiDepthFallback("UnityEngine.GUIUtility.guiDepth returned "
+                        + (value == null ? "null" : value.GetType().Name));
+                    return GuiDepthUnavailable;
+                }
+                return (int)value;
+            }
+            catch (Exception ex)
+            {
+                WarnGuiDepthFallback(ex.GetType().Name + ": " + ex.Message);
+                return GuiDepthUnavailable;
+            }
+        }
+
+        /// <summary>One Warn per arm, and never an exception of its own.</summary>
+        private static void WarnGuiDepthFallback(string why)
+        {
+            try
+            {
+                if (guiDepthWarned)
+                    return;
+                guiDepthWarned = true;
+                ParsekLog.Warn("GuiTree", "gui-depth probe unavailable (" + (why ?? "unknown")
+                    + "); the inside-OnGUI guard falls back to NOT inside, so an arm proceeds"
+                    + " and an unpatch runs immediately. Both call sites are outside the GUI"
+                    + " pass by construction (the seam / coroutine that arms, and the"
+                    + " LateUpdate pump), so the guard is defensive only");
             }
             catch (Exception)
             {
-                return false;
+                // Reachable from inside OnGUI; there is nothing safe left to do.
             }
         }
 
         /// <summary>
         /// Removes the interceptions, or defers that to the pump when we are inside an
-        /// IMGUI pass. Never unpatch from in there: the stack is currently executing the
-        /// very methods Harmony would rewrite.
+        /// IMGUI pass (<see cref="IsInsideGuiPass"/>, i.e. <c>GUIUtility.guiDepth &gt; 0</c>).
+        /// Never unpatch from in there: the stack is currently executing the very methods
+        /// Harmony would rewrite. The deferral is what <see cref="Fault"/> and
+        /// <see cref="Disarm"/> rely on; <see cref="FlushCapture"/> already runs in
+        /// LateUpdate, so it unpatches at once.
         /// </summary>
         private static void RequestUnpatch()
         {
