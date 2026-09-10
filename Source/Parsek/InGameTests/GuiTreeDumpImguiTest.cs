@@ -48,13 +48,43 @@ namespace Parsek.InGameTests
         private const string CaptureLabel = "parsek-guitree-probe";
 
         /// <summary>
-        /// Slack on the scroll-offset reading. GUILayout gives the first row a margin
-        /// inside the scroll content and <c>GUIClip.Push</c> rounds the scroll offset, so
-        /// the row does not land exactly <c>ScrollOffsetPx</c> above the viewport - but it
-        /// cannot land at the viewport's own y unless the offset was lost entirely, which
-        /// is what this reading is for.
+        /// Slack on the scroll-offset reading, and the derivation behind the pin it
+        /// tolerates.
+        ///
+        /// <para><b>The derivation.</b> Write <c>W</c> for the window's content origin in
+        /// screen space and <c>P</c> for the scroll view's own rect in the space it is
+        /// declared in. Decompiled, <c>GUILayout.BeginScrollView</c> calls
+        /// <c>GUI.BeginScrollView(group.rect, scrollPosition, new Rect(0, 0, clientWidth,
+        /// clientHeight), ...)</c>, so <b><c>viewRect.y</c> is 0</b> and the clip
+        /// <c>GUI.BeginScrollView</c> pushes carries
+        /// <c>scrollOffset.y = round(-scroll.y - viewRect.y) = -round(scroll.y)</c>.</para>
+        ///
+        /// <para>The scroll view's node rect is converted BEFORE that push, so
+        /// <c>scrollView.rect.y = W.y + P.y</c>. Row 0 is drawn AFTER it, so
+        /// <c>row0.rect.y = W.y + P.y - scroll.y + m</c>, where <c>m</c> is the row's own
+        /// top margin inside the scroll content (a couple of px of stock skin). Hence
+        /// <c>offsetAbove = scrollView.rect.y - row0.rect.y = scroll.y - m</c>: exactly
+        /// <see cref="GuiTreeProbe.ScrollOffsetPx"/> minus a small margin, which is what
+        /// this slack is for.</para>
+        ///
+        /// <para><b>What a failure means.</b> Zero means the scroll offset never reached
+        /// the screen conversion at all. A reading near <c>P.y</c> - roughly 130 px in
+        /// this window, far past the slack - means the scroll view's own rect was
+        /// converted under its OWN clip and therefore carries its origin and its scroll
+        /// offset twice, which is the defect the <c>BeginScrollView</c> prefix seam
+        /// exists to prevent.</para>
         /// </summary>
         private const float ScrollOffsetSlackPx = 10f;
+
+        /// <summary>
+        /// Probe controls whose text carries the containment marker: the two labels, the
+        /// button, the toggle and the text field. The 12 scroll rows deliberately do NOT
+        /// (see <see cref="GuiTreeProbe.ScrollRowText"/>) - a row scrolled out of view is
+        /// LEGITIMATELY outside the window's content box, because clipped children are
+        /// recorded rather than culled, so marking them would make the containment check
+        /// fail on correct behaviour.
+        /// </summary>
+        private const int ExpectedMarkedControls = 5;
 
         [InGameTest(Category = "GuiTree",
             Description = "Arming the GUI tree recorder for one Repaint captures a probe window's real control tree - window, vertical group, 2 labels, button, toggle, text field and a 12-row scroll view - with exact per-kind counts inside the window, no assembler repairs, Begin/End funnel parity, screen rects inside the window's measured content box, and a scroll offset that survived the screen conversion")]
@@ -119,12 +149,14 @@ namespace Parsek.InGameTests
                 // ---- the probe's own subtree, EXACTLY ----------------------------
                 // Everything here is scoped to the probe window, so another window on
                 // screen cannot move a number.
+                // Keyed on the WINDOW ID, with the title as the secondary key: the title
+                // is written only by GUI.DoWindow (26 bytes, inline-prone) while the node
+                // itself comes from CallWindowDelegate, which cannot be inlined and whose
+                // fallback node carries the id and no title.
                 GuiTreeGeometryReport geometry = GuiTreeGeometry.Inspect(
-                    tree, GuiTreeProbe.WindowTitle, "parsek-probe-");
+                    tree, GuiTreeProbe.WindowId, GuiTreeProbe.WindowTitle, "parsek-probe-");
                 string counts = geometry.DescribeKindCounts();
-                InGameAssert.IsTrue(geometry.WindowFound,
-                    "the probe window is not in the dump, so GUI.CallWindowDelegate was "
-                    + "not intercepted at all");
+                InGameAssert.IsTrue(geometry.WindowFound, DescribeWindowMiss());
 
                 AssertKind(geometry, GuiNodeKind.Label, GuiTreeProbe.ExpectedLabels,
                     "GUI.DoLabel", counts);
@@ -166,9 +198,12 @@ namespace Parsek.InGameTests
                     "End records that matched no open container", tree);
                 AssertRepair(tree.AutoClosedByEnd, "autoClosedByEnd",
                     "containers closed by an OUTER container's End", tree);
-                AssertRepair(tree.AutoClosedByClip, "autoClosedByClip",
-                    "containers closed by the clip-depth rule (GUI.EndGroup / "
-                    + "GUI.EndScrollView inlined)", tree);
+                // autoClosedByClip is NOT asserted zero, and neither is
+                // GUI.BeginGroup/GUI.EndGroup parity: GUI.EndGroup is 14 bytes of IL and
+                // is EXPECTED to be inlined, which is precisely what the clip-depth rule
+                // is the designed fallback for. Asserting either at zero would red on the
+                // fallback WORKING. Both are read out on the PASS line below, and the
+                // dump's own `funnels` block carries the measurement.
                 AssertRepair(tree.AutoClosedByRect, "autoClosedByRect",
                     "layout groups closed by rect containment "
                     + "(GUILayoutUtility.EndLayoutGroup inlined)", tree);
@@ -182,9 +217,16 @@ namespace Parsek.InGameTests
                 // ---- Begin/End funnel parity: the inlining detector --------------
                 // Process-wide but shape-independent: every Begin in a well-formed GUI
                 // pass has its End, so an inequality means one side was bypassed.
+                //
+                // Only the pairs whose BOTH sides are too large for Mono to inline are
+                // asserted: GUILayoutUtility.BeginLayoutGroup / EndLayoutGroup (180 and
+                // 123 bytes of IL) and GUI.BeginScrollView / EndScrollView (1199 and
+                // 362). GUI.BeginGroup / GUI.EndGroup is NOT one of them - the End is 14
+                // bytes and the design EXPECTS it inlined - so its reading goes on the
+                // PASS line instead of into an assertion that would red on the clip-depth
+                // fallback doing its job.
                 AssertParity(GuiFunnel.BeginLayoutGroup, GuiFunnel.EndLayoutGroup);
                 AssertParity(GuiFunnel.BeginScrollView, GuiFunnel.EndScrollView);
-                AssertParity(GuiFunnel.BeginGroup, GuiFunnel.EndGroup);
                 InGameAssert.IsTrue(Hits(GuiFunnel.CallWindowDelegate) >= 1,
                     "GUI.CallWindowDelegate recorded no hit, so no window body ran through "
                     + "the interception at all");
@@ -193,8 +235,11 @@ namespace Parsek.InGameTests
                     + "the probe's own " + GuiTreeProbe.ExpectedLabels + " labels");
 
                 // ---- geometry: children sit inside the window's measured box -----
-                InGameAssert.IsTrue(geometry.ProbeControlsFound >= 6,
-                    "expected at least 6 of the probe's marked controls in the dump, found "
+                InGameAssert.AreEqual(ExpectedMarkedControls, geometry.ProbeControlsFound,
+                    "expected exactly " + ExpectedMarkedControls + " marked probe controls "
+                    + "(2 labels, button, toggle, text field - the 12 scroll rows carry a "
+                    + "DIFFERENT marker on purpose, because a row scrolled out of view is "
+                    + "legitimately outside the window box), found "
                     + geometry.ProbeControlsFound + "; counts: " + counts);
                 InGameAssert.IsTrue(geometry.ContentBoxMeasured,
                     "the window node carries no contentOrigin / argSize, so the containment "
@@ -220,16 +265,25 @@ namespace Parsek.InGameTests
                 // ---- the scroll offset: the ONLY reading that exercises the clip's
                 // scroll offset reaching the screen conversion --------------------
                 GuiTreeScrollOffsetReport scroll = GuiTreeGeometry.MeasureScrollOffset(
-                    tree, GuiTreeProbe.WindowTitle, GuiTreeProbe.ScrollRowText(0));
+                    tree, GuiTreeProbe.WindowId, GuiTreeProbe.WindowTitle,
+                    GuiTreeProbe.ScrollRowText(0));
                 InGameAssert.IsTrue(scroll.RowFound,
                     "the scroll view's first row is not under the scroll view node, so the "
                     + "scroll view held none of its rows: " + scroll.Describe());
+                // Derivation and the two failure readings: see ScrollOffsetSlackPx. In
+                // short, viewRect.y is 0 for a GUILayout scroll view, so the expected
+                // reading is scroll.y minus the row's own top margin; 0 means the offset
+                // never reached the conversion and about 130 means the view's rect was
+                // converted under its own clip.
                 InGameAssert.ApproxEqual(GuiTreeProbe.ScrollOffsetPx, scroll.OffsetAbovePx,
                     ScrollOffsetSlackPx,
                     "the first scroll row should sit about " + GuiTreeProbe.ScrollOffsetPx
-                    + " px ABOVE the scroll view's top, because the view is scrolled down "
-                    + "by that much. It does not, so the scroll offset the scroll view "
-                    + "pushes onto the clip stack did not reach the screen conversion: "
+                    + " px ABOVE the scroll view's top (scroll.y minus the row's top "
+                    + "margin, because GUILayout passes viewRect.y=0). A reading of ~0 "
+                    + "means the scroll offset the scroll view pushes onto the clip stack "
+                    + "did not reach the screen conversion; a reading of roughly the "
+                    + "view's own window-local y means the view's rect was converted "
+                    + "under its OWN clip and counts its origin and offset twice: "
                     + scroll.Describe());
 
                 ParsekLog.Info("TestRunner",
@@ -238,12 +292,23 @@ namespace Parsek.InGameTests
                     + " kinds=" + counts
                     + " maxDepth=" + geometry.MaxDepth
                     + " " + scroll.Describe()
+                    // Readings, not assertions: GUI.EndGroup is 14 bytes of IL and the
+                    // clip-depth rule is its designed fallback, so a bypass here is
+                    // expected rather than a failure. autoClosedByClip is how much
+                    // repairing that fallback had to do.
+                    + " beginGroupHits=" + Hits(GuiFunnel.BeginGroup)
+                    + " endGroupHits=" + Hits(GuiFunnel.EndGroup)
+                    + " autoClosedByClip=" + tree.AutoClosedByClip
+                    + " rectRuleInert=" + tree.RectRuleInert
+                    + " clipProbe=" + (GuiTreeRecorder.LastClipProbeBinding ?? "unread")
                     + " repaintPasses=" + probe.RepaintPasses
                     + " path=" + path);
             }
             finally
             {
                 GuiTreeRecorder.Disarm("in-game test teardown");
+                // Stops the probe drawing even if the Destroy below does not run.
+                probe.Completed = true;
                 UnityEngine.Object.Destroy(go);
                 // The dump is evidence: leave it in Screenshots/ for collect-logs.py.
             }
@@ -252,6 +317,36 @@ namespace Parsek.InGameTests
         private static int Hits(GuiFunnel funnel)
         {
             return GuiTreeFunnels.Hits[(int)funnel];
+        }
+
+        private static bool PatchedAtArm(GuiFunnel funnel)
+        {
+            return GuiTreeFunnels.PatchedAtArm[(int)funnel];
+        }
+
+        /// <summary>
+        /// The "window not in the dump" message, SPLIT on the two funnels involved so the
+        /// reading names the cause instead of blaming <c>CallWindowDelegate</c> for an
+        /// inlined <c>DoWindow</c>. The lookup is keyed on the window id, so the node is
+        /// findable even with no title on it - which means a miss here really is a missing
+        /// NODE, and the node comes from <c>CallWindowDelegate</c> alone.
+        /// </summary>
+        private static string DescribeWindowMiss()
+        {
+            return "the probe window (id=" + GuiTreeProbe.WindowId + ", title \""
+                + GuiTreeProbe.WindowTitle + "\") is not in the dump, keyed on the id and "
+                + "then the title. GUI.CallWindowDelegate patchedAtArm="
+                + PatchedAtArm(GuiFunnel.CallWindowDelegate)
+                + " hits=" + Hits(GuiFunnel.CallWindowDelegate)
+                + "; GUI.DoWindow patchedAtArm=" + PatchedAtArm(GuiFunnel.DoWindow)
+                + " hits=" + Hits(GuiFunnel.DoWindow) + ". Read it this way: "
+                + "CallWindowDelegate hits=0 means no window body ran through the "
+                + "interception at all (it is [RequiredByNativeCode] and cannot be "
+                + "inlined, so suspect the patch, not Mono); CallWindowDelegate hits>0 "
+                + "with DoWindow hits=0 means the 26-byte declaration funnel WAS inlined, "
+                + "so the node exists but carries no title - and finding it is then "
+                + "exactly what the id key is for, so a miss with that pattern is a "
+                + "window-id mismatch, not an inlining problem.";
         }
 
         private static void AssertParity(GuiFunnel begin, GuiFunnel end)
@@ -328,20 +423,52 @@ namespace Parsek.InGameTests
             /// <summary>Two plain labels plus one per scroll row.</summary>
             internal const int ExpectedLabels = 2 + ScrollRows;
 
+            /// <summary>
+            /// Repaint passes after which the probe stops drawing by itself. An abandoned
+            /// iterator - a cancelled batch, or an assertion that throws before the
+            /// finally - never destroys the probe's GameObject, and without this the
+            /// window would keep drawing over the game for the rest of the session. Well
+            /// past the cell's own 240-frame settle plus 300-frame wait.
+            /// </summary>
+            internal const int MaxRepaintPasses = 1200;
+
+            /// <summary>
+            /// Row text, marked OUTSIDE the containment marker
+            /// (<c>parsek-probe-</c>) on purpose. A row scrolled out of the viewport is
+            /// clipped, not culled: the recorder still records its rect, which lies
+            /// legitimately outside the window's content box. Marking these rows would
+            /// make the geometry containment check fail on correct behaviour, so they
+            /// carry their own prefix and the scroll-offset reading keys on the FULL row
+            /// text instead.
+            /// </summary>
             internal static string ScrollRowText(int index)
             {
-                return "parsek-probe-scroll-" + index.ToString(CultureInfo.InvariantCulture);
+                return "parsekscroll-" + index.ToString(CultureInfo.InvariantCulture);
             }
 
             internal int RepaintPasses;
             internal bool Faulted;
             internal string FaultMessage = string.Empty;
 
+            /// <summary>
+            /// Set by the cell's teardown, and by the probe itself once it has drawn far
+            /// past any capture that could still be waiting on it. Stops OnGUI.
+            /// </summary>
+            internal bool Completed;
+
             private Rect windowRect = new Rect(60f, 60f, 320f, 300f);
             private Vector2 scroll = new Vector2(0f, ScrollOffsetPx);
 
             private void OnGUI()
             {
+                // The same early-out DisabledHoverEchoImguiTest's probe has. An abandoned
+                // iterator leaves this GameObject alive (it is DontDestroyOnLoad and the
+                // cell's finally is what destroys it), and a probe that faulted once will
+                // fault every pass, so both states stop drawing rather than papering the
+                // game with a window nobody can close.
+                if (Completed || Faulted)
+                    return;
+
                 // Inside OnGUI by construction, so Event.current is this pass's own event
                 // and .type is the pass type. (The recorder's arm / unpatch guard cannot
                 // use Event.current for the same reading - see IsInsideGuiPass - but a
@@ -356,7 +483,11 @@ namespace Parsek.InGameTests
                     // funnels into exactly this call anyway.
                     windowRect = GUILayout.Window(WindowId, windowRect, DrawWindow, WindowTitle);
                     if (evt == EventType.Repaint)
+                    {
                         RepaintPasses++;
+                        if (RepaintPasses >= MaxRepaintPasses)
+                            Completed = true;
+                    }
                 }
                 catch (Exception ex)
                 {

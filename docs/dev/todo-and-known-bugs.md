@@ -30,7 +30,11 @@ WHAT ONLY A FLIGHT SETTLES:
    caller JITted after the patch. The exposed targets are `GUI.EndGroup` (14 bytes of IL),
    `GUI.DoWindow` (26), `GUI.DoButton` (33) and `GUI.DoToggle` (34). Each has a designed
    fallback, and the dump's `funnels` block plus the live cell's Begin/End parity
-   assertions exist to NAME a bypass rather than survive it quietly.
+   assertions exist to NAME a bypass rather than survive it quietly. The parity assertions
+   cover only the pairs whose BOTH sides are too large to inline
+   (`BeginLayoutGroup`/`EndLayoutGroup`, `BeginScrollView`/`EndScrollView`);
+   `BeginGroup`/`EndGroup` and `autoClosedByClip` are READINGS on the PASS line, because
+   an assertion there would red on the clip-depth fallback working as designed.
 2. **`GUIUtility.GUIToScreenRect` inside a `GUI.Window` callback.** Both endpoints bottom
    out in native ICalls, so this cannot be settled by reading the assembly. The recorder
    keeps `localRect` beside `rect` as the instrument, and `GuiTreeGeometry.Inspect` turns
@@ -84,6 +88,18 @@ decompiled module rather than by flying:
 - **`Hits[GUI.CallWindowDelegate]` read double**, because the prefix and the postfix both
   went through the counting gate. The End path now uses a non-counting one, so `hits` is
   one count per funnel body run as documented.
+- **The window lookup depended on an inline-prone funnel.** A window node's title comes
+  from `GUI.DoWindow` (26 bytes) alone, while the node comes from `CallWindowDelegate`, so
+  an inlined declaration left a titled lookup reporting "no window at all".
+  `GuiTreeGeometry.Inspect` / `MeasureScrollOffset` now take a WINDOW-ID key with the title
+  secondary, and the cell's message splits on `PatchedAtArm[DoWindow]` / `Hits[DoWindow]`.
+- **Two cell defects.** The probe's scroll rows carried the containment marker, and a row
+  scrolled out of view is LEGITIMATELY outside the window box (clipped children are
+  recorded, not culled), so they now carry `parsekscroll-<i>`; and the cell asserted
+  `Hits(BeginGroup) == Hits(EndGroup)` plus `autoClosedByClip == 0`, which would have red'd
+  on the designed fallback working. The probe also copies
+  `DisabledHoverEchoImguiTest`'s `Completed` / `Faulted` early-out, so an abandoned
+  iterator cannot leave a window drawing over the game forever.
 - **The clip probe binds delegate-first with an Invoke fallback.**
   `Delegate.CreateDelegate` over an ECall is refused outside the declaring module on the
   Windows CLR and mono may or may not accept it, and a refusal used to cost the whole

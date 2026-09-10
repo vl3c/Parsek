@@ -157,11 +157,31 @@ namespace Parsek
         internal static GuiTreeGeometryReport Inspect(GuiTreeResult tree, string windowTitle,
             string controlTextMarker)
         {
+            return Inspect(tree, null, windowTitle, controlTextMarker);
+        }
+
+        /// <summary>
+        /// <see cref="Inspect(GuiTreeResult, string, string)"/> keyed on the WINDOW ID
+        /// first, with the title as the secondary key.
+        ///
+        /// <para><b>Why the id has to be the primary key.</b> A window node's
+        /// <c>Text</c> is written by exactly one funnel - <c>GUI.DoWindow</c>, 26 bytes of
+        /// IL and squarely inside Mono's inline limit. The NODE comes from
+        /// <c>GUI.CallWindowDelegate</c>, which is <c>[RequiredByNativeCode]</c> and cannot
+        /// be inlined at all, and the node it builds when no declaration arrived carries
+        /// the window ID but NO title. A title-only lookup therefore turns an inlined
+        /// 26-byte declaration funnel into "the window is not in the dump at all", which
+        /// reads as the interception having failed when it did not. The id is on both
+        /// paths.</para>
+        /// </summary>
+        internal static GuiTreeGeometryReport Inspect(GuiTreeResult tree, int? windowId,
+            string windowTitle, string controlTextMarker)
+        {
             var report = new GuiTreeGeometryReport();
             if (tree == null)
                 return report;
 
-            GuiTreeNode window = FindWindow(tree.Roots, windowTitle);
+            GuiTreeNode window = FindWindow(tree.Roots, windowId, windowTitle);
             if (window == null)
                 return report;
 
@@ -198,10 +218,20 @@ namespace Parsek
         internal static GuiTreeScrollOffsetReport MeasureScrollOffset(GuiTreeResult tree,
             string windowTitle, string rowText)
         {
+            return MeasureScrollOffset(tree, null, windowTitle, rowText);
+        }
+
+        /// <summary>
+        /// The scroll-offset reading, keyed on the window ID first for the same reason
+        /// <see cref="Inspect(GuiTreeResult, int?, string, string)"/> is.
+        /// </summary>
+        internal static GuiTreeScrollOffsetReport MeasureScrollOffset(GuiTreeResult tree,
+            int? windowId, string windowTitle, string rowText)
+        {
             var report = new GuiTreeScrollOffsetReport();
             if (tree == null)
                 return report;
-            GuiTreeNode window = FindWindow(tree.Roots, windowTitle);
+            GuiTreeNode window = FindWindow(tree.Roots, windowId, windowTitle);
             if (window == null)
                 return report;
             GuiTreeNode scrollView = FindKind(window, GuiNodeKind.ScrollView);
@@ -219,7 +249,46 @@ namespace Parsek
             return report;
         }
 
-        private static GuiTreeNode FindWindow(List<GuiTreeNode> nodes, string title)
+        /// <summary>
+        /// The window, by id when one is given and matches, else by title. TWO passes on
+        /// purpose: an id pass that ignores the title (the fallback node from
+        /// <c>CallWindowDelegate</c> has no title at all), then the original title pass.
+        /// A window found by id but bearing a different title is still the right window -
+        /// the id is the launch-independent handle, the title is a label.
+        /// </summary>
+        private static GuiTreeNode FindWindow(List<GuiTreeNode> nodes, int? windowId, string title)
+        {
+            if (windowId.HasValue)
+            {
+                GuiTreeNode byId = FindWindowById(nodes, windowId.Value);
+                if (byId != null)
+                    return byId;
+            }
+            return FindWindowByTitle(nodes, title);
+        }
+
+        private static GuiTreeNode FindWindowById(List<GuiTreeNode> nodes, int windowId)
+        {
+            if (nodes == null)
+                return null;
+            for (int i = 0; i < nodes.Count; i++)
+            {
+                GuiTreeNode n = nodes[i];
+                if (n == null)
+                    continue;
+                if (n.Kind == GuiNodeKind.Window && n.WindowId.HasValue
+                    && n.WindowId.Value == windowId)
+                {
+                    return n;
+                }
+                GuiTreeNode nested = FindWindowById(n.Children, windowId);
+                if (nested != null)
+                    return nested;
+            }
+            return null;
+        }
+
+        private static GuiTreeNode FindWindowByTitle(List<GuiTreeNode> nodes, string title)
         {
             if (nodes == null)
                 return null;
@@ -237,7 +306,7 @@ namespace Parsek
                 // container that opens a group or a layout group before drawing its
                 // window puts the window BELOW the roots, and the nested-window case
                 // (which Parsek does not draw today, but Unity permits) puts it deeper.
-                GuiTreeNode nested = FindWindow(n.Children, title);
+                GuiTreeNode nested = FindWindowByTitle(n.Children, title);
                 if (nested != null)
                     return nested;
             }

@@ -555,8 +555,22 @@ What only a flight can settle:
    (34). Every one has a designed fallback (the window scope comes from
    `CallWindowDelegate`; a group's close comes from the clip depth; the kind hint degrades
    to style-name classification), and the `funnels` block names any that were bypassed.
-   The live cell asserts Begin/End PARITY per funnel, which is how a bypass is DETECTED
-   rather than merely survived. Should a fallback prove insufficient, the escape hatch is
+   The live cell asserts Begin/End PARITY for the pairs whose BOTH sides are too large to
+   inline - `BeginLayoutGroup`/`EndLayoutGroup` (180 and 123 bytes) and
+   `BeginScrollView`/`EndScrollView` (1199 and 362) - which is how a bypass there is
+   DETECTED rather than merely survived. `BeginGroup`/`EndGroup` is deliberately NOT
+   asserted, and neither is `autoClosedByClip`: the End is 14 bytes, the design EXPECTS it
+   inlined, and asserting either at zero would red on the clip-depth fallback WORKING.
+   Both are read out on the cell's PASS line, and the `funnels` block carries the
+   measurement.
+
+   The same reasoning applies to how the cell FINDS its window. A window node's title is
+   written by `GUI.DoWindow` alone, so an inlined declaration leaves the
+   `CallWindowDelegate` node carrying the window id and no title. `GuiTreeGeometry.Inspect`
+   and `MeasureScrollOffset` therefore take an overload keyed on the WINDOW ID with the
+   title as the secondary key, and the cell's failure message splits on
+   `PatchedAtArm[DoWindow]` / `Hits[DoWindow]` so an inlined 26-byte declaration cannot
+   read as "`CallWindowDelegate` was never intercepted". Should a fallback prove insufficient, the escape hatch is
    `GUIStyle.Draw` - the instance method every leaf's Repaint path calls, moderately sized
    and public - which yields rect and style for everything at the cost of losing the
    control kind.
@@ -610,6 +624,10 @@ What only a flight can settle:
 - **Scroll-clipped children are recorded, not culled.** A row scrolled out of a scroll
   view still records its rect, which will lie outside the scroll view's. The viewer draws
   it anyway; the scroll view's own rect is the clip bound if a consumer wants to cull.
+  This is why the live cell's probe marks its scroll rows `parsekscroll-<i>`, OUTSIDE the
+  `parsek-probe-` containment marker: a clipped row is legitimately outside the window's
+  content box, so marking it would have made the containment check fail on correct
+  behaviour. The scroll-offset reading keys on the full row text instead.
 - **PasswordField records the MASKED content.** `secureText` is deliberately not read.
 - **`GUI.matrix` is read ONCE, when the capture opens.** It comes from whichever `OnGUI`
   container drew first in the armed frame, and a capture is process-wide, so a per-window

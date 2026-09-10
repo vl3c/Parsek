@@ -509,9 +509,14 @@ remains is, in order:
     whether `GUIUtility.GUIToScreenRect` converts correctly inside a `GUI.Window`
     callback, whether a scroll view's clip offset reaches that conversion, and whether
     the `GUIClip` / `GUILayoutGroup` reflection probes resolve. The cell is BUILT to
-    answer them: Begin/End funnel parity detects an inlined End, exact per-kind counts
-    inside the probe's own subtree detect a missing control kind, and every failure
-    message prints what it measured. EXPECT A RED OR A SKIP ON ATTEMPT 1 and read it
+    answer them: Begin/End funnel parity on the pairs whose BOTH sides are too large to
+    inline (`BeginLayoutGroup`/`EndLayoutGroup`, `BeginScrollView`/`EndScrollView`)
+    detects an inlined End there, exact per-kind counts inside the probe's own subtree
+    detect a missing control kind, and every failure message prints what it measured.
+    `GUI.BeginGroup`/`GUI.EndGroup` and `autoClosedByClip` are deliberately READINGS on
+    the PASS line rather than assertions - the 14-byte End is EXPECTED to be inlined and
+    the clip-depth rule is its designed fallback - as is `clipProbe=`, which names whether
+    the per-event clip probe bound as a delegate or fell back to `MethodInfo.Invoke`. EXPECT A RED OR A SKIP ON ATTEMPT 1 and read it
     as a reading: every exact pin is a prediction from decompiled source, and the cell
     self-skips if no Repaint reaches its probe window within 240 frames. Nothing else
     in the harness consumes a dump yet - the harvest and the offline viewer are

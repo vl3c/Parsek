@@ -423,6 +423,102 @@ namespace Parsek.Tests
             Assert.False(GuiTreeGeometry.MeasureScrollOffset(null, Title, "row-0").ScrollViewFound);
         }
 
+        /// <summary>
+        /// The window-id key. A window node's <c>Text</c> comes from <c>GUI.DoWindow</c>
+        /// alone (26 bytes of IL, inline-prone); the NODE comes from
+        /// <c>GUI.CallWindowDelegate</c>, which cannot be inlined and whose fallback node
+        /// carries the id and no title. A title-only lookup therefore reports "no window"
+        /// for a window that is right there.
+        /// </summary>
+        [Fact]
+        public void AWindowThatLostItsTitleToAnInlinedDeclarationIsStillFoundByItsId()
+        {
+            GuiTreeEvent window = Window(60, 60, 320, 260);
+            window.Text = null;
+            window.WindowId = 907311;
+
+            GuiTreeResult tree = Build(
+                window,
+                Control(Marker + "label", 66, 80, 100, 18),
+                new GuiTreeEvent { Op = GuiTreeOp.End, Kind = GuiNodeKind.Window });
+
+            GuiTreeGeometryReport byId = GuiTreeGeometry.Inspect(tree, 907311, Title, Marker);
+            Assert.True(byId.WindowFound);
+            Assert.Equal(1, byId.ProbeControlsFound);
+            // And the reason the overload had to be added: the title key alone misses it.
+            Assert.False(GuiTreeGeometry.Inspect(tree, Title, Marker).WindowFound);
+        }
+
+        [Fact]
+        public void TheIdIsThePrimaryKeyAndAnotherWindowsMatchingTitleDoesNotWin()
+        {
+            GuiTreeEvent decoy = Window(0, 0, 100, 100);
+            decoy.WindowId = 12345;
+            GuiTreeEvent ours = Window(60, 60, 320, 260);
+            ours.Text = "some other title";
+            ours.WindowId = 907311;
+
+            GuiTreeResult tree = Build(
+                decoy,
+                new GuiTreeEvent { Op = GuiTreeOp.End, Kind = GuiNodeKind.Window },
+                ours,
+                Control(Marker + "label", 66, 80, 100, 18),
+                new GuiTreeEvent { Op = GuiTreeOp.End, Kind = GuiNodeKind.Window });
+
+            GuiTreeGeometryReport r = GuiTreeGeometry.Inspect(tree, 907311, Title, Marker);
+            Assert.True(r.WindowFound);
+            // The decoy holds nothing, so finding the marked control proves which window
+            // matched - the id's, not the title's.
+            Assert.Equal(1, r.ProbeControlsFound);
+        }
+
+        [Fact]
+        public void WithNoIdMatchTheTitleIsStillTheSecondaryKey()
+        {
+            GuiTreeEvent window = Window(60, 60, 320, 260);
+            window.WindowId = 555;
+
+            GuiTreeResult tree = Build(
+                window,
+                Control(Marker + "label", 66, 80, 100, 18),
+                new GuiTreeEvent { Op = GuiTreeOp.End, Kind = GuiNodeKind.Window });
+
+            GuiTreeGeometryReport r = GuiTreeGeometry.Inspect(tree, 907311, Title, Marker);
+            Assert.True(r.WindowFound);
+            Assert.Equal(1, r.ProbeControlsFound);
+        }
+
+        [Fact]
+        public void TheScrollOffsetReadingTakesTheSameWindowIdKey()
+        {
+            GuiTreeEvent window = Window(60, 60, 320, 260);
+            window.Text = null;
+            window.WindowId = 907311;
+
+            var events = new List<GuiTreeEvent>
+            {
+                window,
+                new GuiTreeEvent
+                {
+                    Op = GuiTreeOp.Begin,
+                    Kind = GuiNodeKind.ScrollView,
+                    Rect = new GuiRect(66f, 200f, 300f, 70f),
+                    ClipDepth = 2,
+                },
+                Control("parsekscroll-0", 68, 175, 200, 18, 2),
+                new GuiTreeEvent { Op = GuiTreeOp.End, Kind = GuiNodeKind.ScrollView },
+                new GuiTreeEvent { Op = GuiTreeOp.End, Kind = GuiNodeKind.Window },
+            };
+
+            GuiTreeResult tree = GuiTreeAssembler.Assemble(events);
+            GuiTreeScrollOffsetReport keyed = GuiTreeGeometry.MeasureScrollOffset(
+                tree, 907311, Title, "parsekscroll-0");
+            Assert.True(keyed.RowFound);
+            Assert.Equal(25f, keyed.OffsetAbovePx, 3f);
+            Assert.False(GuiTreeGeometry.MeasureScrollOffset(
+                tree, Title, "parsekscroll-0").ScrollViewFound);
+        }
+
         [Fact]
         public void EveryFormattedNumberIsInvariantUnderAGermanCulture()
         {

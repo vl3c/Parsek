@@ -42,6 +42,9 @@ _(unreleased — entries accumulate here per commit)_
     written every row down twice. It now sees what is still switched on and adds only what
     is missing.
   - the tally of how many windows were drawn was counting each one twice.
+  - windows are now looked up by their own identifier rather than by their title, because
+    the title is one of the things that can legitimately go missing; and the one test that
+    checks all of this no longer fails when a designed fallback does its job.
 
   Nothing about the windows themselves changed: not one line of the drawing code was
   touched, nothing is listened to unless something asks for a capture, and while nothing
