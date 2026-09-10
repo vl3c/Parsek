@@ -179,7 +179,7 @@ takes:
 | D8 | ledger / career | 18 / 18 | Done. |
 | D9 | rewind / re-fly | 16 / 17 | `load-time-sweep` only, a unit-level sweep no lane drives (ghost-replay Tier B item 7). |
 | D10 | logistics / routes | 23 / 24 | `harvest-provenance` only; an operator ore-drill flight (supply-route hand-off). |
-| D1 | recording lifecycle | 13 / 18 | `manual-gloops`, `stop-on-switch` (R2 registry call), `commit-abort` (needs its definition), `sub-2-point-drop` (a registry / verb decision, todo D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE), `switch-segment-noop-discard` (lane `S0.12-switch-noop-discard` read 2026-09-10, outcome P1; the claim follows the confirm run + negative control): the Tier D authoring pass, register item 8. |
+| D1 | recording lifecycle | 13 / 18 | `manual-gloops`, `stop-on-switch` (R2 registry call), `commit-abort` (needs its definition), `sub-2-point-drop` (a registry / verb decision, todo D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE), `switch-segment-noop-discard` (lane `S0.12-switch-noop-discard` read 2026-09-10, outcome P1, confirm re-flight `2026-09-10_2056` PASS; the claim follows its negative control): the Tier D authoring pass, register item 8. |
 | D7 | part events / FX | 12 / 16 | `chute-cut`, `bays` (GS-6 residues, need a descent variant and a ServiceBay tail), `engine-fx-effects`, `inventory-place-remove` (Tier 4 producer). |
 | D14 | bodies / scenes | 24 / 32 | Tylo / Bop / Pol (G9), `atmosphere`, `situation`, `warp-1x`, `warp-phys`, `scene-editor`: breadth, behind everything else. |
 | D11 | missions abstraction | 12 / 18 | `default-mission`, `leg-trim`, `whole-mission-loop`, `clone`, `station-phase-lock`, `s4-arrival-restitch`: Missions-tab semantics that need seam verbs equivalent to the tab's buttons (`MissionConfig` exists; the rest do not). |
@@ -397,7 +397,7 @@ remains is, in order:
    `surface-body-fixed`, is claimed by `H17-flight-integration`, so R2 is down to
    one cell and its "two unclaimable cells" text is stale).
    2026-09-10 (`ghost-replay-tier-b`): `switch-segment-noop-discard` authored as
-   `S0.12-switch-noop-discard` (read 2026-09-10, outcome P1; confirm + negative control pending); `sub-2-point-drop` is BLOCKED on a
+   `S0.12-switch-noop-discard` (read 2026-09-10, outcome P1; confirm re-flight `2026-09-10_2056` PASS; negative control pending); `sub-2-point-drop` is BLOCKED on a
    registry / verb decision to take together with R2 - its only producer is reached
    in always-tree mode only through rare split-edge aborts no verb drives (todo
    D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE).
@@ -3707,8 +3707,9 @@ first spawn frame (hold-then-retry, never a single eager ask).
     segment; a live tree gives the deferred BgMemberOrMixed shape GS-3 measured).
     READ 2026-09-10 (`2026-09-10_1942`, PASS attempt 1): outcome (P1), the Standalone
     no-op discard with nothing committed and zero sidecars left; every token re-cut
-    to its measured line. The confirm re-flight and the negative control are
-    pending, then the D1 claim and the daily promotion.
+    to its measured line. CONFIRMED by the re-flight `2026-09-10_2056` (PASS
+    attempt 1 on the re-cut spec); the negative control is pending, then the D1
+    claim and the daily promotion.
     `sub-2-point-drop` is NOT reachable with existing verbs after all: its only
     producer is reached in always-tree mode only through rare split-edge aborts
     (`TryAppendCapturedToTree`'s <2-point guard into `FallbackCommitSplitRecorder`),

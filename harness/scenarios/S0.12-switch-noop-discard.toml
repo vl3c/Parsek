@@ -11,10 +11,10 @@ id = "S0.12-switch-noop-discard"
 # there).
 #
 # AUTHORED 2026-09-10 (`ghost-replay-tier-b`) and READ the same day: reading run
-# `2026-09-10_1942` flew PASS attempt 1 and classified OUTCOME (P1), the Standalone
-# no-op discard (the STATUS block below). Every token is RE-CUT to the measured line.
-# NOTHING is claimed in [dimensionsCovered] yet: the D1 claim enters after the confirm
-# re-flight and the negative control.
+# `2026-09-10_1942` flew PASS attempt 1, OUTCOME (P1) (the STATUS block below). Every
+# token is RE-CUT to the measured line, and the CONFIRM re-flight `2026-09-10_2056`
+# PASSED on the re-cut spec (the RUN LEDGER at the end of this file). NOTHING is
+# claimed yet: the D1 claim enters after the negative control, which has not flown.
 #
 # =====================================================================================
 # THE CODE FACTS THIS SPEC RESTS ON - read, not assumed.
@@ -34,13 +34,13 @@ id = "S0.12-switch-noop-discard"
 #     (`createdFreshTree = true`) holding only the segment - the Standalone
 #     disposition, and the one this lane needs.
 # (3) THE SEGMENT STILL RECORDS. `BindLiveRecorderToSwitchSegment` starts a recorder
-#     on the target even with no prior one, and the orbiting probe core records an
-#     on-rails orbit segment at once (S0.8's collected log carries the Recorder's
-#     `Recording started on rails` line for the segment), so the classifier's
-#     `insufficient-data` keep path
-#     (fewer than 2 points AND no sections AND no orbit segments) should not bite.
-#     GS-3 measured the SAME core classifying `noOp=True reason=no-op` 0.6 s after
-#     its click (`2026-08-05_1448`, line 11723), with its disposition the deferred one.
+#     on the target even with no prior one, either ON RAILS (an orbit segment: S0.8's
+#     log and this lane's reading) or in PHYSICS (an ExoBallistic Absolute TrackSection:
+#     this lane's confirm re-flight - the start frame varies run to run), so the
+#     classifier's `insufficient-data` keep path (fewer than 2 points AND no sections
+#     AND no orbit segments) does not bite on either. GS-3 measured the SAME core
+#     classifying `noOp=True reason=no-op` 0.6 s after its click (`2026-08-05_1448`,
+#     line 11723), with its disposition the deferred one.
 # (4) THE EXIT IS ALLOWED. ExitToSpaceCenter's wedge guard refuses only a RegularMerge
 #     (autoMerge OFF), a Re-Fly attempt, or a SwitchSegmentSession with NO live
 #     active tree. With `autoMerge = true` and the fresh tree live, none applies.
@@ -105,7 +105,7 @@ id = "S0.12-switch-noop-discard"
 #     also causes does not discharge it.
 # =====================================================================================
 tier = "operator"
-description = "The no-op switch-segment auto-discard end to end (D1 switch-segment-noop-discard, roadmap Tier D item 13): S0.8's map-site Switch-To click onto the co-orbiting loaded probe core WITHOUT a live recording, so the standalone consume builds a FRESH tree holding only the segment (disposition Standalone); a short dwell in which nothing happens; then ExitToSpaceCenter, whose scene-exit prefix (step 3.5) must classify the segment no-op and discard the whole throwaway tree before any commit routing. READ 2026-09-10 (`2026-09-10_1942`, PASS attempt 1, outcome P1) and every token re-cut to its measured line; the confirm re-flight and the negative control are pending, and no dimension is claimed until both."
+description = "The no-op switch-segment auto-discard end to end (D1 switch-segment-noop-discard, roadmap Tier D item 13): S0.8's map-site Switch-To click onto the co-orbiting loaded probe core WITHOUT a live recording, so the standalone consume builds a FRESH tree holding only the segment (disposition Standalone); a short dwell in which nothing happens; then ExitToSpaceCenter, whose scene-exit prefix (step 3.5) must classify the segment no-op and discard the whole throwaway tree before any commit routing. READ 2026-09-10 (`2026-09-10_1942`, PASS attempt 1, outcome P1) and every token re-cut to its measured line; the confirm re-flight `2026-09-10_2056` PASSED on the re-cut spec, the negative control is pending, and no dimension is claimed until it flies."
 instanceProfile = "stock-minimal"
 tags = ["switch-segment", "stock-click", "S0.12", "noop-discard", "D1"]
 
@@ -217,3 +217,35 @@ policy = "once"
 
 [expectedFail]
 bugId = ""
+
+# =====================================================================================
+# RUN LEDGER - kept at the END of the file so the control anchors above (the driver
+# step on line 133, the claim token on line 197) keep their line numbers.
+#
+# CONFIRM RE-FLIGHT `2026-09-10_2056`: the re-cut spec at e754eb076 UNEDITED,
+# stock-minimal on the wave DLL (deployed sha256 a0abbed1... == PIN, re-checked after
+# the run). PASS attempt 1, 54 s wall, "driver valid, every verifier PASS/SKIPPED".
+# expectations mismatches []: each of the 11 required tokens matched exactly ONE line
+# (re-evaluated offline with hlib.evaluate_expectations over the archived KSP.log: the
+# same), the 3 forbidden patterns 0 lines, recordings.count 0 (the produced save's
+# `Parsek/Recordings` EMPTY, 0 `.prec`). logValidate PASS with REC-001/003
+# suppressed; analyzer PASS; unityExceptions total 0. OUTCOME (P1) again, on fresh
+# GUIDs: the gate (L11088) with `hasActiveRecording=false ...
+# dialogDecision=NoPriorSession`, the route (L11158) `route=standalone ...
+# createdFreshTree=True`, the classifier (L11343) `disposition=Standalone
+# subtreeCount=1 hasDescendants=False noOp=True reason=no-op` 2.8 s after the click,
+# the claim token (L11344) and the teardown (L11345) within 1 ms, then
+# `exittospacecenter complete ... elapsed=1.7s`. ONE PER-RUN DIFFERENCE from the
+# reading, outside every token: the segment recorder started in PHYSICS
+# (`TrackSection started: env=ExoBallistic ref=Absolute`, one frame), not on rails -
+# fact (3) now names both start frames.
+#
+# NOT FLOWN YET (the wave's arm batch was interrupted after this run):
+#   - the NEGATIVE CONTROL: line 197's `(Standalone)` inverted to
+#     `(CommittedRestoreClone)`. It must red PARSEK-FAIL(expectation) on exactly that
+#     token, with the original regex matching >= 1 line and the inverted one 0 in the
+#     control's own log;
+#   - the MIRROR MEASUREMENT: line 133's autoRecordOnLaunch SetSetting replaced by
+#     `StartRecording`. It must red naming the missing `(Standalone)` token, with the
+#     `disposition=BgMemberOrMixed is deferred` line present.
+# The D1 claim and the daily promotion wait on the negative control.
