@@ -23,10 +23,13 @@ CONTRACTS (binding):
     ``index.html`` beside it, and nothing else. A malformed, truncated or
     empty-tree dump produces a page that SAYS so rather than raising, because
     the malformed case is exactly the one someone is trying to look at.
-  - The dump is untrusted text. Every string reaching the HTML goes through
-    ``html_escape``, and the tree is fed to the page as JSON inside a
-    ``<script type="application/json">`` block with ``<`` escaped, so a control
-    labelled ``</script>`` cannot break out.
+  - The dump is untrusted text. EVERY string reaching the HTML goes through
+    ``html_escape`` - the page title, the box captions, the tree rows and their
+    detail column - so a control labelled ``"><img src=x onerror=...>`` renders as
+    text. There is deliberately no JSON payload inlined in a ``<script>`` block:
+    the page's JS reads what it needs off the DOM, so there is no second escaping
+    path to keep correct. ``harness/lib/test_gui_tree_view.py`` fires the payloads
+    at both surfaces.
 """
 
 from __future__ import annotations
@@ -253,6 +256,27 @@ def health_notes(dump):
             "than by their own end record - expected if Mono inlined an End funnel"
             % repaired)
 
+    inert = counts.get("rectRuleInert")
+    if isinstance(inert, int) and inert > 0:
+        # Not an error - a zero-size carrier group is ordinary GUILayout - but the
+        # layout nesting at those points rests on the End pairing alone, with no
+        # independent rect check behind it.
+        notes.append(
+            "layout nesting unverified at %d point(s): every open layout group had a "
+            "degenerate rect, so the containment rule could not be applied there"
+            % inert)
+
+    matrix = dump.get("guiMatrix")
+    if isinstance(matrix, dict) and matrix.get("identity") is False:
+        # GUIUtility.GUIToScreenRect converts a rect's ORIGIN only, so the recorder
+        # multiplied every width and height through by m00 / m11 itself. Worth saying
+        # out loud: a reader comparing boxes against a screenshot needs to know.
+        notes.append(
+            "GUI.matrix was not identity (m00=%s m11=%s m03=%s m13=%s); widths and "
+            "heights were scaled by the recorder, origins by Unity"
+            % (matrix.get("m00"), matrix.get("m11"),
+               matrix.get("m03"), matrix.get("m13")))
+
     funnels = dump.get("funnels")
     if isinstance(funnels, list):
         unpatched = [f.get("name") for f in funnels
@@ -318,16 +342,6 @@ def embed_image(path):
     return "data:%s;base64,%s" % (mime, base64.b64encode(blob).decode("ascii"))
 
 
-def json_for_script(payload) -> str:
-    """JSON safe to inline in a ``<script type="application/json">`` block.
-
-    Escaping ``<`` is what stops a control labelled ``</script>`` from closing the
-    block; the other two are belt and braces for older parsers.
-    """
-    text = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
-    return text.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
-
-
 def load_dump(path):
     """Parse a dump. Returns ``(dump_or_None, error_or_None)``."""
     try:
@@ -347,11 +361,6 @@ def render_page(dump, error=None, title=None, image_uri=None, source_name=None) 
     label = title or (dump.get("label") if isinstance(dump, dict) else None) or "gui-tree"
     counts = dump.get("counts") if isinstance(dump, dict) and isinstance(
         dump.get("counts"), dict) else {}
-
-    payload = [{
-        "id": r["id"], "kind": r["kind"], "color": r["color"], "label": r["label"],
-        "rect": r["rect"], "depth": r["depth"], "container": r["kind"] in CONTAINER_KINDS,
-    } for r in records]
 
     meta_bits = []
     if isinstance(dump, dict):
@@ -449,8 +458,6 @@ def render_page(dump, error=None, title=None, image_uri=None, source_name=None) 
     out.append("</div></div>")
     out.append("</div>")
 
-    out.append('<script type="application/json" id="nodes">%s</script>'
-               % json_for_script(payload))
     out.append("<script>%s</script>" % _JS)
     out.append("</body></html>")
     return "\n".join(out) + "\n"

@@ -1,20 +1,30 @@
 #!/usr/bin/env python3
-"""Unit tests for the offline GUI-tree viewer (`gui_tree_view.py`).
+"""Unit tests for the offline GUI-tree viewer (`harness/tools/gui_tree_view.py`).
 
 The viewer's whole job is to make a dump readable by someone who cannot see the
 game, so the cells that matter are the ones about NOT LYING: a malformed dump must
 produce a page that says so, an unknown control kind must still draw, a dump whose
 Harmony interceptions were bypassed must be flagged rather than looking complete,
-and a control labelled `</script>` must not be able to break out of the page.
+and a control whose text is markup must not be able to break out of the page.
+
+Lives under `lib/` rather than beside the tool because CI runs
+`python -m unittest discover -s lib -q` and nothing discovers `tools/` - the same
+placement as `lib/test_contact_sheet.py` for `tools/contact_sheet.py`.
+
+Runnable with the stdlib runner only (NO pytest, NO KSP, NO network)::
+
+    cd harness && python -m unittest discover -s lib -q
 """
 
 import json
 import os
+import re
 import sys
 import tempfile
 import unittest
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tools"))
 
 import gui_tree_view as gtv  # noqa: E402
 
@@ -27,9 +37,10 @@ def dump(roots=None, **extra):
         "frame": 42,
         "screen": {"width": 1600, "height": 900},
         "screenshotHint": "probe.png",
+        "guiMatrix": {"identity": True, "m00": 1, "m11": 1, "m03": 0, "m13": 0},
         "counts": {"windows": 1, "nodes": 2, "events": 4, "strayEnds": 0,
                    "autoClosedByClip": 0, "autoClosedByEnd": 0,
-                   "autoClosedByRect": 0, "unclosedAtEnd": 0,
+                   "autoClosedByRect": 0, "rectRuleInert": 0, "unclosedAtEnd": 0,
                    "recordFaults": 0, "droppedOverCap": 0},
         "funnels": [{"name": "GUI.DoLabel", "patched": True, "hits": 3}],
         "roots": roots if roots is not None else [],
@@ -248,29 +259,33 @@ class HealthNoteTests(unittest.TestCase):
     def test_a_patched_and_hit_funnel_is_silent(self):
         self.assertEqual([], gtv.health_notes(dump([node("window")])))
 
+    def test_an_inert_rect_rule_is_reported_as_unverified_nesting(self):
+        # Not a failure - a zero-size carrier group is ordinary GUILayout - but at
+        # those points the layout nesting rests on the End pairing alone, which a
+        # reader has to be told rather than left to assume.
+        body = dump([node("window")])
+        body["counts"]["rectRuleInert"] = 4
+        notes = gtv.health_notes(body)
+        self.assertTrue(any("layout nesting unverified" in n and "4 point(s)" in n
+                            for n in notes), notes)
+
+    def test_a_non_identity_gui_matrix_is_reported(self):
+        # GUIUtility.GUIToScreenRect converts a rect's ORIGIN only, so under a
+        # scaling matrix the recorder scaled w/h itself. Someone comparing boxes to
+        # a screenshot needs to know which half Unity did.
+        body = dump([node("window")])
+        body["guiMatrix"] = {"identity": False, "m00": 1.5, "m11": 1.5,
+                             "m03": 0, "m13": 0}
+        notes = gtv.health_notes(body)
+        self.assertTrue(any("GUI.matrix was not identity" in n for n in notes), notes)
+        self.assertTrue(any("m00=1.5" in n for n in notes), notes)
+
+    def test_an_identity_matrix_and_a_zero_inert_count_are_silent(self):
+        self.assertEqual([], gtv.health_notes(dump([node("window")])))
+
     def test_a_non_object_dump_is_reported_not_raised(self):
         self.assertEqual(["the dump is not a JSON object"], gtv.health_notes([1, 2]))
         self.assertEqual(["the dump is not a JSON object"], gtv.health_notes(None))
-
-
-class ScriptInliningTests(unittest.TestCase):
-    def test_a_control_labelled_like_a_closing_tag_cannot_break_out(self):
-        text = gtv.json_for_script([{"label": "</script><script>alert(1)"}])
-        self.assertNotIn("</script>", text)
-        self.assertNotIn("<", text)
-        self.assertNotIn(">", text)
-        # And it is still the same data once a JSON parser reads it back.
-        self.assertEqual("</script><script>alert(1)",
-                         json.loads(text)[0]["label"])
-
-    def test_ampersands_survive_the_round_trip(self):
-        self.assertEqual("a&b", json.loads(gtv.json_for_script("a&b")))
-
-    def test_non_ascii_text_survives(self):
-        # Escaped rather than literal so this file stays plain ASCII (house style);
-        # the value under test is still a real non-ASCII character.
-        degrees = "Kerbin \u00b0C"
-        self.assertEqual(degrees, json.loads(gtv.json_for_script(degrees)))
 
 
 class PathTests(unittest.TestCase):
@@ -398,14 +413,45 @@ class RenderTests(unittest.TestCase):
         self.assertIn("screen 1600x900", page)
         self.assertIn("2026-09-10T10:11:12Z", page)
 
-    def test_the_node_payload_is_inlined_for_the_script(self):
+    def test_the_page_inlines_no_json_payload_at_all(self):
+        # The page used to carry a <script type="application/json"> copy of the
+        # tree that nothing read, with its own escaping function to keep correct.
+        # Dead escaping that LOOKS load-bearing is worse than none: the next
+        # reader has to work out whether it still matters.
         page = gtv.render_page(dump([node("window", (1, 2, 3, 4))]))
-        start = page.index('id="nodes"')
-        blob = page[page.index(">", start) + 1:page.index("</script>", start)]
-        payload = json.loads(blob)
-        self.assertEqual(1, len(payload))
-        self.assertEqual([1.0, 2.0, 3.0, 4.0], payload[0]["rect"])
-        self.assertTrue(payload[0]["container"])
+        self.assertNotIn('type="application/json"', page)
+        self.assertNotIn('id="nodes"', page)
+        self.assertFalse(hasattr(gtv, "json_for_script"))
+
+    def test_a_label_that_is_markup_cannot_escape_the_tree_row_detail(self):
+        # The detail column concatenates style, extras, tooltip and DISABLED. All
+        # of it is dump text, so all of it goes through html_escape - and these
+        # are the payloads that would break out if any of it did not.
+        page = gtv.render_page(dump([
+            node("button", (0, 0, 10, 10), text="ok",
+                 style='"><img src=x onerror=alert(1)>',
+                 tooltip='</div><script>alert(2)</script>')]))
+        self.assertNotIn("<img", page)
+        self.assertNotIn("<script>alert(2)", page)
+        self.assertIn("&lt;img", page)
+        self.assertIn("&lt;/div&gt;", page)
+        # The attribute-breaking quote is escaped as well, not merely the angles.
+        self.assertNotIn('style="><img', page)
+        self.assertIn("&quot;&gt;&lt;img", page)
+
+    def test_a_label_that_is_markup_cannot_escape_the_page_title(self):
+        # <title> is RCDATA: a browser will not run a <script> inside it, but it
+        # WILL end the element at "</title>", so unescaped markup there escapes
+        # into the document.
+        page = gtv.render_page(dump([node("window")],
+                                    label="</title><script>alert(1)</script>"))
+        title = re.search(r"<title>(.*?)</title>", page, re.S)
+        self.assertIsNotNone(title, "the page lost its title element")
+        self.assertNotIn("<script>alert(1)", page)
+        self.assertIn("&lt;/title&gt;", title.group(1))
+        # ... and there is exactly one, so nothing broke out and re-opened it.
+        self.assertEqual(1, page.count("<title>"))
+        self.assertEqual(1, page.count("</title>"))
 
 
 class IndexTests(unittest.TestCase):
@@ -481,6 +527,91 @@ class ShellTests(unittest.TestCase):
     def test_output_with_batch_is_refused(self):
         with self.assertRaises(SystemExit):
             gtv.main(["--batch", ".", "-o", "x.html"])
+
+
+class CSharpWriterSourceSyncTests(unittest.TestCase):
+    """SOURCE-SYNC GATE: this cell reads OUTSIDE `harness/` on purpose.
+
+    Precedent: `test_hlib.py::test_the_c_sharp_writer_still_emits_pointcount`. The
+    viewer indexes the dump by KEY NAME, and every one of those names is produced
+    by exactly one hand-rolled C# writer, `Source/Parsek/GuiTreeJson.cs`. Rename a
+    key there and the viewer silently degrades - boxes vanish, the notes strip goes
+    quiet, the tree loses its detail column - with nothing failing anywhere. Fail
+    HERE, locally, naming the key, instead of on someone's next dump.
+    """
+
+    @staticmethod
+    def _writer_source():
+        repo_root = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        path = os.path.join(repo_root, "Source", "Parsek", "GuiTreeJson.cs")
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            return path, fh.read()
+
+    def test_every_key_the_viewer_indexes_is_still_written(self):
+        path, src = self._writer_source()
+
+        # Each entry: the JSON key, and where the viewer would go quiet without it.
+        keys = [
+            ("schema", "health_notes checks the schema id"),
+            ("label", "render_page titles the page and index_entry labels the row"),
+            ("capturedUtc", "the header meta strip"),
+            ("frame", "the header meta strip"),
+            ("screen", "screen_size, which is the overlay's coordinate frame"),
+            ("guiMatrix", "the non-identity-matrix note"),
+            ("counts", "every health note derived from a counter"),
+            ("strayEnds", "health_notes"),
+            ("autoClosedByClip", "health_notes' repair total"),
+            ("autoClosedByEnd", "health_notes' repair total"),
+            ("autoClosedByRect", "health_notes' repair total"),
+            ("rectRuleInert", "the layout-nesting-unverified note"),
+            ("unclosedAtEnd", "health_notes"),
+            ("recordFaults", "health_notes"),
+            ("droppedOverCap", "health_notes"),
+            ("funnels", "the NOT PATCHED / never hit notes"),
+            ("patched", "the NOT PATCHED note"),
+            ("hits", "the never-hit note"),
+            ("roots", "flatten, i.e. the whole page"),
+            ("kind", "kind_color, the container test and the tree chip"),
+            ("rect", "rect_of, i.e. every box on the overlay"),
+            ("localRect", "the flattened record"),
+            ("clipDepth", "extras_of"),
+            ("style", "the tree row's detail column"),
+            ("enabled", "the disabled styling on both surfaces"),
+            ("text", "node_label"),
+            ("tooltip", "the tree row's detail column"),
+            ("value", "extras_of"),
+            ("textValue", "node_label and extras_of"),
+            ("controlId", "extras_of"),
+            ("windowId", "extras_of"),
+            ("horizontal", "extras_of"),
+            ("children", "flatten's recursion"),
+        ]
+        for key, why in keys:
+            # The writer builds JSON with C# string literals, so the key appears in
+            # the source as an ESCAPED quote pair: \"schema\", not "schema".
+            self.assertIn('\\"%s\\"' % key, src,
+                          "%s no longer writes the '%s' key, which the viewer reads "
+                          "for: %s. Either restore the key or re-source the viewer."
+                          % (os.path.basename(path), key, why))
+
+    def test_the_schema_id_matches_the_one_the_viewer_expects(self):
+        path, src = self._writer_source()
+        self.assertIn('SchemaId = "%s"' % gtv.SCHEMA_ID, src,
+                      "%s declares a different schema id from the viewer's %r, so "
+                      "every dump would render with a 'schema is ...' warning"
+                      % (os.path.basename(path), gtv.SCHEMA_ID))
+
+    def test_the_dump_suffix_matches_the_one_the_viewer_globs(self):
+        repo_root = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        path = os.path.join(repo_root, "Source", "Parsek", "GuiTreeRecorder.cs")
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            src = fh.read()
+        self.assertIn('OutputSuffix = "%s"' % gtv.DUMP_SUFFIX, src,
+                      "the recorder writes a suffix other than %r, so --batch would "
+                      "glob nothing and the harness harvest would skip the file"
+                      % gtv.DUMP_SUFFIX)
 
 
 if __name__ == "__main__":
