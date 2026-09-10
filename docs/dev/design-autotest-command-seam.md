@@ -1750,12 +1750,36 @@ Missions window's tab back to index 0, so `tab=recordings` cannot hold there, an
 that believed it photographed the Recordings tab in Basic photographed Missions),
 `complexity-not-applied`, `rect-not-applied`, `ui-action-not-settled` (the budget expired
 before a single frame was drawn: the renderer stopped or the pump never reached another
-safe point - NOT a refusal, which is why it is not spelled like one), `ui-action-threw`.
+safe point - NOT a refusal, which is why it is not spelled like one),
+`window-host-hidden` (see below), `ui-action-threw`.
+
+**THE SETTLE'S HOST-VISIBILITY GATE (`window-host-hidden`).** A frame count says a frame
+HAPPENED, never that this window was in it. Both hosts gate the WHOLE Parsek surface
+behind their own `showUI` - `ParsekKSC.OnGUI` returns at `if (!showUI) return;` (`:229`,
+with the pause gate right after at `:234-235`) and `ParsekFlight.OnGUI` draws the window
+only inside `if (showUI)` (`:2096` / `:2108`) - and every sub-window draw sits inside that
+gate. So with `main` closed, a settled `open` or `rect` on a SUB-window read back a value
+no draw pass had touched, which is the "comparing a field with itself" defect the
+two-phase settle exists to remove. `rect` is the worse half: an unresolved rect still
+holds exactly the commanded value, so `RectAppliedWithinTolerance` PASSES and the census
+then photographs a scene with no Parsek window in it. The settle therefore refuses a
+non-`main` `open` / `rect` while the host's `showUI` is false, as a terminal `ERROR
+window-host-hidden` (its own token rather than folded into `ui-action-not-settled`,
+because the remedy is different: open `main` first, not "the renderer stopped"). `main`
+itself is EXEMPT and must be - its open flag IS that `showUI`, so gating it would refuse
+the op that turns the surface on. Decision: `TestCommandUiAction.SettleRefusedForHiddenHost`
+(pure, and it fails CLOSED on an unrecognised token). Both settle log lines now carry
+`hostShowUi=<true|false>`, so a reader can tell a settled read-back's premise from the
+log alone. NOT gated: the PAUSE overlay, which suppresses the `main` draw too and so is a
+different shape from this window-scoped refusal - and nothing an unattended run drives
+opens the Esc menu. Both census specs open `main` as their first `UiAction` step, which
+is now a stated PRECONDITION of any non-`main` `open` / `rect` rather than a convention.
 
 **Pure decision.** `TestCommandUiAction` (the window / op / mode / tab tables,
 `TryParseOp`, `TryResolveWindow`, `IsAvailableInScene`, `TryResolveTab`, `TryParseMode`,
 `TryParseRect`, `RectAppliedWithinTolerance`, `OpIsTwoPhase`, `DecideSettlePoll`,
-`IsComplexityAlreadySatisfied`, `FormatOpenWindowList`, and every payload builder),
+`SettleRefusedForHiddenHost`, `IsComplexityAlreadySatisfied`, `FormatOpenWindowList`,
+and every payload builder),
 xUnit-covered in `TestCommandUiActionTests.cs`.
 
 The partial `ParsekTestCommandAddon.UiAction.cs` owns ONE resolver -

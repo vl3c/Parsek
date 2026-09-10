@@ -281,6 +281,35 @@ namespace Parsek.TestCommands
         /// reached another safe point - not that the op was refused.</summary>
         internal const string NotSettledReason = "ui-action-not-settled";
 
+        /// <summary>
+        /// POST-SETTLE terminal for a NON-<c>main</c> two-phase op whose host was not
+        /// drawing: <c>Time.frameCount</c> advanced, but the frame it advanced through
+        /// never reached this window.
+        ///
+        /// <para>WHY IT IS NOT COVERED BY THE FRAME COUNT. Both hosts gate the WHOLE Parsek
+        /// surface behind their own <c>showUI</c> flag - <c>ParsekKSC.OnGUI</c> returns at
+        /// <c>if (!showUI) return;</c> and <c>ParsekFlight.OnGUI</c> draws the window only
+        /// inside <c>if (showUI)</c> - and every sub-window draw sits inside that gate. So
+        /// with the main window closed, a settled <c>open</c> or <c>rect</c> on a
+        /// sub-window reads back a flag or a rect that NO draw pass ever touched, which is
+        /// precisely the "comparing a field with itself" defect the settle exists to
+        /// remove. <c>rect</c> is the worse half: an unresolved rect reads back the
+        /// commanded value exactly, so the tolerance check passes and the census then
+        /// photographs a scene with no Parsek window in it.</para>
+        ///
+        /// <para><c>main</c> ITSELF IS EXEMPT, and must be: its open flag IS the host's
+        /// <c>showUI</c>, so refusing to settle it while <c>showUI</c> is false would
+        /// refuse the very op that turns the surface on - <c>UiAction op=open
+        /// window=main</c>, the first step of every census.</para>
+        ///
+        /// <para>NOT GATED HERE: the pause overlay. Both hosts also return early while
+        /// <c>PauseMenuGate.IsPauseMenuOpen()</c>, which suppresses the <c>main</c> draw
+        /// too, so it is a different shape from this window-scoped refusal - and nothing an
+        /// unattended run drives opens the Esc menu. If a lane ever pauses, the residue is
+        /// a settle over an undrawn frame again.</para>
+        /// </summary>
+        internal const string WindowHostHiddenReason = "window-host-hidden";
+
         /// <summary>POST-CALL terminal: the tab index was written and reads back wrong.</summary>
         internal const string TabNotAppliedReason = "tab-not-applied";
 
@@ -554,6 +583,26 @@ namespace Parsek.TestCommands
             if (budgetExpired) return UiActionSettleOutcome.TimedOut;
             return UiActionSettleOutcome.NotYet;
         }
+
+        /// <summary>
+        /// Whether a SETTLED two-phase read-back must be refused because the frame that
+        /// settled it never drew this window: true iff the window is not <c>main</c> and
+        /// the scene host's <c>showUI</c> is false.
+        ///
+        /// <para>The frame count says a frame HAPPENED, never that this window was in it.
+        /// Both hosts gate the entire Parsek surface behind <c>showUI</c>
+        /// (<c>ParsekKSC.OnGUI</c> / <c>ParsekFlight.OnGUI</c>), so a settle over a hidden
+        /// host reads exactly the value just written and proves nothing - see
+        /// <see cref="WindowHostHiddenReason"/> for why <c>rect</c> is the worse half and
+        /// why <c>main</c> is exempt.</para>
+        ///
+        /// <para>A null / unknown window token cannot reach this (<c>TryResolveWindow</c>
+        /// rejected first), and it is treated as non-<c>main</c> here rather than
+        /// special-cased: the safe answer for an unrecognised token is to refuse the
+        /// read-back, not to trust it.</para>
+        /// </summary>
+        internal static bool SettleRefusedForHiddenHost(string window, bool hostShowUi)
+            => !hostShowUi && !string.Equals(window, MainWindow, StringComparison.Ordinal);
 
         /// <summary>
         /// Whether <c>op=complexity</c> has nothing to do.

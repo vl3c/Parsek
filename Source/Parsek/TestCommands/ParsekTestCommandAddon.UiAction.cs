@@ -389,6 +389,26 @@ namespace Parsek.TestCommands
                 return;
             }
 
+            // The frame count says a frame HAPPENED, not that this window was in it: every
+            // sub-window draw in both hosts sits inside the host's showUI gate
+            // (ParsekKSC.OnGUI's `if (!showUI) return;`, ParsekFlight.OnGUI's
+            // `if (showUI)` block), so with `main` closed the read-back below would compare
+            // the written value with itself - the very defect the settle exists to remove.
+            // `main` is exempt because its own open flag IS that showUI (see
+            // TestCommandUiAction.WindowHostHiddenReason).
+            bool hostShowUi = ReadHostShowUi();
+            if (TestCommandUiAction.SettleRefusedForHiddenHost(window, hostShowUi))
+            {
+                ParsekLog.Error(Tag, "uiaction error reason="
+                    + TestCommandUiAction.WindowHostHiddenReason
+                    + $" op={TestCommandUiAction.OpToken(op)} window={window} "
+                    + $"hostShowUi={Bool(hostShowUi)} frames={Int(framesElapsed)}");
+                EmitExecutedTerminal(id, seq, verb, "ERROR", null,
+                    $"{TestCommandUiAction.WindowHostHiddenReason} window={window}",
+                    dequeueHead: true);
+                return;
+            }
+
             UiWindowHandle handle = ResolveWindowHandle(ui, window);
 
             if (op == UiActionOp.Open)
@@ -409,7 +429,8 @@ namespace Parsek.TestCommands
                     return;
                 }
                 ParsekLog.Info(Tag, $"uiaction open window={window} open=true "
-                    + $"already={Bool(already)} frames={Int(framesElapsed)}");
+                    + $"already={Bool(already)} frames={Int(framesElapsed)} "
+                    + $"hostShowUi={Bool(hostShowUi)}");
                 EmitExecutedTerminal(id, seq, verb, "OK",
                     TestCommandUiAction.BuildTogglePayload(
                         UiActionOp.Open, window, true, already),
@@ -433,7 +454,7 @@ namespace Parsek.TestCommands
 
             ParsekLog.Info(Tag, $"uiaction rect window={window} "
                 + $"rect={TestCommandUiAction.FormatRect(settled)} "
-                + $"frames={Int(framesElapsed)}");
+                + $"frames={Int(framesElapsed)} hostShowUi={Bool(hostShowUi)}");
             EmitExecutedTerminal(id, seq, verb, "OK",
                 TestCommandUiAction.BuildRectPayload(window, settled), null,
                 dequeueHead: true);

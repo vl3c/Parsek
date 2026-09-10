@@ -70,6 +70,12 @@ tier = "operator"
 # inside the host's `showUI` gate, so it stays open throughout, and the two full-width
 # windows below cover it.
 #
+# `op=open window=main` FIRST IS A PRECONDITION, not just the natural order. The settle
+# for a non-`main` `open` / `rect` REFUSES while the host's `showUI` is false
+# (`ERROR window-host-hidden`), because the frame that advanced the count never drew this
+# window and the read-back would only be reading the write back. This lane already opens
+# `main` as its first UiAction step and leaves it open, so the gate never fires here.
+#
 # TWO WINDOWS DO NOT FIT THIS INSTANCE, measured off their own source rather than off the
 # images: `missions` (RecordingsTableUI, laid out for 1355 px - the width its tooltip-echo
 # strip is budgeted against) and `logistics` (LogisticsWindowUI, `MinWindowWidth = 1410`,

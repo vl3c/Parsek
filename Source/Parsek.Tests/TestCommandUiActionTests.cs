@@ -512,6 +512,64 @@ namespace Parsek.Tests
                 TestCommandUiAction.DecideSettlePoll(framesElapsed: -3, budgetExpired: false));
         }
 
+        // ----- the settle's host-visibility gate -----
+
+        [Fact]
+        public void SettleIsRefused_ForASubWindow_WhileTheHostSurfaceIsHidden()
+        {
+            // The frame count says a frame HAPPENED, never that this window was in it: both
+            // hosts gate the WHOLE Parsek surface behind their own showUI (ParsekKSC.OnGUI's
+            // `if (!showUI) return;`, ParsekFlight.OnGUI's `if (showUI)` block), and every
+            // sub-window draw sits inside it. So a settled read-back over a hidden host is
+            // the write reading itself back - and for `rect` it PASSES the tolerance check,
+            // because an unresolved rect still holds exactly the commanded value, which is
+            // how a census ends up photographing a scene with no Parsek window in it.
+            foreach (UiWindowSpec spec in TestCommandUiAction.Windows.Skip(1))
+                Assert.True(TestCommandUiAction.SettleRefusedForHiddenHost(
+                    spec.Name, hostShowUi: false), spec.Name);
+        }
+
+        [Fact]
+        public void SettleIsAllowed_ForEveryWindow_OnceTheHostSurfaceIsShown()
+        {
+            // The mirror direction: the gate must not refuse the normal case. With `main`
+            // open every window - including main itself - settles as before, so this is a
+            // no-op on any census that opens main first (both committed ones do, as their
+            // first UiAction step).
+            foreach (UiWindowSpec spec in TestCommandUiAction.Windows)
+                Assert.False(TestCommandUiAction.SettleRefusedForHiddenHost(
+                    spec.Name, hostShowUi: true), spec.Name);
+        }
+
+        [Fact]
+        public void SettleIsNeverRefused_ForMainItself()
+        {
+            // MUST be exempt, and not as a convenience: `main`'s open flag IS the host's
+            // showUI, so gating it on showUI would refuse `op=open window=main` - the first
+            // step of every census and the op that turns the surface on in the first place.
+            Assert.False(TestCommandUiAction.SettleRefusedForHiddenHost(
+                TestCommandUiAction.MainWindow, hostShowUi: false));
+            Assert.Equal("main", TestCommandUiAction.MainWindow);
+            // Case-sensitive on purpose: the token reaching the settle came from
+            // TryResolveWindow, which resolves to the table's own spelling.
+            Assert.True(TestCommandUiAction.SettleRefusedForHiddenHost(
+                "Main", hostShowUi: false));
+        }
+
+        [Fact]
+        public void SettleIsRefused_ForAnUnrecognisedToken_WithTheHostHidden()
+        {
+            // Unreachable through the verb (TryResolveWindow rejects first), asserted so the
+            // predicate is total and fails CLOSED: the safe answer for a token nobody
+            // recognises is to refuse the read-back, never to trust it.
+            Assert.True(TestCommandUiAction.SettleRefusedForHiddenHost(
+                "not-a-window", hostShowUi: false));
+            Assert.True(TestCommandUiAction.SettleRefusedForHiddenHost(
+                null, hostShowUi: false));
+            Assert.False(TestCommandUiAction.SettleRefusedForHiddenHost(
+                null, hostShowUi: true));
+        }
+
         // ----- the complexity no-op predicate -----
 
         [Fact]
@@ -721,6 +779,7 @@ namespace Parsek.Tests
                 TestCommandUiAction.WindowNotToggledReason,
                 TestCommandUiAction.WindowSelfClosedReason,
                 TestCommandUiAction.NotSettledReason,
+                TestCommandUiAction.WindowHostHiddenReason,
                 TestCommandUiAction.TabNotAppliedReason,
                 TestCommandUiAction.RectNotAppliedReason,
                 TestCommandUiAction.ThrewReason,

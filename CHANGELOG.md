@@ -22,7 +22,10 @@ _(unreleased — entries accumulate here per commit)_
   later step cannot get in front of it. Opening and resizing a window likewise wait for
   the game to draw a frame before believing the result, because one window closes itself
   again the moment it draws with nothing to show, and a run that did not wait would have
-  reported success and then photographed empty scenery. Two new run definitions walk the
+  reported success and then photographed empty scenery. Waiting for a frame is only worth
+  anything if the frame drew the window in question, so a run that asks to open or resize
+  one of the smaller windows while the main window is shut now says so plainly instead of
+  reporting success over a picture with no Parsek window in it. Two new run definitions walk the
   whole set: one at the Space Center, one in flight. None of this adds anything a player
   can see or reach in the game; it drives the same switches the existing buttons do.
 

@@ -41,6 +41,12 @@ tier = "operator"
 # THE ONE THING THE FIRST FLIGHT MUST BE READ FOR is a WINDOW, not the clock: see the
 # Real Spawn Control step below, which self-closes when nothing is in range.
 #
+# `op=open window=main` FIRST IS A PRECONDITION, not just the natural order. The settle
+# for a non-`main` `open` / `rect` REFUSES while the host's `showUI` is false
+# (`ERROR window-host-hidden`), because the frame that advanced the count never drew this
+# window and the read-back would only be reading the write back. This lane already opens
+# `main` as its first UiAction step and leaves it open, so the gate never fires here.
+#
 # HOST + ANALYZER MODE + STAGING: identical to GUI-1's, whose header carries the full
 # argument. In one line each: an OPERATOR-LOCAL fixture because a census photographs
 # LAYOUT and only a long-lived career has rows in every window; the analyzer row declared
