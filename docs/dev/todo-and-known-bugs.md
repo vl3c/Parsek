@@ -243,12 +243,19 @@ is read ONCE when the capture opens, from whichever `OnGUI` container drew first
 per-window matrix set by another addon is not represented (nothing in KSP or Parsek sets
 one, the header records what was read, and a non-identity matrix logs a Warn).
 
-Fix: fly it. The work is one `RunTests` step on any existing host - the cell needs no
-fixture, no scene and no seam verb, since it draws its own probe window - and it is
-roadmap item 12. Expect a red or a skip on attempt 1 and read it as a reading rather than
-a regression: every exact per-kind pin in the cell is a prediction from decompiled source,
-and the cell self-skips if its probe window sees no Repaint pass within 240 frames. Until
-that flight, nothing should be built ON the dump.
+Fix: fly it. The spec work is DONE as of 2026-09-11 and the flight is all that is left.
+`GUI-1-census-ksc` carries the `RunTests category="GuiTree"` step (interim pin, `total=1`
+exact), and the same wave added the `DumpGuiTree` seam verb plus 27 dump steps across the
+two census lanes - 22 in GUI-1, 5 in GUI-2 - each pinning `patched=17/17` on the seam's OK
+line. That doubles what one flight settles: premise 1 above (Mono inlining) is measured
+by the cell's own parity assertions AND by 27 independent arm-time funnel readings taken
+on REAL Parsek windows rather than on a probe, and a funnel that fails to patch reds the
+lane at the dump where it happened. Roadmap item 12. Expect a red or a skip on attempt 1
+and read it as a reading rather than a regression: every exact per-kind pin in the cell is
+a prediction from decompiled source, and the cell self-skips if its probe window sees no
+Repaint pass within 240 frames. Until that flight, nothing should be built ON the dump -
+which is why the census lanes only pin `patched=`, and leave `windows` / `nodes` / `hits`
+for a reader.
 
 ## REPUTATION-SEED-CAPTURED-MID-FLIGHT-REAPPLIES-PRE-SEED-AWARDS: the lazy `ReputationInitial` seed is read off the live pool at the first commit, so every reputation award recorded BEFORE that moment is inside the seed AND replayed as a row
 
@@ -985,7 +992,7 @@ tree is merely committed, not one whose committed tree is RESTORABLE, and the tw
 identical in a fixture listing. Recorded in the inventory's `AutoRecord` row and its B5
 residue table.
 
-## EVAKERBALGHOSTHASVESSELSNAPSHOT-HAS-NO-HOST-THAT-FLIES-LOW: the one `AutoRecord` cell that executes NOWHERE wants a crewed vessel FLYING low over terrain, and no committed fixture is one and no seam verb lofts one [MEASURED across the four `AutoRecord` hosts - H61 `gs1-two-stage-pad`, H68 `gs2-orbital-stack`, H69 `rover-route-recorded`, H70 `eva3-pad-3crew`, whose union executes 8 of 10. Filed 2026-09-08 as the last named unreachable cell on the in-game category axis, which was otherwise CLOSED at 112 of 112 categories; since 2026-09-10 the axis reads 112 of 113, the extra row being the GUI-tree dump spike's `GuiTree` category, which needs only a spec]
+## EVAKERBALGHOSTHASVESSELSNAPSHOT-HAS-NO-HOST-THAT-FLIES-LOW: the one `AutoRecord` cell that executes NOWHERE wants a crewed vessel FLYING low over terrain, and no committed fixture is one and no seam verb lofts one [MEASURED across the four `AutoRecord` hosts - H61 `gs1-two-stage-pad`, H68 `gs2-orbital-stack`, H69 `rover-route-recorded`, H70 `eva3-pad-3crew`, whose union executes 8 of 10. Filed 2026-09-08 as the last named unreachable cell on the in-game category axis, which was otherwise CLOSED at 112 of 112 categories; the GUI-tree dump spike opened a 113th row on 2026-09-10 and `GUI-1-census-ksc` claimed it on 2026-09-11 with one `RunTests` step, so the axis reads 113 of 113 by SPEC COVERAGE again and this cell is once more the only named unreachable one]
 
 The cell EVAs a kerbal and asserts the resulting ghost carries a `VesselSnapshot`, then
 waits 10 s for the kerbal to settle and reads its terminal. That bounds the host from
@@ -1079,8 +1086,10 @@ recorded stores generally rather than to one fixture.
 
 Closed: `CrewReservationLive` is `LT-4-long-tail-route-flight`'s fourth constituent,
 pinned `total=2 passed=2 failed=0 skipped=0`, which took the in-game category axis to
-112 of 112. It reads 112 of 113 since 2026-09-10, when the GUI-tree dump spike added
-the `GuiTree` category; that row needs a `RunTests` step, not a host.
+112 of 112. It read 112 of 113 for a day from 2026-09-10, when the GUI-tree dump spike
+added the `GuiTree` category; `GUI-1-census-ksc` gained the `RunTests` step that row
+wanted on 2026-09-11 and the axis is back to whole - by spec coverage, since that lane
+has not flown.
 
 STILL WANTED, at a lower value than this entry used to claim: teach the corpus writer to
 author spawned-endpoint recordings. `RecordingBuilder.WithSpawnedPid` exists and has

@@ -201,10 +201,17 @@ Read the page's amber notes strip FIRST. A dump whose Harmony interceptions were
 bypassed still parses and still renders, and is still missing controls; the strip is
 where `NOT PATCHED` and `patched but never hit` show up.
 
-NOTHING HAS PRODUCED A DUMP YET. The recorder's interception layer has never run
-inside KSP (the design note's "What is unproven"), and no committed spec drives the
-`GuiTree` in-game category, so `--batch results/<runId>_shots` finds nothing today.
-The viewer and the harvest are in place for the first one.
+A DUMP IS PROCESS-WIDE. The recorder intercepts UnityEngine's IMGUI funnels, not
+Parsek's draw code, so the tree contains every window the process drew that frame -
+stock's and any other addon's included. On `stock-minimal` that is Parsek plus stock.
+
+NOTHING HAS PRODUCED A DUMP YET, and the reason has changed. Until 2026-09-11 there
+was no way to ARM the recorder from outside the game: its API is `internal` and the
+only caller was the in-game `GuiTree` cell. The `DumpGuiTree label=<name>` seam verb
+now does it, and both census lanes drive one after every screenshot - but neither lane
+has flown, and the interception layer underneath has still never run inside KSP (the
+design note's "What is unproven"). So `--batch results/<runId>_shots` finds nothing
+today; the viewer, the harvest and now the verb are in place for the first one.
 
 ### The GUI-census sheet (`tools/gui_contact_sheet.py`)
 
@@ -235,6 +242,66 @@ directory the retention pass bounds (`hlib.select_shots_dirs_to_prune`: newest 4
 dirs / 2 GiB), and a 20-PNG census is not small. The sheet lives inside that
 directory, so pruning takes the page with the pictures; the V3 `_contact.html`
 survives and then points at images that are gone.
+
+### Running a GUI census end to end
+
+Both lanes are `tier = "operator"` and fly on request only. In order:
+
+1. **Stage the host.** The census needs a save with rows in every window, which is
+   the operator's own long-lived career - it cannot be committed and cannot be minted
+   by a builder, so it is an OPERATOR-LOCAL fixture:
+
+   ```
+   python tools/stage_local_fixture.py \
+       --from "../Kerbal Space Program/saves/c1" --as c1-gui --no-quicksaves
+   ```
+
+   Without it the run is refused PRE-BOOT as `INVALID(staging)` with that command in
+   the error (`hlib.local_fixture_hint`). See `fixtures/local-saves/README.md`.
+
+2. **Provision, so the automation instance carries the DLL these lanes need.** Both
+   lanes drive `CaptureScreenshot`, `UiAction` and `DumpGuiTree`, and a stale
+   automation DLL answers `not-implemented-v1` after a whole boot:
+
+   ```
+   cd Source/Parsek && dotnet build          # from the building checkout's own dir
+   cd harness && python provision/provision.py --profile stock-minimal
+   ```
+
+   Then verify the AUTOMATION DLL carries the verbs (the repo's CLAUDE.md, "Verify the
+   deployed DLL after building" - a UTF-8 `#Strings` grep for `DumpGuiTreeImpl`, not a
+   UTF-16-only one).
+
+3. **Fly.** One lane at a time; they share the machine lock.
+
+   ```
+   python run.py --id GUI-1-census-ksc
+   python run.py --id GUI-2-census-flight
+   ```
+
+4. **Read the pictures**, from inside the run's own shots directory:
+
+   ```
+   python tools/gui_contact_sheet.py results/<runId>_shots
+   ```
+
+5. **Read the trees**, which is the half the pictures cannot carry:
+
+   ```
+   python tools/gui_tree_view.py --batch results/<runId>_shots
+   ```
+
+   `--batch` writes one `<label>.gui.html` per dump plus an `index.html` in that
+   directory, each page inlining the matching `<label>.png` behind the boxes - which
+   works because the two verbs are driven as a PAIR under one label. Read each page's
+   amber notes strip FIRST.
+
+6. **Copy the directory out** if the census matters (the retention pass above).
+
+On a FIRST flight, read the seam's own lines before reading the layout: every dump
+step pins `patched=17/17`, so a lane that goes red there is telling you a UnityEngine
+IMGUI funnel signature drifted out from under its Harmony patch - a fact about the
+recorder, not about the window in the picture.
 
 ## The produced-save snapshot (harvest from here, not from the instance)
 

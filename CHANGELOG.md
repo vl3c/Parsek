@@ -94,6 +94,15 @@ _(unreleased — entries accumulate here per commit)_
   is the number that will finally say whether the listening works at all, the first time
   any of this runs inside the game.
 
+  Both window tours now take one of these descriptions next to every picture, under the
+  same name, so each screenshot has a written record of what was in it - 22 pairs at the
+  Space Center, 5 in flight. Each of those steps insists that all seventeen of the game's
+  drawing routines were successfully listened in on for that particular frame, which is
+  the check that will tell us, the first time either tour runs, whether the whole
+  listening idea works at all. The Space Center tour also runs the one existing self-test
+  for this feature, at the very end so it cannot disturb the windows the tour arranged.
+  None of this has been run yet.
+
   Nothing about the windows themselves changed: not one line of the drawing code was
   touched, nothing is listened to unless something asks for a capture, and while nothing
   is asking, the game runs exactly as it did before.

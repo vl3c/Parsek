@@ -118,7 +118,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `GhostMapOrbits` | 2 | 2 | 1 | 1 | 0 | 1 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 1 of 2; the map cell wants ghost map vessels, which no unattended FLIGHT batch arms). NOT an LT-2 constituent: its SPACECENTER slice measured the same skip on the census | B |
 | `GhostPlayback` | 42 | 41 | 1 | 1 | 1 | 12 | S1.4 | B |
 | `GhostVisuals` | 4 | 4 | 3 | 3 | 0 | 0 | H15 | A |
-| `GuiTree` | 1 | 1 | 1 | 1 | 0 | 1 | - (NOT DRIVEN, and deliberately so for now: the cell ships with the 2026-09-10 GUI-tree dump SPIKE, whose C# half cannot be flown by the agent that wrote it. It is scene-agnostic and batch-safe, so pointing a lane at it is a spec edit rather than a fixture hunt. It draws its OWN probe window, so no host fixture is at stake - but it SELF-SKIPS when that window sees no IMGUI Repaint pass within 240 frames, and whether one arrives has never been measured in any scene, so "any committed host would execute it" is a prediction and not a reading) | B |
+| `GuiTree` | 1 | 1 | 1 | 1 | 0 | 1 | GUI-1-census-ksc (one ordinary `RunTests category="GuiTree"` step added 2026-09-11, NEVER FLOWN. The lane is the KSC GUI census, so the batch runs at SPACECENTER, where the attributes derive total=1 = 0 scene-skipped + 0 batch-skipped + 1 executable; the pin is INTERIM - `total=1` exact, `passed=[1-9][0-9]*` and `skipped=[0-9]+` regexed - because the cell SELF-SKIPS if its own probe window sees no IMGUI Repaint pass within 240 frames and nothing has measured that in any scene. It draws its own probe window, so no host fixture is at stake and the census lane was the cheapest carrier rather than a considered host choice. Stays in bucket **B** until it flies: the promotion rule wants a FLOWN lane, and "any host executes it" is still a prediction) | B |
 | `IdentityLoss` | 3 | 3 | 0 | 0 | 0 | 3 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 3 of 3 - the whole category at FLIGHT with zero skips) | A |
 | `IncompleteBallistic` | 11 | 11 | 0 | 0 | 0 | 0 | H9 | A |
 | `KSP` | 6 | 6 | 4 | 4 | 0 | 0 | H13 | A |
@@ -308,9 +308,13 @@ Tier B item-4 subject the roadmap wrote as a manual flight and H56's probe retir
 ROUTE-ORIGIN-PROOF-PRODUCER-UNREACHABLE, fixed in the same commit as these cells, so
 nothing has ever exercised the fixed producer live.
 
-Driven by a committed spec: **112 of 113 categories**, covering **623 of 624
-declarations** (re-derived mechanically 2026-09-08: count the table rows whose
-Driven-by cell is not `-`, and sum their Decls column).
+Driven by a committed spec: **113 of 113 categories**, covering **624 of 624
+declarations** (re-derived mechanically 2026-09-11 the same way: count the table rows
+whose Driven-by cell is not `-`, and sum their Decls column. The 2026-09-08 reading was
+112 of 112; the GUI-tree dump spike opened a 113th row on 2026-09-10 and
+`GUI-1-census-ksc` claimed it on 2026-09-11). DRIVEN IS NOT FLOWN, and on this row the
+distinction is the whole content: GUI-1 has never run, so the `GuiTree` cell has never
+executed anywhere and its bucket stays **B**.
 
 **THE AXIS CLOSED ON 2026-09-08.** The last two undriven categories were the two the
 2026-09-07 wave had declared NOT host questions, and both readings were wrong in the
@@ -1451,15 +1455,18 @@ the game window and can, so the cell places the pointer itself (CEN-12 `_1035`);
 LT-1's 31st constituent at 1 of 1. Both lanes flew the closure on runs `2026-09-08_1041` (LT-1) and `2026-09-08_1040` (LT-4), both PASS attempt 1,
 and the axis read 112 of 112 categories.
 
-**RE-OPENED BY ONE ROW ON 2026-09-10, and not by a host question.** The 113th
-category, `GuiTree`, arrived with the GUI-tree dump spike; the axis reads 112 of
-113 / 623 of 624 until a lane points at it. It is not residue in the sense the
-table below means: its cell is scene-agnostic and batch-safe, needs no fixture and
-no seam verb, so what is missing is a `RunTests` step. Whether a given host
-EXECUTES it is a prediction rather than a reading, and one worth stating as such:
-the cell self-skips if its own probe window sees no IMGUI Repaint pass within 240
-frames, and nothing has ever measured that in any scene - along with everything
-else about this spike's interception layer, which has never run inside KSP.
+**RE-OPENED BY ONE ROW ON 2026-09-10 AND POINTED AT ON 2026-09-11.** The 113th
+category, `GuiTree`, arrived with the GUI-tree dump spike and read 112 of 113 /
+623 of 624 for a day: it is not residue in the sense the table below means, since
+its cell is scene-agnostic and batch-safe and needs no fixture and no seam verb -
+what was missing was a `RunTests` step. `GUI-1-census-ksc` now carries one, so the
+axis reads **113 of 113 categories / 624 of 624 declarations by SPEC COVERAGE**.
+Read that number for exactly what it says: a committed lane names the category. It
+is NOT a reading of a flight, because GUI-1 has never flown, and whether a given
+host EXECUTES the cell remains a prediction - it self-skips if its own probe window
+sees no IMGUI Repaint pass within 240 frames, and nothing has measured that in any
+scene, along with everything else about the interception layer underneath, which
+has never run inside KSP. The row stays in bucket **B** for that reason.
 
 **WHAT REMAINS IS RESIDUE RATHER THAN UNDRIVEN CATEGORIES, and it is worth listing
 because each item is a bound on a lane that already exists:**
@@ -1604,14 +1611,17 @@ is not a free swap: `eva3-pad-3crew` would buy it, but its launch clamps trip
 `RealSpawnControl_WarpToRecordingEnd_OnPad_*`'s own skip, so it trades one cell for
 another rather than closing the lane.
 
-**B7 - needs only a spec, and its first flight is a measurement.** `GuiTree` (1
-declaration, added 2026-09-10 with the GUI-tree dump spike). Its cell arms
-`GuiTreeRecorder.ArmForNextRepaint` for one frame over a probe window it draws
+**B7 - SPEC LANDED 2026-09-11; its first flight is still the measurement.**
+`GuiTree` (1 declaration, added 2026-09-10 with the GUI-tree dump spike). Its cell
+arms `GuiTreeRecorder.ArmForNextRepaint` for one frame over a probe window it draws
 itself and asserts the captured tree, so it needs no fixture and no seam verb -
-only a lane that runs the category. It is undriven because the spike could not be
-flown by its author, not because anything blocks it; the reason it is its OWN
-category is the standing one - adding a cell to an existing category moves a
-`BATCH_COMPLETE` tally committed specs pin.
+only a lane that runs the category. `GUI-1-census-ksc` now runs it, LAST in that
+lane and deliberately so: the batch captures and restores a `persistent.sfs`
+baseline around itself, which on a 42 MB career is real disk work and which would
+also undo the window state the census walk arranged. It was undriven for a day
+because the spike could not be flown by its author, not because anything blocked
+it; the reason it is its OWN category is the standing one - adding a cell to an
+existing category moves a `BATCH_COMPLETE` tally committed specs pin.
 
 TWO THINGS TO EXPECT ON THAT FIRST FLIGHT, so nobody reads it as a product
 regression. (1) The cell can SELF-SKIP: it gives its probe window 240 frames to

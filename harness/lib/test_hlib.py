@@ -4185,7 +4185,20 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # It must stay a set LITERAL of ids (or a `set()` call when empty, never a `{}`
     # literal, which would be an empty DICT - the two membership cells below would then
     # answer False for every id and pass vacuously).
-    INTERIM_PIN_IDS: set = set()
+    #
+    # GUI-1-census-ksc is declared here as the register of record for its interim pin,
+    # and one thing about that has to be said plainly rather than left to be discovered:
+    # this class's own cells DO NOT READ IT for that id. GROUP_ID_RE admits H-series ids
+    # only, so a `GUI-` lane is not a member of this family (nor of the isolated or
+    # multi-category ones) and `self.specs` never contains it. What DOES gate it is
+    # CommittedBatchTallySourceSyncTests, which sweeps every batch-owning spec on disk
+    # and re-derives its pinned `total=` from the C# attributes, plus
+    # GuiCensusSeamVerbTests.test_the_gui_1_batch_pin_is_interim_and_declared below,
+    # which reads THIS set for that id so the declaration is load-bearing rather than
+    # decorative. The entry stays here because CLAUDE.md names this set as the place a
+    # never-flown lane's loose pin is registered, and splitting that register in two
+    # would be worse than one honest cross-reference.
+    INTERIM_PIN_IDS: set = {"GUI-1-census-ksc"}
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
     # Membership is DISCOVERED from disk and then compared for set equality against
@@ -13992,6 +14005,145 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
                          "the two inert sets have drifted (FlushAndQuit excluded by "
                          "name - it is the latch's reader, not a mutator)")
 
+    def test_the_gui_1_batch_pin_is_interim_and_declared(self):
+        """GUI-1 drives the `GuiTree` cell, which closes the in-game category axis at
+        113 of 113. Its BATCH_COMPLETE pin is INTERIM - `total=` exact and derived,
+        `passed=` / `skipped=` regexed - because the cell carries a run-time self-skip
+        (it gives up when its probe window sees no Repaint within 240 frames) and no
+        live run has measured which way that goes.
+
+        This cell is what makes the INTERIM_PIN_IDS entry load-bearing: the H-series
+        wiring family cannot read it (its id pattern excludes `GUI-`), so without this
+        the declaration would be a comment. It asserts the three properties that matter
+        together - the id IS declared, the pin IS loose in exactly the declared way, and
+        `total=` is still the number the C# attributes derive."""
+        spec = load_spec("GUI-1-census-ksc.toml")
+        sid = spec.get("id")
+        self.assertIn(sid, IngameBatchWiringGroupTests.INTERIM_PIN_IDS)
+        lc = (spec.get("expectations", {}) or {}).get("logContracts", {}) or {}
+        pin = hlib.resolve_batch_tally_pin(lc.get("required", []) or [])
+        self.assertIsNotNone(pin, "GUI-1 drives a RunTests batch but pins no tally")
+        self.assertTrue(pin.statically_checkable,
+                        "the pin must name a literal category= and scene= or its total "
+                        "cannot be kept in step with the source")
+        self.assertEqual("GuiTree", pin.category)
+        self.assertEqual("SPACECENTER", pin.scene)
+        self.assertEqual(1, pin.total)
+        # Loose in exactly the declared way, and no looser: total stays a literal.
+        self.assertIsNone(pin.passed)
+        self.assertIsNone(pin.skipped)
+        # And still agreeing with the C# it describes.
+        decls = load_ingame_test_declarations()
+        self.assertEqual([], hlib.batch_tally_pin_mismatches(pin, decls))
+        derived = hlib.derive_batch_tally(decls, "GuiTree", "SPACECENTER")
+        self.assertEqual((1, 0, 0, 1),
+                         (derived.total, derived.scene_skipped, derived.batch_skipped,
+                          derived.executable))
+        # The interim `passed=` class still rejects the whole vacuous family, which is
+        # what the anti-vacuity rule asks of a loose pin.
+        self.assertIsNone(
+            hlib.batch_contract_vacuity_gap(lc.get("required", []) or [], "GuiTree"))
+
+    def test_every_capture_step_in_both_census_lanes_is_followed_by_a_dump(self):
+        """THE PAIRING, asserted over the committed specs rather than trusted to the
+        eye. A picture with no control tree beside it is exactly the gap the third verb
+        exists to close, and the two files are paired by LABEL - `<label>.png` and
+        `<label>.gui.json` in one directory - so the dump must carry the SAME label as
+        the capture it follows and must follow it IMMEDIATELY (any step between the two
+        can move, close or re-tab the window, and the dump would then describe a frame
+        the picture does not show).
+
+        It also holds the file arithmetic the harvest cares about: two files per label,
+        against ARTIFACT_MAX_SCREENSHOTS."""
+        for name in ("GUI-1-census-ksc.toml", "GUI-2-census-flight.toml"):
+            with self.subTest(spec=name):
+                spec = load_spec(name)
+                steps = (spec.get("driver", {}) or {}).get("steps", []) or []
+                labels = []
+                for i, step in enumerate(steps):
+                    if (step or {}).get("cmd") != "CaptureScreenshot":
+                        continue
+                    label = ((step.get("args", {}) or {}).get("label"))
+                    labels.append(label)
+                    self.assertLess(i + 1, len(steps),
+                                    "%s: the capture %r is the LAST step, so it has no "
+                                    "dump beside it" % (name, label))
+                    nxt = steps[i + 1] or {}
+                    self.assertEqual(
+                        "DumpGuiTree", nxt.get("cmd"),
+                        "%s: the step after capture %r is %r, not DumpGuiTree - a "
+                        "capture with no tree beside it is the gap the verb exists to "
+                        "close, and a step in between would let the window move"
+                        % (name, label, nxt.get("cmd")))
+                    self.assertEqual(
+                        label, (nxt.get("args", {}) or {}).get("label"),
+                        "%s: the dump after capture %r carries a different label; the "
+                        "two files are paired by label alone" % (name, label))
+                self.assertTrue(labels, "%s captures nothing - sweep is inert" % name)
+                self.assertEqual(len(labels), len(set(labels)),
+                                 "%s re-uses a capture label, so one pair would "
+                                 "overwrite another" % name)
+                dumps = [s for s in steps if (s or {}).get("cmd") == "DumpGuiTree"]
+                self.assertEqual(len(labels), len(dumps),
+                                 "%s has a dump that follows no capture" % name)
+                self.assertLessEqual(
+                    2 * len(labels), hlib.ARTIFACT_MAX_SCREENSHOTS,
+                    "%s produces %d files (two per label) against the harvest's %d-file "
+                    "cap; raising the cap is a decision, not a detail"
+                    % (name, 2 * len(labels), hlib.ARTIFACT_MAX_SCREENSHOTS))
+
+    def test_every_dump_step_pins_the_whole_funnel_reading(self):
+        """`patched=<ok>/<of>` is measured FRESH at every arm - the recorder applies its
+        interceptions at arm and removes them when each capture flushes - so it is a
+        per-dump reading rather than a property of the build, and pinning it on EVERY
+        dump is what turns the census's first flight into a measurement of the
+        interception layer (which has never run inside KSP). This cell requires one
+        required-pattern per dump step, naming that step's own label, and requires the
+        denominator to be the funnel count the source actually ships."""
+        funnels = self._cs_funnel_count()
+        for name in ("GUI-1-census-ksc.toml", "GUI-2-census-flight.toml"):
+            with self.subTest(spec=name):
+                spec = load_spec(name)
+                steps = (spec.get("driver", {}) or {}).get("steps", []) or []
+                required = ((spec.get("expectations", {}) or {})
+                            .get("logContracts", {}) or {}).get("required", []) or []
+                dump_patterns = [p for p in required if "dumpguitree ok" in p]
+                dumps = [s for s in steps if (s or {}).get("cmd") == "DumpGuiTree"]
+                self.assertEqual(
+                    len(dumps), len(dump_patterns),
+                    "%s drives %d dumps but pins %d of them; the whole point of "
+                    "pinning all of them is that patched= is measured per arm"
+                    % (name, len(dumps), len(dump_patterns)))
+                for step in dumps:
+                    label = (step.get("args", {}) or {}).get("label")
+                    matching = [p for p in dump_patterns if ("label=%s " % label) in p]
+                    self.assertEqual(
+                        1, len(matching),
+                        "%s: dump %r is pinned %d times" % (name, label, len(matching)))
+                    self.assertIn("patched=%d/%d" % (funnels, funnels), matching[0],
+                                  "%s: dump %r must pin the WHOLE funnel reading"
+                                  % (name, label))
+                    self.assertNotIn("hits=", matching[0],
+                                     "%s: dump %r pins hits=, which counts funnel body "
+                                     "runs in a real frame and would pin whatever the "
+                                     "window happened to contain" % (name, label))
+
+    @staticmethod
+    def _cs_funnel_count():
+        """The funnel count the C# actually ships, read out of `GuiTreeFunnels` rather
+        than retyped: `Count = (int)GuiFunnel.Slider + 1`, i.e. the number of members of
+        the `GuiFunnel` enum. Reads OUTSIDE harness/, like the verb-table mirrors."""
+        path = os.path.join(PARSEK_SOURCE_DIR, "GuiTreeFunnels.cs")
+        assert os.path.isfile(path), path
+        with open(path, encoding="utf-8-sig") as fh:
+            text = fh.read()
+        start = text.index("enum GuiFunnel")
+        body = text[text.index("{", start) + 1:text.index("}", start)]
+        members = [ln.strip().rstrip(",").split("=")[0].strip()
+                   for ln in body.splitlines() if ln.strip()
+                   and not ln.strip().startswith("//")]
+        return len([m for m in members if m])
+
     def test_the_dump_verbs_label_rule_is_the_capture_verbs_rule(self):
         """The pair property, from the harness side. A census drives the two verbs
         under ONE label (`<label>.png` beside `<label>.gui.json`, which is what lets
@@ -14310,10 +14462,16 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
                         observed.add((scene, mode, len(hlib.UIACTION_WINDOW_VALUES),
                                       len(open_set),
                                       self._open_window_list(open_set)))
-                self.assertEqual(describes, len(required) - 1,
-                                 "%s: %d describe steps against %d required patterns "
-                                 "(expected one capture line beside them)"
-                                 % (name, describes, len(required)))
+                # Counted against the describe patterns THEMSELVES rather than
+                # against `len(required) - 1`, which was the arithmetic while the only
+                # other pinned line was one capture. These lanes now also pin every
+                # dump's funnel reading (and GUI-1 its GuiTree batch tally), so an
+                # off-by-one here would have measured the wrong thing entirely. A LIST
+                # rather than the `pinned` set above, so a duplicated literal reds too.
+                describe_patterns = [p for p in required if "uiaction describe" in p]
+                self.assertEqual(describes, len(describe_patterns),
+                                 "%s: %d describe steps against %d pinned describe "
+                                 "echoes" % (name, describes, len(describe_patterns)))
                 self.assertEqual(observed, pinned,
                                  "%s: the pinned describe echoes and the states its own "
                                  "steps produce have drifted" % name)

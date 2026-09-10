@@ -273,9 +273,11 @@ closed V3C). It supersedes the ORDER implied by the Build-order tiers and the
 per-program sequencing notes below; those sections stay the DEFINITIONS of the
 items and the record of why. Re-derive before acting: `ls harness/scenarios/*.toml`
 (245 at `659be2a68`), `hlib.compute_coverage` (170 of 248 cells, 78 uncovered), and the category
-inventory (**112 of 113 categories driven, 623 of 624 declarations - the in-game
-coverage axis is CLOSED except for the one row the 2026-09-10 GUI-tree dump spike
-added, `GuiTree`, which wants a `RunTests` step and nothing else**; this
+inventory (**113 of 113 categories driven, 624 of 624 declarations as of 2026-09-11,
+when `GUI-1-census-ksc` gained a `RunTests category="GuiTree"` step - the in-game
+coverage axis is CLOSED BY SPEC COVERAGE, which is not the same as flown: that lane
+has never run**; the superseded reading below is kept because it is the derivation,
+and only the one row moved. This
 112-of-113 / 623-of-624 pair was re-derived 2026-09-10 on the `gui-dump-spike`
 branch with `hlib.parse_ingame_test_declarations` over every `.cs` under
 `Source/Parsek`. The 2026-09-09 reading at `659be2a68` gave 112 of 112 / 623 of
@@ -289,10 +291,11 @@ the last two by refuting the "host-blocked" reading on both - `CrewReservationLi
 joined `LT-4-long-tail-route-flight` because a RECORDED store carries the spawned pid
 no injected corpus does, and `DisabledHoverEcho` joined `LT-1-long-tail-flight`
 because the test process can move the OS pointer even though no seam verb can. What
-remains on this axis is TWO items: the named cell
+remains on this axis is ONE item: the named cell
 `RuntimeTests.EvaKerbalGhostHasVesselSnapshot`, which wants a crewed craft FLYING low
-over terrain and which no seam verb lofts, and - since 2026-09-10 - the whole
-`GuiTree` category, which wants only a `RunTests` step, item 12 below).
+over terrain and which no seam verb lofts. The `GuiTree` row that re-opened the axis
+on 2026-09-10 was closed on 2026-09-11 by a `RunTests` step on `GUI-1-census-ksc`;
+what item 12 still owes is the FLIGHT, not the spec).
 STANDING 2026-09-08, end of day: item 1
 SHIPPED (#1653); items 2 and 3 are in flight in separate sessions (branches
 `chain-interaction` and `ghost-replay-tier-a`); the promotion calls in item 7 are DONE
@@ -498,9 +501,16 @@ remains is, in order:
     that moves `hlib.compute_coverage` and every number derived from it. Definitions,
     evidence and the per-lane readings: "The re-fly continuation program (RF-1..RF-12)"
     below.
-12. **Drive the `GuiTree` category, and take the measurement its first flight IS**
-    (2026-09-10, the GUI-tree dump spike). One `RunTests` step on any existing host
-    re-closes the in-game category axis at 113 of 113 / 624 of 624: the cell needs no
+12. ~~**Drive the `GuiTree` category**~~ SPEC LANDED 2026-09-11: `GUI-1-census-ksc`
+    carries one ordinary `RunTests category="GuiTree"` step (interim pin, `total=1`
+    exact), which re-closes the in-game category axis at 113 of 113 / 624 of 624 BY
+    SPEC COVERAGE. **The measurement its first flight IS remains owed**, and it is the
+    part that was ever worth anything: the lane has never flown, so nothing below has
+    been settled. The same wave added the `DumpGuiTree` seam verb and 27 dump steps
+    across the two census lanes, each pinning `patched=17/17`, so the flight now
+    measures the interception layer TWICE over - once through the cell's own assertions
+    and once through 27 arm-time funnel readings on real Parsek windows.
+    (2026-09-10, the GUI-tree dump spike). The cell needs no
     fixture, no scene and no seam verb, because it draws its own probe window. Cheap
     enough to batch with item 7, and ranked last only because it buys a doc number
     rather than product risk - EXCEPT that the flight also settles four premises
@@ -1833,11 +1843,13 @@ places the OS pointer itself). The item was CLOSED at 112 of 112 categories, and
 "no host closes it" claims were bounds on which hosts had been asked and on which
 layer could move a pointer. RE-OPENED BY ONE ROW 2026-09-10: the GUI-tree dump
 spike added the `GuiTree` category (1 scene-agnostic, batch-safe cell), so the axis
-reads 112 of 113 / 623 of 624 until some lane runs that category. It needs no
-fixture and no seam verb, so it is a spec edit rather than a census - but "any
-committed host executes it" is a PREDICTION, not a reading: the cell self-skips if
-its own probe window sees no IMGUI Repaint pass within 240 frames, and nothing has
-measured that in any scene. Item 12 below carries the work.
+read 112 of 113 / 623 of 624 until a lane ran that category. RE-CLOSED 2026-09-11 by
+a `RunTests category="GuiTree"` step on `GUI-1-census-ksc`: 113 of 113 / 624 of 624
+BY SPEC COVERAGE. It needed no fixture and no seam verb, so it was a spec edit rather
+than a census - but "any committed host executes it" is still a PREDICTION and not a
+reading, because that lane has never flown: the cell self-skips if its own probe
+window sees no IMGUI Repaint pass within 240 frames, and nothing has measured that in
+any scene. Item 12 below carries what is left, which is the flight.
 Flight? ALL SIX FLOWN 2026-09-07 AND GREEN ON ATTEMPT 1. The first pair are LT-1
 (`2026-09-07_1511`) and LT-2 (`_1516`); the second wave flew the same evening -
 LT-1's 30-constituent re-pin `2026-09-07_2030` (292 s), LT-3 `_2035` (64 s), LT-4

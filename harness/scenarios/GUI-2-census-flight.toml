@@ -41,6 +41,15 @@ tier = "operator"
 # THE ONE THING THE FIRST FLIGHT MUST BE READ FOR is a WINDOW, not the clock: see the
 # Real Spawn Control step below, which self-closes when nothing is in range.
 #
+# EVERY CAPTURE IS FOLLOWED BY A DUMP under the same label (`DumpGuiTree`), so each PNG
+# has its `<label>.gui.json` sibling: an IMGUI window has no retained widget tree, so the
+# image cannot say which rows a filter left visible, which control was disabled or what
+# nests inside what, and `harness/tools/gui_tree_view.py` draws the dump's boxes over the
+# matching screenshot. FIVE captures and five dumps: 10 files, far inside the harvest's
+# 64-file cap. The `GuiTree` in-game cell is NOT driven here - GUI-1 owns that batch, and
+# a second copy would buy nothing but wall time (the cell draws its own probe window and
+# is scene-agnostic, so the flight scene is not a different reading of it).
+#
 # `op=open window=main` FIRST IS A PRECONDITION, not just the natural order. The settle
 # for a non-`main` `open` / `rect` REFUSES while the host's `showUI` is false
 # (`ERROR window-host-hidden`), because the frame that advanced the count never drew this
@@ -66,7 +75,7 @@ tier = "operator"
 #
 # NEVER FLOWN. Same pinning discipline as GUI-1: the log contract names only this lane's
 # own seam lines, because a local fixture is unreproducible by construction.
-description = "GUI census, flight half: capture the flight-only Parsek windows and the flight form of the main window, in Advanced and Basic, for a layout review."
+description = "GUI census, flight half: capture the flight-only Parsek windows and the flight form of the main window, in Advanced and Basic, each as a PNG plus an IMGUI control-tree dump, for a layout review."
 instanceProfile = "stock-minimal"
 tags = ["gui-census", "screenshots", "ui", "operator-local-fixture", "GUI-2"]
 
@@ -100,6 +109,7 @@ steps = [
   # side by side ARE the scene-availability record.
   { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "flight-main-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "flight-main-advanced" }, expect = "OK" },
 
   # Real Spawn Control - flight-only, AND THIS IS THE ONE STEP THE FIRST FLIGHT MUST BE
   # READ FOR. The window does NOT open regardless: `SpawnControlUI.DrawIfOpen` force-closes
@@ -117,6 +127,7 @@ steps = [
   { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "rect", window = "spawncontrol", x = "270", y = "8", w = "900", h = "420" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "flight-spawncontrol-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "flight-spawncontrol-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "spawncontrol" }, expect = "OK" },
 
   # Gloops Flight Recorder - flight-only AND launcher-retired (see the header).
@@ -124,6 +135,7 @@ steps = [
   { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "rect", window = "gloops", x = "270", y = "8", w = "340", h = "300" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "flight-gloops-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "flight-gloops-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "gloops" }, expect = "OK" },
 
   # One shared window over a live scene, to show the chrome in flight. Its tab walk
@@ -141,6 +153,7 @@ steps = [
   { cmd = "UiAction", args = { op = "rect", window = "missions", x = "0", y = "8", w = "1280", h = "700" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "tab", window = "missions", tab = "missions" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "flight-missions-missions-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "flight-missions-missions-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "missions" }, expect = "OK" },
 
   # --- Basic ---
@@ -149,6 +162,7 @@ steps = [
   { cmd = "UiAction", args = { op = "complexity", mode = "basic" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "flight-main-basic" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "flight-main-basic" }, expect = "OK" },
 
   # Leave the install in Advanced. BELT AND BRACES on a harness run: the mode IS persisted
   # (ParsekSettingsPersistence), but run.py rewrites the instance's settings sidecar to its
@@ -184,6 +198,19 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=basic windows=11 open=1 openWindows=main",
   # --- and one capture, proving the write-and-settle path end to end ---
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] capturescreenshot ok label=flight-main-advanced",
+  # --- every dump, each pinning the arm-time funnel reading for its own frame.
+  # ALL FIVE are pinned where only ONE capture is, and the asymmetry is deliberate:
+  # `patched=<ok>/<of>` is measured FRESH at every arm (the recorder applies its patches
+  # at arm and removes them when the capture flushes), so `patched=17/17` is a per-dump
+  # claim that all seventeen interceptions were installed for THAT frame rather than a
+  # property of the build. `hits=` stays unpinned - it counts funnel body runs in a real
+  # frame, so a literal would pin whatever the window happened to contain. GUI-1's header
+  # carries the full argument.
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=flight-main-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=flight-spawncontrol-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=flight-gloops-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=flight-missions-missions-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=flight-main-basic .*patched=17/17",
 ]
 # EMPTY for GUI-1's reason exactly: a real career's cold OnLoad ERROR surface is not this
 # lane's subject, and gating on it would red a layout review over career bookkeeping.
@@ -219,13 +246,14 @@ gating = false
 
 [runtime]
 # FIVE captures (flight-main-advanced, flight-spawncontrol-advanced,
-# flight-gloops-advanced, flight-missions-missions-advanced, flight-main-basic) and about
-# twenty UI ops on top of a 300 s cold load. Tighter than GUI-1's 1200 s simply because
-# the lane is a quarter of the size - NOT because the clock is a hazard here: the subject
-# is on a 6.4 h eccentric orbit whose periapsis is 69.55 km above the ground, ascending,
-# hours from anything (see the header). 900 s is generous for what it does, and a lane
-# that somehow overruns it should be KILLED and read rather than left running.
-budgetSeconds = 900
+# flight-gloops-advanced, flight-missions-missions-advanced, flight-main-basic), five
+# dumps beside them, and about twenty UI ops on top of a 300 s cold load. Tighter than
+# GUI-1's 1500 s simply because the lane is a quarter of the size - NOT because the clock
+# is a hazard here: the subject is on a 6.4 h eccentric orbit whose periapsis is 69.55 km
+# above the ground, ascending, hours from anything (see the header). 1000 s is generous
+# for what it does, and a lane that somehow overruns it should be KILLED and read rather
+# than left running.
+budgetSeconds = 1000
 
 [retry]
 policy = "once"
