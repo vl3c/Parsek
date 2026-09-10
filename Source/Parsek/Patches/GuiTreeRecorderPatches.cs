@@ -71,16 +71,60 @@ namespace Parsek.Patches
         /// <summary>True while the interceptions are installed.</summary>
         internal static bool Applied { get; private set; }
 
+        /// <summary>What <see cref="Apply"/> must do about one funnel.</summary>
+        internal enum FunnelPatchAction
+        {
+            /// <summary>Patch it now.</summary>
+            Patch,
+
+            /// <summary>
+            /// Our own Harmony id already owns a patch on it; patching again would
+            /// install the prefix and postfix a second time.
+            /// </summary>
+            SkipAlreadyOurs,
+
+            /// <summary>The signature did not resolve in this Unity build.</summary>
+            SkipMissingTarget,
+        }
+
         /// <summary>
-        /// Installs every funnel interception. Idempotent: a second arm before the first
-        /// capture flushed is a no-op rather than a second detour. Each funnel is applied
-        /// independently, so one drifted signature costs one funnel and is reported in
-        /// the dump's <c>funnels</c> block as <c>patched: false</c>.
+        /// Per-funnel patch decision. Pure, because the direction is the whole defect:
+        /// Harmony 2.2.1's <c>PatchInfo.Add</c> does NOT deduplicate, so patching a funnel
+        /// our own id already owns installs the hooks a SECOND time and every control in
+        /// the next capture is recorded twice.
+        /// </summary>
+        internal static FunnelPatchAction ClassifyFunnelPatchAction(bool targetResolved,
+            bool alreadyOwnedByUs)
+        {
+            if (!targetResolved)
+                return FunnelPatchAction.SkipMissingTarget;
+            return alreadyOwnedByUs
+                ? FunnelPatchAction.SkipAlreadyOurs
+                : FunnelPatchAction.Patch;
+        }
+
+        /// <summary>
+        /// Whether <see cref="Applied"/> must stay set after an unpatch attempt. Pure, and
+        /// the direction matters: a throwing <c>UnpatchAll</c> may have removed some
+        /// detours and left others installed, so the flag has to keep saying "installed"
+        /// rather than claim a patched process is a clean one. The per-funnel
+        /// <see cref="ClassifyFunnelPatchAction"/> check is what still lets the removed
+        /// half be re-applied on the next arm.
+        /// </summary>
+        internal static bool RemainsAppliedAfterUnpatch(bool unpatchThrew)
+        {
+            return unpatchThrew;
+        }
+
+        /// <summary>
+        /// Installs every funnel interception. Idempotent PER FUNNEL: a funnel our own
+        /// Harmony id already owns is skipped rather than patched twice, which is what
+        /// makes a second arm - and an arm after an unpatch that threw halfway - safe.
+        /// Each funnel is applied independently, so one drifted signature costs one funnel
+        /// and is reported in the dump's <c>funnels</c> block as <c>patched: false</c>.
         /// </summary>
         internal static void Apply()
         {
-            if (Applied)
-                return;
             if (harmony == null)
                 harmony = new Harmony(GuiTreeFunnels.HarmonyId);
 
@@ -88,6 +132,7 @@ namespace Parsek.Patches
             // able to unpatch whatever did get installed.
             Applied = true;
             int ok = 0;
+            int already = 0;
             int failed = 0;
             for (int i = 0; i < All.Length; i++)
             {
@@ -95,12 +140,22 @@ namespace Parsek.Patches
                 try
                 {
                     MethodInfo target = GuiTreeFunnels.Target(funnel);
-                    if (target == null)
+                    // IsPatched is owner-scoped to com.parsek.guitree, so another mod's
+                    // patch on the same method never reads as ours and never blocks one
+                    // of ours.
+                    FunnelPatchAction action = ClassifyFunnelPatchAction(
+                        target != null, target != null && GuiTreeFunnels.IsPatched(funnel));
+                    if (action == FunnelPatchAction.SkipMissingTarget)
                     {
                         failed++;
                         ParsekLog.Warn("GuiTree", "funnel target missing funnel="
                             + GuiTreeFunnels.Name(funnel)
                             + "; that control kind will be absent from the dump");
+                        continue;
+                    }
+                    if (action == FunnelPatchAction.SkipAlreadyOurs)
+                    {
+                        already++;
                         continue;
                     }
                     harmony.Patch(target,
@@ -115,7 +170,8 @@ namespace Parsek.Patches
                 }
             }
             ParsekLog.Info("GuiTree", "patches applied id=" + GuiTreeFunnels.HarmonyId
-                + " ok=" + ok + " failed=" + failed + " of=" + All.Length);
+                + " ok=" + ok + " already=" + already + " failed=" + failed
+                + " of=" + All.Length);
         }
 
         /// <summary>
@@ -126,22 +182,31 @@ namespace Parsek.Patches
         /// <c>GUIUtility.guiDepth &gt; 0</c>. (NOT <c>Event.current != null</c>: that is
         /// non-null forever once the process has drawn one frame, so it deferred every
         /// unpatch and refused every arm.)
+        ///
+        /// <para><see cref="Applied"/> is cleared only AFTER <c>UnpatchAll</c> RETURNS.
+        /// Clearing it first left a throwing unpatch with detours still installed and the
+        /// flag saying they were not, and Harmony's <c>PatchInfo.Add</c> does not
+        /// deduplicate, so the next arm recorded every control twice
+        /// (<see cref="RemainsAppliedAfterUnpatch"/>).</para>
         /// </summary>
         internal static void Remove()
         {
             if (!Applied)
                 return;
-            Applied = false;
             try
             {
                 if (harmony != null)
                     harmony.UnpatchAll(GuiTreeFunnels.HarmonyId);
+                Applied = RemainsAppliedAfterUnpatch(false);
                 ParsekLog.Info("GuiTree", "patches removed id=" + GuiTreeFunnels.HarmonyId);
             }
             catch (Exception ex)
             {
+                Applied = RemainsAppliedAfterUnpatch(true);
                 ParsekLog.Error("GuiTree", "unpatch failed id=" + GuiTreeFunnels.HarmonyId
-                    + ": " + ex.GetType().Name + ": " + ex.Message);
+                    + ": " + ex.GetType().Name + ": " + ex.Message
+                    + "; the interceptions are treated as STILL INSTALLED, so the next arm"
+                    + " re-patches only the funnels it no longer owns");
             }
         }
 
@@ -197,11 +262,14 @@ namespace Parsek.Patches
             GuiTreeRecorder.RecordWindowBegin(id, width, height, style);
         }
 
+        // Closes the node the prefix opened. RecordWindowEnd rather than RecordEnd: this
+        // is the SAME funnel body the prefix already counted, and a per-funnel `hits`
+        // that counts both ends of one call reads exactly double.
         static void Postfix()
         {
             if (!GuiTreeRecorder.ArmedFlag)
                 return;
-            GuiTreeRecorder.RecordEnd(GuiFunnel.CallWindowDelegate, GuiNodeKind.Window);
+            GuiTreeRecorder.RecordWindowEnd();
         }
     }
 
@@ -218,6 +286,18 @@ namespace Parsek.Patches
         static MethodBase TargetMethod()
         {
             return GuiTreeFunnels.Target(GuiFunnel.BeginGroup);
+        }
+
+        // The rect, and ONLY the rect, has to be converted here. Decompiled,
+        // GUI.BeginGroup ends with GUIClip.Push(position, scrollOffset, ...), so at
+        // postfix time the group's OWN clip is topmost and GUIToScreenRect's
+        // UnclipToWindow walk would add the group's origin a SECOND time. The prefix
+        // stashes the pre-push conversion; the postfix takes it off that stack.
+        static void Prefix(Rect position)
+        {
+            if (!GuiTreeRecorder.ArmedFlag)
+                return;
+            GuiTreeRecorder.PushContainerScreenRect(GuiFunnel.BeginGroup, position);
         }
 
         // POSTFIX, so the clip depth recorded on the node is the one its children
@@ -271,6 +351,19 @@ namespace Parsek.Patches
         static MethodBase TargetMethod()
         {
             return GuiTreeFunnels.Target(GuiFunnel.BeginScrollView);
+        }
+
+        // Same rect seam as the group's. Decompiled, GUI.BeginScrollView ends with
+        // GUIClip.Push(screenRect, (round(-scroll.x - viewRect.x),
+        // round(-scroll.y - viewRect.y)), ...), so a postfix conversion would add the
+        // view's origin AND its scroll offset a second time - which is precisely the
+        // offset the live cell measures, so the double count would have shown up as a
+        // scroll-offset reading of the view's own y.
+        static void Prefix(Rect position)
+        {
+            if (!GuiTreeRecorder.ArmedFlag)
+                return;
+            GuiTreeRecorder.PushContainerScreenRect(GuiFunnel.BeginScrollView, position);
         }
 
         static void Postfix(Rect position, GUIStyle background)

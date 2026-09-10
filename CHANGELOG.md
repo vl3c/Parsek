@@ -22,14 +22,30 @@ _(unreleased — entries accumulate here per commit)_
   **The part that listens in on the game's own drawing has never once run inside KSP.**
   It is written, and everything that can be checked without the game has been checked,
   but nobody has yet started the game and taken a capture - so this is not a working
-  capability to rely on yet. One thing that checking DID catch, before any capture was
-  ever taken: the safety check that asks "is the game mid-draw right now, so hold off?"
-  was asking a question that is always answered yes once the game has drawn its very first
-  frame, so every request for a capture would have been politely turned away and nothing
-  would ever have been written. It now asks the question the engine itself asks, and
-  writes down which answer it got. Nothing about the windows themselves changed: not one line
-  of the drawing code was touched, nothing is listened to unless something asks for a
-  capture, and while nothing is asking, the game runs exactly as it did before.
+  capability to rely on yet. Several things that checking DID catch, before any capture
+  was ever taken:
+
+  - the safety check that asks "is the game mid-draw right now, so hold off?" was asking
+    a question that is always answered yes once the game has drawn its very first frame,
+    so every request for a capture would have been politely turned away and nothing would
+    ever have been written. It now asks the question the engine itself asks, and writes
+    down which answer it got.
+  - a panel or a scrolling list would have been written down at twice its own distance
+    from the corner of its window, because its position was read a moment too late: by
+    then the game had already shifted everything drawn inside it. The position is now read
+    a moment earlier, which is the only moment it means what it says. For a scrolling list
+    that also swallowed how far it was scrolled.
+  - a request for a capture that never got its chance - nothing was drawing, or the window
+    had gone away in the meantime - used to leave the listening switched on for the rest
+    of the session. It now gives up by itself after a while and switches everything off.
+  - if switching the listening off ever failed halfway, the next capture would have
+    written every row down twice. It now sees what is still switched on and adds only what
+    is missing.
+  - the tally of how many windows were drawn was counting each one twice.
+
+  Nothing about the windows themselves changed: not one line of the drawing code was
+  touched, nothing is listened to unless something asks for a capture, and while nothing
+  is asking, the game runs exactly as it did before.
 
 - **Automated testing: a test run can now let time really pass, instead of only moving
   the clock.** The only way an automated run could skip ahead was to move the clock and

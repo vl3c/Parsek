@@ -34,7 +34,15 @@ for the life of the process - cannot discover them. Instead:
 - `GuiTreeRecorder.ArmForNextRepaint` calls `GuiTreeRecorderPatches.Apply()`, which
   patches each funnel through the recorder's OWN `Harmony("com.parsek.guitree")`
   instance, one funnel at a time, logging rather than throwing on a failure. It is
-  idempotent: a second arm before the first capture flushed patches nothing again.
+  idempotent PER FUNNEL, not globally: a funnel our own owner id already holds is skipped
+  (`GuiTreeFunnels.IsPatched`, and `ClassifyFunnelPatchAction` is the pure decision).
+  Harmony 2.2.1's `PatchInfo.Add` does NOT deduplicate, so patching a funnel twice
+  installs the prefix and postfix twice and records every control twice - and a global
+  `Applied` guard could not prevent that on its own, because `Remove()` is allowed to
+  fail. `Remove()` clears `Applied` only AFTER `UnpatchAll` RETURNS
+  (`RemainsAppliedAfterUnpatch`): a throwing unpatch may have removed some detours and
+  left others, so the flag keeps saying "installed" and the next arm re-patches only the
+  funnels it no longer owns.
 - Immediately after, the arm reads
   `Harmony.GetPatchInfo(...).Owners.Contains("com.parsek.guitree")` for every funnel into
   `GuiTreeFunnels.PatchedAtArm`. That array - not a flush-time reading, which would report
@@ -232,7 +240,10 @@ ClickThruBlocker.GUILayoutWindow(id, rect, func, text, style, options)
 
 The two are patched for different reasons. `CallWindowDelegate` brackets the window body
 EXACTLY and cannot be inlined, so it is the load-bearing one: it opens the window node on
-its prefix and closes it on its postfix. `DoWindow` only contributes the declared rect
+its prefix and closes it on its postfix. Only the PREFIX counts a hit
+(`RecordWindowEnd` gates through a non-counting `Accepting`), because `hits` is one count
+per funnel BODY run and counting both ends of one call made the window funnel read exactly
+double its window count. `DoWindow` only contributes the declared rect
 and the title, matched to the node by window id, and its 26 bytes may well be inlined. If
 it is, the window node still exists, carrying instead an independently measured
 `contentOrigin` (`GUIUtility.GUIToScreenPoint(Vector2.zero)` inside the callback) and the
@@ -272,6 +283,17 @@ That pair is self-healing in both directions, which matters because `DoButton` a
   capture is exactly one frame even across several `OnGUI` containers (each becomes its
   own root). Note that a capture is PROCESS-WIDE while it is open: every mod's windows are
   in it, not just Parsek's.
+- **An arm that never sees a Repaint gives itself up.** Nothing else would: no capture
+  opens, so no flush ever runs, and the interceptions would stay installed on all 17
+  funnels for the rest of the process - the exact permanent cost the opt-in design exists
+  to avoid. The arm stamps `Time.frameCount`, `HasPendingWork` includes `ArmedFlag` so the
+  pump keeps running, and after `GuiTreeRecorder.ArmTimeoutFrames` (900) the pump logs one
+  Warn and `Disarm("armed-no-repaint")`s. The decision is the pure
+  `ClassifyArmTimeout(framesSinceArm, budget)`; an unreadable frame clock (-1) is NOT a
+  timeout, for the same reason the `guiDepth` fallback is "not inside a pass" - refusing on
+  an unreadable reading disables the feature. The budget is deliberately clear of the live
+  cell's own 300-frame wait after arming, so a give-up cannot fire inside a wait a caller
+  is legitimately performing.
 - `GuiTreeRecorderPump` (a `[KSPAddon(EveryScene)]` MonoBehaviour with no `OnGUI`) calls
   `PumpPendingFlush()` from `LateUpdate`. Unity runs `LateUpdate` before the frame's
   `OnGUI` and therefore after the PREVIOUS frame's, which is where a completed capture
@@ -288,7 +310,7 @@ That pair is self-healing in both directions, which matters because `DoButton` a
   Unity's GUI pass mid-window and desync the layout cache for the rest of the frame, so
   the recorder gives up rather than retrying.
 - One Info line per capture:
-  `[Parsek][INFO][GuiTree] label=... windows=N nodes=M events=E strayEnds=.. autoClosed=.. rectRuleInert=.. unclosed=.. faults=.. written=1 path=...`
+  `[Parsek][INFO][GuiTree] label=... windows=N nodes=M events=E strayEnds=.. autoClosed=.. rectRuleInert=.. unclosed=.. faults=.. clipProbe=delegate written=1 path=...`
 
 Output: `<KSP root>/Screenshots/<label>.gui.json`. That directory because the harness
 harvests it by mtime; `.gui.json` is in `hlib.ARTIFACT_SHOTS_SUFFIXES`, so a dump travels
@@ -318,6 +340,41 @@ scroll offset a scroll view pushes as its clip's `scrollOffset` - and applies
 `GUI.matrix`; `InternalWindowToScreenPoint` then adds the window's own screen origin.
 That is what makes it correct INSIDE a `GUI.Window` callback, where the rects the funnels
 see are window-local.
+
+**A clip container's OWN rect is converted in its PREFIX, not its postfix.** Decompiled,
+`GUI.BeginGroup` ENDS with `GUIClip.Push(position, scrollOffset, Vector2.zero, false)` and
+`GUI.BeginScrollView` with `GUIClip.Push(screenRect, (round(-scroll.x - viewRect.x),
+round(-scroll.y - viewRect.y)), Vector2.zero, false)`. Both nodes are recorded from a
+POSTFIX - which is load-bearing for the clip depth and for the scrollbar ordering, see the
+nesting section - so at that moment the container's own clip is TOPMOST, and the
+`UnclipToWindow` walk adds the container's origin, plus a scroll view's scroll offset, a
+SECOND time. A group at window-local y=130 would have reported y = window + 130 + 130, and
+a scroll view scrolled by 25 px would have reported y = window + 130 + (130 - 25).
+
+So each of the two patch classes carries a `Prefix(Rect position)` that converts the rect
+before the push and stacks it (`GuiTreeRecorder.PushContainerScreenRect`, and the stack is
+a stack because containers nest), and the postfix pops it and takes its ORIGIN
+(`ResolveContainerScreenRect`). The SIZE stays the postfix's on purpose:
+`GUIToScreenRect` returns width and height untouched, so the clip cannot corrupt them,
+while the `GUI.matrix` scaling the recorder applies to them by hand is read when the
+CAPTURE OPENS - and the prefix is gated so that it does NOT open the capture, so a
+container that happens to be the first funnel event of a capture would otherwise carry a
+size scaled by the reset defaults. Everything else on the event stays as the postfix read
+it too: `clipDepth`, `GUI.enabled`, text, style. `localRect` stays the raw `position` the
+funnel received. The prefix is gated on armed-and-Repaint but deliberately NOT on
+`Accepting`: it emits no node, so counting it would double the container funnel's `hits`
+and opening the capture from it would fix `captureFrame` on an event that records nothing.
+The pop happens BEFORE `Accepting` in the postfix and unconditionally, because the two
+gates are not identical (the per-frame cap, a second frame) and an unbalanced stack would
+hand the next container this one's origin.
+
+**Checked in the mirror direction**, since the defect is "a rect converted at postfix time
+under a clip the same method pushed", and two other sites convert under a clip:
+
+| Site | Pushes a clip before the conversion? | Verdict |
+|---|---|---|
+| `GUILayoutUtility.BeginLayoutGroup` postfix (a layout group's rect) | NO - decompiled, it ends `current.layoutGroups.Push(group); current.topLevel = group;` and touches `GUIClip` nowhere, which is exactly why the assembler recovers a layout group's close by rect containment | correct as written |
+| `GUI.CallWindowDelegate` prefix (`contentOrigin`) | yes, the NATIVE side pushed the window's clip before the callback - but nothing here converts a rect the window declared. `GUIUtility.GUIToScreenPoint(Vector2.zero)` converts the window's own content origin expressed in the space the children are drawn in, so unclipping it through the window's clip IS the measurement wanted. `argWidth` / `argHeight` are Unity's own numbers, and the declared rect comes from the `GUI.DoWindow` PREFIX unconverted | deliberate, and commented as such |
 
 **The size gets none of that.** Under a non-identity `GUI.matrix` the origin is
 transformed and the width and height are not, which would silently produce boxes of the
@@ -518,6 +575,27 @@ What only a flight can settle:
    plus the one-off assemble + serialise + write hitch in the flush LateUpdate. Never
    measured. It does not matter for a one-frame capture - but arming it every frame would
    be a different feature with a different budget.
+5. **Arm-time and disarm-time patch cost.** `Apply()` makes Harmony generate a dynamic
+   method per funnel - 17 of them, each with a prefix, a postfix or both - and `Remove()`
+   sweeps them off again through one `UnpatchAll`. That is real codegen, paid twice per
+   capture inside the frame that arms and the LateUpdate that flushes, and it is not
+   measured either. It is the price of the patches being opt-in rather than permanent, and
+   it scales with the number of funnels rather than with the size of the window, so it is
+   the one cost a bigger capture does NOT make worse. A caller arming a capture every few
+   frames would pay it continuously and should hold the patches instead - which is not a
+   mode the recorder offers today.
+6. **Which binding the clip-depth probe gets.** `GUIClip.Internal_GetCount` is an ECall,
+   and `Delegate.CreateDelegate` over an ECall is refused outside the declaring module on
+   the Windows CLR (the same refusal the `guiDepth` probe raises in the xUnit host); mono
+   may or may not accept it. The resolver is therefore delegate-first with a
+   `MethodInfo.Invoke` fallback (`GuiTreeRecorder.BindIntProbe`), because a refusal must
+   cost two allocations per recorded control rather than the clip depths of the entire
+   capture. Which path bound rides on the capture's Info line as `clipProbe=delegate` /
+   `invoke` / `none`, so the first flight settles it. Headlessly pinned: the delegate path
+   over a managed method, the Invoke wrapper returning a WORKING probe, a refused
+   `CreateDelegate` falling through to Invoke rather than to nothing, and the real
+   `Internal_GetCount` binding by some path on the host running the suite
+   (`GuiTreeClipProbeBindingTests`).
 
 ## Known gaps
 
@@ -533,6 +611,12 @@ What only a flight can settle:
   view still records its rect, which will lie outside the scroll view's. The viewer draws
   it anyway; the scroll view's own rect is the clip bound if a consumer wants to cull.
 - **PasswordField records the MASKED content.** `secureText` is deliberately not read.
+- **`GUI.matrix` is read ONCE, when the capture opens.** It comes from whichever `OnGUI`
+  container drew first in the armed frame, and a capture is process-wide, so a per-window
+  matrix set by another addon - a scaled MechJeb or KER window next to an unscaled Parsek
+  one - is not represented: those nodes' sizes are scaled by the FIRST container's m00 /
+  m11. Nothing in KSP or Parsek sets a `GUI.matrix` today, the header records the one that
+  was read, and the recorder Warns when it is not the identity.
 - **A styled `GUILayout.BeginHorizontal` / `BeginVertical` emits a `box` leaf** with the
   group's own rect, because that is literally how Unity draws the group background
   (`GUI.Box(group.rect, content, style)`). Since the group node is now opened from

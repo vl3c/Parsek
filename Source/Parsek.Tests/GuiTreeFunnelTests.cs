@@ -390,4 +390,201 @@ namespace Parsek.Tests
             Assert.Equal(".gui.json", GuiTreeRecorder.OutputSuffix);
         }
     }
+
+    /// <summary>
+    /// The armed-with-no-Repaint give-up. Nothing else disarms an arm whose Repaint never
+    /// arrives, and the recorder's entire cost story is that the Harmony detours come OFF
+    /// again - so without a bound they would sit on all 17 IMGUI funnels for the rest of
+    /// the process.
+    /// </summary>
+    public class GuiTreeArmTimeoutTests
+    {
+        [Theory]
+        [InlineData(0, 300, false)]
+        [InlineData(299, 300, false)]
+        [InlineData(300, 300, true)]
+        [InlineData(1000, 300, true)]
+        public void TheGiveUpTripsAtTheBudgetAndNotBefore(int framesSinceArm, int budget,
+            bool expected)
+        {
+            Assert.Equal(expected, GuiTreeRecorder.ClassifyArmTimeout(framesSinceArm, budget));
+        }
+
+        [Theory]
+        [InlineData(-1)]
+        [InlineData(-4242)]
+        public void AnUnreadableFrameClockIsNotATimeout(int framesSinceArm)
+        {
+            // Time.frameCount is a Unity ICall, so a headless host cannot read it. Giving
+            // up on an unreadable clock would disarm every capture on such a host before
+            // it recorded anything - the same always-refuse failure the
+            // Event.current != null guard had.
+            Assert.False(GuiTreeRecorder.ClassifyArmTimeout(framesSinceArm,
+                GuiTreeRecorder.ArmTimeoutFrames));
+        }
+
+        [Theory]
+        [InlineData(0)]
+        [InlineData(-1)]
+        public void ANonPositiveBudgetDisablesTheGiveUpOutright(int budget)
+        {
+            Assert.False(GuiTreeRecorder.ClassifyArmTimeout(1000000, budget));
+        }
+
+        [Fact]
+        public void TheBudgetIsWellPastTheLiveCellsOwnWaitAfterArming()
+        {
+            // GuiTreeDumpImguiTest waits up to 300 frames for the capture to be written.
+            // A give-up inside that wait would disarm a capture the caller is legitimately
+            // waiting for, and turn a healthy run into "the recorder never completed a
+            // capture".
+            Assert.True(GuiTreeRecorder.ArmTimeoutFrames > 300,
+                "ArmTimeoutFrames is " + GuiTreeRecorder.ArmTimeoutFrames
+                + ", which is not clear of the live cell's 300-frame wait");
+        }
+    }
+
+    /// <summary>
+    /// The applier's two decisions. Both directions ARE the defect: Harmony 2.2.1's
+    /// <c>PatchInfo.Add</c> does not deduplicate, so a funnel patched twice records every
+    /// control twice, and a <c>Remove()</c> whose <c>UnpatchAll</c> threw must NOT report
+    /// the process as unpatched.
+    /// </summary>
+    public class GuiTreePatchApplierDecisionTests
+    {
+        [Fact]
+        public void AFunnelWeAlreadyOwnIsSkippedRatherThanPatchedTwice()
+        {
+            Assert.Equal(Parsek.Patches.GuiTreeRecorderPatches.FunnelPatchAction.SkipAlreadyOurs,
+                Parsek.Patches.GuiTreeRecorderPatches.ClassifyFunnelPatchAction(true, true));
+        }
+
+        [Fact]
+        public void AFunnelWeDoNotOwnIsPatched()
+        {
+            Assert.Equal(Parsek.Patches.GuiTreeRecorderPatches.FunnelPatchAction.Patch,
+                Parsek.Patches.GuiTreeRecorderPatches.ClassifyFunnelPatchAction(true, false));
+        }
+
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void AnUnresolvedTargetIsNeverPatchedWhateverTheOwnershipReadingSays(
+            bool alreadyOwnedByUs)
+        {
+            Assert.Equal(Parsek.Patches.GuiTreeRecorderPatches.FunnelPatchAction.SkipMissingTarget,
+                Parsek.Patches.GuiTreeRecorderPatches.ClassifyFunnelPatchAction(
+                    false, alreadyOwnedByUs));
+        }
+
+        [Fact]
+        public void AThrowingUnpatchLeavesTheInterceptionsReportedAsStillInstalled()
+        {
+            // UnpatchAll may have removed some detours and left others installed.
+            // Reporting "not applied" there let the next arm patch every funnel a second
+            // time, and every control in the next capture was recorded twice.
+            Assert.True(Parsek.Patches.GuiTreeRecorderPatches.RemainsAppliedAfterUnpatch(true));
+            Assert.False(Parsek.Patches.GuiTreeRecorderPatches.RemainsAppliedAfterUnpatch(false));
+        }
+    }
+
+    /// <summary>
+    /// The clip-depth probe's binding: delegate-first, Invoke-fallback.
+    ///
+    /// <para><c>UnityEngine.GUIClip.Internal_GetCount</c> is an ECall, and
+    /// <c>Delegate.CreateDelegate</c> over an ECall is refused outside the declaring
+    /// module on the Windows CLR ("ECall methods must be packaged into a system module",
+    /// which the xUnit host raises for the sibling <c>guiDepth</c> probe); mono may or may
+    /// not accept it. A refusal must cost two allocations per recorded control, not the
+    /// clip depths of the whole capture.</para>
+    /// </summary>
+    public class GuiTreeClipProbeBindingTests
+    {
+        private static class Managed
+        {
+            internal static int Five()
+            {
+                return 5;
+            }
+
+            // CreateDelegate over this as a Func<int> is refused by the CLR on every host:
+            // the signature does not match. MethodInfo.Invoke has no such restriction.
+            internal static int Echo(int value)
+            {
+                return value;
+            }
+        }
+
+        private static MethodInfo Method(string name)
+        {
+            return typeof(Managed).GetMethod(name,
+                BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
+        }
+
+        [Fact]
+        public void AManagedProbeBindsThroughTheCheapDelegatePath()
+        {
+            string binding;
+            Func<int> probe = GuiTreeRecorder.BindIntProbe(Method("Five"), out binding);
+
+            Assert.Equal(GuiTreeRecorder.ClipProbeBindingDelegate, binding);
+            Assert.NotNull(probe);
+            Assert.Equal(5, probe());
+        }
+
+        [Fact]
+        public void TheInvokeWrapperIsAWorkingProbeAndNotJustANonNull()
+        {
+            Func<int> probe = GuiTreeRecorder.BindIntProbeViaInvoke(Method("Five"));
+            Assert.NotNull(probe);
+            Assert.Equal(5, probe());
+        }
+
+        [Fact]
+        public void ARefusedDelegateBindingFallsBackToInvokeRatherThanToNothing()
+        {
+            // The delegate binder reports a refusal as null instead of throwing...
+            Assert.Null(GuiTreeRecorder.BindIntProbeViaDelegate(Method("Echo")));
+
+            // ...and the composed binder then takes the Invoke path rather than giving up.
+            string binding;
+            Func<int> probe = GuiTreeRecorder.BindIntProbe(Method("Echo"), out binding);
+            Assert.Equal(GuiTreeRecorder.ClipProbeBindingInvoke, binding);
+            Assert.NotNull(probe);
+        }
+
+        [Fact]
+        public void AnUnresolvedMemberBindsNothingAndSaysSo()
+        {
+            string binding;
+            Assert.Null(GuiTreeRecorder.BindIntProbe(null, out binding));
+            Assert.Equal(GuiTreeRecorder.ClipProbeBindingNone, binding);
+            Assert.Null(GuiTreeRecorder.BindIntProbeViaDelegate(null));
+            Assert.Null(GuiTreeRecorder.BindIntProbeViaInvoke(null));
+        }
+
+        /// <summary>
+        /// The real target, on this host. WHICH path binds is host-dependent, which is the
+        /// whole reason for the fallback - but something must bind, or every event in a
+        /// capture reports <c>clipDepth: -1</c> and the assembler loses its authority for
+        /// clip containers.
+        /// </summary>
+        [Fact]
+        public void TheRealClipCountMemberBindsBySomePathOnThisHost()
+        {
+            Type clip = typeof(UnityEngine.GUI).Assembly.GetType("UnityEngine.GUIClip");
+            Assert.NotNull(clip);
+            MethodInfo count = clip.GetMethod("Internal_GetCount",
+                BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
+            Assert.NotNull(count);
+
+            string binding;
+            Func<int> probe = GuiTreeRecorder.BindIntProbe(count, out binding);
+
+            Assert.NotNull(probe);
+            Assert.NotEqual(GuiTreeRecorder.ClipProbeBindingNone, binding);
+            // CALLING it needs a Unity runtime, so the binding is all a headless host can
+            // settle; the live cell's PASS line prints which path it got.
+        }
+    }
 }

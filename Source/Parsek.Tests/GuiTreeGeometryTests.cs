@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Globalization;
 using Parsek;
@@ -457,6 +458,161 @@ namespace Parsek.Tests
             {
                 CultureInfo.CurrentCulture = previous;
             }
+        }
+    }
+
+    /// <summary>
+    /// The clip-container rect contract, and the geometry reading that would catch it
+    /// being broken.
+    ///
+    /// <para><b>The defect these cells pin.</b> <c>GUI.BeginGroup</c> ENDS with
+    /// <c>GUIClip.Push(position, scrollOffset, ...)</c> and <c>GUI.BeginScrollView</c>
+    /// with <c>GUIClip.Push(screenRect, (round(-scroll.x - viewRect.x),
+    /// round(-scroll.y - viewRect.y)), ...)</c> - both decompiled from the shipped
+    /// <c>UnityEngine.IMGUIModule.dll</c>. Both nodes are recorded from a POSTFIX, where
+    /// the container's own clip is topmost, so <c>GUIUtility.GUIToScreenRect</c>'s
+    /// <c>UnclipToWindow</c> walk adds the container's origin - and a scroll view's
+    /// scroll offset - a SECOND time. The recorder therefore converts the rect in the
+    /// PREFIX, before the push, and the postfix takes it off a stack.</para>
+    /// </summary>
+    public class GuiTreeContainerRectContractTests
+    {
+        private const string Title = "Parsek GuiTree Probe";
+
+        // The live cell's own numbers, so the arithmetic here is the arithmetic there.
+        private const float WindowContentOriginY = 78f;   // window at y=60 plus a title bar
+        private const float ScrollViewLocalY = 130f;      // the view's y inside the window
+        private const float ScrollPx = 25f;               // GuiTreeProbe.ScrollOffsetPx
+        private const float RowTopMarginPx = 2f;          // stock skin, inside the content
+        private const float CellSlackPx = 10f;            // GuiTreeDumpImguiTest.ScrollOffsetSlackPx
+
+        [Fact]
+        public void ThePrefixConversionIsTheOriginAContainerNodeCarries()
+        {
+            var pushedByThePrefix = new GuiRect(72f, 208f, 300f, 70f);
+            var measuredByThePostfix = new GuiRect(177f, 313f, 300f, 70f);
+
+            GuiRect resolved = GuiTreeRecorder.ResolveContainerScreenRect(
+                pushedByThePrefix, measuredByThePostfix);
+
+            Assert.Equal(72f, resolved.X, 3f);
+            Assert.Equal(208f, resolved.Y, 3f);
+        }
+
+        [Fact]
+        public void TheSizeStillComesFromThePostfixWhereTheMatrixScaleIsKnown()
+        {
+            // GUIToScreenRect converts the ORIGIN only and returns w/h untouched, so the
+            // origin is the only half the container's own clip can corrupt. The SIZE is
+            // scaled by hand from the GUI.matrix read when the CAPTURE opens - and the
+            // prefix deliberately does not open the capture, so a container that happens
+            // to be the first funnel event of a capture would otherwise carry a size
+            // scaled by the reset defaults instead of by the real matrix.
+            var pushedByThePrefix = new GuiRect(72f, 208f, 300f, 70f);
+            var scaledAtThePostfix = new GuiRect(177f, 313f, 450f, 105f);
+
+            GuiRect resolved = GuiTreeRecorder.ResolveContainerScreenRect(
+                pushedByThePrefix, scaledAtThePostfix);
+
+            Assert.Equal(72f, resolved.X, 3f);
+            Assert.Equal(450f, resolved.W, 3f);
+            Assert.Equal(105f, resolved.H, 3f);
+        }
+
+        [Fact]
+        public void WithNoPrefixConversionThePostfixValueIsTheOnlyFallback()
+        {
+            // Unreachable in the live path - prefix and postfix are hooks on the SAME
+            // method, so either both run or neither does - but the resolution must not
+            // invent a rect when the stack is empty. The fallback is the double-counted
+            // reading, which is still better than a zero rect or a guess.
+            var measuredByThePostfix = new GuiRect(177f, 313f, 300f, 70f);
+
+            GuiRect resolved = GuiTreeRecorder.ResolveContainerScreenRect(
+                null, measuredByThePostfix);
+
+            Assert.Equal(177f, resolved.X, 3f);
+            Assert.Equal(313f, resolved.Y, 3f);
+        }
+
+        [Fact]
+        public void TheCorrectedScrollViewRectReadsTheScrollOffsetTheLiveCellPins()
+        {
+            // viewRect.y is 0 for a GUILayout scroll view (GUILayout.BeginScrollView
+            // passes new Rect(0, 0, clientWidth, clientHeight)), so the clip's offset is
+            // -round(scroll.y) and row 0 lands scroll.y - margin above the view's top.
+            float viewTop = WindowContentOriginY + ScrollViewLocalY;
+            float rowTop = viewTop - ScrollPx + RowTopMarginPx;
+
+            GuiTreeScrollOffsetReport r = Measure(viewTop, rowTop);
+
+            Assert.True(r.RowFound);
+            Assert.Equal(ScrollPx - RowTopMarginPx, r.OffsetAbovePx, 3f);
+            Assert.True(Math.Abs(r.OffsetAbovePx - ScrollPx) <= CellSlackPx,
+                "the live cell pins this reading at " + ScrollPx + " +/- " + CellSlackPx
+                + " and the derivation gives " + r.OffsetAbovePx);
+        }
+
+        [Fact]
+        public void ADoubleCountedScrollViewRectReadsAsTheViewsOwnLocalYAndBlowsThePin()
+        {
+            // The mirror of the cell above: the postfix-time conversion adds the view's
+            // origin and its scroll offset again, so viewTop reads
+            // W + P + (P - scroll) and the offset collapses to P.y - margin - far outside
+            // the slack, which is what makes the live reading a detector rather than a
+            // formality.
+            float correctViewTop = WindowContentOriginY + ScrollViewLocalY;
+            float doubleCountedViewTop = correctViewTop + ScrollViewLocalY - ScrollPx;
+            float rowTop = correctViewTop - ScrollPx + RowTopMarginPx;
+
+            GuiTreeScrollOffsetReport r = Measure(doubleCountedViewTop, rowTop);
+
+            Assert.True(r.RowFound);
+            Assert.Equal(ScrollViewLocalY - RowTopMarginPx, r.OffsetAbovePx, 3f);
+            Assert.True(Math.Abs(r.OffsetAbovePx - ScrollPx) > CellSlackPx,
+                "a double-counted container rect must fall OUTSIDE the live cell's slack, "
+                + "or the cell cannot detect it; reading was " + r.OffsetAbovePx);
+        }
+
+        private static GuiTreeScrollOffsetReport Measure(float scrollViewTop, float rowTop)
+        {
+            var events = new List<GuiTreeEvent>
+            {
+                new GuiTreeEvent
+                {
+                    Op = GuiTreeOp.Begin,
+                    Kind = GuiNodeKind.Window,
+                    Rect = new GuiRect(60f, 60f, 320f, 300f),
+                    LocalRect = new GuiRect(60f, 60f, 320f, 300f),
+                    ClipDepth = 1,
+                    Text = Title,
+                    WindowId = 907311,
+                },
+                new GuiTreeEvent
+                {
+                    Op = GuiTreeOp.Begin,
+                    Kind = GuiNodeKind.ScrollView,
+                    Rect = new GuiRect(66f, scrollViewTop, 300f, 70f),
+                    LocalRect = new GuiRect(6f, ScrollViewLocalY, 300f, 70f),
+                    ClipDepth = 2,
+                },
+                new GuiTreeEvent
+                {
+                    Op = GuiTreeOp.Leaf,
+                    Kind = GuiNodeKind.Label,
+                    Rect = new GuiRect(68f, rowTop, 200f, 18f),
+                    LocalRect = new GuiRect(2f, RowTopMarginPx, 200f, 18f),
+                    ClipDepth = 2,
+                    Text = "parsekscroll-0",
+                },
+                new GuiTreeEvent { Op = GuiTreeOp.End, Kind = GuiNodeKind.ScrollView },
+                new GuiTreeEvent { Op = GuiTreeOp.End, Kind = GuiNodeKind.Window },
+            };
+
+            // The title overload deliberately: this class is about the RECT contract, and
+            // the window-id key has its own cells above.
+            return GuiTreeGeometry.MeasureScrollOffset(
+                GuiTreeAssembler.Assemble(events), Title, "parsekscroll-0");
         }
     }
 }

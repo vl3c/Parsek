@@ -48,13 +48,48 @@ WHAT ONLY A FLIGHT SETTLES:
    is printed on the arm's own Info line (`armed label=... guiDepth=0 ...`), so one flight
    settles that one: `0` means the ICall answered, `-1` means the fallback carried the arm.
 
-FIXED BEFORE THE FIRST FLIGHT (2026-09-10, same branch): the arm guard and the deferred
-unpatch asked `Event.current != null`, which the decompiled `UnityEngine.Event` shows is
-non-null forever after the process draws one frame (`Internal_MakeMasterEventCurrent`
-assigns `s_MasterEvent` to `s_Current`, and the setter maps a null assignment back to it).
-Every `ArmForNextRepaint` would have refused with `reason=inside-gui-pass`, so the feature
-was dead on its first flight regardless of the four premises above. The guard is now
-`GUIUtility.guiDepth > 0`, Unity's own predicate - the one `GUIUtility.CheckOnGUI` tests.
+FIXED BEFORE THE FIRST FLIGHT (2026-09-10, same branch), all found by reading the
+decompiled module rather than by flying:
+
+- **The arm guard was always-refuse.** It asked `Event.current != null`, which the
+  decompiled `UnityEngine.Event` shows is non-null forever after the process draws one
+  frame (`Internal_MakeMasterEventCurrent` assigns `s_MasterEvent` to `s_Current`, and the
+  setter maps a null assignment back to it). Every `ArmForNextRepaint` would have refused
+  with `reason=inside-gui-pass`, so the feature was dead on its first flight regardless of
+  the premises above. The guard is now `GUIUtility.guiDepth > 0`, Unity's own predicate -
+  the one `GUIUtility.CheckOnGUI` tests.
+- **A clip container's rect was double-counted.** `GUI.BeginGroup` ends with
+  `GUIClip.Push(position, ...)` and `GUI.BeginScrollView` with
+  `GUIClip.Push(screenRect, (round(-scroll.x - viewRect.x), round(-scroll.y -
+  viewRect.y)), ...)`, and both nodes are recorded from a POSTFIX - so
+  `GUIToScreenRect`'s `UnclipToWindow` walk added the container's own origin, and a scroll
+  view's scroll offset, a second time. Each of the two patch classes now carries a
+  `Prefix(Rect position)` that converts the rect before the push and stacks it; the
+  postfix pops it and takes its ORIGIN, keeping the postfix's SIZE (the matrix scale is
+  only known once the capture has opened). Mirror-checked in the two other
+  conversion-under-a-clip directions: `BeginLayoutGroup` pushes no clip at all
+  (decompiled), and `CallWindowDelegate`'s `contentOrigin` converts `Vector2.zero` under
+  the window's clip DELIBERATELY, which is the measurement wanted.
+- **An arm that never saw a Repaint leaked the patches for the session.** `HasPendingWork`
+  did not include `ArmedFlag`, so with no capture open the pump never ran again and nothing
+  ever unpatched. The arm now stamps the frame, the pump keeps running while armed, and
+  after `ArmTimeoutFrames` it Warns and `Disarm("armed-no-repaint")`s
+  (`ClassifyArmTimeout`).
+- **A throwing unpatch could double every patch.** `Remove()` cleared `Applied` BEFORE
+  `UnpatchAll`, whose throw is caught - so detours stayed installed while the flag said
+  none were, and Harmony 2.2.1's `PatchInfo.Add` does not deduplicate. `Applied` is now
+  cleared only after `UnpatchAll` returns (`RemainsAppliedAfterUnpatch`), and `Apply()` is
+  idempotent PER FUNNEL through `GuiTreeFunnels.IsPatched`
+  (`ClassifyFunnelPatchAction`).
+- **`Hits[GUI.CallWindowDelegate]` read double**, because the prefix and the postfix both
+  went through the counting gate. The End path now uses a non-counting one, so `hits` is
+  one count per funnel body run as documented.
+- **The clip probe binds delegate-first with an Invoke fallback.**
+  `Delegate.CreateDelegate` over an ECall is refused outside the declaring module on the
+  Windows CLR and mono may or may not accept it, and a refusal used to cost the whole
+  capture its clip depths. `GuiTreeRecorder.BindIntProbe` falls back to a
+  `MethodInfo.Invoke` wrapper and the capture's Info line names the path
+  (`clipProbe=delegate` / `invoke` / `none`).
 
 Also unmeasured: the COST while armed - one frame of allocation for a few hundred small
 objects, plus a one-off assemble + serialise + write hitch in the flush LateUpdate. It
@@ -68,8 +103,11 @@ computed privately and the cells draw through `GUIStyle.Draw`, below the managed
 no z-order across windows (roots are in callback order, which is draw order, but an
 overlapping window is not marked as occluding another); scroll-clipped children are
 RECORDED, not culled, so a row scrolled out of view still carries a rect outside its
-scroll view's; and a layout group carries no `text`, because
-`GUILayoutUtility.BeginLayoutGroup` never sees the caller's `GUIContent`.
+scroll view's; a layout group carries no `text`, because
+`GUILayoutUtility.BeginLayoutGroup` never sees the caller's `GUIContent`; and `GUI.matrix`
+is read ONCE when the capture opens, from whichever `OnGUI` container drew first, so a
+per-window matrix set by another addon is not represented (nothing in KSP or Parsek sets
+one, the header records what was read, and a non-identity matrix logs a Warn).
 
 Fix: fly it. The work is one `RunTests` step on any existing host - the cell needs no
 fixture, no scene and no seam verb, since it draws its own probe window - and it is

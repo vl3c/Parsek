@@ -49,6 +49,23 @@ namespace Parsek
         /// </summary>
         internal const int MaxEventsPerCapture = 40000;
 
+        /// <summary>
+        /// Frames the recorder stays armed waiting for a Repaint funnel to fire before it
+        /// gives up by itself.
+        ///
+        /// <para><b>Why a bound is required.</b> Nothing else disarms an arm that never
+        /// sees a Repaint - a scene where no IMGUI consumer draws, a window that stopped
+        /// being drawn between the arm and the pass - and the recorder's whole cost story
+        /// is that the Harmony detours come OFF again. Without this they would stay
+        /// installed on all 17 IMGUI funnels for the rest of the process, which is exactly
+        /// the permanent cost the opt-in design exists to avoid.</para>
+        ///
+        /// <para>Sized well past the live in-game cell's own 300-frame wait after arming,
+        /// so the give-up can never fire inside a wait a caller is legitimately
+        /// performing.</para>
+        /// </summary>
+        internal const int ArmTimeoutFrames = 900;
+
         /// <summary>Subdirectory of the KSP root the dump lands in.</summary>
         internal const string OutputDirectoryName = "Screenshots";
 
@@ -73,6 +90,13 @@ namespace Parsek
         private static string pendingLabel;
         private static string pendingPath;
         private static int captureFrame = -1;
+
+        /// <summary>
+        /// <c>Time.frameCount</c> when the recorder was armed, or -1 when it is not armed
+        /// or the frame count could not be read (a headless host). Only used by the
+        /// armed-with-no-Repaint give-up, whose decision treats -1 as "no timeout".
+        /// </summary>
+        private static int armFrame = -1;
         private static bool capturing;
         private static int recordFaults;
         private static int droppedOverCap;
@@ -101,6 +125,29 @@ namespace Parsek
         /// is the only way an argument-less End can know WHICH group it closes.
         /// </summary>
         private static readonly List<bool?> layoutGroupStack = new List<bool?>(32);
+
+        /// <summary>
+        /// Screen rects of the clip containers currently between their Begin funnel's
+        /// PREFIX and its POSTFIX, innermost last. Containers nest, so it is a stack.
+        ///
+        /// <para><b>Why the container's own rect cannot be converted at postfix time.</b>
+        /// Decompiled from the shipped <c>UnityEngine.IMGUIModule.dll</c>,
+        /// <c>GUI.BeginGroup</c> ENDS with
+        /// <c>GUIClip.Push(position, scrollOffset, Vector2.zero, false)</c> and
+        /// <c>GUI.BeginScrollView</c> with
+        /// <c>GUIClip.Push(screenRect, (round(-scroll.x - viewRect.x), round(-scroll.y -
+        /// viewRect.y)), Vector2.zero, false)</c>. So by the time the postfix runs, the
+        /// container's OWN clip is topmost, and <c>GUIClip.UnclipToWindow</c> - which
+        /// <c>GUIUtility.GUIToScreenRect</c> walks - adds the container's origin (and, for
+        /// a scroll view, its scroll offset) a SECOND time. The prefix therefore converts
+        /// the rect BEFORE the push and stashes it here; the postfix still reads
+        /// everything else there, because the clip depth measured after the push is the
+        /// one the container's children report.</para>
+        ///
+        /// <para>Cleared wherever the buffers are (arm, flush, disarm, fault), so an
+        /// aborted pass cannot leave an entry standing for the next capture.</para>
+        /// </summary>
+        private static readonly List<GuiRect> containerScreenRects = new List<GuiRect>(8);
 
         /// <summary>
         /// Set by the <c>GUI.DoButton</c> / <c>GUI.DoToggle</c> prefixes and consumed by
@@ -141,12 +188,19 @@ namespace Parsek
         }
 
         /// <summary>
-        /// True while the LateUpdate pump has something to do: a capture to flush, or a
-        /// deferred unpatch to perform.
+        /// True while the LateUpdate pump has something to do: a capture to flush, a
+        /// deferred unpatch to perform, or an ARM to time out.
+        ///
+        /// <para><see cref="ArmedFlag"/> is in here deliberately. An arm whose Repaint
+        /// never arrives leaves no capture and no pending unpatch, so a pump gated on
+        /// those two alone never ran again and the detours stayed installed for the
+        /// session (see <see cref="ArmTimeoutFrames"/>). The cost of including it is two
+        /// static reads and a frame-count read per frame while armed, for the handful of
+        /// frames an arm normally lives.</para>
         /// </summary>
         internal static bool HasPendingWork
         {
-            get { return capturing || unpatchPending; }
+            get { return capturing || unpatchPending || ArmedFlag; }
         }
 
         /// <summary>
@@ -191,6 +245,23 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Whether an arm that has not seen a single Repaint funnel yet must be given up
+        /// on. Pure, so both the bound and its unknown-frame case are pinned headlessly.
+        ///
+        /// <para><paramref name="framesSinceArm"/> is negative when the arm frame could
+        /// not be read (a host with no <c>Time.frameCount</c>), and that is NOT a timeout:
+        /// giving up on an unreadable clock would disarm every capture on such a host
+        /// before it recorded anything. A non-positive budget disables the give-up
+        /// outright.</para>
+        /// </summary>
+        internal static bool ClassifyArmTimeout(int framesSinceArm, int budgetFrames)
+        {
+            if (framesSinceArm < 0 || budgetFrames <= 0)
+                return false;
+            return framesSinceArm >= budgetFrames;
+        }
+
+        /// <summary>
         /// Arms the recorder for the next IMGUI Repaint pass and returns the path the dump
         /// will be written to, or null when the request was refused. Re-arming discards
         /// any capture in progress.
@@ -231,6 +302,7 @@ namespace Parsek
             }
 
             ArmedFlag = true;
+            armFrame = ReadFrameCount();
             ParsekLog.Info("GuiTree", "armed label=" + safe
                 // The predicate the arm guard actually used: 0 is "outside OnGUI, from
                 // GUIUtility.guiDepth", -1 is "probe unavailable, fell back to outside".
@@ -248,9 +320,11 @@ namespace Parsek
             ArmedFlag = false;
             capturing = false;
             captureFrame = -1;
+            armFrame = -1;
             events.Clear();
             pendingWindows.Clear();
             layoutGroupStack.Clear();
+            containerScreenRects.Clear();
             pendingControl = null;
             RequestUnpatch();
             if (wasArmed)
@@ -279,9 +353,11 @@ namespace Parsek
             events.Clear();
             pendingWindows.Clear();
             layoutGroupStack.Clear();
+            containerScreenRects.Clear();
             pendingControl = null;
             capturing = false;
             captureFrame = -1;
+            armFrame = -1;
             recordFaults = 0;
             droppedOverCap = 0;
             captureScreenWidth = 0;
@@ -301,6 +377,7 @@ namespace Parsek
             // its clip depths or its layout-group rects.
             clipCountResolved = false;
             clipCount = null;
+            LastClipProbeBinding = null;
             layoutProbeResolved = false;
             layoutEntryRectField = null;
             layoutGroupIsVerticalField = null;
@@ -325,6 +402,24 @@ namespace Parsek
                     Fault("pump", ex);
                 }
             }
+            else if (ArmedFlag)
+            {
+                // Armed, and not one Repaint funnel has fired. Give up after a bounded
+                // number of frames rather than leaving the interceptions installed for
+                // the rest of the session: nothing else would ever take them off.
+                int framesSinceArm = FramesSinceArm();
+                if (ClassifyArmTimeout(framesSinceArm, ArmTimeoutFrames))
+                {
+                    ParsekLog.Warn("GuiTree", "arm gave up: no Repaint funnel fired within "
+                        + framesSinceArm.ToString(CultureInfo.InvariantCulture)
+                        + " frames of arming (budget "
+                        + ArmTimeoutFrames.ToString(CultureInfo.InvariantCulture)
+                        + "); disarming so the interceptions come off. Nothing drew IMGUI"
+                        + " through a patched funnel - a scene with no IMGUI consumer, or"
+                        + " every funnel's signature drifted");
+                    Disarm("armed-no-repaint");
+                }
+            }
 
             if (unpatchPending && !capturing && !ArmedFlag)
             {
@@ -340,6 +435,20 @@ namespace Parsek
         /// opens the capture on first sight, and refuses once the cap is hit.
         /// </summary>
         private static bool Accepting(GuiFunnel funnel)
+        {
+            return Accepting(funnel, true);
+        }
+
+        /// <summary>
+        /// <see cref="Accepting(GuiFunnel)"/> with the hit counter under caller control.
+        ///
+        /// <para><paramref name="countHit"/> is false for the SECOND entry point of a
+        /// funnel that has both a prefix and a postfix feeding the recorder -
+        /// <c>GUI.CallWindowDelegate</c>, whose prefix opens the window node and whose
+        /// postfix closes it. <c>hits</c> is documented as one count per funnel body run,
+        /// and counting both ends made the window funnel read exactly double.</para>
+        /// </summary>
+        private static bool Accepting(GuiFunnel funnel, bool countHit)
         {
             if (!ArmedFlag)
                 return false;
@@ -357,7 +466,8 @@ namespace Parsek
             // Counted here rather than at the call site: a hit only means anything for
             // the Repaint pass the dump describes, and counting Layout passes too would
             // make every funnel row read roughly double its node count.
-            GuiTreeFunnels.Hits[(int)funnel]++;
+            if (countHit)
+                GuiTreeFunnels.Hits[(int)funnel]++;
 
             if (!capturing)
             {
@@ -377,6 +487,23 @@ namespace Parsek
                 return false;
             }
             return true;
+        }
+
+        /// <summary>
+        /// The armed-and-Repaint half of <see cref="Accepting(GuiFunnel)"/>, with NO hit
+        /// counter, no capture open and no cap. For a patch body that records no node of
+        /// its own and only stages something for another body - today the clip-container
+        /// prefixes, which convert a rect before their container pushes its clip.
+        /// </summary>
+        private static bool ArmedForRepaintWithoutCounting()
+        {
+            if (!ArmedFlag)
+                return false;
+            // Same reasoning as in Accepting: every caller is a patch body on an IMGUI
+            // funnel, so this only runs inside a GUI pass, where Event.current is that
+            // pass's own event.
+            Event current = Event.current;
+            return current != null && current.type == EventType.Repaint;
         }
 
         /// <summary>
@@ -451,11 +578,78 @@ namespace Parsek
             }
         }
 
+        /// <summary>
+        /// The rect a clip container's node carries: the ORIGIN from the conversion the
+        /// PREFIX made before the container pushed its own clip, and the SIZE from the
+        /// postfix. Pure, so the corrected contract is pinned headlessly.
+        ///
+        /// <para><b>Why the two halves come from different sides.</b>
+        /// <c>GUIUtility.GUIToScreenRect</c> converts the ORIGIN ONLY and returns width
+        /// and height exactly as given, so the origin is the only half the container's own
+        /// clip can corrupt. The size is scaled by hand from the <c>GUI.matrix</c> read
+        /// when the capture OPENS - and the prefix is gated so it does NOT open the
+        /// capture, so a container that happens to be the first funnel event of a capture
+        /// would have had its size scaled by the reset defaults. Taking the size from the
+        /// postfix, which runs after <c>Accepting</c> opened the capture, keeps a scaled
+        /// matrix correct for that container too.</para>
+        ///
+        /// <para>With no prefix reading at all the whole postfix rect is the fallback -
+        /// which is the double-counted one, and unreachable in the live path, since prefix
+        /// and postfix are hooks on the SAME method.</para>
+        /// </summary>
+        internal static GuiRect ResolveContainerScreenRect(GuiRect? pushedAtPrefix,
+            GuiRect measuredAtPostfix)
+        {
+            if (!pushedAtPrefix.HasValue)
+                return measuredAtPostfix;
+            return new GuiRect(pushedAtPrefix.Value.X, pushedAtPrefix.Value.Y,
+                measuredAtPostfix.W, measuredAtPostfix.H);
+        }
+
+        /// <summary>
+        /// <c>GUI.BeginGroup</c> / <c>GUI.BeginScrollView</c> PREFIX: converts the
+        /// container's own rect while the container's clip is not yet on the clip stack,
+        /// and stashes it for the postfix that records the node.
+        ///
+        /// <para>Gated by <see cref="ArmedForRepaintWithoutCounting"/> rather than
+        /// <see cref="Accepting(GuiFunnel)"/> ON PURPOSE: this emits no node, so counting
+        /// it would double the container funnel's <c>hits</c>, and opening the capture
+        /// from here would fix <c>captureFrame</c> on an event that records nothing.</para>
+        /// </summary>
+        internal static void PushContainerScreenRect(GuiFunnel funnel, Rect position)
+        {
+            try
+            {
+                if (!ArmedForRepaintWithoutCounting())
+                    return;
+                containerScreenRects.Add(ToScreenGuiRect(position));
+            }
+            catch (Exception ex)
+            {
+                Fault(GuiTreeFunnels.Name(funnel), ex);
+            }
+        }
+
+        private static GuiRect? PopContainerScreenRect()
+        {
+            int last = containerScreenRects.Count - 1;
+            if (last < 0)
+                return null;
+            GuiRect popped = containerScreenRects[last];
+            containerScreenRects.RemoveAt(last);
+            return popped;
+        }
+
         internal static void RecordBeginClipContainer(GuiFunnel funnel, GuiNodeKind kind,
             Rect rect, GUIContent content, GUIStyle style)
         {
             try
             {
+                // Popped FIRST, and unconditionally: the prefix pushed under a laxer gate
+                // than Accepting (no per-frame cap, no capture-frame check), so a postfix
+                // that Accepting refuses must still balance the stack or the NEXT
+                // container would read this one's origin.
+                GuiRect? prefixRect = PopContainerScreenRect();
                 if (!Accepting(funnel))
                     return;
                 // Recorded from a POSTFIX, i.e. AFTER Unity pushed the clip, so the
@@ -466,7 +660,14 @@ namespace Parsek
                 // GUIClip.Push, at the OUTER depth, so a scroll-view node opened
                 // before them was closed again by its own scrollbar and ended up
                 // holding nothing.
-                events.Add(NewEvent(GuiTreeOp.Begin, kind, rect, content, style));
+                GuiTreeEvent e = NewEvent(GuiTreeOp.Begin, kind, rect, content, style);
+                // ...but the RECT is the one thing the postfix cannot measure: the clip
+                // it would walk is the container's own. Everything else stays as read
+                // here - the clip depth is the children's depth by construction, and
+                // GUI.enabled / text / style are the state the container opened in.
+                // LocalRect stays the raw position the funnel received.
+                e.Rect = ResolveContainerScreenRect(prefixRect, e.Rect);
+                events.Add(e);
             }
             catch (Exception ex)
             {
@@ -479,6 +680,13 @@ namespace Parsek
         /// the returned <c>GUILayoutGroup</c> (typed <c>object</c> because the class is
         /// internal to UnityEngine): during Repaint it is the object the LAYOUT pass
         /// created and sized, so both its rect and its <c>isVertical</c> are final.
+        ///
+        /// <para><b>The clip-container rect trap does NOT apply here</b>, which is the
+        /// mirror direction of that fix. Decompiled, <c>BeginLayoutGroup</c> ends with
+        /// <c>current.layoutGroups.Push(group); current.topLevel = group;</c> and touches
+        /// <c>GUIClip</c> nowhere - a layout group pushes no clip at all, which is exactly
+        /// why the assembler recovers its close by rect containment. So converting the
+        /// group's rect in this postfix adds nothing twice.</para>
         /// </summary>
         internal static void RecordBeginLayoutGroup(GUIStyle style, Type layoutType, object group)
         {
@@ -566,6 +774,30 @@ namespace Parsek
         }
 
         /// <summary>
+        /// <c>GUI.CallWindowDelegate</c> POSTFIX: closes the window node this funnel's
+        /// prefix opened. Does NOT count a hit - the prefix already counted the one run of
+        /// this funnel body, and a per-funnel <c>hits</c> that counts both ends of the same
+        /// call reads exactly double.
+        /// </summary>
+        internal static void RecordWindowEnd()
+        {
+            try
+            {
+                if (!Accepting(GuiFunnel.CallWindowDelegate, false))
+                    return;
+                events.Add(new GuiTreeEvent
+                {
+                    Op = GuiTreeOp.End,
+                    Kind = GuiNodeKind.Window,
+                });
+            }
+            catch (Exception ex)
+            {
+                Fault(GuiTreeFunnels.Name(GuiFunnel.CallWindowDelegate), ex);
+            }
+        }
+
+        /// <summary>
         /// <c>GUI.DoWindow</c> prefix: remembers the window's declared rect, title and
         /// style so <c>CallWindowDelegate</c> can attach them to the window node it
         /// opens. Keyed by window id because the two funnels share nothing else.
@@ -610,6 +842,18 @@ namespace Parsek
         /// one. The declaration from <see cref="RecordWindowDeclaration"/> is merged in
         /// when present; when it is absent the node still carries an independently
         /// measured content origin and the size Unity handed the callback.
+        ///
+        /// <para><b>The window is the third mirror of the container-rect trap, and it is
+        /// correct as written.</b> The native side pushes the window's clip BEFORE it
+        /// invokes this callback, so a conversion here does sit under a clip nobody in
+        /// managed code pushed - but nothing here converts a rect the window declared.
+        /// <see cref="ScreenPointOfCurrentOrigin"/> converts <c>Vector2.zero</c>, i.e. the
+        /// window's own content origin expressed in the space the children are drawn in,
+        /// so unclipping it through the window's clip is the whole POINT: it yields where
+        /// the content origin actually landed on screen. <c>argWidth</c> / <c>argHeight</c>
+        /// are Unity's own numbers, and the declared rect comes from
+        /// <see cref="RecordWindowDeclaration"/> - a <c>GUI.DoWindow</c> PREFIX, which
+        /// records it unconverted.</para>
         /// </summary>
         internal static void RecordWindowBegin(int id, float argWidth, float argHeight, GUIStyle style)
         {
@@ -795,6 +1039,35 @@ namespace Parsek
             return v;
         }
 
+        /// <summary>
+        /// <c>Time.frameCount</c>, or -1 when it cannot be read (a headless host, where
+        /// the property is a Unity ICall). Never throws: it is read from the arm path and
+        /// from the pump.
+        /// </summary>
+        private static int ReadFrameCount()
+        {
+            try
+            {
+                return Time.frameCount;
+            }
+            catch (Exception)
+            {
+                return -1;
+            }
+        }
+
+        /// <summary>
+        /// Frames elapsed since the arm, or -1 when either reading is unavailable - which
+        /// <see cref="ClassifyArmTimeout"/> treats as "no timeout".
+        /// </summary>
+        private static int FramesSinceArm()
+        {
+            if (armFrame < 0)
+                return -1;
+            int now = ReadFrameCount();
+            return now < 0 ? -1 : now - armFrame;
+        }
+
         private static Vector2 ScreenPointOfCurrentOrigin()
         {
             try
@@ -923,12 +1196,87 @@ namespace Parsek
         }
 
         // GUIClip is internal to UnityEngine.IMGUIModule and Internal_GetCount is an
-        // ICall, so it can be INVOKED but never patched. Bound to a delegate rather than
-        // called through MethodInfo.Invoke: this runs on EVERY recorded event, and
-        // Invoke's object[] plus the boxed int return would be two allocations per
-        // control. Re-resolved at every arm (see ResetBuffers).
+        // ICall, so it can be INVOKED but never patched. Bound DELEGATE-FIRST because it
+        // runs on EVERY recorded event and MethodInfo.Invoke's object[] plus boxed int
+        // return would be two allocations per control - but Delegate.CreateDelegate over
+        // an ECall is refused outside the declaring module on the Windows CLR
+        // (SecurityException, "ECall methods must be packaged into a system module", which
+        // is what the xUnit host raises for the sibling guiDepth probe) and mono may or
+        // may not accept it either. So a refusal falls back to an Invoke wrapper rather
+        // than losing the depth for the whole capture. Re-resolved at every arm (see
+        // ResetBuffers).
         private static Func<int> clipCount;
         private static bool clipCountResolved;
+
+        /// <summary>Which binding the clip probe got: "delegate", "invoke" or "none".</summary>
+        internal const string ClipProbeBindingDelegate = "delegate";
+        internal const string ClipProbeBindingInvoke = "invoke";
+        internal const string ClipProbeBindingNone = "none";
+
+        /// <summary>
+        /// The binding the clip-depth probe last resolved to, for the arm / capture log
+        /// and for the tests. Null until a capture reads a depth.
+        /// </summary>
+        internal static string LastClipProbeBinding { get; private set; }
+
+        /// <summary>
+        /// Binds a zero-argument int method as a <c>Func&lt;int&gt;</c> through
+        /// <c>Delegate.CreateDelegate</c>, or null when the CLR refuses - which is the
+        /// documented behaviour for an ECall outside its declaring module.
+        /// </summary>
+        internal static Func<int> BindIntProbeViaDelegate(MethodInfo method)
+        {
+            if (method == null)
+                return null;
+            try
+            {
+                return (Func<int>)Delegate.CreateDelegate(typeof(Func<int>), method);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// The fallback binding: a wrapper over <c>MethodInfo.Invoke</c>, which has none
+        /// of <c>CreateDelegate</c>'s restrictions, at the cost of an <c>object[]</c> and
+        /// a boxed return per call. A non-int return reads as unknown (-1) rather than
+        /// throwing into the GUI pass.
+        /// </summary>
+        internal static Func<int> BindIntProbeViaInvoke(MethodInfo method)
+        {
+            if (method == null)
+                return null;
+            MethodInfo bound = method;
+            return delegate
+            {
+                object value = bound.Invoke(null, null);
+                return value is int ? (int)value : -1;
+            };
+        }
+
+        /// <summary>
+        /// Delegate-first, Invoke-fallback binding for a zero-argument int probe. Returns
+        /// null only when the member itself did not resolve; <paramref name="binding"/>
+        /// names the path taken so a flight can read it off the log.
+        /// </summary>
+        internal static Func<int> BindIntProbe(MethodInfo method, out string binding)
+        {
+            if (method == null)
+            {
+                binding = ClipProbeBindingNone;
+                return null;
+            }
+            Func<int> bound = BindIntProbeViaDelegate(method);
+            if (bound != null)
+            {
+                binding = ClipProbeBindingDelegate;
+                return bound;
+            }
+            binding = ClipProbeBindingInvoke;
+            return BindIntProbeViaInvoke(method);
+        }
 
         private static int ReadClipDepth()
         {
@@ -940,13 +1288,26 @@ namespace Parsek
                     Type clip = typeof(GUI).Assembly.GetType("UnityEngine.GUIClip");
                     MethodInfo method = clip == null ? null : clip.GetMethod("Internal_GetCount",
                         BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public);
-                    if (method != null)
-                        clipCount = (Func<int>)Delegate.CreateDelegate(typeof(Func<int>), method);
+                    string binding;
+                    clipCount = BindIntProbe(method, out binding);
+                    LastClipProbeBinding = binding;
                     if (clipCount == null)
                     {
                         ParsekLog.Warn("GuiTree",
                             "clip-depth probe unavailable (UnityEngine.GUIClip.Internal_GetCount not found); "
                             + "tree nesting falls back to Begin/End pairing only");
+                    }
+                    else
+                    {
+                        // Which path bound is worth one line: the delegate path is the
+                        // cheap one, and the Invoke path allocates twice per recorded
+                        // control - a capture that reads "invoke" explains its own cost.
+                        ParsekLog.Verbose("GuiTree",
+                            "clip-depth probe bound binding=" + binding
+                            + (binding == ClipProbeBindingInvoke
+                                ? " (Delegate.CreateDelegate refused the ECall; MethodInfo.Invoke"
+                                    + " costs an object[] and a boxed int per recorded control)"
+                                : string.Empty));
                     }
                 }
                 if (clipCount == null)
@@ -1040,6 +1401,17 @@ namespace Parsek
             recordFaults++;
             LastRecordFaults = recordFaults;
             ArmedFlag = false;
+            armFrame = -1;
+            // A fault normally arrives mid-pass with container prefixes outstanding, so
+            // the stashed rects go with the arm rather than waiting for the next capture.
+            try
+            {
+                containerScreenRects.Clear();
+            }
+            catch (Exception)
+            {
+                // Inside OnGUI; nothing safe left to do.
+            }
             RequestUnpatch();
             if (faultLogged)
                 return;
@@ -1069,6 +1441,7 @@ namespace Parsek
         private static void FlushCapture()
         {
             ArmedFlag = false;
+            armFrame = -1;
             capturing = false;
 
             GuiTreeResult tree = GuiTreeAssembler.Assemble(events);
@@ -1129,12 +1502,16 @@ namespace Parsek
                 + " rectRuleInert=" + tree.RectRuleInert.ToString(CultureInfo.InvariantCulture)
                 + " unclosed=" + tree.UnclosedAtEnd.ToString(CultureInfo.InvariantCulture)
                 + " faults=" + recordFaults.ToString(CultureInfo.InvariantCulture)
+                // Which binding the per-event clip probe got: "delegate" is the cheap
+                // path, "invoke" the ECall fallback, "none" means no depths at all.
+                + " clipProbe=" + (LastClipProbeBinding ?? "unread")
                 + " written=" + (written ? "1" : "0")
                 + " path=" + path);
 
             events.Clear();
             pendingWindows.Clear();
             layoutGroupStack.Clear();
+            containerScreenRects.Clear();
             pendingControl = null;
 
             // The capture is over, so the interceptions come off. FlushCapture runs from
