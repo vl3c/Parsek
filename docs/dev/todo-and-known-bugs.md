@@ -15,6 +15,22 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## RF1-HYSTERESIS-UT-LITERAL-REFUTED-BY-LAUNCH-TICK: RF-1's armed re-flight red on a UT the claim-gap wave had pinned literal, because the autopilot launch landed one physics tick later
+
+Filed 2026-09-10 by the claim-gap wave (package A1-6). A HARNESS PIN finding, not a product defect. The pin is RE-PINNED from bytes; the claims are OPEN.
+
+**What happened.** The wave pinned EnvironmentDetector's debounced transition on `RF-1-continuation-stays-open` literally: `Environment transition: SurfaceStationary -> SurfaceMobile at UT=29\.76 \(debounce=3\.0s\)`. UT=29.76 had been byte-equal on all seven flights of the profile read (GS-1 `2026-08-05_1025` / `_1026` / `_1052` / `_1110` / `_1141`, RF-1 `2026-09-09_0254`, the wave reading `2026-09-10_1739`). The armed re-flight `2026-09-10_2011` ran the same wave DLL (a0abbed1) and the unedited spec. It printed `... at UT=29.78 (debounce=3.0s)` and read PARSEK-FAIL(expectation) with that one mismatch. Mission MISSION-OK, the armed rewind block PASS, the other 16 required tokens and the 4 forbids all held, and 0 ERROR lines.
+
+**The mechanism, from the two logs.** The whole launch timeline sat one physics tick (0.02 s) later: MechJeb `LaunchStarted = 26.58` against 26.56. The SurfaceStationary TrackSection still closed after 3.18 s and the debounce still read 3.0 s. The later transitions moved too: SurfaceMobile -> Atmospheric 30.78 against 30.80, and the landing 117.80 against 121.68. So the UT is the tick on which the autopilot's launch lands, not a property of the debounce. The seven-flight agreement was luck.
+
+**Fix (harness, done).** The UT is regexed (`UT=[0-9.]+`), and `debounce=3\.0s` stays the witness. The re-pin matches both wave runs with zero mismatches (checked offline against both archived KSP.logs). This was not widened to hide a defect: the debounce value and the section duration are unchanged between the two runs.
+
+**Still open.**
+- D4 `hysteresis` and `surface-graze-suppression` are unclaimed until an armed re-flight of the re-pinned spec is green, plus one negative control per token. The surface-graze `Split summary` token held in `_2011` (2 matches), but a red run is not a citation.
+- RF-1's coveredBy-only D1 / D5 / D9 cells wait on the same green run.
+
+**The lesson for other lanes.** A UT printed by an autopilot-flown profile is not a fixture constant, however many flights agree. Pin the mechanism field, and regex the clock.
+
 ## D3-BOUNDARY-SEAM-HAS-NO-DETERMINISTIC-WITNESS: the registry cell `boundary-seam` has a production token, but no lane emits it on every flight, so no spec can gate it
 
 Filed 2026-09-10 by the claim-gap wave (package A1-9). A COVERAGE gap, not a defect. OPEN.

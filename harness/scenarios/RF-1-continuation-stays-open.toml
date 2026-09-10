@@ -252,17 +252,24 @@ siblingAirborneAtExit = true
 siblingDownTimeoutSeconds = 240
 
 [dimensionsCovered]
-# BASICS ONLY on a never-flown lane, on RH-1's own claim-is-not-gate ground: a dimension
-# claim states that a value was EXERCISED AND OBSERVED, not that a step was written. The
-# three below are properties of the host that hold the moment the boot lands.
+# HOST BASICS ONLY, on RH-1's own claim-is-not-gate ground: a dimension claim states that
+# a value was EXERCISED AND OBSERVED, not that a step was written. The four below are
+# properties of the host that hold the moment the boot lands.
 #
-# WHAT THE READING RUN EARNS, listed so the follow-up commit is mechanical rather than a
-# judgement: `rewind-to-separation` and `refly-gate` off the StartInvoke / Invocation
-# complete pair (RH-1's own tokens); `unfinished-flights-stash` off the promotion line,
-# which would make this the SECOND claiming lane for a cell that R7c alone covers today;
-# `auto-record-launch` / `commit-scene-exit` / `auto-merge` off GS-1's group-3 tokens; and
-# `controlled-decoupled-child` off the breakup line. NOT `rp-disk-reaper`: this lane
-# asserts the reaper DECLINED, which is the opposite of exercising it.
+# NOTHING ELSE IS CLAIMED YET, and since 2026-09-10 that is a measured state rather than
+# a pending chore. The claim-gap wave re-flew this lane unedited as the armed run for its
+# two GROUP 6 D4 cells (`hysteresis`, `surface-graze-suppression`), and that run
+# (`2026-09-10_2011`) red on the GROUP 6 UT literal (see there). So no claim rides this
+# lane until an armed re-flight of the re-pinned spec is green. That run is also what
+# the older earned cells will cite, each checked token-per-cell:
+#  - `rewind-to-separation` and `refly-gate` off the StartInvoke / Invocation complete
+#    pair (RH-1's own tokens);
+#  - `unfinished-flights-stash` off the promotion line;
+#  - `auto-record-launch` / `commit-scene-exit` / `auto-merge` off GS-1's group-3 tokens;
+#  - `controlled-decoupled-child` off the breakup line.
+# In `_2011` every one of those tokens matched at least once, but a red run is not a
+# citation. NOT `rp-disk-reaper`: this lane asserts the reaper DECLINED, which is the
+# opposite of exercising it.
 D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
 
 [expectations]
@@ -319,11 +326,21 @@ count = { min = 2, max = 8 }
 #   classification. The immediate branch prints `(immediate, debounce=0.0s)` and cannot
 #   match. NOT FlightRecorder's `Atmosphere boundary confirmed` timer or
 #   BackgroundRecorder's `Environment transition: pid=` line (0 of each in the reading).
-#   UT=29.76 is LITERAL: it is byte-equal on all seven flights of this profile read
-#   (GS-1 `2026-08-05_1025` / `_1026` / `_1052` / `_1110` / `_1141`, RF-1
-#   `2026-09-09_0254`, the reading). The reading's other two debounced transitions
+#   THE UT IS REGEXED; RE-PINNED 2026-09-10 FROM BYTES. It was first pinned literal at
+#   UT=29.76, byte-equal on all seven flights of this profile then read (GS-1
+#   `2026-08-05_1025` / `_1026` / `_1052` / `_1110` / `_1141`, RF-1 `2026-09-09_0254`,
+#   the reading). The armed re-flight `2026-09-10_2011` (same wave DLL, spec unedited)
+#   refuted that. It printed `... at UT=29.78 (debounce=3.0s)` and read
+#   PARSEK-FAIL(expectation) on that one entry; the other 16 required tokens, the 4
+#   forbids and the armed rewind block all held. The whole launch timeline sat one
+#   physics tick (0.02 s) later (MechJeb `LaunchStarted = 26.58` against 26.56 in the
+#   reading), while the SurfaceStationary section still closed after 3.18 s and the
+#   debounce still read 3.0 s. The UT is the launch tick, not the mechanism, so it is
+#   free, and `debounce=3\.0s` is the witness. Filed as
+#   RF1-HYSTERESIS-UT-LITERAL-REFUTED-BY-LAUNCH-TICK. The re-pin matches both wave runs
+#   (`_1739` 29.76, `_2011` 29.78). The reading's other two debounced transitions
 #   (SurfaceMobile -> Atmospheric, Atmospheric -> SurfaceStationary, both 0.5 s) are
-#   not pinned.
+#   not pinned; they moved too (30.80 / 121.68 in the reading, 30.78 / 117.80 in `_2011`).
 #   `Split summary: rec=<id> evaluated=2 ... surfaceGrazeForward=1
 #    surfaceGrazeBackward=1 ...` (Verbose, RecordingOptimizer; the `verboseLogging` step
 #   is load-bearing for it too). The basis for D4 `surface-graze-suppression`. The pod's
@@ -348,7 +365,7 @@ required  = ["Recording started",
              "Invocation complete",
              "ConsumePostLoad: restoring bundle with route-retire cutoffUT=",
              "Restored: recs=.* pendingScience=",
-             "Environment transition: SurfaceStationary -> SurfaceMobile at UT=29\\.76 \\(debounce=3\\.0s\\)",
+             "Environment transition: SurfaceStationary -> SurfaceMobile at UT=[0-9.]+ \\(debounce=3\\.0s\\)",
              "Split summary: rec=[0-9a-f]{32} evaluated=2 grazeForward=0 grazeBackward=0 surfaceGrazeForward=1 surfaceGrazeBackward=1 seamSkipped=0 exoCoastBodyChangeKept=0 splittableButRejected=0"]
 # THE THREE FORBIDDEN PATTERNS, and what each would mean.
 #

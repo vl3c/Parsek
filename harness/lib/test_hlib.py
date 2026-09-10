@@ -8642,8 +8642,10 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # is nothing - they are kept here because an operator-tier spec with no
         # `pending-operator` tag has to be classified somewhere.
         "RF-1-continuation-stays-open.toml":
-            "operator by the reading-run discipline; AUTHORED 2026-09-09, NEVER "
-            "FLOWN. Owes a flight, not a human call",
+            "operator by the reading-run discipline; LIVE-PROVEN, rewind block "
+            "armed 2026-09-09. Claim-gap wave 2026-09-10: armed re-flight _2011 "
+            "red on a UT literal (re-pinned from bytes); its D4 claims wait on a "
+            "green re-flight",
         "RF-2-two-reflies-in-sequence.toml":
             "operator by the reading-run discipline; AUTHORED 2026-09-09, NEVER "
             "FLOWN. Owes a flight, not a human call",
