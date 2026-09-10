@@ -8785,10 +8785,17 @@ ARTIFACT_LOG_CAP_BYTES = 64 * 1024 * 1024
 ARTIFACT_LOG_HEAD_BYTES = 8 * 1024 * 1024
 ARTIFACT_LOG_TAIL_BYTES = 56 * 1024 * 1024
 
-# Screenshot selection. The instance's Screenshots/ dir accumulates across runs,
+# Shots-dir selection. The instance's Screenshots/ dir accumulates across runs,
 # so only files stamped inside THIS run's wall-clock window are collected (with a
 # small slack for filesystem mtime granularity). Caps bound a capture-storm run.
-ARTIFACT_SCREENSHOT_EXTENSIONS: Tuple[str, ...] = (".png", ".jpg", ".jpeg")
+#
+# Matched by SUFFIX rather than by the extension after the last dot, because the
+# set is no longer images only: GuiTreeRecorder writes one Repaint pass's whole
+# control tree to `Screenshots/<label>.gui.json` precisely so a dump rides along
+# with the run's images (docs/dev/design-gui-tree-dump.md). A plain `.json` in
+# that directory is somebody else's file and is NOT collected - a distinction a
+# last-dot extension test cannot express.
+ARTIFACT_SHOTS_SUFFIXES: Tuple[str, ...] = (".png", ".jpg", ".jpeg", ".gui.json")
 ARTIFACT_MAX_SCREENSHOTS = 64
 ARTIFACT_MAX_SCREENSHOT_BYTES = 256 * 1024 * 1024
 ARTIFACT_SCREENSHOT_MTIME_SLACK_SECONDS = 2.0
@@ -8845,8 +8852,9 @@ def select_run_screenshots(candidates: Sequence[Tuple[str, float, int]],
     the instance's Screenshots dir. Returns ``(selected_names, skipped_prior,
     skipped_over_cap)``:
 
-    - only image extensions count (case-insensitive; anything else is ignored
-      entirely -- neither selected nor counted);
+    - only ARTIFACT_SHOTS_SUFFIXES count -- the images plus a GUI-tree dump's
+      ``.gui.json`` (case-insensitive, matched as a SUFFIX; anything else is
+      ignored entirely -- neither selected nor counted);
     - a file older than ``run_start_epoch - mtime_slack`` is a PRIOR run's
       capture (the dir accumulates across runs) -> counted in ``skipped_prior``;
     - survivors are considered in ``(mtime, name)`` order under a GREEDY-FILL
@@ -8870,9 +8878,8 @@ def select_run_screenshots(candidates: Sequence[Tuple[str, float, int]],
     eligible: List[Tuple[float, str, int]] = []
     skipped_prior = 0
     for name, mtime, size in candidates:
-        dot = name.rfind(".") if name else -1
-        ext = name[dot:].lower() if dot >= 0 else ""
-        if ext not in ARTIFACT_SCREENSHOT_EXTENSIONS:
+        lowered = name.lower() if name else ""
+        if not any(lowered.endswith(sfx) for sfx in ARTIFACT_SHOTS_SUFFIXES):
             continue
         if mtime < threshold:
             skipped_prior += 1

@@ -133,6 +133,123 @@ prove before a lane relies on it; (3) accept it and read the two windows' right-
 columns from the source. A GUI review of the images is the natural moment to decide, since
 it is the reviewer who finds out whether the off-screen columns mattered.
 
+## GUITREE-INTERCEPTION-LAYER-NEVER-RUN: the GUI-tree dump's Harmony interception of the UnityEngine IMGUI funnels has never executed inside KSP, so four premises the whole design rests on are unmeasured [Filed 2026-09-10 on branch `gui-dump-spike`. Code green, NOT YET FLOWN - and unlike the usual entry in this style, what is unflown is not a fix but the FEATURE]
+
+The pure half is fully covered headlessly (the assembler, the JSON writer, the geometry
+derivations, funnel-signature resolution, the opt-in patch gate) and the whole design is
+reasoned from the decompiled `UnityEngine.IMGUIModule`. Nobody has started the game and
+taken a capture, because the spike's author cannot launch it. Full statement of each
+premise: `docs/dev/design-gui-tree-dump.md` -> "What is unproven".
+
+WHAT ONLY A FLIGHT SETTLES:
+
+1. **Mono inlining.** Harmony rewrites a method; Mono's inliner reads a callee's IL from
+   metadata rather than through the detour, so a small callee can still be inlined into a
+   caller JITted after the patch. The exposed targets are `GUI.EndGroup` (14 bytes of IL),
+   `GUI.DoWindow` (26), `GUI.DoButton` (33) and `GUI.DoToggle` (34). Each has a designed
+   fallback, and the dump's `funnels` block plus the live cell's Begin/End parity
+   assertions exist to NAME a bypass rather than survive it quietly. The parity assertions
+   cover only the pairs whose BOTH sides are too large to inline
+   (`BeginLayoutGroup`/`EndLayoutGroup`, `BeginScrollView`/`EndScrollView`);
+   `BeginGroup`/`EndGroup` and `autoClosedByClip` are READINGS on the PASS line, because
+   an assertion there would red on the clip-depth fallback working as designed.
+2. **`GUIUtility.GUIToScreenRect` inside a `GUI.Window` callback.** Both endpoints bottom
+   out in native ICalls, so this cannot be settled by reading the assembly. The recorder
+   keeps `localRect` beside `rect` as the instrument, and `GuiTreeGeometry.Inspect` turns
+   a disagreement into a named failure.
+3. **Whether a scroll view's clip scroll offset reaches that conversion.** The live cell
+   measures a deliberately scrolled row against its own viewport; nothing else in the
+   design exercises it.
+4. **The reflection probes** - `GUIClip.Internal_GetCount` for clip depth,
+   `GUILayoutEntry.rect` / `GUILayoutGroup.isVertical` for a layout group's rect and
+   orientation, and `GUIUtility.guiDepth` for the inside-OnGUI guard. All fail soft (depth
+   -1, zero rects, "not inside a GUI pass", one Warn each) and are re-resolved at every
+   arm, so a failure degrades the dump rather than breaking it - but a permanently
+   unavailable clip probe would leave the tree resting on Begin/End pairing alone, which
+   is exactly what the recovery rules were written not to trust. The depth probe's reading
+   is printed on the arm's own Info line (`armed label=... guiDepth=0 ...`), so one flight
+   settles that one: `0` means the ICall answered, `-1` means the fallback carried the arm.
+
+FIXED BEFORE THE FIRST FLIGHT (2026-09-10, same branch), all found by reading the
+decompiled module rather than by flying:
+
+- **The arm guard was always-refuse.** It asked `Event.current != null`, which the
+  decompiled `UnityEngine.Event` shows is non-null forever after the process draws one
+  frame (`Internal_MakeMasterEventCurrent` assigns `s_MasterEvent` to `s_Current`, and the
+  setter maps a null assignment back to it). Every `ArmForNextRepaint` would have refused
+  with `reason=inside-gui-pass`, so the feature was dead on its first flight regardless of
+  the premises above. The guard is now `GUIUtility.guiDepth > 0`, Unity's own predicate -
+  the one `GUIUtility.CheckOnGUI` tests.
+- **A clip container's rect was double-counted.** `GUI.BeginGroup` ends with
+  `GUIClip.Push(position, ...)` and `GUI.BeginScrollView` with
+  `GUIClip.Push(screenRect, (round(-scroll.x - viewRect.x), round(-scroll.y -
+  viewRect.y)), ...)`, and both nodes are recorded from a POSTFIX - so
+  `GUIToScreenRect`'s `UnclipToWindow` walk added the container's own origin, and a scroll
+  view's scroll offset, a second time. Each of the two patch classes now carries a
+  `Prefix(Rect position)` that converts the rect before the push and stacks it; the
+  postfix pops it and takes its ORIGIN, keeping the postfix's SIZE (the matrix scale is
+  only known once the capture has opened). Mirror-checked in the two other
+  conversion-under-a-clip directions: `BeginLayoutGroup` pushes no clip at all
+  (decompiled), and `CallWindowDelegate`'s `contentOrigin` converts `Vector2.zero` under
+  the window's clip DELIBERATELY, which is the measurement wanted.
+- **An arm that never saw a Repaint leaked the patches for the session.** `HasPendingWork`
+  did not include `ArmedFlag`, so with no capture open the pump never ran again and nothing
+  ever unpatched. The arm now stamps the frame, the pump keeps running while armed, and
+  after `ArmTimeoutFrames` it Warns and `Disarm("armed-no-repaint")`s
+  (`ClassifyArmTimeout`).
+- **A throwing unpatch could double every patch.** `Remove()` cleared `Applied` BEFORE
+  `UnpatchAll`, whose throw is caught - so detours stayed installed while the flag said
+  none were, and Harmony 2.2.1's `PatchInfo.Add` does not deduplicate. `Applied` is now
+  cleared only after `UnpatchAll` returns (`RemainsAppliedAfterUnpatch`), and `Apply()` is
+  idempotent PER FUNNEL through `GuiTreeFunnels.IsPatched`
+  (`ClassifyFunnelPatchAction`).
+- **`Hits[GUI.CallWindowDelegate]` read double**, because the prefix and the postfix both
+  went through the counting gate. The End path now uses a non-counting one, so `hits` is
+  one count per funnel body run as documented.
+- **The window lookup depended on an inline-prone funnel.** A window node's title comes
+  from `GUI.DoWindow` (26 bytes) alone, while the node comes from `CallWindowDelegate`, so
+  an inlined declaration left a titled lookup reporting "no window at all".
+  `GuiTreeGeometry.Inspect` / `MeasureScrollOffset` now take a WINDOW-ID key with the title
+  secondary, and the cell's message splits on `PatchedAtArm[DoWindow]` / `Hits[DoWindow]`.
+- **Two cell defects.** The probe's scroll rows carried the containment marker, and a row
+  scrolled out of view is LEGITIMATELY outside the window box (clipped children are
+  recorded, not culled), so they now carry `parsekscroll-<i>`; and the cell asserted
+  `Hits(BeginGroup) == Hits(EndGroup)` plus `autoClosedByClip == 0`, which would have red'd
+  on the designed fallback working. The probe also copies
+  `DisabledHoverEchoImguiTest`'s `Completed` / `Faulted` early-out, so an abandoned
+  iterator cannot leave a window drawing over the game forever.
+- **The clip probe binds delegate-first with an Invoke fallback.**
+  `Delegate.CreateDelegate` over an ECall is refused outside the declaring module on the
+  Windows CLR and mono may or may not accept it, and a refusal used to cost the whole
+  capture its clip depths. `GuiTreeRecorder.BindIntProbe` falls back to a
+  `MethodInfo.Invoke` wrapper and the capture's Info line names the path
+  (`clipProbe=delegate` / `invoke` / `none`).
+
+Also unmeasured: the COST while armed - one frame of allocation for a few hundred small
+objects, plus a one-off assemble + serialise + write hitch in the flush LateUpdate. It
+does not matter for a one-frame capture and is not budgeted for anything else.
+
+KNOWN GAPS, all by design rather than defects, listed so a first reading of a dump does
+not report them as bugs: a `Toolbar` / `SelectionGrid` is ONE node (the per-cell rects are
+computed privately and the cells draw through `GUIStyle.Draw`, below the managed surface);
+`GUI.DrawTexture`, a `GUI.Label` with a Texture and anything drawn straight through a
+`GUIStyle` are not captured at all, and icon-only content records `text: null`; there is
+no z-order across windows (roots are in callback order, which is draw order, but an
+overlapping window is not marked as occluding another); scroll-clipped children are
+RECORDED, not culled, so a row scrolled out of view still carries a rect outside its
+scroll view's; a layout group carries no `text`, because
+`GUILayoutUtility.BeginLayoutGroup` never sees the caller's `GUIContent`; and `GUI.matrix`
+is read ONCE when the capture opens, from whichever `OnGUI` container drew first, so a
+per-window matrix set by another addon is not represented (nothing in KSP or Parsek sets
+one, the header records what was read, and a non-identity matrix logs a Warn).
+
+Fix: fly it. The work is one `RunTests` step on any existing host - the cell needs no
+fixture, no scene and no seam verb, since it draws its own probe window - and it is
+roadmap item 12. Expect a red or a skip on attempt 1 and read it as a reading rather than
+a regression: every exact per-kind pin in the cell is a prediction from decompiled source,
+and the cell self-skips if its probe window sees no Repaint pass within 240 frames. Until
+that flight, nothing should be built ON the dump.
+
 ## REPUTATION-SEED-CAPTURED-MID-FLIGHT-REAPPLIES-PRE-SEED-AWARDS: the lazy `ReputationInitial` seed is read off the live pool at the first commit, so every reputation award recorded BEFORE that moment is inside the seed AND replayed as a row
 
 Filed 2026-09-10 while shipping the crew-death reputation penalty (branch
@@ -868,7 +985,7 @@ tree is merely committed, not one whose committed tree is RESTORABLE, and the tw
 identical in a fixture listing. Recorded in the inventory's `AutoRecord` row and its B5
 residue table.
 
-## EVAKERBALGHOSTHASVESSELSNAPSHOT-HAS-NO-HOST-THAT-FLIES-LOW: the one `AutoRecord` cell that executes NOWHERE wants a crewed vessel FLYING low over terrain, and no committed fixture is one and no seam verb lofts one [MEASURED across the four `AutoRecord` hosts - H61 `gs1-two-stage-pad`, H68 `gs2-orbital-stack`, H69 `rover-route-recorded`, H70 `eva3-pad-3crew`, whose union executes 8 of 10. Filed 2026-09-08 as the last named unreachable cell on the in-game category axis, which is otherwise CLOSED at 112 of 112 categories]
+## EVAKERBALGHOSTHASVESSELSNAPSHOT-HAS-NO-HOST-THAT-FLIES-LOW: the one `AutoRecord` cell that executes NOWHERE wants a crewed vessel FLYING low over terrain, and no committed fixture is one and no seam verb lofts one [MEASURED across the four `AutoRecord` hosts - H61 `gs1-two-stage-pad`, H68 `gs2-orbital-stack`, H69 `rover-route-recorded`, H70 `eva3-pad-3crew`, whose union executes 8 of 10. Filed 2026-09-08 as the last named unreachable cell on the in-game category axis, which was otherwise CLOSED at 112 of 112 categories; since 2026-09-10 the axis reads 112 of 113, the extra row being the GUI-tree dump spike's `GuiTree` category, which needs only a spec]
 
 The cell EVAs a kerbal and asserts the resulting ghost carries a `VesselSnapshot`, then
 waits 10 s for the kerbal to settle and reads its terminal. That bounds the host from
@@ -961,8 +1078,9 @@ there and CEN-10 (`_1030`) the same on `bdock-recorded`, so the property belongs
 recorded stores generally rather than to one fixture.
 
 Closed: `CrewReservationLive` is `LT-4-long-tail-route-flight`'s fourth constituent,
-pinned `total=2 passed=2 failed=0 skipped=0`, which takes the in-game category axis to
-112 of 112.
+pinned `total=2 passed=2 failed=0 skipped=0`, which took the in-game category axis to
+112 of 112. It reads 112 of 113 since 2026-09-10, when the GUI-tree dump spike added
+the `GuiTree` category; that row needs a `RunTests` step, not a host.
 
 STILL WANTED, at a lower value than this entry used to claim: teach the corpus writer to
 author spawned-endpoint recordings. `RecordingBuilder.WithSpawnedPid` exists and has

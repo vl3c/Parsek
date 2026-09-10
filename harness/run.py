@@ -3631,7 +3631,9 @@ def _collect_run_artifacts(run_id: str, instance_dir: Optional[str],
 
         # (2) Screenshots stamped inside this run's wall-clock window (the
         # instance dir accumulates across runs; V4's capture verbs will feed
-        # this -- today it is usually empty and that is fine).
+        # this -- today it is usually empty and that is fine). A GUI-tree dump
+        # (<label>.gui.json, written into the same directory by GuiTreeRecorder)
+        # rides along: hlib.ARTIFACT_SHOTS_SUFFIXES carries that suffix too.
         screenshots_dir = os.path.join(instance_dir, "Screenshots")
         if os.path.isdir(screenshots_dir):
             candidates = []

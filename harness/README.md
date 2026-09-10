@@ -176,6 +176,36 @@ python tools/contact_sheet.py --run-id <id>  # one run's sheet + index
 python tools/contact_sheet.py --index-only   # just the index
 ```
 
+`tools/gui_tree_view.py` is its sibling for GUI-TREE DUMPS. When something arms
+`GuiTreeRecorder` in-game, the mod writes one Repaint pass's whole control tree to
+`<KSP root>/Screenshots/<label>.gui.json` - kind, screen rect, text, tooltip, style,
+enabled state and nesting for every window, group, scroll view and control it drew -
+and the always-collect artifact step picks it up with the screenshots (`.gui.json` is
+in `hlib.ARTIFACT_SHOTS_SUFFIXES`, matched as a SUFFIX so a plain `.json` in that
+directory is left alone). This renders one into
+`<label>.gui.html`: outlined boxes at every node's rect over the matching screenshot,
+coloured by kind, beside a collapsible, filterable tree of the whole structure. It is
+what makes a Parsek window readable to someone who cannot see the game. Same contracts
+as the contact sheet - stdlib only, self-contained static HTML (the screenshot inlined
+as a data URI), read-only, and safe on a malformed or truncated dump, which it reports
+on the page rather than raising. Schema and producer:
+`docs/dev/design-gui-tree-dump.md`. Its unit tests are `lib/test_gui_tree_view.py`,
+under `lib/` rather than beside the tool because CI discovers `lib/` only.
+
+```
+python tools/gui_tree_view.py <label>.gui.json          # one page beside the dump
+python tools/gui_tree_view.py --batch results/<runId>_shots   # every dump + index
+```
+
+Read the page's amber notes strip FIRST. A dump whose Harmony interceptions were
+bypassed still parses and still renders, and is still missing controls; the strip is
+where `NOT PATCHED` and `patched but never hit` show up.
+
+NOTHING HAS PRODUCED A DUMP YET. The recorder's interception layer has never run
+inside KSP (the design note's "What is unproven"), and no committed spec drives the
+`GuiTree` in-game category, so `--batch results/<runId>_shots` finds nothing today.
+The viewer and the harvest are in place for the first one.
+
 ### The GUI-census sheet (`tools/gui_contact_sheet.py`)
 
 A second, narrower sheet for the one case the V3 page is the wrong shape for: a

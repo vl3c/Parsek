@@ -59,9 +59,12 @@ class ContactSheetSelectionTests(unittest.TestCase):
 
     def test_the_extension_set_matches_the_harness_harvest(self):
         # A file the harvest copies but this sheet ignores is an invisible artifact; the
-        # reverse is a broken <img>. Same set, asserted rather than assumed.
-        self.assertEqual(set(hlib.ARTIFACT_SCREENSHOT_EXTENSIONS),
-                         set(gcs.IMAGE_EXTENSIONS))
+        # reverse is a broken <img>. The harvest set is wider than the image set by
+        # exactly the GUI-tree dump suffix (a JSON sidecar the sheet must NOT feed to an
+        # <img>); everything else in it is an image this sheet lists.
+        harvested = set(hlib.ARTIFACT_SHOTS_SUFFIXES)
+        self.assertIn(".gui.json", harvested)
+        self.assertEqual(harvested - {".gui.json"}, set(gcs.IMAGE_EXTENSIONS))
 
     def test_an_absent_directory_is_empty_not_an_error(self):
         self.assertEqual([], gcs.list_images(os.path.join(self.dir, "nope")))

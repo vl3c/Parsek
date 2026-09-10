@@ -11937,7 +11937,13 @@ class IngameCategoryInventoryDocTests(unittest.TestCase):
         # starts and produces a WINDOW, `RouteStartDockedOrigin` docks before it and
         # produces an ORIGIN PROOF, and these two produce a reserve-hold-release ESCROW
         # cycle between two stored routes.
-        self.assertIn("**112 categories / %d declarations**" % stated_decls, body,
+        # 112 -> 113 with `GuiTree` (the 2026-09-10 GUI-tree dump spike): one
+        # scene-agnostic cell that arms `GuiTreeRecorder` for a single Repaint over a
+        # probe window it draws itself and asserts the captured control tree. Its own
+        # category for the standing reason - a cell added to an existing category moves
+        # a `BATCH_COMPLETE` tally committed specs pin - and it is the first row to
+        # re-open the driven axis since it closed on 2026-09-08, at 112 of 113.
+        self.assertIn("**113 categories / %d declarations**" % stated_decls, body,
                       "the triage totals line disagrees with the table it summarises "
                       "(table sums to %d declarations across %d categories)"
                       % (stated_decls, len(self.rows)))
