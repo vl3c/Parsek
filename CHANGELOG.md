@@ -459,6 +459,101 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **The user guide no longer describes controls the mod does not have.** Five passages
+  had drifted into describing a Parsek that was: a loop toggle on every Timeline row
+  (there is none - looping is authored in the Missions window or the Recordings tab), a
+  count footer under the Timeline list, a "Show ghosts in Tracking Station" setting that
+  has never existed in any version, icon labels that "pin on click" (pinning is a
+  RIGHT-click; a left click opens the icon's own menu), and Settings toggles for
+  auto-merge and the two auto-record behaviours, all of which were hidden last August and
+  are now hardwired on. Each passage now says what ships, and where a control was removed
+  on purpose it says that too, so a reader who remembers the toggle learns it is gone
+  instead of hunting for where it moved. The Diagnostics table also gained the two tracing
+  switches it was missing. Guide-only: no code behind any of it changed.
+
+- **Archiving a folder can no longer bury a flight you could still re-fly.** The
+  per-recording Archive checkbox has always refused to hide an Unfinished Flight - the
+  row that IS your way back into an unresolved split - and said so on screen. The folder
+  checkbox above it did not: one click wrote "archived" over every recording inside,
+  including exactly those rows. It now refuses the whole folder and names how many
+  Unfinished Flights are in it, so the refusal tells you what to resolve instead of
+  quietly doing nothing. And the per-row refusal now applies to hiding ONLY: it used to
+  refuse the UN-archive too, which was the opposite of the point and the only way back
+  for a row an older build's folder click had already buried.
+
+- **The Timeline's "R" button no longer offers to rewind a launch from a row that is not
+  the launch.** An EVA, a separated booster, a decoupled probe - every branch of a flight
+  resolves the same launch quicksave, so every one of them drew its own "Rewind to this
+  launch" button, and clicking any of them rewound the PARENT launch. Only the confirm
+  dialog's "(from branch ...)" line hinted at it. The Recordings table has suppressed
+  this for a long time; the Timeline now shares the same rule, so the button appears once
+  per launch, on the launch. One corner follows from that: a flight whose launch row is
+  itself archived now offers the button on no row at all while the Archive filter is on -
+  switch the Timeline's "Archived" filter on, or un-archive the launch, and it is back.
+
+- **The "Mission Outcomes" rows in the Kerbals window now open the Timeline they promise
+  to scroll.** The row's hover text says it scrolls the Timeline to the flight the row
+  came from. With the Timeline closed - the common case, since the two windows sit in
+  different places - the click stored the request and nothing happened; the scroll then
+  landed unannounced whenever the player next opened the Timeline for something else. The
+  click now opens the window and scrolls it, the way the Timeline's own GoTo button
+  already opens the Missions window.
+
+- **Basic mode no longer leaves one loop-authoring click on screen.** A chapter header
+  row in the Missions tab carried a tick box that writes which segments the mission's
+  loop replays - the same set every checkbox around it authors, all of which Basic hides.
+  In Basic it is now a blank cell like its siblings. In Advanced it gained the hover text
+  it never had: it is the only three-state control in the mod, and its "[~]" marker for
+  "some of this chapter is in" was explained nowhere a player could read.
+
+- **The simple/full interface setting now actually governs every button it claims to.**
+  Four of the mod's fourteen interface switches - the Timeline, Missions, Logistics and
+  Settings buttons in the main window - were listed as switchable and were in fact drawn
+  unconditionally; nobody noticed because all four are meant to stay visible in both
+  modes, so the list and the window agreed by accident. They are wired now. Nothing moved
+  or disappeared: the same buttons are in the same places in both modes. What changed is
+  that the setting is a rule rather than a description, and the log line for a mode change
+  now names the surfaces that mode hides, which is the only way to see the list from
+  outside the code. A dead field in the Missions window carrying a comment about a
+  behaviour the code does not have went with it.
+
+- **Three readouts that could not tell you apart from each other now can.** The Rewards
+  column in the Career State window's Milestones tab was too narrow for a reward that pays
+  funds, science AND reputation: the text wrapped onto a second line inside a row that has
+  room for one, so it overlapped its neighbours. It is wide enough now, sized against a
+  written-down worst case - seven digits of funds beside reputation and science, about two
+  hundred times what a stock career pays for a milestone - with the cell's own padding
+  allowed for, rather than against a guess. The greyed-out
+  Delete button in the Missions window said "A flight always keeps its first mission" for
+  every mission it refused - and for every mission it did NOT refuse, since it said the
+  same thing regardless; it now says which of the three reasons applies, and says nothing
+  when Delete works. And the rewind-point disk line in Settings reported "0 B, 0 files"
+  when it could not read the folder at all, which is exactly what a save with no rewind
+  points reports; a failed read now says so, and a folder where some files could not be
+  sized says how many.
+
+- **Four Settings and main-window labels now say what the buttons behind them do.**
+  "Wipe All Game Actions" only ever cleared the MILESTONE list - every career action on
+  the ledger survived it, and the next recalculation still walked them - so the most
+  destructive-sounding button on the screen a confused player reaches for named an
+  effect it does not have. It is now "Wipe All Milestones", and its confirmation says
+  the ledger's career actions are kept. "Defaults" skipped the ghost-audio slider drawn
+  four rows above it; it now resets that too, and its new hover text names the one
+  setting it deliberately leaves alone (the Basic / Advanced interface mode - resetting
+  that would hide most of the window mid-click). The Test Runner opened from Settings
+  claimed Ctrl+Shift+T toggled it; the shortcut actually opens a SECOND, separate runner
+  window with the same title, which both that window's own footer line and the Settings
+  button's hover text now say. And the main window's Settings button advertised
+  "Recording, looping, ghost and diagnostic options" - one section retired in August
+  plus three that exist only in Advanced; it now names what the window always has.
+  Nothing changed behind the labels except the ghost-audio reset.
+
+  Found while re-budgeting those texts: the guard that keeps every hover text short
+  enough to read in the strip at the bottom of each window had silently stopped covering
+  the main window and the Timeline on 2026-08-29, when a cleanup commit replaced both of
+  their rows with a comment ABOUT them. The two most-edited windows in the mod had no
+  text-length gate for two weeks. Both rows are back.
+
 - **A flight you could still re-fly no longer loses that option the instant it is
   committed.** When a flight ended in a way that keeps its rewind point open (a crash,
   including a re-entry Parsek predicts as it leaves the scene), committing the tree
@@ -1173,6 +1268,39 @@ _(unreleased — entries accumulate here per commit)_
   exposes through it, measured 2026-09-11 against `4eb427e9e`; the two raw census passes it
   condenses are committed beside it as `docs/dev/research/gui-inventory-2026-09-11.md` and
   `docs/dev/research/gui-feature-exposure-2026-09-11.md`. Documentation only, no code change.
+
+- **An unreachable "Create Supply Route?" dialog removed.** It was written to appear right
+  after a flight was committed, from a hook that no longer exists; nothing could open it,
+  and the only live call into it - the flight scene dismissing it on the way out - could
+  only ever find nothing to dismiss. Creating a route from a flight you have already flown
+  works exactly as before, from the Logistics window's Candidates list or the prompt on the
+  main window. The piece of it that both of those share, the default delivery interval
+  worked out from the flight's own launch-to-dock span, is untouched.
+
+- **Seven more unused internals removed, three of them able to delete recordings.** Four
+  operations on the recording store had no caller outside their own tests - two that read
+  and DELETED a whole chain of recordings with their files, one superseded global
+  "mark everything applied" that also touched every milestone, and one that stripped a
+  folder tag from every recording. And the pre-spawn collision warning ("move vessel to
+  clear") turned out never to have been rendered by anything: the two text builders and
+  the 200 m proximity scan behind them had no caller, while the file claimed the flight
+  scene drew them. That warning is not wired up instead of deleted because there is
+  nowhere to put it - Real Spawn Control warps the clock, the spawn itself is automatic,
+  and the mod has no spawn-confirm dialog at all - so bringing it back is a feature with a
+  design decision behind it, and the file now says so where the wrong claim used to be.
+
+- **Five dead code paths removed after the GUI census named them.** A rollback switch for
+  the map's overlapping-ghost path that had been hard-wired to "on" (its off branch, still
+  described in the comments, could not run); a "Tracking Station" interface mode nothing
+  ever created, and with it a rule about deleting ghost-only recordings there that was
+  therefore never enforced - the Tracking Station has no Parsek window at all; two helper
+  methods with no callers anywhere; a tooltip branch whose only caller passed the value
+  that skips it; and the migration that converted pre-2025 recorder-fidelity settings into
+  the three presets, which nothing has written since the presets shipped. Each was grepped
+  across the whole repository first and took its tests with it. One player-visible
+  consequence, stated for the record: a settings file that still carries the pre-preset
+  keys now reads as Medium (the default, and what the migration itself computed for the
+  shipping values) instead of being fitted to the nearest preset.
 
 - **An in-game test left a merge journal installed on the live scenario when it failed,
   and three later tests failed because of it.** The merge-interruption test deliberately

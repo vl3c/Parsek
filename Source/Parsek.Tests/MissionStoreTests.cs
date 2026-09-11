@@ -143,6 +143,45 @@ namespace Parsek.Tests
             Assert.Equal(3, MissionStore.CountForTree("t1"));
         }
 
+        // catches: the delete refusal collapsing back into one answer. CanDelete says no for
+        // three distinct reasons, and the UI's greyed-out hover text used to state only the
+        // middle one, as a constant, for every mission including deletable ones (GUI census,
+        // "UI information with no backend truth"). Also pins that CanDelete and the
+        // classifier cannot disagree - CanDelete is now a wrapper over it.
+        [Fact]
+        public void ClassifyDeleteRefusal_NamesTheRealReason()
+        {
+            MissionStore.EnsureDefaultsForTrees(new List<RecordingTree> { Tree("t1", "Kerbal X") });
+            Mission original = First();
+            Mission clone = MissionStore.Clone(original);
+            var strayMission = new Mission { TreeId = "no-such-tree" };
+
+            Assert.Equal(MissionStore.MissionDeleteRefusal.NoMission,
+                MissionStore.ClassifyDeleteRefusal(null));
+            Assert.Equal(MissionStore.MissionDeleteRefusal.TreeOriginal,
+                MissionStore.ClassifyDeleteRefusal(original));
+            Assert.Equal(MissionStore.MissionDeleteRefusal.None,
+                MissionStore.ClassifyDeleteRefusal(clone));
+            Assert.Equal(MissionStore.MissionDeleteRefusal.NotInStore,
+                MissionStore.ClassifyDeleteRefusal(strayMission));
+
+            foreach (Mission m in new Mission[] { null, original, clone, strayMission })
+            {
+                Assert.Equal(
+                    MissionStore.ClassifyDeleteRefusal(m) == MissionStore.MissionDeleteRefusal.None,
+                    MissionStore.CanDelete(m));
+            }
+
+            // ...and each refusal reaches the player as its own sentence.
+            Assert.Equal(string.Empty, MissionsWindowUI.MissionDeleteDisabledReason(clone));
+            Assert.Contains("first mission",
+                MissionsWindowUI.MissionDeleteDisabledReason(original));
+            Assert.Contains("no longer in the mission list",
+                MissionsWindowUI.MissionDeleteDisabledReason(strayMission));
+            Assert.Contains("no mission selected",
+                MissionsWindowUI.MissionDeleteDisabledReason((Mission)null));
+        }
+
         [Fact]
         public void PruneOrphans_RemovesMissionsForMissingTrees()
         {

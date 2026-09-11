@@ -100,26 +100,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void RemoveChainRecordings_RaisesOncePerMember_DescendingSoIndicesStayValid()
-        {
-            RecordingStore.AddRecordingWithTreeForTesting(MakeRecording("x0", "chain", 0));
-            RecordingStore.AddRecordingWithTreeForTesting(MakeRecording("solo"));
-            RecordingStore.AddRecordingWithTreeForTesting(MakeRecording("x1", "chain", 1));
-
-            RecordingStore.RemoveChainRecordings("chain");
-
-            Assert.Equal(new[]
-            {
-                "removing:2:x1:count=3",
-                "removed:2:x1:target=none:count=2",
-                "removing:0:x0:count=2",
-                "removed:0:x0:target=none:count=1",
-            }, sequence);
-            var only = Assert.Single(RecordingStore.CommittedRecordings);
-            Assert.Equal("solo", only.RecordingId);
-        }
-
-        [Fact]
         public void RemoveCommittedTreeById_RaisesForEachOfTheTreesRecordings()
         {
             var tree = new RecordingTree { Id = "tree-1", TreeName = "T" };

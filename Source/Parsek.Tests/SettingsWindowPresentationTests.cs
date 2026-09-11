@@ -90,5 +90,44 @@ namespace Parsek.Tests
             Assert.True(s.autoMerge);
             Assert.False(s.forceFaithfulLoopPlayback);
         }
+
+        // catches: the Defaults button drifting back to skipping the Ghosts slider drawn
+        // right above it (finding P8). BuildDefaults is the single source the click reads,
+        // so a value missing here is a value the click cannot reset.
+        [Fact]
+        public void BuildDefaults_ResetsTheGhostAudioSliderToItsFieldInitializer()
+        {
+            SettingsWindowPresentation.SettingsDefaults defaults =
+                SettingsWindowPresentation.BuildDefaults();
+
+            Assert.Equal(
+                (double)new ParsekSettings().ghostAudioVolume,
+                (double)defaults.GhostAudioVolume,
+                6);
+        }
+
+        // catches: the Defaults tooltip losing the one scoping claim that makes the button
+        // honest. uiComplexityMode is drawn in the same window and deliberately NOT reset,
+        // so the button must say so rather than promise every setting (finding P8).
+        [Fact]
+        public void DefaultsButtonTooltip_SaysTheInterfaceModeIsNotReset()
+        {
+            Assert.Contains("Advanced", SettingsWindowPresentation.DefaultsButtonTooltip);
+            Assert.Contains("except", SettingsWindowPresentation.DefaultsButtonTooltip);
+        }
+
+        // catches: the Data Management wipe control drifting back to naming "game actions".
+        // MilestoneStore.ClearAll clears the MILESTONE list only - the ledger's GameAction
+        // rows survive it - so a label or reason naming game actions promises an effect the
+        // handler does not have (finding P5).
+        [Fact]
+        public void WipeMilestonesDisabledReason_NamesMilestonesNotGameActions()
+        {
+            string reason = SettingsWindowUI.WipeMilestonesDisabledReason(0);
+
+            Assert.Equal("There are no milestones to wipe", reason);
+            Assert.DoesNotContain("game action", reason);
+            Assert.Equal(string.Empty, SettingsWindowUI.WipeMilestonesDisabledReason(1));
+        }
     }
 }

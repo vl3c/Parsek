@@ -45,6 +45,20 @@ namespace Parsek
             public string DirectoryPath;
             public LiveBreakdown Live;
 
+            /// <summary>
+            /// The directory enumeration THREW, so the byte and file counts mean nothing.
+            /// Distinguished from a legitimately empty result (no directory yet, or no
+            /// rewind points) because the Settings readout rendered both as "0 B, 0 files"
+            /// and a failed scan then looked exactly like a clean save.
+            /// </summary>
+            public bool ScanFailed;
+
+            /// <summary>
+            /// Files whose size could not be read, so <see cref="TotalBytes"/> is an
+            /// UNDER-count. The scan itself succeeded here: the file list is complete.
+            /// </summary>
+            public int UnreadableFileCount;
+
             internal int RecordingStoreVersion;
             internal int SupersedeStateVersion;
             internal int RewindPointCount;
@@ -167,6 +181,7 @@ namespace Parsek
             {
                 string[] files = Directory.GetFiles(directoryPath);
                 long total = 0L;
+                int unreadable = 0;
                 for (int i = 0; i < files.Length; i++)
                 {
                     try
@@ -176,15 +191,20 @@ namespace Parsek
                     }
                     catch (Exception ex)
                     {
+                        unreadable++;
                         ParsekLog.Warn("Rewind",
                             $"Disk usage: failed to stat '{files[i]}': {ex.GetType().Name}: {ex.Message}");
                     }
                 }
                 result.TotalBytes = total;
                 result.FileCount = files.Length;
+                result.UnreadableFileCount = unreadable;
             }
             catch (Exception ex)
             {
+                // The counts stay zero, so without this flag the readout is
+                // indistinguishable from a save with no rewind points at all.
+                result.ScanFailed = true;
                 ParsekLog.Warn("Rewind",
                     $"Disk usage: failed to enumerate '{directoryPath}': {ex.GetType().Name}: {ex.Message}");
             }
@@ -298,10 +318,21 @@ namespace Parsek
         /// </summary>
         internal static string FormatLine(Snapshot s)
         {
-            return $"Rewind point disk usage: {DiagnosticsComputation.FormatBytes(s.TotalBytes)} " +
-                $"({s.FileCount} file{(s.FileCount == 1 ? "" : "s")}; " +
+            // A failed scan says so instead of rendering "0 B, 0 files", which read exactly
+            // like a save with no rewind points. The live counters come from the scenario,
+            // not the filesystem, so they stay valid and are still worth showing.
+            string disk = s.ScanFailed
+                ? "could not read the folder (see KSP.log)"
+                : $"{DiagnosticsComputation.FormatBytes(s.TotalBytes)} "
+                    + $"({s.FileCount} file{(s.FileCount == 1 ? "" : "s")}"
+                    + (s.UnreadableFileCount > 0
+                        ? $", {s.UnreadableFileCount} unreadable"
+                        : "")
+                    + ")";
+
+            return $"Rewind point disk usage: {disk}; " +
                 $"live={s.Live.RewindPointCount}, crashed={s.Live.CrashedOpenCount}, " +
-                $"stable={s.Live.StableOpenCount}, concluded={s.Live.ConcludedCount})";
+                $"stable={s.Live.StableOpenCount}, concluded={s.Live.ConcludedCount}";
         }
     }
 }

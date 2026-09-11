@@ -69,21 +69,14 @@ namespace Parsek
         }
 
         /// <summary>
-        /// The per-instance overlap path is always available (8e S4 dropped the director-drive gate that
-        /// previously made it conditional; the Director pipeline is unconditional, so the N per-cycle
-        /// epochs are always bakeable). Kept as a method for call-site stability.
-        /// </summary>
-        internal static bool IsOverlapPerInstanceGateOn()
-        {
-            return true;
-        }
-
-        /// <summary>
         /// Should THIS recording be driven by the per-instance overlap path this frame? True when the
         /// recording is an overlap loop (<see cref="IsOverlapRecording"/>) - overlap recordings ALWAYS
         /// take the per-instance path now (8e S4). When this is true the legacy passes hand off to
         /// <see cref="EnsureOverlapInstances"/> and skip their own single-instance create/reseed for the
         /// index.
+        /// <para>There is no gate above this any more: <c>IsOverlapPerInstanceGateOn()</c> was a
+        /// <c>return true;</c> whose documented OFF branch could not execute, so it and the log
+        /// token it fed were deleted 2026-09-11 (GUI census D10).</para>
         /// </summary>
         internal static bool ShouldDriveOverlapPerInstance(
             Recording rec, int recIdx, IReadOnlyList<Recording> committed,

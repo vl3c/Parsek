@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Parsek;
 using Xunit;
@@ -462,21 +463,65 @@ namespace Parsek.Tests
         [Fact]
         public void BuildPeriodStateTooltip_NamesEachState()
         {
-            // Fails if a period-cell state stops naming itself (the four states are otherwise
-            // distinguished by greyness / editability / tint alone).
+            // Fails if a period-cell state stops naming itself (the states are otherwise
+            // distinguished by greyness / editability / tint alone). The `locked` parameter
+            // was dropped 2026-09-11: its branch could not fire, because the only production
+            // call site passed literal false.
             Assert.Equal(MissionPresentation.PeriodTooltipLoopOff,
-                MissionPresentation.BuildPeriodStateTooltip(false, false, false, false));
+                MissionPresentation.BuildPeriodStateTooltip(false, false, false));
             // Loop off wins over everything else - nothing is running.
             Assert.Equal(MissionPresentation.PeriodTooltipLoopOff,
-                MissionPresentation.BuildPeriodStateTooltip(false, true, true, true));
-            Assert.Equal(MissionPresentation.PeriodTooltipLocked,
-                MissionPresentation.BuildPeriodStateTooltip(true, true, false, false));
+                MissionPresentation.BuildPeriodStateTooltip(false, true, true));
             Assert.Equal(MissionPresentation.PeriodTooltipClamped,
-                MissionPresentation.BuildPeriodStateTooltip(true, false, true, true));
+                MissionPresentation.BuildPeriodStateTooltip(true, true, true));
             Assert.Equal(MissionPresentation.PeriodTooltipAuto,
-                MissionPresentation.BuildPeriodStateTooltip(true, false, true, false));
+                MissionPresentation.BuildPeriodStateTooltip(true, true, false));
             // Plain manual period: nothing to explain.
-            Assert.Null(MissionPresentation.BuildPeriodStateTooltip(true, false, false, false));
+            Assert.Null(MissionPresentation.BuildPeriodStateTooltip(true, false, false));
+        }
+
+        // catches: PeriodTooltipLocked losing its OWN consumer. It survived the `locked`
+        // parameter's removal because a route-owned mission renders its period as the label
+        // "locked" carrying this text directly (UI/MissionsWindowUI.cs), which is a different
+        // control from the unit button BuildPeriodStateTooltip feeds.
+        [Fact]
+        public void PeriodTooltipLocked_IsStillDrawnByTheRouteOwnedPeriodLabel()
+        {
+            string src = System.IO.File.ReadAllText(System.IO.Path.GetFullPath(
+                System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
+                    "..", "..", "..", "..", "Parsek", "UI", "MissionsWindowUI.cs")));
+
+            Assert.True(DrawsThePeriodTooltipLockedConstant(src),
+                "MissionsWindowUI must still DRAW MissionPresentation.PeriodTooltipLocked; "
+                + "a mention in a comment is not a consumer");
+            Assert.False(string.IsNullOrEmpty(MissionPresentation.PeriodTooltipLocked));
+        }
+
+        // anti-vacuity for the scan above: the constant survived the `locked` parameter's
+        // removal precisely because a comment explains where its last consumer lives, so a
+        // raw substring scan stays green after the draw site itself goes.
+        [Fact]
+        public void ThePeriodTooltipLockedScanRedsWhenTheOnlyMentionIsAComment()
+        {
+            string decoy =
+                "            // The route-owned period label carries\n"
+                + "            // MissionPresentation.PeriodTooltipLocked directly.\n"
+                + "            GUILayout.Label(new GUIContent(\"locked\", null), style);\n";
+
+            Assert.False(DrawsThePeriodTooltipLockedConstant(decoy));
+            Assert.True(DrawsThePeriodTooltipLockedConstant(
+                "            GUILayout.Label(new GUIContent(\"locked\",\n"
+                + "                MissionPresentation.PeriodTooltipLocked), style);\n"));
+        }
+
+        /// <summary>
+        /// True when <paramref name="src"/> reads
+        /// <c>MissionPresentation.PeriodTooltipLocked</c> in CODE (comments blanked first).
+        /// </summary>
+        internal static bool DrawsThePeriodTooltipLockedConstant(string src)
+        {
+            return SourceScanText.StripCSharpComments(src)
+                .IndexOf("MissionPresentation.PeriodTooltipLocked", StringComparison.Ordinal) >= 0;
         }
 
         [Fact]
@@ -504,6 +549,25 @@ namespace Parsek.Tests
             Assert.Contains("loop unit", MissionPresentation.IncludeCheckboxTooltip);
             Assert.Contains("Does not hide the ghost", MissionPresentation.IncludeCheckboxTooltip);
             Assert.Contains("Recordings tab", MissionPresentation.IncludeCheckboxTooltip);
+        }
+
+        // catches: the chapter header row's tri-state toggle going back to carrying no
+        // explanation at all (finding P21). It is the only tri-state control in the mod and
+        // was the only unlabelled one, and its "[~]" marker is defined nowhere else a player
+        // can read - so the tooltip has to name the marker as well as what a click does.
+        [Fact]
+        public void ChapterIncludeCheckboxTooltip_ExplainsTheMixedMarkerAndTheClick()
+        {
+            string tip = MissionPresentation.ChapterIncludeCheckboxTooltip;
+
+            Assert.Contains("loop unit", tip);
+            Assert.Contains("[~]", tip);
+            Assert.Contains("Does not hide the ghost", tip);
+            // Single-line strip in the host Recordings window: 1355 px wide, budgeted at
+            // 189 characters by TooltipEchoBudgetTests' Missions row.
+            Assert.True(tip.Length <= 189,
+                $"chapter tooltip is {tip.Length} chars; the host strip holds 189");
+            Assert.DoesNotContain("\n", tip);
         }
 
         // ===================== T1.6 - the loop-conflict outcome =====================

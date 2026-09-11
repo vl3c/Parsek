@@ -531,7 +531,7 @@ namespace Parsek.Tests
             Assert.True(shouldDrive);
 
             GhostMapPresence.LogOverlapGateDecision(
-                0, committed[0], committed, units, gateOn: true, shouldDrive: shouldDrive);
+                0, committed[0], committed, units, shouldDrive: shouldDrive);
 
             Assert.Contains(logLines, l =>
                 l.Contains("Overlap gate decision")
@@ -547,7 +547,7 @@ namespace Parsek.Tests
             // Source (a) standalone loop: the line shows autoIsOverlapLoop=True isMember=False.
             var committed = new List<Recording> { MakeLoopRec(100, 300, 30) };
             GhostMapPresence.LogOverlapGateDecision(
-                0, committed[0], committed, NoUnits, gateOn: true, shouldDrive: true);
+                0, committed[0], committed, NoUnits, shouldDrive: true);
 
             Assert.Contains(logLines, l =>
                 l.Contains("Overlap gate decision")
@@ -566,13 +566,13 @@ namespace Parsek.Tests
 
             for (int i = 0; i < 5; i++)
                 GhostMapPresence.LogOverlapGateDecision(
-                    0, committed[0], committed, NoUnits, gateOn: true, shouldDrive: false);
+                    0, committed[0], committed, NoUnits, shouldDrive: false);
 
             Assert.Equal(1, logLines.Count(l => l.Contains("Overlap gate decision")));
 
             // Flip the verdict -> exactly one new line, carrying the coalesced count.
             GhostMapPresence.LogOverlapGateDecision(
-                0, committed[0], committed, NoUnits, gateOn: true, shouldDrive: true);
+                0, committed[0], committed, NoUnits, shouldDrive: true);
 
             Assert.Equal(2, logLines.Count(l => l.Contains("Overlap gate decision")));
             Assert.Contains(logLines, l =>
@@ -595,19 +595,22 @@ namespace Parsek.Tests
             // First driven emit at the default UT (first-seen for this identity).
             GhostMapPresence.CurrentUTNow = () => 5130.0;
             GhostMapPresence.LogOverlapGateDecision(
-                0, committed[0], committed, NoUnits, gateOn: true, shouldDrive: true);
+                0, committed[0], committed, NoUnits, shouldDrive: true);
 
             // Advance the clock far enough that the live cycle window moves, but keep the
             // boolean verdict identical -> must coalesce to the same single line.
             GhostMapPresence.CurrentUTNow = () => 8130.0;
             GhostMapPresence.LogOverlapGateDecision(
-                0, committed[0], committed, NoUnits, gateOn: true, shouldDrive: true);
+                0, committed[0], committed, NoUnits, shouldDrive: true);
 
             Assert.Equal(1, logLines.Count(l => l.Contains("Overlap gate decision")));
 
-            // A boolean facet flip still re-emits, proving the key is live, not dead.
+            // A boolean facet flip still re-emits, proving the key is live, not dead. The
+            // flip used to be the `gateOn` argument, which was deleted with
+            // IsOverlapPerInstanceGateOn (a return-true whose OFF branch could not execute);
+            // shouldDrive is the same kind of stable boolean facet.
             GhostMapPresence.LogOverlapGateDecision(
-                0, committed[0], committed, NoUnits, gateOn: false, shouldDrive: true);
+                0, committed[0], committed, NoUnits, shouldDrive: false);
             Assert.Equal(2, logLines.Count(l => l.Contains("Overlap gate decision")));
         }
 

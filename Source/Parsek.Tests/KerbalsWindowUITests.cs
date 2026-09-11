@@ -17,10 +17,17 @@ namespace Parsek.Tests
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            // One cell below constructs a ParsekUI, which writes the static activeInstance and
+            // re-seeds the static applied-mode latch. Reset both ends - the bracket
+            // TimelineGoToMissionTests and the UiComplexityMode classes use - so a leaked
+            // instance from an earlier class cannot receive this class's mode hooks, and so
+            // this class cannot leave a live one for the next.
+            ParsekUI.ResetUiComplexityModeForTesting();
         }
 
         public void Dispose()
         {
+            ParsekUI.ResetUiComplexityModeForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
         }
@@ -956,6 +963,42 @@ namespace Parsek.Tests
                 && l.Contains("Kerbals Fates \u2192 Timeline scroll")
                 && l.Contains("recordingId=rec-stale"));
             Assert.Equal(1, matches);
+        }
+
+        // catches: the Mission Outcomes row's tooltip promise ("Scrolls the Timeline window
+        // to the flight this row came from") going back to doing nothing visible with the
+        // Timeline closed. The pending id is consumed inside the Timeline's DRAW path, so
+        // storing it against a shut window scrolls nothing now and then jumps the list
+        // whenever the player next opens it for something else (finding P6). The sibling
+        // cross-link RecordingsTableUI.ShowMissionForRecording opens its window the same way.
+        [Fact]
+        public void ScrollToRecording_OpensTheTimelineWindowWhenItIsClosed()
+        {
+            var ui = new ParsekUI(UIMode.KSC);
+            try
+            {
+                TimelineWindowUI timeline = ui.GetTimelineUI();
+                Assert.False(timeline.IsOpen);
+
+                // Exactly what the Mission Outcomes row hands OnFatesRowClicked.
+                KerbalsWindowUI.OnFatesRowClicked(timeline.ScrollToRecording, "rec-fate-7");
+
+                Assert.True(timeline.IsOpen);
+                Assert.Contains(logLines, l =>
+                    l.Contains("[Timeline]")
+                    && l.Contains("recordingId=rec-fate-7")
+                    && l.Contains("windowWasOpen=False"));
+            }
+            finally
+            {
+                // ParsekUI.Cleanup resets cached Unity GUI styles, which headless xUnit
+                // cannot do. Only that pair is swallowed (precedent:
+                // UiComplexityModeCloseHandlerTests.CleanupIgnoringUnityTeardown); a bare
+                // catch would also hide a real failure in the assertions' own teardown.
+                try { ui.Cleanup(); }
+                catch (System.Security.SecurityException) { }
+                catch (MissingMethodException) { }
+            }
         }
 
         [Fact]

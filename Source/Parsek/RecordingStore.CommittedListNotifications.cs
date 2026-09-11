@@ -13,7 +13,7 @@ namespace Parsek
         // can shift that state in step. Raised by RunOptimizationPass (merge removal +
         // split insert), InsertCommittedAfter, and every removal helper through
         // RemoveCommittedAtWithNotifications (RemoveRecordingAt, RemoveCommittedInternal,
-        // RemoveCommittedById, RemoveChainRecordings, RemoveCommittedTreeById,
+        // RemoveCommittedById, RemoveCommittedTreeById,
         // ClearCommittedInternal - the last one removes top-down one item at a time, because
         // the failed-rewind-load bundle restore reaches it in FLIGHT with ghosts alive).
 

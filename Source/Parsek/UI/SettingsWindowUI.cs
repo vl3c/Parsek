@@ -413,7 +413,8 @@ namespace Parsek
             tooltipEcho.Draw();
 
             GUILayout.BeginHorizontal();
-            if (GUILayout.Button("Defaults"))
+            if (GUILayout.Button(new GUIContent(
+                "Defaults", SettingsWindowPresentation.DefaultsButtonTooltip)))
             {
                 ParsekLog.Verbose("UI", "Settings Defaults button clicked");
                 SettingsWindowPresentation.SettingsDefaults defaults =
@@ -427,6 +428,10 @@ namespace Parsek
                 s.SamplingDensityLevel = defaults.SamplingDensityLevel;
                 s.autoLoopIntervalSeconds = defaults.AutoLoopIntervalSeconds;
                 s.AutoLoopDisplayUnit = defaults.AutoLoopDisplayUnit;
+                // The Ghosts slider is drawn in both modes, so Defaults resets it too
+                // (finding P8). uiComplexityMode stays where the player left it - see
+                // SettingsDefaults' remarks and the button tooltip above.
+                s.ghostAudioVolume = defaults.GhostAudioVolume;
                 ParsekSettingsPersistence.RecordReadableSidecarMirrors(s.writeReadableSidecarMirrors);
                 ParsekSettingsPersistence.RecordShowRouteLines(s.showRouteLines);
                 ParsekSettingsPersistence.RecordGhostRenderTracing(s.ghostRenderTracing);
@@ -662,8 +667,10 @@ namespace Parsek
                 ParsekLog.Info("UI", $"Setting changed: writeReadableSidecarMirrors={s.writeReadableSidecarMirrors}");
             }
 
+            // "Also Ctrl+Shift+T" was wrong: the shortcut opens the SEPARATE global runner
+            // window (InGameTests/TestRunnerShortcut), not this one (finding P16).
             if (GUILayout.Button(new GUIContent("In-Game Test Runner",
-                "Run runtime tests for ghosts and playback. Also Ctrl+Shift+T.")))
+                "Run runtime tests for ghosts and playback. Ctrl+Shift+T opens its own.")))
             {
                 parentUI.ToggleTestRunner();
             }
@@ -722,13 +729,13 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Why "Wipe All Game Actions" is greyed out. Same shape as
+        /// Why "Wipe All Milestones" is greyed out. Same shape as
         /// <see cref="WipeRecordingsDisabledReason"/>, over the milestone store.
         /// Pure for unit testing.
         /// </summary>
-        internal static string WipeGameActionsDisabledReason(int milestoneCount)
+        internal static string WipeMilestonesDisabledReason(int milestoneCount)
         {
-            return milestoneCount > 0 ? string.Empty : "There are no game actions to wipe";
+            return milestoneCount > 0 ? string.Empty : "There are no milestones to wipe";
         }
 
         private void DrawDataManagementSettings(ParsekSettings s)
@@ -753,13 +760,17 @@ namespace Parsek
                 parentUI.ShowWipeRecordingsConfirmation(committedCount);
             GUI.enabled = true;
 
+            // Labelled for what the handler DOES: MilestoneStore.ClearAll clears the
+            // milestone list only. Ledger.Actions - every GameAction, including seeds and
+            // reservations - is untouched and is still walked by the next recalc, so the
+            // old "Wipe All Game Actions" label named an effect this button never had.
             GUI.enabled = milestoneCount > 0;
-            bool wipeActionsClicked =
-                GUILayout.Button($"Wipe All Game Actions ({milestoneCount})");
+            bool wipeMilestonesClicked =
+                GUILayout.Button($"Wipe All Milestones ({milestoneCount})");
             DisabledHoverEcho.CarryLastControl(
-                milestoneCount > 0, WipeGameActionsDisabledReason(milestoneCount));
-            if (wipeActionsClicked)
-                parentUI.ShowWipeActionsConfirmation(milestoneCount);
+                milestoneCount > 0, WipeMilestonesDisabledReason(milestoneCount));
+            if (wipeMilestonesClicked)
+                parentUI.ShowWipeMilestonesConfirmation(milestoneCount);
             GUI.enabled = true;
         }
     }

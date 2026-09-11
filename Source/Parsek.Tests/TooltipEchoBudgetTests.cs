@@ -83,6 +83,12 @@ namespace Parsek.Tests
             // line and its tooltip. The next removal here reds this row on the floor rather
             // than on a copy edit - lower the floor in the SAME commit that removes the
             // control, the way the Settings row below was lowered 15 -> 10.
+            //
+            // RESTORED 2026-09-11: commit 454b4df7e added the explanatory comment above and
+            // DELETED the row itself, so from then until now the mod's entry-point window -
+            // and the Timeline row below, deleted the same way - had no budget gate at all.
+            // Neither deletion was intended; both rows are back with their stated floors.
+            yield return new object[] { "ParsekUI.cs", 250f, 8, TooltipEchoBox.DoubleLine };
             // Settings: DrawIfOpen seeds new Rect(..., 280, 600) on first open. The floor
             // dropped 15 -> 10 with the 2026-08-27 settings simplification (the Recording,
             // Stock UI, auto-backup, landing-body-alignment and force-faithful controls
@@ -102,6 +108,9 @@ namespace Parsek.Tests
             // against this floor, after RESOURCE-BUDGET-READOUTS-ARE-DEAD removed the
             // "Resources" section header and its per-line tooltip. ANY removal here reds
             // this row immediately - lower the floor in the same commit.
+            // RESTORED 2026-09-11 alongside the main-window row above (same accidental
+            // deletion in 454b4df7e).
+            yield return new object[] { "UI/TimelineWindowUI.cs", 820f, 14, TooltipEchoBox.SingleLine };
             // Recordings: DefaultCollapsedWindowWidth = 1205 + ColW_Rewind(60) + ColW_ReFly(90).
             // Single-line strip: the window's whole help corpus was trimmed to fit one
             // wrapped line at 1355px = 189 chars (the loop-period header tooltip, formerly
