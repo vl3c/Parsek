@@ -40,6 +40,17 @@ _(unreleased — entries accumulate here per commit)_
   that means nothing drew. The tour now asks for a Settings window wider than either
   interface mode needs, so the picture is not cropped either way.
 
+- **Automated testing: the flight window tour no longer tries to photograph a window
+  that shuts itself.** Real Spawn Control closes again the instant it draws with nothing
+  in range to spawn, and on the save this tour flies there is nothing in range - the
+  tour's first run said so plainly, which is what asking the game to draw a frame before
+  believing a window opened is for. The tour now EXPECTS that answer and checks the reason
+  given for it, so it still tests that the window closes itself and says why, and the four
+  steps that used to try to size, photograph and describe it afterwards are gone: they
+  produced a picture of empty scenery filed under that window's name. Photographing Real
+  Spawn Control properly needs a save with something recorded passing close by, which is
+  written down as the next piece of work rather than faked here.
+
 - **Automated testing: a run definition can now ask for one particular check to be
   reported rather than acted on.** The recording-health check runs over whatever save a
   run produced, and on a run whose starting point is somebody's own long-played career

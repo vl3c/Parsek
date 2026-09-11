@@ -9117,7 +9117,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # tag names - what they owe is a first flight, and the images that flight
         # produces ARE the deliverable rather than a verdict to calibrate.
         "GUI-1-census-ksc.toml": "tier=operator by MECHANISM (the FORGE class): its host is an operator-local, uncommitted fixture no clone can stage, so a cadence tier would red everywhere for a missing directory - a TERMINAL INVALID(staging), which tier_runner classifies RED. Never flown. Its host's own pre-existing analyzer findings (measured 2026-09-10: FAIL=25 RED=1, all INV2-NO-DOUBLE-COVER, on recordings months older than the lane) are handled by declaring the analyzer row REPORT-ONLY (`[expectations.analyzer] gating = false`, allowlisted in AnalyzerReportOnlyModeTests) rather than by an `[expectedFail]` quarantine - the quarantine short-circuited the whole verifier chain, so the lane's own log contracts were never evaluated at all. No human call is outstanding.",
-        "GUI-2-census-flight.toml": "tier=operator by MECHANISM, identical to GUI-1's (same operator-local host, same report-only analyzer row). Never flown. The thing its first flight must be read for is a WINDOW, not the clock, and the first draft of this row had it backwards: the subject's situation reads SUB_ORBITAL, but its orbit (SMA 3621574.94, ECC 0.815, periapsis 69.55 km, apoapsis 5973.6 km, 6.400 h) is ASCENDING at load - 5469.8 km up, 1.07 h from apoapsis, and its periapsis is 69.55 km above the GROUND, so it cannot impact on this orbit at all; the situation word only reflects that periapsis sitting 0.4 km under Kerbin's 70 km atmosphere line. What can genuinely stop the lane is `op=open window=spawncontrol`: SpawnControlUI.DrawIfOpen force-closes itself on its FIRST draw with zero nearby spawn candidates, so the two-phase settle answers ERROR window-self-closed and the lane reads driver-INVALID with the cause named. The remedy there is a re-stage (the same save carries five LANDED probes, three ORBITING relays and one ORBITING probe), not a spec change. No human call is outstanding.",
+        "GUI-2-census-flight.toml": "tier=operator by MECHANISM, identical to GUI-1's (same operator-local host, same report-only analyzer row). FLOWN 2026-09-10 (`2026-09-10_2259`, attempt 2 `_2300`), both INVALID on ONE step and nothing else. The thing its first flight had to be read for was a WINDOW, not the clock, and the first draft of this row had that backwards: the subject's situation reads SUB_ORBITAL, but its orbit (SMA 3621574.94, ECC 0.815, periapsis 69.55 km, apoapsis 5973.6 km, 6.400 h) is ASCENDING at load - 5469.8 km up, 1.07 h from apoapsis, periapsis 69.55 km above the GROUND, so it cannot impact on this orbit at all - and the lane flew in 54 s at 1x. What DID stop it is the window this row named: `op=open window=spawncontrol` answered `ERROR window-self-closed ... frames=1` (`SpawnControlUI.DrawIfOpen` force-closing itself on its first draw with `reason=zero-candidates candidates=0`), so the two-phase settle reported it instead of an OK over a capture of empty scenery. THE REMEDY THIS ROW PREDICTED WAS THE WRONG HALF: a re-stage was called for and the change made instead is a SPEC one, because a re-stage cannot be committed (the host is operator-local by construction) and the auto-close is worth ASSERTING - the step is now `expect = ERROR` with the reason pinned, its five follow-on steps removed, and the picture is owed to a GUI-3 lane on a committed candidate host (GUI-CENSUS-SPAWN-CONTROL-NEEDS-A-CANDIDATE-HOST). No human call is outstanding; what is owed is the reading flight of the fixed shape.",
         "V26T-interbody-route-ts-arrival.toml": "operator by the calibration discipline; FLOWN 2026-09-02, ARMED-DISCIPLINE COMPLETE (reading run, pins tightened off it, armed re-flight PASS attempt 1, and a negative control that red PARSEK-FAIL(expectation) on exactly the seeded token). V18T's tracking-station grammar on the inter-body subject. It carries ONE genuinely open question the reading run must answer rather than pass: V18T's front-door tokens (`ghostDriving=[1-9]`, `routeMissions=[1-9]`) are deliberately NOT required, because this subject's Duna route has `loopAnchorUT = -1` and has never run a cycle, so whether a never-dispatched route enters the GhostDriving selection is unmeasured - and RUN 1 ANSWERED IT: `ghostDriving=1` and `routeMissions=1` both printed, so dispatch history is NOT a precondition for a route driving a tracking-station ghost, and both tokens are REQUIRED from the armed re-flight onward. The renderComposition arming pass this lane owed was TAKEN 2026-09-07 (package P16, after reading run 3 `2026-09-06_2115` PASS attempt 1): armed on `routeLineBuilds = {min = 2}` + `routeCoDrawViolations = {max = 0}`, deliberately symmetric with V26M and with no `unevaluable` ceiling on either. The armed re-flight and the negative control are OWED.",
     }
 
@@ -14193,6 +14193,72 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
                     self.assertTrue(any("filename-safe" in e for e in errors),
                                     "%r must be rejected: %s" % (bad, errors))
 
+    def test_the_one_census_step_expecting_an_error_pins_its_reason(self):
+        """GUI-2's `op=open window=spawncontrol` is the census's only non-OK step, and
+        the reason it expects is the whole content of the step. A seam ERROR carries its
+        `msg=` on the WIRE only - `KSP.log` gets the `uiaction error reason=<token>` line
+        and nothing else - so `expect = "ERROR"` on its own would accept ANY error from
+        that step, including `window-host-hidden` (the main window was shut) and
+        `ui-action-not-settled` (nothing drew at all), each of which says something
+        completely different about the run and has a different remedy.
+
+        MEASURED, not predicted: run `2026-09-10_2259` (and attempt 2 `_2300`) answered
+        `uiaction error reason=window-self-closed window=spawncontrol frames=1`, because
+        `SpawnControlUI.DrawIfOpen` force-closes itself on its first draw when
+        `ResolveAutoCloseReason` finds zero nearby spawn candidates. With the reason
+        pinned, the step asserts that auto-close still fires and still names itself.
+
+        The cell also holds the shape: exactly ONE non-OK step across both lanes, and
+        nothing follows that step for the window it names (no describe, rect, capture,
+        dump or close), because the window is not there to photograph - a `rect` against
+        a shut window reads its own write back and PASSES, which is how the first flight
+        produced an OK at `270,8,900,420` over a window that was not drawing."""
+        non_ok = []
+        for name in ("GUI-1-census-ksc.toml", "GUI-2-census-flight.toml"):
+            spec = load_spec(name)
+            steps = (spec.get("driver", {}) or {}).get("steps", []) or []
+            required = (((spec.get("expectations") or {}).get("logContracts") or {})
+                        .get("required") or [])
+            for i, step in enumerate(steps):
+                if str((step or {}).get("expect", "OK")) == "OK":
+                    continue
+                non_ok.append((name, i, step))
+                args = (step.get("args", {}) or {})
+                window = args.get("window")
+                self.assertEqual("ERROR", step.get("expect"))
+                self.assertEqual("UiAction", step.get("cmd"))
+                self.assertEqual("open", args.get("op"))
+                self.assertEqual("spawncontrol", window)
+                reason = [p for p in required
+                          if "uiaction error reason=window-self-closed" in p
+                          and ("window=%s" % window) in p]
+                self.assertEqual(
+                    1, len(reason),
+                    "%s step %d expects ERROR but pins its reason %d times; an "
+                    "unpinned reason accepts window-host-hidden and "
+                    "ui-action-not-settled too" % (name, i, len(reason)))
+                self.assertIn("\\[ERROR\\]", reason[0],
+                              "the reason line is written at ERROR level, so a pattern "
+                              "pinning [INFO] can never match it")
+                # Nothing may follow it for the same window: there is no window to act on.
+                for later in steps[i + 1:]:
+                    later_args = ((later or {}).get("args", {}) or {})
+                    if later_args.get("window") == window:
+                        self.fail("%s: step %d expects the %s window to have closed "
+                                  "itself, and a later step still acts on it (%r %r)"
+                                  % (name, i, window, later.get("cmd"), later_args))
+                for later in steps[i + 1:]:
+                    label = ((later or {}).get("args", {}) or {}).get("label") or ""
+                    self.assertNotIn(
+                        window, label,
+                        "%s: %r is labelled for a window the lane has just measured as "
+                        "shut" % (name, label))
+        self.assertEqual(
+            1, len(non_ok),
+            "the census's non-OK step set changed: %s. Every other step in both lanes is "
+            "an OK, so a second one is a decision that belongs here with its measurement"
+            % [(n, i) for n, i, _ in non_ok])
+
     def test_a_labelless_dump_step_is_caught_pre_launch(self):
         # The label is the dump's FILENAME and the verb has no default, so the seam
         # answers REJECTED label-arg-missing - after a whole boot. Same shape as the
@@ -14445,7 +14511,14 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
         Simulated from the SPEC's own steps, so it is a self-consistency check and not
         a second copy of a truth: walk the open / close ops, and at every `describe`
         require the pinned set to contain exactly the echo this state produces. Both
-        directions, so an orphaned literal reds too."""
+        directions, so an orphaned literal reds too.
+
+        AN `open` DECLARED `expect = "ERROR"` LEAVES THE WINDOW SHUT, and the simulation
+        has to read the declaration to know that. GUI-2 drives one - Real Spawn Control,
+        whose `DrawIfOpen` force-closes itself on its first draw with zero nearby spawn
+        candidates, measured `ERROR window-self-closed` on run `2026-09-10_2259` - and a
+        walk that counted it as open would demand `openWindows=main,spawncontrol` on every
+        later echo and red on a spec whose literals are right."""
         for name, scene in (("GUI-1-census-ksc.toml", "SPACECENTER"),
                             ("GUI-2-census-flight.toml", "FLIGHT")):
             with self.subTest(spec=name):
@@ -14471,7 +14544,10 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
                     args = step.get("args", {}) or {}
                     op = args.get("op")
                     if op == "open":
-                        open_set.add(args["window"])
+                        # `expect` is the declaration of what the step ACHIEVES: an
+                        # `open` the spec declares ERROR did not leave a window open.
+                        if str(step.get("expect", "OK")) == "OK":
+                            open_set.add(args["window"])
                     elif op == "close":
                         open_set.discard(args["window"])
                     elif op == "complexity":

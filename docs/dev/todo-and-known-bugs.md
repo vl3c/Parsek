@@ -133,6 +133,40 @@ prove before a lane relies on it; (3) accept it and read the two windows' right-
 columns from the source. A GUI review of the images is the natural moment to decide, since
 it is the reviewer who finds out whether the off-screen columns mattered.
 
+## GUI-CENSUS-SPAWN-CONTROL-NEEDS-A-CANDIDATE-HOST: the Real Spawn Control window shuts itself on GUI-2's host, so the census has no picture of it [Filed 2026-09-11 off the lane's first flight. Not a defect: the window is doing what it is written to do]
+
+MEASURED, twice, on `2026-09-10_2259` and its attempt 2 `_2300`:
+`uiaction error reason=window-self-closed window=spawncontrol frames=1`, beside the
+window's own `[Parsek][VERBOSE][UI] Real Spawn Control auto-close: reason=zero-candidates
+candidates=0`. `SpawnControlUI.DrawIfOpen` force-closes on its FIRST draw whenever
+`ResolveAutoCloseReason` fires, and zero nearby candidates is one of its three reasons.
+GUI-2's host (the operator-local `c1-gui` career, active vessel a sub-orbital probe) has
+none, so the lane's `op=open window=spawncontrol` step is now declared `expect = "ERROR"`
+with that reason pinned as a log contract, and the capture / dump / rect / describe /
+close steps that used to follow it are gone. What is LOST is the picture: Real Spawn
+Control is the one Parsek window the census has no image or control tree of.
+
+WHAT A HOST HAS TO CARRY, read off `ParsekFlight.CollectNearbySpawnCandidates` rather
+than guessed: an ACTIVE GHOST at the run's UT, from a COMMITTED recording whose `EndUT`
+is still in the future, spawn-eligible per `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd`,
+not chain-suppressed, within `NearbySpawnListRadius = 1000 m` of the active vessel and
+under `MaxListRelativeSpeed = 50 m/s` relative to it. The scan runs every 1.5 s from
+`Update`, so a host that satisfies it needs no seam op to make the window appear - only a
+UT at which a ghost is playing next to the focus.
+
+Fix: a GUI-3 flight lane on a COMMITTED fixture that satisfies that list, capturing
+`flight-spawncontrol-advanced` and its dump, leaving GUI-2 as it now stands. The obvious
+candidate is `LT-5-long-tail-playback-flight`'s recipe - `fixtures/saves/gloops-airshow`
+with `injectedRecordings = "part-showcase"` and a `TimeJump` to UT 55, the suite's only
+proven ACTIVE-GHOST-at-the-pad host (243 showcase recordings all playing from UT 50) -
+but that is a candidate and not a reading: `gloops-airshow` carries NO Parsek sidecar of
+its own (its corpus comes entirely from the injected preset), and whether the showcase
+recordings are SPAWN-ELIGIBLE and inside 1 km of the pad vessel is exactly what the
+zero-candidate count measured on the other host. So the first step is a scratch census
+run on that host reading the auto-close line, not a spec. A GUI-3 lane would also be the
+natural place to photograph the other flight-only surface a census still cannot reach
+(GUI-CENSUS-STRUCTURE-WINDOW-HAS-NO-DRIVEABLE-TARGET names the KSC half of that problem).
+
 ## GUITREE-INTERCEPTION-LAYER-NEVER-RUN: the GUI-tree dump's Harmony interception of the UnityEngine IMGUI funnels has never executed inside KSP, so four premises the whole design rests on are unmeasured [Filed 2026-09-10 on branch `gui-dump-spike`. Code green, NOT YET FLOWN - and unlike the usual entry in this style, what is unflown is not a fix but the FEATURE]
 
 The pure half is fully covered headlessly (the assembler, the JSON writer, the geometry
