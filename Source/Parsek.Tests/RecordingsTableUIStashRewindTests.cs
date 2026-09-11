@@ -120,6 +120,41 @@ namespace Parsek.Tests
             Assert.Equal(RecordingsTableUI.ReFlyColumnAction.FlySeal, reFlyAction);
         }
 
+        // catches: the Timeline's "R" (Rewind to this launch) coming back on rows that are
+        // not the launch. GetRewindSaveFileName resolves through the TREE ROOT, so every
+        // branch of a tree - debris, decouple children, EVA splits - answers non-empty and
+        // used to get its own R, each one rewinding the PARENT launch (finding P12). This
+        // table has suppressed exactly that for the same reason; the two now share
+        // IsLaunchRewindRow, and this cell asserts both surfaces agree on one fixture.
+        [Fact]
+        public void TimelineRewindButton_TreeBranchNonOwner_IsSuppressedLikeTheTable()
+        {
+            var root = StableLeaf("rec_root", null, rewindSave: "parsek_rw_root");
+            root.TreeId = "tree_1";
+            var branch = StableLeaf("rec_branch", "bp_1");
+            branch.TreeId = "tree_1";
+            var tree = new RecordingTree
+            {
+                Id = "tree_1",
+                RootRecordingId = root.RecordingId,
+                TreeName = "TreeWithRootRewind",
+            };
+            tree.AddOrReplaceRecording(root);
+            tree.AddOrReplaceRecording(branch);
+            RecordingStore.AddCommittedTreeForTesting(tree);
+
+            // The whole input the old Timeline predicate had: a save DOES resolve from the
+            // branch, and it is the ROOT's.
+            Assert.Equal("parsek_rw_root", RecordingStore.GetRewindSaveFileName(branch));
+
+            Assert.False(TimelineWindowUI.ShouldShowRewindButton(branch, isFuture: false));
+            Assert.True(TimelineWindowUI.ShouldShowRewindButton(root, isFuture: false));
+
+            // The table's verdict on the same two rows, unchanged by this fix.
+            Assert.False(RecordingsTableUI.ShouldShowLegacyRewindButton(branch, now: 200.0));
+            Assert.True(RecordingsTableUI.ShouldShowLegacyRewindButton(root, now: 200.0));
+        }
+
         private static Recording StableLeaf(
             string id,
             string parentBranchPointId,

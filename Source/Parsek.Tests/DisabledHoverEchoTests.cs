@@ -106,8 +106,8 @@ namespace Parsek.Tests
 
             yield return Row(SettingsWindowUI.WipeRecordingsDisabledReason(0),
                 SettingsBudget, "Settings wipe recordings");
-            yield return Row(SettingsWindowUI.WipeGameActionsDisabledReason(0),
-                SettingsBudget, "Settings wipe game actions");
+            yield return Row(SettingsWindowUI.WipeMilestonesDisabledReason(0),
+                SettingsBudget, "Settings wipe milestones");
 
             yield return Row(SpawnControlPresentation.WarpButtonDisabledReason(true, false, true),
                 SpawnControlBudget, "Spawn row warp - too far");
@@ -130,8 +130,21 @@ namespace Parsek.Tests
             yield return Row(RecordingsTableUI.LoopPeriodDisabledReason(true, true),
                 RecordingsBudget, "Loop period - auto unit");
 
-            yield return Row(MissionsWindowUI.MissionDeleteDisabledReason(),
-                RecordingsBudget, "Mission delete");
+            // All three delete refusals are budgeted: any of them can reach the strip, and
+            // the reason is now per-mission rather than one constant. Fed the refusal
+            // directly so the row does not depend on the mission store's contents.
+            yield return Row(
+                MissionsWindowUI.MissionDeleteDisabledReason(
+                    MissionStore.MissionDeleteRefusal.TreeOriginal),
+                RecordingsBudget, "Mission delete - tree original");
+            yield return Row(
+                MissionsWindowUI.MissionDeleteDisabledReason(
+                    MissionStore.MissionDeleteRefusal.NotInStore),
+                RecordingsBudget, "Mission delete - not in the list");
+            yield return Row(
+                MissionsWindowUI.MissionDeleteDisabledReason(
+                    MissionStore.MissionDeleteRefusal.NoMission),
+                RecordingsBudget, "Mission delete - no mission");
             yield return Row(MissionsWindowUI.MissionWatchDisabledReason(false, false),
                 RecordingsBudget, "Mission watch - not in flight");
             yield return Row(MissionsWindowUI.MissionWatchDisabledReason(true, false),
@@ -196,13 +209,17 @@ namespace Parsek.Tests
         {
             Assert.Equal(string.Empty, ParsekUI.SpawnControlLauncherDisabledReason(1));
             Assert.Equal(string.Empty, SettingsWindowUI.WipeRecordingsDisabledReason(1));
-            Assert.Equal(string.Empty, SettingsWindowUI.WipeGameActionsDisabledReason(1));
+            Assert.Equal(string.Empty, SettingsWindowUI.WipeMilestonesDisabledReason(1));
             Assert.Equal(string.Empty,
                 SpawnControlPresentation.WarpButtonDisabledReason(false, false, true));
             Assert.Equal(string.Empty,
                 TimelineWindowUI.WarpToTimeDisabledReason(true, null, false, false));
             Assert.Equal(string.Empty, RecordingsTableUI.LoopPeriodDisabledReason(true, false));
             Assert.Equal(string.Empty, MissionsWindowUI.MissionWatchDisabledReason(true, true));
+            // Newly able to go silent: this reason used to return a constant sentence for
+            // every mission, deletable or not, which is why it was missing from this list.
+            Assert.Equal(string.Empty, MissionsWindowUI.MissionDeleteDisabledReason(
+                MissionStore.MissionDeleteRefusal.None));
             Assert.Equal(string.Empty,
                 MissionsWindowUI.MissionWarpToDisabledReason(true, true, true, true));
             Assert.Equal(string.Empty, LogisticsWindowUI.LinkButtonDisabledReason("route-7"));

@@ -2797,9 +2797,10 @@ namespace Parsek
         /// frame-reset deferred field would be silently clobbered before
         /// ApplyPendingActions reads it). After a build the callback dirties both
         /// the candidate cache (the promoted run leaves the Candidates list) and the
-        /// legibility cache (the new route's cells appear immediately). This does NOT
-        /// touch <see cref="RouteCreationDialog"/>: that post-commit auto-dialog is
-        /// unchanged.
+        /// legibility cache (the new route's cells appear immediately). This is now the
+        /// ONLY route-creation confirm in the mod: the post-commit auto-dialog that used to
+        /// share the geometry was deleted 2026-09-11 as unreachable (GUI census D4), leaving
+        /// <see cref="RouteCreationDialog"/> as a pure span helper.
         /// </summary>
         private void SpawnCreateRouteConfirmation(RouteCandidate candidate)
         {

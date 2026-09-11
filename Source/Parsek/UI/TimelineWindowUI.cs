@@ -327,13 +327,26 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Called by the Recordings Manager to scroll the timeline to a specific recording.
-        /// The next draw pass will scroll to the RecordingStart entry with this ID.
+        /// The cross-link target: scrolls this window to a recording's RecordingStart entry.
+        /// Sole caller is the Kerbals window's Mission Outcomes row
+        /// (<c>UI/KerbalsWindowUI.cs</c>), whose tooltip promises exactly this.
+        /// <para>OPENS the window when it is closed (finding P6). The pending id is consumed
+        /// inside the draw path (<c>DrawWindow</c>, the scroll-target search), which runs only
+        /// while <c>showTimelineWindow</c> is true - so with the Timeline shut the click used
+        /// to do nothing the player could see, and then scrolled unexpectedly whenever they
+        /// next opened the window for some unrelated reason. Opening here matches the sibling
+        /// cross-link <see cref="RecordingsTableUI.ShowMissionForRecording"/>, which sets
+        /// <c>showRecordingsWindow = true</c> for the same reason.</para>
         /// </summary>
         internal void ScrollToRecording(string recordingId)
         {
+            bool windowWasOpen = showTimelineWindow;
+            if (!windowWasOpen)
+                showTimelineWindow = true;
             pendingScrollToRecordingId = recordingId;
-            ParsekLog.Verbose("Timeline", $"Cross-link: scroll requested for recordingId={recordingId}");
+            ParsekLog.Verbose("Timeline",
+                $"Cross-link: scroll requested for recordingId={recordingId} "
+                + $"(windowWasOpen={windowWasOpen})");
         }
 
         /// <summary>
@@ -1577,11 +1590,32 @@ namespace Parsek
             return isFuture && rec != null;
         }
 
+        /// <summary>
+        /// Whether a past/active RecordingStart row draws the "R" (Rewind to this launch)
+        /// button. The row must be the LAUNCH row of its rewind save, not merely a row from
+        /// which one resolves.
+        /// <para>Finding P12: `GetRewindSaveFileName` walks to the TREE ROOT, so every
+        /// branch of a tree answered non-empty and got its own R - and an EVA row's R
+        /// rewound the PARENT launch, with only the confirm dialog's "(from branch ...)"
+        /// line hinting at it. The Recordings table has suppressed exactly this since the
+        /// multi-segment-chain fix; the launch-row half of its predicate is shared here as
+        /// <see cref="RecordingsTableUI.IsLaunchRewindRow"/>.</para>
+        /// <para>Deliberately NOT the whole of
+        /// <c>RecordingsTableUI.ShouldShowLegacyRewindButton</c>: that also suppresses a row
+        /// which is ITSELF an unfinished flight, because the table gives such a row a
+        /// dedicated Re-Fly-column button instead. The Timeline has no such column on a
+        /// RecordingStart row (its Fly / Seal buttons live on the separate
+        /// UnfinishedFlightSeparation entries), so suppressing here would strand the
+        /// crashed-parent row with no rewind at all - the case
+        /// `ShouldShowRewindButton_ActiveParentUnfinishedFlightWithLaunchSave_ReturnsTrue`
+        /// pins.</para>
+        /// </summary>
         internal static bool ShouldShowRewindButton(Recording rec, bool isFuture)
         {
             return !isFuture
                 && rec != null
-                && !string.IsNullOrEmpty(RecordingStore.GetRewindSaveFileName(rec));
+                && !string.IsNullOrEmpty(RecordingStore.GetRewindSaveFileName(rec))
+                && RecordingsTableUI.IsLaunchRewindRow(rec);
         }
 
         internal static bool HasActionableRewindOrFastForwardButton(

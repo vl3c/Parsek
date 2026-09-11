@@ -2326,12 +2326,6 @@ namespace Parsek
             watchMode.ExitWatchMode();
             InputLockManager.RemoveControlLock(WatchModeController.WatchModeLockId); // safety net
 
-            // Dismiss the route creation dialog if it is still open — the
-            // tree it cached belongs to this scene's RecordingStore state
-            // and outliving the scene would let the next scene confirm a
-            // stale route. DismissIfOpen is a no-op when no dialog is open.
-            RouteCreationDialog.DismissIfOpen("scene-change");
-
             // Clear ghost-icon sticky state and force atlas re-init so the next
             // scene loads its own sprite atlas (the tracking station and flight
             // scenes may resolve different Texture2D instances for the same
@@ -13845,9 +13839,16 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Commits the active recording tree from the Commit Flight button.
-        /// Finalizes all recordings, spawns leaf vessels, reserves crew.
-        /// The active vessel stays live (VesselSpawned=true).
+        /// Commits the active recording tree IN FLIGHT: finalizes all recordings, spawns
+        /// leaf vessels, reserves crew. The active vessel stays live (VesselSpawned=true).
+        /// <para>Caller set, re-derived 2026-09-11 (finding P22): the "Commit Flight" button
+        /// this docstring used to name was removed, and the live callers are now the
+        /// pre-switch decision dialog's two Merge handlers
+        /// (<c>Patches/MapFocusObjectOnSelectPatch.cs:624</c> and <c>:813</c> - case A's
+        /// prior-session commit and case B's active-tree commit) plus the harness
+        /// <c>CommitTree</c> seam verb (<c>TestCommands/ParsekTestCommandAddon.cs:2016</c>).
+        /// The merge DIALOG's own commit is a different path
+        /// (<c>MergeDialog.MergeCommit</c>) and does not come through here.</para>
         /// </summary>
         public void CommitTreeFlight()
         {

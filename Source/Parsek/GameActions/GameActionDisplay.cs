@@ -13,55 +13,6 @@ namespace Parsek
     {
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
 
-        /// <summary>Short category label for the action type.</summary>
-        internal static string GetCategory(GameActionType type)
-        {
-            switch (type)
-            {
-                case GameActionType.ScienceEarning:
-                case GameActionType.ScienceSpending:
-                case GameActionType.StrategyScienceDebit:
-                case GameActionType.StrategyScienceCredit:
-                    return "Science";
-
-                case GameActionType.FundsEarning:
-                case GameActionType.FundsSpending:
-                case GameActionType.FundsInitial:
-                    return "Funds";
-
-                case GameActionType.ReputationEarning:
-                case GameActionType.ReputationPenalty:
-                    return "Rep";
-
-                case GameActionType.MilestoneAchievement:
-                    return "Milestone";
-
-                case GameActionType.ContractAccept:
-                case GameActionType.ContractComplete:
-                case GameActionType.ContractFail:
-                case GameActionType.ContractCancel:
-                    return "Contract";
-
-                case GameActionType.KerbalAssignment:
-                case GameActionType.KerbalHire:
-                case GameActionType.KerbalRescue:
-                case GameActionType.KerbalStandIn:
-                    return "Kerbal";
-
-                case GameActionType.FacilityUpgrade:
-                case GameActionType.FacilityDestruction:
-                case GameActionType.FacilityRepair:
-                    return "Facility";
-
-                case GameActionType.StrategyActivate:
-                case GameActionType.StrategyDeactivate:
-                    return "Strategy";
-
-                default:
-                    return "Action";
-            }
-        }
-
         /// <summary>Human-readable description of the action.</summary>
         internal static string GetDescription(GameAction action, Game.Modes? currentMode)
         {

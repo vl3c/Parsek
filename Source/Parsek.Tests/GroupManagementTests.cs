@@ -1238,65 +1238,6 @@ namespace Parsek.Tests
             Assert.True(names.Count == 0);
         }
 
-        // ─── RecordingStore.RemoveGroupFromAll ─────────────────────────────
-
-        [Fact]
-        public void RemoveGroupFromAll_RemovesFromAllRecordings_ReturnsCount()
-        {
-            RecordingStore.AddRecordingWithTreeForTesting(new Recording
-            {
-                VesselName = "V1",
-                RecordingGroups = new List<string> { "Target", "Keep" }
-            });
-            RecordingStore.AddRecordingWithTreeForTesting(new Recording
-            {
-                VesselName = "V2",
-                RecordingGroups = new List<string> { "Target" }
-            });
-            RecordingStore.AddRecordingWithTreeForTesting(new Recording
-            {
-                VesselName = "V3",
-                RecordingGroups = new List<string> { "Other" }
-            });
-
-            int count = RecordingStore.RemoveGroupFromAll("Target");
-
-            Assert.Equal(2, count);
-            // V1 should still have "Keep"
-            Assert.Contains("Keep", RecordingStore.CommittedRecordings[0].RecordingGroups);
-            Assert.DoesNotContain("Target", RecordingStore.CommittedRecordings[0].RecordingGroups);
-            // V2 had only "Target" so RecordingGroups should be null
-            Assert.Null(RecordingStore.CommittedRecordings[1].RecordingGroups);
-            // V3 should be unaffected
-            Assert.Contains("Other", RecordingStore.CommittedRecordings[2].RecordingGroups);
-            Assert.Contains(logLines, l =>
-                l.Contains("RemoveGroupFromAll") && l.Contains("removed from 2 recordings"));
-        }
-
-        [Fact]
-        public void RemoveGroupFromAll_NoMatches_ReturnsZero()
-        {
-            RecordingStore.AddRecordingWithTreeForTesting(new Recording
-            {
-                VesselName = "V1",
-                RecordingGroups = new List<string> { "GroupA" }
-            });
-
-            int count = RecordingStore.RemoveGroupFromAll("NonExistent");
-
-            Assert.Equal(0, count);
-            // Original group should be untouched
-            Assert.Contains("GroupA", RecordingStore.CommittedRecordings[0].RecordingGroups);
-        }
-
-        [Fact]
-        public void RemoveGroupFromAll_NullGroupName_ReturnsZero()
-        {
-            int count = RecordingStore.RemoveGroupFromAll(null);
-
-            Assert.Equal(0, count);
-        }
-
         // ─── RecordingStore.ReplaceGroupOnAll ───────────────────────────────
 
         [Fact]

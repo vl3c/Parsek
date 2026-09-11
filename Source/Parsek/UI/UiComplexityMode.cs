@@ -206,7 +206,13 @@ namespace Parsek
         /// Every surface hidden in <paramref name="mode"/>. For
         /// <see cref="UiComplexityMode.Advanced"/> this is exactly the retired set
         /// (see <see cref="IsRetired"/>); before the Gloops retirement it was empty.
-        /// Consumed by the mode-change close handler (design 7.2) and by tests.
+        /// <para>Consumer: the mode-change log line
+        /// (<c>ParsekUI.FormatHiddenSurfaces</c>, printed by
+        /// <c>ApplyPendingUiComplexityModeIfAny</c>), plus the scope tests. It is NOT the
+        /// close set - that is the hand-written <c>ParsekUI.BuildGatedWindowCloseSet</c>,
+        /// which carries two entries mapping to no <see cref="UiSurface"/>; the doc comment
+        /// there explains why. This used to say "consumed by the mode-change close handler",
+        /// which was never true and left the method with no production consumer at all.</para>
         /// <para>Derived by walking the <see cref="UiSurface"/> values through
         /// <see cref="IsVisible"/> so there is exactly ONE decision point and no second
         /// list that can drift out of step with it.</para>

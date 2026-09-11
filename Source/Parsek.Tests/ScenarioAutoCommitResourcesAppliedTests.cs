@@ -208,7 +208,7 @@ namespace Parsek.Tests
             // Seed two committed milestones with non-trivial Events lists; assert the
             // seam (which is the shared path for all three auto-commit sites) does
             // not advance LastReplayedEventIndex — the exact drift that made us add
-            // a tree-scoped primitive rather than reuse MarkAllFullyApplied.
+            // a tree-scoped primitive rather than a global mark-all.
             var ms1 = MakeCommittedMilestone("mile-auto-1", 50.0, 80.0, lastReplayedIdx: 2, eventCount: 5);
             var ms2 = MakeCommittedMilestone("mile-auto-2", 90.0, 110.0, lastReplayedIdx: 0, eventCount: 3);
             MilestoneStore.AddMilestoneForTesting(ms1);

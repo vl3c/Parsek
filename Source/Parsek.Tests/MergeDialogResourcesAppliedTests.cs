@@ -26,9 +26,9 @@ namespace Parsek.Tests
     /// <para>The critical regression test is
     /// <see cref="MergeCommit_DoesNotTouchMilestoneReplayIndexes"/> — it pins the
     /// "tree-scoped, milestones untouched" contract that motivated the new
-    /// <see cref="RecordingStore.MarkTreeAsApplied"/> primitive over the existing
-    /// <see cref="RecordingStore.MarkAllFullyApplied"/> (which bumps every
-    /// milestone's <c>LastReplayedEventIndex</c>).</para>
+    /// <see cref="RecordingStore.MarkTreeAsApplied"/> primitive over a GLOBAL mark-all
+    /// (the kind that also bumps every milestone's <c>LastReplayedEventIndex</c>; the one
+    /// that existed was deleted 2026-09-11 as production-dead).</para>
     /// </summary>
     [Collection("Sequential")]
     public class MergeDialogResourcesAppliedTests : IDisposable
@@ -201,7 +201,7 @@ namespace Parsek.Tests
         public void MergeCommit_DoesNotTouchMilestoneReplayIndexes()
         {
             // Seed two committed milestones with non-trivial Events lists. If a future
-            // reviewer "simplifies" MergeCommit to call MarkAllFullyApplied instead of
+            // reviewer "simplifies" MergeCommit to a global mark-all instead of
             // MarkTreeAsApplied, those milestones' LastReplayedEventIndex would jump to
             // (Events.Count - 1) and silently mark unrelated history as fully replayed.
             // This test pins the contract.

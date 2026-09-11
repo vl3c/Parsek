@@ -506,7 +506,13 @@ namespace Parsek
                 showTestRunnerWindow = false;
                 ParsekLog.Verbose("UI", "Test runner window closed");
             }
-            GUILayout.Label("Ctrl+Shift+T to toggle from any scene", GUI.skin.label);
+            // Ctrl+Shift+T does NOT toggle THIS window: the shortcut lives on
+            // InGameTests/TestRunnerShortcut, a separate MonoBehaviour whose window
+            // ("ParsekTestRunnerGlobal") carries the same title, so pressing it while this
+            // one is open puts a SECOND identically-titled runner on screen. The old label
+            // claimed the shortcut as this window's own (finding P16).
+            GUILayout.Label("Ctrl+Shift+T opens a separate runner window, in any scene",
+                GUI.skin.label);
 
             ParsekUI.DrawResizeHandle(testRunnerWindowRect, ref isResizingTestRunnerWindow,
                 "TestRunner window");

@@ -1519,6 +1519,76 @@ namespace Parsek.Tests
             Assert.Equal("", CareerStateWindowUI.FormatMilestoneRow_Rewards(row));
         }
 
+        // catches: the Rewards column narrowing back under what a three-part reward needs.
+        // The 2026-09-11 GUI census caught this LIVE in a shipped capture
+        // (ksc-career-milestones-advanced.gui.json): at the old 180f, two three-part cells
+        // rendered 36 px tall inside a 21 px row grid - IMGUI wrapped them, and a wrapped
+        // label in a fixed-stride row overlaps its neighbours. The 7 px/char advance and the
+        // padding allowance are the same figures TooltipEchoBudgetTests uses for this font.
+        //
+        // WHERE THE VALUES COME FROM. Parsek captures whatever floats KSP passes to
+        // ProgressNode.AwardProgress (Patches/ProgressRewardPatch.cs) and stores them
+        // verbatim, so nothing on Parsek's side bounds them. KSP's own milestone path is
+        // ProgressNode.AwardProgressStandard -> FinePrint.Utilities.ProgressUtilities
+        // .WorldFirstStandardReward (decompiled, 1.12.5):
+        //   ContractDefs.Progression.<Currency>.BaseReward   80000 funds / 8 sci / 16 rep
+        //                                                    (GameData/Squad/Contracts/Contracts.cfg)
+        //   * PassiveBaseRatio (0.2)                         the milestone's share of that
+        //   * ScoreProgressType(type, body)                  <= 2.0 (the record tracks)
+        //   * OutlierMilestoneMultiplier (1.5) when outlier
+        //   * GetContract<Currency>CompletionFactor(prestige) prestige * a GameVariables asset
+        //                                                    factor * the career's reward
+        //                                                    multiplier (a difficulty slider)
+        //   * (funds only) 1 + (destinationWeight - 1) * PassiveBodyRatio (0.3)
+        // The last two factors are a PLAYER SETTING times a Unity-asset value, so there is no
+        // code-derivable maximum. The bound below is therefore a DOCUMENTED CHOICE, not a
+        // derived cap: 7 digits of funds, 4 of reputation, 4 + one decimal of science. At
+        // stock Normal the same product is about 48000 funds / 5 sci / 10 rep before the
+        // completion factor, so the funds figure still holds a ~200x reward multiplier and
+        // the other two hold more.
+        [Fact]
+        public void MilestoneRewardsColumn_HoldsAThreePartRewardOnOneLine()
+        {
+            const float AvgCharWidthPx = 7f;
+            // Cell padding: GUI.skin.label's own horizontal padding plus the horizontal
+            // group's inter-column spacing - the same 30 px allowance TooltipEchoBudgetTests
+            // makes for window chrome + box padding. Without it the 7 px/char bound is spent
+            // to the last pixel and a one-character growth wraps.
+            const float CellPaddingPx = 30f;
+
+            var row = new CareerStateWindowUI.MilestoneRow
+            {
+                FundsAwarded = 9999999f, RepAwarded = 9999f, ScienceAwarded = 9999.9f
+            };
+            string text = CareerStateWindowUI.FormatMilestoneRow_Rewards(row);
+
+            Assert.Contains("funds", text);
+            Assert.Contains("rep", text);
+            Assert.Contains("sci", text);
+            Assert.True(
+                text.Length * AvgCharWidthPx + CellPaddingPx <= CareerStateWindowUI.ColW_Rewards,
+                $"the widest three-part reward is {text.Length} chars = "
+                + $"{text.Length * AvgCharWidthPx + CellPaddingPx} px with padding, but the "
+                + $"Rewards column is {CareerStateWindowUI.ColW_Rewards} px - IMGUI will wrap "
+                + "it into a row grid that has no room for a second line");
+        }
+
+        // catches: the table growing past the window it is drawn in. Rewards is the column
+        // that moves, and widening it to fit the string above is only correct while the four
+        // milestone columns still fit the window's default width.
+        [Fact]
+        public void MilestoneColumnsFitTheCareerWindowDefaultWidth()
+        {
+            float table = CareerStateWindowUI.ColW_MilestoneUT
+                + CareerStateWindowUI.ColW_MilestoneTitle
+                + CareerStateWindowUI.ColW_Rewards
+                + CareerStateWindowUI.ColW_PendingTag;
+
+            Assert.True(table <= CareerStateWindowUI.DefaultWindowWidth - 40f,
+                $"the milestone columns total {table} px, which does not leave the window "
+                + $"chrome its room inside {CareerStateWindowUI.DefaultWindowWidth} px");
+        }
+
         [Fact]
         public void FormatMilestoneRow_Pending_EmptyWhenNotPending()
         {

@@ -440,52 +440,6 @@ namespace Parsek.Tests
             Assert.False(ParsekUI.IsPointerOverOpenWindow(true, rect, outside));
         }
 
-        [Theory]
-        [InlineData(UIMode.Flight, true)]
-        [InlineData(UIMode.KSC, true)]
-        [InlineData(UIMode.TrackingStation, false)]
-        public void CanOfferGhostOnlyDelete_MatchesSceneCompatibility(UIMode mode, bool expected)
-        {
-            Assert.Equal(expected, RecordingsTableUI.CanOfferGhostOnlyDelete(mode));
-        }
-
-        [Fact]
-        public void ParsekUI_TrackingStationCtor_ExposesReusableRecordingsAndSettingsWindows()
-        {
-            var ui = new ParsekUI(UIMode.TrackingStation);
-            try
-            {
-                Assert.NotNull(ui.GetRecordingsTableUI());
-                Assert.NotNull(ui.GetSettingsWindowUI());
-
-                Assert.False(ui.GetRecordingsTableUI().IsOpen);
-                Assert.False(ui.GetSettingsWindowUI().IsOpen);
-
-                ui.ToggleRecordingsWindow();
-                ui.ToggleSettingsWindow();
-
-                Assert.True(ui.GetRecordingsTableUI().IsOpen);
-                Assert.True(ui.GetSettingsWindowUI().IsOpen);
-            }
-            finally
-            {
-                try
-                {
-                    ui.Cleanup();
-                }
-                catch (SecurityException)
-                {
-                    // Headless xUnit can still lack Unity GUI teardown; this test only
-                    // cares about Tracking Station window wiring.
-                }
-                catch (System.MissingMethodException)
-                {
-                    // Headless xUnit can still lack Unity GUI teardown; this test only
-                    // cares about Tracking Station window wiring.
-                }
-            }
-        }
-
         private static TrajectoryPoint Point(
             double ut,
             double latitude,
