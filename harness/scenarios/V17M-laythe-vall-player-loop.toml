@@ -468,7 +468,7 @@ id = "V17M-laythe-vall-player-loop"
 #   status --short` clean:
 #     original: `shadow .*coverage=InSegment segIdx=11 treatment=TracedPath visible=True .*body=Vall`
 #     inverted: `shadow .*coverage=InSegment segIdx=11 treatment=TracedPath visible=True .*body=Eeloo`
-#   It red on EXACTLY that one element (one mismatch); saveParse PASS gating=True;
+#   It red on EXACTLY that one element (one gating mismatch); saveParse PASS gating=True;
 #   renderCompose REPORT; driverValidity allMet; anomalySweep hits=[]. DRIFT GATE,
 #   counted in the run's own KSP.log: original 238 line(s), inverted 0. This is the
 #   lane's logContracts-lens control. `2026-08-20_1941` (the pair's shared supersedeRows

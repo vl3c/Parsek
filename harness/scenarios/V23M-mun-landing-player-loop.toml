@@ -431,7 +431,7 @@ id = "V23M-mun-landing-player-loop"
 #   status --short` clean:
 #     original: `phase=MeshSpawned .*reason=ghost-created`
 #     inverted: `phase=MeshSpawned .*reason=chain-loop unit`
-#   It red on EXACTLY that one element (one mismatch); saveParse PASS gating=True;
+#   It red on EXACTLY that one element (one gating mismatch); saveParse PASS gating=True;
 #   renderCompose REPORT; driverValidity allMet; anomalySweep hits=[]. DRIFT GATE,
 #   counted in the run's own KSP.log: original 2 line(s), inverted 0. This is the lane's
 #   logContracts-lens control. `2026-08-24_2114` inverted a phase-lock CONSTRAINT token

@@ -5321,8 +5321,8 @@ RENDER TOKEN, or the spec must state why a render-token inversion is structurall
 impossible for that lane. THE RULE APPLIED (supervisor ruling 2026-09-10): EVERY required
 render LENS must have been inverted. A lane's renderComposition-window control proves its
 rendercompose lens and nothing about its logContracts destination-frame pin, so V6M
-(`2026-08-26_1840`), V14M (`2026-08-25_1052`) and V8 (`2026-08-25_1054`) stay owed on the
-logContracts lens, while V24W and V25M are discharged because their renderComposition
+(`2026-08-26_1840`), V14M (`2026-08-25_1052`) and V8 (`2026-08-25_1054`) stayed owed on the
+logContracts lens until FLOWN below, while V24W and V25M are discharged because their renderComposition
 block is their only render lens.
 
 OWED, one in-place line-anchored inversion each, tomllib-verified before launch, flown
@@ -5385,8 +5385,8 @@ lands. A control that PASSES, or whose original regex matches 0 lines in its own
 recorded here as a failed control or a drift finding, never as a discharge.
 
 FLOWN 2026-09-10, all on the wave DLL (deployed sha a0abbed1), each an in-place edit flown alone and
-reverted. Every row below read PARSEK-FAIL(expectation) with exactly one mismatch, on the inverted
-element; saveParse PASS gating=True (V13A: facets-only, the lane declares no block); and the drift gate
+reverted. Every row below read PARSEK-FAIL(expectation) with exactly one gating mismatch, on the
+inverted element; saveParse PASS gating=True (V13A: facets-only, the lane declares no block); and the drift gate
 met in the run's own KSP.log (original count / inverted count). Each run id, inversion and count is also
 in the lane's status row and in its spec-header CRITERION (b) block.
   * Destination body -> `Eeloo`: V6M `2026-09-10_1901` 20/0; V6T `_1905_a2` 2/0 (attempt 1 `_1904`
@@ -6298,8 +6298,11 @@ REMAINING PHASES.
     `rendercompose` evaluator, and on both controls every sibling verifier row
     (saveParse / anomalySweep / driverValidity / logValidate / analyzer) stayed
     PASS. SCOPE (2026-09-10): these two controls discharge each lane's
-    RENDER-COMPOSITION lens only; criterion (b)'s logContracts destination lens is
-    still owed on both and is tracked in V-PAIR-CRITERION-B-RENDER-CONTROL-DEBT.
+    RENDER-COMPOSITION lens only. Criterion (b)'s logContracts destination lens was
+    discharged on 2026-09-10 by V14M `2026-09-10_1910` (ProtoOrbitLine
+    `body=Ike` -> `body=Eeloo`, drift gate 2/0) and V8 `2026-09-10_2039` (census
+    `outsideSoi=0` -> `outsideSoi=9`, drift gate 1/0), each PARSEK-FAIL(expectation)
+    on exactly the inverted element (V-PAIR-CRITERION-B-RENDER-CONTROL-DEBT, done).
     Also measured: V14M's armed run confirmed the sticky-bit fix
     (`mapRenderTracingOn=true`, `seam-data-unavailable-tracing-off` gone) while
     its unevaluable TOTAL rose 56 -> 108 on `seam-endpoint-skipped` variance
