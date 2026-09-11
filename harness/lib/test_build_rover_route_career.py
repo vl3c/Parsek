@@ -610,14 +610,20 @@ class RoverRouteCareerSeedOverrideSpecTests(unittest.TestCase):
             if want["cmd"] == "RouteCommand":
                 self.assertEqual(want["args"]["action"], got["args"]["action"])
 
-    def test_the_spec_arms_nothing(self):
+    def test_the_spec_arms_routes_only(self):
+        """`routes` ARMED 2026-09-10 (wave package A2) off the reading run
+        `2026-09-10_1727` (completedCycles 0, skippedCycles 2, Paused 1, every
+        window as declared); `recordings.structure` stays a REPORT-ONLY reading."""
         expectations = self.spec["expectations"]
-        for label, block in (
-                ("routes", expectations.get("routes") or {}),
-                ("recordings.structure",
-                 (expectations.get("recordings") or {}).get("structure") or {})):
-            self.assertTrue(block, "RVR-17 declares no %s block at all" % label)
-            self.assertNotIn("gating", block, "RVR-17 arms its %s block" % label)
+        routes = expectations.get("routes") or {}
+        structure = (expectations.get("recordings") or {}).get("structure") or {}
+        self.assertTrue(routes, "RVR-17 declares no routes block at all")
+        self.assertTrue(structure,
+                        "RVR-17 declares no recordings.structure block at all")
+        self.assertIs(True, routes.get("gating"),
+                      "RVR-17's routes block must stay ARMED")
+        self.assertNotIn("gating", structure,
+                         "RVR-17 arms its recordings.structure block")
         self.assertNotIn("[expectations.renderComposition]", self.text)
         self.assertNotIn("ExportRenderManifest", self.text)
 

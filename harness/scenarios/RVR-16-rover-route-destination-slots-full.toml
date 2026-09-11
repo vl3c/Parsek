@@ -406,6 +406,19 @@ terminalStates = { Landed = { min = 3 }, Docked = { min = 1 } }
 branchPoints   = { Dock = { min = 1, max = 1 }, Undock = { min = 1, max = 1 } }
 
 [expectations.routes]
+# ARMED 2026-09-10 (`gating = true`, wave package A2) off the reading run
+# `2026-09-10_1726` (stock-minimal, wave DLL a0abbed1, PASS attempt 1): every declared
+# window read exactly as declared - count=1 dormant=0 stops=1 sourceRefs=2
+# completedCycles=1 skippedCycles=1 statuses={Paused:1}; measured-only
+# holdKinds={DestinationFull:1}, destinationVesselPids=['2123618197'] - so the arming
+# moved NO number. Any report-only wording below is the authoring record.
+# `recordings.structure` above stays a report-only reading. ARMED RE-FLIGHT
+# `2026-09-10_2129` (same DLL): PASS attempt 1, saveParse gating PASS, armed ['routes'],
+# no mismatch, every routes and structure facet identical to the reading. The windows
+# gate through the routes evaluator paths already inverted live (RVR-7 skippedCycles,
+# RVR-20 completedCycles, V18T statuses); the one path never inverted, the set-key
+# facet, takes its control on RVR-18.
+#
 # REPORT-ONLY, and DERIVED rather than measured: no lane had ever read this facet on
 # this fixture (RVR-2 and RVR-4 predate the block and declare none), so this is a
 # reading run for it. `stops = 1` and `sourceRefs = 2` are RVR-2's and RVR-4's measured
@@ -413,6 +426,7 @@ branchPoints   = { Dock = { min = 1, max = 1 }, Undock = { min = 1, max = 1 } }
 # lane's own two-cycle chain; `Paused` is where `blocked-then-paused` leaves the route.
 # Arming any of it is a separate decision taken after a reading run whose facets match,
 # with its own `ARMED_ALLOWLIST` entry.
+gating          = true
 count           = { min = 1, max = 1 }
 dormant         = { min = 0, max = 0 }
 stops           = { min = 1, max = 1 }

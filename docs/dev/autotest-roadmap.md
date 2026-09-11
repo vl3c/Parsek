@@ -57,9 +57,16 @@ M-A6 stack provisioner, M-B1 mission library, M-B2 ledger oracle, M-C1 seam verb
 batch 1, M-C2 EVA verbs. Status and per-module proof live in `autotest-status.md`.
 None of the items in this roadmap are blocked on a missing module.
 
-### Scenarios: 254 committed
+### Scenarios: 255 committed
 
-Re-derived 2026-09-11 on `ghost-replay-tier-b` after it merged origin/main `e673fc636`:
+Re-derived 2026-09-11 on `cheap-flights-arming` after it merged origin/main `f7141586f`:
+`ls harness/scenarios/*.toml` returns **255** files, the total `autotest-status.md`'s
+`## Test cases` header states (254 on main `f7141586f`, whose `GS-9-kerbalx-repeat-rewind`
+and `S0.12-switch-noop-discard` came in #1673; the branch adds `MC-3-better-time-warp`;
+tiers: 125 nightly, 26 daily, 104 operator, parsed from the specs' `tier` keys).
+
+The derivation before it: re-derived 2026-09-11 on `ghost-replay-tier-b` after it merged
+origin/main `e673fc636`:
 `ls harness/scenarios/*.toml` returns **254** files, the total `autotest-status.md`'s
 `## Test cases` header states (252 on main `e673fc636`, whose two GUI census specs
 `GUI-1-census-ksc` / `GUI-2-census-flight` came in #1667 / #1668; the branch adds
@@ -90,10 +97,34 @@ EVA / CL / S0.x / H22-H25 / V1 / BDOCK waves and R14's MC-1/MC-2 took it from
 55 to 68. Adding a scenario is not the same as covering a cell. Re-derive
 these rather than editing them by memory; both numbers have moved many times.
 
-### Coverage: 182 of 248 registry cells (was 83 of 241 at the baseline, 108 of 242 on 2026-08-04, 162 of 247 on 2026-09-07 before G1 / G3b closed, 163 of 248 on 2026-09-08 before the ghost-replay claim pass, 166 after chain-interaction, 171 after Stage B, 172 after the D12 rep-penalty claim, 178 after the claim-gap wave's first pass, 181 after the claim-gap wave, 182 after the ghost-replay Tier B wave)
+### Coverage: 184 of 248 registry cells (was 83 of 241 at the baseline, 108 of 242 on 2026-08-04, 162 of 247 on 2026-09-07 before G1 / G3b closed, 163 of 248 on 2026-09-08 before the ghost-replay claim pass, 166 after chain-interaction, 171 after Stage B, 172 after the D12 rep-penalty claim, 178 after the claim-gap wave's first pass, 181 after the claim-gap wave, 182 after the ghost-replay Tier B wave, 184 after wave package A2's two arming claims)
 
-Re-derived 2026-09-11 on `ghost-replay-tier-b` after it merged origin/main `e673fc636`
-(the claim-gap wave, PR #1670): `hlib.compute_coverage(specs, [], registry)` over the
+Re-derived 2026-09-11 on `cheap-flights-arming` (wave package A2) after it merged
+origin/main `f7141586f` (the claim-gap wave, PR #1670, and the ghost-replay Tier B
+wave, PR #1673): `hlib.compute_coverage(specs, [], registry)` over the 255 committed
+specs returns `values 248 covered 184 uncovered 64`. The claims are disjoint: main's 182
+plus this branch's two, D2 `proximity-cadence-bg` (`BDOCK-1-station-interceptor`) and
+D17 `better-time-warp` (`MC-3-better-time-warp`). Main `f7141586f` alone reads 182 over
+its 254 specs; the branch before this merge read 174 over its 253 (the merge adds main's
+`GS-9-kerbalx-repeat-rewind` and `S0.12-switch-noop-discard`).
+
+The branch's derivation before that merge, 2026-09-11 on `cheap-flights-arming` (wave
+package A2), after merging `origin/main` 98aa8b236 (the GUI census, +2 specs, no cell moved):
+`hlib.compute_coverage(specs, [], registry)` over its 253 committed specs returns
+`values 248 covered 174 uncovered 74`. The two cells that moved are D2
+`proximity-cadence-bg` (`BDOCK-1-station-interceptor`) and D17 `better-time-warp`
+(`MC-3-better-time-warp`), each claimed after its armed run and negative control; D2
+is 4 of 4 and D17 3 of 6. The sibling wave packages claim their own cells on their
+own branches, so the merged count is re-derived at merge.
+
+The previous derivation, 2026-09-10 on `tombstone-rep-penalty`: `hlib.compute_coverage(specs, [],
+registry)` over the 250 committed specs returns `values 248 covered 172 uncovered 76`.
+The one cell that moved is D12 `tombstone-rep-penalty` (`CL-4-refly-crew-standin`,
+claimed once the product change shipped - see the D12 row above); D12 is 7 of 10.
+
+The ghost-replay Tier B wave's derivation, 2026-09-11 on `ghost-replay-tier-b` after it
+merged origin/main `e673fc636` (the claim-gap wave, PR #1670):
+`hlib.compute_coverage(specs, [], registry)` over the
 254 committed specs returns `values 248 covered 182 uncovered 66`. The two waves'
 claims are disjoint: the claim-gap wave's nine D3 / D4 / D5 cells (below) and this
 branch's one, D1 `switch-segment-noop-discard`. Main `e673fc636` alone reads 181 over its
@@ -173,16 +204,19 @@ committed specs and `harness/coverage/registry.toml` returns exactly:
 values 248   covered 163   uncovered 85   expectedFailValues 0   xpass 0
 ```
 
-Per dimension (total / uncovered) for the CURRENT derivation above (252 specs, 181 of
-248, re-derived 2026-09-11 on `claim-gap-pass`; the retained `de5ac6112` block directly
-above it is history). The 2026-08-04 uncovered count stays in the last column so the
-delta stays legible. The D12 row caught up in the same re-derivation: CL-4's two claims
-of 2026-09-09 and 2026-09-10 had not reached this table:
+Per dimension (total / uncovered) for the CURRENT derivation above (255 specs, 184 of
+248, re-derived 2026-09-11 on `cheap-flights-arming` after its merge of origin/main
+`f7141586f`; the retained `de5ac6112` block directly above it is history). The D1 row
+moved there with the ghost-replay Tier B wave's `switch-segment-noop-discard` claim, and
+the D2 / D17 rows with wave package A2's two claims. The 2026-08-04 uncovered count stays
+in the last column so the delta stays legible. The D12 row caught up in the claim-gap
+wave's re-derivation: CL-4's two claims of 2026-09-09 and 2026-09-10 had not reached
+this table:
 
 | Dim | Subject | Total | Uncovered | Was |
 |---|---|---:|---:|---:|
-| D1 | recording lifecycle | 18 | 5 | 7 |
-| D2 | sampling | 4 | 1 | 1 |
+| D1 | recording lifecycle | 18 | 4 | 7 |
+| D2 | sampling | 4 | 0 | 1 |
 | D3 | reference frames | 7 | 2 | 4 |
 | D4 | track sections / optimizer | 12 | 0 | 6 |
 | D5 | tree topology | 12 | 3 | 7 |
@@ -197,9 +231,9 @@ of 2026-09-09 and 2026-09-10 had not reached this table:
 | D14 | bodies / scenes | 32 | 8 | 16 |
 | D15 | timeline | 1 | 1 | 1 |
 | D16 | storage / sidecars | 12 | 8 | 9 |
-| D17 | mod compatibility | 6 | 4 | 4 |
+| D17 | mod compatibility | 6 | 3 | 4 |
 | D18 | re-fly / interaction | 12 | 8 | 10 |
-| | | **248** | **67** | **134** |
+| | | **248** | **64** | **134** |
 
 The cells still uncovered in four dimensions worth naming: D9 is down to
 `load-time-sweep` alone; D10 to `harvest-provenance` (this same commit adds the
@@ -209,17 +243,20 @@ spec's `[dimensionsCovered]` still said nothing - `compute_coverage` read it as
 uncovered until now);
 D13 unchanged at `proximity-offset`, `bbox-block`, `ksc-exclusion`,
 `situation-correction`, `pid-dedup`, `terminal-orbit-safety`, `real-spawn-control`
-(the R8 residue, all self-skip-guarded); D17 unchanged at `persistent-rotation`,
-`better-time-warp`, `remotetech-commnet`, `making-history` (R14 residue).
+(the R8 residue, all self-skip-guarded); D17 at `persistent-rotation`,
+`remotetech-commnet`, `making-history` (R14 residue; `better-time-warp` claimed
+2026-09-11 by `MC-3-better-time-warp`).
 
 ### What remains, by product area (2026-09-11)
 
-Read with the register below. Seventy-three percent of the declared surface is gated
+Read with the register below. Seventy-four percent of the declared surface is gated
 and every committed lane has a green run; the residue is UNEVEN, and each thin
 dimension is thin for a different reason. Covered / total per dimension,
-re-derived 2026-09-11 on `claim-gap-pass` (252
-specs; the D3 / D4 / D5 rows moved with the claim-gap wave on 2026-09-10 / -11, and
-the D12 row with CL-4 on 2026-09-09 / -10), with what closing the rest takes:
+re-derived 2026-09-11 on `cheap-flights-arming` after its merge of origin/main
+`f7141586f` (255 specs; the D3 / D4 / D5 rows moved with the claim-gap wave on
+2026-09-10 / -11, the D1 row with the ghost-replay Tier B wave and the D2 / D17 rows
+with wave package A2 on 2026-09-11, and the D12 row with CL-4 on 2026-09-09 / -10),
+with what closing the rest takes:
 
 | Dim | Subject | Covered | What the residue is, and what closes it |
 |---|---|---:|---|
@@ -237,9 +274,9 @@ the D12 row with CL-4 on 2026-09-09 / -10), with what closing the rest takes:
 | D3 | reference frames | 5 / 7 | The claim-gap wave claimed two on 2026-09-10 (register item 3, part 0). `absolute` is on V27M, off its already-required KSC `branch=absolute` token (armed `2026-09-10_1748`, control `_1752`). `relative-anchored-nonloop` is on LT-2, off `SceneAndPatch`'s `ParsekKscRelativePlaybackUsesRecordedAnchor` post-assert probe line (armed `2026-09-10_1957`, control `_2005`; the positioner line is required as uncontrolled corroboration); that cell plays a Relative section through the production KSC positioner. H11's mapping is confirmed NO: its seven `Pipeline-Anchor` cells resolve through test seams, so they earn no D3 cell. The seams are `ResolverOverrideForTesting`, `PutAnchorForTesting` and the `RebuildFromMarker` test overload (RuntimeTests.cs:25157 / 25249 / 25749 / 25820 / 25893). Residue: `relative-loop` and `boundary-seam` have no deterministic witness, and each needs C# or a new deterministic producer. See the todo entries `D3-RELATIVE-LOOP-HAS-NO-PRODUCTION-PATH-CELL` and `D3-BOUNDARY-SEAM-HAS-NO-DETERMINISTIC-WITNESS`. |
 | D13 | spawn positioning | 4 / 11 | Where a REAL spawn lands (terrain clearance, KSC exclusion, collision, orbit safety): the in-game tests exist and self-skip on every committed fixture. Generator / fixture work (R8 residue), not spec work. |
 | D16 | storage / sidecars | 4 / 12 | Formats, safe-write, path validation. Already covered headlessly by xUnit; the registry asks for a driven lane. Low product risk; several cells could close through one save-parse lane. |
-| D17 | mod compatibility | 2 / 6 | `better-time-warp`, `making-history` have the instance and no spec (R14 residue); `persistent-rotation`, `remotetech-commnet` are source-blocked. |
+| D17 | mod compatibility | 3 / 6 | `better-time-warp` is CLAIMED since 2026-09-11 by `MC-3-better-time-warp` (an AIRLESS-body recording, because only there is the recovered warp limit consumed): reading `2026-09-10_2025` on outcome (A), armed re-flight `_2208`, negative control `_2213` (stock-minimal, red on exactly the zeroed-limit token); `making-history` is DEFINITION-blocked, not instance-blocked - Making History ships through the SquadExpansion junction on BOTH instances (todo D17-MAKING-HISTORY-NEEDS-A-DEFINITION); `persistent-rotation`, `remotetech-commnet` are source-blocked. |
 | D18 | re-fly / interaction | 4 / 12 | THE LARGEST RESIDUE and the interaction surface of the v0.9 headline feature: what happens when the player spawns a ghost as a real vessel, docks with it, and how chains link afterwards. Register item 2 (in flight) claims `committed-interaction-claiming` and `chain-tip-original-pid`; the other eight (`ghost-conversion-quicksave`, `intermediate-spawn-suppression`, `cross-tree-chain-linking`, `ghost-extension-past-endut`, `background-event-claims`, `chain-terminated-destruction-recovery`, `chain-state-rederived`, `loop-first-run-is-real`) need the same spawn-in-run driving item 2 has to build, so they are its natural follow-on wave. CI-2 closed `committed-interaction-claiming` and `chain-tip-original-pid` on 2026-09-08. |
-| D2 | sampling | 3 / 4 | `proximity-cadence-bg` (R1 residue: grep an archived B-lane log first). |
+| D2 | sampling | 4 / 4 | Done. `proximity-cadence-bg` is CLAIMED since 2026-09-11 on `BDOCK-1-station-interceptor` off its required 5.0 Hz `Sample rate changed` token (armed run `2026-09-10_2215`; negative controls offline over that log and live `_2305`). |
 | D15 | timeline | 0 / 1 | `timeline-projection`, one cell, no subject yet. |
 
 Structurally out of reach and excluded on purpose: planet -> planet transfers not
@@ -249,9 +286,11 @@ D17 mods.
 
 **Distance to done.** Register items 1-3 plus the claim passes (D6 on 2026-09-08,
 D3 / D4 / D5 by the claim-gap wave on 2026-09-10 / -11, D1 `switch-segment-noop-discard`
-by the ghost-replay Tier B wave on 2026-09-11) took the count to 182 of 248,
+by the ghost-replay Tier B wave and D2 `proximity-cadence-bg` / D17 `better-time-warp` by
+wave package A2 on 2026-09-11) took the count to 184 of 248,
 past the 175 this paragraph once projected (178 after the claim-gap wave's first pass,
-181 after the three D4 cells its make-up round flew, then the Tier B D1 cell). The realistic ceiling for UNATTENDED coverage is
+181 after the three D4 cells its make-up round flew, 182 with the Tier B D1 cell, then
+A2's two). The realistic ceiling for UNATTENDED coverage is
 85-90 percent: the
 rest is mods, manual flights and the excluded classes. Two caveats keep the number
 honest. A covered cell means a lane GATES a token about that behaviour, not that
@@ -274,7 +313,8 @@ provisioned `automation/modded-compat` and MC-1/MC-2 flew the WaterfallCompat /
 ReStockCompat categories green there, closing `waterfall-swe-fallback` and
 `restock` (plus D7 `engine-fx-waterfall-fallback`), leaving D17 at 4 of 6:
 `persistent-rotation` + `remotetech-commnet` are source-blocked, and
-`better-time-warp` / `making-history` have the instance but no committed spec.
+`better-time-warp` / `making-history` have the instance but no committed spec
+(2026-09-11: `better-time-warp` is claimed by `MC-3-better-time-warp`).
 
 The D1 cells still uncovered are ordinary player actions:
 
@@ -442,13 +482,27 @@ remains is, in order:
    and the FLIGHT variant of B27 stay reserved, not blockers.
 7. **Cheap flights and arming calls, batch them between the items above**:
    Operator item 8 (EVA-2 points-window reading run + negative control, ~64 s
-   each); H59's report-only `[expectations.routes]` reading and the promotion of
-   the other report-only route declarers; ~~the `operator -> nightly` PROMOTION
+   each; 2026-09-10: read on `2026-09-10_1720` and ARMED, armed re-flight
+   `2026-09-10_2122` PASS, negative control `2026-09-11_0133` red on exactly the inverted floor - CLOSED); H59's report-only `[expectations.routes]` reading and the promotion of
+   the other report-only route declarers (2026-09-10: RVR-8..RVR-19 read,
+   ARMED and re-flown armed, RVR-18's set-key control `2026-09-11_0249` valid; the other six (RVR-5, H58, H59,
+   B32, V26M, V26T) read green on the wave DLL and ARMED 2026-09-11; B32 / V26M /
+   V26T re-flown armed 2026-09-11 (`_0159` / `_0201` / `_0203`, PASS) with B32's two
+   controls valid (`_0206`, `_0209`), and RVR-5 / H58 / H59 re-flown armed in the
+   2026-09-11 closing round (`_0300` / `_0303` / `_0305`, PASS) - CLOSED); ~~the `operator -> nightly` PROMOTION
    calls for V18T, V20M, V20T, V25M, B29, V3C and GS-6~~ DONE 2026-09-08 (operator
    decision: all seven to nightly, B29's ~36 min and V3C's ~15 min included; the
    nightly p50 sum moves from ~6.2 h to ~7.3 h); the R1 residue windows on
-   `B1-pad-hop` and `BDOCK-1`;
-   R14's two instance-ready specs (`better-time-warp`, `making-history`).
+   `B1-pad-hop` and `BDOCK-1` (2026-09-10: both pinned from wave readings; B1's armed
+   re-flight `2026-09-10_2135` PASS, live control `2026-09-11_0252` valid; BDOCK-1 armed
+   `2026-09-10_2215` with offline and live `_2305` controls valid, D2
+   `proximity-cadence-bg` claimed);
+   R14's two instance-ready specs (`better-time-warp`, `making-history`). 2026-09-10:
+   `better-time-warp` is `MC-3-better-time-warp`, READ green on outcome (A) on
+   `2026-09-10_2025` and pinned from those bytes, then armed (`_2208` PASS) and
+   controlled (stock-minimal `_2213` red on exactly the zeroed-limit token), D17
+   `better-time-warp` claimed; `making-history` needs a cell definition first
+   (todo D17-MAKING-HISTORY-NEEDS-A-DEFINITION).
 8. **Tier D D1 residue** as filler: `switch-segment-noop-discard`, `commit-abort`
    (needs its definition first), `sub-2-point-drop`, and the R2 registry decision
    on `stop-on-switch` (still unclaimable as written; the other R2 cell,
@@ -1044,13 +1098,13 @@ admits the main recording alone:
 
 | Scenario | window | span | status |
 |---|---|---|---|
-| B1-pad-hop | {1, 6} | 5 | OPEN - not a Kerbal X; breakup-child count is documented as genuinely per-run variable, so it needs its own measurement |
+| B1-pad-hop | {1, 6} | 5 | CLOSED 2026-09-10 -> `{1, 1}` (MEASURED 1 on both wave readings `2026-09-10_1759` / `_1807`, LANDED, zero breakup-child lines: the population is the main recording, and a DOWN ending is a mission failure, never a PASS; armed re-flight `2026-09-10_2135` PASS at count 1; live negative control `2026-09-11_0252` red on exactly `recordings.count 1 < min 2` with MISSION-OK and count 1, VALID) |
 | B2-lko-ascent | {1, 8} | 7 | CLOSED -> `{7, 8}` + debris token (b2_decide: no flameout stage, so population 7; MEASURED 7 on `2026-07-25_0824`) |
 | B4-reentry-splashdown | {1, 9} | 8 | CLOSED -> `{8, 9}` + debris token (b4_decide has no flameout stage, but commands a service-stage drop on the SOLE path into B4_REENTRY; MEASURED 8 on `2026-07-25_0828`, confirming the structural derivation) |
 | B5-mun-flyby | {1, 9} | 8 | CLOSED -> `{8, 9}` + debris token (b5_decide reaches `_b5_flameout_stage`; MEASURED 8 on `2026-07-25_0643` and `_0847`) |
 | B6-minmus-flyby | {1, 9} | 8 | CLOSED -> `{8, 9}` + debris token (same `b5_decide` as B5/B7; MEASURED 8 on `2026-07-25_0636` and `_0856`, confirming the inference) |
 | B7-duna-flyby | {1, 8} | 7 | CLOSED -> `{8, 8}` + debris token (MEASURED 8 on `2026-07-25_0916_a2`; agrees with B15's pin) |
-| BDOCK-1-station-interceptor | {2, 20} | 18 | OPEN - window spans TWO trees and is commented "never tightened"; wants its own measurement |
+| BDOCK-1-station-interceptor | {2, 20} | 18 | CLOSED 2026-09-10 -> `{19, 20}` + debris token (MEASURED 19 on `2026-09-10_1815`, attributed debris 12 + mains 2 + probes 2 + dock 1 + undock 2 across both trees; max kept because every wave flight landed the fallback merge-dialog shape; armed `2026-09-10_2215` at 19, offline and live `_2305` negative controls on the D2 token valid, D2 `proximity-cadence-bg` claimed) |
 
 Every one of them would still read PASS if Parsek stopped writing child /
 debris recordings entirely. The wide MAX is defensible and deliberately
@@ -1173,6 +1227,16 @@ and are Info, but neither is structurally guaranteed the way creation is -
 destroyed on reentry inside that window ends its recording by another reason. Claiming
 on "likely" is what this section's own rule forbids. Close them by grepping an
 archived B-lane KSP.log for both tokens first.
+THAT GREP RAN 2026-09-10 (wave package A2): D5 `staging-debris-ttl` is not reachable on
+B1 or BDOCK-1 (`Debris TTL expired` in 0 of 17 BDOCK-1 and 0 of 8 B1 archives; 6 of 508
+program-wide, all intermittent - GS-7 4 of 10, B29 2 of 4), so it stays open for Tier A
+item 5; D2 `proximity-cadence-bg` is reachable on BDOCK-1 (`Sample rate changed: pid=` in
+17 of 17 archives) and is claimed only off this wave's own BDOCK-1 reading and armed
+run. Detail in the todo's R1 entry. The reading `2026-09-10_1815` measured the 5.0 Hz
+band 15 times; the token is REQUIRED on BDOCK-1 since then, and D2
+`proximity-cadence-bg` is CLAIMED there since 2026-09-11 off the armed run
+`2026-09-10_2215` (15 lines) and two negative controls, offline over that run's log and
+live `2026-09-10_2305`, each red on exactly the token inverted to 6.0 Hz (drift 15 / 0).
 Rule: one token per claimed class; never loosen a token to keep a claim.
 
 **R2. Resolve the two registry defects.** Registry-only. **STILL OPEN** -
@@ -1604,12 +1668,17 @@ read `supersedeRows 1 tombstones 1` on `2026-08-03_1834` and armed both floors o
 `_1844`; (b) ~~`route` / `loop` stay RESERVED -
 their consumers do not exist (zero committed declarers), so no evaluator was
 built for them~~ - UPDATED 2026-09-07: `route` SHIPPED 2026-09-02 as
-`[expectations.routes]` (PR #1603; declared by 21 specs - H58, H59, V18T, RVR-5,
-RVR-7, B32, V26M, V26T and the RVR-8..RVR-20 matrix; ARMED on exactly three at
-HEAD: RVR-7 (2026-09-03), RVR-20 and V18T, whose armed block passed gating with
-zero mismatches on its 2026-09-06 re-flight; V26T's block is report-only),
-so what is open in (b) is the promotion of the report-only declarers, per the
-supply-route program's machinery register; `loop` stays RESERVED by choice with
+`[expectations.routes]` (PR #1603; declared by 22 specs by a tomllib sweep - H58,
+H59, V18T, V27M, RVR-5, RVR-7, B32, V26M, V26T and the RVR-8..RVR-20 matrix; ARMED
+on RVR-7 (2026-09-03), RVR-20, V18T (whose armed block passed gating with zero
+mismatches on its 2026-09-06 re-flight) and V27M (2026-09-07), then on the twelve
+RVR-8..RVR-19 matrix lanes 2026-09-10 and on the last six (RVR-5, H58, H59, B32,
+V26M, V26T) 2026-09-11, each off its own wave reading run, wave package A2), so every
+declarer is armed, and what was open on `route` in (b) closed 2026-09-11: B32 / V26M /
+V26T re-flew armed (`_0159` / `_0201` / `_0203`), RVR-5 / H58 / H59 re-flew armed in the
+closing round (`_0300` / `_0303` / `_0305`), B32's two group-window controls `_0206` /
+`_0209` red on exactly their leaf, and RVR-18's set-key control `2026-09-11_0249` red on
+exactly the inverted pid set; `loop` stays RESERVED by choice with
 zero declarers; (c) the analyzer-PR half (TrackSection frame/anchor +
 per-recording body asserts over the analyzer's parsed model) - the .sfs surface
 deliberately does not carry those, they live in `.prec` sidecars the analyzer
@@ -1932,6 +2001,21 @@ machine-lock rework made the lock machine-wide (one lockfile for both
 instances), deliberately, because kRPC ports and the GPU are machine-global.
 Status authority for what shipped: `autotest-status.md` "Modded-compat
 instance (D17), R14".
+
+2026-09-10: `better-time-warp` got its subject. `MC-3-better-time-warp` records on
+the Parsek-stripped Mun park (`mun-park-kerbalx`) on modded-compat, because the
+recovered `timeWarpAltitudeLimits[4]` is CONSUMED only on an airless body (the
+recorder's `ReseedAltitudeState` threshold); on Kerbin it is computed and
+discarded, so a Kerbin witness would prove snapshot recovery and nothing about
+recording behavior. Its reading run `2026-09-10_2025` (after modded-compat was
+re-provisioned to the wave DLL and MC-1 / MC-2 re-flew green on it) measured outcome
+(A): BTW zeroed the Mun's live limit, the snapshot recovered 25000 m, and the recorder
+consumed it. The lane was pinned from those bytes; its armed re-flight
+`2026-09-10_2208` passed on the same lines and its stock-minimal negative control
+`2026-09-10_2213` red on exactly the zeroed-limit token (drift: reseed 2, zeroed 0), so
+D17 `better-time-warp` is claimed. `making-history`
+turned out to be a definition question rather than an instance one (todo
+D17-MAKING-HISTORY-NEEDS-A-DEFINITION).
 
 ### Tier 4: the expensive residue. Schedule, do not attempt opportunistically.
 

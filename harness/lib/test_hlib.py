@@ -8506,7 +8506,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # THE G3b RENDER-SURFACE LANE, 2026-09-07, same shape as H59 below.
         "V27M-rover-route-endpoint-substituted-map-lines.toml": "tier=operator on the calibration-discipline shape, NOT debt: reading run `2026-09-07_1858`, armed re-flight `_1902` PASS attempt 1, negative control `_1903` red on exactly the inverted `Route line build ... legs=1` token, `[expectations.routes]` GATING - roadmap gap G3b closed by it the same day; it stays operator because its subject is a liveState-patched fixture whose value is the one-off class answer (no render surface consults a rebound endpoint), not a regression floor worth a nightly slot. Claim-gap wave 2026-09-10: armed `2026-09-10_1748` + control `_1752`, D3 `absolute` claimed off its KSC `branch=absolute` token.",
         # THE D11 CENSUS LANE, 2026-09-02, same reading-run shape as the four below.
-        "H59-surface-route-map-lines.toml":        "tier=operator as a CENSUS reading run, NOT debt: roadmap Tier D item 11 (registry dimension D10) asks for a route-map-lines lane on a SURFACE route authored against the measured landed pin LANDED-TERMINAL-LOOP-HAS-NO-MAP-PRESENCE-OUTSIDE-THE-FLIGHT-SCENE rather than against V18T's orbital pins. Every token is structural or a VALUE REGEX and the two plausible outcomes (a surface route's overview line drawn, routesDrawn=1 legsDrawn>=1; or not drawn, with other= / malformed= / skippedOwned= discriminating WHY) are pre-registered in the spec header, so the flight's product is a census a human reads. It is also the first committed lane to drive EnterMapView on a route or a landed subject, which is what makes `Polyline frame:` (RC-OWN-DRAW-HALF-IS-MAP-GATED's own evidence rule) a required instrument token here. Nothing armed; what is owed is the FLIGHT, not a human review call",
+        "H59-surface-route-map-lines.toml":        "tier=operator as a CENSUS reading run, NOT debt: roadmap Tier D item 11 (registry dimension D10) asks for a route-map-lines lane on a SURFACE route authored against the measured landed pin LANDED-TERMINAL-LOOP-HAS-NO-MAP-PRESENCE-OUTSIDE-THE-FLIGHT-SCENE rather than against V18T's orbital pins. Every token is structural or a VALUE REGEX and the two plausible outcomes (a surface route's overview line drawn, routesDrawn=1 legsDrawn>=1; or not drawn, with other= / malformed= / skippedOwned= discriminating WHY) are pre-registered in the spec header, so the flight's product is a census a human reads. It is also the first committed lane to drive EnterMapView on a route or a landed subject, which is what makes `Polyline frame:` (RC-OWN-DRAW-HALF-IS-MAP-GATED's own evidence rule) a required instrument token here. UPDATED 2026-09-11: the lane has since flown discipline-complete (census `2026-09-02_0947`, armed re-flight `_1038`, a negative control on the headline draw token), and its later-added `[expectations.routes]` block had its own report-only reading on `2026-09-10_2147` (every window) and was ARMED 2026-09-11 (wave package A2); that block's armed re-flight `2026-09-11_0305` PASSED attempt 1 with gating PASS and no mismatch, so nothing is owed",
         # THE FOUR 2026-09-02 READING-RUN LANES, authored so every live-gated todo entry
         # has a driver instead of a "needs a flight" note. All four are tier=operator on
         # the calibration-discipline shape and NOT debt: each pins token SHAPES rather
@@ -9193,8 +9193,12 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # what the run reads. Neither is `pending-operator` because neither owes
         # outstanding HUMAN work - what they owe is a flight, and the derivation each
         # header carries is what makes that flight readable rather than a fishing trip.
-        "B32-interbody-route-scope.toml":    "operator by the calibration discipline; FLOWN 2026-09-02, ARMED-DISCIPLINE COMPLETE (reading run, pins tightened off it, armed re-flight PASS attempt 1, and a negative control that red PARSEK-FAIL(expectation) on exactly the seeded token). THE FIRST LANE ANYWHERE THAT HAS READ `ClassifyRouteScope = InterBody`, over the `interbody-route-recorded` harvest. It stays untagged because what it owed was an ordinary reading, not a human call, and that reading is in: the product change that made the verdict reachable (todo ROUTE-INTERBODY-SCOPE-NEVER-REACHABLE) landed in the same PR, the tokens are derived from the classifier source rather than predicted, and the two FORBIDS carry the pre-fix reading as a control the lane brings with it. Nothing is armed, so the flights confirmed without a promotion decision attached; the `[expectations.routes]` arming pass is the one still outstanding.",
-        "V26M-interbody-route-map-lines.toml": "operator by the calibration discipline; FLOWN 2026-09-02, ARMED-DISCIPLINE COMPLETE (reading run, pins tightened off it, armed re-flight PASS attempt 1, and a negative control that red PARSEK-FAIL(expectation) on exactly the seeded token). The RENDER-COMPOSITION half of G10 - the manifest census of an inter-body route line. It read `transferLegsDropped=0`, which is OUTCOME B of the two its header pre-registered: the filter RUNS but found no third-body leg, so G10's `never dropped a leg on a driven run` gap REMAINS OPEN. `[expectations.renderComposition]` stayed DECLARED BARE at that point and the arming pass was left as the human call. THAT CALL WAS TAKEN 2026-09-07 (package P16, after reading run 3 `2026-09-06_2113` PASS attempt 1 matched run 1 facet for facet): the block is ARMED on `routeLineBuilds = {min = 2}` + `routeCoDrawViolations = {max = 0}` and nothing else - no `unevaluable` ceiling, because 1065 here against V26T's 6 on the SAME fixture says that census scales with the observed population rather than with the composition. The same run ALSO closed G10's leg-drop gap: `transferDropped=2` on three consecutive runs, now pinned as a literal. The armed re-flight and the negative control are OWED.",
+        "B32-interbody-route-scope.toml":    "operator by the calibration discipline; FLOWN 2026-09-02, ARMED-DISCIPLINE COMPLETE (reading run, pins tightened off it, armed re-flight PASS attempt 1, and a negative control that red PARSEK-FAIL(expectation) on exactly the seeded token). THE FIRST LANE ANYWHERE THAT HAS READ `ClassifyRouteScope = InterBody`, over the `interbody-route-recorded` harvest. It stays untagged because what it owed was an ordinary reading, not a human call, and that reading is in: the product change that made the verdict reachable (todo ROUTE-INTERBODY-SCOPE-NEVER-REACHABLE) landed in the same PR, the tokens are derived from the classifier source rather than predicted, and the two FORBIDS carry the pre-fix reading as a control the lane brings with it. Nothing was armed at that point, so the flights confirmed without a promotion decision attached; the `[expectations.routes]` arming pass was TAKEN 2026-09-11 (wave package A2) off the reading `2026-09-10_2149`, all twelve windows as declared. Its discipline completed 2026-09-11: armed re-flight `2026-09-11_0159` PASS attempt 1, and two negative controls, each red PARSEK-FAIL(save-structure) on exactly its one leaf: `2026-09-11_0206` (connectionKinds) and `2026-09-11_0209` (a destinationBodies group window).",
+        "V26M-interbody-route-map-lines.toml": "operator by the calibration discipline; FLOWN 2026-09-02, ARMED-DISCIPLINE COMPLETE (reading run, pins tightened off it, armed re-flight PASS attempt 1, and a negative control that red PARSEK-FAIL(expectation) on exactly the seeded token). The RENDER-COMPOSITION half of G10 - the manifest census of an inter-body route line. It read `transferLegsDropped=0`, which is OUTCOME B of the two its header pre-registered: the filter RUNS but found no third-body leg, so G10's `never dropped a leg on a driven run` gap REMAINS OPEN. `[expectations.renderComposition]` stayed DECLARED BARE at that point and the arming pass was left as the human call. THAT CALL WAS TAKEN 2026-09-07 (package P16, after reading run 3 `2026-09-06_2113` PASS attempt 1 matched run 1 facet for facet): the block is ARMED on `routeLineBuilds = {min = 2}` + `routeCoDrawViolations = {max = 0}` and nothing else - no `unevaluable` ceiling, because 1065 here against V26T's 6 on the SAME fixture says that census scales with the observed population rather than with the composition. The same run ALSO closed G10's leg-drop gap: `transferDropped=2` on three consecutive runs, now pinned as a literal. The ARMED renderComposition block flew again on `2026-09-10_2151` (wave package A2; gating PASS, routeLineBuilds 2, routeCoDrawViolations 0, no mismatch); its negative control is still OWED. `[expectations.routes]` was ARMED 2026-09-11 off that same run (twelve leaves as declared); its armed re-flight `2026-09-11_0201` PASS attempt 1 (routes and renderComposition gating PASS, no mismatch), and its group windows' controls are B32's `2026-09-11_0206` / `_0209`.",
+        "V26T-interbody-route-ts-arrival.toml": "operator by the calibration discipline; FLOWN 2026-09-02, ARMED-DISCIPLINE COMPLETE (reading run, pins tightened off it, armed re-flight PASS attempt 1, and a negative control that red PARSEK-FAIL(expectation) on exactly the seeded token). V18T's tracking-station grammar on the inter-body subject. It carries ONE genuinely open question the reading run must answer rather than pass: V18T's front-door tokens (`ghostDriving=[1-9]`, `routeMissions=[1-9]`) are deliberately NOT required, because this subject's Duna route has `loopAnchorUT = -1` and has never run a cycle, so whether a never-dispatched route enters the GhostDriving selection is unmeasured - and RUN 1 ANSWERED IT: `ghostDriving=1` and `routeMissions=1` both printed, so dispatch history is NOT a precondition for a route driving a tracking-station ghost, and both tokens are REQUIRED from the armed re-flight onward. The renderComposition arming pass this lane owed was TAKEN 2026-09-07 (package P16, after reading run 3 `2026-09-06_2115` PASS attempt 1): armed on `routeLineBuilds = {min = 2}` + `routeCoDrawViolations = {max = 0}`, deliberately symmetric with V26M and with no `unevaluable` ceiling on either. The ARMED renderComposition block flew again on `2026-09-10_2153` (wave package A2; gating PASS, no mismatch; the LoadGame-REJECTED race did not occur); its negative control is still OWED. `[expectations.routes]` was ARMED 2026-09-11 off that same run (twelve leaves as declared, identical to B32 and V26M); its armed re-flight `2026-09-11_0203` PASS attempt 1 (routes and renderComposition gating PASS, no mismatch), and its group windows' controls are B32's `2026-09-11_0206` / `_0209`.",
+        # R14's better-time-warp residue, 2026-09-10 (wave package A2). The first
+        # operator-tier spec on the modded-compat instance.
+        "MC-3-better-time-warp.toml":        "tier=operator on the modded-compat instance, NOT debt: ARMED-DISCIPLINE COMPLETE 2026-09-10 - reading `2026-09-10_2025` on the pre-registered outcome (A), pinned from those bytes, armed re-flight `2026-09-10_2208` PASS attempt 1 on the same lines, and negative control `2026-09-10_2213` (`instanceProfile` -> stock-minimal in place, reverted) PARSEK-FAIL(expectation) on exactly the zeroed-limit literal with the drift gate valid (Mun reseed 2 lines, zeroed line 0). D17 `better-time-warp` is claimed off that literal. Nothing is owed; a nightly slot beside MC-1 / MC-2 is the operator's cadence call, reported rather than taken.",
         # THE TWO GUI-CENSUS LANES. Operator-tier by MECHANISM, the FORGE class rather
         # than the calibration class, and the mechanism is the HOST: both fly an
         # OPERATOR-LOCAL fixture (`fixtures/local-saves/c1-gui`) that no other machine
@@ -9205,7 +9209,6 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # produces ARE the deliverable rather than a verdict to calibrate.
         "GUI-1-census-ksc.toml": "tier=operator by MECHANISM (the FORGE class): its host is an operator-local, uncommitted fixture no clone can stage, so a cadence tier would red everywhere for a missing directory - a TERMINAL INVALID(staging), which tier_runner classifies RED. Never flown. Its host's own pre-existing analyzer findings (measured 2026-09-10: FAIL=25 RED=1, all INV2-NO-DOUBLE-COVER, on recordings months older than the lane) are handled by declaring the analyzer row REPORT-ONLY (`[expectations.analyzer] gating = false`, allowlisted in AnalyzerReportOnlyModeTests) rather than by an `[expectedFail]` quarantine - the quarantine short-circuited the whole verifier chain, so the lane's own log contracts were never evaluated at all. No human call is outstanding.",
         "GUI-2-census-flight.toml": "tier=operator by MECHANISM, identical to GUI-1's (same operator-local host, same report-only analyzer row). Never flown. The thing its first flight must be read for is a WINDOW, not the clock, and the first draft of this row had it backwards: the subject's situation reads SUB_ORBITAL, but its orbit (SMA 3621574.94, ECC 0.815, periapsis 69.55 km, apoapsis 5973.6 km, 6.400 h) is ASCENDING at load - 5469.8 km up, 1.07 h from apoapsis, and its periapsis is 69.55 km above the GROUND, so it cannot impact on this orbit at all; the situation word only reflects that periapsis sitting 0.4 km under Kerbin's 70 km atmosphere line. What can genuinely stop the lane is `op=open window=spawncontrol`: SpawnControlUI.DrawIfOpen force-closes itself on its FIRST draw with zero nearby spawn candidates, so the two-phase settle answers ERROR window-self-closed and the lane reads driver-INVALID with the cause named. The remedy there is a re-stage (the same save carries five LANDED probes, three ORBITING relays and one ORBITING probe), not a spec change. No human call is outstanding.",
-        "V26T-interbody-route-ts-arrival.toml": "operator by the calibration discipline; FLOWN 2026-09-02, ARMED-DISCIPLINE COMPLETE (reading run, pins tightened off it, armed re-flight PASS attempt 1, and a negative control that red PARSEK-FAIL(expectation) on exactly the seeded token). V18T's tracking-station grammar on the inter-body subject. It carries ONE genuinely open question the reading run must answer rather than pass: V18T's front-door tokens (`ghostDriving=[1-9]`, `routeMissions=[1-9]`) are deliberately NOT required, because this subject's Duna route has `loopAnchorUT = -1` and has never run a cycle, so whether a never-dispatched route enters the GhostDriving selection is unmeasured - and RUN 1 ANSWERED IT: `ghostDriving=1` and `routeMissions=1` both printed, so dispatch history is NOT a precondition for a route driving a tracking-station ghost, and both tokens are REQUIRED from the armed re-flight onward. The renderComposition arming pass this lane owed was TAKEN 2026-09-07 (package P16, after reading run 3 `2026-09-06_2115` PASS attempt 1): armed on `routeLineBuilds = {min = 2}` + `routeCoDrawViolations = {max = 0}`, deliberately symmetric with V26M and with no `unevaluable` ceiling on either. The armed re-flight and the negative control are OWED.",
     }
 
     def _specs(self):
@@ -9480,18 +9483,24 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                             for w in v.warnings), v.warnings)
         self.assertIn("route", hlib.RESERVED_EXPECTATION_BLOCKS)
 
-    def test_eva2_declares_the_points_block_unarmed(self):
+    def test_eva2_declares_the_points_block_armed(self):
         # Gate 12 landed REPORT-ONLY on EVA-2 (the scenario whose green
-        # `count = {min=2,max=2}` let the empty-recording defect through).
-        # UNARMED is the whole point of the landing: the window is measured
-        # from live runs BEFORE it may move a verdict, so this cell must be
-        # flipped in the same commit that arms it - alongside the allowlist
-        # below and the run ids that justify it.
+        # `count = {min=2,max=2}` let the empty-recording defect through), and
+        # its window was measured from a live run of the COMMITTED block before
+        # it could move a verdict: ARMED 2026-09-10 off
+        # `2026-09-10_1720_EVA-2-orbital-board` (largest 5, trivialRecordings 1,
+        # recordings 2, unparsed 0 - both declared windows held, no number
+        # moved). The allowlist entry below carries the run ids. The two windows
+        # are pinned here too, because the arming authorized THESE numbers.
         exp = load_spec("EVA-2-orbital-board.toml")["expectations"]
         self.assertEqual(("recordings.points",),
                          saveparse.declared_structure_blocks(exp))
-        self.assertEqual((), saveparse.armed_structure_blocks(exp))
-        self.assertFalse(saveparse.gating_armed(exp))
+        self.assertEqual(("recordings.points",),
+                         saveparse.armed_structure_blocks(exp))
+        self.assertTrue(saveparse.gating_armed(exp))
+        points = exp["recordings"]["points"]
+        self.assertEqual({"min": 2}, points["largest"])
+        self.assertEqual({"max": 1}, points["trivialRecordings"])
         # It must still ASSERT something, or it is an inert header that reports
         # nothing (the warn case) and could never be promoted from a reading.
         self.assertTrue(
@@ -10095,7 +10104,78 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # where this block has a parse, a normalisation and a bucketing
                        # step of its own between the bytes and that evaluator. Nothing
                        # is owed.
-                       "RVR-20-rover-relay-c-destination-slots-full-tank-empty.toml"}
+                       "RVR-20-rover-relay-c-destination-slots-full-tank-empty.toml",
+                       # EVA-2: `recordings.points` armed 2026-09-10 (wave package A2)
+                       # off its reading run `2026-09-10_1720_EVA-2-orbital-board` -
+                       # largest 5, trivialRecordings 1 (the pod, exactly as sized),
+                       # recordings 2, unparsed 0 - on the wave DLL a0abbed1. The
+                       # first armed points block anywhere; no number moved. Armed
+                       # re-flight `2026-09-10_2122` PASS, gating PASS on the same
+                       # numbers. Its own negative control (largest inverted to a
+                       # 99-point floor, in place, reverted) flew in the make-up
+                       # round: `2026-09-11_0133` PARSEK-FAIL(save-structure) on
+                       # exactly `recordings.points.largest 5 < min 99`. Nothing is
+                       # owed.
+                       "EVA-2-orbital-board.toml",
+                       # RVR-8..RVR-19, the supply-route matrix: `routes` armed
+                       # 2026-09-10 (wave package A2), each lane off its OWN reading
+                       # run on the wave DLL a0abbed1, flown in one `--tag matrix`
+                       # batch - RVR-10 `_1721`, RVR-11 `_1722`, RVR-12 `_1723`,
+                       # RVR-13 `_1724`, RVR-14 `_1725`, RVR-15 `_1726`, RVR-16
+                       # `_1726`, RVR-17 `_1727`, RVR-18 `_1728`, RVR-19 `_1729`,
+                       # RVR-8 `_1731`, RVR-9 `_1731`. Every declared window read as
+                       # declared, so no number moved. RVR-20, already armed, rode
+                       # the same batch as the control and read gating PASS with no
+                       # mismatch. The count, cycle and status windows share the
+                       # evaluator paths RVR-7, RVR-20 and V18T already inverted
+                       # live; the one path never inverted, the set-key facet, takes
+                       # its negative control on RVR-18. Armed re-flights, all PASS
+                       # attempt 1 with gating PASS and facets identical to the
+                       # readings: RVR-10 `_2124`, RVR-11 `_2125`, RVR-12 `_2125`,
+                       # RVR-13 `_2126`, RVR-14 `_2127`, RVR-15 `_2128`, RVR-16
+                       # `_2129`, RVR-17 `_2130`, RVR-18 `_2130`, RVR-19 `_2131`,
+                       # RVR-8 `_2133`, RVR-9 `_2134` (RVR-20 `_2132` the same).
+                       # RVR-18's set-key negative control flew in the 2026-09-11
+                       # closing round: `2026-09-11_0249` PARSEK-FAIL(save-structure)
+                       # on exactly `routes.destinationVesselPids ['2875537755'] !=
+                       # ['1']`, its own facet reading ['2875537755']. Nothing is
+                       # owed.
+                       # `recordings.structure` stays report-only on all twelve.
+                       "RVR-8-rover-relay-c-second-cycle-hold.toml",
+                       "RVR-9-rover-relay-c-surface-cadence.toml",
+                       "RVR-10-rover-relay-c-origin-empty.toml",
+                       "RVR-11-rover-relay-c-origin-partial.toml",
+                       "RVR-12-rover-relay-c-origin-cargo-missing.toml",
+                       "RVR-13-rover-relay-c-destination-full.toml",
+                       "RVR-14-rover-relay-c-destination-partial.toml",
+                       "RVR-15-rover-relay-c-destination-empty.toml",
+                       "RVR-16-rover-route-destination-slots-full.toml",
+                       "RVR-17-rover-route-career-funds-short.toml",
+                       "RVR-18-rover-route-endpoint-removed.toml",
+                       "RVR-19-rover-route-endpoint-transport-only.toml",
+                       # The last six `routes` declarers, armed 2026-09-11 (wave
+                       # package A2), each off its OWN report-only reading on the
+                       # wave DLL a0abbed1 whose facets matched every declared
+                       # window: RVR-5 `2026-09-10_2143`, H58 `_2144`, H59 `_2147`
+                       # (the block's first evaluation on a run), B32 `_2149`, V26M
+                       # `_2151`, V26T `_2153` (the three inter-body lanes read the
+                       # same twelve leaves). No number moved. Make-up round
+                       # (2026-09-11, same DLL): armed re-flights B32 `_0159`, V26M
+                       # `_0201`, V26T `_0203`, all PASS attempt 1 with gating PASS
+                       # and no mismatch; B32's two group-window negative controls
+                       # red on exactly their leaf, `_0206` connectionKinds
+                       # DockingPort and `_0209` destinationBodies Duna. Closing
+                       # round (2026-09-11, same DLL): armed re-flights RVR-5
+                       # `_0300`, H58 `_0303`, H59 `_0305`, all PASS attempt 1 with
+                       # gating PASS, no mismatch and routes facets identical to
+                       # the readings. Nothing is owed. RVR-5's
+                       # `recordings.structure` stays report-only.
+                       "RVR-5-rover-relay-eligibility.toml",
+                       "H58-route-rewind-to-launch.toml",
+                       "H59-surface-route-map-lines.toml",
+                       "B32-interbody-route-scope.toml",
+                       "V26M-interbody-route-map-lines.toml",
+                       "V26T-interbody-route-ts-arrival.toml"}
 
     def test_no_committed_spec_arms_gating(self):
         armed = []
@@ -10677,9 +10757,11 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
         # `ghostLifecycle spawned=0` - no ghost was alive in its map window at all,
         # where runs 1 and 2 each had one; filed as
         # V26M-GHOST-SPAWN-IN-MAP-WINDOW-IS-EPOCH-DEPENDENT).
-        # OWED, and named so it is not mistaken for discharged: the ARMED RE-FLIGHT
-        # of both lanes and their negative control. The arming lands in this commit
-        # with its readings cited; the discipline is not complete until those fly.
+        # The ARMED RE-FLIGHT of both flew 2026-09-10 (wave package A2: V26M
+        # `2026-09-10_2151`, V26T `2026-09-10_2153`, gating PASS, no mismatch)
+        # and again 2026-09-11 (`_0201` / `_0203`, the same).
+        # OWED, and named so it is not mistaken for discharged: their negative
+        # control; the discipline is not complete until it flies.
         "V26M-interbody-route-map-lines.toml",
         "V26T-interbody-route-ts-arrival.toml",
     }

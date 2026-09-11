@@ -15,6 +15,125 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## BDOCK1-STATION-COMMIT-READOPT-LIMBO-FALLBACK-DIALOG: after BDOCK-1's mid-mission CommitTree, the re-adopted station continuation is stashed to Limbo by the interceptor launch and surfaces as a whole-tree merge dialog over already-committed recordings [FILED 2026-09-10 by wave package A2 (`cheap-flights-arming`) off its BDOCK-1 reading run; REWRITTEN 2026-09-11 off the archive grep. The dialog is the lane's deterministic shape on every post-fix build (4 of 4 logs), reached through a CORRECT refusal; OPEN PRODUCT QUESTION narrowed to the fallback dialog's UX over committed-overlap recordings; not fixed in this wave]
+
+**What happens**, from `2026-09-10_1815_BDOCK-1-station-interceptor`'s own KSP.log (local
+21:19):
+
+1. STATION-COMMIT: the seam `CommitTree` (exec id 0003) returns OK and
+   `CommitTreeFlight: committed tree "Kerbal X"` commits the 8-recording station tree.
+2. The still-active station is re-adopted into a fresh active tree (the known CommitTree
+   re-adoption trap). 0.8 s later INT-LAUNCH's `launch_vessel` changes scene and
+   `StashActiveTreeAsPendingLimbo: stashing tree 'Kerbal X'` stashes it (8 recordings,
+   state Limbo).
+3. In the new scene, `RestoreActiveTreeFromPending: refusing to adopt fresh-rollout vessel
+   'Kerbal X'` (same craft, so the same baked pid but a different guid: the refusal is
+   correct) -> `leaving tree in Limbo` -> `[WARN][Flight] Pending tree 'Kerbal X' reached
+   OnFlightReady ... showing tree merge dialog (fallback)`, seen live by the operator as a
+   "Confirm: Merge to Timeline" dialog. OnSave then WARNs `SavePendingTreeIfAny: skipped
+   dirty sidecar save for committed-overlap recording ...` and `skipped pending tree
+   'Kerbal X'` (22 `SavePendingTreeIfAny: skipped` WARNs in the run).
+
+The mission is unaffected: it keeps flying through the input lock (MISSION-OK, count 19,
+log validation PASS on `_1815`, `_2215` and `_2305`). No other entry covers it.
+
+**Why it is deterministic, and what the older no-dialog runs were (archive grep,
+2026-09-11).** The 17 archived BDOCK-1 KSP.logs under `../logs` plus the three wave runs
+make 20 logs (`../logs/2026-09-11_0245_BDOCK-1-station-interceptor` is `_2305`'s own
+collect-logs copy, same timestamps and pids, and is not counted twice). Each falls into
+exactly one group, by what it prints after `StashActiveTreeAsPendingLimbo: stashed tree
+'Kerbal X' as Limbo`:
+
+- 2 never reached the interceptor launch (`2026-07-23_2347`, `2026-07-24_0001`: zero
+  stash lines, one commit).
+- 14 are PRE-FIX (`2026-07-24_0043` through `_1405`, every one built before commit
+  9e3538150): `FreshRollout: captured scene-entry vessel pid=<P>`, then
+  `RestoreActiveTreeFromPending: name match 'Kerbal X'`, `PID remap 3620499050` to
+  `<P>`, and `resumed recording tree 'Kerbal X' activeRec='<station rec>' ... pid=<P>`.
+  That is the old no-dialog shape, and it was a MIS-ADOPTION: the station's pending tree
+  resumed onto the freshly rolled-out interceptor (same .craft, same name, different
+  `Vessel.id`), so the interceptor's flight recorded into the station recording - the
+  INV4-PARTEVENT-PID fingerprint that flight 16 red on. The match was the secondary NAME
+  fallback, not a pid match (the recorded pid 3620499050 differed from every rollout
+  pid), and no launch-guid check sat in that loop yet.
+- 4 are POST-FIX (`2026-07-24_1501`, built at 9e3538150 itself, and the wave runs
+  `_1815`, `_2215`, `_2305`): `refusing to adopt fresh-rollout vessel 'Kerbal X'
+  pid=<P> liveGuid=<G> ... (recordedPid=3620499050, recordedGuid=97813bb6...)`, then
+  `leaving tree in Limbo`, then `showing tree merge dialog (fallback)`. The refusal line
+  was added by 9e3538150 (`QuickloadResumeMatchGuard.IsFreshRolloutCandidate`, still in
+  the restore match loop at HEAD), so each log's shape dates it independently of its
+  `git-state.txt`.
+
+So the dialog is not intermittent. It is what the corrected restore path does on this
+lane every time it reaches the interceptor launch (4 of 4; n is small, but no competing
+mechanism is left), and the old no-dialog shape was the launch-identity mis-adoption the
+fresh-rollout / launch-guid guard removed. The earlier "2 of 18" and "4 of 20" framing
+counted pre-fix logs as a second live shape; that framing is withdrawn.
+
+**The open product question, narrowed.** The refusal is correct and stays. What is open
+is the fallback dialog's UX: should the re-adopted continuation of a JUST-COMMITTED tree,
+stashed by a scene change before any new flight, surface as a whole-tree merge dialog
+over committed-overlap recordings (`recordings=8, spawnable=1`)? And what would Merge or
+Discard on that dialog do to the history that is already committed? The harness never
+answers the dialog, so neither path is measured.
+
+**Harness-side mitigation to evaluate, not taken here.** A `StopRecording` between the
+commit and INT-LAUNCH, the same answer the operator traps give for `InvokeRewindToLaunch`
+after a commit. Not done in this wave because it changes the lane's subject.
+
+**How the wave handled it.** BDOCK-1's count min was raised to 19 (attributed per
+type, every member produced before or apart from the stash) and the max kept at 20. The
+floor is MEASURED in the dialog shape only (the reading `_1815`, the armed run `_2215`
+and the live control `_2305`, 3 of 3 on the wave DLL, all logging `stashed tree 'Kerbal
+X' as Limbo (8 recording(s))` and `showing tree merge dialog (fallback)`, all passing log
+validation); the spec header says so and claims it for no other shape. No token that
+exists in only one shape (the fallback-dialog, Limbo or refusal lines) is required or
+forbidden. `_2215` and `_2305` also differ in one debris terminal (Destroyed 12 against
+Destroyed 11 + Landed 1, same count and branch points): recorded, not gated.
+
+## D17-MAKING-HISTORY-NEEDS-A-DEFINITION: the registry cell `making-history` has no subject, because Parsek has no Making-History-specific compatibility path to witness [FILED 2026-09-10 by wave package A2 (`cheap-flights-arming`) planning. A DEFINITION question for the operator, not a defect and not instance-blocked. OPEN; no experiment flight is authorized until it is answered]
+
+**What is true.** Unlike BetterTimeWarp (one concrete interaction, `StockWarpAltitudeLimits`,
+now read by `MC-3-better-time-warp`), there is no Making-History mechanism in Parsek to
+compat-test. What Parsek DOES touch when a player uses Making History content:
+
+- launch-site capture and persistence: the per-recording `launchSiteName`
+  (`RecordingTreeRecordCodec`), `FlightRecorder.ResolveLaunchSiteName` /
+  `HumanizeLaunchSiteName` (whose comment says the MH site names are already
+  human-readable), and the Verbose `Start location captured: body=..., situation=...,
+  launchSite=...` line;
+- `LedgerRolloutAdoption`'s distinct-launch-site guard (career only);
+- the fresh-launch-UT capture in `ParsekScenario`, documented as running regardless of
+  launch site (KSC pad / runway, Desert, Woomerang);
+- `GhostVisualBuilder`'s `ExtractShortTransformName` for MH multi-MODEL parts;
+- logistics KSC-origin classification: `RouteAnalysisEngine.IsKscOriginRecording` treats
+  any non-empty Kerbin `LaunchSiteName` as KSC origin, so a Desert launch counts as a
+  KSC-origin route.
+
+**Why the registry header does not fit it.** D17 says "modded-compat instance profile
+only", but Making History (and Breaking Ground) ship through the `SquadExpansion`
+JUNCTION to the dev GameData on BOTH automation instances (`stock-minimal.toml` and
+`modded-compat.toml` both junction it). So MH is not a modded-compat distinguisher.
+Measured 2026-09-10: all 14 `launchSite =` values across `harness/scenarios` are
+`"LaunchPad"`, and none of the 508 collected KSP.logs under `../logs` names
+`Desert_Launch_Site`, `Woomerang_Launch_Site` or `Desert_Airfield`. No lane has ever
+launched from an MH site, no `saveparse` facet reads `launchSiteName`, and no in-game
+test touches MH.
+
+**The question.** Which of these is the cell: (1) launch-site capture at an alt site, (2)
+the rollout-adoption distinct-site guard (a career lane), (3) KSC-origin classification of
+an alt-site launch (a route lane), or (4) ghost build of MH multi-MODEL parts? And does it
+belong to stock-minimal, since MH is present there too? Candidate subject once defined: a
+`GS-4-kerbalx-rewind-watch` clone (mission `kx_rewind_watch`, whose schema exposes
+`launchSite`) with `launchSite = "Desert_Launch_Site"`, witness
+`Start location captured: .*launchSite=` plus replay at the alt site. That is an
+experiment on a mission path never flown off-KSC (a MechJeb ascent from the Desert, with
+rollout and watcher at the same site); a mission failure there classifies driver-INVALID,
+never PARSEK-FAIL, and the site string must be pinned from bytes because
+`HumanizeLaunchSiteName` may rewrite it.
+
+---
+
 ## GS4-UNITY-CEILING-NEGCTL-VACUOUS: GS-4's LIVE `maxTotal = 0` negative control measured zero exceptions twice; the ceiling is now controlled OFFLINE, and only an opportunistic LIVE control stays open [FILED 2026-09-11 by the ghost-replay Tier B wave (`ghost-replay-tier-b`), make-up round; NARROWED 2026-09-11, closing round, supervisor ruling R3-2]
 
 **What happened.** GS-4 is armed at `[expectations.unityExceptions] maxTotal = 4`
@@ -11420,8 +11539,40 @@ KSP.log for both tokens, then claim in a follow-up. `B1-pad-hop` ({1,6}) and
 the Kerbal X so neither inherits this evidence: B1's breakup-child count is
 documented as genuinely per-run variable, and BDOCK-1's window spans two trees and
 is commented "never tightened". Both want their own measurement, not this one.
+
+**2026-09-10, the archive grep this paragraph asked for (wave package A2): D5
+`staging-debris-ttl` is NOT reachable on B1-pad-hop or BDOCK-1, and stays OPEN.**
+`Debris TTL expired, ending recording:` appears in 0 of the 17 archived BDOCK-1 KSP.logs
+and 0 of the 8 B1-pad-hop logs under `../logs`, and in only 6 of 508 archives
+program-wide: GS-7 in 4 of its 10 (`2026-09-08_1457` / `_1525` / `_1631` / `_1700`,
+absent from the six later GS-7 runs) and B29 in 2 of its 4 (`2026-08-27_1854` /
+`_1937`). It is intermittent everywhere it appears, so the claim rule forbids it on any
+of those lanes; it needs a subject where TTL expiry is structurally guaranteed (roadmap
+Tier A item 5, "debris TTL / promotion sized as two lanes"). The D2 half is different:
+`Sample rate changed: pid=` is in 17 of 17 archived BDOCK-1 logs (18 to 39 lines each),
+so `proximity-cadence-bg` IS reachable there. The archives are ground truth for TOKENS
+only; the D2 claim waits for this wave's own BDOCK-1 reading and armed run (wave ruling
+G1), and the B1 / BDOCK-1 count windows wait for theirs.
 Rule, unchanged: one token per claimed class, and never loosen a token to keep a
 claim.
+
+**2026-09-10, the readings (wave package A2).** B1-pad-hop read count 1 on both
+`2026-09-10_1759` and `_1807` (LANDED, zero breakup-child lines), so its window is
+`{1, 1}`. BDOCK-1 read 19 on `2026-09-10_1815`, attributed per type, so its min is 19
+(max kept: the reading landed the fallback merge-dialog shape, see
+BDOCK1-STATION-COMMIT-READOPT-LIMBO-FALLBACK-DIALOG), and the 5.0 Hz
+`Sample rate changed` band (15 lines) plus the debris-creation line are now REQUIRED
+there. D2 `proximity-cadence-bg` is claimed only after the armed run and its negative
+controls. D5 stays OPEN as above.
+
+**2026-09-11, armed and claimed (wave package A2).** BDOCK-1's armed run
+`2026-09-10_2215` read count 19 with the 5.0 Hz token 15 times; the offline negative
+control over its log and the live one, `2026-09-10_2305`, each red on exactly that token
+inverted to 6.0 Hz (drift 15 / 0), so D2 `proximity-cadence-bg` is CLAIMED on BDOCK-1.
+B1's armed re-flight `2026-09-10_2135` passed at count 1. Its live negative control
+`2026-09-11_0252` (2026-09-11 closing round, count inverted in place to `{2,2}`) red
+PARSEK-FAIL(expectation) on exactly `recordings.count 1 < min 2`, with the mission
+MISSION-OK and count 1, so it is valid. D5 `staging-debris-ttl` stays OPEN.
 
 **R2. Two registry cells cannot be honestly claimed as written. Decide before anyone
 claims against them.**
@@ -11672,7 +11823,11 @@ item and must not be counted as one:
   `restock` and D7 `engine-fx-waterfall-fallback` claimed. RESIDUE:
   `persistent-rotation` and `remotetech-commnet` stay source-blocked (GT-8 /
   not in the profile); `better-time-warp` and `making-history` have the
-  instance but no committed spec; the FX-fingerprint A/B diff ran REPORT-ONLY
+  instance but no committed spec (2026-09-10: `better-time-warp` now has a
+  reading lane, `MC-3-better-time-warp`, READ green on outcome (A) on
+  `2026-09-10_2025` and pinned from it, armed re-flight `_2208` PASS and negative control
+  `_2213` valid, D17 `better-time-warp` CLAIMED 2026-09-11; `making-history`
+  is definition-blocked, see D17-MAKING-HISTORY-NEEDS-A-DEFINITION); the FX-fingerprint A/B diff ran REPORT-ONLY
   and surfaced a corpus limitation filed as **T48 under TODO — Compatibility**
   (the synthetic corpus is trajectory-only for all but a handful of
   recordings, so a save-based A/B exercises ~1 engine key; a dedicated
