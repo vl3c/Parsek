@@ -2062,13 +2062,77 @@ LISTHANDLES_KIND_VALUES: Tuple[str, ...] = ("rewindpoints", "committed", "active
 # is the main window's own button order.
 UIACTION_OP_KEY = "op"
 UIACTION_OP_VALUES: Tuple[str, ...] = (
-    "open", "close", "tab", "complexity", "rect", "describe")
+    "open", "close", "tab", "complexity", "rect", "describe",
+    # The GUI-census follow-up ops. `pointer` moves the REAL OS cursor so Unity's own hit
+    # test runs (hover styles, GUI.tooltip, the tooltip echo strip, the disabled-hover
+    # echo); `find` turns a control's TEXT into a rect + centre a pointer step can chain;
+    # `expand` drives a window's own set-of-expanded-keys; `target` opens a window ON a
+    # target through its production opener instead of raising a bare IsOpen; `picker`
+    # opens a popup a ROW arms; `dialog` reports the live uGUI PopupDialog, which
+    # DumpGuiTree structurally cannot see.
+    "pointer", "find", "expand", "target", "picker", "dialog")
 UIACTION_WINDOW_KEY = "window"
 UIACTION_WINDOW_VALUES: Tuple[str, ...] = (
     "main", "missions", "timeline", "kerbals", "career", "logistics", "structure",
     "settings", "spawncontrol", "gloops", "testrunner")
 UIACTION_MODE_KEY = "mode"
 UIACTION_MODE_VALUES: Tuple[str, ...] = ("basic", "advanced")
+
+# `op=find`'s control-kind filter, mirroring TestCommandUiFind.CtrlValues, which itself
+# mirrors GuiTreeAssembler.KindName - the pinned .gui.json contract, so a spec author
+# reads one vocabulary and writes the same one.
+#
+# SPELLED `ctrl` AND NOT `kind`: VERB_SCOPED_CLOSED_ARGS allows exactly one owner verb
+# per arg key and `kind=` is already ListHandles', so a `kind=` here would be rejected
+# pre-launch as "only the ListHandles verb reads it".
+UIACTION_CTRL_KEY = "ctrl"
+UIACTION_CTRL_VALUES: Tuple[str, ...] = (
+    "window", "group", "scrollview", "layoutgroup", "label", "box", "button",
+    "repeatbutton", "toggle", "textfield", "buttongrid", "slider", "control")
+
+# `op=expand`'s direction. Absent means true (expanding is what a census asks for).
+UIACTION_STATE_KEY = "state"
+UIACTION_STATE_VALUES: Tuple[str, ...] = ("true", "false")
+
+# `op=pointer park=`. `false` is legal and means "an ordinary x/y move", so a generated
+# spec can carry the key unconditionally.
+UIACTION_PARK_KEY = "park"
+UIACTION_PARK_VALUES: Tuple[str, ...] = ("true", "false")
+
+# `op=expand key=` prefixes, per window, mirroring TestCommandUiState. A window absent
+# from this map keeps no expansion state the seam can drive, and `op=expand` against it
+# is the `expand-unsupported-window` REJECTED - so the absence is meaningful here too.
+# The `missions` row covers BOTH tabs of that one window: group folders and chain blocks
+# on the Recordings tab, vessel / leg / digest rows on the Missions tab.
+UIACTION_EXPAND_PREFIXES: Dict[str, Tuple[str, ...]] = {
+    "missions": ("group", "chain", "vessel", "leg", "digest"),
+    "logistics": ("row",),
+}
+
+# The two bulk key tokens. `all` is the affordance a census actually needs ("open every
+# group folder"), because the ids it would otherwise have to name are save-specific and
+# a committed spec cannot carry them.
+UIACTION_EXPAND_BULK_KEYS: Tuple[str, ...] = ("all", "none")
+
+# The windows each row-armed popup belongs to, mirroring
+# TestCommandUiState.TryParsePicker: `missions` takes group= (Set Parent Group) or
+# recording= (Manage Groups), `logistics` takes route= (the round-trip link picker).
+UIACTION_PICKER_ARGS: Dict[str, Tuple[str, ...]] = {
+    "missions": ("group", "recording"),
+    "logistics": ("route",),
+}
+
+# `AnswerMergeDialog dialog=`: WHICH popup the verb answers. One value today and
+# deliberately a closed SET rather than a bare default - the arg exists so the verb
+# states its target, and a value outside the set must fail pre-launch instead of
+# silently answering the merge dialog.
+#
+# The pre-switch decision dialog (MergeDialog.PreSwitchDialogName) is NOT in it: that
+# verb completes on the post-answer scene settling out of FLIGHT, and the pre-switch
+# buttons end in SetActiveVessel, which for a loaded target changes no scene at all. It
+# is reachable for INSPECTION through `UiAction op=dialog`.
+ANSWERMERGE_DIALOG_KEY = "dialog"
+ANSWERMERGE_DIALOG_VALUES: Tuple[str, ...] = ("merge",)
 
 # Per-window tab vocabularies. A window absent from this map has NO tab selector, and
 # `op=tab` against it is the seam's `window-has-no-tabs` REJECTED - which is why the
@@ -2083,12 +2147,29 @@ UIACTION_WINDOW_TABS: Dict[str, Tuple[str, ...]] = {
     "career": ("contracts", "strategies", "facilities", "milestones"),
 }
 
-# The ops that REQUIRE a `window=` arg (mirroring TestCommandUiAction.OpNeedsWindow).
-UIACTION_OPS_NEEDING_WINDOW: Tuple[str, ...] = ("open", "close", "tab", "rect")
+# The ops that REQUIRE a `window=` arg, mirroring TestCommandUiAction.OpNeedsWindow -
+# and mirrored MECHANICALLY, by a cell that reads that method's body out of the C#
+# (GuiCensusSeamVerbTests.test_the_ops_needing_a_window_mirror_the_c_sharp_predicate).
+# Without it an op added on one side alone validates as legal here and is REJECTED by
+# the seam after a whole KSP boot.
+#
+# `pointer` and `dialog` are absent BY CONSTRUCTION, not by omission: the pointer moves
+# in screen space with no window in its grammar, and the dialog report is about a uGUI
+# popup no window-table row can name.
+UIACTION_OPS_NEEDING_WINDOW: Tuple[str, ...] = (
+    "open", "close", "tab", "rect", "find", "expand", "target", "picker")
 
 # The four rect args, all REQUIRED together on `op=rect`: a partial rect mixes a
 # commanded position with a stale size, so the capture it produces is not reproducible.
+# `x` / `y` are SHARED with `op=pointer`, which takes the same client-pixel frame.
 UIACTION_RECT_KEYS: Tuple[str, ...] = ("x", "y", "w", "h")
+
+# `op=find`'s own two open-valued args (the closed `ctrl=` is a table row above).
+UIFIND_TEXT_KEY = "text"
+UIFIND_INDEX_KEY = "index"
+
+# `op=expand`'s key arg.
+UIACTION_EXPAND_KEY = "key"
 
 # CaptureScreenshot's label rule, mirroring TestCommandCaptureScreenshot.IsValidLabel -
 # the harness's own filename-safe id shape (`_ID_RE`) for the head, because the label
@@ -2254,6 +2335,152 @@ def validate_ui_action_step(index: int, step_args: Dict) -> List[str]:
             "op=%s -- the arg would be silently ignored"
             % (index, UIACTION_MODE_KEY, op))
 
+    if op == "find":
+        if step_args.get(UIFIND_TEXT_KEY) is None:
+            errors.append(
+                "driver.steps[%d].args.%s: op=find REQUIRES it; the seam answers "
+                "REJECTED find-text-arg-missing. A find with no text would answer the "
+                "first node in the window, which is never what a lane meant"
+                % (index, UIFIND_TEXT_KEY))
+        raw_index = step_args.get(UIFIND_INDEX_KEY)
+        if raw_index is not None:
+            text = str(raw_index)
+            if not text.isdigit():
+                errors.append(
+                    "driver.steps[%d].args.%s: %r must be a non-negative integer; the "
+                    "seam answers REJECTED find-index-arg-invalid"
+                    % (index, UIFIND_INDEX_KEY, text))
+    else:
+        stray = [k for k in (UIFIND_TEXT_KEY, UIFIND_INDEX_KEY, UIACTION_CTRL_KEY)
+                 if k in step_args]
+        if stray:
+            errors.append(
+                "driver.steps[%d].args: %s only mean anything on op=find, but this step "
+                "is op=%s -- they would be silently ignored"
+                % (index, ",".join(stray), op))
+
+    if op == "expand":
+        window_name = str(window) if window is not None else None
+        key = step_args.get(UIACTION_EXPAND_KEY)
+        if key is None:
+            errors.append(
+                "driver.steps[%d].args.%s: op=expand REQUIRES it (one of %s, or a "
+                "<prefix>:<value> key); the seam answers REJECTED "
+                "expand-key-arg-missing"
+                % (index, UIACTION_EXPAND_KEY,
+                   " or ".join(repr(v) for v in UIACTION_EXPAND_BULK_KEYS)))
+        elif window_name in UIACTION_WINDOW_VALUES:
+            prefixes = UIACTION_EXPAND_PREFIXES.get(window_name)
+            if not prefixes:
+                errors.append(
+                    "driver.steps[%d].args.%s: window %r keeps no expansion state the "
+                    "seam can drive, so op=expand answers REJECTED "
+                    "expand-unsupported-window. The ones that do are %s"
+                    % (index, UIACTION_EXPAND_KEY, window_name,
+                       ", ".join(sorted(UIACTION_EXPAND_PREFIXES))))
+            elif str(key) in UIACTION_EXPAND_BULK_KEYS:
+                if UIACTION_STATE_KEY in step_args:
+                    errors.append(
+                        "driver.steps[%d].args: key=%s already CARRIES its direction, so "
+                        "%s beside it either agrees redundantly or contradicts it; the "
+                        "seam answers REJECTED expand-state-with-bulk-key rather than "
+                        "letting the token win silently"
+                        % (index, str(key), UIACTION_STATE_KEY))
+            else:
+                text = str(key)
+                head = text.split(":", 1)[0] if ":" in text else None
+                if head is None or head not in prefixes or text.endswith(":"):
+                    errors.append(
+                        "driver.steps[%d].args.%s: %r must be %s or "
+                        "<prefix>:<value> with a prefix window %r keeps (%s). The "
+                        "seam's parse is fail-closed and CASE-SENSITIVE"
+                        % (index, UIACTION_EXPAND_KEY, text,
+                           " or ".join(repr(v) for v in UIACTION_EXPAND_BULK_KEYS),
+                           window_name, ",".join(prefixes)))
+    elif UIACTION_EXPAND_KEY in step_args:
+        errors.append(
+            "driver.steps[%d].args.%s: only op=expand reads it, but this step is op=%s "
+            "-- the arg would be silently ignored" % (index, UIACTION_EXPAND_KEY, op))
+    if op != "expand" and UIACTION_STATE_KEY in step_args:
+        errors.append(
+            "driver.steps[%d].args.%s: only op=expand reads it, but this step is op=%s "
+            "-- the arg would be silently ignored" % (index, UIACTION_STATE_KEY, op))
+
+    if op == "target":
+        window_name = str(window) if window is not None else None
+        if window_name is not None and window_name != "structure":
+            errors.append(
+                "driver.steps[%d].args.%s: only the 'structure' window has a targeted "
+                "opener, so op=target against %r answers REJECTED "
+                "target-unsupported-window"
+                % (index, UIACTION_WINDOW_KEY, window_name))
+        named = [k for k in ("mission", "route") if step_args.get(k) is not None]
+        if not named:
+            errors.append(
+                "driver.steps[%d].args: op=target REQUIRES exactly one of mission= or "
+                "route=; the seam answers REJECTED target-arg-missing" % index)
+        elif len(named) > 1:
+            errors.append(
+                "driver.steps[%d].args: op=target takes exactly ONE of mission= / "
+                "route= (both given). They open different lists, so the seam refuses "
+                "rather than picking: REJECTED target-arg-conflict" % index)
+
+    if op == "picker":
+        window_name = str(window) if window is not None else None
+        if window_name in UIACTION_WINDOW_VALUES:
+            allowed = UIACTION_PICKER_ARGS.get(window_name)
+            if not allowed:
+                errors.append(
+                    "driver.steps[%d].args.%s: window %r has no row-armed popup, so "
+                    "op=picker answers REJECTED picker-unsupported-window. The ones "
+                    "that do are %s"
+                    % (index, UIACTION_WINDOW_KEY, window_name,
+                       ", ".join(sorted(UIACTION_PICKER_ARGS))))
+            else:
+                named = [k for k in ("group", "recording", "route")
+                         if step_args.get(k) is not None]
+                if not named:
+                    errors.append(
+                        "driver.steps[%d].args: op=picker on window %r REQUIRES one of "
+                        "%s; the seam answers REJECTED picker-arg-missing"
+                        % (index, window_name, ",".join(allowed)))
+                elif len(named) > 1 or named[0] not in allowed:
+                    errors.append(
+                        "driver.steps[%d].args: op=picker on window %r takes exactly "
+                        "one of %s (given: %s); the seam answers REJECTED "
+                        "picker-arg-conflict"
+                        % (index, window_name, ",".join(allowed), ",".join(named)))
+
+    if op == "pointer":
+        park = step_args.get(UIACTION_PARK_KEY)
+        has_x = step_args.get("x") is not None
+        has_y = step_args.get("y") is not None
+        if park == "true":
+            if has_x or has_y:
+                errors.append(
+                    "driver.steps[%d].args: op=pointer takes park=true OR an x/y pair, "
+                    "never both; the seam answers REJECTED pointer-arg-conflict" % index)
+        elif not (has_x and has_y):
+            errors.append(
+                "driver.steps[%d].args: op=pointer REQUIRES both x= and y= (or "
+                "park=true). A lone coordinate is REJECTED pointer-arg-missing, not a "
+                "half-move" % index)
+        for key in ("x", "y"):
+            raw = step_args.get(key)
+            if raw is None:
+                continue
+            try:
+                float(str(raw))
+            except ValueError:
+                errors.append(
+                    "driver.steps[%d].args.%s: %r must be a dot-decimal number; the "
+                    "seam parses it with InvariantCulture and REJECTS anything else"
+                    % (index, key, str(raw)))
+    elif UIACTION_PARK_KEY in step_args:
+        errors.append(
+            "driver.steps[%d].args.%s: only op=pointer reads it, but this step is op=%s "
+            "-- the arg would be silently ignored" % (index, UIACTION_PARK_KEY, op))
+
     if op == "rect":
         missing = [k for k in UIACTION_RECT_KEYS if step_args.get(k) is None]
         if missing:
@@ -2274,7 +2501,12 @@ def validate_ui_action_step(index: int, step_args: Dict) -> List[str]:
                     "seam parses it with InvariantCulture and REJECTS anything else"
                     % (index, key, str(raw)))
     else:
-        stray = [k for k in UIACTION_RECT_KEYS if k in step_args]
+        # `x` / `y` are SHARED with op=pointer (the same client-pixel frame), so only
+        # `w` / `h` are rect-exclusive once pointer exists. Narrowing this list rather
+        # than special-casing op=pointer keeps the rule "these keys mean nothing on this
+        # op" true for every op at once.
+        exclusive = UIACTION_RECT_KEYS if op != "pointer" else ("w", "h")
+        stray = [k for k in exclusive if k in step_args]
         if stray:
             errors.append(
                 "driver.steps[%d].args: %s only mean anything on op=rect, but this step "
@@ -2292,6 +2524,10 @@ VERB_SCOPED_CLOSED_ARGS: Dict[str, Tuple[str, Tuple[str, ...]]] = {
     UIACTION_OP_KEY: ("UiAction", UIACTION_OP_VALUES),
     UIACTION_WINDOW_KEY: ("UiAction", UIACTION_WINDOW_VALUES),
     UIACTION_MODE_KEY: ("UiAction", UIACTION_MODE_VALUES),
+    UIACTION_CTRL_KEY: ("UiAction", UIACTION_CTRL_VALUES),
+    UIACTION_STATE_KEY: ("UiAction", UIACTION_STATE_VALUES),
+    UIACTION_PARK_KEY: ("UiAction", UIACTION_PARK_VALUES),
+    ANSWERMERGE_DIALOG_KEY: ("AnswerMergeDialog", ANSWERMERGE_DIALOG_VALUES),
 }
 
 
@@ -4288,6 +4524,10 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
         #   UiAction                   op=                 (GUI census; also REQUIRED)
         #   UiAction                   window=             (GUI census)
         #   UiAction                   mode=               (GUI census)
+        #   UiAction                   ctrl=               (GUI census ops: op=find)
+        #   UiAction                   state=              (GUI census ops: op=expand)
+        #   UiAction                   park=               (GUI census ops: op=pointer)
+        #   AnswerMergeDialog          dialog=             (GUI census ops)
         # Same three failures the isolated guard above catches -- a case-variant KEY, the
         # arg on a verb that does not read it, and a value outside the closed set --
         # caught pre-launch instead of costing a KSP boot to learn.

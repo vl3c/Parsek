@@ -39,14 +39,24 @@ namespace Parsek
         private bool isResizingRecordingsWindow;
         private bool recordingsWindowHasInputLock;
         private const string RecordingsInputLockId = "Parsek_RecordingsWindow";
+        /// <summary>
+        /// The key this window's IMGUI window id is hashed from. Named once and used at
+        /// BOTH the <c>ClickThruBlocker.GUILayoutWindow</c> call below and
+        /// <c>ParsekTestCommandAddon.ResolveWindowId</c>, which the <c>UiAction op=find</c>
+        /// seam uses to scope a captured GUI tree to THIS window's subtree. Two copies of
+        /// the literal would let the seam search the wrong window's children and answer a
+        /// plausible rect for a control in another window.
+        /// </summary>
+        internal const string WindowIdKey = "ParsekRecordings";
+
         private const float ResizeHandleSize = 16f;
         // Minimum resize width = the Recordings tab's collapsed width (Info toggled off), so the
         // window can never be dragged narrow enough to clip the Recordings table. Shared by both
         // tabs (one window, one resize clamp in DrawIfOpen -> HandleResizeDrag), so the Missions
         // tab also cannot shrink below it. C# resolves the forward const reference regardless of
         // textual order. (Expanding Info still widens the window to DefaultExpandedWindowWidth.)
-        private const float MinWindowWidth = DefaultCollapsedWindowWidth;
-        private const float MinWindowHeight = 150f;
+        internal const float MinWindowWidth = DefaultCollapsedWindowWidth;
+        internal const float MinWindowHeight = 150f;
 
         // Column widths — shared between header and body for alignment
         private const float ColW_Enable = 20f;
@@ -170,6 +180,135 @@ namespace Parsek
         // without them the API's coverage would stop at its first three lines.
         internal string PendingScrollToRecordingIdForTesting => pendingScrollToRecordingId;
         internal IReadOnlyCollection<string> ExpandedGroupsForTesting => expandedGroups;
+
+        // ----- GUI-census seam accessors (UiAction op=picker) -----
+        //
+        // The picker's two openers are wrapped HERE rather than called from the seam,
+        // because the recording one takes an INDEX into the committed list and this class
+        // is where that convention lives (the `G` button passes the draw loop's own `ri`).
+        // Resolving it in the seam would mean a second file deciding which list the index
+        // counts against, and this file is the one on the ERS allowlist.
+
+        /// <summary>Opens the "Set Parent Group" popup on a group, the way the folder row's
+        /// <c>G</c> button does. False when no such group exists.</summary>
+        internal bool TryOpenGroupPickerForGroupForTesting(string groupName)
+        {
+            if (string.IsNullOrEmpty(groupName)) return false;
+            List<string> names = EnumerateGroupNamesForTesting();
+            if (!names.Contains(groupName)) return false;
+            groupPicker.OpenForGroup(groupName, new Vector2(
+                recordingsWindowRect.x, recordingsWindowRect.y));
+            return groupPicker.IsOpen;
+        }
+
+        /// <summary>
+        /// Opens the "Manage Groups" popup on one recording, the way a recording row's
+        /// <c>G</c> button does. <paramref name="recordingId"/> may be a recording id or
+        /// the token the seam passes for "the first row", since a committed spec cannot
+        /// carry a save-specific id.
+        /// </summary>
+        internal bool TryOpenGroupPickerForRecordingForTesting(
+            string recordingId, bool takeFirst, out string resolvedId)
+        {
+            resolvedId = null;
+            IReadOnlyList<Recording> committed = RecordingStore.CommittedRecordings;
+            int index = -1;
+            for (int i = 0; i < committed.Count; i++)
+            {
+                if (committed[i] == null) continue;
+                if (takeFirst) { index = i; break; }
+                if (string.Equals(committed[i].RecordingId, recordingId, System.StringComparison.Ordinal))
+                {
+                    index = i;
+                    break;
+                }
+            }
+            if (index < 0) return false;
+            resolvedId = committed[index].RecordingId;
+            groupPicker.OpenForRecording(index, new Vector2(
+                recordingsWindowRect.x, recordingsWindowRect.y));
+            return groupPicker.IsOpen;
+        }
+
+        /// <summary>Every recording id the picker could be opened on, for the "what does
+        /// exist" reject message.</summary>
+        internal List<string> EnumerateRecordingIdsForTesting()
+        {
+            var ids = new List<string>();
+            IReadOnlyList<Recording> committed = RecordingStore.CommittedRecordings;
+            for (int i = 0; i < committed.Count; i++)
+                if (committed[i] != null && !string.IsNullOrEmpty(committed[i].RecordingId))
+                    ids.Add(committed[i].RecordingId);
+            return ids;
+        }
+
+        // ----- GUI-census seam accessors (UiAction op=expand) -----
+        //
+        // The read-only view above cannot ADD, and every leaf row in the Recordings tab is
+        // behind an expanded group: a census of a dense career photographed 16 collapsed
+        // folders and not one of the 21 body cells. These are the same writes the caret
+        // click makes (DrawGroupTree / DrawRecordingBlock), exposed so the seam can make
+        // them without synthesising input.
+
+        internal bool IsGroupExpandedForTesting(string groupName)
+            => groupName != null && expandedGroups.Contains(groupName);
+
+        internal bool SetGroupExpandedForTesting(string groupName, bool expanded)
+        {
+            if (string.IsNullOrEmpty(groupName)) return false;
+            return expanded
+                ? expandedGroups.Add(groupName)
+                : expandedGroups.Remove(groupName);
+        }
+
+        internal bool IsChainExpandedForTesting(string blockId)
+            => blockId != null && expandedChains.Contains(blockId);
+
+        internal bool SetChainExpandedForTesting(string blockId, bool expanded)
+        {
+            if (string.IsNullOrEmpty(blockId)) return false;
+            return expanded
+                ? expandedChains.Add(blockId)
+                : expandedChains.Remove(blockId);
+        }
+
+        internal int ExpandedGroupCountForTesting => expandedGroups.Count;
+
+        internal int ExpandedChainCountForTesting => expandedChains.Count;
+
+        /// <summary>Every group name the tab could draw a folder for, taken from the
+        /// PRODUCTION tree model the group picker builds - so the enumeration cannot
+        /// disagree with the tree the player sees (empty groups and hierarchy
+        /// included).</summary>
+        internal List<string> EnumerateGroupNamesForTesting()
+        {
+            GroupPickerTreeModel model = GroupPickerPresentation.BuildTreeModel(
+                RecordingStore.GetGroupNames(),
+                GroupHierarchyStore.GroupParents,
+                parentUI.KnownEmptyGroups,
+                null);
+            var names = new List<string>(model.AllNames);
+            names.Sort(System.StringComparer.Ordinal);
+            return names;
+        }
+
+        /// <summary>Every chain id that carries a chain block header. Routed through the
+        /// effective set (ERS), not the raw committed list, so a superseded segment's chain
+        /// does not appear as an expandable block that never draws.</summary>
+        internal List<string> EnumerateChainIdsForTesting()
+        {
+            var ids = new List<string>();
+            var seen = new HashSet<string>();
+            IReadOnlyList<Recording> committed = EffectiveState.ComputeERS();
+            for (int i = 0; i < committed.Count; i++)
+            {
+                string chainId = committed[i] != null ? committed[i].ChainId : null;
+                if (string.IsNullOrEmpty(chainId) || !seen.Add(chainId)) continue;
+                ids.Add(chainId);
+            }
+            ids.Sort(System.StringComparer.Ordinal);
+            return ids;
+        }
 
         /// <summary>
         /// How many tabs the tab bar draws in <paramref name="mode"/> (design 7.4). The
@@ -649,7 +788,7 @@ namespace Parsek
             try
             {
                 recordingsWindowRect = ClickThruBlocker.GUILayoutWindow(
-                    "ParsekRecordings".GetHashCode(),
+                    WindowIdKey.GetHashCode(),
                     recordingsWindowRect,
                     DrawRecordingsWindow,
                     "Parsek - Missions",

@@ -10,6 +10,32 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Automated testing: a test run can now hover, point at a control by its label, and
+  open the parts of a window that only appear after a click.** The screenshot work below
+  photographed Parsek's windows; going through every surface the mod can put on screen
+  showed that most of what was still missing needed one of three things a run could not
+  do. Some of it only appears while the mouse is resting on a control - the hover
+  highlight, the little help line at the bottom of a window, the "why is this greyed
+  out?" sentence - so a run now moves the real mouse pointer, and checks that the game
+  agreed about where it went before believing the picture. Because a window's layout
+  depends on its size, the save's contents and the interface mode, a run can also ask
+  "where is the button that says Close?" and get the answer in pixels, then point at it.
+  Some of it only appears after a click: an opened folder in the recordings list, the
+  rows under a mission, the detail panel of a supply route, the group picker, the
+  structure log for a particular mission. A run can now set the same switches those
+  clicks set, including "open everything in this window at once". And the pop-up
+  question boxes are invisible to the window recorder, so a run can now ask what pop-up
+  is on screen, what it is called and what its buttons say, take its picture, and then
+  answer it. None of this adds anything a player can see or reach in the game.
+
+  One thing was fixed along the way: resizing a window from a test run ignored the
+  window's own minimum size, which only the resize handle enforced - so the first census
+  produced a picture of the supply-route window 130 pixels narrower than any player can
+  drag it, with its columns crushed into a layout that does not exist in the game. A test
+  run now raises the size to the window's own minimum and says so, and reports each
+  window's minimum when asked for an inventory; the two windows that are wider than the
+  test screen are now honestly cut off at the edge instead.
+
 - **The pop-up asking what to do with a flight before switching vessels no longer shares
   an internal name with the merge pop-up.** They had the same one, and the automation that
   answers the merge pop-up picks its button by position - so with the switch question on

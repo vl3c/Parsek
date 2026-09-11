@@ -88,6 +88,11 @@ namespace Parsek
         private static readonly List<GuiTreeEvent> events = new List<GuiTreeEvent>(1024);
 
         private static string pendingLabel;
+
+        // Whether THIS arm writes its JSON dump. False for the UiAction op=find path, which
+        // wants the in-memory tree only. Re-armed wholesale by every ArmForNextRepaint, so
+        // a find cannot leave a dump step silently file-less.
+        private static bool pendingWriteToDisk = true;
         private static string pendingPath;
         private static int captureFrame = -1;
 
@@ -163,6 +168,15 @@ namespace Parsek
 
         /// <summary>Set once a capture has been assembled and written.</summary>
         internal static bool LastCaptureWritten { get; private set; }
+
+        /// <summary>
+        /// How many captures have been assembled this session. Bumped by every flush,
+        /// WRITTEN OR NOT, which is what makes it the completion signal for an in-memory
+        /// arm: <see cref="LastCaptureWritten"/> and <see cref="LastWrittenPath"/> stay
+        /// untouched when <c>writeToDisk</c> is false, so a caller polling those would wait
+        /// forever. A caller samples it before arming and waits for it to change.
+        /// </summary>
+        internal static int CaptureSeq { get; private set; }
 
         /// <summary>
         /// The assembled tree of the last capture, kept in memory so the live in-game
@@ -319,6 +333,26 @@ namespace Parsek
         /// </summary>
         internal static string ArmForNextRepaint(string label)
         {
+            return ArmForNextRepaint(label, writeToDisk: true);
+        }
+
+        /// <summary>
+        /// Arms the recorder, optionally WITHOUT writing the JSON dump.
+        ///
+        /// <para><c>writeToDisk: false</c> is the <c>UiAction op=find</c> path: that op
+        /// needs ONE tree in memory to resolve a control's rect, several times per census
+        /// lane, and every one of those would otherwise leave a file in the run's
+        /// <c>Screenshots/</c> folder beside the dumps a reviewer is reading. The capture
+        /// itself is identical - same funnels, same assembler, same
+        /// <see cref="LastTree"/> - so a find and a dump see the same frame, and the only
+        /// difference is the file. <see cref="CaptureSeq"/> is the completion signal in
+        /// that mode, because the written-path pair deliberately does not move.</para>
+        ///
+        /// <para>Returns the path the dump WOULD go to either way (a non-null return still
+        /// means "armed"), so the two callers share one refusal contract.</para>
+        /// </summary>
+        internal static string ArmForNextRepaint(string label, bool writeToDisk)
+        {
             // Re-resolved here rather than in ResetBuffers like the other reflection
             // probes: this one is READ before the buffers are cleared, so resetting it
             // there would leave the guard on the previous arm's binding.
@@ -341,6 +375,7 @@ namespace Parsek
             ResetBuffers();
             faultLogged = false;
             pendingLabel = safe;
+            pendingWriteToDisk = writeToDisk;
             pendingPath = ResolveOutputPath(safe);
             LastCaptureWritten = false;
             LastWrittenPath = null;
@@ -417,6 +452,9 @@ namespace Parsek
             ResetBuffers();
             pendingLabel = null;
             pendingPath = null;
+            // Back to the default so a test that armed the in-memory mode cannot leave a
+            // later dump file-less. Every arm writes it, so this is belt to those braces.
+            pendingWriteToDisk = true;
             LastWrittenPath = null;
             LastCaptureWritten = false;
             LastTree = null;
@@ -1554,24 +1592,30 @@ namespace Parsek
             LastRecordFaults = recordFaults;
             LastDroppedOverCap = droppedOverCap;
             LastMatrixNonIdentity = !matrixIsIdentity;
-            string json = GuiTreeJson.Write(header, tree);
+            // Bumped for EVERY assembled capture, written or not: it is the in-memory arm's
+            // only completion signal (see CaptureSeq).
+            CaptureSeq++;
             string path = pendingPath ?? ResolveOutputPath(header.Label);
             bool written = false;
-            try
+            if (pendingWriteToDisk)
             {
-                string dir = Path.GetDirectoryName(path);
-                if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
-                    Directory.CreateDirectory(dir);
-                File.WriteAllText(path, json);
-                written = true;
-                LastWrittenPath = path;
-                LastCaptureWritten = true;
-            }
-            catch (Exception ex)
-            {
-                ParsekLog.Error("GuiTree",
-                    "failed to write dump path=" + FormatPathForLog(path)
-                    + ": " + ex.GetType().Name + ": " + ex.Message);
+                string json = GuiTreeJson.Write(header, tree);
+                try
+                {
+                    string dir = Path.GetDirectoryName(path);
+                    if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                        Directory.CreateDirectory(dir);
+                    File.WriteAllText(path, json);
+                    written = true;
+                    LastWrittenPath = path;
+                    LastCaptureWritten = true;
+                }
+                catch (Exception ex)
+                {
+                    ParsekLog.Error("GuiTree",
+                        "failed to write dump path=" + FormatPathForLog(path)
+                        + ": " + ex.GetType().Name + ": " + ex.Message);
+                }
             }
 
             ParsekLog.Info("GuiTree",
@@ -1589,7 +1633,8 @@ namespace Parsek
                 // path, "invoke" the ECall fallback, "none" means no depths at all.
                 + " clipProbe=" + (LastClipProbeBinding ?? "unread")
                 + " written=" + (written ? "1" : "0")
-                + " path=" + FormatPathForLog(path));
+                + " seq=" + CaptureSeq.ToString(CultureInfo.InvariantCulture)
+                + " path=" + (pendingWriteToDisk ? FormatPathForLog(path) : "<in-memory>"));
 
             events.Clear();
             pendingWindows.Clear();

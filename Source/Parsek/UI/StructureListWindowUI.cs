@@ -59,6 +59,16 @@ namespace Parsek
         private GUIStyle bodyCellLabel;
 
         // Column widths (match the recordings / spawn window conventions).
+        /// <summary>
+        /// The key this window's IMGUI window id is hashed from. Named once and used at
+        /// BOTH the <c>ClickThruBlocker.GUILayoutWindow</c> call below and
+        /// <c>ParsekTestCommandAddon.ResolveWindowId</c>, which the <c>UiAction op=find</c>
+        /// seam uses to scope a captured GUI tree to THIS window's subtree. Two copies of
+        /// the literal would let the seam search the wrong window's children and answer a
+        /// plausible rect for a control in another window.
+        /// </summary>
+        internal const string WindowIdKey = "ParsekStructureList";
+
         private const float ColW_Index = 28f;    // "#" step number, 1-based
         private const float ColW_Time = 110f;
         private const float ColW_Event = 0f;     // expand
@@ -66,8 +76,8 @@ namespace Parsek
         private const float ColW_Location = 185f; // "SOI/body, biome"
         private const float ColW_Vessel = 140f;
 
-        private const float MinWindowWidth = 420f;
-        private const float MinWindowHeight = 160f;
+        internal const float MinWindowWidth = 420f;
+        internal const float MinWindowHeight = 160f;
 
         public bool IsOpen
         {
@@ -79,6 +89,18 @@ namespace Parsek
         {
             this.parentUI = parentUI;
         }
+
+        /// <summary>
+        /// How many rows the last <c>OpenFor*</c> rebuilt. The difference between the empty
+        /// chrome the first census photographed and a populated Log: <c>op=target</c>
+        /// reports it so a lane can tell "opened on a target that resolved to nothing" from
+        /// "opened on a target with 14 steps" without reading the PNG.
+        /// </summary>
+        internal int StepCountForTesting => steps != null ? steps.Count : 0;
+
+        /// <summary>Which target mode the window is in, for the same report. Empty when it
+        /// has never been opened on a target.</summary>
+        internal string TargetModeForTesting => mode.ToString();
 
         internal void OpenForMission(string treeId, string displayTitle)
         {
@@ -172,7 +194,7 @@ namespace Parsek
             try
             {
                 windowRect = ClickThruBlocker.GUILayoutWindow(
-                    "ParsekStructureList".GetHashCode(),
+                    WindowIdKey.GetHashCode(),
                     windowRect,
                     DrawWindow,
                     "Parsek - " + title,

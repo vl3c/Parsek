@@ -2254,10 +2254,34 @@ namespace Parsek.TestCommands
                 return;
             }
 
+            // WHICH dialog. Defaults to the tree merge dialog, which is what every spec
+            // written before this arg existed meant, and is a closed set rather than a bare
+            // default so a value outside it fails loudly instead of silently answering the
+            // merge dialog. The pre-switch decision dialog is deliberately NOT in the set:
+            // this verb completes on the post-answer scene settling out of FLIGHT, and that
+            // dialog's buttons end in SetActiveVessel, which for a loaded target changes no
+            // scene at all - so answering it here would time out over an answer that
+            // landed. It is reachable for inspection through UiAction op=dialog.
+            if (!TestCommandUiDialog.TryParseAnswerDialog(
+                    ArgOrNull(cmd, TestCommandUiDialog.DialogArg), out string dialogToken,
+                    out string dialogReject))
+            {
+                string raw = ArgOrNull(cmd, TestCommandUiDialog.DialogArg) ?? string.Empty;
+                ParsekLog.Warn(Tag, $"answermergedialog refused reason={dialogReject} "
+                    + $"dialog={raw}");
+                SetExecResult("REJECTED", null,
+                    $"{dialogReject} dialog={raw} "
+                    + $"valid={TestCommandUiDialog.ValidAnswerDialogNames}");
+                return;
+            }
+            string dialogName = MergeDialog.DialogName;
+            ParsekLog.Verbose(Tag, $"answermergedialog target dialog={dialogToken} "
+                + $"name={dialogName}");
+
             ParsekScenario scenario = ParsekScenario.Instance;
             bool markerLive = scenario != null && scenario.ActiveReFlySessionMarker != null;
 
-            PopupDialog popup = markerLive ? FindReFlyMergePopup() : null;
+            PopupDialog popup = markerLive ? FindPopupByName(dialogName) : null;
             if (popup == null)
             {
                 if (!markerLive)
@@ -2520,10 +2544,34 @@ namespace Parsek.TestCommands
             }
         }
 
-        // Locate the live re-fly merge popup by MergeDialog.DialogName. Returns null when no
-        // "ParsekMerge" popup is live or the reflection bind failed.
+        // Locate the live re-fly merge popup. Returns null when no popup with that name is
+        // live or the reflection bind failed.
         private static PopupDialog FindReFlyMergePopup()
         {
+            // The dispatch readiness bit and the completion re-scan both mean "the tree
+            // merge dialog": the only answerable dialog token today resolves to this name
+            // (TestCommandUiDialog.ValidAnswerDialogNames), so there is one name to look up
+            // and no per-call state to thread through the pump.
+            return FindPopupByName(MergeDialog.DialogName);
+        }
+
+        /// <summary>
+        /// The live <c>PopupDialog</c> whose <c>MultiOptionDialog</c> name is
+        /// <paramref name="dialogName"/>, or null.
+        ///
+        /// <para>SCOPED BY NAME, and that is the fix rather than a refactor.
+        /// <c>TryInvokeMergeButton</c> selects a button BY ORDER, and until the pre-switch
+        /// decision dialog got its own name (<c>MergeDialog.PreSwitchDialogName</c>) three
+        /// spawn sites shared one - so a pre-switch popup live at the moment
+        /// <c>AnswerMergeDialog</c> ran would have had its merge action invoked by a step
+        /// that believed it was concluding a re-fly. The dispatch bit narrowed the window
+        /// by also requiring a live re-fly marker, which is a correlation and not an
+        /// identity: both dialogs are reachable inside one re-fly attempt. Now the verb
+        /// looks up exactly the dialog its <c>dialog=</c> arg names.</para>
+        /// </summary>
+        private static PopupDialog FindPopupByName(string dialogName)
+        {
+            if (string.IsNullOrEmpty(dialogName)) return null;
             if (PopupDialogToDisplayField == null || MultiOptionDialogNameField == null)
                 return null;
             PopupDialog[] popups = UnityEngine.Object.FindObjectsOfType<PopupDialog>();
@@ -2533,7 +2581,7 @@ namespace Parsek.TestCommands
                 MultiOptionDialog dialog = PopupDialogToDisplayField.GetValue(popups[i]) as MultiOptionDialog;
                 if (dialog == null) continue;
                 string name = MultiOptionDialogNameField.GetValue(dialog) as string;
-                if (name == MergeDialog.DialogName) return popups[i];
+                if (name == dialogName) return popups[i];
             }
             return null;
         }

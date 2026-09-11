@@ -320,6 +320,49 @@ Both lanes are `tier = "operator"` and fly on request only. In order:
 
 6. **Copy the directory out** if the census matters (the retention pass above).
 
+### The census op vocabulary (what a coverage lane reaches for)
+
+The two lanes above photograph WINDOWS. A code-derived inventory of all 105 player-facing
+surfaces found 22 with a picture, and the rest needed either data the fixture lacked, a
+CLICK, or a surface the GUI-tree recorder cannot see at all. `UiAction` carries six further
+ops for the last two classes; the full contracts are in
+`docs/dev/design-autotest-command-seam.md` -> `#### UiAction`, and what follows is the
+authoring summary.
+
+| op | shape | what it reaches |
+|---|---|---|
+| `pointer` | `op=pointer x= y=` or `op=pointer park=true` | moves the REAL OS cursor into the client so Unity's own hit test runs: hover styles, `GUI.tooltip`, the per-window tooltip echo strip, the disabled-hover echo. `park=true` goes to the client corner so a LATER capture is hover-free |
+| `find` | `op=find window= text= [ctrl=] [index=]` | captures one in-memory GUI tree and answers a control's `x y w h cx cy`, so a spec chains `${stepN.cx}` / `${stepN.cy}` into a `pointer` step |
+| `expand` | `op=expand window=<missions\|logistics> key=<all\|none\|prefix:value> [state=]` | a window's own set-of-expanded-keys: group folders, chain blocks, mission vessel / leg / digest rows, logistics route / candidate / section rows |
+| `target` | `op=target window=structure mission=<name>` or `route=<name>` | opens the Structure window ON a target through its production opener, so it draws a populated Log instead of empty chrome |
+| `picker` | `op=picker window=missions group=<name>\|recording=<id\|first>`, or `window=logistics route=<name>` | the popups a ROW arms: "Set Parent Group", "Manage Groups", the Logistics round-trip link picker |
+| `dialog` | `op=dialog` | reports the live Parsek `PopupDialog` (`name title buttons`), which `DumpGuiTree` cannot see because a popup is uGUI |
+
+FOUR AUTHORING RULES that cost a flight if missed:
+
+- **Coordinates are CLIENT pixels, y DOWN.** The same frame the dumps' `rect` uses, so an
+  `op=find` answer drops straight into `op=pointer` with no arithmetic. Do NOT hand-write
+  coordinates read off a PNG viewer that reports y-up.
+- **A POINTER LANE MUST SAY SO IN ITS HEADER.** The op moves the operator's own cursor,
+  machine-wide; there is no way to hover without doing that. It logs an Info line on every
+  move for exactly this reason, so a run whose captures look wrong can be read back against
+  "someone was using the mouse". Park the pointer (`op=pointer park=true`) before any
+  capture that must NOT show a hover.
+- **`op=rect` now CLAMPS to the window's own minimum** and reports `clamped= minW= minH=`.
+  Command the floor outright rather than a number below it: `missions` is 1355 and
+  `logistics` 1410, both wider than the 1280 px `stock-minimal` profile, so those two
+  pictures are honestly CLIPPED. `op=describe` carries every window's floor as `w<i>min=`,
+  so read a describe before choosing a size.
+- **Ids are save-specific; `key=all` and `recording=first` are not.** A committed spec
+  cannot carry a mission id or a route id from a local fixture, so prefer the bulk forms,
+  or discover an id with `ListHandles` / `op=find` and chain it.
+
+One dialog sequence is worth spelling out, because it is the only way to photograph a
+modal: `UiAction op=dialog` (assert what is up) -> `CaptureScreenshot` (the picture) ->
+`AnswerMergeDialog choice=... [dialog=merge]` (dismiss it). Nothing between the report and
+the capture dismisses a popup, so it stands across the steps. The tree merge dialog holds
+`ControlTypes.All` while it stands, so answer it before any verb that needs input.
+
 Read the seam's own lines before reading the layout: every dump step pins
 `patched=17/17`, so a lane that goes red there is telling you a UnityEngine IMGUI funnel
 signature drifted out from under its Harmony patch - a fact about the recorder, not about

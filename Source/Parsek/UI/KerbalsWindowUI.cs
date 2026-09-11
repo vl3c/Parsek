@@ -39,10 +39,20 @@ namespace Parsek
         private Vector2 kerbalsScrollPos;
         // Internal: see CareerStateWindowUI.CareerStateInputLockId (design 7.2 close set).
         internal const string KerbalsInputLockId = "Parsek_KerbalsWindow";
-        private const float MinWindowWidth = 280f;
-        private const float MinWindowHeight = 150f;
+        internal const float MinWindowWidth = 280f;
+        internal const float MinWindowHeight = 150f;
         // Default width is half of CareerStateWindowUI.DefaultWindowWidth (820) so
         // the two windows can sit side by side on a typical 16:9 monitor.
+        /// <summary>
+        /// The key this window's IMGUI window id is hashed from. Named once and used at
+        /// BOTH the <c>ClickThruBlocker.GUILayoutWindow</c> call below and
+        /// <c>ParsekTestCommandAddon.ResolveWindowId</c>, which the <c>UiAction op=find</c>
+        /// seam uses to scope a captured GUI tree to THIS window's subtree. Two copies of
+        /// the literal would let the seam search the wrong window's children and answer a
+        /// plausible rect for a control in another window.
+        /// </summary>
+        internal const string WindowIdKey = "ParsekKerbals";
+
         private const float DefaultWindowWidth = 410f;
         private const float DefaultWindowHeight = 400f;
         private Rect lastKerbalsWindowRect;
@@ -203,7 +213,7 @@ namespace Parsek
             try
             {
                 kerbalsWindowRect = ClickThruBlocker.GUILayoutWindow(
-                    "ParsekKerbals".GetHashCode(),
+                    WindowIdKey.GetHashCode(),
                     kerbalsWindowRect,
                     DrawKerbalsWindow,
                     "Parsek - Kerbals",

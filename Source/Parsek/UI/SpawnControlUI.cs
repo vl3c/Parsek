@@ -51,6 +51,16 @@ namespace Parsek
         private Rect lastSpawnControlWindowRect;
 
         // Spawn Control column widths (matches recordings window style)
+        /// <summary>
+        /// The key this window's IMGUI window id is hashed from. Named once and used at
+        /// BOTH the <c>ClickThruBlocker.GUILayoutWindow</c> call below and
+        /// <c>ParsekTestCommandAddon.ResolveWindowId</c>, which the <c>UiAction op=find</c>
+        /// seam uses to scope a captured GUI tree to THIS window's subtree. Two copies of
+        /// the literal would let the seam search the wrong window's children and answer a
+        /// plausible rect for a control in another window.
+        /// </summary>
+        internal const string WindowIdKey = "ParsekSpawnControl";
+
         private const float SpawnColW_Name = 0f;    // expand
         private const float SpawnColW_Dist = 55f;
         private const float SpawnColW_RelSpeed = 70f;
@@ -71,8 +81,8 @@ namespace Parsek
         private Rect warpButtonRect;
 
         private const float SpacingSmall = 3f;
-        private const float MinWindowWidth = 350f;
-        private const float MinWindowHeight = 150f;
+        internal const float MinWindowWidth = 350f;
+        internal const float MinWindowHeight = 150f;
 
         public bool IsOpen
         {
@@ -160,7 +170,7 @@ namespace Parsek
             try
             {
                 spawnControlWindowRect = ClickThruBlocker.GUILayoutWindow(
-                    "ParsekSpawnControl".GetHashCode(),
+                    WindowIdKey.GetHashCode(),
                     spawnControlWindowRect,
                     (id) => DrawSpawnControlWindow(id, flight),
                     "Parsek - Real Spawn Control",

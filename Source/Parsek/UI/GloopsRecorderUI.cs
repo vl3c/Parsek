@@ -45,6 +45,16 @@ namespace Parsek
         // First-open size. The height carries the two-line help strip on top of the
         // button column and the status ladder; this window has no resize handle, so the
         // seed height is the only place that reservation can come from.
+        /// <summary>
+        /// The key this window's IMGUI window id is hashed from. Named once and used at
+        /// BOTH the <c>ClickThruBlocker.GUILayoutWindow</c> call below and
+        /// <c>ParsekTestCommandAddon.ResolveWindowId</c>, which the <c>UiAction op=find</c>
+        /// seam uses to scope a captured GUI tree to THIS window's subtree. Two copies of
+        /// the literal would let the seam search the wrong window's children and answer a
+        /// plausible rect for a control in another window.
+        /// </summary>
+        internal const string WindowIdKey = "ParsekGloopsRecorder";
+
         private const float DefaultWindowWidth = 280f;
         private const float DefaultWindowHeight = 230f;
 
@@ -92,7 +102,7 @@ namespace Parsek
             try
             {
                 windowRect = ClickThruBlocker.GUILayoutWindow(
-                    "ParsekGloopsRecorder".GetHashCode(),
+                    WindowIdKey.GetHashCode(),
                     windowRect,
                     (id) => DrawWindow(id, flight),
                     "Gloops Flight Recorder",

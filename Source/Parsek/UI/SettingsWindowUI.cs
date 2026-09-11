@@ -34,6 +34,16 @@ namespace Parsek
         private bool settingsAutoLoopEditing;
         private Rect settingsAutoLoopEditRect;
 
+        /// <summary>
+        /// The key this window's IMGUI window id is hashed from. Named once and used at
+        /// BOTH the <c>ClickThruBlocker.GUILayoutWindow</c> call below and
+        /// <c>ParsekTestCommandAddon.ResolveWindowId</c>, which the <c>UiAction op=find</c>
+        /// seam uses to scope a captured GUI tree to THIS window's subtree. Two copies of
+        /// the literal would let the seam search the wrong window's children and answer a
+        /// plausible rect for a control in another window.
+        /// </summary>
+        internal const string WindowIdKey = "ParsekSettings";
+
         private const float SpacingSmall = 3f;
         private const float SpacingLarge = 10f;
 
@@ -126,7 +136,7 @@ namespace Parsek
             try
             {
                 drawnRect = ClickThruBlocker.GUILayoutWindow(
-                    "ParsekSettings".GetHashCode(),
+                    WindowIdKey.GetHashCode(),
                     requestedRect,
                     DrawSettingsWindow,
                     "Parsek - Settings",
