@@ -71,22 +71,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void MarkAllFullyApplied_SetsCorrectIndices()
-        {
-            var rec = new Recording();
-            rec.Points.Add(new TrajectoryPoint { ut = 100 });
-            rec.Points.Add(new TrajectoryPoint { ut = 200 });
-            rec.Points.Add(new TrajectoryPoint { ut = 300 });
-            RecordingStore.AddRecordingWithTreeForTesting(rec);
-
-            var (recCount, treeCount) = RecordingStore.MarkAllFullyApplied();
-
-            Assert.Equal(1, recCount);
-            Assert.Equal(1, treeCount);
-            Assert.Equal(2, rec.LastAppliedResourceIndex); // Points.Count - 1
-        }
-
-        [Fact]
         public void CountFutureRecordings_CountsCorrectly()
         {
             var rec1 = new Recording();

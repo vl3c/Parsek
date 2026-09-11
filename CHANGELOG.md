@@ -1259,6 +1259,18 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Dev
 
+- **Seven more unused internals removed, three of them able to delete recordings.** Four
+  operations on the recording store had no caller outside their own tests - two that read
+  and DELETED a whole chain of recordings with their files, one superseded global
+  "mark everything applied" that also touched every milestone, and one that stripped a
+  folder tag from every recording. And the pre-spawn collision warning ("move vessel to
+  clear") turned out never to have been rendered by anything: the two text builders and
+  the 200 m proximity scan behind them had no caller, while the file claimed the flight
+  scene drew them. That warning is not wired up instead of deleted because there is
+  nowhere to put it - Real Spawn Control warps the clock, the spawn itself is automatic,
+  and the mod has no spawn-confirm dialog at all - so bringing it back is a feature with a
+  design decision behind it, and the file now says so where the wrong claim used to be.
+
 - **Five dead code paths removed after the GUI census named them.** A rollback switch for
   the map's overlapping-ghost path that had been hard-wired to "on" (its off branch, still
   described in the comments, could not run); a "Tracking Station" interface mode nothing

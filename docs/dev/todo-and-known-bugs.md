@@ -447,6 +447,63 @@ their recorder-fidelity preference and lands on Medium, silently. That populatio
 whoever has not opened the Settings window since the preset shipped; the setting is one
 click to restore, and nothing else in the file is touched.
 
+## ~~GUI-D9-FOUR-STORE-OPERATIONS-WITH-NO-PRODUCTION-CALLER~~: three of them destructive [FILED + FIXED 2026-09-11 by the GUI fix batch]
+
+**Evidence** (grep over `Source/`, `harness/`, `docs/`, `scripts/`; only archived `done/`
+plans and the todo register's own history mention them):
+
+- `RecordingStore.GetChainRecordings` (`:3782`) - test callers only (`ChainTests`,
+  `DockUndockChainTests`).
+- `RecordingStore.RemoveChainRecordings` (`:3813`) - test callers only
+  (`ChainTests`, `DockUndockChainTests`, `CommittedListNotificationTests`). DESTRUCTIVE:
+  deletes every recording of a chain and its sidecar files.
+- `RecordingStore.MarkAllFullyApplied` (`:5079`) - one test caller (`RewindTests`). Its
+  production caller (`ApplyRewindResourceAdjustment`) was re-pointed at the tree-scoped
+  `MarkTreeAsApplied` by the ledger lump-sum fix, precisely because the global version also
+  bumps every milestone's `LastReplayedEventIndex`.
+- `RecordingStore.RemoveGroupFromAll` (`:4522`) + its `RecordingGroupStore` implementation
+  (`:1090`) - test callers only (`GroupManagementTests`).
+
+**Fix.** All four deleted with their tests (7 cells across 5 files). Two pieces of
+surrounding documentation named them and were corrected rather than left stale: the
+committed-list notification primitive's router list in
+`RecordingStore.CommittedListNotifications.cs` (`RemoveChainRecordings` was one of the
+helpers routing through `RemoveCommittedAtWithNotifications`), and
+`RecordingGroupStore`'s "every group-mutation entry point must call
+ClearAutoAssignedStandaloneGroup" list. Two test files carry review-warning comments
+saying "do not simplify MergeCommit into a global mark-all"; those warnings still stand and
+now describe the SHAPE rather than naming a method that no longer exists.
+
+**Coverage check.** The only behaviour that leaves with them is
+`GetChainRecordings`' branch-then-index sort, which nothing else calls - its two sort-order
+cells go with it rather than being orphaned onto a different subject.
+`CommittedListNotificationTests` keeps its per-helper notification coverage for every
+REMAINING removal path (`RemoveCommittedById`, `RemoveCommittedTreeById`,
+`ClearCommittedInternal`, the optimizer and insert paths).
+
+## ~~GUI-D2-SPAWN-PROXIMITY-WARNING-WAS-NEVER-RENDERED~~: two player-facing strings, a detector behind them, and a class header claiming somebody drew them [FILED + FIXED 2026-09-11 by the GUI fix batch]
+
+**Evidence.** `SpawnWarningUI.ShouldShowWarning` (`:23`) and `FormatWarningText` (`:40`)
+had exactly one caller between them, `Source/Parsek.Tests/SpawnWarningUITests.cs`, and
+`SpawnCollisionDetector.CheckWarningProximity` (`:973`) - the 200 m proximity scan that
+would feed them - had none at all. The file header claimed "OnGUI rendering is handled by
+ParsekFlight" (`:8`). It is not: grep returns no ParsekFlight reference to either. So the
+pre-spawn collision warning a player would most want ("Spawn BLOCKED -- {name} overlaps,
+move vessel to clear") does not exist in game and never did.
+
+**Decision: DELETE, not wire.** The triage's rule was to wire it into "SpawnControlUI's
+spawn confirm" if the header said the warning is shown before a spawn, and to delete it
+otherwise. Reading the header: it makes a claim about WHO RENDERS (ParsekFlight), and that
+claim is false. Reading the window: there is no spawn confirm to wire into.
+`UI/SpawnControlUI.cs` is a warp window - its row buttons call `WarpToRecordingEnd` /
+`WarpToDeparture` and the spawn itself happens automatically later - and a grep for
+`PopupDialog.SpawnPopupDialog` over `Source/Parsek/` finds no spawn-confirm dialog
+anywhere. Wiring would also need a per-candidate FUTURE spawn world position computed per
+frame, which the window does not have (its `distance` is to the player's vessel, not to the
+spawn point). That is a feature with a surface decision behind it, not a wiring job. All
+three methods deleted with their tests; the class header now says what is true and records
+why the warning is absent, so the next reader does not re-derive this from scratch.
+
 ---
 
 ## BDOCK1-STATION-COMMIT-READOPT-LIMBO-FALLBACK-DIALOG: after BDOCK-1's mid-mission CommitTree, the re-adopted station continuation is stashed to Limbo by the interceptor launch and surfaces as a whole-tree merge dialog over already-committed recordings [FILED 2026-09-10 by wave package A2 (`cheap-flights-arming`) off its BDOCK-1 reading run; REWRITTEN 2026-09-11 off the archive grep. The dialog is the lane's deterministic shape on every post-fix build (4 of 4 logs), reached through a CORRECT refusal; OPEN PRODUCT QUESTION narrowed to the fallback dialog's UX over committed-overlap recordings; not fixed in this wave]

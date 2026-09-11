@@ -152,51 +152,6 @@ namespace Parsek.Tests
 
         #endregion
 
-        #region GetChainRecordings sort order
-
-        [Fact]
-        public void GetChainRecordings_SortsByBranchThenIndex()
-        {
-            // Add in scrambled order
-            var rec1 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 300), "B1-Idx1");
-            Assert.NotNull(rec1);
-            rec1.ChainId = "sort-chain";
-            rec1.ChainIndex = 1;
-            rec1.ChainBranch = 1;
-            RecordingStore.CommitRecordingDirect(rec1);
-
-            var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "B0-Idx1");
-            Assert.NotNull(rec2);
-            rec2.ChainId = "sort-chain";
-            rec2.ChainIndex = 1;
-            rec2.ChainBranch = 0;
-            RecordingStore.CommitRecordingDirect(rec2);
-
-            var rec3 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "B0-Idx0");
-            Assert.NotNull(rec3);
-            rec3.ChainId = "sort-chain";
-            rec3.ChainIndex = 0;
-            rec3.ChainBranch = 0;
-            RecordingStore.CommitRecordingDirect(rec3);
-
-            var chain = RecordingStore.GetChainRecordings("sort-chain");
-            Assert.NotNull(chain);
-            Assert.Equal(3, chain.Count);
-
-            // Branch 0 first, sorted by index
-            Assert.Equal(0, chain[0].ChainBranch);
-            Assert.Equal(0, chain[0].ChainIndex);
-
-            Assert.Equal(0, chain[1].ChainBranch);
-            Assert.Equal(1, chain[1].ChainIndex);
-
-            // Branch 1 last
-            Assert.Equal(1, chain[2].ChainBranch);
-            Assert.Equal(1, chain[2].ChainIndex);
-        }
-
-        #endregion
-
         #region ValidateChains with branches
 
         [Fact]
@@ -646,44 +601,6 @@ namespace Parsek.Tests
             // Actually undockSiblingPid check comes first, so it returns UndockSwitch.
             var result = FlightRecorder.DecideOnVesselSwitch(100, 200, true, true, undockSiblingPid: 200);
             Assert.Equal(FlightRecorder.VesselSwitchDecision.UndockSwitch, result);
-        }
-
-        #endregion
-
-        #region RemoveChainRecordings with branches
-
-        [Fact]
-        public void RemoveChainRecordings_RemovesAllBranches()
-        {
-            var rec1 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 100), "B0-0");
-            Assert.NotNull(rec1);
-            rec1.ChainId = "remove-branch";
-            rec1.ChainIndex = 0;
-            rec1.ChainBranch = 0;
-            RecordingStore.CommitRecordingDirect(rec1);
-
-            var rec2 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "B0-1");
-            Assert.NotNull(rec2);
-            rec2.ChainId = "remove-branch";
-            rec2.ChainIndex = 1;
-            rec2.ChainBranch = 0;
-            RecordingStore.CommitRecordingDirect(rec2);
-
-            var rec3 = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 200), "B1-1");
-            Assert.NotNull(rec3);
-            rec3.ChainId = "remove-branch";
-            rec3.ChainIndex = 1;
-            rec3.ChainBranch = 1;
-            RecordingStore.CommitRecordingDirect(rec3);
-
-            var standaloneRec = RecordingStore.CreateRecordingFromFlightData(MakePoints(3, 300), "Standalone");
-            Assert.NotNull(standaloneRec);
-            RecordingStore.CommitRecordingDirect(standaloneRec);
-
-            RecordingStore.RemoveChainRecordings("remove-branch");
-
-            Assert.Single(RecordingStore.CommittedRecordings);
-            Assert.Equal("Standalone", RecordingStore.CommittedRecordings[0].VesselName);
         }
 
         #endregion

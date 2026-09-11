@@ -7,7 +7,7 @@ namespace Parsek.Tests
 {
     /// <summary>
     /// Tests for <see cref="SpawnCollisionDetector"/> pure static methods.
-    /// KSP-runtime methods (CheckOverlapAgainstLoadedVessels, CheckWarningProximity)
+    /// KSP-runtime methods (CheckOverlapAgainstLoadedVessels)
     /// are not testable here — they depend on FlightGlobals. The pure methods
     /// they delegate to are fully covered.
     /// </summary>
