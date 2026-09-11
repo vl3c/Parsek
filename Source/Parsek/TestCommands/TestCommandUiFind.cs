@@ -266,8 +266,12 @@ namespace Parsek.TestCommands
             return true;
         }
 
-        /// <summary>Centre of a rect, in the same client frame, rounded to the whole pixel
-        /// a cursor actually lands on.</summary>
+        /// <summary>Centre of a rect, in the same client frame. EXACT, not rounded - the
+        /// doc said "rounded to the whole pixel a cursor actually lands on" and the body
+        /// never did. The whole-pixel step happens ONCE, at payload time, where
+        /// <see cref="BuildPayload"/> formats <c>cx</c> / <c>cy</c> with <c>"F0"</c>, so
+        /// the chained <c>op=pointer</c> receives the rounded value the wire carries and
+        /// nothing rounds twice.</summary>
         internal static void CentreOf(UiFindCandidate c, out float cx, out float cy)
         {
             cx = c.X + c.W * 0.5f;

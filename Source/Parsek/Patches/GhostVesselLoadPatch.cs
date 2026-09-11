@@ -323,7 +323,14 @@ namespace Parsek.Patches
             // we reposition immediately after using the same approach as stock.
             currentGhostMenu = PopupDialog.SpawnPopupDialog(
                 Vector2.zero, Vector2.zero,
-                new MultiOptionDialog("GhostIconMenu", "", vesselName,
+                // The name carries the "Parsek" prefix BY CONTRACT, not by convention:
+                // TestCommandUiDialog.IsParsekDialogName is how UiAction op=dialog finds
+                // the live Parsek popup, and it scans by that prefix rather than by a
+                // hand-kept list of spawn sites. Under the old bare "GhostIconMenu" this
+                // modal was invisible to the census - op=dialog answered open=false over
+                // a popup standing on screen. Guarded by
+                // ParsekDialogNamePrefixSourceGateTests.
+                new MultiOptionDialog("ParsekGhostIconMenu", "", vesselName,
                     HighLogic.UISkin, 160f, options),
                 persistAcrossScenes: false, skin: HighLogic.UISkin);
 

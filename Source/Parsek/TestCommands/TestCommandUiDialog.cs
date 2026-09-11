@@ -64,9 +64,12 @@ namespace Parsek.TestCommands
         internal static string ValidAnswerDialogNames => MergeDialogToken;
 
         /// <summary>The prefix a Parsek-owned <c>MultiOptionDialog</c> name carries.
-        /// <c>op=dialog</c> scans by it rather than by a hand-kept list of the 21 spawn
-        /// sites: a list would go stale the first time a dialog was added, and the failure
-        /// mode of a stale list is "no dialog open" over a live modal.</summary>
+        /// <c>op=dialog</c> scans by it rather than by a hand-kept list of the twenty-odd
+        /// spawn sites: a list would go stale the first time a dialog was added, and the
+        /// failure mode of a stale list is "no dialog open" over a live modal. The cost of
+        /// the prefix scan is that the PREFIX must actually be there, which one site got
+        /// wrong - see <see cref="IsParsekDialogName"/> for the gate that now holds
+        /// it.</summary>
         internal const string ParsekDialogNamePrefix = "Parsek";
 
         // ----- reject reasons -----
@@ -93,10 +96,70 @@ namespace Parsek.TestCommands
             return false;
         }
 
-        /// <summary>True when a live dialog's name belongs to Parsek.</summary>
+        /// <summary>True when a live dialog's name belongs to Parsek.
+        ///
+        /// <para>The premise this rests on - that EVERY Parsek-spawned
+        /// <c>MultiOptionDialog</c> carries the prefix - is kept mechanically true by the
+        /// source-derived gate <c>ParsekDialogNamePrefixSourceGateTests</c>, not by
+        /// convention. It had already failed once: the flight-map ghost icon menu was named
+        /// <c>"GhostIconMenu"</c>, so <c>op=dialog</c> answered <c>open=false</c> over a
+        /// live modal.</para></summary>
         internal static bool IsParsekDialogName(string name)
             => !string.IsNullOrEmpty(name)
                && name.StartsWith(ParsekDialogNamePrefix, StringComparison.Ordinal);
+
+        // ----- button discovery -----
+
+        /// <summary>
+        /// Depth bound on <see cref="CollectButtons"/>. A <c>DialogGUIBase.children</c>
+        /// graph is authored by hand and is three or four deep at the very worst; the bound
+        /// exists because the walk follows a mutable PUBLIC field that a stock or modded
+        /// layout could in principle make cyclic, and a census verb must not hang the FIFO
+        /// head over a malformed dialog.
+        /// </summary>
+        internal const int ButtonWalkMaxDepth = 8;
+
+        /// <summary>
+        /// Every <c>DialogGUIButton</c> reachable from a <c>MultiOptionDialog</c>'s
+        /// <c>options</c>, in DEPTH-FIRST, left-to-right order - which is the order the
+        /// dialog lays them out, and therefore the order <c>AnswerMergeDialog</c>'s
+        /// by-position selection (first = Merge, last = Discard) means.
+        ///
+        /// <para><b>WHY IT RECURSES.</b> The scan used to read the top level of
+        /// <c>options</c> alone. A dialog that wraps its buttons in a
+        /// <c>DialogGUIHorizontalLayout</c> / <c>DialogGUIVerticalLayout</c> - the ordinary
+        /// way to put two buttons on one row - therefore reported <c>nbuttons=0</c> to
+        /// <c>op=dialog</c> over a popup that plainly has buttons, and a census step would
+        /// have photographed the modal and asserted it has none.</para>
+        ///
+        /// <para>A button's OWN children are not descended into: a <c>DialogGUIButton</c>
+        /// is a leaf control, and anything nested under one is decoration, not a separate
+        /// option a caller could press.</para>
+        /// </summary>
+        internal static List<DialogGUIButton> CollectButtons(IList<DialogGUIBase> nodes)
+        {
+            var found = new List<DialogGUIButton>();
+            CollectButtonsInto(nodes, found, 0);
+            return found;
+        }
+
+        private static void CollectButtonsInto(IList<DialogGUIBase> nodes,
+                                               List<DialogGUIButton> into, int depth)
+        {
+            if (nodes == null || depth > ButtonWalkMaxDepth) return;
+            for (int i = 0; i < nodes.Count; i++)
+            {
+                DialogGUIBase node = nodes[i];
+                if (node == null) continue;
+                var button = node as DialogGUIButton;
+                if (button != null)
+                {
+                    into.Add(button);
+                    continue;
+                }
+                CollectButtonsInto(node.children, into, depth + 1);
+            }
+        }
 
         /// <summary>
         /// Joins the ordered button labels into ONE payload value.

@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using Parsek.Logistics;
 using Parsek.TestCommands;
 using Xunit;
 
@@ -979,6 +980,210 @@ namespace Parsek.Tests
                 Assert.NotEqual(TestCommandUiAction.RectNotAppliedReason, reason);
                 Assert.NotEqual(TestCommandUiAction.WindowSelfClosedReason, reason);
             }
+        }
+
+        // ================================================ op=pointer: the settle POLL
+
+        [Fact]
+        public void PointerPoll_WaitsForTheReadBackInsteadOfReadingItOnce()
+        {
+            // THE DEFECT. The op used to settle on the shared frame poll and read
+            // Input.mousePosition exactly once, one frame after SetCursorPos returned. The
+            // OS cursor move and Unity's next input sample are different pipelines, so when
+            // they landed a frame apart the single read saw the OLD position and the op
+            // answered the hard `pointer-not-applied` ERROR over a move that was about to
+            // be correct - indistinguishable, from one sample, from an unfocused game.
+            Assert.Equal(UiActionSettleOutcome.NotYet,
+                TestCommandUiPointer.DecidePoll(
+                    landed: false, framesElapsed: 1, minFrames: 1, budgetExpired: false));
+            // The very next poll, with the sample caught up, is a success.
+            Assert.Equal(UiActionSettleOutcome.Settled,
+                TestCommandUiPointer.DecidePoll(
+                    landed: true, framesElapsed: 2, minFrames: 1, budgetExpired: false));
+        }
+
+        [Fact]
+        public void PointerPoll_FramesAreAFloorAndNotTheSignal()
+        {
+            // A cursor that arrived before any IMGUI pass has hovered nothing yet, so the
+            // frame count still gates the OK - it just is not what the op is waiting FOR.
+            Assert.Equal(UiActionSettleOutcome.NotYet,
+                TestCommandUiPointer.DecidePoll(
+                    landed: true, framesElapsed: 0, minFrames: 1, budgetExpired: false));
+            Assert.Equal(UiActionSettleOutcome.Settled,
+                TestCommandUiPointer.DecidePoll(
+                    landed: true, framesElapsed: 1, minFrames: 1, budgetExpired: false));
+            // The floor the applier passes is the shared one, so a change there moves both.
+            Assert.Equal(1, TestCommandUiAction.SettleFrames);
+        }
+
+        [Fact]
+        public void PointerPoll_SettledBeatsTheBudgetOnTheSamePoll()
+        {
+            // The DecideSettlePoll / CaptureScreenshot.DecidePoll ordering rule: a landing
+            // that happened on the very poll the budget expired is a success, not an ERROR
+            // over state that is already correct.
+            Assert.Equal(UiActionSettleOutcome.Settled,
+                TestCommandUiPointer.DecidePoll(
+                    landed: true, framesElapsed: 1, minFrames: 1, budgetExpired: true));
+            // And a budget expiry with the cursor still elsewhere is the honest timeout,
+            // which the applier reports as `pointer-not-applied` with the last reading.
+            Assert.Equal(UiActionSettleOutcome.TimedOut,
+                TestCommandUiPointer.DecidePoll(
+                    landed: false, framesElapsed: 9, minFrames: 1, budgetExpired: true));
+            // The frame floor does NOT hold a timeout open: a renderer that stopped would
+            // otherwise leave the head pending past its budget.
+            Assert.Equal(UiActionSettleOutcome.TimedOut,
+                TestCommandUiPointer.DecidePoll(
+                    landed: true, framesElapsed: 0, minFrames: 1, budgetExpired: true));
+        }
+
+        [Fact]
+        public void PointerPoll_UsesTheSameToleranceTheReadBackDoes()
+        {
+            // The poll's `landed` argument is LandedWithinTolerance, not a fresh
+            // comparison, so the two cannot drift. Stated by exercising the boundary the
+            // tolerance names.
+            Assert.True(TestCommandUiPointer.LandedWithinTolerance(
+                100f, 200f, 100f + TestCommandUiPointer.ReadBackTolerancePx, 200f));
+            Assert.False(TestCommandUiPointer.LandedWithinTolerance(
+                100f, 200f, 100f + TestCommandUiPointer.ReadBackTolerancePx + 0.5f, 200f));
+        }
+
+        // ================================================ op=dialog: nested button walk
+
+        [Fact]
+        public void DialogButtons_AreFoundInsideNestedLayouts()
+        {
+            // THE DEFECT. The scan read the top level of MultiOptionDialog.options alone,
+            // so a dialog that wraps its buttons in a layout - the ordinary way to put two
+            // buttons on one row - reported nbuttons=0 to op=dialog over a popup that
+            // plainly has buttons, and a census step would have photographed the modal and
+            // asserted it has none.
+            var nested = new DialogGUIBase();
+            nested.children.Add(new DialogGUIButton("Merge", () => { }));
+            nested.children.Add(new DialogGUIButton("Discard", () => { }));
+            var options = new DialogGUIBase[] { new DialogGUIBase(), nested };
+
+            List<DialogGUIButton> found = TestCommandUiDialog.CollectButtons(options);
+            Assert.Equal(2, found.Count);
+            Assert.Equal("Merge", found[0].OptionText);
+            Assert.Equal("Discard", found[1].OptionText);
+        }
+
+        [Fact]
+        public void DialogButtons_KeepDepthFirstLeftToRightOrder()
+        {
+            // AnswerMergeDialog selects BY POSITION (first = Merge, last = Discard), so the
+            // order this walk produces is not cosmetic. Depth-first left-to-right is the
+            // order the dialog lays the controls out in.
+            var row = new DialogGUIBase();
+            row.children.Add(new DialogGUIButton("b", () => { }));
+            row.children.Add(new DialogGUIButton("c", () => { }));
+            var options = new DialogGUIBase[]
+            {
+                new DialogGUIButton("a", () => { }),
+                row,
+                new DialogGUIButton("d", () => { }),
+            };
+            Assert.Equal(new[] { "a", "b", "c", "d" },
+                         TestCommandUiDialog.CollectButtons(options)
+                             .Select(b => b.OptionText).ToArray());
+        }
+
+        [Fact]
+        public void DialogButtons_DoNotDescendIntoAButtonsOwnChildren()
+        {
+            // A button is a leaf CONTROL; anything under one is decoration, not a second
+            // option a caller could press. Counting it would shift every by-position
+            // selection after it.
+            var button = new DialogGUIButton("Merge", () => { });
+            button.children.Add(new DialogGUIButton("decoration", () => { }));
+            List<DialogGUIButton> found =
+                TestCommandUiDialog.CollectButtons(new DialogGUIBase[] { button });
+            Assert.Single(found);
+            Assert.Equal("Merge", found[0].OptionText);
+        }
+
+        [Fact]
+        public void DialogButtons_TolerateNullsAndACyclicChildGraph()
+        {
+            // `children` is a mutable PUBLIC field on a stock type. The seam must not hang
+            // the FIFO head over a malformed dialog, which is what the depth bound is for.
+            Assert.Empty(TestCommandUiDialog.CollectButtons(null));
+            var a = new DialogGUIBase();
+            var b = new DialogGUIBase();
+            a.children.Add(null);
+            a.children.Add(b);
+            b.children.Add(a);
+            b.children.Add(new DialogGUIButton("reachable", () => { }));
+            List<DialogGUIButton> found =
+                TestCommandUiDialog.CollectButtons(new DialogGUIBase[] { a });
+            Assert.Contains(found, x => x.OptionText == "reachable");
+            Assert.True(found.Count <= TestCommandUiDialog.ButtonWalkMaxDepth + 1,
+                "the depth bound must stop a cyclic children graph, found "
+                + found.Count + " buttons");
+        }
+
+        // ================================================ AnswerMergeDialog dialog=
+
+        [Fact]
+        public void AnswerDialogArg_RejectsEveryValueOutsideTheClosedSet()
+        {
+            // The closed set is ONE value today, which is exactly when a bare default is
+            // tempting and wrong: a typo must fail rather than silently answer the merge
+            // dialog. Driven over the shapes a spec author actually produces.
+            foreach (string bad in new[] { "preswitch", "Merge", "MERGE", "merge ",
+                                           "", "refly", "tree-merge" })
+            {
+                Assert.False(TestCommandUiDialog.TryParseAnswerDialog(
+                                 bad, out _, out string reason),
+                             "dialog=" + bad + " must be refused");
+                Assert.Equal(TestCommandUiDialog.DialogArgInvalidReason, reason);
+            }
+            // And the two accepted shapes: absent (the pre-arg default) and the one token.
+            Assert.True(TestCommandUiDialog.TryParseAnswerDialog(null, out string t0, out _));
+            Assert.Equal(TestCommandUiDialog.MergeDialogToken, t0);
+            Assert.True(TestCommandUiDialog.TryParseAnswerDialog(
+                TestCommandUiDialog.MergeDialogToken, out string t1, out _));
+            Assert.Equal(TestCommandUiDialog.MergeDialogToken, t1);
+        }
+
+        // ================================================ logistics candidate row keys
+
+        [Fact]
+        public void LogisticsCandidateRowKey_IsTheKeyTheDrawSiteUses()
+        {
+            // THE DEFECT. EnumerateRowKeysForTesting listed the three fixed sections and
+            // the committed routes and NOT the candidate rows, so `op=expand key=all` left
+            // every candidate collapsed and `key=row:cand:<id>` was REJECTED
+            // expand-key-unknown - over rows the window was drawing. The key is now built
+            // at ONE site that both the draw path and the enumeration call, so the two
+            // cannot drift again.
+            var candidate = new RouteCandidate { Tree = new RecordingTree { Id = "t-17" } };
+            Assert.Equal("cand:t-17", LogisticsWindowUI.CandidateRowKey(candidate));
+        }
+
+        [Fact]
+        public void LogisticsCandidateRowKey_MatchesTheDrawSitesNullForm()
+        {
+            // The draw site's own fallback, character for character. A key that LOOKED
+            // addressable but differed would be worse than the omission: it would toggle
+            // nothing and report OK.
+            Assert.Equal("cand:<no-tree>",
+                         LogisticsWindowUI.CandidateRowKey(new RouteCandidate()));
+            Assert.Equal("cand:<no-tree>", LogisticsWindowUI.CandidateRowKey(null));
+        }
+
+        [Fact]
+        public void LogisticsCandidateRowKey_CarriesTheWindowsOwnExpandPrefix()
+        {
+            // The wire key is `row:` + this raw key, and `row` is the only prefix the
+            // logistics window keeps - so a candidate row is addressable as
+            // `key=row:cand:<treeId>` and nothing else.
+            string[] prefixes = TestCommandUiState.ExpandPrefixesFor(
+                TestCommandUiAction.LogisticsWindow);
+            Assert.Equal(new[] { TestCommandUiState.RowKeyPrefix }, prefixes);
         }
     }
 }

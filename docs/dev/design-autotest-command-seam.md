@@ -2009,7 +2009,8 @@ and a capture. Ownership is a NAME-PREFIX scan (`Parsek`) rather than a list of 
 twenty-odd spawn sites: a list would go stale the first time a dialog was added, and its
 failure mode is "no dialog open" reported over a live modal, the worst possible answer from
 a verb whose job is to say what is on screen. The scan's own cost is that the PREFIX has to
-be there on every site. `count=` is separate from `nbuttons=` so a reader can see
+be there on every site, which one was not - see follow-up 3 below and the source-derived
+gate that now holds the premise. `count=` is separate from `nbuttons=` so a reader can see
 that a two-modal state was reported as one arbitrarily; Parsek's own contract is that at
 most one stands, so `count > 1` is itself a finding.
 
@@ -2071,7 +2072,8 @@ everything). `op=target`:
 "no dialog is up" needs a key to assert on. `AnswerMergeDialog` gains
 `REJECTED dialog-arg-invalid` (message carries the valid set).
 
-**REVIEW FOLLOW-UPS (2026-09-11).** Found reviewing the six ops above.
+**REVIEW FOLLOW-UPS (2026-09-11).** Five defects and two residues, found reviewing the six
+ops above.
 
 1. **The find-then-pointer chain did not validate.** `hlib.validate_ui_action_step` ran its
    per-value SHAPE checks (`x`/`y`/`w`/`h` as dot-decimal, `index` as an integer, `key` as
@@ -2086,6 +2088,72 @@ everything). `op=target`:
    `window=`, `ctrl=`, `state=`, `park=`, `dialog=`) stay fail-closed on purpose: those
    vocabularies are fixed at authoring time, so a handle in one would mean a spec that does
    not know which op it is running.
+2. **`op=pointer` read its confirmation once.** The op settled on the shared frame poll and
+   then read `Input.mousePosition` a single time. The OS cursor move and Unity's next input
+   sample are different pipelines, so a one-frame lag between them was a hard
+   `pointer-not-applied` ERROR over a move that was about to be correct - and
+   indistinguishable, from one sample, from the unfocused game that reason describes. It
+   now POLLS (`TestCommandUiPointer.DecidePoll`, routed from `TryCompleteUiAction`'s head
+   beside `find`'s): frames become a FLOOR and landing is the signal, with the
+   settled-beats-budget ordering the other polls use. A budget expiry with the cursor still
+   elsewhere is still `pointer-not-applied`, now with the poll count on `frames=`.
+3. **One Parsek modal was invisible to `op=dialog`.** The prefix scan's premise - that every
+   Parsek-spawned `MultiOptionDialog` carries the `Parsek` name prefix - was false:
+   `Patches/GhostVesselLoadPatch.cs` named the flight-map ghost icon menu `GhostIconMenu`,
+   so `op=dialog` answered `open=false` over a live modal. Renamed `ParsekGhostIconMenu`,
+   and the premise is now kept mechanically true by a source-derived gate
+   (`ParsekDialogNamePrefixSourceGateTests`) that walks `Source/Parsek` for every
+   `new MultiOptionDialog(...)` - comments stripped first, both the literal and the
+   `const string` argument shapes resolved - and asserts each name passes
+   `IsParsekDialogName`.
+4. **`nbuttons=` read only the top level.** `GetDialogButtons` scanned
+   `MultiOptionDialog.options` without descending, so a dialog that wraps its buttons in a
+   `DialogGUIHorizontal/VerticalLayout` - the ordinary way to put two buttons on one row -
+   reported `nbuttons=0` over a popup that plainly has some. It now walks
+   `DialogGUIBase.children` recursively (`TestCommandUiDialog.CollectButtons`), depth-first
+   left-to-right so `AnswerMergeDialog`'s by-position selection still means what it says,
+   not descending into a button's own children, and depth-bounded because `children` is a
+   mutable public field on a stock type.
+5. **The logistics candidate rows were not enumerable.** `EnumerateRowKeysForTesting`
+   listed the three fixed sections and the committed routes and omitted the candidate rows,
+   so `op=expand key=all` left every candidate collapsed and `key=row:cand:<treeId>` was
+   `REJECTED expand-key-unknown` - over rows the window was drawing. The key is now built at
+   one site (`LogisticsWindowUI.CandidateRowKey`) that both the draw path and the
+   enumeration call, and the keys come from the window's OWN cached candidate list rather
+   than a fresh `DeriveCandidates()` (which would answer rows the window is not drawing and
+   would derive candidates off the ~1 Hz throttle the cache exists to enforce).
+
+Three applier tables that no cell could reach are now mirrored from their SOURCE against
+the pure side's own tables (`GuiCensusApplierSourceGateTests`, comments stripped first):
+`ResolveExpandSets`' per-window prefix list against `TestCommandUiState.ExpandPrefixesFor`
+(ordered), `ResolveWindowHandle`'s per-window `MinW`/`MinH` against each window class's own
+`MinWindowWidth`/`MinWindowHeight` (with the three deliberately minimum-less rows named as a
+claim rather than tolerated as an absence), and
+`MergeDialog.DismissAndClearPendingFlag` dismissing BOTH dialog names through one iterated
+call site.
+
+**RESIDUE: a picker popup is photographable but not `find`-able.** `op=picker` opens a
+`PopupDialog`-hosted popup, which is uGUI - the same structural reason `op=dialog` exists
+for modals. `GuiTreeRecorder` patches `GUI.DoWindow`, the IMGUI funnel, so a picker's
+contents never enter a `DumpGuiTree` capture and `op=find window=missions text=<row>` cannot
+reach a row inside one. A census step can still PHOTOGRAPH the picker
+(`op=picker` -> `CaptureScreenshot`) and assert the window it belongs to; what it cannot do
+is pick a control out of it by text, or hover one by centre. `op=dialog` does not cover
+these either - it reports the live `MultiOptionDialog`, and a picker is not one. Not worth
+closing: a uGUI reader would be a second capture pipeline for three popups whose contents a
+PNG already shows.
+
+**RESIDUE: `op=expand` answers OK over a surface the complexity mode is not drawing.** The
+host-visibility gate is per OP (`SettleChecksHostShowUi`: `open` and `rect` alone), so in
+Basic - where the missions window's Recordings tab is hidden - a `key=group:...` expand
+toggles the set and reads back a changed count. That is the honest answer for what the op
+does; a lane that pairs it with a capture gets a picture in which nothing moved. The fix
+belongs in the LANE (`op=complexity mode=advanced`, or select the tab, before expanding).
+Closing it in the seam would need a model of which surface each expansion PREFIX belongs to,
+and would refuse the legitimate case of arranging state now and photographing it after a
+later mode switch. No behaviour change; the note beside `SettleChecksHostShowUi` is the
+whole treatment.
+
 **THE SETTLE'S HOST-VISIBILITY GATE (`window-host-hidden`).** A frame count says a frame
 HAPPENED, never that this window was in it. Both hosts gate the WHOLE Parsek surface
 behind their own `showUI` - `ParsekKSC.OnGUI` returns at `if (!showUI) return;` (`:229`,

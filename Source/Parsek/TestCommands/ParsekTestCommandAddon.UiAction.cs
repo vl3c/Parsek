@@ -465,6 +465,23 @@ namespace Parsek.TestCommands
                 return;
             }
 
+            // `pointer` likewise. Its completion signal is Unity's input state AGREEING
+            // with the OS cursor move, which is a different pipeline from the renderer:
+            // a frame having been drawn says nothing about when Unity next sampled the
+            // mouse. Under the shared poll the read-back was taken ONCE, one frame after
+            // the write, so a one-frame input lag was a hard `pointer-not-applied` over a
+            // move that was about to be correct. See TestCommandUiPointer.DecidePoll.
+            //
+            // It also needs neither of the shared preamble's two guards: the ParsekUI
+            // lookup (this op touches no window) and the host-showUI refusal
+            // (SettleChecksHostShowUi is open/rect only - a hidden host is exactly the
+            // hover-free capture a `park` step wants).
+            if (uiActionPending.Op == UiActionOp.Pointer)
+            {
+                TryCompleteUiActionPointer(now);
+                return;
+            }
+
             int framesElapsed = Time.frameCount - uiActionPending.StartFrame;
             double budget = DeferralBudget.BudgetSeconds("UiAction");
             bool expired = DeferralBudget.ShouldTimeout(completionStartedAt, now, budget);
@@ -555,9 +572,8 @@ namespace Parsek.TestCommands
             };
             switch (op)
             {
-                case UiActionOp.Pointer:
-                    CompleteUiActionPointer(ctx, pending);
-                    return;
+                // Pointer is absent on purpose: it is routed to its own poll at the top of
+                // this method, the way `find` is, so it never reaches the shared preamble.
                 case UiActionOp.Expand:
                     CompleteUiActionExpand(ctx, pending);
                     return;

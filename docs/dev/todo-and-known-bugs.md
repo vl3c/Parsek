@@ -538,6 +538,44 @@ run on that host reading the auto-close line, not a spec. A GUI-3 lane would als
 natural place to photograph the other flight-only surface a census still cannot reach
 (GUI-CENSUS-STRUCTURE-WINDOW-HAS-NO-DRIVEABLE-TARGET names the KSC half of that problem).
 
+## GUI-CENSUS-PICKER-POPUPS-ARE-PHOTOGRAPHABLE-BUT-NOT-FINDABLE: a row-armed picker's contents never enter a GUI-tree dump, so `op=find` cannot reach a control inside one [Filed 2026-09-11 off the review of the six census ops. Not a defect: a structural property of uGUI, recorded so a lane author does not spend a boot discovering it]
+
+`op=picker` opens a `PopupDialog`-hosted popup (Set Parent Group, Manage Groups, the
+Logistics round-trip link picker). `GuiTreeRecorder` patches `GUI.DoWindow` and the other
+IMGUI funnels, and a `PopupDialog` is uGUI - it draws through no funnel at all - so a
+picker's rows are absent from every `DumpGuiTree` capture. The consequences, both ways:
+`op=find window=missions text=<row>` cannot find a row inside the picker (the window node
+it scopes to is the IMGUI window BEHIND the popup), and `op=pointer` therefore has no
+centre to chain to, so a picker row cannot be hovered by label either. `op=dialog` does not
+cover these: it reports the live `MultiOptionDialog`, and a picker is not one.
+
+What DOES work today, and is what the census uses: open the picker through its production
+opener and photograph it (`op=picker` -> `CaptureScreenshot`), which shows the reviewer the
+rows. The dump beside that PNG describes the window underneath, and says so honestly.
+
+Fix (only if a lane ever needs to ASSERT a picker's contents rather than show them): a uGUI
+reader is a second capture pipeline - walk the popup's `RectTransform` tree and emit the
+same node shape the IMGUI recorder does - for three popups whose contents a PNG already
+carries. Not worth it on today's evidence.
+
+## GUI-CENSUS-EXPAND-ANSWERS-OK-OVER-A-SURFACE-THE-MODE-IS-NOT-DRAWING: `op=expand` in Basic toggles Recordings-tab state the window is not showing, so a capture paired with it shows nothing moved [Filed 2026-09-11 off the same review. By design; the LANE owns the fix]
+
+The settle's host-visibility gate is per OP (`TestCommandUiAction.SettleChecksHostShowUi`:
+`open` and `rect` alone, because those two read back a FIELD that a hidden host would let
+them compare with itself). `expand` reads a COLLECTION, which a hidden host cannot fake, so
+it is exempt - and that exemption is per op, not per surface. In Basic the missions window's
+Recordings tab is hidden, and `op=expand window=missions key=group:<name>` there toggles the
+set and reads back a changed `expanded=` count. The answer is honest about what the op did;
+a lane that pairs it with a `CaptureScreenshot` gets a picture in which nothing moved, and a
+reviewer reads that as a Parsek defect.
+
+Fix: in the LANE - `op=complexity mode=advanced`, or `op=tab window=missions
+tab=recordings`, before the expand. Closing it in the seam would need the seam to model
+which surface each expansion PREFIX belongs to (five prefixes across two tabs of one window
+today) and would refuse the legitimate case of arranging state now and photographing it
+after a later mode switch. Recorded beside `SettleChecksHostShowUi` and in
+`design-autotest-command-seam.md` -> "REVIEW FOLLOW-UPS (2026-09-11)"; no behaviour change.
+
 ## ~~GUITREE-INTERCEPTION-LAYER-NEVER-RUN: the GUI-tree dump's Harmony interception of the UnityEngine IMGUI funnels has never executed inside KSP, so four premises the whole design rests on are unmeasured~~ [Filed 2026-09-10 on branch `gui-dump-spike`. CLOSED 2026-09-11 by the GUI census's first flight - runs `2026-09-10_2255` / `_2256` (GUI-1) and `2026-09-10_2259` / `_2300` (GUI-2). The layer RAN, and it ran clean. CONFIRMED UNDER A VERDICT by the two PASS reading runs of 2026-09-11, `2026-09-11_0548` (GUI-1, attempt 1, 96 s) and `2026-09-11_0551` (GUI-2, attempt 1, 57 s): 27 more arms (23 + 4), every one `patched=17/17`, zero `[WARN][GuiTree]` / `[ERROR][GuiTree]` lines, every anomaly counter zero, and the cell's PASS line identical to the pixel (`box=[60,60,320,300] ... declared=[60,60,320,300]`, same `kinds=`, `repaintPasses=5`)]
 
 WHAT THE FLIGHT WAS. Both census lanes flew on this branch's DLL and both read INVALID -

@@ -235,6 +235,53 @@ namespace Parsek.TestCommands
             => Math.Abs(commandedX - observedX) <= ReadBackTolerancePx
                && Math.Abs(commandedY - observedGuiY) <= ReadBackTolerancePx;
 
+        // ----- settle -----
+
+        /// <summary>
+        /// One settle poll of <c>op=pointer</c>. It POLLS until the read-back agrees,
+        /// rather than reading it once.
+        ///
+        /// <para><b>WHY THIS IS NOT THE SHARED
+        /// <c>TestCommandUiAction.DecideSettlePoll</c>.</b> That one answers Settled the
+        /// moment a frame has been drawn, and the applier then read
+        /// <c>Input.mousePosition</c> ONCE. But what is being waited for here is not a
+        /// frame; it is the OS cursor move reaching Unity's input state, which is a
+        /// different pipeline. <c>SetCursorPos</c> returns as soon as the OS has moved the
+        /// cursor, and Unity samples the new position on its own next input poll - when
+        /// those land one frame apart the single read saw the OLD position and the op
+        /// answered <see cref="NotAppliedReason"/>, a hard ERROR, over a move that was
+        /// about to be correct. One poll cannot tell that apart from an unfocused game;
+        /// several can.</para>
+        ///
+        /// <para><b>FRAMES BECOME A FLOOR, not the signal.</b> The op still waits for at
+        /// least <paramref name="minFrames"/> drawn frames before it will answer OK: the
+        /// hover this op exists to produce is painted during an IMGUI pass, and a cursor
+        /// that arrived without one has hovered nothing yet. Landing is the ADDITIONAL
+        /// condition, so Settled needs both - the same shape
+        /// <c>TryCompleteUiActionFind</c> uses, where a capture arriving is the signal and
+        /// the frame count is not.</para>
+        ///
+        /// <para><b>ORDER, the <c>DecideSettlePoll</c> rule.</b> Settled is decided BEFORE
+        /// the budget, so a landing on the very poll the budget expired is a success rather
+        /// than an ERROR over state that is already correct. A budget expiry with the
+        /// cursor still elsewhere stays <see cref="NotAppliedReason"/> - the honest
+        /// reading, reported with the last observed position.</para>
+        /// </summary>
+        /// <param name="landed"><see cref="LandedWithinTolerance"/> for THIS poll's
+        /// reading.</param>
+        /// <param name="framesElapsed">Frames drawn since the move was issued.</param>
+        /// <param name="minFrames">The frame floor (the applier passes
+        /// <c>TestCommandUiAction.SettleFrames</c>).</param>
+        /// <param name="budgetExpired">Whether the verb's deferral budget has run
+        /// out.</param>
+        internal static UiActionSettleOutcome DecidePoll(bool landed, int framesElapsed,
+                                                        int minFrames, bool budgetExpired)
+        {
+            if (landed && framesElapsed >= minFrames) return UiActionSettleOutcome.Settled;
+            if (budgetExpired) return UiActionSettleOutcome.TimedOut;
+            return UiActionSettleOutcome.NotYet;
+        }
+
         // ----- payload -----
 
         /// <summary>

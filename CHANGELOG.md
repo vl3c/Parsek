@@ -10,11 +10,21 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
-- **Automated testing: pointing at a control by its label and then moving the mouse
-  there was refused before a run even started.** That pairing is the exact reason the
-  feature exists, and the check that a step's coordinates are numbers ran on the text of
-  the step rather than on the coordinates the earlier step answers with - so the only way
-  to write the chain was rejected as malformed. Nothing a player sees is affected.
+- **Automated testing: five fixes to the new hover / point / open-everything support,
+  found by reviewing it.** Pointing at a control by its label and then moving the mouse
+  there - the exact pairing the feature was built for - was refused before a run even
+  started, because the check that coordinates are numbers ran on the text of the step
+  rather than on the coordinates the earlier step answers with. Moving the mouse then
+  checked once, a single frame later, whether the game agreed about where the pointer
+  had gone; the game can take a frame longer to notice, so a move that worked was
+  sometimes reported as a move that did not, and a run now keeps checking until it agrees
+  or runs out of time. The pop-up menu you get by clicking a ghost on the map was the one
+  Parsek pop-up a run could not see at all - it was missing the internal name tag the
+  others carry, so asking "what pop-up is on screen?" answered "none" over a menu that was
+  plainly there. Asking a pop-up what its buttons say counted only the buttons sitting at
+  the top level, so any pop-up that puts two buttons side by side on one row reported
+  having none. And "open everything in the supply-route window" skipped the candidate
+  rows, leaving them shut. None of this changes anything a player sees or reaches.
 
 - **Automated testing: a test run can now hover, point at a control by its label, and
   open the parts of a window that only appear after a click.** The screenshot work below
