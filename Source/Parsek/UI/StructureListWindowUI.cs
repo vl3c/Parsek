@@ -254,22 +254,24 @@ namespace Parsek
                 return;
             }
 
-            // Header row. Reserve the vertical-scrollbar gutter on the right so the fixed
-            // column right-edges line up with the scrolled rows below (the same trick
-            // RecordingsTableUI uses; the scrollview claims a fixed-width strip for its bar).
-            float scrollbarWidth = GUI.skin.verticalScrollbar != null
-                ? GUI.skin.verticalScrollbar.fixedWidth
-                : 16f;
-            if (scrollbarWidth <= 0f) scrollbarWidth = 16f;
-
-            GUILayout.BeginHorizontal();
+            // Header row. Opened with the shared header-row container, which carries the
+            // shared horizontal inset AND reserves the vertical-scrollbar gutter on the
+            // right as its own padding, so the fixed column right-edges AND the expanding
+            // Event column line up with the scrolled rows below. The gutter was a trailing
+            // GUILayout.Space here before; it moved into the shared style so a pinned
+            // header cannot reserve a different width than the one the body's scroll view
+            // claims. What was actually misaligned was the ROW: opened with a plain
+            // BeginHorizontal() it inherited its first cell's 4px margin, which put every
+            // cell 4px right of its header and left the body 8px narrower, so the Event
+            // column measured 378 against the header's 387.
+            // Contract: ParsekUI.TableRowHorizontalInsetPx.
+            GUILayout.BeginHorizontal(parentUI.GetTableHeaderRowStyle());
             GUILayout.Label("#", parentUI.GetColumnHeaderStyle(), GUILayout.Width(ColW_Index));
             GUILayout.Label("Time", parentUI.GetColumnHeaderStyle(), GUILayout.Width(ColW_Time));
             GUILayout.Label("Event", parentUI.GetColumnHeaderStyle(), GUILayout.ExpandWidth(true));
             GUILayout.Label("Status", parentUI.GetColumnHeaderStyle(), GUILayout.Width(ColW_Status));
             GUILayout.Label("Location", parentUI.GetColumnHeaderStyle(), GUILayout.Width(ColW_Location));
             GUILayout.Label("Vessel", parentUI.GetColumnHeaderStyle(), GUILayout.Width(ColW_Vessel));
-            GUILayout.Space(scrollbarWidth);
             GUILayout.EndHorizontal();
 
             // Step rows. Drawn directly in the scroll view (no GUI.skin.box wrapper, whose
@@ -282,7 +284,8 @@ namespace Parsek
             for (int i = 0; i < steps.Count; i++)
             {
                 StructureStep step = steps[i];
-                GUILayout.BeginHorizontal();
+                // Same shared row container as the header row above (one inset).
+                GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
                 GUILayout.Label((i + 1).ToString(CultureInfo.InvariantCulture), bodyCellLabel, GUILayout.Width(ColW_Index));
                 GUILayout.Label(FormatTime(step.UT), bodyCellLabel, GUILayout.Width(ColW_Time));
                 GUILayout.Label(step.Label ?? "", bodyCellLabel, GUILayout.ExpandWidth(true));

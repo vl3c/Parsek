@@ -509,6 +509,26 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Table cells now sit under their own column headings in Real Spawn Control, Career
+  State and the Structure window.** Photographing every window and measuring the rects
+  showed the headings and the rows they label were laid out from different starting
+  points, so a whole table was nudged sideways underneath its own headings: eight pixels
+  in Real Spawn Control - where the craft-name heading was also sixteen pixels wider than
+  the names below it - and four pixels in Career State's Contracts, Strategies, Facilities
+  and Milestones tabs and in the Structure window's step list. Supply Routes was the one
+  table that already lined up, because its headings and its rows are drawn inside the same
+  panel; the three that did not now use one shared row container for both halves, so a
+  heading and its column cannot start from different places again. In the Structure window
+  and Real Spawn Control, where the headings stay put while the list scrolls under them,
+  the strip the scrollbar occupies is now reserved by the heading row itself, which also
+  makes the stretchy middle column exactly as wide as the cells below it; Real Spawn
+  Control's list shows its scrollbar at all times for the same reason the Structure
+  window's does. Career State's section bars widened by four pixels each side to match the
+  table under them. Nothing moved in the Missions window: its two tabs are off by five
+  pixels (Recordings) and one pixel (Missions and vessels) for a different reason - their
+  first heading is one merged cell covering both the tick box and the "#" - so they are
+  recorded as a separate item rather than guessed at here.
+
 - **The user guide no longer describes controls the mod does not have.** Five passages
   had drifted into describing a Parsek that was: a loop toggle on every Timeline row
   (there is none - looping is authored in the Missions window or the Recordings tab), a

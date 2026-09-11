@@ -1298,8 +1298,12 @@ namespace Parsek
         private void EnsureStyles()
         {
             // Section + column header styles are shared across the mod via ParsekUI;
-            // reassign every draw so any ParsekUI-level updates flow through.
-            sectionHeaderStyle = parentUI.GetSectionHeaderStyle();
+            // reassign every draw so any ParsekUI-level updates flow through. Every
+            // section bar in this window labels a table whose column-header row and
+            // body box carry the shared zero horizontal inset
+            // (ParsekUI.TableRowHorizontalInsetPx), so the bar uses the table variant
+            // and spans exactly the table below it.
+            sectionHeaderStyle = parentUI.GetTableSectionHeaderStyle();
             columnHeaderStyle = parentUI.GetColumnHeaderStyle();
             if (toggleButtonStyle != null) return;
             groupHeaderStyle = new GUIStyle(GUI.skin.label)
@@ -1476,7 +1480,7 @@ namespace Parsek
             {
                 GUILayout.Label($"Active ({tab.CurrentRows.Count.ToString(ic)})", groupHeaderStyle);
                 DrawContractsColumnHeader();
-                GUILayout.BeginVertical(GUI.skin.box);
+                GUILayout.BeginVertical(parentUI.GetTableBodyBoxStyle());
                 if (tab.CurrentRows.Count == 0)
                     GUILayout.Label("  (no active contracts)", grayStyle);
                 for (int i = 0; i < tab.CurrentRows.Count; i++)
@@ -1487,7 +1491,7 @@ namespace Parsek
             {
                 GUILayout.Label($"Active now ({tab.CurrentRows.Count.ToString(ic)})", groupHeaderStyle);
                 DrawContractsColumnHeader();
-                GUILayout.BeginVertical(GUI.skin.box);
+                GUILayout.BeginVertical(parentUI.GetTableBodyBoxStyle());
                 if (tab.CurrentRows.Count == 0)
                     GUILayout.Label("  (no active contracts)", grayStyle);
                 for (int i = 0; i < tab.CurrentRows.Count; i++)
@@ -1516,7 +1520,7 @@ namespace Parsek
                 if (!folded)
                 {
                     DrawContractsColumnHeader();
-                    GUILayout.BeginVertical(GUI.skin.box);
+                    GUILayout.BeginVertical(parentUI.GetTableBodyBoxStyle());
                     if (pendingCount == 0)
                         GUILayout.Label("  (none)", grayStyle);
                     for (int i = 0; i < tab.ProjectedRows.Count; i++)
@@ -1530,9 +1534,19 @@ namespace Parsek
             }
         }
 
+        // All four tables in this window (Contracts / Strategies / Facilities /
+        // Milestones) open BOTH their column-header row and every body row with
+        // parentUI.GetTableRowStyle(), and wrap the body in
+        // parentUI.GetTableBodyBoxStyle(). That is what keeps each cell under its own
+        // header: this window's header rows and body rows live in DIFFERENT parents
+        // (the header directly in the window scroll view, the rows inside the body
+        // box), and with plain BeginHorizontal() the box's own margin put every cell
+        // 4px right of its header. The header is INSIDE the same scroll view as the
+        // body, so it must NOT reserve a scrollbar gutter - it shrinks with the body
+        // already. Contract: ParsekUI.TableRowHorizontalInsetPx.
         private void DrawContractsColumnHeader()
         {
-            GUILayout.BeginHorizontal();
+            GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
             GUILayout.Label("Contract", columnHeaderStyle, GUILayout.Width(ColW_ContractTitle));
             GUILayout.Label(
                 new GUIContent("Accepted UT",
@@ -1551,7 +1565,7 @@ namespace Parsek
 
         private void DrawContractRow(ContractRow r, GUIStyle rowStyle)
         {
-            GUILayout.BeginHorizontal();
+            GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
             GUILayout.Label(FormatContractRow_Title(r), rowStyle, GUILayout.Width(ColW_ContractTitle));
             GUILayout.Label(FormatContractRow_Accept(r), rowStyle, GUILayout.Width(ColW_AcceptUT));
             GUILayout.Label(FormatContractRow_Deadline(r), rowStyle, GUILayout.Width(ColW_DeadlineUT));
@@ -1582,7 +1596,7 @@ namespace Parsek
             {
                 GUILayout.Label($"Active ({tab.CurrentRows.Count.ToString(ic)})", groupHeaderStyle);
                 DrawStrategiesColumnHeader();
-                GUILayout.BeginVertical(GUI.skin.box);
+                GUILayout.BeginVertical(parentUI.GetTableBodyBoxStyle());
                 if (tab.CurrentRows.Count == 0)
                     GUILayout.Label("  (no active strategies)", grayStyle);
                 for (int i = 0; i < tab.CurrentRows.Count; i++)
@@ -1593,7 +1607,7 @@ namespace Parsek
             {
                 GUILayout.Label($"Active now ({tab.CurrentRows.Count.ToString(ic)})", groupHeaderStyle);
                 DrawStrategiesColumnHeader();
-                GUILayout.BeginVertical(GUI.skin.box);
+                GUILayout.BeginVertical(parentUI.GetTableBodyBoxStyle());
                 if (tab.CurrentRows.Count == 0)
                     GUILayout.Label("  (no active strategies)", grayStyle);
                 for (int i = 0; i < tab.CurrentRows.Count; i++)
@@ -1621,7 +1635,7 @@ namespace Parsek
                 if (!folded)
                 {
                     DrawStrategiesColumnHeader();
-                    GUILayout.BeginVertical(GUI.skin.box);
+                    GUILayout.BeginVertical(parentUI.GetTableBodyBoxStyle());
                     if (pendingCount == 0)
                         GUILayout.Label("  (none)", grayStyle);
                     for (int i = 0; i < tab.ProjectedRows.Count; i++)
@@ -1637,7 +1651,7 @@ namespace Parsek
 
         private void DrawStrategiesColumnHeader()
         {
-            GUILayout.BeginHorizontal();
+            GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
             GUILayout.Label("Strategy", columnHeaderStyle, GUILayout.Width(ColW_StrategyTitle));
             GUILayout.Label(
                 new GUIContent("Activated UT",
@@ -1656,7 +1670,7 @@ namespace Parsek
 
         private void DrawStrategyRow(StrategyRow r, GUIStyle rowStyle)
         {
-            GUILayout.BeginHorizontal();
+            GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
             GUILayout.Label(FormatStrategyRow_Title(r), rowStyle, GUILayout.Width(ColW_StrategyTitle));
             GUILayout.Label(FormatStrategyRow_Activate(r), rowStyle, GUILayout.Width(ColW_ActivateUT));
             GUILayout.Label(FormatStrategyRow_Flow(r), rowStyle, GUILayout.Width(ColW_Flow));
@@ -1674,7 +1688,7 @@ namespace Parsek
 
             GUILayout.Label("Facilities", sectionHeaderStyle);
             DrawFacilitiesColumnHeader();
-            GUILayout.BeginVertical(GUI.skin.box);
+            GUILayout.BeginVertical(parentUI.GetTableBodyBoxStyle());
             if (tab.Rows.Count == 0)
             {
                 GUILayout.Label("  (no facility data)", grayStyle);
@@ -1693,7 +1707,7 @@ namespace Parsek
 
         private void DrawFacilitiesColumnHeader()
         {
-            GUILayout.BeginHorizontal();
+            GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
             GUILayout.Label("Facility", columnHeaderStyle, GUILayout.Width(ColW_FacilityTitle));
             GUILayout.Label(
                 new GUIContent("Level",
@@ -1708,7 +1722,7 @@ namespace Parsek
 
         private void DrawFacilityRow(FacilityRow r, GUIStyle rowStyle)
         {
-            GUILayout.BeginHorizontal();
+            GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
             GUILayout.Label(FormatFacilityRow_Title(r), rowStyle, GUILayout.Width(ColW_FacilityTitle));
             GUILayout.Label(FormatFacilityRow_Level(r), rowStyle, GUILayout.Width(ColW_Level));
             GUILayout.Label(FormatFacilityRow_Status(r), rowStyle, GUILayout.Width(ColW_Status));
@@ -1728,7 +1742,7 @@ namespace Parsek
                 $"Milestones ({tab.CurrentCreditedCount.ToString(ic)} credited / {tab.ProjectedCreditedCount.ToString(ic)} at timeline end)",
                 sectionHeaderStyle);
             DrawMilestonesColumnHeader();
-            GUILayout.BeginVertical(GUI.skin.box);
+            GUILayout.BeginVertical(parentUI.GetTableBodyBoxStyle());
             if (tab.Rows.Count == 0)
             {
                 GUILayout.Label("  (no milestones credited)", grayStyle);
@@ -1747,7 +1761,7 @@ namespace Parsek
 
         private void DrawMilestonesColumnHeader()
         {
-            GUILayout.BeginHorizontal();
+            GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
             GUILayout.Label(
                 new GUIContent("Credited UT",
                     "When the milestone was reached, in Universal Time (the game's own clock)."),
@@ -1766,7 +1780,7 @@ namespace Parsek
 
         private void DrawMilestoneRow(MilestoneRow r, GUIStyle rowStyle)
         {
-            GUILayout.BeginHorizontal();
+            GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
             GUILayout.Label(FormatMilestoneRow_UT(r), rowStyle, GUILayout.Width(ColW_MilestoneUT));
             GUILayout.Label(FormatMilestoneRow_Title(r), rowStyle, GUILayout.Width(ColW_MilestoneTitle));
             GUILayout.Label(FormatMilestoneRow_Rewards(r), rowStyle, GUILayout.Width(ColW_Rewards));

@@ -36,6 +36,10 @@ namespace Parsek
         // valid GUI.skin — only available during draw.
         private GUIStyle sharedSectionHeaderStyle;
         private GUIStyle sharedColumnHeaderStyle;
+        private GUIStyle sharedTableRowStyle;
+        private GUIStyle sharedTableHeaderRowStyle;
+        private GUIStyle sharedTableBodyBoxStyle;
+        private GUIStyle sharedTableSectionHeaderStyle;
 
         // Map view markers: icon atlas, fallback texture, label style, hover/sticky
         // state all live in MapMarkerRenderer (shared with ParsekTrackingStation).
@@ -1442,9 +1446,52 @@ namespace Parsek
         //  Shared header styles (section bars + column headers)
         // ════════════════════════════════════════════════════════════════
 
+        // ────────────────────────────────────────────────────────────────
+        //  Table row inset (GUI-TABLE-HEADERS-OFFSET-FROM-CELLS)
+        // ────────────────────────────────────────────────────────────────
+        //
+        // KSP's skin reports box/label/button/toggle/textField margin = L4/R4 and
+        // box padding = L4/R4 (logged once per draw by RecordingsTableUI as
+        // "Rec table skin margins"). Unity places a child at
+        //   parentRect.x + max(parentStyle.padding.left, childStyle.margin.left)
+        // and a layout group's first cell at groupRect.x + groupStyle.padding.left,
+        // where a group opened with NO style inherits its margin from its first
+        // child. So a header row opened as BeginHorizontal() outside a scroll view
+        // and body rows opened the same way inside one do NOT share an origin: the
+        // scroll view contributes the row's own 4px margin, and a GUI.skin.box
+        // wrapper contributes another 4px on top of that. That is the 4px (Career
+        // State, Structure) / 8px (Real Spawn Control) cell-vs-header offset the
+        // 2026-09-11 GUI census measured.
+        //
+        // The fix is one shared inset for both rows: every table row - header and
+        // body - opens with an EXPLICIT style whose horizontal margin and padding
+        // are TableRowHorizontalInsetPx, so both rows land on their parent's own
+        // content origin and every column starts from the same x. Vertical margin
+        // and padding are left at the skin's 4px so row pitch is unchanged.
+        internal const int TableRowHorizontalInsetPx = 0;
+
+        // Fallback when GUI.skin.verticalScrollbar is unavailable (same literal
+        // StructureListWindowUI used before it moved here).
+        internal const float DefaultVerticalScrollbarWidth = 16f;
+
+        /// <summary>
+        /// Width of the vertical-scrollbar gutter a table header must reserve when
+        /// it is pinned OUTSIDE a body scroll view that forces a vertical bar.
+        /// </summary>
+        internal static float VerticalScrollbarGutterWidth()
+        {
+            float w = GUI.skin != null && GUI.skin.verticalScrollbar != null
+                ? GUI.skin.verticalScrollbar.fixedWidth
+                : DefaultVerticalScrollbarWidth;
+            return w > 0f ? w : DefaultVerticalScrollbarWidth;
+        }
+
         private void EnsureSharedHeaderStyles()
         {
-            if (sharedSectionHeaderStyle != null && sharedColumnHeaderStyle != null) return;
+            if (sharedSectionHeaderStyle != null && sharedColumnHeaderStyle != null
+                && sharedTableRowStyle != null && sharedTableHeaderRowStyle != null
+                && sharedTableBodyBoxStyle != null
+                && sharedTableSectionHeaderStyle != null) return;
 
             // Section header - bold label in a box, left-aligned, stretches full width.
             sharedSectionHeaderStyle = new GUIStyle(GUI.skin.box)
@@ -1461,6 +1508,98 @@ namespace Parsek
                 fontStyle = FontStyle.Bold,
                 normal = { textColor = new Color(0.9f, 0.9f, 0.9f) }
             };
+
+            // Table row container - no background of its own. Horizontal margin and
+            // padding are the shared inset; vertical 4px keeps the skin's row pitch.
+            sharedTableRowStyle = new GUIStyle
+            {
+                margin = new RectOffset(
+                    TableRowHorizontalInsetPx, TableRowHorizontalInsetPx, 4, 4),
+                padding = new RectOffset(
+                    TableRowHorizontalInsetPx, TableRowHorizontalInsetPx, 0, 0)
+            };
+
+            // Header variant: the same left inset, plus a right padding equal to the
+            // vertical scrollbar the body's scroll view claims, so the expanding column
+            // is as wide here as in the body. Reserved as the row's own padding rather
+            // than a trailing GUILayout.Space at each call site, so a pinned header
+            // cannot reserve a width the scroll view does not actually claim.
+            sharedTableHeaderRowStyle = new GUIStyle(sharedTableRowStyle)
+            {
+                padding = new RectOffset(
+                    TableRowHorizontalInsetPx,
+                    TableRowHorizontalInsetPx + (int)VerticalScrollbarGutterWidth(),
+                    0, 0)
+            };
+
+            // Dark list-area background for a table body. Horizontal margin AND
+            // padding zeroed so the box contributes no inset of its own; vertical
+            // kept at the skin's 4px. Mirrors RecordingsTableUI.tableBodyBoxStyle.
+            sharedTableBodyBoxStyle = new GUIStyle(GUI.skin.box)
+            {
+                margin = new RectOffset(
+                    TableRowHorizontalInsetPx, TableRowHorizontalInsetPx, 4, 4),
+                padding = new RectOffset(
+                    TableRowHorizontalInsetPx, TableRowHorizontalInsetPx, 4, 4)
+            };
+
+            // Section bar sitting directly above a table: the shared section-header
+            // style with the same zeroed horizontal margin the table row and body box
+            // carry, so the bar spans exactly the table it labels.
+            sharedTableSectionHeaderStyle = new GUIStyle(sharedSectionHeaderStyle)
+            {
+                margin = new RectOffset(
+                    TableRowHorizontalInsetPx, TableRowHorizontalInsetPx,
+                    sharedSectionHeaderStyle.margin.top,
+                    sharedSectionHeaderStyle.margin.bottom)
+            };
+        }
+
+        /// <summary>
+        /// Shared table-row container: use for BOTH a table's column-header row and
+        /// its body rows so they share one horizontal inset
+        /// (<see cref="TableRowHorizontalInsetPx"/>) and every column starts at the
+        /// same x. Must be called during draw (requires a valid GUI.skin).
+        /// </summary>
+        public GUIStyle GetTableRowStyle()
+        {
+            EnsureSharedHeaderStyles();
+            return sharedTableRowStyle;
+        }
+
+        /// <summary>
+        /// Column-header row container for a header pinned OUTSIDE a body scroll view
+        /// that forces a vertical scrollbar: <see cref="GetTableRowStyle"/> plus the
+        /// scrollbar gutter as right padding. A header drawn INSIDE the same scroll
+        /// view as its rows must use <see cref="GetTableRowStyle"/> instead - it
+        /// shrinks with the body already.
+        /// </summary>
+        public GUIStyle GetTableHeaderRowStyle()
+        {
+            EnsureSharedHeaderStyles();
+            return sharedTableHeaderRowStyle;
+        }
+
+        /// <summary>
+        /// Dark list-area background for a table body that contributes no horizontal
+        /// inset, so body rows keep the header row's origin.
+        /// </summary>
+        public GUIStyle GetTableBodyBoxStyle()
+        {
+            EnsureSharedHeaderStyles();
+            return sharedTableBodyBoxStyle;
+        }
+
+        /// <summary>
+        /// Section bar for a bar drawn directly above a table: like
+        /// <see cref="GetSectionHeaderStyle"/> but with the same zeroed horizontal
+        /// margin the table row and body box carry, so the bar spans exactly the
+        /// table it labels instead of sitting an inset inside it.
+        /// </summary>
+        public GUIStyle GetTableSectionHeaderStyle()
+        {
+            EnsureSharedHeaderStyles();
+            return sharedTableSectionHeaderStyle;
         }
 
         /// <summary>
