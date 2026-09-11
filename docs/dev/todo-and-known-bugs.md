@@ -112,6 +112,57 @@ P18 wording. The two rows' own comments now carry the restoration note.
 
 ---
 
+## ~~GUI-P14-USER-GUIDE-DESCRIBES-CONTROLS-THAT-DO-NOT-EXIST~~: five shipped user-guide passages promised settings and a Timeline control with no code behind them [FILED + FIXED 2026-09-11 by the GUI fix batch]
+
+**Evidence**, each re-derived by grep against HEAD before the edit:
+
+- `docs/user-guide.md:111` documented a Timeline row **L** loop toggle, with a rule for
+  when it appears. `grep -n '"L"' Source/Parsek/UI/TimelineWindowUI.cs` returns nothing,
+  and `grep -in loop` on that file returns two comments and no control. This was the
+  load-bearing one: in Basic the Recordings tab is hidden, so the guide promised the only
+  per-recording loop control a Basic player could have reached.
+- `:114` documented a footer reading `N Recordings, M Actions, K Events`. No such label
+  exists among the file's `GUILayout.Label` sites.
+- `:265` documented a **Show ghosts in Tracking Station** setting (and `:336` described its
+  effect). `grep -rn showGhostsInTrackingStation Source/` returns zero hits: the setting
+  has never existed.
+- `:336` said icon labels "pin on click". Pinning is a RIGHT-click
+  (`MapMarkerRenderer.IsToggleClick`, button 1); a LEFT-click routes to the marker's own
+  handler (`IsHandlerClick`, button 0).
+- `:58` told the player to turn auto-merge off in Settings, and `:321` / `:322` said the
+  two auto-record behaviours "can be disabled in Settings". All four fields
+  (`autoMerge`, `autoRecordOnLaunch`, `autoRecordOnEva`,
+  `autoRecordOnFirstModificationAfterSwitch`) are drawn nowhere since the 2026-08-27
+  simplification and are CLAMPED back to their shipping values on every load
+  (`ParsekSettings.cs:293-296` from `ParsekScenario.cs:3256`).
+- `:112`'s **GoTo** bullet still described the pre-design-4.1a route ("jumps to the same
+  recording in the Recordings Manager"); GoTo has routed through
+  `RecordingsTableUI.ShowMissionForRecording` (Missions tab) since that amendment.
+
+**Fix.** Each passage rewritten to the shipped behaviour, and where a control was removed
+BY DESIGN the guide now says so rather than going quiet (a reader who remembers the toggle
+needs to know it is gone, not to wonder where it moved). The Diagnostics table also gained
+the two tracing toggles it was missing (`mapRenderTracing`, `ledgerTracing`) and is marked
+Advanced-only, which is what its gate says.
+
+## ~~GUI-P22-STALE-DOCSTRINGS-NAME-REMOVED-ENTRY-POINTS~~: `CommitTreeFlight` documented a "Commit Flight button" that no longer exists [FILED + FIXED 2026-09-11 by the GUI fix batch]
+
+**Evidence.** `ParsekFlight.cs:13838` opened "Commits the active recording tree from the
+Commit Flight button." That button was removed; `grep -rn '\.CommitTreeFlight()'` over
+`Source/` returns exactly three live call sites -
+`Patches/MapFocusObjectOnSelectPatch.cs:624` and `:813` (the pre-switch decision dialog's
+two Merge handlers) and `TestCommands/ParsekTestCommandAddon.cs:2016` (the harness
+`CommitTree` verb) - plus one source-scan assertion in `SwitchIntentPatchSmokeTests`. A
+stale entry-point claim in a docstring is exactly what misleads the next re-derivation of
+a caller set, which is why the house rule treats comments as hypotheses.
+
+**Fix.** The docstring now names the three live callers and states that
+`MergeDialog.MergeCommit` is a different path. `RouteCreationDialog`'s matching stale
+docstring ("Fired by MergeDialog.OnTreeCommitted") went with the dead dialog itself - see
+GUI-D4.
+
+---
+
 ## BDOCK1-STATION-COMMIT-READOPT-LIMBO-FALLBACK-DIALOG: after BDOCK-1's mid-mission CommitTree, the re-adopted station continuation is stashed to Limbo by the interceptor launch and surfaces as a whole-tree merge dialog over already-committed recordings [FILED 2026-09-10 by wave package A2 (`cheap-flights-arming`) off its BDOCK-1 reading run; REWRITTEN 2026-09-11 off the archive grep. The dialog is the lane's deterministic shape on every post-fix build (4 of 4 logs), reached through a CORRECT refusal; OPEN PRODUCT QUESTION narrowed to the fallback dialog's UX over committed-overlap recordings; not fixed in this wave]
 
 **What happens**, from `2026-09-10_1815_BDOCK-1-station-interceptor`'s own KSP.log (local

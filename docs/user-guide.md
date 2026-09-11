@@ -54,10 +54,11 @@ After reverting (or aborting a mission to the Space Center with a recording pend
 - **Merge to Timeline** - Recording is merged; if the vessel is intact, it will appear in the game world when the ghost finishes playing
 - **Discard** - Recording is thrown away. Every career effect captured during the discarded flight — contracts accepted or completed, tech researched, crew changes, milestones achieved, funds/science/reputation deltas — is rolled back as if the flight never happened. (Career actions unrelated to a recording, e.g. unlocking a tech node at KSC, stay.)
 
-**Auto-merge recordings** is on by default, so the merge normally happens silently without
-this dialog; turn it off in Settings to confirm every recording. Two exits always ask
-regardless: concluding a Rewind to Separation attempt, and quitting to the main menu
-with an uncommitted mission.
+Auto-merge is always on, so the merge normally happens silently without this dialog.
+Two exits always ask regardless: concluding a Rewind to Separation attempt, and quitting
+to the main menu with an uncommitted mission. (There is no setting for this. The
+2026-08-27 settings simplification hardwired auto-merge on; the toggle earlier versions
+of this guide described no longer exists.)
 
 ### Rewind to Separation (v0.9+)
 
@@ -108,10 +109,7 @@ Each entry row shows UT, a description, and (for `RecordingStart` entries) the f
 
 - **W** - watch button in flight. Enabled only when the recording currently has an active same-body ghost within the watch cutoff; otherwise shown grayed out. A watched row shows **W\***.
 - **R** / **FF** - same rewind / fast-forward buttons as the Recordings Manager.
-- **L** - loop toggle. Only shown for past or active recordings that Parsek considers logically loopable (launches, atmospheric descents, surface departures, docking segments), or for any recording that is already looping. Active loops display in green text.
-- **GoTo** - jumps to the same recording in the Recordings Manager (opening it and un-hiding the recording if necessary).
-
-The footer shows `N Recordings, M Actions, K Events` for whatever is currently visible after filtering.
+- **GoTo** - opens the Missions window on the mission this recording belongs to, revealing the row (the window opens itself if it was closed). There is no loop toggle on a Timeline row: looping is authored per mission in the Missions window, or per recording in the Recordings tab.
 
 ### Recordings Manager
 
@@ -264,16 +262,20 @@ Ghosts:
 | Setting | Default | Description |
 |---------|---------|-------------|
 | Ghost audio | 70% | Volume multiplier for ghost engines, RCS, decouplers, and explosions. Set to 0% to mute |
-| Show ghosts in Tracking Station | On | When off, Parsek ghosts and atmospheric ghost markers are hidden from the tracking station vessel list and map |
 
-Diagnostics:
+Ghost audio is the whole section: there is no "Show ghosts in Tracking Station" setting,
+and never has been. Ghosts always get their Tracking Station presence.
+
+Diagnostics (Advanced only):
 
 | Setting | Default | Description |
 |---------|---------|-------------|
 | Verbose logging | On | Write detailed diagnostics to `KSP.log` |
 | Ghost render tracing (Warning: huge logs) | Off | Write detailed per-ghost render placement diagnostics to `KSP.log` |
+| Map/TS render tracing (Warning: huge logs) | Off | Write map and Tracking Station ghost rendering to `KSP.log` |
+| Ledger apply tracing (Warning: huge logs) | Off | Write ledger reconstruction and apply detail to `KSP.log` |
 | Write readable sidecar mirrors (Warning: extra disk usage) | On | Also write human-readable `.txt` mirrors alongside binary recording sidecars |
-| In-Game Test Runner | - | Opens the runtime-test window (same as Ctrl+Shift+T) |
+| In-Game Test Runner | - | Opens a runtime-test window. Ctrl+Shift+T opens a separate one of its own, in any scene |
 | Run Diagnostics Report | - | Dumps a full diagnostics snapshot to `KSP.log` |
 
 Recorder Sample Density: three preset buttons plus a live summary line showing the resulting sampling thresholds.
@@ -318,8 +320,12 @@ Parsek handles several edge cases automatically. These are logged to `KSP.log` (
 
 ### Recording
 
-- **Auto-start on launch** - Recording begins automatically when a vessel leaves the pad or runway (transitions out of PRELAUNCH). A screen message confirms "Recording STARTED (auto)". Can be disabled in Settings.
-- **Auto-start on EVA from pad** - Going EVA from a vessel sitting on the pad/runway also auto-starts recording on the EVA kerbal. Can be disabled in Settings.
+Auto-recording is always on. The three auto-record toggles earlier versions of this guide
+described were hidden by the 2026-08-27 settings simplification and are hardwired on; they
+are drawn nowhere and cannot be turned off.
+
+- **Auto-start on launch** - Recording begins automatically when a vessel leaves the pad or runway (transitions out of PRELAUNCH). A screen message confirms "Recording STARTED (auto)".
+- **Auto-start on EVA from pad** - Going EVA from a vessel sitting on the pad/runway also auto-starts recording on the EVA kerbal.
 - **Mid-recording EVA** - Going EVA during an active recording auto-stops the parent recording, commits it, and starts a linked child recording on the EVA kerbal.
 - **Part events** - 28 event types are recorded with timestamps, including staging, decoupling, engine ignition/shutdown/throttle, parachute deploy/cut, solar panel/antenna/radiator extend/retract, light on/off/blink, landing gear deploy/retract, cargo bay open/close, fairing jettison, RCS fire, docking/undocking, and inventory part placement/removal. During ghost playback, decoupled parts (and their subtrees) disappear from the ghost at the correct time. Engines and RCS thrusters emit particle FX during burn phases. Parachute canopies deploy with the real mesh, engine shrouds are jettisoned, and deployable parts animate between stowed/deployed states. Docking/undocking events are used as chain segment boundaries, not direct ghost mesh transforms.
 - **Paused game** - Recording cannot start while the game is paused.
@@ -333,7 +339,7 @@ Parsek handles several edge cases automatically. These are logged to `KSP.log` (
 - **Orbital attitude** - Ghost vessels in orbital segments preserve their recorded orientation. A vessel holding retrograde, normal, or any other SAS mode will hold that attitude throughout the orbit, not snap to prograde. If the PersistentRotation mod is installed, spinning vessels are also reproduced — the ghost spins at the same rate the player saw during time warp.
 - **SOI changes** - Recordings that cross SOI boundaries (e.g. Kerbin to Mun) play back correctly. Each trajectory point references its own celestial body.
 - **Ghost distance tiers** - As a ghost moves away from the camera it drops to a reduced visual tier around 2.3 km, and its mesh unloads entirely beyond 50 km (still logically playing, just not drawn). Watching a ghost overrides the visual cutoff until the fixed 300 km watch range is reached.
-- **Map and Tracking Station icons** - Ghost vessels use the stock icon matching their vessel type (Ship, Plane, Probe, Station, etc.). Icon labels are hidden by default, appear on hover, and pin on click. The **Show ghosts in Tracking Station** setting hides ghost icons entirely from the tracking station when off.
+- **Map and Tracking Station icons** - Ghost vessels use the stock icon matching their vessel type (Ship, Plane, Probe, Station, etc.). Icon labels are hidden by default, appear on hover, and pin on RIGHT-click; a LEFT-click opens the icon's own menu instead. There is no setting that hides ghosts from the Tracking Station.
 
 ### Vessel Spawning
 

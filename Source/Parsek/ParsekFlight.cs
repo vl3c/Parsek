@@ -13835,9 +13835,16 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Commits the active recording tree from the Commit Flight button.
-        /// Finalizes all recordings, spawns leaf vessels, reserves crew.
-        /// The active vessel stays live (VesselSpawned=true).
+        /// Commits the active recording tree IN FLIGHT: finalizes all recordings, spawns
+        /// leaf vessels, reserves crew. The active vessel stays live (VesselSpawned=true).
+        /// <para>Caller set, re-derived 2026-09-11 (finding P22): the "Commit Flight" button
+        /// this docstring used to name was removed, and the live callers are now the
+        /// pre-switch decision dialog's two Merge handlers
+        /// (<c>Patches/MapFocusObjectOnSelectPatch.cs:624</c> and <c>:813</c> - case A's
+        /// prior-session commit and case B's active-tree commit) plus the harness
+        /// <c>CommitTree</c> seam verb (<c>TestCommands/ParsekTestCommandAddon.cs:2016</c>).
+        /// The merge DIALOG's own commit is a different path
+        /// (<c>MergeDialog.MergeCommit</c>) and does not come through here.</para>
         /// </summary>
         public void CommitTreeFlight()
         {

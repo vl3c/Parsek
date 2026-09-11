@@ -459,6 +459,18 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **The user guide no longer describes controls the mod does not have.** Five passages
+  had drifted into describing a Parsek that was: a loop toggle on every Timeline row
+  (there is none - looping is authored in the Missions window or the Recordings tab), a
+  count footer under the Timeline list, a "Show ghosts in Tracking Station" setting that
+  has never existed in any version, icon labels that "pin on click" (pinning is a
+  RIGHT-click; a left click opens the icon's own menu), and Settings toggles for
+  auto-merge and the two auto-record behaviours, all of which were hidden last August and
+  are now hardwired on. Each passage now says what ships, and where a control was removed
+  on purpose it says that too, so a reader who remembers the toggle learns it is gone
+  instead of hunting for where it moved. The Diagnostics table also gained the two tracing
+  switches it was missing. Guide-only: no code behind any of it changed.
+
 - **Four Settings and main-window labels now say what the buttons behind them do.**
   "Wipe All Game Actions" only ever cleared the MILESTONE list - every career action on
   the ledger survived it, and the next recalculation still walked them - so the most
