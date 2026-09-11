@@ -1012,7 +1012,7 @@ Tokens verified present in source:
 | `Child recording created (controlled, no TTL):` | `BackgroundRecorder.cs:1185` | D5 `controlled-decoupled-child` (needs a controlled child; Kerbal X boosters are uncontrolled) |
 | `Sample rate changed: pid=` | `BackgroundRecorder.cs:1966` | D2 `proximity-cadence-bg` |
 | `TrackSection started: env=... ref=...` | `FlightRecorder.cs:5126`, `BackgroundRecorder.cs:6573` | D3 `absolute` |
-| `starting hysteresis timer` | `FlightRecorder.cs:4831,4911` | D4 `hysteresis` |
+| `starting hysteresis timer` | `FlightRecorder.cs:4831,4911` | D4 `hysteresis` (candidate only, NOT the claim token: the catalog places hysteresis under environment classification, so RF-1 claims the cell off `EnvironmentDetector`'s debounced `Environment transition: ... (debounce=3.0s)` line, ruling A1-6) |
 | `Part event: <Type> '<part>` | `FlightRecorder.cs:1507`, `BackgroundRecorder.PartEventPolling.cs` | D7 `decouple-stage-destroy`, `chute-cut`, `gear` |
 
 CORRECTED 2026-07-27 while building this: **the four `BackgroundRecorder` tokens are

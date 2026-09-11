@@ -97,8 +97,9 @@ id = "RF-1-continuation-stays-open"
 # original.MergeState` beside the terminal move, plus the more-open-wins mirror in
 # `MergeInto` - and MERGED to main on 2026-09-08 as `a783879aa`, AFTER this lane's reading
 # run. It emits no new log token and moves none of the tokens below, which is why the
-# reading run's verdict still stands; a re-flight on post-#1658 main is owed as a
-# confirmation, not as a re-derivation.
+# reading run's verdict still stands. The confirmation re-flight on post-#1658 main flew
+# 2026-09-09 as `RF-1-confirm` (PASS attempt 1, mismatches=0; the autotest-status RF-1
+# row) - a confirmation, not a re-derivation.
 #
 # =====================================================================================
 # THE RE-FLY HALF: how the run gets back into FLIGHT to drive it.
