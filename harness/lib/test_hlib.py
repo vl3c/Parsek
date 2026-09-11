@@ -9089,7 +9089,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         "V26T-interbody-route-ts-arrival.toml": "operator by the calibration discipline; FLOWN 2026-09-02, ARMED-DISCIPLINE COMPLETE (reading run, pins tightened off it, armed re-flight PASS attempt 1, and a negative control that red PARSEK-FAIL(expectation) on exactly the seeded token). V18T's tracking-station grammar on the inter-body subject. It carries ONE genuinely open question the reading run must answer rather than pass: V18T's front-door tokens (`ghostDriving=[1-9]`, `routeMissions=[1-9]`) are deliberately NOT required, because this subject's Duna route has `loopAnchorUT = -1` and has never run a cycle, so whether a never-dispatched route enters the GhostDriving selection is unmeasured - and RUN 1 ANSWERED IT: `ghostDriving=1` and `routeMissions=1` both printed, so dispatch history is NOT a precondition for a route driving a tracking-station ghost, and both tokens are REQUIRED from the armed re-flight onward. The renderComposition arming pass this lane owed was TAKEN 2026-09-07 (package P16, after reading run 3 `2026-09-06_2115` PASS attempt 1): armed on `routeLineBuilds = {min = 2}` + `routeCoDrawViolations = {max = 0}`, deliberately symmetric with V26M and with no `unevaluable` ceiling on either. The armed re-flight and the negative control are OWED.",
         # R14's better-time-warp residue, 2026-09-10 (wave package A2). The first
         # operator-tier spec on the modded-compat instance.
-        "MC-3-better-time-warp.toml":        "tier=operator as a READING-DISCIPLINE lane on the modded-compat instance, NOT debt: READ 2026-09-10 on its first flight `2026-09-10_2025` (PASS attempt 1) with the pre-registered outcome (A) - `ComputeApproachAltitude(Mun): live limit zeroed by a warp mod; using stock 25000m` present and the Mun reseed at `threshold=25000m`, so BetterTimeWarp zeroed the live [4], the stock snapshot recovered it and the recorder consumed it on an AIRLESS body (on Kerbin it is computed and discarded) - and pinned from those bytes (the three lines as literals, the recording count to exactly 1). What it still owes is the armed re-flight and the negative control (`instanceProfile` -> stock-minimal, which must red on exactly the zeroed-limit token). No `[dimensionsCovered]` table until both are in; then D17 `better-time-warp` is claimed, the lane is promoted to nightly beside MC-1/MC-2, and this entry is deleted.",
+        "MC-3-better-time-warp.toml":        "tier=operator on the modded-compat instance, NOT debt: ARMED-DISCIPLINE COMPLETE 2026-09-10 - reading `2026-09-10_2025` on the pre-registered outcome (A), pinned from those bytes, armed re-flight `2026-09-10_2208` PASS attempt 1 on the same lines, and negative control `2026-09-10_2213` (`instanceProfile` -> stock-minimal in place, reverted) PARSEK-FAIL(expectation) on exactly the zeroed-limit literal with the drift gate valid (Mun reseed 2 lines, zeroed line 0). D17 `better-time-warp` is claimed off that literal. Nothing is owed; a nightly slot beside MC-1 / MC-2 is the operator's cadence call, reported rather than taken.",
     }
 
     def _specs(self):
@@ -9990,9 +9990,10 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # off its reading run `2026-09-10_1720_EVA-2-orbital-board` -
                        # largest 5, trivialRecordings 1 (the pod, exactly as sized),
                        # recordings 2, unparsed 0 - on the wave DLL a0abbed1. The
-                       # first armed points block anywhere; no number moved. Owed: the
-                       # armed re-flight and its own negative control (largest
-                       # inverted to a 99-point floor, in place, reverted).
+                       # first armed points block anywhere; no number moved. Armed
+                       # re-flight `2026-09-10_2122` PASS, gating PASS on the same
+                       # numbers. Owed: its own negative control (largest inverted to
+                       # a 99-point floor, in place, reverted), which did not fly.
                        "EVA-2-orbital-board.toml",
                        # RVR-8..RVR-19, the supply-route matrix: `routes` armed
                        # 2026-09-10 (wave package A2), each lane off its OWN reading
@@ -10006,9 +10007,14 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # mismatch. The count, cycle and status windows share the
                        # evaluator paths RVR-7, RVR-20 and V18T already inverted
                        # live; the one path never inverted, the set-key facet, takes
-                       # its negative control on RVR-18. Owed: the armed re-flights
-                       # and that control. `recordings.structure` stays report-only
-                       # on all twelve.
+                       # its negative control on RVR-18. Armed re-flights, all PASS
+                       # attempt 1 with gating PASS and facets identical to the
+                       # readings: RVR-10 `_2124`, RVR-11 `_2125`, RVR-12 `_2125`,
+                       # RVR-13 `_2126`, RVR-14 `_2127`, RVR-15 `_2128`, RVR-16
+                       # `_2129`, RVR-17 `_2130`, RVR-18 `_2130`, RVR-19 `_2131`,
+                       # RVR-8 `_2133`, RVR-9 `_2134` (RVR-20 `_2132` the same).
+                       # Owed: the RVR-18 control, which did not fly.
+                       # `recordings.structure` stays report-only on all twelve.
                        "RVR-8-rover-relay-c-second-cycle-hold.toml",
                        "RVR-9-rover-relay-c-surface-cadence.toml",
                        "RVR-10-rover-relay-c-origin-empty.toml",

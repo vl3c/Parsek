@@ -194,6 +194,13 @@ undockTimeoutSeconds        = 120
 # noted in the todo doc, NOT invented here.
 [dimensionsCovered]
 D1  = ["auto-record-launch"]
+# D2 proximity-cadence-bg, CLAIMED 2026-09-11 (wave package A2) after the armed run
+# `2026-09-10_2215` and both negative controls (offline over that run's log, live
+# `2026-09-10_2305`); ledger in the count block. GATING TOKEN: the required
+# `Sample rate changed: pid=... dist=...m interval=0.2s (5.0 Hz)` line - the background
+# recorder stepping a background vessel into its 5 Hz proximity band - which the
+# 6.0 Hz inversion (a value a 0.2 s interval cannot print) proved able to red alone.
+D2  = ["proximity-cadence-bg"]
 D3  = ["orbital-checkpoint"]
 D4  = ["atmospheric", "exo-propulsive"]
 D5  = ["cross-tree-foreign-dock", "undock-split", "bg-recording"]
@@ -238,6 +245,25 @@ allowedAnomalies = []
 # is the pre-fix NAME-fallback adoption (`RestoreActiveTreeFromPending: PID remap`) that
 # merged the two flights. The max stays 20 and is NOT tightened: only wave bytes of both
 # shapes may move it (supervisor ruling), and this wave read one.
+#
+# ARMED RUN OF RECORD: `2026-09-10_2215_BDOCK-1-station-interceptor` (PASS attempt 1,
+# MISSION-OK, wall 2163 s): count 19 in the same two trees (terminals Destroyed 12,
+# Docked 1, Orbiting 5; branch points JointBreak 10, Dock 1, Undock 1), the 5.0 Hz
+# token 15 lines, the debris-creation line 12 - in the FALLBACK-DIALOG shape again
+# (`showing tree merge dialog (fallback)` 1, `StashActiveTreeAsPendingLimbo` 2).
+# NEGATIVE CONTROLS on the D2 token, `(5\.0 Hz)` inverted to `(6\.0 Hz)`:
+#   OFFLINE, over `_2215`'s archived KSP.log: this spec loaded by tomllib and evaluated
+#     by `hlib.evaluate_expectations` with count 19 - as committed PASS, no mismatch;
+#     inverted FAIL on exactly one mismatch, the inverted token; drift 15 / 0.
+#   LIVE, `2026-09-10_2305` (the wave's last flight; edited in place, reverted):
+#     PARSEK-FAIL(expectation) attempt 1, MISSION-OK, wall 2430 s, exactly one
+#     mismatch, `logContracts.required not matched: ...interval=0\.2s \(6\.0 Hz\)`;
+#     count 19; drift in its own KSP.log 15 / 0; the dialog shape again.
+# All three wave flights landed the dialog shape (4 of 20 archived BDOCK-1 logs), so no
+# wave bytes of the no-dialog shape exist and the max stays 20. One member's terminal
+# moved between the armed run and the control (Destroyed 12 against Destroyed 11 +
+# Landed 1, same count and branch points), which is why no terminalStates window is
+# declared here.
 count = { min = 19, max = 20 }
 
 [expectations.logContracts]
@@ -259,8 +285,9 @@ required = [
   # lines: 12 on staging debris at 18-19 m, 2 at probe separations, 1 on the undock
   # background child): the BG recorder stepping a background vessel into its 5 Hz
   # proximity band. It prints in every archived two-ascent log of both shapes (12-15
-  # lines). NOT CLAIMED YET: the claim waits for the armed run and this token's
-  # negative controls (wave ruling G4).
+  # lines). CLAIMED 2026-09-11 (D2 above) after the armed run `_2215` (15 lines) and
+  # both negative controls, offline over `_2215`'s log and live `_2305`, each red on
+  # exactly this token inverted to 6.0 Hz (ledger in the count block).
   "Sample rate changed: pid=[0-9]+ dist=[0-9]+m interval=0\\.2s \\(5\\.0 Hz\\)",
   # The debris population's creation line (12 in the reading, 6 per ascent): with
   # the count floor above, it names where the 12 debris members come from.

@@ -162,10 +162,11 @@ branchPoints   = { Dock = { min = 2, max = 2 }, Undock = { min = 2, max = 2 } }
 # completedCycles=0 skippedCycles=1 statuses={Paused:1}; measured-only
 # holdKinds={OriginLacksCargo:1} - so the arming moved NO number. Any report-only
 # wording below is the authoring record. `recordings.structure` above stays a
-# report-only reading. Owed: the armed re-flight. The windows gate through the routes
-# evaluator paths already inverted live (RVR-7 skippedCycles, RVR-20 completedCycles,
-# V18T statuses); the one path never inverted, the set-key facet, takes its control on
-# RVR-18.
+# report-only reading. ARMED RE-FLIGHT `2026-09-10_2125` (same DLL): PASS attempt 1,
+# saveParse gating PASS, armed ['routes'], no mismatch, every routes and structure facet
+# identical to the reading. The windows gate through the routes evaluator paths already
+# inverted live (RVR-7 skippedCycles, RVR-20 completedCycles, V18T statuses); the one
+# path never inverted, the set-key facet, takes its control on RVR-18.
 #
 gating          = true
 count           = { min = 1, max = 1 }

@@ -239,9 +239,12 @@ allowedAnomalies = []
 # has to admit. A second recording now reds: a canopy touchdown that sheds a debris
 # VESSEL, or a split of the one flight, is new behaviour worth reading, not timing
 # variance. `min = 1` still keeps the REC-001/REC-003 log rules mandatory (above).
-# OWED when this was pinned: the armed re-flight and a live negative control (this
-# window inverted in place to a floor of 2, which must red on exactly
-# `recordings.count 1 < min 2`).
+# THE ARMED RE-FLIGHT: `2026-09-10_2135_B1-pad-hop`, PASS attempt 1, MISSION-OK, wall
+# 390 s, count 1 (one Landed recording, points 544), zero debris-child lines, both
+# canopy part events, no mismatch. STILL OWED: the live negative control (this window
+# inverted in place to a floor of 2, which must red on exactly
+# `recordings.count 1 < min 2`). It was queued behind the armed run and skipped on the
+# operator chain's false 'unflown' gate, so it did not fly.
 [expectations.recordings]
 count = { min = 1, max = 1 }
 

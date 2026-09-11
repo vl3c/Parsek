@@ -83,9 +83,17 @@ EVA / CL / S0.x / H22-H25 / V1 / BDOCK waves and R14's MC-1/MC-2 took it from
 55 to 68. Adding a scenario is not the same as covering a cell. Re-derive
 these rather than editing them by memory; both numbers have moved many times.
 
-### Coverage: 172 of 248 registry cells (was 83 of 241 at the baseline, 108 of 242 on 2026-08-04, 162 of 247 on 2026-09-07 before G1 / G3b closed, 163 of 248 on 2026-09-08 before the ghost-replay claim pass, 166 after chain-interaction, 171 after Stage B)
+### Coverage: 174 of 248 registry cells (was 83 of 241 at the baseline, 108 of 242 on 2026-08-04, 162 of 247 on 2026-09-07 before G1 / G3b closed, 163 of 248 on 2026-09-08 before the ghost-replay claim pass, 166 after chain-interaction, 171 after Stage B, 172 after tombstone-rep-penalty)
 
-Re-derived 2026-09-10 on `tombstone-rep-penalty`: `hlib.compute_coverage(specs, [],
+Re-derived 2026-09-11 on `cheap-flights-arming` (wave package A2):
+`hlib.compute_coverage(specs, [], registry)` over its 251 committed specs returns
+`values 248 covered 174 uncovered 74`. The two cells that moved are D2
+`proximity-cadence-bg` (`BDOCK-1-station-interceptor`) and D17 `better-time-warp`
+(`MC-3-better-time-warp`), each claimed after its armed run and negative control; D2
+is 4 of 4 and D17 3 of 6. The sibling wave packages claim their own cells on their
+own branches, so the merged count is re-derived at merge.
+
+The previous derivation, 2026-09-10 on `tombstone-rep-penalty`: `hlib.compute_coverage(specs, [],
 registry)` over the 250 committed specs returns `values 248 covered 172 uncovered 76`.
 The one cell that moved is D12 `tombstone-rep-penalty` (`CL-4-refly-crew-standin`,
 claimed once the product change shipped - see the D12 row above); D12 is 7 of 10.
@@ -190,9 +198,9 @@ takes:
 | D3 | reference frames | 3 / 7 | A claim gap: `Pipeline-Anchor` executes whole on H11; `absolute`, `relative-anchored-nonloop`, `relative-loop`, `boundary-seam` need the test-to-cell mapping confirmed and one token each (register item 3, part 0). |
 | D13 | spawn positioning | 4 / 11 | Where a REAL spawn lands (terrain clearance, KSC exclusion, collision, orbit safety): the in-game tests exist and self-skip on every committed fixture. Generator / fixture work (R8 residue), not spec work. |
 | D16 | storage / sidecars | 4 / 12 | Formats, safe-write, path validation. Already covered headlessly by xUnit; the registry asks for a driven lane. Low product risk; several cells could close through one save-parse lane. |
-| D17 | mod compatibility | 2 / 6 | `better-time-warp` has a reading lane, `MC-3-better-time-warp` (2026-09-10; an AIRLESS-body recording, because only there is the recovered warp limit consumed), READ green on outcome (A) on `2026-09-10_2025` and pinned from it - the claim waits for its armed re-flight and negative control; `making-history` is DEFINITION-blocked, not instance-blocked - Making History ships through the SquadExpansion junction on BOTH instances (todo D17-MAKING-HISTORY-NEEDS-A-DEFINITION); `persistent-rotation`, `remotetech-commnet` are source-blocked. |
+| D17 | mod compatibility | 3 / 6 | `better-time-warp` is CLAIMED since 2026-09-11 by `MC-3-better-time-warp` (an AIRLESS-body recording, because only there is the recovered warp limit consumed): reading `2026-09-10_2025` on outcome (A), armed re-flight `_2208`, negative control `_2213` (stock-minimal, red on exactly the zeroed-limit token); `making-history` is DEFINITION-blocked, not instance-blocked - Making History ships through the SquadExpansion junction on BOTH instances (todo D17-MAKING-HISTORY-NEEDS-A-DEFINITION); `persistent-rotation`, `remotetech-commnet` are source-blocked. |
 | D18 | re-fly / interaction | 4 / 12 | THE LARGEST RESIDUE and the interaction surface of the v0.9 headline feature: what happens when the player spawns a ghost as a real vessel, docks with it, and how chains link afterwards. Register item 2 (in flight) claims `committed-interaction-claiming` and `chain-tip-original-pid`; the other eight (`ghost-conversion-quicksave`, `intermediate-spawn-suppression`, `cross-tree-chain-linking`, `ghost-extension-past-endut`, `background-event-claims`, `chain-terminated-destruction-recovery`, `chain-state-rederived`, `loop-first-run-is-real`) need the same spawn-in-run driving item 2 has to build, so they are its natural follow-on wave. CI-2 closed `committed-interaction-claiming` and `chain-tip-original-pid` on 2026-09-08. |
-| D2 | sampling | 3 / 4 | `proximity-cadence-bg` (R1 residue: grep an archived B-lane log first). |
+| D2 | sampling | 4 / 4 | Done. `proximity-cadence-bg` is CLAIMED since 2026-09-11 on `BDOCK-1-station-interceptor` off its required 5.0 Hz `Sample rate changed` token (armed run `2026-09-10_2215`; negative controls offline over that log and live `_2305`). |
 | D15 | timeline | 0 / 1 | `timeline-projection`, one cell, no subject yet. |
 
 Structurally out of reach and excluded on purpose: planet -> planet transfers not
@@ -224,7 +232,8 @@ provisioned `automation/modded-compat` and MC-1/MC-2 flew the WaterfallCompat /
 ReStockCompat categories green there, closing `waterfall-swe-fallback` and
 `restock` (plus D7 `engine-fx-waterfall-fallback`), leaving D17 at 4 of 6:
 `persistent-rotation` + `remotetech-commnet` are source-blocked, and
-`better-time-warp` / `making-history` have the instance but no committed spec.
+`better-time-warp` / `making-history` have the instance but no committed spec
+(2026-09-11: `better-time-warp` is claimed by `MC-3-better-time-warp`).
 
 The D1 cells still uncovered are ordinary player actions:
 
@@ -384,18 +393,22 @@ remains is, in order:
    and the FLIGHT variant of B27 stay reserved, not blockers.
 7. **Cheap flights and arming calls, batch them between the items above**:
    Operator item 8 (EVA-2 points-window reading run + negative control, ~64 s
-   each; 2026-09-10: read on `2026-09-10_1720` and ARMED, re-flight + control
-   queued); H59's report-only `[expectations.routes]` reading and the promotion of
-   the other report-only route declarers (2026-09-10: RVR-8..RVR-19 read and
-   ARMED; the other six declarers' readings queued); ~~the `operator -> nightly` PROMOTION
+   each; 2026-09-10: read on `2026-09-10_1720` and ARMED, armed re-flight
+   `2026-09-10_2122` PASS, the negative control still owed); H59's report-only `[expectations.routes]` reading and the promotion of
+   the other report-only route declarers (2026-09-10: RVR-8..RVR-19 read,
+   ARMED and re-flown armed, RVR-18's set-key control owed; the other six declarers' readings queued); ~~the `operator -> nightly` PROMOTION
    calls for V18T, V20M, V20T, V25M, B29, V3C and GS-6~~ DONE 2026-09-08 (operator
    decision: all seven to nightly, B29's ~36 min and V3C's ~15 min included; the
    nightly p50 sum moves from ~6.2 h to ~7.3 h); the R1 residue windows on
-   `B1-pad-hop` and `BDOCK-1`;
+   `B1-pad-hop` and `BDOCK-1` (2026-09-10: both pinned from wave readings; B1's armed
+   re-flight `2026-09-10_2135` PASS with its live control still owed; BDOCK-1 armed
+   `2026-09-10_2215` with offline and live `_2305` controls valid, D2
+   `proximity-cadence-bg` claimed);
    R14's two instance-ready specs (`better-time-warp`, `making-history`). 2026-09-10:
    `better-time-warp` is `MC-3-better-time-warp`, READ green on outcome (A) on
-   `2026-09-10_2025` and pinned from those bytes, armed re-flight + stock-minimal
-   negative control queued; `making-history` needs a cell definition first
+   `2026-09-10_2025` and pinned from those bytes, then armed (`_2208` PASS) and
+   controlled (stock-minimal `_2213` red on exactly the zeroed-limit token), D17
+   `better-time-warp` claimed; `making-history` needs a cell definition first
    (todo D17-MAKING-HISTORY-NEEDS-A-DEFINITION).
 8. **Tier D D1 residue** as filler: `switch-segment-noop-discard`, `commit-abort`
    (needs its definition first), `sub-2-point-drop`, and the R2 registry decision
@@ -959,13 +972,13 @@ admits the main recording alone:
 
 | Scenario | window | span | status |
 |---|---|---|---|
-| B1-pad-hop | {1, 6} | 5 | CLOSED 2026-09-10 -> `{1, 1}` (MEASURED 1 on both wave readings `2026-09-10_1759` / `_1807`, LANDED, zero breakup-child lines: the population is the main recording, and a DOWN ending is a mission failure, never a PASS; armed re-flight + live negative control queued) |
+| B1-pad-hop | {1, 6} | 5 | CLOSED 2026-09-10 -> `{1, 1}` (MEASURED 1 on both wave readings `2026-09-10_1759` / `_1807`, LANDED, zero breakup-child lines: the population is the main recording, and a DOWN ending is a mission failure, never a PASS; armed re-flight `2026-09-10_2135` PASS at count 1; the live negative control is still owed) |
 | B2-lko-ascent | {1, 8} | 7 | CLOSED -> `{7, 8}` + debris token (b2_decide: no flameout stage, so population 7; MEASURED 7 on `2026-07-25_0824`) |
 | B4-reentry-splashdown | {1, 9} | 8 | CLOSED -> `{8, 9}` + debris token (b4_decide has no flameout stage, but commands a service-stage drop on the SOLE path into B4_REENTRY; MEASURED 8 on `2026-07-25_0828`, confirming the structural derivation) |
 | B5-mun-flyby | {1, 9} | 8 | CLOSED -> `{8, 9}` + debris token (b5_decide reaches `_b5_flameout_stage`; MEASURED 8 on `2026-07-25_0643` and `_0847`) |
 | B6-minmus-flyby | {1, 9} | 8 | CLOSED -> `{8, 9}` + debris token (same `b5_decide` as B5/B7; MEASURED 8 on `2026-07-25_0636` and `_0856`, confirming the inference) |
 | B7-duna-flyby | {1, 8} | 7 | CLOSED -> `{8, 8}` + debris token (MEASURED 8 on `2026-07-25_0916_a2`; agrees with B15's pin) |
-| BDOCK-1-station-interceptor | {2, 20} | 18 | CLOSED 2026-09-10 -> `{19, 20}` + debris token (MEASURED 19 on `2026-09-10_1815`, attributed debris 12 + mains 2 + probes 2 + dock 1 + undock 2 across both trees; max kept because the reading landed the fallback merge-dialog shape only; armed re-flight + controls queued) |
+| BDOCK-1-station-interceptor | {2, 20} | 18 | CLOSED 2026-09-10 -> `{19, 20}` + debris token (MEASURED 19 on `2026-09-10_1815`, attributed debris 12 + mains 2 + probes 2 + dock 1 + undock 2 across both trees; max kept because every wave flight landed the fallback merge-dialog shape; armed `2026-09-10_2215` at 19, offline and live `_2305` negative controls on the D2 token valid, D2 `proximity-cadence-bg` claimed) |
 
 Every one of them would still read PASS if Parsek stopped writing child /
 debris recordings entirely. The wide MAX is defensible and deliberately
@@ -1094,8 +1107,10 @@ program-wide, all intermittent - GS-7 4 of 10, B29 2 of 4), so it stays open for
 item 5; D2 `proximity-cadence-bg` is reachable on BDOCK-1 (`Sample rate changed: pid=` in
 17 of 17 archives) and is claimed only off this wave's own BDOCK-1 reading and armed
 run. Detail in the todo's R1 entry. The reading `2026-09-10_1815` measured the 5.0 Hz
-band 15 times; the token is REQUIRED on BDOCK-1 since then, and the claim waits for
-the armed run and its negative controls.
+band 15 times; the token is REQUIRED on BDOCK-1 since then, and D2
+`proximity-cadence-bg` is CLAIMED there since 2026-09-11 off the armed run
+`2026-09-10_2215` (15 lines) and two negative controls, offline over that run's log and
+live `2026-09-10_2305`, each red on exactly the token inverted to 6.0 Hz (drift 15 / 0).
 Rule: one token per claimed class; never loosen a token to keep a claim.
 
 **R2. Resolve the two registry defects.** Registry-only. **STILL OPEN** -
@@ -1860,8 +1875,10 @@ discarded, so a Kerbin witness would prove snapshot recovery and nothing about
 recording behavior. Its reading run `2026-09-10_2025` (after modded-compat was
 re-provisioned to the wave DLL and MC-1 / MC-2 re-flew green on it) measured outcome
 (A): BTW zeroed the Mun's live limit, the snapshot recovered 25000 m, and the recorder
-consumed it. The lane is pinned from those bytes and owes its armed re-flight and the
-stock-minimal negative control before the claim. `making-history`
+consumed it. The lane was pinned from those bytes; its armed re-flight
+`2026-09-10_2208` passed on the same lines and its stock-minimal negative control
+`2026-09-10_2213` red on exactly the zeroed-limit token (drift: reseed 2, zeroed 0), so
+D17 `better-time-warp` is claimed. `making-history`
 turned out to be a definition question rather than an instance one (todo
 D17-MAKING-HISTORY-NEEDS-A-DEFINITION).
 

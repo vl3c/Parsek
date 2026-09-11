@@ -3,8 +3,8 @@ id = "MC-3-better-time-warp"
 tier = "operator"
 # =====================================================================================
 # MC-3: THE BETTER-TIME-WARP INTERACTION, READ ON A LIVE AIRLESS-BODY RECORDING.
-# READ 2026-09-10 ON OUTCOME (A) AND PINNED FROM THAT RUN'S BYTES; THE ARMED RE-FLIGHT AND
-# THE NEGATIVE CONTROL ARE STILL OWED.
+# READ 2026-09-10 ON OUTCOME (A), PINNED FROM THAT RUN'S BYTES, THEN ARMED-DISCIPLINE
+# COMPLETE THE SAME DAY (ARMED RE-FLIGHT PASS, NEGATIVE CONTROL VALID). D17 CLAIMED.
 # =====================================================================================
 #
 # WHAT THE LANE IS FOR (R14 residue, registry D17 `better-time-warp`). The one
@@ -91,18 +91,47 @@ tier = "operator"
 # Zero `[Parsek][ERROR]`; the one Unity NRE is stock `CrewHatchController.OnDestroy`
 # after `Application.Quit`, no Parsek frame.
 #
-# NEGATIVE CONTROL, owed after arming (the mirror direction): this spec flown with
-# `instanceProfile` edited in place to "stock-minimal" (uncommitted, reverted). There
-# is no BTW there, so it must red PARSEK-FAIL(expectation) on exactly ONE unmet token,
-# the zeroed-limit literal; the capture line and the Mun reseed line are unconditional
-# and stay present.
+# THE ARMED RE-FLIGHT: `2026-09-10_2208_MC-3-better-time-warp`, modded-compat, wave DLL
+# a0abbed1, the spec as committed. PASS attempt 1, wall 68 s, no mismatch, count 1. The
+# same lines at the same counts: the zeroed line once, the Mun reseed
+# `threshold=25000m, alt=139585m` twice, the capture line `17 bodies` once, zero
+# `[Parsek][ERROR]`, zero Unity exceptions. Structure and points identical to the
+# reading (one tree, one 1-point Orbiting recording).
+#
+# THE NEGATIVE CONTROL (the mirror direction): `2026-09-10_2213_MC-3-better-time-warp`,
+# this spec flown with `instanceProfile` edited in place to "stock-minimal"
+# (uncommitted, reverted with `git checkout`, tree clean). There is no BTW there, and it
+# red PARSEK-FAIL(expectation), attempt 1, wall 47 s, on EXACTLY ONE unmet token:
+#     logContracts.required not matched: ComputeApproachAltitude\(Mun\): live limit
+#     zeroed by a warp mod; using stock 25000m
+# The capture line (`17 bodies`), the Mun reseed line and S0.6's markers stayed met;
+# count 1. DRIFT GATE in the control's own KSP.log: the reseed regex
+# `Altitude state reseeded: body=Mun, aboveThreshold=True \(was False\), threshold=25000m`
+# matched 2 lines and `live limit zeroed by a warp mod` matched 0, with no
+# BetterTimeWarp line at all. So the subject recorded on the Mun at 25000 m on both
+# instances (stock-minimal's live [4] is already positive), and only the zeroed-limit
+# line tells them apart: that literal is the gate. Shape note, not gated: the control
+# printed `Recording stopped` twice (the second at quit, 0 points) where the armed run
+# printed it once; the token is presence-only.
 #
 # NOT H-SERIES, same reason as MC-1: the H7+ wiring group pins a stock-fixture skip
-# floor this instance does not share. No `[dimensionsCovered]` table: the D17 claim is
-# made only after the armed re-flight AND the negative control (wave ruling G4).
-description = "Seam StartRecording/StopRecording/CommitTree on the Parsek-stripped Mun-orbit Kerbal X (mun-park-kerbalx) on the modded-compat instance, where BetterTimeWarp zeroes the live timeWarpAltitudeLimits[4]: reads whether Parsek's stock snapshot recovers the Mun's approach altitude and the recorder consumes it as its airless-body split threshold. Read 2026-09-10 on the pre-registered outcome (A), run 2026-09-10_2025, and pinned from those bytes; armed re-flight and the stock-minimal negative control pending."
+# floor this instance does not share. THE TIER STAYS operator: a nightly slot beside
+# MC-1 / MC-2 is the operator's cadence call, reported rather than taken here.
+description = "Seam StartRecording/StopRecording/CommitTree on the Parsek-stripped Mun-orbit Kerbal X (mun-park-kerbalx) on the modded-compat instance, where BetterTimeWarp zeroes the live timeWarpAltitudeLimits[4]: reads whether Parsek's stock snapshot recovers the Mun's approach altitude and the recorder consumes it as its airless-body split threshold. Read 2026-09-10 on the pre-registered outcome (A), run 2026-09-10_2025, pinned from those bytes, then armed (re-flight 2026-09-10_2208 PASS) and controlled (stock-minimal negative control 2026-09-10_2213 red on exactly the zeroed-limit token); claims D17 better-time-warp."
 instanceProfile = "modded-compat"
 tags = ["modded-compat", "R14", "better-time-warp", "live-recording", "MC-3"]
+
+[dimensionsCovered]
+# D17 better-time-warp, CLAIMED 2026-09-11 (wave package A2) after the armed re-flight
+# `2026-09-10_2208` and the negative control `2026-09-10_2213` (wave ruling G4). GATING
+# TOKEN: the required literal `ComputeApproachAltitude\(Mun\): live limit zeroed by a
+# warp mod; using stock 25000m`, which prints only when BetterTimeWarp has zeroed the
+# Mun's live timeWarpAltitudeLimits[4] and the stock snapshot recovered the value the
+# recorder then consumes as its airless-body threshold (the reseed token beside it); the
+# control proved it absent without the mod. No D14 row: the boot and scene facts are
+# MC-1 / MC-2's on this instance and B30's on this fixture, and re-declaring them gates
+# nothing new.
+D17 = ["better-time-warp"]
 
 [fixture]
 # The Parsek-stripped Mun park B30 flies (see the header). No injected recordings: the

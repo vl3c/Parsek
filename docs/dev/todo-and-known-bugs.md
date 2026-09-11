@@ -15,7 +15,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## BDOCK1-STATION-COMMIT-READOPT-LIMBO-FALLBACK-DIALOG: after BDOCK-1's mid-mission CommitTree, the re-adopted station continuation is stashed to Limbo by the interceptor launch and surfaces as a whole-tree merge dialog over already-committed recordings [FILED 2026-09-10 by wave package A2 (`cheap-flights-arming`) off its BDOCK-1 reading run. OPEN PRODUCT QUESTION, intermittent (2 of 18 BDOCK-1 logs); not fixed in this wave]
+## BDOCK1-STATION-COMMIT-READOPT-LIMBO-FALLBACK-DIALOG: after BDOCK-1's mid-mission CommitTree, the re-adopted station continuation is stashed to Limbo by the interceptor launch and surfaces as a whole-tree merge dialog over already-committed recordings [FILED 2026-09-10 by wave package A2 (`cheap-flights-arming`) off its BDOCK-1 reading run. OPEN PRODUCT QUESTION, 4 of 20 BDOCK-1 logs and all 3 flights on the wave DLL; not fixed in this wave]
 
 **What happens**, from `2026-09-10_1815_BDOCK-1-station-interceptor`'s own KSP.log (local
 21:19):
@@ -53,6 +53,16 @@ after a commit. Not done in this wave because it changes the lane's subject.
 count min was raised only to a value both shapes satisfy (19, attributed per type, every
 member produced before or apart from the stash) and the max kept at 20. No token that
 exists in only one shape (the fallback-dialog / Limbo lines) is required or forbidden.
+
+**Later the same day: the armed run and the live control landed it too.** BDOCK-1's
+armed run `2026-09-10_2215` and its live negative control `2026-09-10_2305` both logged
+`stashed tree 'Kerbal X' as Limbo (8 recording(s))` and `showing tree merge dialog
+(fallback)`, and both passed log validation. That makes 4 of 20 archived BDOCK-1 logs,
+but 3 of 3 flights on the wave DLL against 1 of 17 older archives, so on current builds
+the dialog looks like this lane's COMMON shape rather than a rare one. No no-dialog bytes
+exist on the wave DLL, so the count max stays 20. The two runs also differ in one debris
+terminal (Destroyed 12 against Destroyed 11 + Landed 1, same count and branch points):
+recorded, not gated.
 
 ## D17-MAKING-HISTORY-NEEDS-A-DEFINITION: the registry cell `making-history` has no subject, because Parsek has no Making-History-specific compatibility path to witness [FILED 2026-09-10 by wave package A2 (`cheap-flights-arming`) planning. A DEFINITION question for the operator, not a defect and not instance-blocked. OPEN; no experiment flight is authorized until it is answered]
 
@@ -11117,6 +11127,14 @@ BDOCK1-STATION-COMMIT-READOPT-LIMBO-FALLBACK-DIALOG), and the 5.0 Hz
 there. D2 `proximity-cadence-bg` is claimed only after the armed run and its negative
 controls. D5 stays OPEN as above.
 
+**2026-09-11, armed and claimed (wave package A2).** BDOCK-1's armed run
+`2026-09-10_2215` read count 19 with the 5.0 Hz token 15 times; the offline negative
+control over its log and the live one, `2026-09-10_2305`, each red on exactly that token
+inverted to 6.0 Hz (drift 15 / 0), so D2 `proximity-cadence-bg` is CLAIMED on BDOCK-1.
+B1's armed re-flight `2026-09-10_2135` passed at count 1; its live negative control did
+not fly (skipped on the operator chain's false 'unflown' gate) and is still owed. D5
+`staging-debris-ttl` stays OPEN.
+
 **R2. Two registry cells cannot be honestly claimed as written. Decide before anyone
 claims against them.**
 `harness/coverage/registry.toml` D1 `stop-on-switch` describes a decision that does
@@ -11368,7 +11386,8 @@ item and must not be counted as one:
   not in the profile); `better-time-warp` and `making-history` have the
   instance but no committed spec (2026-09-10: `better-time-warp` now has a
   reading lane, `MC-3-better-time-warp`, READ green on outcome (A) on
-  `2026-09-10_2025` and pinned from it, armed re-flight + negative control queued; `making-history`
+  `2026-09-10_2025` and pinned from it, armed re-flight `_2208` PASS and negative control
+  `_2213` valid, D17 `better-time-warp` CLAIMED 2026-09-11; `making-history`
   is definition-blocked, see D17-MAKING-HISTORY-NEEDS-A-DEFINITION); the FX-fingerprint A/B diff ran REPORT-ONLY
   and surfaced a corpus limitation filed as **T48 under TODO — Compatibility**
   (the synthetic corpus is trajectory-only for all but a handful of

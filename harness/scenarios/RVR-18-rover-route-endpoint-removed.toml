@@ -501,13 +501,15 @@ branchPoints   = { Dock = { min = 1, max = 1 }, Undock = { min = 1, max = 1 } }
 # `2026-09-10_1728` (stock-minimal, wave DLL a0abbed1, PASS attempt 1): every declared
 # window read exactly as declared - count=1 dormant=0 stops=1 sourceRefs=2
 # completedCycles=1 skippedCycles=1 statuses={Paused:1}
-# destinationVesselPids=['2875537755']; measured-only holdKinds={DestinationFull:1} -
-# so the arming moved NO number. Any report-only wording below is the authoring
-# record. `recordings.structure` above stays a report-only reading. Owed: the armed
-# re-flight, then the set-key negative control (`destinationVesselPids` inverted in
-# place to a pid no stop carries), which must red on exactly the
-# `routes.destinationVesselPids` set mismatch - the one routes path no lane had
-# inverted live.
+# destinationVesselPids=['2875537755']; measured-only holdKinds={DestinationFull:1} - so
+# the arming moved NO number. Any report-only wording below is the authoring record.
+# `recordings.structure` above stays a report-only reading. ARMED RE-FLIGHT
+# `2026-09-10_2130` (same DLL): PASS attempt 1, saveParse gating PASS, armed ['routes'],
+# no mismatch, every routes and structure facet identical to the reading. STILL OWED:
+# the set-key negative control (`destinationVesselPids` inverted in place to a pid no
+# stop carries), which must red on exactly the `routes.destinationVesselPids` set
+# mismatch - the one routes path no lane had inverted live. It was queued behind the
+# armed run and skipped on the operator chain's false 'unflown' gate, so it did not fly.
 #
 # REPORT-ONLY and DERIVED. The shape keys are RVR-16's, measured twice on this fixture:
 # one delivering cycle and one blocked one, the route left Paused.
