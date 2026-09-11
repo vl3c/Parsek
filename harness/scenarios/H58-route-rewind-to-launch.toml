@@ -448,7 +448,8 @@ allowedAnomalies = []
 # - the offline read above, key for key - with the report-only mismatch list empty. So
 # the route survived the go-back rewind as a committed Paused route on the wave DLL
 # and the arming moved NO number. The report-only wording above is the authoring
-# record. Owed: the armed re-flight.
+# record. Owed: the armed re-flight (the 2026-09-11 make-up round queued it and
+# stopped after its first request, before reaching it).
 gating          = true
 count           = { min = 1, max = 1 }
 dormant         = { max = 0 }

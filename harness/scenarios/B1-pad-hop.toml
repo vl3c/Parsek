@@ -244,7 +244,8 @@ allowedAnomalies = []
 # canopy part events, no mismatch. STILL OWED: the live negative control (this window
 # inverted in place to a floor of 2, which must red on exactly
 # `recordings.count 1 < min 2`). It was queued behind the armed run and skipped on the
-# operator chain's false 'unflown' gate, so it did not fly.
+# operator chain's false 'unflown' gate, so it did not fly; the 2026-09-11 make-up round
+# queued it again and stopped after its first request, before reaching it.
 [expectations.recordings]
 count = { min = 1, max = 1 }
 

@@ -168,13 +168,16 @@ count = { min = 2, max = 2 }
 # wall 75 s, saveParse GATING PASS with armed ['recordings.points'] and no mismatch, on
 # the same six numbers (total 6, largest 5, smallest 1, trivialRecordings 1, recordings
 # 2, unparsed 0); the stock trigger fired again (6 `dT is NaN` lines).
-# STILL OWED: ONE negative control (`largest` edited in place to a 99-point floor,
-# reverted), which must red PARSEK-FAIL(save-structure) on exactly
-# `recordings.points.largest N < min 99`. It was queued behind the armed run and did not
-# fly: the operator's chain read the armed run's PASS row (an empty `subkind=`) as
-# unflown and skipped the control on that false gate. It is the first armed points
-# block anywhere, so it takes its own inversion rather than a shared one (V18T's and
-# RVR-20's reason: a block with its own parse path).
+# THE NEGATIVE CONTROL: `2026-09-11_0133_EVA-2-orbital-board` (same DLL, the wave's
+# make-up round), `largest` edited in place to a 99-point floor and reverted:
+# PARSEK-FAIL(save-structure) attempt 1 on EXACTLY one mismatch,
+# `recordings.points.largest 5 < min 99`, with expectations PASS. It is valid because
+# its own run measured largest 5 (the committed floor of 2 held), trivialRecordings 1
+# and unparsed 0. Its first queueing (2026-09-10) never launched: the operator's chain
+# read the armed run's PASS row (an empty `subkind=`) as unflown. It is the first armed
+# points block anywhere, so it took its own inversion rather than a shared one (V18T's
+# and RVR-20's reason: a block with its own parse path). Reading, armed re-flight and
+# control are all in: the arming discipline is complete.
 [expectations.recordings.points]
 gating            = true
 largest           = { min = 2 }

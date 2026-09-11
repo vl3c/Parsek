@@ -1094,7 +1094,8 @@ forbidden = [
 # described below, key for key. The one dispatch fired (`LoopRoute ... FIRED full
 # cycle`) and the route stayed Active. So the arming moved NO number; the report-only
 # wording below ("NEVER EVALUATED ON A RUN" included) is the authoring record. Owed:
-# the armed re-flight.
+# the armed re-flight (the 2026-09-11 make-up round queued it and stopped after its
+# first request, before reaching it).
 #
 # THE M-C2 SUPPLY-ROUTE BLOCK (`harness/lib/saveparse.py`, shipped 2026-09-02 by
 # PR #1603). **REPORT-ONLY: `gating` IS DELIBERATELY OMITTED**, per the standing

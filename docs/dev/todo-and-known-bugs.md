@@ -11159,7 +11159,8 @@ controls. D5 stays OPEN as above.
 control over its log and the live one, `2026-09-10_2305`, each red on exactly that token
 inverted to 6.0 Hz (drift 15 / 0), so D2 `proximity-cadence-bg` is CLAIMED on BDOCK-1.
 B1's armed re-flight `2026-09-10_2135` passed at count 1; its live negative control did
-not fly (skipped on the operator chain's false 'unflown' gate) and is still owed. D5
+not fly (skipped on the operator chain's false 'unflown' gate, then queued again in the
+2026-09-11 make-up round, which stopped before reaching it) and is still owed. D5
 `staging-debris-ttl` stays OPEN.
 
 **R2. Two registry cells cannot be honestly claimed as written. Decide before anyone

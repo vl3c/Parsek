@@ -237,8 +237,9 @@ class InterbodyRouteSpecFixtureSyncTests(unittest.TestCase):
         # that census scales with the observed population rather than with the
         # composition. Full reasoning in each spec's block and in
         # `test_hlib.RENDERCOMPOSE_ARMED_SPECS`. The armed re-flight of both flew
-        # 2026-09-10 (wave package A2: `2026-09-10_2151` / `_2153`, gating PASS);
-        # owed from here is one negative control.
+        # 2026-09-10 (wave package A2: `2026-09-10_2151` / `_2153`, gating PASS)
+        # and again 2026-09-11 (`_0201` / `_0203`); owed from here is one negative
+        # control.
         ("V26M-interbody-route-map-lines.toml", "renderComposition"),
         ("V26T-interbody-route-ts-arrival.toml", "renderComposition"),
         # B32 / V26M / V26T, `routes`, ARMED 2026-09-11 (wave package A2), each
@@ -246,8 +247,10 @@ class InterbodyRouteSpecFixtureSyncTests(unittest.TestCase):
         # `2026-09-10_2149` / `_2151` / `_2153`, all PASS attempt 1 - which read
         # the same twelve leaves, every one as declared (two routes, one Active
         # and one Paused, DockingPort 2, origins Kerbin 2, destinations Duna 1 +
-        # Mun 1). Owed: the three armed re-flights and B32's two group-window
-        # negative controls.
+        # Mun 1). Armed re-flights 2026-09-11 (`_0159` / `_0201` / `_0203`), all
+        # PASS attempt 1 with gating PASS and no mismatch; B32's two group-window
+        # negative controls red on exactly their leaf (`_0206`, `_0209`). Nothing is
+        # owed on `routes` over this fixture.
         ("B32-interbody-route-scope.toml", "routes"),
         ("V26M-interbody-route-map-lines.toml", "routes"),
         ("V26T-interbody-route-ts-arrival.toml", "routes"),

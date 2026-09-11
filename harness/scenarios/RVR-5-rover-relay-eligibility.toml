@@ -460,8 +460,9 @@ branchPoints   = { Dock = { min = 2, max = 2 }, Undock = { min = 2, max = 2 } }
 # moved NO number. The report-only wording below is the authoring record.
 # `recordings.structure` above stays a report-only reading (it matched too: trees 3,
 # committedTrees 3, recordings 9, Landed 5, Docked 2, Dock 2, Undock 2). Owed: the
-# armed re-flight. The windows gate through routes evaluator paths already inverted
-# live (RVR-7 skippedCycles, RVR-20 completedCycles, V18T statuses).
+# armed re-flight (the 2026-09-11 make-up round queued it and stopped after its first
+# request, before reaching it). The windows gate through routes evaluator paths
+# already inverted live (RVR-7 skippedCycles, RVR-20 completedCycles, V18T statuses).
 #
 # STILL REPORT-ONLY (no `gating` key) - every value below is MEASURED off
 # `2026-09-02_2244`, but arming is a separate per-scenario operator decision taken after a

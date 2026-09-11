@@ -524,8 +524,14 @@ routeCoDrawViolations = { max = 0 }
 # to B32's same-day reading, key for key, so the arming moved NO number; the
 # report-only wording below is the authoring record. The same run flew the
 # renderComposition block above ARMED (gating PASS, routeLineBuilds=2,
-# routeCoDrawViolations=0, no mismatch). Owed: the armed re-flight. Its group windows
-# share B32's evaluator paths, whose two negative controls B32 carries.
+# routeCoDrawViolations=0, no mismatch). ARMED RE-FLIGHT
+# `2026-09-11_0201_V26M-interbody-route-map-lines` (same DLL, the wave's make-up
+# round): PASS attempt 1, saveParse gating PASS on ['routes'] with every routes facet
+# but the per-run ids identical to the reading, renderComposition gating PASS, no
+# mismatch. Its group windows share B32's evaluator paths, whose two negative controls
+# red on exactly their leaf (`2026-09-11_0206` connectionKinds, `_0209`
+# destinationBodies). Still owed, outside this block: the renderComposition negative
+# control.
 #
 # M-C2 save-parse, DECLARED REPORT-ONLY: `gating` IS DELIBERATELY OMITTED. The
 # windows below were written from the fixture's committed bytes and are now

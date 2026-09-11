@@ -9992,8 +9992,11 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # recordings 2, unparsed 0 - on the wave DLL a0abbed1. The
                        # first armed points block anywhere; no number moved. Armed
                        # re-flight `2026-09-10_2122` PASS, gating PASS on the same
-                       # numbers. Owed: its own negative control (largest inverted to
-                       # a 99-point floor, in place, reverted), which did not fly.
+                       # numbers. Its own negative control (largest inverted to a
+                       # 99-point floor, in place, reverted) flew in the make-up
+                       # round: `2026-09-11_0133` PARSEK-FAIL(save-structure) on
+                       # exactly `recordings.points.largest 5 < min 99`. Nothing is
+                       # owed.
                        "EVA-2-orbital-board.toml",
                        # RVR-8..RVR-19, the supply-route matrix: `routes` armed
                        # 2026-09-10 (wave package A2), each lane off its OWN reading
@@ -10013,7 +10016,9 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # RVR-13 `_2126`, RVR-14 `_2127`, RVR-15 `_2128`, RVR-16
                        # `_2129`, RVR-17 `_2130`, RVR-18 `_2130`, RVR-19 `_2131`,
                        # RVR-8 `_2133`, RVR-9 `_2134` (RVR-20 `_2132` the same).
-                       # Owed: the RVR-18 control, which did not fly.
+                       # Owed: the RVR-18 control, which did not fly (queued on
+                       # 2026-09-10 and again in the 2026-09-11 make-up round, which
+                       # stopped after its first request).
                        # `recordings.structure` stays report-only on all twelve.
                        "RVR-8-rover-relay-c-second-cycle-hold.toml",
                        "RVR-9-rover-relay-c-surface-cadence.toml",
@@ -10033,9 +10038,14 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # window: RVR-5 `2026-09-10_2143`, H58 `_2144`, H59 `_2147`
                        # (the block's first evaluation on a run), B32 `_2149`, V26M
                        # `_2151`, V26T `_2153` (the three inter-body lanes read the
-                       # same twelve leaves). No number moved. Owed: the six armed
-                       # re-flights and B32's two group-window negative controls
-                       # (connectionKinds, destinationBodies). RVR-5's
+                       # same twelve leaves). No number moved. Make-up round
+                       # (2026-09-11, same DLL): armed re-flights B32 `_0159`, V26M
+                       # `_0201`, V26T `_0203`, all PASS attempt 1 with gating PASS
+                       # and no mismatch; B32's two group-window negative controls
+                       # red on exactly their leaf, `_0206` connectionKinds
+                       # DockingPort and `_0209` destinationBodies Duna. Owed: the
+                       # RVR-5, H58 and H59 armed re-flights, which did not fly
+                       # (the batch stopped after its first request). RVR-5's
                        # `recordings.structure` stays report-only.
                        "RVR-5-rover-relay-eligibility.toml",
                        "H58-route-rewind-to-launch.toml",
@@ -10625,7 +10635,8 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
         # where runs 1 and 2 each had one; filed as
         # V26M-GHOST-SPAWN-IN-MAP-WINDOW-IS-EPOCH-DEPENDENT).
         # The ARMED RE-FLIGHT of both flew 2026-09-10 (wave package A2: V26M
-        # `2026-09-10_2151`, V26T `2026-09-10_2153`, gating PASS, no mismatch).
+        # `2026-09-10_2151`, V26T `2026-09-10_2153`, gating PASS, no mismatch)
+        # and again 2026-09-11 (`_0201` / `_0203`, the same).
         # OWED, and named so it is not mistaken for discharged: their negative
         # control; the discipline is not complete until it flies.
         "V26M-interbody-route-map-lines.toml",
