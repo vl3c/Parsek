@@ -8644,9 +8644,10 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # `pending-operator` tag has to be classified somewhere.
         "RF-1-continuation-stays-open.toml":
             "operator by the reading-run discipline; LIVE-PROVEN, rewind block "
-            "armed 2026-09-09. Claim-gap wave 2026-09-10: armed re-flight _2011 "
-            "red on a UT literal (re-pinned from bytes); its D4 claims wait on a "
-            "green re-flight",
+            "armed 2026-09-09. Claim-gap wave: armed re-flight _2011 red on a UT "
+            "literal (re-pinned from bytes); the re-pin flew green 2026-09-11 "
+            "(_0138, controls _0142 / _0147), so D4 hysteresis + "
+            "surface-graze-suppression and seven coveredBy-only cells are claimed",
         "RF-2-two-reflies-in-sequence.toml":
             "operator by the reading-run discipline; AUTHORED 2026-09-09, NEVER "
             "FLOWN. Owes a flight, not a human call",
@@ -8684,7 +8685,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
             "whose promoted recording crosses an environment boundary the optimizer "
             "splits on); reds on a pre-#1658 DLL BY DESIGN. Claim-gap wave armed "
             "re-flight 2026-09-10_2050 PASS: D4 env-body-split + seven coveredBy-only "
-            "cells claimed",
+            "cells claimed; D4 seed-event-split claimed 2026-09-11 after control _0151",
         "RF-11-both-slots-in-sequence.toml":
             "operator by the reading-run discipline; AUTHORED 2026-09-09, NEVER "
             "FLOWN. The lane RF-2 was commissioned as, now that "

@@ -15,9 +15,9 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## RF1-HYSTERESIS-UT-LITERAL-REFUTED-BY-LAUNCH-TICK: RF-1's armed re-flight red on a UT the claim-gap wave had pinned literal, because the autopilot launch landed one physics tick later
+## ~~RF1-HYSTERESIS-UT-LITERAL-REFUTED-BY-LAUNCH-TICK: RF-1's armed re-flight red on a UT the claim-gap wave had pinned literal, because the autopilot launch landed one physics tick later~~ [FILED 2026-09-10 by the claim-gap wave (package A1-6). A HARNESS PIN finding, not a product defect. CLOSED 2026-09-11: the re-pinned spec flew green and both D4 claims were taken]
 
-Filed 2026-09-10 by the claim-gap wave (package A1-6). A HARNESS PIN finding, not a product defect. The pin is RE-PINNED from bytes; the claims are OPEN.
+Filed 2026-09-10 by the claim-gap wave (package A1-6). A HARNESS PIN finding, not a product defect. The pin is RE-PINNED from bytes. CLOSED 2026-09-11 by the wave's make-up round (below).
 
 **What happened.** The wave pinned EnvironmentDetector's debounced transition on `RF-1-continuation-stays-open` literally: `Environment transition: SurfaceStationary -> SurfaceMobile at UT=29\.76 \(debounce=3\.0s\)`. UT=29.76 had been byte-equal on all seven flights of the profile read (GS-1 `2026-08-05_1025` / `_1026` / `_1052` / `_1110` / `_1141`, RF-1 `2026-09-09_0254`, the wave reading `2026-09-10_1739`). The armed re-flight `2026-09-10_2011` ran the same wave DLL (a0abbed1) and the unedited spec. It printed `... at UT=29.78 (debounce=3.0s)` and read PARSEK-FAIL(expectation) with that one mismatch. Mission MISSION-OK, the armed rewind block PASS, the other 16 required tokens and the 4 forbids all held, and 0 ERROR lines.
 
@@ -25,9 +25,10 @@ Filed 2026-09-10 by the claim-gap wave (package A1-6). A HARNESS PIN finding, no
 
 **Fix (harness, done).** The UT is regexed (`UT=[0-9.]+`), and `debounce=3\.0s` stays the witness. The re-pin matches both wave runs with zero mismatches (checked offline against both archived KSP.logs). This was not widened to hide a defect: the debounce value and the section duration are unchanged between the two runs.
 
-**Still open.**
-- D4 `hysteresis` and `surface-graze-suppression` are unclaimed until an armed re-flight of the re-pinned spec is green, plus one negative control per token. The surface-graze `Split summary` token held in `_2011` (2 matches), but a red run is not a citation.
-- RF-1's coveredBy-only D1 / D5 / D9 cells wait on the same green run.
+**Closed 2026-09-11 (the wave's make-up round, same wave DLL a0abbed1).**
+- The armed re-flight of the re-pinned spec, `2026-09-11_0138`, read PASS attempt 1 with mismatches=0 over 17 required + 4 forbidden, MISSION-OK, rewind block PASS. It printed UT=29.76, and its two controls printed 29.78 and 29.76. So the launch tick really does wander by one physics step between flights; the regexed UT absorbs it while `debounce=3\.0s` stays literal.
+- One negative control per D4 token, each PARSEK-FAIL(expectation) on exactly its inverted entry, with the drift gate held in its own KSP.log: `2026-09-11_0142` (`(debounce=3\.0s)` -> `(immediate, debounce=0\.0s)`, original 1 / inverted 0) and `2026-09-11_0147` (`surfaceGrazeForward=1` -> `=0`, original 2 / inverted 0).
+- D4 `hysteresis` and `surface-graze-suppression` are CLAIMED on RF-1, together with its seven coveredBy-only D1 / D5 / D9 cells, each verified token-per-cell on `_0138`.
 
 **The lesson for other lanes.** A UT printed by an autopilot-flown profile is not a fixture constant, however many flights agree. Pin the mechanism field, and regex the clock.
 

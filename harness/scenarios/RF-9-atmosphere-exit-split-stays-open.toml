@@ -173,6 +173,10 @@ id = "RF-9-atmosphere-exit-split-stays-open"
 # between flights, which is why nothing gates on it). ARMED 2026-09-09 through the full
 # S4.1 cycle, after run 2 landed inside every re-pinned window; the block below carries
 # the record.
+#
+# CLAIM-GAP WAVE (2026-09-10 / -11): reading `2026-09-10_1743`, armed re-flight
+# `2026-09-10_2050` (PASS), and the seed-event-split negative control `2026-09-11_0151`
+# (valid). GROUP 6 and [dimensionsCovered] carry the record.
 # =====================================================================================
 tier = "operator"
 description = "The sealing defect's shape flown live: the Kerbal X's probe-cored core is discarded INSIDE the atmosphere (authoring a RewindPoint), the crewed top stack then coasts OUT through 70 km and the scene exits while it is still climbing - so the committed focus recording spans an Atmospheric -> ExoBallistic boundary, the optimizer splits it, and the promoted slot must stay open across that split and be re-flyable."
@@ -273,8 +277,9 @@ flightMaxSeconds = 700.0
 recordedSpanWindowSeconds = { min = 60.0, max = 650.0 }
 
 [dimensionsCovered]
-# CLAIMED 2026-09-10 (claim-gap wave A1-7), claim-only under the wave's G1 exception.
-# Every cell below rests on a token that was ALREADY REQUIRED on this armed lane. The
+# CLAIMED 2026-09-10 (claim-gap wave A1-7), claim-only under the wave's G1 exception,
+# EXCEPT D4 `seed-event-split`, claimed 2026-09-11 after its own control (last bullet).
+# Every other cell rests on a token that was ALREADY REQUIRED on this armed lane. The
 # lane was re-flown unedited on the wave DLL as armed run `2026-09-10_2050` (PASS
 # attempt 1, mismatches=0 over 21 required + 4 forbidden, rewind block PASS), and every
 # count below is from that run. One token set per cell:
@@ -298,12 +303,16 @@ recordedSpanWindowSeconds = { min = 60.0, max = 650.0 }
 #    auto-commit.
 #  - D5 `controlled-decoupled-child` <- `ProcessBreakupEvent: controlled child created`
 #    (1) + the two-pid `Controllable split children` (1).
-# NOT YET: D4 `seed-event-split` (GROUP 6's four seed tokens). They are NEW tokens, so
-# they need their own negative control (`Inserted 12` -> `Inserted 13`), which has not
-# flown. NOT `rp-disk-reaper`: this lane asserts the reaper DECLINED, which is the
-# opposite of exercising it.
+#  - D4 `seed-event-split` <- GROUP 6's four seed tokens, `Inserted 12 ...` +
+#    `Forwarded 19 ...` on the promoted focus split and `Inserted 1 ...` +
+#    `Forwarded 1 ...` on the probe split (1 each in `_2050`). They are NEW tokens, so
+#    they needed their own negative control: `2026-09-11_0151` (`Inserted 12` ->
+#    `Inserted 13`), PARSEK-FAIL(expectation) on exactly that entry, drift gate
+#    original 1 / inverted 0 in its own KSP.log.
+# NOT `rp-disk-reaper`: this lane asserts the reaper DECLINED, which is the opposite of
+# exercising it.
 D1  = ["auto-record-launch", "commit-scene-exit", "auto-merge"]
-D4  = ["env-body-split"]
+D4  = ["env-body-split", "seed-event-split"]
 D5  = ["controlled-decoupled-child"]
 D9  = ["rewind-to-separation", "refly-gate", "unfinished-flights-stash"]
 D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
@@ -363,10 +372,11 @@ count = { min = 11, max = 11 }
 # GROUP 6 - THE SPLIT SEEDS THE SECOND HALF. Added 2026-09-10 (claim-gap wave A1-7) off
 # reading run `2026-09-10_1743_RF-9-atmosphere-exit-split-stays-open` (wave DLL
 # a0abbed1, PASS attempt 1, mismatches=0, all 17 older required tokens matched). The D4
-# `seed-event-split` claim these support needs this lane's armed re-flight and a
-# negative control. The armed re-flight flew: `2026-09-10_2050`, PASS attempt 1, each of
-# the four matched once. The control (`Inserted 12` -> `Inserted 13`) has NOT flown, so
-# the claim is not taken.
+# `seed-event-split` claim these support was taken 2026-09-11. Its armed re-flight is
+# `2026-09-10_2050` (PASS attempt 1, each of the four matched once). Its negative
+# control is `2026-09-11_0151` (`Inserted 12` -> `Inserted 13` on the one required
+# entry): PARSEK-FAIL(expectation) on exactly that entry, drift gate original 1 /
+# inverted 0 in its own KSP.log, every other row PASS / REPORT / SKIPPED.
 #   `RecordingOptimizer.SplitAtSection` seeds the second half at the split boundary
 #   (InsertTransientStateSeeds, then ForwardPermanentStateEvents), and each logs an INFO
 #   count. SplitAtSection is their only caller: the optimizer pass reaches it directly
@@ -382,7 +392,9 @@ count = { min = 11, max = 11 }
 #   after the 1. In the armed re-flight, 12 / 19 at UT=172.6 preceded `SplitAtSection:
 #   split 6c241246...` ('Kerbal X', promoted slot 0), and 1 / 1 at UT=172.7 preceded
 #   `fb3c2c02...` ('Kerbal X Probe', promoted slot 1). The promoted ids equal the split
-#   ids.
+#   ids. The control `2026-09-11_0151` read the same counts a fifth time: 12 / 19 at
+#   UT=172.4 before `c7010515...` ('Kerbal X', slot 0), 1 / 1 at UT=172.5 before
+#   `73a90ae8...` ('Kerbal X Probe', slot 1).
 required  = ["Recording started",
              "Controllable split children: \\[[0-9]+,[0-9]+\\]",
              "ProcessBreakupEvent: controlled child created: pid=[0-9]+",
