@@ -1382,3 +1382,19 @@ The tooltip echo strip is 23 px in single-line windows (Timeline, Logistics, Car
 Missions, Real Spawn Control) and 38 px in two-line windows (main, Kerbals, Settings, Gloops,
 both Test Runners); its height is pinned to a probe measurement so the window never changes
 height on hover (`UI/TooltipEchoBox.cs:78-79`).
+
+**Table row inset.** A column-header row and its body rows share a left origin only when
+both open with an EXPLICIT container style whose horizontal margin and padding are
+`ParsekUI.TableRowHorizontalInsetPx` (0) and the body's list-area box carries no horizontal
+margin or padding either (`ParsekUI.GetTableRowStyle` / `GetTableHeaderRowStyle` /
+`GetTableBodyBoxStyle`): KSP's skin reports box / label / button / toggle / textField margin
+L4/R4 and box padding L4/R4 (logged once per draw by `RecordingsTableUI` as
+`Rec table skin margins`), Unity places a child at
+`parentRect.x + max(parentStyle.padding.left, childStyle.margin.left)`, and a group opened
+with NO style inherits its margin from its first child - so a plain `BeginHorizontal()`
+header drawn outside a scroll view and plain body rows drawn inside one sit 4 px apart, 8 px
+with a `GUI.skin.box` wrapper in between. A header pinned OUTSIDE the body scroll view
+reserves the scrollbar gutter as its own right padding (`GetTableHeaderRowStyle`, paired with
+`alwaysShowVertical: true` on the body) rather than as a trailing `GUILayout.Space` at each
+call site, so the width a pinned header reserves is the width the scroll view actually claims
+and the expanding column comes out equal on both halves.

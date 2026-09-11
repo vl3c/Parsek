@@ -249,8 +249,12 @@ namespace Parsek
                 return;
             }
 
-            // Header row with sortable columns
-            GUILayout.BeginHorizontal();
+            // Header row with sortable columns. Opened with the shared header-row
+            // container so the header and the scrolled body rows below share one
+            // horizontal inset, and so the header reserves exactly the vertical
+            // scrollbar the body's scroll view claims (the body forces that bar on).
+            // Contract: ParsekUI.TableRowHorizontalInsetPx.
+            GUILayout.BeginHorizontal(parentUI.GetTableHeaderRowStyle());
             DrawSpawnSortableHeader("Craft", SpawnControlSortColumn.Name, true);
             DrawSpawnSortableHeader("Dist", SpawnControlSortColumn.Distance, SpawnColW_Dist);
             DrawSpawnSortableHeader("Rel Speed", SpawnControlSortColumn.RelativeSpeed, SpawnColW_RelSpeed);
@@ -286,9 +290,15 @@ namespace Parsek
         private void DrawSpawnCandidateRows(List<NearbySpawnCandidate> sorted,
             double currentUT, System.Globalization.CultureInfo ic, ParsekFlight flight)
         {
-            spawnControlScrollPos = GUILayout.BeginScrollView(spawnControlScrollPos, GUILayout.ExpandHeight(true));
-            // Dark list-area background (matches Career State / Recordings body look).
-            GUILayout.BeginVertical(GUI.skin.box);
+            // The vertical scrollbar is FORCED (alwaysShowVertical: true) so the gutter
+            // the header reserved above is always actually taken; with auto scrollbars a
+            // short list would show none and the rows would sit a scrollbar-width right
+            // of the headers (same reasoning as RecordingsTableUI / StructureListWindowUI).
+            spawnControlScrollPos = GUILayout.BeginScrollView(
+                spawnControlScrollPos, false, true, GUILayout.ExpandHeight(true));
+            // Dark list-area background (matches Career State / Recordings body look),
+            // without horizontal margin or padding so it adds no inset of its own.
+            GUILayout.BeginVertical(parentUI.GetTableBodyBoxStyle());
             for (int i = 0; i < sorted.Count; i++)
             {
                 var cand = sorted[i];
@@ -299,7 +309,8 @@ namespace Parsek
                         ParsekFlight.NearbySpawnRadius,
                         ParsekFlight.MaxRelativeSpeed);
 
-                GUILayout.BeginHorizontal();
+                // Same shared row container as the header row above (one inset).
+                GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
                 GUILayout.Label(cand.vesselName, GUILayout.ExpandWidth(true));
 
                 // Distance + Rel Speed share a green tint when both gates pass (FF button enable
