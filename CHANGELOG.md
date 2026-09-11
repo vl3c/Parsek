@@ -573,10 +573,25 @@ _(unreleased — entries accumulate here per commit)_
   makes the stretchy middle column exactly as wide as the cells below it; Real Spawn
   Control's list shows its scrollbar at all times for the same reason the Structure
   window's does. Career State's section bars widened by four pixels each side to match the
-  table under them. Nothing moved in the Missions window: its two tabs are off by five
-  pixels (Recordings) and one pixel (Missions and vessels) for a different reason - their
-  first heading is one merged cell covering both the tick box and the "#" - so they are
-  recorded as a separate item rather than guessed at here.
+  table under them. Nothing moved in the Missions window at first: its two tabs are off by
+  five pixels (Recordings) and one pixel (Missions and vessels) partly for a different
+  reason - their first heading is one merged cell covering both the tick box and the "#" -
+  so they were recorded as a separate item rather than guessed at here. The follow-up below
+  went on to fix the Recordings tab's data columns.
+
+- **The strip reserved for the scrollbar was five pixels too narrow, so the fix above left
+  every pinned heading row that much wider than its list.** Re-photographing the windows
+  showed Career State's four tables at a perfect zero, and Real Spawn Control and the
+  Structure window still walking their cells five pixels left of the headings above them,
+  with the stretchy column five pixels wider in the heading row than in the rows. Two
+  reasons, both read out of KSP's own skin rather than guessed: a scrolling list gives up
+  the scrollbar's width AND the one-pixel gap beside it, sixteen pixels rather than fifteen;
+  and a heading row's reserved strip REPLACES the four-pixel gap its last cell would
+  otherwise leave rather than adding to it, so the strip has to cover that gap as well.
+  Twenty pixels, now computed from the skin's own numbers instead of a fixed one - which
+  also lines up the Recordings tab's data columns with their headings for the first time.
+  The Missions tab keeps its own reservation: its list is boxed differently, and the shared
+  number would move it the wrong way.
 
 - **The user guide no longer describes controls the mod does not have.** Five passages
   had drifted into describing a Parsek that was: a loop toggle on every Timeline row

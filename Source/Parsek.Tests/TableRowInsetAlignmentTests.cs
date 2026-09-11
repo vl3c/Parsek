@@ -255,6 +255,132 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// The reserved gutter is DERIVED from the skin, never a literal: a pinned
+        /// header owes its body the scroll view's real scrollbar footprint
+        /// (<c>fixedWidth + margin.left</c>, per decompiled
+        /// <c>GUIScrollGroup.SetHorizontal</c>) PLUS one cell margin, because
+        /// <c>GUILayoutGroup.SetHorizontal</c> takes
+        /// <c>max(style.padding.right, lastChild.margin.right)</c> - so that padding
+        /// REPLACES the body's own trailing cell margin instead of adding to it.
+        /// Reserving <c>fixedWidth</c> alone is what PR #1679 shipped and what the
+        /// 2026-09-11 re-flight measured 5px short.
+        /// </summary>
+        [Fact]
+        public void TheReservedGutterIsDerivedFromTheSkinScrollbarAndOneCellMargin()
+        {
+            string prepared = ReadPreparedSource("ParsekUI.cs");
+
+            string footprint = MethodBody(prepared, "VerticalScrollbarFootprintWidth",
+                "ParsekUI.cs");
+            // The footprint is BOTH scrollbar terms, read off the live skin.
+            Assert.Contains("verticalScrollbar.fixedWidth", footprint);
+            Assert.Contains("verticalScrollbar.margin.left", footprint);
+
+            string gutter = MethodBody(prepared, "VerticalScrollbarGutterWidth",
+                "ParsekUI.cs");
+            Assert.Contains("VerticalScrollbarFootprintWidth()", gutter);
+            Assert.Contains("TableCellHorizontalMarginPx()", gutter);
+            // No digits in that body: any number there would be a hard-coded
+            // reservation, which is the defect this cell exists for.
+            Assert.False(Regex.IsMatch(gutter, @"\d"),
+                "ParsekUI.VerticalScrollbarGutterWidth must derive the gutter from the "
+                + "skin, not spell a literal: " + gutter);
+
+            string cellMargin = MethodBody(prepared, "TableCellHorizontalMarginPx",
+                "ParsekUI.cs");
+            Assert.Contains("label.margin.right", cellMargin);
+
+            // Fallbacks only, for a skin that has no scrollbar style at all. Pinned to
+            // what the 2026-09-11 census measured (run
+            // 2026-09-11_1706_GUI-6-census-flight-playback): a 15px bar plus its 1px
+            // left margin stepped every scroll view's content in by 16 (Real Spawn
+            // Control 730 -> 714, Structure 980 -> 964), and every cell style the
+            // tables use reports margin R4.
+            Assert.Equal(16f, ParsekUI.DefaultVerticalScrollbarFootprintWidth);
+            Assert.Equal(4, ParsekUI.DefaultTableCellHorizontalMarginPx);
+        }
+
+        /// <summary>
+        /// The Recordings tab reserves the gutter as a trailing <c>GUILayout.Space</c>
+        /// rather than as row padding, and owes the SAME derived number: its body box
+        /// spends a 4px <c>padding.right</c> (rows measured at x=14 width 1311 inside a
+        /// 1319-wide box), which is the same term a pinned header's padding replaces.
+        ///
+        /// <para>The Missions tab is deliberately NOT here. The same census measured its
+        /// rows at x=10 width 1319 - its body box spends NO padding - so its header owes
+        /// the bare scrollbar footprint, not the gutter, and pointing it at this helper
+        /// would walk its data columns from 1px off to 4px off the other way. It keeps
+        /// its own reservation under GUI-MISSIONS-WINDOW-MERGED-FIRST-HEADER-CELL, whose
+        /// fix is structural (the merged leading header cell).</para>
+        /// </summary>
+        [Fact]
+        public void TheRecordingsTabGutterRoutesThroughTheSharedDerivation()
+        {
+            string recordings = ReadPreparedSource(Path.Combine("UI", "RecordingsTableUI.cs"));
+            Assert.Contains(
+                "GUILayout.Space(ParsekUI.VerticalScrollbarGutterWidth())", recordings);
+            // ... and no longer sizes that Space from a locally read fixedWidth.
+            Assert.DoesNotContain("GUILayout.Space(scrollbarWidth)", recordings);
+
+            string missions = ReadPreparedSource(Path.Combine("UI", "MissionsWindowUI.cs"));
+            Assert.DoesNotContain(
+                "GUILayout.Space(ParsekUI.VerticalScrollbarGutterWidth())", missions);
+        }
+
+        /// <summary>
+        /// The arithmetic the fix rests on, run against the numbers the 2026-09-11
+        /// census actually measured, so the reason the gutter is footprint + cell margin
+        /// is checkable without a flight. Unity reduces a styled group's content width
+        /// by <c>max(padding.left, firstChild.margin.left)</c> on the left and
+        /// <c>max(padding.right, lastChild.margin.right)</c> on the right (decompiled
+        /// <c>GUILayoutGroup.SetHorizontal</c>, UnityEngine.IMGUIModule, KSP 1.12.5).
+        /// </summary>
+        [Fact]
+        public void HeaderAndBodyContentWidthsMatchOnlyWithFootprintPlusCellMargin()
+        {
+            const int cellMargin = 4;       // GUI.skin label / box / button margin R
+            const int footprint = 16;       // verticalScrollbar fixedWidth 15 + margin.left 1
+            const int barFixedWidth = 15;   // what PR #1679 reserved
+
+            // Real Spawn Control (730) and the Structure window (980), as measured: the
+            // header row spans the window's content width and the body's scroll-view
+            // content is one footprint narrower.
+            foreach (int headerRectWidth in new[] { 730, 980 })
+            {
+                int bodyRectWidth = headerRectWidth - footprint;
+                // Body row: the shared row style, zero horizontal padding, 4px cells.
+                int bodyContent = ContentWidth(bodyRectWidth, 0, 0, cellMargin, cellMargin);
+
+                Assert.Equal(
+                    bodyContent,
+                    ContentWidth(headerRectWidth, 0, footprint + cellMargin,
+                        cellMargin, cellMargin));
+
+                // The two reservations that do NOT work, and by exactly how much: the
+                // 5px measured after #1679 splits into 1px of scrollbar margin and the
+                // 4px cell margin the max() replaces.
+                Assert.Equal(
+                    cellMargin + (footprint - barFixedWidth),
+                    ContentWidth(headerRectWidth, 0, barFixedWidth, cellMargin, cellMargin)
+                        - bodyContent);
+                Assert.Equal(
+                    cellMargin,
+                    ContentWidth(headerRectWidth, 0, footprint, cellMargin, cellMargin)
+                        - bodyContent);
+            }
+        }
+
+        /// <summary>Content width Unity gives the children of a styled horizontal layout
+        /// group.</summary>
+        private static int ContentWidth(int rectWidth, int paddingLeft, int paddingRight,
+            int firstChildMarginLeft, int lastChildMarginRight)
+        {
+            return rectWidth
+                   - Math.Max(paddingLeft, firstChildMarginLeft)
+                   - Math.Max(paddingRight, lastChildMarginRight);
+        }
+
+        /// <summary>
         /// Logistics is the table the census measured at zero offset, and the reason is
         /// structural: its column-header row and its body rows are siblings inside ONE
         /// <c>BeginVertical(GUI.skin.box)</c>, so they cannot diverge. Pinned here so a

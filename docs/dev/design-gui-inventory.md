@@ -1398,3 +1398,31 @@ reserves the scrollbar gutter as its own right padding (`GetTableHeaderRowStyle`
 `alwaysShowVertical: true` on the body) rather than as a trailing `GUILayout.Space` at each
 call site, so the width a pinned header reserves is the width the scroll view actually claims
 and the expanding column comes out equal on both halves.
+
+**The gutter itself is TWO skin terms, not the scrollbar width.** Both are read off the live
+skin by `ParsekUI.VerticalScrollbarFootprintWidth()` + `TableCellHorizontalMarginPx()`,
+combined by `VerticalScrollbarGutterWidth()` and printed in the same
+`Rec table skin margins` line as `vScroll.fixedWidth` / `vScroll.margin` /
+`vScroll.footprint` / `tableHeaderGutter`:
+
+1. **The scroll view's real footprint, 16.** Decompiled `GUIScrollGroup.SetHorizontal`
+   (`UnityEngine.IMGUIModule`, KSP 1.12.5) lays its content group out at
+   `width - verticalScrollbar.fixedWidth - verticalScrollbar.margin.left`, so the bar costs
+   `fixedWidth + margin.left` = 15 + 1 = 16 - one px more than the 15 the bar's own rect
+   measures. Visible in every dump as the outer-vs-inner width step: Real Spawn Control
+   730 -> 714, Structure 980 -> 964, Missions 1335 -> 1319.
+2. **One cell margin, 4.** Decompiled `GUILayoutGroup.SetHorizontal` reduces a styled group's
+   content width by `max(style.padding.right, lastChild.margin.right)` - a MAX, not a sum. A
+   body row carries no right padding, so its content already ends one 4 px cell margin inside
+   its group; the header's reserved padding REPLACES that margin rather than adding to it, so
+   it has to cover both terms.
+
+Gutter = 20. Reserving `fixedWidth` alone left every pinned header exactly 5 px wider than its
+body (1 px of scrollbar margin plus the 4 px the MAX replaces), which is what the 2026-09-11
+re-flights measured after PR #1679.
+
+A header that reserves the gutter as a trailing `GUILayout.Space` instead owes the same 20
+when its body's list-area box spends a `padding.right` of its own - the Recordings tab, whose
+rows measure x=14 width 1311 inside a 1319-wide box. The Missions tab's box spends none (rows
+x=10 width 1319), so that header owes the bare 16 footprint; it keeps its own reservation
+under GUI-MISSIONS-WINDOW-MERGED-FIRST-HEADER-CELL, whose remaining offset is structural.
