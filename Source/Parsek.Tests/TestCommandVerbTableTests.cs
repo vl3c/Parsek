@@ -45,6 +45,9 @@ namespace Parsek.Tests
         [InlineData("ExportRenderManifest")]
         [InlineData("DeleteRecording")]
         [InlineData("ListHandles")]
+        [InlineData("WarpToUT")]
+        [InlineData("CaptureScreenshot")]
+        [InlineData("UiAction")]
         public void ImplementedVerbs_ClassifyImplemented(string verb)
         {
             Assert.Equal(TestCommandVerbClass.Implemented, TestCommandVerbs.Classify(verb));
@@ -124,7 +127,15 @@ namespace Parsek.Tests
             // NOT a promotion of any reserved name - TimeJump, the only other clock verb,
             // was already implemented and does a DIFFERENT thing (an epoch shift with the
             // vessel frozen, where WarpToUT simulates forward).
-            Assert.Equal(33, TestCommandVerbs.ImplementedVerbNames.Count);
+            // The GUI-census pair (CaptureScreenshot + UiAction) is ADDITIVE for the same
+            // reason again (33 -> 35; reserved unchanged at 5): the reserved envelope never
+            // carried a screenshot verb or a UI-driving verb, and neither is a promotion of
+            // any reserved name. Two verbs rather than one because they answer different
+            // questions and a spec pins them separately - one takes a picture, the other
+            // arranges what is in it - and folding the arrangement into a capture arg would
+            // put an unbounded op vocabulary on a verb whose payload a reader parses for a
+            // path and a byte count.
+            Assert.Equal(35, TestCommandVerbs.ImplementedVerbNames.Count);
             Assert.Equal(5, TestCommandVerbs.ReservedVerbNames.Count);
         }
 

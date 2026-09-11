@@ -43,6 +43,21 @@ namespace Parsek
         // Window state
         private bool showTimelineWindow;
         private Rect timelineWindowRect;
+        /// <summary>
+        /// The live window rect, readable and writable from outside the draw pass.
+        /// <para>Two consumers: an in-game test that needs the measured rect, and the
+        /// automation-only <c>UiAction op=rect</c> seam op, which places and enlarges a
+        /// window so one capture shows more rows than the default size fits. Writing it is
+        /// safe before the first draw as well as after: <c>DrawIfOpen</c> only seeds its
+        /// default when <c>width &lt; 1</c>, so a commanded rect suppresses the seed rather
+        /// than being overwritten by it.</para>
+        /// </summary>
+        internal Rect WindowRectForTesting
+        {
+            get { return timelineWindowRect; }
+            set { timelineWindowRect = value; }
+        }
+
         private Vector2 timelineScrollPos;
         private bool isResizingTimelineWindow;
         private bool timelineWindowHasInputLock;
@@ -83,6 +98,30 @@ namespace Parsek
 
         // Filter state
         private TimelineTierFilterMode tierFilterMode = TimelineTierFilterMode.Overview;
+
+        /// <summary>
+        /// The tier filter selection as an INDEX into <c>TimelineTierFilterMode</c>'s
+        /// declaration order (Overview, Details, RewindOrFastForward, ReFly).
+        /// <para>An int rather than the enum so the enum itself stays private: the one
+        /// consumer outside this class is the automation-only <c>UiAction op=tab</c> seam op,
+        /// whose wire vocabulary is a string table it maps to an index, and widening the
+        /// enum's accessibility for that would be a bigger change than the caller needs.
+        /// An out-of-range write is ignored rather than throwing - the seam validates the
+        /// index against its own table first, and a silently clamped filter is better than
+        /// an exception inside a draw-adjacent field.</para>
+        /// </summary>
+        internal int TierFilterModeIndexForTesting
+        {
+            get { return (int)tierFilterMode; }
+            set
+            {
+                if (value < (int)TimelineTierFilterMode.Overview
+                    || value > (int)TimelineTierFilterMode.ReFly)
+                    return;
+                tierFilterMode = (TimelineTierFilterMode)value;
+            }
+        }
+
         private bool showRecordingEntries = true;
         private bool showActionEntries = true;
         private bool showEventEntries = true;

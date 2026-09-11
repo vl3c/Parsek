@@ -71,6 +71,17 @@
       <HintPath>$(KSPDir)\KSP_x64_Data\Managed\UnityEngine.TextRenderingModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <!-- UnityEngine.ScreenCapture, for the automation-only CaptureScreenshot seam verb.
+         The cloud / CI build resolves these HintPaths out of the PRIVATE vl3c/ksp-refs
+         repo rather than out of a KSP install, so a reference that repo does not carry is
+         a hard compile error on the required `tests` check. Verified present in BOTH
+         (KSP_x64_Data/Managed/UnityEngine.ScreenCaptureModule.dll; `gh api` over the repo
+         contents), and cloud-test.sh copies the whole Managed directory next to the test
+         host, so runtime resolution is covered too. -->
+    <Reference Include="UnityEngine.ScreenCaptureModule">
+      <HintPath>$(KSPDir)\KSP_x64_Data\Managed\UnityEngine.ScreenCaptureModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
     <Reference Include="ClickThroughBlocker">
       <HintPath>$(KSPDir)\GameData\000_ClickThroughBlocker\Plugins\ClickThroughBlocker.dll</HintPath>
       <Private>false</Private>

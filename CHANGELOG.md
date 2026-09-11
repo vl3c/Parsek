@@ -10,6 +10,79 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Automated testing: a test run can now take screenshots of Parsek's own windows.**
+  Every run already collected any screenshots it found, and the run report already had a
+  place to show them - but nothing ever took one, because the only way to take a
+  screenshot in the game is to press the key yourself. And a screenshot on its own would
+  have caught an empty sky: the Parsek windows only open when somebody clicks the
+  toolbar, which an unattended run never does. A run can now open, close, resize and tab
+  through the windows the way a player would, ask which windows a scene has and which
+  are open, switch between the simple and full interface, and take a picture at each
+  step - and it waits for each picture to finish being written before moving on, so a
+  later step cannot get in front of it. Opening and resizing a window likewise wait for
+  the game to draw a frame before believing the result, because one window closes itself
+  again the moment it draws with nothing to show, and a run that did not wait would have
+  reported success and then photographed empty scenery. Waiting for a frame is only worth
+  anything if the frame drew the window in question, so a run that asks to open or resize
+  one of the smaller windows while the main window is shut now says so plainly instead of
+  reporting success over a picture with no Parsek window in it. Two new run definitions walk the
+  whole set: one at the Space Center, one in flight. None of this adds anything a player
+  can see or reach in the game; it drives the same switches the existing buttons do.
+
+- **Automated testing: a run definition can now ask for one particular check to be
+  reported rather than acted on.** The recording-health check runs over whatever save a
+  run produced, and on a run whose starting point is somebody's own long-played career
+  it reports things that career already had - nothing the run did. Marking such a run
+  "expected to fail" looked like the answer and was far worse than it sounds: the first
+  check that fails stops all the later ones, so the run stopped checking anything at all
+  and still reported a comfortable colour. A run definition can now ask for that one
+  check to be reported instead, which leaves every other check doing its job. It is off
+  by default everywhere, and the list of runs allowed to ask for it is written down so
+  it cannot spread quietly. Asking for it sets aside only what the check FOUND: if the
+  check could not run at all - it timed out twice, it produced no verdict, or the
+  starting save was staged wrong - the run still fails, because "nothing to report" and
+  "nobody looked" are not the same answer.
+
+- **Development tooling, A FIRST DRAFT THAT HAS NOT YET BEEN PROVEN: groundwork for the
+  mod writing down exactly what its windows look like, for a helper that cannot see the
+  screen.** Everything Parsek draws is decided fresh every frame by code, and until now
+  the only record of what a window actually contained was a picture of it. The groundwork
+  is here for writing a single frame out as a description instead: every panel, every row,
+  every button and box and tick and typing field, where each one sat, what it said, what
+  its hover text was, whether it was greyed out, and what sits inside what. There is also
+  a small offline viewer that turns one of those descriptions into a web page: the boxes
+  drawn over the matching screenshot, with a side panel listing the whole structure.
+  **The part that listens in on the game's own drawing has never once run inside KSP.**
+  It is written, and everything that can be checked without the game has been checked,
+  but nobody has yet started the game and taken a capture - so this is not a working
+  capability to rely on yet. Several things that checking DID catch, before any capture
+  was ever taken:
+
+  - the safety check that asks "is the game mid-draw right now, so hold off?" was asking
+    a question that is always answered yes once the game has drawn its very first frame,
+    so every request for a capture would have been politely turned away and nothing would
+    ever have been written. It now asks the question the engine itself asks, and writes
+    down which answer it got.
+  - a panel or a scrolling list would have been written down at twice its own distance
+    from the corner of its window, because its position was read a moment too late: by
+    then the game had already shifted everything drawn inside it. The position is now read
+    a moment earlier, which is the only moment it means what it says. For a scrolling list
+    that also swallowed how far it was scrolled.
+  - a request for a capture that never got its chance - nothing was drawing, or the window
+    had gone away in the meantime - used to leave the listening switched on for the rest
+    of the session. It now gives up by itself after a while and switches everything off.
+  - if switching the listening off ever failed halfway, the next capture would have
+    written every row down twice. It now sees what is still switched on and adds only what
+    is missing.
+  - the tally of how many windows were drawn was counting each one twice.
+  - windows are now looked up by their own identifier rather than by their title, because
+    the title is one of the things that can legitimately go missing; and the one test that
+    checks all of this no longer fails when a designed fallback does its job.
+
+  Nothing about the windows themselves changed: not one line of the drawing code was
+  touched, nothing is listened to unless something asks for a capture, and while nothing
+  is asking, the game runs exactly as it did before.
+
 - **Automated testing: a test run can now let time really pass, instead of only moving
   the clock.** The only way an automated run could skip ahead was to move the clock and
   leave everything where it was, which is fine for watching a replay reach a moment far
