@@ -537,6 +537,360 @@ corrected in the same commit.
 
 ---
 
+# GUI exposure audit, 2026-09-11 - filed, not fixed
+
+The other half of the same triage. Everything here needs a design decision, a live lane, or
+both, so nothing below was touched in the fix batch above. Line numbers are as the census
+read them on 2026-09-11; where a file was edited by the fix batch the SYMBOL is the anchor,
+not the number. An entry that says `Decision:` is waiting on an operator ruling, per the
+triage.
+
+## GUI-P1-PLAYBACK-CHECKBOX-LEAVES-MAP-PRESENCE: the per-recording playback tick box does about a third of what its tooltip promises [FILED 2026-09-11 by the GUI fix batch, from the census's PROMISED-NOT-DELIVERED list]
+
+**The claim.** The Recordings-tab row checkbox's tooltip
+(`UI/RecordingsTableUI.cs:1849`): "Play this recording back as a ghost. Unticked, the
+flight stays recorded but no ghost appears."
+
+**What actually reads `PlaybackEnabled`.** `ParsekKSC.cs`, `ParsekFlight.cs`,
+`GhostPlaybackLogic*.cs`, `RecordingOptimizer.cs`. What does NOT:
+`GhostMapPresence*.cs` and `ParsekTrackingStation.cs` never read it, so an unticked
+recording keeps its map icon, its orbit line and its Tracking Station list row - and
+`ParsekKSC.cs:373-396` still spawns its terminal vessel (the long-standing Bug #433). The
+one control a player reaches for to turn a recording off leaves most of it on.
+
+**Proposed fix.** Make the checkbox mean what it says: no ghost ANYWHERE. That is
+`GhostMapPresence` (icon + orbit line + TS row) plus the `ParsekKSC` terminal-vessel spawn
+gate, and it needs a live lane - map and TS presence is exactly the surface unit tests
+cannot see.
+
+**Decision:** whether the terminal-vessel spawn is part of "no ghost". Ticking it off
+currently still gives you the recovered craft at the end; suppressing that changes what the
+career ends up holding, which is a bigger promise than the tooltip makes.
+
+## GUI-P2-LOOP-PERIOD-CELL-SHOWS-A-PERIOD-THE-ENGINE-IS-NOT-FLYING: the 20-clone cap silently raises the cadence [FILED 2026-09-11 by the GUI fix batch]
+
+**Evidence.** The Period column header tooltip (`UI/RecordingsTableUI.cs:1341`) says
+"Launch-to-launch period: how often the ghost relaunches." When
+`ceil(duration / period) > 20` the engine RAISES the real cadence
+(`ParsekConfig.cs:150`, `:168`; `GhostPlaybackLogic.WarpLoopPolicy.cs:469`) and logs
+"auto-adjusted (cap reached)" (`GhostPlaybackEngine.cs:976`), while the cell keeps
+displaying the number the player typed. The census called this the clearest
+"the UI states what the backend did not do" case in the mod.
+
+**Proposed fix.** Show the EFFECTIVE period in the cell, with the typed value and the
+reason in the existing tooltip - the same shape the Missions tab already uses for its
+clamped period (`MissionPresentation.PeriodTooltipClamped`), so there is a precedent to
+copy rather than a new surface to invent.
+
+## GUI-P3-ROUTE-INTERVAL-SNAPS-SILENTLY: a free-text field that rewrites what you typed [FILED 2026-09-11 by the GUI fix batch]
+
+**Evidence.** The editable route Interval field (`UI/LogisticsWindowUI.cs:1197`, `:1216`)
+accepts `30m` / `2h` / `1d`. `RouteCadence.ParseAndSnapInterval`
+(`Logistics/RouteCadence.cs:100`) ceil-snaps the value to `N x transit` and overwrites what
+was typed; a parse failure is Warn-only (`:1301`). On a WINDOWED-basis route the field is
+dead input entirely, which the code itself says at `RouteCadence.cs:199` and
+`UI/LogisticsWindowUI.cs:1249-1253`.
+
+**Proposed fix.** Show the snapped value and why in the field's existing tooltip (no new
+surface), and say when the field cannot change anything on a windowed route.
+
+## GUI-P4-WARP-TO-SPAWN-NAMES-AN-OUTCOME-IT-CANNOT-PROMISE: 15 silent refusals behind one button [FILED 2026-09-11 by the GUI fix batch]
+
+**Evidence.** "Warp to Spawn" (`UI/SpawnControlPresentation.cs:104`) runs
+`ParsekFlight.WarpToRecordingEnd:27367`, which performs a TIME JUMP only. Whether a vessel
+then appears is decided by 15 separate refusals (`GhostPlaybackLogic.cs:8031-8215` plus
+`VesselSpawner.cs:1921`, `:2376`, `:2478`, `:3000`, `:5693`, `:5755`), none of which
+reaches the player; an invalid jump is itself silent (`:27384-27389`), and
+`TerminalOrbitSpawnSafety` can latch a recording permanently unspawnable
+(`TerminalOrbitSpawnSafety.cs:273`, `:296`).
+
+**Proposed fix.** Route the refusal reason into the existing disabled-hover echo the row
+already carries (`SpawnControlPresentation.WarpButtonDisabledReason` is the established
+seam), so the button that names an outcome can at least say which of the fifteen stopped
+it.
+
+## GUI-P9-RENAME-REFUSALS-DISCARD-THE-TYPED-NAME-SILENTLY: three paths, one Warn each, no player-facing word [FILED 2026-09-11 by the GUI fix batch]
+
+**Evidence.** Mission rename (`UI/MissionsWindowUI.cs:3868-3893`, Warn at `:3879`), group
+rename (`UI/RecordingsTableUI.cs:4346`, `:4353`, `:4364`) and group re-parent
+(`GroupHierarchyStore.cs:150`, `:156`) all fall through on collision, invalid characters or
+a reserved name with `ParsekLog.Warn` only; the field snaps back to the old value. To the
+player that is indistinguishable from a mis-click, and there is no way to learn the rule
+that was broken.
+
+**Proposed fix.** Keep the typed text in the field and put the reason in the row's existing
+tooltip. Explicitly NOT a ScreenMessage: a refusal is a no-op, and the house rule reserves
+one-shot messages for events that actually changed something.
+
+## GUI-P10-MISSION-LOG-IGNORES-THE-MISSIONS-OWN-INCLUDE-SET: two clones render byte-identical logs under different titles [FILED 2026-09-11 by the GUI fix batch]
+
+**Evidence.** The Missions header's "Log" button titles the window with the mission
+(`UI/MissionsWindowUI.cs:2492`) but the content is built from the TREE:
+`StructureListWindowUI.Rebuild` (`:110-117`) calls `MissionStructureBuilder.Build(tree)`
+and reads neither `Mission.ExcludedIntervalKeys` nor `IncludedForeignDockLinkIds`. So two
+clones of one tree with completely different include sets produce identical logs.
+
+**Proposed fix.** Pass the mission's selection into the builder, or title the window with
+the TREE so it stops claiming to be per-mission. Both are defensible; the first is more
+work and more useful.
+
+**Decision:** which of the two. This is the same family as the census's "keyed by tree id"
+list (the header summary, `Events (N)`, chapter titles, the mission `#` ordinal), so the
+ruling should cover the family rather than this one button.
+
+## GUI-P11-SEAL-ADVICE-POINTS-AT-A-BUTTON-THAT-WILL-NOT-BE-THERE [FILED 2026-09-11 by the GUI fix batch]
+
+**Evidence.** `MergeDialog.Commit.cs:371` and `:389` tell the player
+"Merged, but could not seal - seal it from the Timeline window". The Timeline's Seal button
+only exists on rows whose RP route RESOLVES (`UI/TimelineWindowUI.cs:1481`, `:1597`) -
+which is exactly the condition that just failed to produce a seal. So the recovery advice
+names a control that will not be drawn.
+
+**Proposed fix.** Either say what to do instead (re-fly the slot, or that the flight is
+already effectively concluded), or make the Timeline row draw a disabled Seal with the
+reason in its hover echo, so the advice lands somewhere real.
+
+## GUI-P13-D1-D15-GLOOPS-IS-RETIRED-WHILE-ITS-WINDOW-AND-SEAM-LIVE-ON: decide un-retire or remove [FILED 2026-09-11 by the GUI fix batch]
+
+**Evidence, three findings that are one question.**
+
+- P13: the Gloops idle status reads "Ghost-only - loops by default"
+  (`UI/GloopsRecorderUI.cs:333`) while `ParsekFlight.cs:17090` sets
+  `rec.LoopPlayback = false`. The class doc (`:8-10`) says the opposite of the label.
+- D1: the main-window "Gloops Flight Recorder" launcher block (`ParsekUI.cs:941-951`) is
+  fully written - label, tooltip, toggle, log line - and never draws in any mode
+  (`UiSurfaceVisibility.IsRetired`).
+- D15: the Basic-disabled-while-Gloops-recording guard and its player-facing hint "Stop the
+  Gloops recording first." (`UI/SettingsWindowUI.cs:505`, `:514`) can only fire while a
+  Gloops recording runs, which a player cannot start. A player-facing string no player can
+  produce.
+
+So a 377-line window, its 7 screen messages, its group in the Recordings table and every
+branch downstream of it are reachable only through the harness seam
+`UiAction op=open window=gloops`.
+
+**Decision:** un-retire Gloops, or remove it. Note from the census: un-retiring is NOT a
+one-line change - `UI/UiComplexityMode.cs:140-143` returns early for `MainButtonGloops`, so
+it has no `case` in the Basic switch and flipping `IsRetired` throws
+`ArgumentOutOfRangeException` on the first draw until a Basic decision is added. That is the
+fail-loud contract working as designed, but it is not what `ParsekUI.cs:937-940` implies.
+
+## GUI-P15-D7-TWO-SAFETY-GATES-THAT-EXIST-AND-ARE-NEVER-ARMED [FILED 2026-09-11 by the GUI fix batch]
+
+**Evidence.**
+
+- P15: the funds "Reserved" / "Short by" readout (`CurrencyReservationOverlay.cs:184`,
+  `:213`) is advisory only. `LedgerOrchestrator.CanAffordFundsSpending:6500` has no
+  production caller, and `Patches/FacilityUpgradePatch.cs:36` states that funds
+  affordability is deliberately unchecked. Science IS enforced
+  (`Patches/TechResearchPatch.cs:78`), so the two currencies behave differently behind
+  identical-looking tooltips and the player finds out when the drawdown clamp fires.
+- D7: `RewindReadbackGuard.AbortRewindPatchOnDivergence` is hardcoded `false` (`:116`).
+  The divergence it guards is named in the code as "possible silent career corruption"
+  (`KspStatePatcher.cs:3732`); today the code names the failure, logs a Warn, and proceeds.
+
+**Decision:** arm either gate, or delete it and say in the tooltip / log that the check is
+advisory. Two named, unarmed safety gates are worse than none, because the next reader
+assumes they fire.
+
+## GUI-P19-CANDIDATES-EMPTY-STATE-TELLS-THE-PLAYER-TO-DO-WHAT-THEY-DID [FILED 2026-09-11 by the GUI fix batch]
+
+**Evidence.** `UI/LogisticsWindowUI.cs:743` draws "No eligible Supply Runs. Fly a one-way
+transport that docks, transfers cargo..." whenever the ELIGIBLE list is empty - including
+when the near-miss list directly below it is full of trees that did exactly that and missed
+on one criterion.
+
+**Proposed fix.** Wording. When the near-miss list is non-empty the empty state should point
+at it ("none eligible yet - see what the runs below are missing") instead of repeating the
+instructions.
+
+## GUI-P20-MULTI-STOP-ROUTES-REPORT-ONLY-THEIR-FIRST-STOP [FILED 2026-09-11 by the GUI fix batch]
+
+**Evidence.** `Logistics/RouteBuilder.cs:353` genuinely builds multi-stop routes. Four
+window cells read `route.Stops[0]` only: "Delivers per cycle"
+(`UI/LogisticsWindowUI.cs:1564` / `:3746`), "Destination" (`:1002` / `:3603`),
+"Re-scan for endpoint" (`:1871`) and the DestinationFull capacity line (`:3275`). So the
+window reports one stop under labels claiming the whole cycle, and offers no re-scan for a
+later stop.
+
+**Proposed fix.** Aggregate across stops for the two delivery cells, name the stop count in
+Destination, and offer re-scan per stop. Needs a route with more than one stop to verify,
+so it wants a lane.
+
+## GUI-P7-THE-STOCK-DIFFICULTY-SCREEN-EDITS-FIVE-PARSEK-SETTINGS-AND-LOSES-THEM [FILED 2026-09-11 by the GUI fix batch]
+
+**Evidence.** `ParsekSettings.cs:77`, `:81`, `:85`, `:89`, `:100` carry
+`GameParameters.CustomParameterUI` attributes, so KSP's own Difficulty screen draws them.
+That screen writes the `GameParameters` field and never calls the matching `Record*`, so
+`ParsekSettingsPersistence.cs:229-272` (via `ParsekScenario.cs:3248`) overwrites the change
+from the sidecar at the next load. Only the Parsek Settings window's own toggles call
+`Record*` (`UI/SettingsWindowUI.cs:609`, `:630`, `:640`, `:650`, `:660`).
+`TestCommands/SettingWhitelist.cs:7-14` documents this trap for the harness; nobody applied
+it to the stock screen.
+
+**Decision:** hide the five from the stock Difficulty screen (drop the attributes), or
+honour them there (write through `Record*` on the stock path). Two settings screens for the
+same fields, one of which quietly loses the change, is the state to get out of.
+
+## GUI-D3-GHOSTCOMMNETRELAY-IS-DEAD-WHILE-A-LIVE-PATCH-CITES-IT-AS-JUSTIFICATION [FILED 2026-09-11 by the GUI fix batch]
+
+**Evidence.** `GhostCommNetRelay.ShouldRegisterCommNet` (`:207`), `RegisterNode` (`:239`),
+`ComputeCombinedRelayPower` (`:35`) and `IsRemoteTechPresent` (`:389`) have no production
+caller. Meanwhile `GhostCommNetVesselPatch.Prefix`
+(`Patches/GhostVesselLoadPatch.cs:446`) destroys each ghost's `CommNetVessel` citing
+"GhostCommNetRelay handles CommNet" (`:459`) - a live patch justified by dead code. Ghost
+relays contribute nothing to CommNet.
+
+**Decision:** a CommNet ruling. Should a ghost relay carry signal (wire the class up), or
+should ghosts be CommNet-inert (delete the class and re-word the patch's justification to
+say what it actually does)? Either is fine; the current state documents a behaviour that
+does not happen.
+
+## GUI-D5-THE-DEFERRED-MERGE-DIALOG-IS-UNREACHABLE-BY-DESIGN: keep it for the harness or retire it [FILED 2026-09-11 by the GUI fix batch]
+
+**Evidence.** `MergeDialog.cs:103` via `ParsekScenario.ShowDeferredMergeDialog:6054`, armed
+at `:3971` and `:4377` on the `!IsAutoMerge` branch. `autoMerge` is clamped true for every
+non-harness session (`ParsekSettings.cs:296` from `ParsekScenario.cs:3256`), so the dialog
+the user guide used to describe is unreachable in shipping play except on quit-to-menu or a
+Re-Fly exit. (The guide's claim was corrected in the fix batch;
+GUI-P14 above.)
+
+**Decision:** retire the deferred path, or keep it as a harness-only surface and say so in
+the source. Note that it is not simply dead: the two always-ask exits still route through
+`MergeDialog`, so only the deferred ARMING is unreachable.
+
+## GUI-D6-MISSIONSELECTION-IS-PERSISTED-CLONED-AND-NEVER-WRITTEN [FILED 2026-09-11 by the GUI fix batch]
+
+**Evidence.** `MissionSelection.cs:23`, `:41` and `Mission.ExcludedThroughLineHeadIds`
+(`Mission.cs:18`) are a coarse per-vessel exclusion model that is persisted, cloned,
+stale-dropped and folded into the loop-unit change signature - while nothing ever WRITES
+it. The per-interval model (`ExcludedIntervalKeys`) replaced it.
+
+**Why this is not a plain deletion.** It is schema-adjacent: removing it touches
+`ParsekScenario` OnSave / OnLoad, so it wants the post-change checklist (generators,
+synthetic recordings, a look at whether any committed fixture carries the key) rather than
+a grep-and-delete.
+
+## GUI-D8-LEGACY-SURFACES-KEPT-ALIVE-BY-TESTS: cleanup candidates, listed [FILED 2026-09-11 by the GUI fix batch]
+
+Production-dead symbols whose only callers are tests, so those tests prove something the
+product does not run. Each is safe where it stands; the entry exists so the set is known
+rather than re-discovered.
+
+- `SupersedeCommit.CommitSupersede` (`:123`), `ComputeTombstoneRewindCutoffUT` (`:773`),
+  `IsPreRewindDebris` (`:699`) as PUBLIC surfaces - in-game tests only.
+- `KerbalsModule.IsKerbalAvailable` (`:1033`) - no production caller; it is the assertion
+  surface for reservation state in 23 cells across `KerbalReservationTests` and
+  `KerbalsModuleEndStateTests`, plus two cells that exist only to pin its own log line.
+  `KerbalsModule.Reservations` already exposes the same information, so a rewrite is
+  mechanical - but it inverts an assertion's polarity 23 times for no product gain, which
+  is why the fix batch left it. Considered and NOT deleted 2026-09-11.
+- `WatchModeController.FinalizeAutomaticExitForTesting` (`:1976`) - a genuine test seam over
+  the private `ResetWatchState(preserveLineageProtection: true, destroyOverlapAnchor:
+  false)`, with four cells driving the automatic-exit path through it and no other way in.
+  This one should STAY; it is listed so it is not re-flagged as dead every time someone
+  greps.
+
+**Decision:** whether a test-only seam is allowed to exist at all, and if so whether it
+should be named `*ForTesting` (as the watch-mode one is) so a grep can tell the two
+populations apart.
+
+## GUI-EXPOSURE-1-THE-TRACKING-STATION-HAS-FULL-GHOST-PRESENCE-AND-NO-CONTROL-SURFACE [FILED 2026-09-11 by the GUI fix batch; the census's biggest structural question]
+
+**Evidence.** `ParsekTrackingStation.cs:26`, `:350` draws markers only, and says so at
+`:394-395`. The only `AddToAllToolbars` calls are `ParsekFlight.cs:1351` and
+`ParsekKSC.cs:153`, so there is no Parsek window and no toolbar button in the Tracking
+Station at all. Meanwhile ghosts get FULL presence there: list rows, orbit lines,
+targeting. And missions and routes are advertised as looping "in flight, the Space Center,
+and the Tracking Station" (`docs/user-guide.md:160`).
+
+So the scene where ghosts are most visible is the one scene where the player cannot loop,
+unloop, watch, inspect or fix anything about them.
+
+**Decision, and it is a design-doc question rather than a bug.** The no-new-UI-surfaces rule
+applies squarely: a Parsek window in the Tracking Station is a new surface. The options are
+(a) accept the gap and correct the user guide's "and the Tracking Station" claim to be about
+PLAYBACK rather than control, (b) route TS ghost control through the stock right-click /
+marker menus that already exist there, or (c) grant an exception. Any TS proposal starts
+from zero: `UIMode.TrackingStation` was deleted in the fix batch precisely because nothing
+constructed it.
+
+## GUI-EXPOSURE-4-THE-CAREER-LEDGER-IS-REWRITTEN-WITH-ONE-MESSAGE-IN-THE-WHOLE-SUBSYSTEM [FILED 2026-09-11 by the GUI fix batch]
+
+**Evidence.** `GameActions/LedgerOrchestrator.cs:1837`+ (14 call sites) and
+`GameActions/KspStatePatcher.cs:61` rewrite funds, science, reputation, the tech tree,
+facility levels, progress nodes and the live `ContractSystem`. The entire subsystem has
+exactly ONE player-facing message (`KspStatePatcher.cs:3514`, and it is session-latched).
+Related: ledger tombstones - contracts, milestones, science, funds, reputation and crew
+consequences retired by a Re-Fly merge (`SupersedeCommit.cs:2302`, counts logged at `:2553`
+and `:2619`) - reach the player nowhere; `grep tombstone` over `Source/Parsek/UI/` plus
+`ParsekUI.cs` returns only ERS-routing comments, and the merge dialog names no career
+consequence at all.
+
+**Decision:** how much of a career rewrite the player should be told about, and where. The
+no-new-surfaces rule means the candidates are the merge dialog's existing body text and
+one-shot ScreenMessages for events that actually changed something - which a supersede
+genuinely is.
+
+## GUI-EXPOSURE-46-RATE-LIMITED-REFUSALS-A-PLAYER-CANNOT-SEE [FILED 2026-09-11 by the GUI fix batch]
+
+**Evidence.** 46 sites mod-wide route a refusal to `InfoRateLimited` / `WarnRateLimited`
+only. The census named these: `Logistics/RouteEndpointResolver.cs:293` (docked-composite
+delivery), `Logistics/RouteAnalysisEngine.cs:842`, `Logistics/RouteOrchestrator.cs:115`,
+`:129`, `:181`, `:186`, `:306`, `:311`, `:1746`, `UI/LogisticsWindowUI.cs:1301`, `:2876`,
+and `Logistics/RouteStore.cs:640`. The consequence: a Logistics Pause / Activate / Send
+Once / Create Route click that does nothing is indistinguishable from one that worked.
+
+**Proposed fix, and why it is one entry and not 46.** The Logistics window already re-derives
+its refusal reasons at about 1 Hz and already owns a disabled-hover echo; the shape is to
+carry the reason into that echo for the button the player just pressed, not to add 46
+messages. That is one design decision about one window, so it is filed as one item.
+
+## GUI-INVENTORY-STOCKUIOVERLAY-BADGES-ARE-INVISIBLE-TO-BOTH-CENSUS-INSTRUMENTS [FILED 2026-09-11 by the GUI fix batch; a TOOLING entry]
+
+**Evidence.** `StockUiOverlayController.cs:49` hooks `RDController.OnRDTreeSpawn`,
+`GameEvents.onGUIAstronautComplexSpawn` and `GameEvents.onGUIMissionControlSpawn`
+(`:71-76`) and attaches an 18x18 `OverlayBadge` to individual tech nodes (`:233`), applicant
+rows (`:293`) and contract rows (`:354`). Six tint colours carry semantics (`:235`, `:358`,
+`:987-994`) and five tooltip texts carry information that exists NOWHERE else in the game:
+which recording committed a tech node and how many others claim it (`:689-706`), that a
+contract is already claimed by a committed future (`:416`), which committed slot holds an
+applicant (`:621-623`), and that a roster entry is a Parsek stand-in rather than a real hire
+(`:489`).
+
+**Why it is a tooling gap.** It is uGUI, so the GuiTree recorder cannot see it, and the
+tooltips are hover-only, so a screenshot cannot either. This whole third UI layer -
+injected into three STOCK screens - is outside the reach of both census instruments, which
+is why it was not in the brief's file list and appears in none of the 27 captures.
+
+**Proposed fix.** A uGUI capture path for the recorder (walk the Canvas hierarchy rather
+than the IMGUI funnels), plus pointer parking so a hover tooltip can be photographed.
+
+## GUI-I-DRAWRECORDINGTOOLTIP-IS-DEAD-CODE-WITH-FULL-TEST-COVERAGE: decide before deleting [FILED 2026-09-11 by the GUI fix batch; the triage explicitly held this one back]
+
+**Evidence.** `RecordingsTableUI.DrawRecordingTooltip` (`:5451`) is 78 lines rendering a
+per-recording hover panel: stats, chain status, a storage / efficiency breakdown, and
+resource, inventory and crew deltas. A repo-wide grep for `DrawRecordingTooltip` returns
+exactly one hit - its own declaration.
+
+**Why it is not a simple deletion.** It is the ONLY production caller of
+`FormatResourceManifest` / `FormatInventoryManifest` / `FormatCrewManifest`
+(`UI/RecordingsTableUI.cs:5496`, `:5500`, `:5504`, forwarding to
+`UI/RecordingsTableFormatters.cs:121`, `:188`, `:251`); every other reference lives in
+`FormatResourceManifestTests.cs`, `FormatInventoryManifestTests.cs` and
+`FormatCrewManifestTests.cs`. So three formatters with dozens of green assertions each are
+kept alive purely by their own tests, and the resource / inventory / crew delta of a
+recording is currently unreachable from the UI.
+
+**Decision:** delete the panel and its three formatters with their tests, or wire the panel
+back up. Wiring it is NOT a new surface - it is a hover tooltip on a row that already
+exists - and it is the only place a player could see what a recording actually consumed and
+carried, which the census found nothing else exposes. The triage held it back from the fix
+batch for exactly this reason: deleting it is cheap and irreversible, wiring it is cheap and
+adds the most information per byte of any item in the audit.
+
+---
+
 ## BDOCK1-STATION-COMMIT-READOPT-LIMBO-FALLBACK-DIALOG: after BDOCK-1's mid-mission CommitTree, the re-adopted station continuation is stashed to Limbo by the interceptor launch and surfaces as a whole-tree merge dialog over already-committed recordings [FILED 2026-09-10 by wave package A2 (`cheap-flights-arming`) off its BDOCK-1 reading run; REWRITTEN 2026-09-11 off the archive grep. The dialog is the lane's deterministic shape on every post-fix build (4 of 4 logs), reached through a CORRECT refusal; OPEN PRODUCT QUESTION narrowed to the fallback dialog's UX over committed-overlap recordings; not fixed in this wave]
 
 **What happens**, from `2026-09-10_1815_BDOCK-1-station-interceptor`'s own KSP.log (local
