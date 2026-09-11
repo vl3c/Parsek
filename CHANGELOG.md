@@ -459,6 +459,28 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Four Settings and main-window labels now say what the buttons behind them do.**
+  "Wipe All Game Actions" only ever cleared the MILESTONE list - every career action on
+  the ledger survived it, and the next recalculation still walked them - so the most
+  destructive-sounding button on the screen a confused player reaches for named an
+  effect it does not have. It is now "Wipe All Milestones", and its confirmation says
+  the ledger's career actions are kept. "Defaults" skipped the ghost-audio slider drawn
+  four rows above it; it now resets that too, and its new hover text names the one
+  setting it deliberately leaves alone (the Basic / Advanced interface mode - resetting
+  that would hide most of the window mid-click). The Test Runner opened from Settings
+  claimed Ctrl+Shift+T toggled it; the shortcut actually opens a SECOND, separate runner
+  window with the same title, which both that window's own footer line and the Settings
+  button's hover text now say. And the main window's Settings button advertised
+  "Recording, looping, ghost and diagnostic options" - one section retired in August
+  plus three that exist only in Advanced; it now names what the window always has.
+  Nothing changed behind the labels except the ghost-audio reset.
+
+  Found while re-budgeting those texts: the guard that keeps every hover text short
+  enough to read in the strip at the bottom of each window had silently stopped covering
+  the main window and the Timeline on 2026-08-29, when a cleanup commit replaced both of
+  their rows with a comment ABOUT them. The two most-edited windows in the mod had no
+  text-length gate for two weeks. Both rows are back.
+
 - **A flight you could still re-fly no longer loses that option the instant it is
   committed.** When a flight ended in a way that keeps its rewind point open (a crash,
   including a re-entry Parsek predicts as it leaves the scene), committing the tree

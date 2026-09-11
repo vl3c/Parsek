@@ -952,9 +952,14 @@ namespace Parsek
             }
 
             // --- Settings ---
+            // The tooltip names only what the window ALWAYS draws: Interface (the
+            // Basic / Advanced toggle), Ghosts, and Data Management. The Recording section
+            // it used to advertise was retired by the 2026-08-27 simplification, and
+            // Looping / Diagnostics / Sample Density are Advanced-only, so three of the
+            // four topics the old wording promised could be absent (finding P18).
             if (GUILayout.Button(new GUIContent(
                 "Settings",
-                "Recording, looping, ghost and diagnostic options.")))
+                "Interface, ghosts and data - plus more in Advanced.")))
                 ToggleSettingsWindow();
 
             // --- Version footer (version on the left, Close button fills the rest) ---
@@ -1533,25 +1538,32 @@ namespace Parsek
                 false, HighLogic.UISkin);
         }
 
-        internal void ShowWipeActionsConfirmation(int count)
+        /// <summary>
+        /// Confirms the Settings window's "Wipe All Milestones (N)" button. The handler is
+        /// <see cref="MilestoneStore.ClearAll"/>, which clears the MILESTONE list and nothing
+        /// else: the ledger's <c>GameAction</c> rows survive and the next recalc still walks
+        /// them. The wording says milestones for that reason - the former "game actions"
+        /// phrasing named an effect this path never had.
+        /// </summary>
+        internal void ShowWipeMilestonesConfirmation(int count)
         {
             PopupDialog.SpawnPopupDialog(
                 new Vector2(0.5f, 0.5f),
                 new Vector2(0.5f, 0.5f),
                 new MultiOptionDialog(
-                    "ParsekWipeActionsConfirm",
-                    $"Delete all {count} game action milestone(s)?\n\nThis cannot be undone.",
-                    "Confirm: Wipe Game Actions",
+                    "ParsekWipeMilestonesConfirm",
+                    $"Delete all {count} milestone(s)?\n\nCareer actions on the ledger are kept. This cannot be undone.",
+                    "Confirm: Wipe Milestones",
                     HighLogic.UISkin,
                     new DialogGUIButton("Wipe All", () =>
                     {
                         MilestoneStore.ClearAll();
-                        ParsekLog.Info("UI", "All game actions wiped");
-                        ParsekLog.ScreenMessage("All game actions wiped", 2f);
+                        ParsekLog.Info("UI", "All milestones wiped");
+                        ParsekLog.ScreenMessage("All milestones wiped", 2f);
                     }),
                     new DialogGUIButton("Cancel", () =>
                     {
-                        ParsekLog.Verbose("UI", "Wipe game actions cancelled");
+                        ParsekLog.Verbose("UI", "Wipe milestones cancelled");
                     })
                 ),
                 false, HighLogic.UISkin);

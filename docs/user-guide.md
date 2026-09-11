@@ -287,9 +287,9 @@ Recorder Sample Density: three preset buttons plus a live summary line showing t
 Data Management:
 
 - **Wipe All Recordings (N)** - clears all committed recordings. Also frees reserved crew and removes replacement kerbals. Milestones are preserved.
-- **Wipe All Game Actions (N)** - clears all recorded milestones and career actions.
+- **Wipe All Milestones (N)** - clears the recorded milestones. Career actions already on the ledger are kept, so the next recalculation still walks them; the practical effect is that the committed-action blocks and the stock-screen badges stop firing.
 
-The "Defaults" button resets all settings to their original values.
+The "Defaults" button resets every setting in this window except the Basic / Advanced interface mode, which stays where you put it.
 
 ### Reserved Resources
 

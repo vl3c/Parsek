@@ -15,6 +15,103 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+# GUI exposure audit, 2026-09-11
+
+One batch, one branch (`gui-fixes-1`). The 2026-09-11 GUI census produced two
+inventories - a structural one (105 countable surfaces, 14 IMGUI windows, 21 dialogs)
+and a capability one (580 rows classed EXPOSED / AUTOMATIC / HIDDEN / DEAD /
+PROMISED-NOT-DELIVERED) - and a supervisor triage split their findings into FIX NOW
+(unambiguous defects: text that contradicts its handler, a guard one path skips, code
+with no caller) and FILE ONLY (needs a design decision or a live lane). Every `GUI-*`
+entry below is one line of that split. Struck entries were fixed in this batch, with the
+evidence that found them; open entries carry the proposed fix and, where the triage said
+so, a `Decision:` naming what the operator must choose.
+
+## ~~GUI-P5-WIPE-ALL-GAME-ACTIONS-CLEARS-ONLY-MILESTONES~~: the most destructive-sounding button in Settings named an effect it does not have [FILED + FIXED 2026-09-11 by the GUI fix batch]
+
+**Evidence.** `UI/SettingsWindowUI.cs:758` drew `Wipe All Game Actions ({milestoneCount})`
+and `ParsekUI.cs:1543` confirmed with `Delete all {count} game action milestone(s)?`, but
+the handler is `MilestoneStore.ClearAll` (`MilestoneStore.cs:509`), whose whole body is
+`milestones.Clear()` plus a log line. `Ledger.Actions` - every `GameAction`, including the
+career seeds and the reservations - is untouched, and the next
+`LedgerOrchestrator.RecalculateAndPatch` still walks all of it. The real effect of the
+click is narrower and unstated: the committed-action click blocks and the stock-UI badges
+stop firing, because both read the milestone list.
+
+**Fix.** Relabel, do not widen (a button that really wiped the ledger would be a new
+destructive capability, not a copy edit). Button is `Wipe All Milestones (N)`, dialog id
+`ParsekWipeMilestonesConfirm`, body `Delete all N milestone(s)? Career actions on the
+ledger are kept.`, title `Confirm: Wipe Milestones`; the greyed-out reason and the
+handler's two log lines follow. `WipeGameActionsDisabledReason` ->
+`WipeMilestonesDisabledReason` ("There are no milestones to wipe");
+`ShowWipeActionsConfirmation` -> `ShowWipeMilestonesConfirmation`. Guarded by
+`SettingsWindowPresentationTests.WipeMilestonesDisabledReason_NamesMilestonesNotGameActions`.
+`docs/user-guide.md:290` carried the same wrong claim and now states what is kept.
+
+## ~~GUI-P8-DEFAULTS-SKIPS-TWO-DRAWN-SETTINGS~~: the Settings "Defaults" button left the ghost-audio slider and the interface mode unreset, with no tooltip scoping the claim [FILED + FIXED 2026-09-11 by the GUI fix batch]
+
+**Evidence.** `UI/SettingsWindowUI.cs:416` drew a bare `GUILayout.Button("Defaults")` (no
+`GUIContent`, so no hover text at all) and reset the 9 values of
+`SettingsWindowPresentation.BuildDefaults` plus the three tracing flags. Two settings the
+same window draws were skipped: `ghostAudioVolume` (`UI/SettingsWindowUI.cs:591`, in the
+Ghosts section four rows above the button) and `uiComplexityMode`
+(`UI/SettingsWindowUI.cs:488`).
+
+**Fix, split by which skip is a defect.** `ghostAudioVolume` is now part of
+`SettingsDefaults` (value `0.7f`, mirroring the `ParsekSettings.ghostAudioVolume` field
+initializer) and is reset by the click - it is drawn in BOTH modes and belongs in a reset
+that calls itself Defaults. `uiComplexityMode` deliberately stays: resetting it would move
+an Advanced player back to Basic mid-click and hide most of the window the button sits in.
+That exception is now stated where the player reads it, in the button's new tooltip
+(`SettingsWindowPresentation.DefaultsButtonTooltip`, budgeted by the Settings row of
+`TooltipEchoBudgetTests`). Guarded by
+`BuildDefaults_ResetsTheGhostAudioSliderToItsFieldInitializer` and
+`DefaultsButtonTooltip_SaysTheInterfaceModeIsNotReset`.
+
+## ~~GUI-P16-SETTINGS-TEST-RUNNER-CLAIMS-THE-GLOBAL-SHORTCUT~~: the Settings-launched Test Runner said Ctrl+Shift+T toggled it, and the shortcut opens a second identically-titled window [FILED + FIXED 2026-09-11 by the GUI fix batch]
+
+**Evidence.** `UI/TestRunnerUI.cs:498` printed `Ctrl+Shift+T to toggle from any scene` and
+`UI/SettingsWindowUI.cs:670`'s launcher tooltip said `Also Ctrl+Shift+T.`. The shortcut is
+owned by a DIFFERENT MonoBehaviour: `InGameTests/TestRunnerShortcut.cs:162-171` toggles its
+own `showWindow` and draws window id `ParsekTestRunnerGlobal` with the same
+`Parsek - Test Runner` title (`:204`), so pressing it with the Settings one open puts two
+identical windows on screen. `TestCommands/TestCommandUiAction.cs:430-433` already
+documented the trap for the harness; nobody had carried it into the player-facing text.
+(The same label on `TestRunnerShortcut.cs:553` is CORRECT there and was left alone.)
+
+**Fix.** `UI/TestRunnerUI.cs` footer now reads `Ctrl+Shift+T opens a separate runner
+window, in any scene`; the Settings launcher tooltip reads `... Ctrl+Shift+T opens its
+own.`
+
+## ~~GUI-P18-SETTINGS-LAUNCHER-ADVERTISED-A-RETIRED-SECTION~~: the main window's Settings tooltip named four topics, three of which can be absent [FILED + FIXED 2026-09-11 by the GUI fix batch]
+
+**Evidence.** `ParsekUI.cs:957` read `Recording, looping, ghost and diagnostic options.`
+The Recording section was retired by the 2026-08-27 settings simplification
+(`UI/SettingsWindowUI.cs:364-369` records the retirement), and Looping, Diagnostics and
+Sample Density are all gated to Advanced (`UI/UiComplexityMode.cs:185-187`). In Basic the
+window draws Interface, Ghosts and Data Management only - none of which the tooltip named.
+
+**Fix.** `Interface, ghosts and data - plus more in Advanced.` (50 chars, inside the main
+window's 62-char strip budget).
+
+## ~~GUI-TOOLTIP-BUDGET-LOST-THE-MAIN-WINDOW-AND-TIMELINE-ROWS~~: the hover-text length gate silently stopped covering the two most-edited windows on 2026-08-29 [FOUND + FIXED 2026-09-11 while re-budgeting the P18 text; NOT a census finding - the census could not see it]
+
+**Evidence.** `TooltipEchoBudgetTests.StripWindows` is the per-window text budget every
+hover string is measured against. Commit `454b4df7e`
+("Delete the dead resource-budget readouts") rewrote two of its rows into explanatory
+COMMENTS and deleted the `yield return` statements under them:
+`{ "ParsekUI.cs", 250f, 8, DoubleLine }` and
+`{ "UI/TimelineWindowUI.cs", 820f, 14, SingleLine }`. `git show 454b4df7e -- <file>` shows
+both `-  yield return ...` lines with no replacement. From then until 2026-09-11 the main
+window (the mod's entry point, and its narrowest strip at 250 px) and the Timeline had NO
+text-length gate: a tooltip of any length would have passed. The surviving comments still
+describe the rows' floors and margins, which is what made the loss invisible to a reader.
+
+**Fix.** Both rows restored with their stated floors; both pass at HEAD, including the new
+P18 wording. The two rows' own comments now carry the restoration note.
+
+---
+
 ## BDOCK1-STATION-COMMIT-READOPT-LIMBO-FALLBACK-DIALOG: after BDOCK-1's mid-mission CommitTree, the re-adopted station continuation is stashed to Limbo by the interceptor launch and surfaces as a whole-tree merge dialog over already-committed recordings [FILED 2026-09-10 by wave package A2 (`cheap-flights-arming`) off its BDOCK-1 reading run; REWRITTEN 2026-09-11 off the archive grep. The dialog is the lane's deterministic shape on every post-fix build (4 of 4 logs), reached through a CORRECT refusal; OPEN PRODUCT QUESTION narrowed to the fallback dialog's UX over committed-overlap recordings; not fixed in this wave]
 
 **What happens**, from `2026-09-10_1815_BDOCK-1-station-interceptor`'s own KSP.log (local

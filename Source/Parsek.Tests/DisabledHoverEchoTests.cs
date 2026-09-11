@@ -106,8 +106,8 @@ namespace Parsek.Tests
 
             yield return Row(SettingsWindowUI.WipeRecordingsDisabledReason(0),
                 SettingsBudget, "Settings wipe recordings");
-            yield return Row(SettingsWindowUI.WipeGameActionsDisabledReason(0),
-                SettingsBudget, "Settings wipe game actions");
+            yield return Row(SettingsWindowUI.WipeMilestonesDisabledReason(0),
+                SettingsBudget, "Settings wipe milestones");
 
             yield return Row(SpawnControlPresentation.WarpButtonDisabledReason(true, false, true),
                 SpawnControlBudget, "Spawn row warp - too far");
@@ -196,7 +196,7 @@ namespace Parsek.Tests
         {
             Assert.Equal(string.Empty, ParsekUI.SpawnControlLauncherDisabledReason(1));
             Assert.Equal(string.Empty, SettingsWindowUI.WipeRecordingsDisabledReason(1));
-            Assert.Equal(string.Empty, SettingsWindowUI.WipeGameActionsDisabledReason(1));
+            Assert.Equal(string.Empty, SettingsWindowUI.WipeMilestonesDisabledReason(1));
             Assert.Equal(string.Empty,
                 SpawnControlPresentation.WarpButtonDisabledReason(false, false, true));
             Assert.Equal(string.Empty,
