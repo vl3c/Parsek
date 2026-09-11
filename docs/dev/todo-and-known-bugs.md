@@ -15,6 +15,124 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## GS4-UNITY-CEILING-NEGCTL-VACUOUS: GS-4's LIVE `maxTotal = 0` negative control measured zero exceptions twice; the ceiling is now controlled OFFLINE, and only an opportunistic LIVE control stays open [FILED 2026-09-11 by the ghost-replay Tier B wave (`ghost-replay-tier-b`), make-up round; NARROWED 2026-09-11, closing round, supervisor ruling R3-2]
+
+**What happened.** GS-4 is armed at `[expectations.unityExceptions] maxTotal = 4`
+(supervisor ruling, wave RULINGS R2-4). Its armed re-flight `2026-09-11_0049` PASSED at
+total 4. The negative control lowers the ceiling to 0 and is VALID only if the control
+run itself measures total >= 1 (RULINGS A4-b); otherwise it is recorded vacuous and
+re-flown ONCE. Both flights measured 0: `2026-09-11_0056` and the re-fly
+`2026-09-11_0102` each PASSED attempt 1 with the evaluated block reading `maxTotal 0,
+total 0`, and a raw grep of each KSP.log finds no NullReferenceException,
+MissingReferenceException, IndexOutOfRangeException or GUILayout line. Two vacuous
+passes, not a failed control: the ceiling was never exercised. The edit was reverted
+after `_0102`.
+
+**Why it can read zero.** Every class GS-4 raises is intermittent stock KSP or MechJeb
+(STAGING, MAP-FOCUS, HATCH-TOOLTIP, MECHJEB-ONDESTROY, FLIGHT-CAMERA-STARTUP; the
+census is in the status doc's known-gate 11). GS-4's wave-DLL totals read 2, 1, 4, 0, 0
+(`2026-09-10_1924`, `_1930`, `2026-09-11_0049`, `_0056`, `_0102`). Nothing here is a
+Parsek defect, and no stack carried a `Parsek.` frame.
+
+**Discharged OFFLINE (supervisor ruling R3-2, the BDOCK-1 offline precedent).** No
+flight. The read-only script
+`C:/Users/vlad3/AppData/Local/Temp/claude/C--Users-vlad3-Documents-Code-Parsek-Parsek--claude-worktrees-cleanup-agent-docs-755145/f1ca58d8-e83f-4dba-acea-332be584ee54/scratchpad/a4_gs4_offline_negctl.py`
+(8,398 bytes, sha256 `c0ef1d7d6c188acaf6f09d3a4f0491976079894970360eaa4022cd7998d86b34`; its full
+output `a4_gs4_offline_negctl.out.txt` beside it) loads the REAL committed GS-4 spec
+through the harness loader (`run.load_toml`, asserted tomllib-equal to `git show HEAD:`
+at `e106ad8b4`) and re-measures every GS-4 wave-DLL run with `hlib.scan_unity_exceptions`,
+each equal to its result JSON: 2, 1, 4, 0, 0. It then runs the live row-6b evaluator,
+`hlib.evaluate_unity_exceptions`, over the archived KSP.log of the HIGHEST,
+`logs/wave-0910/runs/2026-09-11_0049_GS-4-kerbalx-rewind-watch/KSP.log` (15,674,487
+bytes, sha256 `792f3e6992f79939adac08e0a0492b2f22b881025f9872ffec5a5f64edd2d219`):
+- with `maxTotal = 3` (total - 1; the only spec change, tree-diffed): FAIL with EXACTLY
+  ONE mismatch, `unityExceptions.total 4 > maxTotal 3 (NullReferenceException=4)`;
+- with the committed `maxTotal = 4`: PASS on the same bytes.
+Under the mutated spec the other gating evaluators (expectations, ghostLifecycle) stay
+PASS, so the unity line is the only gating mismatch. Corroboration on the same shape:
+`_1924` reds on exactly `unityExceptions.total 2 > maxTotal 1 (NullReferenceException=2)`
+and `_1930` on exactly `unityExceptions.total 1 > maxTotal 0 (NullReferenceException=1)`,
+each PASS at 4; the two total-0 runs cannot host the control. Per the ruling, the live
+row-6b wiring is proven by the program's armed unityExceptions lanes. The ceiling is
+controlled offline, recorded in the GS-4 spec's RUN LEDGER, its status row, known-gate 11
+and the test_hlib ceiling comment.
+
+**What stays open: an opportunistic LIVE control only.** No flight is owed. When a
+future round flies GS-4 anyway and can spare one control flight, fly `maxTotal = 0` (the
+line-anchored G7 edit of `maxTotal = 4`, reverted after) and count it only if that run's
+own total measures >= 1; a total-0 run is vacuous again, not a failed control.
+
+## D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE: the registry cell's only producer is reached in always-tree mode only through rare split-edge aborts, and no seam verb drives one [FILED 2026-09-10 by the ghost-replay Tier B / Tier D wave (`ghost-replay-tier-b`) while authoring the Tier D residue. A REGISTRY / VERB DECISION, not a product defect. BLOCKED on the operator, paired with the R2 `stop-on-switch` call]
+
+**What the cell names.** `harness/coverage/registry.toml` D1 `sub-2-point-drop`: a
+recording shorter than two points is dropped instead of committed. The only producer
+of that behaviour is `RecordingStore.CreateRecordingFromFlightData`
+(`RecordingStore.cs` ~530-549), whose two lines read `Recording too short for
+'<name>' (N points, need >= 2)` and `Recording too short after trimming for '<name>'
+(N points)`, each followed by `discarded`.
+
+**Its callers, re-derived from the full caller set** (grep of
+`CreateRecordingFromFlightData(` and `FallbackCommitSplitRecorder(` over
+`Source/Parsek`):
+
+1. `ChainSegmentManager.CommitSegmentCore` (`ChainSegmentManager.cs:648`, plus its
+   Verbose `CommitSegmentCore: segment too short`). Its entry points are dead or
+   circular in always-tree mode:
+   - `CommitChainSegment` from `ParsekFlight.cs:1386`, gated on
+     `chainManager.PendingContinuation`, which nothing in `Source/Parsek` ever sets
+     true (grep `PendingContinuation = true`: 0 hits), and from `ParsekFlight.cs:12828`
+     (the chain boarding transition), gated on `chainManager.ActiveChainId != null`;
+   - `CommitVesselSwitchTermination` (`ParsekFlight.cs:11900`), also behind
+     `ActiveChainId != null`;
+   - `ActiveChainId` is assigned ONLY inside the commit core itself
+     (`ChainSegmentManager.cs:672`, "First transition: initialize chain"), so both
+     gates are circular;
+   - `CommitBoundarySplit` (`ParsekFlight.cs:11908` / `:12860`): all three boundary
+     triggers early-return `Atmosphere|SOI change|Altitude boundary suppressed in tree
+     mode` (`ParsekFlight.cs:12896` / `:12930` / `:12982`);
+   - `CommitDockUndockSegment` (`ParsekFlight.cs:12710-12744`) sits behind the
+     dock-merge path after `HandleTreeDockMerge`; not proven dead - see the census.
+2. `ParsekFlight.FallbackCommitSplitRecorder` (`ParsekFlight.cs:6829`, Warn `Split
+   branch failed` ... `recording too short to commit, data lost`). THIS IS THE LIVE
+   TREE-MODE ROUTE: it first tries `TryAppendCapturedToTree`, which returns false on
+   `captured.Points.Count < 2` EVEN WITH a live tree (`ParsekFlight.cs:4759`), and only
+   then calls the factory. Every caller is an abnormal split-edge abort:
+   `CreateSplitBranch` with no active recording (`:5665`), `ResumeSplitRecorder`'s
+   destroyed-vessel and resume-failed branches (`:6946`, `:6964`),
+   `DeferredUndockBranch` invalid state (`:6999`), `DeferredEvaBranch` invalid state /
+   null EVA vessel (`:7078`, `:7091`), `DeferredJointBreakCheck` with no active vessel
+   (`:7238`), and the orphaned-`CaptureAtStop` commit before a new recording starts
+   with no live tree (`:13477`).
+3. The Gloops manual recorder (`ParsekFlight.cs:17058`, ScreenMessage `Gloops recording
+   too short - discarded`). No seam verb drives Gloops, which is also why D1
+   `manual-gloops` is uncovered.
+
+**Census.** 0 occurrences of `Recording too short|segment too short|Split branch
+failed` across the 508 collected KSP.logs in `../logs` (the wave plan's scan,
+reproduced by its critique). These lines log at Info / Warn, never Verbose, so the zero
+is real: the edges are RARE, not proven dead.
+
+**Why no lane closes it now.** No existing seam verb reliably makes a split edge abort
+before the split recorder's second sample, and the wave allows no C# change.
+
+**Fix options (operator decision; take it together with R2's `stop-on-switch`):**
+(1) keep the cell and add a Gloops seam verb (a C# change), so `manual-gloops` and
+`sub-2-point-drop` close together - the drop driven by a Gloops recording stopped
+before its second sample;
+(2) redefine the cell against the live tree-mode route (the `TryAppendCapturedToTree`
+<2-point guard plus `FallbackCommitSplitRecorder`'s `Split branch failed` line) and
+give it a verb or fault seam that aborts a split edge early. NOT
+`ParsekFlight.IsZeroPointLeaf` (`ParsekFlight.TerminalOrbit.cs:348`): that prune is a
+DIFFERENT predicate (`Points.Count == 0`);
+(3) delete the value with a rationale comment - DEMOTED, because a same-predicate
+tree-mode path exists and deletion would drop a real behaviour from the registry.
+
+**Stale comments to correct in the PR that takes the decision (not a drive-by):** the
+"stationary-pod sub-2-point-drop" remarks at
+`harness/scenarios/S0.5-live-record-discard.toml:74` and
+`harness/scenarios/S0.6-live-record-commit.toml:62` predate always-tree mode; a tree
+commit never passes through `CreateRecordingFromFlightData`.
+
 ## ~~RF1-HYSTERESIS-UT-LITERAL-REFUTED-BY-LAUNCH-TICK: RF-1's armed re-flight red on a UT the claim-gap wave had pinned literal, because the autopilot launch landed one physics tick later~~ [FILED 2026-09-10 by the claim-gap wave (package A1-6). A HARNESS PIN finding, not a product defect. CLOSED 2026-09-11: the re-pinned spec flew green and both D4 claims were taken]
 
 Filed 2026-09-10 by the claim-gap wave (package A1-6). A HARNESS PIN finding, not a product defect. The pin is RE-PINNED from bytes. CLOSED 2026-09-11 by the wave's make-up round (below).

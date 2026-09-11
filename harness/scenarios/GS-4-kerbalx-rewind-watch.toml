@@ -123,9 +123,25 @@ id = "GS-4-kerbalx-rewind-watch"
 #     saveParse rewindPoints=0) - the rewind lands before its branch point.
 #     Recorded here so the [expectations.rewind] block's silence on
 #     rewindPoints stays a decision, not an oversight.
-#   - unityExceptions REPORT: 4 NREs on the reading run, 1 on the green run,
-#     all stock KSP scene-change/teardown noise (KnowledgeBase / UIApp
-#     OnDestroy), none from a Parsek call site.
+#   - unityExceptions: 4 NREs on the reading run, 1 on the green run
+#     (report-only then; ARMED 2026-09-10, see the block). CORRECTED
+#     2026-09-10 from the census rather than the scene-change / teardown
+#     guess this line used to carry. The classes measured on this machine,
+#     every one stock KSP or MechJeb, none with a `Parsek.` frame:
+#       STAGING - `DeltaVEngineStageSet.get_OperatingStageInfo` via
+#         `VesselDeltaV.ResetStagePartCaches`, in flight;
+#       MAP-FOCUS - KnowledgeBase `onPlanetariumTargetChange` via
+#         `KbApp_PlanetResources.ActivateApp` or
+#         `KbApp_PlanetParameters.ActivateApp`, which counts TWICE (the
+#         `[ERR] Exception handling event` line and the `[EXC]` line both
+#         match the NRE pattern);
+#       HATCH-TOOLTIP - `CrewHatchController.get_CrewHatchTooltip` ->
+#         `DialogCanvasUtil.get_DialogCanvasRect`, at teardown;
+#       MECHJEB-ONDESTROY - `MuMech.MechJebCore.OnDestroy` ->
+#         `FlightGlobals.get_ActiveVessel`, after `Application.Quit`;
+#       FLIGHT-CAMERA-STARTUP - `FlightCamera` `Startup` ->
+#         `FlightGlobals.getFoR`, at the first flight-scene load (seen once,
+#         on GS-9's flight of this machine).
 # The debris NAME and the census of 8 were pre-measured off the operator's s15
 # save bytes (vesselName = "Kerbal X" (1) + "Kerbal X Debris" (6) +
 # "Kerbal X Probe" (1)) and both flights confirmed them live. Pre-flight risk
@@ -401,6 +417,25 @@ recordings     = { min = 8 }
 branchPoints   = { JointBreak = { min = 4 } }
 terminalStates = { SubOrbital = { min = 2 }, Destroyed = { min = 4 } }
 
+# ARMED 2026-09-10 (`ghost-replay-tier-b`, ghost-replay Tier B item 9); the ceiling is
+# KEPT at 4 by supervisor ruling. It is a WINDOW, not a mechanism bound, and 4 is
+# REACHABLE on the wave DLL by this machine's identical stock class set. THE
+# COMPOSITION THAT MAKES 4: the MAP-FOCUS KnowledgeBase pair (one event counted twice,
+# [ERR] + [EXC]) + STAGING + a teardown NRE - `2026-08-27_2145` exactly (STAGING 1 +
+# MAP-FOCUS 2 + HATCH-TOOLTIP 1). n: GS-4's readings 4 / 1 / 2 on older DLLs
+# (`2026-08-27_2145` / `_2204` / `2026-08-28_1550`) and 2 / 1 on the wave DLL
+# (`2026-09-10_1924` / `_1930`). THE WAVE-DLL REACHABILITY PROOF is GS-9's reading
+# `2026-09-10_1944`: it flew this machine's unchanged cycle 1 and teardown and measured
+# 4 (MAP-FOCUS 2 + FLIGHT-CAMERA-STARTUP 1 + MECHJEB-ONDESTROY 1), so a ceiling of 2
+# would false-red a legal stock shape. No reading carried a `Parsek.` frame.
+# THE LEGAL SHAPE THAT WOULD EXCEED IT: 5 - those four plus one more stock NRE, e.g.
+# both teardown classes (HATCH-TOOLTIP and MECHJEB-ONDESTROY) in one flight. A red at
+# 5 whose stacks carry no `Parsek.` frame is that shape: file it with its per-class
+# census and re-pin with the new n. A `Parsek.` frame is a finding at any count, and
+# is never a reason to raise the ceiling.
+[expectations.unityExceptions]
+maxTotal = 4
+
 [runtime]
 # WALL clock for the WHOLE drive phase including KSP boot: 300 LoadGame + 1600
 # mission + fast SetSetting/FlushAndQuit + ~400 boot and margin. The mission
@@ -424,3 +459,46 @@ policy = "once"
 # EMPTY, deliberately - an expectedFail key would demote the exact derender
 # regression this lane exists to catch.
 bugId = ""
+
+# =====================================================================================
+# RUN LEDGER (2026-09-11, the wave's make-up round; spec at `9a8c3e310`, wave DLL
+# a0abbed1 on stock-minimal). Kept at the END of the file so the unityExceptions
+# anchor (`maxTotal = 4`, line 437) keeps its line number for any further control.
+#
+# ARMED RE-FLIGHT `2026-09-11_0049`, unedited: PASS attempt 1, 329 s wall, 282 s
+# mission, MISSION-OK, expectations [] (16 tokens, recordings.count 8), ghostLifecycle
+# PASS gating (spawned 8, spawnLines 8, destroyLines 8, unbalanced []), and
+# unityExceptions PASS gating at total 4 = STAGING 1 (L10443, before `Application.Quit`
+# at L43452) + MAP-FOCUS 2 (the [ERR] + [EXC] pair via
+# `KbApp_PlanetParameters.ActivateApp`, L43466 / L43473) + HATCH-TOOLTIP 1 (L43495).
+# That is the ruling's composition exactly, now reached by GS-4 itself on the wave DLL.
+# No `Parsek.` frame in any stack.
+#
+# LIVE NEGATIVE CONTROL (`maxTotal = 0`, uncommitted) - VACUOUS twice. It is valid only
+# if the control run measures total >= 1 (RULINGS A4-b / R2-4), and both flights
+# measured 0: `2026-09-11_0056` and its one allowed re-fly `2026-09-11_0102`, each PASS
+# attempt 1 with the evaluated block reading maxTotal 0, total 0 (no NRE line of any
+# class in either log), expectations [], ghostLifecycle 8 / 8 / 8, MISSION-OK. Two
+# VACUOUS passes, not a failed control. The edit was reverted after `_0102`. GS-4's
+# wave-DLL totals read 2, 1, 4, 0, 0.
+#
+# OFFLINE NEGATIVE CONTROL (2026-09-11, the wave's closing round; supervisor ruling
+# R3-2, the BDOCK-1 offline precedent) - DISCHARGED. No flight. The read-only script
+# C:/Users/vlad3/AppData/Local/Temp/claude/C--Users-vlad3-Documents-Code-Parsek-Parsek--claude-worktrees-cleanup-agent-docs-755145/f1ca58d8-e83f-4dba-acea-332be584ee54/scratchpad/a4_gs4_offline_negctl.py
+# (sha256 c0ef1d7d6c188acaf6f09d3a4f0491976079894970360eaa4022cd7998d86b34) loads THIS spec through
+# run.load_toml, asserts it tomllib-equal to `git show HEAD:` (HEAD e106ad8b4), and
+# re-measures every GS-4 wave-DLL run with hlib.scan_unity_exceptions, each equal to its
+# result JSON: 2, 1, 4, 0, 0 (`2026-09-10_1924`, `_1930`, `2026-09-11_0049`, `_0056`,
+# `_0102`). On the HIGHEST, `2026-09-11_0049` (archived KSP.log 15,674,487 bytes, sha256
+# 792f3e6992f79939adac08e0a0492b2f22b881025f9872ffec5a5f64edd2d219), the live row-6b evaluator
+# hlib.evaluate_unity_exceptions with maxTotal = 3 (total - 1, the only spec change,
+# tree-diffed) returns FAIL with EXACTLY ONE mismatch `unityExceptions.total 4 >
+# maxTotal 3 (NullReferenceException=4)`, and the committed maxTotal = 4 PASSES the same
+# bytes. Under the mutated spec expectations and ghostLifecycle stay PASS, so the unity
+# line is the only gating mismatch. Corroboration, same shape: `_1924` reds on exactly
+# `unityExceptions.total 2 > maxTotal 1 (NullReferenceException=2)` and `_1930` on
+# exactly `unityExceptions.total 1 > maxTotal 0 (NullReferenceException=1)`, each PASS at
+# 4; the two total-0 runs cannot host the control. Per the ruling, the live row-6b wiring
+# is proven by the program's armed unityExceptions lanes. The ceiling is now CONTROLLED
+# OFFLINE; todo GS4-UNITY-CEILING-NEGCTL-VACUOUS stays open only for an opportunistic
+# LIVE control on an NRE-bearing run.

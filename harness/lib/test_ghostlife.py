@@ -308,10 +308,17 @@ class SpecSurfaceTests(unittest.TestCase):
         self.assertIn("unknown key(s)", errs[0])
         self.assertIn("spawnd", errs[0])
 
-    def test_the_accepted_key_set_is_exactly_the_four(self):
+    def test_the_accepted_key_set_is_exactly_the_six(self):
+        # Four keys until 2026-09-10, when the two LINE-count windows joined for
+        # the repeat-rewind lane (GS-9): the distinct `spawned` count and the
+        # set-based balance ledger cannot see a second replay of the SAME
+        # recordings leak a ghost. See SPAWN_LINES_KEY in ghostlife.py.
         self.assertEqual(
-            ("gating", "spawned", "requireBalanced", "destroyedReasons"),
+            ("gating", "spawned", "spawnLines", "destroyLines",
+             "requireBalanced", "destroyedReasons"),
             ghostlife.GHOST_LIFECYCLE_BLOCK_KEYS)
+        self.assertEqual(("spawned", "spawnLines", "destroyLines"),
+                         ghostlife.GHOST_LIFECYCLE_WINDOW_KEYS)
 
     def test_gating_must_be_a_bool(self):
         self.assertTrue(any("must be a bool" in e
@@ -322,22 +329,37 @@ class SpecSurfaceTests(unittest.TestCase):
                             for e in self._errs({"requireBalanced": "yes"})))
 
     def test_window_shapes(self):
-        self.assertEqual([], self._errs({"spawned": 3}))
-        self.assertEqual([], self._errs({"spawned": {"min": 1}}))
-        self.assertEqual([], self._errs({"spawned": {"min": 1, "max": 8}}))
-        self.assertTrue(self._errs({"spawned": {}}))
-        self.assertTrue(self._errs({"spawned": {"min": 5, "max": 2}}))
-        self.assertTrue(self._errs({"spawned": {"min": -1}}))
-        self.assertTrue(self._errs({"spawned": {"mn": 1}}))
-        self.assertTrue(self._errs({"spawned": True}))
-        self.assertTrue(self._errs({"spawned": "many"}))
+        # EVERY window key runs the SAME grammar. Before the line windows joined,
+        # `_validate_window` was called for `spawned` alone; a key added to the
+        # window tuple without that loop would accept `spawnLines = "many"` and
+        # then no-op at evaluation (the drifted-spec rule) - a window that states
+        # an assertion and asserts nothing.
+        for key in ghostlife.GHOST_LIFECYCLE_WINDOW_KEYS:
+            with self.subTest(key=key):
+                self.assertEqual([], self._errs({key: 3}))
+                self.assertEqual([], self._errs({key: {"min": 1}}))
+                self.assertEqual([], self._errs({key: {"min": 1, "max": 8}}))
+                self.assertTrue(self._errs({key: {}}))
+                self.assertTrue(self._errs({key: {"min": 5, "max": 2}}))
+                self.assertTrue(self._errs({key: {"min": -1}}))
+                self.assertTrue(self._errs({key: {"mn": 1}}))
+                self.assertTrue(self._errs({key: True}))
+                self.assertTrue(self._errs({key: "many"}))
+                # The error names the key it is about, so a spec author can find
+                # which of three windows is malformed.
+                self.assertTrue(any(key in e for e in self._errs({key: "many"})))
 
     def test_an_armed_min_zero_window_is_refused(self):
-        errs = self._errs({"gating": True, "spawned": {"min": 0}})
-        self.assertTrue(any("can never red" in e for e in errs), errs)
-        # ...but with a max it CAN red, so it is legal.
-        self.assertEqual([], self._errs({"gating": True,
-                                         "spawned": {"min": 0, "max": 4}}))
+        for key in ghostlife.GHOST_LIFECYCLE_WINDOW_KEYS:
+            with self.subTest(key=key):
+                errs = self._errs({"gating": True, key: {"min": 0}})
+                self.assertTrue(any("can never red" in e and key in e
+                                    for e in errs), errs)
+                # ...but with a max it CAN red, so it is legal.
+                self.assertEqual([], self._errs({"gating": True,
+                                                 key: {"min": 0, "max": 4}}))
+        # REPORT-ONLY, the same shape is legal: it gates nothing either way.
+        self.assertEqual([], self._errs({"destroyLines": {"min": 0}}))
 
     def test_an_armed_bare_block_is_LEGAL_and_that_is_deliberate(self):
         # The one notch saveparse / rendercompose carry and this module does NOT.
@@ -616,6 +638,56 @@ class EvaluatorTests(unittest.TestCase):
         self.assertTrue(r.mismatches)
         self.assertEqual((), r.armed_mismatches)
         self.assertEqual(ghostlife.STATUS_REPORT, r.status)
+
+    def test_the_line_windows_min_and_max_and_exact_pin(self):
+        # HEALTHY carries 2 spawn lines and 2 destroy lines.
+        for key in ("spawnLines", "destroyLines"):
+            with self.subTest(key=key):
+                self.assertTrue(any("%s 2 < min 5" % key in m for m in
+                                    self._eval({key: {"min": 5}}).mismatches))
+                self.assertTrue(any("%s 2 > max 1" % key in m for m in
+                                    self._eval({key: {"max": 1}}).mismatches))
+                self.assertTrue(any("%s 2 != 3" % key in m for m in
+                                    self._eval({key: 3}).mismatches))
+                self.assertEqual((), self._eval({key: 2}).mismatches)
+
+    def test_a_line_window_gates_when_armed(self):
+        r = self._eval({"gating": True, "destroyLines": {"min": 3}})
+        self.assertEqual(ghostlife.STATUS_FAIL, r.status)
+        self.assertEqual(("ghostLifecycle.destroyLines 2 < min 3",),
+                         r.armed_mismatches)
+        r = self._eval({"gating": True, "spawnLines": 2, "destroyLines": 2})
+        self.assertEqual(ghostlife.STATUS_PASS, r.status)
+
+    def test_a_second_replay_leak_is_invisible_to_the_ledger_and_red_on_the_lines(self):
+        # THE MOTIVATING SHAPE (GS-9, repeat rewind). The SAME two recordings
+        # replay twice; in replay 2 the "Kerbal X Probe" ghost spawns and never
+        # derenders. `spawned` counts distinct recIds (2 either way) and the
+        # balance ledger is set-based ("destroyed at least once" - it was, in
+        # replay 1), so both stay green. Only the line windows see it.
+        replay = [line(ghostlife.PHASE_SPAWNED, rec_id="parent", vessel="Kerbal X"),
+                  line(ghostlife.PHASE_SPAWNED, rec_id="probe", vessel="Kerbal X Probe"),
+                  line(ghostlife.PHASE_DESTROYED, rec_id="parent", vessel="Kerbal X",
+                       reason="watch hold expired"),
+                  line(ghostlife.PHASE_DESTROYED, rec_id="probe",
+                       vessel="Kerbal X Probe")]
+        leaky_second = replay[:3]                      # probe never derenders
+        text = log(*(replay + leaky_second))
+        r = self._eval({"gating": True, "spawned": 2, "requireBalanced": True},
+                       text=text)
+        self.assertEqual(ghostlife.STATUS_PASS, r.status, r.mismatches)
+        facets = r.observed[ghostlife.GHOST_LIFECYCLE_BLOCK]
+        self.assertEqual((2, 4, 3, []),
+                         (facets["spawned"], facets["spawnLines"],
+                          facets["destroyLines"], facets["unbalanced"]))
+        r = self._eval({"gating": True, "spawned": 2, "spawnLines": 4,
+                        "destroyLines": 4}, text=text)
+        self.assertEqual(ghostlife.STATUS_FAIL, r.status)
+        self.assertEqual(("ghostLifecycle.destroyLines 3 != 4",), r.armed_mismatches)
+        # ...and the healthy double replay passes the same armed block.
+        r = self._eval({"gating": True, "spawned": 2, "spawnLines": 4,
+                        "destroyLines": 4}, text=log(*(replay + replay)))
+        self.assertEqual(ghostlife.STATUS_PASS, r.status, r.mismatches)
 
 
 class EmitterSourceGuardTests(unittest.TestCase):
