@@ -1,0 +1,281 @@
+schema = 1
+id = "GUI-5-census-career-ksc"
+tier = "operator"
+# THE GUI CENSUS, WAVE 2: THE POPULATED CAREER HOST. GUI-1 photographed the Career State
+# window's four tabs and the Kerbals window's two on the operator's own long-lived career,
+# which is the right host for DENSITY and the wrong one for a claim: a local fixture is
+# unreproducible by construction, so nothing about what those windows contained could be
+# asserted, and nobody but the operator can re-take the picture. This lane re-takes all six
+# on a COMMITTED career, where the rows come from bytes anyone can read.
+# Targets are named rows in `docs/dev/design-gui-inventory.md` section 6.1; what this lane
+# cannot reach is at the bottom of this header.
+#
+# WHY THIS FIXTURE. `fixtures/saves/career-earned-ksc` is the suite's only committed CAREER
+# that is EARNED rather than seeded - pools and progress that a flight actually produced -
+# and it is vessel-less, so the Space Center is its natural scene. Read off its own bytes:
+#   - `funds = 536558`, `sci = 111.599998`, `rep = 1.99999881`: three non-round pools, which
+#     is what the Career window's header row and the stock top bar are laid out for and what
+#     a seeded 500000 / 100 / 0 fixture cannot show;
+#   - NINE stock `CONTRACT` nodes, which is what populates the Contracts tab;
+#   - `Parsek/GameState/ledger.pgld` with 15 ledger actions across nine type codes, plus
+#     `milestones.pgsm` carrying real `GAME_STATE_EVENT` rows with funds / rep / sci
+#     rewards - which is what populates the Milestones tab's `Rewards` column, the one
+#     column the inventory's section 7 measures as demonstrably overflowing its 180 px pin;
+#   - two `.prec` sidecars, so the Missions tab, the Recordings tab and the Timeline draw
+#     rows rather than an empty-state sentence.
+#
+# WHAT IT PHOTOGRAPHS (17 PNGs, each with a `<label>.gui.json` dump beside it): all four
+# Career State tabs, both Kerbals tabs, all four Timeline filter modes, the Missions tab
+# collapsed and expanded, the Recordings tab, one populated tooltip echo strip, and the
+# Basic forms of the main and Timeline windows - every one of them over a career with
+# contracts, milestones and earned pools.
+#
+# IT MOVES THE OPERATOR'S MOUSE, once, for the tooltip capture. `op=pointer` is the only op
+# in the seam that reaches outside the process: `Input.mousePosition` is read-only and
+# Unity fills `Event.current.mousePosition` from it, so a hover cannot be synthesised in
+# managed code at all. The cursor is a single machine-wide resource; the lane parks it at
+# the client corner immediately afterwards so no later capture carries an unlabelled hover,
+# and the op logs an Info line at every move naming both points, so a run whose captures
+# look wrong is readable back against "someone was using the mouse".
+#
+# THE `Career` LAUNCHER IS THE HOVER TARGET rather than a Career-window control, and that
+# is deliberate: the main window's echo strip is one of the two-line variants (inventory
+# section 7), the launcher's tooltip ("Contracts, strategies and buildings along the
+# timeline.") is a fixed literal, and the control exists in Advanced on every host - so the
+# capture is about the STRIP's layout and not about whatever row a save happened to put
+# under the cursor.
+#
+# `op=open window=main` FIRST IS A PRECONDITION (the settle for a non-`main` `open` /
+# `rect` refuses while the host's `showUI` is false). `scene = "spacecenter"` is passed
+# EXPLICITLY even though this host is vessel-less and would take the no-vessel KSC route
+# anyway: the arg makes the boot route a property of the spec rather than of the fixture's
+# vessel count, which is the same reason `LoadGame`'s parse is fail-closed.
+#
+# THE ANALYZER ROW IS LEFT GATING. A committed fixture that two committed lanes already fly
+# (`H45-stock-ui-overlay`, `H71-resource-topbar-ksc`), so there is nothing to exempt and
+# `ANALYZER_REPORT_ONLY_ALLOWLIST` stays as it is.
+#
+# WHAT THIS LANE CANNOT PHOTOGRAPH:
+#   - the Career Facilities tab's UPGRADED rows. Section 6.1 names `career-earned-ksc` for
+#     them and that is WRONG, measured off the save: every one of its ten
+#     `ScenarioUpgradeableFacilities` entries reads `lvl = 0`. So the Facilities capture
+#     below is the all-level-0 form (which is itself unphotographed and worth having), and
+#     the upgraded form still needs a fixture that does not exist. Section 6.1 is corrected
+#     in this PR rather than left to mislead the next author.
+#   - the Career Strategies tab POPULATED. Section 6.1 names `strategy-career` for the
+#     `Flow` cell, and that is also wrong off the bytes: that fixture's `STRATEGIES` node
+#     is EMPTY by construction - it seeds `rep = 25` so that `L3`'s in-game cell can
+#     ACTIVATE `LeadershipInitiative` at run time, and the activation is undone in the
+#     cell's own `finally`. So a census boot of it photographs the same empty tab this lane
+#     does. A populated Strategies capture needs a save with a live `STRATEGY` node and no
+#     committed fixture has one; corrected in section 6.1 in this PR.
+#   - any `PopupDialog`. All 21 stay dark for the structural reason GUI-3's header sets out
+#     (no seam path raises one and leaves it standing), so this lane asserts the NEGATIVE
+#     through one `op=dialog` step.
+#   - the stock-UI badges and the currency reservation tooltip. Those are section 6.3 rows
+#     needing a verb that opens a stock facility screen, which does not exist;
+#     `H45-stock-ui-overlay` and `H71-resource-topbar-ksc` are the lanes that assert on
+#     that surface, in-game, without a picture.
+#
+# NEVER FLOWN. Every `[expectations.logContracts]` line is one of this lane's OWN seam
+# records.
+description = "GUI census wave 2, the populated career host: photograph all four Career State tabs, both Kerbals tabs, all four Timeline filter modes and the Missions and Recordings tabs over a committed EARNED career with nine contracts, fifteen ledger actions, real milestone rewards and non-round pools, plus one populated tooltip echo strip."
+instanceProfile = "stock-minimal"
+tags = ["gui-census", "screenshots", "ui", "career", "GUI-5", "pending-operator"]
+
+[fixture]
+saveTemplate = "fixtures/saves/career-earned-ksc"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  # --- boot, explicitly to the Space Center ---
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+
+  # --- Advanced pass ---
+  { cmd = "UiAction", args = { op = "complexity", mode = "advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "open", window = "main" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "main", x = "8", y = "8", w = "250", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "cek-main-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "cek-main-advanced" }, expect = "OK" },
+
+  # THE TOOLTIP ECHO STRIP, taken while the main window is the only thing on screen.
+  # `op=find` records one in-memory GUI tree, matches by the words a reviewer can read and
+  # answers a centre; `${findcareer.cx}` / `${findcareer.cy}` carry that centre into the
+  # pointer step, so nothing here is a hard-coded coordinate.
+  { cmd = "UiAction", args = { op = "find", window = "main", text = "Career" }, label = "findcareer", expect = "OK" },
+  { cmd = "UiAction", args = { op = "pointer", x = "${findcareer.cx}", y = "${findcareer.cy}" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "cek-main-tooltip-career-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "cek-main-tooltip-career-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "pointer", park = "true" }, expect = "OK" },
+
+  # --- Career State, all four tabs, over an EARNED career ---
+  { cmd = "UiAction", args = { op = "open", window = "career" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "career", x = "270", y = "8", w = "1000", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "career", tab = "contracts" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "cek-career-contracts-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "cek-career-contracts-advanced" }, expect = "OK" },
+  # The EMPTY Strategies tab, and the label says so: this fixture activates no strategy and
+  # neither does any committed one (see the header).
+  { cmd = "UiAction", args = { op = "tab", window = "career", tab = "strategies" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "cek-career-strategies-empty-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "cek-career-strategies-empty-advanced" }, expect = "OK" },
+  # The all-level-0 Facilities form, likewise named rather than claimed as upgraded.
+  { cmd = "UiAction", args = { op = "tab", window = "career", tab = "facilities" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "cek-career-facilities-level0-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "cek-career-facilities-level0-advanced" }, expect = "OK" },
+  # THE ONE WITH A MEASURED LAYOUT DEFECT UNDER IT. `ColW_Rewards` is pinned at 180 px and
+  # the inventory's section 7 measures it as demonstrably overflowing; this fixture's
+  # `milestones.pgsm` carries the funds / rep / sci reward triples that make it do so.
+  { cmd = "UiAction", args = { op = "tab", window = "career", tab = "milestones" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "cek-career-milestones-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "cek-career-milestones-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "career" }, expect = "OK" },
+
+  # --- Kerbals, both tabs, on a career with a real roster ---
+  { cmd = "UiAction", args = { op = "open", window = "kerbals" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "kerbals", x = "270", y = "8", w = "1000", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "kerbals", tab = "roster" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "cek-kerbals-roster-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "cek-kerbals-roster-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "kerbals", tab = "outcomes" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "cek-kerbals-outcomes-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "cek-kerbals-outcomes-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "kerbals" }, expect = "OK" },
+
+  # --- the Timeline, all four filter modes, over a career's own event stream ---
+  # What is new here against GUI-4's four is the SOURCE of the rows: this host's timeline
+  # is career events (contract accepts, milestone credits, ledger actions), not flights.
+  { cmd = "UiAction", args = { op = "open", window = "timeline" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "timeline", x = "270", y = "8", w = "1000", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "timeline", tab = "overview" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "cek-timeline-overview-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "cek-timeline-overview-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "timeline", tab = "details" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "cek-timeline-details-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "cek-timeline-details-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "timeline", tab = "rewindff" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "cek-timeline-rewindff-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "cek-timeline-rewindff-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "timeline", tab = "refly" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "cek-timeline-refly-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "cek-timeline-refly-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "timeline" }, expect = "OK" },
+
+  # --- the Missions window over a two-recording career corpus ---
+  { cmd = "UiAction", args = { op = "open", window = "missions" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "missions", x = "0", y = "8", w = "1355", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "missions", tab = "missions" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "cek-missions-missions-collapsed-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "cek-missions-missions-collapsed-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "expand", window = "missions", key = "all" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "cek-missions-missions-expanded-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "cek-missions-missions-expanded-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "missions", tab = "recordings" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "cek-missions-recordings-expanded-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "cek-missions-recordings-expanded-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "missions" }, expect = "OK" },
+
+  # The negative dialog assertion: no Parsek modal stands over this census.
+  { cmd = "UiAction", args = { op = "dialog" }, expect = "OK" },
+
+  # --- Basic pass ---
+  # Basic drops the Kerbals and Career launchers, so the two main-window captures side by
+  # side ARE the career-surface mode diff on a career host.
+  { cmd = "UiAction", args = { op = "complexity", mode = "basic" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "cek-main-basic" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "cek-main-basic" }, expect = "OK" },
+
+  # The Basic Timeline names its own view (inventory section 6.1): the filter mode is a
+  # persistent field, so with no `op=tab` this label would inherit the Advanced pass's
+  # Re-Fly selection and say something the picture does not.
+  { cmd = "UiAction", args = { op = "open", window = "timeline" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "timeline", x = "270", y = "8", w = "1000", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "timeline", tab = "overview" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "cek-timeline-overview-basic" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "cek-timeline-overview-basic" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "timeline" }, expect = "OK" },
+
+  # Leave the install in Advanced.
+  { cmd = "UiAction", args = { op = "complexity", mode = "advanced" }, expect = "OK" },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+# BASICS ONLY, the GUI-3 discipline: this lane observes LAYOUT over a career, and drives
+# no career action, so no D8 value is EXERCISED here. `H45-stock-ui-overlay` and
+# `H71-resource-topbar-ksc` are the lanes that claim on this same host.
+D14 = ["career", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.logContracts]
+# This lane's OWN seam records only, the GUI-1 discipline.
+required = [
+  # --- describe echoes, in step order ---
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,career",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,kerbals",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,timeline",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,missions",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=11 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=11 open=2 openWindows=main,timeline",
+  # --- the hover pair: the control was resolved by TEXT, and the cursor landed on it ---
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction find window=main text=Career ctrl=\\w+ match=\\w+ matches=[0-9]+ rect=",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction pointer at=[0-9.-]+,[0-9.-]+ park=false via=",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction pointer at=[0-9.-]+,[0-9.-]+ park=true via=",
+  # --- the bulk expansion ---
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction expand window=missions key=all state=true changed=[0-9]+ expanded=[0-9]+ total=[0-9]+",
+  # --- the negative dialog assertion (see the header) ---
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dialog open=false count=0",
+  # --- one capture, proving the write-and-settle path end to end ---
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] capturescreenshot ok label=cek-main-advanced",
+  # --- every dump, each pinning the arm-time funnel reading for its own frame ---
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-main-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-main-tooltip-career-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-career-contracts-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-career-strategies-empty-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-career-facilities-level0-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-career-milestones-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-kerbals-roster-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-kerbals-outcomes-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-timeline-overview-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-timeline-details-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-timeline-rewindff-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-timeline-refly-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-missions-missions-collapsed-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-missions-missions-expanded-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-missions-recordings-expanded-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-main-basic .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=cek-timeline-overview-basic .*patched=17/17",
+]
+# EMPTY, the census host decision: a career's cold-OnLoad ERROR surface (ledger recalc over
+# 15 actions, contract patching over nine) is not what a LAYOUT review controls or observes,
+# and it is gated where it is attributable (`H45`, `H71`).
+forbidden = []
+
+[runtime]
+# 17 captures and 17 dumps, one in-memory `op=find` capture, two OS-cursor moves, about 55
+# single-phase UI ops, and a cold load of a vessel-less career with a 15-action ledger.
+# Sized off GUI-1's MEASURED 96 s for 22 captures plus 22 dumps plus an in-game batch on a
+# 42 MB career; this lane is smaller and drives no batch. Generous rather than tight because
+# the PRODUCT is the images and a KILLED run leaves none of them.
+budgetSeconds = 1200
+
+[retry]
+policy = "once"
+
+[expectedFail]
+# EMPTY, like every other committed spec.
+bugId = ""

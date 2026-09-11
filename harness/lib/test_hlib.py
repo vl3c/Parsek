@@ -8518,6 +8518,66 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
                                        "PROMOTION call alone. It owes no Load-menu eyeball "
                                        "- its whole claim is that NOTHING is published, "
                                        "and the run measured zero backup folders.",
+        # THE GUI CENSUS, WAVE 2 (2026-09-11). Six never-flown capture lanes on
+        # COMMITTED fixtures, unlike GUI-1 / GUI-2 whose operator tier is a
+        # MECHANISM (an operator-local host no clone can stage). These six could
+        # be staged by any clone, so their tier is a CADENCE decision and their
+        # tag is a genuine debt: a lane whose PRODUCT is images owes a READING
+        # RUN, harness flights are on request only, and looking at the contact
+        # sheet afterwards is the part no verifier can do. Each additionally
+        # carries one or two steps whose answer is a question the reading is FOR,
+        # named in its own header. Drop the tag per lane when its reading run has
+        # been flown AND its images have been reviewed - the two halves are
+        # separate, and the second is the one only a human discharges.
+        "GUI-3-census-logistics-routes.toml":
+                                       "tier=operator by CADENCE (committed host) "
+                                       "AND two open operator calls: the reading "
+                                       "run, and the layout review of the 14 "
+                                       "captures it produces. Its two questions "
+                                       "are the `Set Parent Group` picker's "
+                                       "group-name rung and the Logistics link "
+                                       "picker opening with no arming click.",
+        "GUI-4-census-missions-docked.toml":
+                                       "tier=operator by CADENCE (committed host) "
+                                       "AND two open operator calls: the reading "
+                                       "run, and the layout review of the 16 "
+                                       "captures. Its two questions are the "
+                                       "seeded mission name and the seeded group "
+                                       "name, both from "
+                                       "MissionStore.EnsureDefaultsForTrees.",
+        "GUI-5-census-career-ksc.toml":
+                                       "tier=operator by CADENCE (committed host) "
+                                       "AND two open operator calls: the reading "
+                                       "run, and the layout review of the 17 "
+                                       "captures - one of which is the Milestones "
+                                       "`Rewards` column the inventory measures "
+                                       "as overflowing its 180 px pin, which is a "
+                                       "judgement only an eyeball settles.",
+        "GUI-6-census-flight-playback.toml":
+                                       "tier=operator by CADENCE (committed host) "
+                                       "AND two open operator calls: the reading "
+                                       "run, and the layout review of the 12 "
+                                       "captures. Its reading additionally ANSWERS "
+                                       "GUI-CENSUS-SPAWN-CONTROL-NEEDS-A-CANDIDATE-"
+                                       "HOST either way - an OK is the picture, an "
+                                       "`ERROR window-self-closed` is the "
+                                       "zero-candidate measurement that todo entry "
+                                       "asks for.",
+        "GUI-7-census-flight-recording.toml":
+                                       "tier=operator by CADENCE (committed host) "
+                                       "AND two open operator calls: the reading "
+                                       "run, and the layout review of the 8 "
+                                       "captures - two of which are hover echoes "
+                                       "whose whole content is text the operator "
+                                       "has to read off the image.",
+        "GUI-8-census-empty-states.toml":
+                                       "tier=operator by CADENCE (committed host) "
+                                       "AND two open operator calls: the reading "
+                                       "run, and the layout review of the 12 "
+                                       "captures. Every one of them is an "
+                                       "empty-state sentence, so the review IS the "
+                                       "product - there is nothing else to assert "
+                                       "about a window with no rows.",
     }
 
     # Untagged specs that are CANDIDATES - they MENTION the token, or they are

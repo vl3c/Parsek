@@ -446,7 +446,7 @@ they are an artifact of a since-changed writer, the report-only row is the right
 answer for a census host. Either way that reading is an investigation, not a re-run, and
 the census lanes are no longer blocked on it.
 
-## GUI-CENSUS-STRUCTURE-WINDOW-HAS-NO-DRIVEABLE-TARGET: the Structure List window can be opened by the seam but not POPULATED, so the census photographs its empty chrome
+## ~~GUI-CENSUS-STRUCTURE-WINDOW-HAS-NO-DRIVEABLE-TARGET: the Structure List window can be opened by the seam but not POPULATED, so the census photographs its empty chrome~~ [Filed 2026-09-10. CLOSED 2026-09-11 on branch `gui-census-lanes`: the follow-up this entry specified shipped as `UiAction op=target window=structure mission=<...>|route=<...>` on the sibling branch `gui-census-ops` - the ADDITIVE shape named below, calling the two production openers with an id or a display name a spec gives, reporting the row count they produced as `steps=` - and three committed captures now drive it. `GUI-3-census-logistics-routes` takes `ib-structure-route-advanced` and `ib-structure-mission-advanced` (both target modes on one host) and `GUI-4-census-missions-docked` takes `bd-structure-mission-advanced` over a docked tree. GUI-1's thin `ksc-structure-advanced` capture STAYS as it is and is labelled as the empty-chrome form, which is itself a state worth having a picture of. NEVER FLOWN: the three captures exist as committed steps and the pictures are owed to a reading run, which is the lanes' own `pending-operator` debt rather than this entry's]
 
 NOTED 2026-09-10 while authoring the GUI census. `StructureListWindowUI` is retargeted
 through `OpenForMission(treeId, title)` / `OpenForRoute(routeId, title)`, both reached
@@ -462,6 +462,60 @@ that window's populated form, is an ADDITIVE `UiAction op=target` (or a `target=
 `op=open`) that calls those two internal methods with an id a spec names - or, cheaper,
 a `${step.field}` handle off a `ListHandles kind=committed` row. Left as a follow-up with
 the shape written down rather than as a silent thin capture.
+
+WHAT SHIPPED (2026-09-11) is the first of those, and it went slightly further than this
+entry asked in one way that matters to a spec author: `mission=` / `route=` resolve on
+THREE rungs - the id itself, the object's display NAME, then the tree's own name - so a
+census spec can name what a reviewer reads off the window while a `${step.field}` chain
+still carries an id. Exactly one selector is accepted; both together is a REJECTED rather
+than a precedence, because the two open different lists and guessing would photograph the
+wrong one under the caller's label.
+
+## GUI-CENSUS-NO-SEAM-PATH-RAISES-A-PARSEK-DIALOG: `op=dialog` shipped as the read-only half, and nothing in the seam can put a modal on screen and leave it standing, so all 21 dialogs are unphotographable
+
+FILED 2026-09-11 while authoring the wave-2 census lanes (branch `gui-census-lanes`).
+Derived from the three verbs' own sources, not from a failed run - a run was not needed,
+and spending one on a sequence that cannot work is exactly what this entry prevents.
+
+THE CLAIM THAT WAS WRONG. `harness/README.md` carried a paragraph beginning "One dialog
+sequence is worth spelling out, because it is the only way to photograph a modal:
+`UiAction op=dialog` -> `CaptureScreenshot` -> `AnswerMergeDialog`". The SHAPE is right and
+nothing in it dismisses a popup between the report and the capture. It has no FIRST STEP:
+
+  * `ExitToSpaceCenter` REFUSES `REJECTED dialog-required
+    variant=<RegularMerge|ReFlyAttempt|SwitchSegmentSession>` rather than driving an exit
+    into an outstanding merge decision. That is its WEDGE GUARD working as designed - a
+    driven exit into that state does not fail, it wedges behind a `ControlTypes.All` lock
+    until the step budget expires - so the one verb that would spawn the tree merge dialog
+    is written specifically never to.
+  * `AnswerMergeDialog` RAISES AND ANSWERS INSIDE ONE COMPLETION PASS:
+    `DriveReFlyConclusion` performs the scene exit and `TryInvokeMergeButton` presses the
+    button, with no frame in between for a capture to stand in. It is additionally
+    `markerLive`-gated (`FindReFlyMergePopup`), so a plain whole-tree merge popup is
+    structurally unmatchable even when one is up.
+  * `SimulateStockSwitchClick` turns all THREE pre-switch dialog cases (Case A armed
+    session, Case B unloaded target, Case C loaded separate committed) into typed
+    REJECTEDs, for the same wedge reason.
+
+CONSEQUENCE FOR THE CENSUS: the `modal dialogs` row of `design-gui-inventory.md` section 2
+stays at **0 of 21** after wave 2, and `op=dialog`'s only honest use on a capture lane is
+the NEGATIVE assertion `uiaction dialog open=false count=0`, which all six wave-2 lanes
+pin - worth having, because a modal nobody expected would sit over every capture after it.
+
+FIX, unchanged from what `design-gui-inventory.md` section 6.2 predicted before the op
+shipped, and both halves are needed:
+
+  1. a SURFACE-ONLY mode on `AnswerMergeDialog` (or a sibling verb) that performs the
+     conclusion drive and STOPS with the popup standing, leaving the button press to a
+     later step, and
+  2. a raise path that does not require a live Re-Fly marker, so the plain whole-tree merge
+     dialog is reachable at all.
+
+Both are seam-side; neither touches the product. The wipe confirmations are a THIRD case
+and cheaper than either: `op=target`'s shipped form covers only the two Structure openers,
+and section 6.2 originally named `ShowWipeRecordingsConfirmation` alongside them - adding
+that one entry point would raise a modal with no scene transition and no lock interaction
+at all, which makes it the obvious first dialog to photograph.
 
 ## GUI-CENSUS-TWO-WINDOWS-EXCEED-THE-INSTANCE-WIDTH: the Missions and Logistics windows are laid out wider than the harness profile's screen, so their census captures leave their right-hand columns off screen
 
@@ -537,6 +591,20 @@ zero-candidate count measured on the other host. So the first step is a scratch 
 run on that host reading the auto-close line, not a spec. A GUI-3 lane would also be the
 natural place to photograph the other flight-only surface a census still cannot reach
 (GUI-CENSUS-STRUCTURE-WINDOW-HAS-NO-DRIVEABLE-TARGET names the KSC half of that problem).
+
+THE LANE IS AUTHORED (2026-09-11, branch `gui-census-lanes`):
+`GUI-6-census-flight-playback`, on exactly that recipe, capturing
+`play-spawncontrol-advanced` and its dump. STILL NEVER FLOWN, so this entry stays OPEN -
+the picture is what closes it, and a spec is not a picture. What the lane does that this
+entry asked for is make the run pay either way: the step is declared `expect = "OK"` (the
+outcome it is FOR) and sits LAST, after the other eleven captures, so an
+`ERROR window-self-closed` beside `reason=zero-candidates candidates=0` IS the scratch
+reading this paragraph calls for - delivered by a committed lane with its other captures
+already on disk, rather than by a throwaway run. Read it that way when it flies: a red on
+that one step is the measurement, not a Parsek defect, and the remedy is a different host
+rather than a looser pin. The OTHER flight-only surface this paragraph names is closed
+separately - see the STRUCTURE entry above, whose `op=target` shipped and is driven by
+`GUI-3` and `GUI-4`.
 
 ## ~~GUITREE-INTERCEPTION-LAYER-NEVER-RUN: the GUI-tree dump's Harmony interception of the UnityEngine IMGUI funnels has never executed inside KSP, so four premises the whole design rests on are unmeasured~~ [Filed 2026-09-10 on branch `gui-dump-spike`. CLOSED 2026-09-11 by the GUI census's first flight - runs `2026-09-10_2255` / `_2256` (GUI-1) and `2026-09-10_2259` / `_2300` (GUI-2). The layer RAN, and it ran clean. CONFIRMED UNDER A VERDICT by the two PASS reading runs of 2026-09-11, `2026-09-11_0548` (GUI-1, attempt 1, 96 s) and `2026-09-11_0551` (GUI-2, attempt 1, 57 s): 27 more arms (23 + 4), every one `patched=17/17`, zero `[WARN][GuiTree]` / `[ERROR][GuiTree]` lines, every anomaly counter zero, and the cell's PASS line identical to the pixel (`box=[60,60,320,300] ... declared=[60,60,320,300]`, same `kinds=`, `repaintPasses=5`)]
 

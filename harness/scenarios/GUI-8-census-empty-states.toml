@@ -1,0 +1,243 @@
+schema = 1
+id = "GUI-8-census-empty-states"
+tier = "operator"
+# THE GUI CENSUS, WAVE 2: THE EMPTY STATES, AND THE SCIENCE-MODE BANNERS. Its five siblings
+# in this wave all photograph windows FULL; this one photographs the same windows with
+# nothing in them, and that is a different picture rather than a lesser one. An empty-state
+# sentence is a drawn surface with its own wording, its own alignment and its own gate, and
+# every one of them in Parsek is currently unphotographed - including four code paths that
+# only a SCIENCE-mode save reaches at all.
+#
+# WHY THIS FIXTURE. `fixtures/saves/fresh-science` is the suite's only committed
+# `Mode = SCIENCE_SANDBOX` save, and it is empty on every axis a Parsek window reads: zero
+# vessels, zero recordings, no `Parsek/` directory at all, pools at the science-mode
+# defaults. Inventory section 6.1 names it for the science-mode banners and records that
+# "the science lane alone buys four otherwise-dark code paths"; the same boot buys the
+# empty forms of the Missions tab, the Recordings tab (`No recordings.`), the Timeline, both
+# Kerbals tabs and the Logistics window for free, because a save with nothing in it makes
+# every one of them draw its empty branch at once.
+#
+# ONE COMMITTED LANE ALREADY FLIES IT (`L1-research-node-science`), which is what says the
+# boot works; that lane drives a tech-node purchase and asserts on the ledger, and never
+# opens a window.
+#
+# WHAT IT PHOTOGRAPHS (12 PNGs, each with a `<label>.gui.json` dump beside it): the main
+# window in both modes, the Missions and Recordings tabs empty, the Timeline empty, both
+# Kerbals tabs on a roster with no flights behind it, all four Career State tabs under the
+# SCIENCE-mode banner, and the Logistics window with no routes and no candidates.
+#
+# A PARSEK-FOOTPRINT NOTE, recorded because it is a real property of this host rather than
+# an aside: `fresh-science` carries NO `SCENARIO{name=ParsekScenario}` node (it is one of
+# the three never-flown `fresh-*` KSC templates, per `harness/fixtures/saves/README.md`),
+# so this run's boot is a COLD one in the fullest sense - `PreParsekBackup` fires, and the
+# windows draw against a scenario that was created rather than loaded. That is the first
+# thing a new player sees, so it is the right state for an empty-state census and the wrong
+# one to confuse with a save that merely has nothing in it. The KSC LoadGame route writes
+# `persistent.sfs` after `UpdateScenarioModules`, so the scenario exists by the time any
+# window draws (autotest-status known-gate 6); this lane would not work on the FLIGHT route,
+# which is the asymmetry that gate names.
+#
+# `op=open window=main` FIRST IS A PRECONDITION (the settle for a non-`main` `open` /
+# `rect` refuses while the host's `showUI` is false). `scene = "spacecenter"` is passed
+# EXPLICITLY even though this host is vessel-less and would take the no-vessel KSC route
+# anyway: the arg makes the boot route a property of the spec rather than of the fixture's
+# vessel count.
+#
+# EVERY WINDOW IS COMMANDED AT A GENEROUS RECT, INCLUDING THE EMPTY ONES, and that is the
+# opposite of pointless: an empty-state sentence inside a large box is how a player sees it,
+# and the thing a reviewer is looking for is whether it is centred, top-left, or lost in a
+# corner. `op=rect` clamps each axis to the window's own floor, so the numbers below are
+# floors-or-larger and none of them produces a layout a resize drag could not.
+#
+# THE ANALYZER ROW IS LEFT GATING, and on this host that is nearly vacuous by design - a
+# save with zero recordings gives the offline analyzer nothing to find, which is exactly the
+# state `run.py`'s hard-coded `-FreshSaveGate` is written for.
+#
+# WHAT THIS LANE CANNOT PHOTOGRAPH:
+#   - the SANDBOX-mode banner and the CAREER-mode empty states, the other two of section
+#     6.1's four mode banners. They need `fresh-sandbox` and `fresh-career`, which are
+#     different `saveTemplate`s and therefore different lanes. Science is chosen first
+#     because it is the one section 6.1 singles out as buying four dark paths, and because
+#     GUI-6 already photographs a SANDBOX Career window over a live scene.
+#   - the Settings window's null-game fallback. Section 6.2 records it as out of reach with
+#     the full op family: the seam waits for a loaded game before running any `UiAction`,
+#     which is precisely the state that fallback draws in.
+#   - any `PopupDialog`. All 21 stay dark for the structural reason GUI-3's header sets out;
+#     this lane asserts the NEGATIVE through one `op=dialog` step.
+#
+# NEVER FLOWN. Every `[expectations.logContracts]` line is one of this lane's OWN seam
+# records.
+description = "GUI census wave 2, the empty states: photograph the Missions and Recordings tabs, the Timeline, both Kerbals tabs, all four Career State tabs and the Logistics window with nothing in any of them, on the suite's only committed SCIENCE-mode save, so the empty-state wording and the science-mode banners have a picture."
+instanceProfile = "stock-minimal"
+tags = ["gui-census", "screenshots", "ui", "empty-state", "GUI-8", "pending-operator"]
+
+[fixture]
+saveTemplate = "fixtures/saves/fresh-science"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  # --- boot, explicitly to the Space Center ---
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent", scene = "spacecenter" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+
+  # --- Advanced pass ---
+  { cmd = "UiAction", args = { op = "complexity", mode = "advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "open", window = "main" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "main", x = "8", y = "8", w = "250", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "fs-main-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "fs-main-advanced" }, expect = "OK" },
+
+  # --- Missions and Recordings, both empty. Commanded at the window's own 1355 px floor
+  # for the reason in the header: an empty-state sentence inside a large box is how a
+  # player meets it, and the question is where it sits.
+  { cmd = "UiAction", args = { op = "open", window = "missions" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "missions", x = "0", y = "8", w = "1355", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "missions", tab = "missions" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "fs-missions-missions-empty-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "fs-missions-missions-empty-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "missions", tab = "recordings" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "fs-missions-recordings-empty-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "fs-missions-recordings-empty-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "missions" }, expect = "OK" },
+
+  # --- the Timeline with no events at all ---
+  { cmd = "UiAction", args = { op = "open", window = "timeline" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "timeline", x = "270", y = "8", w = "1000", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "timeline", tab = "overview" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "fs-timeline-overview-empty-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "fs-timeline-overview-empty-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "timeline" }, expect = "OK" },
+
+  # --- Kerbals: a stock starting roster with no Parsek history behind it. Not the same
+  # picture as an empty window - the roster tab has FOUR rows and the outcomes tab has
+  # none, which is the pair a reviewer needs to see the difference between "no data" and
+  # "data with nothing to say about it".
+  { cmd = "UiAction", args = { op = "open", window = "kerbals" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "kerbals", x = "270", y = "8", w = "1000", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "kerbals", tab = "roster" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "fs-kerbals-roster-fresh-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "fs-kerbals-roster-fresh-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "kerbals", tab = "outcomes" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "fs-kerbals-outcomes-empty-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "fs-kerbals-outcomes-empty-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "kerbals" }, expect = "OK" },
+
+  # --- Career State, all four tabs, under the SCIENCE-mode banner ---
+  # The four otherwise-dark code paths section 6.1 names. A science-mode save has no funds
+  # and no reputation, so each tab draws a mode-specific banner or a mode-specific empty
+  # form rather than the career one, and none of the four has a picture.
+  { cmd = "UiAction", args = { op = "open", window = "career" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "career", x = "270", y = "8", w = "1000", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "career", tab = "contracts" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "fs-career-contracts-science-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "fs-career-contracts-science-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "career", tab = "strategies" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "fs-career-strategies-science-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "fs-career-strategies-science-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "career", tab = "facilities" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "fs-career-facilities-science-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "fs-career-facilities-science-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "career", tab = "milestones" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "fs-career-milestones-science-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "fs-career-milestones-science-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "career" }, expect = "OK" },
+
+  # --- Logistics with no routes and no candidates ---
+  # Commanded at its own 1410 px floor, which is wider than the 1280 px instance, so the
+  # capture is honestly clipped at the client edge (residue
+  # GUI-CENSUS-TWO-WINDOWS-EXCEED-THE-INSTANCE-WIDTH). The empty form's own sentence sits
+  # at the left, so the clip does not cost this particular picture anything.
+  { cmd = "UiAction", args = { op = "open", window = "logistics" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "logistics", x = "0", y = "8", w = "1410", h = "700" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "fs-logistics-empty-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "fs-logistics-empty-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "logistics" }, expect = "OK" },
+
+  # The negative dialog assertion: no Parsek modal stands over this census. On a COLD boot
+  # of a save with no Parsek footprint this is worth more than elsewhere - `PreParsekBackup`
+  # runs here, and its failure path is an on-screen warning rather than a modal, which is
+  # what this step records as still true.
+  { cmd = "UiAction", args = { op = "dialog" }, expect = "OK" },
+
+  # --- Basic pass ---
+  { cmd = "UiAction", args = { op = "complexity", mode = "basic" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "fs-main-basic" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "fs-main-basic" }, expect = "OK" },
+
+  # Leave the install in Advanced.
+  { cmd = "UiAction", args = { op = "complexity", mode = "advanced" }, expect = "OK" },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+# BASICS ONLY, the GUI-3 discipline: this lane opens windows over an empty save and
+# photographs them. `science-mode` IS the point of the host and is observed the moment the
+# boot lands - every capture below is taken under it.
+D14 = ["science-mode", "scene-ksc"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The anti-vacuity floor for the word EMPTY in this lane's name: a run that produced a
+# recording did not photograph an empty Recordings tab, whatever the label says.
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# This lane's OWN seam records only, the GUI-1 discipline.
+required = [
+  # --- describe echoes, in step order ---
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,missions",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,timeline",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,kerbals",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,career",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=2 openWindows=main,logistics",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=11 open=1 openWindows=main",
+  # --- the negative dialog assertion (see the header) ---
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dialog open=false count=0",
+  # --- one capture, proving the write-and-settle path end to end ---
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] capturescreenshot ok label=fs-main-advanced",
+  # --- every dump, each pinning the arm-time funnel reading for its own frame ---
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fs-main-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fs-missions-missions-empty-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fs-missions-recordings-empty-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fs-timeline-overview-empty-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fs-kerbals-roster-fresh-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fs-kerbals-outcomes-empty-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fs-career-contracts-science-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fs-career-strategies-science-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fs-career-facilities-science-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fs-career-milestones-science-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fs-logistics-empty-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=fs-main-basic .*patched=17/17",
+]
+# EMPTY, the census host decision. It is the weakest case in the wave - a cold boot of an
+# empty save has little to go wrong - but the rule is the same one: a LAYOUT review does not
+# gate on a host's own load surface, and `L1-research-node-science` is where this fixture's
+# behaviour is gated.
+forbidden = []
+
+[runtime]
+# 12 captures and 12 dumps and about 40 single-phase UI ops, on the smallest save in the
+# suite. Sized off GUI-1's MEASURED 96 s for 22 captures plus 22 dumps plus an in-game
+# batch on a 42 MB career; this lane is smaller on every axis and its cold load is trivial.
+# Generous rather than tight because the PRODUCT is the images and a KILLED run leaves none.
+budgetSeconds = 900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+# EMPTY, like every other committed spec.
+bugId = ""

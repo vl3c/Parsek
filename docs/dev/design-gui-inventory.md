@@ -107,6 +107,20 @@ picker, populated Structure); or the surface is outside the recorder's reach by 
 (all 21 dialogs, all 7 overlays, every populated tooltip). Section 6 is organised by those
 three, with the cheapest route per target.
 
+THE TALLY ABOVE IS THE 2026-09-11 READING OF GUI-1 + GUI-2, AND IT HAS NOT MOVED. Six wave-2
+lanes were authored the same day (section 6's lane column names them per row) and NONE HAS
+FLOWN, so nothing they would photograph is counted here. A tally is a count of pictures that
+exist, not of specs that would take them, and this paragraph stays at 22 of 105 until a reading
+run produces files. WHAT THE SIX WOULD ADD, if every step meets: 79 further captures, each with
+a control-tree dump beside it, carrying the populated bodies of Logistics, Missions, Recordings,
+Career State, Kerbals and Structure; the three popup window hosts the seam's window table
+excludes; the flight-only Watch column and Real Spawn Control; the watch-mode overlay and the
+map-view ghost markers; two of the three non-`Idle` flight-status values; both hover echoes;
+and every window's EMPTY form. THE THREE COUNTS THAT WOULD STILL READ ZERO afterwards are
+`modal dialogs` (0 of 21), `screen messages` (0 of 95) and the sticky marker variant, none of
+which any seam path can raise - see 6.2, where the dialog row is now recorded as REFUTED rather
+than pending.
+
 ### 2.1 Known inconsistencies between the two source notes
 
 The two research notes were written by different passes and disagree in seven places. This
@@ -1082,50 +1096,88 @@ The spec for the next census lanes. Grouped by the three causes from section 2; 
 group the cheapest route is named, with the fixture and the verb steps. No TOML here - the lane
 authoring is the implementing task's job.
 
+WAVE 2 IS AUTHORED (2026-09-11, branch `gui-census-lanes`), so the tables below now carry a
+LANE column naming the spec and the capture label that pays each row, or the reason nothing
+does. Six lanes landed, all never flown, all on COMMITTED fixtures: `GUI-3-census-logistics-
+routes`, `GUI-4-census-missions-docked`, `GUI-5-census-career-ksc`,
+`GUI-6-census-flight-playback`, `GUI-7-census-flight-recording`, `GUI-8-census-empty-states`.
+Their status rows are in `autotest-status.md` under "The GUI census, wave 2"; each spec's own
+header names the rows below that it claims and the ones it cannot reach.
+
+TWO ROWS OF THIS TABLE WERE WRONG and are corrected in place rather than left to mislead the
+next author. Both were read off the fixture names rather than off the fixtures' bytes:
+`career-earned-ksc` does NOT carry upgraded facilities (all ten
+`ScenarioUpgradeableFacilities` entries read `lvl = 0`), and `strategy-career` does NOT carry
+an active strategy (its `STRATEGIES` node is EMPTY by construction - it seeds `rep = 25` so
+`L3`'s in-game cell can ACTIVATE `LeadershipInitiative` at run time, and that cell's `finally`
+restores the pool). Both surfaces need a fixture that does not exist; they have moved to the
+new-fixture list at the bottom of this section.
+
 ### 6.1 The fixture lacked data of that shape (no new machinery)
 
 These need only a different `saveTemplate` and the existing `open` / `rect` / `tab` /
 `complexity` ops. They are the cheapest pictures in the whole plan.
 
-| target | fixture | steps beyond the existing sequence |
-|---|---|---|
-| Missions / Recordings tab in FLIGHT (the Watch column) | the existing GUI-2 host | insert `op=tab window=missions tab=recordings` before the capture |
-| Basic-mode Timeline ROWS | the existing GUI-1 host | insert `op=tab window=timeline tab=overview` before the Basic capture; today the Basic label inherits the Advanced pass's Re-Fly filter |
-| Timeline in FLIGHT (any view) | the existing GUI-2 host | `op=open window=timeline` + `op=rect` + `op=tab tab=overview` + capture |
-| Kerbals and Career in FLIGHT (all six tabs) | the existing GUI-2 host | both windows are already in the window table with driveable tabs |
-| Timeline minimum-size rendering | the existing GUI-1 host | a second `op=rect` at 520x150 plus one capture |
-| Logistics populated: Active, Paused, `New (not yet run)`, the Send-Once-armed row | `interbody-route-recorded` (Active + Paused, `completedCycles = 0`) or `depot-route-recorded` (Active, `pauseAfterCurrentCycle = True`) | `op=rect` to at least 1410x500 FIRST, or the Name column collapses as it did in the shipped capture |
-| Logistics `Dismissed (N)` header | `interbody-route-recorded` (carries `DISMISSED_ROUTE_CANDIDATES` with two ids) | none |
-| Logistics Candidates populated + run-cost suffix | `rover-route-recorded`, or `rover-route-career` for the Career + KSC cost | none |
-| Mission header `Looped by route` + greyed Loop | `depot-route-recorded` / `interbody-route-recorded` / `rover-route-recorded` | none; the label draws with no click |
-| Recordings route-bound greyed Loop toggles (header level) | same three | none; `AnyRecordingRouteBound` scans all committed |
-| `Docked with <partner>` in the Start event cell; chapter header rows; `Docked partner:` rows | `bdock-recorded` (or `bdock-station-craft` + `bdock-station-pad`, or `bdock-forge-base`) | none; all three draw with no click |
-| Vessel-row Fly / Seal | `refly-a-recorded` | none |
-| Kerbals reserved / active owner statuses | `eva2-lko-crewed` | none |
-| Kerbals and Career empty states | `fresh-career` | none |
-| Missions empty state, Recordings `No recordings.` | `fresh-sandbox` or `fresh-career` | none |
-| Career Contracts SPLIT layout, `Pending in timeline`, the banner divergence suffix | `career-contract-pad` | none; the pending group defaults EXPANDED |
-| Career Strategies populated (the `Flow` cell) | `strategy-career` | none |
-| Career Facilities upgraded rows | `career-earned-ksc` | none |
-| Career Science-mode and Sandbox-mode banners and empty states | `fresh-science`, `fresh-sandbox` | none; the science lane alone buys four otherwise-dark code paths |
-| Timeline `R` greyed | any recorded fixture | capture with a pending tree, or delete one `RewindPoints/<id>.sfs` from the staged save |
-| Timeline `FF` and the countdown time label | an `injectedRecordings` preset whose recording `StartUT` is ahead of the save UT | one capture buys both |
-| Timeline `Archived` ON and the `[archived]` row suffix | a staged save with one archived recording and `HideActive=false` | none |
-| Real Spawn Control (a GUI-3 flight lane) | `bdock-recorded` / `bdock-station-craft` / `bdock-station-pad` - anything with a recorded craft inside 250 m at under 2 m/s | `op=open window=spawncontrol` now returns OK; then `op=rect` + capture + dump. Closes `GUI-CENSUS-SPAWN-CONTROL-NEEDS-A-CANDIDATE-HOST` |
-| In-world ghost labels, flight status non-`Idle`, `Active Ghosts > 0` | `mun-landing-recorded` / `b2-lko-craft` / `b1-pad-craft` | PNG only for the labels; the status block needs `StartRecording` before the dump |
-| Tracking Station scene (markers, the ghost popup) | any `*-recorded` fixture | `LoadGame` with `scene=TRACKSTATION` then capture; no `UiAction` is possible there, so the driver needs a branch that skips the `op=rect` it currently sequences before every label |
+| target | fixture | steps beyond the existing sequence | lane / label |
+|---|---|---|---|
+| Missions / Recordings tab in FLIGHT (the Watch column) | the existing GUI-2 host | insert `op=tab window=missions tab=recordings` before the capture | GUI-6 `play-missions-recordings-flight-advanced` (243 injected rows, not GUI-2's host) |
+| Basic-mode Timeline ROWS | the existing GUI-1 host | insert `op=tab window=timeline tab=overview` before the Basic capture; today the Basic label inherits the Advanced pass's Re-Fly filter | GUI-4 `bd-timeline-overview-basic` and GUI-5 `cek-timeline-overview-basic`, both with the explicit `op=tab` this row asks for |
+| Timeline in FLIGHT (any view) | the existing GUI-2 host | `op=open window=timeline` + `op=rect` + `op=tab tab=overview` + capture | GUI-6 `play-timeline-overview-flight-advanced`; GUI-7 `b1-timeline-overview-live-advanced` adds the same view over a tree the run itself recorded |
+| Kerbals and Career in FLIGHT (all six tabs) | the existing GUI-2 host | both windows are already in the window table with driveable tabs | GUI-6 `play-kerbals-roster-flight-advanced` / `play-kerbals-outcomes-flight-advanced` / `play-career-contracts-sandbox-flight-advanced` (3 of the 6; the three remaining Career tabs in flight are unclaimed - they are the same classes GUI-5 shoots at KSC) |
+| Timeline minimum-size rendering | the existing GUI-1 host | a second `op=rect` at 520x150 plus one capture | GUI-4 `bd-timeline-refly-minsize-advanced`, at the 520x150 floor |
+| Logistics populated: Active, Paused, `New (not yet run)`, the Send-Once-armed row | `interbody-route-recorded` (Active + Paused, `completedCycles = 0`) or `depot-route-recorded` (Active, `pauseAfterCurrentCycle = True`) | `op=rect` to at least 1410x500 FIRST, or the Name column collapses as it did in the shipped capture | GUI-3 `ib-logistics-collapsed-advanced` (both rows) and `ib-logistics-expanded-advanced` |
+| Logistics `Dismissed (N)` header | `interbody-route-recorded` (carries `DISMISSED_ROUTE_CANDIDATES` with two ids) | none | GUI-3 `ib-logistics-collapsed-advanced` / `ib-logistics-expanded-advanced` |
+| Logistics Candidates populated + run-cost suffix | `rover-route-recorded`, or `rover-route-career` for the Career + KSC cost | none | UNCLAIMED. `interbody-route-recorded` carries a DISMISSED list rather than live candidates, so GUI-3's expanded capture shows the candidate SECTION and not a populated one. Wants a `rover-route-recorded` lane of its own |
+| Mission header `Looped by route` + greyed Loop | `depot-route-recorded` / `interbody-route-recorded` / `rover-route-recorded` | none; the label draws with no click | GUI-3 `ib-missions-missions-collapsed-advanced` / `ib-missions-missions-expanded-advanced` |
+| Recordings route-bound greyed Loop toggles (header level) | same three | none; `AnyRecordingRouteBound` scans all committed | GUI-3 `ib-missions-recordings-expanded-advanced` |
+| `Docked with <partner>` in the Start event cell; chapter header rows; `Docked partner:` rows | `bdock-recorded` (or `bdock-station-craft` + `bdock-station-pad`, or `bdock-forge-base`) | none; all three draw with no click | GUI-4 `bd-missions-missions-expanded-advanced` / `bd-missions-recordings-expanded-advanced` |
+| Vessel-row Fly / Seal | `refly-a-recorded` | none | UNCLAIMED. `refly-a-recorded` is a fourth `saveTemplate` and therefore a seventh lane; GUI-4's `bdock-recorded` corpus has RewindPoints but its rows are not the Unfinished-Flights shape this needs |
+| Kerbals reserved / active owner statuses | `eva2-lko-crewed` | none | UNCLAIMED. `eva2-lko-crewed` is a fifth `saveTemplate`. GUI-5 shoots both Kerbals tabs on a career with a real roster, which is the row below this one rather than this one |
+| Kerbals and Career empty states | `fresh-career` | none | GUI-8 `fs-kerbals-outcomes-empty-advanced` and the four `fs-career-*-science-advanced` captures, on `fresh-science` rather than `fresh-career` - see the science row below |
+| Missions empty state, Recordings `No recordings.` | `fresh-sandbox` or `fresh-career` | none | GUI-8 `fs-missions-missions-empty-advanced` / `fs-missions-recordings-empty-advanced` |
+| Career Contracts SPLIT layout, `Pending in timeline`, the banner divergence suffix | `career-contract-pad` | none; the pending group defaults EXPANDED | UNCLAIMED. GUI-5 shoots a POPULATED Contracts tab (`cek-career-contracts-advanced`, nine live contracts) on `career-earned-ksc`; the SPLIT layout wants `career-contract-pad`'s two ledger-only contract rows and is a sixth `saveTemplate` |
+| Career Strategies populated (the `Flow` cell) | ~~`strategy-career`~~ - WRONG, corrected 2026-09-11 off the save's bytes: its `STRATEGIES` node is EMPTY by construction (the fixture seeds `rep = 25` so `L3`'s in-game cell can ACTIVATE a strategy at run time, and that cell's `finally` restores the pool). NO committed fixture carries a live `STRATEGY` node | a NEW fixture | IMPOSSIBLE AS WRITTEN - see the corrected fixture cell. GUI-5 `cek-career-strategies-empty-advanced` and GUI-8 `fs-career-strategies-science-advanced` shoot the two EMPTY forms instead, both labelled as such |
+| Career Facilities upgraded rows | ~~`career-earned-ksc`~~ - WRONG, corrected 2026-09-11 off the save's bytes: all ten of its `ScenarioUpgradeableFacilities` entries read `lvl = 0`. That fixture is EARNED in its POOLS (funds 536558, sci 111.6, rep 2.0) and in its contracts and milestones, not in its buildings | a NEW fixture | IMPOSSIBLE AS WRITTEN - see the corrected fixture cell. GUI-5 `cek-career-facilities-level0-advanced` shoots the all-level-0 form, labelled as such |
+| Career Science-mode and Sandbox-mode banners and empty states | `fresh-science`, `fresh-sandbox` | none; the science lane alone buys four otherwise-dark code paths | GUI-8's four `fs-career-*-science-advanced` captures (science), and GUI-6 `play-career-contracts-sandbox-flight-advanced` (sandbox, in flight). A sandbox banner at the KSC is unclaimed |
+| Timeline `R` greyed | any recorded fixture | capture with a pending tree, or delete one `RewindPoints/<id>.sfs` from the staged save | UNCLAIMED. Wants a STAGED save edit (delete one `RewindPoints/<id>.sfs`), which no lane does today - the harness stages a fixture verbatim |
+| Timeline `FF` and the countdown time label | an `injectedRecordings` preset whose recording `StartUT` is ahead of the save UT | one capture buys both | UNCLAIMED. Wants a preset whose recording `StartUT` is ahead of the save clock; `part-showcase` starts at UT 50 and GUI-6 jumps PAST it to 55, so its Timeline is behind rather than ahead |
+| Timeline `Archived` ON and the `[archived]` row suffix | a staged save with one archived recording and `HideActive=false` | none | UNCLAIMED. Wants a staged save with an archived recording and `HideActive=false`, which no committed fixture carries |
+| Real Spawn Control (a GUI-3 flight lane) | `bdock-recorded` / `bdock-station-craft` / `bdock-station-pad` - anything with a recorded craft inside 250 m at under 2 m/s | `op=open window=spawncontrol` now returns OK; then `op=rect` + capture + dump. Closes `GUI-CENSUS-SPAWN-CONTROL-NEEDS-A-CANDIDATE-HOST` | GUI-6 `play-spawncontrol-advanced`, on LT-5's proven active-ghost host rather than a `bdock-*` one - the step is declared `expect = "OK"` and an `ERROR window-self-closed` is the zero-candidate reading GUI-CENSUS-SPAWN-CONTROL-NEEDS-A-CANDIDATE-HOST asks for |
+| In-world ghost labels, flight status non-`Idle`, `Active Ghosts > 0` | `mun-landing-recorded` / `b2-lko-craft` / `b1-pad-craft` | PNG only for the labels; the status block needs `StartRecording` before the dump | GUI-6 `play-main-ghosts-advanced` (`Active Ghosts > 0` and the in-world labels) and GUI-7 `b1-main-recording-advanced` / `b1-main-ready-advanced` (two of the three non-`Idle` status values; `PREVIEWING` needs the still-RESERVED `StopPlayback`) |
+| Tracking Station scene (markers, the ghost popup) | any `*-recorded` fixture | `LoadGame` with `scene=TRACKSTATION` then capture; no `UiAction` is possible there, so the driver needs a branch that skips the `op=rect` it currently sequences before every label | UNCLAIMED AND BLOCKED. `ParsekTrackingStation.OnGUI` draws MARKERS ONLY and hosts no Parsek window, so every `UiAction` there answers `REJECTED ui-host-unavailable` - a TS lane could take a full-screen PNG and could not even open `main` to make the surface visible. The driver branch this row asks for is necessary and not sufficient |
 
 Fixtures named by the research note but not present in the tree, so a NEW FIXTURE is required:
 a career with an orphaned retired stand-in (Kerbals `Unlinked Retired`), a career with a
 destroyed facility, a career whose uncommitted timeline credits a milestone after the live UT
 (Milestones `(pending)`), a save with a dormant route, and a save with a hard-broken or held
-route.
+route. TWO MORE JOINED THAT LIST ON 2026-09-11, both moved here off the corrected rows above
+rather than newly discovered: a career with an ACTIVE strategy (a live `STRATEGY` node), and a
+career with an UPGRADED facility (any `ScenarioUpgradeableFacilities` entry above `lvl = 0`).
+
+A THIRD CLASS is neither a missing fixture nor a missing verb but a missing STAGED EDIT: the
+`Timeline R greyed`, `Timeline FF countdown` and `Timeline Archived` rows each want a save that
+differs from a committed one by a single deletion or flag. The harness stages a `saveTemplate`
+VERBATIM, so today those need a committed fixture of their own; a per-lane staged-edit hook
+would buy all three at once and is the cheaper answer if a fourth ever appears.
 
 ### 6.2 The state needs a click (the `gui-census-ops` ops)
 
 The sibling branch `gui-census-ops` is adding the pointer-and-click op family. Each op below is
 named with the surfaces it unlocks, so the branch can be scoped against real targets rather than
 guesses.
+
+SHIPPED 2026-09-11, and wave 2 is the first consumer of every one of them. What each op
+actually bought, against what this table predicted:
+
+| op | first consumer | reading |
+|---|---|---|
+| `pointer` | GUI-7 `b1-main-disabledecho-spawncontrol-advanced` and `b1-main-tooltip-timeline-advanced`; GUI-3 and GUI-5 take one main-window tooltip each | BOTH echoes are reachable, and on the plainest committed host: `Real Spawn Control (0)` is greyed with `No recorded craft is passing nearby` on any pad craft with nothing recorded beside it. It also needed a HARNESS FIX - `validate_ui_action_step` parsed `x=` / `y=` as literals, so the documented `${stepN.cx}` chain (the whole reason `op=find` reports a centre) failed pre-launch validation and no census could hover anything. Fixed with `hlib.is_handle_ref`, pinned by `test_a_runtime_handle_is_a_legal_pointer_or_rect_coordinate` |
+| `find` | every `pointer` step above | the match LADDER is what makes a spec readable: `text=Real Spawn Control` misses the exact rung and PREFIX-matches the live `Real Spawn Control (0)`, so a spec never has to guess the count a label carries. GUI-7 pins `match=prefix` so that stays true |
+| `expand` | GUI-3 `ib-logistics-expanded-advanced` and `ib-missions-missions-expanded-advanced`; GUI-4 adds the `key=none` mirror | `key=all` is the affordance that buys the pictures, exactly as predicted: one step over the Logistics window opens every route panel, candidate panel and section disclosure, and one over the Missions window drives all five of its independent sets. The payload's `changed=` is what separates "already open" from "opened by this step" when the two look alike |
+| `target` | GUI-3 `ib-structure-route-advanced` / `ib-structure-mission-advanced`; GUI-4 `bd-structure-mission-advanced` | closes GUI-CENSUS-STRUCTURE-WINDOW-HAS-NO-DRIVEABLE-TARGET for the KSC half. NARROWER THAN THIS ROW PROPOSED: it shipped with the two Structure openers only, so `ShowWipeRecordingsConfirmation` and the setter family (`showExpandedStats`, `TimeRangeFilterState`, `showCustomRange`, `sortColumn`, `foldedKerbals`) are still unreachable and every surface this row attributed to them is still dark |
+| `picker` | GUI-3 and GUI-4, both titles each, plus GUI-3's link picker | all three excluded window hosts are reachable through their own production openers. `recording=first` is what lets a committed spec name a row without naming a save-specific id |
+| `dialog` | every wave-2 lane, as a NEGATIVE assertion | REFUTED FOR ITS STATED PURPOSE, and this is the one prediction in the table that did not survive. The op shipped as the READ-ONLY half: it reports a live popup and holds nothing. The two prerequisites this row named were BOTH still outstanding, so nothing in the seam can raise a Parsek modal and leave it standing - `ExitToSpaceCenter` REFUSES `dialog-required` rather than driving an exit into one, `AnswerMergeDialog` drives the re-fly conclusion AND invokes the button inside a single call (`DriveReFlyConclusion` -> `TryInvokeMergeButton`) with no frame in between, and `SimulateStockSwitchClick` turns all three pre-switch dialog cases into typed REJECTEDs. ALL 21 DIALOGS REMAIN UNPHOTOGRAPHED. What wave 2 does with the op instead is assert `uiaction dialog open=false count=0`, which is worth pinning because an unexpected modal would sit over every capture after it |
+| `rect` clamping | every wave-2 lane commands `missions` at 1355 and `logistics` at 1410 | shipped, and GUI-1's own reading run confirmed the width half (`rect=270,8,400,718`). Wave 2 names each floor outright so the spec says what the picture is |
 
 | op | unlocks |
 |---|---|
@@ -1142,9 +1194,28 @@ than chased: the paused-host variant (no verb raises the pause menu, and the exp
 "the window is absent") and the Settings null-game fallback (the seam waits for a loaded game
 before running any `UiAction`, which is exactly the state the branch needs).
 
+THREE MORE JOINED THAT LIST ON 2026-09-11, measured while authoring wave 2 rather than guessed:
+
+  * ALL 21 DIALOGS, for the reason in the `dialog` row above. The two prerequisites are
+    unchanged and still the whole fix: a surface-only `AnswerMergeDialog` mode that FINDS its
+    popup without invoking a button, and a raise path that does not require a live Re-Fly
+    marker. Until both exist the family is not "deferred", it is unreachable.
+  * THE STICKY GHOST MARKER POPUP. `op=pointer` MOVES the cursor and there is no click op in
+    the family, so the right-click section 6.3 names has no driver.
+  * THE TRACKING STATION SCENE, which is worse than section 6.1's row suggests.
+    `ParsekTrackingStation.OnGUI` draws MARKERS ONLY and hosts no Parsek window, so `UiAction`
+    answers `REJECTED ui-host-unavailable` there by design - a TS lane could take a full-screen
+    PNG and could not even open `main` to make the surface visible. The driver branch that row
+    asks for is necessary and not sufficient.
+
 ### 6.3 Outside the recorder by construction
 
-These need a capture path, not a verb. All of them are PNG-only by nature.
+These need a capture path, not a verb. All of them are PNG-only by nature. Wave 2 pays the
+ghost-map-marker row (`GUI-6-census-flight-playback`, label `play-mapview-ghostmarkers-advanced`:
+`EnterMapView` then a framebuffer capture, exactly the pair this table names) and pays the
+`pointer`-plus-capture half of the tooltip row on the main window (GUI-3, GUI-5, GUI-7). The
+other four rows are untouched, and the dialog third of the first row is now known to be
+BLOCKED rather than pending - see 6.2.
 
 | target | what is needed |
 |---|---|

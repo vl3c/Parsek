@@ -256,11 +256,29 @@ survives and then points at images that are gone.
 
 ### Running a GUI census end to end
 
-Both lanes are `tier = "operator"` and fly on request only. In order:
+EIGHT LANES, in two waves, all `tier = "operator"` and all flown on request only.
 
-1. **Stage the host.** The census needs a save with rows in every window, which is
-   the operator's own long-lived career - it cannot be committed and cannot be minted
-   by a builder, so it is an OPERATOR-LOCAL fixture:
+WAVE 1 (2026-09-10, flown green 2026-09-11) is `GUI-1-census-ksc` and
+`GUI-2-census-flight`: every Parsek window's CHROME, in Advanced and Basic, on the
+OPERATOR-LOCAL `c1-gui` host. Step 1 below is theirs and theirs alone.
+
+WAVE 2 (2026-09-11, NEVER FLOWN) is six lanes on COMMITTED fixtures, one host each, and
+they need NO staging - `run.py --id <lane>` is enough:
+
+| lane | host | what it photographs |
+|---|---|---|
+| `GUI-3-census-logistics-routes` | `interbody-route-recorded` | Logistics populated and fully expanded, Structure ON a route and ON a mission, the Missions / Recordings tabs over a four-mission corpus, both group-picker titles, the link picker, one tooltip strip |
+| `GUI-4-census-missions-docked` | `bdock-recorded` | the Missions / Recordings tabs collapsed then expanded then collapsed over a 19-sidecar dock harvest, all four Timeline filter modes with three live RewindPoints, the Timeline at its 520x150 floor, both group-picker titles |
+| `GUI-5-census-career-ksc` | `career-earned-ksc` | all four Career State tabs and both Kerbals tabs over an EARNED career (nine contracts, a 15-action ledger, real milestone rewards), all four Timeline modes over a career event stream, one tooltip strip |
+| `GUI-6-census-flight-playback` | `gloops-airshow` + `part-showcase`, `TimeJump` 55 | the flight status block with `Active Ghosts > 0`, the Gloops recorder, the flight-only Watch column, the map view with ghost markers, the watch-mode overlay, and Real Spawn Control |
+| `GUI-7-census-flight-recording` | `b1-pad-craft` | the flight status block Idle / RECORDING / Ready, and BOTH hover echoes (the tooltip strip and the disabled-control reason) |
+| `GUI-8-census-empty-states` | `fresh-science` | every window's EMPTY form, and the science-mode Career banners |
+
+Steps 2 to 6 below apply to any of the eight. In order:
+
+1. **Stage the host - WAVE 1 ONLY.** Those two lanes need a save with rows in every
+   window, which is the operator's own long-lived career - it cannot be committed and
+   cannot be minted by a builder, so it is an OPERATOR-LOCAL fixture:
 
    ```
    python tools/stage_local_fixture.py \
@@ -268,7 +286,9 @@ Both lanes are `tier = "operator"` and fly on request only. In order:
    ```
 
    Without it the run is refused PRE-BOOT as `INVALID(staging)` with that command in
-   the error (`hlib.local_fixture_hint`). See `fixtures/local-saves/README.md`.
+   the error (`hlib.local_fixture_hint`). See `fixtures/local-saves/README.md`. The six
+   wave-2 lanes skip this step entirely: their hosts are committed, which is also why
+   their analyzer rows are left GATING where wave 1's are declared report-only.
 
 2. **Provision, so the automation instance carries the DLL these lanes need.** Both
    lanes drive `CaptureScreenshot`, `UiAction` and `DumpGuiTree`, and a stale
@@ -288,6 +308,7 @@ Both lanes are `tier = "operator"` and fly on request only. In order:
    ```
    python run.py --id GUI-1-census-ksc
    python run.py --id GUI-2-census-flight
+   python run.py --id GUI-3-census-logistics-routes      # and GUI-4 .. GUI-8
    ```
 
    MEASURED WALL, so a run that has not finished in a couple of minutes is stuck rather
@@ -297,7 +318,17 @@ Both lanes are `tier = "operator"` and fly on request only. In order:
    takes 37 s, the `LoadGame` 8 s, and all 115 steps - 22 captures, 22 dumps, the tab walk
    and the one-cell batch - 29 s. So a slower host moves the boot, not the census. The
    budgets are far above either (1500 s and 1000 s) on purpose: the product is the images
-   and the trees, and a KILLED run leaves neither.
+   and the trees, and a KILLED run leaves neither. The six wave-2 budgets (1200 / 1200 /
+   1200 / 1200 / 900 / 900 s) are sized off that same measurement and are UNMEASURED until
+   each lane's first flight.
+
+   TWO WAVE-2 LANES ASK A QUESTION as well as taking pictures, and their first flight is a
+   READING RUN: `GUI-3` on whether the `Set Parent Group` picker resolves an auto-generated
+   group name and whether the link picker opens with no arming click, and `GUI-6` on whether
+   the part-showcase corpus gives Real Spawn Control any candidates
+   (GUI-CENSUS-SPAWN-CONTROL-NEEDS-A-CANDIDATE-HOST). In both, the speculative steps sit in
+   the last third BECAUSE a driver-INVALID run still harvests every picture taken before it,
+   so a red there costs the reading and not the census.
 
 4. **Read the pictures**, from inside the run's own shots directory:
 
@@ -332,7 +363,7 @@ authoring summary.
 | op | shape | what it reaches |
 |---|---|---|
 | `pointer` | `op=pointer x= y=` or `op=pointer park=true` | moves the REAL OS cursor into the client so Unity's own hit test runs: hover styles, `GUI.tooltip`, the per-window tooltip echo strip, the disabled-hover echo. `park=true` goes to the client corner so a LATER capture is hover-free |
-| `find` | `op=find window= text= [ctrl=] [index=]` | captures one in-memory GUI tree and answers a control's `x y w h cx cy`, so a spec chains `${stepN.cx}` / `${stepN.cy}` into a `pointer` step |
+| `find` | `op=find window= text= [ctrl=] [index=]` | captures one in-memory GUI tree and answers a control's `x y w h cx cy`, so a spec chains `${stepN.cx}` / `${stepN.cy}` into a `pointer` step. The MATCH LADDER is exact, then prefix, then contains, first rung with any hit winning outright - which is what lets `text=Real Spawn Control` address the live `Real Spawn Control (0)` without a spec guessing the count |
 | `expand` | `op=expand window=<missions\|logistics> key=<all\|none\|prefix:value> [state=]` | a window's own set-of-expanded-keys: group folders, chain blocks, mission vessel / leg / digest rows, logistics route / candidate / section rows |
 | `target` | `op=target window=structure mission=<name>` or `route=<name>` | opens the Structure window ON a target through its production opener, so it draws a populated Log instead of empty chrome |
 | `picker` | `op=picker window=missions group=<name>\|recording=<id\|first>`, or `window=logistics route=<name>` | the popups a ROW arms: "Set Parent Group", "Manage Groups", the Logistics round-trip link picker |
@@ -355,13 +386,41 @@ FOUR AUTHORING RULES that cost a flight if missed:
   so read a describe before choosing a size.
 - **Ids are save-specific; `key=all` and `recording=first` are not.** A committed spec
   cannot carry a mission id or a route id from a local fixture, so prefer the bulk forms,
-  or discover an id with `ListHandles` / `op=find` and chain it.
+  or discover an id with `ListHandles` / `op=find` and chain it. A COMMITTED fixture is the
+  exception and wave 2 uses it: a route id read off the fixture's own `persistent.sfs` is
+  stable and ASCII, where its display name may not be (`interbody-route-recorded`'s two
+  route names both carry a U+2192 arrow).
+- **Order the speculative steps LAST.** The always-collect leg harvests on a driver-INVALID
+  run exactly as it does on a PASS, so every capture taken before a failing step is on disk.
+  Both first-wave lanes proved it: each read INVALID on ONE step and both kept every picture.
+  A lane whose header names a question should put that question after its pictures.
 
-One dialog sequence is worth spelling out, because it is the only way to photograph a
-modal: `UiAction op=dialog` (assert what is up) -> `CaptureScreenshot` (the picture) ->
-`AnswerMergeDialog choice=... [dialog=merge]` (dismiss it). Nothing between the report and
-the capture dismisses a popup, so it stands across the steps. The tree merge dialog holds
-`ControlTypes.All` while it stands, so answer it before any verb that needs input.
+THE DIALOG SEQUENCE DOES NOT WORK YET, and this paragraph used to say it did. The shape is
+right - `UiAction op=dialog` (assert what is up) -> `CaptureScreenshot` (the picture) ->
+`AnswerMergeDialog choice=... [dialog=merge]` (dismiss it), with nothing in between that
+dismisses a popup - but it has no first step. MEASURED while authoring wave 2, against the
+source rather than by trying it:
+
+- `ExitToSpaceCenter` REFUSES `REJECTED dialog-required variant=<RegularMerge|ReFlyAttempt|
+  SwitchSegmentSession>` rather than driving an exit into a modal. That refusal is the wedge
+  guard working as designed: a driven exit into an outstanding merge decision does not fail,
+  it WEDGES behind a `ControlTypes.All` lock until the step budget expires.
+- `AnswerMergeDialog` RAISES AND ANSWERS IN ONE CALL - `DriveReFlyConclusion` performs the
+  scene exit and `TryInvokeMergeButton` presses the button inside the same completion pass -
+  so there is no frame between the two in which a capture could stand. It is additionally
+  `markerLive`-gated to the re-fly popup, so a plain whole-tree merge dialog is structurally
+  unmatchable.
+- `SimulateStockSwitchClick` turns all THREE pre-switch dialog cases into typed REJECTEDs,
+  for the same wedge reason.
+
+So all 21 Parsek modals remain unphotographed and `op=dialog`'s honest use on a census today
+is the NEGATIVE assertion - `uiaction dialog open=false count=0`, which every wave-2 lane
+pins, because a modal nobody expected would sit over every capture after it. The two
+prerequisites are unchanged from `docs/dev/design-gui-inventory.md` section 6.2: a
+surface-only `AnswerMergeDialog` mode that FINDS its popup without invoking a button, and a
+raise path that does not need a live Re-Fly marker. When they exist, the sequence above is
+the one to write. The tree merge dialog holds `ControlTypes.All` while it stands, so answer
+it before any verb that needs input.
 
 Read the seam's own lines before reading the layout: every dump step pins
 `patched=17/17`, so a lane that goes red there is telling you a UnityEngine IMGUI funnel

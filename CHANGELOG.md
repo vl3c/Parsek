@@ -10,6 +10,31 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Automated testing: six more picture-taking runs, this time of windows with something
+  in them.** The first two screenshot runs photographed every Parsek window, but on one
+  save and with every list closed, so a lot of the pictures were of empty boxes. Six new
+  runs take the same windows over saves chosen for what they contain: a save with two
+  supply routes in different states and a dismissed list, a save with a docked flight and
+  three rewind points behind it, a career with contracts and milestones that were actually
+  earned, a flight with two hundred ghosts replaying beside the craft, a plain pad launch
+  driven through start-recording and stop-recording, and a brand-new science save where
+  every window is empty on purpose. Between them they open every folder, every route
+  panel and every mission row, put the structure log on a real mission and on a real
+  route, show both group-picker pop-ups and the route link picker, rest the mouse on a
+  control so its help line and its "why is this greyed out?" sentence appear, and take the
+  map view with the ghost markers on it. Nothing here changes the game; it is evidence for
+  a layout review, which had 22 pictures of 105 surfaces and now has runs that would take
+  79 more.
+
+  Two things were learned while writing them and are recorded rather than papered over.
+  The pop-up question boxes still cannot be photographed at all: a run can ask what pop-up
+  is on screen, but nothing in the automation can put one there and leave it standing long
+  enough, so all 21 of them stay unphotographed and each new run instead checks that no
+  pop-up is covering its pictures. And two saves the plan named for their contents turned
+  out not to have them - one has no upgraded buildings and the other has no active
+  strategy - so those two pictures are labelled for what they really show and the plan is
+  corrected.
+
 - **Automated testing: pointing the mouse at a control a run looked up now passes the
   pre-flight check.** Looking a control up by its label and then pointing at it is the one
   reproducible way to take a picture of a hover, and it is the whole reason the lookup
