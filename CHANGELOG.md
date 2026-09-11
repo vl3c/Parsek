@@ -487,7 +487,9 @@ _(unreleased — entries accumulate here per commit)_
   launch" button, and clicking any of them rewound the PARENT launch. Only the confirm
   dialog's "(from branch ...)" line hinted at it. The Recordings table has suppressed
   this for a long time; the Timeline now shares the same rule, so the button appears once
-  per launch, on the launch.
+  per launch, on the launch. One corner follows from that: a flight whose launch row is
+  itself archived now offers the button on no row at all while the Archive filter is on -
+  switch the Timeline's "Archived" filter on, or un-archive the launch, and it is back.
 
 - **The "Mission Outcomes" rows in the Kerbals window now open the Timeline they promise
   to scroll.** The row's hover text says it scrolls the Timeline to the flight the row
@@ -518,8 +520,10 @@ _(unreleased — entries accumulate here per commit)_
 - **Three readouts that could not tell you apart from each other now can.** The Rewards
   column in the Career State window's Milestones tab was too narrow for a reward that pays
   funds, science AND reputation: the text wrapped onto a second line inside a row that has
-  room for one, so it overlapped its neighbours. It is wide enough now, measured against
-  the longest reward the column can produce rather than against a guess. The greyed-out
+  room for one, so it overlapped its neighbours. It is wide enough now, sized against a
+  written-down worst case - seven digits of funds beside reputation and science, about two
+  hundred times what a stock career pays for a milestone - with the cell's own padding
+  allowed for, rather than against a guess. The greyed-out
   Delete button in the Missions window said "A flight always keeps its first mission" for
   every mission it refused - and for every mission it did NOT refuse, since it said the
   same thing regardless; it now says which of the three reasons applies, and says nothing

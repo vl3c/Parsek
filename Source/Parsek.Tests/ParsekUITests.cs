@@ -19,6 +19,9 @@ namespace Parsek.Tests
             // Regression: fails if Phase 3 wiring forgets to construct or expose
             // the Career State window. Mirrors how GetTimelineUI is the only
             // cross-window access path for the Kerbals Fates companion item.
+            // Bracketed like the sibling classes: constructing a ParsekUI writes the static
+            // activeInstance and re-seeds the static applied-mode latch.
+            ParsekUI.ResetUiComplexityModeForTesting();
             var ui = new ParsekUI(UIMode.KSC);
             try
             {
@@ -26,6 +29,7 @@ namespace Parsek.Tests
             }
             finally
             {
+                ParsekUI.ResetUiComplexityModeForTesting();
                 try
                 {
                     ui.Cleanup();

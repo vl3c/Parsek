@@ -220,6 +220,14 @@ pins. Guarded by
 `RecordingsTableUIStashRewindTests.TimelineRewindButton_TreeBranchNonOwner_IsSuppressedLikeTheTable`,
 which asserts both surfaces against one root+branch fixture.
 
+**Accepted corner case.** A tree whose LAUNCH row is itself archived now shows no `R` on any
+row of that tree while the Archive filter is on: the branch rows no longer offer one and the
+only row that does is filtered out. Recoverable two ways the player already has - the
+Timeline's own "Archived" toggle brings the launch row back with its `R`, or un-archiving the
+launch restores it in the default view. Accepted rather than special-cased: reinstating the
+branch-row button for this case would restore exactly the ambiguity the fix removes (and
+would do it only in the state where the player has said they do not want to see the flight).
+
 **No design doc carries this.** The triage asked for the contract to be recorded in the
 Timeline design doc; there is no live Timeline design doc in `docs/dev/` (the rewind design
 lives in archived plans, cited from source as "design §7.33"). The contract is recorded

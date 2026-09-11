@@ -17,10 +17,17 @@ namespace Parsek.Tests
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = false;
             ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            // One cell below constructs a ParsekUI, which writes the static activeInstance and
+            // re-seeds the static applied-mode latch. Reset both ends - the bracket
+            // TimelineGoToMissionTests and the UiComplexityMode classes use - so a leaked
+            // instance from an earlier class cannot receive this class's mode hooks, and so
+            // this class cannot leave a live one for the next.
+            ParsekUI.ResetUiComplexityModeForTesting();
         }
 
         public void Dispose()
         {
+            ParsekUI.ResetUiComplexityModeForTesting();
             ParsekLog.ResetTestOverrides();
             ParsekLog.SuppressLogging = true;
         }
@@ -984,7 +991,13 @@ namespace Parsek.Tests
             }
             finally
             {
-                try { ui.Cleanup(); } catch { }
+                // ParsekUI.Cleanup resets cached Unity GUI styles, which headless xUnit
+                // cannot do. Only that pair is swallowed (precedent:
+                // UiComplexityModeCloseHandlerTests.CleanupIgnoringUnityTeardown); a bare
+                // catch would also hide a real failure in the assertions' own teardown.
+                try { ui.Cleanup(); }
+                catch (System.Security.SecurityException) { }
+                catch (MissingMethodException) { }
             }
         }
 

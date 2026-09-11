@@ -366,16 +366,25 @@ namespace Parsek
             }
 
             appliedUiComplexityMode = next;
+            OnUiComplexityModeApplied(previous, next);
+            // Logged AFTER the apply, deliberately. FormatHiddenSurfaces walks every
+            // UiSurface through UiSurfaceVisibility.IsVisible, which THROWS on a surface the
+            // gate table does not decide, and the apply is what force-closes the gated
+            // windows and releases their input locks. Between the latch above and that
+            // release is the one window where a throw would strand a locked window with the
+            // mode already flipped; the log line is the only statement in it, so it goes
+            // after.
+            //
             // The hidden set is named in the line, not just the mode: it is the ONE place
             // the gate table is observable at runtime, and "which surfaces did that flip
             // take away" is the first question a mode-related report raises. This is also
             // UiSurfaceVisibility.HiddenSurfaces' production consumer - it had none, which
             // is how a key with zero IsVisible call sites stayed invisible (the census's
-            // third surprise).
+            // third surprise). Harness H22 pins the "Mode changed: uiComplexityMode=X->Y"
+            // prefix, so the hidden=[...] suffix stays on the SAME line.
             ParsekLog.Info("UI",
                 $"Mode changed: uiComplexityMode={previous}->{next} "
                 + $"hidden=[{FormatHiddenSurfaces(next)}]");
-            OnUiComplexityModeApplied(previous, next);
         }
 
         /// <summary>
@@ -560,9 +569,8 @@ namespace Parsek
         /// <para>Every entry gets its OWN try/catch: <c>InputLockManager.RemoveControlLock</c>
         /// fires <c>GameEvents.onInputLocksModified</c>, and a third-party listener that
         /// throws must not abort the loop and strand the windows after it still holding
-        /// locks. A swallowed exception is
-        /// logged at Warn with the window name and the exception type + message
-        /// (design 12.2).</para>
+        /// locks. A swallowed exception is logged at Warn with the window name and the
+        /// exception type + message (design 12.2).</para>
         /// <para>Blast radius if a release is nevertheless missed: one frame. Every window's
         /// <c>DrawIfOpen</c> prologue is <c>if (!IsOpen) { ReleaseInputLock(); return; }</c>
         /// and those call sites are deliberately never gated (design 7.1), so the next frame
