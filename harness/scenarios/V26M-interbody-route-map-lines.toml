@@ -533,7 +533,7 @@ routeCoDrawViolations = { max = 0 }
 # destinationBodies). Still owed, outside this block: the renderComposition negative
 # control.
 #
-# M-C2 save-parse, DECLARED REPORT-ONLY: `gating` IS DELIBERATELY OMITTED. The
+# (authoring record) M-C2 save-parse, DECLARED REPORT-ONLY: `gating` IS DELIBERATELY OMITTED. The
 # windows below were written from the fixture's committed bytes and are now
 # CORROBORATED by two runs' produced saves, but arming stays a separate operator
 # decision taken deliberately (`ARMED_ALLOWLIST` /

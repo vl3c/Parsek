@@ -1098,7 +1098,7 @@ forbidden = [
 # first request, before reaching it).
 #
 # THE M-C2 SUPPLY-ROUTE BLOCK (`harness/lib/saveparse.py`, shipped 2026-09-02 by
-# PR #1603). **REPORT-ONLY: `gating` IS DELIBERATELY OMITTED**, per the standing
+# PR #1603). **(authoring record) REPORT-ONLY: `gating` IS DELIBERATELY OMITTED**, per the standing
 # report-only-first protocol every save-parse block is held to - arming is a
 # per-scenario operator decision taken only after a report-only READING RUN whose
 # facets match the windows below. V18T is the facet's first and only armed

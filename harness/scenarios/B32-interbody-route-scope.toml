@@ -478,7 +478,7 @@ forbidden = [
 # attempt 1 on exactly `routes.destinationBodies.Duna 1 < min 2`. Expectations PASS on
 # both, and every other routes facet identical to the reading on both.
 #
-# M-C2 save-parse, DECLARED REPORT-ONLY: `gating` IS DELIBERATELY OMITTED. The
+# (authoring record) M-C2 save-parse, DECLARED REPORT-ONLY: `gating` IS DELIBERATELY OMITTED. The
 # windows below were written from the fixture's committed bytes and are now
 # CORROBORATED by two runs' produced saves, but arming stays a separate operator
 # decision taken deliberately (`ARMED_ALLOWLIST` /
