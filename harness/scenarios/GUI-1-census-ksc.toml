@@ -122,7 +122,20 @@ tier = "operator"
 # Logistics ROW, which no seam op drives today - a follow-up, named here rather than
 # faked (GUI-CENSUS-STRUCTURE-WINDOW-HAS-NO-DRIVEABLE-TARGET).
 #
-# NEVER FLOWN. The `[expectations.logContracts]` lines below pin ONLY the seam log lines
+# THE SETTINGS WINDOW IS COMMANDED WIDER THAN IT ASKS FOR, and the number is measured
+# rather than chosen. The first flight commanded `w = 360` and the Advanced-mode window
+# grew to its own content minimum in BOTH axes - `uiaction error reason=rect-not-applied
+# window=settings want=270,8,360,700 after=270,8,375,718`, i.e. 375 wide and 718 tall -
+# while the Basic-mode site two passes later settled at the same commanded 360, which is
+# what a per-MODE content minimum looks like. The 1 px width band refused a rect that had
+# in fact been applied, so the read-back now treats WIDTH as a floor exactly like HEIGHT
+# (`TestCommandUiAction.RectAppliedWithinTolerance`); both sites here are commanded
+# `w = 400`, above either mode's minimum, so neither picture is clipped and neither
+# depends on the tolerance to pass.
+#
+# FLOWN ONCE, 2026-09-10 (`2026-09-10_2255`, attempt 2 `_2256`), both INVALID on that one
+# rect step and on nothing else - 22 captures, 22 dumps and the GuiTree batch all landed.
+# The `[expectations.logContracts]` lines below pin ONLY the seam log lines
 # this lane's own verbs write, and nothing about the host: a local fixture is
 # unreproducible by construction (one person's save at one moment), so a lane on it may
 # assert that a window DREW and never what it drew. A `describe` step follows every
@@ -242,7 +255,7 @@ steps = [
   # settings, all six sections (three of them Advanced-only)
   { cmd = "UiAction", args = { op = "open", window = "settings" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "rect", window = "settings", x = "270", y = "8", w = "360", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "settings", x = "270", y = "8", w = "400", h = "700" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "ksc-settings-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "ksc-settings-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "settings" }, expect = "OK" },
@@ -291,7 +304,7 @@ steps = [
 
   { cmd = "UiAction", args = { op = "open", window = "settings" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "rect", window = "settings", x = "270", y = "8", w = "360", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "settings", x = "270", y = "8", w = "400", h = "700" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "ksc-settings-basic" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "ksc-settings-basic" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "settings" }, expect = "OK" },

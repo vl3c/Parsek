@@ -29,6 +29,17 @@ _(unreleased — entries accumulate here per commit)_
   whole set: one at the Space Center, one in flight. None of this adds anything a player
   can see or reach in the game; it drives the same switches the existing buttons do.
 
+  Asking for a size is a REQUEST FOR AT LEAST THAT MUCH ROOM, which the first run of the
+  Space Center tour is what taught us. A Parsek window works out its own smallest size
+  from what it has to draw and will not go under it, and that is true of its width just as
+  much as of its height - the Settings window, asked for 360 by 700, drew itself 375 by
+  718 - so a run that asked for a box smaller than the window needs used to be told the
+  resize had failed, over a window that had in fact been placed exactly where it was asked
+  to go. A window that ends up BIGGER than requested is now accepted on both measurements;
+  one that comes back smaller than asked is still reported, because that is the reading
+  that means nothing drew. The tour now asks for a Settings window wider than either
+  interface mode needs, so the picture is not cropped either way.
+
 - **Automated testing: a run definition can now ask for one particular check to be
   reported rather than acted on.** The recording-health check runs over whatever save a
   run produced, and on a run whose starting point is somebody's own long-played career

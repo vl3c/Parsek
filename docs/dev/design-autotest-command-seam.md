@@ -1720,15 +1720,27 @@ would not be reproducible - and each is a finite invariant-culture float in rang
 zero-width window photographs as a MISSING window, which is the exact false reading a
 census must not produce). The read-back happens after the settle frame, on the rect the
 window's own draw resolved - which is what makes the predicate a measurement rather than
-an echo - and it checks position and WIDTH to a 1 px tolerance but
-HEIGHT AS A FLOOR, because every one of these is a `GUILayout` window and resolves to
-`Max(passedHeight, contentMin)`: a window whose content is taller legitimately grows, and
+an echo - and it checks POSITION to a 1 px tolerance but BOTH SIZE AXES AS FLOORS, because
+every one of these is a `GUILayout` window and resolves to `Max(passed, contentMin)` on
+each axis: a window whose content does not fit the commanded box legitimately grows, and
 strict equality would ERROR on a rect that was applied exactly as asked. The MAIN window
 is exempt from the size half entirely (BOTH hosts pass a fixed `GUILayout.Width(250)` and
 BOTH zero its height every frame - `ParsekFlight.OnGUI` and `ParsekKSC.OnGUI` each open
 with `windowRect.height = 0f`), so only its position can be commanded. The
-asymmetry is walked in the mirror direction too: a height BELOW the commanded floor is
-still a failure.
+asymmetry is walked in the mirror direction too: a size BELOW either commanded floor is
+still a failure, and that half is what keeps the settle honest - an UNRESOLVED rect reads
+back the commanded value exactly, so the floor is the only thing left that can catch a
+window which came back smaller than it was asked for.
+
+WIDTH WAS TWO-SIDED UNTIL THE CENSUS'S FIRST FLIGHT, on the belief that only height grows
+from content. GUI-1's `2026-09-10_2255` measured otherwise at step index 74:
+`ERROR rect-not-applied window=settings want=270,8,360,700 after=270,8,375,718` - the
+Settings window grew 15 px WIDE and 18 px tall in one layout pass, to its own content
+minimum, and the 1 px width band refused a rect that had been applied. One window's content
+being wider than the commanded box is the same fact about the same layout pass as its
+content being taller, so the two axes are now treated identically. (The Basic-mode Settings
+capture later in the same lane passed at the same commanded 360, which is what a per-mode
+content minimum looks like; both census sites now command `w = 400`, above either.)
 
 **`op=describe` is the reviewer's inventory**, and it is what a supervising agent reads
 next to the images: `op=describe scene=<token> complexity=<mode> count=<n>` then, per

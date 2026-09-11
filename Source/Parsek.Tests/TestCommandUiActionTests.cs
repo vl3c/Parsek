@@ -397,42 +397,60 @@ namespace Parsek.Tests
 
         // ----- rect read-back -----
 
-        [Fact]
-        public void RectReadBack_AcceptsAHeightGuiLayoutGrew()
+        [Theory]
+        // THE asymmetry, and the reason the predicate is a named function. Every window
+        // here is a GUILayout window that resolves to Max(passed, contentMin) on EACH axis,
+        // so a window whose content does not fit the commanded box GROWS - that is the rect
+        // being applied, not a failure. Strict equality would ERROR on a correct apply.
+        [InlineData(800f, 400f, 800f, 940f, true)]   // height grew from content
+        [InlineData(800f, 400f, 940f, 400f, true)]   // width grew from content
+        [InlineData(800f, 400f, 940f, 940f, true)]   // both grew in one pass
+        // THE MEASURED CASE, and the one that bought this theory. GUI-1-census-ksc's first
+        // flight (`2026-09-10_2255`, step index 74) commanded the Settings window
+        // `270,8,360,700` and read back `270,8,375,718` - it grew 15 px WIDE and 18 px tall
+        // in the same layout pass. Under the old two-sided width check that was
+        // `ERROR rect-not-applied` and the lane read driver-INVALID over a window that had
+        // been placed exactly as asked.
+        [InlineData(360f, 700f, 375f, 718f, true)]
+        // The mirror direction, checked because a fix derived from an asymmetry has to be
+        // walked both ways: each axis is a FLOOR, so shrinking below either is still a
+        // failure. The width row is what keeps the settle honest - an UNRESOLVED rect reads
+        // back the commanded value exactly, so the floor is the only thing left that can
+        // catch a window which came back smaller than it was asked for.
+        [InlineData(800f, 400f, 800f, 120f, false)]  // height below the floor
+        [InlineData(800f, 400f, 250f, 400f, false)]  // width below the floor
+        [InlineData(800f, 400f, 250f, 120f, false)]  // both below
+        // The tolerance is slack ON the floor, not a two-sided band: one pixel under is
+        // accepted on either axis, two is not.
+        [InlineData(800f, 400f, 799f, 399f, true)]
+        [InlineData(800f, 400f, 798f, 400f, false)]
+        [InlineData(800f, 400f, 800f, 398f, false)]
+        public void RectReadBack_TreatsBothSizeAxesAsFloors(
+            float wantW, float wantH, float observedW, float observedH, bool applied)
         {
-            // THE asymmetry, and the reason the predicate is a named function. Every window
-            // here is a GUILayout window that resolves to Max(passedHeight, contentMin), so a
-            // window whose content is taller than the commanded height GROWS - that is the
-            // rect being applied, not a failure. Strict equality would ERROR on a correct
-            // apply.
-            var want = new UiActionRect { X = 10f, Y = 20f, W = 800f, H = 400f };
-            var grew = new UiActionRect { X = 10f, Y = 20f, W = 800f, H = 940f };
-            Assert.True(TestCommandUiAction.RectAppliedWithinTolerance(
-                want, grew, sizeIsHostControlled: false));
+            var want = new UiActionRect { X = 10f, Y = 20f, W = wantW, H = wantH };
+            var observed = new UiActionRect
+                { X = 10f, Y = 20f, W = observedW, H = observedH };
+            Assert.Equal(applied, TestCommandUiAction.RectAppliedWithinTolerance(
+                want, observed, sizeIsHostControlled: false));
         }
 
         [Fact]
-        public void RectReadBack_RejectsAHeightBelowTheCommandedFloor()
+        public void RectReadBack_RejectsAMovedPosition()
         {
-            // The mirror direction, checked because a fix derived from an asymmetry has to
-            // be walked both ways: height is a FLOOR, so shrinking below it is still a
-            // failure.
-            var want = new UiActionRect { X = 10f, Y = 20f, W = 800f, H = 400f };
-            var shrank = new UiActionRect { X = 10f, Y = 20f, W = 800f, H = 120f };
-            Assert.False(TestCommandUiAction.RectAppliedWithinTolerance(
-                want, shrank, sizeIsHostControlled: false));
-        }
-
-        [Fact]
-        public void RectReadBack_RejectsAMovedPositionOrAChangedWidth()
-        {
+            // POSITION is the half that still holds EXACTLY: a window GUILayout grew is
+            // still at the origin it was given, so both position axes stay two-sided.
             var want = new UiActionRect { X = 10f, Y = 20f, W = 800f, H = 400f };
             Assert.False(TestCommandUiAction.RectAppliedWithinTolerance(
                 want, new UiActionRect { X = 90f, Y = 20f, W = 800f, H = 400f }, false));
             Assert.False(TestCommandUiAction.RectAppliedWithinTolerance(
                 want, new UiActionRect { X = 10f, Y = 99f, W = 800f, H = 400f }, false));
+            // Including the direction a FLOOR would have let through, which is the mistake
+            // a copy-paste from the size axes would make.
             Assert.False(TestCommandUiAction.RectAppliedWithinTolerance(
-                want, new UiActionRect { X = 10f, Y = 20f, W = 250f, H = 400f }, false));
+                want, new UiActionRect { X = 4f, Y = 20f, W = 800f, H = 400f }, false));
+            Assert.False(TestCommandUiAction.RectAppliedWithinTolerance(
+                want, new UiActionRect { X = 10f, Y = 4f, W = 800f, H = 400f }, false));
         }
 
         [Fact]
