@@ -502,6 +502,21 @@ id = "V7M-minmus-player-loop"
 #            flight-host dwell/treatment census across a watch-entry boundary is what
 #            this lane's manifest is for.
 # =====================================================================================
+# -------------------------------------------------------------------------------------
+# CRITERION (b) RENDER-TOKEN CONTROL, FLOWN 2026-09-10 (todo
+# V-PAIR-CRITERION-B-RENDER-CONTROL-DEBT; wave DLL, deployed sha a0abbed1)
+# -------------------------------------------------------------------------------------
+#   Run `2026-09-10_1907`, PARSEK-FAIL(expectation) attempt 1, wall 53 s. One in-place,
+#   line-anchored edit of one required element, flown alone, then reverted with `git
+#   status --short` clean:
+#     original: `surface=Proto(Icon|OrbitLine) .*body=Minmus`
+#     inverted: `surface=Proto(Icon|OrbitLine) .*body=Eeloo`
+#   It red on EXACTLY that one element (one mismatch); saveParse PASS gating=True;
+#   renderCompose REPORT; driverValidity allMet; anomalySweep hits=[]. DRIFT GATE,
+#   counted in the run's own KSP.log: original 25 line(s), inverted 0. This is the
+#   lane's logContracts-lens control. The shared `2026-08-08_1644` supersedeRows
+#   inversion (flown on V6M) stays its save-structure control.
+#
 tier = "operator"
 description = "THE MINMUS PLAYER-LOOP LANE, the spec that BRACKETED the watch-entry boundary and then became the suite's FIRST watch-mode entry. Observer and ghost share a 98,463.595 m Minmus park, so their separation is constant within a cycle and moves only when the phase anchor does; cycles 1 and 2 measured 144,356 m and 191,499 m on the archived V7Mc calibration run `_1607` (144,349 m / 191,497 m on run `_1600`'s own archived log, 198,711 m on `_1601`) - all INSIDE the 300 km cutoff the production range term really uses (`WatchEnterCutoffMeters`, ParsekFlight.cs:19580 -> WatchModeController.cs:698), all REFUSED under the pre-2026-08-28 product - while cycle 3 at 51,503 m ENTERED, so the entry boundary was bracketed in (51.5 km, 144.3 km) and the range term was NOT what refused. THE REFUSING TERM WAS ESTABLISHED (`IsGhostOnSameBody`, answering from a stale spawn seed) AND THEN FIXED: the coordinated decision was TAKEN 2026-08-28, the term now resolves the ghost's body from its own trajectory, and THE CYCLE-1 AND CYCLE-2 PINS ARE NOW **MEASURED OK** on reading run `2026-08-28_1930` (PASS attempt 1, 53 s, mismatches=0) - which caught the fix firing at the exact shape this lane bracketed: `sameBody=T evidence=trajectory-resolved ghostBody=Minmus cached=Kerbin`, the 2026-08-08 spawn seed still present, still stale, no longer deciding. See the header's WATCH-ENTRY MIGRATION banner and docs/dev/todo-and-known-bugs.md -> WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE, the single authority. Minmus is the one park whose separations land inside the quoted range and outside the old boundary, which is what made the measurement possible at all. At least one real entry is gated by the product's own `enterwatchmode complete:` line - and on `2026-08-28_1930` ALL THREE cycles bought it as fresh entries, because the product exits watch mode by itself between cycles on the 305 km debounce (the migration write-up predicted already-watching short-circuits; refuted, and the refutation is why the desync instruments are unperturbed). Same-parent routing pinned positively (no re-aim, phase-lock + zero-drift, factory chain reaimed=False); three cycles feed the arrival-desync hunt."
 instanceProfile = "stock-minimal"

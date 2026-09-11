@@ -105,6 +105,13 @@ id = "V11-moho-player-loop"
 #            StartLoopPlayback, so its manifest is an arm-only baseline rather than a
 #            dwell. Kept in the wave because the baseline is per-fixture (span ~0.99 of
 #            the Kerbin->Moho synodic) and costs one inert step.
+#   CRITERION (b), 2026-09-10 (roadmap confirmation criterion (b); todo
+#            V-PAIR-CRITERION-B-RENDER-CONTROL-DEBT): a render-token inversion is
+#            STRUCTURALLY IMPOSSIBLE on this lane. It quits about 1 s after
+#            StartLoopPlayback and reaches no render epoch, and its `required` array
+#            holds routing tokens only (the MissionConfig / StartLoopPlayback echoes,
+#            the classifier, re-aim, cadence and loiter lines), so there is no render
+#            token to invert, and pinning one would be structurally unsatisfiable.
 # =====================================================================================
 tier = "operator"
 description = "ARMED: the player loop workflow on the Moho program's committed recording -- mark the B20 tree a loop unit and start loop playback, to measure the classify mode, the window schedule against a span that is ~0.99 of the Kerbin->Moho synodic, the loiter compression of a ~398,000 s LKO wait, and the seam-endpoint census -- ARMED on the classification, schedule and loiter tokens those readings measured."

@@ -3311,5 +3311,342 @@ class CraftAndSchemaSyncTests(unittest.TestCase):
         self.assertIn("logContracts", contract["verifiedBy"])
 
 
+class RepeatRewindTests(unittest.TestCase):
+    """GS-9 (ghost-replay Tier B item 8): `rewindCycles` flies rewind -> watcher ->
+    watch -> playback more than once off the SAME committed tree.
+
+    Four properties, each a way the opt-in could be silently wrong:
+      1. DEFAULT 1 IS BYTE-IDENTICAL: the whole action trace, the phases walked and
+         the eight rows match a params set with no key at all.
+      2. EVERY PER-CYCLE COMMAND HAS A FRESH WIRE TAG, and a previous cycle's OK can
+         never advance the next cycle (the C# seam skips duplicate ids).
+      3. THE SECOND REWIND IS GATED ON AN OBSERVED IDLE RECORDER, in-phase, and the
+         loop never leaves the contiguous post-rewind block.
+      4. THE NINTH ROW carries every cycle's frozen record and is met only when each
+         declared cycle rewound, settled its watcher and watched its playback out."""
+
+    TREE = "t_kx"
+
+    def _d(self, st, snapshot):
+        st, acts = mlib.kxrw_decide(st, snapshot)
+        self.trace.append((st.phase, tuple((a.kind, a.seam_verb, a.seam_tag,
+                                            tuple(a.seam_args or ()))
+                                           for a in acts)))
+        return st, acts
+
+    def _to_first_rewind(self, **over):
+        """The happy path's ascent + bridge, ending in REWIND with cycle 0's
+        InvokeRewindToLaunch already emitted. Every frame is recorded in
+        `self.trace` so two drives can be compared action for action."""
+        self.trace = []
+        pdict = params(boosterStageCount=3, stageSettleFrames=2, coastSeconds=5.0,
+                       coreDiscardApoapsisMeters=60000.0,
+                       recordedSpanWindowSeconds={"min": 60.0, "max": 600.0}, **over)
+        st = rolled_out(mlib.kxrw_initial_state(mlib.kxrw_params_from_dict(pdict)))
+        st, _ = self._d(st, snap(ut=1000.0, altitude=0.0, throttle=0.0,
+                                 available_thrust=0.0))
+        st, _ = self._d(st, snap(ut=1001.0, altitude=200.0, available_thrust=LIT,
+                                 throttle=1.0, situation="FLYING"))
+        ut = 1040.0
+        for _ in range(40):
+            st, _ = self._d(st, snap(ut=ut, altitude=9000.0, throttle=0.0,
+                                     available_thrust=FLAMED, situation="FLYING"))
+            ut += 0.5
+            if st.phase == mlib.KXRW_ASCENT and st.booster_drops_done >= 3:
+                break
+        for u, alt, thr in ((1150.0, 55000.0, 1.0), (1151.0, 55500.0, 0.0),
+                            (1152.0, 56000.0, 0.0), (1153.0, 56500.0, 0.0),
+                            (1160.0, 58000.0, 0.0)):
+            st, _ = self._d(st, snap(ut=u, altitude=alt, apoapsis=61000.0,
+                                     throttle=thr, available_thrust=LIT,
+                                     situation="FLYING"))
+        self.assertEqual(mlib.KXRW_TREE_STATE, st.phase)
+        st, _ = self._d(st, seam("tree0", "OK", (("tree", self.TREE),), ut=1161.0))
+        st, _ = self._d(st, seam("commit", "OK", (), ut=1200.0))
+        st, _ = self._d(st, seam("stop", "OK", (), ut=1201.0))
+        st, acts = self._d(st, seam("idle0", "OK", (("recording", "false"),),
+                                    ut=1202.0))
+        self.assertEqual(mlib.KXRW_REWIND, st.phase)
+        return st, acts, pdict
+
+    def _post_rewind_leg(self, st, cycle):
+        """From REWIND (the command already out) to the PLAYBACK-WAIT entry, under
+        cycle ``cycle``'s tags. Returns (state, the watch tag that went out)."""
+        st, _ = self._d(st, seam(mlib.kxrw_rewind_tag(cycle), "OK", (),
+                                 ut=st.pre_rewind_ut, vessel_lost=True))
+        self.assertEqual(mlib.KXRW_SPACECENTER, st.phase)
+        st, acts = self._d(st, snap(ut=985.0, vessel_lost=True))
+        self.assertEqual(mlib.KXRW_AUTORECORD_OFF, st.phase)
+        self.assertEqual([mlib.kxrw_autorecord_tag(cycle)], [a.seam_tag for a in acts])
+        st, _ = self._d(st, seam(mlib.kxrw_autorecord_tag(cycle), "OK", (), ut=985.5,
+                                 vessel_lost=True))
+        self.assertEqual(mlib.KXRW_WATCHER_LAUNCH, st.phase)
+        st, acts = self._d(st, snap(ut=986.0, vessel_lost=True))
+        self.assertEqual([mlib.ACTION_LAUNCH_VESSEL], kinds(acts))
+        st, _ = self._d(st, snap(ut=990.0, situation="PRE_LAUNCH", vessel_name=WATCHER))
+        st, acts = self._d(st, snap(ut=991.0, situation="PRE_LAUNCH",
+                                    vessel_name=WATCHER))
+        self.assertEqual(mlib.KXRW_MAP_VIEW, st.phase)
+        self.assertEqual([mlib.kxrw_map_tag(cycle)], [a.seam_tag for a in acts])
+        st, acts = self._d(st, seam(mlib.kxrw_map_tag(cycle), "OK", (), ut=992.0,
+                                    situation="PRE_LAUNCH"))
+        self.assertEqual(mlib.KXRW_MAP_EXIT, st.phase)
+        self.assertEqual([mlib.kxrw_map_exit_tag(cycle)], [a.seam_tag for a in acts])
+        st, _ = self._d(st, seam(mlib.kxrw_map_exit_tag(cycle), "OK", (), ut=992.5,
+                                 situation="PRE_LAUNCH"))
+        self.assertEqual(mlib.KXRW_WATCH, st.phase)
+        st, acts = self._d(st, snap(ut=1005.0, situation="PRE_LAUNCH"))
+        self.assertEqual(["EnterWatchMode"], [a.seam_verb for a in acts])
+        watch_tag = acts[0].seam_tag
+        st, _ = self._d(st, seam(watch_tag, "OK", (("index", "0"),), ut=1006.0,
+                                 situation="PRE_LAUNCH"))
+        self.assertEqual(mlib.KXRW_PLAYBACK_WAIT, st.phase)
+        self.assertEqual(1230.0, st.playback_target_ut)   # 1200 commit + 30
+        return st, watch_tag
+
+    def _at_cycle_advance(self, **over):
+        """Cycle 1 of 2 watched out: PLAYBACK-WAIT with the first idle probe out."""
+        st, _, pdict = self._to_first_rewind(rewindCycles=2, **over)
+        st, _ = self._post_rewind_leg(st, 0)
+        st, acts = self._d(st, snap(ut=1231.0, situation="PRE_LAUNCH"))
+        self.assertEqual(mlib.KXRW_PLAYBACK_WAIT, st.phase)
+        return st, acts, pdict
+
+    def test_the_default_is_the_single_cycle_lane_byte_for_byte(self):
+        traces, rows = [], []
+        for over in ({}, {"rewindCycles": 1}):
+            st, acts, pdict = self._to_first_rewind(**over)
+            self.assertEqual("rewind", acts[0].seam_tag)
+            st, watch_tag = self._post_rewind_leg(st, 0)
+            self.assertEqual("watch0", watch_tag)
+            st, acts = self._d(st, snap(ut=1231.0, situation="PRE_LAUNCH"))
+            self.assertEqual(mlib.KXRW_DONE, st.phase)
+            self.assertEqual([], acts)
+            traces.append(list(self.trace))
+            rows.append(mlib.evaluate_kxrw_assertions(
+                [], mlib.kxrw_params_from_dict(pdict), st))
+        self.assertEqual(traces[0], traces[1])
+        # Cycle 0 emits the HISTORICAL constants, verbatim - the byte-identity
+        # argument for every lane that declares no key.
+        emitted = {tag for _, acts in traces[0] for (_, _, tag, _) in acts if tag}
+        self.assertLessEqual({mlib.KXRW_TAG_REWIND, mlib.KXRW_TAG_AUTORECORD,
+                              mlib.KXRW_TAG_MAP, mlib.KXRW_TAG_MAP_EXIT}, emitted)
+        self.assertFalse(any(t.endswith("c1") or t.startswith("c1idle")
+                             for t in emitted), emitted)
+        for rs in rows:
+            self.assertEqual(8, len(rs))
+            self.assertNotIn("rewindCyclesCompleted", [r.name for r in rs])
+            self.assertEqual([], [r.name for r in rs if not r.met])
+        self.assertEqual([r.name for r in rows[0]], [r.name for r in rows[1]])
+
+    def test_two_cycles_walk_the_post_rewind_block_twice_and_reach_done(self):
+        st, acts, pdict = self._to_first_rewind(rewindCycles=2)
+        self.assertEqual("rewind", acts[0].seam_tag)
+        st, watch0 = self._post_rewind_leg(st, 0)
+        self.assertEqual("watch0", watch0)
+        # Cycle 1's target: NOT done - an in-phase idle probe instead.
+        st, acts = self._d(st, snap(ut=1231.0, situation="PRE_LAUNCH"))
+        self.assertEqual(mlib.KXRW_PLAYBACK_WAIT, st.phase)
+        self.assertFalse(st.done)
+        self.assertEqual(1, st.cycles_completed)
+        self.assertEqual([("RecordingState", "c1idle0")],
+                         [(a.seam_verb, a.seam_tag) for a in acts])
+        # The idle reading lands: REWIND under the cycle-1 tag, the SAME tree, and
+        # the pre-rewind clock stamped on that frame.
+        st, acts = self._d(st, seam("c1idle0", "OK", (("recording", "false"),),
+                                    ut=1232.0, situation="PRE_LAUNCH"))
+        self.assertEqual(mlib.KXRW_REWIND, st.phase)
+        self.assertEqual([("InvokeRewindToLaunch", "rewindc1", (("tree", self.TREE),))],
+                         [(a.seam_verb, a.seam_tag, tuple(a.seam_args))
+                          for a in acts])
+        self.assertEqual(1232.0, st.pre_rewind_ut)
+        self.assertEqual(1, st.rewind_cycle)
+        st, watch1 = self._post_rewind_leg(st, 1)
+        # The WATCH family continues rather than restarting at watch0.
+        self.assertEqual("watch1", watch1)
+        st, acts = self._d(st, snap(ut=1231.0, situation="PRE_LAUNCH"))
+        self.assertEqual(mlib.KXRW_DONE, st.phase)
+        self.assertTrue(st.done)
+        self.assertIsNone(st.verdict)
+        self.assertEqual(2, st.cycles_completed)
+        # THE LOOP NEVER LEFT THE CONTIGUOUS POST-REWIND BLOCK.
+        first = st.phases_reached.index(mlib.KXRW_REWIND)
+        self.assertEqual(set(), set(st.phases_reached[first:])
+                         - set(mlib.KXRW_POST_REWIND_PHASES) - {mlib.KXRW_DONE})
+        self.assertEqual(2, st.phases_reached.count(mlib.KXRW_REWIND))
+        # EVERY seam tag the whole run emitted is unique.
+        emitted = [tag for _, acts in self.trace for (_, _, tag, _) in acts if tag]
+        self.assertEqual(len(emitted), len(set(emitted)), emitted)
+        rows = mlib.evaluate_kxrw_assertions([], mlib.kxrw_params_from_dict(pdict), st)
+        self.assertEqual(9, len(rows))
+        self.assertEqual([], [r.name for r in rows if not r.met],
+                         [r.to_dict() for r in rows])
+        ninth = rows[-1]
+        self.assertEqual("rewindCyclesCompleted", ninth.name)
+        self.assertEqual(2, ninth.value)
+        cycles = ninth.detail["cycles"]
+        self.assertEqual([1, 2], [c["cycle"] for c in cycles])
+        self.assertEqual(["OK", "OK"], [c["rewindResult"] for c in cycles])
+        self.assertEqual([True, True], [c["watcherOnPad"] for c in cycles])
+        self.assertEqual([True, True], [c["playbackWatchedOut"] for c in cycles])
+        self.assertEqual(["false", "false"], [c["preRewindIdleReading"] for c in cycles])
+        self.assertEqual([1202.0, 1232.0], [c["preRewindUT"] for c in cycles])
+
+    def test_a_previous_cycles_ok_never_advances_the_next_cycle(self):
+        st, _, _ = self._at_cycle_advance()
+        st, _ = self._d(st, seam("c1idle0", "OK", (("recording", "false"),),
+                                 ut=1232.0, situation="PRE_LAUNCH"))
+        self.assertEqual(mlib.KXRW_REWIND, st.phase)
+        # Cycle 0's `rewind` OK riding a later snapshot must not count.
+        held, _ = self._d(st, seam("rewind", "OK", (), ut=1232.0, vessel_lost=True))
+        self.assertEqual(mlib.KXRW_REWIND, held.phase)
+        st, _ = self._d(st, seam("rewindc1", "OK", (), ut=1232.0, vessel_lost=True))
+        st, _ = self._d(st, snap(ut=985.0, vessel_lost=True))
+        self.assertEqual(mlib.KXRW_AUTORECORD_OFF, st.phase)
+        held, _ = self._d(st, seam("autorec", "OK", (), ut=985.5, vessel_lost=True))
+        self.assertEqual(mlib.KXRW_AUTORECORD_OFF, held.phase)
+
+    def test_a_live_recorder_reprobes_then_names_a_parsek_side_observation(self):
+        st, _, _ = self._at_cycle_advance(idleFrames=4)
+        st, acts = self._d(st, seam("c1idle0", "OK", (("recording", "true"),),
+                                    ut=1232.0, situation="PRE_LAUNCH"))
+        self.assertEqual(mlib.KXRW_PLAYBACK_WAIT, st.phase)
+        self.assertEqual(["c1idle1"], [a.seam_tag for a in acts])
+        self.assertNotIn("InvokeRewindToLaunch", [a.seam_verb for a in acts])
+        probe = 1
+        for i in range(10):
+            st, acts = self._d(st, seam("c1idle%d" % probe, "OK",
+                                        (("recording", "true"),),
+                                        ut=1233.0 + i, situation="PRE_LAUNCH"))
+            if st.done:
+                break
+            probe += 1
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+        self.assertEqual(mlib.KXRW_PLAYBACK_WAIT, st.flake_phase)
+        self.assertIn("PARSEK-SIDE", st.flake_reason)
+        self.assertIn("recording-active", st.flake_reason)
+        self.assertIn("rewind 2 of 2", st.flake_reason)
+
+    def test_an_unreadable_clock_reprobes_and_never_becomes_the_stamp(self):
+        st, _, _ = self._at_cycle_advance()
+        st, acts = self._d(st, seam("c1idle0", "OK", (("recording", "false"),),
+                                    ut=float("nan"), situation="PRE_LAUNCH"))
+        self.assertEqual(mlib.KXRW_PLAYBACK_WAIT, st.phase)
+        self.assertEqual(["c1idle1"], [a.seam_tag for a in acts])
+        self.assertEqual(1202.0, st.pre_rewind_ut)          # still cycle 0's
+        st, acts = self._d(st, seam("c1idle1", "OK", (("recording", "false"),),
+                                    ut=1240.0, situation="PRE_LAUNCH"))
+        self.assertEqual(mlib.KXRW_REWIND, st.phase)
+        self.assertEqual(1240.0, st.pre_rewind_ut)
+
+    def test_a_reply_with_no_recording_field_fails_closed(self):
+        st, _, _ = self._at_cycle_advance()
+        st, acts = self._d(st, seam("c1idle0", "OK", (), ut=1232.0,
+                                    situation="PRE_LAUNCH"))
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+        self.assertEqual([], acts)
+        self.assertIn("no readable `recording` field", st.flake_reason)
+
+    def test_a_refused_or_silent_probe_flakes(self):
+        st, _, _ = self._at_cycle_advance(idleFrames=3)
+        refused, _ = self._d(st, seam("c1idle0", "ERROR", (("msg", "x"),),
+                                      ut=1232.0, situation="PRE_LAUNCH"))
+        self.assertEqual(mlib.MISSION_FLAKE, refused.verdict)
+        self.assertIn("returned ERROR", refused.flake_reason)
+        for i in range(5):
+            st, _ = self._d(st, snap(ut=1232.0 + i, situation="PRE_LAUNCH"))
+            if st.done:
+                break
+        self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+        self.assertIn("never answered", st.flake_reason)
+
+    def test_the_ninth_row_is_unmet_until_every_declared_cycle_completed(self):
+        st, _, pdict = self._at_cycle_advance()
+        rows = mlib.evaluate_kxrw_assertions([], mlib.kxrw_params_from_dict(pdict), st)
+        self.assertEqual(9, len(rows))
+        ninth = rows[-1]
+        self.assertEqual("rewindCyclesCompleted", ninth.name)
+        self.assertFalse(ninth.met)
+        self.assertEqual(1, ninth.value)
+        self.assertEqual(1, len(ninth.detail["cycles"]))
+        self.assertEqual(2, ninth.detail["required"])
+
+    def test_the_next_cycle_resets_its_own_evidence_and_keeps_the_flights(self):
+        st, _, _ = self._at_cycle_advance()
+        nxt = mlib.kxrw_begin_next_cycle(st, 1500.0)
+        for kept in ("tree_id", "launch_ut", "recording_end_ut", "commit_result",
+                     "recorder_idle_observed", "cycles_completed", "cycle_history",
+                     "post_rewind_vessel_lost_frames"):
+            self.assertEqual(getattr(st, kept), getattr(nxt, kept), kept)
+        self.assertEqual(1, nxt.rewind_cycle)
+        self.assertEqual(1500.0, nxt.pre_rewind_ut)
+        self.assertEqual(st.watch_probe + 1, nxt.watch_probe)
+        for field_name, blank in (("rewind_result", ""), ("autorecord_off_result", ""),
+                                  ("watcher_ready_observed", False),
+                                  ("watcher_launch_commanded", False),
+                                  ("map_view_result", ""), ("map_exit_result", ""),
+                                  ("watch_result", ""), ("watch_attempts", 0),
+                                  ("watch_first_attempt_frame", -1),
+                                  ("playback_reached", False),
+                                  ("cycle_idle_probe", -1)):
+            self.assertEqual(blank, getattr(nxt, field_name), field_name)
+        self.assertTrue(math.isnan(nxt.ut_regression))
+        self.assertTrue(math.isnan(nxt.playback_target_ut))
+
+    def test_every_per_cycle_tag_is_distinct_and_cycle_zero_is_historical(self):
+        makers = (mlib.kxrw_rewind_tag, mlib.kxrw_autorecord_tag, mlib.kxrw_map_tag,
+                  mlib.kxrw_map_exit_tag)
+        self.assertEqual((mlib.KXRW_TAG_REWIND, mlib.KXRW_TAG_AUTORECORD,
+                          mlib.KXRW_TAG_MAP, mlib.KXRW_TAG_MAP_EXIT),
+                         tuple(f(0) for f in makers))
+        tags = []
+        for c in range(mlib.KXRW_REWIND_CYCLES_MAX):
+            tags += [f(c) for f in makers]
+            if c:
+                tags += [mlib.kxrw_cycle_idle_probe_tag(c, k) for k in range(12)]
+        fixed = [mlib.KXRW_TAG_COMMIT, mlib.KXRW_TAG_STOP, mlib.KXRW_TAG_SC_EXIT,
+                 mlib.KXRW_TAG_IMPACT_AUTORECORD]
+        families = []
+        for k in range(12):
+            families += [mlib.kxrw_tree_probe_tag(k), mlib.kxrw_idle_probe_tag(k),
+                         mlib.kxrw_watch_probe_tag(k),
+                         mlib.kxrw_sc_commit_probe_tag(k)]
+        every = tags + fixed + families
+        self.assertEqual(len(every), len(set(every)),
+                         sorted(t for t in every if every.count(t) > 1))
+
+    def test_the_conflicts_are_refused_on_the_first_frame(self):
+        for over, needle in (({"rewindCycles": 0}, "outside [1, 3]"),
+                             ({"rewindCycles": 4}, "outside [1, 3]"),
+                             ({"rewindCycles": 2, "coastExitProfile": True},
+                              "coastExitProfile"),
+                             ({"rewindCycles": 2, "impactProfile": True,
+                               "watcherCraftName": "GS1 Auto-Chute Booster"},
+                              "impactProfile")):
+            with self.subTest(over=over):
+                st, acts = mlib.kxrw_decide(machine(**over),
+                                            snap(ut=0.0, situation="PRE_LAUNCH"))
+                self.assertEqual(mlib.MISSION_FLAKE, st.verdict)
+                self.assertEqual([], acts)
+                self.assertIn(needle, st.flake_reason)
+        for over in ({}, {"rewindCycles": 1}, {"rewindCycles": 3},
+                     {"rewindCycles": 1, "impactProfile": True},
+                     {"rewindCycles": 1, "coastExitProfile": True}):
+            with self.subTest(over=over):
+                self.assertEqual("", mlib.kxrw_rewind_cycles_conflict(
+                    mlib.kxrw_params_from_dict(params(**over))))
+
+    def test_the_schema_bounds_the_param_to_the_machine_range(self):
+        with open(SCHEMA_PATH, "rb") as fh:
+            schema = tomllib.load(fh)
+        decl = schema["params"]["rewindCycles"]
+        self.assertEqual(("int", False, 1, mlib.KXRW_REWIND_CYCLES_MAX),
+                         (decl["type"], decl["required"], decl["min"], decl["max"]))
+        self.assertEqual(1, mlib.KxrwParams().rewind_cycles)
+        self.assertEqual(1, mlib.kxrw_params_from_dict({}).rewind_cycles)
+        self.assertEqual(2, mlib.kxrw_params_from_dict(
+            {"rewindCycles": 2}).rewind_cycles)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -142,6 +142,25 @@ id = "V6T-mun-ts-arrival"
 #   This lane's clean sweep is one of the controls that entry rules the obvious
 #   explanations out with, so read the two together.
 # =====================================================================================
+# -------------------------------------------------------------------------------------
+# CRITERION (b) RENDER-TOKEN CONTROL, FLOWN 2026-09-10 (todo
+# V-PAIR-CRITERION-B-RENDER-CONTROL-DEBT; wave DLL, deployed sha a0abbed1)
+# -------------------------------------------------------------------------------------
+#   Run `2026-09-10_1905_a2`, PARSEK-FAIL(expectation) attempt 2, wall 52 s. One
+#   in-place, line-anchored edit of one required element, flown alone, then reverted
+#   with `git status --short` clean:
+#     original: `phase=GhostCreated surface=ProtoIcon pid=\d+ .*body=Mun scene=TRACKSTATION`
+#     inverted: `phase=GhostCreated surface=ProtoIcon pid=\d+ .*body=Eeloo scene=TRACKSTATION`
+#   It red on EXACTLY that one element (one mismatch); saveParse PASS gating=True;
+#   renderCompose REPORT; driverValidity allMet; anomalySweep hits=[]. DRIFT GATE,
+#   counted in the run's own KSP.log: original 2 line(s), inverted 0. This is the lane's
+#   logContracts-lens control. The shared `2026-08-08_1644` supersedeRows inversion
+#   (flown on V6M) stays its save-structure control. Attempt 1 `2026-09-10_1904` went
+#   INVALID(driver-verdict-mismatch) on the known TS LoadGame race (`reject id=0013
+#   cmd=LoadGame reason=recording-active`); run.py's own retry flew the control as
+#   `_1905_a2`. The body-free TS floor still matched (`created 1 ghost vessel(s)`).
+#   ProtoIcon GhostCreated census: Mun FLIGHT 1, Mun TRACKSTATION 2.
+#
 tier = "operator"
 description = "The tracking-station half of the Mun player-loop pair, and the mode INVERSION of V5: arm the loop and jump the clock past the cycle-1 Kerbin->Mun SOI seam in FLIGHT, SaveGame, then re-enter through LoadGame scene=trackstation and dwell with mapRenderTracing armed. A same-parent moon mission is always phaseLocked, so re-aim is unreachable - the TS host must materialize the FAITHFUL chain (`factory chain ... reaimed=False`, the exact inverse of V5's pin) with a Mun-framed proto icon. Anti-vacuity rides the TS host's own `created N ghost vessel(s)` count with N >= 1: a zero there is the finding, never a token to relax."
 instanceProfile = "stock-minimal"

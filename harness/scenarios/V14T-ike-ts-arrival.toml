@@ -209,6 +209,22 @@ id = "V14T-ike-ts-arrival"
 #            the TS host is a distinct render surface and nothing in the module has
 #            measured it.
 # =====================================================================================
+# -------------------------------------------------------------------------------------
+# CRITERION (b) RENDER-TOKEN CONTROL, FLOWN 2026-09-10 (todo
+# V-PAIR-CRITERION-B-RENDER-CONTROL-DEBT; wave DLL, deployed sha a0abbed1)
+# -------------------------------------------------------------------------------------
+#   Run `2026-09-10_1912`, PARSEK-FAIL(expectation) attempt 1, wall 51 s. One in-place,
+#   line-anchored edit of one required element, flown alone, then reverted with `git
+#   status --short` clean:
+#     original: `phase=GhostCreated surface=ProtoIcon pid=\d+ .*body=Ike scene=TRACKSTATION`
+#     inverted: `phase=GhostCreated surface=ProtoIcon pid=\d+ .*body=Eeloo scene=TRACKSTATION`
+#   It red on EXACTLY that one element (one mismatch); saveParse PASS gating=True;
+#   renderCompose REPORT; driverValidity allMet; anomalySweep hits=[]. DRIFT GATE,
+#   counted in the run's own KSP.log: original 1 line(s), inverted 0. This is the lane's
+#   logContracts-lens control. `2026-08-19_0003` (shared, flown on V14M) stays its
+#   save-structure control. anomalySweep PASS with the tolerated `icon-off-orbit`
+#   counted 1. The pin rests on a single emission, as archived.
+#
 tier = "operator"
 description = "LIVE-PROVEN AND ARMED on the full three-run discipline: reading 2026-08-18_2337 (PARSEK-FAIL(anomaly) attempt 1 with all 16 steps green - a CORRECT catch, see below), armed re-flight 2026-08-19_0002 (PASS attempt 1, the tolerated anomaly RECURRING at counts={'icon-off-orbit': 1}, so the trigger is deterministic rather than a one-off), negative control shared with V14M (2026-08-19_0003). The tracking-station half of the Ike player-loop pair: arm the loop and jump the clock past the cycle-1 Duna->Ike SOI seam in FLIGHT, SaveGame, then re-enter through LoadGame scene=trackstation and dwell with mapRenderTracing armed. The subject is B23's Duna->Ike recording - the suite's first loop member whose LAUNCH BODY is not Kerbin and the first that DEPARTS FROM ORBIT rather than from a pad. Anti-vacuity rides the TS host's own `created N ghost vessel(s)` count with N >= 1. MEASURED: `method=single-orbital` with `constraints=1` (an orbit-rooted recording emits no Rotation constraint, so the predicted tidal-collapse branch is never reached), `reaimed=False`, and an Ike-framed TS proto icon - all now required. The reading run red'd on ONE Tier-C `icon-off-orbit` raised in FLIGHT on the ghost-proto creation frame after this lane's single 17,223-second TimeJump (V14M's stepped bracket raises nothing at the same UT); tolerated by the BARE token (the ceiling form is argued and rejected inline: the suite holds the budget mechanism inert) and filed report-only."
 instanceProfile = "stock-minimal"

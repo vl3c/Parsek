@@ -1106,30 +1106,28 @@ class RoverRouteEndpointMatrixTests(unittest.TestCase):
                 if want["cmd"] == "TimeJump":
                     self.assertEqual(want["args"]["ut"], got["args"]["ut"], name)
 
-    def test_no_matrix_lane_arms_a_gating_save_parse_block(self):
+    def test_every_matrix_lane_arms_routes_and_only_routes(self):
         """Each declares `[expectations.routes]` and
-        `[expectations.recordings.structure]` as READINGS. Arming either is an
-        operator decision taken after a report-only run whose facets match, with
-        its own `ARMED_ALLOWLIST` entry - and `test_hlib` reds if one is armed
-        without it. This cell keeps the intent visible in the lane's own file.
-        All three have now flown green in their current shape, so arming is
-        AVAILABLE to the operator; it is deliberately not taken in a harness PR.
+        `[expectations.recordings.structure]`. `routes` was ARMED 2026-09-10
+        (wave package A2) on all three, each off its own reading run on the wave
+        DLL whose facets matched every declared window, with its own
+        `ARMED_ALLOWLIST` entry - `test_hlib` reds if one is armed without it.
+        `recordings.structure` stays a REPORT-ONLY reading: the arming ruling
+        named `routes`, and a structure arming would owe its own inversion.
 
-        PARSED, not text-scanned: the headers use the word "gating" in prose to
-        say they are NOT armed, and a substring scan would read that as the
-        arming it is denying."""
+        PARSED, not text-scanned: the headers use the word "gating" in prose,
+        and a substring scan would read prose as a key."""
         for name in self.MATRIX:
             expectations = self.spec[name]["expectations"]
-            blocks = {
-                "routes": expectations.get("routes") or {},
-                "recordings.structure":
-                    (expectations.get("recordings") or {}).get("structure") or {},
-            }
-            for label, block in blocks.items():
-                self.assertTrue(block, "%s declares no %s block at all"
-                                % (name, label))
-                self.assertNotIn("gating", block,
-                                 "%s arms its %s block" % (name, label))
+            routes = expectations.get("routes") or {}
+            structure = (expectations.get("recordings") or {}).get("structure") or {}
+            self.assertTrue(routes, "%s declares no routes block at all" % name)
+            self.assertTrue(structure,
+                            "%s declares no recordings.structure block at all" % name)
+            self.assertIs(True, routes.get("gating"),
+                          "%s: routes must stay ARMED" % name)
+            self.assertNotIn("gating", structure,
+                             "%s arms its recordings.structure block" % name)
 
     def test_no_matrix_lane_arms_render_composition_capture(self):
         for name in self.MATRIX:

@@ -328,6 +328,24 @@
 
 schema = 1
 id = "V8-eve-player-loop"
+# -------------------------------------------------------------------------------------
+# CRITERION (b) RENDER-TOKEN CONTROL, FLOWN 2026-09-10 (todo
+# V-PAIR-CRITERION-B-RENDER-CONTROL-DEBT; wave DLL, deployed sha a0abbed1)
+# -------------------------------------------------------------------------------------
+#   Run `2026-09-10_2039`, PARSEK-FAIL(expectation) attempt 1, wall 52 s. One in-place,
+#   line-anchored edit of one required element, flown alone, then reverted with `git
+#   status --short` clean:
+#     original: `seam-endpoint summary evaluated=[1-9] outsideSoi=0`
+#     inverted: `seam-endpoint summary evaluated=[1-9] outsideSoi=9`
+#   It red on EXACTLY that one element (one mismatch); saveParse PASS gating=True;
+#   renderCompose PASS gating=True; driverValidity allMet; anomalySweep hits=[]. DRIFT
+#   GATE, counted in the run's own KSP.log: original 1 line(s), inverted 0. This is the
+#   lane's logContracts-lens control. `2026-08-11_0830` stays its save-structure control
+#   and `2026-08-25_1054` its renderComposition-lens control. Both `seam-endpoint
+#   summary` lines of the run: `evaluated=1 outsideSoi=0` and `evaluated=0 outsideSoi=0
+#   skip.body-mismatch=1`. The edit was made by exact element equality; the two broader
+#   census elements beside it were untouched.
+#
 tier = "operator"
 instanceProfile = "stock-minimal"
 tags = ["V8", "player-loop", "loop-playback", "reaim", "interplanetary",

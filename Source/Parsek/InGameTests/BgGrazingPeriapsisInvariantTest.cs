@@ -107,6 +107,12 @@ namespace Parsek.InGameTests
                 "(OrbitalCheckpoint bridge sections are allowed).");
             InGameAssert.IsTrue(rec.OrbitSegments.Count > 0,
                 "OrbitSegments should have accumulated (sanity check on the simulation).");
+
+            // Harness witness token: must stay after the last assertion so it prints only when every assert held.
+            ParsekLog.Info("TestRunner", string.Format(System.Globalization.CultureInfo.InvariantCulture,
+                "BgOnRailsNoEnvSectionsWitness: on-rails BG vessel emitted no env-classified TrackSections across {0} orbits pid={1} perFrameEnvSections={2} checkpointSections={3} orbitSegments={4}",
+                orbitCount, pid, CountPerFrameEnvSections(rec.TrackSections),
+                rec.TrackSections.Count, rec.OrbitSegments.Count));
         }
     }
 }

@@ -397,11 +397,23 @@ terminalStates = { Landed = { min = 3 }, Docked = { min = 1 } }
 branchPoints   = { Dock = { min = 1, max = 1 }, Undock = { min = 1, max = 1 } }
 
 [expectations.routes]
+# ARMED 2026-09-10 (`gating = true`, wave package A2) off the reading run
+# `2026-09-10_1729` (stock-minimal, wave DLL a0abbed1, PASS attempt 1): every declared
+# window read exactly as declared - count=1 dormant=0 stops=1 sourceRefs=2
+# completedCycles=0 skippedCycles=2 statuses={Paused:1}
+# destinationVesselPids=['2123618197']; measured-only holdKinds={EndpointLost:1} - so
+# the arming moved NO number. Any report-only wording below is the authoring record.
+# `recordings.structure` above stays a report-only reading. ARMED RE-FLIGHT
+# `2026-09-10_2131` (same DLL): PASS attempt 1, saveParse gating PASS, armed ['routes'],
+# no mismatch, every routes and structure facet identical to the reading. The windows
+# gate through the routes evaluator paths already inverted live (RVR-7 skippedCycles,
+# RVR-20 completedCycles, V18T statuses); the one path never inverted, the set-key
+# facet, takes its control on RVR-18.
+#
 # REPORT-ONLY and DERIVED. Arming is a separate operator decision taken after a
 # report-only reading run whose facets match, with its own `ARMED_ALLOWLIST` entry in
-# `harness/lib/test_hlib.py`. The reading run now exists (`2026-09-03_2154`) and every facet
-# matched, so arming is available to the operator - it is deliberately not taken here, as on
-# RVR-18.
+# `harness/lib/test_hlib.py`. The reading run existed (`2026-09-03_2154`) and every facet
+# matched; the arming itself was taken 2026-09-10 (top of this comment), as on RVR-18.
 #
 # `completedCycles = 0` is the BYTES-side statement of the whole lane: not one cycle
 # dispatched. `skippedCycles` was authored as a `{min=1,max=2}` window because the second
@@ -417,6 +429,7 @@ branchPoints   = { Dock = { min = 1, max = 1 }, Undock = { min = 1, max = 1 } }
 # the recording wrote it, so the save still names the deleted `rover fuel 0` - which is
 # also the honest reading of the state: the route is HOLDING for an endpoint it still
 # expects, not silently re-pointed at something else.
+gating                = true
 count                 = { min = 1, max = 1 }
 dormant               = { min = 0, max = 0 }
 stops                 = { min = 1, max = 1 }

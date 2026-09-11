@@ -31,7 +31,9 @@ Everything the harness fetches or generates lives UNDER `harness/`:
   + `ghostlife.py`, the pure flight-scene ghost-lifecycle parser/evaluator
   behind the `ghostLifecycle` verifier row (`[expectations.ghostLifecycle]`:
   GhostRenderTrace MeshSpawned/MeshDestroyed per-recId spawn/destroy balance,
-  spawn-census window, zero-spawn vacuity floor; REPORT-ONLY unless armed via
+  spawn-census window, `spawnLines` / `destroyLines` line-count windows (the
+  repeat-replay leak the set-based balance cannot see; non-looping lanes only),
+  zero-spawn vacuity floor; REPORT-ONLY unless armed via
   `GHOSTLIFE_ARMED_SPECS` - empty as shipped),
   `provision/` (`provlib.py` pure, `provision.py`
   shell), `missions/` (M-B1: mission shells + `lib/mlib.py` pure mission

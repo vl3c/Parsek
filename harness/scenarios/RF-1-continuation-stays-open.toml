@@ -97,8 +97,9 @@ id = "RF-1-continuation-stays-open"
 # original.MergeState` beside the terminal move, plus the more-open-wins mirror in
 # `MergeInto` - and MERGED to main on 2026-09-08 as `a783879aa`, AFTER this lane's reading
 # run. It emits no new log token and moves none of the tokens below, which is why the
-# reading run's verdict still stands; a re-flight on post-#1658 main is owed as a
-# confirmation, not as a re-derivation.
+# reading run's verdict still stands. The confirmation re-flight on post-#1658 main flew
+# 2026-09-09 as `RF-1-confirm` (PASS attempt 1, mismatches=0; the autotest-status RF-1
+# row) - a confirmation, not a re-derivation.
 #
 # =====================================================================================
 # THE RE-FLY HALF: how the run gets back into FLIGHT to drive it.
@@ -172,6 +173,11 @@ id = "RF-1-continuation-stays-open"
 # `[expectations.rewind]` was armed through the full S4.1 cycle that day (reading run,
 # armed run `2026-09-08_2349`, negative control `2026-09-08_2351` red on one facet,
 # reverted in the same change). The block below carries the record.
+#
+# CLAIM-GAP WAVE (2026-09-10 / -11): GROUP 6 added two D4 tokens off reading
+# `2026-09-10_1739`. The first armed re-flight `2026-09-10_2011` red on a UT literal
+# (re-pinned from bytes); the re-pin flew green as `2026-09-11_0138`, with one negative
+# control per token (`_0142`, `_0147`). GROUP 6 and [dimensionsCovered] carry the record.
 # =====================================================================================
 tier = "operator"
 description = "GS-1 inverted: the same two-stage flight exits to the Space Center with the auto-chute booster STILL UNDER CANOPY, so the non-focus slot is promoted CommittedProvisional and its flight-authored RewindPoint survives - then the lane re-enters FLIGHT, reads the live RewindPoint id off ListHandles and RE-FLIES that slot, the first re-fly in the suite of a RewindPoint KSP physics authored during the same run."
@@ -252,17 +258,49 @@ siblingAirborneAtExit = true
 siblingDownTimeoutSeconds = 240
 
 [dimensionsCovered]
-# BASICS ONLY on a never-flown lane, on RH-1's own claim-is-not-gate ground: a dimension
-# claim states that a value was EXERCISED AND OBSERVED, not that a step was written. The
-# three below are properties of the host that hold the moment the boot lands.
+# HOST BASICS (D14), on RH-1's own claim-is-not-gate ground: a dimension claim states that
+# a value was EXERCISED AND OBSERVED, not that a step was written. The four D14 values are
+# properties of the host that hold the moment the boot lands.
 #
-# WHAT THE READING RUN EARNS, listed so the follow-up commit is mechanical rather than a
-# judgement: `rewind-to-separation` and `refly-gate` off the StartInvoke / Invocation
-# complete pair (RH-1's own tokens); `unfinished-flights-stash` off the promotion line,
-# which would make this the SECOND claiming lane for a cell that R7c alone covers today;
-# `auto-record-launch` / `commit-scene-exit` / `auto-merge` off GS-1's group-3 tokens; and
-# `controlled-decoupled-child` off the breakup line. NOT `rp-disk-reaper`: this lane
-# asserts the reaper DECLINED, which is the opposite of exercising it.
+# CLAIMED 2026-09-11 (claim-gap wave A1-6, make-up round) off the armed re-flight of the
+# re-pinned spec, `2026-09-11_0138` (wave DLL a0abbed1, PASS attempt 1, mismatches=0
+# over 17 required + 4 forbidden, rewind block PASS, 0 ERROR lines). The wave's first
+# armed run `2026-09-10_2011` red on the GROUP 6 UT literal and is not a citation. Every
+# count below is from `_0138`, one token set per cell:
+#  - D4 `hysteresis` <- GROUP 6's `Environment transition: SurfaceStationary ->
+#    SurfaceMobile at UT=... (debounce=3.0s)` (1, UT=29.76). Negative control
+#    `2026-09-11_0142`: `(debounce=3\.0s)` -> `(immediate, debounce=0\.0s)`, the
+#    detector's real immediate-branch shape. PARSEK-FAIL(expectation) on exactly that
+#    entry, drift gate original 1 / inverted 0 in its own KSP.log.
+#  - D4 `surface-graze-suppression` <- GROUP 6's `Split summary: ... surfaceGrazeForward=1
+#    surfaceGrazeBackward=1 ...` (2, one per commit pass). Negative control
+#    `2026-09-11_0147`: `surfaceGrazeForward=1` -> `=0`, PARSEK-FAIL(expectation) on
+#    exactly that entry, drift gate original 2 / inverted 0.
+#  - D9 `rewind-to-separation` <- `Re-Fly (Rewind-to-Separation) StartInvoke` +
+#    `Invocation complete` (1 each; RH-1's tokens).
+#  - D9 `refly-gate` <- the same StartInvoke line. It is reachable only after
+#    InvokeRewind's precondition gate answered OK (the step's expect is OK; a closed
+#    slot REJECTs `refly-gate`), so it witnesses the gate's positive branch.
+#  - D9 `unfinished-flights-stash` <- `IsUnfinishedFlight=true ...
+#    reason=stableLeafUnconcluded slot=1 ... terminal=SubOrbital` (1) + `CommitTree
+#    promoted ... slot=1 ... to CommittedProvisional` (1).
+#  - D1 `auto-record-launch` <- `Recording started` (6). The pattern is generic; the
+#    cell comes from the lane shape (no StartRecording step before the mission,
+#    `autoRecordOnLaunch=true` in step 2). The run's Verbose `Auto-record started (first
+#    staging on pad, stage=2)` (1) is corroboration, not a pin.
+#  - D1 `commit-scene-exit` <- `Silent full-fidelity auto-commit (scene-exit)` (1).
+#  - D1 `auto-merge` <- `exittospacecenter start ... autoMerge=true ...` (1) + the silent
+#    auto-commit.
+#  - D5 `controlled-decoupled-child` <- `ProcessBreakupEvent: controlled child created`
+#    (1) + the two-pid `Controllable split children` (1).
+# The two D4 tokens are the lane's only NEW tokens, so they are the ones with their own
+# controls; the other cells rest on tokens required since the 2026-09-08 reading run and
+# move `coveredBy` only. NOT `rp-disk-reaper`: this lane asserts the reaper DECLINED,
+# which is the opposite of exercising it.
+D1  = ["auto-record-launch", "commit-scene-exit", "auto-merge"]
+D4  = ["hysteresis", "surface-graze-suppression"]
+D5  = ["controlled-decoupled-child"]
+D9  = ["rewind-to-separation", "refly-gate", "unfinished-flights-stash"]
 D14 = ["kerbin", "sandbox", "scene-flight", "scene-ksc"]
 
 [expectations]
@@ -306,6 +344,49 @@ count = { min = 2, max = 8 }
 # GROUP 5 - THE RE-FLY. RH-1's four tokens verbatim, plus the ListHandles line with
 # `count=1`: this run authored exactly one RewindPoint, so a zero-member enumeration -
 # which would make the `${handles.rp0}` substitution unresolvable - cannot read green.
+#
+# GROUP 6 - THE TWO ENVIRONMENT / OPTIMIZER CELLS THIS PROFILE EXERCISES. Added
+# 2026-09-10 (claim-gap wave A1-6) off reading run
+# `2026-09-10_1739_RF-1-continuation-stays-open` (wave DLL a0abbed1, PASS attempt 1,
+# mismatches=0, all 15 older required tokens matched). The D4 claims they support were
+# taken 2026-09-11, after the armed re-flight of the re-pinned spec (`2026-09-11_0138`,
+# PASS attempt 1, mismatches=0) and one negative control per token, each
+# PARSEK-FAIL(expectation) on exactly its inverted entry with the drift gate held in its
+# own KSP.log: `2026-09-11_0142` (hysteresis) and `2026-09-11_0147`
+# (surface-graze-suppression). See [dimensionsCovered].
+#   `Environment transition: SurfaceStationary -> SurfaceMobile at UT=29.76
+#    (debounce=3.0s)` (INFO, EnvironmentDetector's DEBOUNCED branch: the pending
+#   classification is confirmed only after the 3.0 s surface-speed debounce elapsed).
+#   The basis for D4 `hysteresis`, which the catalog places under environment
+#   classification. The immediate branch prints `(immediate, debounce=0.0s)` and cannot
+#   match. NOT FlightRecorder's `Atmosphere boundary confirmed` timer or
+#   BackgroundRecorder's `Environment transition: pid=` line (0 of each in the reading).
+#   THE UT IS REGEXED; RE-PINNED 2026-09-10 FROM BYTES. It was first pinned literal at
+#   UT=29.76, byte-equal on all seven flights of this profile then read (GS-1
+#   `2026-08-05_1025` / `_1026` / `_1052` / `_1110` / `_1141`, RF-1 `2026-09-09_0254`,
+#   the reading). The armed re-flight `2026-09-10_2011` (same wave DLL, spec unedited)
+#   refuted that. It printed `... at UT=29.78 (debounce=3.0s)` and read
+#   PARSEK-FAIL(expectation) on that one entry; the other 16 required tokens, the 4
+#   forbids and the armed rewind block all held. The whole launch timeline sat one
+#   physics tick (0.02 s) later (MechJeb `LaunchStarted = 26.58` against 26.56 in the
+#   reading), while the SurfaceStationary section still closed after 3.18 s and the
+#   debounce still read 3.0 s. The UT is the launch tick, not the mechanism, so it is
+#   free, and `debounce=3\.0s` is the witness. Filed as
+#   RF1-HYSTERESIS-UT-LITERAL-REFUTED-BY-LAUNCH-TICK. The re-pin matches every wave run:
+#   `_1739` 29.76, `_2011` 29.78, then the 2026-09-11 armed re-flight `_0138` 29.76 and
+#   its controls `_0142` 29.78 / `_0147` 29.76. The reading's other two debounced
+#   transitions
+#   (SurfaceMobile -> Atmospheric, Atmospheric -> SurfaceStationary, both 0.5 s) are
+#   not pinned; they moved too (30.80 / 121.68 in the reading, 30.78 / 117.80 in `_2011`).
+#   `Split summary: rec=<id> evaluated=2 ... surfaceGrazeForward=1
+#    surfaceGrazeBackward=1 ...` (Verbose, RecordingOptimizer; the `verboseLogging` step
+#   is load-bearing for it too). The basis for D4 `surface-graze-suppression`. The pod's
+#   recording ('GS1 Auto-Chute Booster', the launch vessel, rec 45da7d5e in the reading)
+#   crosses Surface -> Atmospheric -> Surface on the hop, and predicate step 5
+#   (IsSurfaceGrazePattern) suppresses both boundaries. That is why this profile takes no
+#   split; the header's "no boundary" means no Atmospheric <-> Exo boundary. The reading
+#   printed the line twice with identical text (the mission commit and the re-fly commit
+#   each run the pass). The rec id is a per-run guid and is regexed.
 required  = ["Recording started",
              "Controllable split children: \\[[0-9]+,[0-9]+\\]",
              "ProcessBreakupEvent: controlled child created: pid=[0-9]+",
@@ -320,7 +401,9 @@ required  = ["Recording started",
              "Re-Fly \\(Rewind-to-Separation\\) StartInvoke: sess=.* rp=rp_[0-9a-f]{32}",
              "Invocation complete",
              "ConsumePostLoad: restoring bundle with route-retire cutoffUT=",
-             "Restored: recs=.* pendingScience="]
+             "Restored: recs=.* pendingScience=",
+             "Environment transition: SurfaceStationary -> SurfaceMobile at UT=[0-9.]+ \\(debounce=3\\.0s\\)",
+             "Split summary: rec=[0-9a-f]{32} evaluated=2 grazeForward=0 grazeBackward=0 surfaceGrazeForward=1 surfaceGrazeBackward=1 seamSkipped=0 exoCoastBodyChangeKept=0 splittableButRejected=0"]
 # THE THREE FORBIDDEN PATTERNS, and what each would mean.
 #
 #   `reason=sealedTipClosed` (EffectiveState.cs:1064-1072) is the verdict the seed's slot

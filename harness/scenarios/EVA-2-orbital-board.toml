@@ -109,7 +109,7 @@ allowedAnomalies = []
 # re.search), so the count window is the ONLY numeric guard on the merge.
 count = { min = 2, max = 2 }
 
-# GATE 12, REPORT-ONLY (landed 2026-08-02, deliberately UNARMED - no `gating` key).
+# GATE 12, ARMED 2026-09-10 (`gating = true` below; landed REPORT-ONLY 2026-08-02).
 # WHY THIS BLOCK EXISTS ON THIS SPEC. The window above counts `.prec` FILES, and two
 # EMPTY recordings are still two files - so the exact `{ min = 2, max = 2 }` pin above
 # is STRUCTURALLY INCAPABLE of noticing that neither recording recorded anything. That
@@ -145,20 +145,41 @@ count = { min = 2, max = 2 }
 # On the broken measurement it reads 2 and reds. Keep BOTH keys - `largest` proves
 # something recorded, `trivialRecordings` proves nothing silently stopped.
 #
-# WHY UNARMED. Repo discipline (the `saveParse` R9 precedent, and S4.1's arming
-# workflow): land report-only, take a reading run, then arm as an explicit per-scenario
-# operator decision citing the run ids. The 2026-08-01 numbers above come from a
-# DIFFERENT branch's verification run, not from a run of this committed block, so they
-# size a candidate window - they do not authorize one. Do NOT add `gating = true` in
-# the same change that first measures the window.
+# WHY IT WAITED, AND WHAT ARMED IT. Repo discipline (the `saveParse` R9 precedent,
+# and S4.1's arming workflow): land report-only, take a reading run of the COMMITTED
+# block, then arm as an explicit per-scenario decision citing the run ids. The
+# 2026-08-01 numbers above came from a DIFFERENT branch's verification run, so they
+# sized a candidate window and could not authorize one.
 #
-# WHAT TO DO WITH THE READING. `min = 2` below is the floor the block reports against;
-# every run also records the full distribution (total/largest/smallest/recordings/
-# unparsed) in `results/<runId>.json` under `saveParse.observed.recordings.points`,
-# and on the `verify saveParse ... pointsLargest=` console line. When arming: flip
-# `gating = true` here, add this spec to `ARMED_ALLOWLIST` in test_hlib.py, and flip
-# `test_eva2_declares_the_points_block_unarmed`, all in one commit.
+# THE READING OF RECORD: `2026-09-10_1720_EVA-2-orbital-board` (wave package A2,
+# stock-minimal, wave DLL sha256 a0abbed1...), PASS attempt 1, wall 79 s, every
+# verifier PASS/SKIPPED. `saveParse.observed.recordings.points` read total 6,
+# largest 5, smallest 1, trivialRecordings 1, recordings 2, unparsed 0, with the
+# report-only mismatch list empty: the kerbal finalized `points=5` (terminal
+# Boarded) and the pod `points=1` (terminal Orbiting), the healthy calibrated shape.
+# The stock orbital-EVA trigger FIRED on that run (14 `dT is NaN!` lines and a
+# `SnapshotPatchedConicChain ... non-finite elements` WARN on the kerbal), so the
+# windows held on the very condition they exist for. Both held as declared, so the
+# arming moved NO number: it added `gating = true` and nothing else here, together
+# with the `ARMED_ALLOWLIST` entry and `test_eva2_declares_the_points_block_armed`
+# in test_hlib.py.
+#
+# THE ARMED RE-FLIGHT: `2026-09-10_2122_EVA-2-orbital-board` (same DLL), PASS attempt 1,
+# wall 75 s, saveParse GATING PASS with armed ['recordings.points'] and no mismatch, on
+# the same six numbers (total 6, largest 5, smallest 1, trivialRecordings 1, recordings
+# 2, unparsed 0); the stock trigger fired again (6 `dT is NaN` lines).
+# THE NEGATIVE CONTROL: `2026-09-11_0133_EVA-2-orbital-board` (same DLL, the wave's
+# make-up round), `largest` edited in place to a 99-point floor and reverted:
+# PARSEK-FAIL(save-structure) attempt 1 on EXACTLY one mismatch,
+# `recordings.points.largest 5 < min 99`, with expectations PASS. It is valid because
+# its own run measured largest 5 (the committed floor of 2 held), trivialRecordings 1
+# and unparsed 0. Its first queueing (2026-09-10) never launched: the operator's chain
+# read the armed run's PASS row (an empty `subkind=`) as unflown. It is the first armed
+# points block anywhere, so it took its own inversion rather than a shared one (V18T's
+# and RVR-20's reason: a block with its own parse path). Reading, armed re-flight and
+# control are all in: the arming discipline is complete.
 [expectations.recordings.points]
+gating            = true
 largest           = { min = 2 }
 trivialRecordings = { max = 1 }
 
