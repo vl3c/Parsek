@@ -976,6 +976,20 @@ namespace Parsek
             get { return showUI; }
             set { showUI = value; }
         }
+
+        /// <summary>
+        /// The main window's live rect. Read by the automation-only <c>UiAction</c> seam verb
+        /// (<c>op=describe</c> reports it, <c>op=rect</c> moves it).
+        /// <para>Its SIZE is host-controlled: <c>OnGUI</c> passes a fixed
+        /// <c>GUILayout.Width(250)</c>, so a written width is replaced on the next draw. A
+        /// written POSITION holds, which is what a census needs - the sub-windows seed their
+        /// own default position from this rect.</para>
+        /// </summary>
+        internal Rect MainWindowRectForTesting
+        {
+            get { return windowRect; }
+            set { windowRect = value; }
+        }
         private static ToolbarControl toolbarControl;
         private ParsekUI ui;
 

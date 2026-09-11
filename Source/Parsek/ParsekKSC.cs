@@ -22,6 +22,30 @@ namespace Parsek
         private bool showUI;
         private Rect windowRect = new Rect(20, 100, 200, 10);
 
+        /// <summary>
+        /// The toolbar's "is the Parsek UI shown" flag, exposed for the same reason
+        /// <c>ParsekFlight.ShowUIForTesting</c> is: every window draw in <c>OnGUI</c> sits
+        /// behind it, nothing clicks the toolbar in an unattended run, and a capture of a
+        /// window therefore needs this raised first. Written only by the two toolbar
+        /// callbacks otherwise.
+        /// </summary>
+        internal bool ShowUIForTesting
+        {
+            get { return showUI; }
+            set { showUI = value; }
+        }
+
+        /// <summary>
+        /// The main window's live rect. Its SIZE is host-controlled even more strongly than
+        /// in flight: <c>OnGUI</c> resets <c>height</c> to 0 every frame and passes a fixed
+        /// <c>GUILayout.Width(250)</c>, so only the POSITION of a written rect survives.
+        /// </summary>
+        internal Rect MainWindowRectForTesting
+        {
+            get { return windowRect; }
+            set { windowRect = value; }
+        }
+
         // KSC ghost playback state — keyed by recording index in CommittedRecordings
         private Dictionary<int, GhostPlaybackState> kscGhosts =
             new Dictionary<int, GhostPlaybackState>();
