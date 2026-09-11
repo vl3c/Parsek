@@ -15,6 +15,63 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~RF1-HYSTERESIS-UT-LITERAL-REFUTED-BY-LAUNCH-TICK: RF-1's armed re-flight red on a UT the claim-gap wave had pinned literal, because the autopilot launch landed one physics tick later~~ [FILED 2026-09-10 by the claim-gap wave (package A1-6). A HARNESS PIN finding, not a product defect. CLOSED 2026-09-11: the re-pinned spec flew green and both D4 claims were taken]
+
+Filed 2026-09-10 by the claim-gap wave (package A1-6). A HARNESS PIN finding, not a product defect. The pin is RE-PINNED from bytes. CLOSED 2026-09-11 by the wave's make-up round (below).
+
+**What happened.** The wave pinned EnvironmentDetector's debounced transition on `RF-1-continuation-stays-open` literally: `Environment transition: SurfaceStationary -> SurfaceMobile at UT=29\.76 \(debounce=3\.0s\)`. UT=29.76 had been byte-equal on all seven flights of the profile read (GS-1 `2026-08-05_1025` / `_1026` / `_1052` / `_1110` / `_1141`, RF-1 `2026-09-09_0254`, the wave reading `2026-09-10_1739`). The armed re-flight `2026-09-10_2011` ran the same wave DLL (a0abbed1) and the unedited spec. It printed `... at UT=29.78 (debounce=3.0s)` and read PARSEK-FAIL(expectation) with that one mismatch. Mission MISSION-OK, the armed rewind block PASS, the other 16 required tokens and the 4 forbids all held, and 0 ERROR lines.
+
+**The mechanism, from the two logs.** The whole launch timeline sat one physics tick (0.02 s) later: MechJeb `LaunchStarted = 26.58` against 26.56. The SurfaceStationary TrackSection still closed after 3.18 s and the debounce still read 3.0 s. The later transitions moved too: SurfaceMobile -> Atmospheric 30.78 against 30.80, and the landing 117.80 against 121.68. So the UT is the tick on which the autopilot's launch lands, not a property of the debounce. The seven-flight agreement was luck.
+
+**Fix (harness, done).** The UT is regexed (`UT=[0-9.]+`), and `debounce=3\.0s` stays the witness. The re-pin matches both wave runs with zero mismatches (checked offline against both archived KSP.logs). This was not widened to hide a defect: the debounce value and the section duration are unchanged between the two runs.
+
+**Closed 2026-09-11 (the wave's make-up round, same wave DLL a0abbed1).**
+- The armed re-flight of the re-pinned spec, `2026-09-11_0138`, read PASS attempt 1 with mismatches=0 over 17 required + 4 forbidden, MISSION-OK, rewind block PASS. It printed UT=29.76, and its two controls printed 29.78 and 29.76. So the launch tick really does wander by one physics step between flights; the regexed UT absorbs it while `debounce=3\.0s` stays literal.
+- One negative control per D4 token, each PARSEK-FAIL(expectation) on exactly its inverted entry, with the drift gate held in its own KSP.log: `2026-09-11_0142` (`(debounce=3\.0s)` -> `(immediate, debounce=0\.0s)`, original 1 / inverted 0) and `2026-09-11_0147` (`surfaceGrazeForward=1` -> `=0`, original 2 / inverted 0).
+- D4 `hysteresis` and `surface-graze-suppression` are CLAIMED on RF-1, together with its seven coveredBy-only D1 / D5 / D9 cells, each verified token-per-cell on `_0138`.
+
+**The lesson for other lanes.** A UT printed by an autopilot-flown profile is not a fixture constant, however many flights agree. Pin the mechanism field, and regex the clock.
+
+## D3-BOUNDARY-SEAM-HAS-NO-DETERMINISTIC-WITNESS: the registry cell `boundary-seam` has a production token, but no lane emits it on every flight, so no spec can gate it
+
+Filed 2026-09-10 by the claim-gap wave (package A1-9). A COVERAGE gap, not a defect. OPEN.
+
+**The token.** When a loaded background vessel goes on rails mid-section, `BackgroundRecorder.FlushLoadedStateForOnRailsTransition` writes the INFO line `Persisted no-payload on-rails boundary section: pid=<pid> <prev>-><next> at UT=<ut> (seam=1)` (BackgroundRecorder.cs:5054-5056). The section it closes carries `isBoundarySeam=true`, which step 1 of `RecordingOptimizer.IsSplittableEnvOrBodyBoundary` honours.
+
+**Why no claim.** A 2026-09-10 scan of the 508 archived `KSP.log` files under `logs/` found the `(seam=1)` line in 30. It is intermittent within every lane that shows it:
+- B2 2 of 10, B4 1 of 8, B5 6 of 27, B6 3 of 6, B7 1 of 9, B11 1 of 3, B15 3 of 11
+- BDOCK-1 8 of 17, R1 2 of 4, V1 1 of 6
+- one rover session, and RF-12L 1 of 1 (`2026-09-09_2215`, its only archived run)
+
+The optimizer's `Split summary ... seamSkipped=[1-9]` appears in none of the 508. No in-game test under `Source/Parsek/InGameTests/` references `isBoundarySeam`. A token that fires on some healthy runs of a lane cannot be a required pattern.
+
+**What would close it.** Either of:
+- A lane where a loaded background vessel deterministically goes on rails mid-section. RF-12L is the first candidate: a stability reading pair would show whether its one sample is a property of the lane.
+- An in-game test driving `FlushLoadedStateForOnRailsTransition` with a post-assert line. This is C#, outside the harness-only claim-gap wave.
+
+After either, re-read before pinning.
+
+## D3-RELATIVE-LOOP-HAS-NO-PRODUCTION-PATH-CELL: no flown cell plays a loop-anchored Relative section through the production `LoopAnchorVesselId` path with the production positioner
+
+Filed 2026-09-10 by the claim-gap wave (package A1-9). A COVERAGE gap, not a defect. OPEN.
+
+**What exists and why it does not count.**
+- The V13 loop-anchored debris cells (`GhostPlayback`, RuntimeTests.cs; the loop-anchor pid is stamped at :23124) position through `V13DebrisRuntimePositioner` (instantiated at :22732-:22974), a test `IGhostPositioner`.
+- H11's phase-6 loop fixture (`rec.LoopAnchorVesselId = 9001u`, :25886) runs under `AnchorPropagator.ResolverOverrideForTesting = stub` (:25893).
+- `RouteLiveAnchor`'s `LoopedRelativeMemberDocksWithLiveAnchor` (IncompleteBallisticRuntimeTests.cs:2222, flown on LT-4) asserts the anchor POSE from `RecordedRelativeAnchorPoseResolver.TryResolveSectionAnchorPose`: the recorded-anchor live bind, not the live-PID contract the cell names.
+
+**What would close it.** A new in-game cell that plays a loop Relative section through the production flight positioner and asserts the placed ghost against the live anchor, with a post-assert line. This is C#, outside the harness-only claim-gap wave.
+
+## OPTIMIZER-INGAME-CELLS-LEAK-RECORDINGSTORE-SUPPRESSLOGGING: both `Optimizer` in-game cells set `RecordingStore.SuppressLogging = true` and never restore it, so every `RecordingStore.Log` site stays silent for the rest of the KSP process
+
+Filed 2026-09-10 by the claim-gap wave (package A1) while appending `SceneAndPatch` to LT-2. A TEST defect, not a product defect. OPEN.
+
+**The shape.** `RealAscentReentry_ProducesPerPhaseChain_InGame` and `EccentricGrazing_StaysOneSegment_InGame` (`Source/Parsek/InGameTests/PersistenceSplitOptimizerTest.cs`, lines 63 and 168) set the static flag at the top of the body. Neither `finally` restores it, and `InGameTestRunner.cs` never references it. The flag gates `RecordingStore.Log` and the sites that read it directly, so once the category has run, those lines are silent until the process exits. Direct `ParsekLog.*` calls are unaffected, which is why LT-2 run `_1508` still printed its `Split recording` and `TrimBoringTail` lines.
+
+**Who it touches.** `LT-2-long-tail-spacecenter` is the only committed spec that batches `Optimizer`, and it batches it FIRST, so every later constituent runs with the flag set. Since 2026-09-10 that includes `SceneAndPatch`: the KSC cell's own tree insert / remove lines are silent, while its post-assert probe line (a direct `ParsekLog.Verbose`) prints. Any manual Ctrl+Shift+T batch that reaches `Optimizer` early is affected the same way. None of LT-2's required tokens comes from a gated site: the start echo and the `BATCH_COMPLETE` lines are direct `ParsekLog` calls. So nothing reds today; the cost is lost diagnostics.
+
+**Fix.** Capture the previous value on entry and restore it in each cell's `finally`. That is a test-body change, outside the harness-only claim-gap wave, so it is filed here rather than fixed.
+
 ## U1-GUI-CENSUS-LOCAL-HOST-REDS-THE-ANALYZER: the GUI census's only viable host carries 25 pre-existing analyzer FAILs; the lanes now declare the analyzer row REPORT-ONLY, and what those 25 findings ARE is still open
 
 MEASURED 2026-09-10 while authoring the GUI census (branch `gui-census`), not predicted.

@@ -63,6 +63,8 @@ id = "RF-5-seal-closes-the-slot"
 # run 2 (`RF-5`) then PASS attempt 1, expectations mismatches=0, saveParse REPORT
 # mismatches=0 (`rewindPoints=2 supersedeRows=0 tombstones=0`). RE-FLOWN on merged main
 # the same day, PASS again. Nothing armed.
+# CLAIMED 2026-09-10 (claim-gap wave A1-8): D9 `seal-stash-fly` + `rp-disk-reaper`, off
+# required tokens only; see [dimensionsCovered].
 # FORMERLY: NEVER FLOWN. `tier = "operator"`. Nothing armed.
 # =====================================================================================
 tier = "operator"
@@ -114,10 +116,22 @@ steps = [
 ]
 
 [dimensionsCovered]
-# BASICS ONLY until the reading run. What it earns: `seal-stash-fly` - a D9 cell R7c is
-# the ONLY claiming lane for today, and R7c reaches it through an in-game cell rather than
-# through the seam verb - and `rp-disk-reaper` from a seal rather than from a commit,
-# which no lane covers.
+# CLAIMED 2026-09-10 (claim-gap wave A1-8), claim-only under the wave's G1 exception.
+# Both cells rest on tokens ALREADY REQUIRED here, and logContracts.required always
+# gates. The cited runs are the lane's two green flights of 2026-09-09, collected as
+# `logs/2026-09-09_0217_RF-5-seal-closes-the-slot` and `..._0218_...`. Both matched
+# every required token below and none of the forbidden ones (re-counted 2026-09-10).
+#  - D9 `seal-stash-fly` <- `sealslot complete mode=slot ... alreadySealed=False` +
+#    `Sealed slot=1 ... mergeState=CommittedProvisional->Immutable terminal=Orbiting
+#    reaperImpact=willReap reaped=1`. That is the SEAL arm, through the seam verb and the
+#    production UnfinishedFlightSealHandler.TrySeal. Stash and fly are not exercised
+#    here; R7c's in-game cells claim the same value on the same arm-level basis.
+#  - D9 `rp-disk-reaper` <- `ReapOrphanedRPs: reaped=1 remaining=2` + the
+#    re-enumeration `listhandles kind=rewindpoints count=2` + the second seal's
+#    `unknown-rp` rejection, with `ReapOrphanedRPs: reaped=[23]` forbidden. The same
+#    summary line carries `fileDeleteOk=1` in both runs (unpinned): the point left the
+#    disk, and it left from a SEAL rather than from a commit.
+D9  = ["seal-stash-fly", "rp-disk-reaper"]
 D14 = ["kerbin", "sandbox", "scene-flight"]
 
 [expectations]
