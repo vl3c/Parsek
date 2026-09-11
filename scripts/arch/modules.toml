@@ -1,0 +1,144 @@
+# Parsek architecture-view module map.
+#
+# `scripts/arch/archview.py` reads this file to assign every C# file under
+# Source/Parsek/ to exactly one module. It is the single hand-authored input;
+# edges.json and every view are derived from it.
+#
+# Rules are evaluated in file order and the FIRST match wins.
+#   folder = match the first path segment under Source/Parsek/ (only applies to
+#            files inside a subfolder; a folder rule never matches a root file).
+#   prefix = a regex applied to the file name of a ROOT-LEVEL file only.
+# A file that matches no rule is reported as unclassified and skipped; the
+# Core catch-all is written last so it can never shadow a rule above it.
+
+# --- folder rules ---------------------------------------------------------
+
+[[module]]
+name = "Analyzer"
+folder = "Analyzer"
+
+[[module]]
+name = "Diagnostics"
+folder = "Diagnostics"
+
+[[module]]
+name = "Display"
+folder = "Display"
+
+[[module]]
+name = "GameActions"
+folder = "GameActions"
+
+[[module]]
+name = "InGameTests"
+folder = "InGameTests"
+
+[[module]]
+name = "Logistics"
+folder = "Logistics"
+
+[[module]]
+name = "MapRender"
+folder = "MapRender"
+
+[[module]]
+name = "Patches"
+folder = "Patches"
+
+[[module]]
+name = "Reaim"
+folder = "Reaim"
+
+[[module]]
+name = "Rendering"
+folder = "Rendering"
+
+[[module]]
+name = "TestCommands"
+folder = "TestCommands"
+
+[[module]]
+name = "Timeline"
+folder = "Timeline"
+
+[[module]]
+name = "UI"
+folder = "UI"
+
+# --- root-level file rules -------------------------------------------------
+
+[[module]]
+name = "Missions"
+prefix = "^Mission"
+
+# The Gloops recorder engine has no root-level files today; its only file,
+# UI/GloopsRecorderUI.cs, belongs to the UI folder module. The rule stays so
+# the declared [forbidden] Gloops boundaries are enforced the moment a
+# Gloops root file appears.
+[[module]]
+name = "Gloops"
+prefix = "^Gloops"
+
+[[module]]
+name = "Ghost"
+prefix = "^Ghost|^Waterfall|^Pristine|^ReStock"
+
+[[module]]
+name = "Rewind"
+prefix = "^Rewind|^Supersede|^Merge|^EffectiveState|^ReFly|^LoadTimeSweep|^RecordingTreeSplit"
+
+[[module]]
+name = "SwitchIntent"
+prefix = "^Switch|^StockAction"
+
+[[module]]
+name = "Recording"
+prefix = "^Recording|^BackgroundRecorder|^FlightRecorder|^Chain|^Track|^Optimiz"
+
+[[module]]
+name = "Trajectory"
+prefix = "^Trajectory|^Orbit|^Ballistic|^PatchedConic|^TwoBody|^Incomplete"
+
+[[module]]
+name = "Crew"
+prefix = "^Crew|^Kerbal"
+
+[[module]]
+name = "Controllers"
+prefix = "^Parsek(Flight|KSC|TrackingStation|Scenario|Harmony|Playback)|^WatchMode"
+
+[[module]]
+name = "LogIO"
+prefix = "^ParsekLog|^FileIO|^ParsekProcess|^Suppression|^PreParsek"
+
+# Catch-all for unclassified root files. MUST stay last.
+[[module]]
+name = "Core"
+prefix = ".*"
+
+# --- production views ------------------------------------------------------
+# Modules listed here are hidden from the production views (dot + matrix) and
+# from the checker's metrics table. explore.html shows them behind a checkbox.
+
+[tooling]
+modules = ["InGameTests", "TestCommands", "Diagnostics", "Analyzer"]
+
+# --- dependency policy -----------------------------------------------------
+# Both lists use the edge form "From -> To", meaning "code in From references
+# types declared in To".
+#
+# forbidden: edges that must never exist. Report-only today.
+# allowed:   while this list is EMPTY the checker skips the allowlist section
+#            entirely. Once any edge is listed, every production edge not
+#            listed here is reported.
+
+[forbidden]
+edges = [
+  "Missions -> Logistics",
+  "Gloops -> GameActions",
+  "Gloops -> Timeline",
+  "Ghost -> GameActions",
+]
+
+[allowed]
+edges = []
