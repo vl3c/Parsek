@@ -125,11 +125,13 @@ steps = [
 # The environment axes, plus three cells claimed 2026-09-10 (claim-gap wave A1) after the
 # armed re-flight and one negative control per token (see the header). A tally pin claims
 # no behaviour cell (see LT-1), so each claim below rests on a CELL token instead:
-#  - D3 `relative-anchored-nonloop`: the KSC probe's post-assert line plus the
-#    positioner's own `RELATIVE KSC playback resolved` line.
+#  - D3 `relative-anchored-nonloop`: the KSC probe's post-assert line is the claim
+#    token, and it is the one with its own negative control (`_2005`).
 #    ParsekKscRelativePlaybackUsesRecordedAnchor plays a Relative section carrying
 #    `anchorRecordingId` through the production KSC positioner. The probe line prints
-#    only after the < 0.25 m assert held.
+#    only after the < 0.25 m assert held. The positioner's own `RELATIVE KSC playback
+#    resolved` line is also required, but only as corroboration: no control inverted
+#    it (`_2005` left it matched), so the claim does not rest on it.
 #  - D4 `tail-trim`: the production `TrimBoringTail: trimmed ...` line from
 #    RunOptimizationPass's tail trim. The grazing cell does not assert the trim, so the
 #    claim rests on the production line itself, which is fixture-literal and
@@ -180,10 +182,12 @@ count = { min = 0, max = 0 }
 #    asserts of ParsekKscRelativePlaybackUsesRecordedAnchor) plus the positioner's own
 #    `RELATIVE KSC playback resolved: ... anchorRec=runtime-ksc-recorded-anchor` line
 #    (Verbose, ParsekKSC.Playback, emitted only on a successful Relative pose). The
-#    basis for D3 `relative-anchored-nonloop`. The reading measured `error=0.000m`; the
-#    error is a float residual whose size depends on the scene's floating origin, so it
-#    is regexed to under 1 m (the cell itself asserts under 0.25 m). The positioner
-#    line's dx / dy / dz and |offset| are the cell's fixture offset and are literal.
+#    probe line is the D3 `relative-anchored-nonloop` claim token (control `_2005`);
+#    the positioner line is uncontrolled corroboration. The reading measured
+#    `error=0.000m`; the error is a float residual whose size depends on the scene's
+#    floating origin, so it is regexed to under 1 m (the cell itself asserts under
+#    0.25 m). The positioner line's dx / dy / dz and |offset| are the cell's fixture
+#    offset and are literal.
 required  = [
   "runtests start category=Optimizer,Recording,ResourceReconciliation,WarpToTime,TestRunnerIsolation,SwitchIntentPatch,SceneAndPatch isolated=false strict=false multi=7",
   "BATCH_COMPLETE v1 total=2 passed=2 failed=0 skipped=0 category=Optimizer scene=SPACECENTER",
