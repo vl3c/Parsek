@@ -8,6 +8,25 @@ All notable changes to Parsek are documented here.
 
 _(unreleased — entries accumulate here per commit)_
 
+### Added
+
+- **Developer tooling: the source tree now has a module dependency map with three
+  ways to look at it, and a boundary check that reports without failing anything.**
+  Parsek is a single assembly of roughly 750 files, and until now nothing showed how
+  its parts depend on one another. `scripts/arch/archview.py` groups every file into
+  a module using the hand-written `scripts/arch/modules.toml`, then counts which
+  modules reference which by matching identifiers against declared type names (a
+  source-text approximation, not a compiler) and writes the result to
+  `docs/dev/arch/`: a layered graph, a dependency structure matrix, and an
+  interactive explorer where clicking a module shows its direct neighbours. Running
+  it with `--check` also prints a metrics table, every pair of modules that
+  reference each other, and every edge the project has declared must not exist. On
+  today's tree that last list has two entries: Missions code referencing Logistics,
+  and ghost code referencing the ledger's game-state types. The checker always
+  exits 0 and gates nothing; a version that could fail a build would have to read
+  the compiled code (Roslyn), because a text scan cannot see conditional
+  compilation or reflection. No player-visible behavior changes.
+
 ### Changed
 
 - **Automated testing: five fixes to the new hover / point / open-everything support,
