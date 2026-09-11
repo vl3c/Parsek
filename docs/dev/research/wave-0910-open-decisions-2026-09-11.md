@@ -189,7 +189,7 @@ RECOMMENDATION: nightly. MC-1 / MC-2 are already nightly on modded-compat; MC-3 
   (`ParsekScenario.cs:7405`, `RecordingTreeRecordCodec.cs:669`); no recorder path produces
   it. RECOMMENDATION: a synthetic injected-recordings preset (`RecordingBuilder` plus a
   `WithLoopAnchorVesselId`) on a fixture whose active vessel is the anchor. It gates the
-  engine's production lines (`GhostPlaybackLogic.WarpLoopPolicy.cs:791`;
+  engine's production lines (`GhostPlaybackLogic.WarpLoopPolicy.cs:792`;
   `GhostPlaybackEngine.cs:5238-5260`) and a placement facet. Generator + preset + one seam
   lane, 3 flights, no product C#. Confidence: medium [c7].
 
@@ -288,8 +288,8 @@ note says why the registry PR is third there.
 - [c6] Section 7: `scan_unity_exceptions` is at `hlib.py:5783` (was `:5391`), and
   `evaluate_unity_exceptions` is at `:5813`.
 - [c7] Section 8: the memo's `WarpLoopPolicy.cs:792` is the file
-  `GhostPlaybackLogic.WarpLoopPolicy.cs`. Its `ShouldSpawnLoopedGhost: ... anchor pid=...
-  valid` Verbose line is at `:791`.
+  `GhostPlaybackLogic.WarpLoopPolicy.cs`. The line number is right: its
+  `ShouldSpawnLoopedGhost: ... anchor pid=... valid` Verbose line is at `:792`.
 - [c8] Section 11: the memo's 553 is a later archive count than the todo's 2026-09-10 scan
   (6 of 508, the same six hits); it is not re-derived here. The token is at
   `BackgroundRecorder.cs:1432`.

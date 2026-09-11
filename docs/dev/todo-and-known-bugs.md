@@ -24,10 +24,14 @@ When referencing prior item numbers from source comments or plans, consult the r
 - Neither function looks at the stack frames under an exception. So an armed ceiling (GS-4's
   `maxTotal = 4`) budgets stock and MechJeb noise, and a Parsek-frame exception inside the
   budget passes unnoticed.
-- The wave's rule "a `Parsek.` frame in any NRE stack is a finding, never a higher ceiling"
-  (ruling A4-b) is therefore enforced only by a human reading the log. That is how
+- The wave's ruling A4-b, "A `Parsek.` frame in any NRE stack -> finding + todo, never a
+  higher ceiling.", is therefore enforced only by a human reading the log. That is how
   GHOST-MAP-ENSURE-ORBIT-RENDERERS-TEARDOWN-NRE (V15T `2026-09-10_1917`) was found, on a lane
   where the row is report-only.
+- Related, not a duplicate: L2-STOCK-CREWHATCH-TEARDOWN-NRE-UNDER-A-ZERO-GATE leaves open a
+  stock `CrewHatchController.OnDestroy` NRE at FlushAndQuit under L2's `maxTotal = 0`, because
+  the block has no per-signature allowlist. The `afterQuit` / `parsekFrames` counts below are
+  the instrument that entry's (a)/(b) choice lacks.
 
 **Fix.**
 1. Parse the stack block after each exception line, and report `parsekFrames` (exceptions
@@ -536,7 +540,7 @@ Author it synthetically instead:
   anchor;
 - one seam lane gates the engine's production lines and a placement facet. The lines are the
   `ShouldSpawnLoopedGhost: ... anchor pid=... valid` line
-  (`GhostPlaybackLogic.WarpLoopPolicy.cs:791`) and `GhostPlaybackEngine.cs:5238-5260`.
+  (`GhostPlaybackLogic.WarpLoopPolicy.cs:792`) and `GhostPlaybackEngine.cs:5238-5260`.
 
 Cost: generator + preset + one lane, 3 flights, no product C#. Confidence medium. Roadmap
 "Priority register (2026-09-11)" item C5; no decision needed.
@@ -12161,6 +12165,9 @@ name a `ReferenceFrame` member either: the enum has exactly `Absolute`, `Relativ
 `parent-anchored-debris`.
 Build: delete each cell or redefine it against a real symbol, with the rationale in the
 registry comment. The coverage denominator moves, so do it before the next snapshot.
+The `stop-on-switch` call is now owned by D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE
+(roadmap "Priority register (2026-09-11)" item B3), which carries the redefinition
+recommendation; this paragraph keeps only the `surface-body-fixed` half.
 
 **R3. Run S1.5 and S4.1 unattended; their operator-tier premise looks stale.**
 Both are `tier = "operator"` (excluded from every cadence, never run) on the stated

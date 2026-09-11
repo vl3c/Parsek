@@ -380,8 +380,9 @@ The ranked answer to "what next" after the 2026-09-10 harness wave. Re-derived o
 - the GUI census (#1667 / #1668 / #1669) and the GUI inventory doc (#1674).
 
 It supersedes the ORDER in the 2026-09-08 register below. That register, the Build-order
-tiers and the per-program sections stay the DEFINITIONS and the record. This register states
-no status: verdicts, run ids and armed state are in `autotest-status.md`.
+tiers and the per-program sections stay the DEFINITIONS and the record. This register keeps
+no status rows: verdicts, run ids and armed state are recorded in `autotest-status.md`, and
+the few named below are pointers to it.
 
 Re-derive before acting:
 - `ls harness/scenarios/*.toml`: **256** specs (125 nightly, 26 daily, 105 operator, parsed
@@ -485,9 +486,9 @@ owning todo entry. All OPEN; none applied.
 ### (C) Ranked work
 
 This is the memo's order (its items 2-7) with one change, so that decision-free items lead.
-The registry PR, the memo's first item, is listed third here because it cannot start until
-seven of the decisions above are ruled. Once they are, it is the cheapest item and goes
-first.
+The registry PR, the memo's first item, is listed third here because every one of its parts
+waits on a decision: eight of the ten above (B1-B5, B7, B9, B10), part by part. As each is
+ruled, its part is the cheapest work on the list and can go first.
 
 1. **Unity-scanner stack frames** (harness instrument).
    - Scope: `hlib.scan_unity_exceptions` learns to read the stack under each exception line
