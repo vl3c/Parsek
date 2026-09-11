@@ -218,6 +218,13 @@ id = "V12-eeloo-player-loop"
 #            bare block; no existing step changed.
 #   NOTE     EXPECT A THIN READING, for V9's reason (quits ~1 s after
 #            StartLoopPlayback): an arm-only baseline on the Eeloo fixture, not a dwell.
+#   CRITERION (b), 2026-09-10 (roadmap confirmation criterion (b); todo
+#            V-PAIR-CRITERION-B-RENDER-CONTROL-DEBT): a render-token inversion is
+#            STRUCTURALLY IMPOSSIBLE on this lane. It quits about 1 s after
+#            StartLoopPlayback and reaches no render epoch, and its `required` array
+#            holds routing tokens only (the MissionConfig / StartLoopPlayback echoes,
+#            the classifier, re-aim, cadence and loiter lines), so there is no render
+#            token to invert, and pinning one would be structurally unsatisfiable.
 # =====================================================================================
 tier = "operator"
 description = "ARMED: the player loop workflow on the Eeloo program's committed recording -- mark the B21 tree a loop unit and start loop playback. Flown twice green 2026-08-13 (`_0053`/`_0055`, byte-identical on every measured token), and now the regression floor for a healthy ENGAGED reading at the program's deepest span>synodic ratio: the unit classifies ENGAGED re-aim Kerbin->Eeloo via Sun on a 20-segment member, its cadence 48,883,481.633 is EXACTLY 5x the 9,776,696.327 s synodic (raw span 47,036,720 = 4.8111 synodic, Ceiling 5, against Dres's and Eve's multiple 2), and the loiter compressor cuts the 5.09M s LKO ejection wait for 10.8% of the span (tof 41.84M s = 89.0%) -- against 41.4% at Dres on a span 2.31x smaller, so the compressor's purchase shrinks as the coast lengthens rather than the composition inverting (Dres was tof-majority too, 58.3%). Count pinned at the measured 6."

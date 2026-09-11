@@ -737,6 +737,11 @@ Two further facts a reader of this design needs about what shipped:
    Kerbin-arrival return subjects (the G2/V20K dependency). The manifest
    records per host; the verifier must not demand KSC records from a
    structurally ineligible subject.
+   MEASURED 2026-09-10: a Kerbin-ARRIVING but Jool-ROOTED subject is excluded
+   too. V20K's reading `2026-09-10_1858` read `0 eligible`, and its SPACECENTER
+   manifest carried planUnits 1, dwells 0, cycles 0 and no findings, with three
+   defined-unevaluable reasons: the verifier stayed quiet, as this risk requires.
+   The KSC subjects that can carry a composition reading are Kerbin-ROOTED (V22K).
 4. **Map renders one instance of an overlapping mission.** Per-instance
    composition is flight-mesh territory; the manifest's overlap coverage is
    the primary/secondary boundary machinery only, stated in RC-CYCLE.

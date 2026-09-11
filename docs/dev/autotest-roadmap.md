@@ -57,9 +57,15 @@ M-A6 stack provisioner, M-B1 mission library, M-B2 ledger oracle, M-C1 seam verb
 batch 1, M-C2 EVA verbs. Status and per-module proof live in `autotest-status.md`.
 None of the items in this roadmap are blocked on a missing module.
 
-### Scenarios: 255 committed
+### Scenarios: 256 committed
 
-Re-derived 2026-09-11 on `cheap-flights-arming` after it merged origin/main `f7141586f`:
+Re-derived 2026-09-11 on `loop-render-residue` after it merged origin/main `afa1d47c0`:
+`ls harness/scenarios/*.toml` returns **256** files, the total `autotest-status.md`'s
+`## Test cases` header states (255 on main `afa1d47c0`, whose `MC-3-better-time-warp`
+came in #1671; the branch adds `V20K-jool-kerbin-ksc-arrival`; tiers: 125 nightly, 26
+daily, 105 operator, parsed from the specs' `tier` keys).
+
+The derivation before it: re-derived 2026-09-11 on `cheap-flights-arming` after it merged origin/main `f7141586f`:
 `ls harness/scenarios/*.toml` returns **255** files, the total `autotest-status.md`'s
 `## Test cases` header states (254 on main `f7141586f`, whose `GS-9-kerbalx-repeat-rewind`
 and `S0.12-switch-noop-discard` came in #1673; the branch adds `MC-3-better-time-warp`;
@@ -99,7 +105,15 @@ these rather than editing them by memory; both numbers have moved many times.
 
 ### Coverage: 184 of 248 registry cells (was 83 of 241 at the baseline, 108 of 242 on 2026-08-04, 162 of 247 on 2026-09-07 before G1 / G3b closed, 163 of 248 on 2026-09-08 before the ghost-replay claim pass, 166 after chain-interaction, 171 after Stage B, 172 after the D12 rep-penalty claim, 178 after the claim-gap wave's first pass, 181 after the claim-gap wave, 182 after the ghost-replay Tier B wave, 184 after wave package A2's two arming claims)
 
-Re-derived 2026-09-11 on `cheap-flights-arming` (wave package A2) after it merged
+Re-derived 2026-09-11 on `loop-render-residue` after it merged origin/main `afa1d47c0`
+(wave package A2, PR #1671, the last of the four wave PRs before this one):
+`hlib.compute_coverage(specs, [], registry)` over the 256 committed specs returns
+`values 248 covered 184 uncovered 64`, UNCHANGED by this branch: its one spec,
+`V20K-jool-kerbin-ksc-arrival`, claims only D14 `scene-ksc` and `sandbox`, both already
+covered, so it moves their `coveredBy` membership and no count. Main `afa1d47c0` alone
+reads 184 over its 255 specs; the branch before this merge read 172 over its 253.
+
+The derivation before it, 2026-09-11 on `cheap-flights-arming` (wave package A2) after it merged
 origin/main `f7141586f` (the claim-gap wave, PR #1670, and the ghost-replay Tier B
 wave, PR #1673): `hlib.compute_coverage(specs, [], registry)` over the 255 committed
 specs returns `values 248 covered 184 uncovered 64`. The claims are disjoint: main's 182
@@ -204,8 +218,9 @@ committed specs and `harness/coverage/registry.toml` returns exactly:
 values 248   covered 163   uncovered 85   expectedFailValues 0   xpass 0
 ```
 
-Per dimension (total / uncovered) for the CURRENT derivation above (255 specs, 184 of
-248, re-derived 2026-09-11 on `cheap-flights-arming` after its merge of origin/main
+Per dimension (total / uncovered) for the CURRENT derivation above (256 specs, 184 of
+248, re-derived 2026-09-11 on `loop-render-residue` after its merge of origin/main
+`afa1d47c0`, every row identical to `cheap-flights-arming`'s read after its merge of
 `f7141586f`; the retained `de5ac6112` block directly above it is history). The D1 row
 moved there with the ghost-replay Tier B wave's `switch-segment-noop-discard` claim, and
 the D2 / D17 rows with wave package A2's two claims. The 2026-08-04 uncovered count stays
@@ -252,8 +267,9 @@ D13 unchanged at `proximity-offset`, `bbox-block`, `ksc-exclusion`,
 Read with the register below. Seventy-four percent of the declared surface is gated
 and every committed lane has a green run; the residue is UNEVEN, and each thin
 dimension is thin for a different reason. Covered / total per dimension,
-re-derived 2026-09-11 on `cheap-flights-arming` after its merge of origin/main
-`f7141586f` (255 specs; the D3 / D4 / D5 rows moved with the claim-gap wave on
+re-derived 2026-09-11 on `loop-render-residue` after its merge of origin/main
+`afa1d47c0` (256 specs, every row identical to `cheap-flights-arming`'s read over 255
+after its merge of `f7141586f`; the D3 / D4 / D5 rows moved with the claim-gap wave on
 2026-09-10 / -11, the D1 row with the ghost-replay Tier B wave and the D2 / D17 rows
 with wave package A2 on 2026-09-11, and the D12 row with CL-4 on 2026-09-09 / -10),
 with what closing the rest takes:
@@ -473,10 +489,13 @@ remains is, in order:
 5. **Ghost-replay Tier C as one arc**: ghostlife v2 (item 10) then loop-cycle
    rendering on the GS-4 subject (item 12, blocked on 10), with the replay-parity
    evaluator (11) alongside.
-6. **Loop-render residue, in this order**: G2's KSC third (`V20K`, one reading run,
-   nothing blocks it, criterion (c) forbids writing the KSC limitation up before it
-   flies); the criterion (b) control debt on every V pair that still shares the
-   `rewind.supersedeRows` inversion; G8 (long-horizon recurrence + co-residency -
+6. **Loop-render residue, in this order**: G2's KSC third (`V20K`: reading
+   `2026-09-10_1858` PASS measured 0 eligible, a LIMITATION MEASURED rather than a
+   payoff; armed off those bytes, armed re-flight `2026-09-10_2159_a2` PASS and own
+   control `2026-09-10_2202` valid - discipline complete, D14 scene-ksc / sandbox claimed
+   with no count moved); the criterion (b)
+   control debt, lane by lane in todo V-PAIR-CRITERION-B-RENDER-CONTROL-DEBT
+   (re-derived and DISCHARGED 2026-09-10: all eighteen owed controls flown valid); G8 (long-horizon recurrence + co-residency -
    instrument work first, then the three roads; the one player-visible risk still
    unmeasured in this program); G5 and G9 as breadth behind them. `V18M`, `B31`
    and the FLIGHT variant of B27 stay reserved, not blockers.
@@ -641,7 +660,8 @@ remains is, in order:
 Decisions owed rather than work: ~~keep or delete `bdock-station-craft`~~ DECIDED
 2026-09-08, KEEP (it is the clean operator-build base `bdock-station-pad` was stamped
 from; two suites enumerate it; nothing loads it and nothing needs to), and whether
-`V18M` / `V20K` are worth their reading runs this cycle or stay when-wanted.
+`V18M` is worth its reading run this cycle or stays when-wanted (`V20K` flew its reading
+2026-09-10).
 
 ## What we cannot reproduce yet, grouped by cause
 
@@ -2271,7 +2291,8 @@ Seven scoping notes the table cannot carry without becoming a status doc:
   third is discharged on a RENDERED-FRAME token; the flight-map third is
   discharged on a ghost-proto CREATION-frame token plus a seed-side arrival token,
   because that host's proto ORBIT-LINE lens was measured segment-zero-only. The
-  KSC third is NOT confirmed and belongs to `V20K`. The row says YES for the class
+  KSC third is NOT confirmed: `V20K` measured it as a limitation (0 eligible, run
+  `2026-09-10_1858`). The row says YES for the class
   and the note is where the asymmetry lives.
 
 - The phase-lock row's scene coverage is its ARMED halves - V6M/V6T, V14T,
@@ -2344,8 +2365,12 @@ SHARED, IS PART OF THE DISCHARGE AND NOT REDUNDANCY:** the halves pin DIFFERENT
 LENSES - the proto orbit line on the flight map, the proto icon in the Tracking
 Station - so a single shared inversion would have proven exactly one of them.
 A pair whose halves pin the same lens may share one; a pair whose halves pin
-different lenses owes one each. Every OTHER committed V pair still shares the
-`rewind.supersedeRows` inversion and still owes this.
+different lenses owes one each. Which lanes still
+owed this was re-derived lane by lane in `docs/dev/todo-and-known-bugs.md` ->
+V-PAIR-CRITERION-B-RENDER-CONTROL-DEBT (2026-09-10), and every owed control flew
+valid the same day, drift gate included. The rule applied there: every
+required render LENS must have been inverted, and a routing-only lane that reaches no
+render epoch discharges by a spec-header statement.
 
 **(c) A documented-limitation escape under clause (b) of the definition of done
 must CITE A FLOWN RUN ID.** Limitations of this system are discovered by
@@ -2717,8 +2742,10 @@ ever gains a WARP verb (it has none, and inventing one to make a pin reachable i
 exactly what a reading round must not do). **DO NOT READ THE MATRIX'S CLASS-LEVEL
 `YES` AS "both hosts on the same lens".**
 
-**WHAT REMAINS FOR G2, AND IT IS ONE THING:** `V20K`, the KSC host lane over
-these same bytes, per the correction below. `B31` IS NOT AHEAD OF IT - the
+**WHAT REMAINED FOR G2 WAS ONE THING, AND IT IS NOW MEASURED:** `V20K`, the KSC host
+lane over these same bytes, per the correction below, flew its reading `2026-09-10_1858`:
+0 eligible, so the KSC third is a LIMITATION MEASURED (run `2026-09-10_1858`), not a closed
+payoff. `B31` IS NOT AHEAD OF IT - the
 re-scope removed the Duna-origin dependency entirely and B31 is now a when-wanted
 breadth point (see the B-range roster above).
 
@@ -2757,6 +2784,14 @@ exactly what `V20K` measures. Criterion (c) is UNCHANGED and binding: until that
 run exists, nothing about the KSC host may be written up as a documented
 limitation here, in a spec, or in a status row - and the V20M/V20T specs and
 status rows have been held to it.
+**MEASURED 2026-09-10 (V20K reading `2026-09-10_1858`, PASS attempt 1):** `ParsekKSC
+initialized, 1 committed recordings, 0 eligible`, breakdown `ineligible(Orbiting=1)`, and zero
+pose, point-skipped or segment-skipped lines. The outright-rejection gate fires, so the
+Kerbin-bodied final section never reaches the per-point gate. Under criterion (c) this is now a
+LIMITATION MEASURED, run `2026-09-10_1858`: G2's KSC third is not delivered by a foreign-rooted
+subject. V20K is armed on what it measured (literal pins, the pose line forbidden), and its armed
+re-flight `2026-09-10_2159_a2` (PASS) and own control `2026-09-10_2202` (red on exactly the
+inverted `0 eligible` literal, drift gate met) landed the same night: discipline complete.
 
 **G3 - Surface endpoints.** Every committed loop lane ends at an ORBIT. A loop
 whose recording ENDS LANDED OR SPLASHED exercises a different render stack, and
@@ -2766,8 +2801,11 @@ load-bearing because the halves have different owners:
 
 - **G3a, the MISSION-LOOP form - CLOSED 2026-08-24.** All five lanes
   (V22M/V22T/V22K over a Kerbin surface arrival, V23M/V23T over a Mun landing)
-  completed the reading -> armed -> per-lane render-token control discipline in
-  one day. THE MEASURED CLASS ANSWER moved the lens model: a landed-terminal
+  completed the reading -> armed -> per-lane control discipline in one day, four of
+  the five on a render token. V23M's control `2026-08-24_2114` inverted a phase-lock
+  CONSTRAINT token (`Orbital\(Mun\) same-parent`); its render-token control flew
+  2026-09-10 (`2026-09-10_2102`, the MeshSpawned reason inverted, drift gate met).
+  THE MEASURED CLASS ANSWER moved the lens model: a landed-terminal
   loop member gets NO map/TS proto at ANY epoch (deliberate policy - see
   LANDED-TERMINAL-LOOP-HAS-NO-MAP-PRESENCE-OUTSIDE-THE-FLIGHT-SCENE), so the
   class's lenses are the FLIGHT-scene mesh lifecycle, the TS init-walk hidden
@@ -2872,7 +2910,8 @@ transfer fixtures have.
   recording's FIRST point - and notes that BOTH G2 representatives are rooted at
   a foreign body (B28's recording starts at Laythe; B29's starts at Jool since
   its 2026-08-26 re-scope, and would have started at Duna before it),
-  so V20K may be excluded from the host WHOLE and its KSC payoff is unproven. A
+  so V20K may be excluded from the host WHOLE and its KSC payoff is unproven (MEASURED
+  2026-09-10: V20K's reading `2026-09-10_1858` read 0 eligible). A
   Kerbin ascent-to-splashdown subject is rooted at Kerbin and stays Kerbin-frame
   END TO END, so it clears both that gate and the per-point one. That makes this
   lane the cheapest available MEASUREMENT of the paragraph above - which, per

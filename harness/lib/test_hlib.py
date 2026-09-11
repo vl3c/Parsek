@@ -8581,9 +8581,12 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # Kerbin-framed at any observation epoch, and on the TS half it is the
         # OLDEST and therefore the last to spawn under the 2-per-tick throttle.
         # THE KSC THIRD IS DELIBERATELY NOT THEIRS: `V20K` over the same bytes is
-        # where the KSC-host question becomes either a closed payoff or a cited
-        # limitation, and under roadmap confirmation criterion (c) no limitation
-        # may be written up before that run exists.
+        # where the KSC-host question became a cited limitation. Its reading run
+        # `2026-09-10_1858` measured `1 committed recordings, 0 eligible`, so the
+        # host excludes this subject whole (criterion (c) is met by that run id).
+        # V20K was armed off those bytes, re-flown and controlled the same day
+        # (the entry below).
+        "V20K-jool-kerbin-ksc-arrival.toml": "tier=operator by the calibration discipline, NOT debt: G2's KSC third over `kerbin-return-recorded`. READING `2026-09-10_1858` PASS attempt 1 measured outcome (A), zero eligible - a limitation measured, not a payoff - and the lane was ARMED off those bytes (literal init pins, the pose line forbidden, rewind + structure gating; renderComposition stays bare). DISCIPLINE-COMPLETE the same night: armed re-flight `2026-09-10_2159_a2` PASS and its own negative control `2026-09-10_2202` red on exactly the inverted `0 eligible` literal. What is open is the ordinary operator -> nightly promotion call, not a human review call",
         # W1: the GS-4 follow-up the ghost-derender lane deliberately did not carry
         # (`docs/dev/todo-and-known-bugs.md` -> GS4-WATCH-DISTANCE-CUTOFF). Same
         # posture as the V20 pair above: tier=operator by the calibration discipline,
@@ -8958,7 +8961,9 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # bytes, and CLOSED THE FULL THREE-RUN DISCIPLINE the same evening (armed
         # re-flights `_1808` / `_1809`, one shared negative control `_1810`). Five
         # flights, one day. Nothing is owed on any of the three but the ordinary
-        # operator -> nightly promotion call.
+        # operator -> nightly promotion call. CRITERION (b), 2026-09-10: each V15
+        # lane has since flown its OWN render-token control (V15M `2026-09-10_1914`,
+        # V15T `2026-09-10_1917`); `_1810` stays the pair's save-structure control.
         "B24-gilly-orbit.toml":             "calibration-discipline - LIVE-PROVEN 2026-08-19 (`_1655`, PASS attempt 1, mission wall 1,075 s, every assertion met with NOT ONE PARAMETER MOVED): `startrecording ... already=false` minting the fresh standalone Eve-rooted tree, one `Eve to Gilly` boundary, terminal Orbiting/Gilly, a 27,024 x 26,321 m Gilly park at ecc 0.009, saveParse 1 recording / 520 points / all rewind facets 0. Its produced save is the committed `gilly-orbit-recorded` fixture, and BOTH consumers have since flown and armed off it (V15M `_1736`, V15T `_1739`), which is the strongest confirmation the produced subject is structurally right. Nothing armed on THIS lane: the count window stays a derived range and no save-structure block is declared, because the fixture's structure is pinned where it is CONSUMED. Operator tier is now the ordinary promotion call, not outstanding work",
         "V15M-gilly-player-loop.toml":      "calibration-discipline - READING RUN FLOWN GREEN 2026-08-19 (`_1736`, PASS attempt 1, all 21 steps met, all 8 TimeJumps OK, anomalySweep hits=[] hitCounts={}) and ARMED off its own bytes the same day: 12 required tokens incl. the MEASURED routing conjunction `method=single-orbital ... zeroDrift=no`, V14M's full six forbids, count pinned {1,1} and both save-structure blocks gating. THE DERIVED CALIBRATION HELD to 0.041 s against the product's own anchor and no jump UT moved. TWO MEASUREMENTS WORTH THE TIER: the cycle-1 EnterWatchMode is a GENUINE ENTRY at 775 m ghost separation - only the suite's second ever, after V7M's - while the cycle-2 step answered `already-watching` (idempotency + survival across a loop re-arm, NOT a second entry); and the seam-endpoint census fired ONCE because both lens summaries are VerboseRateLimited on a shared key and this lane's two brackets are ~1.4 wall-s apart, so the cycle-1-vs-cycle-2 comparison the lane was designed around is NOT readable from one run at this pacing (recorded as a measured limitation with three named recourses, no product change proposed). Report-only and deliberately unarmed: the NRE storm now filed as WATCH-LOOPED-PARK-TARGET-LOSS-NRE-STORM, 447 on the reading run and 443 on the armed one - the same family as V7M's filed teardown NRE, which V7M also declines to ceiling. DISCIPLINE COMPLETE 2026-08-19: armed re-flight `_1808` PASS attempt 1 (all 12 required, all 6 forbidden, count {1,1}, both gated save-structure blocks PASS), negative control `_1810` correctly PARSEK-FAIL(save-structure) on the inverted `supersedeRows` window and reverted - the pair's single shared inversion. That control run also swept one INTERMITTENT `line-blink` (1-of-3, cycle-2 park, `director-traced-path-suppress` OFF edge - a case the window-exit exemption deliberately does not cover); the lane keeps `allowedAnomalies = []` and the raise is filed as the 14th archived one. Operator tier is now the ordinary promotion call, not outstanding work",
         "V15T-gilly-ts-arrival.toml":       "calibration-discipline - READING RUN FLOWN 2026-08-19 (`_1739`, PARSEK-FAIL(anomaly) attempt 1 with ALL 16 STEPS GREEN and the TS session clean - the CORRECT catch this spec pre-registered by shipping `allowedAnomalies = []` on purpose) and ARMED off its own bytes the same day: 13 required tokens incl. the measured routing conjunction, the `body=Gilly scene=TRACKSTATION` proto pin and `reaimed=False`, V14T's full six forbids, count {1,1}, both save-structure blocks gating, and the anomaly tolerated by the BARE token. WHAT THE RED BOUGHT: the single-jump creation-frame `icon-off-orbit` trigger is now MEASURED PARENT-INDEPENDENT (Duna/Ike 94.05 deg, Eve/Gilly 26.49 deg, deterministic at both, with V15M the stepped-bracket control at the same arrival UT) - the discriminating experiment the todo entry named, now answered and written up there. DISCIPLINE COMPLETE 2026-08-19: armed re-flight `_1809` PASS attempt 1 (all 13 required, all 6 forbidden, count {1,1}, both gated save-structure blocks PASS) with the tolerated anomaly RECURRING at `hits=[] counts={'icon-off-orbit': 1}` - the FOURTH sighting of the trigger, two per body pair, and this lane's first GREEN `hitCounts` baseline; negative control shared with V15M (`_1810`). THE CEILING `{ token = ..., maxCount = 1 }` IS NOW ONLY 'NOT YET TAKEN': the doctrine's precondition (measured hitCounts from a green run) is met on BOTH V14T and V15T, and the sole remaining blocker is the whole-set inert-budget invariant, which must move to a named allowlist in the same edit and should then cover both lanes at once. Operator tier is now the ordinary promotion call, not outstanding work",
@@ -9000,7 +9005,9 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # reading runs, ARMED off their own bytes, re-flown green under the arming and
         # taken a shared negative control, so the CALIBRATION DISCIPLINE IS COMPLETE on
         # all three. Nothing is owed on any of them but the ordinary operator -> nightly
-        # promotion call, which is what this list records.
+        # promotion call, which is what this list records. CRITERION (b), 2026-09-10:
+        # V16M `2026-09-10_2032` and V16T `2026-09-10_2034` are each lane's OWN
+        # render-token control; `_2213` stays the pair's save-structure control.
         "B25-laythe-orbit.toml":            "calibration-discipline - LIVE-PROVEN 2026-08-19 ON FLIGHT 2 (`_2039`, PASS attempt 1, mission wall 741.6 s, full chain through ORBIT-COMMITTED): an 87,931 x 56,240 m Laythe park at ecc 0.0277, terminal Orbiting/Laythe, all five required tokens and ALL NINE forbidden (the ERROR floor plus eight Vall/Tylo/Bop/Pol named-poison forms) met, zero `Atmospheric`, and `already=false` minting the standalone Jool-rooted tree. The suite's FIRST INWARD TRANSFER, and all three of its values-only workarounds held on both flights. FLIGHT 1 (`_1948` / `_2001`) was INVALID(driver-flake) on both attempts and the flake was the WINDOW, not the flight: a healthy park 4,911 m under a floor written before anyone had measured that a 163.5 s capture burn at 5.40 m/s^2 drops the periapsis ~15.4 km (now 15,382 / 15,385 / 15,415 m over three flights, a 33 m spread). Fixed by resizing `parkMinPeriapsisMeters` 60,000 -> 52,000 and nothing else - the B17 precedent - which flight 2 vindicated. Its produced save is the committed `laythe-orbit-recorded` fixture. Nothing armed: the count window stays a derived range and no save-structure block is declared, because the fixture's structure is pinned where it is CONSUMED (the B24 disposition). Operator tier is now the ordinary promotion call, not outstanding work",
         "V16M-laythe-player-loop.toml":     "calibration-discipline - CALIBRATED 2026-08-19 off the harvested `laythe-orbit-recorded` bytes, then FLOWN, ARMED and DISCIPLINE-COMPLETE the same day. Operator additionally because BOTH of its claims were pre-registered and BOTH came back MEASURED: the suite's FIRST k > 1 CADENCE - the recording's span/P = 19.435357 gives k = 20, so cycle 2 lands TWENTY moon orbits after cycle 1 rather than one, with k = 21 excluded outright across the transfer-window-wait band - and the CENSUS-PACING UPGRADE that is supposed to make it readable: forty `RecordingState` dwell ticks spending >= 10 wall s at run.py's 0.25 s poll floor, implementing research section 9.3's RECOURSE 1 verbatim against the limiter that swallowed V15M's cycle-2 census on all three of its runs - and the upgrade WORKED, retiring research section 9.3's 'unmeasurable at seam pacing' limit for lanes carrying the block. Both watch steps are pinned REJECTED on arithmetic that, unlike V15M's, is PARK-INDEPENDENT (2a >= 1,120,000 m against a ~120 km boundary), which also predicted the WATCH-LOOPED-PARK-TARGET-LOSS-NRE-STORM population ABSENT. DISCIPLINE COMPLETE 2026-08-19: reading run `_2114` (PASS attempt 1), ARMED off its own bytes (12 required incl. the strict census pin `seam-endpoint summary evaluated=[1-9]\\d* outsideSoi=0`, 6 forbidden, count {1,1}, both save-structure blocks gating), armed re-flight `_2211` PASS attempt 1 and COMPLETELY SILENT (`hitCounts={} hits=[] unlistedReasons=[]`, so the strict pin held), negative control `_2213` correctly PARSEK-FAIL(save-structure) on `rewind.supersedeRows 0 < min 1` with every other verifier PASS, then reverted - the pair's single shared inversion. Operator tier is now the ordinary promotion call, not outstanding work",
         "V16T-laythe-ts-arrival.toml":      "calibration-discipline - CALIBRATED 2026-08-19 off the same harvested bytes (one jump UT reused from V16M so the pair observes the same instant from the two scenes), then FLOWN, ARMED and DISCIPLINE-COMPLETE the same day. Operator by construction, and it shipped `allowedAnomalies = []` ON PURPOSE and DID RED on `icon-off-orbit` with every step green - the V15T pattern verbatim, and the PRE-REGISTERED correct catch it was written to be rather than a debt. Parent-independence of that trigger is already MEASURED (Duna/Ike and Eve/Gilly, deterministic at both), so what a third body pair adds is the widest lever anyone has on the MAGNITUDE question the todo entry records as NOT constant (26.49 deg at Gilly vs 94.05 at Ike): Laythe's SOI is 29.5x Gilly's, so three points across that range is where a correlation with SOI scale would first be visible. Its pre-flight TS-conic prediction has ALREADY been scored by B25 (predicted |a| 1.29 Mm / e 1.582, measured 2.11 Mm / 1.271 - both within a factor of 1.7, against V15T's three-orders-of-magnitude miss). DISCIPLINE COMPLETE 2026-08-19: reading run `_2115` (PARSEK-FAIL(anomaly) attempt 1, all sixteen steps green - the correct catch, and it read 129.15 deg, the FIRST count > 1 sighting and a SECOND lens), ARMED off its own bytes (13 required, 6 forbidden, count {1,1}, both blocks gating, the anomaly tolerated by the BARE token and the census pin left at the PRESENCE form because the strict value form would red on the known artifact), armed re-flight `_2212` PASS attempt 1 with BOTH lenses RECURRING exactly as predicted (`allowed=['icon-off-orbit'] hitCounts={'icon-off-orbit': 2} hits=[] unlistedReasons=['seam-endpoint-outside-soi']`), negative control shared with V16M (`_2213`). NEITHER RECURRENCE IS DRIFT: the seam lens is the creation-frame instrument artifact, and V16M's stepped censuses read `outsideSoi=0` on both cycles with its armed run silent, so the true k = 20 recurrence is clean. Operator tier is now the ordinary promotion call, not outstanding work",
@@ -9151,7 +9158,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # nightly PROMOTION call, which is a cadence decision for a human and not
         # a review debt.
         "V4-player-loop-workflow.toml":     "FLOWN GREEN 2026-08-08 (1135 reading, 1154 armed, 1156 min=1 negative control PARSEK-FAIL(save-structure)) and ARMED on both save-structure blocks; both EnterWatchMode verdicts came back REJECTED as predicted from the camera-only range gate (this lane's 643,913 m parked-tail draw is 2.15x outside the production 300 km WatchEnterCutoffMeters and 5.4x outside the entry boundary V7M later measured, so its verdicts stand under every correction and it discriminates nothing between them; the finding is owned by docs/dev/todo-and-known-bugs.md -> WATCH-ENTRY-REFUSED-INSIDE-QUOTED-RANGE). Operator tier is now an open PROMOTION call, not debt",
-        "V5-ts-loop-arrival.toml":          "FLOWN GREEN 2026-08-08 (1144 reading, 1155 armed; negative control shared with V4's 1156) and ARMED on both save-structure blocks; the TS host's own ghost-creation count answered 1, so the anti-vacuity gate is satisfied by measurement. Operator tier is now an open PROMOTION call, not debt",
+        "V5-ts-loop-arrival.toml":          "FLOWN GREEN 2026-08-08 (1144 reading, 1155 armed; negative control shared with V4's 1156; criterion-(b) render-token control 2026-09-10_2036) and ARMED on both save-structure blocks; the TS host's own ghost-creation count answered 1, so the anti-vacuity gate is satisfied by measurement. Operator tier is now an open PROMOTION call, not debt",
         # The V6/V7 MOON quartet (Mun/Minmus x FLIGHT/TRACKSTATION), operator by the
         # SAME calibration discipline as V1/V2/V3/V4/V5 and for one extra structural
         # reason worth recording: their TimeJump targets are PRE-FLIGHT PREDICTIONS of
@@ -9160,7 +9167,9 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # time, so the first flight of each is a calibration run by construction.
         # Posture as of 2026-08-08: the three GREEN lanes have taken the post-reading
         # arming call (both save-structure blocks now `gating = true` on V6M, V6T and
-        # V7M, each off its own reading run, with one shared negative control on V6M),
+        # V7M, each off its own reading run, with one shared negative control on V6M;
+        # since 2026-09-10 each also has its OWN criterion-(b) render-token control,
+        # `_1901` / `_1905_a2` / `_1907`, and the shared one is save-structure only),
         # so what remains for them is the ordinary operator -> nightly PROMOTION call,
         # which is a cadence decision for a human and not a review debt. V7T stays
         # UNGATED: it is red by finding, and arming a second gate on a lane whose
@@ -9621,6 +9630,10 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
     # immediately (the committed spec is the armed one). One inversion, not two: the
     # lanes gate through the single shared saveParse evaluator, so a second would
     # re-prove the evaluator rather than these windows (the V4/V5 precedent).
+    # CRITERION (b), 2026-09-10: that shared inversion re-proves the evaluator, not the
+    # render pins, so each lane has since flown its OWN render-token control on its
+    # logContracts destination pin (body -> Eeloo): V14M `2026-09-10_1910`, V14T
+    # `2026-09-10_1912`, each red on exactly the inverted element, drift gate met.
     # THE V15 GILLY PAIR, armed 2026-08-19 off their OWN reading runs
     # (`2026-08-19_1736` V15M PASS attempt 1; `2026-08-19_1739` V15T
     # PARSEK-FAIL(anomaly) attempt 1 - the pre-registered correct catch, whose
@@ -9635,6 +9648,9 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
     # pair - the V4/V5/V14 precedent, since they gate through the single shared
     # saveParse evaluator, so a second inversion would re-prove the evaluator
     # rather than these windows.
+    # CRITERION (b), 2026-09-10: per-lane render-token controls on the destination
+    # pin (body -> Eeloo), V15M `2026-09-10_1914` and V15T `2026-09-10_1917`, each
+    # red on exactly the inverted element, drift gate met.
     ARMED_ALLOWLIST = {"S4.1-rewind-merge.toml", "CL-3-refly-crew-tombstone.toml",
                        # CL-4: `rewind` armed 2026-09-09 off its own reading run
                        # `2026-09-09_1813_CL-4-refly-crew-standin` (supersedeRows 1, tombstones 1,
@@ -9702,6 +9718,10 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # which red exactly on `rewind.supersedeRows 0 < min 1` and
                        # nowhere else, then reverted (the V4/V5/V14/V15 precedent -
                        # both gate through the single shared saveParse evaluator).
+                       # CRITERION (b), 2026-09-10: per-lane render-token controls
+                       # on the destination pin (body -> Eeloo), V16M
+                       # `2026-09-10_2032` and V16T `2026-09-10_2034`, each red on
+                       # exactly the inverted element, drift gate met.
                        "V16M-laythe-player-loop.toml", "V16T-laythe-ts-arrival.toml",
                        # V17M: `rewind` (all max 0 - the family's replay-observation
                        # claim, now across a SELF-OVERLAPPING 20-instance loop whose
@@ -9727,6 +9747,10 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # control shared across the pair flown on V17M (`_1941`,
                        # red EXACTLY on `rewind.supersedeRows 0 < min 1` and
                        # nowhere else, then reverted).
+                       # CRITERION (b), 2026-09-10: per-lane render-token controls,
+                       # V17M `2026-09-10_2042` (TracedPath shadow Vall -> Eeloo)
+                       # and V17T `2026-09-10_2045` (TS ProtoIcon Vall -> Eeloo),
+                       # each red on exactly the inverted element, drift gate met.
                        "V17M-laythe-vall-player-loop.toml",
                        "V17T-laythe-vall-ts-arrival.toml",
                        # V19M / V19T, the first RETURN-DIRECTION loop pair (G2),
@@ -9857,6 +9881,9 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # with 1841 at V23; terminal Landed=1, plus Destroyed
                        # min 1 on the M halves - the measured M-vs-T save
                        # asymmetry). V22K is the first armed KSC-scene lane.
+                       # V23M's arming control `_2114` inverted a constraint
+                       # token; its render-token control is `2026-09-10_2102`
+                       # (MeshSpawned reason inverted, drift gate met).
                        "V22M-kerbin-splashdown-player-loop.toml",
                        "V22T-kerbin-splashdown-ts-arrival.toml",
                        "V22K-kerbin-splashdown-ksc-arrival.toml",
@@ -9877,6 +9904,8 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # 2026-08-06 on the three-run discipline; reading runs =
                        # V2 flights 4-6 (all reads 0 / committedTrees 1), armed
                        # + negative-control runs cited in the status doc row.
+                       # CRITERION (b), 2026-09-10: render-token control
+                       # `2026-09-10_2104` (ProtoOrbitLine body Duna -> Eeloo).
                        "V2-loop-arrival-dwell.toml",
                        # V4: rewind (all max 0 - the player workflow arms, warps,
                        # watches and jumps but authors nothing durable) +
@@ -9916,6 +9945,12 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # shared saveParse evaluator, so a second identical
                        # inversion would re-prove the evaluator rather than
                        # these windows, at the cost of a flight.
+                       # CRITERION (b), 2026-09-10: that shared inversion proves the
+                       # evaluator, not the render pins; each lane has since flown
+                       # its OWN render-token control (destination body -> Eeloo):
+                       # V6M `2026-09-10_1901`, V6T `2026-09-10_1905_a2`, V7M
+                       # `2026-09-10_1907`, each red on exactly the inverted
+                       # element, drift gate met.
                        # The FOURTH moon lane, V7T-minmus-ts-arrival, is
                        # DELIBERATELY ABSENT: it flew RED BY FINDING (a
                        # deterministic `icon-off-orbit` raise) and a lane whose
@@ -9930,16 +9965,23 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # committedTrees=1); armed + negative-control run ids
                        # on the spec header's ARMING LEDGER and the status
                        # row.
+                       # CRITERION (b), 2026-09-10: render-token control
+                       # `2026-09-10_2039` on the census element (outsideSoi=0 ->
+                       # outsideSoi=9), one mismatch, drift gate met.
                        "V8-eve-player-loop.toml",
                        # V8T: armed 2026-08-11 off its reading run (_0836
                        # a2, all-zero rewind facets, trees=1,
                        # committedTrees=1); negative control shared with
                        # V8's _0830 (the shared-evaluator precedent).
+                       # CRITERION (b), 2026-09-10: its own render-token control
+                       # `2026-09-10_2037` (TS ProtoIcon Eve -> Eeloo).
                        "V8T-eve-ts-arrival.toml",
                        # V8F: armed 2026-08-11 off its two consecutive
                        # clean runs (_0853/_0854, the five-raise set; four
                        # of five ratios to four decimals, fifth 1 ulp; armed run
                        # _0857); control shared with V8's _0830.
+                       # CRITERION (b), 2026-09-10: its own render-token control
+                       # `2026-09-10_2041` (toBody=Eve -> toBody=Moho).
                        "V8F-eve-loop-faithful.toml",
                        # V18T: THE FIRST DECLARER OF THE FOURTH M-C2 BLOCK,
                        # `[expectations.routes]` (the ROUTES node), armed
@@ -10105,6 +10147,16 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # step of its own between the bytes and that evaluator. Nothing
                        # is owed.
                        "RVR-20-rover-relay-c-destination-slots-full-tank-empty.toml",
+                       # V20K: rewind (all max 0) + structure (committedTrees 1,
+                       # recordings 1, terminalStates Orbiting 1, trees kept at the
+                       # family's duplicate-writer width 1 to 2) armed 2026-09-10 off
+                       # its OWN green reading run `2026-09-10_1858` (PASS attempt 1,
+                       # facets 0/0/0/0 and 1/1/1, points 739), in the commit that
+                       # pinned its KSC init literals (outcome A, zero eligible) and
+                       # forbade the pose line. Armed re-flight `2026-09-10_2159_a2`
+                       # PASS with these blocks green; own control `2026-09-10_2202`
+                       # red on exactly `0 eligible` -> `1 eligible`, drift gate met.
+                       "V20K-jool-kerbin-ksc-arrival.toml",
                        # EVA-2: `recordings.points` armed 2026-09-10 (wave package A2)
                        # off its reading run `2026-09-10_1720_EVA-2-orbital-board` -
                        # largest 5, trivialRecordings 1 (the pod, exactly as sized),
@@ -11077,6 +11129,13 @@ class RenderComposeVerifierWiringTests(unittest.TestCase):
                                     #     a declarer - V14T's TS-host precedent and its
                                     #     exposure note apply unchanged.
                                     "V20T-jool-kerbin-ts-arrival.toml",
+                                    # [K] the KSC third of the same pair, 2026-09-10:
+                                    #     bare. Its reading `2026-09-10_1858` took the
+                                    #     second KSC-host manifest after V22K's, over a
+                                    #     subject the structural gate refuses: planUnits
+                                    #     1, dwells 0, no findings. Still bare: one
+                                    #     manifest is a reading, not a window.
+                                    "V20K-jool-kerbin-ksc-arrival.toml",
                                     # -- PHASE 4 / WAVE B, 2026-08-26: TWO NEW SUBJECTS,
                                     # both bare, both reading-pending, and neither a
                                     # re-declaration of an existing shape. Unlike Wave A -
