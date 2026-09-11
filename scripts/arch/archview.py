@@ -750,14 +750,16 @@ EXPLORE_TEMPLATE = """<!DOCTYPE html>
 <meta charset="utf-8">
 <title>Parsek module explorer</title>
 <style>
-html, body { margin: 0; height: 100%; font-family: "Segoe UI", Arial, sans-serif; color: #222; }
+html, body { margin: 0; height: 100%; font-family: "Segoe UI", Arial, sans-serif; color: #222;
+  background: #fcfdfe; }
 #app { display: flex; height: 100%; }
 #main { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; }
 #controls { padding: 8px 12px; border-bottom: 1px solid #d0d6dd; display: flex; gap: 18px;
-  align-items: center; flex-wrap: wrap; font-size: 13px; }
-#cy { flex: 1 1 auto; min-height: 0; background: #fcfdfe; }
+  align-items: center; flex-wrap: wrap; font-size: 13px; background: #f6f8fa; }
+#graph { flex: 1 1 auto; min-height: 0; }
+#graph svg { width: 100%; height: 100%; display: block; }
 #panel { width: 340px; flex: 0 0 340px; border-left: 1px solid #d0d6dd; overflow: auto;
-  padding: 10px 14px; font-size: 13px; box-sizing: border-box; }
+  padding: 10px 14px; font-size: 13px; box-sizing: border-box; background: #ffffff; }
 #panel h2 { font-size: 15px; margin: 4px 0 2px; }
 #panel h3 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: #667;
   margin: 14px 0 4px; }
@@ -766,6 +768,7 @@ html, body { margin: 0; height: 100%; font-family: "Segoe UI", Arial, sans-serif
 #panel ul { list-style: none; margin: 0; padding: 0; }
 #panel li { padding: 5px 0; border-bottom: 1px solid #eef1f4; }
 #panel .w { color: #2e5e9c; font-weight: 600; }
+#panel .up { color: #cc0000; font-size: 11px; margin-left: 4px; }
 #panel .types { color: #667; font-size: 11px; word-wrap: break-word; }
 .legend { color: #555; }
 .swatch { display: inline-block; width: 12px; height: 12px; vertical-align: -2px;
@@ -773,6 +776,14 @@ html, body { margin: 0; height: 100%; font-family: "Segoe UI", Arial, sans-serif
 .swatch.edge { height: 4px; background: #9aa4b1; }
 .swatch.red { background: #cc0000; }
 .swatch.gray { background: #9aa4b1; }
+g.node { cursor: pointer; }
+g.node rect { fill: #4c78a8; stroke: #2f5580; stroke-width: 1; }
+g.node.tooling rect { fill: #9aa4b1; stroke: #6d7681; }
+g.node text { fill: #ffffff; font-size: 11px; text-anchor: middle; pointer-events: none; }
+g.node.focused rect { stroke: #e8810c; stroke-width: 4; }
+path.edge { fill: none; stroke: #9aa4b1; }
+path.edge.upward { stroke: #cc0000; }
+.faded { opacity: 0.08; }
 </style>
 </head>
 <body>
@@ -787,34 +798,161 @@ html, body { margin: 0; height: 100%; font-family: "Segoe UI", Arial, sans-serif
       <span class="legend"><span class="swatch edge"></span>edge width = reference count</span>
       <span class="legend"><span class="swatch red"></span>upward edge (stable depends on less stable)</span>
       <span class="legend"><span class="swatch gray"></span>tooling module</span>
+      <span class="legend">rows: unstable (top) to stable (bottom)</span>
     </div>
-    <div id="cy"></div>
+    <div id="graph"></div>
   </div>
   <div id="panel">
     <p class="hint">Click a module to see its direct neighbours.</p>
   </div>
 </div>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.30.2/cytoscape.min.js"></script>
 <script>
 "use strict";
+// Self-contained: no library, no network. Nineteen boxes and under a hundred
+// arrows do not need a graph engine, and a docs artifact must open from disk.
 const DATA = @@DATA@@;
 const MIN_EDGE = @@MIN_EDGE@@;
 const MAX_WEIGHT = @@MAX_WEIGHT@@;
 const MODULES = DATA.modules;
 const EDGES = DATA.edges;
-const MAP_MAX = Math.max(MAX_WEIGHT, 2);
+const SVG_NS = "http://www.w3.org/2000/svg";
+const NODE_W = 124;
+const NODE_H = 40;
+const PER_ROW = 5;
 
 let showTooling = false;
 let minWeight = MIN_EDGE;
-let cy = null;
+let focused = null;
 
 function esc(s) {
   return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-function isTooling(name) {
-  const found = MODULES.find(function (m) { return m.name === name; });
-  return found ? found.tooling : false;
+function moduleByName(name) {
+  return MODULES.find(function (m) { return m.name === name; });
+}
+
+function visibleModules() {
+  return MODULES.filter(function (m) { return showTooling || !m.tooling; });
+}
+
+function visibleEdges(names) {
+  return EDGES.filter(function (e) {
+    return names.has(e.from) && names.has(e.to) && e.weight >= minWeight;
+  });
+}
+
+// Layout: modules sorted by instability, cut into rows of at most PER_ROW so
+// no row overflows (unstable at the top, sinks at the bottom, the same
+// reading as the dot view). Ties in instability never straddle a row edge.
+function layout(modules, width, height) {
+  const sorted = modules.slice().sort(function (a, b) {
+    return b.instability - a.instability || (a.name < b.name ? -1 : 1);
+  });
+  const rows = [];
+  let row = [];
+  sorted.forEach(function (m, i) {
+    const sameAsPrev = i > 0 && sorted[i - 1].instability === m.instability;
+    if (row.length >= PER_ROW && !sameAsPrev) { rows.push(row); row = []; }
+    row.push(m);
+  });
+  if (row.length) rows.push(row);
+  const pos = {};
+  const top = 50;
+  const bottom = height - 50;
+  rows.forEach(function (r, ri) {
+    const y = rows.length === 1 ? (top + bottom) / 2 : top + (bottom - top) * ri / (rows.length - 1);
+    r.sort(function (a, b) { return a.name < b.name ? -1 : 1; });
+    r.forEach(function (m, ci) {
+      pos[m.name] = { x: width * (ci + 1) / (r.length + 1), y: y };
+    });
+  });
+  return pos;
+}
+
+function el(tag, attrs) {
+  const node = document.createElementNS(SVG_NS, tag);
+  Object.keys(attrs).forEach(function (k) { node.setAttribute(k, attrs[k]); });
+  return node;
+}
+
+// Quadratic curve bowed to the right of travel, so A->B and B->A separate.
+function edgePath(a, b) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len = Math.sqrt(dx * dx + dy * dy) || 1;
+  const nx = -dy / len;
+  const ny = dx / len;
+  const bow = Math.min(40, len * 0.12);
+  const mx = (a.x + b.x) / 2 + nx * bow;
+  const my = (a.y + b.y) / 2 + ny * bow;
+  // Trim both ends to the box border along the chord.
+  const ux = dx / len;
+  const uy = dy / len;
+  const trimA = Math.min(NODE_W / 2 / Math.max(Math.abs(ux), 0.001), NODE_H / 2 / Math.max(Math.abs(uy), 0.001));
+  const sx = a.x + ux * trimA;
+  const sy = a.y + uy * trimA;
+  const ex = b.x - ux * (trimA + 6);
+  const ey = b.y - uy * (trimA + 6);
+  return "M" + sx + "," + sy + " Q" + mx + "," + my + " " + ex + "," + ey;
+}
+
+function render() {
+  const host = document.getElementById("graph");
+  host.innerHTML = "";
+  const width = Math.max(host.clientWidth, 600);
+  const height = Math.max(host.clientHeight, 400);
+  const modules = visibleModules();
+  const names = new Set(modules.map(function (m) { return m.name; }));
+  const edges = visibleEdges(names);
+  const pos = layout(modules, width, height);
+
+  const svg = el("svg", { viewBox: "0 0 " + width + " " + height });
+  const defs = el("defs", {});
+  ["#9aa4b1", "#cc0000"].forEach(function (color, i) {
+    const marker = el("marker", { id: "arrow" + i, viewBox: "0 0 10 10", refX: "9", refY: "5",
+      markerWidth: "9", markerHeight: "9", markerUnits: "userSpaceOnUse", orient: "auto-start-reverse" });
+    marker.appendChild(el("path", { d: "M0,0 L10,5 L0,10 z", fill: color }));
+    defs.appendChild(marker);
+  });
+  svg.appendChild(defs);
+
+  const edgeLayer = el("g", { id: "edges" });
+  edges.forEach(function (e) {
+    const path = el("path", {
+      d: edgePath(pos[e.from], pos[e.to]),
+      "stroke-width": (1 + 7 * (e.weight - 1) / Math.max(MAX_WEIGHT - 1, 1)).toFixed(2),
+      "marker-end": e.upward ? "url(#arrow1)" : "url(#arrow0)",
+      "class": "edge" + (e.upward ? " upward" : ""),
+      "data-from": e.from,
+      "data-to": e.to
+    });
+    const title = el("title", {});
+    title.textContent = e.from + " -> " + e.to + ": " + e.weight + " references";
+    path.appendChild(title);
+    edgeLayer.appendChild(path);
+  });
+  svg.appendChild(edgeLayer);
+
+  const nodeLayer = el("g", { id: "nodes" });
+  modules.forEach(function (m) {
+    const p = pos[m.name];
+    const g = el("g", { "class": "node" + (m.tooling ? " tooling" : ""), "data-name": m.name,
+      transform: "translate(" + (p.x - NODE_W / 2) + "," + (p.y - NODE_H / 2) + ")" });
+    g.appendChild(el("rect", { width: NODE_W, height: NODE_H, rx: 6, ry: 6 }));
+    const t1 = el("text", { x: NODE_W / 2, y: 16 });
+    t1.textContent = m.name;
+    const t2 = el("text", { x: NODE_W / 2, y: 31, "font-size": "9" });
+    t2.textContent = m.files + " files, I=" + m.instability.toFixed(2);
+    g.appendChild(t1);
+    g.appendChild(t2);
+    g.addEventListener("click", function (evt) { evt.stopPropagation(); focusModule(m.name); });
+    nodeLayer.appendChild(g);
+  });
+  svg.appendChild(nodeLayer);
+  svg.addEventListener("click", function () { clearFocus(); panelHint(); });
+  host.appendChild(svg);
+  if (focused && names.has(focused)) applyFocus(focused); else { focused = null; panelHint(); }
 }
 
 function panelHint() {
@@ -830,18 +968,19 @@ function edgeSection(title, edges, other) {
   let body = "<ul>";
   sorted.forEach(function (e) {
     body += "<li><b>" + esc(e[other]) + "</b> <span class=\\"w\\">" + e.weight + "</span>" +
+      (e.upward ? '<span class="up">upward</span>' : "") +
       '<div class="types">' + esc(e.types.join(", ")) + "</div></li>";
   });
   return "<h3>" + title + "</h3>" + body + "</ul>";
 }
 
 function renderPanel(name) {
-  const module = MODULES.find(function (m) { return m.name === name; });
+  const module = moduleByName(name);
   const outgoing = EDGES.filter(function (e) {
-    return e.from === name && (showTooling || !isTooling(e.to));
+    return e.from === name && (showTooling || !moduleByName(e.to).tooling);
   });
   const incoming = EDGES.filter(function (e) {
-    return e.to === name && (showTooling || !isTooling(e.from));
+    return e.to === name && (showTooling || !moduleByName(e.from).tooling);
   });
   const panel = document.getElementById("panel");
   panel.innerHTML =
@@ -854,110 +993,47 @@ function renderPanel(name) {
 }
 
 function clearFocus() {
-  cy.elements().removeClass("faded focused");
+  focused = null;
+  document.querySelectorAll("#graph .faded, #graph .focused").forEach(function (n) {
+    n.classList.remove("faded");
+    n.classList.remove("focused");
+  });
 }
 
-function focusModule(name) {
-  clearFocus();
+function applyFocus(name) {
   const keep = new Set([name]);
-  cy.edges().forEach(function (e) {
-    if (e.data("source") === name || e.data("target") === name) {
-      keep.add(e.data("source"));
-      keep.add(e.data("target"));
-    }
+  document.querySelectorAll("#graph path.edge").forEach(function (p) {
+    const from = p.getAttribute("data-from");
+    const to = p.getAttribute("data-to");
+    const touches = from === name || to === name;
+    if (touches) { keep.add(from); keep.add(to); }
+    p.classList.toggle("faded", !touches);
   });
-  cy.elements().addClass("faded");
-  cy.nodes().forEach(function (n) {
-    if (keep.has(n.id())) n.removeClass("faded");
-  });
-  cy.getElementById(name).removeClass("faded").addClass("focused");
-  cy.edges().forEach(function (e) {
-    if (e.data("source") === name || e.data("target") === name) e.removeClass("faded");
+  document.querySelectorAll("#graph g.node").forEach(function (g) {
+    const n = g.getAttribute("data-name");
+    g.classList.toggle("faded", !keep.has(n));
+    g.classList.toggle("focused", n === name);
   });
   renderPanel(name);
 }
 
-function rebuild() {
-  const modules = MODULES.filter(function (m) { return showTooling || !m.tooling; });
-  const names = new Set(modules.map(function (m) { return m.name; }));
-  const elements = modules.map(function (m) {
-    return { data: { id: m.name, label: m.name + "\\n" + m.files + " files", tooling: m.tooling } };
-  });
-  EDGES.forEach(function (e) {
-    if (!names.has(e.from) || !names.has(e.to)) return;
-    if (e.weight < minWeight) return;
-    elements.push({ data: {
-      id: e.from + "->" + e.to,
-      source: e.from,
-      target: e.to,
-      weight: e.weight,
-      upward: e.upward
-    } });
-  });
-  cy.elements().remove();
-  cy.add(elements);
-  cy.layout({ name: "circle", padding: 40, avoidOverlap: true, spacingFactor: 1.15 }).run();
+function focusModule(name) {
   clearFocus();
-  panelHint();
+  focused = name;
+  applyFocus(name);
 }
 
-if (typeof cytoscape === "undefined") {
-  document.getElementById("cy").innerHTML =
-    '<p style="padding:20px;color:#666">Cytoscape.js could not be loaded from the CDN' +
-    " (offline?). edges.json and matrix.html still carry the full data.</p>";
-} else {
-  cy = cytoscape({
-    container: document.getElementById("cy"),
-    elements: [],
-    wheelSensitivity: 0.25,
-    style: [
-      { selector: "node", style: {
-        label: "data(label)",
-        "font-size": 9,
-        color: "#ffffff",
-        "text-valign": "center",
-        "text-halign": "center",
-        "text-wrap": "wrap",
-        "text-max-width": 96,
-        width: 104,
-        height: 38,
-        "background-color": "#4c78a8"
-      } },
-      { selector: "node[?tooling]", style: { "background-color": "#9aa4b1" } },
-      { selector: "edge", style: {
-        width: "mapData(weight, 1, " + MAP_MAX + ", 1, 10)",
-        "line-color": "#9aa4b1",
-        "target-arrow-color": "#9aa4b1",
-        "target-arrow-shape": "triangle",
-        "arrow-scale": 0.8,
-        "curve-style": "bezier"
-      } },
-      { selector: "edge[?upward]", style: {
-        "line-color": "#cc0000",
-        "target-arrow-color": "#cc0000"
-      } },
-      { selector: ".faded", style: { opacity: 0.1 } },
-      { selector: "node.focused", style: { "border-width": 4, "border-color": "#e8810c" } }
-    ]
-  });
-
-  cy.on("tap", "node", function (evt) { focusModule(evt.target.id()); });
-  cy.on("tap", function (evt) {
-    if (evt.target === cy) { clearFocus(); panelHint(); }
-  });
-
-  document.getElementById("tooling").addEventListener("change", function () {
-    showTooling = this.checked;
-    rebuild();
-  });
-  document.getElementById("minw").addEventListener("input", function () {
-    minWeight = parseInt(this.value, 10);
-    document.getElementById("minwv").textContent = String(minWeight);
-    rebuild();
-  });
-
-  rebuild();
-}
+document.getElementById("tooling").addEventListener("change", function () {
+  showTooling = this.checked;
+  render();
+});
+document.getElementById("minw").addEventListener("input", function () {
+  minWeight = parseInt(this.value, 10);
+  document.getElementById("minwv").textContent = String(minWeight);
+  render();
+});
+window.addEventListener("resize", render);
+render();
 </script>
 </body>
 </html>

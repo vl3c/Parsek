@@ -110,14 +110,16 @@ outline; a clean layering would have an empty upper triangle. The diagonal
 shows the file count, the rightmost column the instability, and the bottom
 row the fan-in.
 
-**`explore.html`** - the interactive view. All production modules are shown;
-click one to dim everything except that module, its direct in-edges and
-out-edges, and to fill the side panel with each neighbour, the weight, and the
-referenced type names. "show tooling modules" adds the test and tool modules;
-the "min edge weight" slider hides light edges. This is the only view with an
-external resource: Cytoscape.js is loaded from cdnjs, so the layout needs a
-network connection (the data is still embedded in the file, and `edges.json`
-plus `matrix.html` work offline).
+**`explore.html`** - the interactive view, self-contained inline SVG with no
+library and no network access, so it opens from disk. Modules sit in rows by
+instability band, unstable at the top and sinks at the bottom, the same
+reading as the dot view. Click one to dim everything except that module, its
+direct in-edges and out-edges, and to fill the side panel with each neighbour,
+the weight, an "upward" tag where the edge runs against the stability
+gradient, and the referenced type names. "show tooling modules" adds the test
+and tool modules; the "min edge weight" slider hides light edges. Some
+in-app file previews render HTML as a static snapshot without running
+scripts; open the file in a browser for the interactive view.
 
 ## Editing `modules.toml`
 
