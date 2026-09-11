@@ -504,6 +504,17 @@ _(unreleased — entries accumulate here per commit)_
   it never had: it is the only three-state control in the mod, and its "[~]" marker for
   "some of this chapter is in" was explained nowhere a player could read.
 
+- **The simple/full interface setting now actually governs every button it claims to.**
+  Four of the mod's fourteen interface switches - the Timeline, Missions, Logistics and
+  Settings buttons in the main window - were listed as switchable and were in fact drawn
+  unconditionally; nobody noticed because all four are meant to stay visible in both
+  modes, so the list and the window agreed by accident. They are wired now. Nothing moved
+  or disappeared: the same buttons are in the same places in both modes. What changed is
+  that the setting is a rule rather than a description, and the log line for a mode change
+  now names the surfaces that mode hides, which is the only way to see the list from
+  outside the code. A dead field in the Missions window carrying a comment about a
+  behaviour the code does not have went with it.
+
 - **Four Settings and main-window labels now say what the buttons behind them do.**
   "Wipe All Game Actions" only ever cleared the MILESTONE list - every career action on
   the ledger survived it, and the next recalculation still walked them - so the most

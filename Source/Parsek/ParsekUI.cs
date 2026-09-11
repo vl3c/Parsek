@@ -362,8 +362,31 @@ namespace Parsek
             }
 
             appliedUiComplexityMode = next;
-            ParsekLog.Info("UI", $"Mode changed: uiComplexityMode={previous}->{next}");
+            // The hidden set is named in the line, not just the mode: it is the ONE place
+            // the gate table is observable at runtime, and "which surfaces did that flip
+            // take away" is the first question a mode-related report raises. This is also
+            // UiSurfaceVisibility.HiddenSurfaces' production consumer - it had none, which
+            // is how a key with zero IsVisible call sites stayed invisible (the census's
+            // third surprise).
+            ParsekLog.Info("UI",
+                $"Mode changed: uiComplexityMode={previous}->{next} "
+                + $"hidden=[{FormatHiddenSurfaces(next)}]");
             OnUiComplexityModeApplied(previous, next);
+        }
+
+        /// <summary>
+        /// The hidden-surface set of <paramref name="mode"/> as a stable, comma-separated
+        /// name list, for the mode-change log line. Ordered by
+        /// <see cref="UiSurface"/> declaration order (what
+        /// <see cref="UiSurfaceVisibility.HiddenSurfaces"/> walks), so two runs of the same
+        /// build print the same string and a diff in the list means a real gate change.
+        /// Pure, so the log contract is unit-testable.
+        /// </summary>
+        internal static string FormatHiddenSurfaces(UiComplexityMode mode)
+        {
+            return string.Join(", ", UiSurfaceVisibility.HiddenSurfaces(mode)
+                .Select(s => s.ToString())
+                .ToArray());
         }
 
         /// <summary>
@@ -756,12 +779,16 @@ namespace Parsek
             //   4. Gloops Flight Recorder  (InFlight-only; RETIRED in every mode - never draws)
             //   5. Settings
             //
-            // Basic / Advanced gating (design 7.1): each hidden launcher is wrapped in an
+            // Basic / Advanced gating (design 7.1): EVERY launcher is wrapped in an
             // IsVisible check reading the FRAME-LATCHED mode below, never the settings
             // field, so the control count is identical in this frame's Layout and Repaint
-            // passes. Timeline / Missions / Logistics / Settings are constant-true in both
-            // modes (UiSurfaceVisibility.IsVisible), so they are deliberately left
-            // unwrapped rather than carrying a predicate that can never be false.
+            // passes. Timeline / Missions / Logistics / Settings answer constant-true in
+            // both modes, so their gates hide nothing today - they are wired anyway
+            // because an unwired key is a LIE in the gate table: all four had zero
+            // IsVisible call sites, so the table said they were gated and the launchers
+            // drew unconditionally, and the two agreeing by coincidence is exactly what
+            // made it invisible (the census's third surprise). Re-keying one of these to
+            // hidden is now a one-line decision rather than a hunt for the draw site.
             // Separators live INSIDE the block of the buttons they separate, or Basic
             // shows a double gap where the hidden group used to be.
             UiComplexityMode complexity = AppliedUiComplexityMode;
@@ -791,9 +818,10 @@ namespace Parsek
                 GUILayout.Space(SpacingLarge);
             }
 
-            if (GUILayout.Button(new GUIContent(
-                "Timeline",
-                "Every recorded flight and career event on one clock.")))
+            if (UiSurfaceVisibility.IsVisible(UiSurface.MainButtonTimeline, complexity)
+                && GUILayout.Button(new GUIContent(
+                    "Timeline",
+                    "Every recorded flight and career event on one clock.")))
             {
                 timelineUI.IsOpen = !timelineUI.IsOpen;
                 ParsekLog.Verbose("UI", $"Timeline window toggled: {(timelineUI.IsOpen ? "open" : "closed")}");
@@ -803,9 +831,10 @@ namespace Parsek
             // window; the launch-surface label stays short. Missions is the primary
             // identity of this window; the raw Recordings table is its second tab
             // (no separate button). The label is constant in both UI modes.
-            if (GUILayout.Button(new GUIContent(
-                "Missions",
-                "Your missions, and the recordings they are built from.")))
+            if (UiSurfaceVisibility.IsVisible(UiSurface.MainButtonRecordings, complexity)
+                && GUILayout.Button(new GUIContent(
+                    "Missions",
+                    "Your missions, and the recordings they are built from.")))
                 ToggleRecordingsWindow();
 
             // --- M6 Record-Supply-Run helper banner ---
@@ -882,9 +911,10 @@ namespace Parsek
                 GUI.color = new Color(0.45f, 0.85f, 0.95f);
             try
             {
-                if (GUILayout.Button(new GUIContent(
-                    "Logistics",
-                    "Supply routes that repeat a delivery you already flew.")))
+                if (UiSurfaceVisibility.IsVisible(UiSurface.MainButtonLogistics, complexity)
+                    && GUILayout.Button(new GUIContent(
+                        "Logistics",
+                        "Supply routes that repeat a delivery you already flew.")))
                 {
                     logisticsUI.IsOpen = !logisticsUI.IsOpen;
                     ParsekLog.Verbose("UI",
@@ -957,9 +987,10 @@ namespace Parsek
             // it used to advertise was retired by the 2026-08-27 simplification, and
             // Looping / Diagnostics / Sample Density are Advanced-only, so three of the
             // four topics the old wording promised could be absent (finding P18).
-            if (GUILayout.Button(new GUIContent(
-                "Settings",
-                "Interface, ghosts and data - plus more in Advanced.")))
+            if (UiSurfaceVisibility.IsVisible(UiSurface.MainButtonSettings, complexity)
+                && GUILayout.Button(new GUIContent(
+                    "Settings",
+                    "Interface, ghosts and data - plus more in Advanced.")))
                 ToggleSettingsWindow();
 
             // --- Version footer (version on the left, Close button fills the rest) ---

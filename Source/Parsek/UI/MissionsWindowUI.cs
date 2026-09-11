@@ -275,13 +275,6 @@ namespace Parsek
         private readonly Dictionary<string, MissionPresentation.MissionSummaryFacts> summaryFactsCache =
             new Dictionary<string, MissionPresentation.MissionSummaryFacts>();
 
-        // The Basic / Advanced complexity mode, latched ONCE per draw pass from
-        // ParsekUI.AppliedUiComplexityMode (never from the settings field): the Layout and Repaint
-        // passes of one frame must agree on the control count, and in Basic the "#" index header is
-        // a label instead of a sort button (T1.7). The applied mode only changes from Update(),
-        // outside OnGUI, so a value read at the top of the pass holds for the whole pass.
-        private bool basicUiMode;
-
         // Per-frame cache of the REAL Mission LoopUnitSet (the SAME one the scene drivers build via
         // MissionLoopUnitBuilder.Build with FlightGlobalsBodyInfo.Instance), so the T- countdown
         // points to the engine's ACTUAL next relaunch (PhaseAnchorUT + n*relaunchCadence) instead of
@@ -749,10 +742,13 @@ namespace Parsek
         {
             EnsureStyles();
 
-            // Basic / Advanced gating for this pass (T1.7). Latched ONCE, from the applied mode the
-            // host window reads too, so the Layout and Repaint passes of one frame agree on the
-            // control count (in Basic the "#" header is a plain label, not a sort button).
-            basicUiMode = ParsekUI.AppliedUiComplexityMode == UiComplexityMode.Basic;
+            // No per-pass mode latch here: every gate in this tab reads
+            // ShowsLoopAuthoringControls(ParsekUI.AppliedUiComplexityMode) at its own draw
+            // site, and the applied mode only changes from Update(), outside OnGUI, so those
+            // reads already agree across one frame's Layout and Repaint passes. The
+            // `basicUiMode` field this used to assign was never read anywhere, and its
+            // comment claimed Basic renders "#" as a label while DrawColumnHeader makes it a
+            // sort button in BOTH modes - a dead field with a false contract on it.
 
             // Click outside an active rename field -> commit (mirrors the recordings
             // window's defocus handling).

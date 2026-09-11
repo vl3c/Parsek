@@ -265,6 +265,64 @@ the new gate with `if (true)`, which reds it - plus
 in ungated, and
 `MissionPresentationTests.ChapterIncludeCheckboxTooltip_ExplainsTheMixedMarkerAndTheClick`.
 
+## ~~GUI-I-FOUR-UISURFACE-KEYS-HAD-NO-ENFORCEMENT-SITE~~: the Basic/Advanced gate table claimed four gates the product never applied, and its HiddenSurfaces enumeration had no consumer [FILED + FIXED 2026-09-11 by the GUI fix batch]
+
+**Evidence.** Of the 14 `UiSurface` keys, four - `MainButtonTimeline`,
+`MainButtonRecordings`, `MainButtonLogistics`, `MainButtonSettings` - had ZERO
+`IsVisible` call sites anywhere in `Source/Parsek` (program-wide grep). Their launchers
+drew unconditionally (`ParsekUI.cs:794`, `:806`, `:885`, `:955`), and the draw method's own
+comment said so on purpose: "Timeline / Missions / Logistics / Settings are constant-true
+in both modes, so they are deliberately left unwrapped rather than carrying a predicate
+that can never be false." Separately, `UiSurfaceVisibility.HiddenSurfaces`
+(`UI/UiComplexityMode.cs:214`) was documented as "used by the mode-change close handler"
+and had no production consumer at all - its only reference outside its own file was the
+doc comment at `ParsekUI.cs:471` explaining why the real close set is NOT derived from it.
+
+**Why it stayed invisible, which is the interesting half.** The census photographed
+Basic/Advanced pairs for four windows and they matched perfectly - which is exactly the
+outcome an unenforced gate produces when every unenforced key is classified "keep". The
+table and the product agreed by coincidence, not by construction.
+
+**Fix, behaviour-neutral by construction.** All four launchers now read
+`UiSurfaceVisibility.IsVisible(...)` against the frame-latched mode. `IsVisible` answers
+true for all four in both modes, so the drawn control set is identical; what changes is
+that re-keying one of them to hidden is now a one-line decision instead of a hunt for the
+draw site. `HiddenSurfaces` gained its production consumer: the mode-change Info line now
+prints `hidden=[...]` via the pure `ParsekUI.FormatHiddenSurfaces`, which is the only place
+the gate table is observable at runtime and the first thing a mode-related report needs.
+
+**New gate, and it earned its keep immediately.**
+`UiComplexityModeTests.EverySurfaceKeyHasAtLeastOneEnforcementSite` scans the product
+source for an `IsVisible(UiSurface.<Key>` / `IsRetired(UiSurface.<Key>` read per key. Its
+first version used a contiguous substring and reported `TabMissions` as unenforced - a
+FALSE positive: `TimelineWindowUI.cs:1278` wraps `IsVisible(` onto the line before its
+`UiSurface.TabMissions` argument. The scan is whitespace-tolerant now, and the whole thing
+was mutation-checked by removing the new Timeline gate (it reds, naming
+`MainButtonTimeline`). `FormatHiddenSurfaces_NamesTheHiddenSetForTheModeChangeLog` pins
+the log line.
+
+**Not taken: deleting `HiddenSurfaces`.** The triage offered "use it or delete it with its
+tests". Its two tests (`BasicHidesExactlyTheDocumentedSet`,
+`AdvancedHidesOnlyRetiredSurfaces`) are the scope guards that make the Basic hide-set
+falsifiable in both directions; deleting them to retire a method with a real diagnostic use
+would have cost more coverage than it saved. `docs/dev/design-ui-basic-advanced.md` (the
+API block in section 9 and the 13.1 test list) is corrected accordingly.
+
+## ~~GUI-I-BASICUIMODE-DEAD-FIELD-WITH-A-FALSE-COMMENT~~: `MissionsWindowUI.basicUiMode` was assigned every draw pass, never read, and documented a behaviour the code does not have [FILED + FIXED 2026-09-11 by the GUI fix batch]
+
+**Evidence.** Declared `UI/MissionsWindowUI.cs:281`, assigned `:753`, and a program-wide
+grep over `Source/`, `harness/`, `docs/` and `scripts/` returns exactly those two lines.
+Its comment (`:277-280`) claimed "in Basic the '#' index header is a label instead of a
+sort button (T1.7)" - `DrawColumnHeader` makes it a sort button in BOTH modes, so the
+comment described a gate that does not exist on a field nothing consults.
+
+**Fix.** Field and assignment deleted. The replacement comment states what is actually
+true: every gate in the tab reads
+`ShowsLoopAuthoringControls(ParsekUI.AppliedUiComplexityMode)` at its own draw site, and
+the applied mode changes only from `Update()`, outside OnGUI, so those per-site reads
+already agree across one frame's Layout and Repaint passes - which is why no per-pass latch
+is needed here.
+
 ---
 
 ## BDOCK1-STATION-COMMIT-READOPT-LIMBO-FALLBACK-DIALOG: after BDOCK-1's mid-mission CommitTree, the re-adopted station continuation is stashed to Limbo by the interceptor launch and surfaces as a whole-tree merge dialog over already-committed recordings [FILED 2026-09-10 by wave package A2 (`cheap-flights-arming`) off its BDOCK-1 reading run; REWRITTEN 2026-09-11 off the archive grep. The dialog is the lane's deterministic shape on every post-fix build (4 of 4 logs), reached through a CORRECT refusal; OPEN PRODUCT QUESTION narrowed to the fallback dialog's UX over committed-overlap recordings; not fixed in this wave]

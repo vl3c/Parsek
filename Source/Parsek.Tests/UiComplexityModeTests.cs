@@ -216,5 +216,70 @@ namespace Parsek.Tests
             Assert.Equal(0, (int)UiComplexityMode.Basic);
             Assert.Equal(1, (int)UiComplexityMode.Advanced);
         }
+
+        // catches: a UiSurface key with NO enforcement site, which makes the gate table a
+        // claim rather than a rule. Four keys - MainButtonTimeline / MainButtonRecordings /
+        // MainButtonLogistics / MainButtonSettings - had zero IsVisible call sites anywhere
+        // and their launchers drew unconditionally; the gap was invisible precisely because
+        // all four are classified "keep", so the unenforced answer happened to match the
+        // enforced one. A source scan is the only instrument for this: the question is
+        // whether the PRODUCT asks the gate, which no amount of testing the gate can answer.
+        [Fact]
+        public void EverySurfaceKeyHasAtLeastOneEnforcementSite()
+        {
+            string productRoot = System.IO.Path.GetFullPath(System.IO.Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", "Parsek"));
+            Assert.True(System.IO.Directory.Exists(productRoot),
+                $"product source root not found at {productRoot}");
+
+            // One pass over the product source. The gate is read as
+            // IsVisible(UiSurface.<Key>, ...) at every call site; IsRetired(UiSurface.<Key>)
+            // is the second, retirement-only enforcement shape. Matched with a
+            // whitespace-tolerant regex, not a substring: TimelineWindowUI wraps its
+            // IsVisible( onto the line before its UiSurface.TabMissions argument, and a
+            // contiguous scan read that real enforcement site as a missing one.
+            var text = new System.Text.StringBuilder();
+            foreach (string file in System.IO.Directory.GetFiles(
+                         productRoot, "*.cs", System.IO.SearchOption.AllDirectories))
+            {
+                // Skip the decision point itself: its own switch names every key, which
+                // would make the scan vacuous.
+                if (file.EndsWith("UiComplexityMode.cs", StringComparison.Ordinal))
+                    continue;
+                text.Append(System.IO.File.ReadAllText(file));
+            }
+            string src = text.ToString();
+
+            var unenforced = new List<UiSurface>();
+            foreach (UiSurface surface in AllSurfaces())
+            {
+                var pattern = new System.Text.RegularExpressions.Regex(
+                    @"Is(Visible|Retired)\(\s*UiSurface\." + surface + @"\b");
+                if (!pattern.IsMatch(src))
+                    unenforced.Add(surface);
+            }
+
+            Assert.True(unenforced.Count == 0,
+                "every UiSurface key must be read at a draw site, or the gate table claims a "
+                + "gate the product does not apply. Unenforced: "
+                + string.Join(", ", unenforced.Select(s => s.ToString()).ToArray()));
+        }
+
+        // catches: the mode-change log line losing the hidden-surface list. That line is the
+        // only place the gate table is observable at runtime, and it is HiddenSurfaces' one
+        // production consumer - the method had none before, which is part of how the
+        // unenforced keys above stayed unnoticed.
+        [Fact]
+        public void FormatHiddenSurfaces_NamesTheHiddenSetForTheModeChangeLog()
+        {
+            string basic = ParsekUI.FormatHiddenSurfaces(UiComplexityMode.Basic);
+            foreach (UiSurface surface in UiSurfaceVisibility.HiddenSurfaces(UiComplexityMode.Basic))
+                Assert.Contains(surface.ToString(), basic);
+
+            Assert.Equal(
+                string.Join(", ", UiSurfaceVisibility.HiddenSurfaces(UiComplexityMode.Advanced)
+                    .Select(s => s.ToString()).ToArray()),
+                ParsekUI.FormatHiddenSurfaces(UiComplexityMode.Advanced));
+        }
     }
 }
