@@ -236,15 +236,23 @@ allowedAnomalies = []
 #               (assertion undocked); the active one finalizes at 1 point and is kept
 # = 19, in two committed trees of 8 (station) + 11 (interceptor). Every member comes from
 # an event the mission asserts or from the craft's fixed staging, before or apart from
-# the commit / stash mechanics, so the floor holds in BOTH shapes this lane lands. This
-# reading hit the intermittent FALLBACK MERGE-DIALOG shape (todo
-# BDOCK1-STATION-COMMIT-READOPT-LIMBO-FALLBACK-DIALOG); `2026-07-24_1501` (the other
-# dialog-shape archive) and the committed `bdock-recorded` fixture (the 2026-08-11 PASS
-# save; its log is not archived, so its shape is unknown) carry the same 19 with the
-# same per-type split. `2026-07-24_1405`'s single 18-recording tree is not evidence: it
-# is the pre-fix NAME-fallback adoption (`RestoreActiveTreeFromPending: PID remap`) that
-# merged the two flights. The max stays 20 and is NOT tightened: only wave bytes of both
-# shapes may move it (supervisor ruling), and this wave read one.
+# the commit / stash mechanics. The floor is MEASURED in ONE shape only: the FALLBACK
+# MERGE-DIALOG shape (todo BDOCK1-STATION-COMMIT-READOPT-LIMBO-FALLBACK-DIALOG), which
+# all 3 wave-DLL flights landed (`_1815`, `_2215`, `_2305`). No completed no-dialog run
+# exists on a current build, so nothing here claims the floor for any other shape.
+# The archive grep (2026-09-11) says why: all 14 archived runs that reached the
+# interceptor launch before commit 9e3538150 (`2026-07-24_0043` .. `_1405`) ended the
+# stash with RestoreActiveTreeFromPending's NAME fallback ADOPTING the fresh-rollout
+# interceptor into the station's pending tree (`name match 'Kerbal X'`, then
+# `PID remap 3620499050` to the rollout pid), the launch-identity mis-adoption that
+# commit's QuickloadResumeMatchGuard removed. Every post-fix log (`2026-07-24_1501` and
+# the three wave runs, 4 of 4) prints `refusing to adopt fresh-rollout vessel` and lands
+# the dialog. `2026-07-24_1501` and the committed `bdock-recorded` fixture (the
+# 2026-08-11 PASS save; its log is not archived, so its shape is unknown) carry the same
+# 19 with the same per-type split, as corroboration only. `2026-07-24_1405`'s single
+# 18-recording tree is that pre-fix adoption (it merged the two flights) and is not
+# evidence. The max stays 20 and is NOT tightened (supervisor ruling: only wave bytes of
+# both shapes may move it).
 #
 # ARMED RUN OF RECORD: `2026-09-10_2215_BDOCK-1-station-interceptor` (PASS attempt 1,
 # MISSION-OK, wall 2163 s): count 19 in the same two trees (terminals Destroyed 12,
@@ -259,7 +267,7 @@ allowedAnomalies = []
 #     PARSEK-FAIL(expectation) attempt 1, MISSION-OK, wall 2430 s, exactly one
 #     mismatch, `logContracts.required not matched: ...interval=0\.2s \(6\.0 Hz\)`;
 #     count 19; drift in its own KSP.log 15 / 0; the dialog shape again.
-# All three wave flights landed the dialog shape (4 of 20 archived BDOCK-1 logs), so no
+# All three wave flights landed the dialog shape (every post-fix log, 4 of 4), so no
 # wave bytes of the no-dialog shape exist and the max stays 20. One member's terminal
 # moved between the armed run and the control (Destroyed 12 against Destroyed 11 +
 # Landed 1, same count and branch points), which is why no terminalStates window is
@@ -284,8 +292,8 @@ required = [
   # D2 proximity-cadence-bg WITNESS, REQUIRED 2026-09-10 off the reading `_1815` (15
   # lines: 12 on staging debris at 18-19 m, 2 at probe separations, 1 on the undock
   # background child): the BG recorder stepping a background vessel into its 5 Hz
-  # proximity band. It prints in every archived two-ascent log of both shapes (12-15
-  # lines). CLAIMED 2026-09-11 (D2 above) after the armed run `_2215` (15 lines) and
+  # proximity band. It prints in every archived two-ascent log, pre-fix and post-fix
+  # (12-15 lines). CLAIMED 2026-09-11 (D2 above) after the armed run `_2215` (15 lines) and
   # both negative controls, offline over `_2215`'s log and live `_2305`, each red on
   # exactly this token inverted to 6.0 Hz (ledger in the count block).
   "Sample rate changed: pid=[0-9]+ dist=[0-9]+m interval=0\\.2s \\(5\\.0 Hz\\)",

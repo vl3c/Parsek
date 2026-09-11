@@ -15,7 +15,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## BDOCK1-STATION-COMMIT-READOPT-LIMBO-FALLBACK-DIALOG: after BDOCK-1's mid-mission CommitTree, the re-adopted station continuation is stashed to Limbo by the interceptor launch and surfaces as a whole-tree merge dialog over already-committed recordings [FILED 2026-09-10 by wave package A2 (`cheap-flights-arming`) off its BDOCK-1 reading run. OPEN PRODUCT QUESTION, 4 of 20 BDOCK-1 logs and all 3 flights on the wave DLL; not fixed in this wave]
+## BDOCK1-STATION-COMMIT-READOPT-LIMBO-FALLBACK-DIALOG: after BDOCK-1's mid-mission CommitTree, the re-adopted station continuation is stashed to Limbo by the interceptor launch and surfaces as a whole-tree merge dialog over already-committed recordings [FILED 2026-09-10 by wave package A2 (`cheap-flights-arming`) off its BDOCK-1 reading run; REWRITTEN 2026-09-11 off the archive grep. The dialog is the lane's deterministic shape on every post-fix build (4 of 4 logs), reached through a CORRECT refusal; OPEN PRODUCT QUESTION narrowed to the fallback dialog's UX over committed-overlap recordings; not fixed in this wave]
 
 **What happens**, from `2026-09-10_1815_BDOCK-1-station-interceptor`'s own KSP.log (local
 21:19):
@@ -34,13 +34,45 @@ When referencing prior item numbers from source comments or plans, consult the r
    dirty sidecar save for committed-overlap recording ...` and `skipped pending tree
    'Kerbal X'` (22 `SavePendingTreeIfAny: skipped` WARNs in the run).
 
-The mission was unaffected: it kept flying through the input lock (MISSION-OK, count 19,
-log validation PASS). The other occurrence is `2026-07-24_1501_BDOCK-1-station-interceptor`,
-whose log validation also PASSED with the same WARNs. Frequency: 1 of the 17 archived
-BDOCK-1 logs plus this run, 2 of 18. No other entry covers it.
+The mission is unaffected: it keeps flying through the input lock (MISSION-OK, count 19,
+log validation PASS on `_1815`, `_2215` and `_2305`). No other entry covers it.
 
-**The open product question.** Should the re-adopted continuation of a JUST-COMMITTED
-tree, stashed by a scene change before any new flight, end in a whole-tree merge dialog
+**Why it is deterministic, and what the older no-dialog runs were (archive grep,
+2026-09-11).** The 17 archived BDOCK-1 KSP.logs under `../logs` plus the three wave runs
+make 20 logs (`../logs/2026-09-11_0245_BDOCK-1-station-interceptor` is `_2305`'s own
+collect-logs copy, same timestamps and pids, and is not counted twice). Each falls into
+exactly one group, by what it prints after `StashActiveTreeAsPendingLimbo: stashed tree
+'Kerbal X' as Limbo`:
+
+- 2 never reached the interceptor launch (`2026-07-23_2347`, `2026-07-24_0001`: zero
+  stash lines, one commit).
+- 14 are PRE-FIX (`2026-07-24_0043` through `_1405`, every one built before commit
+  9e3538150): `FreshRollout: captured scene-entry vessel pid=<P>`, then
+  `RestoreActiveTreeFromPending: name match 'Kerbal X'`, `PID remap 3620499050` to
+  `<P>`, and `resumed recording tree 'Kerbal X' activeRec='<station rec>' ... pid=<P>`.
+  That is the old no-dialog shape, and it was a MIS-ADOPTION: the station's pending tree
+  resumed onto the freshly rolled-out interceptor (same .craft, same name, different
+  `Vessel.id`), so the interceptor's flight recorded into the station recording - the
+  INV4-PARTEVENT-PID fingerprint that flight 16 red on. The match was the secondary NAME
+  fallback, not a pid match (the recorded pid 3620499050 differed from every rollout
+  pid), and no launch-guid check sat in that loop yet.
+- 4 are POST-FIX (`2026-07-24_1501`, built at 9e3538150 itself, and the wave runs
+  `_1815`, `_2215`, `_2305`): `refusing to adopt fresh-rollout vessel 'Kerbal X'
+  pid=<P> liveGuid=<G> ... (recordedPid=3620499050, recordedGuid=97813bb6...)`, then
+  `leaving tree in Limbo`, then `showing tree merge dialog (fallback)`. The refusal line
+  was added by 9e3538150 (`QuickloadResumeMatchGuard.IsFreshRolloutCandidate`, still in
+  the restore match loop at HEAD), so each log's shape dates it independently of its
+  `git-state.txt`.
+
+So the dialog is not intermittent. It is what the corrected restore path does on this
+lane every time it reaches the interceptor launch (4 of 4; n is small, but no competing
+mechanism is left), and the old no-dialog shape was the launch-identity mis-adoption the
+fresh-rollout / launch-guid guard removed. The earlier "2 of 18" and "4 of 20" framing
+counted pre-fix logs as a second live shape; that framing is withdrawn.
+
+**The open product question, narrowed.** The refusal is correct and stays. What is open
+is the fallback dialog's UX: should the re-adopted continuation of a JUST-COMMITTED tree,
+stashed by a scene change before any new flight, surface as a whole-tree merge dialog
 over committed-overlap recordings (`recordings=8, spawnable=1`)? And what would Merge or
 Discard on that dialog do to the history that is already committed? The harness never
 answers the dialog, so neither path is measured.
@@ -49,20 +81,15 @@ answers the dialog, so neither path is measured.
 commit and INT-LAUNCH, the same answer the operator traps give for `InvokeRewindToLaunch`
 after a commit. Not done in this wave because it changes the lane's subject.
 
-**How the wave handled it.** The reading measured the dialog shape only, so BDOCK-1's
-count min was raised only to a value both shapes satisfy (19, attributed per type, every
-member produced before or apart from the stash) and the max kept at 20. No token that
-exists in only one shape (the fallback-dialog / Limbo lines) is required or forbidden.
-
-**Later the same day: the armed run and the live control landed it too.** BDOCK-1's
-armed run `2026-09-10_2215` and its live negative control `2026-09-10_2305` both logged
-`stashed tree 'Kerbal X' as Limbo (8 recording(s))` and `showing tree merge dialog
-(fallback)`, and both passed log validation. That makes 4 of 20 archived BDOCK-1 logs,
-but 3 of 3 flights on the wave DLL against 1 of 17 older archives, so on current builds
-the dialog looks like this lane's COMMON shape rather than a rare one. No no-dialog bytes
-exist on the wave DLL, so the count max stays 20. The two runs also differ in one debris
-terminal (Destroyed 12 against Destroyed 11 + Landed 1, same count and branch points):
-recorded, not gated.
+**How the wave handled it.** BDOCK-1's count min was raised to 19 (attributed per
+type, every member produced before or apart from the stash) and the max kept at 20. The
+floor is MEASURED in the dialog shape only (the reading `_1815`, the armed run `_2215`
+and the live control `_2305`, 3 of 3 on the wave DLL, all logging `stashed tree 'Kerbal
+X' as Limbo (8 recording(s))` and `showing tree merge dialog (fallback)`, all passing log
+validation); the spec header says so and claims it for no other shape. No token that
+exists in only one shape (the fallback-dialog, Limbo or refusal lines) is required or
+forbidden. `_2215` and `_2305` also differ in one debris terminal (Destroyed 12 against
+Destroyed 11 + Landed 1, same count and branch points): recorded, not gated.
 
 ## D17-MAKING-HISTORY-NEEDS-A-DEFINITION: the registry cell `making-history` has no subject, because Parsek has no Making-History-specific compatibility path to witness [FILED 2026-09-10 by wave package A2 (`cheap-flights-arming`) planning. A DEFINITION question for the operator, not a defect and not instance-blocked. OPEN; no experiment flight is authorized until it is answered]
 

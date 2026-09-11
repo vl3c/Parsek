@@ -460,7 +460,7 @@ routeCoDrawViolations = { max = 0 }
 #
 # `originBodies` and `destinationBodies` naming DIFFERENT bodies is the inter-body claim
 # in the save-structure vocabulary: that pair is what `ClassifyRouteScope` reads.
-gating= true
+gating = true
 count = { min = 2, max = 2 }
 dormant = { max = 0 }
 stops = { min = 2, max = 2 }

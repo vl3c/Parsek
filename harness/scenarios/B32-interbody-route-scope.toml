@@ -485,7 +485,7 @@ forbidden = [
 # `destinationBodies` naming different bodies is what `ClassifyRouteScope` reads, and
 # `RouteFacetFixtureAgreementTests.test_the_interbody_fixture_is_the_corpus_only_cross_body_route`
 # pins that this is the only committed fixture where they differ.
-gating= true
+gating = true
 count = { min = 2, max = 2 }
 dormant = { max = 0 }
 stops = { min = 2, max = 2 }
