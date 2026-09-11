@@ -167,42 +167,82 @@ run on that host reading the auto-close line, not a spec. A GUI-3 lane would als
 natural place to photograph the other flight-only surface a census still cannot reach
 (GUI-CENSUS-STRUCTURE-WINDOW-HAS-NO-DRIVEABLE-TARGET names the KSC half of that problem).
 
-## GUITREE-INTERCEPTION-LAYER-NEVER-RUN: the GUI-tree dump's Harmony interception of the UnityEngine IMGUI funnels has never executed inside KSP, so four premises the whole design rests on are unmeasured [Filed 2026-09-10 on branch `gui-dump-spike`. Code green, NOT YET FLOWN - and unlike the usual entry in this style, what is unflown is not a fix but the FEATURE]
+## ~~GUITREE-INTERCEPTION-LAYER-NEVER-RUN: the GUI-tree dump's Harmony interception of the UnityEngine IMGUI funnels has never executed inside KSP, so four premises the whole design rests on are unmeasured~~ [Filed 2026-09-10 on branch `gui-dump-spike`. CLOSED 2026-09-11 by the GUI census's first flight - runs `2026-09-10_2255` / `_2256` (GUI-1) and `2026-09-10_2259` / `_2300` (GUI-2). The layer RAN, and it ran clean]
 
-The pure half is fully covered headlessly (the assembler, the JSON writer, the geometry
-derivations, funnel-signature resolution, the opt-in patch gate) and the whole design is
-reasoned from the decompiled `UnityEngine.IMGUIModule`. Nobody has started the game and
-taken a capture, because the spike's author cannot launch it. Full statement of each
-premise: `docs/dev/design-gui-tree-dump.md` -> "What is unproven".
+WHAT THE FLIGHT WAS. Both census lanes flew on this branch's DLL and both read INVALID -
+each on exactly ONE seam step, neither of them a dump (GUI-1 on a rect width read-back
+that has since been fixed, GUI-2 on Real Spawn Control shutting itself; see the two
+entries above and below). Every dump step passed in every attempt, so the measurement
+this entry was waiting for is complete even though no lane has yet read a verdict.
 
-WHAT ONLY A FLIGHT SETTLES:
+THE READING, aggregated over the 56 dumps the four runs wrote (23 per GUI-1 attempt - 22
+census labels plus the `GuiTree` cell's own probe - and 5 per GUI-2 attempt):
 
-1. **Mono inlining.** Harmony rewrites a method; Mono's inliner reads a callee's IL from
-   metadata rather than through the detour, so a small callee can still be inlined into a
-   caller JITted after the patch. The exposed targets are `GUI.EndGroup` (14 bytes of IL),
-   `GUI.DoWindow` (26), `GUI.DoButton` (33) and `GUI.DoToggle` (34). Each has a designed
-   fallback, and the dump's `funnels` block plus the live cell's Begin/End parity
-   assertions exist to NAME a bypass rather than survive it quietly. The parity assertions
-   cover only the pairs whose BOTH sides are too large to inline
-   (`BeginLayoutGroup`/`EndLayoutGroup`, `BeginScrollView`/`EndScrollView`);
-   `BeginGroup`/`EndGroup` and `autoClosedByClip` are READINGS on the PASS line, because
-   an assertion there would red on the clip-depth fallback working as designed.
-2. **`GUIUtility.GUIToScreenRect` inside a `GUI.Window` callback.** Both endpoints bottom
-   out in native ICalls, so this cannot be settled by reading the assembly. The recorder
-   keeps `localRect` beside `rect` as the instrument, and `GuiTreeGeometry.Inspect` turns
-   a disagreement into a named failure.
-3. **Whether a scroll view's clip scroll offset reaches that conversion.** The live cell
-   measures a deliberately scrolled row against its own viewport; nothing else in the
-   design exercises it.
-4. **The reflection probes** - `GUIClip.Internal_GetCount` for clip depth,
-   `GUILayoutEntry.rect` / `GUILayoutGroup.isVertical` for a layout group's rect and
-   orientation, and `GUIUtility.guiDepth` for the inside-OnGUI guard. All fail soft (depth
-   -1, zero rects, "not inside a GUI pass", one Warn each) and are re-resolved at every
-   arm, so a failure degrades the dump rather than breaking it - but a permanently
-   unavailable clip probe would leave the tree resting on Begin/End pairing alone, which
-   is exactly what the recovery rules were written not to trust. The depth probe's reading
-   is printed on the arm's own Info line (`armed label=... guiDepth=0 ...`), so one flight
-   settles that one: `0` means the ICall answered, `-1` means the fallback carried the arm.
+- **`patched=17/17` on all 56 arms**, and `ok=17 already=0 failed=0 of=17` on every
+  `[GuiTree] patches applied` line: every interception installed, none already present,
+  none refused, and `patches removed` counted 23 / 5 per run against 23 / 5 arms - so
+  nothing leaked either. ZERO `[Parsek][WARN][GuiTree]` or `[ERROR][GuiTree]` lines across
+  all four runs: no arm timeout, no throwing arm, no double patch, no probe failure.
+- **`guiDepth=0` on every arm**, which settles the inside-OnGUI guard outright: the
+  `GUIUtility.guiDepth` ICall answered on the Windows CLR rather than falling back to
+  "not inside a GUI pass" (`guiDepth=-1`).
+- **`clipProbe=delegate` on every arm**, which settles premise 6: `Delegate.CreateDelegate`
+  over `GUIClip.Internal_GetCount` BINDS on this runtime, so the `MethodInfo.Invoke`
+  fallback was never needed. The `GUILayoutEntry.rect` / `GUILayoutGroup.isVertical`
+  reflection resolved too - 2809 layout-group nodes carry real rects.
+- **Every anomaly counter zero, in all 56 dumps**: `strayEnds`, `autoClosedByEnd`,
+  `autoClosedByClip`, `autoClosedByRect`, `unclosedAtEnd`, `recordFaults`,
+  `droppedOverCap`, `rectRuleInert`. The assembler's recovery rules did not have to fire
+  ONCE on a real Parsek window, over 21,010 nodes and 26,786 events.
+- **`guiMatrix.identity = true` everywhere** (screen 1280x720 on `stock-minimal`), as
+  predicted: nothing in KSP or Parsek sets a `GUI.matrix`.
+- **Premise 1 (Mono inlining) is measured per funnel by HITS, which is the direct test** -
+  a funnel with hits > 0 was not inlined at those call sites. Over GUI-1's and GUI-2's
+  first attempts: `GUI.DoWindow` 79 (26 bytes of IL, the one the design worried about most)
+  = `GUI.CallWindowDelegate` 79; `GUILayoutUtility.BeginLayoutGroup` 2809 =
+  `EndLayoutGroup` 2809; `GUI.BeginScrollView` 19 = `EndScrollView` 19; `GUI.DoLabel` 4923,
+  `GUI.DoControl` 2452, `GUI.DoButton` 2092 (33 bytes), `GUI.DoToggle` 360 (34),
+  `GUI.Box` 131, `GUI.DoTextField` 59, `GUI.DoRepeatButton` 29, `GUI.Slider` 14,
+  `GUI.DoButtonGrid` 9. Every Begin/End pair balanced exactly, and no funnel ever read
+  `patched: false`.
+- **Premises 2 and 3 are settled by the `GuiTree` cell, which RAN AND PASSED** -
+  `BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=GuiTree
+  scene=SPACECENTER` on both GUI-1 attempts, so the 240-frame self-skip did not fire
+  (`repaintPasses=5`). Its PASS line carries both measurements:
+  `box=[60,60,320,300] (measured contentOrigin+argSize) declared=[60,60,320,300]` -
+  `GUIUtility.GUIToScreenRect` converts correctly inside a `GUI.Window` callback, to the
+  pixel - and `row.y=181 scrollView.y=202 offsetAbove=21`, a deliberately scrolled row
+  measured 21 px ABOVE its own viewport, so a scroll view's clip offset does reach that
+  conversion. Every exact per-kind prediction held: `kinds=scrollview=1 layoutgroup=1
+  label=14 button=1 repeatbutton=2 toggle=1 textfield=1 slider=1 maxDepth=4`.
+- **The offline viewer reads a real dump.** `tools/gui_tree_view.py --batch` rendered all
+  23 of GUI-1's into `<label>.gui.html` plus `gui-tree-index.html`, in the run's own shots
+  directory, which is what the tool had never had an input for.
+
+WHAT IT DID NOT SETTLE, and none of it blocks anything:
+
+- **`GUI.BeginGroup` / `GUI.EndGroup` inlining stays UNMEASURED.** Both read 0 hits in all
+  56 dumps and 0 in the cell's own probe (`beginGroupHits=0 endGroupHits=0`), so nothing
+  the census drew calls them - the 14-byte `EndGroup` the design EXPECTS to be inlined was
+  never exercised either way, and its designed clip-depth fallback never had to run
+  (`autoClosedByClip=0` throughout). A zero is not a bypass: a bypass would have shown as
+  an unbalanced pair or a stray end, and every counter is zero. Measuring it needs a
+  surface that calls `GUI.BeginGroup`, which Parsek's does not.
+- **A per-window `GUI.matrix` is still not represented.** The header reads the matrix ONCE,
+  from whichever `OnGUI` container drew first, and the flight only proves that on
+  `stock-minimal` there is one matrix and it is the identity. An install where another
+  addon scales its own window would still mis-size that addon's nodes. Standing known gap,
+  below.
+- **A `Toolbar` / `SelectionGrid` is still ONE node.** `GUI.DoButtonGrid` fired 9 times, so
+  the funnel is intercepted, but the per-cell rects are computed inside its private
+  `CalcMouseRects` and the cells draw through `GUIStyle.Draw` - below the managed surface.
+  Unchanged by the flight; standing known gap, below.
+- **The COST while armed is still unmeasured** - the frame of allocation, and the
+  assemble + serialise + write hitch in the flush `LateUpdate`, plus the arm-time and
+  disarm-time Harmony codegen paid twice per capture. Nothing in the flight instrumented
+  it and nothing budgets for it; the largest dump was `ksc-testrunner-advanced` at 4253
+  nodes (the smallest `ksc-main-basic` at 34), which is the shape a future measurement
+  would size against.
 
 FIXED BEFORE THE FIRST FLIGHT (2026-09-10, same branch), all found by reading the
 decompiled module rather than by flying:
@@ -269,10 +309,6 @@ decompiled module rather than by flying:
   `MethodInfo.Invoke` wrapper and the capture's Info line names the path
   (`clipProbe=delegate` / `invoke` / `none`).
 
-Also unmeasured: the COST while armed - one frame of allocation for a few hundred small
-objects, plus a one-off assemble + serialise + write hitch in the flush LateUpdate. It
-does not matter for a one-frame capture and is not budgeted for anything else.
-
 KNOWN GAPS, all by design rather than defects, listed so a first reading of a dump does
 not report them as bugs: a `Toolbar` / `SelectionGrid` is ONE node (the per-cell rects are
 computed privately and the cells draw through `GUIStyle.Draw`, below the managed surface);
@@ -287,23 +323,25 @@ is read ONCE when the capture opens, from whichever `OnGUI` container drew first
 per-window matrix set by another addon is not represented (nothing in KSP or Parsek sets
 one, the header records what was read, and a non-identity matrix logs a Warn).
 
-Fix: fly it. The spec work is DONE as of 2026-09-11 and the flight is all that is left.
-`GUI-1-census-ksc` carries the `RunTests category="GuiTree"` step (interim pin, `total=1`
-exact), and the same wave added the `DumpGuiTree` seam verb plus 27 dump steps across the
-two census lanes - 22 in GUI-1, 5 in GUI-2 - each pinning `patched=17/17` on the seam's OK
-line. That doubles what one flight settles: premise 1 above (Mono inlining) is measured
-by the cell's own parity assertions AND by 27 independent arm-time funnel readings taken
-on REAL Parsek windows rather than on a probe, and a funnel that fails to patch reds the
-lane at the dump where it happened. Roadmap item 12. Expect a red or a skip on attempt 1
-and read it as a reading rather than a regression: every exact per-kind pin in the cell is
-a prediction from decompiled source, and the cell self-skips if its probe window sees no
-Repaint pass within 240 frames. That SELF-SKIP REDS THE LANE on GUI-1's `logContract` row
-by design and not by oversight - the interim pin `total=1 passed=[1-9][0-9]* failed=0
-skipped=[0-9]+` claims the cell RAN, and `passed=[0-9]+` is unavailable because
-`hlib.batch_contract_vacuity_gap` requires one pattern to reject the whole vacuous family -
-so the remedy for such a red is a HOST where the probe draws, never a looser pin. Until that flight, nothing should be built ON the dump -
-which is why the census lanes only pin `patched=`, and leave `windows` / `nodes` / `hits`
-for a reader.
+CLOSED BY: `GUI-1-census-ksc` run `2026-09-10_2255` (attempt 2 `_2256`) and
+`GUI-2-census-flight` run `2026-09-10_2259` (attempt 2 `_2300`), on this branch's DLL,
+artifacts under `harness/results/<runId>_shots/`. Both lanes read INVALID, so the
+statement to keep straight is that the LAYER is proven and the LANES are not yet green:
+each stopped on one seam step unrelated to the dump (a rect width read-back and a window
+that shuts itself, both fixed in the same PR as this entry), and the next flight of either
+is the reading run. The pinning is what made the flight a measurement rather than a
+gallery: the 27 dump steps the two specs carried at the time (26 now - the Real Spawn
+Control pair went with the window that does not draw) each pin `patched=17/17` on the
+seam's OK line, so a funnel whose signature drifted out from under its patch would have
+red'd the lane at the dump where it happened, and GUI-1's `RunTests category="GuiTree"` step ran the
+cell's own assertions on top. Its batch pin stays INTERIM (`total=1` exact,
+`passed=[1-9][0-9]*` / `skipped=[0-9]+` regexed) even though the measured line is
+`total=1 passed=1 failed=0 skipped=0` on both attempts: the whole pin is tightened off the
+READING run, not off an INVALID one. Roadmap item 12; premises and their readings:
+`design-gui-tree-dump.md` -> "What the first flight measured". Things may now be built ON
+the dump - which is why the census lanes still pin only `patched=`, and leave `windows` /
+`nodes` / `hits` for a reader: those are properties of whatever the frame contained, and a
+reviewer compares them across dumps.
 
 ## REPUTATION-SEED-CAPTURED-MID-FLIGHT-REAPPLIES-PRE-SEED-AWARDS: the lazy `ReputationInitial` seed is read off the live pool at the first commit, so every reputation award recorded BEFORE that moment is inside the seed AND replayed as a row
 

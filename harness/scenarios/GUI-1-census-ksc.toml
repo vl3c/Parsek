@@ -368,21 +368,27 @@ allowedAnomalies = []
 # property of the build. `patched=17/17` therefore asserts that all seventeen
 # interceptions were installed for THAT frame, twenty-two times over, and one funnel
 # whose signature drifted out from under the patch reds the lane at the dump where it
-# happened. It is also the pinning that makes this lane's first flight a MEASUREMENT of
-# the interception layer, which has never run inside KSP (see
-# GUITREE-INTERCEPTION-LAYER-NEVER-RUN and `design-gui-tree-dump.md` -> "What is
-# unproven"). `hits=` is deliberately left UNPINNED: it counts funnel body runs in a real
+# happened. It is also the pinning that MADE this lane's first flight a measurement of the
+# interception layer, which had never run inside KSP: all 22 read `patched=17/17` on both
+# attempts of 2026-09-10, with zero repairs and every dump's anomaly counters at zero, so
+# GUITREE-INTERCEPTION-LAYER-NEVER-RUN is closed on that reading
+# (`design-gui-tree-dump.md` -> "What the first flight measured") and these lines stay
+# pinned as the regression check they now are. `hits=` is deliberately left UNPINNED: it counts funnel body runs in a real
 # frame, so any literal would pin the row count of whatever the window happened to
 # contain; a reader compares it across the 22 dumps instead. `windows=` / `nodes=` are
 # unpinned for the same reason.
 #
-# THE BATCH LINE IS AN INTERIM PIN. `total=1` is exact and derived from the source
-# (hlib.parse_ingame_test_declarations sees exactly one [InGameTest(Category = "GuiTree")]
-# declaration, scene-agnostic and batch-safe, so at scene=SPACECENTER the derivation is
-# total=1 = 0 scene-skipped + 0 batch-skipped + 1 executable); `passed=` and `skipped=`
-# are REGEXED because the cell carries a run-time self-skip (it gives up if its probe
-# window never sees a Repaint within 240 frames) and no live run has ever measured which
-# way that goes. `passed=[1-9][0-9]*` still rejects the whole vacuous family, which is
+# THE BATCH LINE IS AN INTERIM PIN, AND STAYS ONE THROUGH THE FIRST FLIGHT. `total=1` is
+# exact and derived from the source (hlib.parse_ingame_test_declarations sees exactly one
+# [InGameTest(Category = "GuiTree")] declaration, scene-agnostic and batch-safe, so at
+# scene=SPACECENTER the derivation is total=1 = 0 scene-skipped + 0 batch-skipped + 1
+# executable); `passed=` and `skipped=` are REGEXED because the cell carries a run-time
+# self-skip (it gives up if its probe window never sees a Repaint within 240 frames).
+# THE FIRST FLIGHT MEASURED THAT SPLIT - `total=1 passed=1 failed=0 skipped=0`, identical
+# on both attempts, the self-skip nowhere near firing (`repaintPasses=5`) - and the pin is
+# deliberately NOT tightened off it: both attempts read INVALID on the rect step above, and
+# a whole pin belongs to a run that READ a verdict. The reading run takes it whole and
+# drops this id from IngameBatchWiringGroupTests.INTERIM_PIN_IDS. `passed=[1-9][0-9]*` still rejects the whole vacuous family, which is
 # what the anti-vacuity rule asks of it. Registered in
 # IngameBatchWiringGroupTests.INTERIM_PIN_IDS until the first flight, after which the
 # split is pinned WHOLE off the measured line. A SELF-SKIP THEREFORE REDS THIS LANE ON

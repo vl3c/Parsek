@@ -205,13 +205,18 @@ A DUMP IS PROCESS-WIDE. The recorder intercepts UnityEngine's IMGUI funnels, not
 Parsek's draw code, so the tree contains every window the process drew that frame -
 stock's and any other addon's included. On `stock-minimal` that is Parsek plus stock.
 
-NOTHING HAS PRODUCED A DUMP YET, and the reason has changed. Until 2026-09-11 there
-was no way to ARM the recorder from outside the game: its API is `internal` and the
-only caller was the in-game `GuiTree` cell. The `DumpGuiTree label=<name>` seam verb
-now does it, and both census lanes drive one after every screenshot - but neither lane
-has flown, and the interception layer underneath has still never run inside KSP (the
-design note's "What is unproven"). So `--batch results/<runId>_shots` finds nothing
-today; the viewer, the harvest and now the verb are in place for the first one.
+DUMPS EXIST NOW, and until 2026-09-11 nothing had ever produced one. There was no way to
+ARM the recorder from outside the game - its API is `internal` and the only caller was the
+in-game `GuiTree` cell - so the viewer, the harvest and the notes strip had never had an
+input. The `DumpGuiTree label=<name>` seam verb closed that, and the census's first flight
+wrote the first ones: 23 under `results/2026-09-10_2255_GUI-1-census-ksc_shots/` (22 census
+labels plus the `GuiTree` cell's own `parsek-guitree-probe`) and 5 under
+`results/2026-09-10_2259_GUI-2-census-flight_shots/`, every one at `patched=17/17` with
+every anomaly counter zero, and `--batch` rendered all 23 of GUI-1's into `<label>.gui.html`
+plus `gui-tree-index.html` in that directory. Both lanes read INVALID on one seam step each
+(neither of them a dump), so what those runs prove is the RECORDER rather than a green
+lane. The reading, premise by premise, and the two things it did not settle:
+`docs/dev/design-gui-tree-dump.md` -> "What the first flight measured".
 
 ### The GUI-census sheet (`tools/gui_contact_sheet.py`)
 
@@ -302,10 +307,12 @@ Both lanes are `tier = "operator"` and fly on request only. In order:
 
 6. **Copy the directory out** if the census matters (the retention pass above).
 
-On a FIRST flight, read the seam's own lines before reading the layout: every dump
-step pins `patched=17/17`, so a lane that goes red there is telling you a UnityEngine
-IMGUI funnel signature drifted out from under its Harmony patch - a fact about the
-recorder, not about the window in the picture.
+Read the seam's own lines before reading the layout: every dump step pins
+`patched=17/17`, so a lane that goes red there is telling you a UnityEngine IMGUI funnel
+signature drifted out from under its Harmony patch - a fact about the recorder, not about
+the window in the picture. On the first flight (2026-09-10) all 56 arms across the four
+runs read 17/17 with zero repairs, so that reading is now a REGRESSION check rather than
+an open question.
 
 ## The produced-save snapshot (harvest from here, not from the instance)
 

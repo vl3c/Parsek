@@ -65,20 +65,22 @@ _(unreleased — entries accumulate here per commit)_
   starting save was staged wrong - the run still fails, because "nothing to report" and
   "nobody looked" are not the same answer.
 
-- **Development tooling, A FIRST DRAFT THAT HAS NOT YET BEEN PROVEN: groundwork for the
-  mod writing down exactly what its windows look like, for a helper that cannot see the
-  screen.** Everything Parsek draws is decided fresh every frame by code, and until now
+- **Development tooling, NOW PROVEN IN THE GAME: the mod can write down exactly what its
+  windows look like, for a helper that cannot see the screen.** Everything Parsek draws is decided fresh every frame by code, and until now
   the only record of what a window actually contained was a picture of it. The groundwork
   is here for writing a single frame out as a description instead: every panel, every row,
   every button and box and tick and typing field, where each one sat, what it said, what
   its hover text was, whether it was greyed out, and what sits inside what. There is also
   a small offline viewer that turns one of those descriptions into a web page: the boxes
   drawn over the matching screenshot, with a side panel listing the whole structure.
-  **The part that listens in on the game's own drawing has never once run inside KSP.**
-  It is written, and everything that can be checked without the game has been checked,
-  but nobody has yet started the game and taken a capture - so this is not a working
-  capability to rely on yet. Several things that checking DID catch, before any capture
-  was ever taken:
+  **The part that listens in on the game's own drawing HAS NOW RUN INSIDE KSP**, on the
+  first run of the two window tours: 56 captures across four runs, every one reporting all
+  seventeen of the game's drawing routines successfully listened in on, not one warning,
+  and not one place where the recorder had to fall back on guessing where something sat.
+  The two measurements nothing but a real frame could settle both came out right - where a
+  control sits on screen inside a window, to the pixel, and how far a scrolled row has
+  moved out of its own list. Several things that checking WITHOUT the game caught first,
+  before any capture was ever taken:
 
   - the safety check that asks "is the game mid-draw right now, so hold off?" was asking
     a question that is always answered yes once the game has drawn its very first frame,
@@ -121,17 +123,20 @@ _(unreleased — entries accumulate here per commit)_
   of the two happened rather than quietly handing over a half-finished description. Each
   answer also reports how many windows and how many individual items were written down,
   and how many of the game's own drawing routines were successfully listened in on - which
-  is the number that will finally say whether the listening works at all, the first time
-  any of this runs inside the game.
+  is the number that says whether the listening works at all, and which read all seventeen
+  of seventeen on every capture of the first runs.
 
   Both window tours now take one of these descriptions next to every picture, under the
   same name, so each screenshot has a written record of what was in it - 22 pairs at the
-  Space Center, 5 in flight. Each of those steps insists that all seventeen of the game's
+  Space Center, 4 in flight. Each of those steps insists that all seventeen of the game's
   drawing routines were successfully listened in on for that particular frame, which is
-  the check that will tell us, the first time either tour runs, whether the whole
-  listening idea works at all. The Space Center tour also runs the one existing self-test
-  for this feature, at the very end so it cannot disturb the windows the tour arranged.
-  None of this has been run yet.
+  the check that tells us whether the whole listening idea works. The Space Center tour
+  also runs the one existing self-test for this feature, at the very end so it cannot
+  disturb the windows the tour arranged. ALL OF IT HAS NOW RUN: both tours flew, the
+  self-test passed, every pair of files was written, and the whole feature is a working
+  capability rather than a draft. What the tours themselves still owe is a clean finish -
+  each stopped on one step of its own (a window that grew wider than it was asked for, and
+  one that shuts itself), both of which are fixed above.
 
   Nothing about the windows themselves changed: not one line of the drawing code was
   touched, nothing is listened to unless something asks for a capture, and while nothing

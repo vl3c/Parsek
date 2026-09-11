@@ -501,38 +501,39 @@ remains is, in order:
     that moves `hlib.compute_coverage` and every number derived from it. Definitions,
     evidence and the per-lane readings: "The re-fly continuation program (RF-1..RF-12)"
     below.
-12. ~~**Drive the `GuiTree` category**~~ SPEC LANDED 2026-09-11: `GUI-1-census-ksc`
-    carries one ordinary `RunTests category="GuiTree"` step (interim pin, `total=1`
-    exact), which re-closes the in-game category axis at 113 of 113 / 624 of 624 BY
-    SPEC COVERAGE. **The measurement its first flight IS remains owed**, and it is the
-    part that was ever worth anything: the lane has never flown, so nothing below has
-    been settled. The same wave added the `DumpGuiTree` seam verb and 27 dump steps
-    across the two census lanes, each pinning `patched=17/17`, so the flight now
-    measures the interception layer TWICE over - once through the cell's own assertions
-    and once through 27 arm-time funnel readings on real Parsek windows.
-    (2026-09-10, the GUI-tree dump spike). The cell needs no
-    fixture, no scene and no seam verb, because it draws its own probe window. Cheap
-    enough to batch with item 7, and ranked last only because it buys a doc number
-    rather than product risk - EXCEPT that the flight also settles four premises
-    nothing else can, which is the real reason to fly it: whether Harmony's
-    interception of private UnityEngine IMGUI methods fires at all or Mono inlined it,
-    whether `GUIUtility.GUIToScreenRect` converts correctly inside a `GUI.Window`
-    callback, whether a scroll view's clip offset reaches that conversion, and whether
-    the `GUIClip` / `GUILayoutGroup` reflection probes resolve. The cell is BUILT to
-    answer them: Begin/End funnel parity on the pairs whose BOTH sides are too large to
-    inline (`BeginLayoutGroup`/`EndLayoutGroup`, `BeginScrollView`/`EndScrollView`)
-    detects an inlined End there, exact per-kind counts inside the probe's own subtree
-    detect a missing control kind, and every failure message prints what it measured.
-    `GUI.BeginGroup`/`GUI.EndGroup` and `autoClosedByClip` are deliberately READINGS on
-    the PASS line rather than assertions - the 14-byte End is EXPECTED to be inlined and
-    the clip-depth rule is its designed fallback - as is `clipProbe=`, which names whether
-    the per-event clip probe bound as a delegate or fell back to `MethodInfo.Invoke`. EXPECT A RED OR A SKIP ON ATTEMPT 1 and read it
-    as a reading: every exact pin is a prediction from decompiled source, and the cell
-    self-skips if no Repaint reaches its probe window within 240 frames. Nothing else
-    in the harness consumes a dump yet - the harvest and the offline viewer are
-    wired and idle. Filed as GUITREE-INTERCEPTION-LAYER-NEVER-RUN in
-    `todo-and-known-bugs.md`; premises in `design-gui-tree-dump.md` -> "What is
-    unproven".
+12. ~~**Drive the `GuiTree` category**~~ SPEC LANDED 2026-09-11, ~~**and its first
+    flight is the measurement**~~ FLOWN 2026-09-10: `GUI-1-census-ksc` carries one
+    ordinary `RunTests category="GuiTree"` step, which re-closed the in-game category
+    axis at 113 of 113 / 624 of 624 BY SPEC COVERAGE, and on runs `2026-09-10_2255` /
+    `_2256` the cell EXECUTED AND PASSED - `BATCH_COMPLETE v1 total=1 passed=1 failed=0
+    skipped=0 category=GuiTree scene=SPACECENTER`, its first execution anywhere, with the
+    240-frame self-skip not firing at `repaintPasses=5`. THE MEASUREMENT THIS ITEM WAS
+    REALLY FOR IS IN, and it is the part that was ever worth anything: the same wave added
+    the `DumpGuiTree` seam verb and 27 dump steps across the two census lanes (26 now),
+    each pinning `patched=17/17`, so the flight measured the interception layer TWICE over
+    - once through the cell's own assertions and once through 56 arm-time funnel readings
+    on REAL Parsek windows across the four runs. All 56 read 17/17 with zero repairs, zero
+    `[WARN][GuiTree]` lines and every anomaly counter zero; the cell's PASS line settled
+    `GUIToScreenRect` inside a `GUI.Window` callback to the pixel
+    (`box=[60,60,320,300] ... declared=[60,60,320,300]`) and the scroll-view clip offset
+    reaching it (`row.y=181 scrollView.y=202 offsetAbove=21`); and Mono inlining is
+    measured per funnel by hits (`GUI.DoWindow` 79 against `CallWindowDelegate` 79,
+    `BeginLayoutGroup` 2809 against `EndLayoutGroup` 2809, `BeginScrollView` 19 against
+    `EndScrollView` 19, every pair balanced). `GUI.BeginGroup` / `GUI.EndGroup` stayed at
+    0 hits - nothing the census draws calls them, so that pair's inlining is still
+    unmeasured, and `autoClosedByClip` never had to fire - and the armed cost is still
+    unbudgeted. Those two, plus the per-window `GUI.matrix` and the one-node
+    `Toolbar` / `SelectionGrid`, are the residue in `design-gui-tree-dump.md` ->
+    "What the first flight measured"; GUITREE-INTERCEPTION-LAYER-NEVER-RUN in
+    `todo-and-known-bugs.md` is ~~done~~. WHAT REMAINS ON THIS ITEM IS NOT A
+    MEASUREMENT BUT A VERDICT: both lanes read INVALID, each on one seam step unrelated
+    to the dump (a rect width read-back and Real Spawn Control self-closing, both fixed
+    in the same PR), so the `GuiTree` row stays in inventory bucket **B** - the promotion
+    rule wants the tally pinned WHOLE, and the whole pin is tightened off the READING run
+    rather than off an INVALID one. `tools/gui_tree_view.py --batch` also read its first
+    real input, rendering all 23 of GUI-1's dumps. Nothing in the harness CONSUMES a dump
+    yet - the harvest and the viewer render it, no verifier asserts on it, which is still
+    the right order.
 
 Decisions owed rather than work: ~~keep or delete `bdock-station-craft`~~ DECIDED
 2026-09-08, KEEP (it is the clean operator-build base `bdock-station-pad` was stamped
@@ -1846,10 +1847,13 @@ spike added the `GuiTree` category (1 scene-agnostic, batch-safe cell), so the a
 read 112 of 113 / 623 of 624 until a lane ran that category. RE-CLOSED 2026-09-11 by
 a `RunTests category="GuiTree"` step on `GUI-1-census-ksc`: 113 of 113 / 624 of 624
 BY SPEC COVERAGE. It needed no fixture and no seam verb, so it was a spec edit rather
-than a census - but "any committed host executes it" is still a PREDICTION and not a
-reading, because that lane has never flown: the cell self-skips if its own probe
-window sees no IMGUI Repaint pass within 240 frames, and nothing has measured that in
-any scene. Item 12 below carries what is left, which is the flight.
+than a census - and the lane then FLEW the same day (`2026-09-10_2255`, attempt 2
+`_2256`), with the cell EXECUTING AND PASSING both times (`total=1 passed=1 failed=0
+skipped=0` at SPACECENTER, `repaintPasses=5`, so the 240-frame self-skip never came
+near firing). So the axis is a reading on this host rather than a prediction; it stays
+a prediction for hosts nobody has asked. Item 12 below carries what is left, which is
+no longer the flight but the lane's VERDICT: both census lanes read INVALID on one
+seam step each, so the inventory row stays in bucket B until the reading run.
 Flight? ALL SIX FLOWN 2026-09-07 AND GREEN ON ATTEMPT 1. The first pair are LT-1
 (`2026-09-07_1511`) and LT-2 (`_1516`); the second wave flew the same evening -
 LT-1's 30-constituent re-pin `2026-09-07_2030` (292 s), LT-3 `_2035` (64 s), LT-4

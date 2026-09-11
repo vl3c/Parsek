@@ -1,9 +1,13 @@
 # Design: IMGUI tree dump (`GuiTreeRecorder`)
 
-Status: SPIKE, landed 2026-09-10 on `gui-dump-spike`; the `DumpGuiTree` seam verb and the
-two census lanes' dump steps landed 2026-09-11. The pure layer is unit-tested; the Harmony
-interception layer has NEVER RUN INSIDE KSP - see "What is unproven". The census lanes pin
-`patched=17/17` on every dump, so their first flight is the measurement.
+Status: LIVE-PROVEN 2026-09-11. Landed 2026-09-10 on `gui-dump-spike` as a spike; the
+`DumpGuiTree` seam verb and the two census lanes' dump steps landed 2026-09-11; the Harmony
+interception layer RAN INSIDE KSP on the census's first flight - `2026-09-10_2255` /
+`_2256` (GUI-1) and `2026-09-10_2259` / `_2300` (GUI-2) - writing 56 dumps at
+`patched=17/17` with every anomaly counter zero, and the in-game `GuiTree` cell passed
+inside it. See "What the first flight measured" for the reading and for the two things it
+did NOT settle. Both lanes read INVALID on one seam step each, neither of them a dump and
+both fixed in the same PR, so the LAYER is proven and the LANES are not yet green.
 
 ## The problem
 
@@ -557,10 +561,17 @@ tested in `harness/lib/test_gui_tree_view.py` - under `lib/`, not next to the to
 because CI runs `discover -s lib` and a test beside the tool would never run (the same
 placement as `lib/test_contact_sheet.py` for `tools/contact_sheet.py`).
 
-## What is unproven
+## What the first flight measured
 
-**The interception layer has never run inside KSP.** The spike's author cannot launch the
-game. What IS mechanically proven, headlessly:
+**The interception layer has run inside KSP.** The GUI census's first flight - GUI-1
+`2026-09-10_2255` and attempt 2 `_2256`, GUI-2 `2026-09-10_2259` and `_2300` - drove 56
+arms in total (23 per GUI-1 attempt: 22 census labels plus the `GuiTree` cell's own probe
+window; 5 per GUI-2 attempt) on the `stock-minimal` instance at 1280x720. Artifacts:
+`harness/results/<runId>_shots/`. Both lanes read INVALID on one seam step each - a rect
+width read-back and Real Spawn Control shutting itself, both fixed in the same PR as this
+note, neither a dump - so the layer is proven while the lanes still owe a green verdict.
+
+What IS mechanically proven headlessly, unchanged and still the first line of defence:
 
 - all 17 funnel signatures resolve against the shipped `UnityEngine.IMGUIModule.dll`,
   are static, and are not ICalls or P/Invokes (`GuiTreeFunnelTests`);
@@ -577,70 +588,93 @@ game. What IS mechanically proven, headlessly:
   invariance (including a strict-parser round trip of a rich document), and the geometry
   derivations the live cell asserts against.
 
-What only a flight can settle:
+THE WHOLE-FLIGHT NUMBERS, before the per-premise readings: `patched=17/17` on all 56 arms,
+with `ok=17 already=0 failed=0 of=17` on every `[GuiTree] patches applied` line and
+`patches removed` counted once per arm (23 / 5 per run) - so every interception installed
+and none leaked. ZERO `[Parsek][WARN][GuiTree]` or `[ERROR][GuiTree]` lines in any of the
+four runs: no arm timeout, no throwing arm, no double patch, no probe failure. Every
+anomaly counter zero in every dump - `strayEnds`, `autoClosedByEnd`, `autoClosedByClip`,
+`autoClosedByRect`, `unclosedAtEnd`, `recordFaults`, `droppedOverCap`, `rectRuleInert` -
+across 21,010 nodes and 26,786 events, so the assembler's recovery rules never had to fire
+on a real Parsek window. `guiMatrix.identity = true` everywhere. Node counts per dump ran
+from 34 (`ksc-main-basic`) to 4253 (`ksc-testrunner-advanced`).
 
-1. **Mono inlining.** Harmony rewrites a method; a caller Mono already JITted with that
-   method inlined keeps the old code, and Mono's inliner works from IL METADATA, so a
-   small callee can be inlined into a caller JITted after the patch. The exposed targets
-   are `GUI.EndGroup` (14), `GUI.DoWindow` (26), `GUI.DoButton` (33) and `GUI.DoToggle`
-   (34). Every one has a designed fallback (the window scope comes from
-   `CallWindowDelegate`; a group's close comes from the clip depth; the kind hint degrades
-   to style-name classification), and the `funnels` block names any that were bypassed.
-   The live cell asserts Begin/End PARITY for the pairs whose BOTH sides are too large to
-   inline - `BeginLayoutGroup`/`EndLayoutGroup` (180 and 123 bytes) and
-   `BeginScrollView`/`EndScrollView` (1199 and 362) - which is how a bypass there is
-   DETECTED rather than merely survived. `BeginGroup`/`EndGroup` is deliberately NOT
-   asserted, and neither is `autoClosedByClip`: the End is 14 bytes, the design EXPECTS it
-   inlined, and asserting either at zero would red on the clip-depth fallback WORKING.
-   Both are read out on the cell's PASS line, and the `funnels` block carries the
-   measurement.
-
-   The same reasoning applies to how the cell FINDS its window. A window node's title is
-   written by `GUI.DoWindow` alone, so an inlined declaration leaves the
-   `CallWindowDelegate` node carrying the window id and no title. `GuiTreeGeometry.Inspect`
-   and `MeasureScrollOffset` therefore take an overload keyed on the WINDOW ID with the
-   title as the secondary key, and the cell's failure message splits on
-   `PatchedAtArm[DoWindow]` / `Hits[DoWindow]` so an inlined 26-byte declaration cannot
-   read as "`CallWindowDelegate` was never intercepted". Should a fallback prove insufficient, the escape hatch is
-   `GUIStyle.Draw` - the instance method every leaf's Repaint path calls, moderately sized
-   and public - which yields rect and style for everything at the cost of losing the
-   control kind.
-2. **`GUIToScreenRect` inside a window callback**, as above, and whether a scroll view's
-   clip offset reaches it (the live cell measures a scrolled row against its viewport).
-3. **The `GUIClip.Internal_GetCount` probe** resolving at all, the
-   `GUILayoutEntry.rect` / `GUILayoutGroup.isVertical` reflection that gives layout groups
-   their rect and orientation, and the `GUIUtility.guiDepth` reading behind the
-   inside-OnGUI guard. All fail soft: a missing clip probe reports `clipDepth: -1`
-   everywhere, a missing layout probe records zero rects, an unreadable depth falls back to
-   "not inside a GUI pass", and each logs one Warn. All are re-resolved at every arm, so a
-   transient failure does not park a probe for the process lifetime. The depth probe is the
-   one whose reading is printed on the arm line, so its first flight settles it outright:
-   `guiDepth=0` means it worked, `guiDepth=-1` means the fallback carried the arm.
-4. **Cost while armed.** One frame's worth of allocation for a few hundred small objects,
-   plus the one-off assemble + serialise + write hitch in the flush LateUpdate. Never
-   measured. It does not matter for a one-frame capture - but arming it every frame would
-   be a different feature with a different budget.
-5. **Arm-time and disarm-time patch cost.** `Apply()` makes Harmony generate a dynamic
-   method per funnel - 17 of them, each with a prefix, a postfix or both - and `Remove()`
-   sweeps them off again through one `UnpatchAll`. That is real codegen, paid twice per
-   capture inside the frame that arms and the LateUpdate that flushes, and it is not
-   measured either. It is the price of the patches being opt-in rather than permanent, and
-   it scales with the number of funnels rather than with the size of the window, so it is
-   the one cost a bigger capture does NOT make worse. A caller arming a capture every few
-   frames would pay it continuously and should hold the patches instead - which is not a
-   mode the recorder offers today.
-6. **Which binding the clip-depth probe gets.** `GUIClip.Internal_GetCount` is an ECall,
-   and `Delegate.CreateDelegate` over an ECall is refused outside the declaring module on
-   the Windows CLR (the same refusal the `guiDepth` probe raises in the xUnit host); mono
-   may or may not accept it. The resolver is therefore delegate-first with a
-   `MethodInfo.Invoke` fallback (`GuiTreeRecorder.BindIntProbe`), because a refusal must
-   cost two allocations per recorded control rather than the clip depths of the entire
-   capture. Which path bound rides on the capture's Info line as `clipProbe=delegate` /
-   `invoke` / `none`, so the first flight settles it. Headlessly pinned: the delegate path
-   over a managed method, the Invoke wrapper returning a WORKING probe, a refused
-   `CreateDelegate` falling through to Invoke rather than to nothing, and the real
-   `Internal_GetCount` binding by some path on the host running the suite
+1. **Mono inlining: MEASURED, per funnel, by HITS** - which is the direct test, since a
+   funnel with hits > 0 was reached through its detour rather than inlined at those call
+   sites. Over the two lanes' first attempts: `GUI.DoWindow` 79 (26 bytes of IL, the target
+   this premise worried about most) against `GUI.CallWindowDelegate` 79;
+   `GUILayoutUtility.BeginLayoutGroup` 2809 against `EndLayoutGroup` 2809;
+   `GUI.BeginScrollView` 19 against `EndScrollView` 19; `GUI.DoLabel` 4923,
+   `GUI.DoControl` 2452, `GUI.DoButton` 2092 (33 bytes), `GUI.DoToggle` 360 (34),
+   `GUI.Box` 131, `GUI.DoTextField` 59, `GUI.DoRepeatButton` 29, `GUI.Slider` 14,
+   `GUI.DoButtonGrid` 9. Every Begin/End pair balanced EXACTLY, and no funnel in any dump
+   read `patched: false`. So the designed fallbacks - window scope from
+   `CallWindowDelegate`, a group's close from the clip depth, kind hints degrading to
+   style-name classification - were never needed, and the `GuiTreeGeometry.Inspect` /
+   `MeasureScrollOffset` window-ID keying (title secondary) was belt and braces rather
+   than load-bearing. `GUI.BeginGroup` / `GUI.EndGroup` are the one pair still UNMEASURED:
+   both read 0 hits in all 56 dumps and 0 in the cell's own probe
+   (`beginGroupHits=0 endGroupHits=0`), so nothing the census drew calls them - see the
+   residue below. The escape hatch nobody needed remains `GUIStyle.Draw`, the instance
+   method every leaf's Repaint path calls, which yields rect and style for everything at
+   the cost of the control kind.
+2. **`GUIToScreenRect` inside a window callback: SETTLED, to the pixel.** The live cell's
+   PASS line reads `box=[60,60,320,300] (measured contentOrigin+argSize)
+   declared=[60,60,320,300]` - the conversion inside a `GUI.Window` callback agrees with
+   the rect the probe declared. The double-count fix that landed before the flight (both
+   clip-container patch classes converting in a `Prefix`, before `GUIClip.Push`) is
+   therefore correct as shipped and not merely plausible.
+3. **The scroll view's clip offset DOES reach that conversion.** Same PASS line:
+   `row.y=181 scrollView.y=202 offsetAbove=21` - a deliberately scrolled row measured 21 px
+   ABOVE its own viewport, which is what a live scroll offset looks like and what a
+   swallowed one would not.
+4. **The reflection probes all resolved.** `guiDepth=0` on every one of the 56 arms, so the
+   `GUIUtility.guiDepth` ICall behind the inside-OnGUI guard answered on the Windows CLR
+   rather than falling back to "not inside a GUI pass" (`guiDepth=-1`); `clipProbe=delegate`
+   on every arm (premise 6); and the `GUILayoutEntry.rect` / `GUILayoutGroup.isVertical`
+   reflection gave 2809 layout-group nodes real rects. The fail-soft behaviours - clip
+   depth -1, zero rects, one Warn each, re-resolution at every arm - stay in place and
+   stay untested live, which is the right way round.
+5. **Cost while armed: STILL UNMEASURED**, along with the arm-time and disarm-time Harmony
+   codegen (17 dynamic methods generated and swept per capture, paid twice inside the frame
+   that arms and the LateUpdate that flushes). Nothing in the flight instrumented either.
+   It does not matter for a one-frame capture, and it scales with the funnel count rather
+   than the window size, so a bigger capture does not make it worse; what a future
+   measurement would size against is the largest dump the flight wrote,
+   `ksc-testrunner-advanced` at 4253 nodes. A caller arming every few frames would pay it
+   continuously and should hold the patches instead - still not a mode the recorder offers.
+6. **The clip-depth probe binds as a DELEGATE on this runtime.** `clipProbe=delegate` on
+   all 56 arms: `Delegate.CreateDelegate` over the `GUIClip.Internal_GetCount` ECall is
+   accepted inside KSP, so the `MethodInfo.Invoke` fallback (`GuiTreeRecorder.BindIntProbe`,
+   two allocations per recorded control) exists for a refusal that did not happen here. It
+   stays, because the refusal is real on other hosts - the xUnit host raises exactly that
+   on the sibling `guiDepth` probe - and because the alternative to a fallback is losing
+   the clip depths of a whole capture. Headlessly pinned as before
    (`GuiTreeClipProbeBindingTests`).
+
+THE OFFLINE VIEWER READS A REAL DUMP, which it had never had an input for:
+`tools/gui_tree_view.py --batch` rendered all 23 of GUI-1's into `<label>.gui.html` plus
+`gui-tree-index.html`, in the run's own shots directory.
+
+### Residue after the first flight
+
+- **`GUI.BeginGroup` / `GUI.EndGroup` inlining.** Zero hits across all 56 dumps and the
+  cell's probe, so the 14-byte `EndGroup` the design EXPECTS Mono to inline was never
+  exercised either way, and its designed clip-depth fallback never ran
+  (`autoClosedByClip=0` throughout). A zero is not a bypass - a bypass shows up as an
+  unbalanced pair or a stray end, and every such counter is zero - it is an absence of
+  calls: nothing Parsek or stock drew in those frames uses `GUI.BeginGroup`. Measuring it
+  needs a surface that calls it, which would have to be written for the purpose. Nothing
+  rests on it: the clip-depth rule is the recovery path, and it is exercised headlessly.
+- **A per-window `GUI.matrix`.** The flight proves only that on `stock-minimal` there is
+  one matrix and it is the identity. The header still reads the matrix ONCE, from whichever
+  `OnGUI` container drew first, so an install where another addon scales its own window
+  would mis-size that addon's nodes. See "Known gaps".
+- **`Toolbar` / `SelectionGrid` cells.** `GUI.DoButtonGrid` fired 9 times, so the funnel is
+  intercepted and the grid is recorded - as ONE node, because the per-cell rects are
+  computed in its private `CalcMouseRects` and the cells draw through `GUIStyle.Draw`. The
+  flight neither changed nor refuted this. See "Known gaps".
+- **Cost while armed**, as premise 5 above.
 
 ## Known gaps
 
