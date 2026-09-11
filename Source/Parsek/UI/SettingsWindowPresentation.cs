@@ -19,6 +19,11 @@ namespace Parsek
         /// The Defaults button's reset values, covering only the settings the window
         /// still draws (the 2026-08-27 settings simplification retired the Recording
         /// and Stock UI sections; hidden/hardwired settings are not reset here).
+        /// <para>Deliberately ABSENT: <c>uiComplexityMode</c>. It is the one DRAWN setting
+        /// Defaults leaves alone - resetting it would move an Advanced player back to Basic
+        /// mid-click and hide most of the window the button sits in. The claim is scoped
+        /// where the player reads it, in the button's own tooltip
+        /// (<see cref="DefaultsButtonTooltip"/>).</para>
         /// </summary>
         internal struct SettingsDefaults
         {
@@ -28,7 +33,16 @@ namespace Parsek
             internal SamplingDensity SamplingDensityLevel;
             internal float AutoLoopIntervalSeconds;
             internal LoopTimeUnit AutoLoopDisplayUnit;
+            internal float GhostAudioVolume;
         }
+
+        /// <summary>
+        /// The Defaults button's hover help. Names the one drawn setting it does NOT reset,
+        /// so the button no longer promises "all settings" while leaving the interface mode
+        /// where it was. Budgeted by the Settings row of <c>TooltipEchoBudgetTests</c>.
+        /// </summary>
+        internal const string DefaultsButtonTooltip =
+            "Resets every setting here except the Basic / Advanced interface mode.";
 
         internal static bool TryResolveAutoLoopEdit(
             string text,
@@ -61,7 +75,11 @@ namespace Parsek
                 ShowRouteLines = true,
                 SamplingDensityLevel = SamplingDensity.Medium,
                 AutoLoopIntervalSeconds = (float)LoopTiming.DefaultLoopIntervalSeconds,
-                AutoLoopDisplayUnit = LoopTimeUnit.Sec
+                AutoLoopDisplayUnit = LoopTimeUnit.Sec,
+                // The Ghosts section's only control, and drawn in BOTH modes: it belongs in
+                // a reset that calls itself Defaults (finding P8). The value mirrors the
+                // ParsekSettings.ghostAudioVolume field initializer.
+                GhostAudioVolume = 0.7f
             };
         }
 

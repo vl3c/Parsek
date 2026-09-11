@@ -796,22 +796,56 @@ namespace Parsek
             return copy;
         }
 
+        /// <summary>
+        /// Why <see cref="CanDelete"/> said no. Three distinct answers hide behind that one
+        /// bool, and the UI's greyed-out hover text used to state only the middle one as a
+        /// constant, so it could not tell the player which case they were in (finding from
+        /// the GUI census's "always the same" list).
+        /// </summary>
+        internal enum MissionDeleteRefusal
+        {
+            /// <summary>Deletable: not a refusal.</summary>
+            None,
+
+            /// <summary>No mission to act on.</summary>
+            NoMission,
+
+            /// <summary>The tree's ORIGINAL mission - what its recordings hang off.</summary>
+            TreeOriginal,
+
+            /// <summary>Not in the mission list at all (already deleted, or never added).</summary>
+            NotInStore,
+        }
+
         // Only a COPY can be deleted; the original mission of a tree is never deletable. The
         // original is the first mission in list order for the tree (the auto-created default;
         // clones are inserted after it). So a mission is deletable iff it is NOT the first mission
         // of its tree. This also keeps every tree with at least its original.
         internal static bool CanDelete(Mission m)
         {
+            return ClassifyDeleteRefusal(m) == MissionDeleteRefusal.None;
+        }
+
+        /// <summary>
+        /// <see cref="CanDelete"/>'s decision, with the REASON kept. Same traversal and same
+        /// verdict - `CanDelete` is now a one-line wrapper over this - so the two cannot
+        /// disagree about whether a mission is deletable.
+        /// </summary>
+        internal static MissionDeleteRefusal ClassifyDeleteRefusal(Mission m)
+        {
             if (m == null)
-                return false;
+                return MissionDeleteRefusal.NoMission;
             for (int i = 0; i < missions.Count; i++)
             {
                 if (missions[i] == null || missions[i].TreeId != m.TreeId)
                     continue;
                 // First same-tree mission found: it is the original. Deletable only if it is not m.
-                return !ReferenceEquals(missions[i], m);
+                return ReferenceEquals(missions[i], m)
+                    ? MissionDeleteRefusal.TreeOriginal
+                    : MissionDeleteRefusal.None;
             }
-            return false;
+            // No same-tree mission at all, so m is not in the list: nothing to remove.
+            return MissionDeleteRefusal.NotInStore;
         }
 
         internal static bool Delete(Mission m)

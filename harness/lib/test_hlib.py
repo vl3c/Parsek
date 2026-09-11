@@ -15061,6 +15061,121 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
     def test_describe_needs_nothing(self):
         self.assertEqual([], hlib.validate_ui_action_step(0, {"op": "describe"}))
 
+    # ----- R10 handle references vs the per-value shape checks -----
+
+    def test_the_documented_find_then_pointer_chain_validates(self):
+        """The defect this closes. Every per-value SHAPE check here ran on the value as
+        AUTHORED, before run.py's `substitute_step_args` replaces an R10 reference with
+        the referenced step's payload field - so `x=${f1.cx}` was asked whether it is a
+        dot-decimal number, answered no, and the find-then-pointer chain the seam's own
+        design doc documents was a PRE-LAUNCH validation error. Unwritable, with no
+        workaround: the whole point of the chain is that the coordinates are not known
+        until the find answers."""
+        self.assertEqual([], hlib.validate_ui_action_step(
+            0, {"op": "pointer", "x": "${f1.cx}", "y": "${f1.cy}"}))
+        # PARTIALLY templated too, which is the shape a lane uses to place a window
+        # relative to something it read: find_handle_refs returns TOKENS, so a value is
+        # a template and not a whole-value alias.
+        self.assertEqual([], hlib.validate_ui_action_step(
+            1, {"op": "rect", "window": "missions", "x": "${w.x}", "y": "${w.y}",
+                "w": "800", "h": "600"}))
+
+    def test_a_malformed_literal_beside_a_handle_is_still_refused(self):
+        """The skip is per VALUE, not per step: a handle in `x` buys `y` no exemption.
+        Without this cell the fix could have been written as a step-level bypass and
+        nothing would have noticed."""
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "pointer", "x": "${f1.cx}", "y": "200,5"})
+        self.assertTrue(any("dot-decimal" in e and "args.y" in e for e in errors),
+                        errors)
+        # A plain literal step is untouched by the change.
+        errors = hlib.validate_ui_action_step(
+            1, {"op": "pointer", "x": "100,5", "y": "200"})
+        self.assertTrue(any("dot-decimal" in e for e in errors), errors)
+        # REQUIREDNESS is not a shape check: a templated `x` alone is still a half-move.
+        errors = hlib.validate_ui_action_step(2, {"op": "pointer", "x": "${f1.cx}"})
+        self.assertTrue(any("pointer-arg-missing" in e for e in errors), errors)
+
+    def test_a_handle_validates_in_find_index_and_expand_key(self):
+        """The other two per-value shape checks on this verb. `index=` is an
+        `.isdigit()` and `key=` is a `<prefix>:<value>` split, and both rejected every
+        well-formed reference for the same reason the coordinate parse did."""
+        self.assertEqual([], hlib.validate_ui_action_step(
+            0, {"op": "find", "window": "logistics", "text": "Mun Depot",
+                "index": "${n.matches}"}))
+        self.assertEqual([], hlib.validate_ui_action_step(
+            1, {"op": "expand", "window": "logistics", "key": "${r.key}"}))
+        # An embedded reference under a real prefix too (the shape a lane writes when
+        # the prefix is known and only the id comes from a handle).
+        self.assertEqual([], hlib.validate_ui_action_step(
+            2, {"op": "expand", "window": "missions", "key": "group:${g.name}"}))
+        # And the literal rules still bite when no reference is present.
+        self.assertTrue(any("find-index-arg-invalid" in e
+                            for e in hlib.validate_ui_action_step(
+                                3, {"op": "find", "window": "logistics",
+                                    "text": "x", "index": "-1"})))
+        self.assertTrue(any("must be" in e for e in hlib.validate_ui_action_step(
+            4, {"op": "expand", "window": "logistics", "key": "group:x"})))
+
+    def test_the_two_label_verbs_accept_a_templated_label(self):
+        """The same trap on the other two census verbs: `label=` is a filename-safe
+        regex and `superSize=` an `.isdigit()`, and a `${}` is filename-unsafe by that
+        regex. Named here rather than left implicit because the fix is ONE shared rule
+        (`hlib.value_is_handle_templated`) that a future verb validator must follow."""
+        for fn in (hlib.validate_capture_screenshot_step,
+                   hlib.validate_dump_gui_tree_step):
+            with self.subTest(validator=fn.__name__):
+                self.assertEqual([], fn(0, {"label": "route-${r.id}"}))
+                self.assertTrue(any("filename-safe" in e
+                                    for e in fn(1, {"label": "has space"})))
+                # Still REQUIRED: the skip is about shape, never about presence.
+                self.assertTrue(any("REQUIRES" in e for e in fn(2, {})))
+        self.assertEqual([], hlib.validate_capture_screenshot_step(
+            3, {"label": "a", "superSize": "${s.n}"}))
+        self.assertTrue(any("integer 1.." in e
+                            for e in hlib.validate_capture_screenshot_step(
+                                4, {"label": "a", "superSize": "9"})))
+
+    def test_a_malformed_dollar_token_is_not_a_handle_and_does_not_exempt(self):
+        """`value_is_handle_templated` is `find_handle_refs`, which is the WELL-FORMED
+        grammar - so a typo'd `${f1cx}` buys no exemption and the coordinate check still
+        fires. That matters because the malformed-token scan that would ALSO catch it
+        lives in validate_spec's R10 pass, and a step validated on its own (as every
+        cell above does) never reaches it."""
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "pointer", "x": "${f1cx}", "y": "200"})
+        self.assertTrue(any("dot-decimal" in e for e in errors), errors)
+        self.assertFalse(hlib.value_is_handle_templated("${f1cx}"))
+        self.assertFalse(hlib.value_is_handle_templated("${runSave}"))
+        self.assertFalse(hlib.value_is_handle_templated("640"))
+        self.assertFalse(hlib.value_is_handle_templated(640))
+        self.assertTrue(hlib.value_is_handle_templated("${f1.cx}"))
+
+    def test_the_closed_value_rows_are_deliberately_not_exempt(self):
+        """The one place the skip is NOT applied, stated so it cannot be read as an
+        oversight. The closed vocabularies (`op=`, `window=`, `ctrl=`, `state=`,
+        `park=`, `dialog=`) are checked by VERB_SCOPED_CLOSED_ARGS in validate_spec, not
+        by the per-value shape checks here, and they stay fail-closed: they are fixed at
+        authoring time and small enough to write out, so a handle in one would mean a
+        spec that does not know which op it is running.
+
+        Asserted as a DISJOINTNESS between the two key sets rather than by driving a
+        whole spec: the shape-checked keys and the closed-value keys must not overlap,
+        which is what makes "skip the shape check" unable to reach a closed row."""
+        shape_checked = {"x", "y", "w", "h", hlib.UIFIND_INDEX_KEY,
+                         hlib.UIACTION_EXPAND_KEY, hlib.CAPTURE_LABEL_KEY,
+                         hlib.CAPTURE_SUPERSIZE_KEY}
+        closed = set(hlib.VERB_SCOPED_CLOSED_ARGS)
+        self.assertEqual(set(), shape_checked & closed,
+                         "a key cannot be both shape-checked (handle-exempt) and a "
+                         "closed-value row (fail-closed): %r"
+                         % sorted(shape_checked & closed))
+        for key in (hlib.UIACTION_OP_KEY, hlib.UIACTION_WINDOW_KEY,
+                    hlib.UIACTION_CTRL_KEY, hlib.UIACTION_STATE_KEY,
+                    hlib.UIACTION_PARK_KEY, hlib.ANSWERMERGE_DIALOG_KEY):
+            with self.subTest(key=key):
+                self.assertIn(key, closed)
+
     # ----- the census specs' pinned describe echoes -----
 
     # The window table's ORDER, which is the order the describe line's `openWindows=`

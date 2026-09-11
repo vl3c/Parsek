@@ -44,10 +44,22 @@ namespace Parsek
         /// </summary>
         // ----- GUI-census seam accessors (UiAction op=expand / op=picker) -----
         //
-        // One set backs every disclosure in this window - route rows (keyed by route id),
-        // candidate rows ("cand:"+treeId) and the three fixed subsection headers - so the
-        // seam drives it by RAW KEY and the three section constants are published here
-        // rather than copied into the seam.
+        // One set backs every disclosure in this window, and these are ALL FOUR key shapes
+        // it holds, re-derived from the four sites that write `expandedRows` rather than
+        // from this comment's earlier wording:
+        //   DrawRouteRow      route.Id ?? "<no-id>"          (:1040)
+        //   DrawCandidateRow  "cand:" + (tree.Id ?? "<no-tree>")  (:1546)
+        //   the three fixed subsection headers  dormant: / nearmiss: / dismissed: section
+        // The seam drives the set by RAW KEY and the three section constants are published
+        // here rather than copied into the seam.
+        //
+        // EnumerateRowKeysForTesting must list every one of those shapes, because it is
+        // what `op=expand key=all` iterates AND what `key=row:<k>` is validated against:
+        // a shape it omits is silently unexpandable in bulk and REJECTED
+        // `expand-key-unknown` when named. The candidate rows were the omission
+        // (fixed 2026-09-11); a route with a null id is deliberately still skipped,
+        // because "<no-id>" collides across every such route and naming one would toggle
+        // an arbitrary other.
         //
         // The link picker's opener is the one genuinely unreachable surface in the census's
         // click-gated list: it is armed from an expanded route row's button and is private.
@@ -71,7 +83,18 @@ namespace Parsek
         internal int ExpandedRowCountForTesting => expandedRows.Count;
 
         /// <summary>Every raw <c>expandedRows</c> key the window could draw a disclosure
-        /// for: the three fixed sections plus every committed route's id.</summary>
+        /// for: the three fixed sections, every committed route's id, and one
+        /// <c>"cand:"</c> key per candidate row.
+        ///
+        /// <para>The candidate keys come from this window's OWN cached candidate list, not
+        /// from a fresh <c>RouteCandidateFinder.DeriveCandidates()</c> call: the cache is
+        /// what <c>DrawCandidateRow</c> draws from (rebuilt on the ~1 Hz refresh), so a
+        /// live derivation here could answer keys for rows the window is not drawing this
+        /// second - and deriving candidates off the throttle is the one thing the cache
+        /// exists to prevent. The null form matches the draw site's exactly
+        /// (<c>"cand:" + (Tree?.Id ?? "&lt;no-tree&gt;")</c>); a mismatch there would be
+        /// worse than the omission, because the key would LOOK addressable and toggle
+        /// nothing.</para></summary>
         internal List<string> EnumerateRowKeysForTesting()
         {
             var keys = new List<string>
@@ -84,8 +107,19 @@ namespace Parsek
                 string id = routes[i] != null ? routes[i].Id : null;
                 if (!string.IsNullOrEmpty(id)) keys.Add(id);
             }
+            List<RouteCandidate> candidates = cachedCandidates;
+            for (int i = 0; candidates != null && i < candidates.Count; i++)
+                keys.Add(CandidateRowKey(candidates[i]));
             return keys;
         }
+
+        /// <summary>The <c>expandedRows</c> key of one candidate row. ONE site, called by
+        /// both <see cref="DrawCandidateRow"/> and
+        /// <see cref="EnumerateRowKeysForTesting"/>, so the drawn key and the enumerated
+        /// key cannot drift - which is the defect the enumeration's omission was a
+        /// symptom of.</summary>
+        internal static string CandidateRowKey(RouteCandidate candidate)
+            => "cand:" + (candidate?.Tree?.Id ?? "<no-tree>");
 
         /// <summary>Opens the round-trip link picker on a route through the production
         /// opener. The mouse position only seeds the popup's first rect, so the seam passes
@@ -134,7 +168,8 @@ namespace Parsek
         /// <summary>
         /// The key this window's IMGUI window id is hashed from. Named once and used at
         /// BOTH the <c>ClickThruBlocker.GUILayoutWindow</c> call below and
-        /// <c>ParsekTestCommandAddon.ResolveWindowId</c>, which the <c>UiAction op=find</c>
+        /// <c>UiWindowHandle.GetWindowId</c> (wired by
+        /// <c>ParsekTestCommandAddon.ResolveWindowHandle</c>), which the <c>UiAction op=find</c>
         /// seam uses to scope a captured GUI tree to THIS window's subtree. Two copies of
         /// the literal would let the seam search the wrong window's children and answer a
         /// plausible rect for a control in another window.
@@ -1544,7 +1579,7 @@ namespace Parsek
         {
             if (candidate?.Analysis == null) return;
             string treeId = candidate.Tree?.Id ?? "<no-tree>";
-            string rowKey = "cand:" + treeId;
+            string rowKey = CandidateRowKey(candidate);
             bool expanded = expandedRows.Contains(rowKey);
 
             string name = RouteCreationFormatters.GenerateDefaultRouteName(candidate.Analysis, candidate.Tree);
@@ -2762,9 +2797,10 @@ namespace Parsek
         /// frame-reset deferred field would be silently clobbered before
         /// ApplyPendingActions reads it). After a build the callback dirties both
         /// the candidate cache (the promoted run leaves the Candidates list) and the
-        /// legibility cache (the new route's cells appear immediately). This does NOT
-        /// touch <see cref="RouteCreationDialog"/>: that post-commit auto-dialog is
-        /// unchanged.
+        /// legibility cache (the new route's cells appear immediately). This is now the
+        /// ONLY route-creation confirm in the mod: the post-commit auto-dialog that used to
+        /// share the geometry was deleted 2026-09-11 as unreachable (GUI census D4), leaving
+        /// <see cref="RouteCreationDialog"/> as a pure span helper.
         /// </summary>
         private void SpawnCreateRouteConfirmation(RouteCandidate candidate)
         {

@@ -3,67 +3,25 @@ using System.Globalization;
 namespace Parsek
 {
     /// <summary>
-    /// Pure static methods for computing spawn warning text and ghost label text.
-    /// All methods are internal static for testability. No Unity dependencies beyond
-    /// what callers provide. OnGUI rendering is handled by ParsekFlight.
+    /// Pure static text builders for the ghost chain-status and in-world label strings.
+    /// All methods are internal static for testability, with no Unity dependencies beyond
+    /// what callers provide.
+    /// <para>The pre-spawn PROXIMITY WARNING pair that used to live here
+    /// (<c>ShouldShowWarning</c> / <c>FormatWarningText</c>, with
+    /// <c>SpawnCollisionDetector.CheckWarningProximity</c> behind them) was deleted
+    /// 2026-09-11: it had no call site, and this header used to claim "OnGUI rendering is
+    /// handled by ParsekFlight", which was never true. Nothing rendered it, so the
+    /// "move vessel to clear" advice a player would most want never reached the game
+    /// (GUI census D2). It is not wired up instead because there is nowhere to put it: the
+    /// Real Spawn Control window warps, it does not confirm a spawn - the spawn itself is
+    /// automatic - and no spawn-confirm dialog exists anywhere in the mod. Bringing the
+    /// warning back is a feature with a surface decision, not a wiring job; the census's
+    /// exposure gaps carry it.</para>
     /// </summary>
     internal static class SpawnWarningUI
     {
         private const string Tag = "SpawnWarning";
         private static readonly CultureInfo IC = CultureInfo.InvariantCulture;
-
-        // ────────────────────────────────────────────────────────────
-        //  Spawn warning decision + formatting (Task 6d-1)
-        // ────────────────────────────────────────────────────────────
-
-        /// <summary>
-        /// Pure decision: should a proximity warning be displayed?
-        /// Returns true when distance is at or within the warning radius.
-        /// </summary>
-        internal static bool ShouldShowWarning(float distance, float warningRadius)
-        {
-            bool show = distance <= warningRadius;
-            ParsekLog.Verbose(Tag,
-                string.Format(IC,
-                    "ShouldShowWarning: distance={0}m radius={1}m -> {2}",
-                    distance.ToString("F1", IC),
-                    warningRadius.ToString("F0", IC),
-                    show));
-            return show;
-        }
-
-        /// <summary>
-        /// Pure: compute warning text for a vessel near a pending spawn point.
-        /// When not blocked: "Vessel '{name}' spawning -- {distance}m from spawn point"
-        /// When blocked: "Spawn BLOCKED -- {name} overlaps, move vessel to clear"
-        /// </summary>
-        internal static string FormatWarningText(string vesselName, float distance, double spawnUT, bool spawnBlocked)
-        {
-            string name = string.IsNullOrEmpty(vesselName) ? "(unknown)" : vesselName;
-            string text;
-
-            if (spawnBlocked)
-            {
-                text = string.Format(IC,
-                    "Spawn BLOCKED -- {0} overlaps, move vessel to clear",
-                    name);
-            }
-            else
-            {
-                text = string.Format(IC,
-                    "Vessel '{0}' spawning -- {1}m from spawn point",
-                    name,
-                    distance.ToString("F0", IC));
-            }
-
-            ParsekLog.Verbose(Tag,
-                string.Format(IC,
-                    "FormatWarningText: vessel={0} distance={1}m spawnUT={2} blocked={3} -> \"{4}\"",
-                    name, distance.ToString("F1", IC),
-                    spawnUT.ToString("F0", IC), spawnBlocked, text));
-
-            return text;
-        }
 
         /// <summary>
         /// Pure: compute chain status text for display in the recording list UI.

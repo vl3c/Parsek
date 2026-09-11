@@ -265,5 +265,116 @@ namespace Parsek.Tests
             Assert.DoesNotContain("unfinishedFlightRowDepth > 0", hideBlock);
             Assert.Contains("EffectiveState.IsUnfinishedFlight(rec)", hideBlock);
         }
+
+        // catches: the Archive refusal losing its DIRECTION. Refusing exists to keep rewind
+        // access visible, so it can only apply to HIDING; the undirected check the per-row
+        // branch used to carry also refused the UN-hide, which would keep a flight that is
+        // already buried buried - and un-hiding is the only way back for a row an older
+        // build's ungated group hide-all wrote Hidden over (finding P17, mirror half).
+        [Fact]
+        public void ArchiveRefusal_AppliesToHidingOnly()
+        {
+            Assert.True(RecordingsTableUI.IsArchiveRefusedForUnfinishedFlight(
+                requestedHidden: true, isUnfinishedFlight: true));
+            Assert.False(RecordingsTableUI.IsArchiveRefusedForUnfinishedFlight(
+                requestedHidden: false, isUnfinishedFlight: true));
+            Assert.False(RecordingsTableUI.IsArchiveRefusedForUnfinishedFlight(
+                requestedHidden: true, isUnfinishedFlight: false));
+            Assert.False(RecordingsTableUI.IsArchiveRefusedForUnfinishedFlight(
+                requestedHidden: false, isUnfinishedFlight: false));
+        }
+
+        // catches: a refused folder archive becoming a dead click. The message must name the
+        // folder and the count so the player knows what to resolve, and singular / plural
+        // must agree (the count is the only number in it).
+        [Fact]
+        public void GroupArchiveRefusedMessage_NamesTheFolderAndTheCount()
+        {
+            string one = RecordingsTableUI.BuildGroupArchiveRefusedMessage("Munshots", 1);
+            Assert.Contains("Munshots", one);
+            Assert.Contains("1 Unfinished Flight inside", one);
+
+            string many = RecordingsTableUI.BuildGroupArchiveRefusedMessage("Munshots", 3);
+            Assert.Contains("3 Unfinished Flights inside", many);
+        }
+
+        // catches: the GROUP hide-all going back to writing Hidden over every descendant
+        // with no Unfinished-Flight check, which is what let archiving a folder bury the
+        // re-flyable flight the per-row control refuses to bury (finding P17). Source
+        // inspection for the same reason the depth-gate cell above uses it: the branch lives
+        // inside an IMGUI draw method that cannot be driven headlessly.
+        [Fact]
+        public void GroupHideAll_RoutesThroughTheSharedArchiveRefusal()
+        {
+            string srcRoot = System.IO.Path.GetFullPath(
+                System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory,
+                    "..", "..", "..", "..", "Parsek"));
+            string uiSrc = System.IO.File.ReadAllText(
+                System.IO.Path.Combine(srcRoot, "UI", "RecordingsTableUI.cs"));
+
+            List<string> missing = FindMissingGroupHideAllRoutingTokens(uiSrc);
+
+            Assert.True(missing.Count == 0,
+                "the group hide-all block must route through the shared refusal. Missing: "
+                + string.Join("; ", missing.ToArray()));
+        }
+
+        // anti-vacuity for the scan above: the block is WRAPPED in a comment that names the
+        // per-row refusal it now shares, so a scan over raw source text answers "routed" for
+        // a block that only talks about routing. Decoy with the three needles present in the
+        // comment and nowhere else; every one of them must still read as missing.
+        [Fact]
+        public void TheGroupHideAllScanRedsWhenTheRoutingExistsOnlyInAComment()
+        {
+            string decoy =
+                "            bool newAllHidden = GUILayout.Toggle(allHidden, Content);\n"
+                + "            if (newAllHidden != allHidden)\n            {\n"
+                + "                // Same guard as the per-row control: this used to skip\n"
+                + "                // IsArchiveRefusedForUnfinishedFlight(newAllHidden, ...) and the\n"
+                + "                // EffectiveState.IsUnfinishedFlight(committed[idx]) count behind it,\n"
+                + "                // and never reached BuildGroupArchiveRefusedMessage(groupName, n).\n"
+                + "                foreach (int idx in descendants)\n"
+                + "                    committed[idx].Hidden = newAllHidden;\n"
+                + "                ParsekLog.Info(\"UI\", $\"Group '{groupName}' hide-all={newAllHidden}\");\n"
+                + "            }\n";
+
+            List<string> missing = FindMissingGroupHideAllRoutingTokens(decoy);
+
+            Assert.Equal(3, missing.Count);
+        }
+
+        /// <summary>
+        /// The routing tokens the group hide-all block does not actually contain, comments
+        /// excluded. Empty list = the block routes through the shared refusal.
+        /// <para>Anchored on CODE at both ends (the toggle assignment and the log line's
+        /// literal), not on the leading comment the block used to be found by: stripping
+        /// comments is what makes the needles mean something, and it also removes the old
+        /// anchor.</para>
+        /// </summary>
+        internal static List<string> FindMissingGroupHideAllRoutingTokens(string src)
+        {
+            string prepared = SourceScanText.StripCSharpComments(src);
+
+            int anchor = prepared.IndexOf(
+                "bool newAllHidden = GUILayout.Toggle(", StringComparison.Ordinal);
+            Assert.True(anchor >= 0,
+                "the group hide-all toggle assignment should exist in RecordingsTableUI.cs");
+            int blockEnd = prepared.IndexOf("hide-all={newAllHidden}", anchor, StringComparison.Ordinal);
+            Assert.True(blockEnd > anchor, "Expected the group hide-all log line after the anchor");
+            string groupHideBlock = prepared.Substring(anchor, blockEnd - anchor);
+
+            var missing = new List<string>();
+            foreach (string token in new[]
+                     {
+                         "IsArchiveRefusedForUnfinishedFlight(newAllHidden",
+                         "EffectiveState.IsUnfinishedFlight(committed[idx])",
+                         "BuildGroupArchiveRefusedMessage(groupName",
+                     })
+            {
+                if (groupHideBlock.IndexOf(token, StringComparison.Ordinal) < 0)
+                    missing.Add(token);
+            }
+            return missing;
+        }
     }
 }

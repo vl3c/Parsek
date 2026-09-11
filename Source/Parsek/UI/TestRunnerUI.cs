@@ -67,7 +67,8 @@ namespace Parsek
         /// <summary>
         /// The key this window's IMGUI window id is hashed from. Named once and used at
         /// BOTH the <c>ClickThruBlocker.GUILayoutWindow</c> call below and
-        /// <c>ParsekTestCommandAddon.ResolveWindowId</c>, which the <c>UiAction op=find</c>
+        /// <c>UiWindowHandle.GetWindowId</c> (wired by
+        /// <c>ParsekTestCommandAddon.ResolveWindowHandle</c>), which the <c>UiAction op=find</c>
         /// seam uses to scope a captured GUI tree to THIS window's subtree. Two copies of
         /// the literal would let the seam search the wrong window's children and answer a
         /// plausible rect for a control in another window.
@@ -505,7 +506,13 @@ namespace Parsek
                 showTestRunnerWindow = false;
                 ParsekLog.Verbose("UI", "Test runner window closed");
             }
-            GUILayout.Label("Ctrl+Shift+T to toggle from any scene", GUI.skin.label);
+            // Ctrl+Shift+T does NOT toggle THIS window: the shortcut lives on
+            // InGameTests/TestRunnerShortcut, a separate MonoBehaviour whose window
+            // ("ParsekTestRunnerGlobal") carries the same title, so pressing it while this
+            // one is open puts a SECOND identically-titled runner on screen. The old label
+            // claimed the shortcut as this window's own (finding P16).
+            GUILayout.Label("Ctrl+Shift+T opens a separate runner window, in any scene",
+                GUI.skin.label);
 
             ParsekUI.DrawResizeHandle(testRunnerWindowRect, ref isResizingTestRunnerWindow,
                 "TestRunner window");

@@ -75,7 +75,54 @@ comment NAMES the two ops deliberately absent from the set.
 
 Counts after this wave: 36 implemented verbs / 5 reserved (UNMOVED - every addition is an
 op or an arg), `UiAction` at 12 ops of which 7 are two-phase, `VERB_SCOPED_CLOSED_ARGS` at
-12 rows (from 8).)
+12 rows (from 8).
+
+REVIEW PASS 2026-09-11, same branch, NO NEW VERB OR OP - five defects in the six ops
+above, three applier tables given witnesses, and two residues recorded. Full narrative:
+`design-autotest-command-seam.md` -> "REVIEW FOLLOW-UPS (2026-09-11)".
+
+1. **The documented find-then-pointer chain did not validate.** Every per-value SHAPE
+   check in `validate_ui_action_step` (and the two label verbs') ran on the value as
+   AUTHORED, before run.py's `substitute_step_args` resolves an R10 `${step.field}` - so
+   `op=pointer x=${f1.cx} y=${f1.cy}` was a pre-launch validation error with no
+   workaround. Those checks now skip a handle-templated value
+   (`hlib.value_is_handle_templated`); requiredness, the R10 static pass and the
+   closed-value rows are untouched, and the closed rows stay fail-closed BY DECISION.
+   Six hlib cells, including the mirror direction (a malformed literal beside a handle
+   still reds, and a malformed `${f1cx}` buys no exemption).
+2. **`op=pointer` read its confirmation ONCE.** `Input.mousePosition` was sampled a
+   single frame after `SetCursorPos` returned, and the OS move and Unity's next input
+   sample are different pipelines - so a one-frame lag was a hard `pointer-not-applied`
+   over a move that was about to land. It now polls
+   (`TestCommandUiPointer.DecidePoll`, routed beside `find`'s own poll); frames became a
+   FLOOR, landing is the signal, settled still beats the budget on the same poll.
+3. **One Parsek modal was invisible to `op=dialog`.** The prefix scan's premise was
+   FALSE: the flight-map ghost icon menu was named `GhostIconMenu`, so the verb answered
+   `open=false` over a live modal. Renamed `ParsekGhostIconMenu`, and the premise is now
+   source-derived (`ParsekDialogNamePrefixSourceGateTests` walks every
+   `new MultiOptionDialog(...)` in `Source/Parsek`, comments stripped, both the literal
+   and the `const string` argument shapes resolved). Mutation-checked: renaming it back
+   reds two cells naming the file and line.
+4. **`nbuttons=` counted only top-level buttons**, so any dialog that wraps two buttons
+   in a layout row reported none. The scan now walks `DialogGUIBase.children`
+   recursively, depth-first left-to-right (so `AnswerMergeDialog`'s by-position
+   selection is unchanged), not into a button's own children, depth-bounded.
+5. **`op=expand key=all` left the Logistics candidate rows shut**, and
+   `key=row:cand:<treeId>` was `expand-key-unknown`, over rows the window was drawing.
+   The key now comes from ONE site both the draw path and the enumeration call.
+
+THREE APPLIER TABLES NO CELL COULD REACH are now mirrored from their source against the
+pure side's own tables (`GuiCensusApplierSourceGateTests`, comments stripped first, each
+with a synthetic-source anti-vacuity sibling): `ResolveExpandSets`' per-window ordered
+prefix list vs `TestCommandUiState.ExpandPrefixesFor`, `ResolveWindowHandle`'s per-window
+`MinW`/`MinH` vs each window class's own constants (with the three minimum-less rows
+named as a CLAIM), and `MergeDialog.DismissAndClearPendingFlag` dismissing BOTH dialog
+names through one iterated call site - the mutation that had survived.
+
+TWO RESIDUES RECORDED, neither closed: a `picker` popup is photographable but not
+`find`-able (uGUI, the same structural reason `op=dialog` exists), and `op=expand`
+answers OK over a surface the complexity mode is not drawing (the host-visibility gate is
+per OP by design; the fix belongs in the lane).)
 
 Previously: 2026-09-11 (**THE GUI CENSUS FLEW, AND THE GUI-TREE INTERCEPTION LAYER IS
 PROVEN**, branch `gui-census-dump`. Four runs on this branch's DLL:

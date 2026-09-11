@@ -400,6 +400,8 @@ namespace Parsek
             new GUIContent("", MissionPresentation.IncludeCheckboxTooltip);
         private static readonly GUIContent PartnerJourneyCheckboxContent =
             new GUIContent("", MissionPresentation.PartnerJourneyTooltip);
+        private static readonly GUIContent ChapterIncludeCheckboxContent =
+            new GUIContent("", MissionPresentation.ChapterIncludeCheckboxTooltip);
 
         // The one stamp every ExcludedIntervalKeys write site must pair with the mutation: an
         // interval edit is authored against CURRENT key numbering, and a gen-0 mission whose
@@ -418,13 +420,6 @@ namespace Parsek
         // alongside missionViewCache on the first lookup of a new frame.
         private readonly Dictionary<string, MissionPresentation.MissionSummaryFacts> summaryFactsCache =
             new Dictionary<string, MissionPresentation.MissionSummaryFacts>();
-
-        // The Basic / Advanced complexity mode, latched ONCE per draw pass from
-        // ParsekUI.AppliedUiComplexityMode (never from the settings field): the Layout and Repaint
-        // passes of one frame must agree on the control count, and in Basic the "#" index header is
-        // a label instead of a sort button (T1.7). The applied mode only changes from Update(),
-        // outside OnGUI, so a value read at the top of the pass holds for the whole pass.
-        private bool basicUiMode;
 
         // Per-frame cache of the REAL Mission LoopUnitSet (the SAME one the scene drivers build via
         // MissionLoopUnitBuilder.Build with FlightGlobalsBodyInfo.Instance), so the T- countdown
@@ -893,10 +888,13 @@ namespace Parsek
         {
             EnsureStyles();
 
-            // Basic / Advanced gating for this pass (T1.7). Latched ONCE, from the applied mode the
-            // host window reads too, so the Layout and Repaint passes of one frame agree on the
-            // control count (in Basic the "#" header is a plain label, not a sort button).
-            basicUiMode = ParsekUI.AppliedUiComplexityMode == UiComplexityMode.Basic;
+            // No per-pass mode latch here: every gate in this tab reads
+            // ShowsLoopAuthoringControls(ParsekUI.AppliedUiComplexityMode) at its own draw
+            // site, and the applied mode only changes from Update(), outside OnGUI, so those
+            // reads already agree across one frame's Layout and Repaint passes. The
+            // `basicUiMode` field this used to assign was never read anywhere, and its
+            // comment claimed Basic renders "#" as a label while DrawColumnHeader makes it a
+            // sort button in BOTH modes - a dead field with a false contract on it.
 
             // Click outside an active rename field -> commit (mirrors the recordings
             // window's defocus handling).
@@ -2027,31 +2025,47 @@ namespace Parsek
             // there is no existing mixed-state toggle style in this codebase to borrow. Checked
             // means "some of this chapter is included", so one click drops the whole chapter and
             // the next brings all of it back.
-            bool shownChecked = state != ChapterSelectionState.AllExcluded;
-            bool toggled = GUILayout.Toggle(shownChecked, "",
-                GUILayout.Width(ColW_Index), GUILayout.ExpandHeight(true));
-            if (toggled != shownChecked)
+            //
+            // Gated with its siblings (finding P21): this toggle writes
+            // Mission.ExcludedIntervalKeys, which is the loop-authoring set Basic hides - it was
+            // the ONE interval-writing control that escaped ShowsLoopAuthoringControls, so a
+            // Basic player still had a click here that authored a set nothing else in the mode
+            // could see or undo. The else branch is the SAME single blank cell the per-interval
+            // and per-vessel rows draw, so the "#" column keeps its width and the rows stay
+            // aligned with the header.
+            if (ShowsLoopAuthoringControls(ParsekUI.AppliedUiComplexityMode))
             {
-                int changed = 0;
-                foreach (string key in chapter.IntervalKeys)
+                bool shownChecked = state != ChapterSelectionState.AllExcluded;
+                bool toggled = GUILayout.Toggle(shownChecked, ChapterIncludeCheckboxContent,
+                    GUILayout.Width(ColW_Index), GUILayout.ExpandHeight(true));
+                if (toggled != shownChecked)
                 {
-                    if (toggled)
+                    int changed = 0;
+                    foreach (string key in chapter.IntervalKeys)
                     {
-                        if (mission.ExcludedIntervalKeys.Remove(key)) changed++;
+                        if (toggled)
+                        {
+                            if (mission.ExcludedIntervalKeys.Remove(key)) changed++;
+                        }
+                        else if (mission.ExcludedIntervalKeys.Add(key))
+                        {
+                            changed++;
+                        }
                     }
-                    else if (mission.ExcludedIntervalKeys.Add(key))
-                    {
-                        changed++;
-                    }
+                    // Same reason as the per-interval checkbox: this edit is authored against
+                    // CURRENT key numbering, so a gen-0 mission that became editable
+                    // mid-session must not be extended across its @dock sub-siblings by the
+                    // next load's legacy reconcile.
+                    mission.SelectionSchemaGeneration = Mission.CurrentSelectionSchemaGeneration;
+                    ParsekLog.Info("Mission",
+                        $"chapter '{chapter.Root.Title}' {(toggled ? "include" : "exclude")} " +
+                        $"keys={changed.ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
+                        $"mission='{mission.Name}'");
                 }
-                // Same reason as the per-interval checkbox: this edit is authored against CURRENT
-                // key numbering, so a gen-0 mission that became editable mid-session must not be
-                // extended across its @dock sub-siblings by the next load's legacy reconcile.
-                mission.SelectionSchemaGeneration = Mission.CurrentSelectionSchemaGeneration;
-                ParsekLog.Info("Mission",
-                    $"chapter '{chapter.Root.Title}' {(toggled ? "include" : "exclude")} " +
-                    $"keys={changed.ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
-                    $"mission='{mission.Name}'");
+            }
+            else
+            {
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Index));
             }
 
             Color prevColor = GUI.color;
@@ -2656,7 +2670,7 @@ namespace Parsek
             bool canDeleteMission = MissionStore.CanDelete(mission);
             GUI.enabled = canDeleteMission;
             bool deleteClicked = GUILayout.Button("Delete", GUILayout.Width(ColW_HeaderButton));
-            DisabledHoverEcho.CarryLastControl(canDeleteMission, MissionDeleteDisabledReason());
+            DisabledHoverEcho.CarryLastControl(canDeleteMission, MissionDeleteDisabledReason(mission));
             if (deleteClicked)
                 MissionStore.Delete(mission);
             GUI.enabled = true;
@@ -3047,13 +3061,39 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Why a mission's "Delete" is greyed out. Every tree keeps its ORIGINAL mission -
-        /// it is what the recordings hang off - so only the extra missions cloned onto the
-        /// same tree can be removed. Pure for unit testing.
+        /// Why a mission's "Delete" is greyed out - the REAL reason, per mission. The
+        /// previous version took no arguments and returned the tree-original sentence as a
+        /// constant, so it could not distinguish the three cases
+        /// <see cref="MissionStore.CanDelete"/> refuses for, and it kept talking when the
+        /// control was live (the one reason function in the mod that did, which is why it
+        /// was absent from `DisabledHoverEchoTests`' silence check). Pure for unit testing
+        /// apart from the store read the classifier performs.
         /// </summary>
-        internal static string MissionDeleteDisabledReason()
+        internal static string MissionDeleteDisabledReason(Mission mission)
         {
-            return "A flight always keeps its first mission";
+            return MissionDeleteDisabledReason(MissionStore.ClassifyDeleteRefusal(mission));
+        }
+
+        /// <summary>
+        /// The wording half of <see cref="MissionDeleteDisabledReason(Mission)"/>, split out
+        /// so every refusal's text is unit-testable without standing up the mission store.
+        /// Pure.
+        /// </summary>
+        internal static string MissionDeleteDisabledReason(MissionStore.MissionDeleteRefusal refusal)
+        {
+            switch (refusal)
+            {
+                case MissionStore.MissionDeleteRefusal.None:
+                    return string.Empty;
+                case MissionStore.MissionDeleteRefusal.NoMission:
+                    return "There is no mission selected to delete";
+                case MissionStore.MissionDeleteRefusal.NotInStore:
+                    return "This mission is no longer in the mission list";
+                default:
+                    // Every tree keeps its ORIGINAL mission - it is what the recordings hang
+                    // off - so only missions cloned onto the same tree can be removed.
+                    return "A flight always keeps its first mission";
+            }
         }
 
         /// <summary>
@@ -4299,7 +4339,7 @@ namespace Parsek
             // the overlap cap) - a GUILayout.TextField takes no GUIContent, so the adjacent button
             // is where a hover can explain the field beside it.
             string periodStateTooltip = MissionPresentation.BuildPeriodStateTooltip(
-                enabled, false, auto, showEffective) ?? string.Empty;
+                enabled, auto, showEffective) ?? string.Empty;
             bool unitButtonEnabled = GUI.enabled;
             bool unitButtonClicked = GUILayout.Button(
                     new GUIContent(ParsekUI.UnitLabel(mission.LoopTimeUnit), periodStateTooltip),

@@ -62,7 +62,8 @@ namespace Parsek
         /// <summary>
         /// The key this window's IMGUI window id is hashed from. Named once and used at
         /// BOTH the <c>ClickThruBlocker.GUILayoutWindow</c> call below and
-        /// <c>ParsekTestCommandAddon.ResolveWindowId</c>, which the <c>UiAction op=find</c>
+        /// <c>UiWindowHandle.GetWindowId</c> (wired by
+        /// <c>ParsekTestCommandAddon.ResolveWindowHandle</c>), which the <c>UiAction op=find</c>
         /// seam uses to scope a captured GUI tree to THIS window's subtree. Two copies of
         /// the literal would let the seam search the wrong window's children and answer a
         /// plausible rect for a control in another window.

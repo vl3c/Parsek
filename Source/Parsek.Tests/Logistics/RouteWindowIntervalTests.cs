@@ -66,9 +66,10 @@ namespace Parsek.Tests.Logistics
         [Fact]
         public void WindowInterval_EqualsDialogSpan_ForSameCandidate()
         {
-            // The dialog computes its default interval as ComputeRootToUndockSpan
-            // over the same analysis + tree (RouteCreationDialog.cs OnConfirm path);
-            // the window must resolve to that identical value.
+            // The shared default-interval geometry is ComputeRootToUndockSpan over the
+            // same analysis + tree; the window must resolve to that identical value. (The
+            // post-commit dialog that was the other caller is gone - GUI census D4 - which
+            // is exactly why this cell keeps the helper honest on its own.)
             RouteCandidate candidate = BuildCandidate(rootStartUT: 1000.0, dockUT: 1600.0, out double expectedSpan);
 
             double dialogInterval = RouteCreationDialog.ComputeRootToUndockSpan(

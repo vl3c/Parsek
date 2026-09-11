@@ -659,6 +659,19 @@ namespace Parsek.TestCommands
         /// Applying the host gate to them would refuse correct work - a <c>pointer</c> park
         /// with the Parsek surface deliberately hidden is exactly the hover-free capture a
         /// census wants.</para>
+        ///
+        /// <para><b>THE KNOWN CONSEQUENCE, recorded rather than closed.</b> The exemption
+        /// is per OP, not per surface, so <c>op=expand</c> answers OK over a surface the
+        /// current complexity mode is not drawing: in Basic, the Recordings tab of the
+        /// missions window is hidden, and a <c>key=group:...</c> against it still toggles
+        /// the set and still reads back a changed count. That is the HONEST answer for what
+        /// the op does - it drives model state, and the state really did change - but a
+        /// lane that pairs it with a capture gets a picture in which nothing moved. The
+        /// fix belongs in the LANE (set <c>op=complexity mode=advanced</c>, or select the
+        /// tab, before expanding), not here: adding a per-op visibility gate would need the
+        /// seam to model which surface each expansion PREFIX belongs to, and would refuse
+        /// the legitimate case of arranging state now and photographing it after a later
+        /// mode switch. No behaviour change; this paragraph is the whole treatment.</para>
         /// </summary>
         internal static bool SettleChecksHostShowUi(UiActionOp op)
             => op == UiActionOp.Open || op == UiActionOp.Rect;

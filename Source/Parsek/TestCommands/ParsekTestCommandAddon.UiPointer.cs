@@ -206,29 +206,59 @@ namespace Parsek.TestCommands
 
         // ----- settle -----
 
-        private void CompleteUiActionPointer(UiActionSettleContext ctx,
-                                             UiActionPending pending)
+        /// <summary>
+        /// The pointer op's OWN settle poll, routed from <c>TryCompleteUiAction</c>'s head
+        /// beside <c>find</c>'s rather than reached through the shared preamble.
+        ///
+        /// <para>It re-reads <c>Input.mousePosition</c> on EVERY poll until it agrees with
+        /// the commanded point or the verb's budget runs out. The single read it replaced
+        /// made a one-frame input lag - the OS cursor moved, Unity had not yet sampled it -
+        /// indistinguishable from an unfocused game, and answered the hard
+        /// <c>pointer-not-applied</c> ERROR over a move that was about to be correct. The
+        /// frame count is now a FLOOR (a cursor that arrived before an IMGUI pass has
+        /// hovered nothing yet), not the signal. Decision:
+        /// <c>TestCommandUiPointer.DecidePoll</c>.</para>
+        /// </summary>
+        private void TryCompleteUiActionPointer(double now)
         {
             int screenH = Screen.height;
             Vector3 mouse = Input.mousePosition;
             float observedGuiY = TestCommandUiPointer.GuiYFromUnityMouseY(screenH, mouse.y);
-            if (!TestCommandUiPointer.LandedWithinTolerance(
-                    pending.PointerX, pending.PointerY, mouse.x, observedGuiY))
+            bool landed = TestCommandUiPointer.LandedWithinTolerance(
+                uiActionPending.PointerX, uiActionPending.PointerY, mouse.x, observedGuiY);
+            int framesElapsed = Time.frameCount - uiActionPending.StartFrame;
+            double budget = DeferralBudget.BudgetSeconds("UiAction");
+            bool expired = DeferralBudget.ShouldTimeout(completionStartedAt, now, budget);
+
+            UiActionSettleOutcome outcome = TestCommandUiPointer.DecidePoll(
+                landed, framesElapsed, TestCommandUiAction.SettleFrames, expired);
+            if (outcome == UiActionSettleOutcome.NotYet)
+                return;
+
+            string id = completionId;
+            long seq = completionSeq;
+            string verb = completionVerb;
+            UiActionPending pending = uiActionPending;
+            ClearTwoPhase();
+
+            if (outcome != UiActionSettleOutcome.Settled)
             {
-                // The move was issued and the engine does not agree about where the cursor
-                // is. The two live causes are a game window that is not receiving input and
-                // a display-scaling mismatch between desktop and client pixels; both mean
-                // the hover this step exists to produce did not happen.
+                // The move was issued, the budget is gone, and the engine still does not
+                // agree about where the cursor is. The two live causes are a game window
+                // that is not receiving input and a display-scaling mismatch between
+                // desktop and client pixels; both mean the hover this step exists to
+                // produce did not happen. `frames=` is now the POLL count, which is what
+                // separates "never sampled" from "sampled and wrong".
                 ParsekLog.Error(Tag, "uiaction error reason="
                     + TestCommandUiPointer.NotAppliedReason
                     + $" want={Fmt(pending.PointerX)},{Fmt(pending.PointerY)} "
                     + $"after={Fmt(mouse.x)},{Fmt(observedGuiY)} "
                     + $"desktop={Int(pending.PointerScreenX)},{Int(pending.PointerScreenY)} "
                     + $"via={pending.PointerVia} client={Int(Screen.width)}x{Int(screenH)} "
-                    + $"focused={Bool(Application.isFocused)} frames={Int(ctx.Frames)}; "
+                    + $"focused={Bool(Application.isFocused)} frames={Int(framesElapsed)}; "
                     + "an unfocused game does not update Input.mousePosition, and the same "
                     + "condition means no hover would have painted");
-                EmitExecutedTerminal(ctx.Id, ctx.Seq, ctx.Verb, "ERROR", null,
+                EmitExecutedTerminal(id, seq, verb, "ERROR", null,
                     $"{TestCommandUiPointer.NotAppliedReason} "
                     + $"want={Fmt(pending.PointerX)},{Fmt(pending.PointerY)} "
                     + $"after={Fmt(mouse.x)},{Fmt(observedGuiY)}",
@@ -238,8 +268,8 @@ namespace Parsek.TestCommands
 
             ParsekLog.Info(Tag, $"uiaction pointer at={Fmt(mouse.x)},{Fmt(observedGuiY)} "
                 + $"park={Bool(pending.PointerPark)} via={pending.PointerVia} "
-                + $"frames={Int(ctx.Frames)}");
-            EmitExecutedTerminal(ctx.Id, ctx.Seq, ctx.Verb, "OK",
+                + $"frames={Int(framesElapsed)}");
+            EmitExecutedTerminal(id, seq, verb, "OK",
                 TestCommandUiPointer.BuildPayload(
                     mouse.x, observedGuiY, pending.PointerPark,
                     pending.PointerScreenX, pending.PointerScreenY, pending.PointerVia),

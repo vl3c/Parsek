@@ -8,7 +8,11 @@ using UnityEngine;
 
 namespace Parsek
 {
-    public enum UIMode { Flight, KSC, TrackingStation }
+    // No TrackingStation member: the Tracking Station hosts no Parsek window (its OnGUI
+    // draws markers only, ParsekTrackingStation.cs), so nothing ever constructed one and
+    // the only branch that read it was unreachable (GUI census D11). Adding a TS surface
+    // starts from zero, and would add the member back with a real constructor call.
+    public enum UIMode { Flight, KSC }
 
     /// <summary>
     /// UI rendering for the Parsek window and map view markers.
@@ -362,8 +366,40 @@ namespace Parsek
             }
 
             appliedUiComplexityMode = next;
-            ParsekLog.Info("UI", $"Mode changed: uiComplexityMode={previous}->{next}");
             OnUiComplexityModeApplied(previous, next);
+            // Logged AFTER the apply, deliberately. FormatHiddenSurfaces walks every
+            // UiSurface through UiSurfaceVisibility.IsVisible, which THROWS on a surface the
+            // gate table does not decide, and the apply is what force-closes the gated
+            // windows and releases their input locks. Between the latch above and that
+            // release is the one window where a throw would strand a locked window with the
+            // mode already flipped; the log line is the only statement in it, so it goes
+            // after.
+            //
+            // The hidden set is named in the line, not just the mode: it is the ONE place
+            // the gate table is observable at runtime, and "which surfaces did that flip
+            // take away" is the first question a mode-related report raises. This is also
+            // UiSurfaceVisibility.HiddenSurfaces' production consumer - it had none, which
+            // is how a key with zero IsVisible call sites stayed invisible (the census's
+            // third surprise). Harness H22 pins the "Mode changed: uiComplexityMode=X->Y"
+            // prefix, so the hidden=[...] suffix stays on the SAME line.
+            ParsekLog.Info("UI",
+                $"Mode changed: uiComplexityMode={previous}->{next} "
+                + $"hidden=[{FormatHiddenSurfaces(next)}]");
+        }
+
+        /// <summary>
+        /// The hidden-surface set of <paramref name="mode"/> as a stable, comma-separated
+        /// name list, for the mode-change log line. Ordered by
+        /// <see cref="UiSurface"/> declaration order (what
+        /// <see cref="UiSurfaceVisibility.HiddenSurfaces"/> walks), so two runs of the same
+        /// build print the same string and a diff in the list means a real gate change.
+        /// Pure, so the log contract is unit-testable.
+        /// </summary>
+        internal static string FormatHiddenSurfaces(UiComplexityMode mode)
+        {
+            return string.Join(", ", UiSurfaceVisibility.HiddenSurfaces(mode)
+                .Select(s => s.ToString())
+                .ToArray());
         }
 
         /// <summary>
@@ -533,9 +569,8 @@ namespace Parsek
         /// <para>Every entry gets its OWN try/catch: <c>InputLockManager.RemoveControlLock</c>
         /// fires <c>GameEvents.onInputLocksModified</c>, and a third-party listener that
         /// throws must not abort the loop and strand the windows after it still holding
-        /// locks (precedent: <c>RouteCreationDialog.cs:466-480</c>). A swallowed exception is
-        /// logged at Warn with the window name and the exception type + message
-        /// (design 12.2).</para>
+        /// locks. A swallowed exception is logged at Warn with the window name and the
+        /// exception type + message (design 12.2).</para>
         /// <para>Blast radius if a release is nevertheless missed: one frame. Every window's
         /// <c>DrawIfOpen</c> prologue is <c>if (!IsOpen) { ReleaseInputLock(); return; }</c>
         /// and those call sites are deliberately never gated (design 7.1), so the next frame
@@ -756,12 +791,16 @@ namespace Parsek
             //   4. Gloops Flight Recorder  (InFlight-only; RETIRED in every mode - never draws)
             //   5. Settings
             //
-            // Basic / Advanced gating (design 7.1): each hidden launcher is wrapped in an
+            // Basic / Advanced gating (design 7.1): EVERY launcher is wrapped in an
             // IsVisible check reading the FRAME-LATCHED mode below, never the settings
             // field, so the control count is identical in this frame's Layout and Repaint
-            // passes. Timeline / Missions / Logistics / Settings are constant-true in both
-            // modes (UiSurfaceVisibility.IsVisible), so they are deliberately left
-            // unwrapped rather than carrying a predicate that can never be false.
+            // passes. Timeline / Missions / Logistics / Settings answer constant-true in
+            // both modes, so their gates hide nothing today - they are wired anyway
+            // because an unwired key is a LIE in the gate table: all four had zero
+            // IsVisible call sites, so the table said they were gated and the launchers
+            // drew unconditionally, and the two agreeing by coincidence is exactly what
+            // made it invisible (the census's third surprise). Re-keying one of these to
+            // hidden is now a one-line decision rather than a hunt for the draw site.
             // Separators live INSIDE the block of the buttons they separate, or Basic
             // shows a double gap where the hidden group used to be.
             UiComplexityMode complexity = AppliedUiComplexityMode;
@@ -791,9 +830,10 @@ namespace Parsek
                 GUILayout.Space(SpacingLarge);
             }
 
-            if (GUILayout.Button(new GUIContent(
-                "Timeline",
-                "Every recorded flight and career event on one clock.")))
+            if (UiSurfaceVisibility.IsVisible(UiSurface.MainButtonTimeline, complexity)
+                && GUILayout.Button(new GUIContent(
+                    "Timeline",
+                    "Every recorded flight and career event on one clock.")))
             {
                 timelineUI.IsOpen = !timelineUI.IsOpen;
                 ParsekLog.Verbose("UI", $"Timeline window toggled: {(timelineUI.IsOpen ? "open" : "closed")}");
@@ -803,9 +843,10 @@ namespace Parsek
             // window; the launch-surface label stays short. Missions is the primary
             // identity of this window; the raw Recordings table is its second tab
             // (no separate button). The label is constant in both UI modes.
-            if (GUILayout.Button(new GUIContent(
-                "Missions",
-                "Your missions, and the recordings they are built from.")))
+            if (UiSurfaceVisibility.IsVisible(UiSurface.MainButtonRecordings, complexity)
+                && GUILayout.Button(new GUIContent(
+                    "Missions",
+                    "Your missions, and the recordings they are built from.")))
                 ToggleRecordingsWindow();
 
             // --- M6 Record-Supply-Run helper banner ---
@@ -882,9 +923,10 @@ namespace Parsek
                 GUI.color = new Color(0.45f, 0.85f, 0.95f);
             try
             {
-                if (GUILayout.Button(new GUIContent(
-                    "Logistics",
-                    "Supply routes that repeat a delivery you already flew.")))
+                if (UiSurfaceVisibility.IsVisible(UiSurface.MainButtonLogistics, complexity)
+                    && GUILayout.Button(new GUIContent(
+                        "Logistics",
+                        "Supply routes that repeat a delivery you already flew.")))
                 {
                     logisticsUI.IsOpen = !logisticsUI.IsOpen;
                     ParsekLog.Verbose("UI",
@@ -952,9 +994,15 @@ namespace Parsek
             }
 
             // --- Settings ---
-            if (GUILayout.Button(new GUIContent(
-                "Settings",
-                "Recording, looping, ghost and diagnostic options.")))
+            // The tooltip names only what the window ALWAYS draws: Interface (the
+            // Basic / Advanced toggle), Ghosts, and Data Management. The Recording section
+            // it used to advertise was retired by the 2026-08-27 simplification, and
+            // Looping / Diagnostics / Sample Density are Advanced-only, so three of the
+            // four topics the old wording promised could be absent (finding P18).
+            if (UiSurfaceVisibility.IsVisible(UiSurface.MainButtonSettings, complexity)
+                && GUILayout.Button(new GUIContent(
+                    "Settings",
+                    "Interface, ghosts and data - plus more in Advanced.")))
                 ToggleSettingsWindow();
 
             // --- Version footer (version on the left, Close button fills the rest) ---
@@ -1533,25 +1581,32 @@ namespace Parsek
                 false, HighLogic.UISkin);
         }
 
-        internal void ShowWipeActionsConfirmation(int count)
+        /// <summary>
+        /// Confirms the Settings window's "Wipe All Milestones (N)" button. The handler is
+        /// <see cref="MilestoneStore.ClearAll"/>, which clears the MILESTONE list and nothing
+        /// else: the ledger's <c>GameAction</c> rows survive and the next recalc still walks
+        /// them. The wording says milestones for that reason - the former "game actions"
+        /// phrasing named an effect this path never had.
+        /// </summary>
+        internal void ShowWipeMilestonesConfirmation(int count)
         {
             PopupDialog.SpawnPopupDialog(
                 new Vector2(0.5f, 0.5f),
                 new Vector2(0.5f, 0.5f),
                 new MultiOptionDialog(
-                    "ParsekWipeActionsConfirm",
-                    $"Delete all {count} game action milestone(s)?\n\nThis cannot be undone.",
-                    "Confirm: Wipe Game Actions",
+                    "ParsekWipeMilestonesConfirm",
+                    $"Delete all {count} milestone(s)?\n\nCareer actions on the ledger are kept. This cannot be undone.",
+                    "Confirm: Wipe Milestones",
                     HighLogic.UISkin,
                     new DialogGUIButton("Wipe All", () =>
                     {
                         MilestoneStore.ClearAll();
-                        ParsekLog.Info("UI", "All game actions wiped");
-                        ParsekLog.ScreenMessage("All game actions wiped", 2f);
+                        ParsekLog.Info("UI", "All milestones wiped");
+                        ParsekLog.ScreenMessage("All milestones wiped", 2f);
                     }),
                     new DialogGUIButton("Cancel", () =>
                     {
-                        ParsekLog.Verbose("UI", "Wipe game actions cancelled");
+                        ParsekLog.Verbose("UI", "Wipe milestones cancelled");
                     })
                 ),
                 false, HighLogic.UISkin);

@@ -135,7 +135,7 @@ The Career window's two `Button(` hits are both `Close` (`CareerStateWindowUI.cs
 | Wipe / delete confirms | `ParsekUI.cs:921`, `:954`, `RecordingsTableUI.cs:3979/4022/4058`, `LogisticsWindowUI.cs:2496/2537/2640` | Settings Data Management, Recordings tab, Logistics |
 | Save-failed popup | `SceneExitInterceptor.cs:536` | Scene-exit save failure |
 | Blocked-action popup | `CommittedActionDialog.cs:31` | Game event, no UI parent |
-| Flight-map ghost icon menu | `Patches/GhostVesselLoadPatch.cs:324` (`GhostIconMenu`) | Clicking a ghost icon in the flight map; NO parent window |
+| Flight-map ghost icon menu | `Patches/GhostVesselLoadPatch.cs:324` (`ParsekGhostIconMenu`) | Clicking a ghost icon in the flight map; NO parent window |
 | Tracking Station ghost icon menu | `ParsekTrackingStation.cs:1241` (`ParsekTrackingStationGhostMenu`) | Clicking a ghost icon in the TS; NO parent window; includes Materialize |
 | Flight map markers | `ParsekUI.DrawMapMarkers` | Map view |
 | Tracking Station markers | `ParsekTrackingStation.cs` OnGUI (`:337`) | Tracking Station |
@@ -387,7 +387,11 @@ IsVisible(UiSurface surface, UiComplexityMode mode) : bool
       Contract: an unhandled UiSurface value THROWS (no silent default), so the
       EverySurfaceIsDecided reflection test can fail on an undecided addition.
 HiddenSurfaces(UiComplexityMode mode) : IEnumerable<UiSurface>
-    - enumeration used by the mode-change close handler and by tests
+    - enumeration used by the mode-change LOG line (ParsekUI.FormatHiddenSurfaces,
+      printed by ApplyPendingUiComplexityModeIfAny) and by tests. NOT the close set:
+      that is the hand-written BuildGatedWindowCloseSet (see the notes in 7.2).
+      Corrected 2026-09-11 - this line said "close handler", which was never true
+      and left the method with no production consumer at all.
 ResolveMode(int? storedValue, bool installHasParsekFootprint) : UiComplexityMode
     - first-run default, see section 7.3. Takes the STORED VALUE as an input so
       that stored-vs-footprint precedence is expressed inside the pure seam and
@@ -608,6 +612,7 @@ The existing `[UI]` tag is correct here; this feature introduces no new subsyste
 - **`ResolutionIsSticky`** - after a no-stored-value resolution, the resolved mode is recorded (via the `SetStored...ForTesting` / `GetStored...` seams), so a second resolution sees a stored value and the footprint no longer matters. Guards the session-2 flip failure of section 7.3.
 - **`OutOfRangeStoredValueResolvesToAdvanced`** - the clamping accessor maps any out-of-range int to Advanced (fail-open, section 6.2).
 - **`EverySurfaceIsDecided`** - reflection walk asserting `IsVisible` throws on an unhandled enum value (the documented contract, section 6.1), so adding a `UiSurface` without a Basic decision fails the build rather than defaulting silently.
+- **`EverySurfaceKeyHasAtLeastOneEnforcementSite`** (added 2026-09-11) - source scan over `Source/Parsek/**.cs` (excluding the decision point itself) asserting every `UiSurface` value is read at a draw site as `IsVisible(UiSurface.<Key>, ...)` or `IsRetired(UiSurface.<Key>)`. Added because `MainButtonTimeline` / `MainButtonRecordings` / `MainButtonLogistics` / `MainButtonSettings` had ZERO call sites: their launchers drew unconditionally, so the gate table described four gates the product did not apply - and the gap was invisible because all four are classified "keep", so the unenforced answer happened to agree with the enforced one. All four are now wired, with behaviour unchanged (they stay visible in both modes). The scan matches whitespace-tolerantly: `TimelineWindowUI` wraps `IsVisible(` onto the line before its `UiSurface.TabMissions` argument, and a contiguous scan read that real site as a missing one.
 - **`TabIndexClampsIntoRange`** - clamp helper over both modes' visible tab counts, including the index-1-into-Basic case.
 - **`MissionsIsTheDefaultAndFirstTab`** - asserts `TabMissions == 0`, that `selectedTab` initializes to it, that `TabLabels[0]` is "Missions" (single array, section 6.2), and that `VisibleTabCount(Basic) == 0` / `VisibleTabCount(Advanced) == 2`. Requires the constants and `TabLabels` to be `internal` (6.2). Fails if a future edit reorders the tabs back, which would silently restore the Recordings tab as the landing view and re-widen the clamp case of section 7.4.
 - **Section 4.5 Settings half** - `SettingsSectionGateWiringTests.LoopingSectionIsGatedWithItsSeparator` (the section + its trailing separator sit inside the gate) and `TheAutoLoopClickAwayCommitIsGatedAndDropsTheEditInBasic` (the click-away commit is the `else` of the gate, the hidden branch ends the edit through the shared teardown, and the latch is read before the check). `NoOtherSettingsSectionIsGated` pins the count at three gated sections plus that one edit-state read.

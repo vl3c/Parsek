@@ -51,6 +51,18 @@ namespace Parsek
             "Include this vessel's segments in the mission's loop unit. A partly-included " +
             "vessel is completed first; click again to exclude it all. Does not hide the ghost.";
 
+        /// <summary>
+        /// The chapter header row's tri-state include toggle - the only tri-state control in
+        /// the mod, and until finding P21 the only unlabelled one: it carried no tooltip while
+        /// every sibling checkbox in the tab had one, and its "[~]" marker was defined nowhere
+        /// a player could read. The text therefore has to explain the MARKER as well as the
+        /// click, because the marker is the only way the mixed state shows.
+        /// </summary>
+        internal const string ChapterIncludeCheckboxTooltip =
+            "Include this chapter's segments in the mission's loop unit; [~] means only some " +
+            "are. One click drops the whole chapter, the next brings all of it back. Does not " +
+            "hide the ghost.";
+
         internal const string LoopToggleTooltip =
             "Loop this mission as one unit. At most one looping mission per recording tree - " +
             "enabling this clears the loop on any mission that shares its recordings.";
@@ -640,16 +652,20 @@ namespace Parsek
         // ===================== T1.5 - the state tooltips =====================
 
         /// <summary>
-        /// The one-line state name for the loop-period cell (T1.5): which of its four states the
+        /// The one-line state name for the loop-period cell (T1.5): which of its states the
         /// player is looking at. Pure.
+        /// <para>The <c>locked</c> parameter is gone (2026-09-11): the only production call
+        /// site passed literal <c>false</c>, so the <see cref="PeriodTooltipLocked"/> branch
+        /// here could never fire. That constant is NOT dead - a route-owned mission's
+        /// period renders as the label "locked" carrying it directly
+        /// (<c>UI/MissionsWindowUI.cs:4046</c>), which is a different control from the
+        /// unit button this tooltip is attached to.</para>
         /// </summary>
         internal static string BuildPeriodStateTooltip(
-            bool loopEnabled, bool locked, bool auto, bool raisedByOverlapCap)
+            bool loopEnabled, bool auto, bool raisedByOverlapCap)
         {
             if (!loopEnabled)
                 return PeriodTooltipLoopOff;
-            if (locked)
-                return PeriodTooltipLocked;
             if (raisedByOverlapCap)
                 return PeriodTooltipClamped;
             return auto ? PeriodTooltipAuto : null;

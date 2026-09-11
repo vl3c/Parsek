@@ -803,11 +803,19 @@ namespace Parsek.TestCommands
                 TryCompleteDumpGuiTree(now);
                 return;
             }
-            // GUI census: the settle poll for the two two-phase UiAction ops (`open` and
-            // `rect`). Same bounded-completion contract; it waits for ONE drawn frame,
-            // because before a draw the read-back would compare the field with the value
-            // just written to it - and a window that force-closes itself on its first draw
-            // (SpawnControlUI with nothing in range) would report OK and then not be there.
+            // GUI census: the settle poll for the SEVEN two-phase UiAction ops
+            // (TestCommandUiAction.OpIsTwoPhase is the authority: open, rect, pointer,
+            // find, expand, target, picker). Same bounded-completion contract, but the
+            // SIGNAL is not the same for all of them, which is why TryCompleteUiAction
+            // routes two of them to their own polls:
+            //   open / rect / expand / target / picker  ONE DRAWN FRAME. Before a draw the
+            //     read-back would compare the field with the value just written to it -
+            //     and a window that force-closes itself on its first draw (SpawnControlUI
+            //     with nothing in range) would report OK and then not be there.
+            //   find     a CAPTURE arriving (the recorder flushes from LateUpdate, so the
+            //     tree is not assembled until the frame AFTER the one that drew it).
+            //   pointer  Unity's input state AGREEING with the OS cursor move, POLLED - a
+            //     drawn frame says nothing about when the mouse was next sampled.
             if (completionVerb == "UiAction")
             {
                 TryCompleteUiAction(now);
@@ -2633,12 +2641,13 @@ namespace Parsek.TestCommands
             if (dialog == null) return result;
             DialogGUIBase[] options = MultiOptionDialogOptionsField.GetValue(dialog) as DialogGUIBase[];
             if (options == null) return result;
-            for (int i = 0; i < options.Length; i++)
-            {
-                DialogGUIButton b = options[i] as DialogGUIButton;
-                if (b != null) result.Add(b);
-            }
-            return result;
+            // Walks NESTED layouts, not just the top level of `options`: a dialog that puts
+            // its buttons inside a DialogGUIHorizontalLayout / DialogGUIVerticalLayout - the
+            // ordinary way to place two buttons on one row - used to report zero buttons
+            // here, which reached `UiAction op=dialog` as `nbuttons=0` over a popup that
+            // plainly has some. Depth-first left-to-right, so the by-position selection in
+            // TryPressMergeDialogButton still means what it says.
+            return TestCommandUiDialog.CollectButtons(options);
         }
 
         // The KscAction dispatch readiness bit (CareerPresent). CAREER mode + the singleton

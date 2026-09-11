@@ -73,7 +73,8 @@ namespace Parsek
         /// <summary>
         /// The key this window's IMGUI window id is hashed from. Named once and used at
         /// BOTH the <c>ClickThruBlocker.GUILayoutWindow</c> call below and
-        /// <c>ParsekTestCommandAddon.ResolveWindowId</c>, which the <c>UiAction op=find</c>
+        /// <c>UiWindowHandle.GetWindowId</c> (wired by
+        /// <c>ParsekTestCommandAddon.ResolveWindowHandle</c>), which the <c>UiAction op=find</c>
         /// seam uses to scope a captured GUI tree to THIS window's subtree. Two copies of
         /// the literal would let the seam search the wrong window's children and answer a
         /// plausible rect for a control in another window.
@@ -93,15 +94,32 @@ namespace Parsek
         private const float ColW_ContractTitle = 240f;
         private const float ColW_AcceptUT = 90f;
         private const float ColW_DeadlineUT = 90f;
-        private const float ColW_PendingTag = 70f;
+        // Internal: the milestone-column fit is asserted by a test rather than trusted from
+        // the comment on ColW_Rewards below.
+        internal const float ColW_PendingTag = 70f;
         // Strategies tab.
         private const float ColW_StrategyTitle = 220f;
         private const float ColW_ActivateUT = 90f;
         private const float ColW_Flow = 140f;
         // Milestones tab.
-        private const float ColW_MilestoneUT = 90f;
-        private const float ColW_MilestoneTitle = 200f;
-        private const float ColW_Rewards = 180f;
+        internal const float ColW_MilestoneUT = 90f;
+        internal const float ColW_MilestoneTitle = 200f;
+        // Sized to hold a THREE-PART reward on ONE line, which the 180f it used to be did
+        // not: `ksc-career-milestones-advanced.gui.json` from the 2026-09-11 GUI census shows
+        // two such cells rendered 36 px tall inside a 21 px row grid - IMGUI wrapped them,
+        // and a wrapped label in a fixed-stride row overlaps its neighbours.
+        //
+        // The reward values are unbounded in Parsek code - the patch stores whatever KSP
+        // passes to ProgressNode.AwardProgress - so the width is sized against a DOCUMENTED
+        // bound rather than a derived cap: 7 digits of funds, 4 of reputation, 4 + one decimal
+        // of science ("+ 9999999 funds  + 9999 rep  + 9999.9 sci", 41 characters), which is
+        // about 200x the stock-Normal milestone payout. 41 chars at the 7 px/char pessimistic
+        // advance TooltipEchoBudgetTests uses for this font is 287 px, plus a 30 px cell
+        // padding allowance = 317, so 320 clears it and leaves the table 680 px wide inside
+        // the window's 820 px default. The derivation, with the KSP-side factors it rests on,
+        // is on CareerStateWindowUITests.MilestoneRewardsColumn_HoldsAThreePartRewardOnOneLine,
+        // which asserts the fit rather than trusting this comment.
+        internal const float ColW_Rewards = 320f;
         // Facilities tab.
         private const float ColW_FacilityTitle = 200f;
         private const float ColW_Level = 120f;

@@ -3776,56 +3776,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Returns all committed recordings with the given chainId, sorted by ChainIndex.
-        /// Returns null if chainId is null/empty or no matches found.
-        /// </summary>
-        internal static List<Recording> GetChainRecordings(string chainId)
-        {
-            if (string.IsNullOrEmpty(chainId)) return null;
-
-            List<Recording> chain = null;
-            for (int i = 0; i < committedRecordings.Count; i++)
-            {
-                if (committedRecordings[i].ChainId == chainId)
-                {
-                    if (chain == null) chain = new List<Recording>();
-                    chain.Add(committedRecordings[i]);
-                }
-            }
-
-            if (chain != null && chain.Count > 1)
-            {
-                chain.Sort((a, b) =>
-                {
-                    int branchCmp = a.ChainBranch.CompareTo(b.ChainBranch);
-                    return branchCmp != 0 ? branchCmp : a.ChainIndex.CompareTo(b.ChainIndex);
-                });
-            }
-
-            return chain;
-        }
-
-        /// <summary>
-        /// Removes all committed recordings with the given chainId, deleting their files.
-        /// Each removal notifies, so live ghost state for those slots is torn down and
-        /// shifted by the scene controller.
-        /// </summary>
-        internal static void RemoveChainRecordings(string chainId)
-        {
-            if (string.IsNullOrEmpty(chainId)) return;
-
-            for (int i = committedRecordings.Count - 1; i >= 0; i--)
-            {
-                if (committedRecordings[i].ChainId == chainId)
-                {
-                    DeleteRecordingFiles(committedRecordings[i]);
-                    Log($"[Parsek] Removed chain recording: {committedRecordings[i].VesselName} (chain={chainId}, idx={committedRecordings[i].ChainIndex})");
-                    RemoveCommittedAtWithNotifications(i);
-                }
-            }
-        }
-
-        /// <summary>
         /// Validates chain integrity among committed recordings.
         /// Chains with gaps, duplicate indices, or non-monotonic StartUT are degraded
         /// to standalone recordings (ChainId/ChainIndex cleared).
@@ -4516,15 +4466,6 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Removes a group from all committed recordings' group lists.
-        /// Returns the number of recordings that were modified.
-        /// </summary>
-        public static int RemoveGroupFromAll(string groupName)
-        {
-            return RecordingGroupStore.RemoveGroupFromAll(groupName, committedRecordings);
-        }
-
-        /// <summary>
         /// Replaces a group tag with a parent group tag on all committed recordings.
         /// If parentGroup is null, the group tag is simply removed.
         /// </summary>
@@ -5040,8 +4981,7 @@ namespace Parsek
         }
 
         /// <summary>
-        /// Tree-scoped mirror of the tree half of <see cref="MarkAllFullyApplied"/>:
-        /// advances each recording's <c>LastAppliedResourceIndex</c> to the last point
+        /// Advances each recording's <c>LastAppliedResourceIndex</c> to the last point
         /// for recordings with non-empty <c>Points</c>. Does NOT touch
         /// <see cref="MilestoneStore.Milestones"/> — that global mutation is specifically
         /// what callers need to avoid when marking a single tree fully applied (see plan
@@ -5070,56 +5010,6 @@ namespace Parsek
                     $"recordingsAdvanced={advanced}");
 
             return advanced;
-        }
-
-        /// <summary>
-        /// Marks all committed recordings, trees, and milestones as fully applied.
-        /// Called after rewind resource adjustment to prevent double-application.
-        /// </summary>
-        internal static (int recCount, int treeCount) MarkAllFullyApplied()
-        {
-            int recCount = 0;
-            for (int i = 0; i < committedRecordings.Count; i++)
-            {
-                if (committedRecordings[i].Points.Count > 0)
-                {
-                    committedRecordings[i].LastAppliedResourceIndex = committedRecordings[i].Points.Count - 1;
-                    recCount++;
-                }
-            }
-
-            int treeCount = 0;
-            for (int i = 0; i < committedTrees.Count; i++)
-            {
-                int advanced = 0;
-                foreach (var rec in committedTrees[i].Recordings.Values)
-                {
-                    if (rec == null || rec.Points.Count == 0)
-                        continue;
-
-                    rec.LastAppliedResourceIndex = rec.Points.Count - 1;
-                    advanced++;
-                }
-                if (advanced > 0)
-                    treeCount++;
-            }
-
-            var milestones = MilestoneStore.Milestones;
-            int mileCount = 0;
-            for (int i = 0; i < milestones.Count; i++)
-            {
-                if (milestones[i].Committed && milestones[i].Events.Count > 0)
-                {
-                    milestones[i].LastReplayedEventIndex = milestones[i].Events.Count - 1;
-                    mileCount++;
-                }
-            }
-
-            if (!SuppressLogging)
-                ParsekLog.Info("Rewind",
-                    $"Marked fully applied: {recCount} recording(s), {treeCount} tree(s), {mileCount} milestone(s)");
-
-            return (recCount, treeCount);
         }
 
         /// <summary>
