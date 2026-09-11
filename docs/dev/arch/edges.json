@@ -12,16 +12,16 @@
       "name": "Controllers",
       "files": 22,
       "fanIn": 167,
-      "fanOut": 517,
-      "instability": 0.7558,
+      "fanOut": 518,
+      "instability": 0.7562,
       "tooling": false
     },
     {
       "name": "Core",
       "files": 123,
-      "fanIn": 1309,
+      "fanIn": 1315,
       "fanOut": 468,
-      "instability": 0.2634,
+      "instability": 0.2625,
       "tooling": false
     },
     {
@@ -35,9 +35,9 @@
     {
       "name": "Diagnostics",
       "files": 4,
-      "fanIn": 22,
+      "fanIn": 23,
       "fanOut": 14,
-      "instability": 0.3889,
+      "instability": 0.3784,
       "tooling": true
     },
     {
@@ -60,16 +60,16 @@
       "name": "Ghost",
       "files": 33,
       "fanIn": 410,
-      "fanOut": 255,
-      "instability": 0.3835,
+      "fanOut": 256,
+      "instability": 0.3844,
       "tooling": false
     },
     {
       "name": "InGameTests",
       "files": 144,
-      "fanIn": 16,
-      "fanOut": 1909,
-      "instability": 0.9917,
+      "fanIn": 15,
+      "fanOut": 1912,
+      "instability": 0.9922,
       "tooling": true
     },
     {
@@ -99,9 +99,9 @@
     {
       "name": "Missions",
       "files": 16,
-      "fanIn": 238,
+      "fanIn": 241,
       "fanOut": 122,
-      "instability": 0.3389,
+      "instability": 0.3361,
       "tooling": false
     },
     {
@@ -123,9 +123,9 @@
     {
       "name": "Recording",
       "files": 38,
-      "fanIn": 879,
+      "fanIn": 880,
       "fanOut": 331,
-      "instability": 0.2736,
+      "instability": 0.2733,
       "tooling": false
     },
     {
@@ -140,8 +140,8 @@
       "name": "Rewind",
       "files": 27,
       "fanIn": 363,
-      "fanOut": 195,
-      "instability": 0.3495,
+      "fanOut": 197,
+      "instability": 0.3518,
       "tooling": false
     },
     {
@@ -156,8 +156,8 @@
       "name": "TestCommands",
       "files": 65,
       "fanIn": 8,
-      "fanOut": 205,
-      "instability": 0.9624,
+      "fanOut": 206,
+      "instability": 0.9626,
       "tooling": true
     },
     {
@@ -180,8 +180,8 @@
       "name": "UI",
       "files": 35,
       "fanIn": 70,
-      "fanOut": 282,
-      "instability": 0.8011,
+      "fanOut": 284,
+      "instability": 0.8023,
       "tooling": false
     }
   ],
@@ -765,7 +765,7 @@
     {
       "from": "Controllers",
       "to": "Core",
-      "weight": 182,
+      "weight": 184,
       "cyclic": true,
       "files": [
         "ParsekFlight.Finalization.cs",
@@ -874,6 +874,7 @@
         "SessionSuppressionState",
         "SpawnCollisionDetector",
         "SpawnWarningUI",
+        "StartDockedOriginBindState",
         "SurfacePosition",
         "SurfaceSituation",
         "TailLiftPlan",
@@ -895,6 +896,7 @@
         "VesselLaunchIdentity",
         "VesselSnapshot",
         "VesselSpawner",
+        "WarpThresholds",
         "WatchMode",
         "ZoneRenderingResult"
       ]
@@ -1367,7 +1369,7 @@
     {
       "from": "Ghost",
       "to": "Core",
-      "weight": 105,
+      "weight": 106,
       "cyclic": true,
       "files": [
         "GhostAudioPresets.cs",
@@ -1442,7 +1444,7 @@
     {
       "from": "InGameTests",
       "to": "Missions",
-      "weight": 101,
+      "weight": 104,
       "cyclic": false,
       "files": [
         "InGameTests/CrossTreeDockLoopUnitInGameTest.cs",
@@ -1636,6 +1638,70 @@
       ]
     },
     {
+      "from": "UI",
+      "to": "Core",
+      "weight": 81,
+      "cyclic": true,
+      "files": [
+        "UI/CareerStateWindowUI.cs",
+        "UI/GloopsRecorderUI.cs",
+        "UI/GroupPickerUI.cs",
+        "UI/KerbalsWindowUI.cs",
+        "UI/LogisticsDeliveryPresentation.cs",
+        "UI/LogisticsWindowUI.cs",
+        "UI/MissionsWindowUI.cs",
+        "UI/RecordingsTableFormatters.cs",
+        "UI/RecordingsTableUI.cs",
+        "UI/SettingsWindowPresentation.cs",
+        "UI/SettingsWindowUI.cs",
+        "UI/SpawnControlPresentation.cs",
+        "UI/SpawnControlUI.cs",
+        "UI/StructureListWindowUI.cs",
+        "UI/TestRunnerUI.cs",
+        "UI/TimelineWindowUI.cs"
+      ],
+      "types": [
+        "BranchPointType",
+        "ChildSlot",
+        "DockEventGraph",
+        "DockEventGraphCache",
+        "DockEventNode",
+        "DockPartnerDescription",
+        "DockPartnerStatus",
+        "GameStateStore",
+        "GhostPlayback",
+        "GroupHierarchyStore",
+        "InventoryItem",
+        "InventoryPayloadItem",
+        "LoopTiming",
+        "MilestoneStore",
+        "NearbySpawnCandidate",
+        "Outcome",
+        "ParsekSettings",
+        "ParsekSettingsPersistence",
+        "ParsekTimeFormat",
+        "ParsekUI",
+        "ResourceAmount",
+        "RewindTargetKind",
+        "RouteEndpoint",
+        "SamplingDensity",
+        "SelectiveSpawnUI",
+        "SortColumn",
+        "StatusColorKind",
+        "TerminalState",
+        "TimeJumpManager",
+        "UnfinishedFlightClassifier",
+        "UnfinishedFlightSealHandler",
+        "UnfinishedFlightStashHandler",
+        "VesselSpawner",
+        "WarpFieldKind",
+        "WarpPlanKind",
+        "WarpToTimeController",
+        "WarpToTimeMath",
+        "WarpToTimeRequest"
+      ]
+    },
+    {
       "from": "Core",
       "to": "LogIO",
       "weight": 80,
@@ -1720,70 +1786,6 @@
         "ParsekLog",
         "ParsekProcess",
         "SuppressionGuard"
-      ]
-    },
-    {
-      "from": "UI",
-      "to": "Core",
-      "weight": 79,
-      "cyclic": true,
-      "files": [
-        "UI/CareerStateWindowUI.cs",
-        "UI/GloopsRecorderUI.cs",
-        "UI/GroupPickerUI.cs",
-        "UI/KerbalsWindowUI.cs",
-        "UI/LogisticsDeliveryPresentation.cs",
-        "UI/LogisticsWindowUI.cs",
-        "UI/MissionsWindowUI.cs",
-        "UI/RecordingsTableFormatters.cs",
-        "UI/RecordingsTableUI.cs",
-        "UI/SettingsWindowPresentation.cs",
-        "UI/SettingsWindowUI.cs",
-        "UI/SpawnControlPresentation.cs",
-        "UI/SpawnControlUI.cs",
-        "UI/StructureListWindowUI.cs",
-        "UI/TestRunnerUI.cs",
-        "UI/TimelineWindowUI.cs"
-      ],
-      "types": [
-        "BranchPointType",
-        "ChildSlot",
-        "DockEventGraph",
-        "DockEventGraphCache",
-        "DockEventNode",
-        "DockPartnerDescription",
-        "DockPartnerStatus",
-        "GameStateStore",
-        "GhostPlayback",
-        "GroupHierarchyStore",
-        "InventoryItem",
-        "InventoryPayloadItem",
-        "LoopTiming",
-        "MilestoneStore",
-        "NearbySpawnCandidate",
-        "Outcome",
-        "ParsekSettings",
-        "ParsekSettingsPersistence",
-        "ParsekTimeFormat",
-        "ParsekUI",
-        "ResourceAmount",
-        "RewindTargetKind",
-        "RouteEndpoint",
-        "SamplingDensity",
-        "SelectiveSpawnUI",
-        "SortColumn",
-        "StatusColorKind",
-        "TerminalState",
-        "TimeJumpManager",
-        "UnfinishedFlightClassifier",
-        "UnfinishedFlightSealHandler",
-        "UnfinishedFlightStashHandler",
-        "VesselSpawner",
-        "WarpFieldKind",
-        "WarpPlanKind",
-        "WarpToTimeController",
-        "WarpToTimeMath",
-        "WarpToTimeRequest"
       ]
     },
     {
@@ -2210,7 +2212,7 @@
     {
       "from": "Rewind",
       "to": "Core",
-      "weight": 52,
+      "weight": 53,
       "cyclic": true,
       "files": [
         "EffectiveState.cs",
@@ -2221,6 +2223,7 @@
         "ReFlyAnchorSelection.cs",
         "ReFlyAutoSealPreview.cs",
         "ReFlyRevertDialog.cs",
+        "ReFlySettleStabilityTracker.cs",
         "RecordingTreeSplitter.cs",
         "RewindContext.cs",
         "RewindInvokeContext.cs",
@@ -2237,6 +2240,7 @@
         "BudgetSummary",
         "ChildSlot",
         "DefaultVesselEnumeration",
+        "DiagnosticFormatters",
         "FlightGlobalsProvider",
         "GameStateRecorder",
         "GameStateStore",
@@ -2969,6 +2973,36 @@
       ]
     },
     {
+      "from": "TestCommands",
+      "to": "Recording",
+      "weight": 29,
+      "cyclic": false,
+      "files": [
+        "TestCommands/ParsekTestCommandAddon.DeleteRecording.cs",
+        "TestCommands/ParsekTestCommandAddon.EnterWatchMode.cs",
+        "TestCommands/ParsekTestCommandAddon.ExitToSpaceCenter.cs",
+        "TestCommands/ParsekTestCommandAddon.InvokeRewindToLaunch.cs",
+        "TestCommands/ParsekTestCommandAddon.ListHandles.cs",
+        "TestCommands/ParsekTestCommandAddon.MissionConfig.cs",
+        "TestCommands/ParsekTestCommandAddon.RouteCommand.cs",
+        "TestCommands/ParsekTestCommandAddon.SealSlot.cs",
+        "TestCommands/ParsekTestCommandAddon.SimulateSwitchClick.cs",
+        "TestCommands/ParsekTestCommandAddon.StartLoopPlayback.cs",
+        "TestCommands/ParsekTestCommandAddon.UiState.cs",
+        "TestCommands/ParsekTestCommandAddon.cs",
+        "TestCommands/TestCommandDispatcher.cs",
+        "TestCommands/TestCommandRecordingVerbs.cs",
+        "TestCommands/TestCommandSealSlot.cs"
+      ],
+      "types": [
+        "LoopTimeUnit",
+        "Recording",
+        "RecordingStore",
+        "RecordingSupersedeRelation",
+        "RecordingTree"
+      ]
+    },
+    {
       "from": "Rewind",
       "to": "GameActions",
       "weight": 28,
@@ -2996,35 +3030,6 @@
         "ScienceMethod",
         "TombstoneAttributionHelper",
         "TombstoneEligibility"
-      ]
-    },
-    {
-      "from": "TestCommands",
-      "to": "Recording",
-      "weight": 28,
-      "cyclic": false,
-      "files": [
-        "TestCommands/ParsekTestCommandAddon.DeleteRecording.cs",
-        "TestCommands/ParsekTestCommandAddon.EnterWatchMode.cs",
-        "TestCommands/ParsekTestCommandAddon.InvokeRewindToLaunch.cs",
-        "TestCommands/ParsekTestCommandAddon.ListHandles.cs",
-        "TestCommands/ParsekTestCommandAddon.MissionConfig.cs",
-        "TestCommands/ParsekTestCommandAddon.RouteCommand.cs",
-        "TestCommands/ParsekTestCommandAddon.SealSlot.cs",
-        "TestCommands/ParsekTestCommandAddon.SimulateSwitchClick.cs",
-        "TestCommands/ParsekTestCommandAddon.StartLoopPlayback.cs",
-        "TestCommands/ParsekTestCommandAddon.UiState.cs",
-        "TestCommands/ParsekTestCommandAddon.cs",
-        "TestCommands/TestCommandDispatcher.cs",
-        "TestCommands/TestCommandRecordingVerbs.cs",
-        "TestCommands/TestCommandSealSlot.cs"
-      ],
-      "types": [
-        "LoopTimeUnit",
-        "Recording",
-        "RecordingStore",
-        "RecordingSupersedeRelation",
-        "RecordingTree"
       ]
     },
     {
@@ -5911,19 +5916,6 @@
       ]
     },
     {
-      "from": "Controllers",
-      "to": "InGameTests",
-      "weight": 2,
-      "cyclic": false,
-      "files": [
-        "ParsekScenario.cs"
-      ],
-      "types": [
-        "InGameTestRunner",
-        "Scenario"
-      ]
-    },
-    {
       "from": "Core",
       "to": "Display",
       "weight": 2,
@@ -6253,6 +6245,18 @@
     },
     {
       "from": "Controllers",
+      "to": "InGameTests",
+      "weight": 1,
+      "cyclic": false,
+      "files": [
+        "ParsekScenario.cs"
+      ],
+      "types": [
+        "InGameTestRunner"
+      ]
+    },
+    {
+      "from": "Controllers",
       "to": "UI",
       "weight": 1,
       "cyclic": true,
@@ -6489,6 +6493,18 @@
       ],
       "types": [
         "SmoothingPipeline"
+      ]
+    },
+    {
+      "from": "Rewind",
+      "to": "Diagnostics",
+      "weight": 1,
+      "cyclic": false,
+      "files": [
+        "RewindPointDiskUsage.cs"
+      ],
+      "types": [
+        "DiagnosticsComputation"
       ]
     },
     {

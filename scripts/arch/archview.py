@@ -33,7 +33,6 @@ import tomllib
 from collections import defaultdict
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_SOURCE = "Source/Parsek"
 DEFAULT_OUT = "docs/dev/arch"
 DEFAULT_MIN_EDGE = 8
@@ -77,29 +76,12 @@ def assign_module(rel_path, rules):
     return None
 
 
-def _skip_regular_string(source, i):
+def _count_quotes(source, i):
     n = len(source)
-    while i < n:
-        c = source[i]
-        if c == "\\":
-            i += 2
-            continue
-        if c == '"':
-            return i + 1
-        i += 1
-    return n
-
-
-def _skip_verbatim_string(source, i):
-    n = len(source)
-    while i < n:
-        if source[i] == '"':
-            if i + 1 < n and source[i + 1] == '"':
-                i += 2
-                continue
-            return i + 1
-        i += 1
-    return n
+    j = i
+    while j < n and source[j] == '"':
+        j += 1
+    return j - i
 
 
 def _skip_char_literal(source, i):
@@ -115,13 +97,143 @@ def _skip_char_literal(source, i):
     return n
 
 
+def _starts_string_at(source, i):
+    """True when a string literal (with any $ / @ prefixes) starts at i."""
+    c = source[i]
+    if c == '"':
+        return True
+    nxt = source[i + 1 : i + 2]
+    if c == "@" and nxt == '"':
+        return True
+    if c == "$" and nxt == '"':
+        return True
+    nminus1 = source[i + 2 : i + 3]
+    if c in ("$", "@") and nxt in ("$", "@") and nxt != c and nminus1 == '"':
+        return True
+    return False
+
+
+def _scan_interpolation_hole(source, i, out):
+    """Skip one {..} hole starting at the brace; return the index after it.
+
+    The hole body is code, so it is recursively stripped and kept in `out`
+    (type names used only inside an interpolated string are real references).
+    Nested braces, strings, char literals and comments inside the hole are
+    scanned as units so their braces cannot close the hole early.
+    """
+    n = len(source)
+    start = i + 1
+    depth = 1
+    j = start
+    while j < n:
+        c = source[j]
+        if c == "{":
+            depth += 1
+            j += 1
+            continue
+        if c == "}":
+            depth -= 1
+            if depth == 0:
+                out.append(strip_comments_and_strings(source[start:j]))
+                return j + 1
+            j += 1
+            continue
+        if c == "'":
+            j = _skip_char_literal(source, j + 1)
+            continue
+        if _starts_string_at(source, j):
+            j = _skip_string_literal(source, j, out)
+            continue
+        if c == "/" and source[j + 1 : j + 2] == "/":
+            k = source.find("\n", j)
+            j = n if k == -1 else k
+            continue
+        if c == "/" and source[j + 1 : j + 2] == "*":
+            k = source.find("*/", j + 2)
+            j = n if k == -1 else k + 2
+            continue
+        j += 1
+    out.append(strip_comments_and_strings(source[start:n]))
+    return n
+
+
+def _skip_raw_string(source, i, quote_count, interpolated, out):
+    n = len(source)
+    j = i + quote_count
+    while j < n:
+        c = source[j]
+        if c == '"':
+            run = _count_quotes(source, j)
+            if run >= quote_count:
+                return j + run
+            j += run
+            continue
+        if interpolated and c == "{":
+            if source[j + 1 : j + 2] == "{":
+                j += 2
+                continue
+            j = _scan_interpolation_hole(source, j, out)
+            continue
+        j += 1
+    return n
+
+
+def _skip_regular_body(source, i, verbatim, interpolated, out):
+    n = len(source)
+    while i < n:
+        c = source[i]
+        if not verbatim and c == "\\":
+            i += 2
+            continue
+        if c == '"':
+            if verbatim and source[i + 1 : i + 2] == '"':
+                i += 2
+                continue
+            return i + 1
+        if interpolated and c == "{":
+            if source[i + 1 : i + 2] == "{":
+                i += 2
+                continue
+            i = _scan_interpolation_hole(source, i, out)
+            continue
+        if interpolated and c == "}" and source[i + 1 : i + 2] == "}":
+            i += 2
+            continue
+        i += 1
+    return n
+
+
+def _skip_string_literal(source, i, out):
+    """Skip one string literal beginning at i (with any $ / @ prefixes).
+
+    Returns the index after the literal. String text is discarded; code inside
+    interpolation holes is recursively stripped and appended to `out`.
+    """
+    n = len(source)
+    verbatim = False
+    interpolated = False
+    while i < n and source[i] in ("$", "@"):
+        if source[i] == "$":
+            interpolated = True
+        else:
+            verbatim = True
+        i += 1
+    if i >= n or source[i] != '"':
+        return i
+    quote_count = _count_quotes(source, i)
+    if quote_count >= 3:
+        return _skip_raw_string(source, i, quote_count, interpolated, out)
+    return _skip_regular_body(source, i + 1, verbatim, interpolated, out)
+
+
 def strip_comments_and_strings(source):
     """Remove // and /* */ comments and string / char literals.
 
     A single left-to-right scan, so a `//` or `/*` inside a string is not a
-    comment and a `"` inside a comment is not a string. Interpolated strings
-    are stripped whole (their {..} holes are not scanned); that is part of the
-    documented approximation.
+    comment and a `"` inside a comment is not a string. Interpolation holes
+    keep their code (recursively stripped) so a reference inside `$"{...}"`
+    still counts; string text, including text inside holes of nested strings,
+    is discarded.
     """
     out = []
     i = 0
@@ -137,24 +249,8 @@ def strip_comments_and_strings(source):
             j = source.find("*/", i + 2)
             i = n if j == -1 else j + 2
             continue
-        if c == "@" and nxt == '"':
-            i = _skip_verbatim_string(source, i + 2)
-            continue
-        if c == "$" and nxt == "@" and source[i + 2 : i + 3] == '"':
-            i = _skip_verbatim_string(source, i + 3)
-            continue
-        if c == "@" and nxt == "$" and source[i + 2 : i + 3] == '"':
-            i = _skip_verbatim_string(source, i + 3)
-            continue
-        if c == "$" and nxt == '"':
-            i = _skip_regular_string(source, i + 2)
-            continue
-        if c == '"':
-            if source.startswith('"""', i):
-                j = source.find('"""', i + 3)
-                i = n if j == -1 else j + 3
-                continue
-            i = _skip_regular_string(source, i + 1)
+        if _starts_string_at(source, i):
+            i = _skip_string_literal(source, i, out)
             continue
         if c == "'":
             i = _skip_char_literal(source, i + 1)
@@ -447,7 +543,7 @@ def render_dot(model, min_edge):
         )
         lines.append(
             '  "%s" [label="%s\\n%d files", tooltip="%s"];'
-            % (name, name, entry["files"], _dot_escape(tooltip))
+            % (_dot_escape(name), _dot_escape(name), entry["files"], _dot_escape(tooltip))
         )
     for edge in edges:
         penwidth = 1.0 + 4.0 * edge["weight"] / max_weight
@@ -463,7 +559,13 @@ def render_dot(model, min_edge):
         )
         lines.append(
             '  "%s" -> "%s" [penwidth=%.2f, color="%s", tooltip="%s"];'
-            % (edge["from"], edge["to"], penwidth, color, _dot_escape(tooltip))
+            % (
+                _dot_escape(edge["from"]),
+                _dot_escape(edge["to"]),
+                penwidth,
+                color,
+                _dot_escape(tooltip),
+            )
         )
     lines.append("}")
     return "\n".join(lines) + "\n"
@@ -567,8 +669,9 @@ def render_matrix_html(model):
         '<p class="note">Modules are ordered by instability ascending, so sinks (low'
         " instability) come first. Cell value is the number of cross-module references from"
         " the row module to the column module; shade scales with that count. A red outline"
-        " marks a pair of modules that reference each other directly. Diagonal is the file"
-        " count.</p>",
+        " marks a cell whose two modules sit in the same dependency cycle (same strongly"
+        " connected component); the way back may run through other modules. Diagonal is the"
+        " file count.</p>",
         '<p class="note">Generated by <code>scripts/arch/archview.py</code>; do not edit by'
         " hand. Production modules only; hidden tooling modules: %s.</p>" % html.escape(", ".join(tooling)),
         '<p class="legend"><span class="swatch" style="background:#e8eef7"></span>low'
@@ -870,12 +973,18 @@ def two_way_couplings(model):
 
 
 def run_check(model, forbidden, allowed):
-    """Print the report-only architecture check."""
+    """Print the report-only architecture check.
+
+    Never raises on a malformed policy spec: a bad "From -> To" string is
+    reported and skipped, because the final line and the exit code are part of
+    the report contract.
+    """
     print()
     hidden = sorted(m["name"] for m in model["modules"] if m["tooling"])
     print("Per-module metrics (production modules, sorted by fan-in + fan-out):")
     print(format_metrics_table(model))
-    print("Tooling modules hidden from this table and the views: %s." % ", ".join(hidden))
+    if hidden:
+        print("Tooling modules hidden from this table and the views: %s." % ", ".join(hidden))
 
     print()
     pairs = two_way_couplings(model)
@@ -890,7 +999,11 @@ def run_check(model, forbidden, allowed):
     print("Forbidden edges (declared boundaries that must not exist):")
     violations = 0
     for spec in forbidden:
-        frm, to = parse_edge_spec(spec)
+        try:
+            frm, to = parse_edge_spec(spec)
+        except ValueError as exc:
+            print("  WARN bad [forbidden] edge spec: %s" % exc)
+            continue
         edge = lookup.get((frm, to))
         if edge is None:
             continue
@@ -903,7 +1016,12 @@ def run_check(model, forbidden, allowed):
         print("  none found.")
 
     if allowed:
-        allowed_edges = {parse_edge_spec(spec) for spec in allowed}
+        allowed_edges = set()
+        for spec in allowed:
+            try:
+                allowed_edges.add(parse_edge_spec(spec))
+            except ValueError as exc:
+                print("  WARN bad [allowed] edge spec: %s" % exc)
         production = {m["name"] for m in model["modules"] if not m["tooling"]}
         print()
         print("Production edges not in [allowed] (%d allowlist entries):" % len(allowed_edges))
@@ -951,36 +1069,58 @@ def main(argv=None):
     )
     args = parser.parse_args(argv)
 
-    rules, tooling, forbidden, allowed = load_rules(args.modules)
-    model = build_model(args.source, rules, tooling)
-    for rel_path in model["unclassified"]:
-        print("WARN unclassified file: %s (add a rule to modules.toml)" % rel_path)
+    # Report-only contract: a missing or malformed input is a warning, never a
+    # nonzero exit, and --check always ends with the ARCH-CHECK line.
+    forbidden = []
+    allowed = []
+    model = None
+    try:
+        rules, tooling, forbidden, allowed = load_rules(args.modules)
+        model = build_model(args.source, rules, tooling)
+    except Exception as exc:
+        print("WARN archview: %s" % exc, file=sys.stderr)
 
-    out_dir = Path(args.out)
-    out_dir.mkdir(parents=True, exist_ok=True)
+    if model is not None:
+        try:
+            for rel_path in model["unclassified"]:
+                print("WARN unclassified file: %s (add a rule to modules.toml)" % rel_path)
 
-    json_path = out_dir / "edges.json"
-    write_json(model, json_path)
-    print("Wrote %s" % json_path)
+            out_dir = Path(args.out)
+            out_dir.mkdir(parents=True, exist_ok=True)
 
-    dot_path = out_dir / "modules.dot"
-    _write_text(dot_path, render_dot(model, args.min_edge))
-    print("Wrote %s" % dot_path)
+            json_path = out_dir / "edges.json"
+            write_json(model, json_path)
+            print("Wrote %s" % json_path)
 
-    svg_path = out_dir / "modules.svg"
-    if render_svg(dot_path, svg_path):
-        print("Wrote %s" % svg_path)
+            dot_path = out_dir / "modules.dot"
+            _write_text(dot_path, render_dot(model, args.min_edge))
+            print("Wrote %s" % dot_path)
 
-    matrix_path = out_dir / "matrix.html"
-    _write_text(matrix_path, render_matrix_html(model))
-    print("Wrote %s" % matrix_path)
+            svg_path = out_dir / "modules.svg"
+            if render_svg(dot_path, svg_path):
+                print("Wrote %s" % svg_path)
 
-    explore_path = out_dir / "explore.html"
-    _write_text(explore_path, render_explore_html(model, args.min_edge))
-    print("Wrote %s" % explore_path)
+            matrix_path = out_dir / "matrix.html"
+            _write_text(matrix_path, render_matrix_html(model))
+            print("Wrote %s" % matrix_path)
+
+            explore_path = out_dir / "explore.html"
+            _write_text(explore_path, render_explore_html(model, args.min_edge))
+            print("Wrote %s" % explore_path)
+        except Exception as exc:
+            print("WARN archview: %s" % exc, file=sys.stderr)
 
     if args.check:
-        run_check(model, forbidden, allowed)
+        if model is not None:
+            try:
+                run_check(model, forbidden, allowed)
+            except Exception as exc:
+                print("WARN arch-check: %s" % exc, file=sys.stderr)
+                print()
+                print("ARCH-CHECK report-only")
+        else:
+            print()
+            print("ARCH-CHECK report-only")
     return 0
 
 

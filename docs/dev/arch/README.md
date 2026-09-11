@@ -81,17 +81,20 @@ that section is skipped. The last line is always `ARCH-CHECK report-only`.
 **`modules.dot` / `modules.svg`** - a top-to-bottom layered graph of the
 production modules. An arrow A -> B means code in A references types declared
 in B. Node label is the module name and its file count; arrow thickness scales
-with the reference count; an arrow drawn in red is part of a two-way cycle
-(A and B reference each other). Edges below `--min-edge` and the tooling
-modules are hidden.
+with the reference count; an arrow drawn in red has both endpoints inside the
+same dependency cycle (same strongly connected component), so the way back
+may run through other modules - in the current tree the production graph is
+one large cycle, so nearly every drawn arrow is red and the weight is what
+separates them. Edges below `--min-edge` and the tooling modules are hidden.
 
 **`matrix.html`** - a dependency structure matrix. Rows are "from" modules and
 columns are "to" modules, both in the same order: instability ascending, so
 sinks (pure consumers such as `LogIO`) come first. Cell value is the reference
-count; darker means more references. A red outline marks a pair of modules
-that reference each other directly (a cycle). The diagonal shows the file
-count, the rightmost column the fan-out and instability, and the bottom row
-the fan-in.
+count; darker means more references. A red outline marks a cell whose two
+modules sit in the same dependency cycle (same strongly connected component);
+direct two-way pairs are the shorter list in `--check`. The diagonal shows the
+file count, the rightmost column the instability, and the bottom row the
+fan-in.
 
 **`explore.html`** - the interactive view. All production modules are shown;
 click one to dim everything except that module, its direct in-edges and
