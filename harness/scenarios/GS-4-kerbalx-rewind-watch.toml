@@ -474,11 +474,31 @@ bugId = ""
 # That is the ruling's composition exactly, now reached by GS-4 itself on the wave DLL.
 # No `Parsek.` frame in any stack.
 #
-# NEGATIVE CONTROL (`maxTotal = 0`, uncommitted) - UNDISCHARGED. It is valid only if
-# the control run measures total >= 1 (RULINGS A4-b / R2-4), and both flights measured
-# 0: `2026-09-11_0056` and its one allowed re-fly `2026-09-11_0102`, each PASS attempt
-# 1 with the evaluated block reading maxTotal 0, total 0 (no NRE line of any class in
-# either log), expectations [], ghostLifecycle 8 / 8 / 8, MISSION-OK. Two VACUOUS
-# passes, not a failed control: the ceiling was never exercised. The edit was reverted
-# after `_0102`. How to discharge it is an open supervisor decision (todo
-# GS4-UNITY-CEILING-NEGCTL-VACUOUS). GS-4's wave-DLL totals now read 2, 1, 4, 0, 0.
+# LIVE NEGATIVE CONTROL (`maxTotal = 0`, uncommitted) - VACUOUS twice. It is valid only
+# if the control run measures total >= 1 (RULINGS A4-b / R2-4), and both flights
+# measured 0: `2026-09-11_0056` and its one allowed re-fly `2026-09-11_0102`, each PASS
+# attempt 1 with the evaluated block reading maxTotal 0, total 0 (no NRE line of any
+# class in either log), expectations [], ghostLifecycle 8 / 8 / 8, MISSION-OK. Two
+# VACUOUS passes, not a failed control. The edit was reverted after `_0102`. GS-4's
+# wave-DLL totals read 2, 1, 4, 0, 0.
+#
+# OFFLINE NEGATIVE CONTROL (2026-09-11, the wave's closing round; supervisor ruling
+# R3-2, the BDOCK-1 offline precedent) - DISCHARGED. No flight. The read-only script
+# C:/Users/vlad3/AppData/Local/Temp/claude/C--Users-vlad3-Documents-Code-Parsek-Parsek--claude-worktrees-cleanup-agent-docs-755145/f1ca58d8-e83f-4dba-acea-332be584ee54/scratchpad/a4_gs4_offline_negctl.py
+# (sha256 c0ef1d7d6c188acaf6f09d3a4f0491976079894970360eaa4022cd7998d86b34) loads THIS spec through
+# run.load_toml, asserts it tomllib-equal to `git show HEAD:` (HEAD e106ad8b4), and
+# re-measures every GS-4 wave-DLL run with hlib.scan_unity_exceptions, each equal to its
+# result JSON: 2, 1, 4, 0, 0 (`2026-09-10_1924`, `_1930`, `2026-09-11_0049`, `_0056`,
+# `_0102`). On the HIGHEST, `2026-09-11_0049` (archived KSP.log 15,674,487 bytes, sha256
+# 792f3e6992f79939adac08e0a0492b2f22b881025f9872ffec5a5f64edd2d219), the live row-6b evaluator
+# hlib.evaluate_unity_exceptions with maxTotal = 3 (total - 1, the only spec change,
+# tree-diffed) returns FAIL with EXACTLY ONE mismatch `unityExceptions.total 4 >
+# maxTotal 3 (NullReferenceException=4)`, and the committed maxTotal = 4 PASSES the same
+# bytes. Under the mutated spec expectations and ghostLifecycle stay PASS, so the unity
+# line is the only gating mismatch. Corroboration, same shape: `_1924` reds on exactly
+# `unityExceptions.total 2 > maxTotal 1 (NullReferenceException=2)` and `_1930` on
+# exactly `unityExceptions.total 1 > maxTotal 0 (NullReferenceException=1)`, each PASS at
+# 4; the two total-0 runs cannot host the control. Per the ruling, the live row-6b wiring
+# is proven by the program's armed unityExceptions lanes. The ceiling is now CONTROLLED
+# OFFLINE; todo GS4-UNITY-CEILING-NEGCTL-VACUOUS stays open only for an opportunistic
+# LIVE control on an NRE-bearing run.

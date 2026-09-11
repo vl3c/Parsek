@@ -335,3 +335,11 @@ bugId = ""
 # `parsek_rw_c9382a` at UT 30.2799999999994. VALID: with the armed PASS, the D9 / D6
 # re-claims above entered. Both runs re-evaluated offline with the committed spec
 # (hlib.evaluate_expectations + ghostlife.evaluate_ghost_lifecycle): the same verdicts.
+#
+# DESTROY-REASON MIX (re-measured from the bytes 2026-09-11, closing round): it VARIES
+# from run to run while staying identical across the two cycles WITHIN each run. Per
+# cycle, reading `2026-09-10_1944` and negative control `2026-09-11_0119` read
+# parent-anchored debris outside relative coverage at endpoint 4, playback completed 2,
+# stale past-end ghost (no longer held) 1, watch hold expired 1; the armed re-flight
+# `2026-09-11_0109` read 3 / 2 / 2 / 1. The spec pins no destroy reason, and a future
+# destroyedReasons window must not be cut from one run's mix.

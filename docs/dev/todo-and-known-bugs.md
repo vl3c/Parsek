@@ -15,7 +15,7 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
-## GS4-UNITY-CEILING-NEGCTL-VACUOUS: GS-4's `maxTotal = 0` negative control measured zero exceptions twice, so the armed unityExceptions ceiling has no valid control [FILED 2026-09-11 by the ghost-replay Tier B wave (`ghost-replay-tier-b`), make-up round]
+## GS4-UNITY-CEILING-NEGCTL-VACUOUS: GS-4's LIVE `maxTotal = 0` negative control measured zero exceptions twice; the ceiling is now controlled OFFLINE, and only an opportunistic LIVE control stays open [FILED 2026-09-11 by the ghost-replay Tier B wave (`ghost-replay-tier-b`), make-up round; NARROWED 2026-09-11, closing round, supervisor ruling R3-2]
 
 **What happened.** GS-4 is armed at `[expectations.unityExceptions] maxTotal = 4`
 (supervisor ruling, wave RULINGS R2-4). Its armed re-flight `2026-09-11_0049` PASSED at
@@ -34,13 +34,33 @@ census is in the status doc's known-gate 11). GS-4's wave-DLL totals read 2, 1, 
 (`2026-09-10_1924`, `_1930`, `2026-09-11_0049`, `_0056`, `_0102`). Nothing here is a
 Parsek defect, and no stack carried a `Parsek.` frame.
 
-**Open decision (supervisor / operator).** How to discharge the control: another live
-re-fly beyond the ruling's "once"; an OFFLINE re-evaluation of the armed run's archived
-KSP.log with `maxTotal = 0` (the BDOCK-1 precedent in RULINGS A2-c - measured read-only
-for this decision, not recorded as a discharge: `_0049` would read exactly one mismatch,
-`unityExceptions.total 4 > maxTotal 0 (NullReferenceException=4)`); or a borrowed
-control. Until one is chosen the gate is armed with an undischarged control, recorded as
-such in the GS-4 spec's RUN LEDGER, its status row and known-gate 11.
+**Discharged OFFLINE (supervisor ruling R3-2, the BDOCK-1 offline precedent).** No
+flight. The read-only script
+`C:/Users/vlad3/AppData/Local/Temp/claude/C--Users-vlad3-Documents-Code-Parsek-Parsek--claude-worktrees-cleanup-agent-docs-755145/f1ca58d8-e83f-4dba-acea-332be584ee54/scratchpad/a4_gs4_offline_negctl.py`
+(8,398 bytes, sha256 `c0ef1d7d6c188acaf6f09d3a4f0491976079894970360eaa4022cd7998d86b34`; its full
+output `a4_gs4_offline_negctl.out.txt` beside it) loads the REAL committed GS-4 spec
+through the harness loader (`run.load_toml`, asserted tomllib-equal to `git show HEAD:`
+at `e106ad8b4`) and re-measures every GS-4 wave-DLL run with `hlib.scan_unity_exceptions`,
+each equal to its result JSON: 2, 1, 4, 0, 0. It then runs the live row-6b evaluator,
+`hlib.evaluate_unity_exceptions`, over the archived KSP.log of the HIGHEST,
+`logs/wave-0910/runs/2026-09-11_0049_GS-4-kerbalx-rewind-watch/KSP.log` (15,674,487
+bytes, sha256 `792f3e6992f79939adac08e0a0492b2f22b881025f9872ffec5a5f64edd2d219`):
+- with `maxTotal = 3` (total - 1; the only spec change, tree-diffed): FAIL with EXACTLY
+  ONE mismatch, `unityExceptions.total 4 > maxTotal 3 (NullReferenceException=4)`;
+- with the committed `maxTotal = 4`: PASS on the same bytes.
+Under the mutated spec the other gating evaluators (expectations, ghostLifecycle) stay
+PASS, so the unity line is the only gating mismatch. Corroboration on the same shape:
+`_1924` reds on exactly `unityExceptions.total 2 > maxTotal 1 (NullReferenceException=2)`
+and `_1930` on exactly `unityExceptions.total 1 > maxTotal 0 (NullReferenceException=1)`,
+each PASS at 4; the two total-0 runs cannot host the control. Per the ruling, the live
+row-6b wiring is proven by the program's armed unityExceptions lanes. The ceiling is
+controlled offline, recorded in the GS-4 spec's RUN LEDGER, its status row, known-gate 11
+and the test_hlib ceiling comment.
+
+**What stays open: an opportunistic LIVE control only.** No flight is owed. When a
+future round flies GS-4 anyway and can spare one control flight, fly `maxTotal = 0` (the
+line-anchored G7 edit of `maxTotal = 4`, reverted after) and count it only if that run's
+own total measures >= 1; a total-0 run is vacuous again, not a failed control.
 
 ## D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE: the registry cell's only producer is reached in always-tree mode only through rare split-edge aborts, and no seam verb drives one [FILED 2026-09-10 by the ghost-replay Tier B / Tier D wave (`ghost-replay-tier-b`) while authoring the Tier D residue. A REGISTRY / VERB DECISION, not a product defect. BLOCKED on the operator, paired with the R2 `stop-on-switch` call]
 

@@ -378,7 +378,7 @@ remains is, in order:
    the latter is also the first real move on known-gate 11, raw Unity exceptions
    unjudged). Items 8 and 9 LANDED 2026-09-10/11 (`ghost-replay-tier-b`): GS-9 is
    live-proven, GS-4 is armed at `maxTotal = 4` with its negative control
-   undischarged (item 9), W1 stays report-only.
+   discharged offline (item 9), W1 stays report-only.
 5. **Ghost-replay Tier C as one arc**: ghostlife v2 (item 10) then loop-cycle
    rendering on the GS-4 subject (item 12, blocked on 10), with the replay-parity
    evaluator (11) alongside.
@@ -3678,12 +3678,16 @@ first spawn frame (hold-then-retry, never a single eager ask).
 9. **Arm `unityExceptions`** on GS-4 and W1 (`maxTotal` windows) - the NRE
    census is stable at 1-4 stock scene-change lines across four flights.
    2026-09-10 (`ghost-replay-tier-b`): READ twice each on the wave DLL. GS-4 is ARMED
-   at `maxTotal = 4`: the observed band top over n=5 GS-4 readings, corroborated by
-   GS-9's 4 on the same machine and DLL. Its armed re-flight `2026-09-11_0049` PASSED
-   at total 4 (the ruling's composition, reached by GS-4 itself); its `maxTotal = 0`
-   negative control is UNDISCHARGED - `2026-09-11_0056` and its one allowed re-fly
-   `_0102` both measured total 0, two vacuous passes (todo
-   GS4-UNITY-CEILING-NEGCTL-VACUOUS). W1 is LEFT REPORT-ONLY: it read 0 and 2, and the second run's two NREs
+   at `maxTotal = 4`: a WINDOW kept at 4 by supervisor ruling, REACHABLE on the wave DLL
+   by the identical stock class set (GS-9's `2026-09-10_1944` measured 4 on the same
+   machine and DLL, while GS-4's own wave readings read 2 and 1). Its armed re-flight
+   `2026-09-11_0049` PASSED at total 4 (the ruling's composition, reached by GS-4
+   itself). Its live `maxTotal = 0` negative control read vacuous twice
+   (`2026-09-11_0056` and its one allowed re-fly `_0102`, total 0), and the control is
+   DISCHARGED OFFLINE on `_0049` (closing round, ruling R3-2: `maxTotal = 3` reds on
+   exactly `unityExceptions.total 4 > maxTotal 3 (NullReferenceException=4)` and the
+   committed 4 PASSES the same bytes; todo GS4-UNITY-CEILING-NEGCTL-VACUOUS keeps only
+   an opportunistic LIVE control). W1 is LEFT REPORT-ONLY: it read 0 and 2, and the second run's two NREs
    come in the stock / MechJeb teardown while watching (the V7M precedent). The class
    census, which is not the scene-change shape this item assumed, is in the status
    doc's known-gate 11.

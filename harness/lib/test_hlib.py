@@ -8185,10 +8185,11 @@ class UnityExceptionScanTests(unittest.TestCase):
         #          the ceiling is the status doc's short-spec band top, not a pin.
         #     GS-4 n=8: 4, 1, 2 (older DLLs) + 2, 1, 4, 0, 0 (wave DLL: the 4 is the
         #          armed re-flight `2026-09-11_0049`, the two 0s the vacuous flights of
-        #          its negative control). A WINDOW kept at 4 by supervisor ruling,
+        #          its live negative control). A WINDOW kept at 4 by supervisor ruling,
         #          reachable on the wave DLL (GS-9 `2026-09-10_1944` and GS-4 `_0049`
-        #          both measured 4); composition, n and the legal shape above it (5)
-        #          are in its dict entry below.
+        #          both measured 4) and CONTROLLED OFFLINE on `_0049` (maxTotal 3 reds
+        #          on exactly the total, 4 passes); composition, n, the control and the
+        #          legal shape above it (5) are in its dict entry below.
         expected = {
             "B10-career-passive-safety.toml": 0,
             "CL-2-pod-impact-ledger.toml": 0,
@@ -8259,9 +8260,16 @@ class UnityExceptionScanTests(unittest.TestCase):
             # flight). Every class is stock KSP or MechJeb, no `Parsek.` frame in any stack.
             # ARMED RE-FLIGHT `2026-09-11_0049` PASS at total 4 (STAGING 1 + MAP-FOCUS 2 +
             # HATCH-TOOLTIP 1: this composition, reached by GS-4 itself on the wave DLL).
-            # NEGATIVE CONTROL (maxTotal 0) UNDISCHARGED: `_0056` and its one re-fly
-            # `_0102` both measured total 0 - vacuous, not failed (todo
-            # GS4-UNITY-CEILING-NEGCTL-VACUOUS).
+            # LIVE NEGATIVE CONTROL (maxTotal 0): `_0056` and its one re-fly `_0102` both
+            # measured total 0 - vacuous, not failed. OFFLINE NEGATIVE CONTROL (RULINGS
+            # R3-2, the BDOCK-1 precedent), DISCHARGED: the committed spec through
+            # run.load_toml + hlib.evaluate_unity_exceptions over `_0049`'s archived
+            # KSP.log (15,674,487 bytes; the highest GS-4 wave-DLL total) reds on exactly
+            # `unityExceptions.total 4 > maxTotal 3 (NullReferenceException=4)` at
+            # maxTotal 3 and PASSES at the committed 4, with expectations and
+            # ghostLifecycle PASS under the mutated spec (script
+            # a4_gs4_offline_negctl.py in the wave scratchpad). Only an opportunistic LIVE
+            # control stays open (todo GS4-UNITY-CEILING-NEGCTL-VACUOUS).
             "GS-4-kerbalx-rewind-watch.toml": 4,
         }
         armed = {}
@@ -8793,7 +8801,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # the three-run discipline (GHOSTLIFE_ARMED_SPECS) and unityExceptions on
         # 2026-09-10; what remains open is the ordinary cadence PROMOTION call -
         # the GS-1/GS-2/GS-3 shape exactly.
-        "GS-4-kerbalx-rewind-watch.toml":   "FLOWN GREEN 2026-08-27 (2145 reading, 2204 green, both attempt 1); ghostLifecycle armed 2026-08-28, unityExceptions armed 2026-09-10 (armed re-flight 2026-09-11_0049 PASS; its maxTotal-0 negative control is undischarged, two vacuous total-0 flights); operator tier is the PROMOTION call, not debt",
+        "GS-4-kerbalx-rewind-watch.toml":   "FLOWN GREEN 2026-08-27 (2145 reading, 2204 green, both attempt 1); ghostLifecycle armed 2026-08-28, unityExceptions armed 2026-09-10 (armed re-flight 2026-09-11_0049 PASS; its live maxTotal-0 negative control read two vacuous total-0 flights, and the ceiling is controlled OFFLINE on 2026-09-11_0049 per RULINGS R3-2); operator tier is the PROMOTION call, not debt",
         # The ghost-replay Tier A derivatives (roadmap items 2 and 4), operator by
         # the CALIBRATION DISCIPLINE on the GS-4 / GS-6 shape: authored 2026-09-08
         # with first-flight pins, then the reading run, the re-pin off its own
