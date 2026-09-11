@@ -14,10 +14,14 @@ question: "show me every Parsek window at full size so I can redesign it". That
 wants big images, label-grouped ordering, no log panel, and a page that sits in
 the SAME directory as the PNGs so it can be opened directly (a file:// page one
 directory up cannot be dropped into a viewer alongside its images without the
-parent folder). Both tools read the same folder and neither writes the other's
-file: this one owns ``index.html`` inside a ``*_shots`` dir, the V3 sheet owns
-``<runId>_contact.html`` and ``index.html`` at the results ROOT. Those are
-different paths, so they cannot collide.
+parent folder). THREE tools write pages over a run's artifacts and no two of them
+write the same path: this one owns ``index.html`` inside a ``*_shots`` dir, the V3
+sheet owns ``<runId>_contact.html`` and ``index.html`` at the results ROOT, and
+``tools/gui_tree_view.py`` - which a census runs over the SAME ``*_shots`` dir,
+right after this one - owns ``<label>.gui.html`` plus ``gui-tree-index.html``
+there. The tree viewer's index carries that name for exactly this reason: it and
+this sheet are the two tools pointed at one directory, so ``index.html`` had to
+belong to one of them alone.
 
 CONTRACTS (binding, inherited from the V3 sheet for the same reasons):
   - READ-ONLY over run artifacts. Writes exactly one file, ``index.html``, in
@@ -56,6 +60,9 @@ IMAGE_EXTENSIONS: Tuple[str, ...] = (".png", ".jpg", ".jpeg")
 
 # The generated page's filename. Fixed, not an option: the operator opens
 # "<shots dir>/index.html" and a per-invocation name would make that a lookup.
+# This tool is the SOLE owner of that name inside a shots dir; the tree viewer's
+# batch index next door is "gui-tree-index.html" so the two never overwrite each
+# other when a census runs both over one directory.
 INDEX_FILENAME = "index.html"
 
 # Scene prefixes the census labels use, in the order the page shows their

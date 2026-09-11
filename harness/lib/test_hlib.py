@@ -1073,7 +1073,11 @@ class SpecValidationRejectTests(unittest.TestCase):
         # the other half of the arithmetic signature: an addition of N verbs moves one
         # number by N, a promotion of N moves both by N in opposite directions, and a
         # half-done promotion moves the first without the second.
-        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 35)
+        # 36 / 5 after DumpGuiTree, an ADDITION again and the first number moving
+        # alone by ONE: the reserved envelope never carried a UI-introspection verb,
+        # and it is not a second spelling of CaptureScreenshot - one produces pixels
+        # and the other an IMGUI control tree, and a census drives them as a PAIR.
+        self.assertEqual(len(hlib.IMPLEMENTED_SEAM_VERBS), 36)
         self.assertEqual(len(hlib.RESERVED_SEAM_VERBS), 5)
         # Disjointness, asserted rather than assumed: Classify checks Implemented
         # first in the C# mirror, so a leftover reserved row would be invisible.
@@ -4181,6 +4185,24 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # It must stay a set LITERAL of ids (or a `set()` call when empty, never a `{}`
     # literal, which would be an empty DICT - the two membership cells below would then
     # answer False for every id and pass vacuously).
+    #
+    # GUI-1-census-ksc WAS declared here, as the register of record for its interim pin,
+    # and it LEFT on 2026-09-11 when its reading run (`2026-09-11_0548`, PASS attempt 1,
+    # 96 s wall) read `BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0
+    # category=GuiTree scene=SPACECENTER` a third time running and the spec took that
+    # line WHOLE. One thing about that entry has to be said plainly rather than left to
+    # be rediscovered by the next `GUI-` lane: this class's own cells NEVER READ IT for
+    # such an id. GROUP_ID_RE admits H-series ids only, so a `GUI-` lane is not a member
+    # of this family (nor of the isolated or multi-category ones) and `self.specs` never
+    # contains it. What DOES gate a `GUI-` lane is CommittedBatchTallySourceSyncTests,
+    # which sweeps every batch-owning spec on disk and re-derives its pinned `total=`
+    # from the C# attributes, plus
+    # GuiCensusSeamVerbTests.test_the_gui_1_batch_pin_is_whole_off_the_reading_run below,
+    # which reads THIS set for that id - now asserting ABSENCE - so the declaration is
+    # load-bearing in both directions rather than decorative in either. A future
+    # never-flown `GUI-` lane gets registered here again, because CLAUDE.md names this
+    # set as the place a never-flown lane's loose pin is registered, and splitting that
+    # register in two would be worse than one honest cross-reference.
     INTERIM_PIN_IDS: set = set()
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
@@ -9204,7 +9226,6 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # header carries is what makes that flight readable rather than a fishing trip.
         "B32-interbody-route-scope.toml":    "operator by the calibration discipline; FLOWN 2026-09-02, ARMED-DISCIPLINE COMPLETE (reading run, pins tightened off it, armed re-flight PASS attempt 1, and a negative control that red PARSEK-FAIL(expectation) on exactly the seeded token). THE FIRST LANE ANYWHERE THAT HAS READ `ClassifyRouteScope = InterBody`, over the `interbody-route-recorded` harvest. It stays untagged because what it owed was an ordinary reading, not a human call, and that reading is in: the product change that made the verdict reachable (todo ROUTE-INTERBODY-SCOPE-NEVER-REACHABLE) landed in the same PR, the tokens are derived from the classifier source rather than predicted, and the two FORBIDS carry the pre-fix reading as a control the lane brings with it. Nothing was armed at that point, so the flights confirmed without a promotion decision attached; the `[expectations.routes]` arming pass was TAKEN 2026-09-11 (wave package A2) off the reading `2026-09-10_2149`, all twelve windows as declared. Its discipline completed 2026-09-11: armed re-flight `2026-09-11_0159` PASS attempt 1, and two negative controls, each red PARSEK-FAIL(save-structure) on exactly its one leaf: `2026-09-11_0206` (connectionKinds) and `2026-09-11_0209` (a destinationBodies group window).",
         "V26M-interbody-route-map-lines.toml": "operator by the calibration discipline; FLOWN 2026-09-02, ARMED-DISCIPLINE COMPLETE (reading run, pins tightened off it, armed re-flight PASS attempt 1, and a negative control that red PARSEK-FAIL(expectation) on exactly the seeded token). The RENDER-COMPOSITION half of G10 - the manifest census of an inter-body route line. It read `transferLegsDropped=0`, which is OUTCOME B of the two its header pre-registered: the filter RUNS but found no third-body leg, so G10's `never dropped a leg on a driven run` gap REMAINS OPEN. `[expectations.renderComposition]` stayed DECLARED BARE at that point and the arming pass was left as the human call. THAT CALL WAS TAKEN 2026-09-07 (package P16, after reading run 3 `2026-09-06_2113` PASS attempt 1 matched run 1 facet for facet): the block is ARMED on `routeLineBuilds = {min = 2}` + `routeCoDrawViolations = {max = 0}` and nothing else - no `unevaluable` ceiling, because 1065 here against V26T's 6 on the SAME fixture says that census scales with the observed population rather than with the composition. The same run ALSO closed G10's leg-drop gap: `transferDropped=2` on three consecutive runs, now pinned as a literal. The ARMED renderComposition block flew again on `2026-09-10_2151` (wave package A2; gating PASS, routeLineBuilds 2, routeCoDrawViolations 0, no mismatch); its negative control is still OWED. `[expectations.routes]` was ARMED 2026-09-11 off that same run (twelve leaves as declared); its armed re-flight `2026-09-11_0201` PASS attempt 1 (routes and renderComposition gating PASS, no mismatch), and its group windows' controls are B32's `2026-09-11_0206` / `_0209`.",
-        "V26T-interbody-route-ts-arrival.toml": "operator by the calibration discipline; FLOWN 2026-09-02, ARMED-DISCIPLINE COMPLETE (reading run, pins tightened off it, armed re-flight PASS attempt 1, and a negative control that red PARSEK-FAIL(expectation) on exactly the seeded token). V18T's tracking-station grammar on the inter-body subject. It carries ONE genuinely open question the reading run must answer rather than pass: V18T's front-door tokens (`ghostDriving=[1-9]`, `routeMissions=[1-9]`) are deliberately NOT required, because this subject's Duna route has `loopAnchorUT = -1` and has never run a cycle, so whether a never-dispatched route enters the GhostDriving selection is unmeasured - and RUN 1 ANSWERED IT: `ghostDriving=1` and `routeMissions=1` both printed, so dispatch history is NOT a precondition for a route driving a tracking-station ghost, and both tokens are REQUIRED from the armed re-flight onward. The renderComposition arming pass this lane owed was TAKEN 2026-09-07 (package P16, after reading run 3 `2026-09-06_2115` PASS attempt 1): armed on `routeLineBuilds = {min = 2}` + `routeCoDrawViolations = {max = 0}`, deliberately symmetric with V26M and with no `unevaluable` ceiling on either. The ARMED renderComposition block flew again on `2026-09-10_2153` (wave package A2; gating PASS, no mismatch; the LoadGame-REJECTED race did not occur); its negative control is still OWED. `[expectations.routes]` was ARMED 2026-09-11 off that same run (twelve leaves as declared, identical to B32 and V26M); its armed re-flight `2026-09-11_0203` PASS attempt 1 (routes and renderComposition gating PASS, no mismatch), and its group windows' controls are B32's `2026-09-11_0206` / `_0209`.",
         # R14's better-time-warp residue, 2026-09-10 (wave package A2). The first
         # operator-tier spec on the modded-compat instance.
         "MC-3-better-time-warp.toml":        "tier=operator on the modded-compat instance, NOT debt: ARMED-DISCIPLINE COMPLETE 2026-09-10 - reading `2026-09-10_2025` on the pre-registered outcome (A), pinned from those bytes, armed re-flight `2026-09-10_2208` PASS attempt 1 on the same lines, and negative control `2026-09-10_2213` (`instanceProfile` -> stock-minimal in place, reverted) PARSEK-FAIL(expectation) on exactly the zeroed-limit literal with the drift gate valid (Mun reseed 2 lines, zeroed line 0). D17 `better-time-warp` is claimed off that literal. Nothing is owed; a nightly slot beside MC-1 / MC-2 is the operator's cadence call, reported rather than taken.",
@@ -9216,8 +9237,9 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # for a missing directory. Neither owes outstanding HUMAN work in the sense this
         # tag names - what they owe is a first flight, and the images that flight
         # produces ARE the deliverable rather than a verdict to calibrate.
-        "GUI-1-census-ksc.toml": "tier=operator by MECHANISM (the FORGE class): its host is an operator-local, uncommitted fixture no clone can stage, so a cadence tier would red everywhere for a missing directory - a TERMINAL INVALID(staging), which tier_runner classifies RED. Never flown. Its host's own pre-existing analyzer findings (measured 2026-09-10: FAIL=25 RED=1, all INV2-NO-DOUBLE-COVER, on recordings months older than the lane) are handled by declaring the analyzer row REPORT-ONLY (`[expectations.analyzer] gating = false`, allowlisted in AnalyzerReportOnlyModeTests) rather than by an `[expectedFail]` quarantine - the quarantine short-circuited the whole verifier chain, so the lane's own log contracts were never evaluated at all. No human call is outstanding.",
-        "GUI-2-census-flight.toml": "tier=operator by MECHANISM, identical to GUI-1's (same operator-local host, same report-only analyzer row). Never flown. The thing its first flight must be read for is a WINDOW, not the clock, and the first draft of this row had it backwards: the subject's situation reads SUB_ORBITAL, but its orbit (SMA 3621574.94, ECC 0.815, periapsis 69.55 km, apoapsis 5973.6 km, 6.400 h) is ASCENDING at load - 5469.8 km up, 1.07 h from apoapsis, and its periapsis is 69.55 km above the GROUND, so it cannot impact on this orbit at all; the situation word only reflects that periapsis sitting 0.4 km under Kerbin's 70 km atmosphere line. What can genuinely stop the lane is `op=open window=spawncontrol`: SpawnControlUI.DrawIfOpen force-closes itself on its FIRST draw with zero nearby spawn candidates, so the two-phase settle answers ERROR window-self-closed and the lane reads driver-INVALID with the cause named. The remedy there is a re-stage (the same save carries five LANDED probes, three ORBITING relays and one ORBITING probe), not a spec change. No human call is outstanding.",
+        "GUI-1-census-ksc.toml": "tier=operator by MECHANISM (the FORGE class): its host is an operator-local, uncommitted fixture no clone can stage, so a cadence tier would red everywhere for a missing directory - a TERMINAL INVALID(staging), which tier_runner classifies RED. FLOWN GREEN 2026-09-11: the READING RUN is `2026-09-11_0548`, PASS on attempt 1, 96 s wall, every step met, 46 harvested files (22 PNG + 22 `<label>.gui.json` + the `GuiTree` cell's own `parsek-guitree-probe.gui.json` + KSP.log). The one thing that reading had to settle is the step both 2026-09-10 attempts died on: `UiAction op=rect window=settings` now reads back `rect=270,8,400,718` in Advanced and `rect=270,8,400,700` in Basic - WIDTH held at the commanded 400 in both modes while the Advanced height grew 18 px over its 700 floor, which is exactly the floor semantics the fix shipped. PRIOR (2026-09-10, `_2255` and attempt 2 `_2256`): both INVALID on that ONE step and nothing else, at 375x718 against a commanded 360x700 when the width half was still a two-sided check. The `GuiTree` batch read `total=1 passed=1 failed=0 skipped=0` on all three runs and the pin is now WHOLE off the reading run - the id has LEFT IngameBatchWiringGroupTests.INTERIM_PIN_IDS, which is what 'a whole pin belongs to a run that READ a verdict' was waiting for - and all 22 dumps read `patched=17/17`, the reading that closed GUITREE-INTERCEPTION-LAYER-NEVER-RUN. Its host's own pre-existing analyzer findings (measured 2026-09-10: FAIL=25 RED=1, all INV2-NO-DOUBLE-COVER, on recordings months older than the lane) are handled by declaring the analyzer row REPORT-ONLY (`[expectations.analyzer] gating = false`, allowlisted in AnalyzerReportOnlyModeTests) rather than by an `[expectedFail]` quarantine - the quarantine short-circuited the whole verifier chain, so the lane's own log contracts were never evaluated at all. The reading run proved that a third time: the row read REPORT with `verdictStatus=PARSEK-FAIL red=1 topRule=INV2-NO-DOUBLE-COVER failNonBaselined=7`, gating=false, and the chain ran on to a PASS. (The STAGED host reads FAIL=7 over four recordings where the offline reading of the un-staged `c1` read FAIL=25 over seven - staging is not a copy; both are RED=1, which is all this declaration turns on.) No human call is outstanding.",
+        "GUI-2-census-flight.toml": "tier=operator by MECHANISM, identical to GUI-1's (same operator-local host, same report-only analyzer row). FLOWN GREEN 2026-09-11: the READING RUN is `2026-09-11_0551`, PASS on attempt 1, 57 s wall, all 29 steps met, 9 harvested files (4 PNG + 4 `<label>.gui.json` + KSP.log). The step this lane existed to re-read is the one its first flight died on, and it is now an ASSERTION rather than a failure: `op=open window=spawncontrol` answered `uiaction error reason=window-self-closed window=spawncontrol frames=1` under `expect = ERROR` with that reason pinned as a log contract, so the lane now TESTS that Real Spawn Control force-closes itself on a candidate-less host (`SpawnControlUI.DrawIfOpen`, `reason=zero-candidates candidates=0`) instead of photographing empty scenery under that window's name. PRIOR (2026-09-10, `_2259` and attempt 2 `_2300`): both INVALID on that one step. The first draft of this row also had the HAZARD backwards and the correction stands: the subject's situation reads SUB_ORBITAL, but its orbit (SMA 3621574.94, ECC 0.815, periapsis 69.55 km, apoapsis 5973.6 km, 6.400 h) is ASCENDING at load - 5469.8 km up, 1.07 h from apoapsis, periapsis 69.55 km above the GROUND, so it cannot impact on this orbit at all - and the lane flew in 57 s at 1x. The PICTURE of Real Spawn Control is still owed to a GUI-3 lane on a committed candidate host (GUI-CENSUS-SPAWN-CONTROL-NEEDS-A-CANDIDATE-HOST); a re-stage cannot pay it, because the host is operator-local by construction. No human call is outstanding.",
+        "V26T-interbody-route-ts-arrival.toml": "operator by the calibration discipline; FLOWN 2026-09-02, ARMED-DISCIPLINE COMPLETE (reading run, pins tightened off it, armed re-flight PASS attempt 1, and a negative control that red PARSEK-FAIL(expectation) on exactly the seeded token). V18T's tracking-station grammar on the inter-body subject. It carries ONE genuinely open question the reading run must answer rather than pass: V18T's front-door tokens (`ghostDriving=[1-9]`, `routeMissions=[1-9]`) are deliberately NOT required, because this subject's Duna route has `loopAnchorUT = -1` and has never run a cycle, so whether a never-dispatched route enters the GhostDriving selection is unmeasured - and RUN 1 ANSWERED IT: `ghostDriving=1` and `routeMissions=1` both printed, so dispatch history is NOT a precondition for a route driving a tracking-station ghost, and both tokens are REQUIRED from the armed re-flight onward. The renderComposition arming pass this lane owed was TAKEN 2026-09-07 (package P16, after reading run 3 `2026-09-06_2115` PASS attempt 1): armed on `routeLineBuilds = {min = 2}` + `routeCoDrawViolations = {max = 0}`, deliberately symmetric with V26M and with no `unevaluable` ceiling on either. The armed re-flight and the negative control are OWED.",
     }
 
     def _specs(self):
@@ -12208,7 +12230,14 @@ class IngameCategoryInventoryDocTests(unittest.TestCase):
         # probe window it draws itself and asserts the captured control tree. Its own
         # category for the standing reason - a cell added to an existing category moves
         # a `BATCH_COMPLETE` tally committed specs pin - and it is the first row to
-        # re-open the driven axis since it closed on 2026-09-08, at 112 of 113.
+        # re-open the driven axis since it closed on 2026-09-08, at 112 of 113. That
+        # gap lasted a day: `GUI-1-census-ksc` claimed the row on 2026-09-11 with one
+        # `RunTests category="GuiTree"` step, so the DRIVEN axis is whole again - and that
+        # lane then FLEW on 2026-09-10 with the cell executing and passing 1 of 1, so the
+        # axis is a reading on that host rather than only spec coverage (the lane's own
+        # verdict was INVALID on an unrelated step, which is why the inventory row stays
+        # in bucket B). Neither number in the assertion below moves either way: this cell
+        # counts declarations, not lanes.
         self.assertIn("**113 categories / %d declarations**" % stated_decls, body,
                       "the triage totals line disagrees with the table it summarises "
                       "(table sums to %d declarations across %d categories)"
@@ -14173,8 +14202,8 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
     harness half of that: the vocabularies a spec names must agree with the C# ones, and
     each verb's role must be the one its side effects actually justify."""
 
-    def test_both_are_implemented_and_neither_is_a_promotion(self):
-        for verb in ("CaptureScreenshot", "UiAction"):
+    def test_all_three_are_implemented_and_none_is_a_promotion(self):
+        for verb in ("CaptureScreenshot", "UiAction", "DumpGuiTree"):
             with self.subTest(verb=verb):
                 self.assertIn(verb, hlib.IMPLEMENTED_SEAM_VERBS)
                 self.assertNotIn(verb, hlib.RESERVED_SEAM_VERBS)
@@ -14186,7 +14215,11 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
         # minutes. The EnterWatchMode shape exactly - a capture that has not landed
         # within the 60 s default is broken, not slow, and putting it in the deferred
         # family would make the harness out-wait a real failure.
-        for verb in ("CaptureScreenshot", "UiAction"):
+        # DumpGuiTree is the third two-phase member and rides the default for a
+        # THIRD reason worth stating: the recorder gives the arm up on its own after
+        # 900 frames (GuiTreeRecorder.ArmTimeoutFrames, ~15 s at 60 fps), so the 60 s
+        # budget is a backstop behind a shorter bound rather than the primary one.
+        for verb in ("CaptureScreenshot", "UiAction", "DumpGuiTree"):
             with self.subTest(verb=verb):
                 self.assertNotIn(verb, hlib.DEFERRED_SEAM_VERBS)
                 self.assertNotIn(verb, hlib.DISPATCH_DEFERRAL_BUDGET_SECONDS)
@@ -14203,7 +14236,13 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
                          hlib.SEAM_VERB_TAIL_ROLE["CaptureScreenshot"])
         self.assertEqual(hlib.TAIL_ROLE_WORLD_MUTATING,
                          hlib.SEAM_VERB_TAIL_ROLE["UiAction"])
-        for verb in ("CaptureScreenshot", "UiAction"):
+        # DumpGuiTree sits on CaptureScreenshot's side of the tail split: it writes ONE
+        # json and persists nothing. The Harmony interceptions are the one thing that
+        # could argue otherwise and do not - applied at arm, removed at flush,
+        # observation-only, and none of the 17 targets is a Parsek method.
+        self.assertEqual(hlib.TAIL_ROLE_INERT,
+                         hlib.SEAM_VERB_TAIL_ROLE["DumpGuiTree"])
+        for verb in ("CaptureScreenshot", "UiAction", "DumpGuiTree"):
             with self.subTest(verb=verb):
                 self.assertEqual(hlib.POST_MISSION_ROLE_RECORDING,
                                  hlib.SEAM_VERB_POST_MISSION_ROLE[verb])
@@ -14231,6 +14270,10 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
         self.assertIn("CaptureScreenshot", cs_non_mutating,
                       "CaptureScreenshot must be non-mutating on the C# side too, or "
                       "FlushAndQuit saves again after a capture that changed nothing")
+        self.assertIn("DumpGuiTree", cs_non_mutating,
+                      "DumpGuiTree must be non-mutating on the C# side too: it writes "
+                      "one json and persists nothing, so a mutating row there would "
+                      "make FlushAndQuit save again after a dump that changed nothing")
         self.assertNotIn("UiAction", cs_non_mutating,
                          "UiAction persists uiComplexityMode on op=complexity, so a "
                          "non-mutating row there would SUPPRESS a save the run wanted")
@@ -14239,6 +14282,292 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
         self.assertEqual(hlib_inert, cs_non_mutating - {"FlushAndQuit"},
                          "the two inert sets have drifted (FlushAndQuit excluded by "
                          "name - it is the latch's reader, not a mutator)")
+
+    def test_the_gui_1_batch_pin_is_whole_off_the_reading_run(self):
+        """GUI-1 drives the `GuiTree` cell, which closes the in-game category axis at
+        113 of 113. Its BATCH_COMPLETE pin WAS interim - `total=` exact and derived,
+        `passed=` / `skipped=` regexed - because the cell carries a run-time self-skip
+        (it gives up when its probe window sees no Repaint within 240 frames) and no
+        live run had measured which way that goes.
+
+        THE READING RUN MEASURED IT: `2026-09-11_0548`, PASS attempt 1, 96 s wall,
+        `BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=GuiTree
+        scene=SPACECENTER` - the same line the two INVALID attempts of 2026-09-10 read,
+        now under a verdict. The pin is the whole line and the id has LEFT
+        INTERIM_PIN_IDS.
+
+        This cell is what makes that register load-bearing in BOTH directions: the
+        H-series wiring family cannot read it (its id pattern excludes `GUI-`), so
+        without this the declaration - and now the absence - would be a comment. It
+        asserts the four properties that matter together: the id is NOT declared
+        interim, the pin is WHOLE (every one of the four tally tokens a literal),
+        `total=` is still the number the C# attributes derive, and the whole pin is the
+        measured split rather than some other one."""
+        spec = load_spec("GUI-1-census-ksc.toml")
+        sid = spec.get("id")
+        self.assertNotIn(sid, IngameBatchWiringGroupTests.INTERIM_PIN_IDS,
+                         "GUI-1 read a verdict on 2026-09-11_0548 and its pin is whole; "
+                         "re-registering it as interim would re-loosen a measured split")
+        lc = (spec.get("expectations", {}) or {}).get("logContracts", {}) or {}
+        pin = hlib.resolve_batch_tally_pin(lc.get("required", []) or [])
+        self.assertIsNotNone(pin, "GUI-1 drives a RunTests batch but pins no tally")
+        self.assertTrue(pin.statically_checkable,
+                        "the pin must name a literal category= and scene= or its total "
+                        "cannot be kept in step with the source")
+        self.assertEqual("GuiTree", pin.category)
+        self.assertEqual("SPACECENTER", pin.scene)
+        self.assertEqual(1, pin.total)
+        # WHOLE, and holding exactly the line the reading run printed.
+        self.assertEqual((1, 0, 0), (pin.passed, pin.failed, pin.skipped),
+                         "the whole pin must be the split `2026-09-11_0548` measured "
+                         "(passed=1 failed=0 skipped=0), not another one")
+        # And still agreeing with the C# it describes.
+        decls = load_ingame_test_declarations()
+        self.assertEqual([], hlib.batch_tally_pin_mismatches(pin, decls))
+        derived = hlib.derive_batch_tally(decls, "GuiTree", "SPACECENTER")
+        self.assertEqual((1, 0, 0, 1),
+                         (derived.total, derived.scene_skipped, derived.batch_skipped,
+                          derived.executable))
+        # A whole pin rejects the vacuous family a fortiori; asserted rather than
+        # assumed, because it is the property the interim form had to buy by hand.
+        self.assertIsNone(
+            hlib.batch_contract_vacuity_gap(lc.get("required", []) or [], "GuiTree"))
+
+    def test_every_capture_step_in_both_census_lanes_is_followed_by_a_dump(self):
+        """THE PAIRING, asserted over the committed specs rather than trusted to the
+        eye. A picture with no control tree beside it is exactly the gap the third verb
+        exists to close, and the two files are paired by LABEL - `<label>.png` and
+        `<label>.gui.json` in one directory - so the dump must carry the SAME label as
+        the capture it follows and must follow it IMMEDIATELY (any step between the two
+        can move, close or re-tab the window, and the dump would then describe a frame
+        the picture does not show).
+
+        It also holds the file arithmetic the harvest cares about: two files per label,
+        against ARTIFACT_MAX_SCREENSHOTS."""
+        for name in ("GUI-1-census-ksc.toml", "GUI-2-census-flight.toml"):
+            with self.subTest(spec=name):
+                spec = load_spec(name)
+                steps = (spec.get("driver", {}) or {}).get("steps", []) or []
+                labels = []
+                for i, step in enumerate(steps):
+                    if (step or {}).get("cmd") != "CaptureScreenshot":
+                        continue
+                    label = ((step.get("args", {}) or {}).get("label"))
+                    labels.append(label)
+                    self.assertLess(i + 1, len(steps),
+                                    "%s: the capture %r is the LAST step, so it has no "
+                                    "dump beside it" % (name, label))
+                    nxt = steps[i + 1] or {}
+                    self.assertEqual(
+                        "DumpGuiTree", nxt.get("cmd"),
+                        "%s: the step after capture %r is %r, not DumpGuiTree - a "
+                        "capture with no tree beside it is the gap the verb exists to "
+                        "close, and a step in between would let the window move"
+                        % (name, label, nxt.get("cmd")))
+                    self.assertEqual(
+                        label, (nxt.get("args", {}) or {}).get("label"),
+                        "%s: the dump after capture %r carries a different label; the "
+                        "two files are paired by label alone" % (name, label))
+                self.assertTrue(labels, "%s captures nothing - sweep is inert" % name)
+                self.assertEqual(len(labels), len(set(labels)),
+                                 "%s re-uses a capture label, so one pair would "
+                                 "overwrite another" % name)
+                dumps = [s for s in steps if (s or {}).get("cmd") == "DumpGuiTree"]
+                self.assertEqual(len(labels), len(dumps),
+                                 "%s has a dump that follows no capture" % name)
+                self.assertLessEqual(
+                    2 * len(labels), hlib.ARTIFACT_MAX_SCREENSHOTS,
+                    "%s produces %d files (two per label) against the harvest's %d-file "
+                    "cap; raising the cap is a decision, not a detail"
+                    % (name, 2 * len(labels), hlib.ARTIFACT_MAX_SCREENSHOTS))
+
+    def test_every_dump_step_pins_the_whole_funnel_reading(self):
+        """`patched=<ok>/<of>` is measured FRESH at every arm - the recorder applies its
+        interceptions at arm and removes them when each capture flushes - so it is a
+        per-dump reading rather than a property of the build, and pinning it on EVERY
+        dump is what turned the census's first flight into a measurement of the
+        interception layer (which had never run inside KSP until 2026-09-10, when all 56
+        arms across the four census runs read 17/17). This cell requires one
+        required-pattern per dump step, naming that step's own label, and requires the
+        denominator to be the funnel count the source actually ships."""
+        funnels = self._cs_funnel_count()
+        for name in ("GUI-1-census-ksc.toml", "GUI-2-census-flight.toml"):
+            with self.subTest(spec=name):
+                spec = load_spec(name)
+                steps = (spec.get("driver", {}) or {}).get("steps", []) or []
+                required = ((spec.get("expectations", {}) or {})
+                            .get("logContracts", {}) or {}).get("required", []) or []
+                dump_patterns = [p for p in required if "dumpguitree ok" in p]
+                dumps = [s for s in steps if (s or {}).get("cmd") == "DumpGuiTree"]
+                self.assertEqual(
+                    len(dumps), len(dump_patterns),
+                    "%s drives %d dumps but pins %d of them; the whole point of "
+                    "pinning all of them is that patched= is measured per arm"
+                    % (name, len(dumps), len(dump_patterns)))
+                for step in dumps:
+                    label = (step.get("args", {}) or {}).get("label")
+                    matching = [p for p in dump_patterns if ("label=%s " % label) in p]
+                    self.assertEqual(
+                        1, len(matching),
+                        "%s: dump %r is pinned %d times" % (name, label, len(matching)))
+                    self.assertIn("patched=%d/%d" % (funnels, funnels), matching[0],
+                                  "%s: dump %r must pin the WHOLE funnel reading"
+                                  % (name, label))
+                    self.assertNotIn("hits=", matching[0],
+                                     "%s: dump %r pins hits=, which counts funnel body "
+                                     "runs in a real frame and would pin whatever the "
+                                     "window happened to contain" % (name, label))
+
+    @staticmethod
+    def _cs_funnel_count():
+        """The funnel count the C# actually ships, read out of `GuiTreeFunnels` rather
+        than retyped: `Count = (int)GuiFunnel.Slider + 1`, i.e. the number of members of
+        the `GuiFunnel` enum. Reads OUTSIDE harness/, like the verb-table mirrors."""
+        path = os.path.join(PARSEK_SOURCE_DIR, "GuiTreeFunnels.cs")
+        assert os.path.isfile(path), path
+        with open(path, encoding="utf-8-sig") as fh:
+            text = fh.read()
+        start = text.index("enum GuiFunnel")
+        body = text[text.index("{", start) + 1:text.index("}", start)]
+        members = [ln.strip().rstrip(",").split("=")[0].strip()
+                   for ln in body.splitlines() if ln.strip()
+                   and not ln.strip().startswith("//")]
+        return len([m for m in members if m])
+
+    def test_the_dump_verbs_label_rule_is_the_capture_verbs_rule(self):
+        """The pair property, from the harness side. A census drives the two verbs
+        under ONE label (`<label>.png` beside `<label>.gui.json`, which is what lets
+        `tools/gui_tree_view.py` pair a dump with its screenshot), so a label one
+        validator accepted and the other refused would leave a picture with no control
+        tree - and the fault would only surface as a typed REJECTED after a whole KSP
+        boot. The C# side holds this by DELEGATION (TestCommandDumpGuiTree.IsValidLabel
+        calls the capture verb's predicate); here both validators read the same
+        `_CAPTURE_LABEL_RE`, and this cell is what keeps that true."""
+        for raw in ("ksc-main-advanced", "A1", "has space", "../escape", "dir/label",
+                    "-leading-dash", "", "a" * (hlib.CAPTURE_LABEL_MAX_LENGTH + 1),
+                    # The tail rule, over all four endings: `a` and `a-` are accepted,
+                    # `a_` and `a.` are not, and the two validators must agree either way.
+                    "a", "a-", "a_", "a."):
+            with self.subTest(label=raw):
+                args = {hlib.CAPTURE_LABEL_KEY: raw}
+                cap = hlib.validate_capture_screenshot_step(0, args)
+                dump = hlib.validate_dump_gui_tree_step(0, args)
+                self.assertEqual(bool(cap), bool(dump),
+                                 "the two census verbs disagree about label %r" % raw)
+
+    def test_a_label_the_dump_writers_sanitiser_would_trim_is_refused(self):
+        """The tail half of the rule, and the defect it closes. The C# recorder's
+        `GuiTreeRecorder.SanitizeLabel` ends in `.Trim('.', '_')`, so a label ending
+        in either would produce `ksc-settings_.png` (CaptureScreenshot trims nothing)
+        beside `ksc-settings.gui.json`, with `DumpGuiTree`'s payload naming a path
+        that does not exist - all three disagreeing, and every step reporting OK. Both
+        validators are therefore TIGHTER than `_ID_RE` at the tail. A trailing '-' is
+        NOT trimmed by the sanitiser and stays legal, which this cell pins too so the
+        tightening cannot quietly grow."""
+        for good in ("a", "a-", "ksc-main-", "ksc-main-advanced"):
+            with self.subTest(label=good, expect="accepted"):
+                self.assertEqual([], hlib.validate_capture_screenshot_step(
+                    0, {hlib.CAPTURE_LABEL_KEY: good}))
+                self.assertEqual([], hlib.validate_dump_gui_tree_step(
+                    0, {hlib.CAPTURE_LABEL_KEY: good}))
+        for bad in ("a_", "a.", "ksc-settings_", "ksc-settings."):
+            with self.subTest(label=bad, expect="refused"):
+                for errors in (hlib.validate_capture_screenshot_step(
+                                   0, {hlib.CAPTURE_LABEL_KEY: bad}),
+                               hlib.validate_dump_gui_tree_step(
+                                   0, {hlib.CAPTURE_LABEL_KEY: bad})):
+                    self.assertTrue(any("filename-safe" in e for e in errors),
+                                    "%r must be rejected: %s" % (bad, errors))
+
+    def test_the_one_census_step_expecting_an_error_pins_its_reason(self):
+        """GUI-2's `op=open window=spawncontrol` is the census's only non-OK step, and
+        the reason it expects is the whole content of the step. A seam ERROR carries its
+        `msg=` on the WIRE only - `KSP.log` gets the `uiaction error reason=<token>` line
+        and nothing else - so `expect = "ERROR"` on its own would accept ANY error from
+        that step, including `window-host-hidden` (the main window was shut) and
+        `ui-action-not-settled` (nothing drew at all), each of which says something
+        completely different about the run and has a different remedy.
+
+        MEASURED, not predicted: run `2026-09-10_2259` (and attempt 2 `_2300`) answered
+        `uiaction error reason=window-self-closed window=spawncontrol frames=1`, because
+        `SpawnControlUI.DrawIfOpen` force-closes itself on its first draw when
+        `ResolveAutoCloseReason` finds zero nearby spawn candidates. With the reason
+        pinned, the step asserts that auto-close still fires and still names itself.
+
+        The cell also holds the shape: exactly ONE non-OK step across both lanes, and
+        nothing follows that step for the window it names (no describe, rect, capture,
+        dump or close), because the window is not there to photograph - a `rect` against
+        a shut window reads its own write back and PASSES, which is how the first flight
+        produced an OK at `270,8,900,420` over a window that was not drawing."""
+        non_ok = []
+        for name in ("GUI-1-census-ksc.toml", "GUI-2-census-flight.toml"):
+            spec = load_spec(name)
+            steps = (spec.get("driver", {}) or {}).get("steps", []) or []
+            required = (((spec.get("expectations") or {}).get("logContracts") or {})
+                        .get("required") or [])
+            for i, step in enumerate(steps):
+                if str((step or {}).get("expect", "OK")) == "OK":
+                    continue
+                non_ok.append((name, i, step))
+                args = (step.get("args", {}) or {})
+                window = args.get("window")
+                self.assertEqual("ERROR", step.get("expect"))
+                self.assertEqual("UiAction", step.get("cmd"))
+                self.assertEqual("open", args.get("op"))
+                self.assertEqual("spawncontrol", window)
+                reason = [p for p in required
+                          if "uiaction error reason=window-self-closed" in p
+                          and ("window=%s" % window) in p]
+                self.assertEqual(
+                    1, len(reason),
+                    "%s step %d expects ERROR but pins its reason %d times; an "
+                    "unpinned reason accepts window-host-hidden and "
+                    "ui-action-not-settled too" % (name, i, len(reason)))
+                self.assertIn("\\[ERROR\\]", reason[0],
+                              "the reason line is written at ERROR level, so a pattern "
+                              "pinning [INFO] can never match it")
+                # Nothing may follow it for the same window: there is no window to act on.
+                for later in steps[i + 1:]:
+                    later_args = ((later or {}).get("args", {}) or {})
+                    if later_args.get("window") == window:
+                        self.fail("%s: step %d expects the %s window to have closed "
+                                  "itself, and a later step still acts on it (%r %r)"
+                                  % (name, i, window, later.get("cmd"), later_args))
+                for later in steps[i + 1:]:
+                    label = ((later or {}).get("args", {}) or {}).get("label") or ""
+                    self.assertNotIn(
+                        window, label,
+                        "%s: %r is labelled for a window the lane has just measured as "
+                        "shut" % (name, label))
+        self.assertEqual(
+            1, len(non_ok),
+            "the census's non-OK step set changed: %s. Every other step in both lanes is "
+            "an OK, so a second one is a decision that belongs here with its measurement"
+            % [(n, i) for n, i, _ in non_ok])
+
+    def test_a_labelless_dump_step_is_caught_pre_launch(self):
+        # The label is the dump's FILENAME and the verb has no default, so the seam
+        # answers REJECTED label-arg-missing - after a whole boot. Same shape as the
+        # ListHandles `kind=` block: catch it in validation instead.
+        errors = hlib.validate_dump_gui_tree_step(3, {})
+        self.assertEqual(1, len(errors), errors)
+        self.assertIn("driver.steps[3].args.label", errors[0])
+        self.assertIn("label-arg-missing", errors[0])
+
+    def test_the_dump_verb_takes_no_other_arg_vocabulary(self):
+        # There is no superSize counterpart - a control tree has no resolution - and
+        # `label` is deliberately NOT a VERB_SCOPED_CLOSED_ARGS row (MissionMark owns
+        # that key, and that table asserts one owner verb per key). This cell pins both
+        # halves so a future arg cannot be added on one side only.
+        self.assertNotIn(hlib.CAPTURE_LABEL_KEY, hlib.VERB_SCOPED_CLOSED_ARGS,
+                         "`label` is a FREE-VALUE arg shared by MissionMark, "
+                         "CaptureScreenshot and DumpGuiTree; that table asserts a "
+                         "single owner verb per key, so a row there would claim it "
+                         "for one of the three and flag the other two")
+        for key, (owner, _values) in hlib.VERB_SCOPED_CLOSED_ARGS.items():
+            self.assertNotEqual("DumpGuiTree", owner,
+                                "DumpGuiTree gained a closed-value arg (%s) without a "
+                                "validator row" % key)
 
     @staticmethod
     def _parse_cs_window_table(text):
@@ -14360,7 +14689,8 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
                             hlib.validate_capture_screenshot_step(0, {})))
         self.assertEqual([], hlib.validate_capture_screenshot_step(
             0, {"label": "ksc-main-advanced"}))
-        for bad in ("../escape", "dir/label", "has space", "-leading", "", "."):
+        for bad in ("../escape", "dir/label", "has space", "-leading", "", ".",
+                    "a_", "a."):
             with self.subTest(label=bad):
                 errors = hlib.validate_capture_screenshot_step(0, {"label": bad})
                 self.assertTrue(any("filename-safe" in e for e in errors),
@@ -14467,7 +14797,14 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
         Simulated from the SPEC's own steps, so it is a self-consistency check and not
         a second copy of a truth: walk the open / close ops, and at every `describe`
         require the pinned set to contain exactly the echo this state produces. Both
-        directions, so an orphaned literal reds too."""
+        directions, so an orphaned literal reds too.
+
+        AN `open` DECLARED `expect = "ERROR"` LEAVES THE WINDOW SHUT, and the simulation
+        has to read the declaration to know that. GUI-2 drives one - Real Spawn Control,
+        whose `DrawIfOpen` force-closes itself on its first draw with zero nearby spawn
+        candidates, measured `ERROR window-self-closed` on run `2026-09-10_2259` - and a
+        walk that counted it as open would demand `openWindows=main,spawncontrol` on every
+        later echo and red on a spec whose literals are right."""
         for name, scene in (("GUI-1-census-ksc.toml", "SPACECENTER"),
                             ("GUI-2-census-flight.toml", "FLIGHT")):
             with self.subTest(spec=name):
@@ -14493,7 +14830,10 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
                     args = step.get("args", {}) or {}
                     op = args.get("op")
                     if op == "open":
-                        open_set.add(args["window"])
+                        # `expect` is the declaration of what the step ACHIEVES: an
+                        # `open` the spec declares ERROR did not leave a window open.
+                        if str(step.get("expect", "OK")) == "OK":
+                            open_set.add(args["window"])
                     elif op == "close":
                         open_set.discard(args["window"])
                     elif op == "complexity":
@@ -14516,10 +14856,16 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
                         observed.add((scene, mode, len(hlib.UIACTION_WINDOW_VALUES),
                                       len(open_set),
                                       self._open_window_list(open_set)))
-                self.assertEqual(describes, len(required) - 1,
-                                 "%s: %d describe steps against %d required patterns "
-                                 "(expected one capture line beside them)"
-                                 % (name, describes, len(required)))
+                # Counted against the describe patterns THEMSELVES rather than
+                # against `len(required) - 1`, which was the arithmetic while the only
+                # other pinned line was one capture. These lanes now also pin every
+                # dump's funnel reading (and GUI-1 its GuiTree batch tally), so an
+                # off-by-one here would have measured the wrong thing entirely. A LIST
+                # rather than the `pinned` set above, so a duplicated literal reds too.
+                describe_patterns = [p for p in required if "uiaction describe" in p]
+                self.assertEqual(describes, len(describe_patterns),
+                                 "%s: %d describe steps against %d pinned describe "
+                                 "echoes" % (name, describes, len(describe_patterns)))
                 self.assertEqual(observed, pinned,
                                  "%s: the pinned describe echoes and the states its own "
                                  "steps produce have drifted" % name)

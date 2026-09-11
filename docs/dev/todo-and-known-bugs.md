@@ -361,6 +361,29 @@ if it were staged. It is not staged either: `stage_local_fixture.py` now drops t
 top-level `analysis/` directory unconditionally, because under Forbid mode a staged
 `baseline.cfg` is itself a `BASELINE-FORBIDDEN` FAIL -> `INVALID(fixture-authoring)`.
 
+THE REPORT-ONLY ROW HAS NOW CARRIED TWO PASS VERDICTS, which is the half of this entry
+that was a prediction. On the reading runs `2026-09-11_0548` (GUI-1) and
+`2026-09-11_0551` (GUI-2), both PASS on attempt 1, the analyzer row read
+`status=REPORT gating=false verdictStatus=PARSEK-FAIL red=1
+topRule=INV2-NO-DOUBLE-COVER failNonBaselined=7 staleNonBaselined=0`, the chain did NOT
+short-circuit, and every later verifier evaluated - `logValidate`, `testResults`,
+`anomalySweep`, `expectations` (all 38 log contracts on GUI-1) and `driverValidity` all
+PASS, `saveParse` / `ghostLifecycle` / `renderCompose` / `unityExceptions` REPORT. So the
+demote-findings-only fold behaves as designed on a real host, and the lanes gate on their
+own contracts.
+
+THE STAGED POPULATION IS SMALLER THAN THE OFFLINE ONE, and the difference is recorded
+rather than explained: the run's own report over the STAGED `c1-gui`
+(`saves/c1-gui/analysis/c1-gui.analysis.txt`, written by both reading runs) reads
+`save=c1-gui generation=4 FAIL=7 WARN=6 INFO=2 STALE=0 BASELINED=0 RED=1` - seven
+`INV2-NO-DOUBLE-COVER` FAILs across FOUR recordings, not the 25 across seven that the
+2026-09-10 offline reading of the operator's own un-staged `c1` measured. Staging is not
+a copy (`stage_local_fixture.py --no-quicksaves`, and the top-level `analysis/` directory
+dropped unconditionally), so a smaller population is unsurprising, but which recordings
+the staging drops has not been read. It changes nothing about the decision here: `RED=1`
+either way, and the row is report-only either way. The number to quote when talking about
+a CENSUS RUN is the staged 7; the 25 belongs to the offline reading of `c1`.
+
 WHAT IS STILL OPEN, and it is a question about the FINDINGS rather than about the lanes:
 are the 25 `INV2-NO-DOUBLE-COVER` overlaps a real recorder defect from an earlier era?
 They are on recordings months old, on a save that has been through many builds, and
@@ -427,42 +450,120 @@ prove before a lane relies on it; (3) accept it and read the two windows' right-
 columns from the source. A GUI review of the images is the natural moment to decide, since
 it is the reviewer who finds out whether the off-screen columns mattered.
 
-## GUITREE-INTERCEPTION-LAYER-NEVER-RUN: the GUI-tree dump's Harmony interception of the UnityEngine IMGUI funnels has never executed inside KSP, so four premises the whole design rests on are unmeasured [Filed 2026-09-10 on branch `gui-dump-spike`. Code green, NOT YET FLOWN - and unlike the usual entry in this style, what is unflown is not a fix but the FEATURE]
+## GUI-CENSUS-SPAWN-CONTROL-NEEDS-A-CANDIDATE-HOST: the Real Spawn Control window shuts itself on GUI-2's host, so the census has no picture of it [Filed 2026-09-11 off the lane's first flight. Not a defect: the window is doing what it is written to do]
 
-The pure half is fully covered headlessly (the assembler, the JSON writer, the geometry
-derivations, funnel-signature resolution, the opt-in patch gate) and the whole design is
-reasoned from the decompiled `UnityEngine.IMGUIModule`. Nobody has started the game and
-taken a capture, because the spike's author cannot launch it. Full statement of each
-premise: `docs/dev/design-gui-tree-dump.md` -> "What is unproven".
+MEASURED, twice, on `2026-09-10_2259` and its attempt 2 `_2300`:
+`uiaction error reason=window-self-closed window=spawncontrol frames=1`, beside the
+window's own `[Parsek][VERBOSE][UI] Real Spawn Control auto-close: reason=zero-candidates
+candidates=0`. `SpawnControlUI.DrawIfOpen` force-closes on its FIRST draw whenever
+`ResolveAutoCloseReason` fires, and zero nearby candidates is one of its three reasons.
+GUI-2's host (the operator-local `c1-gui` career, active vessel a sub-orbital probe) has
+none, so the lane's `op=open window=spawncontrol` step is now declared `expect = "ERROR"`
+with that reason pinned as a log contract, and the capture / dump / rect / describe /
+close steps that used to follow it are gone. What is LOST is the picture: Real Spawn
+Control is the one Parsek window the census has no image or control tree of.
 
-WHAT ONLY A FLIGHT SETTLES:
+WHAT A HOST HAS TO CARRY, read off `ParsekFlight.CollectNearbySpawnCandidates` rather
+than guessed: an ACTIVE GHOST at the run's UT, from a COMMITTED recording whose `EndUT`
+is still in the future, spawn-eligible per `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd`,
+not chain-suppressed, within `NearbySpawnListRadius = 1000 m` of the active vessel and
+under `MaxListRelativeSpeed = 50 m/s` relative to it. The scan runs every 1.5 s from
+`Update`, so a host that satisfies it needs no seam op to make the window appear - only a
+UT at which a ghost is playing next to the focus.
 
-1. **Mono inlining.** Harmony rewrites a method; Mono's inliner reads a callee's IL from
-   metadata rather than through the detour, so a small callee can still be inlined into a
-   caller JITted after the patch. The exposed targets are `GUI.EndGroup` (14 bytes of IL),
-   `GUI.DoWindow` (26), `GUI.DoButton` (33) and `GUI.DoToggle` (34). Each has a designed
-   fallback, and the dump's `funnels` block plus the live cell's Begin/End parity
-   assertions exist to NAME a bypass rather than survive it quietly. The parity assertions
-   cover only the pairs whose BOTH sides are too large to inline
-   (`BeginLayoutGroup`/`EndLayoutGroup`, `BeginScrollView`/`EndScrollView`);
-   `BeginGroup`/`EndGroup` and `autoClosedByClip` are READINGS on the PASS line, because
-   an assertion there would red on the clip-depth fallback working as designed.
-2. **`GUIUtility.GUIToScreenRect` inside a `GUI.Window` callback.** Both endpoints bottom
-   out in native ICalls, so this cannot be settled by reading the assembly. The recorder
-   keeps `localRect` beside `rect` as the instrument, and `GuiTreeGeometry.Inspect` turns
-   a disagreement into a named failure.
-3. **Whether a scroll view's clip scroll offset reaches that conversion.** The live cell
-   measures a deliberately scrolled row against its own viewport; nothing else in the
-   design exercises it.
-4. **The reflection probes** - `GUIClip.Internal_GetCount` for clip depth,
-   `GUILayoutEntry.rect` / `GUILayoutGroup.isVertical` for a layout group's rect and
-   orientation, and `GUIUtility.guiDepth` for the inside-OnGUI guard. All fail soft (depth
-   -1, zero rects, "not inside a GUI pass", one Warn each) and are re-resolved at every
-   arm, so a failure degrades the dump rather than breaking it - but a permanently
-   unavailable clip probe would leave the tree resting on Begin/End pairing alone, which
-   is exactly what the recovery rules were written not to trust. The depth probe's reading
-   is printed on the arm's own Info line (`armed label=... guiDepth=0 ...`), so one flight
-   settles that one: `0` means the ICall answered, `-1` means the fallback carried the arm.
+Fix: a GUI-3 flight lane on a COMMITTED fixture that satisfies that list, capturing
+`flight-spawncontrol-advanced` and its dump, leaving GUI-2 as it now stands. The obvious
+candidate is `LT-5-long-tail-playback-flight`'s recipe - `fixtures/saves/gloops-airshow`
+with `injectedRecordings = "part-showcase"` and a `TimeJump` to UT 55, the suite's only
+proven ACTIVE-GHOST-at-the-pad host (243 showcase recordings all playing from UT 50) -
+but that is a candidate and not a reading: `gloops-airshow` carries NO Parsek sidecar of
+its own (its corpus comes entirely from the injected preset), and whether the showcase
+recordings are SPAWN-ELIGIBLE and inside 1 km of the pad vessel is exactly what the
+zero-candidate count measured on the other host. So the first step is a scratch census
+run on that host reading the auto-close line, not a spec. A GUI-3 lane would also be the
+natural place to photograph the other flight-only surface a census still cannot reach
+(GUI-CENSUS-STRUCTURE-WINDOW-HAS-NO-DRIVEABLE-TARGET names the KSC half of that problem).
+
+## ~~GUITREE-INTERCEPTION-LAYER-NEVER-RUN: the GUI-tree dump's Harmony interception of the UnityEngine IMGUI funnels has never executed inside KSP, so four premises the whole design rests on are unmeasured~~ [Filed 2026-09-10 on branch `gui-dump-spike`. CLOSED 2026-09-11 by the GUI census's first flight - runs `2026-09-10_2255` / `_2256` (GUI-1) and `2026-09-10_2259` / `_2300` (GUI-2). The layer RAN, and it ran clean. CONFIRMED UNDER A VERDICT by the two PASS reading runs of 2026-09-11, `2026-09-11_0548` (GUI-1, attempt 1, 96 s) and `2026-09-11_0551` (GUI-2, attempt 1, 57 s): 27 more arms (23 + 4), every one `patched=17/17`, zero `[WARN][GuiTree]` / `[ERROR][GuiTree]` lines, every anomaly counter zero, and the cell's PASS line identical to the pixel (`box=[60,60,320,300] ... declared=[60,60,320,300]`, same `kinds=`, `repaintPasses=5`)]
+
+WHAT THE FLIGHT WAS. Both census lanes flew on this branch's DLL and both read INVALID -
+each on exactly ONE seam step, neither of them a dump (GUI-1 on a rect width read-back
+that has since been fixed, GUI-2 on Real Spawn Control shutting itself; see the two
+entries above and below). Every dump step passed in every attempt, so the measurement
+this entry was waiting for was complete even before any lane read a verdict. THE VERDICT
+CAME THE NEXT DAY: both lanes were re-flown on the fixed shape and both PASSED on attempt
+1 - `2026-09-11_0548` (GUI-1, 96 s, 46 harvested files) and `2026-09-11_0551` (GUI-2,
+57 s, 9 harvested files) - with 27 further arms reading `patched=17/17`, so the closure
+below is a reading taken under a green verdict rather than beside an INVALID one.
+
+THE READING, aggregated over the 56 dumps the four runs wrote (23 per GUI-1 attempt - 22
+census labels plus the `GuiTree` cell's own probe - and 5 per GUI-2 attempt):
+
+- **`patched=17/17` on all 56 arms**, and `ok=17 already=0 failed=0 of=17` on every
+  `[GuiTree] patches applied` line: every interception installed, none already present,
+  none refused, and `patches removed` counted 23 / 5 per run against 23 / 5 arms - so
+  nothing leaked either. ZERO `[Parsek][WARN][GuiTree]` or `[ERROR][GuiTree]` lines across
+  all four runs: no arm timeout, no throwing arm, no double patch, no probe failure.
+- **`guiDepth=0` on every arm**, which settles the inside-OnGUI guard outright: the
+  `GUIUtility.guiDepth` ICall answered on the Windows CLR rather than falling back to
+  "not inside a GUI pass" (`guiDepth=-1`).
+- **`clipProbe=delegate` on every arm**, which settles premise 6: `Delegate.CreateDelegate`
+  over `GUIClip.Internal_GetCount` BINDS on this runtime, so the `MethodInfo.Invoke`
+  fallback was never needed. The `GUILayoutEntry.rect` / `GUILayoutGroup.isVertical`
+  reflection resolved too - 2809 layout-group nodes carry real rects.
+- **Every anomaly counter zero, in all 56 dumps**: `strayEnds`, `autoClosedByEnd`,
+  `autoClosedByClip`, `autoClosedByRect`, `unclosedAtEnd`, `recordFaults`,
+  `droppedOverCap`, `rectRuleInert`. The assembler's recovery rules did not have to fire
+  ONCE on a real Parsek window, over 21,010 nodes and 26,786 events.
+- **`guiMatrix.identity = true` everywhere** (screen 1280x720 on `stock-minimal`), as
+  predicted: nothing in KSP or Parsek sets a `GUI.matrix`.
+- **Premise 1 (Mono inlining) is measured per funnel by HITS, which is the direct test** -
+  a funnel with hits > 0 was not inlined at those call sites. Over GUI-1's and GUI-2's
+  first attempts: `GUI.DoWindow` 79 (26 bytes of IL, the one the design worried about most)
+  = `GUI.CallWindowDelegate` 79; `GUILayoutUtility.BeginLayoutGroup` 2809 =
+  `EndLayoutGroup` 2809; `GUI.BeginScrollView` 19 = `EndScrollView` 19; `GUI.DoLabel` 4923,
+  `GUI.DoControl` 2452, `GUI.DoButton` 2092 (33 bytes), `GUI.DoToggle` 360 (34),
+  `GUI.Box` 131, `GUI.DoTextField` 59, `GUI.DoRepeatButton` 29, `GUI.Slider` 14,
+  `GUI.DoButtonGrid` 9. Every Begin/End pair balanced exactly, and no funnel ever read
+  `patched: false`.
+- **Premises 2 and 3 are settled by the `GuiTree` cell, which RAN AND PASSED** -
+  `BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=GuiTree
+  scene=SPACECENTER` on both GUI-1 attempts, so the 240-frame self-skip did not fire
+  (`repaintPasses=5`). Its PASS line carries both measurements:
+  `box=[60,60,320,300] (measured contentOrigin+argSize) declared=[60,60,320,300]` -
+  `GUIUtility.GUIToScreenRect` converts correctly inside a `GUI.Window` callback, to the
+  pixel - and `row.y=181 scrollView.y=202 offsetAbove=21`, a deliberately scrolled row
+  measured 21 px ABOVE its own viewport, so a scroll view's clip offset does reach that
+  conversion. Every exact per-kind prediction held: `kinds=scrollview=1 layoutgroup=1
+  label=14 button=1 repeatbutton=2 toggle=1 textfield=1 slider=1 maxDepth=4`.
+- **The offline viewer reads a real dump.** `tools/gui_tree_view.py --batch` rendered all
+  23 of GUI-1's into `<label>.gui.html` plus `gui-tree-index.html`, in the run's own shots
+  directory, which is what the tool had never had an input for.
+
+WHAT IT DID NOT SETTLE, and none of it blocks anything:
+
+- **`GUI.BeginGroup` / `GUI.EndGroup` inlining stays UNMEASURED.** Both read 0 hits in all
+  56 dumps and 0 in the cell's own probe (`beginGroupHits=0 endGroupHits=0`), so nothing
+  the census drew calls them - the 14-byte `EndGroup` the design EXPECTS to be inlined was
+  never exercised either way, and its designed clip-depth fallback never had to run
+  (`autoClosedByClip=0` throughout). A zero is not a bypass: a bypass would have shown as
+  an unbalanced pair or a stray end, and every counter is zero. Measuring it needs a
+  surface that calls `GUI.BeginGroup`, which Parsek's does not.
+- **A per-window `GUI.matrix` is still not represented.** The header reads the matrix ONCE,
+  from whichever `OnGUI` container drew first, and the flight only proves that on
+  `stock-minimal` there is one matrix and it is the identity. An install where another
+  addon scales its own window would still mis-size that addon's nodes. Standing known gap,
+  below.
+- **A `Toolbar` / `SelectionGrid` is still ONE node.** `GUI.DoButtonGrid` fired 9 times, so
+  the funnel is intercepted, but the per-cell rects are computed inside its private
+  `CalcMouseRects` and the cells draw through `GUIStyle.Draw` - below the managed surface.
+  Unchanged by the flight; standing known gap, below.
+- **The COST while armed is still unmeasured** - the frame of allocation, and the
+  assemble + serialise + write hitch in the flush `LateUpdate`, plus the arm-time and
+  disarm-time Harmony codegen paid twice per capture. Nothing in the flight instrumented
+  it and nothing budgets for it; the largest dump was `ksc-testrunner-advanced` at 4253
+  nodes (the smallest `ksc-main-basic` at 34), which is the shape a future measurement
+  would size against.
 
 FIXED BEFORE THE FIRST FLIGHT (2026-09-10, same branch), all found by reading the
 decompiled module rather than by flying:
@@ -491,6 +592,16 @@ decompiled module rather than by flying:
   ever unpatched. The arm now stamps the frame, the pump keeps running while armed, and
   after `ArmTimeoutFrames` it Warns and `Disarm("armed-no-repaint")`s
   (`ClassifyArmTimeout`).
+- **A THROWING ARM leaked them the same way** (found 2026-09-11, in review of the seam
+  verb). The give-up above only runs while `ArmedFlag` is set, and the window it cannot
+  see is the region between `GuiTreeRecorderPatches.Apply()` and `ArmedFlag = true` -
+  `Apply`'s own tail after it has set `Applied`, and the funnel readback loop. A throw
+  there left 17 detours installed with the pump idle for the session, and the seam's
+  `DumpGuiTree` catch reported `gui-tree-faulted` over it without disarming.
+  `ArmForNextRepaint` now wraps that whole region and its `catch` logs one Error, calls
+  `Disarm("arm-threw")` and RETHROWS, so the cleanup covers BOTH callers (the in-game
+  cell already had a `finally` of its own) while the verdict stays the caller's; the seam
+  repeats the disarm at its own exit, where it is inert.
 - **A throwing unpatch could double every patch.** `Remove()` cleared `Applied` BEFORE
   `UnpatchAll`, whose throw is caught - so detours stayed installed while the flag said
   none were, and Harmony 2.2.1's `PatchInfo.Add` does not deduplicate. `Applied` is now
@@ -519,10 +630,6 @@ decompiled module rather than by flying:
   `MethodInfo.Invoke` wrapper and the capture's Info line names the path
   (`clipProbe=delegate` / `invoke` / `none`).
 
-Also unmeasured: the COST while armed - one frame of allocation for a few hundred small
-objects, plus a one-off assemble + serialise + write hitch in the flush LateUpdate. It
-does not matter for a one-frame capture and is not budgeted for anything else.
-
 KNOWN GAPS, all by design rather than defects, listed so a first reading of a dump does
 not report them as bugs: a `Toolbar` / `SelectionGrid` is ONE node (the per-cell rects are
 computed privately and the cells draw through `GUIStyle.Draw`, below the managed surface);
@@ -537,12 +644,25 @@ is read ONCE when the capture opens, from whichever `OnGUI` container drew first
 per-window matrix set by another addon is not represented (nothing in KSP or Parsek sets
 one, the header records what was read, and a non-identity matrix logs a Warn).
 
-Fix: fly it. The work is one `RunTests` step on any existing host - the cell needs no
-fixture, no scene and no seam verb, since it draws its own probe window - and it is
-roadmap item 12. Expect a red or a skip on attempt 1 and read it as a reading rather than
-a regression: every exact per-kind pin in the cell is a prediction from decompiled source,
-and the cell self-skips if its probe window sees no Repaint pass within 240 frames. Until
-that flight, nothing should be built ON the dump.
+CLOSED BY: `GUI-1-census-ksc` run `2026-09-10_2255` (attempt 2 `_2256`) and
+`GUI-2-census-flight` run `2026-09-10_2259` (attempt 2 `_2300`), on this branch's DLL,
+artifacts under `harness/results/<runId>_shots/`. Both lanes read INVALID, so the
+statement to keep straight is that the LAYER is proven and the LANES are not yet green:
+each stopped on one seam step unrelated to the dump (a rect width read-back and a window
+that shuts itself, both fixed in the same PR as this entry), and the next flight of either
+is the reading run. The pinning is what made the flight a measurement rather than a
+gallery: the 27 dump steps the two specs carried at the time (26 now - the Real Spawn
+Control pair went with the window that does not draw) each pin `patched=17/17` on the
+seam's OK line, so a funnel whose signature drifted out from under its patch would have
+red'd the lane at the dump where it happened, and GUI-1's `RunTests category="GuiTree"` step ran the
+cell's own assertions on top. Its batch pin stays INTERIM (`total=1` exact,
+`passed=[1-9][0-9]*` / `skipped=[0-9]+` regexed) even though the measured line is
+`total=1 passed=1 failed=0 skipped=0` on both attempts: the whole pin is tightened off the
+READING run, not off an INVALID one. Roadmap item 12; premises and their readings:
+`design-gui-tree-dump.md` -> "What the first flight measured". Things may now be built ON
+the dump - which is why the census lanes still pin only `patched=`, and leave `windows` /
+`nodes` / `hits` for a reader: those are properties of whatever the frame contained, and a
+reviewer compares them across dumps.
 
 ## REPUTATION-SEED-CAPTURED-MID-FLIGHT-REAPPLIES-PRE-SEED-AWARDS: the lazy `ReputationInitial` seed is read off the live pool at the first commit, so every reputation award recorded BEFORE that moment is inside the seed AND replayed as a row
 
@@ -1279,7 +1399,7 @@ tree is merely committed, not one whose committed tree is RESTORABLE, and the tw
 identical in a fixture listing. Recorded in the inventory's `AutoRecord` row and its B5
 residue table.
 
-## EVAKERBALGHOSTHASVESSELSNAPSHOT-HAS-NO-HOST-THAT-FLIES-LOW: the one `AutoRecord` cell that executes NOWHERE wants a crewed vessel FLYING low over terrain, and no committed fixture is one and no seam verb lofts one [MEASURED across the four `AutoRecord` hosts - H61 `gs1-two-stage-pad`, H68 `gs2-orbital-stack`, H69 `rover-route-recorded`, H70 `eva3-pad-3crew`, whose union executes 8 of 10. Filed 2026-09-08 as the last named unreachable cell on the in-game category axis, which was otherwise CLOSED at 112 of 112 categories; since 2026-09-10 the axis reads 112 of 113, the extra row being the GUI-tree dump spike's `GuiTree` category, which needs only a spec]
+## EVAKERBALGHOSTHASVESSELSNAPSHOT-HAS-NO-HOST-THAT-FLIES-LOW: the one `AutoRecord` cell that executes NOWHERE wants a crewed vessel FLYING low over terrain, and no committed fixture is one and no seam verb lofts one [MEASURED across the four `AutoRecord` hosts - H61 `gs1-two-stage-pad`, H68 `gs2-orbital-stack`, H69 `rover-route-recorded`, H70 `eva3-pad-3crew`, whose union executes 8 of 10. Filed 2026-09-08 as the last named unreachable cell on the in-game category axis, which was otherwise CLOSED at 112 of 112 categories; the GUI-tree dump spike opened a 113th row on 2026-09-10 and `GUI-1-census-ksc` claimed it on 2026-09-11 with one `RunTests` step, so the axis reads 113 of 113 by SPEC COVERAGE again and this cell is once more the only named unreachable one]
 
 The cell EVAs a kerbal and asserts the resulting ghost carries a `VesselSnapshot`, then
 waits 10 s for the kerbal to settle and reads its terminal. That bounds the host from
@@ -1373,8 +1493,10 @@ recorded stores generally rather than to one fixture.
 
 Closed: `CrewReservationLive` is `LT-4-long-tail-route-flight`'s fourth constituent,
 pinned `total=2 passed=2 failed=0 skipped=0`, which took the in-game category axis to
-112 of 112. It reads 112 of 113 since 2026-09-10, when the GUI-tree dump spike added
-the `GuiTree` category; that row needs a `RunTests` step, not a host.
+112 of 112. It read 112 of 113 for a day from 2026-09-10, when the GUI-tree dump spike
+added the `GuiTree` category; `GUI-1-census-ksc` gained the `RunTests` step that row
+wanted on 2026-09-11 and the axis is back to whole - by spec coverage, since that lane
+has not flown.
 
 STILL WANTED, at a lower value than this entry used to claim: teach the corpus writer to
 author spawned-endpoint recordings. `RecordingBuilder.WithSpawnedPid` exists and has

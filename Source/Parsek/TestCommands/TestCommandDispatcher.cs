@@ -211,9 +211,12 @@ namespace Parsek.TestCommands
 
         // ----- GUI census (additive) -----
         // CaptureScreenshot takes one PNG into the directory run.py harvests; UiAction
-        // opens / tabs / sizes the Parsek windows so there is something in the frame.
+        // opens / tabs / sizes the Parsek windows so there is something in the frame;
+        // DumpGuiTree records that frame's IMGUI control tree as JSON beside the PNG,
+        // which is the half a picture cannot carry (nesting, tooltips, enabled state).
         void CaptureScreenshot(ParsedCommand cmd);
         void UiAction(ParsedCommand cmd);
+        void DumpGuiTree(ParsedCommand cmd);
     }
 
     /// <summary>The scene/state a verb requires before it may execute.</summary>
@@ -388,6 +391,16 @@ namespace Parsek.TestCommands
                 // verb's own REJECTED (ui-host-unavailable), not a defer.
                 ["CaptureScreenshot"] = VerbSceneRequirement.AnyScene,
                 ["UiAction"] = VerbSceneRequirement.RequiresGameLoaded,
+                // DumpGuiTree is AnyScene, CaptureScreenshot's row and for the same
+                // reason: the recorder intercepts the PROCESS's IMGUI funnels, not
+                // Parsek's, so a dump is meaningful in every settled scene - the main
+                // menu's own windows included - and the safe-point gate already refuses
+                // to dispatch during LOADING, a transition or the settle window, which is
+                // when nothing worth recording is on screen. It is deliberately NOT
+                // RequiresGameLoaded like its census partner UiAction: that verb drives
+                // PARSEK's windows and needs a save behind them, while this one records
+                // whatever drew.
+                ["DumpGuiTree"] = VerbSceneRequirement.AnyScene,
             };
 
         /// <summary>
@@ -801,8 +814,13 @@ namespace Parsek.TestCommands
                 // reason: UiAction is two-phase in `open` / `rect`, whose whole wait is ONE
                 // drawn frame, and CaptureScreenshot polls a PNG's size to a stable value -
                 // either of which failing to land inside a minute means the game stopped
-                // drawing, not that it is slow. A verb only needs a row here when its own
-                // wait can legitimately exceed the default.
+                // drawing, not that it is slow. DumpGuiTree rides it for the third form of
+                // the same reason: its wait is one Repaint pass plus the LateUpdate that
+                // flushes it, and the RECORDER gives the arm up on its own after 900
+                // frames (GuiTreeRecorder.ArmTimeoutFrames, ~15 s at 60 fps), so the 60 s
+                // budget is a backstop behind a shorter bound rather than the primary one.
+                // A verb only needs a row here when its own wait can legitimately exceed
+                // the default.
                 default:
                     return DefaultSeconds;
             }

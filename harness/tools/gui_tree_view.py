@@ -8,7 +8,7 @@ collapsible tree panel beside it. Hovering a box highlights its tree row and vic
 versa; clicking either scrolls the other into view.
 
     python harness/tools/gui_tree_view.py <label>.gui.json [-o out.html]
-    python harness/tools/gui_tree_view.py --batch results/<runId>_shots
+    python harness/tools/gui_tree_view.py --batch results/<runId>_shots   # + gui-tree-index.html
 
 The dump's producer is ``Source/Parsek/GuiTreeRecorder.cs``; the schema is
 ``parsek-gui-tree/1``, documented in ``docs/dev/design-gui-tree-dump.md``.
@@ -20,9 +20,14 @@ CONTRACTS (binding):
     or handed on anywhere. That is not cosmetic - the pages get read on machines
     with no access to the run directory.
   - Read-only and failure-isolated: it reads a dump and writes ``*.gui.html`` /
-    ``index.html`` beside it, and nothing else. A malformed, truncated or
-    empty-tree dump produces a page that SAYS so rather than raising, because
+    ``gui-tree-index.html`` beside it, and nothing else. A malformed, truncated
+    or empty-tree dump produces a page that SAYS so rather than raising, because
     the malformed case is exactly the one someone is trying to look at.
+  - The batch index is ``gui-tree-index.html`` and NOT ``index.html``, because
+    ``tools/gui_contact_sheet.py`` owns ``index.html`` inside the very same
+    ``*_shots`` directory. A census runs both tools over one directory (the
+    README's steps 4 and 5), so a shared filename would mean whichever ran last
+    silently replaced the other's page.
   - The dump is untrusted text. EVERY string reaching the HTML goes through
     ``html_escape`` - the page title, the box captions, the tree rows and their
     detail column - so a control labelled ``"><img src=x onerror=...>`` renders as
@@ -46,6 +51,11 @@ import sys
 SCHEMA_ID = "parsek-gui-tree/1"
 DUMP_SUFFIX = ".gui.json"
 OUT_SUFFIX = ".gui.html"
+
+# The ``--batch`` index's filename. Deliberately NOT ``index.html``: that name belongs to
+# ``tools/gui_contact_sheet.py``, which writes it into the SAME ``*_shots`` directory a
+# census points this tool at, so sharing it would make the two tools clobber each other.
+BATCH_INDEX_FILENAME = "gui-tree-index.html"
 
 # Colour per kind. Containers get cool hues and leaves warm ones, so the nesting
 # skeleton reads at a glance and the controls stand out against it. `control` is
@@ -463,8 +473,8 @@ def render_page(dump, error=None, title=None, image_uri=None, source_name=None) 
     return "\n".join(out) + "\n"
 
 
-def render_index(entries) -> str:
-    """The ``--batch`` index: one row per generated page, newest first."""
+def render_batch_index(entries) -> str:
+    """The ``--batch`` index (``gui-tree-index.html``): one row per page, newest first."""
     out = ["<!doctype html>", '<html lang="en"><head><meta charset="utf-8">',
            "<title>Parsek GUI tree dumps</title>",
            "<style>%s</style>" % _CSS, "</head><body>",
@@ -483,7 +493,7 @@ def render_index(entries) -> str:
 
 
 def index_entry(json_path, out_path, dump, error=None):
-    """One ``render_index`` row for a processed dump."""
+    """One ``render_batch_index`` row for a processed dump."""
     label = "?"
     if isinstance(dump, dict) and isinstance(dump.get("label"), str):
         label = dump["label"]
@@ -523,7 +533,8 @@ def main(argv=None):
     parser.add_argument("dump", nargs="?", help="path to a <label>.gui.json")
     parser.add_argument("-o", "--output", help="output HTML path")
     parser.add_argument("--batch", metavar="DIR",
-                        help="render every *.gui.json in DIR plus an index.html")
+                        help="render every *.gui.json in DIR plus a "
+                             + BATCH_INDEX_FILENAME)
     parser.add_argument("--no-embed", action="store_true",
                         help="do not embed the screenshot (smaller page, no picture)")
     args = parser.parse_args(argv)
@@ -549,9 +560,9 @@ def main(argv=None):
         out_path, dump, error = write_page(path, embed=not args.no_embed)
         entries.append(index_entry(path, out_path, dump, error))
         print("wrote %s" % out_path)
-    index_path = os.path.join(args.batch, "index.html")
+    index_path = os.path.join(args.batch, BATCH_INDEX_FILENAME)
     with open(index_path, "w", encoding="utf-8", newline="\n") as fh:
-        fh.write(render_index(entries))
+        fh.write(render_batch_index(entries))
     print("wrote %s" % index_path)
     return 0
 

@@ -7,7 +7,7 @@ tier = "operator"
 # `harness/tools/gui_contact_sheet.py` turns into one browsable `index.html`. That is the
 # evidence a GUI review has never had.
 #
-# WHY IT NEEDS TWO NEW VERBS, and both halves were measured rather than assumed:
+# WHY IT NEEDS THREE NEW VERBS. Two of them close a measured instrument gap:
 #   - the always-collect leg has harvested `<instance>/Screenshots/` into
 #     `results/<runId>_shots/` since V3 (hlib.select_run_screenshots, 64-file cap) and
 #     `tools/contact_sheet.py` renders whatever it finds, but NOTHING ever wrote a file
@@ -19,6 +19,17 @@ tier = "operator"
 # `CaptureScreenshot` closes the first; `UiAction` closes the second by driving the
 # EXISTING internal state (IsOpen, the tab fields, ParsekUI.SetUiComplexityMode). Neither
 # adds a player-facing surface.
+#
+# The third, `DumpGuiTree`, closes the half a PICTURE cannot carry. An IMGUI window has no
+# retained widget tree, no GameObject hierarchy and no accessibility surface: the only
+# artefact of a window is the pixels it drew that frame. So an image cannot say which rows
+# a filter left visible, which button was greyed out, what nests inside what, or which
+# tooltip a control published - and a reviewer counting columns in a screenshot is
+# guessing at all four. `GuiTreeRecorder` records exactly that for ONE Repaint pass and
+# writes `Screenshots/<label>.gui.json`, which the harvest already carries
+# (hlib.ARTIFACT_SHOTS_SUFFIXES) and `harness/tools/gui_tree_view.py` renders as labelled
+# boxes over the matching screenshot. Every capture below is therefore followed
+# IMMEDIATELY by a dump under the SAME label, which is what pairs the two files.
 #
 # HOST: an OPERATOR-LOCAL fixture (`fixtures/local-saves/c1-gui`), not a committed one,
 # and the reason is density rather than convenience. A census photographs LAYOUT, and a
@@ -64,11 +75,24 @@ tier = "operator"
 # all draw in one pass, and three are hidden in Basic), so the Advanced/Basic pair IS its
 # section coverage; Logistics' bubbles are expand-collapse, not a selector.
 #
-# 22 PNGs: 17 Advanced + 5 Basic, against the harvest's 64-file cap. At most ONE
-# sub-window is open at a time, so no capture has another SUB-window overlapping it. The
-# main window is the exception and has to be: every sub-window draw in both hosts sits
-# inside the host's `showUI` gate, so it stays open throughout, and the two full-width
-# windows below cover it.
+# 22 PNGs (17 Advanced + 5 Basic) and 22 dumps beside them: 44 files, plus ONE more the
+# `GuiTree` batch below writes itself (`parsek-guitree-probe.gui.json`, its probe
+# window's own capture) = 45, against the harvest's 64-file cap
+# (hlib.ARTIFACT_MAX_SCREENSHOTS). That is why the dump steps do not need the cap raised
+# and why a 23rd capture would want the arithmetic re-checked rather than just added.
+# The batch's own dump is a BONUS artefact, not a product of this lane: it is the probe
+# window, not a Parsek one, and the viewer will render it beside the census pages.
+#
+# At most ONE sub-window is open at a time, so no capture has another SUB-window
+# overlapping it. The main window is the exception and has to be:
+# every sub-window draw in both hosts sits inside the host's `showUI` gate, so it stays
+# open throughout, and the two full-width windows below cover it.
+#
+# A DUMP IS PROCESS-WIDE, which the PNG beside it also is and which is worth stating
+# once: the recorder intercepts UnityEngine's IMGUI funnels, not Parsek's draw code, so a
+# dump contains every window the process drew that frame - the stock toolbar and any
+# other addon's windows included, on an instance that had them. On `stock-minimal` that
+# is Parsek plus stock, which is the point of the profile.
 #
 # `op=open window=main` FIRST IS A PRECONDITION, not just the natural order. The settle
 # for a non-`main` `open` / `rect` REFUSES while the host's `showUI` is false
@@ -98,14 +122,27 @@ tier = "operator"
 # Logistics ROW, which no seam op drives today - a follow-up, named here rather than
 # faked (GUI-CENSUS-STRUCTURE-WINDOW-HAS-NO-DRIVEABLE-TARGET).
 #
-# NEVER FLOWN. The `[expectations.logContracts]` lines below pin ONLY the seam log lines
+# THE SETTINGS WINDOW IS COMMANDED WIDER THAN IT ASKS FOR, and the number is measured
+# rather than chosen. The first flight commanded `w = 360` and the Advanced-mode window
+# grew to its own content minimum in BOTH axes - `uiaction error reason=rect-not-applied
+# window=settings want=270,8,360,700 after=270,8,375,718`, i.e. 375 wide and 718 tall -
+# while the Basic-mode site two passes later settled at the same commanded 360, which is
+# what a per-MODE content minimum looks like. The 1 px width band refused a rect that had
+# in fact been applied, so the read-back now treats WIDTH as a floor exactly like HEIGHT
+# (`TestCommandUiAction.RectAppliedWithinTolerance`); both sites here are commanded
+# `w = 400`, above either mode's minimum, so neither picture is clipped and neither
+# depends on the tolerance to pass.
+#
+# FLOWN ONCE, 2026-09-10 (`2026-09-10_2255`, attempt 2 `_2256`), both INVALID on that one
+# rect step and on nothing else - 22 captures, 22 dumps and the GuiTree batch all landed.
+# The `[expectations.logContracts]` lines below pin ONLY the seam log lines
 # this lane's own verbs write, and nothing about the host: a local fixture is
 # unreproducible by construction (one person's save at one moment), so a lane on it may
 # assert that a window DREW and never what it drew. A `describe` step follows every
 # `open`, and its `open=<n> openWindows=<names>` echo is pinned exactly - which is the
 # cheap in-run check that the seam's window-token -> live-object mapping points at the
 # window the step named. The labelled screenshot is still the final instrument.
-description = "GUI census, Space Center half: open every KSC-drawn Parsek window and tab in Advanced then Basic and capture one PNG each, for a layout review."
+description = "GUI census, Space Center half: open every KSC-drawn Parsek window and tab in Advanced then Basic, capture one PNG plus one IMGUI control-tree dump each, and run the GuiTree cell, for a layout review."
 instanceProfile = "stock-minimal"
 tags = ["gui-census", "screenshots", "ui", "operator-local-fixture", "GUI-1"]
 
@@ -130,6 +167,7 @@ steps = [
   # baseline it reports is the untouched one.
   { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "ksc-main-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ksc-main-advanced" }, expect = "OK" },
 
   # missions (the RecordingsTableUI window; its second tab is the raw table)
   { cmd = "UiAction", args = { op = "open", window = "missions" }, expect = "OK" },
@@ -137,8 +175,10 @@ steps = [
   { cmd = "UiAction", args = { op = "rect", window = "missions", x = "0", y = "8", w = "1280", h = "700" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "tab", window = "missions", tab = "missions" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "ksc-missions-missions-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ksc-missions-missions-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "tab", window = "missions", tab = "recordings" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "ksc-missions-recordings-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ksc-missions-recordings-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "missions" }, expect = "OK" },
 
   # timeline (four filter modes, treated as tabs: four mutually exclusive views)
@@ -147,12 +187,16 @@ steps = [
   { cmd = "UiAction", args = { op = "rect", window = "timeline", x = "270", y = "8", w = "1000", h = "700" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "tab", window = "timeline", tab = "overview" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "ksc-timeline-overview-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ksc-timeline-overview-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "tab", window = "timeline", tab = "details" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "ksc-timeline-details-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ksc-timeline-details-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "tab", window = "timeline", tab = "rewindff" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "ksc-timeline-rewindff-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ksc-timeline-rewindff-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "tab", window = "timeline", tab = "refly" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "ksc-timeline-refly-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ksc-timeline-refly-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "timeline" }, expect = "OK" },
 
   # kerbals (Advanced only - Basic hides its launcher)
@@ -161,8 +205,10 @@ steps = [
   { cmd = "UiAction", args = { op = "rect", window = "kerbals", x = "270", y = "8", w = "1000", h = "700" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "tab", window = "kerbals", tab = "roster" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "ksc-kerbals-roster-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ksc-kerbals-roster-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "tab", window = "kerbals", tab = "outcomes" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "ksc-kerbals-outcomes-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ksc-kerbals-outcomes-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "kerbals" }, expect = "OK" },
 
   # career state (Advanced only, four tabs)
@@ -171,12 +217,16 @@ steps = [
   { cmd = "UiAction", args = { op = "rect", window = "career", x = "270", y = "8", w = "1000", h = "700" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "tab", window = "career", tab = "contracts" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "ksc-career-contracts-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ksc-career-contracts-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "tab", window = "career", tab = "strategies" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "ksc-career-strategies-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ksc-career-strategies-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "tab", window = "career", tab = "facilities" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "ksc-career-facilities-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ksc-career-facilities-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "tab", window = "career", tab = "milestones" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "ksc-career-milestones-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ksc-career-milestones-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "career" }, expect = "OK" },
 
   # logistics - ONE OF THE TWO WINDOWS THAT DOES NOT FIT THE INSTANCE. Its own
@@ -191,6 +241,7 @@ steps = [
   { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "rect", window = "logistics", x = "0", y = "8", w = "1280", h = "700" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "ksc-logistics-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ksc-logistics-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "logistics" }, expect = "OK" },
 
   # structure list (empty chrome - see KNOWN THIN CAPTURE above)
@@ -198,13 +249,15 @@ steps = [
   { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "rect", window = "structure", x = "270", y = "8", w = "1000", h = "420" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "ksc-structure-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ksc-structure-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "structure" }, expect = "OK" },
 
   # settings, all six sections (three of them Advanced-only)
   { cmd = "UiAction", args = { op = "open", window = "settings" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "rect", window = "settings", x = "270", y = "8", w = "360", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "settings", x = "270", y = "8", w = "400", h = "700" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "ksc-settings-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ksc-settings-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "settings" }, expect = "OK" },
 
   # the Settings-launched test runner (NOT the global Ctrl+Shift+T window)
@@ -212,6 +265,7 @@ steps = [
   { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "rect", window = "testrunner", x = "270", y = "8", w = "620", h = "700" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "ksc-testrunner-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ksc-testrunner-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "testrunner" }, expect = "OK" },
 
   # --- Basic pass ---
@@ -222,6 +276,7 @@ steps = [
   { cmd = "UiAction", args = { op = "complexity", mode = "basic" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "ksc-main-basic" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ksc-main-basic" }, expect = "OK" },
 
   # Only the windows Basic still OFFERS. No `op=tab` on missions here, deliberately:
   # Basic draws NO tab bar and clamps the selection to the Missions tab, so
@@ -230,24 +285,28 @@ steps = [
   { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "rect", window = "missions", x = "0", y = "8", w = "1280", h = "700" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "ksc-missions-basic" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ksc-missions-basic" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "missions" }, expect = "OK" },
 
   { cmd = "UiAction", args = { op = "open", window = "timeline" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "rect", window = "timeline", x = "270", y = "8", w = "1000", h = "700" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "ksc-timeline-basic" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ksc-timeline-basic" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "timeline" }, expect = "OK" },
 
   { cmd = "UiAction", args = { op = "open", window = "logistics" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "rect", window = "logistics", x = "0", y = "8", w = "1280", h = "700" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "ksc-logistics-basic" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ksc-logistics-basic" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "logistics" }, expect = "OK" },
 
   { cmd = "UiAction", args = { op = "open", window = "settings" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "rect", window = "settings", x = "270", y = "8", w = "360", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "settings", x = "270", y = "8", w = "400", h = "700" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "ksc-settings-basic" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "ksc-settings-basic" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "settings" }, expect = "OK" },
 
   # Leave the install in Advanced. BELT AND BRACES on a harness run rather than
@@ -258,6 +317,22 @@ steps = [
   # stays because it costs one op and it is the right thing to do to an install a person
   # also uses.
   { cmd = "UiAction", args = { op = "complexity", mode = "advanced" }, expect = "OK" },
+
+  # THE ONE IN-GAME BATCH THIS LANE DRIVES, and it is here because the dumps above are
+  # only half the instrument. Every `DumpGuiTree` step pins `patched=17/17`, which says
+  # the interceptions were INSTALLED; the `GuiTree` cell is the one that says the
+  # resulting TREE is right - it draws its own probe window with known contents and
+  # asserts exact per-kind counts inside it, Begin/End funnel parity on the pairs whose
+  # both sides are too large for Mono to inline, screen rects inside the window's own
+  # measured content box, and a scroll offset that survived the screen conversion. It
+  # needs no fixture, no scene and no seam verb (it builds and destroys its own probe),
+  # which is why it can ride a lane that exists for something else, and it closes the
+  # in-game category axis at 113 of 113.
+  # LAST, deliberately: the batch captures and restores a persistent.sfs baseline around
+  # itself (InGameTestRunner.CaptureBatchBaseline), and on a 42 MB career that is real
+  # disk work - so it runs after every picture is taken rather than in the middle of the
+  # window walk, where a restore would also undo the window state the walk arranged.
+  { cmd = "RunTests", args = { category = "GuiTree" }, expect = "OK", budget = 300 },
   { cmd = "FlushAndQuit", expect = "OK" },
 ]
 
@@ -285,6 +360,43 @@ allowedAnomalies = []
 # works end to end, and the other twenty-one are the PRODUCT - a reviewer counts them in
 # the contact sheet. `bytes=` is deliberately not pinned; it is a real file size and would
 # pin a machine.
+#
+# ALL TWENTY-TWO DUMP LINES ARE PINNED, and the asymmetry with the captures above is
+# deliberate rather than untidy. `patched=<ok>/<of>` is the recorder's ARM-TIME
+# Harmony.GetPatchInfo reading, taken FRESH on every arm - the patches are applied at arm
+# and removed again when each capture flushes - so it is a per-dump measurement and not a
+# property of the build. `patched=17/17` therefore asserts that all seventeen
+# interceptions were installed for THAT frame, twenty-two times over, and one funnel
+# whose signature drifted out from under the patch reds the lane at the dump where it
+# happened. It is also the pinning that MADE this lane's first flight a measurement of the
+# interception layer, which had never run inside KSP: all 22 read `patched=17/17` on both
+# attempts of 2026-09-10, with zero repairs and every dump's anomaly counters at zero, so
+# GUITREE-INTERCEPTION-LAYER-NEVER-RUN is closed on that reading
+# (`design-gui-tree-dump.md` -> "What the first flight measured") and these lines stay
+# pinned as the regression check they now are. `hits=` is deliberately left UNPINNED: it counts funnel body runs in a real
+# frame, so any literal would pin the row count of whatever the window happened to
+# contain; a reader compares it across the 22 dumps instead. `windows=` / `nodes=` are
+# unpinned for the same reason.
+#
+# THE BATCH LINE IS A WHOLE PIN SINCE THE READING RUN, and it was an INTERIM one until
+# then. `total=1` was always exact and derived from the source
+# (hlib.parse_ingame_test_declarations sees exactly one
+# [InGameTest(Category = "GuiTree")] declaration, scene-agnostic and batch-safe, so at
+# scene=SPACECENTER the derivation is total=1 = 0 scene-skipped + 0 batch-skipped + 1
+# executable); `passed=` and `skipped=` were REGEXED because the cell carries a run-time
+# self-skip (it gives up if its probe window never sees a Repaint within 240 frames) and
+# no run had measured which way that goes. THE FIRST FLIGHT MEASURED THE SPLIT but did
+# not buy the pin: `2026-09-10_2255` and attempt 2 `_2256` both read
+# `total=1 passed=1 failed=0 skipped=0` with the self-skip nowhere near firing
+# (`repaintPasses=5`), and both read INVALID on the rect step above, so the split stayed
+# regexed by decision - a whole pin belongs to a run that READ a verdict. THE READING RUN
+# IS `2026-09-11_0548` (PASS, attempt 1, 96 s wall): the same line came back a third
+# time, verbatim, so the pin is now the whole measured line and this id has LEFT
+# IngameBatchWiringGroupTests.INTERIM_PIN_IDS
+# (GuiCensusSeamVerbTests.test_the_gui_1_batch_pin_is_whole_off_the_reading_run is the
+# cell that keeps it there). A SELF-SKIP THEREFORE REDS THIS LANE ON THE logContract ROW,
+# and that is the intended reading rather than a gap: the lane claims the cell RAN, and
+# the remedy for a red here is a HOST where the probe draws - never a looser pin.
 required = [
   # --- Advanced pass: main alone, then one per window opened ---
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=1 openWindows=main",
@@ -304,6 +416,31 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=basic windows=11 open=2 openWindows=main,settings",
   # --- and one capture, proving the write-and-settle path end to end ---
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] capturescreenshot ok label=ksc-main-advanced",
+  # --- every dump, each pinning the arm-time funnel reading for its own frame ---
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-main-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-missions-missions-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-missions-recordings-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-timeline-overview-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-timeline-details-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-timeline-rewindff-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-timeline-refly-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-kerbals-roster-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-kerbals-outcomes-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-career-contracts-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-career-strategies-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-career-facilities-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-career-milestones-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-logistics-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-structure-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-settings-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-testrunner-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-main-basic .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-missions-basic .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-timeline-basic .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-logistics-basic .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-settings-basic .*patched=17/17",
+  # --- and the GuiTree batch, pinned WHOLE off the reading run `2026-09-11_0548` ---
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=GuiTree scene=SPACECENTER",
 ]
 # EMPTY, deliberately, and this is a HOST decision rather than a weakened gate: the
 # `[Parsek][ERROR]` surface of a real multi-year career's cold OnLoad (route reconcile,
@@ -341,10 +478,16 @@ forbidden = []
 gating = false
 
 [runtime]
-# 22 captures, each holding the FIFO head for a couple of frames, plus a 300 s cold load
-# of a 42 MB career and ~60 single-phase UI ops. 1200 s is generous on purpose: the
-# product is the images, and a KILLED run leaves none.
-budgetSeconds = 1200
+# 22 captures and 22 dumps, each holding the FIFO head for a couple of frames, plus a
+# 300 s cold load of a 42 MB career, ~60 single-phase UI ops and one one-cell in-game
+# batch. 1500 s is generous on purpose: the product is the images and the trees, and a
+# KILLED run leaves neither. The 300 s added over the pre-dump 1200 s was never a measured
+# cost - it is head-room for 22 more two-phase steps whose flush assembles, serialises and
+# writes a file inside ONE LateUpdate, which is a visible hitch on a big window by design.
+# THE MEASURED WALL IS 96 s (reading run `2026-09-11_0548`, PASS attempt 1; the two
+# 2026-09-10 INVALID attempts read 79 / 80 s), so the budget is 15x the measurement and
+# stays where it is rather than being trimmed to it.
+budgetSeconds = 1500
 
 [retry]
 policy = "once"

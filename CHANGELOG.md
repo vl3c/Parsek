@@ -29,6 +29,32 @@ _(unreleased — entries accumulate here per commit)_
   whole set: one at the Space Center, one in flight. None of this adds anything a player
   can see or reach in the game; it drives the same switches the existing buttons do.
 
+  Asking for a size is a REQUEST FOR AT LEAST THAT MUCH ROOM, which the first run of the
+  Space Center tour is what taught us. A Parsek window works out its own smallest size
+  from what it has to draw and will not go under it, and that is true of its width just as
+  much as of its height - the Settings window, asked for 360 by 700, drew itself 375 by
+  718 - so a run that asked for a box smaller than the window needs used to be told the
+  resize had failed, over a window that had in fact been placed exactly where it was asked
+  to go. A window that ends up BIGGER than requested is now accepted on both measurements;
+  one that comes back smaller than asked is still reported, because that is the reading
+  that means nothing drew. The tour now asks for a Settings window wider than either
+  interface mode needs, so the picture is not cropped either way. BOTH TOURS HAVE NOW RUN
+  GREEN, on 2026-09-11: each finished first time, the Space Center one in 96 seconds with
+  22 pictures and 22 descriptions beside them, the flight one in 57 seconds with four of
+  each, and the Settings window came back exactly as wide as it was asked for in both
+  interface modes.
+
+- **Automated testing: the flight window tour no longer tries to photograph a window
+  that shuts itself.** Real Spawn Control closes again the instant it draws with nothing
+  in range to spawn, and on the save this tour flies there is nothing in range - the
+  tour's first run said so plainly, which is what asking the game to draw a frame before
+  believing a window opened is for. The tour now EXPECTS that answer and checks the reason
+  given for it, so it still tests that the window closes itself and says why, and the four
+  steps that used to try to size, photograph and describe it afterwards are gone: they
+  produced a picture of empty scenery filed under that window's name. Photographing Real
+  Spawn Control properly needs a save with something recorded passing close by, which is
+  written down as the next piece of work rather than faked here.
+
 - **Automated testing: a run definition can now ask for one particular check to be
   reported rather than acted on.** The recording-health check runs over whatever save a
   run produced, and on a run whose starting point is somebody's own long-played career
@@ -43,20 +69,22 @@ _(unreleased — entries accumulate here per commit)_
   starting save was staged wrong - the run still fails, because "nothing to report" and
   "nobody looked" are not the same answer.
 
-- **Development tooling, A FIRST DRAFT THAT HAS NOT YET BEEN PROVEN: groundwork for the
-  mod writing down exactly what its windows look like, for a helper that cannot see the
-  screen.** Everything Parsek draws is decided fresh every frame by code, and until now
+- **Development tooling, NOW PROVEN IN THE GAME: the mod can write down exactly what its
+  windows look like, for a helper that cannot see the screen.** Everything Parsek draws is decided fresh every frame by code, and until now
   the only record of what a window actually contained was a picture of it. The groundwork
   is here for writing a single frame out as a description instead: every panel, every row,
   every button and box and tick and typing field, where each one sat, what it said, what
   its hover text was, whether it was greyed out, and what sits inside what. There is also
   a small offline viewer that turns one of those descriptions into a web page: the boxes
   drawn over the matching screenshot, with a side panel listing the whole structure.
-  **The part that listens in on the game's own drawing has never once run inside KSP.**
-  It is written, and everything that can be checked without the game has been checked,
-  but nobody has yet started the game and taken a capture - so this is not a working
-  capability to rely on yet. Several things that checking DID catch, before any capture
-  was ever taken:
+  **The part that listens in on the game's own drawing HAS NOW RUN INSIDE KSP**, on the
+  first run of the two window tours: 56 captures across four runs, every one reporting all
+  seventeen of the game's drawing routines successfully listened in on, not one warning,
+  and not one place where the recorder had to fall back on guessing where something sat.
+  The two measurements nothing but a real frame could settle both came out right - where a
+  control sits on screen inside a window, to the pixel, and how far a scrolled row has
+  moved out of its own list. Several things that checking WITHOUT the game caught first,
+  before any capture was ever taken:
 
   - the safety check that asks "is the game mid-draw right now, so hold off?" was asking
     a question that is always answered yes once the game has drawn its very first frame,
@@ -71,6 +99,10 @@ _(unreleased — entries accumulate here per commit)_
   - a request for a capture that never got its chance - nothing was drawing, or the window
     had gone away in the meantime - used to leave the listening switched on for the rest
     of the session. It now gives up by itself after a while and switches everything off.
+  - a request that fell over WHILE switching the listening on left it switched on the same
+    way, and out of reach of that giving-up: the part that gives up only watches requests
+    that got as far as being armed. Switching it on is now guarded from end to end, so a
+    failure there switches it all back off before reporting itself.
   - if switching the listening off ever failed halfway, the next capture would have
     written every row down twice. It now sees what is still switched on and adds only what
     is missing.
@@ -78,6 +110,43 @@ _(unreleased — entries accumulate here per commit)_
   - windows are now looked up by their own identifier rather than by their title, because
     the title is one of the things that can legitimately go missing; and the one test that
     checks all of this no longer fails when a designed fallback does its job.
+
+  An automated run can now ASK for one of these descriptions, which nothing outside the
+  game could do before: the only way in was a call no test run had a way to make. A run
+  asks by name, exactly the way it asks for a screenshot and with the same rules about
+  what a name may contain, so the picture and the description of one window land side by
+  side under one name and can be read together afterwards. A name ending in a dot or an
+  underscore is refused outright rather than accepted, because the part that writes the
+  description quietly trims those off the end and the part that writes the picture does
+  not - a name like that would have filed the two halves under different names and then
+  reported a location with nothing at it. The run then waits until the
+  description has actually been written before it does anything else - not merely so the
+  file is finished, but because the very next thing a window tour does is move or close
+  the window the pending capture is about to describe. If nothing draws in time, or the
+  listening trips over itself while the frame is being written down, the run says which
+  of the two happened rather than quietly handing over a half-finished description. Each
+  answer also reports how many windows and how many individual items were written down,
+  and how many of the game's own drawing routines were successfully listened in on - which
+  is the number that says whether the listening works at all, and which read all seventeen
+  of seventeen on every capture of the first runs.
+
+  Both window tours now take one of these descriptions next to every picture, under the
+  same name, so each screenshot has a written record of what was in it - 22 pairs at the
+  Space Center, 4 in flight. Each of those steps insists that all seventeen of the game's
+  drawing routines were successfully listened in on for that particular frame, which is
+  the check that tells us whether the whole listening idea works. The Space Center tour
+  also runs the one existing self-test for this feature, at the very end so it cannot
+  disturb the windows the tour arranged. ALL OF IT HAS NOW RUN: both tours flew, the
+  self-test passed, every pair of files was written, and the whole feature is a working
+  capability rather than a draft. What the tours themselves still owe is a clean finish -
+  each stopped on one step of its own (a window that grew wider than it was asked for, and
+  one that shuts itself), both of which are fixed above.
+
+  One cosmetic fix from reading those first runs: the log line naming where a description
+  was written printed the game's folder unresolved and with its slashes both ways round, so
+  it could not be pasted anywhere. It is tidied for the log only - the file still goes
+  exactly where it went before, and if the tidying cannot be done the original text is
+  printed rather than dropped.
 
   Nothing about the windows themselves changed: not one line of the drawing code was
   touched, nothing is listened to unless something asks for a capture, and while nothing

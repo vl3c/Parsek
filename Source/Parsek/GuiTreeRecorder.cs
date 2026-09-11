@@ -181,6 +181,57 @@ namespace Parsek
         /// <summary>True when the last capture ran under a non-identity <c>GUI.matrix</c>.</summary>
         internal static bool LastMatrixNonIdentity { get; private set; }
 
+        /// <summary>
+        /// Why the LAST <see cref="ArmForNextRepaint"/> call refused, or null when it
+        /// armed. Cleared at the start of every arm, so it always describes the most
+        /// recent request and never an older one.
+        ///
+        /// <para>Exists because the arm reports a refusal by returning null and LOGGING
+        /// the reason, which is enough for a person reading KSP.log and not enough for the
+        /// command seam: a verb whose terminal says only "refused" costs a whole KSP boot
+        /// to diagnose. The <c>DumpGuiTree</c> verb puts this string on its ERROR message
+        /// (<c>gui-tree-arm-refused reason=inside-gui-pass</c>).</para>
+        /// </summary>
+        internal static string LastArmRefusalReason { get; private set; }
+
+        /// <summary>
+        /// The reason passed to the last <see cref="Disarm"/> since the last arm, or null
+        /// when none has run. <c>armed-no-repaint</c> is the one a caller cares about: it
+        /// is the pump giving the arm up because nothing drew IMGUI through a patched
+        /// funnel within <see cref="ArmTimeoutFrames"/>.
+        ///
+        /// <para>It distinguishes the two ways a poll can find the recorder idle with no
+        /// dump: that give-up, and a flush whose <c>File.WriteAllText</c> threw (which logs
+        /// its own Error and leaves this null). The seam's terminal is the same for both -
+        /// there is no dump either way - but the log line says which.</para>
+        /// </summary>
+        internal static string LastDisarmReason { get; private set; }
+
+        /// <summary>
+        /// The <see cref="Disarm"/> reason for an arm that THREW after
+        /// <c>GuiTreeRecorderPatches.Apply()</c> had run. One constant so the recorder's
+        /// own guard and the seam verb's catch (<c>ParsekTestCommandAddon.DumpGuiTree</c>)
+        /// cannot drift into two spellings of the same event in KSP.log.
+        /// </summary>
+        internal const string ArmThrewDisarmReason = "arm-threw";
+
+        /// <summary>
+        /// Patch-body exceptions counted SINCE THE LAST ARM. Cleared by
+        /// <see cref="ResetBuffers"/> on every arm, which is what makes it a statement
+        /// about THIS capture - unlike <see cref="LastRecordFaults"/>, which is the last
+        /// COMPLETED capture's reading and survives the next arm until that capture
+        /// flushes.
+        ///
+        /// <para>A fault does not necessarily mean no dump: <see cref="Fault"/> clears
+        /// <see cref="ArmedFlag"/> but leaves an OPEN capture for the pump to flush, so a
+        /// partial tree can still reach disk. That is why the seam reads this rather than
+        /// inferring "faulted" from a missing file.</para>
+        /// </summary>
+        internal static int FaultsSinceArm
+        {
+            get { return recordFaults; }
+        }
+
         /// <summary>True while a captured frame is waiting to be flushed by the pump.</summary>
         internal static bool HasPendingFlush
         {
@@ -274,6 +325,10 @@ namespace Parsek
             ResetGuiDepthProbe();
             int depthAtArm = ReadGuiDepth();
             string refusal = ClassifyArmRefusal(ClassifyInsideGuiPass(depthAtArm));
+            // Both reasons are per-arm state: cleared here so a caller polling them can
+            // never read a previous arm's refusal or a previous arm's give-up.
+            LastArmRefusalReason = refusal;
+            LastDisarmReason = null;
             if (refusal != null)
             {
                 ParsekLog.Warn("GuiTree", "arm refused reason=" + refusal
@@ -291,32 +346,57 @@ namespace Parsek
             LastWrittenPath = null;
             LastTree = null;
 
-            Patches.GuiTreeRecorderPatches.Apply();
-            unpatchPending = false;
-            int patched = 0;
-            for (int i = 0; i < GuiTreeFunnels.Count; i++)
+            // EVERY PATH OUT OF THE REGION BELOW MUST END ARMED OR UNPATCHED, and this
+            // try/catch is what makes that true. Once Apply() has run the interceptions
+            // are installed (possibly only some of them - it catches per funnel and
+            // reports `failed=`), and the only two things that ever take them off are the
+            // flush of a capture and Disarm's RequestUnpatch. Neither can be reached
+            // without ArmedFlag: the pump's give-up branch runs only while armed, and its
+            // deferred-unpatch branch only while unpatchPending, which the line below
+            // clears. So a throw anywhere between Apply() and `ArmedFlag = true` - out of
+            // Apply's own tail after it set Applied, or out of the funnel readback - would
+            // leave 17 detours installed with the pump idle for the rest of the session.
+            // The exception is RETHROWN: the caller decides the verdict (the seam verb
+            // reports gui-tree-faulted), this method only guarantees the cleanup.
+            try
             {
-                GuiTreeFunnels.PatchedAtArm[i] = GuiTreeFunnels.IsPatched((GuiFunnel)i);
-                if (GuiTreeFunnels.PatchedAtArm[i])
-                    patched++;
-            }
+                Patches.GuiTreeRecorderPatches.Apply();
+                unpatchPending = false;
+                int patched = 0;
+                for (int i = 0; i < GuiTreeFunnels.Count; i++)
+                {
+                    GuiTreeFunnels.PatchedAtArm[i] = GuiTreeFunnels.IsPatched((GuiFunnel)i);
+                    if (GuiTreeFunnels.PatchedAtArm[i])
+                        patched++;
+                }
 
-            ArmedFlag = true;
-            armFrame = ReadFrameCount();
-            ParsekLog.Info("GuiTree", "armed label=" + safe
-                // The predicate the arm guard actually used: 0 is "outside OnGUI, from
-                // GUIUtility.guiDepth", -1 is "probe unavailable, fell back to outside".
-                + " guiDepth=" + depthAtArm.ToString(CultureInfo.InvariantCulture)
-                + " patchedFunnels=" + patched.ToString(CultureInfo.InvariantCulture)
-                + "/" + GuiTreeFunnels.Count.ToString(CultureInfo.InvariantCulture)
-                + " path=" + pendingPath);
-            return pendingPath;
+                ArmedFlag = true;
+                armFrame = ReadFrameCount();
+                ParsekLog.Info("GuiTree", "armed label=" + safe
+                    // The predicate the arm guard actually used: 0 is "outside OnGUI, from
+                    // GUIUtility.guiDepth", -1 is "probe unavailable, fell back to outside".
+                    + " guiDepth=" + depthAtArm.ToString(CultureInfo.InvariantCulture)
+                    + " patchedFunnels=" + patched.ToString(CultureInfo.InvariantCulture)
+                    + "/" + GuiTreeFunnels.Count.ToString(CultureInfo.InvariantCulture)
+                    + " path=" + FormatPathForLog(pendingPath));
+                return pendingPath;
+            }
+            catch (Exception ex)
+            {
+                ParsekLog.Error("GuiTree", "arm threw after applying the interceptions label="
+                    + safe + ": " + ex.GetType().Name + ": " + ex.Message
+                    + "; disarming so they come off rather than leaving them installed "
+                    + "with nothing left to remove them");
+                Disarm(ArmThrewDisarmReason);
+                throw;
+            }
         }
 
         /// <summary>Disarms without writing anything. Safe to call at any time.</summary>
         internal static void Disarm(string reason)
         {
             bool wasArmed = ArmedFlag || capturing;
+            LastDisarmReason = reason;
             ArmedFlag = false;
             capturing = false;
             captureFrame = -1;
@@ -343,6 +423,8 @@ namespace Parsek
             LastRecordFaults = 0;
             LastDroppedOverCap = 0;
             LastMatrixNonIdentity = false;
+            LastArmRefusalReason = null;
+            LastDisarmReason = null;
             faultLogged = false;
             unpatchPending = false;
             ResetGuiDepthProbe();
@@ -1488,7 +1570,8 @@ namespace Parsek
             catch (Exception ex)
             {
                 ParsekLog.Error("GuiTree",
-                    "failed to write dump path=" + path + ": " + ex.GetType().Name + ": " + ex.Message);
+                    "failed to write dump path=" + FormatPathForLog(path)
+                    + ": " + ex.GetType().Name + ": " + ex.Message);
             }
 
             ParsekLog.Info("GuiTree",
@@ -1506,7 +1589,7 @@ namespace Parsek
                 // path, "invoke" the ECall fallback, "none" means no depths at all.
                 + " clipProbe=" + (LastClipProbeBinding ?? "unread")
                 + " written=" + (written ? "1" : "0")
-                + " path=" + path);
+                + " path=" + FormatPathForLog(path));
 
             events.Clear();
             pendingWindows.Clear();
@@ -1538,6 +1621,38 @@ namespace Parsek
             }
             string result = new string(chars).Trim('.', '_');
             return string.IsNullOrEmpty(result) ? "guitree" : result;
+        }
+
+        /// <summary>
+        /// The dump path as a READER should see it, for a log line only.
+        ///
+        /// <para><c>KSPUtil.ApplicationRootPath</c> answers
+        /// <c>&lt;install&gt;/KSP_x64_Data/../</c> - forward slashes, with an unresolved
+        /// <c>..</c> - and <c>Path.Combine</c> then appends the platform separator, so the
+        /// raw value logs as <c>.../KSP_x64_Data/../Screenshots\label.gui.json</c>: mixed
+        /// separators and a segment that has to be resolved by eye before the path can be
+        /// pasted anywhere.</para>
+        ///
+        /// <para>LOG ONLY, deliberately. Every write, stat and read keeps the path
+        /// <see cref="ResolveOutputPath"/> produced, so a normalisation that throws -
+        /// invalid characters, a security refusal, a path longer than the platform allows -
+        /// cannot cost a capture its file; it falls back to the raw string, which is still
+        /// the truth about where the file went. Nothing parses this token: the harness
+        /// reads the seam verb's own payload, and no committed spec regexes a
+        /// <c>[GuiTree]</c> path.</para>
+        /// </summary>
+        internal static string FormatPathForLog(string path)
+        {
+            if (string.IsNullOrEmpty(path))
+                return path;
+            try
+            {
+                return Path.GetFullPath(path);
+            }
+            catch (Exception)
+            {
+                return path;
+            }
         }
 
         private static string ResolveOutputPath(string sanitizedLabel)

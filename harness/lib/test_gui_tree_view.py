@@ -469,7 +469,7 @@ class IndexTests(unittest.TestCase):
         self.assertEqual("not valid JSON", entry["detail"])
 
     def test_the_index_page_is_self_contained_and_escapes_labels(self):
-        page = gtv.render_index([
+        page = gtv.render_batch_index([
             {"href": "a.gui.html", "label": "<b>x</b>", "detail": "d"}])
         self.assertNotIn("<b>x</b>", page)
         self.assertIn("&lt;b&gt;", page)
@@ -508,17 +508,40 @@ class ShellTests(unittest.TestCase):
                     json.dump(dump([node("window")], label=name), fh)
             rc = gtv.main(["--batch", tmp])
             self.assertEqual(0, rc)
-            for name in ("a.gui.html", "b.gui.html", "index.html"):
+            for name in ("a.gui.html", "b.gui.html", gtv.BATCH_INDEX_FILENAME):
                 self.assertTrue(os.path.isfile(os.path.join(tmp, name)), name)
-            with open(os.path.join(tmp, "index.html"), encoding="utf-8") as fh:
+            with open(os.path.join(tmp, gtv.BATCH_INDEX_FILENAME),
+                      encoding="utf-8") as fh:
                 index = fh.read()
             self.assertIn("a.gui.html", index)
             self.assertIn("b.gui.html", index)
 
+    def test_batch_mode_does_not_write_the_contact_sheets_index_html(self):
+        """THE COLLISION CELL. A census points BOTH page tools at one `*_shots`
+        directory - `tools/gui_contact_sheet.py` (README step 4) and then this tool
+        (step 5) - so a shared index filename means the second run silently replaces
+        the first tool's page. `gui_contact_sheet.INDEX_FILENAME` is `index.html`
+        and this tool must own a different name; the pre-existing `index.html` here
+        stands in for the sheet's page and has to survive byte-for-byte."""
+        with tempfile.TemporaryDirectory() as tmp:
+            sheet = os.path.join(tmp, "index.html")
+            with open(sheet, "w", encoding="utf-8") as fh:
+                fh.write("<!-- the contact sheet's page -->")
+            with open(os.path.join(tmp, "a.gui.json"), "w",
+                      encoding="utf-8") as fh:
+                json.dump(dump([node("window")], label="a"), fh)
+            self.assertEqual(0, gtv.main(["--batch", tmp]))
+            self.assertNotEqual("index.html", gtv.BATCH_INDEX_FILENAME)
+            self.assertTrue(os.path.isfile(
+                os.path.join(tmp, gtv.BATCH_INDEX_FILENAME)))
+            with open(sheet, encoding="utf-8") as fh:
+                self.assertEqual("<!-- the contact sheet's page -->", fh.read())
+
     def test_batch_mode_on_an_empty_directory_is_not_an_error(self):
         with tempfile.TemporaryDirectory() as tmp:
             self.assertEqual(0, gtv.main(["--batch", tmp]))
-            self.assertFalse(os.path.isfile(os.path.join(tmp, "index.html")))
+            self.assertFalse(os.path.isfile(
+                os.path.join(tmp, gtv.BATCH_INDEX_FILENAME)))
 
     def test_no_argument_at_all_is_a_usage_error(self):
         with self.assertRaises(SystemExit):

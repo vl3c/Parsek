@@ -13,7 +13,9 @@ tier = "operator"
 #     Recorded Points, Duration, Active Ghosts) and the Real Spawn Control launcher;
 #   - `spawncontrol` (Real Spawn Control) and `gloops` (the Gloops Flight Recorder),
 #     the two windows `ParsekKSC.OnGUI` does not draw at all - asking for either at the
-#     Space Center is a REJECTED (`window-not-in-scene`) by design;
+#     Space Center is a REJECTED (`window-not-in-scene`) by design. Only `gloops` is
+#     PHOTOGRAPHED here: Real Spawn Control shuts itself on this host (see below), so the
+#     lane asserts its auto-close instead of capturing a window that is not there;
 #   - the chrome one shared window wears over a live scene, sampled once (`missions`).
 # Everything else is GUI-1's job. If a review finds a shared window looks different in
 # flight, widening this lane is one step per capture.
@@ -38,8 +40,27 @@ tier = "operator"
 # hours from the next periapsis pass. The census has hours of margin at 1x and this lane
 # does not warp, jump or otherwise touch the clock: it takes pictures.
 #
-# THE ONE THING THE FIRST FLIGHT MUST BE READ FOR is a WINDOW, not the clock: see the
-# Real Spawn Control step below, which self-closes when nothing is in range.
+# THE ONE THING THE FIRST FLIGHT HAD TO BE READ FOR WAS A WINDOW, not the clock, and it
+# was read: Real Spawn Control does NOT open on this host. Run `2026-09-10_2259` (and
+# attempt 2 `_2300`) answered `uiaction error reason=window-self-closed
+# window=spawncontrol frames=1` - `SpawnControlUI.DrawIfOpen` force-closed itself on its
+# FIRST draw because `ResolveAutoCloseReason` found ZERO nearby spawn candidates, which is
+# the normal state of a sub-orbital probe with nothing recorded passing close by. The
+# header's first draft claimed the window "opens regardless"; that claim was wrong, the
+# two-phase settle caught it exactly as designed, and the step is now declared
+# `expect = "ERROR"` with the reason pinned as a log contract - see the step below.
+#
+# EVERY CAPTURE IS FOLLOWED BY A DUMP under the same label (`DumpGuiTree`), so each PNG
+# has its `<label>.gui.json` sibling: an IMGUI window has no retained widget tree, so the
+# image cannot say which rows a filter left visible, which control was disabled or what
+# nests inside what, and `harness/tools/gui_tree_view.py` draws the dump's boxes over the
+# matching screenshot. FOUR captures and four dumps: 8 files, far inside the harvest's
+# 64-file cap. (It was FIVE until 2026-09-11: the `flight-spawncontrol-advanced` pair went
+# with the window that does not draw here - a PNG of a scene with no Real Spawn Control in
+# it, under a label naming it, is the false reading the two-phase settle exists to
+# prevent.) The `GuiTree` in-game cell is NOT driven here - GUI-1 owns that batch, and
+# a second copy would buy nothing but wall time (the cell draws its own probe window and
+# is scene-agnostic, so the flight scene is not a different reading of it).
 #
 # `op=open window=main` FIRST IS A PRECONDITION, not just the natural order. The settle
 # for a non-`main` `open` / `rect` REFUSES while the host's `showUI` is false
@@ -64,9 +85,14 @@ tier = "operator"
 # (`TestCommandLoadGame.DecideLoadRoute` -> Focusable) boots straight into FLIGHT. GUI-1
 # has to pass `scene = "spacecenter"` to get the other one.
 #
-# NEVER FLOWN. Same pinning discipline as GUI-1: the log contract names only this lane's
-# own seam lines, because a local fixture is unreproducible by construction.
-description = "GUI census, flight half: capture the flight-only Parsek windows and the flight form of the main window, in Advanced and Basic, for a layout review."
+# FLOWN ONCE, 2026-09-10 (`2026-09-10_2259`, attempt 2 `_2300`), both INVALID on the one
+# `op=open window=spawncontrol` step and on nothing else: all five captures of the shape
+# it flew, all five dumps at `patched=17/17`, every describe echo and every other verdict
+# OK. That step is now `expect = "ERROR"` with the measured reason pinned, so the next
+# flight is the READING run. Same pinning discipline as GUI-1 otherwise: the log contract
+# names only this lane's own seam lines, because a local fixture is unreproducible by
+# construction.
+description = "GUI census, flight half: capture the flight-only Parsek windows and the flight form of the main window, in Advanced and Basic, each as a PNG plus an IMGUI control-tree dump, for a layout review."
 instanceProfile = "stock-minimal"
 tags = ["gui-census", "screenshots", "ui", "operator-local-fixture", "GUI-2"]
 
@@ -100,30 +126,36 @@ steps = [
   # side by side ARE the scene-availability record.
   { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "flight-main-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "flight-main-advanced" }, expect = "OK" },
 
-  # Real Spawn Control - flight-only, AND THIS IS THE ONE STEP THE FIRST FLIGHT MUST BE
-  # READ FOR. The window does NOT open regardless: `SpawnControlUI.DrawIfOpen` force-closes
-  # itself on its FIRST draw whenever `ResolveAutoCloseReason` fires, and one of its three
-  # reasons is ZERO nearby spawn candidates - which is the normal state of a craft with
-  # nothing recorded passing close by, i.e. the likely state of this host's subject. The
-  # `open` op is TWO-PHASE precisely so that shows up: it holds the head for one drawn
-  # frame and answers `ERROR window-self-closed` instead of reporting OK over a capture of
-  # a scene without the window in it. So this step is a real question about the HOST rather
-  # than a formality - if it errors, the lane stops here as driver-INVALID with the cause
-  # named, and the remedy is a re-stage from a save whose focus has a recorded craft in
-  # range, not a spec change. Photographing the window is the whole point of the step; a
-  # census that quietly skipped it would leave the layout unreviewed.
-  { cmd = "UiAction", args = { op = "open", window = "spawncontrol" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "rect", window = "spawncontrol", x = "270", y = "8", w = "900", h = "420" }, expect = "OK" },
-  { cmd = "CaptureScreenshot", args = { label = "flight-spawncontrol-advanced" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "close", window = "spawncontrol" }, expect = "OK" },
+  # Real Spawn Control - flight-only, and the ONE step whose answer was a question about
+  # the HOST rather than about Parsek. It is MEASURED now: on this host the window does not
+  # open at all. `SpawnControlUI.DrawIfOpen` force-closes itself on its FIRST draw whenever
+  # `ResolveAutoCloseReason` fires, and one of its three reasons is ZERO nearby spawn
+  # candidates - the normal state of a craft with nothing recorded passing close by, and
+  # exactly what this subject is. Runs `2026-09-10_2259` / `_2300` both answered
+  # `ERROR window-self-closed ... frames=1`, so `expect = "ERROR"` is the measured
+  # verdict and the reason is pinned in `[expectations.logContracts]` below: this step now
+  # asserts that the auto-close still FIRES and still names itself, which is a real
+  # property of `SpawnControlUI` and of the two-phase settle that reports it.
+  #
+  # NOTHING FOLLOWS IT. The describe / rect / capture / dump / close steps that used to
+  # are gone, because there is no window to photograph: the flag is already down, a
+  # `rect` against a closed window would read its own write back and pass (the census
+  # first flight did exactly that, OK at `270,8,900,420` over a window that was not
+  # drawing), and the PNG would show a scene with no Real Spawn Control in it under a
+  # label naming it. Photographing this window is still WANTED and is not abandoned: it
+  # needs a host whose active vessel HAS spawn candidates, filed as
+  # GUI-CENSUS-SPAWN-CONTROL-NEEDS-A-CANDIDATE-HOST, whose fix is a GUI-3 lane on a
+  # committed fixture rather than an edit here. Keeping the step is what holds that open.
+  { cmd = "UiAction", args = { op = "open", window = "spawncontrol" }, expect = "ERROR" },
 
   # Gloops Flight Recorder - flight-only AND launcher-retired (see the header).
   { cmd = "UiAction", args = { op = "open", window = "gloops" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "rect", window = "gloops", x = "270", y = "8", w = "340", h = "300" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "flight-gloops-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "flight-gloops-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "gloops" }, expect = "OK" },
 
   # One shared window over a live scene, to show the chrome in flight. Its tab walk
@@ -141,6 +173,7 @@ steps = [
   { cmd = "UiAction", args = { op = "rect", window = "missions", x = "0", y = "8", w = "1280", h = "700" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "tab", window = "missions", tab = "missions" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "flight-missions-missions-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "flight-missions-missions-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "missions" }, expect = "OK" },
 
   # --- Basic ---
@@ -149,6 +182,7 @@ steps = [
   { cmd = "UiAction", args = { op = "complexity", mode = "basic" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "flight-main-basic" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "flight-main-basic" }, expect = "OK" },
 
   # Leave the install in Advanced. BELT AND BRACES on a harness run: the mode IS persisted
   # (ParsekSettingsPersistence), but run.py rewrites the instance's settings sidecar to its
@@ -175,15 +209,37 @@ allowedAnomalies = []
 # the full argument. `spawncontrol` and `gloops` appear ONLY here, so these two lines are
 # also the record that the two flight-only windows really drew in flight.
 required = [
-  # --- Advanced: main alone, then each flight-only window, then the shared one ---
+  # --- Advanced: main alone, then the flight-only window that draws, then the shared one ---
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=11 open=1 openWindows=main",
-  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=11 open=2 openWindows=main,spawncontrol",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=11 open=2 openWindows=main,gloops",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=11 open=2 openWindows=main,missions",
   # --- Basic: the main window alone, which is this pass's whole subject ---
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=basic windows=11 open=1 openWindows=main",
+  # --- the Real Spawn Control auto-close, which is an ASSERTION and not a note. The step
+  # above declares `expect = "ERROR"`, and a seam ERROR carries only
+  # `msg=window-self-closed window=spawncontrol` on the WIRE, which never reaches KSP.log -
+  # so without this line the lane would accept ANY error from that step, `window-host-hidden`
+  # and `ui-action-not-settled` included, and those say something completely different (the
+  # main window was shut; nothing drew at all). Pinning the REASON is what makes the step a
+  # measurement of `SpawnControlUI.ResolveAutoCloseReason` firing on a zero-candidate scene.
+  # `frames=` is regexed rather than pinned at the measured 1: `SettleFrames = 1` is the
+  # floor the poll waits for, not a guarantee that exactly one frame elapsed before the pump
+  # looked again.
+  "\\[Parsek\\]\\[ERROR\\]\\[TestCommands\\] uiaction error reason=window-self-closed window=spawncontrol frames=[0-9]+",
   # --- and one capture, proving the write-and-settle path end to end ---
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] capturescreenshot ok label=flight-main-advanced",
+  # --- every dump, each pinning the arm-time funnel reading for its own frame.
+  # ALL FOUR are pinned where only ONE capture is, and the asymmetry is deliberate:
+  # `patched=<ok>/<of>` is measured FRESH at every arm (the recorder applies its patches
+  # at arm and removes them when the capture flushes), so `patched=17/17` is a per-dump
+  # claim that all seventeen interceptions were installed for THAT frame rather than a
+  # property of the build. `hits=` stays unpinned - it counts funnel body runs in a real
+  # frame, so a literal would pin whatever the window happened to contain. GUI-1's header
+  # carries the full argument.
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=flight-main-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=flight-gloops-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=flight-missions-missions-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=flight-main-basic .*patched=17/17",
 ]
 # EMPTY for GUI-1's reason exactly: a real career's cold OnLoad ERROR surface is not this
 # lane's subject, and gating on it would red a layout review over career bookkeeping.
@@ -218,14 +274,17 @@ forbidden = []
 gating = false
 
 [runtime]
-# FIVE captures (flight-main-advanced, flight-spawncontrol-advanced,
-# flight-gloops-advanced, flight-missions-missions-advanced, flight-main-basic) and about
-# twenty UI ops on top of a 300 s cold load. Tighter than GUI-1's 1200 s simply because
+# FOUR captures (flight-main-advanced, flight-gloops-advanced,
+# flight-missions-missions-advanced, flight-main-basic), four dumps beside them, and about
+# fifteen UI ops on top of a 300 s cold load. Tighter than GUI-1's 1500 s simply because
 # the lane is a quarter of the size - NOT because the clock is a hazard here: the subject
 # is on a 6.4 h eccentric orbit whose periapsis is 69.55 km above the ground, ascending,
-# hours from anything (see the header). 900 s is generous for what it does, and a lane
-# that somehow overruns it should be KILLED and read rather than left running.
-budgetSeconds = 900
+# hours from anything (see the header). MEASURED on the first flight at 54 s wall
+# (`2026-09-10_2259`; 55 s on attempt 2) for the five-capture shape, so 1000 s is not
+# head-room that has ever been needed - it stays because a lane that somehow overruns it
+# should be KILLED and read rather than left running, and one 42 MB cold load is the only
+# part of it that can vary.
+budgetSeconds = 1000
 
 [retry]
 policy = "once"

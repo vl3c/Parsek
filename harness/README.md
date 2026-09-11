@@ -196,17 +196,31 @@ under `lib/` rather than beside the tool because CI discovers `lib/` only.
 
 ```
 python tools/gui_tree_view.py <label>.gui.json          # one page beside the dump
-python tools/gui_tree_view.py --batch results/<runId>_shots   # every dump + index
+python tools/gui_tree_view.py --batch results/<runId>_shots   # every dump + gui-tree-index.html
 ```
 
 Read the page's amber notes strip FIRST. A dump whose Harmony interceptions were
 bypassed still parses and still renders, and is still missing controls; the strip is
 where `NOT PATCHED` and `patched but never hit` show up.
 
-NOTHING HAS PRODUCED A DUMP YET. The recorder's interception layer has never run
-inside KSP (the design note's "What is unproven"), and no committed spec drives the
-`GuiTree` in-game category, so `--batch results/<runId>_shots` finds nothing today.
-The viewer and the harvest are in place for the first one.
+A DUMP IS PROCESS-WIDE. The recorder intercepts UnityEngine's IMGUI funnels, not
+Parsek's draw code, so the tree contains every window the process drew that frame -
+stock's and any other addon's included. On `stock-minimal` that is Parsek plus stock.
+
+DUMPS EXIST NOW, and until 2026-09-11 nothing had ever produced one. There was no way to
+ARM the recorder from outside the game - its API is `internal` and the only caller was the
+in-game `GuiTree` cell - so the viewer, the harvest and the notes strip had never had an
+input. The `DumpGuiTree label=<name>` seam verb closed that, and the census's first flight
+wrote the first ones: 23 under `results/2026-09-10_2255_GUI-1-census-ksc_shots/` (22 census
+labels plus the `GuiTree` cell's own `parsek-guitree-probe`) and 5 under
+`results/2026-09-10_2259_GUI-2-census-flight_shots/`, every one at `patched=17/17` with
+every anomaly counter zero, and `--batch` rendered all 23 of GUI-1's into `<label>.gui.html`
+plus `gui-tree-index.html` in that directory. Both of those lanes read INVALID on one seam
+step each (neither of them a dump), so what those runs proved is the RECORDER rather than a
+green lane - AND BOTH READ GREEN THE NEXT DAY: `results/2026-09-11_0548_GUI-1-census-ksc_shots/`
+(PASS, 23 dumps) and `results/2026-09-11_0551_GUI-2-census-flight_shots/` (PASS, 4), which
+are the directories to read now. The reading, premise by premise, and the two things it did
+not settle: `docs/dev/design-gui-tree-dump.md` -> "What the first flight measured".
 
 ### The GUI-census sheet (`tools/gui_contact_sheet.py`)
 
@@ -227,16 +241,92 @@ It writes `index.html` INSIDE the shots directory, grouped by the capture label'
 scene prefix (`ksc-`, `flight-`, `map-`, `trackstation-`, `editor-`, then
 anything else under `other` - a label it does not model is still SHOWN, because
 this is a viewer and a silently dropped image shortens a census a reviewer is
-counting). The two tools cannot collide: this one owns `index.html` inside a
-`*_shots` dir, the V3 sheet owns `<runId>_contact.html` and `index.html` at the
-results ROOT. Neither is part of the run flow - this one is run by hand, after
-the fact.
+counting). No two of the three page tools write the same path: this one owns
+`index.html` inside a `*_shots` dir, the V3 sheet owns `<runId>_contact.html` and
+`index.html` at the results ROOT, and `tools/gui_tree_view.py --batch` - the other
+tool a census points at that SAME shots dir - owns `gui-tree-index.html` there,
+which is why its index does not carry the plain name. Neither is part of the run
+flow - this one is run by hand, after the fact.
 
 COPY A CENSUS OUT IF IT MATTERS. `results/<runId>_shots/` is the one artifact
 directory the retention pass bounds (`hlib.select_shots_dirs_to_prune`: newest 40
 dirs / 2 GiB), and a 20-PNG census is not small. The sheet lives inside that
 directory, so pruning takes the page with the pictures; the V3 `_contact.html`
 survives and then points at images that are gone.
+
+### Running a GUI census end to end
+
+Both lanes are `tier = "operator"` and fly on request only. In order:
+
+1. **Stage the host.** The census needs a save with rows in every window, which is
+   the operator's own long-lived career - it cannot be committed and cannot be minted
+   by a builder, so it is an OPERATOR-LOCAL fixture:
+
+   ```
+   python tools/stage_local_fixture.py \
+       --from "../Kerbal Space Program/saves/c1" --as c1-gui --no-quicksaves
+   ```
+
+   Without it the run is refused PRE-BOOT as `INVALID(staging)` with that command in
+   the error (`hlib.local_fixture_hint`). See `fixtures/local-saves/README.md`.
+
+2. **Provision, so the automation instance carries the DLL these lanes need.** Both
+   lanes drive `CaptureScreenshot`, `UiAction` and `DumpGuiTree`, and a stale
+   automation DLL answers `not-implemented-v1` after a whole boot:
+
+   ```
+   cd Source/Parsek && dotnet build          # from the building checkout's own dir
+   cd harness && python provision/provision.py --profile stock-minimal
+   ```
+
+   Then verify the AUTOMATION DLL carries the verbs (the repo's CLAUDE.md, "Verify the
+   deployed DLL after building" - a UTF-8 `#Strings` grep for `DumpGuiTreeImpl`, not a
+   UTF-16-only one).
+
+3. **Fly.** One lane at a time; they share the machine lock.
+
+   ```
+   python run.py --id GUI-1-census-ksc
+   python run.py --id GUI-2-census-flight
+   ```
+
+   MEASURED WALL, so a run that has not finished in a couple of minutes is stuck rather
+   than slow: **96 s for GUI-1** and **57 s for GUI-2** on the green reading runs of
+   2026-09-11 (`2026-09-11_0548` and `2026-09-11_0551`, both PASS on attempt 1). THE WALK
+   IS THE SMALLER HALF, measured off GUI-1's own log: KSP boot to the seam's first `recv`
+   takes 37 s, the `LoadGame` 8 s, and all 115 steps - 22 captures, 22 dumps, the tab walk
+   and the one-cell batch - 29 s. So a slower host moves the boot, not the census. The
+   budgets are far above either (1500 s and 1000 s) on purpose: the product is the images
+   and the trees, and a KILLED run leaves neither.
+
+4. **Read the pictures**, from inside the run's own shots directory:
+
+   ```
+   python tools/gui_contact_sheet.py results/<runId>_shots
+   ```
+
+5. **Read the trees**, which is the half the pictures cannot carry:
+
+   ```
+   python tools/gui_tree_view.py --batch results/<runId>_shots
+   ```
+
+   `--batch` writes one `<label>.gui.html` per dump plus a `gui-tree-index.html` in
+   that directory, each page inlining the matching `<label>.png` behind the boxes -
+   which works because the two verbs are driven as a PAIR under one label. The index
+   is deliberately NOT `index.html`: step 4 above wrote that file into the same
+   directory, and a shared name would mean this step silently replaced the picture
+   sheet. Read each page's amber notes strip FIRST.
+
+6. **Copy the directory out** if the census matters (the retention pass above).
+
+Read the seam's own lines before reading the layout: every dump step pins
+`patched=17/17`, so a lane that goes red there is telling you a UnityEngine IMGUI funnel
+signature drifted out from under its Harmony patch - a fact about the recorder, not about
+the window in the picture. On the first flight (2026-09-10) all 56 arms across the four
+runs read 17/17 with zero repairs, and the two green reading runs of 2026-09-11 added 27
+more (23 on GUI-1, 4 on GUI-2) at the same 17/17, so that reading is now a REGRESSION
+check rather than an open question.
 
 ## The produced-save snapshot (harvest from here, not from the instance)
 

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Reflection;
 using Parsek;
 using Xunit;
@@ -389,6 +390,35 @@ namespace Parsek.Tests
             Assert.Equal("Screenshots", GuiTreeRecorder.OutputDirectoryName);
             Assert.Equal(".gui.json", GuiTreeRecorder.OutputSuffix);
         }
+
+        [Fact]
+        public void TheLogPathIsNormalised_AndFallsBackToTheRawStringWhenItCannotBe()
+        {
+            // WHY: `KSPUtil.ApplicationRootPath` answers `<install>/KSP_x64_Data/../` with
+            // forward slashes, and `Path.Combine` then appends the platform separator, so
+            // the census's first flight logged
+            // `path=C:/.../KSP_x64_Data/../Screenshots\ksc-main-advanced.gui.json` - mixed
+            // separators plus a `..` a reader has to resolve by eye. Built here from
+            // `Path.Combine` and forward slashes, so the assertion means the same thing on
+            // the Windows CLR and on mono.
+            string root = Path.Combine(Path.GetTempPath(), "parsek-guitree-log-path");
+            string expected = Path.Combine(
+                Path.Combine(root, "Screenshots"), "ksc-main-advanced.gui.json");
+            string raw = root + "/KSP_x64_Data/../Screenshots/ksc-main-advanced.gui.json";
+            Assert.Equal(expected, GuiTreeRecorder.FormatPathForLog(raw));
+            Assert.DoesNotContain("..", GuiTreeRecorder.FormatPathForLog(raw));
+
+            // THE FALLBACK IS THE HALF THAT MATTERS: this is a log decoration over a path
+            // the recorder has already written to, so a normalisation that throws must not
+            // lose it. A NUL is refused as a filename character by both runtimes.
+            string unnormalisable = root + "/bad\0name.gui.json";
+            Assert.Equal(unnormalisable,
+                         GuiTreeRecorder.FormatPathForLog(unnormalisable));
+
+            // And it is total on the empty cases rather than throwing on them.
+            Assert.Null(GuiTreeRecorder.FormatPathForLog(null));
+            Assert.Equal("", GuiTreeRecorder.FormatPathForLog(""));
+        }
     }
 
     /// <summary>
@@ -441,6 +471,75 @@ namespace Parsek.Tests
             Assert.True(GuiTreeRecorder.ArmTimeoutFrames > 300,
                 "ArmTimeoutFrames is " + GuiTreeRecorder.ArmTimeoutFrames
                 + ", which is not clear of the live cell's 300-frame wait");
+        }
+    }
+
+    /// <summary>
+    /// The OTHER way an arm can leave the interceptions installed with nothing left to
+    /// remove them: it THROWS after <c>GuiTreeRecorderPatches.Apply()</c> has run.
+    ///
+    /// <para>The give-up above cannot help there, because it runs only while
+    /// <c>ArmedFlag</c> is set and the throw window is precisely the region between
+    /// <c>Apply()</c> and that assignment - Apply's own tail after it set
+    /// <c>Applied</c>, and the funnel readback loop. The recorder therefore disarms
+    /// itself on that path (<c>ArmForNextRepaint</c>'s catch, which rethrows), which
+    /// covers BOTH callers, and the seam verb repeats the call at its own exit. These
+    /// cells pin the state the disarm has to reach and the one reason token both sites
+    /// use.</para>
+    /// </summary>
+    [Collection("Sequential")]
+    public class GuiTreeArmThrewDisarmTests : IDisposable
+    {
+        public GuiTreeArmThrewDisarmTests()
+        {
+            GuiTreeRecorder.ResetForTesting();
+        }
+
+        public void Dispose()
+        {
+            GuiTreeRecorder.ResetForTesting();
+        }
+
+        [Fact]
+        public void DisarmingAThrownArmLeavesNothingForThePumpToOwn()
+        {
+            // The state a throw after Apply() leaves behind, in the harder of its two
+            // shapes: the flag already raised, so the recorder counts as having work.
+            GuiTreeRecorder.ArmedFlag = true;
+            Assert.True(GuiTreeRecorder.HasPendingWork);
+
+            GuiTreeRecorder.Disarm(GuiTreeRecorder.ArmThrewDisarmReason);
+
+            Assert.False(GuiTreeRecorder.ArmedFlag);
+            Assert.False(GuiTreeRecorder.HasPendingWork);
+            Assert.Equal(GuiTreeRecorder.ArmThrewDisarmReason,
+                GuiTreeRecorder.LastDisarmReason);
+        }
+
+        [Fact]
+        public void TheSeamsRepeatOfTheDisarmIsANoOp()
+        {
+            // The recorder disarms itself and rethrows; the seam's catch then disarms
+            // again. That second call must be inert, which is what lets both sites keep
+            // the guarantee without either having to know the other ran.
+            GuiTreeRecorder.ArmedFlag = true;
+            GuiTreeRecorder.Disarm(GuiTreeRecorder.ArmThrewDisarmReason);
+            GuiTreeRecorder.Disarm(GuiTreeRecorder.ArmThrewDisarmReason);
+
+            Assert.False(GuiTreeRecorder.ArmedFlag);
+            Assert.False(GuiTreeRecorder.HasPendingWork);
+            Assert.Equal(GuiTreeRecorder.ArmThrewDisarmReason,
+                GuiTreeRecorder.LastDisarmReason);
+        }
+
+        [Fact]
+        public void TheReasonTokenIsOneGrepStableSpelling()
+        {
+            // KSP.log is the instrument here, and the recorder's Error line and the seam's
+            // own Error line are read together. Two spellings of one event would split a
+            // search that has to find both.
+            Assert.Equal("arm-threw", GuiTreeRecorder.ArmThrewDisarmReason);
+            Assert.NotEqual("armed-no-repaint", GuiTreeRecorder.ArmThrewDisarmReason);
         }
     }
 

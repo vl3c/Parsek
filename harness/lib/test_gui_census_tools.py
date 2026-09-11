@@ -27,6 +27,7 @@ for _p in (_HERE, _TOOLS):
         sys.path.insert(0, _p)
 
 import gui_contact_sheet as gcs  # noqa: E402
+import gui_tree_view as gtv  # noqa: E402
 import hlib  # noqa: E402
 import stage_local_fixture as slf  # noqa: E402
 
@@ -152,13 +153,29 @@ class ContactSheetRenderTests(unittest.TestCase):
         self.assertEqual(1, count)
 
     def test_it_does_not_write_the_v3_sheets_files(self):
-        # The two tools share the folder and must not collide: this one owns
+        # The three page tools share folders and must not collide: this one owns
         # `index.html` INSIDE a *_shots dir, the V3 sheet owns `<runId>_contact.html`
-        # and `index.html` at the results ROOT.
+        # and `index.html` at the results ROOT, and `gui_tree_view.py --batch` owns
+        # `gui-tree-index.html` in the same *_shots dir (see the cell below).
         _touch(os.path.join(self.dir, "a.png"))
         gcs.generate(self.dir)
         for name in os.listdir(self.dir):
             self.assertFalse(name.endswith("_contact.html"))
+
+    def test_it_does_not_write_the_tree_viewers_batch_index(self):
+        # THE MIRROR of `test_batch_mode_does_not_write_the_contact_sheets_index_html`
+        # in `test_gui_tree_view.py`. A census points both tools at ONE shots dir
+        # (README steps 4 and 5), so the no-clobber property has to hold in both
+        # orders: this cell writes the tree viewer's page first and requires the
+        # sheet to leave it alone.
+        self.assertNotEqual(gcs.INDEX_FILENAME, gtv.BATCH_INDEX_FILENAME)
+        tree_index = os.path.join(self.dir, gtv.BATCH_INDEX_FILENAME)
+        _touch(os.path.join(self.dir, "a.png"))
+        with open(tree_index, "w", encoding="utf-8") as fh:
+            fh.write("<!-- the tree viewer's batch index -->")
+        gcs.generate(self.dir)
+        with open(tree_index, encoding="utf-8") as fh:
+            self.assertEqual("<!-- the tree viewer's batch index -->", fh.read())
 
 
 class StageLocalFixtureTests(unittest.TestCase):

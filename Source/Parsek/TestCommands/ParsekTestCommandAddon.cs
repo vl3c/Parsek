@@ -792,6 +792,17 @@ namespace Parsek.TestCommands
                 TryCompleteCaptureScreenshot(now);
                 return;
             }
+            // GUI census: the GUI-tree dump poll. Same bounded-completion contract, on the
+            // recorder's own state rather than on a file stat: arming only asks for the
+            // NEXT Repaint pass, which is recorded and then assembled + written from the
+            // following LateUpdate, so the head is held until the recorder reports THIS
+            // arm's dump written. Without that hold the next step would race the write -
+            // and worse, would change the very UI the pending capture is about to record.
+            if (completionVerb == "DumpGuiTree")
+            {
+                TryCompleteDumpGuiTree(now);
+                return;
+            }
             // GUI census: the settle poll for the two two-phase UiAction ops (`open` and
             // `rect`). Same bounded-completion contract; it waits for ONE drawn frame,
             // because before a draw the read-back would compare the field with the value
@@ -1274,6 +1285,14 @@ namespace Parsek.TestCommands
         void ITestCommandExecutor.CaptureScreenshot(ParsedCommand cmd) => CaptureScreenshotImpl(cmd);
         void ITestCommandExecutor.UiAction(ParsedCommand cmd) => UiActionImpl(cmd);
 
+        // DumpGuiTree: the body lives in the sibling ParsekTestCommandAddon.DumpGuiTree.cs
+        // partial. TWO-PHASE, and unlike its census partners the wait is not a file poll
+        // or a settle count but the RECORDER's own lifecycle: the arm asks for the next
+        // Repaint pass, the pump records it, and the LateUpdate after that assembles and
+        // writes the dump - so it owns a bounded TryCompleteDumpGuiTree in
+        // TryCompleteTwoPhaseCore.
+        void ITestCommandExecutor.DumpGuiTree(ParsedCommand cmd) => DumpGuiTreeImpl(cmd);
+
         private void InvokeExecutor(ParsedCommand cmd)
         {
             // Batch-baseline latch clear (finding 1). Any verb that can change state a
@@ -1328,6 +1347,7 @@ namespace Parsek.TestCommands
                 case "WarpToUT": exec.WarpToUT(cmd); break;
                 case "CaptureScreenshot": exec.CaptureScreenshot(cmd); break;
                 case "UiAction": exec.UiAction(cmd); break;
+                case "DumpGuiTree": exec.DumpGuiTree(cmd); break;
                 default:
                     // Unreachable: DecideDispatch rejects unknown/reserved verbs before Execute.
                     SetExecResult("ERROR", null, "unknown-command");

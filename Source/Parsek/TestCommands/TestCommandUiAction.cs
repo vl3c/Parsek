@@ -314,8 +314,9 @@ namespace Parsek.TestCommands
         internal const string TabNotAppliedReason = "tab-not-applied";
 
         /// <summary>POST-CALL terminal: the rect was written and reads back different. Note
-        /// the read-back is deliberately tolerant on HEIGHT for the windows GUILayout sizes
-        /// from content - see <see cref="RectAppliedWithinTolerance"/>.</summary>
+        /// the read-back treats BOTH commanded SIZE axes as floors, because GUILayout sizes
+        /// a window from its content on each of them - see
+        /// <see cref="RectAppliedWithinTolerance"/>.</summary>
         internal const string RectNotAppliedReason = "rect-not-applied";
 
         /// <summary>POST-CALL terminal for the one thing a read-back cannot describe: a
@@ -343,12 +344,13 @@ namespace Parsek.TestCommands
         /// Read-back tolerance, in pixels, for an applied rect.
         ///
         /// <para>It exists because the windows are <c>GUILayout</c> windows: each passes
-        /// <c>GUILayout.Width/Height</c> options and the resolved height is
-        /// <c>Max(passedHeight, contentMin)</c>, so a window whose content is taller than
-        /// the commanded height legitimately GROWS - and the KSC main window resets its
+        /// <c>GUILayout.Width/Height</c> options and the resolved size is
+        /// <c>Max(passed, contentMin)</c> on EACH axis, so a window whose content is larger
+        /// than the commanded box legitimately GROWS - and the KSC main window resets its
         /// height to 0 every frame by design. A strict equality read-back would therefore
-        /// ERROR on a rect that was applied exactly as asked. Position and width are the
-        /// halves that hold, so the tolerance is only ever consulted for height (see
+        /// ERROR on a rect that was applied exactly as asked. POSITION is the only half that
+        /// holds exactly; both SIZE axes are floors, and the tolerance is the slack on the
+        /// floor rather than a two-sided band (see
         /// <see cref="RectAppliedWithinTolerance"/>).</para>
         /// </summary>
         internal const float RectReadBackTolerance = 1f;
@@ -774,16 +776,29 @@ namespace Parsek.TestCommands
         /// <summary>
         /// Read-back predicate for an applied rect.
         ///
-        /// <para>Position and WIDTH must land within <see cref="RectReadBackTolerance"/>.
-        /// HEIGHT is checked as a FLOOR (<c>observed &gt;= commanded - tolerance</c>) rather
+        /// <para>POSITION must land within <see cref="RectReadBackTolerance"/>. BOTH SIZE
+        /// axes are checked as FLOORS (<c>observed &gt;= commanded - tolerance</c>) rather
         /// than as equality, because a <c>GUILayout</c> window resolves to
-        /// <c>Max(passedHeight, contentMin)</c>: a window whose content is taller than the
-        /// commanded height grows, which is the rect being applied correctly and not a
-        /// failure. The asymmetry is the whole reason this predicate is a named, tested
-        /// function instead of four inline comparisons.</para>
+        /// <c>Max(passed, contentMin)</c> on each axis independently: a window whose content
+        /// does not fit the commanded box grows, which is the rect being applied correctly
+        /// and not a failure. The asymmetry between position and size is the whole reason
+        /// this predicate is a named, tested function instead of four inline
+        /// comparisons.</para>
         ///
-        /// <para>The MAIN window is exempt from the width check as well: BOTH hosts pass a
-        /// fixed <c>GUILayout.Width(250)</c> and BOTH zero its height every frame
+        /// <para>WIDTH WAS A TWO-SIDED CHECK UNTIL THE CENSUS'S FIRST FLIGHT, on the belief
+        /// that only height grew from content. It is not a belief any more: GUI-1's
+        /// `2026-09-10_2255` answered <c>ERROR rect-not-applied window=settings
+        /// want=270,8,360,700 after=270,8,375,718</c> - the Settings window grew on BOTH
+        /// axes at once, 15 px wide and 18 px tall, to its own content minimum. One window's
+        /// content being wider than the commanded box is the same fact about the same
+        /// layout pass as its content being taller, so the two axes are now treated
+        /// identically. A window that SHRINKS below either commanded floor is still an
+        /// ERROR, which is what the floor is for: an unresolved rect reads back the
+        /// commanded value exactly, and a window the caller sized too generously must not
+        /// come back smaller than asked without saying so.</para>
+        ///
+        /// <para>The MAIN window is exempt from both size checks: BOTH hosts pass a fixed
+        /// <c>GUILayout.Width(250)</c> and BOTH zero its height every frame
         /// (<c>ParsekFlight.OnGUI</c> and <c>ParsekKSC.OnGUI</c> each open with
         /// <c>windowRect.height = 0f</c>), so only its POSITION is commandable. The applier
         /// expresses that by passing <paramref name="sizeIsHostControlled"/>.</para>
@@ -794,7 +809,7 @@ namespace Parsek.TestCommands
             if (Math.Abs(commanded.X - observed.X) > RectReadBackTolerance) return false;
             if (Math.Abs(commanded.Y - observed.Y) > RectReadBackTolerance) return false;
             if (sizeIsHostControlled) return true;
-            if (Math.Abs(commanded.W - observed.W) > RectReadBackTolerance) return false;
+            if (observed.W < commanded.W - RectReadBackTolerance) return false;
             if (observed.H < commanded.H - RectReadBackTolerance) return false;
             return true;
         }

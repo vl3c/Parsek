@@ -354,6 +354,24 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     # because the seam pump runs in Update. Neither op joins DEFERRED_SEAM_VERBS: the
     # settle is one frame, so the 60 s default is the right bound.
     "CaptureScreenshot", "UiAction",
+    # DumpGuiTree, the census's third verb. ADDITIVE (35 -> 36 implemented, reserved
+    # unchanged at 5): the reserved envelope never carried a UI-introspection verb.
+    # CaptureScreenshot gave a GUI review PIXELS; this gives it STRUCTURE, and the two
+    # are driven as a PAIR under one label. The gap is not a preference: an IMGUI window
+    # has no retained widget tree, no GameObject hierarchy and no accessibility surface,
+    # so the only artefact of a window is the pixels it drew that frame - which cannot
+    # say which rows a filter left visible, which control was disabled, what nests
+    # inside what, or which tooltip a control published. GuiTreeRecorder records exactly
+    # that for ONE Repaint pass and writes `Screenshots/<label>.gui.json`, which
+    # ARTIFACT_SHOTS_SUFFIXES already harvests alongside the PNGs and
+    # `tools/gui_tree_view.py` renders as boxes over the matching screenshot.
+    # TWO-PHASE, and not optionally: arming asks for the NEXT Repaint pass, which the
+    # recorder assembles and writes from the FOLLOWING LateUpdate, so a single-phase OK
+    # would claim a file that does not exist - and the next step would not merely race
+    # the write, it would change the very UI the pending capture is about to record.
+    # NOT a DEFERRED_SEAM_VERB: it rides the 60 s default, behind the recorder's own
+    # shorter 900-frame give-up (GuiTreeRecorder.ArmTimeoutFrames).
+    "DumpGuiTree",
 )
 
 # The M-A7 export verb, named once. Referenced by the verb/block coupling rule in
@@ -877,6 +895,15 @@ SEAM_VERB_TAIL_ROLE: Dict[str, str] = {
     #     `inert` too.
     "CaptureScreenshot": TAIL_ROLE_INERT,
     "UiAction": TAIL_ROLE_WORLD_MUTATING,
+    # DumpGuiTree is `inert`, CaptureScreenshot's row exactly: it writes ONE json under
+    # the KSP root and touches no vessel, no save, no career and no Parsek persisted
+    # state. The Harmony interceptions it installs are the one thing that could argue
+    # otherwise, and they do not - the recorder applies them at ARM and removes them when
+    # the capture flushes, every body only OBSERVES, and none of the 17 targets is a
+    # Parsek method at all (they are UnityEngine IMGUI funnels). It sits on the opposite
+    # side of this table from its census partner UiAction for the reason that row states:
+    # `op=complexity` PERSISTS a setting, and this verb persists nothing.
+    "DumpGuiTree": TAIL_ROLE_INERT,
 }
 
 # ---------------------------------------------------------------------------
@@ -1031,6 +1058,11 @@ SEAM_VERB_POST_MISSION_ROLE: Dict[str, str] = {
     # handoff.
     "CaptureScreenshot": POST_MISSION_ROLE_RECORDING,
     "UiAction": POST_MISSION_ROLE_RECORDING,
+    # DumpGuiTree is `recording` for the same reason as the pair above and is nowhere
+    # near the line: its OK means "a control tree of N nodes is on disk", a statement
+    # about instrumentation. The `outcome` set is exactly the verbs whose verdict is a
+    # claim about a KERBAL's physical in-world state that no other verifier re-derives.
+    "DumpGuiTree": POST_MISSION_ROLE_RECORDING,
 }
 
 
@@ -2059,11 +2091,17 @@ UIACTION_OPS_NEEDING_WINDOW: Tuple[str, ...] = ("open", "close", "tab", "rect")
 UIACTION_RECT_KEYS: Tuple[str, ...] = ("x", "y", "w", "h")
 
 # CaptureScreenshot's label rule, mirroring TestCommandCaptureScreenshot.IsValidLabel -
-# which is itself the harness's own filename-safe id shape (`_ID_RE`), because the label
-# becomes a filename in the harvested artifact directory.
+# the harness's own filename-safe id shape (`_ID_RE`) for the head, because the label
+# becomes a filename in the harvested artifact directory, plus one TIGHTENING at the
+# tail: no trailing `.` or `_`. That half exists because the census pairs this verb with
+# `DumpGuiTree` under ONE label and the dump's writer runs
+# `GuiTreeRecorder.SanitizeLabel`, which ends in `.Trim('.', '_')` - so `ksc-settings_`
+# would produce `ksc-settings_.png` beside `ksc-settings.gui.json`, and the verb would
+# report a path that does not exist. A trailing `-` stays legal: the sanitiser does not
+# trim one, so both sides agree on it.
 CAPTURE_LABEL_KEY = "label"
 CAPTURE_LABEL_MAX_LENGTH = 96
-_CAPTURE_LABEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+_CAPTURE_LABEL_RE = re.compile(r"^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9-])?$")
 CAPTURE_SUPERSIZE_KEY = "superSize"
 CAPTURE_SUPERSIZE_MAX = 4
 
@@ -2088,7 +2126,9 @@ def validate_capture_screenshot_step(index: int, step_args: Dict) -> List[str]:
         if not _CAPTURE_LABEL_RE.match(text) or len(text) > CAPTURE_LABEL_MAX_LENGTH:
             errors.append(
                 "driver.steps[%d].args.%s: %r is not filename-safe (must start "
-                "alphanumeric, then alphanumerics / . / - / _ only, max %d chars). The "
+                "alphanumeric, then alphanumerics / . / - / _ only, must not END in a "
+                "'.' or a '_' - the dump writer's sanitiser trims those, so the two "
+                "census verbs would disagree about the filename - max %d chars). The "
                 "label becomes a file in the harvested artifact directory, so the seam "
                 "is fail-closed and answers REJECTED label-arg-invalid"
                 % (index, CAPTURE_LABEL_KEY, text, CAPTURE_LABEL_MAX_LENGTH))
@@ -2101,6 +2141,41 @@ def validate_capture_screenshot_step(index: int, step_args: Dict) -> List[str]:
                 "REJECTS anything else rather than clamping, because a typo that "
                 "silently captured at 1x would read as a resolution problem"
                 % (index, CAPTURE_SUPERSIZE_KEY, text, CAPTURE_SUPERSIZE_MAX))
+    return errors
+
+
+def validate_dump_gui_tree_step(index: int, step_args: Dict) -> List[str]:
+    """Pre-launch shape checks for one ``DumpGuiTree`` step.
+
+    ``label=`` is REQUIRED and filename-safe, the SAME rule as
+    ``CaptureScreenshot``'s - which is what the C# side does too, by DELEGATING to that
+    verb's predicate rather than restating it. A census pairs one dump with one PNG under
+    one label, so a label one verb accepted and the other refused would leave a picture
+    with no control tree beside it, and the fault would only surface as a typed REJECTED
+    after a whole KSP boot.
+
+    ``label`` is deliberately NOT a ``VERB_SCOPED_CLOSED_ARGS`` row, for the reason
+    ``validate_capture_screenshot_step`` states: ``MissionMark`` already owns that arg
+    name and that table asserts a single owner verb per key. The verb takes NO other arg -
+    there is no ``superSize`` counterpart, because a dump has no resolution."""
+    errors: List[str] = []
+    raw = step_args.get(CAPTURE_LABEL_KEY)
+    if raw is None:
+        errors.append(
+            "driver.steps[%d].args.%s: DumpGuiTree REQUIRES it - the label is the dump's "
+            "filename and the verb has no default, so the seam answers REJECTED "
+            "label-arg-missing" % (index, CAPTURE_LABEL_KEY))
+    else:
+        text = str(raw)
+        if not _CAPTURE_LABEL_RE.match(text) or len(text) > CAPTURE_LABEL_MAX_LENGTH:
+            errors.append(
+                "driver.steps[%d].args.%s: %r is not filename-safe (must start "
+                "alphanumeric, then alphanumerics / . / - / _ only, must not END in a "
+                "'.' or a '_' - the dump writer's sanitiser trims those, so the two "
+                "census verbs would disagree about the filename - max %d chars). The "
+                "label becomes a file in the harvested artifact directory, so the seam "
+                "is fail-closed and answers REJECTED label-arg-invalid"
+                % (index, CAPTURE_LABEL_KEY, text, CAPTURE_LABEL_MAX_LENGTH))
     return errors
 
 
@@ -4262,6 +4337,8 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
             errors.extend(validate_capture_screenshot_step(i, step_args))
         elif cmd == "UiAction":
             errors.extend(validate_ui_action_step(i, step_args))
+        elif cmd == "DumpGuiTree":
+            errors.extend(validate_dump_gui_tree_step(i, step_args))
         # R10 STATIC tier, pass 2 of 2: every ${ref.field} in this step's args must
         # be well-formed AND name an EARLIER seam step that expects OK. A fault here
         # would otherwise put a literal ${...} on the wire, where the seam resolves an

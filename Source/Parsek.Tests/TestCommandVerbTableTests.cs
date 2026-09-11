@@ -48,6 +48,7 @@ namespace Parsek.Tests
         [InlineData("WarpToUT")]
         [InlineData("CaptureScreenshot")]
         [InlineData("UiAction")]
+        [InlineData("DumpGuiTree")]
         public void ImplementedVerbs_ClassifyImplemented(string verb)
         {
             Assert.Equal(TestCommandVerbClass.Implemented, TestCommandVerbs.Classify(verb));
@@ -135,7 +136,14 @@ namespace Parsek.Tests
             // arranges what is in it - and folding the arrangement into a capture arg would
             // put an unbounded op vocabulary on a verb whose payload a reader parses for a
             // path and a byte count.
-            Assert.Equal(35, TestCommandVerbs.ImplementedVerbNames.Count);
+            // DumpGuiTree is ADDITIVE for the same reason once more (35 -> 36; reserved
+            // unchanged at 5): the reserved envelope never carried a UI-introspection
+            // verb, and it is not a promotion of any reserved name. It is deliberately
+            // NOT folded into CaptureScreenshot as an arg: the two produce different
+            // artefacts (pixels vs an IMGUI control tree), a census drives them as a PAIR
+            // under one label, and a reader of the response line has to be able to say
+            // which artefact a step produced.
+            Assert.Equal(36, TestCommandVerbs.ImplementedVerbNames.Count);
             Assert.Equal(5, TestCommandVerbs.ReservedVerbNames.Count);
         }
 
