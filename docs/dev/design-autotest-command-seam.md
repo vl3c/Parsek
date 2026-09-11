@@ -2005,10 +2005,11 @@ could disagree.
 IT DOES NOT HOLD THE DIALOG OPEN, and nothing needs to: a `PopupDialog` stands until
 something dismisses it, and the only dismissers are its own buttons, Esc, and
 `MergeDialog.DismissAndClearPendingFlag` - none of which the seam presses between a report
-and a capture. Ownership is a NAME-PREFIX scan (`Parsek`) rather than a list of the 21
-spawn sites: a list would go stale the first time a dialog was added, and its failure mode
-is "no dialog open" reported over a live modal, the worst possible answer from a verb whose
-job is to say what is on screen. `count=` is separate from `nbuttons=` so a reader can see
+and a capture. Ownership is a NAME-PREFIX scan (`Parsek`) rather than a list of the
+twenty-odd spawn sites: a list would go stale the first time a dialog was added, and its
+failure mode is "no dialog open" reported over a live modal, the worst possible answer from
+a verb whose job is to say what is on screen. The scan's own cost is that the PREFIX has to
+be there on every site. `count=` is separate from `nbuttons=` so a reader can see
 that a two-modal state was reported as one arbitrarily; Parsek's own contract is that at
 most one stands, so `count > 1` is itself a finding.
 
@@ -2070,6 +2071,21 @@ everything). `op=target`:
 "no dialog is up" needs a key to assert on. `AnswerMergeDialog` gains
 `REJECTED dialog-arg-invalid` (message carries the valid set).
 
+**REVIEW FOLLOW-UPS (2026-09-11).** Found reviewing the six ops above.
+
+1. **The find-then-pointer chain did not validate.** `hlib.validate_ui_action_step` ran its
+   per-value SHAPE checks (`x`/`y`/`w`/`h` as dot-decimal, `index` as an integer, `key` as
+   `<prefix>:<value>`, and the two label verbs' filename regex) on the value as AUTHORED -
+   before run.py's `substitute_step_args` replaces an R10 `${step.field}` with the
+   referenced payload field. So `op=pointer x=${f1.cx} y=${f1.cy}` - the chain this
+   document documents - was a PRE-LAUNCH validation error with no workaround. The rule now:
+   a per-value shape check is SKIPPED when `hlib.value_is_handle_templated(value)`, and
+   nothing else changes. Requiredness still applies (a templated `x` with no `y` is still
+   `pointer-arg-missing`), the token is still checked by the R10 static pass (malformed
+   `${}`, and a ref naming a later or non-OK step), and the CLOSED-VALUE rows (`op=`,
+   `window=`, `ctrl=`, `state=`, `park=`, `dialog=`) stay fail-closed on purpose: those
+   vocabularies are fixed at authoring time, so a handle in one would mean a spec that does
+   not know which op it is running.
 **THE SETTLE'S HOST-VISIBILITY GATE (`window-host-hidden`).** A frame count says a frame
 HAPPENED, never that this window was in it. Both hosts gate the WHOLE Parsek surface
 behind their own `showUI` - `ParsekKSC.OnGUI` returns at `if (!showUI) return;` (`:229`,

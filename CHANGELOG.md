@@ -10,6 +10,12 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Automated testing: pointing at a control by its label and then moving the mouse
+  there was refused before a run even started.** That pairing is the exact reason the
+  feature exists, and the check that a step's coordinates are numbers ran on the text of
+  the step rather than on the coordinates the earlier step answers with - so the only way
+  to write the chain was rejected as malformed. Nothing a player sees is affected.
+
 - **Automated testing: a test run can now hover, point at a control by its label, and
   open the parts of a window that only appear after a click.** The screenshot work below
   photographed Parsek's windows; going through every surface the mod can put on screen

@@ -2187,6 +2187,38 @@ CAPTURE_SUPERSIZE_KEY = "superSize"
 CAPTURE_SUPERSIZE_MAX = 4
 
 
+def value_is_handle_templated(value) -> bool:
+    """True when a step-arg value carries at least one well-formed ``${ref.field}``.
+
+    THE RULE THIS EXPRESSES, and it is one rule for every per-value SHAPE check in
+    every verb validator below: a shape check reads the value as AUTHORED, and an R10
+    handle reference is not the value - it is a placeholder run.py replaces with the
+    referenced step's payload field before the args reach the wire
+    (``substitute_step_args``). So a shape check run over the authored text is asking
+    whether ``${f1.cx}`` is a dot-decimal number, and the answer is no for every
+    well-formed reference there is. Left in, it makes the documented find-then-pointer
+    chain (``op=find`` -> ``op=pointer x=${f1.cx} y=${f1.cy}``) a PRE-LAUNCH validation
+    error, which is to say unwritable.
+
+    WHAT STILL CHECKS THE TOKEN, so the skip is a deferral and not a hole. The R10
+    STATIC pass (pass 2 of 2 in ``validate_spec``) runs over the same arg table and
+    (a) rejects every ``${...}`` that is not a well-formed reference
+    (``find_malformed_handle_tokens``), and (b) rejects a reference naming a step that
+    is not an EARLIER seam step expecting OK (``handle_ref_fault``). At run time
+    ``substitute_step_args`` refuses to put an unresolved token on the wire. What is
+    NOT checked is the SHAPE of the substituted value - which is exactly right, because
+    it is a payload field the seam itself produced (``cx`` is formatted ``F0`` from a
+    float) and the harness has no authored text to judge.
+
+    DELIBERATELY NOT APPLIED to the CLOSED-VALUE rows (``VERB_SCOPED_CLOSED_ARGS``:
+    ``op=``, ``window=``, ``ctrl=``, ``state=``, ``park=``, ``dialog=``, ...). Those
+    vocabularies are fixed at authoring time and small enough to write out, so a
+    handle there would mean a spec that does not know which op it is running; the
+    closed-set check stays fail-closed for them on purpose.
+    """
+    return bool(find_handle_refs(value))
+
+
 def validate_capture_screenshot_step(index: int, step_args: Dict) -> List[str]:
     """Pre-launch shape checks for one ``CaptureScreenshot`` step.
 
@@ -2202,7 +2234,7 @@ def validate_capture_screenshot_step(index: int, step_args: Dict) -> List[str]:
             "driver.steps[%d].args.%s: CaptureScreenshot REQUIRES it - the label is the "
             "capture's filename and the verb has no default, so the seam answers "
             "REJECTED label-arg-missing" % (index, CAPTURE_LABEL_KEY))
-    else:
+    elif not value_is_handle_templated(raw):
         text = str(raw)
         if not _CAPTURE_LABEL_RE.match(text) or len(text) > CAPTURE_LABEL_MAX_LENGTH:
             errors.append(
@@ -2213,7 +2245,8 @@ def validate_capture_screenshot_step(index: int, step_args: Dict) -> List[str]:
                 "label becomes a file in the harvested artifact directory, so the seam "
                 "is fail-closed and answers REJECTED label-arg-invalid"
                 % (index, CAPTURE_LABEL_KEY, text, CAPTURE_LABEL_MAX_LENGTH))
-    if CAPTURE_SUPERSIZE_KEY in step_args:
+    if (CAPTURE_SUPERSIZE_KEY in step_args
+            and not value_is_handle_templated(step_args.get(CAPTURE_SUPERSIZE_KEY))):
         text = str(step_args.get(CAPTURE_SUPERSIZE_KEY))
         ok = text.isdigit() and 1 <= int(text) <= CAPTURE_SUPERSIZE_MAX
         if not ok:
@@ -2246,7 +2279,7 @@ def validate_dump_gui_tree_step(index: int, step_args: Dict) -> List[str]:
             "driver.steps[%d].args.%s: DumpGuiTree REQUIRES it - the label is the dump's "
             "filename and the verb has no default, so the seam answers REJECTED "
             "label-arg-missing" % (index, CAPTURE_LABEL_KEY))
-    else:
+    elif not value_is_handle_templated(raw):
         text = str(raw)
         if not _CAPTURE_LABEL_RE.match(text) or len(text) > CAPTURE_LABEL_MAX_LENGTH:
             errors.append(
@@ -2268,7 +2301,16 @@ def validate_ui_action_step(index: int, step_args: Dict) -> List[str]:
     each op's own required args are checked against it. The CLOSED-VALUE half of
     ``op`` / ``window`` / ``mode`` is handled by ``VERB_SCOPED_CLOSED_ARGS``; this
     function owns the per-op REQUIREDNESS and the window-dependent ``tab`` vocabulary,
-    neither of which that flat table can express."""
+    neither of which that flat table can express.
+
+    Every per-value SHAPE check here (``x`` / ``y`` / ``w`` / ``h`` as dot-decimal
+    numbers, ``index`` as a non-negative integer, ``key`` as a known
+    ``<prefix>:<value>``) is SKIPPED for a value carrying an R10 handle reference - see
+    ``value_is_handle_templated`` for the rule and for what still checks the token.
+    Without the skip the documented ``op=find`` -> ``op=pointer x=${f1.cx}
+    y=${f1.cy}`` chain is a pre-launch validation error, which is to say unwritable.
+    REQUIREDNESS is unaffected: a templated value is still a value, so a step that
+    names ``x`` and not ``y`` is still ``pointer-arg-missing``."""
     errors: List[str] = []
     op = step_args.get(UIACTION_OP_KEY)
     if op is None:
@@ -2343,7 +2385,7 @@ def validate_ui_action_step(index: int, step_args: Dict) -> List[str]:
                 "first node in the window, which is never what a lane meant"
                 % (index, UIFIND_TEXT_KEY))
         raw_index = step_args.get(UIFIND_INDEX_KEY)
-        if raw_index is not None:
+        if raw_index is not None and not value_is_handle_templated(raw_index):
             text = str(raw_index)
             if not text.isdigit():
                 errors.append(
@@ -2386,7 +2428,7 @@ def validate_ui_action_step(index: int, step_args: Dict) -> List[str]:
                         "seam answers REJECTED expand-state-with-bulk-key rather than "
                         "letting the token win silently"
                         % (index, str(key), UIACTION_STATE_KEY))
-            else:
+            elif not value_is_handle_templated(key):
                 text = str(key)
                 head = text.split(":", 1)[0] if ":" in text else None
                 if head is None or head not in prefixes or text.endswith(":"):
@@ -2467,7 +2509,7 @@ def validate_ui_action_step(index: int, step_args: Dict) -> List[str]:
                 "half-move" % index)
         for key in ("x", "y"):
             raw = step_args.get(key)
-            if raw is None:
+            if raw is None or value_is_handle_templated(raw):
                 continue
             try:
                 float(str(raw))
@@ -2491,7 +2533,7 @@ def validate_ui_action_step(index: int, step_args: Dict) -> List[str]:
                 % (index, ",".join(UIACTION_RECT_KEYS), ",".join(missing)))
         for key in UIACTION_RECT_KEYS:
             raw = step_args.get(key)
-            if raw is None:
+            if raw is None or value_is_handle_templated(raw):
                 continue
             try:
                 float(str(raw))

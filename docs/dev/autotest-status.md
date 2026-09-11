@@ -75,7 +75,21 @@ comment NAMES the two ops deliberately absent from the set.
 
 Counts after this wave: 36 implemented verbs / 5 reserved (UNMOVED - every addition is an
 op or an arg), `UiAction` at 12 ops of which 7 are two-phase, `VERB_SCOPED_CLOSED_ARGS` at
-12 rows (from 8).)
+12 rows (from 8).
+
+REVIEW PASS 2026-09-11, same branch, NO NEW VERB OR OP. Full narrative:
+`design-autotest-command-seam.md` -> "REVIEW FOLLOW-UPS (2026-09-11)".
+
+1. **The documented find-then-pointer chain did not validate.** Every per-value SHAPE
+   check in `validate_ui_action_step` (and the two label verbs') ran on the value as
+   AUTHORED, before run.py's `substitute_step_args` resolves an R10 `${step.field}` - so
+   `op=pointer x=${f1.cx} y=${f1.cy}` was a pre-launch validation error with no
+   workaround. Those checks now skip a handle-templated value
+   (`hlib.value_is_handle_templated`); requiredness, the R10 static pass and the
+   closed-value rows are untouched, and the closed rows stay fail-closed BY DECISION.
+   Six hlib cells, including the mirror direction (a malformed literal beside a handle
+   still reds, and a malformed `${f1cx}` buys no exemption).
+)
 
 Previously: 2026-09-11 (**THE GUI CENSUS FLEW, AND THE GUI-TREE INTERCEPTION LAYER IS
 PROVEN**, branch `gui-census-dump`. Four runs on this branch's DLL:
