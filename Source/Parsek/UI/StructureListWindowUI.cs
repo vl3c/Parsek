@@ -23,6 +23,21 @@ namespace Parsek
 
         private bool isOpen;
         private Rect windowRect;
+        /// <summary>
+        /// The live window rect, readable and writable from outside the draw pass.
+        /// <para>Two consumers: an in-game test that needs the measured rect, and the
+        /// automation-only <c>UiAction op=rect</c> seam op, which places and enlarges a
+        /// window so one capture shows more rows than the default size fits. Writing it is
+        /// safe before the first draw as well as after: <c>DrawIfOpen</c> only seeds its
+        /// default when <c>width &lt; 1</c>, so a commanded rect suppresses the seed rather
+        /// than being overwritten by it.</para>
+        /// </summary>
+        internal Rect WindowRectForTesting
+        {
+            get { return windowRect; }
+            set { windowRect = value; }
+        }
+
         private bool hasInputLock;
         private bool isResizing;
         private Vector2 scrollPos;

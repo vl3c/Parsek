@@ -242,6 +242,12 @@ namespace Parsek
         internal Rect WindowRectForTesting
         {
             get { return settingsWindowRect; }
+            // Settable like every sibling window's accessor, for the automation-only
+            // UiAction op=rect seam op. Note this window's HEIGHT is advisory: a
+            // pending height re-measure deliberately hands GUILayout a zero-height
+            // rect for one Layout pass, so a commanded height is a floor and not a
+            // pin (which is why the seam's read-back checks height as a floor).
+            set { settingsWindowRect = value; }
         }
 
         internal void ReleaseInputLock()

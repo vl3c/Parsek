@@ -273,21 +273,27 @@ closed V3C). It supersedes the ORDER implied by the Build-order tiers and the
 per-program sequencing notes below; those sections stay the DEFINITIONS of the
 items and the record of why. Re-derive before acting: `ls harness/scenarios/*.toml`
 (245 at `659be2a68`), `hlib.compute_coverage` (170 of 248 cells, 78 uncovered), and the category
-inventory (**112 of 112 categories driven, 623 of 623 declarations - the in-game
-coverage axis is CLOSED**; re-derived 2026-09-09 at `659be2a68` with
-`hlib.parse_ingame_test_declarations` over every `.cs` under `Source/Parsek`, and the
-623 is 621 plus the two cells this branch's program added to categories that were
-already driven - #1662's optimizer-split regression cell in `Rewind` and the
-predicted-tail draw-decision cell in `MapRender`, so the axis stays closed;
-#1650 took it to 110 by closing `Contracts`,
+inventory (**112 of 113 categories driven, 623 of 624 declarations - the in-game
+coverage axis is CLOSED except for the one row the 2026-09-10 GUI-tree dump spike
+added, `GuiTree`, which wants a `RunTests` step and nothing else**; this
+112-of-113 / 623-of-624 pair was re-derived 2026-09-10 on the `gui-dump-spike`
+branch with `hlib.parse_ingame_test_declarations` over every `.cs` under
+`Source/Parsek`. The 2026-09-09 reading at `659be2a68` gave 112 of 112 / 623 of
+623 and predates the `GuiTree` row entirely, so it is NOT the provenance for these
+numbers. That 623 is 621 plus the two cells the re-fly program added to categories
+that were already driven - #1662's optimizer-split regression cell in `Rewind` and
+the predicted-tail draw-decision cell in `MapRender` - neither of which moved the
+axis; #1650 took it to 110 by closing `Contracts`,
 `RouteLiveAnchor`, `ResourceTopBar` and `PartEventFX`, and the 2026-09-08 wave closed
 the last two by refuting the "host-blocked" reading on both - `CrewReservationLive`
 joined `LT-4-long-tail-route-flight` because a RECORDED store carries the spawned pid
 no injected corpus does, and `DisabledHoverEcho` joined `LT-1-long-tail-flight`
 because the test process can move the OS pointer even though no seam verb can. What
-remains on this axis is ONE named cell,
+remains on this axis is TWO items: the named cell
 `RuntimeTests.EvaKerbalGhostHasVesselSnapshot`, which wants a crewed craft FLYING low
-over terrain and which no seam verb lofts). STANDING 2026-09-08, end of day: item 1
+over terrain and which no seam verb lofts, and - since 2026-09-10 - the whole
+`GuiTree` category, which wants only a `RunTests` step, item 12 below).
+STANDING 2026-09-08, end of day: item 1
 SHIPPED (#1653); items 2 and 3 are in flight in separate sessions (branches
 `chain-interaction` and `ghost-replay-tier-a`); the promotion calls in item 7 are DONE
 (#1652). "What remains, by product area" above is the per-dimension reading behind
@@ -495,6 +501,31 @@ remains is, in order:
     that moves `hlib.compute_coverage` and every number derived from it. Definitions,
     evidence and the per-lane readings: "The re-fly continuation program (RF-1..RF-12)"
     below.
+12. **Drive the `GuiTree` category, and take the measurement its first flight IS**
+    (2026-09-10, the GUI-tree dump spike). One `RunTests` step on any existing host
+    re-closes the in-game category axis at 113 of 113 / 624 of 624: the cell needs no
+    fixture, no scene and no seam verb, because it draws its own probe window. Cheap
+    enough to batch with item 7, and ranked last only because it buys a doc number
+    rather than product risk - EXCEPT that the flight also settles four premises
+    nothing else can, which is the real reason to fly it: whether Harmony's
+    interception of private UnityEngine IMGUI methods fires at all or Mono inlined it,
+    whether `GUIUtility.GUIToScreenRect` converts correctly inside a `GUI.Window`
+    callback, whether a scroll view's clip offset reaches that conversion, and whether
+    the `GUIClip` / `GUILayoutGroup` reflection probes resolve. The cell is BUILT to
+    answer them: Begin/End funnel parity on the pairs whose BOTH sides are too large to
+    inline (`BeginLayoutGroup`/`EndLayoutGroup`, `BeginScrollView`/`EndScrollView`)
+    detects an inlined End there, exact per-kind counts inside the probe's own subtree
+    detect a missing control kind, and every failure message prints what it measured.
+    `GUI.BeginGroup`/`GUI.EndGroup` and `autoClosedByClip` are deliberately READINGS on
+    the PASS line rather than assertions - the 14-byte End is EXPECTED to be inlined and
+    the clip-depth rule is its designed fallback - as is `clipProbe=`, which names whether
+    the per-event clip probe bound as a delegate or fell back to `MethodInfo.Invoke`. EXPECT A RED OR A SKIP ON ATTEMPT 1 and read it
+    as a reading: every exact pin is a prediction from decompiled source, and the cell
+    self-skips if no Repaint reaches its probe window within 240 frames. Nothing else
+    in the harness consumes a dump yet - the harvest and the offline viewer are
+    wired and idle. Filed as GUITREE-INTERCEPTION-LAYER-NEVER-RUN in
+    `todo-and-known-bugs.md`; premises in `design-gui-tree-dump.md` -> "What is
+    unproven".
 
 Decisions owed rather than work: ~~keep or delete `bdock-station-craft`~~ DECIDED
 2026-09-08, KEEP (it is the clean operator-build base `bdock-station-pad` was stamped
@@ -1802,9 +1833,15 @@ so this item's remaining work has left the batch mechanism entirely.~~ A THIRD C
 (2026-09-08, scratch CEN-8..CEN-12) closed both without leaving the batch mechanism at
 all: `CrewReservationLive` is LT-4's fourth constituent (a recorded store carries the
 spawned pid; no injected corpus does) and `DisabledHoverEcho` is LT-1's 31st (the cell
-places the OS pointer itself). The item is CLOSED at 112 of 112 categories, and both
+places the OS pointer itself). The item was CLOSED at 112 of 112 categories, and both
 "no host closes it" claims were bounds on which hosts had been asked and on which
-layer could move a pointer.
+layer could move a pointer. RE-OPENED BY ONE ROW 2026-09-10: the GUI-tree dump
+spike added the `GuiTree` category (1 scene-agnostic, batch-safe cell), so the axis
+reads 112 of 113 / 623 of 624 until some lane runs that category. It needs no
+fixture and no seam verb, so it is a spec edit rather than a census - but "any
+committed host executes it" is a PREDICTION, not a reading: the cell self-skips if
+its own probe window sees no IMGUI Repaint pass within 240 frames, and nothing has
+measured that in any scene. Item 12 below carries the work.
 Flight? ALL SIX FLOWN 2026-09-07 AND GREEN ON ATTEMPT 1. The first pair are LT-1
 (`2026-09-07_1511`) and LT-2 (`_1516`); the second wave flew the same evening -
 LT-1's 30-constituent re-pin `2026-09-07_2030` (292 s), LT-3 `_2035` (64 s), LT-4

@@ -1,0 +1,22 @@
+# OPERATOR-LOCAL fixture saves (never committed).
+#
+# A lane whose host needs real DENSITY rather than a shape - the GUI census walks every
+# Parsek window and photographs it, and a window with no rows photographs as an empty
+# box - names its template under `fixtures/local-saves/<leaf>` and the operator fills it
+# from a save he already has:
+#
+#   python harness/tools/stage_local_fixture.py --from "<KSP>/saves/c1" --as c1-gui
+#
+# The bytes stay local (tens of MB, and the content is a personal career), so every
+# committed suite must stay green with the directory EMPTY - which is what the
+# `fixtures/local-saves/` prefix buys: hlib.is_local_fixture_template classifies such a
+# template from its path, and the per-spec cells that read a template off disk skip it.
+#
+# WHY THIS IS NOT A `fixtures/saves/` ENTRY: test_saveparse's committed-set sweep lists
+# the DIRECTORIES under fixtures/saves/ and compares them to a pinned set, so a staged
+# local fixture there would red that cell on the one machine that can fly the lane.
+#
+# This file and the README beside it are the only committed contents.
+*
+!.gitignore
+!README.md

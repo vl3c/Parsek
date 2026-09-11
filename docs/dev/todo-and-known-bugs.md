@@ -15,6 +15,241 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## U1-GUI-CENSUS-LOCAL-HOST-REDS-THE-ANALYZER: the GUI census's only viable host carries 25 pre-existing analyzer FAILs; the lanes now declare the analyzer row REPORT-ONLY, and what those 25 findings ARE is still open
+
+MEASURED 2026-09-10 while authoring the GUI census (branch `gui-census`), not predicted.
+The offline analyzer over the operator's `c1` career - the lane's host, staged as
+`fixtures/local-saves/c1-gui` - reports `save=c1 generation=4 FAIL=25 WARN=6 INFO=3
+STALE=0 BASELINED=0 RED=1`. All 25 FAILs are `INV2-NO-DOUBLE-COVER` (overlapping section
+spans) across seven recordings, plus six `INV2-UNCOVERED-SPAN` / `INV11-EMPTY-SECTION`
+warnings. The run was taken read-only, with `-ResultsDir` pointing outside the save, so
+the operator's save was not touched; its own committed `analysis/c1.analysis.txt` from
+2026-08-11 reads `RED=1` too, so this is not new.
+
+WHY IT BLOCKS A CENSUS. `run.py` always invokes `analyze-recordings.ps1` with
+`-FailOnRed`, so a GATING analyzer row would classify both census lanes
+`PARSEK-FAIL(analyzer)` on findings that predate them by months and that the census
+neither causes nor observes - it takes screenshots of windows.
+
+WHAT SHIPPED, AND WHY THIS ROUTE. Both lanes declare
+`[expectations.analyzer] gating = false`: the analyzer still runs and its verdict is
+still recorded (`status = "REPORT"` with `verdictStatus` / `red` / `subkind` / `topRule`
+beside it), but it neither short-circuits the verifier chain nor reaches
+`classify_verdict`. The declaring set is pinned by `ANALYZER_REPORT_ONLY_ALLOWLIST` in
+`harness/lib/test_hlib.py`; contract in `design-autotest-harness-core.md`, verifier 3.
+
+THE DECLARATION DEMOTES FINDINGS ONLY. An analyzer `INVALID` still gates and still
+short-circuits (`hlib.analyzer_report_only_covers`): `analyzer-error` (no terminal
+`RED=` token), `tooling` (the subprocess timed out twice), `fixture-authoring` /
+`fixture-stale` (`BASELINE-FORBIDDEN`, or a baseline nothing matches). Those are
+statements about the analyzer RUN rather than about the 25 findings this entry is about,
+and the fixture pair is the one these two lanes are most exposed to - they are the specs
+staging a local fixture. The first cut of the fold returned REPORT before it looked at
+the verdict at all, so a wedged analyzer or a mis-staged fixture would have greened the
+lane; fixed 2026-09-10 in the same branch.
+
+The first draft used `[expectedFail] subkind = "analyzer"` instead, and THAT WAS WRONG in
+a way worth recording, because it looks strictly safer and is not: `run.py`'s verifier
+chain SHORT-CIRCUITS on a non-PASS analyzer, so a quarantined lane had every LATER row
+SKIPPED - `logValidate`, `testResults`, `anomalySweep`, `unityExceptions`,
+`expectations` (its log contracts included), `saveParse`, `renderCompose`,
+`ghostLifecycle`, `ledgerOracle`. A census that captured ZERO screenshots would have read
+EXPECTED-FAIL - green - while its own spec header and the status doc claimed those
+contracts "pin" the capture lines. The quarantine did not weaken one gate; it deleted all
+of them. Turning one row off is the smaller loss, and it is the only one that leaves the
+lane gated on anything.
+
+A FINDINGS BASELINE WAS NEVER A ROUTE, which the first draft listed as an option it was
+not: `run.py` hard-codes `-FreshSaveGate`, and `analyze-recordings.ps1` REFUSES
+`-UseBaseline` / `-WriteBaseline` together with it (they are three incompatible modes),
+so the host's own hand-written `analysis/baseline.cfg` could not have been consulted even
+if it were staged. It is not staged either: `stage_local_fixture.py` now drops the
+top-level `analysis/` directory unconditionally, because under Forbid mode a staged
+`baseline.cfg` is itself a `BASELINE-FORBIDDEN` FAIL -> `INVALID(fixture-authoring)`.
+
+WHAT IS STILL OPEN, and it is a question about the FINDINGS rather than about the lanes:
+are the 25 `INV2-NO-DOUBLE-COVER` overlaps a real recorder defect from an earlier era?
+They are on recordings months old, on a save that has been through many builds, and
+nothing has ever looked at them. If they are real, they are worth a todo of their own; if
+they are an artifact of a since-changed writer, the report-only row is the right permanent
+answer for a census host. Either way that reading is an investigation, not a re-run, and
+the census lanes are no longer blocked on it.
+
+## GUI-CENSUS-STRUCTURE-WINDOW-HAS-NO-DRIVEABLE-TARGET: the Structure List window can be opened by the seam but not POPULATED, so the census photographs its empty chrome
+
+NOTED 2026-09-10 while authoring the GUI census. `StructureListWindowUI` is retargeted
+through `OpenForMission(treeId, title)` / `OpenForRoute(routeId, title)`, both reached
+from a row inside the Missions or Logistics window. `UiAction op=open window=structure`
+raises its `IsOpen` and the window draws, but with `mode = TargetMode.None` and no
+`targetId` it renders the empty "Parsek - Structure" chrome - so `GUI-1-census-ksc`'s
+`ksc-structure-advanced` capture shows a window with no content.
+
+NOT A DEFECT and deliberately not faked: the seam has no row-click op, and inventing one
+that reached into a mission or route id would be a second, weaker owner of a retarget
+that the two production entry points already own. The honest fix, when a review wants
+that window's populated form, is an ADDITIVE `UiAction op=target` (or a `target=` arg on
+`op=open`) that calls those two internal methods with an id a spec names - or, cheaper,
+a `${step.field}` handle off a `ListHandles kind=committed` row. Left as a follow-up with
+the shape written down rather than as a silent thin capture.
+
+## GUI-CENSUS-TWO-WINDOWS-EXCEED-THE-INSTANCE-WIDTH: the Missions and Logistics windows are laid out wider than the harness profile's screen, so their census captures leave their right-hand columns off screen
+
+MEASURED 2026-09-10 off the window sources rather than off an image (the lanes have never
+flown). `RecordingsTableUI` is laid out for 1355 px - the width its `TooltipEchoBox`
+single-line budget is calculated against - and `LogisticsWindowUI` declares
+`MinWindowWidth = 1410` with a first-open default of 1556. The `stock-minimal` profile
+runs KSP at 1280x720.
+
+WHAT A NARROWER WINDOW ACTUALLY DOES, per surface - the earlier wording here said "no
+horizontal scroll view, so it clips", and the source says otherwise. The WINDOW itself
+does not scroll, so anything drawn directly in it is clipped. In `RecordingsTableUI` that
+is the FIXED HEADER ROW: `DrawRecordingsTableHeader` runs outside the scroll view
+(`RecordingsTableUI.cs:1647`), and the table BODY under it is wrapped in
+`BeginScrollView(recordingsScrollPos, false, true, ...)` (`:1650-1651`) whose
+`alwaysShowHorizontal = false` means show-if-needed, i.e. a horizontal bar appears once
+the rows are wider than the view. `LogisticsWindowUI` wraps its whole section stack -
+per-section headers included - in the options-only overload (`:541`), which defaults to
+the same show-if-needed behaviour on both axes. So the visible result is the same for a
+reviewer (only the left-hand columns are on screen) but the body's columns are REACHABLE
+behind a bar rather than gone, and only the Missions header is truly clipped.
+(`ParsekUI.HandleResizeDrag` enforces the 1410 minimum only DURING a resize drag, so the
+seam's direct rect write is not clamped up - which is what lets the census command 1280
+at all.)
+
+WHAT SHIPPED. `GUI-1-census-ksc` and `GUI-2-census-flight` command both windows to
+`x = 0 w = 1280`, the whole instance width and therefore the smallest shortfall this
+profile can produce: 75 px for Missions, 130 px for Logistics against its minimum. At that width
+the sub-window also covers the main window, which is unavoidable - every sub-window draw
+in both hosts sits inside the host's `showUI` gate, so the main window cannot be closed
+while a sub-window is being photographed.
+
+THE OPTIONS, none free, which is why this is filed rather than fixed: (1) run the
+provisioned instance at a wider resolution for these two lanes - a per-profile screen size
+the provisioner does not model today, and one that changes what every OTHER lane on that
+profile photographs; (2) capture with `superSize = 2`, which Unity implements by
+re-rendering through the cameras, and screen-space IMGUI is not guaranteed to survive that
+- it could drop the very windows the census exists to photograph, so it needs a flight to
+prove before a lane relies on it; (3) accept it and read the two windows' right-hand
+columns from the source. A GUI review of the images is the natural moment to decide, since
+it is the reviewer who finds out whether the off-screen columns mattered.
+
+## GUITREE-INTERCEPTION-LAYER-NEVER-RUN: the GUI-tree dump's Harmony interception of the UnityEngine IMGUI funnels has never executed inside KSP, so four premises the whole design rests on are unmeasured [Filed 2026-09-10 on branch `gui-dump-spike`. Code green, NOT YET FLOWN - and unlike the usual entry in this style, what is unflown is not a fix but the FEATURE]
+
+The pure half is fully covered headlessly (the assembler, the JSON writer, the geometry
+derivations, funnel-signature resolution, the opt-in patch gate) and the whole design is
+reasoned from the decompiled `UnityEngine.IMGUIModule`. Nobody has started the game and
+taken a capture, because the spike's author cannot launch it. Full statement of each
+premise: `docs/dev/design-gui-tree-dump.md` -> "What is unproven".
+
+WHAT ONLY A FLIGHT SETTLES:
+
+1. **Mono inlining.** Harmony rewrites a method; Mono's inliner reads a callee's IL from
+   metadata rather than through the detour, so a small callee can still be inlined into a
+   caller JITted after the patch. The exposed targets are `GUI.EndGroup` (14 bytes of IL),
+   `GUI.DoWindow` (26), `GUI.DoButton` (33) and `GUI.DoToggle` (34). Each has a designed
+   fallback, and the dump's `funnels` block plus the live cell's Begin/End parity
+   assertions exist to NAME a bypass rather than survive it quietly. The parity assertions
+   cover only the pairs whose BOTH sides are too large to inline
+   (`BeginLayoutGroup`/`EndLayoutGroup`, `BeginScrollView`/`EndScrollView`);
+   `BeginGroup`/`EndGroup` and `autoClosedByClip` are READINGS on the PASS line, because
+   an assertion there would red on the clip-depth fallback working as designed.
+2. **`GUIUtility.GUIToScreenRect` inside a `GUI.Window` callback.** Both endpoints bottom
+   out in native ICalls, so this cannot be settled by reading the assembly. The recorder
+   keeps `localRect` beside `rect` as the instrument, and `GuiTreeGeometry.Inspect` turns
+   a disagreement into a named failure.
+3. **Whether a scroll view's clip scroll offset reaches that conversion.** The live cell
+   measures a deliberately scrolled row against its own viewport; nothing else in the
+   design exercises it.
+4. **The reflection probes** - `GUIClip.Internal_GetCount` for clip depth,
+   `GUILayoutEntry.rect` / `GUILayoutGroup.isVertical` for a layout group's rect and
+   orientation, and `GUIUtility.guiDepth` for the inside-OnGUI guard. All fail soft (depth
+   -1, zero rects, "not inside a GUI pass", one Warn each) and are re-resolved at every
+   arm, so a failure degrades the dump rather than breaking it - but a permanently
+   unavailable clip probe would leave the tree resting on Begin/End pairing alone, which
+   is exactly what the recovery rules were written not to trust. The depth probe's reading
+   is printed on the arm's own Info line (`armed label=... guiDepth=0 ...`), so one flight
+   settles that one: `0` means the ICall answered, `-1` means the fallback carried the arm.
+
+FIXED BEFORE THE FIRST FLIGHT (2026-09-10, same branch), all found by reading the
+decompiled module rather than by flying:
+
+- **The arm guard was always-refuse.** It asked `Event.current != null`, which the
+  decompiled `UnityEngine.Event` shows is non-null forever after the process draws one
+  frame (`Internal_MakeMasterEventCurrent` assigns `s_MasterEvent` to `s_Current`, and the
+  setter maps a null assignment back to it). Every `ArmForNextRepaint` would have refused
+  with `reason=inside-gui-pass`, so the feature was dead on its first flight regardless of
+  the premises above. The guard is now `GUIUtility.guiDepth > 0`, Unity's own predicate -
+  the one `GUIUtility.CheckOnGUI` tests.
+- **A clip container's rect was double-counted.** `GUI.BeginGroup` ends with
+  `GUIClip.Push(position, ...)` and `GUI.BeginScrollView` with
+  `GUIClip.Push(screenRect, (round(-scroll.x - viewRect.x), round(-scroll.y -
+  viewRect.y)), ...)`, and both nodes are recorded from a POSTFIX - so
+  `GUIToScreenRect`'s `UnclipToWindow` walk added the container's own origin, and a scroll
+  view's scroll offset, a second time. Each of the two patch classes now carries a
+  `Prefix(Rect position)` that converts the rect before the push and stacks it; the
+  postfix pops it and takes its ORIGIN, keeping the postfix's SIZE (the matrix scale is
+  only known once the capture has opened). Mirror-checked in the two other
+  conversion-under-a-clip directions: `BeginLayoutGroup` pushes no clip at all
+  (decompiled), and `CallWindowDelegate`'s `contentOrigin` converts `Vector2.zero` under
+  the window's clip DELIBERATELY, which is the measurement wanted.
+- **An arm that never saw a Repaint leaked the patches for the session.** `HasPendingWork`
+  did not include `ArmedFlag`, so with no capture open the pump never ran again and nothing
+  ever unpatched. The arm now stamps the frame, the pump keeps running while armed, and
+  after `ArmTimeoutFrames` it Warns and `Disarm("armed-no-repaint")`s
+  (`ClassifyArmTimeout`).
+- **A throwing unpatch could double every patch.** `Remove()` cleared `Applied` BEFORE
+  `UnpatchAll`, whose throw is caught - so detours stayed installed while the flag said
+  none were, and Harmony 2.2.1's `PatchInfo.Add` does not deduplicate. `Applied` is now
+  cleared only after `UnpatchAll` returns (`RemainsAppliedAfterUnpatch`), and `Apply()` is
+  idempotent PER FUNNEL through `GuiTreeFunnels.IsPatched`
+  (`ClassifyFunnelPatchAction`).
+- **`Hits[GUI.CallWindowDelegate]` read double**, because the prefix and the postfix both
+  went through the counting gate. The End path now uses a non-counting one, so `hits` is
+  one count per funnel body run as documented.
+- **The window lookup depended on an inline-prone funnel.** A window node's title comes
+  from `GUI.DoWindow` (26 bytes) alone, while the node comes from `CallWindowDelegate`, so
+  an inlined declaration left a titled lookup reporting "no window at all".
+  `GuiTreeGeometry.Inspect` / `MeasureScrollOffset` now take a WINDOW-ID key with the title
+  secondary, and the cell's message splits on `PatchedAtArm[DoWindow]` / `Hits[DoWindow]`.
+- **Two cell defects.** The probe's scroll rows carried the containment marker, and a row
+  scrolled out of view is LEGITIMATELY outside the window box (clipped children are
+  recorded, not culled), so they now carry `parsekscroll-<i>`; and the cell asserted
+  `Hits(BeginGroup) == Hits(EndGroup)` plus `autoClosedByClip == 0`, which would have red'd
+  on the designed fallback working. The probe also copies
+  `DisabledHoverEchoImguiTest`'s `Completed` / `Faulted` early-out, so an abandoned
+  iterator cannot leave a window drawing over the game forever.
+- **The clip probe binds delegate-first with an Invoke fallback.**
+  `Delegate.CreateDelegate` over an ECall is refused outside the declaring module on the
+  Windows CLR and mono may or may not accept it, and a refusal used to cost the whole
+  capture its clip depths. `GuiTreeRecorder.BindIntProbe` falls back to a
+  `MethodInfo.Invoke` wrapper and the capture's Info line names the path
+  (`clipProbe=delegate` / `invoke` / `none`).
+
+Also unmeasured: the COST while armed - one frame of allocation for a few hundred small
+objects, plus a one-off assemble + serialise + write hitch in the flush LateUpdate. It
+does not matter for a one-frame capture and is not budgeted for anything else.
+
+KNOWN GAPS, all by design rather than defects, listed so a first reading of a dump does
+not report them as bugs: a `Toolbar` / `SelectionGrid` is ONE node (the per-cell rects are
+computed privately and the cells draw through `GUIStyle.Draw`, below the managed surface);
+`GUI.DrawTexture`, a `GUI.Label` with a Texture and anything drawn straight through a
+`GUIStyle` are not captured at all, and icon-only content records `text: null`; there is
+no z-order across windows (roots are in callback order, which is draw order, but an
+overlapping window is not marked as occluding another); scroll-clipped children are
+RECORDED, not culled, so a row scrolled out of view still carries a rect outside its
+scroll view's; a layout group carries no `text`, because
+`GUILayoutUtility.BeginLayoutGroup` never sees the caller's `GUIContent`; and `GUI.matrix`
+is read ONCE when the capture opens, from whichever `OnGUI` container drew first, so a
+per-window matrix set by another addon is not represented (nothing in KSP or Parsek sets
+one, the header records what was read, and a non-identity matrix logs a Warn).
+
+Fix: fly it. The work is one `RunTests` step on any existing host - the cell needs no
+fixture, no scene and no seam verb, since it draws its own probe window - and it is
+roadmap item 12. Expect a red or a skip on attempt 1 and read it as a reading rather than
+a regression: every exact per-kind pin in the cell is a prediction from decompiled source,
+and the cell self-skips if its probe window sees no Repaint pass within 240 frames. Until
+that flight, nothing should be built ON the dump.
+
 ## REPUTATION-SEED-CAPTURED-MID-FLIGHT-REAPPLIES-PRE-SEED-AWARDS: the lazy `ReputationInitial` seed is read off the live pool at the first commit, so every reputation award recorded BEFORE that moment is inside the seed AND replayed as a row
 
 Filed 2026-09-10 while shipping the crew-death reputation penalty (branch
@@ -750,7 +985,7 @@ tree is merely committed, not one whose committed tree is RESTORABLE, and the tw
 identical in a fixture listing. Recorded in the inventory's `AutoRecord` row and its B5
 residue table.
 
-## EVAKERBALGHOSTHASVESSELSNAPSHOT-HAS-NO-HOST-THAT-FLIES-LOW: the one `AutoRecord` cell that executes NOWHERE wants a crewed vessel FLYING low over terrain, and no committed fixture is one and no seam verb lofts one [MEASURED across the four `AutoRecord` hosts - H61 `gs1-two-stage-pad`, H68 `gs2-orbital-stack`, H69 `rover-route-recorded`, H70 `eva3-pad-3crew`, whose union executes 8 of 10. Filed 2026-09-08 as the last named unreachable cell on the in-game category axis, which is otherwise CLOSED at 112 of 112 categories]
+## EVAKERBALGHOSTHASVESSELSNAPSHOT-HAS-NO-HOST-THAT-FLIES-LOW: the one `AutoRecord` cell that executes NOWHERE wants a crewed vessel FLYING low over terrain, and no committed fixture is one and no seam verb lofts one [MEASURED across the four `AutoRecord` hosts - H61 `gs1-two-stage-pad`, H68 `gs2-orbital-stack`, H69 `rover-route-recorded`, H70 `eva3-pad-3crew`, whose union executes 8 of 10. Filed 2026-09-08 as the last named unreachable cell on the in-game category axis, which was otherwise CLOSED at 112 of 112 categories; since 2026-09-10 the axis reads 112 of 113, the extra row being the GUI-tree dump spike's `GuiTree` category, which needs only a spec]
 
 The cell EVAs a kerbal and asserts the resulting ghost carries a `VesselSnapshot`, then
 waits 10 s for the kerbal to settle and reads its terminal. That bounds the host from
@@ -843,8 +1078,9 @@ there and CEN-10 (`_1030`) the same on `bdock-recorded`, so the property belongs
 recorded stores generally rather than to one fixture.
 
 Closed: `CrewReservationLive` is `LT-4-long-tail-route-flight`'s fourth constituent,
-pinned `total=2 passed=2 failed=0 skipped=0`, which takes the in-game category axis to
-112 of 112.
+pinned `total=2 passed=2 failed=0 skipped=0`, which took the in-game category axis to
+112 of 112. It reads 112 of 113 since 2026-09-10, when the GUI-tree dump spike added
+the `GuiTree` category; that row needs a `RunTests` step, not a host.
 
 STILL WANTED, at a lower value than this entry used to claim: teach the corpus writer to
 author spawned-endpoint recordings. `RecordingBuilder.WithSpawnedPid` exists and has
