@@ -816,6 +816,113 @@ def render_explore_html(model, min_edge):
 
 
 # ---------------------------------------------------------------------------
+# checker (report-only)
+# ---------------------------------------------------------------------------
+
+
+def parse_edge_spec(spec):
+    """Return (from, to) for a "From -> To" policy string."""
+    parts = [part.strip() for part in spec.split("->")]
+    if len(parts) != 2 or not parts[0] or not parts[1]:
+        raise ValueError("bad edge spec: %r" % spec)
+    return parts[0], parts[1]
+
+
+def format_metrics_table(model):
+    """Render the production-module metrics table as plain text."""
+    modules = sorted(
+        (m for m in model["modules"] if not m["tooling"]),
+        key=lambda m: (-(m["fanIn"] + m["fanOut"]), m["name"]),
+    )
+    header = ("module", "files", "fan-out", "fan-in", "I")
+    rows = [
+        (
+            m["name"],
+            str(m["files"]),
+            str(m["fanOut"]),
+            str(m["fanIn"]),
+            "%.2f" % m["instability"],
+        )
+        for m in modules
+    ]
+    widths = [
+        max(len(header[i]), max((len(row[i]) for row in rows), default=0)) for i in range(5)
+    ]
+    lines = ["  ".join(header[i].ljust(widths[i]) for i in range(5)).rstrip()]
+    lines.append("  ".join("-" * width for width in widths))
+    for row in rows:
+        lines.append("  ".join(row[i].ljust(widths[i]) for i in range(5)).rstrip())
+    return "\n".join(lines)
+
+
+def two_way_couplings(model):
+    """Return (a, b, weightAB, weightBA) for every mutually coupled pair."""
+    production = {m["name"] for m in model["modules"] if not m["tooling"]}
+    weight = {(e["from"], e["to"]): e["weight"] for e in model["edges"]}
+    pairs = []
+    for (a, b) in weight:
+        if a >= b:
+            continue
+        if a in production and b in production and (b, a) in weight:
+            pairs.append((a, b, weight[(a, b)], weight[(b, a)]))
+    pairs.sort(key=lambda pair: (-max(pair[2], pair[3]), pair[0], pair[1]))
+    return pairs
+
+
+def run_check(model, forbidden, allowed):
+    """Print the report-only architecture check."""
+    print()
+    hidden = sorted(m["name"] for m in model["modules"] if m["tooling"])
+    print("Per-module metrics (production modules, sorted by fan-in + fan-out):")
+    print(format_metrics_table(model))
+    print("Tooling modules hidden from this table and the views: %s." % ", ".join(hidden))
+
+    print()
+    pairs = two_way_couplings(model)
+    print("Two-way couplings (production modules only):")
+    if not pairs:
+        print("  none.")
+    for a, b, weight_ab, weight_ba in pairs:
+        print("  %s <-> %s: %s->%s=%d, %s->%s=%d" % (a, b, a, b, weight_ab, b, a, weight_ba))
+
+    lookup = {(e["from"], e["to"]): e for e in model["edges"]}
+    print()
+    print("Forbidden edges (declared boundaries that must not exist):")
+    violations = 0
+    for spec in forbidden:
+        frm, to = parse_edge_spec(spec)
+        edge = lookup.get((frm, to))
+        if edge is None:
+            continue
+        violations += 1
+        print("  VIOLATION %s -> %s: weight=%d" % (frm, to, edge["weight"]))
+        print("    referencing files:")
+        for rel_path in edge["files"]:
+            print("      %s" % rel_path)
+    if violations == 0:
+        print("  none found.")
+
+    if allowed:
+        allowed_edges = {parse_edge_spec(spec) for spec in allowed}
+        production = {m["name"] for m in model["modules"] if not m["tooling"]}
+        print()
+        print("Production edges not in [allowed] (%d allowlist entries):" % len(allowed_edges))
+        unexpected = [
+            e
+            for e in model["edges"]
+            if e["from"] in production
+            and e["to"] in production
+            and (e["from"], e["to"]) not in allowed_edges
+        ]
+        if not unexpected:
+            print("  none.")
+        for edge in unexpected:
+            print("  %s -> %s: weight=%d" % (edge["from"], edge["to"], edge["weight"]))
+    print()
+    print("ARCH-CHECK report-only")
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -837,9 +944,14 @@ def main(argv=None):
         default=str(DEFAULT_MODULES),
         help="path to modules.toml",
     )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="print the report-only architecture check after generating the views",
+    )
     args = parser.parse_args(argv)
 
-    rules, tooling, _forbidden, _allowed = load_rules(args.modules)
+    rules, tooling, forbidden, allowed = load_rules(args.modules)
     model = build_model(args.source, rules, tooling)
     for rel_path in model["unclassified"]:
         print("WARN unclassified file: %s (add a rule to modules.toml)" % rel_path)
@@ -866,6 +978,9 @@ def main(argv=None):
     explore_path = out_dir / "explore.html"
     _write_text(explore_path, render_explore_html(model, args.min_edge))
     print("Wrote %s" % explore_path)
+
+    if args.check:
+        run_check(model, forbidden, allowed)
     return 0
 
 
