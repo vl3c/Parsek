@@ -138,6 +138,12 @@ _(unreleased — entries accumulate here per commit)_
   each stopped on one step of its own (a window that grew wider than it was asked for, and
   one that shuts itself), both of which are fixed above.
 
+  One cosmetic fix from reading those first runs: the log line naming where a description
+  was written printed the game's folder unresolved and with its slashes both ways round, so
+  it could not be pasted anywhere. It is tidied for the log only - the file still goes
+  exactly where it went before, and if the tidying cannot be done the original text is
+  printed rather than dropped.
+
   Nothing about the windows themselves changed: not one line of the drawing code was
   touched, nothing is listened to unless something asks for a capture, and while nothing
   is asking, the game runs exactly as it did before.

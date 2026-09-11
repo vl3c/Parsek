@@ -378,7 +378,7 @@ namespace Parsek
                     + " guiDepth=" + depthAtArm.ToString(CultureInfo.InvariantCulture)
                     + " patchedFunnels=" + patched.ToString(CultureInfo.InvariantCulture)
                     + "/" + GuiTreeFunnels.Count.ToString(CultureInfo.InvariantCulture)
-                    + " path=" + pendingPath);
+                    + " path=" + FormatPathForLog(pendingPath));
                 return pendingPath;
             }
             catch (Exception ex)
@@ -1570,7 +1570,8 @@ namespace Parsek
             catch (Exception ex)
             {
                 ParsekLog.Error("GuiTree",
-                    "failed to write dump path=" + path + ": " + ex.GetType().Name + ": " + ex.Message);
+                    "failed to write dump path=" + FormatPathForLog(path)
+                    + ": " + ex.GetType().Name + ": " + ex.Message);
             }
 
             ParsekLog.Info("GuiTree",
@@ -1588,7 +1589,7 @@ namespace Parsek
                 // path, "invoke" the ECall fallback, "none" means no depths at all.
                 + " clipProbe=" + (LastClipProbeBinding ?? "unread")
                 + " written=" + (written ? "1" : "0")
-                + " path=" + path);
+                + " path=" + FormatPathForLog(path));
 
             events.Clear();
             pendingWindows.Clear();
@@ -1620,6 +1621,38 @@ namespace Parsek
             }
             string result = new string(chars).Trim('.', '_');
             return string.IsNullOrEmpty(result) ? "guitree" : result;
+        }
+
+        /// <summary>
+        /// The dump path as a READER should see it, for a log line only.
+        ///
+        /// <para><c>KSPUtil.ApplicationRootPath</c> answers
+        /// <c>&lt;install&gt;/KSP_x64_Data/../</c> - forward slashes, with an unresolved
+        /// <c>..</c> - and <c>Path.Combine</c> then appends the platform separator, so the
+        /// raw value logs as <c>.../KSP_x64_Data/../Screenshots\label.gui.json</c>: mixed
+        /// separators and a segment that has to be resolved by eye before the path can be
+        /// pasted anywhere.</para>
+        ///
+        /// <para>LOG ONLY, deliberately. Every write, stat and read keeps the path
+        /// <see cref="ResolveOutputPath"/> produced, so a normalisation that throws -
+        /// invalid characters, a security refusal, a path longer than the platform allows -
+        /// cannot cost a capture its file; it falls back to the raw string, which is still
+        /// the truth about where the file went. Nothing parses this token: the harness
+        /// reads the seam verb's own payload, and no committed spec regexes a
+        /// <c>[GuiTree]</c> path.</para>
+        /// </summary>
+        internal static string FormatPathForLog(string path)
+        {
+            if (string.IsNullOrEmpty(path))
+                return path;
+            try
+            {
+                return Path.GetFullPath(path);
+            }
+            catch (Exception)
+            {
+                return path;
+            }
         }
 
         private static string ResolveOutputPath(string sanitizedLabel)

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Reflection;
 using Parsek;
 using Xunit;
@@ -388,6 +389,35 @@ namespace Parsek.Tests
             // offline viewer globs *.gui.json. Both are contracts, not preferences.
             Assert.Equal("Screenshots", GuiTreeRecorder.OutputDirectoryName);
             Assert.Equal(".gui.json", GuiTreeRecorder.OutputSuffix);
+        }
+
+        [Fact]
+        public void TheLogPathIsNormalised_AndFallsBackToTheRawStringWhenItCannotBe()
+        {
+            // WHY: `KSPUtil.ApplicationRootPath` answers `<install>/KSP_x64_Data/../` with
+            // forward slashes, and `Path.Combine` then appends the platform separator, so
+            // the census's first flight logged
+            // `path=C:/.../KSP_x64_Data/../Screenshots\ksc-main-advanced.gui.json` - mixed
+            // separators plus a `..` a reader has to resolve by eye. Built here from
+            // `Path.Combine` and forward slashes, so the assertion means the same thing on
+            // the Windows CLR and on mono.
+            string root = Path.Combine(Path.GetTempPath(), "parsek-guitree-log-path");
+            string expected = Path.Combine(
+                Path.Combine(root, "Screenshots"), "ksc-main-advanced.gui.json");
+            string raw = root + "/KSP_x64_Data/../Screenshots/ksc-main-advanced.gui.json";
+            Assert.Equal(expected, GuiTreeRecorder.FormatPathForLog(raw));
+            Assert.DoesNotContain("..", GuiTreeRecorder.FormatPathForLog(raw));
+
+            // THE FALLBACK IS THE HALF THAT MATTERS: this is a log decoration over a path
+            // the recorder has already written to, so a normalisation that throws must not
+            // lose it. A NUL is refused as a filename character by both runtimes.
+            string unnormalisable = root + "/bad\0name.gui.json";
+            Assert.Equal(unnormalisable,
+                         GuiTreeRecorder.FormatPathForLog(unnormalisable));
+
+            // And it is total on the empty cases rather than throwing on them.
+            Assert.Null(GuiTreeRecorder.FormatPathForLog(null));
+            Assert.Equal("", GuiTreeRecorder.FormatPathForLog(""));
         }
     }
 
