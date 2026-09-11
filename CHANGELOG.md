@@ -1202,6 +1202,12 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Dev
 
+- **Docs: GUI inventory and feature-exposure design doc.** `docs/dev/design-gui-inventory.md`
+  is the condensed structural map of every player-facing surface and of what the backend
+  exposes through it, measured 2026-09-11 against `4eb427e9e`; the two raw census passes it
+  condenses are committed beside it as `docs/dev/research/gui-inventory-2026-09-11.md` and
+  `docs/dev/research/gui-feature-exposure-2026-09-11.md`. Documentation only, no code change.
+
 - **An in-game test left a merge journal installed on the live scenario when it failed,
   and three later tests failed because of it.** The merge-interruption test deliberately
   crashes a real merge halfway through and then repairs it; when its own assertion red
