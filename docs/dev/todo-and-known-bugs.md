@@ -323,6 +323,59 @@ the applied mode changes only from `Update()`, outside OnGUI, so those per-site 
 already agree across one frame's Layout and Repaint passes - which is why no per-pass latch
 is needed here.
 
+## ~~GUI-I-MILESTONE-REWARDS-COLUMN-OVERFLOWS-ITS-PIN~~: a three-part reward wrapped to 36 px inside a 21 px row grid, visible in a shipped census capture [FILED + FIXED 2026-09-11 by the GUI fix batch]
+
+**Evidence.** `UI/CareerStateWindowUI.cs` pinned `ColW_Rewards = 180f`, and
+`ksc-career-milestones-advanced.gui.json` from the 2026-09-11 census shows two cells in
+that column rendered at height 36 inside a table whose row stride is 21 - IMGUI wrapped
+them. A wrapped label in a fixed-stride row overlaps its neighbours; this is the only LIVE
+LAYOUT DEFECT the census caught in a picture rather than in source.
+
+**Fix.** `ColW_Rewards = 280f`. The longest string
+`FormatMilestoneRow_Rewards` can produce for plausible career values
+("+ 999999 funds  + 999 rep  + 9999.9 sci") is 39 characters = 273 px at the 7 px/char
+pessimistic advance `TooltipEchoBudgetTests` uses for this font, so 280 clears it, and the
+Milestones table is 640 px wide inside the window's 820 px default. Guarded by
+`CareerStateWindowUITests.MilestoneRewardsColumn_HoldsAThreePartRewardOnOneLine`, which
+derives the requirement from the formatter rather than pinning a number - the constant is
+now `internal` for exactly that.
+
+## ~~GUI-D-MISSION-DELETE-REASON-WAS-A-CONSTANT~~: the greyed-out Delete hover named one of three refusals, for every mission including deletable ones [FILED + FIXED 2026-09-11 by the GUI fix batch]
+
+**Evidence.** `UI/MissionsWindowUI.cs:2908` was
+`internal static string MissionDeleteDisabledReason() => "A flight always keeps its first
+mission";` - no arguments, so it could not distinguish anything.
+`MissionStore.CanDelete` returns false in THREE cases: a null mission, the tree's ORIGINAL
+mission, and a mission that is not in the list at all. It also returned its sentence when
+the control was LIVE, which is why it was the one reason function missing from
+`DisabledHoverEchoTests.EveryReasonFunctionGoesSilentWhenTheControlIsLive`.
+
+**Fix.** `MissionStore.ClassifyDeleteRefusal(Mission)` keeps the reason
+(`None` / `NoMission` / `TreeOriginal` / `NotInStore`) with the same traversal and the same
+verdict; `CanDelete` is now a one-line wrapper over it, so the two cannot disagree.
+`MissionDeleteDisabledReason` takes the mission, and a second overload takes the refusal
+directly so every wording is testable without standing up the store. Guarded by
+`MissionStoreTests.ClassifyDeleteRefusal_NamesTheRealReason` (all four verdicts, the
+wrapper agreement, and each sentence), three new budget rows, and the
+goes-silent-when-live assertion it can finally join.
+
+## ~~GUI-D-REWIND-POINT-DISK-READOUT-HID-A-FAILED-SCAN~~: a directory enumeration that threw rendered as "0 B, 0 files", exactly like a save with no rewind points [FILED + FIXED 2026-09-11 by the GUI fix batch]
+
+**Evidence.** `RewindPointDiskUsage.Compute` catches the `Directory.GetFiles` failure,
+Warns, and returns the zero-initialised snapshot (`:186-190`); `FormatLine` (`:299`) then
+printed `0 B (0 files; live=...)`. The Settings readout (`UI/SettingsWindowUI.cs:684`) is
+the only place this reaches the player, and a clean save produces the same string, so the
+failure was invisible there. Per-file `FileInfo.Length` failures were swallowed the same
+way: they leave `TotalBytes` an under-count with the file list complete.
+
+**Fix.** `Snapshot.ScanFailed` and `Snapshot.UnreadableFileCount`. A failed scan reads
+"could not read the folder (see KSP.log)" instead of a byte count; a partial one appends
+"N unreadable". The live counters come from the scenario rather than the filesystem, so
+they stay valid in both cases and keep showing. Guarded by
+`DiskUsageDiagnosticsTests.DiskUsage_FormatLine_SaysSoWhenTheScanFailed` (which also pins
+that an empty-but-successful scan still says "0 files" and does NOT claim a failure) and
+`DiskUsage_FormatLine_FlagsFilesItCouldNotSize`.
+
 ---
 
 ## BDOCK1-STATION-COMMIT-READOPT-LIMBO-FALLBACK-DIALOG: after BDOCK-1's mid-mission CommitTree, the re-adopted station continuation is stashed to Limbo by the interceptor launch and surfaces as a whole-tree merge dialog over already-committed recordings [FILED 2026-09-10 by wave package A2 (`cheap-flights-arming`) off its BDOCK-1 reading run; REWRITTEN 2026-09-11 off the archive grep. The dialog is the lane's deterministic shape on every post-fix build (4 of 4 logs), reached through a CORRECT refusal; OPEN PRODUCT QUESTION narrowed to the fallback dialog's UX over committed-overlap recordings; not fixed in this wave]

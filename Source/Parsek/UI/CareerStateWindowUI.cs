@@ -91,7 +91,16 @@ namespace Parsek
         // Milestones tab.
         private const float ColW_MilestoneUT = 90f;
         private const float ColW_MilestoneTitle = 200f;
-        private const float ColW_Rewards = 180f;
+        // Sized to hold a THREE-PART reward on ONE line, which the 180f it used to be did
+        // not: `ksc-career-milestones-advanced.gui.json` from the 2026-09-11 GUI census shows
+        // two such cells rendered 36 px tall inside a 21 px row grid - IMGUI wrapped them,
+        // and a wrapped label in a fixed-stride row overlaps its neighbours. The longest
+        // string the formatter can produce for plausible values
+        // ("+ 999999 funds  + 999 rep  + 9999.9 sci") is 39 characters = 273 px at the
+        // 7 px/char pessimistic advance TooltipEchoBudgetTests uses for this font, so 280
+        // clears it and leaves the table 640 px wide inside the window's 820 px default.
+        // Internal so the fit is asserted by a test rather than trusted from this comment.
+        internal const float ColW_Rewards = 280f;
         // Facilities tab.
         private const float ColW_FacilityTitle = 200f;
         private const float ColW_Level = 120f;

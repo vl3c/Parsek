@@ -515,6 +515,19 @@ _(unreleased — entries accumulate here per commit)_
   outside the code. A dead field in the Missions window carrying a comment about a
   behaviour the code does not have went with it.
 
+- **Three readouts that could not tell you apart from each other now can.** The Rewards
+  column in the Career State window's Milestones tab was too narrow for a reward that pays
+  funds, science AND reputation: the text wrapped onto a second line inside a row that has
+  room for one, so it overlapped its neighbours. It is wide enough now, measured against
+  the longest reward the column can produce rather than against a guess. The greyed-out
+  Delete button in the Missions window said "A flight always keeps its first mission" for
+  every mission it refused - and for every mission it did NOT refuse, since it said the
+  same thing regardless; it now says which of the three reasons applies, and says nothing
+  when Delete works. And the rewind-point disk line in Settings reported "0 B, 0 files"
+  when it could not read the folder at all, which is exactly what a save with no rewind
+  points reports; a failed read now says so, and a folder where some files could not be
+  sized says how many.
+
 - **Four Settings and main-window labels now say what the buttons behind them do.**
   "Wipe All Game Actions" only ever cleared the MILESTONE list - every career action on
   the ledger survived it, and the next recalculation still walked them - so the most

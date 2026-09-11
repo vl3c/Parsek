@@ -1519,6 +1519,34 @@ namespace Parsek.Tests
             Assert.Equal("", CareerStateWindowUI.FormatMilestoneRow_Rewards(row));
         }
 
+        // catches: the Rewards column narrowing back under what a three-part reward needs.
+        // The 2026-09-11 GUI census caught this LIVE in a shipped capture
+        // (ksc-career-milestones-advanced.gui.json): at the old 180f, two three-part cells
+        // rendered 36 px tall inside a 21 px row grid - IMGUI wrapped them, and a wrapped
+        // label in a fixed-stride row overlaps its neighbours. The 7 px/char advance is the
+        // same pessimistic figure TooltipEchoBudgetTests uses for this font.
+        [Fact]
+        public void MilestoneRewardsColumn_HoldsAThreePartRewardOnOneLine()
+        {
+            const float AvgCharWidthPx = 7f;
+
+            // The widest string the formatter can produce for plausible career values.
+            var row = new CareerStateWindowUI.MilestoneRow
+            {
+                FundsAwarded = 999999f, RepAwarded = 999f, ScienceAwarded = 9999.9f
+            };
+            string text = CareerStateWindowUI.FormatMilestoneRow_Rewards(row);
+
+            Assert.Contains("funds", text);
+            Assert.Contains("rep", text);
+            Assert.Contains("sci", text);
+            Assert.True(text.Length * AvgCharWidthPx <= CareerStateWindowUI.ColW_Rewards,
+                $"a three-part reward is {text.Length} chars = "
+                + $"{text.Length * AvgCharWidthPx} px, but the Rewards column is "
+                + $"{CareerStateWindowUI.ColW_Rewards} px - IMGUI will wrap it into a "
+                + "row grid that has no room for a second line");
+        }
+
         [Fact]
         public void FormatMilestoneRow_Pending_EmptyWhenNotPending()
         {

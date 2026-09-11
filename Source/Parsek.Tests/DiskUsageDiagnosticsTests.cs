@@ -269,6 +269,53 @@ namespace Parsek.Tests
             Assert.Contains("concluded=1", line);
         }
 
+        // catches: a FAILED directory scan rendering as "0 B, 0 files" again - which is what
+        // a save with no rewind points at all legitimately produces, so the two states were
+        // indistinguishable on the one line that reports them (GUI census, "UI information
+        // with no backend truth"). The live counters come from the scenario, not the
+        // filesystem, so they stay valid and keep showing.
+        [Fact]
+        public void DiskUsage_FormatLine_SaysSoWhenTheScanFailed()
+        {
+            var failed = new RewindPointDiskUsage.Snapshot
+            {
+                ScanFailed = true,
+                Live = new RewindPointDiskUsage.LiveBreakdown { RewindPointCount = 2 }
+            };
+
+            string line = RewindPointDiskUsage.FormatLine(failed);
+
+            Assert.Contains("could not read the folder", line);
+            Assert.DoesNotContain("0 B", line);
+            Assert.DoesNotContain("0 files", line);
+            Assert.Contains("live=2", line);
+
+            // An empty-but-successful scan still reports zero, and must NOT claim a failure.
+            var empty = new RewindPointDiskUsage.Snapshot();
+            string emptyLine = RewindPointDiskUsage.FormatLine(empty);
+            Assert.Contains("0 files", emptyLine);
+            Assert.DoesNotContain("could not read", emptyLine);
+        }
+
+        // catches: per-file stat failures being swallowed. The file LIST is complete, so the
+        // scan did not fail, but TotalBytes is an under-count and the line should say so.
+        [Fact]
+        public void DiskUsage_FormatLine_FlagsFilesItCouldNotSize()
+        {
+            var partial = new RewindPointDiskUsage.Snapshot
+            {
+                TotalBytes = 2048L,
+                FileCount = 4,
+                UnreadableFileCount = 1,
+            };
+
+            string line = RewindPointDiskUsage.FormatLine(partial);
+
+            Assert.Contains("4 files", line);
+            Assert.Contains("1 unreadable", line);
+            Assert.DoesNotContain("could not read the folder", line);
+        }
+
         [Fact]
         public void DiskUsage_CacheInvalidatesWhenScenarioStateChanges()
         {
