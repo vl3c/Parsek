@@ -459,6 +459,18 @@ forbidden = [
 ]
 
 [expectations.routes]
+# ARMED 2026-09-11 (`gating = true`, wave package A2) off the reading run
+# `2026-09-10_2149_B32-interbody-route-scope` (stock-minimal, wave DLL a0abbed1, PASS
+# attempt 1, wall 55 s): all twelve declared leaves read exactly as declared - count=2
+# dormant=0 stops=2 sourceRefs=8 completedCycles=0 skippedCycles=0
+# statuses={Active:1, Paused:1} connectionKinds={DockingPort:2} originBodies={Kerbin:2}
+# destinationBodies={Duna:1, Mun:1} - so the arming moved NO number; the report-only
+# wording below is the authoring record. Owed: the armed re-flight and TWO negative
+# controls (wave ruling A2-b), each in place and reverted, each of which must red on
+# exactly its one leaf: connectionKinds DockingPort to `{ min = 3, max = 3 }`, and
+# the destinationBodies group window Duna to `{ min = 2, max = 2 }` (both bounds move:
+# the validator rejects a min above the max as spec-invalid).
+#
 # M-C2 save-parse, DECLARED REPORT-ONLY: `gating` IS DELIBERATELY OMITTED. The
 # windows below were written from the fixture's committed bytes and are now
 # CORROBORATED by two runs' produced saves, but arming stays a separate operator
@@ -473,6 +485,7 @@ forbidden = [
 # `destinationBodies` naming different bodies is what `ClassifyRouteScope` reads, and
 # `RouteFacetFixtureAgreementTests.test_the_interbody_fixture_is_the_corpus_only_cross_body_route`
 # pins that this is the only committed fixture where they differ.
+gating= true
 count = { min = 2, max = 2 }
 dormant = { max = 0 }
 stops = { min = 2, max = 2 }

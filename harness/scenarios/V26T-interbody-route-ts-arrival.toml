@@ -440,6 +440,16 @@ routeLineBuilds = { min = 2 }
 routeCoDrawViolations = { max = 0 }
 
 [expectations.routes]
+# ARMED 2026-09-11 (`gating = true`, wave package A2) off the reading run
+# `2026-09-10_2153_V26T-interbody-route-ts-arrival` (stock-minimal, wave DLL a0abbed1,
+# PASS attempt 1, wall 56 s; the LoadGame-REJECTED race did not occur): all twelve
+# leaves read exactly as declared and identical to B32's and V26M's same-day
+# readings, so the SaveGame plus second LoadGame cycle this lane adds changed nothing
+# and the arming moved NO number; the report-only wording below is the authoring
+# record. The same run flew the renderComposition block above ARMED (gating PASS, no
+# mismatch). Owed: the armed re-flight. Its group windows share B32's evaluator
+# paths, whose two negative controls B32 carries.
+#
 # M-C2 save-parse, DECLARED REPORT-ONLY: `gating` IS DELIBERATELY OMITTED. The
 # windows below were written from the fixture's committed bytes and are now
 # CORROBORATED by two runs' produced saves, but arming stays a separate operator
@@ -450,6 +460,7 @@ routeCoDrawViolations = { max = 0 }
 #
 # `originBodies` and `destinationBodies` naming DIFFERENT bodies is the inter-body claim
 # in the save-structure vocabulary: that pair is what `ClassifyRouteScope` reads.
+gating= true
 count = { min = 2, max = 2 }
 dormant = { max = 0 }
 stops = { min = 2, max = 2 }

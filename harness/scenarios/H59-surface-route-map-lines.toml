@@ -1084,6 +1084,18 @@ forbidden = [
 # epoch - recorded rather than quietly dropped.
 
 [expectations.routes]
+# ARMED 2026-09-11 (`gating = true`, wave package A2). THE BLOCK'S OWN READING RUN
+# FLEW: `2026-09-10_2147_H59-surface-route-map-lines` (stock-minimal, wave DLL
+# a0abbed1, PASS attempt 1, wall 82 s), the first run to evaluate this block, read
+# count=1 dormant=0 statuses={Active:1} originBodies={Kerbin:1}
+# destinationBodies={Kerbin:1} - every window, the header's pre-registered outcome
+# (A) - and the undeclared facets stops=1 sourceRefs=2 completedCycles=1
+# skippedCycles=0 connectionKinds={DockingPort:1} codecRejects=0 are the offline read
+# described below, key for key. The one dispatch fired (`LoopRoute ... FIRED full
+# cycle`) and the route stayed Active. So the arming moved NO number; the report-only
+# wording below ("NEVER EVALUATED ON A RUN" included) is the authoring record. Owed:
+# the armed re-flight.
+#
 # THE M-C2 SUPPLY-ROUTE BLOCK (`harness/lib/saveparse.py`, shipped 2026-09-02 by
 # PR #1603). **REPORT-ONLY: `gating` IS DELIBERATELY OMITTED**, per the standing
 # report-only-first protocol every save-parse block is held to - arming is a
@@ -1170,6 +1182,7 @@ forbidden = [
 # move, `sourceRefs` is a fixture property RVR-4 already measured at 2, and the route
 # ID IS RUN-LOCAL - pinning one here would repeat the exact mistake that red armed
 # attempt 1 (see the flight ledger).
+gating= true
 count = { min = 1, max = 1 }
 # NO REWIND ANYWHERE IN THIS LANE, so a dormant route would be a
 # reclassification nothing asked for (`RouteRewindClassifier` moves a route to

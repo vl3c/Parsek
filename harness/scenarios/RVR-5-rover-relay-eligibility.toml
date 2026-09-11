@@ -451,6 +451,18 @@ terminalStates = { Landed = { min = 5 }, Docked = { min = 2 } }
 branchPoints   = { Dock = { min = 2, max = 2 }, Undock = { min = 2, max = 2 } }
 
 [expectations.routes]
+# ARMED 2026-09-11 (`gating = true`, wave package A2) off the reading run
+# `2026-09-10_2143_RVR-5-rover-relay-eligibility` (stock-minimal, wave DLL a0abbed1,
+# PASS attempt 1, wall 48 s): every declared window read exactly as declared - count=1
+# dormant=0 stops=2 sourceRefs=3 completedCycles=0 skippedCycles=0 statuses={Paused:1};
+# measured-only connectionKinds={DockingPort:2} originBodies={Kerbin:1}
+# destinationBodies={Kerbin:2} - the shape of the 2026-09-02 reading, so the arming
+# moved NO number. The report-only wording below is the authoring record.
+# `recordings.structure` above stays a report-only reading (it matched too: trees 3,
+# committedTrees 3, recordings 9, Landed 5, Docked 2, Dock 2, Undock 2). Owed: the
+# armed re-flight. The windows gate through routes evaluator paths already inverted
+# live (RVR-7 skippedCycles, RVR-20 completedCycles, V18T statuses).
+#
 # STILL REPORT-ONLY (no `gating` key) - every value below is MEASURED off
 # `2026-09-02_2244`, but arming is a separate per-scenario operator decision taken after a
 # reading run, and this block has had exactly one.
@@ -481,6 +493,7 @@ branchPoints   = { Dock = { min = 2, max = 2 }, Undock = { min = 2, max = 2 } }
 #
 # The M-C2 `routes` facet landed 2026-09-02 (PR #1603) and is live - H59 declares one -
 # so this is a real surface rather than a reserved one.
+gating          = true
 count           = { min = 1, max = 1 }
 dormant         = { min = 0, max = 0 }
 stops           = { min = 2, max = 2 }

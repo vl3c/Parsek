@@ -396,7 +396,9 @@ remains is, in order:
    each; 2026-09-10: read on `2026-09-10_1720` and ARMED, armed re-flight
    `2026-09-10_2122` PASS, the negative control still owed); H59's report-only `[expectations.routes]` reading and the promotion of
    the other report-only route declarers (2026-09-10: RVR-8..RVR-19 read,
-   ARMED and re-flown armed, RVR-18's set-key control owed; the other six declarers' readings queued); ~~the `operator -> nightly` PROMOTION
+   ARMED and re-flown armed, RVR-18's set-key control owed; the other six (RVR-5, H58, H59,
+   B32, V26M, V26T) read green on the wave DLL and ARMED 2026-09-11, their armed
+   re-flights and B32's two controls owed); ~~the `operator -> nightly` PROMOTION
    calls for V18T, V20M, V20T, V25M, B29, V3C and GS-6~~ DONE 2026-09-08 (operator
    decision: all seven to nightly, B29's ~36 min and V3C's ~15 min included; the
    nightly p50 sum moves from ~6.2 h to ~7.3 h); the R1 residue windows on
@@ -1546,10 +1548,10 @@ built for them~~ - UPDATED 2026-09-07: `route` SHIPPED 2026-09-02 as
 H59, V18T, V27M, RVR-5, RVR-7, B32, V26M, V26T and the RVR-8..RVR-20 matrix; ARMED
 on RVR-7 (2026-09-03), RVR-20, V18T (whose armed block passed gating with zero
 mismatches on its 2026-09-06 re-flight) and V27M (2026-09-07), then on the twelve
-RVR-8..RVR-19 matrix lanes 2026-09-10 off their own wave reading runs, wave package
-A2), so what is open in (b) is the promotion of the six remaining report-only
-declarers (RVR-5, H58, H59, B32, V26M, V26T), per the supply-route program's
-machinery register; `loop` stays RESERVED by choice with
+RVR-8..RVR-19 matrix lanes 2026-09-10 and on the last six (RVR-5, H58, H59, B32,
+V26M, V26T) 2026-09-11, each off its own wave reading run, wave package A2), so every
+declarer is armed and what is open in (b) is those six lanes' armed re-flights and the
+negative controls still owed (B32's two group windows, RVR-18's set key); `loop` stays RESERVED by choice with
 zero declarers; (c) the analyzer-PR half (TrackSection frame/anchor +
 per-recording body asserts over the analyzer's parsed model) - the .sfs surface
 deliberately does not carry those, they live in `.prec` sidecars the analyzer

@@ -236,10 +236,21 @@ class InterbodyRouteSpecFixtureSyncTests(unittest.TestCase):
         # either - 1065 on V26M against 6 on V26T over the SAME fixture, because
         # that census scales with the observed population rather than with the
         # composition. Full reasoning in each spec's block and in
-        # `test_hlib.RENDERCOMPOSE_ARMED_SPECS`; owed from here is the armed
-        # re-flight of both lanes plus one negative control.
+        # `test_hlib.RENDERCOMPOSE_ARMED_SPECS`. The armed re-flight of both flew
+        # 2026-09-10 (wave package A2: `2026-09-10_2151` / `_2153`, gating PASS);
+        # owed from here is one negative control.
         ("V26M-interbody-route-map-lines.toml", "renderComposition"),
         ("V26T-interbody-route-ts-arrival.toml", "renderComposition"),
+        # B32 / V26M / V26T, `routes`, ARMED 2026-09-11 (wave package A2), each
+        # off its own report-only reading on the wave DLL a0abbed1 -
+        # `2026-09-10_2149` / `_2151` / `_2153`, all PASS attempt 1 - which read
+        # the same twelve leaves, every one as declared (two routes, one Active
+        # and one Paused, DockingPort 2, origins Kerbin 2, destinations Duna 1 +
+        # Mun 1). Owed: the three armed re-flights and B32's two group-window
+        # negative controls.
+        ("B32-interbody-route-scope.toml", "routes"),
+        ("V26M-interbody-route-map-lines.toml", "routes"),
+        ("V26T-interbody-route-ts-arrival.toml", "routes"),
     }
 
     def test_only_the_allowlist_arms_a_gate_over_this_fixture(self):
@@ -249,9 +260,9 @@ class InterbodyRouteSpecFixtureSyncTests(unittest.TestCase):
         `test_hlib.RENDERCOMPOSE_ARMED_SPECS` (render-composition) hold the
         program-wide rosters; this cell states the same thing LOCALLY, so an
         edit that arms a block over this fixture reds beside the fixture it arms
-        over. `routes` stays unarmed on all three lanes (its windows are
-        corroborated but arming is a separate decision), and `rewind` /
-        `recordings` are not gating blocks on this subject at all.
+        over. `routes` is armed on all three lanes since 2026-09-11, each off its
+        own wave reading, and `rewind` / `recordings` are not gating blocks on
+        this subject at all.
         """
         armed = set()
         for name, spec in sorted(self.consumers.items()):

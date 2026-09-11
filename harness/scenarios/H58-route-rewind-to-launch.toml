@@ -440,6 +440,16 @@ allowedAnomalies = []
 # FLIGHT 2 block above) - a facet asserting a spelling the writer never emits would be
 # asserting nothing.
 [expectations.routes]
+# ARMED 2026-09-11 (`gating = true`, wave package A2). The reading the comment above
+# asks for flew: `2026-09-10_2144_H58-route-rewind-to-launch` (stock-minimal, wave DLL
+# a0abbed1, PASS attempt 1, wall 55 s) read count=1 dormant=0 completedCycles=0
+# skippedCycles=0 statuses={Paused:1}, and the undeclared facets stops=1 sourceRefs=2
+# connectionKinds={DockingPort:1} originBodies={Kerbin:1} destinationBodies={Kerbin:1}
+# - the offline read above, key for key - with the report-only mismatch list empty. So
+# the route survived the go-back rewind as a committed Paused route on the wave DLL
+# and the arming moved NO number. The report-only wording above is the authoring
+# record. Owed: the armed re-flight.
+gating          = true
 count           = { min = 1, max = 1 }
 dormant         = { max = 0 }
 completedCycles = { max = 0 }
