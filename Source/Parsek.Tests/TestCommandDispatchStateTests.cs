@@ -51,6 +51,8 @@ namespace Parsek.Tests
             public void DeleteRecording(ParsedCommand cmd) => Calls.Add("DeleteRecording");
             public void ListHandles(ParsedCommand cmd) => Calls.Add("ListHandles");
             public void WarpToUT(ParsedCommand cmd) => Calls.Add("WarpToUT");
+            public void CaptureScreenshot(ParsedCommand cmd) => Calls.Add("CaptureScreenshot");
+            public void UiAction(ParsedCommand cmd) => Calls.Add("UiAction");
         }
 
         [Fact]
@@ -131,6 +133,16 @@ namespace Parsek.Tests
         // live FLIGHT rather than deferring.
         [InlineData("ListHandles", "RequiresGameLoaded")]
         [InlineData("WarpToUT", "RequiresFlight")]
+        // GUI census. CaptureScreenshot is AnyScene, the ExportRenderManifest row: a
+        // screenshot is meaningful in every settled scene, and the safe-point gate already
+        // refuses to run during LOADING / a transition / the settle window, which is exactly
+        // when a capture would photograph a black frame. UiAction is RequiresGameLoaded, the
+        // ListHandles row: the Parsek UI is hosted in SPACECENTER as well as FLIGHT, so a
+        // RequiresFlight row would make every KSC census step defer to its budget and
+        // TIMEOUT - while a scene that hosts no Parsek UI at all is the verb's own REJECTED
+        // (ui-host-unavailable) rather than a defer.
+        [InlineData("CaptureScreenshot", "AnyScene")]
+        [InlineData("UiAction", "RequiresGameLoaded")]
         public void RequirementFor_MatchesTable(string verb, string expected)
         {
             Assert.Equal(expected, TestCommandDispatcher.RequirementFor(verb).ToString());
@@ -174,6 +186,8 @@ namespace Parsek.Tests
             fake.DeleteRecording(cmd);
             fake.ListHandles(cmd);
             fake.WarpToUT(cmd);
+            fake.CaptureScreenshot(cmd);
+            fake.UiAction(cmd);
 
             // One interface method per implemented v1 verb, no more, no less.
             var interfaceMethods = typeof(ITestCommandExecutor).GetMethods();

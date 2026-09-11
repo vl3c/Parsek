@@ -379,6 +379,41 @@ class SelectRunScreenshotsTests(unittest.TestCase):
         self.assertEqual(0, prior)
         self.assertEqual(0, over)
 
+    def test_a_gui_tree_dump_rides_along_with_the_screenshots(self):
+        """The GUI-tree recorder writes `Screenshots/<label>.gui.json` PRECISELY so
+        the dump travels with the run's images into results/<runId>_shots/. Without
+        it in the harvested set the documented `--batch results/<runId>_shots`
+        workflow could never find one: the instance's Screenshots dir is overwritten
+        by the next boot, and a PASS runs no collect-logs."""
+        candidates = [("probe.gui.json", 2000.0, 10), ("probe.png", 2001.0, 10)]
+        selected, prior, over = hlib.select_run_screenshots(candidates, self.START)
+        self.assertEqual(["probe.gui.json", "probe.png"], selected)
+        self.assertEqual(0, prior)
+        self.assertEqual(0, over)
+
+    def test_a_plain_json_in_the_shots_dir_is_still_not_collected(self):
+        """Matched as a SUFFIX, not as the extension after the last dot: a bare
+        `.json` in that directory is somebody else's file. This is the half a
+        last-dot extension test could not express, and the reason the constant
+        holds suffixes rather than extensions."""
+        candidates = [("settings.json", 2000.0, 10), ("probe.gui.json", 2000.0, 10)]
+        selected, _, _ = hlib.select_run_screenshots(candidates, self.START)
+        self.assertEqual(["probe.gui.json"], selected)
+
+    def test_the_dump_suffix_is_the_one_the_recorder_writes(self):
+        """SOURCE-SYNC, reading outside harness/ on purpose: the C# side pins
+        `OutputSuffix = ".gui.json"`. If either end moves alone the harvest
+        silently stops collecting dumps, with nothing failing anywhere."""
+        self.assertIn(".gui.json", hlib.ARTIFACT_SHOTS_SUFFIXES)
+        repo_root = os.path.dirname(os.path.dirname(
+            os.path.dirname(os.path.abspath(__file__))))
+        path = os.path.join(repo_root, "Source", "Parsek", "GuiTreeRecorder.cs")
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            src = fh.read()
+        self.assertIn('OutputSuffix = ".gui.json"', src,
+                      "GuiTreeRecorder writes a different suffix from the one the "
+                      "harvest collects, so no dump would ever reach a _shots dir")
+
     def test_count_cap_keeps_chronological_order_and_counts_the_rest(self):
         candidates = [("s%03d.png" % i, 2000.0 + i, 1) for i in range(10)]
         selected, _, over = hlib.select_run_screenshots(candidates, self.START, max_count=4)
