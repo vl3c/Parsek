@@ -15,6 +15,120 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## UNITY-SCANNER-BLIND-TO-PARSEK-STACK-FRAMES: the unity-exception scan counts exception LINES and never reads the stack under them, so a Parsek-frame NRE passes under any `maxTotal` ceiling [FILED 2026-09-11 off the wave-0910 decision memo (`docs/dev/research/wave-0910-open-decisions-2026-09-11.md` section 7). A HARNESS INSTRUMENT gap, not a product defect. OPEN; needs no decision]
+
+**What is true.**
+- `hlib.scan_unity_exceptions` (`harness/lib/hlib.py:5783`) walks the log line by line,
+  skips `[Parsek]`-tagged lines, and counts each `UNITY_EXCEPTION_PATTERNS` hit.
+  `evaluate_unity_exceptions` (`:5813`) compares those counts with `maxTotal`.
+- Neither function looks at the stack frames under an exception. So an armed ceiling (GS-4's
+  `maxTotal = 4`) budgets stock and MechJeb noise, and a Parsek-frame exception inside the
+  budget passes unnoticed.
+- The wave's ruling A4-b, "A `Parsek.` frame in any NRE stack -> finding + todo, never a
+  higher ceiling.", is therefore enforced only by a human reading the log. That is how
+  GHOST-MAP-ENSURE-ORBIT-RENDERERS-TEARDOWN-NRE (V15T `2026-09-10_1917`) was found, on a lane
+  where the row is report-only.
+- Related, not a duplicate: L2-STOCK-CREWHATCH-TEARDOWN-NRE-UNDER-A-ZERO-GATE leaves open a
+  stock `CrewHatchController.OnDestroy` NRE at FlushAndQuit under L2's `maxTotal = 0`, because
+  the block has no per-signature allowlist. The `afterQuit` / `parsekFrames` counts below are
+  the instrument that entry's (a)/(b) choice lacks.
+
+**Fix.**
+1. Parse the stack block after each exception line, and report `parsekFrames` (exceptions
+   with at least one `Parsek.` frame) and `afterQuit` (exceptions after `flushandquit:
+   Application.Quit`).
+2. Add `maxParsekFrames` to the evaluator.
+3. Offline-evaluate every armed `unityExceptions` lane, plus the V family, over their
+   archived logs.
+4. Arm `maxParsekFrames = 0` on GS-4 and W1. W1 can arm on that key while its `maxTotal` stays
+   report-only.
+
+V15T and V18T will red on the teardown NRE: land that entry's guard first, or carry
+expectedFail. About 80 lines of Python plus tests, and 0 flights by the memo's estimate.
+Roadmap "Priority register (2026-09-11)" item C1.
+
+## REGISTRY-GROWTH-DECISIONS-2026-09-11: two registry values the 2026-09-10 wave measured but was not allowed to register, D4 `persistence-graze-suppression` and D9 `rewind-to-launch-repeat` [FILED 2026-09-11 off the wave-0910 decision memo (`docs/dev/research/wave-0910-open-decisions-2026-09-11.md` sections 1 and 2). An OPERATOR DECISION, not a defect. OPEN]
+
+**Why it is a decision.** The wave's ruling G5 forbade registry growth and sent both
+candidates to the operator. A new value is a registry change (`harness/coverage/registry.toml`
+plus its catalog line), so it moves the cell total as well as the covered count.
+
+**D4 `persistence-graze-suppression` (memo section 1).**
+- Optimizer step 5 and step 7 are different predicates with different counters.
+  - Step 5: `IsSurfaceGrazePattern` (`RecordingOptimizer.cs:517`) feeds
+    `surfaceGrazeForward` / `surfaceGrazeBackward`. RF-1 gates those as D4
+    `surface-graze-suppression`.
+  - Step 7: `IsGrazePattern` (`:461`, the `BriefSectionMaxSeconds = 120` collapse-walk)
+    feeds `grazeForward` / `grazeBackward` (`:680` / `:683`).
+- RF-1's required `Split summary` token pins the step-7 pair at `grazeForward=0
+  grazeBackward=0`, so no lane gates the persistence predicate FIRING.
+- LT-2's `EccentricGrazing_StaysOneSegment_InGame`
+  (`InGameTests/PersistenceSplitOptimizerTest.cs:166`) drives the production
+  `RunOptimizationPass`. It prints `Split summary: rec=rec_persistence_smoke_grazing
+  evaluated=4 grazeForward=2 grazeBackward=2 surfaceGrazeForward=0 ...`, byte-identical in 9
+  of 9 logs that ran the cell (per the memo).
+- Recommendation: add the value and claim it on LT-2, with a registry comment stating the
+  step-5 / step-7 distinction.
+- Cost: one required LT-2 token, an armed re-flight and one negative control
+  (`grazeForward=2` -> `=3`), about 50 s each. No C#.
+
+**D9 `rewind-to-launch-repeat` (memo section 2).**
+- GS-9 already requires two backreference tokens (`GS-9-kerbalx-repeat-rewind.toml:233-234`):
+  the same UT and save id across both `Rewind-to-Launch initiated` lines, and the same-id
+  `Rewind: loading save` pair.
+- Precedent for a value added for a newly measured property: `world-preservation`,
+  `mesh-lifecycle-derender`, `watch-entry-distance-cutoff`.
+- GS-9's negative control inverted `destroyLines`, not these tokens. Discharge the token's
+  control OFFLINE over `2026-09-11_0109` (mutate the second `\2` to a non-matching literal and
+  expect exactly one mismatch), and fly a live control on the next GS-9 flight.
+- Cost: 0 flights.
+
+**Fix (pending the operator, roadmap "Priority register (2026-09-11)" items B1 / B2).** In the
+registry PR (item C3):
+- add each accepted value with its comment;
+- claim it only after its armed run and its control (the wave's G4 discipline);
+- re-derive the coverage count.
+
+A refused value is recorded here, and this entry is struck.
+
+## CADENCE-PROMOTIONS-2026-09-11: MC-3, GS-4, GS-8 and GS-9 are operator tier, so their gates run only when someone flies them by hand [FILED 2026-09-11 off the wave-0910 decision memo (`docs/dev/research/wave-0910-open-decisions-2026-09-11.md` sections 6 and 12). An OPERATOR DECISION. OPEN]
+
+**What is true.** All four specs read `tier = "operator"` at `b21fc2096`, and the operator
+tier is excluded from every cadence. MC-1 and MC-2, MC-3's siblings on the modded-compat
+instance, are already nightly. Each of the four has a green run on record; see their rows in
+`autotest-status.md`.
+
+**Recommendation (memo sections 6 and 12).** Promote all four to nightly: about 1 min per
+night for MC-3, and about 20 min for the three GS lanes. Precedent: the 2026-09-08 operator
+decision that moved V18T, V20M, V20T, V25M, B29, V3C and GS-6 to nightly. Decide it together
+with GS4-UNITY-CEILING-NEGCTL-VACUOUS: putting GS-4 on cadence is what makes its
+`unityExceptions` ceiling bite.
+
+**Fix (pending the operator, roadmap "Priority register (2026-09-11)" item B7).** In the
+registry PR (item C3):
+- flip the four `tier` keys;
+- update the tier cells of their status rows and every doc line that states tier counts;
+- re-derive the nightly budget sum.
+
+## D14-GAME-MODE-CLAIMS-UNPINNED: a spec's D14 `sandbox` / `career` claim follows fixture convention, and nothing checks it against the fixture's own `Mode =` [FILED 2026-09-11 off the wave-0910 decision memo (`docs/dev/research/wave-0910-open-decisions-2026-09-11.md` section 10). A HARNESS GUARD gap, not a defect: every resolvable claim agrees today. OPEN, pending the operator's call on the convention]
+
+**What is true (re-derived 2026-09-11 at `b21fc2096`).** The check walked
+`run.load_all_specs()` and read the first `Mode =` line of each spec's
+`fixture.saveTemplate` `persistent.sfs`:
+- 220 specs claim a D14 game-mode cell (`sandbox` or `career`);
+- 0 disagree with their fixture;
+- 2 are unresolvable: `GUI-1-census-ksc` and `GUI-2-census-flight`, whose
+  `fixtures/local-saves/c1-gui` template is gitignored by design.
+
+No committed test compares the two. A fixture re-harvested in another mode, or a spec copied
+onto another fixture, would carry a false claim without a red.
+
+**Fix (pending roadmap "Priority register (2026-09-11)" item B10; built in item C3).** Add a
+`test_hlib` cell asserting that every spec's D14 game-mode claim equals its fixture's
+`Mode =`. It skips operator-local templates through `hlib.is_local_fixture_template` (the
+classifier the other on-disk cells use), not by spec name. About 30 lines of Python, 0
+flights.
+
 # GUI exposure audit, 2026-09-11
 
 One batch, one branch (`gui-fixes-1`). The 2026-09-11 GUI census produced two
@@ -975,6 +1089,36 @@ exists in only one shape (the fallback-dialog, Limbo or refusal lines) is requir
 forbidden. `_2215` and `_2305` also differ in one debris terminal (Destroyed 12 against
 Destroyed 11 + Landed 1, same count and branch points): recorded, not gated.
 
+**Recommendation (2026-09-11, see docs/dev/research/wave-0910-open-decisions-2026-09-11.md section 5):**
+not a defect worth fixing now; keep it as a low-priority UX item.
+
+What the memo traced:
+- The seam commit arms the DESIGNED copy-on-write committed-tree restore
+  (`TryRestoreCommittedTreeForSpawnedActiveVessel`, `ParsekFlight.cs:4201`).
+- kRPC `launch_vessel` is a FLIGHT -> FLIGHT reload that `FinalizeTreeOnSceneChangeCore`
+  (`:3055`) can only stash.
+- The guid-gated refusal is correct.
+- `SavePendingTreeIfAny` skips the Limbo tree (`ParsekScenario.cs:1907` / `:1931`), so the
+  tree evaporates at quit and committed history is untouched.
+
+What the two buttons would do:
+- Discard is safe by construction. `DiscardPendingTree` with
+  `pendingMatchesCommittedRestoreAttempt` (`RecordingStore.cs:2827`, used at `:2928` /
+  `:2994`) purges only same-id attempt tails.
+- Merge promotes the copy-on-write clone with cutoff-scoped events
+  (`RecordingStore.cs:2479-2514`). That is the operation the silent auto-commit performs on
+  every copy-on-write host; it is unmeasured on this exact shape only.
+
+No stock path to the shape was found: a player launches via the editor, and any non-FLIGHT
+scene change auto-commits the clone. So the shape is harness-specific. Keep BDOCK-1's shape,
+and do NOT take the `StopRecording` mitigation above. Optional settling measurement: a scratch
+BDOCK-1 copy with `AnswerMergeDialog choice=merge` (about 36 min). Operator call: roadmap
+"Priority register (2026-09-11)" item B6.
+
+**Fix (low priority, pending B6; adds no UI).** On a refused resume of a Limbo committed-tree
+restore attempt, auto-clear a no-op continuation and route a meaningful one to the silent
+auto-commit, so the fallback dialog never shows.
+
 ## D17-MAKING-HISTORY-NEEDS-A-DEFINITION: the registry cell `making-history` has no subject, because Parsek has no Making-History-specific compatibility path to witness [FILED 2026-09-10 by wave package A2 (`cheap-flights-arming`) planning. A DEFINITION question for the operator, not a defect and not instance-blocked. OPEN; no experiment flight is authorized until it is answered]
 
 **What is true.** Unlike BetterTimeWarp (one concrete interaction, `StockWarpAltitudeLimits`,
@@ -1015,6 +1159,22 @@ experiment on a mission path never flown off-KSC (a MechJeb ascent from the Dese
 rollout and watcher at the same site); a mission failure there classifies driver-INVALID,
 never PARSEK-FAIL, and the site string must be pinned from bytes because
 `HumanizeLaunchSiteName` may rewrite it.
+
+**Recommendation (2026-09-11, see docs/dev/research/wave-0910-open-decisions-2026-09-11.md section 4):**
+answer (1), alt-site launch capture: `launchSiteName` is captured and humanized from an MH
+site (`FlightRecorder.cs:6613-6652`), persisted, and the ghost replays there.
+- Host it on stock-minimal, with a registry comment exempting Making History from D17's
+  modded-compat header.
+- Lane: the GS-4 clone above with `launchSite = "Desert_Launch_Site"`, operator tier, ONE
+  reading flight. A MechJeb ascent failure from the Desert is driver-INVALID: record
+  "mission-blocked" and stop.
+- The marginal value is low: rank it last of the open work, or delete the value with an
+  honest "DLC present, no Parsek-specific path worth a lane" comment.
+
+Operator call: roadmap "Priority register (2026-09-11)" item B5.
+
+**Fix (pending B5).** Either the registry comment plus that one reading flight, or deleting
+the value with its rationale comment.
 
 ---
 
@@ -1064,6 +1224,25 @@ and the test_hlib ceiling comment.
 future round flies GS-4 anyway and can spare one control flight, fly `maxTotal = 0` (the
 line-anchored G7 edit of `maxTotal = 4`, reverted after) and count it only if that run's
 own total measures >= 1; a total-0 run is vacuous again, not a failed control.
+
+**Recommendation (2026-09-11, see docs/dev/research/wave-0910-open-decisions-2026-09-11.md section 7):**
+- Accept the offline discharge: the live row-6b red is proven by S1.6 `2026-08-04_1348`.
+- A ceiling of 4 is defensible, but it is not what the H23 precedent would pick.
+  - Over n=10 (GS-4 4, 1, 2, 2, 1, 4, 0, 0 and GS-9 4, 2), the band top was hit 3 of 10
+    times.
+  - The legal maximum on the known stock class set is 6: STAGING 1 + MAP-FOCUS 2 + HATCH 1 +
+    MECHJEB 1 + CAMERA 1.
+  - So if GS-4 goes on cadence (CADENCE-PROMOTIONS-2026-09-11), expect a no-Parsek-frame 5
+    about once per 10-20 nightlies.
+- Either set 6 now, or pre-authorise the re-pin to 6 on the first such red. Both reverse the
+  wave's supervisor ruling (keep 4), so this is the operator's call: roadmap "Priority
+  register (2026-09-11)" item B8.
+- The bigger gap is the scanner, which cannot see a Parsek frame under any ceiling:
+  UNITY-SCANNER-BLIND-TO-PARSEK-STACK-FRAMES.
+
+**Fix (pending B8).** Re-pin `maxTotal = 6`, with n and the class composition in the spec
+comment and in test_hlib's CEILINGS comment; or record the pre-authorised re-pin in both
+places. The opportunistic live control above is unchanged.
 
 ## D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE: the registry cell's only producer is reached in always-tree mode only through rare split-edge aborts, and no seam verb drives one [FILED 2026-09-10 by the ghost-replay Tier B / Tier D wave (`ghost-replay-tier-b`) while authoring the Tier D residue. A REGISTRY / VERB DECISION, not a product defect. BLOCKED on the operator, paired with the R2 `stop-on-switch` call]
 
@@ -1136,6 +1315,35 @@ tree-mode path exists and deletion would drop a real behaviour from the registry
 `harness/scenarios/S0.6-live-record-commit.toml:62` predate always-tree mode; a tree
 commit never passes through `CreateRecordingFromFlightData`.
 
+**Recommendation (2026-09-11, see docs/dev/research/wave-0910-open-decisions-2026-09-11.md section 3):**
+two separate answers, both operator calls (roadmap "Priority register (2026-09-11)" items B3
+and B4).
+- `stop-on-switch`: REDEFINE it as `switch-backgrounds-recording`, meaning that on a vessel
+  switch the active recording transitions to background.
+  - `DecideOnVesselSwitch` (`FlightRecorder.cs:11676`) has no Stop decision.
+  - The witness is the Info line `Transitioned to background (pid=`
+    (`FlightRecorder.cs:11280`). CI-1 prints it: twice in each archived CI-1 log,
+    `../logs/2026-09-08_1355_CI-1-eva-switch-bg-member` and `_1400_`. No committed spec
+    requires it.
+  - Claim it on CI-1 with the token, an armed re-flight and one negative control. No C#.
+- `sub-2-point-drop`: option (1) above.
+  - The tree commit path keeps a 1-point recording (MC-3 measured it, per the memo), so the
+    drop's only seam-reachable producer is Gloops.
+  - Rewrite the registry comment to say so, and close the cell together with `manual-gloops`
+    through ONE C# seam verb pair (`GloopsStart` / `GloopsStop`, about 150 lines).
+    Confidence is medium on the verb shape.
+
+Line numbers re-checked 2026-09-11 at `b21fc2096`:
+- the `< 2`-point guard is `ParsekFlight.cs:4773` (cited as `:4759` above);
+- `FallbackCommitSplitRecorder` is declared at `:6843`;
+- the Gloops `too short - discarded` ScreenMessage is at `:17085` (cited as `:17058` above).
+
+**Fix (revised 2026-09-11, pending B3 / B4).**
+- A registry PR redefines `stop-on-switch` and claims it on CI-1, rewrites the
+  `sub-2-point-drop` comment, and corrects the S0.5 / S0.6 comments.
+- A separate C# PR adds the Gloops verb pair and the lanes that claim `manual-gloops` and
+  `sub-2-point-drop`.
+
 ## ~~RF1-HYSTERESIS-UT-LITERAL-REFUTED-BY-LAUNCH-TICK: RF-1's armed re-flight red on a UT the claim-gap wave had pinned literal, because the autopilot launch landed one physics tick later~~ [FILED 2026-09-10 by the claim-gap wave (package A1-6). A HARNESS PIN finding, not a product defect. CLOSED 2026-09-11: the re-pinned spec flew green and both D4 claims were taken]
 
 Filed 2026-09-10 by the claim-gap wave (package A1-6). A HARNESS PIN finding, not a product defect. The pin is RE-PINNED from bytes. CLOSED 2026-09-11 by the wave's make-up round (below).
@@ -1172,6 +1380,28 @@ The optimizer's `Split summary ... seamSkipped=[1-9]` appears in none of the 508
 
 After either, re-read before pinning.
 
+**Recommendation (2026-09-11, see docs/dev/research/wave-0910-open-decisions-2026-09-11.md section 8):**
+take the in-game road and drop the RF-12L one. RF-12L's one sample is a pack-vs-hysteresis
+timing race, not a property of the lane (the scan above: 30 of 508 logs across 11 lanes), so
+a stability pair would buy nothing.
+
+The cell is an `Optimizer` in-game test (SPACECENTER, on LT-2) that:
+1. builds a loaded state;
+2. calls `FlushLoadedStateForOnRailsTransitionForTesting` (`BackgroundRecorder.Testing.cs:406`,
+   a wrapper over the production method);
+3. runs `RunOptimizationPass`;
+4. asserts `isBoundarySeam=true` and `seamSkipped=1`.
+
+The claim tokens are the production lines `Persisted no-payload on-rails boundary section:
+... (seam=1)` and `Split summary ... seamSkipped=1`. Cost: about 60-80 lines of C#, an LT-2
+tally re-pin (adding the cell reds `CommittedBatchTallySourceSyncTests` until then), and 3
+short flights. Bundle it with OPTIMIZER-INGAME-CELLS-LEAK-RECORDINGSTORE-SUPPRESSLOGGING and
+GHOST-MAP-ENSURE-ORBIT-RENDERERS-TEARDOWN-NRE in one C# PR: roadmap "Priority register
+(2026-09-11)" item C2. No decision needed.
+
+**Fix (revised 2026-09-11).** That cell, flown reading -> armed -> one negative control on
+LT-2; then claim D3 `boundary-seam`.
+
 ## D3-RELATIVE-LOOP-HAS-NO-PRODUCTION-PATH-CELL: no flown cell plays a loop-anchored Relative section through the production `LoopAnchorVesselId` path with the production positioner
 
 Filed 2026-09-10 by the claim-gap wave (package A1-9). A COVERAGE gap, not a defect. OPEN.
@@ -1183,6 +1413,25 @@ Filed 2026-09-10 by the claim-gap wave (package A1-9). A COVERAGE gap, not a def
 
 **What would close it.** A new in-game cell that plays a loop Relative section through the production flight positioner and asserts the placed ghost against the live anchor, with a post-assert line. This is C#, outside the harness-only claim-gap wave.
 
+**Recommendation (2026-09-11, see docs/dev/research/wave-0910-open-decisions-2026-09-11.md section 8):**
+no flown recorder lane can reach this cell, because no recorder path produces the state.
+Production sets `LoopAnchorVesselId` only at load, from the `loopAnchorPid` key
+(`ParsekScenario.cs:7400-7405`, `RecordingTreeRecordCodec.cs:669`).
+
+Author it synthetically instead:
+- `RecordingBuilder` gains a `WithLoopAnchorVesselId`;
+- an injected-recordings preset puts the recording on a fixture whose active vessel is the
+  anchor;
+- one seam lane gates the engine's production lines and a placement facet. The lines are the
+  `ShouldSpawnLoopedGhost: ... anchor pid=... valid` line
+  (`GhostPlaybackLogic.WarpLoopPolicy.cs:792`) and `GhostPlaybackEngine.cs:5238-5260`.
+
+Cost: generator + preset + one lane, 3 flights, no product C#. Confidence medium. Roadmap
+"Priority register (2026-09-11)" item C5; no decision needed.
+
+**Fix (revised 2026-09-11).** That synthetic lane, replacing the new-in-game-cell route
+above.
+
 ## OPTIMIZER-INGAME-CELLS-LEAK-RECORDINGSTORE-SUPPRESSLOGGING: both `Optimizer` in-game cells set `RecordingStore.SuppressLogging = true` and never restore it, so every `RecordingStore.Log` site stays silent for the rest of the KSP process
 
 Filed 2026-09-10 by the claim-gap wave (package A1) while appending `SceneAndPatch` to LT-2. A TEST defect, not a product defect. OPEN.
@@ -1192,6 +1441,11 @@ Filed 2026-09-10 by the claim-gap wave (package A1) while appending `SceneAndPat
 **Who it touches.** `LT-2-long-tail-spacecenter` is the only committed spec that batches `Optimizer`, and it batches it FIRST, so every later constituent runs with the flag set. Since 2026-09-10 that includes `SceneAndPatch`: the KSC cell's own tree insert / remove lines are silent, while its post-assert probe line (a direct `ParsekLog.Verbose`) prints. Any manual Ctrl+Shift+T batch that reaches `Optimizer` early is affected the same way. None of LT-2's required tokens comes from a gated site: the start echo and the `BATCH_COMPLETE` lines are direct `ParsekLog` calls. So nothing reds today; the cost is lost diagnostics.
 
 **Fix.** Capture the previous value on entry and restore it in each cell's `finally`. That is a test-body change, outside the harness-only claim-gap wave, so it is filed here rather than fixed.
+
+**Recommendation (2026-09-11, see docs/dev/research/wave-0910-open-decisions-2026-09-11.md section 12):**
+it is a two-line test-body fix. Ship it in the same C# PR as the D3 boundary-seam cell
+(roadmap "Priority register (2026-09-11)" item C2), which touches the same category and the
+same LT-2 tally anyway. The Fix is unchanged.
 
 ## U1-GUI-CENSUS-LOCAL-HOST-REDS-THE-ANALYZER: the GUI census's only viable host carries 25 pre-existing analyzer FAILs; the lanes now declare the analyzer row REPORT-ONLY, and what those 25 findings ARE is still open
 
@@ -6956,6 +7210,16 @@ Criterion (b) asks for a control on the lane's own required render token. Decide
 criterion-(b) statement; (b) fly one in-place control per V26 lane on its own route-line
 token. Not in the 2026-09-10 wave queue.
 
+**Recommendation (2026-09-11, see docs/dev/research/wave-0910-open-decisions-2026-09-11.md section 9):**
+answer (b), and it is cheap. Fly one in-place control per lane, inverting its own armed
+renderComposition window `routeLineBuilds = { min = 2 }`
+(`V26M-interbody-route-map-lines.toml:517`, `V26T-interbody-route-ts-arrival.toml:439`) to
+`{ min = 3 }`, about 60 s each. Operator call: roadmap "Priority register (2026-09-11)" item
+B9.
+
+**Fix (pending B9).** Fly the two controls; each is valid only if it reds on exactly that
+facet. Record them in both spec headers and status rows, and strike this entry.
+
 ---
 
 ## GHOST-MAP-ENSURE-ORBIT-RENDERERS-TEARDOWN-NRE: at process teardown the Tracking-Station buildVesselsList Prefix re-creates a dying ghost's orbit renderer and stock throws with Parsek frames on the stack [OPENED 2026-09-10 on branch `loop-render-residue` off a report-only unityExceptions row. TODO, a finding (Parsek frames on an NRE stack), not verdict-bearing; needs a C# change, so nothing is done in this harness-only wave. Owner: `GhostMapPresence` / `Patches/GhostTrackingBuildVesselsListPatch`]
@@ -6982,6 +7246,17 @@ while stock still references it" moment).
 Fix direction (not taken): skip the `EnsureGhostOrbitRenderers` repair once the application is quitting
 or a scene-cleanup removal is in progress, since a repaired renderer is destroyed within the same
 teardown anyway. Needs a C# change and its own validation.
+
+**Recommendation (2026-09-11, see docs/dev/research/wave-0910-open-decisions-2026-09-11.md sections 7 and 12):**
+this is a genuine Parsek-frame NRE. Take the guard above in the same C# PR as the D3
+boundary-seam cell (roadmap "Priority register (2026-09-11)" item C2). Land it before the
+unity scanner learns to count Parsek frames (UNITY-SCANNER-BLIND-TO-PARSEK-STACK-FRAMES, item
+C1): once it does, V15T and V18T red on this NRE until the guard ships, unless they carry
+expectedFail.
+
+**Fix (2026-09-11: the direction above, now scheduled).** Skip the
+`EnsureGhostOrbitRenderers` repair while the application quits or a scene-cleanup removal
+runs. Validate it on V15T / V18T with the scanner's `parsekFrames` count.
 
 ---
 
@@ -12747,6 +13022,21 @@ B1's armed re-flight `2026-09-10_2135` passed at count 1. Its live negative cont
 PARSEK-FAIL(expectation) on exactly `recordings.count 1 < min 2`, with the mission
 MISSION-OK and count 1, so it is valid. D5 `staging-debris-ttl` stays OPEN.
 
+**Recommendation (2026-09-11, see docs/dev/research/wave-0910-open-decisions-2026-09-11.md section 11):**
+read before authoring.
+- `staging-debris-ttl`: fly an uncommitted GS-7 variant with round 1's cut twice. Round 1's
+  cut sits before the core discard, the shape that printed the token on `2026-09-08_1130`.
+  - 2 of 2 TTL expiries -> author GS-10 gating the TTL-closed terminals.
+  - Anything less -> record "no deterministic flight producer, covered headlessly" and stop.
+- `staging-debris-promotion` comes after that. It is NOT CI-1's promotion (a TTL cancel on a
+  parent-anchored Relative exit). It needs a kx opt-in phase that sets kRPC `active_vessel`
+  to a dropped booster inside its 60 s TTL, about 150 lines of Python.
+
+The token is now at `BackgroundRecorder.cs:1432` (cited as `:1307` above). Roadmap "Priority
+register (2026-09-11)" item C4; no decision needed.
+
+**Fix (D5, revised 2026-09-11).** The stability pair first; author GS-10 only on 2 of 2.
+
 **R2. Two registry cells cannot be honestly claimed as written. Decide before anyone
 claims against them.**
 `harness/coverage/registry.toml` D1 `stop-on-switch` describes a decision that does
@@ -12759,6 +13049,9 @@ name a `ReferenceFrame` member either: the enum has exactly `Absolute`, `Relativ
 `parent-anchored-debris`.
 Build: delete each cell or redefine it against a real symbol, with the rationale in the
 registry comment. The coverage denominator moves, so do it before the next snapshot.
+The `stop-on-switch` call is now owned by D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE
+(roadmap "Priority register (2026-09-11)" item B3), which carries the redefinition
+recommendation; this paragraph keeps only the `surface-body-fixed` half.
 
 **R3. Run S1.5 and S4.1 unattended; their operator-tier premise looks stale.**
 Both are `tier = "operator"` (excluded from every cadence, never run) on the stated

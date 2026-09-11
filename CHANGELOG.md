@@ -1263,6 +1263,12 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Dev
 
+- **Docs: GUI inventory and feature-exposure design doc.** `docs/dev/design-gui-inventory.md`
+  is the condensed structural map of every player-facing surface and of what the backend
+  exposes through it, measured 2026-09-11 against `4eb427e9e`; the two raw census passes it
+  condenses are committed beside it as `docs/dev/research/gui-inventory-2026-09-11.md` and
+  `docs/dev/research/gui-feature-exposure-2026-09-11.md`. Documentation only, no code change.
+
 - **An unreachable "Create Supply Route?" dialog removed.** It was written to appear right
   after a flight was committed, from a hook that no longer exists; nothing could open it,
   and the only live call into it - the flight scene dismissing it on the way out - could
