@@ -17,18 +17,20 @@ _(unreleased — entries accumulate here per commit)_
   a module using the hand-written `scripts/arch/modules.toml`, then counts which
   modules reference which by matching identifiers against declared type names (a
   source-text approximation, not a compiler) and writes the result to
-  `docs/dev/arch/`: a layered graph, a dependency structure matrix, and an
+  `docs/dev/arch/`: a graph layered along the stability gradient (modules that
+  mostly depend on others at the top, pure sinks at the bottom, with the arrows
+  that point back up drawn in red), a dependency structure matrix, and an
   interactive explorer where clicking a module shows its direct neighbours. Running
-  it with `--check` also prints a metrics table, every pair of modules that
-  reference each other, and every declared boundary it finds crossed. Today that
-  last list flags two candidates: Missions code referencing Logistics, which is a
-  real cross-module use, and two hits in ghost code that match the ledger's
-  `Decision` type only by name - a method and a region label that happen to share
-  it - which is the identifier-overlap false positive the tool's own README warns
-  about, not a dependency. The checker always exits 0 and gates nothing, even on a
-  typo in the module map; a version that could fail a build would have to read the
-  compiled code (Roslyn), because a text scan cannot see conditional compilation
-  or reflection. No player-visible behavior changes.
+  it with `--check` also prints a metrics table, every upward edge, every pair of
+  modules that reference each other, and every declared boundary it finds crossed.
+  Today that last list flags one real crossing: Missions code building the route
+  structure list reads Logistics route types. Preprocessor lines, method calls that
+  merely share a type's name, and type names declared in more than one module are
+  excluded from the scan, which removed the phantom hits an earlier pass reported.
+  The checker always exits 0 and gates nothing, even on a typo in the module map; a
+  version that could fail a build would have to read the compiled code (Roslyn),
+  because a text scan cannot see conditional compilation or reflection. No
+  player-visible behavior changes.
 
 ### Changed
 

@@ -18,7 +18,7 @@ The generated views live in `docs/dev/arch/` and are committed:
 
 | File | View |
 | --- | --- |
-| `edges.json` | The raw data: modules with file count and metrics, and every edge with weight, cycle flag, referencing files and referenced type names. |
+| `edges.json` | The raw data: modules with file count and metrics, and every edge with weight, `cyclic` and `upward` flags, referencing files and referenced type names. |
 | `modules.dot`, `modules.svg` | Graphviz layered dependency graph of the production modules. |
 | `matrix.html` | Dependency structure matrix. |
 | `explore.html` | Interactive neighbourhood explorer. |
@@ -27,18 +27,24 @@ The generated views live in `docs/dev/arch/` and are committed:
 
 This is a source-text scan, not a compiler. For each file it:
 
-1. strips block comments, line comments, and string / char literals;
+1. strips block comments, line comments, preprocessor directive lines
+   (`#region ...`, `#if ...`), and string / char literals (code inside
+   interpolation holes is kept);
 2. collects declared type names (`class` / `struct` / `interface` / `enum`);
+   a name declared in more than one module is dropped from the table and
+   listed by `--check`, because text alone cannot say which one a use means;
 3. matches capitalized identifiers (4+ characters) against the table of
-   declared type names, and counts each distinct cross-module type as one
-   reference.
+   declared type names, skipping `Name(` when no `new` precedes it (a method
+   call that shares a type's name), and counts each distinct cross-module
+   type as one reference.
 
 That means it can **miss** a real dependency that is not spelled literally (an
 alias, a type only reached through `nameof`, generic inference, or reflection)
 and can **over-count** a name that happens to match a type but is used as
-something else. Stripping strings and comments removes the common false
-positives, and the folder granularity absorbs the rest. Treat the map as a
-useful approximation, never as proof that a dependency does or does not exist.
+something else (a property or enum member spelled like a type). Stripping
+strings, comments and directives removes the common false positives, and the
+folder granularity absorbs the rest. Treat the map as a useful approximation,
+never as proof that a dependency does or does not exist.
 
 The checker is **report-only**: it always exits 0, and nothing in the build or
 the test suite gates on it. A gating version must derive edges from a real
@@ -70,9 +76,11 @@ and still writes the other four files. When a source file matches no rule in
 `modules.toml`, the script warns and skips it.
 
 `--check` prints, in order: the per-module metrics table (name, files, fan-out,
-fan-in, instability, sorted by fan-in + fan-out), every two-way coupling
-between production modules with both weights, and every `[forbidden]` edge that
-exists with its weight and referencing files. When `[allowed]` is non-empty it
+fan-in, instability, sorted by fan-in + fan-out), the type names excluded as
+ambiguous, every upward edge (a more stable module depending on a less stable
+one), every two-way coupling between production modules with both weights,
+and every `[forbidden]` edge that exists with its weight, referenced types and
+referencing files. When `[allowed]` is non-empty it
 also lists every production edge not in that list; while `[allowed]` is empty
 that section is skipped. The last line is always `ARCH-CHECK report-only`.
 
@@ -81,20 +89,26 @@ that section is skipped. The last line is always `ARCH-CHECK report-only`.
 **`modules.dot` / `modules.svg`** - a top-to-bottom layered graph of the
 production modules. An arrow A -> B means code in A references types declared
 in B. Node label is the module name and its file count; arrow thickness scales
-with the reference count; an arrow drawn in red has both endpoints inside the
-same dependency cycle (same strongly connected component), so the way back
-may run through other modules - in the current tree the production graph is
-one large cycle, so nearly every drawn arrow is red and the weight is what
-separates them. Edges below `--min-edge` and the tooling modules are hidden.
+with the reference count. Layers follow the stability gradient: instability
+`I = fanOut / (fanOut + fanIn)` is high for modules that mostly depend on
+others (top) and near zero for sinks that are mostly depended on (bottom).
+Only the downward arrows constrain the layout. An arrow drawn in red runs
+upward, from a more stable module to a less stable one, which the
+stable-dependencies rule says should not happen; those are the arrows to look
+at. "On a cycle" is still recorded per edge in `edges.json` (`cyclic`) but not
+drawn, because the production graph is one large strongly connected component
+and that flag marks nearly everything. Edges below `--min-edge` and the
+tooling modules are hidden.
 
 **`matrix.html`** - a dependency structure matrix. Rows are "from" modules and
 columns are "to" modules, both in the same order: instability ascending, so
 sinks (pure consumers such as `LogIO`) come first. Cell value is the reference
-count; darker means more references. A red outline marks a cell whose two
-modules sit in the same dependency cycle (same strongly connected component);
-direct two-way pairs are the shorter list in `--check`. The diagonal shows the
-file count, the rightmost column the instability, and the bottom row the
-fan-in.
+count; darker means more references. Because both axes are sorted by
+instability, every cell above the diagonal is an upward edge (a more stable
+row module depending on a less stable column module) and carries a red
+outline; a clean layering would have an empty upper triangle. The diagonal
+shows the file count, the rightmost column the instability, and the bottom
+row the fan-in.
 
 **`explore.html`** - the interactive view. All production modules are shown;
 click one to dim everything except that module, its direct in-edges and

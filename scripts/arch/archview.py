@@ -43,6 +43,7 @@ MIN_TYPE_NAME_LEN = 4
 
 TYPE_DECL_RE = re.compile(r"\b(?:class|struct|interface|enum)\s+([A-Z][A-Za-z0-9_]+)")
 IDENT_RE = re.compile(r"\b[A-Z][A-Za-z0-9_]{3,}\b")
+NEW_BEFORE_RE = re.compile(r"\bnew\s+$")
 PATH_SPLIT_RE = re.compile(r"[\\/]")
 
 
@@ -238,9 +239,21 @@ def strip_comments_and_strings(source):
     out = []
     i = 0
     n = len(source)
+    at_line_start = True
     while i < n:
         c = source[i]
         nxt = source[i + 1] if i + 1 < n else ""
+        if at_line_start and c == "#":
+            # Preprocessor directive: `#region Spawn Decision` and `#if X` carry
+            # free text, not code, and a region label matching a type name is a
+            # phantom reference.
+            j = source.find("\n", i)
+            i = n if j == -1 else j
+            continue
+        if c == "\n":
+            at_line_start = True
+        elif c not in (" ", "\t", "\r"):
+            at_line_start = False
         if c == "/" and nxt == "/":
             j = source.find("\n", i)
             i = n if j == -1 else j
@@ -288,9 +301,27 @@ def references(source, type_modules, from_module):
         target = type_modules.get(ident)
         if target is None or target == from_module or ident in seen:
             continue
+        if _is_plain_call(source, match.start(), match.end()):
+            continue
         seen.add(ident)
         found.append((ident, target))
     return found
+
+
+def _is_plain_call(source, start, end):
+    """True when the identifier is invoked as a method: `Name(` not preceded by `new`.
+
+    A type name is never directly followed by `(` except in a constructor call,
+    which carries `new` before it. A local or static method that happens to
+    share a type's name (`return Decision(true, ...)`) is not a reference.
+    """
+    j = end
+    n = len(source)
+    while j < n and source[j] in (" ", "\t"):
+        j += 1
+    if j >= n or source[j] != "(":
+        return False
+    return not NEW_BEFORE_RE.search(source, max(0, start - 16), start)
 
 
 def metrics(module_files, edge_weights):
@@ -423,11 +454,19 @@ def build_model(source_root, rules, tooling):
         text = (source_root / rel_path).read_text(encoding="utf-8-sig", errors="replace")
         stripped[rel_path] = strip_comments_and_strings(text)
 
-    type_modules = {}
+    declaring_modules = defaultdict(set)
     for rel_path, module in assignments:
         for name in declared_types(stripped[rel_path]):
-            if name not in type_modules:
-                type_modules[name] = module
+            declaring_modules[name].add(module)
+    # A name declared in two modules (nested `Entry`, `Outcome`, ...) cannot be
+    # attributed by text alone, so it is dropped from the table rather than
+    # credited to whichever module the walk met first.
+    type_modules = {
+        name: next(iter(modules))
+        for name, modules in declaring_modules.items()
+        if len(modules) == 1
+    }
+    ambiguous = sorted(name for name, modules in declaring_modules.items() if len(modules) > 1)
 
     module_files = defaultdict(int)
     for _rel_path, module in assignments:
@@ -473,6 +512,7 @@ def build_model(source_root, rules, tooling):
         if component_of[frm] is component_of[to] and len(component_of[frm]) > 1
     }
 
+    instability = {m["name"]: m["instability"] for m in modules}
     edges = []
     for (frm, to) in sorted(weights, key=lambda key: (-weights[key], key[0], key[1])):
         edges.append(
@@ -481,6 +521,7 @@ def build_model(source_root, rules, tooling):
                 "to": to,
                 "weight": weights[(frm, to)],
                 "cyclic": (frm, to) in cyclic,
+                "upward": is_upward(instability[frm], instability[to]),
                 "files": sorted(edge_files[(frm, to)]),
                 "types": sorted(edge_types[(frm, to)]),
             }
@@ -490,7 +531,20 @@ def build_model(source_root, rules, tooling):
         "modules": modules,
         "edges": edges,
         "unclassified": unclassified,
+        "ambiguousTypes": ambiguous,
     }
+
+
+def is_upward(instability_from, instability_to):
+    """True when an edge runs against the stability gradient.
+
+    Martin's stable-dependencies rule: a module should depend only on modules
+    at least as stable as itself (lower or equal instability). An edge from a
+    more stable module to a less stable one is the violation worth drawing in
+    red; with the whole production graph inside one strongly connected
+    component, "on a cycle" marks nearly every edge and separates nothing.
+    """
+    return instability_from < instability_to
 
 
 def write_json(model, out_path):
@@ -547,7 +601,7 @@ def render_dot(model, min_edge):
         )
     for edge in edges:
         penwidth = 1.0 + 4.0 * edge["weight"] / max_weight
-        color = "#cc0000" if edge["cyclic"] else "#8a949e"
+        color = "#cc0000" if edge["upward"] else "#8a949e"
         types = ", ".join(edge["types"][:12])
         if len(edge["types"]) > 12:
             types += " (+%d more)" % (len(edge["types"]) - 12)
@@ -557,14 +611,19 @@ def render_dot(model, min_edge):
             edge["weight"],
             types,
         )
+        # Upward edges do not constrain the layout, so dot ranks modules along
+        # the stability gradient (unstable at the top, stable sinks at the
+        # bottom) and every red arrow is visibly the one pointing back up.
+        constraint = ", constraint=false" if edge["upward"] else ""
         lines.append(
-            '  "%s" -> "%s" [penwidth=%.2f, color="%s", tooltip="%s"];'
+            '  "%s" -> "%s" [penwidth=%.2f, color="%s", tooltip="%s"%s];'
             % (
                 _dot_escape(edge["from"]),
                 _dot_escape(edge["to"]),
                 penwidth,
                 color,
                 _dot_escape(tooltip),
+                constraint,
             )
         )
     lines.append("}")
@@ -626,7 +685,7 @@ def render_matrix_html(model):
             if edge is None:
                 cells.append("<td></td>")
                 continue
-            css_class = "cell cyc" if edge["cyclic"] else "cell"
+            css_class = "cell cyc" if edge["upward"] else "cell"
             types = ", ".join(edge["types"][:16])
             cells.append(
                 '<td class="%s" style="%s" title="%d references: %s">%d</td>'
@@ -668,15 +727,16 @@ def render_matrix_html(model):
         "<h1>Parsek dependency structure matrix</h1>",
         '<p class="note">Modules are ordered by instability ascending, so sinks (low'
         " instability) come first. Cell value is the number of cross-module references from"
-        " the row module to the column module; shade scales with that count. A red outline"
-        " marks a cell whose two modules sit in the same dependency cycle (same strongly"
-        " connected component); the way back may run through other modules. Diagonal is the"
-        " file count.</p>",
+        " the row module to the column module; shade scales with that count. With rows and"
+        " columns both sorted by instability, everything above the diagonal points from a"
+        " more stable module to a less stable one; a red outline marks exactly those"
+        " upward edges (the stable-dependencies rule says they should not exist)."
+        " Diagonal is the file count.</p>",
         '<p class="note">Generated by <code>scripts/arch/archview.py</code>; do not edit by'
         " hand. Production modules only; hidden tooling modules: %s.</p>" % html.escape(", ".join(tooling)),
         '<p class="legend"><span class="swatch" style="background:#e8eef7"></span>low'
         '<span class="swatch" style="background:#2e5e9c"></span>high reference count'
-        '<span class="swatch" style="outline:2px solid #cc0000; outline-offset:-2px"></span>on a cycle</p>',
+        '<span class="swatch" style="outline:2px solid #cc0000; outline-offset:-2px"></span>upward (stable depends on less stable)</p>',
         "<table>",
     ]
     lines.extend("  " + row for row in rows)
@@ -725,7 +785,7 @@ html, body { margin: 0; height: 100%; font-family: "Segoe UI", Arial, sans-serif
         <span id="minwv">@@MIN_EDGE@@</span>
       </label>
       <span class="legend"><span class="swatch edge"></span>edge width = reference count</span>
-      <span class="legend"><span class="swatch red"></span>edge on a cycle</span>
+      <span class="legend"><span class="swatch red"></span>upward edge (stable depends on less stable)</span>
       <span class="legend"><span class="swatch gray"></span>tooling module</span>
     </div>
     <div id="cy"></div>
@@ -831,7 +891,7 @@ function rebuild() {
       source: e.from,
       target: e.to,
       weight: e.weight,
-      cyclic: e.cyclic
+      upward: e.upward
     } });
   });
   cy.elements().remove();
@@ -872,7 +932,7 @@ if (typeof cytoscape === "undefined") {
         "arrow-scale": 0.8,
         "curve-style": "bezier"
       } },
-      { selector: "edge[?cyclic]", style: {
+      { selector: "edge[?upward]", style: {
         "line-color": "#cc0000",
         "target-arrow-color": "#cc0000"
       } },
@@ -958,6 +1018,11 @@ def format_metrics_table(model):
     return "\n".join(lines)
 
 
+def not_tooling(model, edge):
+    tooling = {m["name"] for m in model["modules"] if m["tooling"]}
+    return edge["from"] not in tooling and edge["to"] not in tooling
+
+
 def two_way_couplings(model):
     """Return (a, b, weightAB, weightBA) for every mutually coupled pair."""
     production = {m["name"] for m in model["modules"] if not m["tooling"]}
@@ -985,6 +1050,21 @@ def run_check(model, forbidden, allowed):
     print(format_metrics_table(model))
     if hidden:
         print("Tooling modules hidden from this table and the views: %s." % ", ".join(hidden))
+
+    ambiguous = model.get("ambiguousTypes", [])
+    if ambiguous:
+        print(
+            "Type names declared in more than one module, excluded from the scan (%d): %s"
+            % (len(ambiguous), ", ".join(ambiguous))
+        )
+
+    print()
+    upward = [e for e in model["edges"] if e["upward"] and not_tooling(model, e)]
+    print("Upward edges (a more stable module depending on a less stable one):")
+    if not upward:
+        print("  none.")
+    for edge in sorted(upward, key=lambda e: (-e["weight"], e["from"], e["to"])):
+        print("  %s -> %s: weight=%d" % (edge["from"], edge["to"], edge["weight"]))
 
     print()
     pairs = two_way_couplings(model)

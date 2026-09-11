@@ -103,6 +103,20 @@ class StripTests(unittest.TestCase):
         self.assertNotIn("MissionStore", stripped)
         self.assertIn("after", stripped)
 
+    def test_preprocessor_directive_lines_are_removed(self):
+        source = "class Alpha {}\n    #region Spawn Decision\nclass Bravo {}\n#endregion\n"
+        stripped = archview.strip_comments_and_strings(source)
+        self.assertIn("Alpha", stripped)
+        self.assertIn("Bravo", stripped)
+        self.assertNotIn("Decision", stripped)
+        self.assertNotIn("endregion", stripped)
+
+    def test_hash_inside_a_line_is_not_a_directive(self):
+        source = "var color = Parse(x); Decision d = null; // #region not here\nint y = 1;"
+        stripped = archview.strip_comments_and_strings(source)
+        self.assertIn("Decision d", stripped)
+        self.assertIn("int y", stripped)
+
 
 class DeclaredTypesAndReferencesTests(unittest.TestCase):
     SNIPPET = """
@@ -119,6 +133,15 @@ class DeclaredTypesAndReferencesTests(unittest.TestCase):
         }
     }
     """
+
+    def test_plain_method_call_sharing_a_type_name_is_not_a_reference(self):
+        type_modules = {"Decision": "GameActions"}
+        source = "return Decision(true, false, x);"
+        self.assertEqual(archview.references(source, type_modules, "Ghost"), [])
+        source = "var d = new Decision(true);"
+        self.assertEqual(archview.references(source, type_modules, "Ghost"), [("Decision", "GameActions")])
+        source = "Decision d = Make(); List<Decision> all;"
+        self.assertEqual(archview.references(source, type_modules, "Ghost"), [("Decision", "GameActions")])
 
     def test_declared_types(self):
         stripped = archview.strip_comments_and_strings(self.SNIPPET)
@@ -309,6 +332,32 @@ class ModelWiringTests(unittest.TestCase):
         self.assertTrue(edges[("One", "Two")]["cyclic"])
         self.assertTrue(edges[("Two", "One")]["cyclic"])
         self.assertFalse(edges[("Two", "Three")]["cyclic"])
+        # One: out 1, in 1 -> I=0.5. Two: out 2, in 1 -> I=0.67. Three: sink -> I=0.
+        # The stable module One depending on the less stable Two is the upward edge.
+        self.assertTrue(edges[("One", "Two")]["upward"])
+        self.assertFalse(edges[("Two", "One")]["upward"])
+        self.assertFalse(edges[("Two", "Three")]["upward"])
+
+    def test_type_declared_in_two_modules_is_excluded(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            self._write(root, "One/A.cs", "class Entry {} class AlphaOnly {}")
+            self._write(root, "Two/B.cs", "class Entry {} class BetaOnly {}")
+            self._write(root, "Three/C.cs", "class Uses { Entry e; AlphaOnly a; }")
+            rules = [
+                {"name": "One", "folder": "One"},
+                {"name": "Two", "folder": "Two"},
+                {"name": "Three", "folder": "Three"},
+            ]
+            model = archview.build_model(root, rules, set())
+        edges = {(e["from"], e["to"]): e["types"] for e in model["edges"]}
+        self.assertEqual(model["ambiguousTypes"], ["Entry"])
+        self.assertEqual(edges, {("Three", "One"): ["AlphaOnly"]})
+
+    def test_is_upward(self):
+        self.assertTrue(archview.is_upward(0.2, 0.8))
+        self.assertFalse(archview.is_upward(0.8, 0.2))
+        self.assertFalse(archview.is_upward(0.5, 0.5))
 
     def test_unclassified_files_are_recorded(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -331,6 +380,7 @@ def _small_model():
                 "to": "B",
                 "weight": 3,
                 "cyclic": False,
+                "upward": False,
                 "files": ["A/FileA.cs"],
                 "types": ["TypeB"],
             },
@@ -339,6 +389,7 @@ def _small_model():
                 "to": "A",
                 "weight": 2,
                 "cyclic": False,
+                "upward": True,
                 "files": ["B/FileB.cs"],
                 "types": ["TypeA"],
             },
