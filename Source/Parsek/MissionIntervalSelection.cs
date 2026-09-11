@@ -43,16 +43,6 @@ namespace Parsek
             return windows;
         }
 
-        /// <summary>
-        /// True when the given through-line head's vessel renders at all under this selection
-        /// (i.e. at least one of its intervals is included).
-        /// </summary>
-        internal static bool IsVesselIncluded(
-            List<MissionCompositionNode> roots, ICollection<string> excludedIntervalKeys, string ownerHeadId)
-        {
-            return ComputeRenderWindows(roots, excludedIntervalKeys).ContainsKey(ownerHeadId);
-        }
-
         private static void Accumulate(
             MissionCompositionNode node, ICollection<string> excluded,
             Dictionary<string, RenderWindow> windows)

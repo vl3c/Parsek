@@ -4193,7 +4193,7 @@ namespace Parsek
             // the overlap cap) - a GUILayout.TextField takes no GUIContent, so the adjacent button
             // is where a hover can explain the field beside it.
             string periodStateTooltip = MissionPresentation.BuildPeriodStateTooltip(
-                enabled, false, auto, showEffective) ?? string.Empty;
+                enabled, auto, showEffective) ?? string.Empty;
             bool unitButtonEnabled = GUI.enabled;
             bool unitButtonClicked = GUILayout.Button(
                     new GUIContent(ParsekUI.UnitLabel(mission.LoopTimeUnit), periodStateTooltip),

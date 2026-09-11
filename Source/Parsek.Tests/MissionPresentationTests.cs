@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Parsek;
 using Xunit;
@@ -462,21 +463,36 @@ namespace Parsek.Tests
         [Fact]
         public void BuildPeriodStateTooltip_NamesEachState()
         {
-            // Fails if a period-cell state stops naming itself (the four states are otherwise
-            // distinguished by greyness / editability / tint alone).
+            // Fails if a period-cell state stops naming itself (the states are otherwise
+            // distinguished by greyness / editability / tint alone). The `locked` parameter
+            // was dropped 2026-09-11: its branch could not fire, because the only production
+            // call site passed literal false.
             Assert.Equal(MissionPresentation.PeriodTooltipLoopOff,
-                MissionPresentation.BuildPeriodStateTooltip(false, false, false, false));
+                MissionPresentation.BuildPeriodStateTooltip(false, false, false));
             // Loop off wins over everything else - nothing is running.
             Assert.Equal(MissionPresentation.PeriodTooltipLoopOff,
-                MissionPresentation.BuildPeriodStateTooltip(false, true, true, true));
-            Assert.Equal(MissionPresentation.PeriodTooltipLocked,
-                MissionPresentation.BuildPeriodStateTooltip(true, true, false, false));
+                MissionPresentation.BuildPeriodStateTooltip(false, true, true));
             Assert.Equal(MissionPresentation.PeriodTooltipClamped,
-                MissionPresentation.BuildPeriodStateTooltip(true, false, true, true));
+                MissionPresentation.BuildPeriodStateTooltip(true, true, true));
             Assert.Equal(MissionPresentation.PeriodTooltipAuto,
-                MissionPresentation.BuildPeriodStateTooltip(true, false, true, false));
+                MissionPresentation.BuildPeriodStateTooltip(true, true, false));
             // Plain manual period: nothing to explain.
-            Assert.Null(MissionPresentation.BuildPeriodStateTooltip(true, false, false, false));
+            Assert.Null(MissionPresentation.BuildPeriodStateTooltip(true, false, false));
+        }
+
+        // catches: PeriodTooltipLocked losing its OWN consumer. It survived the `locked`
+        // parameter's removal because a route-owned mission renders its period as the label
+        // "locked" carrying this text directly (UI/MissionsWindowUI.cs), which is a different
+        // control from the unit button BuildPeriodStateTooltip feeds.
+        [Fact]
+        public void PeriodTooltipLocked_IsStillDrawnByTheRouteOwnedPeriodLabel()
+        {
+            string src = System.IO.File.ReadAllText(System.IO.Path.GetFullPath(
+                System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
+                    "..", "..", "..", "..", "Parsek", "UI", "MissionsWindowUI.cs")));
+
+            Assert.Contains("MissionPresentation.PeriodTooltipLocked", src);
+            Assert.False(string.IsNullOrEmpty(MissionPresentation.PeriodTooltipLocked));
         }
 
         [Fact]

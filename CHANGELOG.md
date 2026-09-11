@@ -1259,6 +1259,19 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Dev
 
+- **Five dead code paths removed after the GUI census named them.** A rollback switch for
+  the map's overlapping-ghost path that had been hard-wired to "on" (its off branch, still
+  described in the comments, could not run); a "Tracking Station" interface mode nothing
+  ever created, and with it a rule about deleting ghost-only recordings there that was
+  therefore never enforced - the Tracking Station has no Parsek window at all; two helper
+  methods with no callers anywhere; a tooltip branch whose only caller passed the value
+  that skips it; and the migration that converted pre-2025 recorder-fidelity settings into
+  the three presets, which nothing has written since the presets shipped. Each was grepped
+  across the whole repository first and took its tests with it. One player-visible
+  consequence, stated for the record: a settings file that still carries the pre-preset
+  keys now reads as Medium (the default, and what the migration itself computed for the
+  shipping values) instead of being fitted to the nearest preset.
+
 - **An in-game test left a merge journal installed on the live scenario when it failed,
   and three later tests failed because of it.** The merge-interruption test deliberately
   crashes a real merge halfway through and then repairs it; when its own assertion red

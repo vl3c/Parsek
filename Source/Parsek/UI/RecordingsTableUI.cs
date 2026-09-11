@@ -1979,7 +1979,7 @@ namespace Parsek
             if (captureThisRow) AlignDebugLogLastRect(alignmentDebugRowLog, "rowStatus");
 
             // Group assignment button (split with X delete for ghost-only recordings)
-            if (rec.IsGhostOnly && CanOfferGhostOnlyDelete(parentUI.Mode))
+            if (rec.IsGhostOnly)
             {
                 bool ghostGClicked, ghostXClicked;
                 DrawBodyCenteredTwoButtons(
@@ -4681,12 +4681,9 @@ namespace Parsek
         {
             // [ERS-exempt] reason: delete operates by index into the raw
             // committed list. See TODO(phase 6+) on DrawRecordingsWindow.
-            if (!CanOfferGhostOnlyDelete(parentUI.Mode))
-            {
-                ParsekLog.Warn("UI",
-                    $"DeleteGhostOnlyRecording ignored in {parentUI.Mode} mode: index={index}");
-                return;
-            }
+            // No per-mode gate: the only mode this was ever refused in was
+            // UIMode.TrackingStation, which nothing constructed (GUI census D11). Both
+            // remaining modes host this window and both delete branches below are live.
             var committed = RecordingStore.CommittedRecordings;
             if (index < 0 || index >= committed.Count)
             {
@@ -4716,11 +4713,6 @@ namespace Parsek
             InvalidateSort();
             ParsekLog.Info("UI",
                 $"Deleted ghost-only recording \"{rec.VesselName}\" (id={rec.RecordingId})");
-        }
-
-        internal static bool CanOfferGhostOnlyDelete(UIMode mode)
-        {
-            return mode != UIMode.TrackingStation;
         }
 
         private void DrawSortableHeader(string label, SortColumn col, float width,

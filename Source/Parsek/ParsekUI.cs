@@ -8,7 +8,11 @@ using UnityEngine;
 
 namespace Parsek
 {
-    public enum UIMode { Flight, KSC, TrackingStation }
+    // No TrackingStation member: the Tracking Station hosts no Parsek window (its OnGUI
+    // draws markers only, ParsekTrackingStation.cs), so nothing ever constructed one and
+    // the only branch that read it was unreachable (GUI census D11). Adding a TS surface
+    // starts from zero, and would add the member back with a real constructor call.
+    public enum UIMode { Flight, KSC }
 
     /// <summary>
     /// UI rendering for the Parsek window and map view markers.

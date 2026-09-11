@@ -652,16 +652,20 @@ namespace Parsek
         // ===================== T1.5 - the state tooltips =====================
 
         /// <summary>
-        /// The one-line state name for the loop-period cell (T1.5): which of its four states the
+        /// The one-line state name for the loop-period cell (T1.5): which of its states the
         /// player is looking at. Pure.
+        /// <para>The <c>locked</c> parameter is gone (2026-09-11): the only production call
+        /// site passed literal <c>false</c>, so the <see cref="PeriodTooltipLocked"/> branch
+        /// here could never fire. That constant is NOT dead - a route-owned mission's
+        /// period renders as the label "locked" carrying it directly
+        /// (<c>UI/MissionsWindowUI.cs:4046</c>), which is a different control from the
+        /// unit button this tooltip is attached to.</para>
         /// </summary>
         internal static string BuildPeriodStateTooltip(
-            bool loopEnabled, bool locked, bool auto, bool raisedByOverlapCap)
+            bool loopEnabled, bool auto, bool raisedByOverlapCap)
         {
             if (!loopEnabled)
                 return PeriodTooltipLoopOff;
-            if (locked)
-                return PeriodTooltipLocked;
             if (raisedByOverlapCap)
                 return PeriodTooltipClamped;
             return auto ? PeriodTooltipAuto : null;

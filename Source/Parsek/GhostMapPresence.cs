@@ -11453,7 +11453,6 @@ namespace Parsek
             HashSet<int> drivenThisFrame = null;
             if (committed != null)
             {
-                bool gateOn = IsOverlapPerInstanceGateOn();
                 for (int i = 0; i < committed.Count; i++)
                 {
                     var rec = committed[i];
@@ -11464,7 +11463,7 @@ namespace Parsek
                     // re-fly Mission member shows isMember=true unitOverlaps=true even when
                     // rec.LoopPlayback=false, so a "one icon instead of N" report is diagnosable from
                     // the log alone.
-                    LogOverlapGateDecision(i, rec, committed, loopUnits, gateOn, shouldDrive);
+                    LogOverlapGateDecision(i, rec, committed, loopUnits, shouldDrive);
 
                     if (!shouldDrive)
                     {
@@ -11657,7 +11656,7 @@ namespace Parsek
         /// <summary>
         /// Per-recording gate-decision trace (rate-limited, per-index key). Surfaces every input to the
         /// overlap verdict so a "one icon instead of N" report is diagnosable from the log WITHOUT a
-        /// rebuild: the director-drive gate, the standalone source (a) inputs (rec.LoopPlayback +
+        /// rebuild: the standalone source (a) inputs (rec.LoopPlayback +
         /// IsOverlapLoop result), the Mission source (b) inputs (isMember / overlapCadence / span /
         /// unitOverlaps), the resolved schedule tuple (scheduleStart / duration / effectiveCadence), and
         /// the final ShouldDriveOverlapPerInstance verdict + the live cycle window when driven. Reuses
@@ -11667,7 +11666,7 @@ namespace Parsek
         /// </summary>
         internal static void LogOverlapGateDecision(
             int recIdx, Recording rec, IReadOnlyList<Recording> committed,
-            GhostPlaybackLogic.LoopUnitSet loopUnits, bool gateOn, bool shouldDrive)
+            GhostPlaybackLogic.LoopUnitSet loopUnits, bool shouldDrive)
         {
             // Source (a) inputs.
             bool recLoopPlayback = rec != null && rec.LoopPlayback;
@@ -11717,11 +11716,11 @@ namespace Parsek
             }
 
             string message = string.Format(ic,
-                "Overlap gate decision rec=#{0} \"{1}\": directorDrive={2} | "
-                + "(a) loopPlayback={3} autoIsOverlapLoop={4} | "
-                + "(b) isMember={5} overlapCadence={6:F1} span={7:F1} unitOverlaps={8} | "
-                + "{9} | verdict shouldDrive={10} {11}",
-                recIdx, rec?.VesselName ?? "(null)", gateOn,
+                "Overlap gate decision rec=#{0} \"{1}\": "
+                + "(a) loopPlayback={2} autoIsOverlapLoop={3} | "
+                + "(b) isMember={4} overlapCadence={5:F1} span={6:F1} unitOverlaps={7} | "
+                + "{8} | verdict shouldDrive={9} {10}",
+                recIdx, rec?.VesselName ?? "(null)",
                 recLoopPlayback, autoOverlap,
                 isMember, overlapCadence, span, unitOverlaps,
                 scheduleStr, shouldDrive, cycleWindowStr);
@@ -11740,8 +11739,8 @@ namespace Parsek
             string identity = !string.IsNullOrEmpty(rec?.RecordingId)
                 ? rec.RecordingId
                 : "idx-" + recIdx.ToString(ic);
-            string stateKey = string.Format(ic, "{0}|{1}|{2}|{3}|{4}|{5}",
-                gateOn, shouldDrive, recLoopPlayback, autoOverlap, isMember, unitOverlaps);
+            string stateKey = string.Format(ic, "{0}|{1}|{2}|{3}|{4}",
+                shouldDrive, recLoopPlayback, autoOverlap, isMember, unitOverlaps);
             ParsekLog.VerboseOnChange(Tag, identity, stateKey, message);
         }
 

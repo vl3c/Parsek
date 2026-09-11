@@ -150,21 +150,22 @@ namespace Parsek.Tests
         {
             var node = new ConfigNode("ParsekSettings");
             node.AddValue("samplingDensity", "2");
-            node.AddValue("minSampleInterval", "0.5");
-            node.AddValue("maxSampleInterval", "8");
-            node.AddValue("velocityDirThreshold", "6");
-            node.AddValue("speedChangeThreshold", "12");
 
             SamplingDensity level = ParsekSettings.ResolveSamplingDensityFromConfig(
-                node, out bool migratedFromLegacy, out string invalidSamplingDensityValue);
+                node, out string invalidSamplingDensityValue);
 
             Assert.Equal(SamplingDensity.High, level);
-            Assert.False(migratedFromLegacy);
             Assert.Null(invalidSamplingDensityValue);
         }
 
+        // The three pre-preset-migration cells that used to live here were deleted with the
+        // migration itself (GUI census D17): it only fired for a config carrying the four
+        // minSampleInterval / maxSampleInterval / velocityDirThreshold / speedChangeThreshold
+        // keys, which nothing has written since the preset landed. What remains is the
+        // behaviour that replaced it - such a config now reads Medium, the shipping default -
+        // plus the invalid-stored-value surface, which is still live.
         [Fact]
-        public void ResolveSamplingDensityFromConfig_MigratesLegacyThresholdsToNearestPreset()
+        public void ResolveSamplingDensityFromConfig_PrePresetThresholdKeysAreIgnored()
         {
             var node = new ConfigNode("ParsekSettings");
             node.AddValue("minSampleInterval", "0.35");
@@ -173,44 +174,25 @@ namespace Parsek.Tests
             node.AddValue("speedChangeThreshold", "10");
 
             SamplingDensity level = ParsekSettings.ResolveSamplingDensityFromConfig(
-                node, out bool migratedFromLegacy, out string invalidSamplingDensityValue);
-
-            Assert.Equal(SamplingDensity.Low, level);
-            Assert.True(migratedFromLegacy);
-            Assert.Null(invalidSamplingDensityValue);
-        }
-
-        [Fact]
-        public void ResolveSamplingDensityFromConfig_UsesLegacyDefaultsForMissingFields()
-        {
-            var node = new ConfigNode("ParsekSettings");
-            node.AddValue("maxSampleInterval", "3");
-            node.AddValue("speedChangeThreshold", "5");
-
-            SamplingDensity level = ParsekSettings.ResolveSamplingDensityFromConfig(
-                node, out bool migratedFromLegacy, out string invalidSamplingDensityValue);
+                node, out string invalidSamplingDensityValue);
 
             Assert.Equal(SamplingDensity.Medium, level);
-            Assert.True(migratedFromLegacy);
+            // The key was absent, not invalid, so there is nothing for OnLoad to Warn about.
             Assert.Null(invalidSamplingDensityValue);
         }
 
         [Fact]
-        public void ResolveSamplingDensityFromConfig_InvalidStoredValueFallsBackToLegacyThresholds()
+        public void ResolveSamplingDensityFromConfig_InvalidStoredValueFallsBackToMedium()
         {
             var node = new ConfigNode("ParsekSettings");
             node.AddValue("samplingDensity", "99");
-            node.AddValue("minSampleInterval", "0.5");
-            node.AddValue("maxSampleInterval", "8");
-            node.AddValue("velocityDirThreshold", "6");
-            node.AddValue("speedChangeThreshold", "12");
 
             SamplingDensity level = ParsekSettings.ResolveSamplingDensityFromConfig(
-                node, out bool migratedFromLegacy, out string invalidSamplingDensityValue);
+                node, out string invalidSamplingDensityValue);
 
-            Assert.Equal(SamplingDensity.Low, level);
-            Assert.True(migratedFromLegacy);
+            Assert.Equal(SamplingDensity.Medium, level);
             Assert.Equal("99", invalidSamplingDensityValue);
         }
+
     }
 }

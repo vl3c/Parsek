@@ -376,6 +376,77 @@ they stay valid in both cases and keep showing. Guarded by
 that an empty-but-successful scan still says "0 files" and does NOT claim a failure) and
 `DiskUsage_FormatLine_FlagsFilesItCouldNotSize`.
 
+## ~~GUI-D10-D11-D13-D16-D17-UNREACHABLE-BRANCHES-AND-ORPHANED-HELPERS~~: five dead paths deleted, each with a program-wide grep and its tests [FILED + FIXED 2026-09-11 by the GUI fix batch]
+
+Each symbol was grepped across `Source/`, `harness/`, `docs/` and `scripts/` before it was
+removed; the greps are recorded per item.
+
+**D10 - `GhostMapPresence.OverlapSchedule.IsOverlapPerInstanceGateOn()`.** Body was
+`return true;`, so the OFF branch its own doc comment described could not execute. Two
+references: the method, and the `gateOn` local at `GhostMapPresence.cs:11456` that fed the
+`directorDrive={0}` token of the `Overlap gate decision` line and one facet of that line's
+change key. Method, local, parameter, log token and key facet all removed; the four
+`OverlapPerInstanceTests` cells that passed `gateOn:` were re-pointed, and the one that
+used `gateOn: false` as its "a boolean facet flip still re-emits" lever now flips
+`shouldDrive` instead. No harness spec pins `directorDrive` (grep over `harness/`), and the
+unrelated `mapRenderDirectorDrive` audit token is a different string - its grep gate still
+passes.
+
+**D11 - `UIMode.TrackingStation` and `RecordingsTableUI.CanOfferGhostOnlyDelete`.** The
+enum member was never constructed (the only `new ParsekUI(...)` calls are `UIMode.Flight`
+and `UIMode.KSC`), so `CanOfferGhostOnlyDelete`'s only refusal branch was unreachable and
+the "no ghost delete in the Tracking Station" intent it encoded was never enforced -
+because the Tracking Station hosts no Parsek window at all (`ParsekTrackingStation.cs:350`
+draws markers only, and says so at `:394-395`). Enum member, predicate, both call-site
+guards, and the two tests that were its only exercisers
+(`CanOfferGhostOnlyDelete_MatchesSceneCompatibility`,
+`ParsekUI_TrackingStationCtor_ExposesReusableRecordingsAndSettingsWindows`) deleted. The
+enum's new comment records why the member is absent, so a future TS surface adds it back
+WITH a constructor call rather than finding it already there and assuming it is wired.
+
+**D13 - `GameActionDisplay.GetCategory` and `MissionIntervalSelection.IsVesselIncluded`.**
+Zero references anywhere, production or test (the first had zero in `Source/` at all; the
+second is a one-line wrapper over
+`ComputeRenderWindows(...).ContainsKey(ownerHeadId)`). Both deleted; no tests to take.
+
+**D13, NOT taken, with reasons.** `WatchModeController.FinalizeAutomaticExitForTesting` is
+a genuine test seam over the private `ResetWatchState(preserveLineageProtection: true,
+destroyOverlapAnchor: false)` - four `Issue316WatchProtectionTests` /
+`WatchModeControllerTests` cells drive the automatic-exit path through it and have no other
+way in. `KerbalsModule.IsKerbalAvailable` is production-dead but is the assertion surface
+for reservation state in 23 cells across `KerbalReservationTests` and
+`KerbalsModuleEndStateTests`, plus two cells that exist only to pin its log line; replacing
+each with `!module.Reservations.ContainsKey(name)` inverts an assertion's polarity 23 times
+for no product gain. Both are recorded under `GUI-D8-LEGACY-SURFACES-KEPT-ALIVE-BY-TESTS`
+below, which is the filed decision for exactly this shape.
+
+**D16 - `MissionPresentation.BuildPeriodStateTooltip`'s `locked` parameter.** The only
+production call site passed literal `false` (`UI/MissionsWindowUI.cs:4155`), so the
+`PeriodTooltipLocked` branch could not fire. Parameter and branch removed; the tests that
+passed `locked: true` were rewritten. `PeriodTooltipLocked` itself STAYS and is not dead: a
+route-owned mission renders its period as the label "locked" carrying that text directly
+(`UI/MissionsWindowUI.cs:4046`), which is a different control from the unit button this
+tooltip feeds. New cell
+`PeriodTooltipLocked_IsStillDrawnByTheRouteOwnedPeriodLabel` pins that consumer so the
+constant cannot become dead unnoticed.
+
+**D17 - the pre-preset sampling-threshold migration.** `ResolveSamplingDensityFromConfig`'s
+fallback fired only for a config carrying `minSampleInterval` / `maxSampleInterval` /
+`velocityDirThreshold` / `speedChangeThreshold`, which nothing has written since the
+preset landed. Deleted: the `migratedFromLegacy` out-parameter and its OnLoad log block,
+`DeriveSamplingDensityFromLegacyThresholds` (the least-squares nearest-preset fit),
+`TryReadLegacySamplingThresholds`, the four `Legacy*Key` constants, and the
+`TryReadFloat` / `NormalizeLegacyDistance` / `Square` helpers that served only them. Three
+of the four test cells went with it; the stored-value cell stays, and two new cells pin
+what replaced the fallback (a config still carrying those keys reads Medium - the shipping
+default, and the answer the fit itself returned for the shipping thresholds - and an
+INVALID stored value still surfaces its raw string for OnLoad's Warn).
+
+**Accepted cost of D17, stated.** A player whose settings file predates the preset loses
+their recorder-fidelity preference and lands on Medium, silently. That population is
+whoever has not opened the Settings window since the preset shipped; the setting is one
+click to restore, and nothing else in the file is touched.
+
 ---
 
 ## BDOCK1-STATION-COMMIT-READOPT-LIMBO-FALLBACK-DIALOG: after BDOCK-1's mid-mission CommitTree, the re-adopted station continuation is stashed to Limbo by the interceptor launch and surfaces as a whole-tree merge dialog over already-committed recordings [FILED 2026-09-10 by wave package A2 (`cheap-flights-arming`) off its BDOCK-1 reading run; REWRITTEN 2026-09-11 off the archive grep. The dialog is the lane's deterministic shape on every post-fix build (4 of 4 logs), reached through a CORRECT refusal; OPEN PRODUCT QUESTION narrowed to the fallback dialog's UX over committed-overlap recordings; not fixed in this wave]
