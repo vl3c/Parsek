@@ -358,6 +358,7 @@ class CheckerOutputTests(unittest.TestCase):
             archview.run_check(_small_model(), ["A -> B"], [])
         text = captured.getvalue()
         self.assertIn("VIOLATION A -> B: weight=3", text)
+        self.assertIn("referenced types: TypeB", text)
         self.assertIn("A/FileA.cs", text)
         self.assertNotIn("not in [allowed]", text)
         self.assertEqual(self._last_line(text), "ARCH-CHECK report-only")

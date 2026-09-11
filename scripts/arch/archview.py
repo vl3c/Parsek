@@ -1009,6 +1009,7 @@ def run_check(model, forbidden, allowed):
             continue
         violations += 1
         print("  VIOLATION %s -> %s: weight=%d" % (frm, to, edge["weight"]))
+        print("    referenced types: %s" % ", ".join(edge["types"]))
         print("    referencing files:")
         for rel_path in edge["files"]:
             print("      %s" % rel_path)
