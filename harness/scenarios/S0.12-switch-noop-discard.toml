@@ -12,9 +12,10 @@ id = "S0.12-switch-noop-discard"
 #
 # AUTHORED 2026-09-10 (`ghost-replay-tier-b`) and READ the same day: reading run
 # `2026-09-10_1942` flew PASS attempt 1, OUTCOME (P1) (the STATUS block below). Every
-# token is RE-CUT to the measured line, and the CONFIRM re-flight `2026-09-10_2056`
-# PASSED on the re-cut spec (the RUN LEDGER at the end of this file). NOTHING is
-# claimed yet: the D1 claim enters after the negative control, which has not flown.
+# token is RE-CUT to the measured line; the CONFIRM re-flight `2026-09-10_2056` PASSED
+# on the re-cut spec and the NEGATIVE CONTROL `2026-09-11_0044` red on exactly the
+# inverted claim token (the RUN LEDGER at the end of this file). LIVE-PROVEN: D1
+# `switch-segment-noop-discard` is CLAIMED and the tier is daily (the S0.8 precedent).
 #
 # =====================================================================================
 # THE CODE FACTS THIS SPEC RESTS ON - read, not assumed.
@@ -91,7 +92,8 @@ id = "S0.12-switch-noop-discard"
 #     save's `Parsek/Recordings` directory was EMPTY (recordings.count 0), and
 #     logValidate PASSed with REC-001/003 suppressed (fact 6).
 #
-# THE CONTROLS (stage 2 - flown on uncommitted edits, never committed):
+# THE CONTROLS (flown 2026-09-11 on uncommitted edits, never committed; the RUN LEDGER
+# at the end of this file has both results):
 #   - THE NEGATIVE CONTROL (the counting one, one mismatch): the claim token's
 #     disposition word inverted to one this run never prints; it must red
 #     PARSEK-FAIL(expectation) on exactly that token, with the original matching >= 1
@@ -104,8 +106,8 @@ id = "S0.12-switch-noop-discard"
 #     `(Standalone)` claim token. A red that is ONLY the REC-rule flip the insertion
 #     also causes does not discharge it.
 # =====================================================================================
-tier = "operator"
-description = "The no-op switch-segment auto-discard end to end (D1 switch-segment-noop-discard, roadmap Tier D item 13): S0.8's map-site Switch-To click onto the co-orbiting loaded probe core WITHOUT a live recording, so the standalone consume builds a FRESH tree holding only the segment (disposition Standalone); a short dwell in which nothing happens; then ExitToSpaceCenter, whose scene-exit prefix (step 3.5) must classify the segment no-op and discard the whole throwaway tree before any commit routing. READ 2026-09-10 (`2026-09-10_1942`, PASS attempt 1, outcome P1) and every token re-cut to its measured line; the confirm re-flight `2026-09-10_2056` PASSED on the re-cut spec, the negative control is pending, and no dimension is claimed until it flies."
+tier = "daily"
+description = "The no-op switch-segment auto-discard end to end (D1 switch-segment-noop-discard, roadmap Tier D item 13): S0.8's map-site Switch-To click onto the co-orbiting loaded probe core WITHOUT a live recording, so the standalone consume builds a FRESH tree holding only the segment (disposition Standalone); a short dwell in which nothing happens; then ExitToSpaceCenter, whose scene-exit prefix (step 3.5) must classify the segment no-op and discard the whole throwaway tree before any commit routing. READ 2026-09-10 (`2026-09-10_1942`, PASS attempt 1, outcome P1) and every token re-cut to its measured line; the confirm re-flight `2026-09-10_2056` PASSED on the re-cut spec, and the negative control `2026-09-11_0044` red on exactly the inverted claim token. D1 switch-segment-noop-discard CLAIMED 2026-09-11; tier daily."
 instanceProfile = "stock-minimal"
 tags = ["switch-segment", "stock-click", "S0.12", "noop-discard", "D1"]
 
@@ -149,9 +151,24 @@ steps = [
 ]
 
 [dimensionsCovered]
-# NOTHING CLAIMED YET. D1 `switch-segment-noop-discard` (the one count-moving cell),
-# plus the D1 `switch-segment` / D14 `scene-ksc` re-claims, enter in the commit made
-# after the confirm run and the negative control, off the re-cut tokens.
+# CLAIM-IS-NOT-GATE. Every value below is backed by a REQUIRED token in this spec's own
+# logContracts, entered 2026-09-11 after the confirm run `2026-09-10_2056` (PASS) and
+# the negative control `2026-09-11_0044` (valid; the RUN LEDGER below).
+#
+# `switch-segment-noop-discard` <- THE CLAIM TOKEN "TryAutoDiscardNoOpSwitchSegment:
+#   no-op switch segment \(Standalone\) detected dest=SPACECENTER - discarding without
+#   commit", the token the negative control inverted, with the classifier line
+#   (`disposition=Standalone ... noOp=True reason=no-op`), the
+#   `AutoDiscardActiveTreeCore` teardown and recordings.count {0,0} beside it. FIRST
+#   CLAIMANT: GS-3 reaches only the deferred shape, H12 only the arming decision.
+# `switch-segment` <- the "[SwitchSegment] created ... reason=MapSwitchTo" line AND
+#   "[SwitchIntent] cleared: ... reason=consumed-into-segment", S0.8's basis. A
+#   re-claim: S0.8, GS-3, H12 and CI-1 claim the same value.
+D1 = ["switch-segment", "switch-segment-noop-discard"]
+# `scene-ksc` <- "exittospacecenter complete scene=SPACECENTER game-loaded=true", the
+#   exit terminal after the discard. A re-claim; the discard runs in the scene-exit
+#   prefix, so reaching the Space Center is part of the subject.
+D14 = ["scene-ksc"]
 
 [expectations]
 # PLACEMENT IS LOAD-BEARING: `allowedAnomalies` must precede every
@@ -219,8 +236,9 @@ policy = "once"
 bugId = ""
 
 # =====================================================================================
-# RUN LEDGER - kept at the END of the file so the control anchors above (the driver
-# step on line 133, the claim token on line 197) keep their line numbers.
+# RUN LEDGER. The two controls below were flown against this file at `9a8c3e310`, where
+# the driver step sat on line 133 and the claim token on line 197; the claim commit that
+# followed moved both.
 #
 # CONFIRM RE-FLIGHT `2026-09-10_2056`: the re-cut spec at e754eb076 UNEDITED,
 # stock-minimal on the wave DLL (deployed sha256 a0abbed1... == PIN, re-checked after
@@ -240,12 +258,37 @@ bugId = ""
 # (`TrackSection started: env=ExoBallistic ref=Absolute`, one frame), not on rails -
 # fact (3) now names both start frames.
 #
-# NOT FLOWN YET (the wave's arm batch was interrupted after this run):
-#   - the NEGATIVE CONTROL: line 197's `(Standalone)` inverted to
-#     `(CommittedRestoreClone)`. It must red PARSEK-FAIL(expectation) on exactly that
-#     token, with the original regex matching >= 1 line and the inverted one 0 in the
-#     control's own log;
-#   - the MIRROR MEASUREMENT: line 133's autoRecordOnLaunch SetSetting replaced by
-#     `StartRecording`. It must red naming the missing `(Standalone)` token, with the
-#     `disposition=BgMemberOrMixed is deferred` line present.
-# The D1 claim and the daily promotion wait on the negative control.
+# NEGATIVE CONTROL `2026-09-11_0044` (the counting one): line 197's `(Standalone)`
+# inverted to `(CommittedRestoreClone)`, uncommitted, reverted after the flight (git
+# checkout, status clean). PARSEK-FAIL(expectation) attempt 1, 53 s wall, with EXACTLY
+# ONE mismatch - `logContracts.required not matched: TryAutoDiscardNoOpSwitchSegment:
+# no-op switch segment \(CommittedRestoreClone\) detected dest=SPACECENTER - discarding
+# without commit`; every other verifier PASS / REPORT / SKIPPED, recordings.count 0,
+# logValidate PASS with REC-001/003 suppressed. DRIFT GATE, in the control's own
+# KSP.log: the original `(Standalone)` claim line matched 1 (L11364), the inverted
+# `(CommittedRestoreClone)` 0. OUTCOME (P1) a third time: the classifier (L11363)
+# `disposition=Standalone ... noOp=True reason=no-op`, the route (L11160)
+# `createdFreshTree=True`, the teardown (L11365), 0 `Committed tree '`, 0
+# `[Parsek][ERROR]`. VALID (RULINGS G7): it unlocked the D1 claim and the daily
+# promotion. Re-evaluated offline with the committed spec and hlib.evaluate_expectations
+# over the archived log: PASS unedited, exactly that one mismatch with the edit.
+#
+# MIRROR MEASUREMENT `2026-09-11_0047` (not a counting control): line 133's
+# autoRecordOnLaunch SetSetting replaced by `StartRecording`, uncommitted, reverted.
+# PARSEK-FAIL(expectation) attempt 1, 51 s wall, TEN mismatches, as the mirror
+# direction predicts: the disposition, the commit routing and the tree all flip. Among
+# them are the missing `(Standalone)` claim token and the matched forbidden
+# `TryAutoDiscardNoOpSwitchSegment: no-op detected but disposition=`. The log carries
+# L11603 `TryAutoDiscardNoOpSwitchSegment: no-op detected but
+# disposition=BgMemberOrMixed is deferred at scene exit dest=SPACECENTER - falling
+# through to normal commit` (the classifier, L11602, read `disposition=BgMemberOrMixed
+# subtreeCount=1 hasDescendants=False noOp=True reason=no-op`), the gate with
+# `hasActiveRecording=true`, the route with `createdFreshTree=False`, and `Committed
+# tree 'Kerbal X' (2 recordings)` (L11911); 2 `.prec` in the produced save, 0 of the
+# `(Standalone)` claim line. logValidate PASS with the REC rules NOT suppressed
+# (recRulesSuppressed=false) and no REC-001/003 finding, so the head subkind stayed
+# `expectation`. One mismatch the request did not pre-register: the `[SwitchSegment]
+# created` token. The tree `StartRecording` builds carries a 32-hex id with no dashes
+# (`treeId=a55a9fb536f94fc0a24cf8c53ed9a52d`), while the fresh standalone tree's id is
+# the dashed 36-character form the token pins as `[0-9a-f-]{36}`. The token pins the
+# P1 shape and stays as it is; the mirror does not gate the claim.

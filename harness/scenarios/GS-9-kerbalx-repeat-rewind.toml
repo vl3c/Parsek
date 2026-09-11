@@ -11,9 +11,10 @@ id = "GS-9-kerbalx-repeat-rewind"
 # AUTHORED 2026-09-10 (`ghost-replay-tier-b`) and READ the same day: reading run
 # `2026-09-10_1944` flew PASS attempt 1 and classified OUTCOME (O1) IDEMPOTENT (the
 # STATUS block below). ARMED off that run's bytes: ghostLifecycle gates with EXACT
-# 8 / 16 / 16 windows, and GROUP 7 pins the per-cycle census. The armed re-flight and
-# the negative control are pending, and NOTHING is claimed in [dimensionsCovered]
-# until both have flown.
+# 8 / 16 / 16 windows, and GROUP 7 pins the per-cycle census. LIVE-PROVEN 2026-09-11:
+# the armed re-flight `2026-09-11_0109` PASSED (O1 again) and the negative control
+# `2026-09-11_0119` red on exactly the inverted window (the RUN LEDGER at the end of
+# this file); the D9 / D6 re-claims are in [dimensionsCovered].
 #
 # =====================================================================================
 # THE CODE FACTS THIS SPEC RESTS ON - read, not assumed.
@@ -114,7 +115,7 @@ id = "GS-9-kerbalx-repeat-rewind"
 #
 # =====================================================================================
 tier = "operator"
-description = "Repeat-rewind idempotence on the GS-4 subject (ghost-replay Tier B item 8): staged Kerbal X ascent, commit, Rewind-to-Launch, Jumping Flea watch anchor, map view + watch mode, playback to completion - then a SECOND Rewind-to-Launch off the SAME committed tree with the same watcher and the same watch, via the kx machine's new rewindCycles=2 opt-in. Asks whether the parsek_rw_* quicksave is reusable and whether the second replay renders and derenders exactly what the first did. READ 2026-09-10 (`2026-09-10_1944`, PASS attempt 1, outcome O1 IDEMPOTENT: the same parsek_rw_ quicksave reloaded twice, 8 MeshSpawned + 8 MeshDestroyed in each cycle). ARMED off those bytes: ghostLifecycle gating at exact 8 / 16 / 16 and a per-cycle exactly-8 census in the logContracts. The armed re-flight and the negative control are pending, and no dimension is claimed until both."
+description = "Repeat-rewind idempotence on the GS-4 subject (ghost-replay Tier B item 8): staged Kerbal X ascent, commit, Rewind-to-Launch, Jumping Flea watch anchor, map view + watch mode, playback to completion - then a SECOND Rewind-to-Launch off the SAME committed tree with the same watcher and the same watch, via the kx machine's new rewindCycles=2 opt-in. Asks whether the parsek_rw_* quicksave is reusable and whether the second replay renders and derenders exactly what the first did. READ 2026-09-10 (`2026-09-10_1944`, PASS attempt 1, outcome O1 IDEMPOTENT: the same parsek_rw_ quicksave reloaded twice, 8 MeshSpawned + 8 MeshDestroyed in each cycle). ARMED off those bytes: ghostLifecycle gating at exact 8 / 16 / 16 and a per-cycle exactly-8 census in the logContracts. LIVE-PROVEN 2026-09-11: armed re-flight `2026-09-11_0109` PASS (O1 again, 8 + 8 per cycle) and negative control `2026-09-11_0119` (destroyLines 16 -> 17) red PARSEK-FAIL(ghost-lifecycle) on exactly that window; D9 rewind-to-launch and D6 basic-playback / mesh-lifecycle-derender re-claimed."
 instanceProfile = "stock-minimal"
 tags = ["GS9", "rewind-to-launch", "repeat-rewind", "watch-mode", "ghost-render", "derender", "ghost-lifecycle"]
 
@@ -152,11 +153,26 @@ watcherCraftName = "Jumping Flea"
 rewindCycles     = 2
 
 [dimensionsCovered]
-# NOTHING CLAIMED. The lane is read and armed, and a claim enters the committed spec
-# only after its armed re-flight and negative control. The registry has no
-# repeat-rewind value; the candidate D9 re-claims (`rewind-to-launch`) and D6
-# (`basic-playback`, `mesh-lifecycle-derender`) would move no count, and a new
-# registry value is an operator decision, not this wave's.
+# CLAIM-IS-NOT-GATE. Re-claims only, entered 2026-09-11 after the armed re-flight
+# `2026-09-11_0109` (PASS) and the negative control `2026-09-11_0119` (valid); none
+# moves a count (GS-4 and its derivatives hold all three), and the registry has no
+# repeat-rewind value - a new one is an operator decision (RULINGS G5).
+#
+# `rewind-to-launch` <- the product line twice with the SAME StartUT and quicksave (the
+#   GROUP 6 backreference token "Rewind-to-Launch initiated to UT (\S+) \(save:
+#   (parsek_rw_[0-9a-f]+)\)[\s\S]*?Rewind-to-Launch initiated to UT \1 \(save: \2\)")
+#   and the seam terminal twice ("invokerewindtolaunch complete rec=[\s\S]*?
+#   invokerewindtolaunch complete rec="). A cycle-2 rewind REFUSAL (outcome O2)
+#   surfaces as INVALID(autopilot-flake), never as PARSEK-FAIL (the header's O2); the
+#   armed run's two cycles both read rewindResult OK, so this claim rests on a run in
+#   which the second rewind ran.
+D9 = ["rewind-to-launch"]
+# `basic-playback`          <- "phase=MeshSpawned ... vessel=Kerbal X reason=ghost-created",
+#   also required AFTER the second rewind line (GROUP 6).
+# `mesh-lifecycle-derender` <- the MeshDestroyed tokens (every population, both
+#   cycles) plus the ARMED ghostLifecycle windows; the negative control proved the
+#   `destroyLines` window gates on its own.
+D6 = ["basic-playback", "mesh-lifecycle-derender"]
 
 [expectations]
 # PLACEMENT IS LOAD-BEARING: `allowedAnomalies` must precede every
@@ -244,8 +260,9 @@ forbidden = ["\\[Parsek\\]\\[ERROR\\]",
 # differently. The line windows are ghostlife's 2026-09-10 keys: the set-based balance
 # ledger calls a recording balanced once ANY of its ghosts was destroyed, so a cycle-2
 # leak of a recording that derendered in cycle 1 is invisible to requireBalanced and
-# visible only as a destroyLines miss. The armed re-flight and the negative control
-# are pending (roster: GHOSTLIFE_ARMED_SPECS in harness/lib/test_hlib.py).
+# visible only as a destroyLines miss. Armed re-flight `2026-09-11_0109` PASS; the
+# negative control `2026-09-11_0119` red on exactly `destroyLines 16 < min 17` (roster:
+# GHOSTLIFE_ARMED_SPECS in harness/lib/test_hlib.py).
 [expectations.ghostLifecycle]
 gating          = true
 spawned         = { min = 8, max = 8 }
@@ -287,3 +304,34 @@ policy = "once"
 # EMPTY, deliberately: an expectedFail key would demote the exact idempotence
 # regression this lane exists to catch.
 bugId = ""
+
+# =====================================================================================
+# RUN LEDGER (2026-09-11, the wave's make-up round; spec at `9a8c3e310`, wave DLL
+# a0abbed1 on stock-minimal).
+#
+# ARMED RE-FLIGHT `2026-09-11_0109`, unedited: PASS attempt 1, 494 s wall, 445 s
+# mission, MISSION-OK rows 9/9, expectations mismatches [] (all 30 required, the 2
+# forbidden 0, recordings.count 8), ghostLifecycle PASS gating (spawned 8, spawnLines
+# 16, destroyLines 16, destroyedRecordings 8, unbalanced [], malformed 0). OUTCOME (O1)
+# again: `Rewind-to-Launch initiated to UT 30.3399999999994 (save: parsek_rw_f49e9c)`
+# twice (L14569, L43016), `Rewind: loading save 'parsek_rw_f49e9c' into SpaceCenter`
+# twice (L14594, L43040), 0 `Rewind save file missing`, 0 `No rewind save available`,
+# 0 `[Parsek][ERROR]`. The per-cycle census split at the rewind lines: 0 / 0 before the
+# first, 8 MeshSpawned + 8 MeshDestroyed in each cycle, the same vessel census in both
+# (Kerbal X 1, Kerbal X Debris 6, Kerbal X Probe 1) and the same destroy reasons
+# (playback completed 2, parent-anchored debris outside relative coverage at endpoint
+# 3, stale past-end ghost (no longer held) 2, watch hold expired 1). The machine:
+# rewindCyclesCompleted 2, both cycles rewindResult OK, the Jumping Flea on the pad,
+# render verbs OK, playback watched out, the idle probe `false`. unityExceptions
+# (report-only here) 2: STAGING before `Application.Quit`, MECHJEB-ONDESTROY after it,
+# no `Parsek.` frame.
+#
+# NEGATIVE CONTROL `2026-09-11_0119`: `destroyLines` inverted to { min = 17, max = 17 }
+# (one key), uncommitted, reverted after the flight. PARSEK-FAIL(ghost-lifecycle)
+# attempt 1, 494 s wall, EXACTLY ONE mismatch `ghostLifecycle.destroyLines 16 < min
+# 17`; ghostLifecycle the only FAIL row, expectations [] with all 30 tokens met,
+# MISSION-OK rows 9/9. DRIFT: observed destroyLines 16 equals the log's 16
+# `[GhostRenderTrace] ... phase=MeshDestroyed` lines, 8 per cycle; both rewinds
+# `parsek_rw_c9382a` at UT 30.2799999999994. VALID: with the armed PASS, the D9 / D6
+# re-claims above entered. Both runs re-evaluated offline with the committed spec
+# (hlib.evaluate_expectations + ghostlife.evaluate_ghost_lifecycle): the same verdicts.

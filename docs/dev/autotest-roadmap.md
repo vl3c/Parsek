@@ -83,14 +83,19 @@ EVA / CL / S0.x / H22-H25 / V1 / BDOCK waves and R14's MC-1/MC-2 took it from
 55 to 68. Adding a scenario is not the same as covering a cell. Re-derive
 these rather than editing them by memory; both numbers have moved many times.
 
-### Coverage: 172 of 248 registry cells (was 83 of 241 at the baseline, 108 of 242 on 2026-08-04, 162 of 247 on 2026-09-07 before G1 / G3b closed, 163 of 248 on 2026-09-08 before the ghost-replay claim pass, 166 after chain-interaction, 171 after Stage B)
+### Coverage: 173 of 248 registry cells (was 83 of 241 at the baseline, 108 of 242 on 2026-08-04, 162 of 247 on 2026-09-07 before G1 / G3b closed, 163 of 248 on 2026-09-08 before the ghost-replay claim pass, 166 after chain-interaction, 171 after Stage B, 172 after tombstone-rep-penalty)
 
-Re-derived 2026-09-10 on `tombstone-rep-penalty`: `hlib.compute_coverage(specs, [],
-registry)` over the 250 committed specs returns `values 248 covered 172 uncovered 76`.
-The one cell that moved is D12 `tombstone-rep-penalty` (`CL-4-refly-crew-standin`,
-claimed once the product change shipped - see the D12 row above); D12 is 7 of 10.
+Re-derived 2026-09-11 on `ghost-replay-tier-b`: `hlib.compute_coverage(specs, [],
+registry)` over the 252 committed specs returns `values 248 covered 173 uncovered 75`.
+The one cell that moved is D1 `switch-segment-noop-discard`, claimed by
+`S0.12-switch-noop-discard` after its negative control `2026-09-11_0044`; D1 is 14 of 18.
 
-The previous derivation was 2026-09-09 on `stage-b-tombstones` (after `refly-lanes` at `659be2a68`
+The derivation before it was 2026-09-10 on `tombstone-rep-penalty`: 172 of 248 over the
+250 committed specs. The one cell that moved there was D12 `tombstone-rep-penalty`
+(`CL-4-refly-crew-standin`, claimed once the product change shipped - see the D12 row
+above); D12 is 7 of 10.
+
+The derivation before that was 2026-09-09 on `stage-b-tombstones` (after `refly-lanes` at `659be2a68`
 read 170 of 248 over 245 specs): `hlib.compute_coverage(specs, [], registry)` over the
 248 committed specs and `harness/coverage/registry.toml` returns exactly:
 
@@ -179,7 +184,7 @@ takes:
 | D8 | ledger / career | 18 / 18 | Done. |
 | D9 | rewind / re-fly | 16 / 17 | `load-time-sweep` only, a unit-level sweep no lane drives (ghost-replay Tier B item 7). |
 | D10 | logistics / routes | 23 / 24 | `harvest-provenance` only; an operator ore-drill flight (supply-route hand-off). |
-| D1 | recording lifecycle | 13 / 18 | `manual-gloops`, `stop-on-switch` (R2 registry call), `commit-abort` (needs its definition), `sub-2-point-drop` (a registry / verb decision, todo D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE), `switch-segment-noop-discard` (lane `S0.12-switch-noop-discard` read 2026-09-10, outcome P1, confirm re-flight `2026-09-10_2056` PASS; the claim follows its negative control): the Tier D authoring pass, register item 8. |
+| D1 | recording lifecycle | 14 / 18 | `manual-gloops`, `stop-on-switch` (R2 registry call), `commit-abort` (needs its definition), `sub-2-point-drop` (a registry / verb decision, todo D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE): the Tier D authoring pass, register item 8. `switch-segment-noop-discard` CLAIMED 2026-09-11 by `S0.12-switch-noop-discard` (negative control `2026-09-11_0044`). |
 | D7 | part events / FX | 12 / 16 | `chute-cut`, `bays` (GS-6 residues, need a descent variant and a ServiceBay tail), `engine-fx-effects`, `inventory-place-remove` (Tier 4 producer). |
 | D14 | bodies / scenes | 24 / 32 | Tylo / Bop / Pol (G9), `atmosphere`, `situation`, `warp-1x`, `warp-phys`, `scene-editor`: breadth, behind everything else. |
 | D11 | missions abstraction | 12 / 18 | `default-mission`, `leg-trim`, `whole-mission-loop`, `clone`, `station-phase-lock`, `s4-arrival-restitch`: Missions-tab semantics that need seam verbs equivalent to the tab's buttons (`MissionConfig` exists; the rest do not). |
@@ -371,7 +376,9 @@ remains is, in order:
    nothing and the roadmap says to take it early; then items 7-9 (rewind-to-launch
    x Re-Fly, repeat-rewind idempotence, arming `unityExceptions` on GS-4 / W1 -
    the latter is also the first real move on known-gate 11, raw Unity exceptions
-   unjudged).
+   unjudged). Items 8 and 9 LANDED 2026-09-10/11 (`ghost-replay-tier-b`): GS-9 is
+   live-proven, GS-4 is armed at `maxTotal = 4` with its negative control
+   undischarged (item 9), W1 stays report-only.
 5. **Ghost-replay Tier C as one arc**: ghostlife v2 (item 10) then loop-cycle
    rendering on the GS-4 subject (item 12, blocked on 10), with the replay-parity
    evaluator (11) alongside.
@@ -397,7 +404,7 @@ remains is, in order:
    `surface-body-fixed`, is claimed by `H17-flight-integration`, so R2 is down to
    one cell and its "two unclaimable cells" text is stale).
    2026-09-10 (`ghost-replay-tier-b`): `switch-segment-noop-discard` authored as
-   `S0.12-switch-noop-discard` (read 2026-09-10, outcome P1; confirm re-flight `2026-09-10_2056` PASS; negative control pending); `sub-2-point-drop` is BLOCKED on a
+   `S0.12-switch-noop-discard` (read 2026-09-10, outcome P1; confirm re-flight `2026-09-10_2056` PASS; negative control `2026-09-11_0044` VALID, so the cell is CLAIMED and the lane is daily); `sub-2-point-drop` is BLOCKED on a
    registry / verb decision to take together with R2 - its only producer is reached
    in always-tree mode only through rare split-edge aborts no verb drives (todo
    D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE).
@@ -670,7 +677,7 @@ reserved set mapped almost one to one onto the largest uncovered dimensions:
 | ~~`SealSlot`~~ / `StashSlot` / `FlySlot` | D9 `unfinished-flights-stash`, `seal-stash-fly`. `SealSlot` PROMOTED 2026-08-30 (`RVR-2` drove seal -> route create -> delivery 2026-09-01); `StashSlot` / `FlySlot` stay reserved |
 | ~~`RouteCommand`~~ | D10 (12 uncovered then, 1 on 2026-09-07). PROMOTED 2026-08-30 alongside `SealSlot`; the RVR-1..RVR-20 wave rode it |
 | ~~`MissionConfig`~~ | D11 loop behaviour (10 uncovered then, 6 on 2026-09-07). PROMOTED by the arrival-validation lane (the second strict promotion after R12's) |
-| ~~`SimulateStockSwitchClick`~~ | D1 `switch-segment` / `switch-segment-noop-discard`, D5 `chain-continuation-switch` (claimed 2026-09-08 by CI-1 and GS-3). The D18 `committed-interaction-claiming` this row once listed is a ghost-chain cell the verb never reached; CI-2 claims it through a rewind. PROMOTED by R12 (2026-07-30, first consumer `S0.8-switch-click-segment`) |
+| ~~`SimulateStockSwitchClick`~~ | D1 `switch-segment` / `switch-segment-noop-discard`, D5 `chain-continuation-switch` (claimed 2026-09-08 by CI-1 and GS-3; `switch-segment-noop-discard` claimed 2026-09-11 by `S0.12-switch-noop-discard`, the click with no live recording). The D18 `committed-interaction-claiming` this row once listed is a ghost-chain cell the verb never reached; CI-2 claims it through a rewind. PROMOTED by R12 (2026-07-30, first consumer `S0.8-switch-click-segment`) |
 | `CrashAfterJournalPhase` | D9 `merge-journal`, `load-time-sweep` |
 | `RunInvariantReport` | analyzer-in-scene |
 
@@ -3663,14 +3670,20 @@ first spawn frame (hold-then-retry, never a single eager ask).
    outcome (O1) IDEMPOTENT - the same `parsek_rw_` quicksave reloaded twice and 8
    MeshSpawned + 8 MeshDestroyed in each cycle, so the quicksave lifecycle is
    reusable. ARMED off those bytes (exact 8 / 16 / 16 ghostLifecycle windows plus a
-   per-cycle exactly-8 census); the armed re-flight and the negative control are
-   pending. Row in the status doc's Committed-not-yet-green table until they fly.
+   per-cycle exactly-8 census). LIVE-PROVEN 2026-09-11: armed re-flight
+   `2026-09-11_0109` PASS (O1 again, 8 + 8 per cycle), negative control
+   `2026-09-11_0119` red on exactly the inverted `destroyLines` window. D9
+   `rewind-to-launch` and D6 `basic-playback` / `mesh-lifecycle-derender` re-claimed
+   (no count moves); a repeat-rewind registry value stays an operator decision.
 9. **Arm `unityExceptions`** on GS-4 and W1 (`maxTotal` windows) - the NRE
    census is stable at 1-4 stock scene-change lines across four flights.
    2026-09-10 (`ghost-replay-tier-b`): READ twice each on the wave DLL. GS-4 is ARMED
    at `maxTotal = 4`: the observed band top over n=5 GS-4 readings, corroborated by
-   GS-9's 4 on the same machine and DLL. Its armed re-flight + negative control are
-   pending. W1 is LEFT REPORT-ONLY: it read 0 and 2, and the second run's two NREs
+   GS-9's 4 on the same machine and DLL. Its armed re-flight `2026-09-11_0049` PASSED
+   at total 4 (the ruling's composition, reached by GS-4 itself); its `maxTotal = 0`
+   negative control is UNDISCHARGED - `2026-09-11_0056` and its one allowed re-fly
+   `_0102` both measured total 0, two vacuous passes (todo
+   GS4-UNITY-CEILING-NEGCTL-VACUOUS). W1 is LEFT REPORT-ONLY: it read 0 and 2, and the second run's two NREs
    come in the stock / MechJeb teardown while watching (the V7M precedent). The class
    census, which is not the scene-change shape this item assumed, is in the status
    doc's known-gate 11.
@@ -3708,8 +3721,10 @@ first spawn frame (hold-then-retry, never a single eager ask).
     READ 2026-09-10 (`2026-09-10_1942`, PASS attempt 1): outcome (P1), the Standalone
     no-op discard with nothing committed and zero sidecars left; every token re-cut
     to its measured line. CONFIRMED by the re-flight `2026-09-10_2056` (PASS
-    attempt 1 on the re-cut spec); the negative control is pending, then the D1
-    claim and the daily promotion.
+    attempt 1 on the re-cut spec). LIVE-PROVEN 2026-09-11: the negative control
+    `2026-09-11_0044` red on exactly the inverted claim token, so D1
+    `switch-segment-noop-discard` is CLAIMED and the lane is daily; the mirror
+    measurement `2026-09-11_0047` (a live tree) read the deferred BgMemberOrMixed shape.
     `sub-2-point-drop` is NOT reachable with existing verbs after all: its only
     producer is reached in always-tree mode only through rare split-edge aborts
     (`TryAppendCapturedToTree`'s <2-point guard into `FallbackCommitSplitRecorder`),

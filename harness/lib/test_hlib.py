@@ -8183,10 +8183,12 @@ class UnityExceptionScanTests(unittest.TestCase):
         #     S4.1 n=19: 18x0 and one 1.
         #     H5   n=3: 4 and 2 in the failure population, 0 fresh - a thin sample, so
         #          the ceiling is the status doc's short-spec band top, not a pin.
-        #     GS-4 n=5: 4, 1, 2 (older DLLs) + 2, 1 (wave DLL). A WINDOW kept at 4 by
-        #          supervisor ruling, reachable on the wave DLL (GS-9 `2026-09-10_1944`
-        #          flew this machine and measured 4); composition, n and the legal
-        #          shape above it (5) are in its dict entry below.
+        #     GS-4 n=8: 4, 1, 2 (older DLLs) + 2, 1, 4, 0, 0 (wave DLL: the 4 is the
+        #          armed re-flight `2026-09-11_0049`, the two 0s the vacuous flights of
+        #          its negative control). A WINDOW kept at 4 by supervisor ruling,
+        #          reachable on the wave DLL (GS-9 `2026-09-10_1944` and GS-4 `_0049`
+        #          both measured 4); composition, n and the legal shape above it (5)
+        #          are in its dict entry below.
         expected = {
             "B10-career-passive-safety.toml": 0,
             "CL-2-pod-impact-ledger.toml": 0,
@@ -8255,6 +8257,11 @@ class UnityExceptionScanTests(unittest.TestCase):
             # false-red a legal stock shape. THE LEGAL SHAPE THAT WOULD EXCEED IT: 5 -
             # those four plus one more stock NRE (e.g. both teardown classes in one
             # flight). Every class is stock KSP or MechJeb, no `Parsek.` frame in any stack.
+            # ARMED RE-FLIGHT `2026-09-11_0049` PASS at total 4 (STAGING 1 + MAP-FOCUS 2 +
+            # HATCH-TOOLTIP 1: this composition, reached by GS-4 itself on the wave DLL).
+            # NEGATIVE CONTROL (maxTotal 0) UNDISCHARGED: `_0056` and its one re-fly
+            # `_0102` both measured total 0 - vacuous, not failed (todo
+            # GS4-UNITY-CEILING-NEGCTL-VACUOUS).
             "GS-4-kerbalx-rewind-watch.toml": 4,
         }
         armed = {}
@@ -8445,7 +8452,9 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # apart. Both operator, both reading runs, NEITHER debt.
         "L6-career-same-name-recover.toml":        "tier=operator as a reading run, NOT debt: the LONG-DWELL half of the L6 pair. Its blocked-shortcut era is over - `career-same-name-pad` was built for it and it has FLOWN THREE TIMES (2026-09-02 `_1328` PASS, `_1402` PARSEK-FAIL(expectations) on count pins alone, `_1411` PASS), all three MISSION-OK and all three measuring the correlator subject identically (`guidDropped=2`, tier `most-recent-ended`, one consumed XP row). What moved was the flight's own segment count, and the cause was arithmetic: the mission's landed dwell straddled RecordingOptimizer's 5.0 s split floor. It now declares `preRecoverDwellSeconds = 12.0` and pins the counts EXACTLY again. Nothing armed; FLOWN GREEN 2026-09-02 (`_1806`, PASS attempt 1, count=4, every exact pin matched), and ARMED GREEN 2026-09-02 (`_1847`, PASS attempt 1, mismatches=0) with a flown negative control that reds on exactly the seeded token - so the twice-green armed discipline is MET and what is open is the ordinary operator -> nightly promotion call",
         "L6-career-same-name-natural-dwell.toml":  "tier=operator as a reading run, NOT debt: the NATURAL-DWELL half of the same pair and its A/B control - the identical flight at `preRecoverDwellSeconds = 0.0`, keeping the uncontrolled 3..4 recordings range its sibling gave up. FLOWN GREEN 2026-09-02 (`_1816`, PASS attempt 1) at a 5.70 s landed tail - 0.70 s above the floor, so the natural band is now four points with one of them still below it. It pins the correlator subject as literals and the dwell-dependent counts as classes, and it deliberately does NOT require either optimizer line (`SplitAtSection` / `Split summary ... splittableButRejected=`) because exactly one of the two fires per run on an uncontrolled dwell. The NO-SPLIT side of the floor is unreachable from any mission param (a hold can only lengthen a tail) and is pinned headlessly by RecordingOptimizerTests instead. Nothing armed; nothing owed beyond the ordinary promotion call",
-        "S0.12-switch-noop-discard.toml":            "tier=operator as a reading run, NOT debt: D1 `switch-segment-noop-discard` (roadmap Tier D item 13), authored 2026-09-10 on S0.8's click and fixture WITHOUT a live recording, so the standalone consume builds a FRESH tree and the scene-exit prefix must discard the no-op segment (disposition Standalone) before any commit routing. READ 2026-09-10 (`2026-09-10_1942`, PASS attempt 1, outcome P1) and every token re-cut to its measured line; CONFIRMED by the re-flight `2026-09-10_2056` (PASS attempt 1 on the re-cut spec); the operator tier is the calibration hold until the negative control, then the daily promotion (the S0.8 precedent). What is owed is that FLIGHT, not a human review call",
+        # S0.12-switch-noop-discard LEFT 2026-09-11: promoted to daily after its negative
+        # control (`2026-09-11_0044`, RULINGS A4-c1 / R2-4); a daily lane that never writes
+        # the token is in neither population.
         "S0.11-ksc-table-delete.toml":               "tier=operator as a reading run, NOT debt: the first consumer of the DeleteRecording seam verb (AUTOMATION-GAP-KSC-TABLE-DELETE's lane) - V22K's SPACECENTER boot with the loop member's KSC ghost placed, then DeleteRecording index=1 under it, pinning the ParsekKSC host's reindex line, which prints only when a KSC ghost was alive at the delete. Nothing armed; the first flight decides whether the dwell length puts the delete under a placed ghost",
         # tier=operator by the CALIBRATION DISCIPLINE, the whole B18-B26 family's
         # tier, and NOT a debt: a first-flight B lane is operator because its
@@ -8780,10 +8789,11 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # watch tokens - the pre-spawn EnterWatchMode race, fixed as the WATCH
         # hold-then-retry loop) then green run `2026-08-27_2204` PASS attempt
         # 1, windows re-pinned to the measured census (spawned=8,
-        # unbalanced=0, both flights). What remains open is the ghostLifecycle
-        # ARMING pass (three-run discipline, GHOSTLIFE_ARMED_SPECS) and the
-        # ordinary cadence PROMOTION call - the GS-1/GS-2/GS-3 shape exactly.
-        "GS-4-kerbalx-rewind-watch.toml":   "FLOWN GREEN 2026-08-27 (2145 reading, 2204 green, both attempt 1); operator tier is now the arming + PROMOTION call, not debt",
+        # unbalanced=0, both flights). ghostLifecycle was ARMED 2026-08-28 through
+        # the three-run discipline (GHOSTLIFE_ARMED_SPECS) and unityExceptions on
+        # 2026-09-10; what remains open is the ordinary cadence PROMOTION call -
+        # the GS-1/GS-2/GS-3 shape exactly.
+        "GS-4-kerbalx-rewind-watch.toml":   "FLOWN GREEN 2026-08-27 (2145 reading, 2204 green, both attempt 1); ghostLifecycle armed 2026-08-28, unityExceptions armed 2026-09-10 (armed re-flight 2026-09-11_0049 PASS; its maxTotal-0 negative control is undischarged, two vacuous total-0 flights); operator tier is the PROMOTION call, not debt",
         # The ghost-replay Tier A derivatives (roadmap items 2 and 4), operator by
         # the CALIBRATION DISCIPLINE on the GS-4 / GS-6 shape: authored 2026-09-08
         # with first-flight pins, then the reading run, the re-pin off its own
@@ -8794,9 +8804,10 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # Ghost-replay Tier B item 8 (2026-09-10, `ghost-replay-tier-b`): GS-4's
         # subject rewound TWICE off one committed tree through the kx machine's new
         # `rewindCycles` opt-in. Same calibration discipline as GS-7 / GS-8: read
-        # 2026-09-10 (outcome O1) and armed off that run's bytes; what is owed is
-        # the armed re-flight and the negative control, then the promotion call.
-        "GS-9-kerbalx-repeat-rewind.toml":    "calibration-discipline - AUTHORED and READ 2026-09-10 (repeat-rewind idempotence: a second Rewind-to-Launch off the SAME committed tree, rewindCycles=2 on the kx machine; reading `2026-09-10_1944` PASS attempt 1, outcome O1 IDEMPOTENT) and ARMED off those bytes; operator tier is the calibration hold, discharged by the armed re-flight + negative control, not a debt",
+        # 2026-09-10 (outcome O1) and armed off that run's bytes; the armed re-flight
+        # (`2026-09-11_0109` PASS) and the negative control (`2026-09-11_0119`, valid)
+        # have flown, so the promotion call is what remains.
+        "GS-9-kerbalx-repeat-rewind.toml":    "calibration-discipline - AUTHORED and READ 2026-09-10 (repeat-rewind idempotence: a second Rewind-to-Launch off the SAME committed tree, rewindCycles=2 on the kx machine; reading `2026-09-10_1944` PASS attempt 1, outcome O1 IDEMPOTENT) and ARMED off those bytes; LIVE-PROVEN 2026-09-11 (armed re-flight 2026-09-11_0109 PASS, negative control 2026-09-11_0119 red on exactly destroyLines 16 < min 17); operator tier is the open PROMOTION call, not debt",
         # tier=operator by PROMOTION POLICY on a NEVER-FLOWN lane, the GS-1 shape
         # exactly: GS-6 is authored and registered but has not flown, so it cannot
         # sit on a cadence. Its debt is the READING RUN, carried by the
@@ -11358,9 +11369,11 @@ class GhostLifecycleVerifierWiringTests(unittest.TestCase):
         # destroyLines=16 unbalanced=0 malformed=0, the pre-registered values exactly, and
         # 8 MeshSpawned + 8 MeshDestroyed in EACH cycle split at the second rewind line.
         # The first spec to ARM the line-count windows, at EXACT pins (the same 8
-        # committed recordings replayed twice). ARMED RE-FLIGHT and NEGATIVE CONTROL
-        # (`destroyLines` to 17, uncommitted, reverted) are pending and are recorded here
-        # when they fly.
+        # committed recordings replayed twice). ARMED RE-FLIGHT `2026-09-11_0109` PASS
+        # attempt 1 with the gate live (spawned 8, spawnLines 16, destroyLines 16,
+        # unbalanced []); NEGATIVE CONTROL `2026-09-11_0119` (`destroyLines` to 17,
+        # uncommitted, reverted) red PARSEK-FAIL(ghost-lifecycle) attempt 1 on exactly
+        # `destroyLines 16 < min 17` with every other verifier green.
         "GS-9-kerbalx-repeat-rewind.toml",
         # ARMED 2026-09-08 off two readings of the identical census: reading run 1
         # `2026-09-08_1119_GS-8-kerbalx-zone-round-trip` (PARSEK-FAIL on the late
@@ -11611,7 +11624,8 @@ class GhostLifecycleVerifierWiringTests(unittest.TestCase):
         #     that derendered in cycle 1 - which is why ghostlife gained
         #     `spawnLines` / `destroyLines` windows the same day. READ 2026-09-10
         #     (`2026-09-10_1944`, the pre-registered 8 / 16 / 16 exactly) and ARMED
-        #     at exact pins through GHOSTLIFE_ARMED_SPECS.
+        #     at exact pins through GHOSTLIFE_ARMED_SPECS; its negative control
+        #     (`2026-09-11_0119`) proved `destroyLines` gates on its own.
         "GS-9-kerbalx-repeat-rewind.toml",
         # THE FIRST DECLARER WITH A LIVE RE-FLY SESSION (RF-8, 2026-09-09), and
         # declared with NO WINDOWS AT ALL. Every other member arrived carrying a

@@ -15,6 +15,33 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## GS4-UNITY-CEILING-NEGCTL-VACUOUS: GS-4's `maxTotal = 0` negative control measured zero exceptions twice, so the armed unityExceptions ceiling has no valid control [FILED 2026-09-11 by the ghost-replay Tier B wave (`ghost-replay-tier-b`), make-up round]
+
+**What happened.** GS-4 is armed at `[expectations.unityExceptions] maxTotal = 4`
+(supervisor ruling, wave RULINGS R2-4). Its armed re-flight `2026-09-11_0049` PASSED at
+total 4. The negative control lowers the ceiling to 0 and is VALID only if the control
+run itself measures total >= 1 (RULINGS A4-b); otherwise it is recorded vacuous and
+re-flown ONCE. Both flights measured 0: `2026-09-11_0056` and the re-fly
+`2026-09-11_0102` each PASSED attempt 1 with the evaluated block reading `maxTotal 0,
+total 0`, and a raw grep of each KSP.log finds no NullReferenceException,
+MissingReferenceException, IndexOutOfRangeException or GUILayout line. Two vacuous
+passes, not a failed control: the ceiling was never exercised. The edit was reverted
+after `_0102`.
+
+**Why it can read zero.** Every class GS-4 raises is intermittent stock KSP or MechJeb
+(STAGING, MAP-FOCUS, HATCH-TOOLTIP, MECHJEB-ONDESTROY, FLIGHT-CAMERA-STARTUP; the
+census is in the status doc's known-gate 11). GS-4's wave-DLL totals read 2, 1, 4, 0, 0
+(`2026-09-10_1924`, `_1930`, `2026-09-11_0049`, `_0056`, `_0102`). Nothing here is a
+Parsek defect, and no stack carried a `Parsek.` frame.
+
+**Open decision (supervisor / operator).** How to discharge the control: another live
+re-fly beyond the ruling's "once"; an OFFLINE re-evaluation of the armed run's archived
+KSP.log with `maxTotal = 0` (the BDOCK-1 precedent in RULINGS A2-c - measured read-only
+for this decision, not recorded as a discharge: `_0049` would read exactly one mismatch,
+`unityExceptions.total 4 > maxTotal 0 (NullReferenceException=4)`); or a borrowed
+control. Until one is chosen the gate is armed with an undischarged control, recorded as
+such in the GS-4 spec's RUN LEDGER, its status row and known-gate 11.
+
 ## D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE: the registry cell's only producer is reached in always-tree mode only through rare split-edge aborts, and no seam verb drives one [FILED 2026-09-10 by the ghost-replay Tier B / Tier D wave (`ghost-replay-tier-b`) while authoring the Tier D residue. A REGISTRY / VERB DECISION, not a product defect. BLOCKED on the operator, paired with the R2 `stop-on-switch` call]
 
 **What the cell names.** `harness/coverage/registry.toml` D1 `sub-2-point-drop`: a

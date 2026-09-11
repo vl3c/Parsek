@@ -459,3 +459,26 @@ policy = "once"
 # EMPTY, deliberately - an expectedFail key would demote the exact derender
 # regression this lane exists to catch.
 bugId = ""
+
+# =====================================================================================
+# RUN LEDGER (2026-09-11, the wave's make-up round; spec at `9a8c3e310`, wave DLL
+# a0abbed1 on stock-minimal). Kept at the END of the file so the unityExceptions
+# anchor (`maxTotal = 4`, line 437) keeps its line number for any further control.
+#
+# ARMED RE-FLIGHT `2026-09-11_0049`, unedited: PASS attempt 1, 329 s wall, 282 s
+# mission, MISSION-OK, expectations [] (16 tokens, recordings.count 8), ghostLifecycle
+# PASS gating (spawned 8, spawnLines 8, destroyLines 8, unbalanced []), and
+# unityExceptions PASS gating at total 4 = STAGING 1 (L10443, before `Application.Quit`
+# at L43452) + MAP-FOCUS 2 (the [ERR] + [EXC] pair via
+# `KbApp_PlanetParameters.ActivateApp`, L43466 / L43473) + HATCH-TOOLTIP 1 (L43495).
+# That is the ruling's composition exactly, now reached by GS-4 itself on the wave DLL.
+# No `Parsek.` frame in any stack.
+#
+# NEGATIVE CONTROL (`maxTotal = 0`, uncommitted) - UNDISCHARGED. It is valid only if
+# the control run measures total >= 1 (RULINGS A4-b / R2-4), and both flights measured
+# 0: `2026-09-11_0056` and its one allowed re-fly `2026-09-11_0102`, each PASS attempt
+# 1 with the evaluated block reading maxTotal 0, total 0 (no NRE line of any class in
+# either log), expectations [], ghostLifecycle 8 / 8 / 8, MISSION-OK. Two VACUOUS
+# passes, not a failed control: the ceiling was never exercised. The edit was reverted
+# after `_0102`. How to discharge it is an open supervisor decision (todo
+# GS4-UNITY-CEILING-NEGCTL-VACUOUS). GS-4's wave-DLL totals now read 2, 1, 4, 0, 0.
