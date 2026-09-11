@@ -505,13 +505,16 @@ branchPoints   = { Dock = { min = 1, max = 1 }, Undock = { min = 1, max = 1 } }
 # the arming moved NO number. Any report-only wording below is the authoring record.
 # `recordings.structure` above stays a report-only reading. ARMED RE-FLIGHT
 # `2026-09-10_2130` (same DLL): PASS attempt 1, saveParse gating PASS, armed ['routes'],
-# no mismatch, every routes and structure facet identical to the reading. STILL OWED:
-# the set-key negative control (`destinationVesselPids` inverted in place to a pid no
-# stop carries), which must red on exactly the `routes.destinationVesselPids` set
-# mismatch - the one routes path no lane had inverted live. It was queued behind the
-# armed run and skipped on the operator chain's false 'unflown' gate, so it did not fly;
-# the 2026-09-11 make-up round queued it again and stopped after its first request,
-# before reaching it.
+# no mismatch, every routes and structure facet identical to the reading. THE SET-KEY
+# NEGATIVE CONTROL FLEW in the 2026-09-11 closing round (same DLL):
+# `2026-09-11_0249_RVR-18-rover-route-endpoint-removed`. `destinationVesselPids` was
+# inverted in place to a pid no stop carries (`"1"`), flown alone, then reverted. It
+# red PARSEK-FAIL(save-structure) attempt 1 on EXACTLY one mismatch,
+# `routes.destinationVesselPids ['2875537755'] != ['1']`, with expectations PASS. It is
+# VALID: the run's own facet read `['2875537755']`, and every other routes window read
+# as on `_2130` (count 1, dormant 0, stops 1, sourceRefs 2, completedCycles 1,
+# skippedCycles 1, Paused 1). This was the one routes path no lane had inverted live;
+# the arming discipline is complete.
 #
 # REPORT-ONLY and DERIVED. The shape keys are RVR-16's, measured twice on this fixture:
 # one delivering cycle and one blocked one, the route left Paused.

@@ -396,16 +396,16 @@ remains is, in order:
    each; 2026-09-10: read on `2026-09-10_1720` and ARMED, armed re-flight
    `2026-09-10_2122` PASS, negative control `2026-09-11_0133` red on exactly the inverted floor - CLOSED); H59's report-only `[expectations.routes]` reading and the promotion of
    the other report-only route declarers (2026-09-10: RVR-8..RVR-19 read,
-   ARMED and re-flown armed, RVR-18's set-key control owed; the other six (RVR-5, H58, H59,
+   ARMED and re-flown armed, RVR-18's set-key control `2026-09-11_0249` valid; the other six (RVR-5, H58, H59,
    B32, V26M, V26T) read green on the wave DLL and ARMED 2026-09-11; B32 / V26M /
    V26T re-flown armed 2026-09-11 (`_0159` / `_0201` / `_0203`, PASS) with B32's two
-   controls valid (`_0206`, `_0209`), the RVR-5 / H58 / H59 armed re-flights still
-   owed); ~~the `operator -> nightly` PROMOTION
+   controls valid (`_0206`, `_0209`), and RVR-5 / H58 / H59 re-flown armed in the
+   2026-09-11 closing round (`_0300` / `_0303` / `_0305`, PASS) - CLOSED); ~~the `operator -> nightly` PROMOTION
    calls for V18T, V20M, V20T, V25M, B29, V3C and GS-6~~ DONE 2026-09-08 (operator
    decision: all seven to nightly, B29's ~36 min and V3C's ~15 min included; the
    nightly p50 sum moves from ~6.2 h to ~7.3 h); the R1 residue windows on
    `B1-pad-hop` and `BDOCK-1` (2026-09-10: both pinned from wave readings; B1's armed
-   re-flight `2026-09-10_2135` PASS with its live control still owed; BDOCK-1 armed
+   re-flight `2026-09-10_2135` PASS, live control `2026-09-11_0252` valid; BDOCK-1 armed
    `2026-09-10_2215` with offline and live `_2305` controls valid, D2
    `proximity-cadence-bg` claimed);
    R14's two instance-ready specs (`better-time-warp`, `making-history`). 2026-09-10:
@@ -976,7 +976,7 @@ admits the main recording alone:
 
 | Scenario | window | span | status |
 |---|---|---|---|
-| B1-pad-hop | {1, 6} | 5 | CLOSED 2026-09-10 -> `{1, 1}` (MEASURED 1 on both wave readings `2026-09-10_1759` / `_1807`, LANDED, zero breakup-child lines: the population is the main recording, and a DOWN ending is a mission failure, never a PASS; armed re-flight `2026-09-10_2135` PASS at count 1; the live negative control is still owed) |
+| B1-pad-hop | {1, 6} | 5 | CLOSED 2026-09-10 -> `{1, 1}` (MEASURED 1 on both wave readings `2026-09-10_1759` / `_1807`, LANDED, zero breakup-child lines: the population is the main recording, and a DOWN ending is a mission failure, never a PASS; armed re-flight `2026-09-10_2135` PASS at count 1; live negative control `2026-09-11_0252` red on exactly `recordings.count 1 < min 2` with MISSION-OK and count 1, VALID) |
 | B2-lko-ascent | {1, 8} | 7 | CLOSED -> `{7, 8}` + debris token (b2_decide: no flameout stage, so population 7; MEASURED 7 on `2026-07-25_0824`) |
 | B4-reentry-splashdown | {1, 9} | 8 | CLOSED -> `{8, 9}` + debris token (b4_decide has no flameout stage, but commands a service-stage drop on the SOLE path into B4_REENTRY; MEASURED 8 on `2026-07-25_0828`, confirming the structural derivation) |
 | B5-mun-flyby | {1, 9} | 8 | CLOSED -> `{8, 9}` + debris token (b5_decide reaches `_b5_flameout_stage`; MEASURED 8 on `2026-07-25_0643` and `_0847`) |
@@ -1552,10 +1552,11 @@ on RVR-7 (2026-09-03), RVR-20, V18T (whose armed block passed gating with zero
 mismatches on its 2026-09-06 re-flight) and V27M (2026-09-07), then on the twelve
 RVR-8..RVR-19 matrix lanes 2026-09-10 and on the last six (RVR-5, H58, H59, B32,
 V26M, V26T) 2026-09-11, each off its own wave reading run, wave package A2), so every
-declarer is armed and what is open in (b) is the RVR-5 / H58 / H59 armed re-flights and
-RVR-18's set-key negative control (B32 / V26M / V26T re-flew armed 2026-09-11, `_0159` /
-`_0201` / `_0203`, and B32's two group-window controls `_0206` / `_0209` red on exactly
-their leaf); `loop` stays RESERVED by choice with
+declarer is armed, and what was open on `route` in (b) closed 2026-09-11: B32 / V26M /
+V26T re-flew armed (`_0159` / `_0201` / `_0203`), RVR-5 / H58 / H59 re-flew armed in the
+closing round (`_0300` / `_0303` / `_0305`), B32's two group-window controls `_0206` /
+`_0209` red on exactly their leaf, and RVR-18's set-key control `2026-09-11_0249` red on
+exactly the inverted pid set; `loop` stays RESERVED by choice with
 zero declarers; (c) the analyzer-PR half (TrackSection frame/anchor +
 per-recording body asserts over the analyzer's parsed model) - the .sfs surface
 deliberately does not carry those, they live in `.prec` sidecars the analyzer

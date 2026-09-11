@@ -354,6 +354,9 @@ id = "H59-surface-route-map-lines"
 # informative as the one that read `routesDrawn=1`. The three-run discipline
 # (reading -> armed re-flight -> negative control) is where this lane is: the reading is
 # DONE, the arming is THIS COMMIT, and the re-flight plus the control are owed.
+# (authoring record: both flew 2026-09-02 - the armed re-flight `_1038` and the
+# negative control beside it - as recorded under THE THREE-RUN DISCIPLINE IS COMPLETE
+# below.)
 #
 # RED ON `Polyline frame:` OR `Route line draw:` IS AN INSTRUMENT RED, NOT AN ANSWER. It
 # means the map-gated slot never ran (a refused `EnterMapView`, a dwell too short for the
@@ -1093,9 +1096,10 @@ forbidden = [
 # skippedCycles=0 connectionKinds={DockingPort:1} codecRejects=0 are the offline read
 # described below, key for key. The one dispatch fired (`LoopRoute ... FIRED full
 # cycle`) and the route stayed Active. So the arming moved NO number; the report-only
-# wording below ("NEVER EVALUATED ON A RUN" included) is the authoring record. Owed:
-# the armed re-flight (the 2026-09-11 make-up round queued it and stopped after its
-# first request, before reaching it).
+# wording below ("NEVER EVALUATED ON A RUN" included) is the authoring record. ARMED
+# RE-FLIGHT in the 2026-09-11 closing round (same DLL): `2026-09-11_0305`, PASS attempt
+# 1, wall 83 s. saveParse gating PASS, armed ['routes'], no mismatch; every routes facet
+# (ids excluded) is identical to the reading (statuses {Active:1}, completedCycles 1).
 #
 # THE M-C2 SUPPLY-ROUTE BLOCK (`harness/lib/saveparse.py`, shipped 2026-09-02 by
 # PR #1603). **(authoring record) REPORT-ONLY: `gating` IS DELIBERATELY OMITTED**, per the standing

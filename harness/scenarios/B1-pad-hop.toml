@@ -241,11 +241,13 @@ allowedAnomalies = []
 # variance. `min = 1` still keeps the REC-001/REC-003 log rules mandatory (above).
 # THE ARMED RE-FLIGHT: `2026-09-10_2135_B1-pad-hop`, PASS attempt 1, MISSION-OK, wall
 # 390 s, count 1 (one Landed recording, points 544), zero debris-child lines, both
-# canopy part events, no mismatch. STILL OWED: the live negative control (this window
-# inverted in place to a floor of 2, which must red on exactly
-# `recordings.count 1 < min 2`). It was queued behind the armed run and skipped on the
-# operator chain's false 'unflown' gate, so it did not fly; the 2026-09-11 make-up round
-# queued it again and stopped after its first request, before reaching it.
+# canopy part events, no mismatch. THE LIVE NEGATIVE CONTROL FLEW in the 2026-09-11
+# closing round (same DLL): `2026-09-11_0252_B1-pad-hop`. This window was inverted in
+# place to a floor of 2 (both bounds moved to 2, since min 2 > max 1 is spec-invalid),
+# flown alone, then reverted. It red PARSEK-FAIL(expectation) attempt 1 on EXACTLY
+# `recordings.count 1 < min 2`, with the mission MISSION-OK (wall 389 s). It is VALID:
+# the run measured count 1 (one Landed recording, points 543), zero debris-child lines,
+# and no other mismatch. The window's discipline is complete.
 [expectations.recordings]
 count = { min = 1, max = 1 }
 

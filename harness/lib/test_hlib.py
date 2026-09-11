@@ -8414,7 +8414,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # THE G3b RENDER-SURFACE LANE, 2026-09-07, same shape as H59 below.
         "V27M-rover-route-endpoint-substituted-map-lines.toml": "tier=operator on the calibration-discipline shape, NOT debt: reading run `2026-09-07_1858`, armed re-flight `_1902` PASS attempt 1, negative control `_1903` red on exactly the inverted `Route line build ... legs=1` token, `[expectations.routes]` GATING - roadmap gap G3b closed by it the same day; it stays operator because its subject is a liveState-patched fixture whose value is the one-off class answer (no render surface consults a rebound endpoint), not a regression floor worth a nightly slot.",
         # THE D11 CENSUS LANE, 2026-09-02, same reading-run shape as the four below.
-        "H59-surface-route-map-lines.toml":        "tier=operator as a CENSUS reading run, NOT debt: roadmap Tier D item 11 (registry dimension D10) asks for a route-map-lines lane on a SURFACE route authored against the measured landed pin LANDED-TERMINAL-LOOP-HAS-NO-MAP-PRESENCE-OUTSIDE-THE-FLIGHT-SCENE rather than against V18T's orbital pins. Every token is structural or a VALUE REGEX and the two plausible outcomes (a surface route's overview line drawn, routesDrawn=1 legsDrawn>=1; or not drawn, with other= / malformed= / skippedOwned= discriminating WHY) are pre-registered in the spec header, so the flight's product is a census a human reads. It is also the first committed lane to drive EnterMapView on a route or a landed subject, which is what makes `Polyline frame:` (RC-OWN-DRAW-HALF-IS-MAP-GATED's own evidence rule) a required instrument token here. UPDATED 2026-09-11: the lane has since flown discipline-complete (census `2026-09-02_0947`, armed re-flight `_1038`, a negative control on the headline draw token), and its later-added `[expectations.routes]` block had its own report-only reading on `2026-09-10_2147` (every window) and was ARMED 2026-09-11 (wave package A2); what is owed is that block's armed re-flight - a flight, not a human review call",
+        "H59-surface-route-map-lines.toml":        "tier=operator as a CENSUS reading run, NOT debt: roadmap Tier D item 11 (registry dimension D10) asks for a route-map-lines lane on a SURFACE route authored against the measured landed pin LANDED-TERMINAL-LOOP-HAS-NO-MAP-PRESENCE-OUTSIDE-THE-FLIGHT-SCENE rather than against V18T's orbital pins. Every token is structural or a VALUE REGEX and the two plausible outcomes (a surface route's overview line drawn, routesDrawn=1 legsDrawn>=1; or not drawn, with other= / malformed= / skippedOwned= discriminating WHY) are pre-registered in the spec header, so the flight's product is a census a human reads. It is also the first committed lane to drive EnterMapView on a route or a landed subject, which is what makes `Polyline frame:` (RC-OWN-DRAW-HALF-IS-MAP-GATED's own evidence rule) a required instrument token here. UPDATED 2026-09-11: the lane has since flown discipline-complete (census `2026-09-02_0947`, armed re-flight `_1038`, a negative control on the headline draw token), and its later-added `[expectations.routes]` block had its own report-only reading on `2026-09-10_2147` (every window) and was ARMED 2026-09-11 (wave package A2); that block's armed re-flight `2026-09-11_0305` PASSED attempt 1 with gating PASS and no mismatch, so nothing is owed",
         # THE FOUR 2026-09-02 READING-RUN LANES, authored so every live-gated todo entry
         # has a driver instead of a "needs a flight" note. All four are tier=operator on
         # the calibration-discipline shape and NOT debt: each pins token SHAPES rather
@@ -10016,9 +10016,11 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # RVR-13 `_2126`, RVR-14 `_2127`, RVR-15 `_2128`, RVR-16
                        # `_2129`, RVR-17 `_2130`, RVR-18 `_2130`, RVR-19 `_2131`,
                        # RVR-8 `_2133`, RVR-9 `_2134` (RVR-20 `_2132` the same).
-                       # Owed: the RVR-18 control, which did not fly (queued on
-                       # 2026-09-10 and again in the 2026-09-11 make-up round, which
-                       # stopped after its first request).
+                       # RVR-18's set-key negative control flew in the 2026-09-11
+                       # closing round: `2026-09-11_0249` PARSEK-FAIL(save-structure)
+                       # on exactly `routes.destinationVesselPids ['2875537755'] !=
+                       # ['1']`, its own facet reading ['2875537755']. Nothing is
+                       # owed.
                        # `recordings.structure` stays report-only on all twelve.
                        "RVR-8-rover-relay-c-second-cycle-hold.toml",
                        "RVR-9-rover-relay-c-surface-cadence.toml",
@@ -10043,9 +10045,11 @@ class SaveStructureVerifierWiringTests(unittest.TestCase):
                        # `_0201`, V26T `_0203`, all PASS attempt 1 with gating PASS
                        # and no mismatch; B32's two group-window negative controls
                        # red on exactly their leaf, `_0206` connectionKinds
-                       # DockingPort and `_0209` destinationBodies Duna. Owed: the
-                       # RVR-5, H58 and H59 armed re-flights, which did not fly
-                       # (the batch stopped after its first request). RVR-5's
+                       # DockingPort and `_0209` destinationBodies Duna. Closing
+                       # round (2026-09-11, same DLL): armed re-flights RVR-5
+                       # `_0300`, H58 `_0303`, H59 `_0305`, all PASS attempt 1 with
+                       # gating PASS, no mismatch and routes facets identical to
+                       # the readings. Nothing is owed. RVR-5's
                        # `recordings.structure` stays report-only.
                        "RVR-5-rover-relay-eligibility.toml",
                        "H58-route-rewind-to-launch.toml",
