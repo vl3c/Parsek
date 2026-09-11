@@ -10,6 +10,14 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **The pop-up asking what to do with a flight before switching vessels no longer shares
+  an internal name with the merge pop-up.** They had the same one, and the automation that
+  answers the merge pop-up picks its button by position - so with the switch question on
+  screen instead, a test run concluding a re-flight could have pressed that question's
+  Merge button and committed the wrong thing. Nothing a player does is affected either
+  way; the two pop-ups simply have separate names now, and the automation says which one
+  it means.
+
 - **Automated testing: a test run can now take screenshots of Parsek's own windows.**
   Every run already collected any screenshots it found, and the run report already had a
   place to show them - but nothing ever took one, because the only way to take a

@@ -15,6 +15,60 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ~~MERGE-DIALOG-NAME-SHARED-WITH-PRE-SWITCH-DIALOG: `AnswerMergeDialog` could press the pre-switch decision dialog's Merge button believing it was concluding a re-fly~~ [FILED AND FIXED 2026-09-11 by the GUI-census ops wave (`gui-census-ops`), off the code-derived GUI inventory. Latent, never observed in a run; the fix makes the confusion unrepresentable rather than unlikely]
+
+**The shape.** `MergeDialog` spawned three different modals under ONE popup name,
+`MergeDialog.DialogName` = "ParsekMerge": the post-transition whole-tree merge dialog
+(`MergeDialog.cs` `ShowTreeDialog`), its pre-transition sibling, and
+`ShowPreSwitchDecisionDialog` - the rapid Switch-To decision. The first two ARE the tree
+merge dialog and are both what `AnswerMergeDialog` means. The third is a different
+decision that happens to carry Merge / Discard buttons in the same positions, and the seam
+verb selects its button BY ORDER (`TryInvokeMergeButton`: index 0, the last one, and the
+middle one for `seal`) precisely so it does not depend on mutable label text. So with a
+pre-switch popup live at the moment the verb executed, the verb would have invoked THAT
+dialog's merge action - finalizing and committing a switch segment - while reporting
+`choice=merge result=committed` for a re-fly conclusion.
+
+**Why the mitigation on record was not enough.** `design-autotest-seam-verbs-c1.md` risk 8
+named the collision when the verb shipped and mitigated it with a dialog-kind-scoped
+dispatch bit: `ReFlyMergeDialogPresent` = a live ParsekMerge popup AND
+`ActiveReFlySessionMarker != null`. That is a CORRELATION, not an identity. Both dialogs
+are reachable inside ONE re-fly attempt - a Map-view Switch-To during an attempt runs
+`MapFocusObjectOnSelectPatch`'s prefix, which spawns the pre-switch dialog with the re-fly
+marker still live - so the conjunction is satisfied by the wrong popup. The window was
+narrow (it needs a Switch-To between the rewind and the conclusion) and no lane has ever
+driven one, which is why this was never observed rather than why it was safe.
+
+**The fix.** The pre-switch dialog spawns under its own name,
+`MergeDialog.PreSwitchDialogName` = "ParsekPreSwitch". `AnswerMergeDialog` gains a
+`dialog=` arg (closed set, default `merge`) and looks its target up through
+`FindPopupByName(dialogName)` instead of taking any ParsekMerge popup, so the verb answers
+the dialog it was ASKED to answer. `MergeDialog`'s two non-button teardown paths
+(`DismissAndClearPendingFlag`, and the pre-switch spawn site's own pre-dismiss) dismiss
+BOTH names, because that helper is the cleanup path for every dialog the class spawns and
+a pre-switch popup left standing over the input lock it releases is the stealth state the
+Esc-respawn contract exists to prevent.
+
+**`dialog=preswitch` is deliberately NOT accepted**, and that is a contract rather than an
+omission - checked in the mirror direction. `AnswerMergeDialog`'s completion is
+answer-applied AND the post-answer scene SETTLING OUT OF FLIGHT
+(`TestCommandMergeAnswer.DecideAnswerCompletion`), while the pre-switch buttons end in
+`FlightGlobals.SetActiveVessel`, which for a LOADED target changes no scene at all. So
+answering it through that verb would hold the FIFO head until the budget expired and then
+report a timeout over an answer that had landed. The popup is reachable for INSPECTION
+through the new `UiAction op=dialog`, which reports its name, title and ordered button
+labels - which is what a GUI census needs of it.
+
+**Coverage.** `TestCommandUiCensusOpsTests.Dialog_TheTwoMergeDialogNamesAreDistinct` pins
+the two names apart and that both still scan as Parsek's for `op=dialog`;
+`Dialog_TheAnswerArgIsAClosedSet_SoAWrongValueCannotFallBack` pins that `preswitch` is a
+REJECTED rather than a silent fallback to the merge dialog; harness-side,
+`test_the_census_ops_closed_arg_rows_name_their_owner_verbs` pins the one-value set and
+its owner verb. Risk 8 in `design-autotest-seam-verbs-c1.md` is struck in place with the
+reasoning above.
+
+---
+
 ## BDOCK1-STATION-COMMIT-READOPT-LIMBO-FALLBACK-DIALOG: after BDOCK-1's mid-mission CommitTree, the re-adopted station continuation is stashed to Limbo by the interceptor launch and surfaces as a whole-tree merge dialog over already-committed recordings [FILED 2026-09-10 by wave package A2 (`cheap-flights-arming`) off its BDOCK-1 reading run; REWRITTEN 2026-09-11 off the archive grep. The dialog is the lane's deterministic shape on every post-fix build (4 of 4 logs), reached through a CORRECT refusal; OPEN PRODUCT QUESTION narrowed to the fallback dialog's UX over committed-overlap recordings; not fixed in this wave]
 
 **What happens**, from `2026-09-10_1815_BDOCK-1-station-interceptor`'s own KSP.log (local
