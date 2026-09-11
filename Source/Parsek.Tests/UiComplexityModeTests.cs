@@ -232,12 +232,9 @@ namespace Parsek.Tests
             Assert.True(System.IO.Directory.Exists(productRoot),
                 $"product source root not found at {productRoot}");
 
-            // One pass over the product source. The gate is read as
-            // IsVisible(UiSurface.<Key>, ...) at every call site; IsRetired(UiSurface.<Key>)
-            // is the second, retirement-only enforcement shape. Matched with a
-            // whitespace-tolerant regex, not a substring: TimelineWindowUI wraps its
-            // IsVisible( onto the line before its UiSurface.TabMissions argument, and a
-            // contiguous scan read that real enforcement site as a missing one.
+            // One pass over the product source. Files are joined with a NEWLINE: raw
+            // concatenation welds one file's last line onto the next file's first, which can
+            // both invent a match across the seam and hide one.
             var text = new System.Text.StringBuilder();
             foreach (string file in System.IO.Directory.GetFiles(
                          productRoot, "*.cs", System.IO.SearchOption.AllDirectories))
@@ -246,23 +243,65 @@ namespace Parsek.Tests
                 // would make the scan vacuous.
                 if (file.EndsWith("UiComplexityMode.cs", StringComparison.Ordinal))
                     continue;
-                text.Append(System.IO.File.ReadAllText(file));
+                text.Append(System.IO.File.ReadAllText(file)).Append('\n');
             }
-            string src = text.ToString();
 
-            var unenforced = new List<UiSurface>();
-            foreach (UiSurface surface in AllSurfaces())
-            {
-                var pattern = new System.Text.RegularExpressions.Regex(
-                    @"Is(Visible|Retired)\(\s*UiSurface\." + surface + @"\b");
-                if (!pattern.IsMatch(src))
-                    unenforced.Add(surface);
-            }
+            List<UiSurface> unenforced = FindUnenforcedSurfaces(text.ToString());
 
             Assert.True(unenforced.Count == 0,
                 "every UiSurface key must be read at a draw site, or the gate table claims a "
                 + "gate the product does not apply. Unenforced: "
                 + string.Join(", ", unenforced.Select(s => s.ToString()).ToArray()));
+        }
+
+        // anti-vacuity for the scan above: every one of these keys is NAMED in the comments
+        // that explain the gating around its draw site, so a scan over raw source text
+        // answers "enforced" for a surface whose only mention is prose. Decoy source with
+        // exactly one key commented out; the scan must name that key and no other.
+        [Fact]
+        public void TheEnforcementScanRedsWhenTheOnlyCallSiteIsInAComment()
+        {
+            UiSurface decoyed = UiSurface.MissionsLoopControls;
+            var src = new System.Text.StringBuilder();
+            foreach (UiSurface surface in AllSurfaces())
+            {
+                if (surface == decoyed)
+                {
+                    src.Append("// gated by UiSurfaceVisibility.IsVisible(UiSurface.")
+                       .Append(surface).Append(", mode) at the draw site below\n");
+                    src.Append("DrawIt();\n");
+                    continue;
+                }
+                src.Append("if (UiSurfaceVisibility.IsVisible(UiSurface.")
+                   .Append(surface).Append(", mode)) DrawIt();\n");
+            }
+
+            List<UiSurface> unenforced = FindUnenforcedSurfaces(src.ToString());
+
+            Assert.Equal(new[] { decoyed }, unenforced.ToArray());
+        }
+
+        /// <summary>
+        /// The <see cref="UiSurface"/> keys with no enforcement site in
+        /// <paramref name="src"/>. The gate is read as <c>IsVisible(UiSurface.Key, ...)</c> at
+        /// every call site; <c>IsRetired(UiSurface.Key)</c> is the second, retirement-only
+        /// shape. Comments are blanked first, so prose about a gate is not mistaken for the
+        /// gate. Whitespace-tolerant, not a substring match: TimelineWindowUI wraps its
+        /// <c>IsVisible(</c> onto the line before its <c>UiSurface.TabMissions</c> argument,
+        /// and a contiguous scan read that real enforcement site as a missing one.
+        /// </summary>
+        internal static List<UiSurface> FindUnenforcedSurfaces(string src)
+        {
+            string prepared = SourceScanText.StripCSharpComments(src);
+            var unenforced = new List<UiSurface>();
+            foreach (UiSurface surface in AllSurfaces())
+            {
+                var pattern = new System.Text.RegularExpressions.Regex(
+                    @"Is(Visible|Retired)\(\s*UiSurface\." + surface + @"\b");
+                if (!pattern.IsMatch(prepared))
+                    unenforced.Add(surface);
+            }
+            return unenforced;
         }
 
         // catches: the mode-change log line losing the hidden-surface list. That line is the

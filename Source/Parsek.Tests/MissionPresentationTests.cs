@@ -491,8 +491,37 @@ namespace Parsek.Tests
                 System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory,
                     "..", "..", "..", "..", "Parsek", "UI", "MissionsWindowUI.cs")));
 
-            Assert.Contains("MissionPresentation.PeriodTooltipLocked", src);
+            Assert.True(DrawsThePeriodTooltipLockedConstant(src),
+                "MissionsWindowUI must still DRAW MissionPresentation.PeriodTooltipLocked; "
+                + "a mention in a comment is not a consumer");
             Assert.False(string.IsNullOrEmpty(MissionPresentation.PeriodTooltipLocked));
+        }
+
+        // anti-vacuity for the scan above: the constant survived the `locked` parameter's
+        // removal precisely because a comment explains where its last consumer lives, so a
+        // raw substring scan stays green after the draw site itself goes.
+        [Fact]
+        public void ThePeriodTooltipLockedScanRedsWhenTheOnlyMentionIsAComment()
+        {
+            string decoy =
+                "            // The route-owned period label carries\n"
+                + "            // MissionPresentation.PeriodTooltipLocked directly.\n"
+                + "            GUILayout.Label(new GUIContent(\"locked\", null), style);\n";
+
+            Assert.False(DrawsThePeriodTooltipLockedConstant(decoy));
+            Assert.True(DrawsThePeriodTooltipLockedConstant(
+                "            GUILayout.Label(new GUIContent(\"locked\",\n"
+                + "                MissionPresentation.PeriodTooltipLocked), style);\n"));
+        }
+
+        /// <summary>
+        /// True when <paramref name="src"/> reads
+        /// <c>MissionPresentation.PeriodTooltipLocked</c> in CODE (comments blanked first).
+        /// </summary>
+        internal static bool DrawsThePeriodTooltipLockedConstant(string src)
+        {
+            return SourceScanText.StripCSharpComments(src)
+                .IndexOf("MissionPresentation.PeriodTooltipLocked", StringComparison.Ordinal) >= 0;
         }
 
         [Fact]

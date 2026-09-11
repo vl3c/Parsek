@@ -312,16 +312,69 @@ namespace Parsek.Tests
             string uiSrc = System.IO.File.ReadAllText(
                 System.IO.Path.Combine(srcRoot, "UI", "RecordingsTableUI.cs"));
 
-            int anchor = uiSrc.IndexOf("// Hide group checkbox", StringComparison.Ordinal);
-            Assert.True(anchor >= 0,
-                "Hide group checkbox anchor should exist in RecordingsTableUI.cs");
-            int blockEnd = uiSrc.IndexOf("hide-all={newAllHidden}", anchor, StringComparison.Ordinal);
-            Assert.True(blockEnd > anchor, "Expected the group hide-all log line after the anchor");
-            string groupHideBlock = uiSrc.Substring(anchor, blockEnd - anchor);
+            List<string> missing = FindMissingGroupHideAllRoutingTokens(uiSrc);
 
-            Assert.Contains("IsArchiveRefusedForUnfinishedFlight(newAllHidden", groupHideBlock);
-            Assert.Contains("EffectiveState.IsUnfinishedFlight(committed[idx])", groupHideBlock);
-            Assert.Contains("BuildGroupArchiveRefusedMessage(groupName", groupHideBlock);
+            Assert.True(missing.Count == 0,
+                "the group hide-all block must route through the shared refusal. Missing: "
+                + string.Join("; ", missing.ToArray()));
+        }
+
+        // anti-vacuity for the scan above: the block is WRAPPED in a comment that names the
+        // per-row refusal it now shares, so a scan over raw source text answers "routed" for
+        // a block that only talks about routing. Decoy with the three needles present in the
+        // comment and nowhere else; every one of them must still read as missing.
+        [Fact]
+        public void TheGroupHideAllScanRedsWhenTheRoutingExistsOnlyInAComment()
+        {
+            string decoy =
+                "            bool newAllHidden = GUILayout.Toggle(allHidden, Content);\n"
+                + "            if (newAllHidden != allHidden)\n            {\n"
+                + "                // Same guard as the per-row control: this used to skip\n"
+                + "                // IsArchiveRefusedForUnfinishedFlight(newAllHidden, ...) and the\n"
+                + "                // EffectiveState.IsUnfinishedFlight(committed[idx]) count behind it,\n"
+                + "                // and never reached BuildGroupArchiveRefusedMessage(groupName, n).\n"
+                + "                foreach (int idx in descendants)\n"
+                + "                    committed[idx].Hidden = newAllHidden;\n"
+                + "                ParsekLog.Info(\"UI\", $\"Group '{groupName}' hide-all={newAllHidden}\");\n"
+                + "            }\n";
+
+            List<string> missing = FindMissingGroupHideAllRoutingTokens(decoy);
+
+            Assert.Equal(3, missing.Count);
+        }
+
+        /// <summary>
+        /// The routing tokens the group hide-all block does not actually contain, comments
+        /// excluded. Empty list = the block routes through the shared refusal.
+        /// <para>Anchored on CODE at both ends (the toggle assignment and the log line's
+        /// literal), not on the leading comment the block used to be found by: stripping
+        /// comments is what makes the needles mean something, and it also removes the old
+        /// anchor.</para>
+        /// </summary>
+        internal static List<string> FindMissingGroupHideAllRoutingTokens(string src)
+        {
+            string prepared = SourceScanText.StripCSharpComments(src);
+
+            int anchor = prepared.IndexOf(
+                "bool newAllHidden = GUILayout.Toggle(", StringComparison.Ordinal);
+            Assert.True(anchor >= 0,
+                "the group hide-all toggle assignment should exist in RecordingsTableUI.cs");
+            int blockEnd = prepared.IndexOf("hide-all={newAllHidden}", anchor, StringComparison.Ordinal);
+            Assert.True(blockEnd > anchor, "Expected the group hide-all log line after the anchor");
+            string groupHideBlock = prepared.Substring(anchor, blockEnd - anchor);
+
+            var missing = new List<string>();
+            foreach (string token in new[]
+                     {
+                         "IsArchiveRefusedForUnfinishedFlight(newAllHidden",
+                         "EffectiveState.IsUnfinishedFlight(committed[idx])",
+                         "BuildGroupArchiveRefusedMessage(groupName",
+                     })
+            {
+                if (groupHideBlock.IndexOf(token, StringComparison.Ordinal) < 0)
+                    missing.Add(token);
+            }
+            return missing;
         }
     }
 }
