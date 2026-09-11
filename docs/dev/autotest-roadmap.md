@@ -264,7 +264,7 @@ D13 unchanged at `proximity-offset`, `bbox-block`, `ksc-exclusion`,
 
 ### What remains, by product area (2026-09-11)
 
-Read with the register below. Seventy-four percent of the declared surface is gated
+Read with the 2026-09-11 priority register below; the "register item N" numbers this table cites are the 2026-09-08 register's, kept under it as the record. Seventy-four percent of the declared surface is gated
 and every committed lane has a green run; the residue is UNEVEN, and each thin
 dimension is thin for a different reason. Covered / total per dimension,
 re-derived 2026-09-11 on `loop-render-residue` after its merge of origin/main
@@ -371,7 +371,246 @@ feature and its entire automated proof is nominal.
 
 ---
 
-## Priority register (2026-09-08)
+## Priority register (2026-09-11)
+
+The ranked answer to "what next" after the 2026-09-10 harness wave. Re-derived on `main` at
+`b21fc2096`, where these are all merged:
+- the wave's four PRs: #1670 claim-gap, #1671 cheap flights and arming, #1672 loop-render
+  residue, #1673 ghost-replay Tier B;
+- the GUI census (#1667 / #1668 / #1669) and the GUI inventory doc (#1674).
+
+It supersedes the ORDER in the 2026-09-08 register below. That register, the Build-order
+tiers and the per-program sections stay the DEFINITIONS and the record. This register states
+no status: verdicts, run ids and armed state are in `autotest-status.md`.
+
+Re-derive before acting:
+- `ls harness/scenarios/*.toml`: **256** specs (125 nightly, 26 daily, 105 operator, parsed
+  from the specs' `tier` keys).
+- Coverage, from `harness/`: the one-liner below prints `256 specs 184 of 248`, so **184 of
+  248** cells are covered and 64 are uncovered.
+- The in-game category axis: `hlib.parse_ingame_test_declarations` over every `.cs` under
+  `Source/Parsek` gives **624 declarations in 113 categories**. The 2026-09-08 register's
+  2026-09-11 note says all 113 are driven; only the two counts were re-derived here, not the
+  driven count. The one named unreachable cell is still
+  `RuntimeTests.EvaKerbalGhostHasVesselSnapshot` (todo
+  EVAKERBALGHOSTHASVESSELSNAPSHOT-HAS-NO-HOST-THAT-FLIES-LOW).
+
+```
+python -c "import sys; sys.path[:0]=['lib','.']; import run,hlib; s=run.load_all_specs(); r=hlib.compute_coverage(s,[],run.load_registry()); c=[l for l in hlib.coverage_to_txt(r).splitlines() if l.startswith('D') and 'coveredBy=' in l]; u=[l for l in c if 'UNCOVERED' in l]; print(len(s),'specs',len(c)-len(u),'of',len(c))"
+```
+
+The open decisions and their evidence come from a read-only decision memo written after the
+wave: `docs/dev/research/wave-0910-open-decisions-2026-09-11.md`, cited below as "memo sN".
+How to use this register:
+- (B) lists the operator's calls.
+- (C) is the ranked work; each item names the (B) calls it waits on.
+- Every (B) and (C) item has ONE owning entry in `todo-and-known-bugs.md`.
+
+### (A) What the 2026-09-08 register became
+
+Pointers only; each lane's outcome is in its `autotest-status.md` row.
+
+1. R10 runtime-handle plumbing: shipped before the wave (#1653).
+2. The chain-interaction wave: closed before the wave (#1655).
+3. Ghost-replay Tier A items 2-5. Closed before the wave (#1657): items 2 and 4 (GS-7, GS-8)
+   and the H52 claim half. Closed by the wave (#1670): part 0, the two D3 claims (`absolute`
+   on V27M, `relative-anchored-nonloop` on LT-2). Still open: item 5, the D5 debris split
+   (C4); the reentry-FX replay half and the GS-6 residues (D).
+4. Ghost-replay Tier B items 6-9. Closed by the wave (#1673): items 8 (GS-9) and 9 (GS-4's
+   `unityExceptions` armed, W1 left report-only). Item 9 left the GS-4 ceiling question (B8)
+   and exposed the scanner gap (C1). Items 6 and 7 are carried forward (D).
+5. Ghost-replay Tier C: untouched (D).
+6. Loop-render residue. Closed by the wave (#1672): V20K and the criterion (b) control debt.
+   G8, G5 and G9 are carried forward (D).
+7. Cheap flights and arming. Closed by the wave (#1671): EVA-2, the report-only route
+   declarers, the B1-pad-hop and BDOCK-1 windows, and MC-3 `better-time-warp`. The promotion
+   calls were done 2026-09-08 (#1652). Left over, all as decisions: `making-history` (B5),
+   the V26 controls (B9), MC-3's tier (B7), and BDOCK-1's fallback dialog (B6).
+8. Tier D D1 residue. Closed by the wave (#1673): `switch-segment-noop-discard` (S0.12).
+   `stop-on-switch` and `sub-2-point-drop` are now decisions (B3, B4); `commit-abort` still
+   needs a definition (D).
+9. Trust risks: untouched (D).
+10. Operator-only hand-off: untouched (D).
+11. The re-fly continuation program: landed before the wave (#1658-#1665); the wave took its
+    earned registry claims (#1670). Residue in D.
+12. The `GuiTree` category: done 2026-09-11 with the GUI census (#1667 / #1668 / #1669).
+    Residue in D.
+
+### (B) Decisions owed by the operator
+
+Each line gives the question, the memo's recommendation, its cost, the memo section and the
+owning todo entry. All OPEN; none applied.
+
+1. **OPEN - D4 registry growth.** Add `persistence-graze-suppression` (optimizer step 7, the
+   `IsGrazePattern` collapse-walk) and claim it on LT-2? Recommendation: yes. Cost: one
+   registry value, one LT-2 token, an armed re-flight and one negative control (~50 s each),
+   no C#. Memo s1; todo REGISTRY-GROWTH-DECISIONS-2026-09-11.
+2. **OPEN - D9 registry growth.** Add `rewind-to-launch-repeat` and claim it on GS-9, off the
+   two backreference tokens GS-9 already requires? Recommendation: yes, with the token's
+   control discharged offline over GS-9's `2026-09-11_0109` log. Cost: 0 flights. Memo s2;
+   todo REGISTRY-GROWTH-DECISIONS-2026-09-11.
+3. **OPEN - D1 `stop-on-switch` redefinition.** Rename it `switch-backgrounds-recording`
+   (witness `Transitioned to background (pid=`) and claim it on CI-1? Recommendation: yes.
+   Cost: one token, an armed re-flight and one negative control, no C#. Memo s3; todo
+   D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE.
+4. **OPEN - D1 `sub-2-point-drop` and `manual-gloops`.** Close both through one Gloops seam
+   verb pair (`GloopsStart` / `GloopsStop`), with the registry comment naming Gloops as the
+   drop's only seam-reachable producer? Recommendation: yes. Cost: ~150 lines of C# plus the
+   lanes. Memo s3; todo D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE.
+5. **OPEN - D17 `making-history`: define it or delete it.** Recommendation: define it as
+   alt-site launch capture on stock-minimal and rank it last (a GS-4 clone launching from
+   `Desert_Launch_Site`, one operator reading flight); or delete the value with an honest
+   comment. Cost: one flight, or none. Memo s4; todo D17-MAKING-HISTORY-NEEDS-A-DEFINITION.
+6. **OPEN - BDOCK-1's fallback merge dialog.** Recommendation: not a defect worth a fix now.
+   File it as a low-priority UX item whose fix adds no UI: a refused resume of a Limbo
+   committed-tree restore attempt auto-clears a no-op continuation and sends a meaningful one
+   to the silent auto-commit. Keep BDOCK-1's shape, and do NOT add the `StopRecording`
+   mitigation. Cost: 0 now; an optional Merge measurement is ~36 min. Memo s5; todo
+   BDOCK1-STATION-COMMIT-READOPT-LIMBO-FALLBACK-DIALOG.
+7. **OPEN - cadence promotions.** Move MC-3, GS-4, GS-8 and GS-9 from operator to nightly?
+   Recommendation: all four. Cost: ~1 min per night for MC-3, ~20 min for the three GS lanes.
+   Memo s6 and s12; todo CADENCE-PROMOTIONS-2026-09-11.
+8. **OPEN - GS-4's `unityExceptions` ceiling: 4 or 6.** Recommendation: 6 now, per the H23
+   precedent (6 is the legal maximum of the known stock class set). Or pre-authorise the
+   re-pin to 6 on the first no-Parsek-frame red at 5. Either answer reverses the wave's
+   supervisor ruling to keep 4. Cost: 0 flights. Memo s7; todo
+   GS4-UNITY-CEILING-NEGCTL-VACUOUS.
+9. **OPEN - V26M / V26T controls.** Are they owed, or discharged by the B32X byte-identity
+   argument? Recommendation: owed, one in-place control each (`routeLineBuilds = { min = 2 }`
+   -> `{ min = 3 }`). Cost: ~60 s each. Memo s9; todo V26-CONTROLS-FLOWN-ON-B32X-COPIES.
+10. **OPEN - D14 game mode by fixture convention.** Keep claiming `sandbox` / `career` off the
+    fixture's mode by convention, and pin it with a test cell? Recommendation: yes. Cost: ~30
+    lines of Python. Memo s10; todo D14-GAME-MODE-CLAIMS-UNPINNED.
+
+### (C) Ranked work
+
+This is the memo's order (its items 2-7) with one change, so that decision-free items lead.
+The registry PR, the memo's first item, is listed third here because it cannot start until
+seven of the decisions above are ruled. Once they are, it is the cheapest item and goes
+first.
+
+1. **Unity-scanner stack frames** (harness instrument).
+   - Scope: `hlib.scan_unity_exceptions` learns to read the stack under each exception line
+     and report `parsekFrames` / `afterQuit`, and the evaluator gains `maxParsekFrames`. After
+     an offline sweep of every armed `unityExceptions` lane plus the V family, arm
+     `maxParsekFrames = 0` on GS-4 and W1.
+   - Product C#: no (~80 lines of Python plus tests). Flights: 0, by the memo's estimate.
+   - Todo: UNITY-SCANNER-BLIND-TO-PARSEK-STACK-FRAMES.
+   - Decisions: none for the instrument; the GS-4 ceiling half is B8.
+   - Order: V15T / V18T will red on the teardown NRE. Land item 2's guard first, or carry
+     expectedFail.
+2. **One C# PR: the boundary-seam cell, the SuppressLogging restore, the teardown-NRE guard.**
+   - Scope, in three parts:
+     - an in-game `Optimizer` cell on LT-2 that drives
+       `FlushLoadedStateForOnRailsTransitionForTesting` then `RunOptimizationPass`, and claims
+       D3 `boundary-seam` off the production `(seam=1)` and `seamSkipped=1` lines;
+     - the two `Optimizer` cells restore `RecordingStore.SuppressLogging`;
+     - `EnsureGhostOrbitRenderers` skips its repair while the application quits or a scene
+       cleanup runs.
+   - Product C#: yes for the guard; the other two are test bodies. The new cell moves the
+     `Optimizer` tally LT-2 pins, so `CommittedBatchTallySourceSyncTests` reds until LT-2 is
+     re-pinned.
+   - Flights: the LT-2 re-pin and 3 short flights.
+   - Todos: D3-BOUNDARY-SEAM-HAS-NO-DETERMINISTIC-WITNESS,
+     OPTIMIZER-INGAME-CELLS-LEAK-RECORDINGSTORE-SUPPRESSLOGGING,
+     GHOST-MAP-ENSURE-ORBIT-RENDERERS-TEARDOWN-NRE.
+   - Decisions: none.
+3. **Registry PR** (no product C#).
+   - Scope; each part ships alone once its own decision is ruled:
+     - D4 `persistence-graze-suppression` on LT-2 (B1, 2 flights);
+     - D9 `rewind-to-launch-repeat` on GS-9 (B2, offline control);
+     - `stop-on-switch` -> `switch-backgrounds-recording` on CI-1 (B3, 2 flights);
+     - honest registry comments on `sub-2-point-drop` (B4) and `making-history` (B5), and the
+       stale S0.5 / S0.6 comments;
+     - the fixture-Mode test cell (B10);
+     - the four tier promotions (B7);
+     - the two V26 controls (B9, 2 flights).
+   - Flights: about 6 short ones.
+   - Todos: REGISTRY-GROWTH-DECISIONS-2026-09-11,
+     D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE, D17-MAKING-HISTORY-NEEDS-A-DEFINITION,
+     CADENCE-PROMOTIONS-2026-09-11, V26-CONTROLS-FLOWN-ON-B32X-COPIES,
+     D14-GAME-MODE-CLAIMS-UNPINNED.
+   - Decisions: B1, B2, B3, B4, B5, B7, B9, B10.
+4. **D5 debris lifecycle** (ghost-replay Tier A item 5).
+   - Scope, two parts:
+     - `staging-debris-ttl` first: fly a 2-flight stability reading of an uncommitted GS-7
+       variant with round 1's cut. On 2 of 2 TTL expiries, author GS-10 gating the TTL-closed
+       terminals. Otherwise record that no flight producer is deterministic.
+     - `staging-debris-promotion` second: a kx opt-in phase that makes a dropped booster the
+       active vessel inside its 60 s TTL (~150 lines of Python).
+   - Product C#: no.
+   - Flights: 2, then GS-10's own if it is authored.
+   - Todo: the D5 paragraphs of "Autotest coverage: build-order TODOs from the basics
+     roadmap" (its R1 block).
+   - Decisions: none.
+5. **D3 `relative-loop` synthetic lane.**
+   - Scope: `RecordingBuilder` gains `WithLoopAnchorVesselId`; an injected-recordings preset
+     sits on a fixture whose active vessel is the anchor; one seam lane gates the engine's
+     production loop-anchor lines and a placement facet.
+   - Product C#: no (test generator only). Flights: 3.
+   - Todo: D3-RELATIVE-LOOP-HAS-NO-PRODUCTION-PATH-CELL.
+   - Decisions: none.
+6. **Gloops seam verb pair** (`GloopsStart` / `GloopsStop`), closing D1 `manual-gloops` and
+   `sub-2-point-drop`.
+   - Product C#: yes (~150 lines, on the M-A2 command seam). Flights: not estimated by the
+     memo.
+   - Todo: D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE.
+   - Decisions: B4.
+
+Not ranked (the memo's item 8, drop or defer):
+- the RF-12L boundary-seam stability pair: drop;
+- the BDOCK-1 `StopRecording` mitigation: do not;
+- the BDOCK-1 Merge measurement: optional;
+- the BDOCK-1 UX fix, if B6 files it: low priority, product C#;
+- the Making History flight: last, or delete the value (B5).
+
+### (D) Carried forward, untouched by the wave
+
+One line each; the definition lives at the pointer.
+
+- **Vanished-RewindPoint design call** (ghost-replay Tier B item 6): costs nothing, and there
+  are two measured shapes to rule on (GS-4 reaps the RP; GS-7's crash keeps it). "The
+  ghost-replay coverage program" -> Tier B.
+- **Rewind-to-launch x Re-Fly** (Tier B item 7): the lane for D9 `load-time-sweep`, that
+  dimension's last uncovered cell. Same section.
+- **Ghost-replay Tier C as one arc**: ghostlife v2 (item 10), then loop-cycle rendering on
+  the GS-4 subject (item 12: D6 `loop-period-modes`, `self-overlap`,
+  `overlap-expiry-soft-caps`), with the replay-parity evaluator (item 11) alongside. Same
+  section, Tier C.
+- **Reentry-FX replay half** (Tier A item 3): needs a reentry-shaped profile, which the kx
+  machine does not fly. Same section.
+- **GS-6 residues** (Tier A item 1): `chute-two-phase` / `chute-cut` (todo
+  GS6-CHUTE-TWO-PHASE-NEEDS-A-DESCENT-VARIANT), `bays` (todo
+  GS6-CARGOBAY-NEEDS-A-HARVESTED-SERVICEBAY-TAIL), and `engine-fx-effects` (no per-pid
+  replay proof).
+- **Loop-render G8** (long-horizon recurrence and co-residency; instrument work first, then
+  the three roads), then **G5** and **G9** as breadth. `V18M` (its reading run when wanted),
+  `B31` and the FLIGHT variant of B27 stay reserved. "The gap register, ranked".
+- **D1 `commit-abort`**: needs its definition before any lane. Tier D item 13.
+- **Re-fly residue**: the docked / boarded re-fly conclusion lane. A re-fly that docks or is
+  boarded stamps `Docked` / `Boarded` in flight, the cheapest route to the
+  `TerminalKind.Landed` cell. Also open: whether that cell should keep its current form. Todo
+  RF12-NO-SEAM-PATH-CONCLUDES-A-REFLY-IN-FLIGHT; the 2026-09-08 register's item 11.
+- **D18's eight spawn-in-run cells**: the largest residue, and the natural follow-on to the
+  chain-interaction wave. "What remains, by product area", D18 row.
+- **Trust risks** ("Trust and fail-open risks still outstanding"; the known gates in
+  `autotest-status.md`):
+  - risk 4: the ledger oracle's independence check is a structural no-op;
+  - risk 8: no mutation tool;
+  - known-gate 14: strict per-identity ground truth is armed by nothing;
+  - known-gate 7: B4's chute latch.
+- **Operator-only hand-off** (the 2026-09-08 register's item 10):
+  - D14 inter-body surface delivery;
+  - D10 `harvest-provenance` on an ore drill;
+  - the recovery-credit third of costed dispatch;
+  - the Tier 4 residue: claw / inventory producers, crew swap, milestones, D13
+    spawn-positioning generator work, D16 storage cells, the D11 mission cells.
+  `manual-gloops` leaves this list if B4 is taken.
+- **GUI census residue**: two unmeasured points from `design-gui-tree-dump.md` -> "What the
+  first flight measured" (the `GUI.BeginGroup` / `EndGroup` inlining and the unbudgeted armed
+  cost), plus the open `GUI-CENSUS-*` todo entries.
+
+## Priority register (2026-09-08) - superseded by the 2026-09-11 register above; kept as the record
 
 This section is the ranked answer to "what next", re-derived on `main` at
 `05f557abe` (after #1647 reconciled this file, #1648 closed G1 / G3b and #1649
