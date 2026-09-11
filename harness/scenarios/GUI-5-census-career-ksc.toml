@@ -26,9 +26,10 @@ tier = "operator"
 #
 # WHAT IT PHOTOGRAPHS (17 PNGs, each with a `<label>.gui.json` dump beside it): all four
 # Career State tabs, both Kerbals tabs, all four Timeline filter modes, the Missions tab
-# collapsed and expanded, the Recordings tab, one populated tooltip echo strip, and the
-# Basic forms of the main and Timeline windows - every one of them over a career with
-# contracts, milestones and earned pools.
+# collapsed and expanded, the Recordings tab, one ATTEMPTED populated tooltip echo strip
+# (measured: the cursor lands, the hover does not paint - see the FLOWN block below), and
+# the Basic forms of the main and Timeline windows - every one of them over a career with
+# milestones and earned pools.
 #
 # IT MOVES THE OPERATOR'S MOUSE, once, for the tooltip capture. `op=pointer` is the only op
 # in the seam that reaches outside the process: `Input.mousePosition` is read-only and
@@ -77,9 +78,36 @@ tier = "operator"
 #     `H45-stock-ui-overlay` and `H71-resource-topbar-ksc` are the lanes that assert on
 #     that surface, in-game, without a picture.
 #
-# NEVER FLOWN. Every `[expectations.logContracts]` line is one of this lane's OWN seam
-# records.
-description = "GUI census wave 2, the populated career host: photograph all four Career State tabs, both Kerbals tabs, all four Timeline filter modes and the Missions and Recordings tabs over a committed EARNED career with nine contracts, fifteen ledger actions, real milestone rewards and non-round pools, plus one populated tooltip echo strip."
+# FLOWN 2026-09-11: reading run `2026-09-11_1553`, PASS on attempt 1, 66 s wall, all 82 steps
+# met, 17 PNGs + 17 dumps (every dump `patched=17/17`), every verifier PASS or REPORT,
+# `expectations mismatches=0`. Every `[expectations.logContracts]` line is one of this lane's
+# OWN seam records.
+#
+# WHAT THE RUN MEASURED: ALL FOUR CAREER TABS AND BOTH KERBALS TABS DREW ON A REAL CAREER,
+# which is the fact this lane exists for - `Career mode - UT 414..416` on every one, Mission
+# Control `L1 - slots 0/2 now, 0/2 at timeline end`, Administration `L1 - slots 0/1`, nine
+# facility rows, `Milestones (5 credited / 5 at timeline end)` with real reward triples
+# (`Records Speed + 14400 funds + 1 rep`, `Records Altitude`, `First Launch + 800 funds`,
+# `Kerbin/ Science + 1600 funds`, `First Crew To Survive`), a roster row reading
+# `Jebediah Kerman [Pilot] - reserved  (1)` and an outcomes chain with two entries. The
+# Milestones `Rewards` column the inventory measures as overflowing its 180 px pin now has a
+# picture to be judged on (`cek-career-milestones-advanced`, 76 nodes).
+#
+# WHAT THE RUN REFUTED, and both this header and the inventory's 6.1 row claimed it: the nine
+# `CONTRACT` nodes are NOT live contracts. All nine read `state = Offered`, and the tab lists
+# ACTIVE (accepted) contracts only (`UI/CareerStateWindowUI.cs:690-723`), so
+# `cek-career-contracts-advanced` reads `Active (0)` / `(no active contracts)` - a second
+# picture of the same empty form GUI-1 already had, not a populated one. That is the THIRD
+# claim about this fixture read off a node COUNT rather than off its `state =` values (the
+# facilities and strategies rows were the first two); no committed fixture carries an
+# accepted contract, so the populated list needs `career-contract-pad` or a new fixture.
+#
+# AND THE TOOLTIP: `op=find` resolved `Career` at `rect=18,158,230,21 centre=133,169` and
+# `op=pointer` read back `at=133,170`, and the strip stayed EMPTY -
+# `cek-main-tooltip-career-advanced` hashes identical to `cek-main-advanced` and its main-window
+# pixels are identical too. Filed as GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT; the
+# label is kept because the run id cites it.
+description = "GUI census wave 2, the populated career host: photograph all four Career State tabs, both Kerbals tabs, all four Timeline filter modes and the Missions and Recordings tabs over a committed EARNED career with fifteen ledger actions, real milestone rewards, non-round pools and nine OFFERED (not accepted) contracts, plus one attempt at a populated tooltip echo strip."
 instanceProfile = "stock-minimal"
 tags = ["gui-census", "screenshots", "ui", "career", "GUI-5", "pending-operator"]
 

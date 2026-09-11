@@ -65,8 +65,34 @@ tier = "operator"
 #   - any `PopupDialog`. All 21 stay dark for the structural reason GUI-3's header sets out;
 #     this lane asserts the NEGATIVE through one `op=dialog` step.
 #
-# NEVER FLOWN. Every `[expectations.logContracts]` line is one of this lane's OWN seam
-# records.
+# FLOWN 2026-09-11: reading run `2026-09-11_1601`, PASS on attempt 1, 61 s wall, all 64 steps
+# met, 12 PNGs + 12 dumps (every dump `patched=17/17`), every verifier PASS or REPORT,
+# `expectations mismatches=0` including the `count = {min = 0, max = 0}` floor under the word
+# EMPTY in this lane's name. Every `[expectations.logContracts]` line is one of this lane's
+# OWN seam records.
+#
+# WHAT THE RUN MEASURED - EVERY EMPTY STATE IT WENT FOR, which is the whole product, and
+# each one is a SENTENCE rather than a blank box:
+#   - Missions tab `No missions recorded yet.` (43 nodes); Recordings tab `No recordings.`
+#     beside a live `New Group` button (44);
+#   - Logistics `Active Routes` with `  (none)`, an EMPTY `Paused Routes` header and the
+#     `No eligible Supply Runs. Fly a one-way transport that docks, transfers cargo to the
+#     destination, and undocks` candidate sentence (89);
+#   - Timeline Overview with nothing but `Starting science: 100.0` and the
+#     `-- Y1, D01, 00:00 (now)` marker (77);
+#   - Kerbals `No reserved crew, stand-ins, or retired kerbals.` and `No committed crew
+#     history yet.` (43 each) - the deliberate pair;
+#   - all four Career tabs under `Science mode - contracts and strategies unavailable`:
+#     `Contracts are unavailable in Science mode.`, `Strategies are unavailable in Science
+#     mode.`, the nine-row Facilities table (all `L1`, the one tab that is NOT empty in
+#     science mode), and `Milestones (0 credited / 0 at timeline end)` with
+#     `  (no milestones credited)`.
+# `op=dialog` answered `open=false count=0`, and the cold-boot note this header records held
+# (the windows drew against a scenario that was created rather than loaded).
+#
+# WHAT THE WAVE GOT OUT OF IT, beyond the sentences: this lane is the EMPTY half of nine
+# empty-vs-populated pairs the census now holds (`design-gui-inventory.md` section 2), which
+# wave 1 could not hold at all because it flew one host.
 description = "GUI census wave 2, the empty states: photograph the Missions and Recordings tabs, the Timeline, both Kerbals tabs, all four Career State tabs and the Logistics window with nothing in any of them, on the suite's only committed SCIENCE-mode save, so the empty-state wording and the science-mode banners have a picture."
 instanceProfile = "stock-minimal"
 tags = ["gui-census", "screenshots", "ui", "empty-state", "GUI-8", "pending-operator"]

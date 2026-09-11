@@ -82,7 +82,11 @@ tier = "operator"
 #   - the STICKY ghost marker popup. Section 6.3 records that it "additionally needs a
 #     synthesised right-click on a marker", and `op=pointer` MOVES the cursor without
 #     clicking - there is no click op in the family. The plain marker labels are in the map
-#     capture; the popup is not.
+#     capture; the popup is not. MEASURED 2026-09-11: neither IS in the capture. The map frame
+#     carries 243 marker ICONS (the log counts 243 `[GhostMap] Marker DRAWN` lines, 242 of
+#     them `PID-less marker rides its own polyline`) and NO label text, because
+#     `MapMarkerRenderer.ShouldDrawLabel(sticky, hover) => sticky || hover` and the capture
+#     had neither - the cursor was parked at the client corner and there is no click op.
 #   - any `PopupDialog`. All 21 stay dark for the structural reason GUI-3's header sets out;
 #     this lane asserts the NEGATIVE through one `op=dialog` step.
 #   - the Tracking Station scene. `LoadGame scene=trackstation` would reach it, but
@@ -93,9 +97,38 @@ tier = "operator"
 #     `op=rect` it currently sequences before every label"; that branch does not exist, so
 #     the TS capture is left unrouted rather than faked.
 #
-# NEVER FLOWN. Every `[expectations.logContracts]` line is one of this lane's OWN seam
-# records, plus the two inherited host facts LT-5 already pins (the corpus size is asserted
-# through `[expectations.recordings]` instead, where it belongs).
+# FLOWN 2026-09-11: reading run `2026-09-11_1556`, PASS on attempt 1, 74 s wall, all 70 steps
+# met, 12 PNGs + 12 dumps (every dump `patched=17/17`), every verifier PASS or REPORT,
+# `expectations mismatches=0` including the 243-recording floor. Every
+# `[expectations.logContracts]` line is one of this lane's OWN seam records, plus the two
+# inherited host facts LT-5 already pins (the corpus size is asserted through
+# `[expectations.recordings]` instead, where it belongs).
+#
+# THE STEP THAT WAS A QUESTION ANSWERED THE WAY THE LANE WANTED, and that is the one measured
+# fact this lane exists for: REAL SPAWN CONTROL OPENED AND HELD. `uiaction open
+# window=spawncontrol open=true already=false`, describe `w8open=true w8rect=268,8,750,200`,
+# `op=rect` answering `270,8,750,300 clamped=false minW=350 minH=150`, and a 69-node dump whose
+# `Parsek - Real Spawn Control` window carries ONE candidate row (`Surface Rover Drive / 435m /
+# 7.9 m/s / Y1, D01, 00:01 / T-11s / Warp to Spawn`) under a launcher reading `Real Spawn
+# Control (1)`. No `reason=zero-candidates` line was written, so
+# GUI-CENSUS-SPAWN-CONTROL-NEEDS-A-CANDIDATE-HOST is CLOSED by this run rather than re-read.
+#
+# THE OTHER MEASURED FACTS: `EnterWatchMode` picked its own ghost
+# (`index=0 recId=1c8931164f2d47eab3844b8d1249ea96 watching=true`) and the WATCH OVERLAY drew -
+# and it turned out to be in the CONTROL TREE as well as the PNG, as two root-level labels
+# (`Watching: Part Showcase - Lights v1  (295 m) [Horizon]` at `rect=[170,15,300,22]`, `[ ]
+# return  |  V camera  |  W cycle` at `[170,37,300,18]`), because the recorder patches
+# `GUI.DoLabel` and not only `GUI.DoWindow`; the flight status block read `Active Ghosts: 156`
+# early and 243 later; the Recordings tab's flight-only `Watch` column drew with its `G` / `W`
+# buttons over `Part Showcases (242)` + `Synthetic (1)`; the Missions tab came in at 11248
+# nodes and the Timeline at 2028; the SANDBOX banner read `Sandbox mode - career state is not
+# tracked`; and `op=dialog` answered `open=false count=0`.
+#
+# WHAT DID NOT DRAW: the IN-WORLD GHOST LABELS. Zero `SpawnWarningUI` producers fired on this
+# flight (no `spawn abandoned` / `spawn blocked` / `chain terminated` line anywhere in the
+# log) and no root-level label other than the watch overlay's two appears in any dump. The
+# inventory's 6.1 row named this lane for that surface; it is corrected there, and the picture
+# needs a host where a ghost's spawn is actually abandoned or blocked.
 description = "GUI census wave 2, the flight scene mid-playback: photograph the main window's flight status with active ghosts, the Gloops recorder, the flight-only Watch column on the Recordings tab, the shared windows over a live scene, the sandbox Career banner, the map view with ghost markers, the watch-mode overlay and Real Spawn Control over the 243-ghost part-showcase corpus."
 instanceProfile = "stock-minimal"
 tags = ["gui-census", "screenshots", "ui", "playback", "GUI-6", "pending-operator"]

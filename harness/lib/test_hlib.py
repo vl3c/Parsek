@@ -8518,8 +8518,8 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
                                        "PROMOTION call alone. It owes no Load-menu eyeball "
                                        "- its whole claim is that NOTHING is published, "
                                        "and the run measured zero backup folders.",
-        # THE GUI CENSUS, WAVE 2 (2026-09-11). Six never-flown capture lanes on
-        # COMMITTED fixtures, unlike GUI-1 / GUI-2 whose operator tier is a
+        # THE GUI CENSUS, WAVE 2 (2026-09-11). Six capture lanes on COMMITTED
+        # fixtures, unlike GUI-1 / GUI-2 whose operator tier is a
         # MECHANISM (an operator-local host no clone can stage). These six could
         # be staged by any clone, so their tier is a CADENCE decision and their
         # tag is a genuine debt: a lane whose PRODUCT is images owes a READING
@@ -8529,55 +8529,93 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # named in its own header. Drop the tag per lane when its reading run has
         # been flown AND its images have been reviewed - the two halves are
         # separate, and the second is the one only a human discharges.
+        #
+        # ALL SIX FLEW PASS ON ATTEMPT 1 THE SAME DAY (`2026-09-11_1548` / `_1551`
+        # / `_1553` / `_1556` / `_1559` / `_1601`; 80 / 67 / 66 / 74 / 59 / 61 s),
+        # so the FIRST debt is discharged on every one of them and the SECOND -
+        # the layout review of 79 images - is what each tag now names. That is
+        # exactly the split the paragraph above pre-registered, so the tags stay.
         "GUI-3-census-logistics-routes.toml":
-                                       "tier=operator by CADENCE (committed host) "
-                                       "AND two open operator calls: the reading "
-                                       "run, and the layout review of the 14 "
-                                       "captures it produces. Its two questions "
-                                       "are the `Set Parent Group` picker's "
-                                       "group-name rung and the Logistics link "
-                                       "picker opening with no arming click.",
+                                       "tier=operator by CADENCE (committed host). "
+                                       "The READING RUN IS DONE: `2026-09-11_1548`, "
+                                       "PASS attempt 1, 80 s, 14 PNG + 14 dumps, "
+                                       "routes=2 (one Active, one Paused). Both of "
+                                       "its questions answered YES - the `Set Parent "
+                                       "Group` picker resolved the auto-generated "
+                                       "group name, and the link picker opened with "
+                                       "no arming click. ONE OPERATOR CALL REMAINS: "
+                                       "the layout review of the 14 captures, one of "
+                                       "which (the tooltip strip) is a picture of an "
+                                       "UN-hovered window - see "
+                                       "GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-"
+                                       "PAINT.",
         "GUI-4-census-missions-docked.toml":
-                                       "tier=operator by CADENCE (committed host) "
-                                       "AND two open operator calls: the reading "
-                                       "run, and the layout review of the 16 "
-                                       "captures. Its two questions are the "
-                                       "seeded mission name and the seeded group "
-                                       "name, both from "
-                                       "MissionStore.EnsureDefaultsForTrees.",
+                                       "tier=operator by CADENCE (committed host). "
+                                       "The READING RUN IS DONE: `2026-09-11_1551`, "
+                                       "PASS attempt 1, 67 s, 16 PNG + 16 dumps. Both "
+                                       "of its questions answered YES - the seeded "
+                                       "mission name and the seeded group name both "
+                                       "resolved off "
+                                       "MissionStore.EnsureDefaultsForTrees - and the "
+                                       "run REFUTED one of the lane's own premises: "
+                                       "the three RewindPoints populate `Re-Fly`, not "
+                                       "`Rewind/FF`. ONE OPERATOR CALL REMAINS: the "
+                                       "layout review of the 16 captures, the "
+                                       "min-size one included (commanded 520x150, "
+                                       "drew 606x245).",
         "GUI-5-census-career-ksc.toml":
-                                       "tier=operator by CADENCE (committed host) "
-                                       "AND two open operator calls: the reading "
-                                       "run, and the layout review of the 17 "
-                                       "captures - one of which is the Milestones "
-                                       "`Rewards` column the inventory measures "
-                                       "as overflowing its 180 px pin, which is a "
-                                       "judgement only an eyeball settles.",
+                                       "tier=operator by CADENCE (committed host). "
+                                       "The READING RUN IS DONE: `2026-09-11_1553`, "
+                                       "PASS attempt 1, 66 s, 17 PNG + 17 dumps, all "
+                                       "four Career tabs and both Kerbals tabs drawn "
+                                       "over a real career (5 credited milestones "
+                                       "with real reward triples). It also REFUTED "
+                                       "the lane's contract claim: the host's nine "
+                                       "CONTRACT nodes are all `state = Offered`, so "
+                                       "the tab reads `Active (0)`. ONE OPERATOR "
+                                       "CALL REMAINS: the layout review of the 17 "
+                                       "captures, and specifically the Milestones "
+                                       "`Rewards` column the inventory measures as "
+                                       "overflowing its 180 px pin - a judgement only "
+                                       "an eyeball settles, and it now has an image.",
         "GUI-6-census-flight-playback.toml":
-                                       "tier=operator by CADENCE (committed host) "
-                                       "AND two open operator calls: the reading "
-                                       "run, and the layout review of the 12 "
-                                       "captures. Its reading additionally ANSWERS "
+                                       "tier=operator by CADENCE (committed host). "
+                                       "The READING RUN IS DONE: `2026-09-11_1556`, "
+                                       "PASS attempt 1, 74 s, 12 PNG + 12 dumps, and "
+                                       "it ANSWERED "
                                        "GUI-CENSUS-SPAWN-CONTROL-NEEDS-A-CANDIDATE-"
-                                       "HOST either way - an OK is the picture, an "
-                                       "`ERROR window-self-closed` is the "
-                                       "zero-candidate measurement that todo entry "
-                                       "asks for.",
+                                       "HOST the way the lane was for: Real Spawn "
+                                       "Control opened and HELD with one candidate "
+                                       "row and no `reason=zero-candidates` line, so "
+                                       "that entry is CLOSED. The watch overlay and "
+                                       "the 243-marker map view landed too; the "
+                                       "in-world ghost labels did NOT draw. ONE "
+                                       "OPERATOR CALL REMAINS: the layout review of "
+                                       "the 12 captures.",
         "GUI-7-census-flight-recording.toml":
-                                       "tier=operator by CADENCE (committed host) "
-                                       "AND two open operator calls: the reading "
-                                       "run, and the layout review of the 8 "
-                                       "captures - two of which are hover echoes "
-                                       "whose whole content is text the operator "
-                                       "has to read off the image.",
+                                       "tier=operator by CADENCE (committed host). "
+                                       "The READING RUN IS DONE: `2026-09-11_1559`, "
+                                       "PASS attempt 1, 59 s, 8 PNG + 8 dumps, and "
+                                       "it paid HALF its subject: the status block in "
+                                       "three forms (Idle, RECORDING, Ready). THE "
+                                       "OTHER HALF WAS REFUTED - both hovers landed "
+                                       "within 1 px and NEITHER echo painted, filed "
+                                       "as GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-"
+                                       "NOT-PAINT. ONE OPERATOR CALL REMAINS: the "
+                                       "layout review of the 8 captures, where two of "
+                                       "them are now evidence that the hover text is "
+                                       "ABSENT rather than text to read off an image.",
         "GUI-8-census-empty-states.toml":
-                                       "tier=operator by CADENCE (committed host) "
-                                       "AND two open operator calls: the reading "
-                                       "run, and the layout review of the 12 "
-                                       "captures. Every one of them is an "
-                                       "empty-state sentence, so the review IS the "
-                                       "product - there is nothing else to assert "
-                                       "about a window with no rows.",
+                                       "tier=operator by CADENCE (committed host). "
+                                       "The READING RUN IS DONE: `2026-09-11_1601`, "
+                                       "PASS attempt 1, 61 s, 12 PNG + 12 dumps, and "
+                                       "every empty state came back as a SENTENCE "
+                                       "rather than a blank box. ONE OPERATOR CALL "
+                                       "REMAINS: the layout review of the 12 "
+                                       "captures. Every one of them is an empty-state "
+                                       "sentence, so the review IS the product - "
+                                       "there is nothing else to assert about a "
+                                       "window with no rows.",
     }
 
     # Untagged specs that are CANDIDATES - they MENTION the token, or they are

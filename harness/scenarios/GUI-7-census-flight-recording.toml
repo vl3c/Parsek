@@ -14,7 +14,11 @@ tier = "operator"
 # `Ready (has recording)` after `StopRecording`. `PREVIEWING` is left unphotographed and
 # named below.
 #
-# TWO: THE TWO HOVER ECHOES, which are the reason the pointer op exists. Inventory section
+# TWO: THE TWO HOVER ECHOES, which are the reason the pointer op exists - AND THE HALF THIS
+# LANE DID NOT GET. MEASURED 2026-09-11: the cursor lands on both targets and NEITHER echo
+# paints, so `b1-main-tooltip-timeline-advanced` and `b1-main-disabledecho-spawncontrol-
+# advanced` are pictures of the un-hovered window. Read the rest of this block as what the
+# two surfaces ARE, and the FLOWN block at the bottom for what the run got. Inventory section
 # 6.2 lists them as a pair and the difference between them is the point:
 #   - `TooltipEchoBox` - the per-window strip that publishes `GUI.tooltip` for the control
 #     under the cursor. It is 38 px on the main window (a two-line variant) and its height
@@ -81,9 +85,36 @@ tier = "operator"
 #     recorder is live - which is the state in which an unexpected modal would be most
 #     likely and most damaging.
 #
-# NEVER FLOWN. Every `[expectations.logContracts]` line is one of this lane's OWN seam
-# records.
-description = "GUI census wave 2, the flight main window through the recorder state machine: photograph the flight status block Idle, RECORDING with points and a duration, and Ready (has recording), plus the two hover echoes - a populated tooltip strip and the disabled Real Spawn Control reason - resolved by control text and hovered with the real cursor."
+# FLOWN 2026-09-11: reading run `2026-09-11_1559`, PASS on attempt 1, 59 s wall, all 50 steps
+# met, 8 PNGs + 8 dumps (every dump `patched=17/17`), every verifier PASS or REPORT,
+# `expectations mismatches=0` including the `count = {min = 0, max = 0}` that makes the
+# `DiscardTree` an assertion. Every `[expectations.logContracts]` line is one of this lane's
+# OWN seam records.
+#
+# WHAT THE RUN MEASURED: THE STATUS BLOCK IN THREE FORMS, which is subject ONE and is paid in
+# full - `State: Idle` / `Recorded Points: 0` / `Active Ghosts: 0`, then `State: RECORDING` /
+# `Recorded Points: 1` / `Duration: 0.0s` / `Active Ghosts: 0`, then `State: Ready (has
+# recording)` with the same point and duration lines (42 / 43 / 43 nodes). `PREVIEWING` stays
+# unphotographed as this header already says.
+#
+# SUBJECT TWO WAS REFUTED. Both hover targets RESOLVED and both hovers LANDED:
+# `find text=Real Spawn Control` prefix-matched the live `Real Spawn Control (0)`
+# (`rect=18,150,230,21 centre=133,161 searched=13`) and `pointer` read back `at=133,162`;
+# `find text=Timeline` matched exactly (`rect=18,185,230,21 centre=133,196`) and `pointer`
+# read back `at=133,197`. NOTHING PAINTED: both hover dumps hash IDENTICAL to
+# `b1-main-idle-advanced` and their main-window pixels are identical too, so the strip is the
+# same empty `label` at `[18,368,230,38]` in all three. The only trace of the greyed state is
+# the dump's `enabled=False` on the `Real Spawn Control (0)` button - the REASON sentence
+# never drew. Filed as GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT, with two candidate
+# fixes that each need a flight. The four labels are KEPT as they are because the run id
+# cites them.
+#
+# ONE REPORT-ONLY LINE TO NOT MISREAD: the `unityExceptions` row counted 1
+# `NullReferenceException`, and it is STOCK TEARDOWN with no Parsek frame in it -
+# `CrewHatchController.OnDestroy` -> `DespawnUIs` -> `HideTooltip` ->
+# `DialogCanvasUtil.get_DialogCanvasRect`, thrown while the FLIGHT scene is being destroyed by
+# `FlushAndQuit`. Report-only, benign, and at shutdown.
+description = "GUI census wave 2, the flight main window through the recorder state machine: photograph the flight status block Idle, RECORDING with points and a duration, and Ready (has recording), plus two attempts at the hover echoes - a tooltip strip and the disabled Real Spawn Control reason - resolved by control text and hovered with the real cursor, which lands without painting a hover."
 instanceProfile = "stock-minimal"
 tags = ["gui-census", "screenshots", "ui", "recording", "GUI-7", "pending-operator"]
 

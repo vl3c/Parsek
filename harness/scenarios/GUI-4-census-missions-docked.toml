@@ -88,8 +88,39 @@ tier = "operator"
 #   - any tint or phase colour: a GUI tree carries no colour field (section 6.3), so those
 #     claims live in the PNG alone and this lane asserts on none of them.
 #
-# NEVER FLOWN. Every `[expectations.logContracts]` line is one of this lane's OWN seam
-# records.
+# FLOWN 2026-09-11: reading run `2026-09-11_1551`, PASS on attempt 1, 67 s wall, all 80 steps
+# met, 16 PNGs + 16 dumps (every dump `patched=17/17`), every verifier PASS or REPORT,
+# `expectations mismatches=0`. Every `[expectations.logContracts]` line is one of this lane's
+# OWN seam records.
+#
+# WHAT THE RUN MEASURED:
+#   - THE DOCKED CORPUS IS FULLY EXPANDED, the fact this lane exists for.
+#     `bd-missions-missions-expanded-advanced` (402 nodes against the collapsed 212) carries
+#     both missions with their whole separation lineage - `Kerbal X   Launch -> Decoupled
+#     (Kerbal X Probe) -> Orbiting`, `Kerbal X #2   Launch -> Decoupled (Kerbal X Probe) ->
+#     Docked -> Undocked (Kerbal X) -> Orbiting`, the `Docked partner: Kerbal X (loiter,
+#     2h 25m - not recorded)` row, and `Events (4)` / `Events (7)` digests. `op=expand
+#     key=all` answered `changed=13 expanded=22 total=22`, and the `key=none` mirror
+#     `changed=22 expanded=0 total=22`; the Recordings pair is 513 nodes against 111.
+#   - BOTH PICKERS OPENED, both titles (`Manage Groups` over four group rows, `Set Parent
+#     Group` over the non-self rows plus `(None / Root level)`), and BOTH QUESTIONS answered
+#     yes: `mission=Kerbal X #2` and `group=Kerbal X` resolved off
+#     `MissionStore.EnsureDefaultsForTrees`' seeding, with the Structure opener reporting
+#     `steps=31`.
+#
+# WHAT THE RUN REFUTED, and this header claimed it: the THREE `REWIND_POINTS/POINT` entries
+# do NOT populate `Rewind/FF`. They are SEPARATION RewindPoints and they populate `Re-Fly`
+# (`bd-timeline-refly-advanced`, 93 nodes, two `Unfinished Flight:` rows with `Fly` / `Seal`
+# / `GoTo`); `Rewind/FF` needs `TimelineWindowUI.ShouldShowRewindButton`, which wants a
+# recording that OWNS a launch rewind save, and this fixture has zero `rewindSaveFileName`
+# keys. So `bd-timeline-rewindff-advanced` (75 nodes) is the EMPTY form and no committed
+# fixture populates that view - recorded in `design-gui-inventory.md` section 6.1.
+#
+# AND ONE READING THE MINIMUM-SIZE CAPTURE PRODUCED: the seam applied the commanded
+# 520x150 unclamped (`want=270,8,520,150 applied=270,8,520,150 clamped=false min=520,150`)
+# and the window DREW at `270,8,606,245`. `TimelineWindowUI`'s 520x150 is the resize-DRAG
+# floor, not a size the window can occupy - GUILayout expands it to its content - so
+# `bd-timeline-refly-minsize-advanced` is the smallest the Re-Fly view actually renders at.
 description = "GUI census wave 2, the docked-corpus Missions host: photograph the Missions and Recordings tabs collapsed and fully expanded over a 19-sidecar two-tree dock harvest, all four Timeline filter modes with three live RewindPoints, the Timeline at its own minimum size, the Structure window on a mission and both group-picker titles."
 instanceProfile = "stock-minimal"
 tags = ["gui-census", "screenshots", "ui", "missions", "GUI-4", "pending-operator"]

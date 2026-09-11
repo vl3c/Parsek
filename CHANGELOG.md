@@ -39,8 +39,24 @@ _(unreleased — entries accumulate here per commit)_
   route, show both group-picker pop-ups and the route link picker, rest the mouse on a
   control so its help line and its "why is this greyed out?" sentence appear, and take the
   map view with the ghost markers on it. Nothing here changes the game; it is evidence for
-  a layout review, which had 22 pictures of 105 surfaces and now has runs that would take
-  79 more.
+  a layout review. ALL SIX RUNS HAVE NOW BEEN TAKEN, each passing first time, so the
+  review has 79 more pictures than it had: every Parsek window now has one except the
+  global test-runner window, and the pictures include the two pop-up pickers, the route
+  link picker, the spawn-control window with a craft listed in it, the watch-mode overlay
+  and the map markers. Nine surfaces now have BOTH an empty and a full picture, which none
+  had before.
+
+  ONE THING THE RUNS PROVED IMPOSSIBLE FOR NOW, and it is the one claim in the list above
+  that did not survive: the hover pictures. The runs do move the real mouse onto the
+  control - the game reports it within one pixel of the right spot - and the help line and
+  the "why is this greyed out?" sentence still do not appear, so those four pictures are
+  pictures of an un-hovered window. That is proven rather than suspected: each hover
+  picture is identical, pixel for pixel and control for control, to the one taken with the
+  mouse parked away. Two possible fixes are written down and each needs a run of its own to
+  try. Three smaller claims were also corrected against what the runs actually show: one
+  career save's contracts are offered rather than accepted, so that window lists none; the
+  rewind points on the docked save fill the re-fly list and not the rewind list; and no
+  ghost printed an in-world warning label, so that one still has no picture.
 
   Two things were learned while writing them and are recorded rather than papered over.
   The pop-up question boxes still cannot be photographed at all: a run can ask what pop-up

@@ -47,7 +47,12 @@ tier = "operator"
 #     (`group=Kerbal X #3`). Those are two of the three window hosts the seam's window
 #     table deliberately excludes, reached through their own production openers;
 #   - the Logistics round-trip LINK PICKER, the third excluded host;
-#   - one POPULATED TOOLTIP ECHO STRIP on the main window, via `op=find` -> `op=pointer`.
+#   - one attempt at a POPULATED TOOLTIP ECHO STRIP on the main window, via `op=find` ->
+#     `op=pointer`. MEASURED 2026-09-11: the cursor LANDS and the hover does NOT PAINT, so
+#     `ib-main-tooltip-logistics-advanced` is a picture of the UN-hovered window - see the
+#     FLOWN block at the bottom of this header and
+#     GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT. The label is kept as it is because
+#     the run id cites it.
 #
 # IT MOVES THE OPERATOR'S MOUSE. `op=pointer` is the only op in the seam that reaches
 # outside the process: `Input.mousePosition` is read-only and Unity fills
@@ -112,8 +117,30 @@ tier = "operator"
 #     floor (`op=rect` clamps to it anyway) and honestly CLIPPED at the client edge.
 #     Residue GUI-CENSUS-TWO-WINDOWS-EXCEED-THE-INSTANCE-WIDTH, unchanged.
 #
-# NEVER FLOWN. Every `[expectations.logContracts]` line below is one of this lane's OWN
-# seam records; nothing is asserted about the host's own log surface, for GUI-1's reason.
+# FLOWN 2026-09-11: reading run `2026-09-11_1548`, PASS on attempt 1, 80 s wall, all 78 steps
+# met, 14 PNGs + 14 dumps (every dump `patched=17/17`, `recordFaults=0`), every verifier PASS
+# or REPORT, `expectations mismatches=0`. Every `[expectations.logContracts]` line below is one
+# of this lane's OWN seam records; nothing is asserted about the host's own log surface, for
+# GUI-1's reason.
+#
+# WHAT THE RUN MEASURED, beyond meeting its steps:
+#   - THE ROUTES ARE POPULATED, which is the one fact this lane exists for. The `saveParse`
+#     row read `routes=2 routeStatuses={'Paused': 1, 'Active': 1}`, and
+#     `ib-logistics-expanded-advanced` (190 nodes against the collapsed form's 121) carries
+#     `Active Routes` with `Route: KSC -> Duna` to `Depot Station Duna I`
+#     (`New (not yet run)`, `Next launch window T-1y 291d 5h 22m 0s`, `Delivers per cycle:
+#     LiquidFuel 257.8, Oxidizer 315.1`), `Paused Routes` with `Route: KSC -> Mun`, and a
+#     `Dismissed (2)` disclosure. `op=expand key=all` answered `changed=5 expanded=5 total=5`.
+#   - BOTH QUESTIONS ANSWERED YES. `Set Parent Group` resolved `group=Kerbal X #3`, so
+#     `GroupPickerPresentation.BuildTreeModel` does publish the auto-generated root group
+#     under the name the recording carries; and the link picker opened with no arming click
+#     (`Link 'Route: KSC -> Duna' with:` over the one other route).
+#   - The Structure openers reported `steps=4` on the route and `steps=38` on the mission,
+#     and the windows are titled after their subjects rather than reading "Nothing to show.".
+#   - The `Candidates` section is present and EMPTY (`No eligible Supply Runs...`): this host
+#     carries a DISMISSED list, not live candidates, which the inventory's 6.1 row already
+#     says. A populated Candidates picture still wants a `rover-route-recorded` lane.
+#   - `op=dialog` answered `open=false count=0`, so nothing stood over any capture.
 description = "GUI census wave 2, the populated Logistics host: photograph the Logistics window with two routes and a dismissed list, collapsed then fully expanded, the Structure window opened ON a route and ON a mission, the Missions and Recordings tabs expanded over a four-mission corpus, both group-picker titles, the round-trip link picker and one populated tooltip echo strip."
 instanceProfile = "stock-minimal"
 tags = ["gui-census", "screenshots", "ui", "logistics", "GUI-3", "pending-operator"]

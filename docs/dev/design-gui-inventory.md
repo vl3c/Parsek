@@ -3,6 +3,18 @@
 Measured 2026-09-11 against commit `4eb427e9e`. All `file:line` references are relative to
 `Source/Parsek/` unless they start with `harness/`, `docs/` or `scripts/`.
 
+COVERAGE UPDATED 2026-09-11 (evening) off the wave-2 reading runs `2026-09-11_1548` / `_1551` /
+`_1553` / `_1556` / `_1559` / `_1601`, all six PASS on attempt 1, 79 further captures. What
+moved: section 2's tally (windows 10 -> 13 of 14, overlays 0 -> 2 of 7, nine empty-vs-populated
+pairs where there were none, and the denominator corrected from a hand-sum), 3.0's window index,
+3.13's overlay table, and section 6's per-row lane column - including four rows the runs
+REFUTED. WHAT THIS UPDATE DOES NOT DO: re-measure the structural analysis. Sections 3 to 5 and 7 still
+carry the 2026-09-11 reading against `4eb427e9e`, and wave 2 flew a LATER DLL (this branch, with
+`gui-census-ops`' six ops, `gui-fixes-1`' four seam fixes and the `origin/main` merges between),
+so a `file:line` below is the line at `4eb427e9e` and a re-measure is its own task. Where a
+wave-2 capture contradicted a structural claim, the contradiction is recorded at the claim (3.13
+and the section-3 preamble) rather than smoothed over.
+
 ## 1. Purpose and scope
 
 This document is the structural map of Parsek's player-facing surface as it exists today:
@@ -79,47 +91,70 @@ career with 704 recording sidecars and 12 vessels. Screen 1280x720.
 Colour is a third blind spot: the tree carries no colour field, so a tint (the red/cyan
 Logistics launcher, the amber pending rows, the phase colours) is PNG-only evidence.
 
-**Coverage.** The two runs produced 27 labels; one (`parsek-guitree-probe`) is the recorder's
-own self-test window, leaving **26 player-facing captures**.
+**Coverage.** Wave 1 produced 27 labels; one (`parsek-guitree-probe`) is the recorder's own
+self-test window, leaving **26 player-facing captures**. WAVE 2 FLEW ON 2026-09-11 and added
+**79** more (14 + 16 + 17 + 12 + 8 + 12, every one a PNG plus a `<label>.gui.json` dump, all 79
+dumps reporting `patched=17/17`), so the corpus is **105 player-facing captures** across eight
+lanes. The tally below is recomputed from the files, per class, and the wave-1 column is kept
+beside it so the movement is visible rather than asserted.
 
-| kind | photographed | not photographed |
-|---|---|---|
-| windows | **10 of 14** | Logistics round-trip link picker, Real Spawn Control, the global Ctrl+Shift+T Test Runner, the Group picker |
-| tabs | **12 of 12** | none |
-| modal dialogs | **0 of 21** | all 21 |
-| overlays / markers / badges | **0 of 7** | all 7 |
-| tooltip surfaces in a USEFUL state | **0 of 2** | the echo strip is in every window capture but always empty; `DisabledHoverEcho` paints nothing by design |
-| screen messages | **0 of 95** | all 95 |
+| kind | wave 1 | after wave 2 | still not photographed |
+|---|---|---|---|
+| windows | **10 of 14** | **13 of 14** | the global Ctrl+Shift+T Test Runner alone. Wave 2 pays all three hosts the seam's window table excludes by name: `Link round-trip partner` (GUI-3), `Manage Groups` + `Set Parent Group` (GUI-3 and GUI-4, both titles each), and `Parsek - Real Spawn Control` (GUI-6, one candidate row) |
+| tabs | **12 of 12** | **12 of 12** | none. Wave 2 re-shoots them on hosts whose rows can be read off committed bytes, adds the FLIGHT form of eight (GUI-6 / GUI-7) and the EMPTY form of six (GUI-8) |
+| modal dialogs | **0 of 21** | **0 of 21** | all 21, and now REFUTED rather than pending - see 6.2. All six lanes' `op=dialog` step answered `open=false count=0` |
+| overlays / markers / badges | **0 of 7** | **2 of 7** | the Watch Mode overlay (GUI-6 `play-main-watchmode-advanced`, also standing in `play-spawncontrol-advanced`) and the flight-map ghost markers (GUI-6 `play-mapview-ghostmarkers-advanced`, 243 `[GhostMap] Marker DRAWN` lines behind it) ARE photographed. The five still dark: the currency reservation tooltip, the stock-UI badges, the Tracking Station markers, the in-world ghost labels and the Logistics launcher TINT (zero `broken-state tint applied` lines in any lane, so only the untinted button has a picture) |
+| tooltip surfaces in a USEFUL state | **0 of 2** | **0 of 2** | both, and now MEASURED rather than assumed: the cursor LANDS on the control and the hover does NOT paint. See GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT and the `pointer` row of 6.2 |
+| screen messages | **0 of 95** | **0 of 95** | all 95; zero `ScreenMessage` lines in any of the six logs |
+| empty-vs-populated PAIRS | **0** | **9** | Missions tab, Recordings tab, Timeline Overview, Timeline Re-Fly, Kerbals Roster, Kerbals Outcomes, Logistics, Career Milestones and the Structure window each now hold BOTH forms. Wave 1 could hold none: it flew one host |
 
-So the census covers **22 of 105** countable surfaces (windows + tabs + dialogs +
-overlays/markers/badges + tooltip surfaces + the toolbar button), and of the screen-message
-and in-window-section layers only what happened to be on screen. Of the 26 captures, **8
-photograph an essentially empty surface** by node count: `ksc-kerbals-roster-advanced` (9),
-`ksc-structure-advanced` (3), `ksc-timeline-refly-advanced` (39), `ksc-timeline-basic` (39),
-`ksc-career-contracts-advanced` (17), `ksc-career-strategies-advanced` (17),
-`ksc-logistics-advanced` (58) and `ksc-logistics-basic` (58); and the Recordings tab's 415
-nodes are 16 collapsed group headers with zero leaf rows.
+THE DENOMINATOR, re-derived rather than carried forward. The named classes sum to **57**
+countable surfaces (14 windows + 12 tabs + 21 dialogs + 7 overlays/markers/badges + 2 tooltip
+surfaces + 1 toolbar button), so wave 1's coverage was **22 of 57** and after wave 2 it is
+**27 of 57** (13 + 12 + 0 + 2 + 0 + 0). THE "22 OF 105" THIS PARAGRAPH USED TO CARRY WAS A
+HAND-SUM ERROR and is corrected here rather than repeated: 105 does not reconcile with the
+class list it names under any reading (the classes give 57; adding appendix 5's ~38 in-window
+sections gives 95), and the same figure is in the research note's appendix 5, which is left as
+the historical record. The numerator was always right - it is 10 windows + 12 tabs. Screen
+messages and in-window sections stay outside the denominator, covered only by whatever happened
+to be on screen.
+
+Of wave 1's 26 captures, **8 photograph an essentially empty surface** by node count:
+`ksc-kerbals-roster-advanced` (9), `ksc-structure-advanced` (3), `ksc-timeline-refly-advanced`
+(39), `ksc-timeline-basic` (39), `ksc-career-contracts-advanced` (17),
+`ksc-career-strategies-advanced` (17), `ksc-logistics-advanced` (58) and `ksc-logistics-basic`
+(58); and the Recordings tab's 415 nodes are 16 collapsed group headers with zero leaf rows.
+Wave 2 answers SIX of those eight with a populated counterpart on a committed host
+(`ksc-logistics-advanced` / `-basic` -> `ib-logistics-expanded-advanced` 190 nodes and
+`ib-logistics-basic` 188; `ksc-structure-advanced` -> `ib-structure-route-advanced` 78 and
+`ib-structure-mission-advanced` 316; `ksc-timeline-refly-advanced` ->
+`bd-timeline-refly-advanced` 93; `ksc-timeline-basic` -> `bd-timeline-overview-basic` 156;
+`ksc-kerbals-roster-advanced` -> `cek-kerbals-roster-advanced` 45). The two it does NOT answer
+are `ksc-career-contracts-advanced` and `ksc-career-strategies-advanced`: no committed fixture
+carries an ACCEPTED contract or a live `STRATEGY` node, so `cek-career-contracts-advanced` (53
+nodes) and `cek-career-strategies-empty-advanced` (53) are second pictures of the same empty
+form - a corrected reading rather than a new picture, see 6.1. The biggest bodies the wave
+produced, for scale: `play-missions-missions-flight-advanced` at 11248 nodes over 243 injected
+recordings, `play-timeline-overview-flight-advanced` at 2028, `ib-missions-recordings-expanded-
+advanced` at 877.
 
 Three causes account for every gap, and only the first is a fixture problem: the fixture had no
 data of that shape (Career contracts, Kerbals roster, Logistics routes, STASH); the state needs
 a CLICK and no verb clicks (every expanded row, every detail panel, the Group picker, the link
 picker, populated Structure); or the surface is outside the recorder's reach by construction
 (all 21 dialogs, all 7 overlays, every populated tooltip). Section 6 is organised by those
-three, with the cheapest route per target.
+three, with the cheapest route per target. Wave 2 closed the whole of the first cause it had
+fixtures for and most of the second; what it did NOT close is the third, and the hover finding
+is why - see 6.3.
 
-THE TALLY ABOVE IS THE 2026-09-11 READING OF GUI-1 + GUI-2, AND IT HAS NOT MOVED. Six wave-2
-lanes were authored the same day (section 6's lane column names them per row) and NONE HAS
-FLOWN, so nothing they would photograph is counted here. A tally is a count of pictures that
-exist, not of specs that would take them, and this paragraph stays at 22 of 105 until a reading
-run produces files. WHAT THE SIX WOULD ADD, if every step meets: 79 further captures, each with
-a control-tree dump beside it, carrying the populated bodies of Logistics, Missions, Recordings,
-Career State, Kerbals and Structure; the three popup window hosts the seam's window table
-excludes; the flight-only Watch column and Real Spawn Control; the watch-mode overlay and the
-map-view ghost markers; two of the three non-`Idle` flight-status values; both hover echoes;
-and every window's EMPTY form. THE THREE COUNTS THAT WOULD STILL READ ZERO afterwards are
-`modal dialogs` (0 of 21), `screen messages` (0 of 95) and the sticky marker variant, none of
-which any seam path can raise - see 6.2, where the dialog row is now recorded as REFUTED rather
-than pending.
+ONE BLIND-SPOT ROW OF THE TABLE ABOVE IS NARROWER THAN IT SAYS, measured on
+`play-main-watchmode-advanced`. "IMGUI outside any window -> in the `.gui.json`? NO" holds for
+the map markers and the in-world labels, but NOT for the Watch Mode overlay: its two labels are
+ROOT-LEVEL nodes in that dump (`Watching: Part Showcase - Lights v1  (295 m) [Horizon]` at
+`rect=[170,15,300,22]` and `[ ] return  |  V camera  |  W cycle` at `[170,37,300,18]`). The
+recorder patches `GUI.DoLabel` and not only `GUI.DoWindow`, so IMGUI drawn outside a window is
+captured when it goes through a patched funnel; what is absent is uGUI and anything drawn
+through `GUI.DrawTextureWithTexCoords` (the markers' icons).
 
 ### 2.1 Known inconsistencies between the two source notes
 
@@ -152,6 +187,15 @@ the code yet, and each is a one-grep check for whoever next touches the area.
 
 ## 3. The structure
 
+HOW TO READ THE PER-SECTION `Picture:` / `No picture:` LINES BELOW. They are the WAVE-1 reading
+(GUI-1 + GUI-2, 26 captures), written before wave 2 flew, so each names what had a picture on
+the morning of 2026-09-11. The window INDEX in 3.0 and the overlay table in 3.13 ARE updated to
+the wave-2 reading; the per-variant lists inside 3.1 to 3.12 are deliberately not re-walked,
+because the authority for what wave 2 photographed is section 2's tally plus section 6's per-row
+lane column, and copying 79 labels into ten prose lists would give the next author two places to
+disagree. Read a `No picture:` line below as "no picture in wave 1", then check section 6 for
+whether wave 2 took one.
+
 ### 3.0 Window index
 
 The 14 distinct IMGUI windows, in the main window's own button order - the order
@@ -165,14 +209,14 @@ The 14 distinct IMGUI windows, in the main window's own button order - the order
 | 4 | `Parsek - Kerbals` | `UI/KerbalsWindowUI.cs:205` | FLIGHT, SPACECENTER | `kerbals` (tabs `roster`, `outcomes`) | 2 labels |
 | 5 | `Parsek - Career State` | `UI/CareerStateWindowUI.cs:1211` | FLIGHT, SPACECENTER | `career` (4 tabs) | 4 labels |
 | 6 | `Parsek - Logistics` | `UI/LogisticsWindowUI.cs:444` | FLIGHT, SPACECENTER | `logistics` | `ksc-logistics-advanced/basic` |
-| 7 | Logistics round-trip link picker | `UI/LogisticsWindowUI.cs:1762` | as its host | excluded `TestCommandUiAction.cs:374-377` | NONE |
+| 7 | Logistics round-trip link picker (`Link round-trip partner`) | `UI/LogisticsWindowUI.cs:1762` | as its host | excluded `TestCommandUiAction.cs:374-377`; reached by `op=picker picker=link` | `ib-logistics-linkpicker-advanced` (GUI-3, 198 nodes, `windows=4`) |
 | 8 | `Parsek - Structure` | `UI/StructureListWindowUI.cs:174` | FLIGHT, SPACECENTER | `structure` | `ksc-structure-advanced` (empty chrome) |
 | 9 | `Parsek - Settings` | `UI/SettingsWindowUI.cs:128` | FLIGHT, SPACECENTER | `settings` | `ksc-settings-advanced/basic` |
-| 10 | `Real Spawn Control` | `UI/SpawnControlUI.cs:162` | FLIGHT only | `spawncontrol` | NONE |
+| 10 | `Real Spawn Control` | `UI/SpawnControlUI.cs:162` | FLIGHT only | `spawncontrol` | `play-spawncontrol-advanced` (GUI-6, 69 nodes, one candidate row) |
 | 11 | `Gloops Flight Recorder` | `UI/GloopsRecorderUI.cs:94` | FLIGHT only | `gloops` | `flight-gloops-advanced` |
 | 12 | `Parsek - Test Runner` (Settings-launched) | `UI/TestRunnerUI.cs:122` | FLIGHT, SPACECENTER | `testrunner` | `ksc-testrunner-advanced` (4217 nodes) |
 | 13 | `Parsek - Test Runner` (global Ctrl+Shift+T) | `InGameTests/TestRunnerShortcut.cs:204` | ANY scene | excluded `TestCommandUiAction.cs:378-380` | NONE |
-| 14 | `Set Parent Group` / `Manage Groups` | `UI/GroupPickerUI.cs:224` | as its host | excluded `TestCommandUiAction.cs:369-373` | NONE |
+| 14 | `Set Parent Group` / `Manage Groups` | `UI/GroupPickerUI.cs:224` | as its host | excluded `TestCommandUiAction.cs:369-373`; reached by `op=picker picker=manage|setparent` | both titles on GUI-3 (`ib-missions-grouppicker-manage/setparent-advanced`) and GUI-4 (`bd-missions-grouppicker-manage/setparent-advanced`) |
 
 Two asymmetries in that table are mechanical facts, not presentation choices:
 
@@ -703,8 +747,30 @@ test through hooks (`CommittedActionDialog.cs:12`, `ReFlyRevertDialog.cs:40`/`:4
 
 ### 3.13 Overlays, markers and badges (7)
 
-None is inside a `GUI.Window`, and the badges are uGUI, so **none is in any `.gui.json` and
-none has a picture**.
+None is inside a `GUI.Window` and the badges are uGUI, so none is in any `.gui.json` - WITH ONE
+MEASURED EXCEPTION, and TWO now have a picture (updated 2026-09-11 off the wave-2 reading runs).
+
+- **In the tree after all:** the Watch Mode overlay. Its two labels are ROOT-LEVEL nodes in
+  `play-main-watchmode-advanced.gui.json` (`Watching: Part Showcase - Lights v1  (295 m)
+  [Horizon]` at `rect=[170,15,300,22]`, `[ ] return  |  V camera  |  W cycle` at
+  `[170,37,300,18]`), because the recorder patches `GUI.DoLabel` and not only `GUI.DoWindow`.
+  The rule is the FUNNEL, not the window: IMGUI drawn outside a window is captured when it goes
+  through one of the 17, and what stays invisible is uGUI plus anything drawn through
+  `GUI.DrawTextureWithTexCoords` / `GUI.DrawTexture` (which is how the markers' icons are
+  painted - neither call is a patched funnel).
+- **Photographed:** the Watch Mode overlay (above) and the flight-map ghost markers
+  (`play-mapview-ghostmarkers-advanced`, PNG only, with 243 `[GhostMap] Marker DRAWN` lines
+  behind the frame).
+- **Still with no picture (5):** the currency reservation tooltip and the stock-UI badges (both
+  hover-only, and hover does not paint - see 6.2), the Tracking Station markers (no driveable
+  scene), the in-world ghost labels (no `SpawnWarningUI` producer fired on either flight lane),
+  and the Logistics launcher TINT in its broken state (zero
+  `Logistics button broken-state tint applied` lines in any lane, so only the untinted button
+  has a picture).
+- **Marker LABELS are a separate miss from marker ICONS:**
+  `MapMarkerRenderer.ShouldDrawLabel(sticky, hover) => sticky || hover` (`:324`), and the map
+  capture had neither - the cursor was parked at the client corner and there is no click op to
+  pin one - so that frame carries 243 icons and no label text.
 
 | surface | draw site | scene | interaction | what only it carries |
 |---|---|---|---|---|
@@ -1096,13 +1162,44 @@ The spec for the next census lanes. Grouped by the three causes from section 2; 
 group the cheapest route is named, with the fixture and the verb steps. No TOML here - the lane
 authoring is the implementing task's job.
 
-WAVE 2 IS AUTHORED (2026-09-11, branch `gui-census-lanes`), so the tables below now carry a
-LANE column naming the spec and the capture label that pays each row, or the reason nothing
-does. Six lanes landed, all never flown, all on COMMITTED fixtures: `GUI-3-census-logistics-
-routes`, `GUI-4-census-missions-docked`, `GUI-5-census-career-ksc`,
+WAVE 2 IS AUTHORED AND FLOWN (authored 2026-09-11 on branch `gui-census-lanes`, read the same
+day), so the tables below carry a LANE column naming the spec and the capture label that pays
+each row, or the reason nothing does. Six lanes, all on COMMITTED fixtures:
+`GUI-3-census-logistics-routes`, `GUI-4-census-missions-docked`, `GUI-5-census-career-ksc`,
 `GUI-6-census-flight-playback`, `GUI-7-census-flight-recording`, `GUI-8-census-empty-states`.
 Their status rows are in `autotest-status.md` under "The GUI census, wave 2"; each spec's own
 header names the rows below that it claims and the ones it cannot reach.
+
+THE READING RUNS: `2026-09-11_1548` / `_1551` / `_1553` / `_1556` / `_1559` / `_1601`, in lane
+order, ALL SIX PASS ON ATTEMPT 1 (80 / 67 / 66 / 74 / 59 / 61 s wall), 79 captures with 79
+dumps, every dump `patched=17/17`, `recordFaults=0`, every step met, `expectations mismatches=0`
+on all six. WHAT THE RUNS REFUTED, recorded here because a row that claims a picture the run
+did not take is worse than a row that claims nothing:
+
+  * the **Career Contracts** row's "nine live contracts" - `career-earned-ksc`'s nine
+    `CONTRACT` nodes are all `state = Offered`, and the tab lists ACTIVE (accepted) contracts
+    only, so `cek-career-contracts-advanced` reads `Active (0)` / `(no active contracts)`. THIS
+    IS THE THIRD ROW OF THIS SECTION READ OFF A NODE COUNT RATHER THAN OFF THE `state =` VALUES
+    (the facilities and strategies rows were the first two, corrected below), so the lesson is
+    now mechanical: grep the VALUES, never the node names.
+  * the **in-world ghost labels** third of the flight row - zero `SpawnWarningUI` producers
+    fired on GUI-6 (no `spawn abandoned` / `spawn blocked` / `chain terminated` line anywhere in
+    its log), so that surface still has no picture. `Active Ghosts > 0` and the two non-`Idle`
+    status values DID land.
+  * **both hover echoes** - the cursor lands and the hover does not paint, on all four
+    captures. See the `pointer` row of 6.2 and
+    GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT.
+  * the **`Rewind/FF` filter mode** GUI-4 was chosen for - `bdock-recorded`'s three
+    `REWIND_POINTS/POINT` entries are SEPARATION RewindPoints and they populate the `Re-Fly`
+    view (`bd-timeline-refly-advanced`, two `Unfinished Flight:` rows with `Fly` / `Seal` /
+    `GoTo`), not `Rewind/FF`, which needs `TimelineWindowUI.ShouldShowRewindButton` -> a
+    recording owning a LAUNCH rewind save. That fixture has zero `rewindSaveFileName` keys, so
+    `bd-timeline-rewindff-advanced` is the EMPTY form and no committed fixture populates that
+    view.
+
+WHAT THE RUNS CONFIRMED, beyond the rows: Real Spawn Control opens and holds on a candidate
+host, all three excluded window hosts are reachable, `op=expand key=all` buys the largest
+un-photographed cluster in one step, and the `op=dialog` negative holds six times over.
 
 TWO ROWS OF THIS TABLE WERE WRONG and are corrected in place rather than left to mislead the
 next author. Both were read off the fixture names rather than off the fixtures' bytes:
@@ -1120,7 +1217,7 @@ These need only a different `saveTemplate` and the existing `open` / `rect` / `t
 
 | target | fixture | steps beyond the existing sequence | lane / label |
 |---|---|---|---|
-| Missions / Recordings tab in FLIGHT (the Watch column) | the existing GUI-2 host | insert `op=tab window=missions tab=recordings` before the capture | GUI-6 `play-missions-recordings-flight-advanced` (243 injected rows, not GUI-2's host) |
+| Missions / Recordings tab in FLIGHT (the Watch column) | the existing GUI-2 host | insert `op=tab window=missions tab=recordings` before the capture | GUI-6 `play-missions-recordings-flight-advanced` (243 injected rows, not GUI-2's host). PAID: the dump carries the `Watch` column between `Period` and `Rewind`, with the `G` / `W` buttons on the group header row over `Part Showcases (242)` + `Synthetic (1)` |
 | Basic-mode Timeline ROWS | the existing GUI-1 host | insert `op=tab window=timeline tab=overview` before the Basic capture; today the Basic label inherits the Advanced pass's Re-Fly filter | GUI-4 `bd-timeline-overview-basic` and GUI-5 `cek-timeline-overview-basic`, both with the explicit `op=tab` this row asks for |
 | Timeline in FLIGHT (any view) | the existing GUI-2 host | `op=open window=timeline` + `op=rect` + `op=tab tab=overview` + capture | GUI-6 `play-timeline-overview-flight-advanced`; GUI-7 `b1-timeline-overview-live-advanced` adds the same view over a tree the run itself recorded |
 | Kerbals and Career in FLIGHT (all six tabs) | the existing GUI-2 host | both windows are already in the window table with driveable tabs | GUI-6 `play-kerbals-roster-flight-advanced` / `play-kerbals-outcomes-flight-advanced` / `play-career-contracts-sandbox-flight-advanced` (3 of the 6; the three remaining Career tabs in flight are unclaimed - they are the same classes GUI-5 shoots at KSC) |
@@ -1135,15 +1232,15 @@ These need only a different `saveTemplate` and the existing `open` / `rect` / `t
 | Kerbals reserved / active owner statuses | `eva2-lko-crewed` | none | UNCLAIMED. `eva2-lko-crewed` is a fifth `saveTemplate`. GUI-5 shoots both Kerbals tabs on a career with a real roster, which is the row below this one rather than this one |
 | Kerbals and Career empty states | `fresh-career` | none | GUI-8 `fs-kerbals-outcomes-empty-advanced` and the four `fs-career-*-science-advanced` captures, on `fresh-science` rather than `fresh-career` - see the science row below |
 | Missions empty state, Recordings `No recordings.` | `fresh-sandbox` or `fresh-career` | none | GUI-8 `fs-missions-missions-empty-advanced` / `fs-missions-recordings-empty-advanced` |
-| Career Contracts SPLIT layout, `Pending in timeline`, the banner divergence suffix | `career-contract-pad` | none; the pending group defaults EXPANDED | UNCLAIMED. GUI-5 shoots a POPULATED Contracts tab (`cek-career-contracts-advanced`, nine live contracts) on `career-earned-ksc`; the SPLIT layout wants `career-contract-pad`'s two ledger-only contract rows and is a sixth `saveTemplate` |
+| Career Contracts SPLIT layout, `Pending in timeline`, the banner divergence suffix | `career-contract-pad` | none; the pending group defaults EXPANDED | UNCLAIMED, AND THE ROW'S OWN PREMISE WAS WRONG - corrected 2026-09-11 off the reading run. `career-earned-ksc`'s nine `CONTRACT` nodes are all `state = Offered`; the tab's `CurrentRows` come from the ACTIVE (accepted) snapshot (`UI/CareerStateWindowUI.cs:690-723`), so `cek-career-contracts-advanced` reads `Active (0)` / `(no active contracts)` under a `Mission Control L1 - slots 0/2 now, 0/2 at timeline end` header. NO committed fixture carries an ACCEPTED contract, so BOTH the populated list and the SPLIT layout now want `career-contract-pad` or a new fixture |
 | Career Strategies populated (the `Flow` cell) | ~~`strategy-career`~~ - WRONG, corrected 2026-09-11 off the save's bytes: its `STRATEGIES` node is EMPTY by construction (the fixture seeds `rep = 25` so `L3`'s in-game cell can ACTIVATE a strategy at run time, and that cell's `finally` restores the pool). NO committed fixture carries a live `STRATEGY` node | a NEW fixture | IMPOSSIBLE AS WRITTEN - see the corrected fixture cell. GUI-5 `cek-career-strategies-empty-advanced` and GUI-8 `fs-career-strategies-science-advanced` shoot the two EMPTY forms instead, both labelled as such |
-| Career Facilities upgraded rows | ~~`career-earned-ksc`~~ - WRONG, corrected 2026-09-11 off the save's bytes: all ten of its `ScenarioUpgradeableFacilities` entries read `lvl = 0`. That fixture is EARNED in its POOLS (funds 536558, sci 111.6, rep 2.0) and in its contracts and milestones, not in its buildings | a NEW fixture | IMPOSSIBLE AS WRITTEN - see the corrected fixture cell. GUI-5 `cek-career-facilities-level0-advanced` shoots the all-level-0 form, labelled as such |
+| Career Facilities upgraded rows | ~~`career-earned-ksc`~~ - WRONG, corrected 2026-09-11 off the save's bytes: all ten of its `ScenarioUpgradeableFacilities` entries read `lvl = 0`. That fixture is EARNED in its POOLS (funds 536558, sci 111.6, rep 2.0) and in its milestones, not in its buildings or its contracts | a NEW fixture | IMPOSSIBLE AS WRITTEN - see the corrected fixture cell. GUI-5 `cek-career-facilities-level0-advanced` shoots the all-level-0 form, labelled as such. WHAT THE PICTURE SHOWS, so the label is not misread: nine facility rows all reading `L1`, because the save's `lvl = 0` is the FIRST level and the window prints it one-based. The label names the save value, the picture names the display value, and they agree |
 | Career Science-mode and Sandbox-mode banners and empty states | `fresh-science`, `fresh-sandbox` | none; the science lane alone buys four otherwise-dark code paths | GUI-8's four `fs-career-*-science-advanced` captures (science), and GUI-6 `play-career-contracts-sandbox-flight-advanced` (sandbox, in flight). A sandbox banner at the KSC is unclaimed |
 | Timeline `R` greyed | any recorded fixture | capture with a pending tree, or delete one `RewindPoints/<id>.sfs` from the staged save | UNCLAIMED. Wants a STAGED save edit (delete one `RewindPoints/<id>.sfs`), which no lane does today - the harness stages a fixture verbatim |
 | Timeline `FF` and the countdown time label | an `injectedRecordings` preset whose recording `StartUT` is ahead of the save UT | one capture buys both | UNCLAIMED. Wants a preset whose recording `StartUT` is ahead of the save clock; `part-showcase` starts at UT 50 and GUI-6 jumps PAST it to 55, so its Timeline is behind rather than ahead |
 | Timeline `Archived` ON and the `[archived]` row suffix | a staged save with one archived recording and `HideActive=false` | none | UNCLAIMED. Wants a staged save with an archived recording and `HideActive=false`, which no committed fixture carries |
-| Real Spawn Control (a GUI-3 flight lane) | `bdock-recorded` / `bdock-station-craft` / `bdock-station-pad` - anything with a recorded craft inside 250 m at under 2 m/s | `op=open window=spawncontrol` now returns OK; then `op=rect` + capture + dump. Closes `GUI-CENSUS-SPAWN-CONTROL-NEEDS-A-CANDIDATE-HOST` | GUI-6 `play-spawncontrol-advanced`, on LT-5's proven active-ghost host rather than a `bdock-*` one - the step is declared `expect = "OK"` and an `ERROR window-self-closed` is the zero-candidate reading GUI-CENSUS-SPAWN-CONTROL-NEEDS-A-CANDIDATE-HOST asks for |
-| In-world ghost labels, flight status non-`Idle`, `Active Ghosts > 0` | `mun-landing-recorded` / `b2-lko-craft` / `b1-pad-craft` | PNG only for the labels; the status block needs `StartRecording` before the dump | GUI-6 `play-main-ghosts-advanced` (`Active Ghosts > 0` and the in-world labels) and GUI-7 `b1-main-recording-advanced` / `b1-main-ready-advanced` (two of the three non-`Idle` status values; `PREVIEWING` needs the still-RESERVED `StopPlayback`) |
+| Real Spawn Control (a GUI-3 flight lane) | `bdock-recorded` / `bdock-station-craft` / `bdock-station-pad` - anything with a recorded craft inside 250 m at under 2 m/s | `op=open window=spawncontrol` now returns OK; then `op=rect` + capture + dump. Closes `GUI-CENSUS-SPAWN-CONTROL-NEEDS-A-CANDIDATE-HOST` | PAID. GUI-6 `play-spawncontrol-advanced`, on LT-5's proven active-ghost host rather than a `bdock-*` one. The step was declared `expect = "OK"` and MET: `open=true already=false`, describe `w8open=true w8rect=268,8,750,200`, `op=rect` answering `270,8,750,300 clamped=false minW=350 minH=150`, and a 69-node dump whose `Parsek - Real Spawn Control` window holds ONE candidate row (`Surface Rover Drive / 435m / 7.9 m/s / Y1, D01, 00:01 / T-11s / Warp to Spawn`) under the launcher's `Real Spawn Control (1)`. No `reason=zero-candidates` line was written, and GUI-CENSUS-SPAWN-CONTROL-NEEDS-A-CANDIDATE-HOST is closed |
+| In-world ghost labels, flight status non-`Idle`, `Active Ghosts > 0` | `mun-landing-recorded` / `b2-lko-craft` / `b1-pad-craft` | PNG only for the labels; the status block needs `StartRecording` before the dump | TWO OF THREE PAID, the third refuted. GUI-6 `play-main-ghosts-advanced` shows `Active Ghosts: 156` (and 243 in the later captures of the same run), and GUI-7 `b1-main-recording-advanced` / `b1-main-ready-advanced` show `State: RECORDING` + `Recorded Points: 1` + `Duration: 0.0s` and `State: Ready (has recording)` (`PREVIEWING` needs the still-RESERVED `StopPlayback`). THE IN-WORLD LABELS DID NOT DRAW: no `SpawnWarningUI` producer fired on either flight lane (zero `spawn abandoned` / `spawn blocked` / `chain terminated` lines), and no root-level label other than the watch overlay's two appears in any of the 20 flight dumps. That surface still has no picture and needs a host where a ghost's spawn is actually abandoned or blocked |
 | Tracking Station scene (markers, the ghost popup) | any `*-recorded` fixture | `LoadGame` with `scene=TRACKSTATION` then capture; no `UiAction` is possible there, so the driver needs a branch that skips the `op=rect` it currently sequences before every label | UNCLAIMED AND BLOCKED. `ParsekTrackingStation.OnGUI` draws MARKERS ONLY and hosts no Parsek window, so every `UiAction` there answers `REJECTED ui-host-unavailable` - a TS lane could take a full-screen PNG and could not even open `main` to make the surface visible. The driver branch this row asks for is necessary and not sufficient |
 
 Fixtures named by the research note but not present in the tree, so a NEW FIXTURE is required:
@@ -1171,17 +1268,17 @@ actually bought, against what this table predicted:
 
 | op | first consumer | reading |
 |---|---|---|
-| `pointer` | GUI-7 `b1-main-disabledecho-spawncontrol-advanced` and `b1-main-tooltip-timeline-advanced`; GUI-3 and GUI-5 take one main-window tooltip each | BOTH echoes are reachable, and on the plainest committed host: `Real Spawn Control (0)` is greyed with `No recorded craft is passing nearby` on any pad craft with nothing recorded beside it. It also needed a HARNESS FIX - `validate_ui_action_step` parsed `x=` / `y=` as literals, so the documented `${stepN.cx}` chain (the whole reason `op=find` reports a centre) failed pre-launch validation and no census could hover anything. Fixed with `hlib.is_handle_ref`, pinned by `test_a_runtime_handle_is_a_legal_pointer_or_rect_coordinate` |
-| `find` | every `pointer` step above | the match LADDER is what makes a spec readable: `text=Real Spawn Control` misses the exact rung and PREFIX-matches the live `Real Spawn Control (0)`, so a spec never has to guess the count a label carries. GUI-7 pins `match=prefix` so that stays true |
-| `expand` | GUI-3 `ib-logistics-expanded-advanced` and `ib-missions-missions-expanded-advanced`; GUI-4 adds the `key=none` mirror | `key=all` is the affordance that buys the pictures, exactly as predicted: one step over the Logistics window opens every route panel, candidate panel and section disclosure, and one over the Missions window drives all five of its independent sets. The payload's `changed=` is what separates "already open" from "opened by this step" when the two look alike |
-| `target` | GUI-3 `ib-structure-route-advanced` / `ib-structure-mission-advanced`; GUI-4 `bd-structure-mission-advanced` | closes GUI-CENSUS-STRUCTURE-WINDOW-HAS-NO-DRIVEABLE-TARGET for the KSC half. NARROWER THAN THIS ROW PROPOSED: it shipped with the two Structure openers only, so `ShowWipeRecordingsConfirmation` and the setter family (`showExpandedStats`, `TimeRangeFilterState`, `showCustomRange`, `sortColumn`, `foldedKerbals`) are still unreachable and every surface this row attributed to them is still dark |
-| `picker` | GUI-3 and GUI-4, both titles each, plus GUI-3's link picker | all three excluded window hosts are reachable through their own production openers. `recording=first` is what lets a committed spec name a row without naming a save-specific id |
-| `dialog` | every wave-2 lane, as a NEGATIVE assertion | REFUTED FOR ITS STATED PURPOSE, and this is the one prediction in the table that did not survive. The op shipped as the READ-ONLY half: it reports a live popup and holds nothing. The two prerequisites this row named were BOTH still outstanding, so nothing in the seam can raise a Parsek modal and leave it standing - `ExitToSpaceCenter` REFUSES `dialog-required` rather than driving an exit into one, `AnswerMergeDialog` drives the re-fly conclusion AND invokes the button inside a single call (`DriveReFlyConclusion` -> `TryInvokeMergeButton`) with no frame in between, and `SimulateStockSwitchClick` turns all three pre-switch dialog cases into typed REJECTEDs. ALL 21 DIALOGS REMAIN UNPHOTOGRAPHED. What wave 2 does with the op instead is assert `uiaction dialog open=false count=0`, which is worth pinning because an unexpected modal would sit over every capture after it |
-| `rect` clamping | every wave-2 lane commands `missions` at 1355 and `logistics` at 1410 | shipped, and GUI-1's own reading run confirmed the width half (`rect=270,8,400,718`). Wave 2 names each floor outright so the spec says what the picture is |
+| `pointer` | GUI-7 `b1-main-disabledecho-spawncontrol-advanced` (no hover painted) and `b1-main-tooltip-timeline-advanced` (no hover painted); GUI-3 and GUI-5 take one main-window tooltip each (no hover painted) | MEASURED 2026-09-11: THE CURSOR LANDS AND THE HOVER DOES NOT PAINT. The addressing half is proven on all four captures - `op=find` resolved each control by text and `op=pointer` read its own move back within 1 px (`centre=133,109` -> `at=133,110`; `133,169` -> `133,170`; `133,161` -> `133,162`; `133,196` -> `133,197`) - and the painting half produced nothing: every hover dump's `roots` tree hashes IDENTICAL to its non-hover sibling, the `TooltipEchoBox` strip node is the same EMPTY label, and the PNG region covering the whole main window is pixel-identical. So NEITHER echo has a useful picture, and `DisabledHoverEcho`'s reason is unpainted for the same one cause rather than a second. THE CAUSE IS OPEN and the obvious guess is already in tension with the bytes: an unfocused game would not update `Input.mousePosition` at all by the op's own contract (`TestCommandUiPointer.cs:52-56`), and every move read back. What the evidence supports is POSITION vs EVENT - `SetCursorPos` warps the cursor without injecting input, Unity's frame sample follows a warp and the window's mouse EVENT stream does not, and IMGUI hover is computed while the event pump runs. The candidate fixes (an opt-in `focus=true` calling `SetForegroundWindow`, or a `SendInput` relative move that produces a real `WM_MOUSEMOVE`) both need a flight and both reach further outside the process; the second is the one the reasoning favours. Filed as GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT. WHAT IT DID BUY: a HARNESS FIX - `validate_ui_action_step` parsed `x=` / `y=` as literals, so the documented `${stepN.cx}` chain (the whole reason `op=find` reports a centre) failed pre-launch validation and no census could hover anything. Fixed with `hlib.is_handle_ref`, pinned by `test_a_runtime_handle_is_a_legal_pointer_or_rect_coordinate` |
+| `find` | every `pointer` step above | CONFIRMED, and it is the half of the pair that worked. The match LADDER is what makes a spec readable: `text=Real Spawn Control` missed the exact rung and PREFIX-matched the live `Real Spawn Control (0)` (`match=prefix matches=1 searched=13`), so a spec never has to guess the count a label carries; the three exact matches read `matches=1 searched=8` / `8` / `13`. GUI-7 pins `match=prefix` so that stays true |
+| `expand` | GUI-3 `ib-logistics-expanded-advanced` and `ib-missions-missions-expanded-advanced`; GUI-4 adds the `key=none` mirror | CONFIRMED with numbers. `key=all` is the affordance that buys the pictures, exactly as predicted: one step over the Logistics window answered `changed=5 expanded=5 total=5` and one over the Missions window `changed=29 expanded=52 total=52` on GUI-3 (`changed=13 expanded=22 total=22` on GUI-4, mirrored by `key=none` -> `changed=22 expanded=0 total=22`). The dumps behind them are 190 and 767 nodes against 121 and 371 collapsed (GUI-4's Missions pair is 402 against 212, and its Recordings pair 513 against 111). The payload's `changed=` is what separates "already open" from "opened by this step" when the two look alike |
+| `target` | GUI-3 `ib-structure-route-advanced` / `ib-structure-mission-advanced`; GUI-4 `bd-structure-mission-advanced` | CONFIRMED and closes GUI-CENSUS-STRUCTURE-WINDOW-HAS-NO-DRIVEABLE-TARGET for the KSC half: the echoes read `steps=4` / `steps=38` / `steps=31` and each window is titled after its subject (`Parsek - Route: KSC -> Mun`, `Parsek - Duna Supply 1`, `Parsek - Kerbal X #2`) instead of "Nothing to show.". NARROWER THAN THIS ROW PROPOSED: it shipped with the two Structure openers only, so `ShowWipeRecordingsConfirmation` and the setter family (`showExpandedStats`, `TimeRangeFilterState`, `showCustomRange`, `sortColumn`, `foldedKerbals`) are still unreachable and every surface this row attributed to them is still dark |
+| `picker` | GUI-3 and GUI-4, both titles each, plus GUI-3's link picker | CONFIRMED: all three excluded window hosts are reachable through their own production openers, and each picker capture's dump carries `windows=4` with the popup's own title - `Manage Groups` (four group rows on GUI-4: `Kerbal X`, `Kerbal X / Debris`, `Kerbal X #2`, `Kerbal X #2 / Debris`), `Set Parent Group` (the `(None / Root level)` toggle plus the non-self rows), and `Link round-trip partner` (`Link 'Route: KSC -> Duna' with:` over a one-route choice). GUI-3's `setparent` also answered its OWN question: `group=Kerbal X #3` resolved, so `GroupPickerPresentation.BuildTreeModel` does publish the auto-generated root group under the name the recording carries. `recording=first` is what lets a committed spec name a row without naming a save-specific id |
+| `dialog` | every wave-2 lane, as a NEGATIVE assertion | REFUTED FOR ITS STATED PURPOSE, and this is the one prediction in the table that did not survive. The op shipped as the READ-ONLY half: it reports a live popup and holds nothing. The two prerequisites this row named were BOTH still outstanding, so nothing in the seam can raise a Parsek modal and leave it standing - `ExitToSpaceCenter` REFUSES `dialog-required` rather than driving an exit into one, `AnswerMergeDialog` drives the re-fly conclusion AND invokes the button inside a single call (`DriveReFlyConclusion` -> `TryInvokeMergeButton`) with no frame in between, and `SimulateStockSwitchClick` turns all three pre-switch dialog cases into typed REJECTEDs. ALL 21 DIALOGS REMAIN UNPHOTOGRAPHED. What wave 2 does with the op instead is assert `uiaction dialog open=false count=0`, which is worth pinning because an unexpected modal would sit over every capture after it - and all six lanes' steps answered exactly that (`open=false count=0 nbuttons=0 name=- title=- buttons=-`), so nothing stood over any of the 79 captures |
+| `rect` clamping | every wave-2 lane commands `missions` at 1355 and `logistics` at 1410 | shipped, and GUI-1's own reading run confirmed the width half (`rect=270,8,400,718`). Wave 2 names each floor outright so the spec says what the picture is, and its own echoes report the clamp explicitly - `op=rect window=spawncontrol` came back `rect=270,8,750,300 clamped=false minW=350 minH=150`, and the Timeline floor capture `bd-timeline-refly-minsize-advanced` produced a reading the row did not predict: the seam APPLIED the commanded 520x150 unclamped (`want=270,8,520,150 applied=270,8,520,150 clamped=false min=520,150`) and the window DREW at `270,8,606,245`. So `TimelineWindowUI`'s declared 520x150 is the resize-DRAG floor, not a size the window can occupy - GUILayout expands it to its content, and 606x245 is the smallest the Re-Fly view actually renders at. A "column set pinned wider than its own window" defect therefore cannot be produced at the declared floor for this window, and section 7's floor should be read as a minimum REQUEST rather than a minimum picture |
 
 | op | unlocks |
 |---|---|
-| `pointer` (park the IMGUI mouse over a named control's rect for one Repaint) | EVERY populated `TooltipEchoBox` strip (11 windows), every `DisabledHoverEcho` reason (the five rewind refusals, the three spawn refusals, the two warp refusals, the four `Warp to...` reasons, the two Watch reasons, the route stepper floors, `Pick a route above...`, `This route was not built from a recorded mission`), marquee mode, and every hover-only marker label |
+| `pointer` (park the IMGUI mouse over a named control's rect for one Repaint) | PREDICTED: EVERY populated `TooltipEchoBox` strip (11 windows), every `DisabledHoverEcho` reason (the five rewind refusals, the three spawn refusals, the two warp refusals, the four `Warp to...` reasons, the two Watch reasons, the route stepper floors, `Pick a route above...`, `This route was not built from a recorded mission`), marquee mode, and every hover-only marker label. DELIVERED: NONE OF IT, and that is measured rather than pending - the op parks the OS CURSOR, not the IMGUI mouse, and IMGUI's hover did not follow it on any of wave 2's four hover captures. Everything in this cell stays unphotographed until GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT is closed; the hover-only marker label is the same miss one surface over (`MapMarkerRenderer.ShouldDrawLabel(sticky, hover)` had neither on `play-mapview-ghostmarkers-advanced`) |
 | `find` (resolve a control by label or `ref` from a prior `.gui.json`) | the addressing layer every other op needs; without it a click op can only take indices |
 | `expand` (toggle a disclosure or caret by key) | all 21 Recordings-tab leaf-row cells with their phase colours, status words and tree connectors; chain and grouped blocks; STASH member rows; expanded per-vessel interval rows; the `Events (N)` digest and its `Go to`; the Logistics route and candidate detail panels (the largest un-photographed control cluster in the mod); the near-miss, dismissed and dormant disclosures; expanded Kerbals owner chains and folded outcome headers; the Career `Pending in timeline` fold |
 | `target` (invoke a typed entry point rather than synthesising a click: `OpenStructureWindowForMission`, `OpenStructureWindowForRoute`, `ShowWipeRecordingsConfirmation`, `SetUiComplexityMode`-style setters for `showExpandedStats`, `TimeRangeFilterState`, `showCustomRange`, `sortColumn`, `foldedKerbals`) | the populated Structure window in both modes, the Info-expanded stats columns, the time-range filter indicator and every non-default Timeline preset, the custom sliders, every non-default sort direction, the folded Kerbals summary |
@@ -1210,12 +1307,20 @@ THREE MORE JOINED THAT LIST ON 2026-09-11, measured while authoring wave 2 rathe
 
 ### 6.3 Outside the recorder by construction
 
-These need a capture path, not a verb. All of them are PNG-only by nature. Wave 2 pays the
+These need a capture path, not a verb. All of them are PNG-only by nature. Wave 2 PAYS the
 ghost-map-marker row (`GUI-6-census-flight-playback`, label `play-mapview-ghostmarkers-advanced`:
-`EnterMapView` then a framebuffer capture, exactly the pair this table names) and pays the
-`pointer`-plus-capture half of the tooltip row on the main window (GUI-3, GUI-5, GUI-7). The
-other four rows are untouched, and the dialog third of the first row is now known to be
-BLOCKED rather than pending - see 6.2.
+`EnterMapView` then a framebuffer capture, exactly the pair this table names - 243
+`[GhostMap] Marker DRAWN` lines stand behind that frame, 242 of them `PID-less marker rides its
+own polyline`) and pays one row this table did not list, the WATCH MODE overlay
+(`play-main-watchmode-advanced`, which turned out to be in the control tree as well as the PNG).
+
+IT DOES NOT PAY THE TOOLTIP ROW. The `pointer`-plus-capture pair RAN on three lanes and four
+captures (GUI-3, GUI-5, GUI-7) and the hover did not paint: the cursor landed within 1 px of
+each resolved centre and every hover capture is byte-for-byte the un-hovered window, tree and
+pixels both. So the tooltip third of the first row is MEASURED-AND-STILL-OPEN
+(GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT), the dialog third is BLOCKED rather than
+pending (see 6.2), and the currency-tooltip and badge rows - both hover-only - inherit the same
+blocker before their own missing verb even matters. The remaining rows are untouched.
 
 | target | what is needed |
 |---|---|
