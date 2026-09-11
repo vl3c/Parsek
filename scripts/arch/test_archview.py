@@ -8,6 +8,8 @@ Stdlib only. The final test is a smoke test that scans the real Source/Parsek
 tree, so it exercises the extractor end to end.
 """
 
+import contextlib
+import io
 import pathlib
 import sys
 import tempfile
@@ -218,6 +220,230 @@ class CheckerHelperTests(unittest.TestCase):
         }
         pairs = archview.two_way_couplings(model)
         self.assertEqual(pairs, [("A", "B", 2, 5)])
+
+
+    def test_parse_edge_spec_rejects_extra_arrows(self):
+        with self.assertRaises(ValueError):
+            archview.parse_edge_spec("A -> B -> C")
+
+    def test_parse_edge_spec_rejects_empty_side(self):
+        with self.assertRaises(ValueError):
+            archview.parse_edge_spec("A -> ")
+
+
+class InterpolatedStringTests(unittest.TestCase):
+    def test_nested_string_literal_in_hole_does_not_leak(self):
+        source = 'var s = $"{(flag ? "Scenario" : lifecycle)}: failed";'
+        stripped = archview.strip_comments_and_strings(source)
+        self.assertNotIn("Scenario", stripped)
+        self.assertEqual(
+            archview.references(stripped, {"Scenario": "InGameTests"}, "Controllers"),
+            [],
+        )
+
+    def test_hole_code_is_kept_as_a_reference(self):
+        source = 'var s = $"value {MissionStore.Instance} done"; var after = 1;'
+        stripped = archview.strip_comments_and_strings(source)
+        self.assertIn("MissionStore", stripped)
+        self.assertIn("after", stripped)
+        self.assertEqual(
+            archview.references(stripped, {"MissionStore": "Missions"}, "Core"),
+            [("MissionStore", "Missions")],
+        )
+
+    def test_verbatim_interpolated_string(self):
+        source = 'var s = $@"a ""quoted"" {MissionStore.Instance} b"; var after = 1;'
+        stripped = archview.strip_comments_and_strings(source)
+        self.assertIn("after", stripped)
+        self.assertIn("MissionStore", stripped)
+        self.assertNotIn("quoted", stripped)
+
+    def test_raw_string_with_trailing_quote_does_not_swallow_code(self):
+        source = 'var s = """text""""; var after = MissionStore.Instance;'
+        stripped = archview.strip_comments_and_strings(source)
+        self.assertIn("after", stripped)
+        self.assertIn("MissionStore", stripped)
+
+    def test_escaped_quote_in_regular_string(self):
+        source = 'var s = "a\\"MissionStore b"; var after = 1;'
+        stripped = archview.strip_comments_and_strings(source)
+        self.assertNotIn("MissionStore", stripped)
+        self.assertIn("after", stripped)
+
+
+class WalkerEdgeCaseTests(unittest.TestCase):
+    def test_nested_bin_directory_is_skipped(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "Foo" / "bin").mkdir(parents=True)
+            (root / "Foo" / "Kept.cs").write_text("class Kept {}", encoding="utf-8")
+            (root / "Foo" / "bin" / "Skipped.cs").write_text("class Skipped {}", encoding="utf-8")
+            found = [path.as_posix() for path in archview.iter_source_files(root)]
+        self.assertEqual(found, ["Foo/Kept.cs"])
+
+
+class ModelWiringTests(unittest.TestCase):
+    @staticmethod
+    def _write(root, rel, text):
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+    def test_cyclic_flag_marks_mutual_references(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            self._write(root, "One/A.cs", "namespace N { class AlphaThing { BetaThing b; } }")
+            self._write(
+                root,
+                "Two/B.cs",
+                "namespace N { class BetaThing { AlphaThing a; GammaThing g; } }",
+            )
+            self._write(root, "Three/C.cs", "namespace N { class GammaThing { } }")
+            rules = [
+                {"name": "One", "folder": "One"},
+                {"name": "Two", "folder": "Two"},
+                {"name": "Three", "folder": "Three"},
+            ]
+            model = archview.build_model(root, rules, set())
+        edges = {(e["from"], e["to"]): e for e in model["edges"]}
+        self.assertTrue(edges[("One", "Two")]["cyclic"])
+        self.assertTrue(edges[("Two", "One")]["cyclic"])
+        self.assertFalse(edges[("Two", "Three")]["cyclic"])
+
+    def test_unclassified_files_are_recorded(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            self._write(root, "Mystery/X.cs", "class MysteryThing {}")
+            model = archview.build_model(root, [{"name": "Core", "prefix": ".*"}], set())
+        self.assertEqual(model["unclassified"], ["Mystery/X.cs"])
+        self.assertEqual([m["name"] for m in model["modules"]], [])
+
+
+def _small_model():
+    return {
+        "modules": [
+            {"name": "A", "files": 1, "fanIn": 1, "fanOut": 1, "instability": 0.5, "tooling": False},
+            {"name": "B", "files": 1, "fanIn": 1, "fanOut": 1, "instability": 0.5, "tooling": False},
+        ],
+        "edges": [
+            {
+                "from": "A",
+                "to": "B",
+                "weight": 3,
+                "cyclic": False,
+                "files": ["A/FileA.cs"],
+                "types": ["TypeB"],
+            },
+            {
+                "from": "B",
+                "to": "A",
+                "weight": 2,
+                "cyclic": False,
+                "files": ["B/FileB.cs"],
+                "types": ["TypeA"],
+            },
+        ],
+        "unclassified": [],
+    }
+
+
+class CheckerOutputTests(unittest.TestCase):
+    @staticmethod
+    def _last_line(text):
+        return [line for line in text.splitlines() if line.strip()][-1]
+
+    def test_violation_reported_with_files_and_marker_last(self):
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            archview.run_check(_small_model(), ["A -> B"], [])
+        text = captured.getvalue()
+        self.assertIn("VIOLATION A -> B: weight=3", text)
+        self.assertIn("A/FileA.cs", text)
+        self.assertNotIn("not in [allowed]", text)
+        self.assertEqual(self._last_line(text), "ARCH-CHECK report-only")
+
+    def test_allowlist_section_only_when_nonempty(self):
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            archview.run_check(_small_model(), [], ["A -> B"])
+        text = captured.getvalue()
+        self.assertIn("not in [allowed]", text)
+        self.assertIn("B -> A: weight=2", text)
+        self.assertNotIn("A -> B: weight=3", text)
+
+    def test_bad_policy_specs_are_warned_not_raised(self):
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            archview.run_check(_small_model(), ["NoArrow"], ["Also Bad"])
+        text = captured.getvalue()
+        self.assertIn("WARN bad [forbidden] edge spec", text)
+        self.assertIn("WARN bad [allowed] edge spec", text)
+        self.assertEqual(self._last_line(text), "ARCH-CHECK report-only")
+
+    def test_main_check_exits_zero_on_bad_edge_spec(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "src").mkdir()
+            (root / "src" / "Thing.cs").write_text("class Thing {}", encoding="utf-8")
+            modules = root / "modules.toml"
+            modules.write_text(
+                '[[module]]\nname = "Core"\nprefix = ".*"\n\n'
+                '[forbidden]\nedges = ["NoArrowHere"]\n',
+                encoding="utf-8",
+            )
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured), contextlib.redirect_stderr(io.StringIO()):
+                rc = archview.main(
+                    [
+                        "--source",
+                        str(root / "src"),
+                        "--out",
+                        str(root / "out"),
+                        "--modules",
+                        str(modules),
+                        "--check",
+                    ]
+                )
+        self.assertEqual(rc, 0)
+        self.assertEqual(self._last_line(captured.getvalue()), "ARCH-CHECK report-only")
+
+    def test_main_check_exits_zero_on_missing_modules_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured), contextlib.redirect_stderr(io.StringIO()):
+                rc = archview.main(
+                    [
+                        "--modules",
+                        str(pathlib.Path(tmp) / "missing.toml"),
+                        "--out",
+                        str(pathlib.Path(tmp) / "out"),
+                        "--check",
+                    ]
+                )
+        self.assertEqual(rc, 0)
+        self.assertEqual(self._last_line(captured.getvalue()), "ARCH-CHECK report-only")
+
+    def test_main_warns_about_unclassified_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            (root / "src" / "Mystery").mkdir(parents=True)
+            (root / "src" / "Mystery" / "X.cs").write_text("class X {}", encoding="utf-8")
+            modules = root / "modules.toml"
+            modules.write_text('[[module]]\nname = "Core"\nprefix = ".*"\n', encoding="utf-8")
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured), contextlib.redirect_stderr(io.StringIO()):
+                rc = archview.main(
+                    [
+                        "--source",
+                        str(root / "src"),
+                        "--out",
+                        str(root / "out"),
+                        "--modules",
+                        str(modules),
+                    ]
+                )
+        self.assertEqual(rc, 0)
+        self.assertIn("WARN unclassified file: Mystery/X.cs", captured.getvalue())
 
 
 @unittest.skipUnless(REAL_SOURCE.is_dir(), "Source/Parsek is not present")
