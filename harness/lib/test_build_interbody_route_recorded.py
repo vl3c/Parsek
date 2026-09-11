@@ -190,6 +190,67 @@ class InterbodyRouteSpecFixtureSyncTests(unittest.TestCase):
             for pattern in forbidden:
                 self.assertNotIn("skippedByStatus", pattern, name)
 
+    # CONSUMERS THAT DO NOT DRAW A ROUTE LINE, and therefore cannot assert on one.
+    # Both route-token cells below were written when every consumer of this fixture
+    # was a route-RENDER lane, and their claim is only true of that shape: the two
+    # tokens they hold each lane to - `Route scope: ... scope=InterBody
+    # basis=Endpoints` and `Route line draw: ... malformed=` - are emitted by
+    # `RouteTrajectoryLineRenderer`, which builds and draws only in the MAP and
+    # TRACKING STATION render paths. A lane that stages this save for its Logistics
+    # WINDOW and never opens the map cannot emit either one, so requiring the first
+    # would be an unsatisfiable pin that costs a whole KSP boot to discover, and
+    # forbidding the second would be a gate over a producer that never runs.
+    #
+    # THE EXEMPTION IS MECHANICAL, not a note: `test_an_exempt_consumer_really_draws
+    # _no_route_line` below re-derives it from each exempt spec's own steps, so an
+    # exemption that later grew an `EnterMapView` or a tracking-station boot reds
+    # here rather than quietly dropping the gate the other consumers carry.
+    NON_ROUTE_RENDER_CONSUMERS = {
+        # The GUI census's populated-Logistics host (wave 2, 2026-09-11). It stages
+        # this save because it is the only committed one with TWO routes in
+        # DIFFERENT states plus a dismissed-candidate list, which is what turns the
+        # Logistics WINDOW from a header into a layout - and it photographs that
+        # window at the Space Center. It drives no map view, so no route line is
+        # ever built.
+        "GUI-3-census-logistics-routes.toml":
+            "KSC-only capture lane: photographs the Logistics window, never opens "
+            "the map, so RouteTrajectoryLineRenderer never runs",
+    }
+
+    # The two verbs that reach a scene where `RouteTrajectoryLineRenderer` draws.
+    _ROUTE_RENDER_VERBS = ("EnterMapView",)
+
+    def _route_render_reachable(self, spec):
+        """True when a spec's own driver steps could reach a route-line draw."""
+        for step in (spec.get("driver") or {}).get("steps") or []:
+            if step.get("cmd") in self._ROUTE_RENDER_VERBS:
+                return True
+            if ((step.get("args") or {}).get("scene")) == "trackstation":
+                return True
+        return False
+
+    def _route_render_consumers(self):
+        return {name: spec for name, spec in self.consumers.items()
+                if name not in self.NON_ROUTE_RENDER_CONSUMERS}
+
+    def test_an_exempt_consumer_really_draws_no_route_line(self):
+        """The exemption above is re-derived, never trusted.
+
+        An entry that later grew an `EnterMapView` step or a tracking-station boot
+        WOULD emit the tokens and must carry the same gates as every other
+        consumer, so it reds here instead of silently keeping its pass."""
+        for name in sorted(self.NON_ROUTE_RENDER_CONSUMERS):
+            with self.subTest(spec=name):
+                self.assertIn(name, self.consumers,
+                              "%s is exempted but does not stage this fixture; "
+                              "drop the row" % name)
+                self.assertFalse(
+                    self._route_render_reachable(self.specs[name]),
+                    "%s is exempted from the route-line gates but its steps can "
+                    "reach a route-line draw (an EnterMapView or a trackstation "
+                    "boot). Either drop the exemption and carry the gates, or "
+                    "drop the step" % name)
+
     def test_every_consumer_spec_carries_the_pre_fix_negative_control(self):
         """The reading the subject produced BEFORE the scope fix stays forbidden.
 
@@ -198,8 +259,11 @@ class InterbodyRouteSpecFixtureSyncTests(unittest.TestCase):
         under the retired period-as-scope-flag contract. Carrying them as forbids
         means a regression reds on the lane itself rather than needing a separate
         control run.
+
+        Scoped to the consumers that can DRAW a route line; see
+        `NON_ROUTE_RENDER_CONSUMERS`.
         """
-        for name, spec in sorted(self.consumers.items()):
+        for name, spec in sorted(self._route_render_consumers().items()):
             _, forbidden = self._log_contracts(spec)
             self.assertIn("Route line draw: .* malformed=[1-9]", forbidden, name)
             self.assertIn("scope=MalformedMixedBodies", forbidden, name)
@@ -209,8 +273,11 @@ class InterbodyRouteSpecFixtureSyncTests(unittest.TestCase):
 
         A consumer that does not require `scope=InterBody basis=Endpoints` is a
         lane over this subject that never states what makes it the subject.
+
+        Scoped to the consumers that can DRAW a route line; see
+        `NON_ROUTE_RENDER_CONSUMERS`.
         """
-        for name, spec in sorted(self.consumers.items()):
+        for name, spec in sorted(self._route_render_consumers().items()):
             required, _ = self._log_contracts(spec)
             self.assertTrue(
                 any("scope=InterBody basis=Endpoints" in p for p in required),

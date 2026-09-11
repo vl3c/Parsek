@@ -8518,6 +8518,104 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
                                        "PROMOTION call alone. It owes no Load-menu eyeball "
                                        "- its whole claim is that NOTHING is published, "
                                        "and the run measured zero backup folders.",
+        # THE GUI CENSUS, WAVE 2 (2026-09-11). Six capture lanes on COMMITTED
+        # fixtures, unlike GUI-1 / GUI-2 whose operator tier is a
+        # MECHANISM (an operator-local host no clone can stage). These six could
+        # be staged by any clone, so their tier is a CADENCE decision and their
+        # tag is a genuine debt: a lane whose PRODUCT is images owes a READING
+        # RUN, harness flights are on request only, and looking at the contact
+        # sheet afterwards is the part no verifier can do. Each additionally
+        # carries one or two steps whose answer is a question the reading is FOR,
+        # named in its own header. Drop the tag per lane when its reading run has
+        # been flown AND its images have been reviewed - the two halves are
+        # separate, and the second is the one only a human discharges.
+        #
+        # ALL SIX FLEW PASS ON ATTEMPT 1 THE SAME DAY (`2026-09-11_1548` / `_1551`
+        # / `_1553` / `_1556` / `_1559` / `_1601`; 80 / 67 / 66 / 74 / 59 / 61 s),
+        # so the FIRST debt is discharged on every one of them and the SECOND -
+        # the layout review of 79 images - is what each tag now names. That is
+        # exactly the split the paragraph above pre-registered, so the tags stay.
+        "GUI-3-census-logistics-routes.toml":
+                                       "tier=operator by CADENCE (committed host). "
+                                       "The READING RUN IS DONE: `2026-09-11_1548`, "
+                                       "PASS attempt 1, 80 s, 14 PNG + 14 dumps, "
+                                       "routes=2 (one Active, one Paused). Both of "
+                                       "its questions answered YES - the `Set Parent "
+                                       "Group` picker resolved the auto-generated "
+                                       "group name, and the link picker opened with "
+                                       "no arming click. ONE OPERATOR CALL REMAINS: "
+                                       "the layout review of the 14 captures, one of "
+                                       "which (the tooltip strip) is a picture of an "
+                                       "UN-hovered window - see "
+                                       "GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-"
+                                       "PAINT.",
+        "GUI-4-census-missions-docked.toml":
+                                       "tier=operator by CADENCE (committed host). "
+                                       "The READING RUN IS DONE: `2026-09-11_1551`, "
+                                       "PASS attempt 1, 67 s, 16 PNG + 16 dumps. Both "
+                                       "of its questions answered YES - the seeded "
+                                       "mission name and the seeded group name both "
+                                       "resolved off "
+                                       "MissionStore.EnsureDefaultsForTrees - and the "
+                                       "run REFUTED one of the lane's own premises: "
+                                       "the three RewindPoints populate `Re-Fly`, not "
+                                       "`Rewind/FF`. ONE OPERATOR CALL REMAINS: the "
+                                       "layout review of the 16 captures, the "
+                                       "min-size one included (commanded 520x150, "
+                                       "drew 606x245).",
+        "GUI-5-census-career-ksc.toml":
+                                       "tier=operator by CADENCE (committed host). "
+                                       "The READING RUN IS DONE: `2026-09-11_1553`, "
+                                       "PASS attempt 1, 66 s, 17 PNG + 17 dumps, all "
+                                       "four Career tabs and both Kerbals tabs drawn "
+                                       "over a real career (5 credited milestones "
+                                       "with real reward triples). It also REFUTED "
+                                       "the lane's contract claim: the host's nine "
+                                       "CONTRACT nodes are all `state = Offered`, so "
+                                       "the tab reads `Active (0)`. ONE OPERATOR "
+                                       "CALL REMAINS: the layout review of the 17 "
+                                       "captures, and specifically the Milestones "
+                                       "`Rewards` column the inventory measures as "
+                                       "overflowing its 180 px pin - a judgement only "
+                                       "an eyeball settles, and it now has an image.",
+        "GUI-6-census-flight-playback.toml":
+                                       "tier=operator by CADENCE (committed host). "
+                                       "The READING RUN IS DONE: `2026-09-11_1556`, "
+                                       "PASS attempt 1, 74 s, 12 PNG + 12 dumps, and "
+                                       "it ANSWERED "
+                                       "GUI-CENSUS-SPAWN-CONTROL-NEEDS-A-CANDIDATE-"
+                                       "HOST the way the lane was for: Real Spawn "
+                                       "Control opened and HELD with one candidate "
+                                       "row and no `reason=zero-candidates` line, so "
+                                       "that entry is CLOSED. The watch overlay and "
+                                       "the 243-marker map view landed too; the "
+                                       "in-world ghost labels did NOT draw. ONE "
+                                       "OPERATOR CALL REMAINS: the layout review of "
+                                       "the 12 captures.",
+        "GUI-7-census-flight-recording.toml":
+                                       "tier=operator by CADENCE (committed host). "
+                                       "The READING RUN IS DONE: `2026-09-11_1559`, "
+                                       "PASS attempt 1, 59 s, 8 PNG + 8 dumps, and "
+                                       "it paid HALF its subject: the status block in "
+                                       "three forms (Idle, RECORDING, Ready). THE "
+                                       "OTHER HALF WAS REFUTED - both hovers landed "
+                                       "within 1 px and NEITHER echo painted, filed "
+                                       "as GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-"
+                                       "NOT-PAINT. ONE OPERATOR CALL REMAINS: the "
+                                       "layout review of the 8 captures, where two of "
+                                       "them are now evidence that the hover text is "
+                                       "ABSENT rather than text to read off an image.",
+        "GUI-8-census-empty-states.toml":
+                                       "tier=operator by CADENCE (committed host). "
+                                       "The READING RUN IS DONE: `2026-09-11_1601`, "
+                                       "PASS attempt 1, 61 s, 12 PNG + 12 dumps, and "
+                                       "every empty state came back as a SENTENCE "
+                                       "rather than a blank box. ONE OPERATOR CALL "
+                                       "REMAINS: the layout review of the 12 "
+                                       "captures. Every one of them is an empty-state "
+                                       "sentence, so the review IS the product - "
+                                       "there is nothing else to assert about a "
+                                       "window with no rows.",
     }
 
     # Untagged specs that are CANDIDATES - they MENTION the token, or they are
@@ -14843,6 +14941,35 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
         # And the original rule is untouched for an op that takes neither.
         errors = hlib.validate_ui_action_step(2, {"op": "describe", "x": "10"})
         self.assertTrue(any("only mean anything on op=rect" in e for e in errors), errors)
+
+    def test_a_runtime_handle_is_a_legal_pointer_or_rect_coordinate(self):
+        """THE DEFECT THIS PINS, found by the first lane that tried to use the op the
+        way its own design document describes: `op=find` exists so a census can resolve
+        a control by the words a reviewer can read and chain `${stepN.cx}` /
+        `${stepN.cy}` into the pointer step - and the coordinate parse refused exactly
+        that, because substitution happens in run.py's drive loop, long after
+        validate_spec has read the raw value as a literal. So the ONE documented
+        spelling of a hover step failed pre-launch validation and no census could hover
+        anything.
+
+        The exemption is WHOLE-VALUE only, matching `substitute_step_args`: an embedded
+        reference is never substituted and reaches the wire verbatim, so it stays a
+        malformed literal here. `op=rect` takes the same rule for the same reason."""
+        self.assertEqual([], hlib.validate_ui_action_step(
+            0, {"op": "pointer", "x": "${findlogi.cx}", "y": "${findlogi.cy}"}))
+        self.assertEqual([], hlib.validate_ui_action_step(
+            1, {"op": "rect", "window": "missions", "x": "${a.x}", "y": "${a.y}",
+                "w": "${a.w}", "h": "${a.h}"}))
+        # A harness step id is a legal <ref> too, so the numeric-looking form passes.
+        self.assertEqual([], hlib.validate_ui_action_step(
+            2, {"op": "pointer", "x": "${0004.cx}", "y": "${0004.cy}"}))
+        # NOT a blanket hole: an embedded reference, a malformed one and a plain
+        # non-numeric literal are all still refused.
+        for bad in ("${findlogi.cx}px", "${findlogi}", "${.cx}", "100,5"):
+            with self.subTest(x=bad):
+                self.assertTrue(any(
+                    "dot-decimal" in e for e in hlib.validate_ui_action_step(
+                        3, {"op": "pointer", "x": bad, "y": "200"})), bad)
 
     def test_uiaction_dialog_needs_nothing(self):
         self.assertEqual([], hlib.validate_ui_action_step(0, {"op": "dialog"}))

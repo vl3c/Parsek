@@ -1189,6 +1189,8 @@ HANDLE_LABEL_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
 # form, so it can never match here.
 HANDLE_REF_RE = re.compile(r"\$\{([A-Za-z0-9][A-Za-z0-9_-]*)\.([A-Za-z0-9_]+)\}")
 
+
+
 # The four envelope keys of a seam response line. They describe the EXCHANGE, not
 # the object the verb answered about, so they are never captured as handle fields
 # (a `${x.verdict}` would be a spec saying something the harness already knows).
@@ -2187,6 +2189,24 @@ CAPTURE_SUPERSIZE_KEY = "superSize"
 CAPTURE_SUPERSIZE_MAX = 4
 
 
+def handle_shape_probe(value):
+    """The string a per-value SHAPE check should judge when the authored value carries
+    R10 handles, or ``None`` when there is nothing authored to judge. A WHOLE-VALUE
+    handle (``${find.cx}``) is the seam's own payload field and probes as ``None``: the
+    check is skipped, the token is still checked by the R10 static pass and by
+    ``substitute_step_args``. An EMBEDDED handle keeps its authored surroundings with
+    every ``${ref.field}`` replaced by the literal ``1``, so ``${find.cx}px`` probes as
+    ``1px`` and still fails the dot-decimal check that would otherwise fail in-game as
+    REJECTED pointer-arg-invalid after a whole KSP boot. A value with no handle probes
+    as itself."""
+    text = str(value)
+    if not find_handle_refs(value):
+        return text
+    if HANDLE_REF_RE.fullmatch(text):
+        return None
+    return HANDLE_REF_RE.sub("1", text)
+
+
 def value_is_handle_templated(value) -> bool:
     """True when a step-arg value carries at least one well-formed ``${ref.field}``.
 
@@ -2234,9 +2254,10 @@ def validate_capture_screenshot_step(index: int, step_args: Dict) -> List[str]:
             "driver.steps[%d].args.%s: CaptureScreenshot REQUIRES it - the label is the "
             "capture's filename and the verb has no default, so the seam answers "
             "REJECTED label-arg-missing" % (index, CAPTURE_LABEL_KEY))
-    elif not value_is_handle_templated(raw):
-        text = str(raw)
-        if not _CAPTURE_LABEL_RE.match(text) or len(text) > CAPTURE_LABEL_MAX_LENGTH:
+    else:
+        text = handle_shape_probe(raw)
+        if text is not None and (
+                not _CAPTURE_LABEL_RE.match(text) or len(text) > CAPTURE_LABEL_MAX_LENGTH):
             errors.append(
                 "driver.steps[%d].args.%s: %r is not filename-safe (must start "
                 "alphanumeric, then alphanumerics / . / - / _ only, must not END in a "
@@ -2245,10 +2266,9 @@ def validate_capture_screenshot_step(index: int, step_args: Dict) -> List[str]:
                 "label becomes a file in the harvested artifact directory, so the seam "
                 "is fail-closed and answers REJECTED label-arg-invalid"
                 % (index, CAPTURE_LABEL_KEY, text, CAPTURE_LABEL_MAX_LENGTH))
-    if (CAPTURE_SUPERSIZE_KEY in step_args
-            and not value_is_handle_templated(step_args.get(CAPTURE_SUPERSIZE_KEY))):
-        text = str(step_args.get(CAPTURE_SUPERSIZE_KEY))
-        ok = text.isdigit() and 1 <= int(text) <= CAPTURE_SUPERSIZE_MAX
+    if CAPTURE_SUPERSIZE_KEY in step_args:
+        text = handle_shape_probe(step_args.get(CAPTURE_SUPERSIZE_KEY))
+        ok = text is None or (text.isdigit() and 1 <= int(text) <= CAPTURE_SUPERSIZE_MAX)
         if not ok:
             errors.append(
                 "driver.steps[%d].args.%s: %r must be an integer 1..%d. The seam "
@@ -2279,9 +2299,10 @@ def validate_dump_gui_tree_step(index: int, step_args: Dict) -> List[str]:
             "driver.steps[%d].args.%s: DumpGuiTree REQUIRES it - the label is the dump's "
             "filename and the verb has no default, so the seam answers REJECTED "
             "label-arg-missing" % (index, CAPTURE_LABEL_KEY))
-    elif not value_is_handle_templated(raw):
-        text = str(raw)
-        if not _CAPTURE_LABEL_RE.match(text) or len(text) > CAPTURE_LABEL_MAX_LENGTH:
+    else:
+        text = handle_shape_probe(raw)
+        if text is not None and (
+                not _CAPTURE_LABEL_RE.match(text) or len(text) > CAPTURE_LABEL_MAX_LENGTH):
             errors.append(
                 "driver.steps[%d].args.%s: %r is not filename-safe (must start "
                 "alphanumeric, then alphanumerics / . / - / _ only, must not END in a "
@@ -2385,9 +2406,9 @@ def validate_ui_action_step(index: int, step_args: Dict) -> List[str]:
                 "first node in the window, which is never what a lane meant"
                 % (index, UIFIND_TEXT_KEY))
         raw_index = step_args.get(UIFIND_INDEX_KEY)
-        if raw_index is not None and not value_is_handle_templated(raw_index):
-            text = str(raw_index)
-            if not text.isdigit():
+        if raw_index is not None:
+            text = handle_shape_probe(raw_index)
+            if text is not None and not text.isdigit():
                 errors.append(
                     "driver.steps[%d].args.%s: %r must be a non-negative integer; the "
                     "seam answers REJECTED find-index-arg-invalid"
@@ -2428,10 +2449,10 @@ def validate_ui_action_step(index: int, step_args: Dict) -> List[str]:
                         "seam answers REJECTED expand-state-with-bulk-key rather than "
                         "letting the token win silently"
                         % (index, str(key), UIACTION_STATE_KEY))
-            elif not value_is_handle_templated(key):
-                text = str(key)
-                head = text.split(":", 1)[0] if ":" in text else None
-                if head is None or head not in prefixes or text.endswith(":"):
+            else:
+                text = handle_shape_probe(key)
+                head = None if text is None else (text.split(":", 1)[0] if ":" in text else None)
+                if text is not None and (head is None or head not in prefixes or text.endswith(":")):
                     errors.append(
                         "driver.steps[%d].args.%s: %r must be %s or "
                         "<prefix>:<value> with a prefix window %r keeps (%s). The "
@@ -2509,10 +2530,13 @@ def validate_ui_action_step(index: int, step_args: Dict) -> List[str]:
                 "half-move" % index)
         for key in ("x", "y"):
             raw = step_args.get(key)
-            if raw is None or value_is_handle_templated(raw):
+            if raw is None:
+                continue
+            probe = handle_shape_probe(raw)
+            if probe is None:
                 continue
             try:
-                float(str(raw))
+                float(probe)
             except ValueError:
                 errors.append(
                     "driver.steps[%d].args.%s: %r must be a dot-decimal number; the "
@@ -2533,10 +2557,13 @@ def validate_ui_action_step(index: int, step_args: Dict) -> List[str]:
                 % (index, ",".join(UIACTION_RECT_KEYS), ",".join(missing)))
         for key in UIACTION_RECT_KEYS:
             raw = step_args.get(key)
-            if raw is None or value_is_handle_templated(raw):
+            if raw is None:
+                continue
+            probe = handle_shape_probe(raw)
+            if probe is None:
                 continue
             try:
-                float(str(raw))
+                float(probe)
             except ValueError:
                 errors.append(
                     "driver.steps[%d].args.%s: %r must be a dot-decimal number; the "

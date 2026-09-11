@@ -26,6 +26,55 @@ _(unreleased — entries accumulate here per commit)_
   having none. And "open everything in the supply-route window" skipped the candidate
   rows, leaving them shut. None of this changes anything a player sees or reaches.
 
+- **Automated testing: six more picture-taking runs, this time of windows with something
+  in them.** The first two screenshot runs photographed every Parsek window, but on one
+  save and with every list closed, so a lot of the pictures were of empty boxes. Six new
+  runs take the same windows over saves chosen for what they contain: a save with two
+  supply routes in different states and a dismissed list, a save with a docked flight and
+  three rewind points behind it, a career with contracts and milestones that were actually
+  earned, a flight with two hundred ghosts replaying beside the craft, a plain pad launch
+  driven through start-recording and stop-recording, and a brand-new science save where
+  every window is empty on purpose. Between them they open every folder, every route
+  panel and every mission row, put the structure log on a real mission and on a real
+  route, show both group-picker pop-ups and the route link picker, rest the mouse on a
+  control so its help line and its "why is this greyed out?" sentence appear, and take the
+  map view with the ghost markers on it. Nothing here changes the game; it is evidence for
+  a layout review. ALL SIX RUNS HAVE NOW BEEN TAKEN, each passing first time, so the
+  review has 79 more pictures than it had: every Parsek window now has one except the
+  global test-runner window, and the pictures include the two pop-up pickers, the route
+  link picker, the spawn-control window with a craft listed in it, the watch-mode overlay
+  and the map markers. Nine surfaces now have BOTH an empty and a full picture, which none
+  had before.
+
+  ONE THING THE RUNS PROVED IMPOSSIBLE FOR NOW, and it is the one claim in the list above
+  that did not survive: the hover pictures. The runs do move the real mouse onto the
+  control - the game reports it within one pixel of the right spot - and the help line and
+  the "why is this greyed out?" sentence still do not appear, so those four pictures are
+  pictures of an un-hovered window. That is proven rather than suspected: each hover
+  picture is identical, pixel for pixel and control for control, to the one taken with the
+  mouse parked away. Two possible fixes are written down and each needs a run of its own to
+  try. Three smaller claims were also corrected against what the runs actually show: one
+  career save's contracts are offered rather than accepted, so that window lists none; the
+  rewind points on the docked save fill the re-fly list and not the rewind list; and no
+  ghost printed an in-world warning label, so that one still has no picture.
+
+  Two things were learned while writing them and are recorded rather than papered over.
+  The pop-up question boxes still cannot be photographed at all: a run can ask what pop-up
+  is on screen, but nothing in the automation can put one there and leave it standing long
+  enough, so all 21 of them stay unphotographed and each new run instead checks that no
+  pop-up is covering its pictures. And two saves the plan named for their contents turned
+  out not to have them - one has no upgraded buildings and the other has no active
+  strategy - so those two pictures are labelled for what they really show and the plan is
+  corrected.
+
+- **Automated testing: pointing the mouse at a control a run looked up now passes the
+  pre-flight check.** Looking a control up by its label and then pointing at it is the one
+  reproducible way to take a picture of a hover, and it is the whole reason the lookup
+  reports a centre at all - but the check that runs before the game starts read the "use
+  the answer from the earlier step" placeholder as a malformed number and refused every
+  test that did it. So the one documented way to take a hover picture failed before KSP
+  was even launched. It now passes, and a test pins it in both directions.
+
 - **Automated testing: a test run can now hover, point at a control by its label, and
   open the parts of a window that only appear after a click.** The screenshot work below
   photographed Parsek's windows; going through every surface the mod can put on screen

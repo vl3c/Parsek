@@ -1,0 +1,305 @@
+schema = 1
+id = "GUI-7-census-flight-recording"
+tier = "operator"
+# THE GUI CENSUS, WAVE 2: THE MAIN WINDOW WHILE A RECORDER RUNS, AND THE TWO HOVER ECHOES.
+# It is the smallest lane in the wave and it buys two things nothing else can.
+#
+# ONE: THE FLIGHT STATUS BLOCK IN EVERY STATE IT HAS. `ParsekUI.DrawFlightStatus` draws
+# five labels, and `GetStatusText()` has FOUR values - `Idle`, `RECORDING`, `PREVIEWING`,
+# `Ready (has recording)` - plus an optional `Duration:` line that appears only once points
+# exist. Inventory section 3.1 records that ONLY the `Idle` / zero-points / zero-ghosts
+# variant has ever been photographed, on both flight hosts. This lane drives the state
+# machine with the seam's own recorder verbs and photographs three of the four: `Idle`
+# before `StartRecording`, `RECORDING` with points and a duration after it, and
+# `Ready (has recording)` after `StopRecording`. `PREVIEWING` is left unphotographed and
+# named below.
+#
+# TWO: THE TWO HOVER ECHOES, which are the reason the pointer op exists - AND THE HALF THIS
+# LANE DID NOT GET. MEASURED 2026-09-11: the cursor lands on both targets and NEITHER echo
+# paints, so `b1-main-tooltip-timeline-advanced` and `b1-main-disabledecho-spawncontrol-
+# advanced` are pictures of the un-hovered window. Read the rest of this block as what the
+# two surfaces ARE, and the FLOWN block at the bottom for what the run got. Inventory section
+# 6.2 lists them as a pair and the difference between them is the point:
+#   - `TooltipEchoBox` - the per-window strip that publishes `GUI.tooltip` for the control
+#     under the cursor. It is 38 px on the main window (a two-line variant) and its height
+#     is pinned to a probe measurement so the window does not change height on hover, which
+#     is precisely the kind of claim only a picture can settle;
+#   - `DisabledHoverEcho` - the "why is this greyed out?" sentence, a DIFFERENT surface
+#     with a different producer, drawn for a control that is disabled rather than merely
+#     hovered. Its cheapest live instance in the whole mod is the one this host produces
+#     for free: `Real Spawn Control ({N})` is greyed whenever
+#     `NearbySpawnCandidates.Count == 0`, with the reason `No recorded craft is passing
+#     nearby`, and a pad craft with nothing recorded beside it is exactly that state. Its
+#     sibling GUI-6 is the lane that tries to make the same window ENABLED; this one wants
+#     it disabled, so the pair is the two halves of one control.
+# THE LADDER IS WHY THE DISABLED TARGET RESOLVES. `op=find`'s match is exact, then prefix,
+# then contains, first rung with any hit winning outright - so `text=Real Spawn Control`
+# misses on exact and PREFIX-matches the live `Real Spawn Control (0)` without the spec
+# having to guess the count.
+#
+# IT MOVES THE OPERATOR'S MOUSE, twice. `op=pointer` is the only op in the seam that
+# reaches outside the process: `Input.mousePosition` is read-only and Unity fills
+# `Event.current.mousePosition` from it, so a hover cannot be synthesised in managed code
+# at all. The cursor is a single machine-wide resource; the lane parks it at the client
+# corner after each hover so no later capture carries an unlabelled one, and the op logs an
+# Info line at every move naming both points, so a run whose captures look wrong is
+# readable back against "someone was using the mouse".
+#
+# WHY THIS FIXTURE. `fixtures/saves/b1-pad-craft` is the suite's plainest flyable host - a
+# Jumping Flea on the pad, two vessels, nothing recorded - which is what makes both
+# subjects clean: a recorder started on it produces a tree of exactly one recording whose
+# point count climbs from zero while the census watches, and its zero-candidate Real Spawn
+# Control is the disabled-echo instance. Four committed lanes already fly it (`B1-pad-hop`,
+# `EVA-4-atmo-chute`, `M3-mission-phasing-airborne-anchor`).
+#
+# THE RECORDER IS DRIVEN AND THEN DISCARDED. `StartRecording` / `StopRecording` /
+# `DiscardTree` are v1 seam verbs; the discard at the end is not tidiness but a
+# precondition - `FlushAndQuit` saves and quits from inside FLIGHT, and leaving a live tree
+# behind would write one into the produced save that the analyzer then reads as this lane's
+# output. A census produces images, not recordings.
+#
+# AUTO-RECORD IS TURNED OFF FIRST. On a PRELAUNCH host `autoRecordOnLaunch` is not inert
+# the way it is on GUI-2's sub-orbital probe: this vessel is exactly the shape the
+# launch-transition and first-staging decisions watch for, and a recorder that started by
+# itself would make `StartRecording` the second owner of the same tree.
+#
+# `op=open window=main` FIRST IS A PRECONDITION (the settle for a non-`main` `open` /
+# `rect` refuses while the host's `showUI` is false). NOTE THE ABSENT `scene=` ARG: this
+# host's `activeVessel` is focusable, so `LoadGame`'s default route boots into FLIGHT.
+#
+# THE ANALYZER ROW IS LEFT GATING. A committed fixture four committed lanes fly green, so
+# there is nothing to exempt and `ANALYZER_REPORT_ONLY_ALLOWLIST` stays as it is.
+#
+# WHAT THIS LANE CANNOT PHOTOGRAPH:
+#   - the `PREVIEWING` status value. It is set while a preview playback runs, and
+#     `StopPlayback` is one of the five verbs still RESERVED in the seam (teardown is
+#     `FlushAndQuit`'s job, so a stop verb would be a second owner of it) - so a lane could
+#     start a preview it cannot end, inside a scene it still has to quit cleanly. Left
+#     unphotographed rather than driven into a state with no exit.
+#   - the RouteRunPrompt banner (`Open Logistics` / `Dismiss`), section 3.1's other
+#     unphotographed main-window state. It needs a route whose run is due, which is a
+#     Logistics host and not this one; GUI-3 is the lane that would grow it if a fixture
+#     with a due dispatch is ever harvested.
+#   - any `PopupDialog`. All 21 stay dark for the structural reason GUI-3's header sets
+#     out; this lane asserts the NEGATIVE through one `op=dialog` step, taken while a
+#     recorder is live - which is the state in which an unexpected modal would be most
+#     likely and most damaging.
+#
+# FLOWN 2026-09-11: reading run `2026-09-11_1559`, PASS on attempt 1, 59 s wall, all 50 steps
+# met, 8 PNGs + 8 dumps (every dump `patched=17/17`), every verifier PASS or REPORT,
+# `expectations mismatches=0` including the `count = {min = 0, max = 0}` that makes the
+# `DiscardTree` an assertion. Every `[expectations.logContracts]` line is one of this lane's
+# OWN seam records.
+#
+# WHAT THE RUN MEASURED: THE STATUS BLOCK IN THREE FORMS, which is subject ONE and is paid in
+# full - `State: Idle` / `Recorded Points: 0` / `Active Ghosts: 0`, then `State: RECORDING` /
+# `Recorded Points: 1` / `Duration: 0.0s` / `Active Ghosts: 0`, then `State: Ready (has
+# recording)` with the same point and duration lines (42 / 43 / 43 nodes). `PREVIEWING` stays
+# unphotographed as this header already says.
+#
+# SUBJECT TWO WAS REFUTED. Both hover targets RESOLVED and both hovers LANDED:
+# `find text=Real Spawn Control` prefix-matched the live `Real Spawn Control (0)`
+# (`rect=18,150,230,21 centre=133,161 searched=13`) and `pointer` read back `at=133,162`;
+# `find text=Timeline` matched exactly (`rect=18,185,230,21 centre=133,196`) and `pointer`
+# read back `at=133,197`. NOTHING PAINTED: both hover dumps hash IDENTICAL to
+# `b1-main-idle-advanced` and their main-window pixels are identical too, so the strip is the
+# same empty `label` at `[18,368,230,38]` in all three. The only trace of the greyed state is
+# the dump's `enabled=False` on the `Real Spawn Control (0)` button - the REASON sentence
+# never drew. Filed as GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT, with two candidate
+# fixes that each need a flight. The four labels are KEPT as they are because the run id
+# cites them.
+#
+# ONE REPORT-ONLY LINE TO NOT MISREAD: the `unityExceptions` row counted 1
+# `NullReferenceException`, and it is STOCK TEARDOWN with no Parsek frame in it -
+# `CrewHatchController.OnDestroy` -> `DespawnUIs` -> `HideTooltip` ->
+# `DialogCanvasUtil.get_DialogCanvasRect`, thrown while the FLIGHT scene is being destroyed by
+# `FlushAndQuit`. Report-only, benign, and at shutdown.
+description = "GUI census wave 2, the flight main window through the recorder state machine: photograph the flight status block Idle, RECORDING with points and a duration, and Ready (has recording), plus two attempts at the hover echoes - a tooltip strip and the disabled Real Spawn Control reason - resolved by control text and hovered with the real cursor, which lands without painting a hover."
+instanceProfile = "stock-minimal"
+tags = ["gui-census", "screenshots", "ui", "recording", "GUI-7", "pending-operator"]
+
+[fixture]
+saveTemplate = "fixtures/saves/b1-pad-craft"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  # No `scene=`: the focusable activeVessel takes the default FLIGHT route.
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  # NOT inert on a PRELAUNCH host (see the header): this vessel is the shape the
+  # launch-transition and first-staging auto-record decisions watch for.
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+
+  # --- Advanced, state 1 of 3: Idle ---
+  { cmd = "UiAction", args = { op = "complexity", mode = "advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "open", window = "main" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "main", x = "8", y = "8", w = "250", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "b1-main-idle-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "b1-main-idle-advanced" }, expect = "OK" },
+
+  # --- THE DISABLED-HOVER ECHO ---
+  # `Real Spawn Control (0)` is greyed because this craft has no recorded ghost passing
+  # nearby, and `DisabledHoverEcho` publishes the reason only while the cursor is over it.
+  # `text=Real Spawn Control` misses the exact rung and PREFIX-matches the live label, so
+  # the spec never has to guess the count in the parentheses.
+  { cmd = "UiAction", args = { op = "find", window = "main", text = "Real Spawn Control" }, label = "findspawn", expect = "OK" },
+  { cmd = "UiAction", args = { op = "pointer", x = "${findspawn.cx}", y = "${findspawn.cy}" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "b1-main-disabledecho-spawncontrol-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "b1-main-disabledecho-spawncontrol-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "pointer", park = "true" }, expect = "OK" },
+
+  # --- THE ORDINARY TOOLTIP ECHO STRIP, the other half of the pair ---
+  # A control that is ENABLED, so what fills the strip is `GUI.tooltip` rather than the
+  # disabled reason. `Timeline` has no gate in either mode and its tooltip is a fixed
+  # literal, so the capture is about the strip's layout and not about the host.
+  { cmd = "UiAction", args = { op = "find", window = "main", text = "Timeline" }, label = "findtl", expect = "OK" },
+  { cmd = "UiAction", args = { op = "pointer", x = "${findtl.cx}", y = "${findtl.cy}" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "b1-main-tooltip-timeline-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "b1-main-tooltip-timeline-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "pointer", park = "true" }, expect = "OK" },
+
+  # --- state 2 of 3: RECORDING, with points and a Duration line ---
+  { cmd = "StartRecording", expect = "OK" },
+  { cmd = "RecordingState", expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "b1-main-recording-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "b1-main-recording-advanced" }, expect = "OK" },
+
+  # The negative dialog assertion, taken WHILE a recorder is live - the state in which an
+  # unexpected modal would be most likely and would sit over every capture after it.
+  { cmd = "UiAction", args = { op = "dialog" }, expect = "OK" },
+
+  # The Basic form of the same live state. Basic drops the Real Spawn Control, Kerbals and
+  # Career launchers, so the pair side by side is the mode diff with the status block above
+  # it reading the same thing.
+  { cmd = "UiAction", args = { op = "complexity", mode = "basic" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "b1-main-recording-basic" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "b1-main-recording-basic" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "complexity", mode = "advanced" }, expect = "OK" },
+
+  # --- state 3 of 3: Ready (has recording) ---
+  { cmd = "StopRecording", expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "b1-main-ready-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "b1-main-ready-advanced" }, expect = "OK" },
+
+  # --- the two windows that see the live tree ---
+  # The Recordings tab over a tree this run produced, in FLIGHT, so the flight-only `Watch`
+  # column sits beside a row whose recording is seconds old rather than months.
+  { cmd = "UiAction", args = { op = "open", window = "missions" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "missions", x = "0", y = "8", w = "1355", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "missions", tab = "recordings" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "b1-missions-recordings-live-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "b1-missions-recordings-live-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "missions" }, expect = "OK" },
+
+  { cmd = "UiAction", args = { op = "open", window = "timeline" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "timeline", x = "270", y = "8", w = "1000", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "timeline", tab = "overview" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "b1-timeline-overview-live-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "b1-timeline-overview-live-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "timeline" }, expect = "OK" },
+
+  # A PRECONDITION RATHER THAN TIDINESS: `FlushAndQuit` saves and quits from inside FLIGHT,
+  # so a live tree left standing would be written into the produced save and the analyzer
+  # would then read a census's output as a recording. A census produces images.
+  { cmd = "DiscardTree", expect = "OK" },
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+# This lane DOES drive a recorder, start to stop to discard, on a pad craft - so unlike its
+# siblings it earns a D1 value rather than basics only. `discard-rollback` is the one it
+# exercises AND observes: the three status-block captures are the observation of the state
+# machine, `discardtree discarded=true` is pinned below, and
+# `[expectations.recordings] count = {min = 0, max = 0}` is the verifier that says the
+# rollback actually rolled back. `S0.5-live-record-discard` claims the same value from the
+# behaviour side; this lane claims it from the surface side, which is not double-counting -
+# a dimension value records that a value was exercised, not that only one lane may.
+D1  = ["discard-rollback"]
+D14 = ["kerbin", "sandbox", "scene-flight"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The discard is the point: a census must leave the save as it found it. `max = 0` is what
+# makes `DiscardTree` an assertion rather than a habit - a run that committed the tree it
+# recorded would red here rather than quietly shipping a fixture-shaped side effect.
+count = { min = 0, max = 0 }
+
+[expectations.logContracts]
+# This lane's OWN seam records, plus the three recorder-verb lines that say the state
+# machine really moved - without those, three captures labelled Idle / RECORDING / Ready
+# would be three pictures of the same thing.
+required = [
+  # --- describe echoes, in step order. `scene=FLIGHT` proves the census ran in flight.
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=11 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=basic windows=11 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=11 open=2 openWindows=main,missions",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=11 open=2 openWindows=main,timeline",
+  # --- THE TWO HOVER TARGETS, each proved to have been RESOLVED BY TEXT rather than
+  # guessed at. The Real Spawn Control line additionally proves the prefix rung fired: an
+  # exact match on that text is impossible, because the live label carries a count.
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction find window=main text=Real Spawn Control \\(\\d+\\) ctrl=\\w+ match=prefix matches=[0-9]+ rect=",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction find window=main text=Timeline ctrl=\\w+ match=\\w+ matches=[0-9]+ rect=",
+  # --- and that the cursor actually landed, twice, with two parks after them ---
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction pointer at=[0-9.-]+,[0-9.-]+ park=false via=",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction pointer at=[0-9.-]+,[0-9.-]+ park=true via=",
+  # --- the state machine moved, which is what makes the three status captures a sequence
+  # rather than three pictures of the same thing.
+  #
+  # `discardtree discarded=true` IS PINNED IN ITS SHARP FORM AND THAT IS DELIBERATE. The
+  # verb's other outcome is `discardtree nothing=true` - there was no tree to discard - and
+  # on a stationary pad craft that is REACHABLE: a recording too short to survive
+  # finalization is dropped by the sub-2-point rule, which is why
+  # `S0.5-live-record-discard` gates on its recordings COUNT and pins no discard line at
+  # all. This lane cannot borrow that looseness, because a dropped recording would ALSO
+  # mean the capture labelled `b1-main-ready-advanced` photographed `Idle` under a label
+  # saying `Ready (has recording)`. So the sharp form is this lane's anti-vacuity pin for
+  # that one picture, and it is safe on its own terms: the recorder is held open across
+  # four captures, a complexity switch and their dumps, which is seconds of physics frames
+  # rather than the two adjacent steps S0.5 drives.
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] startrecording recordingId=.* already=false",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] stoprecording stopped=true idle=false",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] discardtree discarded=true",
+  # --- the negative dialog assertion, taken under a live recorder (see the header) ---
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dialog open=false count=0",
+  # --- one capture, proving the write-and-settle path end to end ---
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] capturescreenshot ok label=b1-main-idle-advanced",
+  # --- every dump, each pinning the arm-time funnel reading for its own frame ---
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=b1-main-idle-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=b1-main-disabledecho-spawncontrol-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=b1-main-tooltip-timeline-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=b1-main-recording-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=b1-main-recording-basic .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=b1-main-ready-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=b1-missions-recordings-live-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=b1-timeline-overview-live-advanced .*patched=17/17",
+]
+# EMPTY, the census host decision, and here it is also the narrower one: this lane drives a
+# recorder on a pad craft, which is `B1-pad-hop`'s subject and is gated there. A layout
+# review is not the place to discover a recorder defect.
+forbidden = []
+
+[runtime]
+# 8 captures and 8 dumps, two in-memory `op=find` captures, four OS-cursor moves, a
+# start/stop/discard recorder cycle and about 30 single-phase UI ops on a two-vessel pad
+# save. The smallest lane in the wave; 900 s is roughly fifteen times a generous estimate
+# against GUI-1's measured 96 s for nearly three times the captures, and stays generous
+# because the PRODUCT is the images and a KILLED run leaves none.
+budgetSeconds = 900
+
+[retry]
+policy = "once"
+
+[expectedFail]
+# EMPTY, like every other committed spec.
+bugId = ""

@@ -577,6 +577,66 @@
         "2026-09-11T05:52:40Z": 57.0
       }
     },
+    "GUI-3-census-logistics-routes": {
+      "last": 80.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 80.0,
+      "p95": 80.0,
+      "samples": {
+        "2026-09-11T15:49:46Z": 80.0
+      }
+    },
+    "GUI-4-census-missions-docked": {
+      "last": 67.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 67.0,
+      "p95": 67.0,
+      "samples": {
+        "2026-09-11T15:52:25Z": 67.0
+      }
+    },
+    "GUI-5-census-career-ksc": {
+      "last": 66.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 66.0,
+      "p95": 66.0,
+      "samples": {
+        "2026-09-11T15:55:04Z": 66.0
+      }
+    },
+    "GUI-6-census-flight-playback": {
+      "last": 74.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 74.0,
+      "p95": 74.0,
+      "samples": {
+        "2026-09-11T15:57:51Z": 74.0
+      }
+    },
+    "GUI-7-census-flight-recording": {
+      "last": 59.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 59.0,
+      "p95": 59.0,
+      "samples": {
+        "2026-09-11T16:00:23Z": 59.0
+      }
+    },
+    "GUI-8-census-empty-states": {
+      "last": 61.0,
+      "lastVsP50": 1.0,
+      "n": 1,
+      "p50": 61.0,
+      "p95": 61.0,
+      "samples": {
+        "2026-09-11T16:02:57Z": 61.0
+      }
+    },
     "H10-finalize-backfill": {
       "last": 56.0,
       "lastVsP50": 1.0,

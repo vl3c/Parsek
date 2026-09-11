@@ -1582,7 +1582,7 @@ they are an artifact of a since-changed writer, the report-only row is the right
 answer for a census host. Either way that reading is an investigation, not a re-run, and
 the census lanes are no longer blocked on it.
 
-## GUI-CENSUS-STRUCTURE-WINDOW-HAS-NO-DRIVEABLE-TARGET: the Structure List window can be opened by the seam but not POPULATED, so the census photographs its empty chrome
+## ~~GUI-CENSUS-STRUCTURE-WINDOW-HAS-NO-DRIVEABLE-TARGET: the Structure List window can be opened by the seam but not POPULATED, so the census photographs its empty chrome~~ [Filed 2026-09-10. CLOSED 2026-09-11 on branch `gui-census-lanes`: the follow-up this entry specified shipped as `UiAction op=target window=structure mission=<...>|route=<...>` on the sibling branch `gui-census-ops` - the ADDITIVE shape named below, calling the two production openers with an id or a display name a spec gives, reporting the row count they produced as `steps=` - and three committed captures now drive it. `GUI-3-census-logistics-routes` takes `ib-structure-route-advanced` and `ib-structure-mission-advanced` (both target modes on one host) and `GUI-4-census-missions-docked` takes `bd-structure-mission-advanced` over a docked tree. GUI-1's thin `ksc-structure-advanced` capture STAYS as it is and is labelled as the empty-chrome form, which is itself a state worth having a picture of. FLOWN 2026-09-11: all three captures exist, on `2026-09-11_1548` (GUI-3) and `2026-09-11_1551` (GUI-4), both PASS attempt 1. The `op=target` echoes carry the row counts the openers produced - `target=route title="Route: KSC -> Mun" steps=4`, `target=mission title="Duna Supply 1" steps=38`, `target=mission title="Kerbal X #2" steps=31` - and each window is titled after its subject in the dump (`Parsek - Route: KSC -> Mun`, `Parsek - Duna Supply 1`, `Parsek - Kerbal X #2`) rather than reading "Nothing to show."]
 
 NOTED 2026-09-10 while authoring the GUI census. `StructureListWindowUI` is retargeted
 through `OpenForMission(treeId, title)` / `OpenForRoute(routeId, title)`, both reached
@@ -1598,6 +1598,68 @@ that window's populated form, is an ADDITIVE `UiAction op=target` (or a `target=
 `op=open`) that calls those two internal methods with an id a spec names - or, cheaper,
 a `${step.field}` handle off a `ListHandles kind=committed` row. Left as a follow-up with
 the shape written down rather than as a silent thin capture.
+
+WHAT SHIPPED (2026-09-11) is the first of those, and it went slightly further than this
+entry asked in one way that matters to a spec author: `mission=` / `route=` resolve on
+THREE rungs - the id itself, the object's display NAME, then the tree's own name - so a
+census spec can name what a reviewer reads off the window while a `${step.field}` chain
+still carries an id. Exactly one selector is accepted; both together is a REJECTED rather
+than a precedence, because the two open different lists and guessing would photograph the
+wrong one under the caller's label.
+
+## GUI-CENSUS-NO-SEAM-PATH-RAISES-A-PARSEK-DIALOG: `op=dialog` shipped as the read-only half, and nothing in the seam can put a modal on screen and leave it standing, so all 21 dialogs are unphotographable
+
+FILED 2026-09-11 while authoring the wave-2 census lanes (branch `gui-census-lanes`).
+Derived from the three verbs' own sources, not from a failed run - a run was not needed,
+and spending one on a sequence that cannot work is exactly what this entry prevents.
+
+THE CLAIM THAT WAS WRONG. `harness/README.md` carried a paragraph beginning "One dialog
+sequence is worth spelling out, because it is the only way to photograph a modal:
+`UiAction op=dialog` -> `CaptureScreenshot` -> `AnswerMergeDialog`". The SHAPE is right and
+nothing in it dismisses a popup between the report and the capture. It has no FIRST STEP:
+
+  * `ExitToSpaceCenter` REFUSES `REJECTED dialog-required
+    variant=<RegularMerge|ReFlyAttempt|SwitchSegmentSession>` rather than driving an exit
+    into an outstanding merge decision. That is its WEDGE GUARD working as designed - a
+    driven exit into that state does not fail, it wedges behind a `ControlTypes.All` lock
+    until the step budget expires - so the one verb that would spawn the tree merge dialog
+    is written specifically never to.
+  * `AnswerMergeDialog` RAISES AND ANSWERS INSIDE ONE COMPLETION PASS:
+    `DriveReFlyConclusion` performs the scene exit and `TryInvokeMergeButton` presses the
+    button, with no frame in between for a capture to stand in. It is additionally
+    `markerLive`-gated (`FindReFlyMergePopup`), so a plain whole-tree merge popup is
+    structurally unmatchable even when one is up.
+  * `SimulateStockSwitchClick` turns all THREE pre-switch dialog cases (Case A armed
+    session, Case B unloaded target, Case C loaded separate committed) into typed
+    REJECTEDs, for the same wedge reason.
+
+CONSEQUENCE FOR THE CENSUS: the `modal dialogs` row of `design-gui-inventory.md` section 2
+stays at **0 of 21** after wave 2, and `op=dialog`'s only honest use on a capture lane is
+the NEGATIVE assertion `uiaction dialog open=false count=0`, which all six wave-2 lanes
+pin - worth having, because a modal nobody expected would sit over every capture after it.
+
+CONFIRMED BY THE READING RUNS, 2026-09-11. All six lanes flew and each one's single
+`op=dialog` step answered `open=false count=0 nbuttons=0 name=- title=- buttons=-` under
+`expect = "OK"`: `_1548` step `0066`, `_1551` step `0061`, `_1553` step `0069`, `_1556`
+step `0060`, `_1559` step `0025`, `_1601` step `0058`. Six data points, one per lane, and
+they are the whole population - no wave-2 step declares `expect = "ERROR"`, so there is no
+dialog reason line anywhere in the wave. Nothing was standing over any of the 79 captures,
+and nothing raised a modal to photograph.
+
+FIX, unchanged from what `design-gui-inventory.md` section 6.2 predicted before the op
+shipped, and both halves are needed:
+
+  1. a SURFACE-ONLY mode on `AnswerMergeDialog` (or a sibling verb) that performs the
+     conclusion drive and STOPS with the popup standing, leaving the button press to a
+     later step, and
+  2. a raise path that does not require a live Re-Fly marker, so the plain whole-tree merge
+     dialog is reachable at all.
+
+Both are seam-side; neither touches the product. The wipe confirmations are a THIRD case
+and cheaper than either: `op=target`'s shipped form covers only the two Structure openers,
+and section 6.2 originally named `ShowWipeRecordingsConfirmation` alongside them - adding
+that one entry point would raise a modal with no scene transition and no lock interaction
+at all, which makes it the obvious first dialog to photograph.
 
 ## GUI-CENSUS-TWO-WINDOWS-EXCEED-THE-INSTANCE-WIDTH: the Missions and Logistics windows are laid out wider than the harness profile's screen, so their census captures leave their right-hand columns off screen
 
@@ -1640,7 +1702,7 @@ prove before a lane relies on it; (3) accept it and read the two windows' right-
 columns from the source. A GUI review of the images is the natural moment to decide, since
 it is the reviewer who finds out whether the off-screen columns mattered.
 
-## GUI-CENSUS-SPAWN-CONTROL-NEEDS-A-CANDIDATE-HOST: the Real Spawn Control window shuts itself on GUI-2's host, so the census has no picture of it [Filed 2026-09-11 off the lane's first flight. Not a defect: the window is doing what it is written to do]
+## ~~GUI-CENSUS-SPAWN-CONTROL-NEEDS-A-CANDIDATE-HOST: the Real Spawn Control window shuts itself on GUI-2's host, so the census has no picture of it~~ [Filed 2026-09-11 off the lane's first flight. Not a defect: the window is doing what it is written to do. CLOSED 2026-09-11 by the picture this entry said was the only thing that closes it - `GUI-6-census-flight-playback` reading run `2026-09-11_1556`, PASS attempt 1, label `play-spawncontrol-advanced` (PNG + a 69-node dump, `windows=3`, `patched=17/17`). The window OPENED and STAYED open: `uiaction open window=spawncontrol open=true already=false`, the describe echo read `w8open=true w8rect=268,8,750,200`, a following `op=rect` answered `270,8,750,300 clamped=false minW=350 minH=150`, and the dump carries the `Parsek - Real Spawn Control` window with ONE candidate row (`Surface Rover Drive / 435m / 7.9 m/s / Y1, D01, 00:01 / T-11s / Warp to Spawn`) beside `Warp to Next Spawn` and `Close`, with the main window's launcher reading `Real Spawn Control (1)`. So the LT-5 recipe below was a reading and not just a candidate, and no `reason=zero-candidates` line was written on that run]
 
 MEASURED, twice, on `2026-09-10_2259` and its attempt 2 `_2300`:
 `uiaction error reason=window-self-closed window=spawncontrol frames=1`, beside the
@@ -1711,6 +1773,83 @@ which surface each expansion PREFIX belongs to (five prefixes across two tabs of
 today) and would refuse the legitimate case of arranging state now and photographing it
 after a later mode switch. Recorded beside `SettleChecksHostShowUi` and in
 `design-autotest-command-seam.md` -> "REVIEW FOLLOW-UPS (2026-09-11)"; no behaviour change.
+
+## GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT: `op=pointer` puts the OS cursor on the resolved control and Unity reads it back there, but IMGUI's hover never fires, so all four census hover captures photograph an un-hovered window [Filed 2026-09-11 off the wave-2 reading runs. The op does what it says; what it cannot do is make IMGUI believe it]
+
+MEASURED on three lanes and four captures, all on the 2026-09-11 reading runs, all PASS.
+The addressing half works and the painting half does not.
+
+WHAT WORKED, read off each run's `KSP.log`:
+
+- `2026-09-11_1548` (GUI-3): `uiaction find window=main text=Logistics ctrl=button
+  match=exact matches=1 rect=18,98,230,21 centre=133,109 searched=8`, then
+  `uiaction pointer moving the OS cursor to client 133,109 (desktop 773,480 via=active);
+  park=false` and the read-back `uiaction pointer at=133,110 park=false via=active
+  frames=1`.
+- `2026-09-11_1553` (GUI-5): `Career` at `rect=18,158,230,21 centre=133,169`, read back
+  `at=133,170`.
+- `2026-09-11_1559` (GUI-7): `Real Spawn Control (0)` at `rect=18,150,230,21
+  centre=133,161` (`match=prefix`), read back `at=133,162`; and `Timeline` at
+  `rect=18,185,230,21 centre=133,196`, read back `at=133,197`.
+
+Every read-back is within 1 px of its target (the `park=true` move to `0,0` reads back
+`at=0,1` the same way), so the cursor is on the control.
+
+WHAT DID NOT PAINT. In all four `.gui.json` captures the `TooltipEchoBox` strip is the
+EMPTY `label` node at the strip rect - `[18,231,230,38]` on GUI-3's and GUI-5's KSC main
+window, `[18,368,230,38]` on GUI-7's flight main window - which is exactly what it reads in
+a capture taken with the pointer parked. Two mechanical checks rather than an eyeball:
+
+- the hover dump's whole `roots` tree hashes IDENTICAL to its non-hover sibling in all four
+  pairs (`ib-main-advanced` / `ib-main-tooltip-logistics-advanced`; `cek-main-advanced` /
+  `cek-main-tooltip-career-advanced`; `b1-main-idle-advanced` against BOTH
+  `b1-main-tooltip-timeline-advanced` and `b1-main-disabledecho-spawncontrol-advanced`);
+- and the PNG region covering the entire Parsek main window is PIXEL-IDENTICAL in all four
+  pairs (no button highlight, no strip text), while the rest of each frame differs as the
+  scene moves on.
+
+So `DisabledHoverEcho` is unpainted for the same reason, not for a second one: GUI-7's
+disabled-echo capture is the same picture as its `b1-main-idle-advanced`, and the greyed
+state it wanted to explain is visible only as the dump's `enabled=False` on the
+`Real Spawn Control (0)` button - the REASON sentence never drew.
+
+WHY IS OPEN, and one obvious explanation is ALREADY IN TENSION WITH THE EVIDENCE. The
+tempting reading is "the game window was not foreground, so Windows routed no `WM_MOUSEMOVE`
+into it" - but `TestCommandUiPointer`'s own contract says an unfocused game does not update
+`Input.mousePosition` and therefore answers `pointer-not-applied`
+(`TestCommandUiPointer.cs:52-56`, `:104-109`), and every move here READ BACK, so by the op's
+own premise the game was sampling input. What is left, and what the evidence actually
+supports, is the difference between a POSITION and an EVENT: `SetCursorPos` is the whole
+mechanism (`ParsekTestCommandAddon.UiPointer.cs:20`, `:166`), it WARPS the cursor rather than
+injecting input, and Unity's per-frame position sample follows a warp while the window's mouse
+EVENT stream does not. IMGUI hover and `GUI.tooltip` are computed while the GUI event pump
+runs, so a warp with no event behind it moves the reported position and hovers nothing. That
+is a hypothesis with a discriminator rather than a measurement: candidate (b) below produces a
+real event and candidate (a) does not, so flying both says which half was missing.
+
+SAME CLASS, one surface over: the ghost map marker LABEL. `MapMarkerRenderer.ShouldDrawLabel
+(sticky, hover) => sticky || hover`, and `play-mapview-ghostmarkers-advanced` has neither
+(cursor parked, no click op to pin), so that capture carries 243 marker ICONS - the log
+counts 243 `[GhostMap] Marker DRAWN` lines, 242 of them `PID-less marker rides its own
+polyline` - and zero marker labels.
+
+Fix, two candidates, BOTH needing a flight to prove and neither worth shipping unproven.
+Candidate (b) is the stronger one on the reasoning above:
+
+- (a) an opt-in `focus = true` arg on `op=pointer` that calls `SetForegroundWindow` on the
+  resolved game hwnd before the move, so the window owns the input queue when the move
+  lands;
+- (b) a `SendInput` RELATIVE mouse move instead of the absolute cursor set, so the window
+  receives a real `WM_MOUSEMOVE` rather than only a new cursor position.
+
+OPERATOR-DESKTOP CAVEAT for both, and it is the reason neither is a default: `op=pointer`
+is already the only op that reaches outside the process, and each candidate reaches
+further - the first STEALS foreground from whatever the operator is doing, the second
+synthesises input at the system level. The caveat every wave-2 spec header already records
+still applies on top (an operator who moves his own mouse during the hover invalidates it,
+and the capture is then a picture of an unhovered control, readable back from `KSP.log`).
+Until one of them is flown, the four hover labels stay as they are - the run ids cite them -
+and the design doc's rows say MEASURED: cursor lands, hover does not paint.
 
 ## ~~GUITREE-INTERCEPTION-LAYER-NEVER-RUN: the GUI-tree dump's Harmony interception of the UnityEngine IMGUI funnels has never executed inside KSP, so four premises the whole design rests on are unmeasured~~ [Filed 2026-09-10 on branch `gui-dump-spike`. CLOSED 2026-09-11 by the GUI census's first flight - runs `2026-09-10_2255` / `_2256` (GUI-1) and `2026-09-10_2259` / `_2300` (GUI-2). The layer RAN, and it ran clean. CONFIRMED UNDER A VERDICT by the two PASS reading runs of 2026-09-11, `2026-09-11_0548` (GUI-1, attempt 1, 96 s) and `2026-09-11_0551` (GUI-2, attempt 1, 57 s): 27 more arms (23 + 4), every one `patched=17/17`, zero `[WARN][GuiTree]` / `[ERROR][GuiTree]` lines, every anomaly counter zero, and the cell's PASS line identical to the pixel (`box=[60,60,320,300] ... declared=[60,60,320,300]`, same `kinds=`, `repaintPasses=5`)]
 

@@ -1,0 +1,342 @@
+schema = 1
+id = "GUI-6-census-flight-playback"
+tier = "operator"
+# THE GUI CENSUS, WAVE 2: THE FLIGHT SCENE WITH GHOSTS PLAYING. GUI-2 took the flight half
+# of the first census on a host whose active vessel was a sub-orbital probe with nothing
+# playing beside it, so every flight-only surface that depends on ACTIVE GHOSTS came out
+# either empty or absent: the main window's status block read `Active Ghosts: 0`, and Real
+# Spawn Control shut itself on its first draw with `reason=zero-candidates`. This lane is
+# the same scene over a corpus that is mid-playback, which is the only way those surfaces
+# exist at all.
+#
+# WHY THIS HOST, and the recipe is INHERITED rather than invented.
+# `LT-5-long-tail-playback-flight` established it and FLEW it green (`2026-09-07_2037`,
+# PASS attempt 1, 72 s): `fixtures/saves/gloops-airshow` with `injectedRecordings =
+# "part-showcase"` (S1.9's 243 showcase recordings, one per part family, all playing from
+# UT 50) and a `TimeJump` to UT 55, so every showcase ghost is spawned and five seconds
+# into playback. It is the suite's ONLY proven active-ghost-at-the-pad host, and LT-5 uses
+# it for exactly that: two in-game categories whose cells read active ghosts and which
+# self-skip everywhere else.
+#
+# THE ONE STEP THAT IS A QUESTION, and the todo entry it answers says so in those words.
+# GUI-CENSUS-SPAWN-CONTROL-NEEDS-A-CANDIDATE-HOST names this recipe as "a candidate and not
+# a reading", because `ParsekFlight.CollectNearbySpawnCandidates` wants more than a playing
+# ghost: an ACTIVE ghost at the run's UT, from a COMMITTED recording whose `EndUT` is still
+# in the future, spawn-eligible per `GhostPlaybackLogic.ShouldSpawnAtRecordingEnd`, not
+# chain-suppressed, within `NearbySpawnListRadius = 1000 m` of the active vessel and under
+# `MaxListRelativeSpeed = 50 m/s` relative to it. The showcase corpus satisfies the first
+# three by construction and nobody has ever measured the last two on it. So
+# `op=open window=spawncontrol` is declared `expect = "OK"` - the outcome this lane is FOR -
+# and the alternative is named here rather than hedged: an `ERROR window-self-closed
+# window=spawncontrol` beside the window's own `[UI] Real Spawn Control auto-close:
+# reason=zero-candidates candidates=0` is the READING the todo entry asks for, not a Parsek
+# defect, and it reds this lane at that step alone. THAT IS WHY THE STEP IS LAST: a
+# driver-INVALID run still harvests every picture taken before it (GUI-1 and GUI-2 both
+# proved that on their first flights), so the other eleven captures land either way.
+#
+# WHAT IT PHOTOGRAPHS (12 PNGs, each with a `<label>.gui.json` dump beside it):
+#   - the main window's FLIGHT STATUS BLOCK with `Active Ghosts` non-zero. Inventory
+#     section 3.1 lists the block's five labels and records that only the `Idle` /
+#     zero-points / zero-ghosts variant has ever been photographed;
+#   - the Gloops Flight Recorder on the fixture it is named after. GUI-2 photographs the
+#     window on a host with nothing recorded; here the same window sits over the airshow
+#     corpus. Its launcher is RETIRED in both modes (`UiSurfaceVisibility.IsRetired`) so no
+#     player can reach it, but the window BODY is never gated and still draws - a GUI review
+#     has to see it to decide whether it is dead weight or a surface to re-offer;
+#   - the Recordings tab IN FLIGHT, which is where its `Watch` column exists at all
+#     (inventory section 6.1's first row: the column is flight-only and GUI-2 never
+#     selected the tab), over 243 rows;
+#   - the Missions tab, the Timeline, both Kerbals tabs and the Career Contracts tab in
+#     FLIGHT. `ParsekFlight.OnGUI` and `ParsekKSC.OnGUI` draw the same classes, so these
+#     are the CHROME-over-a-live-scene forms, which is the diff a reviewer wants against
+#     GUI-4 / GUI-5's KSC captures of the same windows;
+#   - the Career window's SANDBOX-mode banner and empty states (this host is SANDBOX), one
+#     of the four otherwise-dark mode banners section 6.1 lists;
+#   - the MAP VIEW with ghost map markers, through the M-A7 `EnterMapView` verb. Section 6.3
+#     records that ghost map markers in either scene need "the existing EnterMapView verb
+#     plus a full-screen capture", and `CaptureScreenshot` grabs the framebuffer, so this is
+#     that pair;
+#   - the WATCH MODE overlay box (300x50 pinned, inventory section 7), which exists only
+#     while `EnterWatchMode` holds a ghost.
+#
+# `EnterWatchMode` IS THE SECOND QUESTION, and it is placed second-to-last for the same
+# reason. It takes no args here deliberately: the verb picks a watchable ghost itself and
+# REJECTs `no-watchable-ghost` with a `candidates=[i ghost=T body=T range=F]` diagnostic
+# when there is none, which is a far more useful failure than a wrong index because it
+# prints what WAS available. RF-8's reading run shows the range term is the one that bites.
+#
+# `op=open window=main` FIRST IS A PRECONDITION (the settle for a non-`main` `open` /
+# `rect` refuses while the host's `showUI` is false). NOTE THE ABSENT `scene=` ARG: this
+# host's `activeVessel` is focusable, so `LoadGame`'s DEFAULT route boots straight into
+# FLIGHT, which is the whole point of the lane.
+#
+# AUTO-RECORD IS TURNED OFF EXPLICITLY. This lane takes pictures; a recorder started under
+# it would write a tree into the produced save and change the very Recordings table being
+# photographed between the two tab captures.
+#
+# THE ANALYZER ROW IS LEFT GATING. This is a COMMITTED fixture flown green by more than
+# fifty committed lanes, so there is nothing to exempt and `ANALYZER_REPORT_ONLY_ALLOWLIST`
+# stays as it is.
+#
+# WHAT THIS LANE CANNOT PHOTOGRAPH:
+#   - the STICKY ghost marker popup. Section 6.3 records that it "additionally needs a
+#     synthesised right-click on a marker", and `op=pointer` MOVES the cursor without
+#     clicking - there is no click op in the family. The plain marker labels are in the map
+#     capture; the popup is not. MEASURED 2026-09-11: neither IS in the capture. The map frame
+#     carries 243 marker ICONS (the log counts 243 `[GhostMap] Marker DRAWN` lines, 242 of
+#     them `PID-less marker rides its own polyline`) and NO label text, because
+#     `MapMarkerRenderer.ShouldDrawLabel(sticky, hover) => sticky || hover` and the capture
+#     had neither - the cursor was parked at the client corner and there is no click op.
+#   - any `PopupDialog`. All 21 stay dark for the structural reason GUI-3's header sets out;
+#     this lane asserts the NEGATIVE through one `op=dialog` step.
+#   - the Tracking Station scene. `LoadGame scene=trackstation` would reach it, but
+#     `ParsekTrackingStation.OnGUI` draws MARKERS ONLY and hosts no Parsek window, so every
+#     `UiAction` there is a `REJECTED ui-host-unavailable` by design - which means a TS lane
+#     could take a full-screen PNG and nothing else, and cannot even open `main` to make the
+#     surface visible. Section 6.1's TS row calls for "a driver branch that skips the
+#     `op=rect` it currently sequences before every label"; that branch does not exist, so
+#     the TS capture is left unrouted rather than faked.
+#
+# FLOWN 2026-09-11: reading run `2026-09-11_1556`, PASS on attempt 1, 74 s wall, all 70 steps
+# met, 12 PNGs + 12 dumps (every dump `patched=17/17`), every verifier PASS or REPORT,
+# `expectations mismatches=0` including the 243-recording floor. Every
+# `[expectations.logContracts]` line is one of this lane's OWN seam records, plus the two
+# inherited host facts LT-5 already pins (the corpus size is asserted through
+# `[expectations.recordings]` instead, where it belongs).
+#
+# THE STEP THAT WAS A QUESTION ANSWERED THE WAY THE LANE WANTED, and that is the one measured
+# fact this lane exists for: REAL SPAWN CONTROL OPENED AND HELD. `uiaction open
+# window=spawncontrol open=true already=false`, describe `w8open=true w8rect=268,8,750,200`,
+# `op=rect` answering `270,8,750,300 clamped=false minW=350 minH=150`, and a 69-node dump whose
+# `Parsek - Real Spawn Control` window carries ONE candidate row (`Surface Rover Drive / 435m /
+# 7.9 m/s / Y1, D01, 00:01 / T-11s / Warp to Spawn`) under a launcher reading `Real Spawn
+# Control (1)`. No `reason=zero-candidates` line was written, so
+# GUI-CENSUS-SPAWN-CONTROL-NEEDS-A-CANDIDATE-HOST is CLOSED by this run rather than re-read.
+#
+# THE OTHER MEASURED FACTS: `EnterWatchMode` picked its own ghost
+# (`index=0 recId=1c8931164f2d47eab3844b8d1249ea96 watching=true`) and the WATCH OVERLAY drew -
+# and it turned out to be in the CONTROL TREE as well as the PNG, as two root-level labels
+# (`Watching: Part Showcase - Lights v1  (295 m) [Horizon]` at `rect=[170,15,300,22]`, `[ ]
+# return  |  V camera  |  W cycle` at `[170,37,300,18]`), because the recorder patches
+# `GUI.DoLabel` and not only `GUI.DoWindow`; the flight status block read `Active Ghosts: 156`
+# early and 243 later; the Recordings tab's flight-only `Watch` column drew with its `G` / `W`
+# buttons over `Part Showcases (242)` + `Synthetic (1)`; the Missions tab came in at 11248
+# nodes and the Timeline at 2028; the SANDBOX banner read `Sandbox mode - career state is not
+# tracked`; and `op=dialog` answered `open=false count=0`.
+#
+# WHAT DID NOT DRAW: the IN-WORLD GHOST LABELS. Zero `SpawnWarningUI` producers fired on this
+# flight (no `spawn abandoned` / `spawn blocked` / `chain terminated` line anywhere in the
+# log) and no root-level label other than the watch overlay's two appears in any dump. The
+# inventory's 6.1 row named this lane for that surface; it is corrected there, and the picture
+# needs a host where a ghost's spawn is actually abandoned or blocked.
+description = "GUI census wave 2, the flight scene mid-playback: photograph the main window's flight status with active ghosts, the Gloops recorder, the flight-only Watch column on the Recordings tab, the shared windows over a live scene, the sandbox Career banner, the map view with ghost markers, the watch-mode overlay and Real Spawn Control over the 243-ghost part-showcase corpus."
+instanceProfile = "stock-minimal"
+tags = ["gui-census", "screenshots", "ui", "playback", "GUI-6", "pending-operator"]
+
+[fixture]
+saveTemplate = "fixtures/saves/gloops-airshow"
+injectedRecordings = "part-showcase"
+craft = []
+
+[driver]
+kind = "seam"
+steps = [
+  # No `scene=`: the focusable activeVessel takes the default FLIGHT route.
+  { cmd = "LoadGame",   args = { save = "${runSave}", name = "persistent" }, expect = "OK", budget = 300 },
+  { cmd = "SetSetting", args = { name = "verboseLogging", value = "true" }, expect = "OK" },
+  # A recorder started under a capture lane would write a tree into the produced save and
+  # move the Recordings table between two captures of it.
+  { cmd = "SetSetting", args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  # THE WHOLE HOST RECIPE, inherited verbatim from LT-5: the showcase recordings start at
+  # UT 50, so at 55 every showcase ghost is spawned and five seconds into playback.
+  { cmd = "TimeJump",   args = { ut = "55" }, expect = "OK", budget = 120 },
+
+  # --- Advanced pass ---
+  { cmd = "UiAction", args = { op = "complexity", mode = "advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "open", window = "main" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "main", x = "8", y = "8", w = "250", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  # THE FLIGHT STATUS BLOCK WITH GHOSTS IN IT. Inventory section 3.1: only the Idle /
+  # zero-points / zero-ghosts variant of `DrawFlightStatus` has ever been photographed.
+  { cmd = "CaptureScreenshot", args = { label = "play-main-ghosts-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "play-main-ghosts-advanced" }, expect = "OK" },
+
+  # Gloops Flight Recorder - flight-only AND launcher-retired, on the fixture it is named
+  # after. It has no resize handle, so `op=rect` clamps nothing here (`min=-`).
+  { cmd = "UiAction", args = { op = "open", window = "gloops" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "gloops", x = "270", y = "8", w = "340", h = "300" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "play-gloops-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "play-gloops-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "gloops" }, expect = "OK" },
+
+  # --- the Missions window IN FLIGHT, Recordings tab first ---
+  # The Recordings tab's `Watch` column is FLIGHT-ONLY, and GUI-2 never selected the tab -
+  # inventory section 6.1's first row. 243 injected rows under it.
+  { cmd = "UiAction", args = { op = "open", window = "missions" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "missions", x = "0", y = "8", w = "1355", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "missions", tab = "recordings" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "play-missions-recordings-flight-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "play-missions-recordings-flight-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "missions", tab = "missions" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "play-missions-missions-flight-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "play-missions-missions-flight-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "missions" }, expect = "OK" },
+
+  # --- Timeline in FLIGHT (inventory section 6.1: "Timeline in FLIGHT (any view)") ---
+  { cmd = "UiAction", args = { op = "open", window = "timeline" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "timeline", x = "270", y = "8", w = "1000", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "timeline", tab = "overview" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "play-timeline-overview-flight-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "play-timeline-overview-flight-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "timeline" }, expect = "OK" },
+
+  # --- Kerbals and Career in FLIGHT (both are section 6.1 rows) ---
+  { cmd = "UiAction", args = { op = "open", window = "kerbals" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "kerbals", x = "270", y = "8", w = "1000", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "kerbals", tab = "roster" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "play-kerbals-roster-flight-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "play-kerbals-roster-flight-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "kerbals", tab = "outcomes" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "play-kerbals-outcomes-flight-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "play-kerbals-outcomes-flight-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "kerbals" }, expect = "OK" },
+
+  # The SANDBOX-mode banner and empty state, which no career host can show.
+  { cmd = "UiAction", args = { op = "open", window = "career" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "career", x = "270", y = "8", w = "1000", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "tab", window = "career", tab = "contracts" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "play-career-contracts-sandbox-flight-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "play-career-contracts-sandbox-flight-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "career" }, expect = "OK" },
+
+  # --- the MAP VIEW, with ghost markers (inventory section 6.3) ---
+  # `CaptureScreenshot` grabs the framebuffer, so the marker layer lands in the PNG; the
+  # dump beside it carries the IMGUI half (the marker draw is IMGUI, the orbit lines are
+  # not). `EnterMapView` / `ExitMapView` are single-phase - stock assigns
+  # `MapView.MapIsEnabled` inside the call - and take no args.
+  { cmd = "EnterMapView", expect = "OK", budget = 120 },
+  { cmd = "CaptureScreenshot", args = { label = "play-mapview-ghostmarkers-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "play-mapview-ghostmarkers-advanced" }, expect = "OK" },
+  { cmd = "ExitMapView", expect = "OK", budget = 120 },
+
+  # --- Basic pass, taken BEFORE the two speculative steps so its picture is clean ---
+  # Basic drops the Real Spawn Control, Kerbals and Career launchers, so the two flight
+  # main-window captures side by side are the mode diff over a live scene.
+  { cmd = "UiAction", args = { op = "complexity", mode = "basic" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "play-main-ghosts-basic" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "play-main-ghosts-basic" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "complexity", mode = "advanced" }, expect = "OK" },
+
+  # The negative dialog assertion: no Parsek modal stands over this census.
+  { cmd = "UiAction", args = { op = "dialog" }, expect = "OK" },
+
+  # --- QUESTION 1: the watch-mode overlay (see the header) ---
+  # No args deliberately: the verb picks a watchable ghost itself and its refusal prints
+  # the candidate table with the three terms (`ghost=`, `body=`, `range=`) separated, which
+  # is what a wrong index would not.
+  { cmd = "EnterWatchMode", expect = "OK", budget = 120 },
+  { cmd = "CaptureScreenshot", args = { label = "play-main-watchmode-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "play-main-watchmode-advanced" }, expect = "OK" },
+
+  # --- QUESTION 2, and the one this lane exists to answer: Real Spawn Control ---
+  # GUI-CENSUS-SPAWN-CONTROL-NEEDS-A-CANDIDATE-HOST. LAST, because an `ERROR
+  # window-self-closed` here is the reading the todo entry asks for and every capture above
+  # is already on disk when it lands.
+  { cmd = "UiAction", args = { op = "open", window = "spawncontrol" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "spawncontrol", x = "270", y = "8", w = "750", h = "300" }, expect = "OK" },
+  { cmd = "CaptureScreenshot", args = { label = "play-spawncontrol-advanced" }, expect = "OK" },
+  { cmd = "DumpGuiTree", args = { label = "play-spawncontrol-advanced" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "close", window = "spawncontrol" }, expect = "OK" },
+
+  { cmd = "FlushAndQuit", expect = "OK" },
+]
+
+[dimensionsCovered]
+# BASICS ONLY, the GUI-3 discipline: this lane observes LAYOUT over a playing corpus. It
+# spawns nothing, records nothing and converts nothing, so no D6 playback value is claimed
+# here even though 243 ghosts are on screen - `LT-5` and `S1.9-part-showcase-render` are the
+# lanes that claim on this same host. `scene-map` IS claimed: `EnterMapView` drives the real
+# transition and the capture beside it is the observation.
+D14 = ["sandbox", "scene-flight", "scene-map"]
+
+[expectations]
+allowedAnomalies = []
+
+[expectations.recordings]
+# The injected showcase corpus, unchanged, and the anti-vacuity floor for every claim in
+# this header: a run with no corpus has no ghosts, and a main-window capture labelled
+# `play-main-ghosts-advanced` over an empty scene is the exact false reading the two-phase
+# settle exists to prevent elsewhere. LT-5 and S1.9 pin the same 243.
+count = { min = 243, max = 243 }
+
+[expectations.logContracts]
+# This lane's OWN seam records, plus the two host facts that make the captures mean what
+# their labels say (the clock landed where the recipe wants it, and the map really opened).
+required = [
+  # --- the host recipe: the jump landed at the UT the showcase corpus is playing at.
+  # `reachedUT` is a class rather than a literal because the clock settles on a physics
+  # frame boundary, but the DECADE is the claim: the showcase recordings start at UT 50,
+  # so a run that landed outside 50..59 photographed something other than mid-playback.
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] timejump start target=55 ",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] timejump complete reachedUT=5[0-9]",
+  # --- describe echoes, in step order. `scene=FLIGHT` on every one is the load-bearing
+  # half: it proves the census really ran in flight rather than in a scene that settled
+  # somewhere else, which is exactly the surprise the B10 defect was.
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=11 open=1 openWindows=main",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=11 open=2 openWindows=main,gloops",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=11 open=2 openWindows=main,missions",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=11 open=2 openWindows=main,timeline",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=11 open=2 openWindows=main,kerbals",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=11 open=2 openWindows=main,career",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=basic windows=11 open=1 openWindows=main",
+  # --- THE TWO FLIGHT-ONLY WINDOWS, which appear in no other committed lane's log except
+  # GUI-2's (and `spawncontrol` there only as a refusal). This is the line that says Real
+  # Spawn Control DREW on this host, which is the whole question the lane asks.
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=FLIGHT complexity=advanced windows=11 open=2 openWindows=main,spawncontrol",
+  # --- the negative dialog assertion (see the header) ---
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction dialog open=false count=0",
+  # --- one capture, proving the write-and-settle path end to end ---
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] capturescreenshot ok label=play-main-ghosts-advanced",
+  # --- every dump, each pinning the arm-time funnel reading for its own frame ---
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=play-main-ghosts-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=play-gloops-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=play-missions-recordings-flight-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=play-missions-missions-flight-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=play-timeline-overview-flight-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=play-kerbals-roster-flight-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=play-kerbals-outcomes-flight-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=play-career-contracts-sandbox-flight-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=play-mapview-ghostmarkers-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=play-main-ghosts-basic .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=play-main-watchmode-advanced .*patched=17/17",
+  "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=play-spawncontrol-advanced .*patched=17/17",
+]
+# EMPTY, the census host decision: a 243-recording injected corpus's load surface is not
+# what a LAYOUT review controls or observes, and it is gated where it is attributable
+# (`LT-5`, `S1.9-part-showcase-render`, and the forty-odd other lanes on this host).
+forbidden = []
+
+[runtime]
+# 12 captures and 12 dumps, a TimeJump, a map-view round trip, a watch-mode entry and about
+# 45 single-phase UI ops, over a corpus of 243 injected recordings whose ghosts are all
+# playing. LT-5 measured the same host and the same jump at 72 s wall for a two-category
+# in-game batch; GUI-1 measured 22 captures plus 22 dumps at 96 s. 1200 s is roughly ten
+# times a generous sum of the two, and stays generous because the PRODUCT is the images.
+budgetSeconds = 1200
+
+[retry]
+policy = "once"
+
+[expectedFail]
+# EMPTY, like every other committed spec. The two speculative steps are declared with the
+# outcome this lane is FOR (`expect = "OK"`) and their alternative readings are named in
+# the header - a quarantine would short-circuit the verifier chain and skip the very log
+# contracts above.
+bugId = ""
