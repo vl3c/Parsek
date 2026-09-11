@@ -930,6 +930,15 @@ namespace Parsek
             // One-shot diagnostic log of the runtime GUI skin margins — dictates
             // exactly how much space each cell leaks or collapses in the layout.
             var colHdrStyle = parentUI.GetColumnHeaderStyle();
+            // The scrollbar terms are what the pinned table headers reserve out of
+            // (GUI-TABLE-HEADERS-OFFSET-FROM-CELLS): a scroll view spends
+            // fixedWidth + margin.left on the bar, not fixedWidth alone. Described
+            // defensively so a skin without the style cannot throw out of a draw.
+            var vScroll = GUI.skin.verticalScrollbar;
+            string vScrollDesc = vScroll == null
+                ? "vScroll=absent"
+                : $"vScroll.fixedWidth={vScroll.fixedWidth.ToString("0.##", CultureInfo.InvariantCulture)}"
+                  + $" vScroll.margin=L{vScroll.margin.left}/R{vScroll.margin.right}";
             ParsekLog.Verbose("UI",
                 $"Rec table skin margins: box=L{GUI.skin.box.margin.left}/R{GUI.skin.box.margin.right}/T{GUI.skin.box.margin.top}/B{GUI.skin.box.margin.bottom} " +
                 $"pad=L{GUI.skin.box.padding.left}/R{GUI.skin.box.padding.right} " +
@@ -937,7 +946,10 @@ namespace Parsek
                 $"label.margin=L{GUI.skin.label.margin.left}/R{GUI.skin.label.margin.right} " +
                 $"toggle.margin=L{GUI.skin.toggle.margin.left}/R{GUI.skin.toggle.margin.right} " +
                 $"textField.margin=L{GUI.skin.textField.margin.left}/R{GUI.skin.textField.margin.right} " +
-                $"colHdr.margin=L{colHdrStyle.margin.left}/R{colHdrStyle.margin.right}/T{colHdrStyle.margin.top}/B{colHdrStyle.margin.bottom}");
+                $"colHdr.margin=L{colHdrStyle.margin.left}/R{colHdrStyle.margin.right}/T{colHdrStyle.margin.top}/B{colHdrStyle.margin.bottom} " +
+                vScrollDesc + " " +
+                $"vScroll.footprint={ParsekUI.VerticalScrollbarFootprintWidth().ToString("0.##", CultureInfo.InvariantCulture)} " +
+                $"tableHeaderGutter={ParsekUI.VerticalScrollbarGutterWidth().ToString("0.##", CultureInfo.InvariantCulture)}");
 
             // Arm one-shot alignment capture so the next header+row draw dumps actual rects.
             ArmAlignmentDebug();
@@ -1518,14 +1530,15 @@ namespace Parsek
                 ParsekLog.Info("UI", $"Hide active toggled: {GroupHierarchyStore.HideActive}");
             }
 
-            // Reserve the vertical-scrollbar column so the fixed header's right edge
-            // aligns with the row cells' right edges (the scroll view always shows a
-            // vertical scrollbar, which claims a fixed-width strip on the right).
-            float scrollbarWidth = GUI.skin.verticalScrollbar != null
-                ? GUI.skin.verticalScrollbar.fixedWidth
-                : 16f;
-            if (scrollbarWidth <= 0f) scrollbarWidth = 16f;
-            GUILayout.Space(scrollbarWidth);
+            // Reserve the vertical-scrollbar gutter so the fixed header's right edge
+            // aligns with the row cells' right edges: the scroll view claims a strip on
+            // the right, and the body's list-area box spends a cell margin of its own.
+            // One shared derivation (ParsekUI.VerticalScrollbarGutterWidth) so this
+            // header cannot drift from the pinned-header tables. Reserving only
+            // fixedWidth left this header 5px too wide: the 2026-09-11 census
+            // (bd-missions-recordings-expanded-advanced) put header cells at 1330 and
+            // row cells at 1325.
+            GUILayout.Space(ParsekUI.VerticalScrollbarGutterWidth());
 
             GUILayout.EndHorizontal();
 

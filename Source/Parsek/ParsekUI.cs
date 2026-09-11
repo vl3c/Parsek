@@ -1470,20 +1470,81 @@ namespace Parsek
         // and padding are left at the skin's 4px so row pitch is unchanged.
         internal const int TableRowHorizontalInsetPx = 0;
 
-        // Fallback when GUI.skin.verticalScrollbar is unavailable (same literal
-        // StructureListWindowUI used before it moved here).
-        internal const float DefaultVerticalScrollbarWidth = 16f;
+        // Fallback footprint when GUI.skin.verticalScrollbar is unavailable: KSP's
+        // 15px bar plus its 1px left margin, as measured by the 2026-09-11 census
+        // (run 2026-09-11_1706_GUI-6-census-flight-playback).
+        internal const float DefaultVerticalScrollbarFootprintWidth = 16f;
+
+        // Fallback cell margin when GUI.skin.label is unavailable. KSP's skin reports
+        // box/label/button/toggle/textField margin = L4/R4 (logged once per draw by
+        // RecordingsTableUI as "Rec table skin margins", which also prints the
+        // scrollbar terms and the derived gutter below).
+        internal const int DefaultTableCellHorizontalMarginPx = 4;
+
+        /// <summary>
+        /// Width a forced vertical scrollbar actually costs the CONTENT of the scroll
+        /// view it belongs to - the bar's own <c>fixedWidth</c> PLUS its left margin,
+        /// not <c>fixedWidth</c> alone. Decompiled <c>GUIScrollGroup.SetHorizontal</c>
+        /// (UnityEngine.IMGUIModule, KSP 1.12.5) lays the content group out at
+        /// <c>width - verticalScrollbar.fixedWidth - verticalScrollbar.margin.left</c>.
+        /// KSP's skin: fixedWidth 15 + margin.left 1 = 16, which is exactly the
+        /// outer-vs-inner width step the 2026-09-11 census measured (Real Spawn
+        /// Control 730 -> 714, Structure 980 -> 964) against a bar whose own rect is
+        /// 15 wide - reserving <c>fixedWidth</c> alone is 1px short before anything
+        /// else is counted.
+        /// </summary>
+        internal static float VerticalScrollbarFootprintWidth()
+        {
+            if (GUI.skin == null || GUI.skin.verticalScrollbar == null)
+                return DefaultVerticalScrollbarFootprintWidth;
+
+            float w = GUI.skin.verticalScrollbar.fixedWidth;
+            if (w <= 0f) return DefaultVerticalScrollbarFootprintWidth;
+            return w + GUI.skin.verticalScrollbar.margin.left;
+        }
+
+        /// <summary>
+        /// The horizontal margin one table cell carries on each side (4 in KSP's skin
+        /// for every cell style these tables use).
+        /// </summary>
+        internal static int TableCellHorizontalMarginPx()
+        {
+            if (GUI.skin == null || GUI.skin.label == null)
+                return DefaultTableCellHorizontalMarginPx;
+
+            int m = GUI.skin.label.margin.right;
+            return m > 0 ? m : DefaultTableCellHorizontalMarginPx;
+        }
 
         /// <summary>
         /// Width of the vertical-scrollbar gutter a table header must reserve when
-        /// it is pinned OUTSIDE a body scroll view that forces a vertical bar.
+        /// it is pinned OUTSIDE a body scroll view that forces a vertical bar:
+        /// <see cref="VerticalScrollbarFootprintWidth"/> PLUS one
+        /// <see cref="TableCellHorizontalMarginPx"/> (20 in KSP's skin).
+        ///
+        /// <para><b>Why the extra cell margin.</b> Decompiled
+        /// <c>GUILayoutGroup.SetHorizontal</c> reduces a styled group's content width by
+        /// <c>max(style.padding.right, lastChild.margin.right)</c> - a MAX, not a sum.
+        /// A body row carries no right padding, so its content already ends one cell
+        /// margin inside its group; a header's reserved padding REPLACES that margin
+        /// rather than adding to it, so the padding has to cover both terms. The same
+        /// number is right for the Recordings tab, which reserves the gutter as a
+        /// trailing <c>GUILayout.Space</c> instead: a Space entry carries
+        /// <c>GUIStyle.none</c>, so it is not considered for margin and consumes exactly
+        /// its width at the group's right edge, and that body loses its own 4px to the
+        /// list-area box's <c>padding.right</c>. The Missions tab's box spends no such
+        /// padding, so it owes the bare footprint and is deliberately NOT routed here
+        /// (GUI-MISSIONS-WINDOW-MERGED-FIRST-HEADER-CELL).</para>
+        ///
+        /// <para>The 5px the 2026-09-11 re-flight measured after PR #1679 (Real Spawn
+        /// Control header Craft 139 vs row 134, cells 1..5 five px left of their
+        /// headers) is exactly those two terms the old reservation missed: 1px of
+        /// scrollbar margin the footprint adds, and the 4px cell margin the max()
+        /// replaces.</para>
         /// </summary>
         internal static float VerticalScrollbarGutterWidth()
         {
-            float w = GUI.skin != null && GUI.skin.verticalScrollbar != null
-                ? GUI.skin.verticalScrollbar.fixedWidth
-                : DefaultVerticalScrollbarWidth;
-            return w > 0f ? w : DefaultVerticalScrollbarWidth;
+            return VerticalScrollbarFootprintWidth() + TableCellHorizontalMarginPx();
         }
 
         private void EnsureSharedHeaderStyles()
@@ -1520,10 +1581,12 @@ namespace Parsek
             };
 
             // Header variant: the same left inset, plus a right padding equal to the
-            // vertical scrollbar the body's scroll view claims, so the expanding column
-            // is as wide here as in the body. Reserved as the row's own padding rather
-            // than a trailing GUILayout.Space at each call site, so a pinned header
-            // cannot reserve a width the scroll view does not actually claim.
+            // gutter a pinned header owes its body (the scroll view's real scrollbar
+            // footprint PLUS the one cell margin this padding replaces - see
+            // VerticalScrollbarGutterWidth), so the expanding column is as wide here as
+            // in the body. Reserved as the row's own padding rather than a trailing
+            // GUILayout.Space at each call site, so a pinned header cannot reserve a
+            // width the scroll view does not actually claim.
             sharedTableHeaderRowStyle = new GUIStyle(sharedTableRowStyle)
             {
                 padding = new RectOffset(

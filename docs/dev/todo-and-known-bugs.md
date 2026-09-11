@@ -141,7 +141,7 @@ entry below is one line of that split. Struck entries were fixed in this batch, 
 evidence that found them; open entries carry the proposed fix and, where the triage said
 so, a `Decision:` naming what the operator must choose.
 
-## ~~GUI-TABLE-HEADERS-OFFSET-FROM-CELLS~~: every table window except Supply Routes drew its body rows from a different left origin than its column headers [FILED + FIXED 2026-09-11 off the GUI census rect dumps]
+## ~~GUI-TABLE-HEADERS-OFFSET-FROM-CELLS~~: every table window except Supply Routes drew its body rows from a different left origin than its column headers [FILED + FIXED 2026-09-11 off the GUI census rect dumps; reserved gutter corrected and the whole fix CONFIRMED at zero delta by the re-flights 2026-09-11_1727 / _1729 / _1731]
 
 **Evidence (measured, not read).** A script over all 106 committed `.gui.json` dumps
 (`harness/results/2026-09-11_*_shots/`, `2026-09-11_05*_shots/`) paired every box-styled
@@ -185,38 +185,105 @@ reserved gutter is always actually taken), `UI/CareerStateWindowUI.cs` (all four
 header and row methods, all eight body boxes, and `GetTableSectionHeaderStyle()` for the
 section bars so they span the table they label) and `UI/StructureListWindowUI.cs` (header +
 rows; its manual `GUILayout.Space(scrollbarWidth)` gutter is gone). Guarded by
-`TableRowInsetAlignmentTests` (six cells, each mutation-proven): the header and row methods
+`TableRowInsetAlignmentTests` (nine cells, each mutation-proven): the header and row methods
 of every fixed table declare the same ordered column-width constants and the same expanding
 column count, both open with the shared container, the body boxes cannot go back to
 `GUI.skin.box`, pinned-header tables force the vertical scrollbar, the two shared
-containers share one left inset constant, and Logistics keeps its header inside its bubble.
-Sizing rule recorded in `docs/dev/design-gui-inventory.md` section 7. The Missions window is
-deliberately untouched - see GUI-MISSIONS-WINDOW-MERGED-FIRST-HEADER-CELL below.
+containers share one left inset constant, the gutter is derived from the skin's own
+scrollbar terms rather than a literal, the Recordings tab routes through that derivation,
+the header-vs-body content-width arithmetic reproduces the measured numbers, and Logistics
+keeps its header inside its bubble. Sizing rule recorded in
+`docs/dev/design-gui-inventory.md` section 7.
 
-## GUI-MISSIONS-WINDOW-MERGED-FIRST-HEADER-CELL: the Missions window's two tabs are off by 5 px (Recordings) and 1 px (Missions and vessels) for a reason the shared row inset does not reach [FILED 2026-09-11 off the same census dumps. OPEN; needs a flight to verify any fix]
+**Still off after the first fix, and why (re-flight `2026-09-11_1706_GUI-6` /
+`_1703_GUI-5` / `_1709_GUI-4`).** Career State's four tables came back at a clean zero on
+every column - header and cells both at x=284/488/612 - but Real Spawn Control and the
+Structure window still walked their cells 5 px left of their headings, with the expanding
+column 5 px wider in the header (Craft 139 vs 134; Event 383 vs 378). The gutter reserved
+was `verticalScrollbar.fixedWidth`, and two terms were missing from it:
+
+- A scroll view spends `fixedWidth + verticalScrollbar.margin.left` on the bar, not
+  `fixedWidth` - decompiled `GUIScrollGroup.SetHorizontal` lays its content out at
+  `width - fixedWidth - margin.left`. KSP's skin is 15 + 1 = **16**, which is the
+  outer-vs-inner step every dump shows (730 -> 714, 980 -> 964, 1335 -> 1319) against a bar
+  whose own rect is 15 wide. `fixedWidth` alone is 1 px short.
+- `GUILayoutGroup.SetHorizontal` reduces a styled group's content width by
+  `max(style.padding.right, lastChild.margin.right)` - a MAX, not a sum. The body row has no
+  right padding, so its content already ends one 4 px cell margin inside its group; the
+  header's reserved padding REPLACES that margin instead of adding to it, so it owes the
+  **4** as well.
+
+**Gutter fix (shipped, confirmed by flight).** `ParsekUI.VerticalScrollbarFootprintWidth()`
+(`fixedWidth + margin.left`) + `TableCellHorizontalMarginPx()` (`GUI.skin.label.margin.right`),
+combined by `VerticalScrollbarGutterWidth()` = 20; fallbacks
+`DefaultVerticalScrollbarFootprintWidth` 16 / `DefaultTableCellHorizontalMarginPx` 4 pin the
+measured values for a skin without the style. The `Rec table skin margins` line now prints
+`vScroll.fixedWidth` / `vScroll.margin` / `vScroll.footprint` / `tableHeaderGutter`, so the
+next census reads the numbers instead of deriving them; the confirming run logged
+`vScroll.fixedWidth=15 vScroll.margin=L1/R4 vScroll.footprint=16 tableHeaderGutter=20`. The
+Recordings tab's `GUILayout.Space` gutter routes through the same derivation (its body box
+spends the same 4 px `padding.right`); the Missions tab does NOT - see
+GUI-MISSIONS-WINDOW-MERGED-FIRST-HEADER-CELL below.
+
+**Confirmed on the shipped DLL** (runs `2026-09-11_1727_GUI-6-census-flight-playback`,
+`2026-09-11_1729_GUI-4-census-missions-docked` and
+`2026-09-11_1731_GUI-5-census-career-ksc`, all PASS; deployed automation DLL sha256
+`c54c7c2d6b750a17610789bff9d29a5b21f07bffedb43829a5da7be3eb492355`, re-grepped for
+`VerticalScrollbarFootprintWidth` / `TableCellHorizontalMarginPx` / `tableHeaderGutter=`, and
+`DefaultVerticalScrollbarWidth` confirmed absent). Two comment-only edits landed after that
+build, so the committed DLL re-hashes differently; `ilspycmd -il` over both files is
+byte-identical across the WHOLE assembly, which is the check that matters here - the flights
+ran this commit's code.
+Per-column header-vs-first-row delta, x and width:
+
+| window / table | before (#1679) | after |
+|---|---|---|
+| Real Spawn Control | Craft `dw=-5`, cols 1-6 `dx=-5` (header 139 vs row 134) | **dx=0, dw=0 on all 7 columns** (134/134, 422, 481, 555, 659, 758, 872) |
+| Structure window | Event `dw=-5`, cols 3-5 `dx=-5` (header 383 vs row 378) | **dx=0, dw=0 on all 6 columns** (378/378, 812, 911, 1100) |
+| Career State, Facilities | 0 already | **still 0** (284/200, 488/120, 612/180 in both halves) |
+| Career State, Milestones | 0 already | **still 0** (284/90, 378/200, 582/320, 906/70 in both halves) |
+| Career State, Contracts / Strategies | 0 already | header unchanged (284/528/622/716); neither tab had a populated row in this save, as in the first census |
+| Missions win, Recordings tab | data cols `dx=-5` | **dx=0, dw=0 on cols 2-12** (355, 449, 543, 657, 741, 865, 929, 993, 1087, 1151, 1245); Name header 76/275 vs row 77/274 is the merged-cell 1 px |
+| Missions win, Missions tab | data cols `dx=-1` | unchanged at `dx=-1` (596 vs 595) - deliberately not routed through the shared gutter |
+| Logistics | 0 by construction | untouched (no helper call) |
+
+## GUI-MISSIONS-WINDOW-MERGED-FIRST-HEADER-CELL: the Missions window's merged first header cell leaves the Name column 1 px off in both tabs [FILED 2026-09-11 off the census dumps; the Recordings tab's -5 on the data columns turned out to be the gutter and is FIXED + confirmed by run 2026-09-11_1729. OPEN for the 1 px residual; needs a flight to verify any fix]
 
 **Evidence.** The last two rows of the table in
-GUI-TABLE-HEADERS-OFFSET-FROM-CELLS above. Both tabs already avoid the box inset
-(`RecordingsTableUI.tableBodyBoxStyle` / `MissionsWindowUI.tableBodyBoxStyle` zero it) and
-both already reserve the scrollbar gutter, so the residual is not the inset that entry fixed.
+GUI-TABLE-HEADERS-OFFSET-FROM-CELLS above.
 
-**Cause.** The first header cell is ONE merged `Width(62)` container
-(`colHdrCellContainerStyle`, holding the select-all toggle and the `#` sort button); the body
-draws the toggle and the index as two free cells. Their INNER positions match exactly (14 /
-38 in the Recordings tab), but the merged cell's footprint is 62 px while the body's leading
-pair occupies 58, so the Name column starts 1 px late and, being the expanding column, ends 6
-px short - which walks every column right of it 5 px left. The Missions tab differs again:
-its rows start at the body box's origin rather than 4 px in, so its leading pair reads -4 and
-its Name column -8 while the data columns land within 1 px.
+**Cause, corrected.** The original reading credited the whole residual to the merged first
+header cell. Re-measuring the same dumps against the decompiled layout rules showed the
+Recordings tab's -5 was the GUTTER instead: its header reserved `fixedWidth` (15) where the
+scroll view plus its body box spend 20, so the expanding Name column ran 5 px long and walked
+every column right of it. That is fixed with the shared derivation (see the entry above) and
+the Recordings tab's data columns now land on their headings.
+
+What is left is genuinely the merged cell, and it is smaller than filed: the first header cell
+is ONE merged `Width(62)` container (`colHdrCellContainerStyle`, holding the select-all toggle
+and the `#` sort button) while the body draws the toggle and the index as two free cells. Their
+INNER positions match exactly (14 / 38), but the merged cell's footprint is 62 px where the
+body's leading pair occupies 54 from 4 px further in, so the Name column starts 1 px late.
+
+The Missions tab is a DIFFERENT residual and must not be pointed at the shared gutter: its body
+box spends no `padding.right` at all (rows measure x=10 width 1319 inside the 1319-wide box,
+against the Recordings tab's x=14 width 1311), so its header owes the bare 16 px footprint, not
+20. Its data columns are 1 px off today; the shared 20 would walk them 4 px the other way.
+Pinned by `TableRowInsetAlignmentTests.TheRecordingsTabGutterRoutesThroughTheSharedDerivation`,
+which asserts the Missions tab is NOT routed through it.
 
 **Fix (proposed, not applied).** Wrap the body rows' leading toggle + index pair in a
 container of the header's merged width, and open every row with
 `ParsekUI.GetTableRowStyle()` so the row's usable width equals the header's. Both tabs' row
 draws are large (group trees, chain blocks, indent handling, the flattened per-vessel row
 model), several row shapes have to move together, and the result cannot be checked without a
-flight that re-runs a census dump - so this is filed rather than guessed at. Verify by
-re-running the GUI-1 / GUI-4 census lanes and re-diffing
-`ksc-missions-recordings-advanced.gui.json` / `ksc-missions-missions-advanced.gui.json`.
+flight that re-runs a census dump - so this is filed rather than guessed at. The Missions tab
+additionally needs its gutter raised from 15 to the bare 16 px footprint (NOT the shared 20),
+or its body box given the 4 px `padding.right` the Recordings tab's has so it can share the
+one derivation - the second is the tidier of the two and is what a fix should try first.
+Verify by re-running the GUI-1 / GUI-4 census lanes and re-diffing
+`ksc-missions-recordings-advanced.gui.json` / `ksc-missions-missions-advanced.gui.json`
+(GUI-4's `bd-missions-*-expanded-advanced.gui.json` carry the same tables).
 
 ## ~~GUI-P5-WIPE-ALL-GAME-ACTIONS-CLEARS-ONLY-MILESTONES~~: the most destructive-sounding button in Settings named an effect it does not have [FILED + FIXED 2026-09-11 by the GUI fix batch]
 
