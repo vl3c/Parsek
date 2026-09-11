@@ -10,6 +10,56 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Automated testing: five fixes to the new hover / point / open-everything support,
+  found by reviewing it.** Pointing at a control by its label and then moving the mouse
+  there - the exact pairing the feature was built for - was refused before a run even
+  started, because the check that coordinates are numbers ran on the text of the step
+  rather than on the coordinates the earlier step answers with. Moving the mouse then
+  checked once, a single frame later, whether the game agreed about where the pointer
+  had gone; the game can take a frame longer to notice, so a move that worked was
+  sometimes reported as a move that did not, and a run now keeps checking until it agrees
+  or runs out of time. The pop-up menu you get by clicking a ghost on the map was the one
+  Parsek pop-up a run could not see at all - it was missing the internal name tag the
+  others carry, so asking "what pop-up is on screen?" answered "none" over a menu that was
+  plainly there. Asking a pop-up what its buttons say counted only the buttons sitting at
+  the top level, so any pop-up that puts two buttons side by side on one row reported
+  having none. And "open everything in the supply-route window" skipped the candidate
+  rows, leaving them shut. None of this changes anything a player sees or reaches.
+
+- **Automated testing: a test run can now hover, point at a control by its label, and
+  open the parts of a window that only appear after a click.** The screenshot work below
+  photographed Parsek's windows; going through every surface the mod can put on screen
+  showed that most of what was still missing needed one of three things a run could not
+  do. Some of it only appears while the mouse is resting on a control - the hover
+  highlight, the little help line at the bottom of a window, the "why is this greyed
+  out?" sentence - so a run now moves the real mouse pointer, and checks that the game
+  agreed about where it went before believing the picture. Because a window's layout
+  depends on its size, the save's contents and the interface mode, a run can also ask
+  "where is the button that says Close?" and get the answer in pixels, then point at it.
+  Some of it only appears after a click: an opened folder in the recordings list, the
+  rows under a mission, the detail panel of a supply route, the group picker, the
+  structure log for a particular mission. A run can now set the same switches those
+  clicks set, including "open everything in this window at once". And the pop-up
+  question boxes are invisible to the window recorder, so a run can now ask what pop-up
+  is on screen, what it is called and what its buttons say, take its picture, and then
+  answer it. None of this adds anything a player can see or reach in the game.
+
+  One thing was fixed along the way: resizing a window from a test run ignored the
+  window's own minimum size, which only the resize handle enforced - so the first census
+  produced a picture of the supply-route window 130 pixels narrower than any player can
+  drag it, with its columns crushed into a layout that does not exist in the game. A test
+  run now raises the size to the window's own minimum and says so, and reports each
+  window's minimum when asked for an inventory; the two windows that are wider than the
+  test screen are now honestly cut off at the edge instead.
+
+- **The pop-up asking what to do with a flight before switching vessels no longer shares
+  an internal name with the merge pop-up.** They had the same one, and the automation that
+  answers the merge pop-up picks its button by position - so with the switch question on
+  screen instead, a test run concluding a re-flight could have pressed that question's
+  Merge button and committed the wrong thing. Nothing a player does is affected either
+  way; the two pop-ups simply have separate names now, and the automation says which one
+  it means.
+
 - **Automated testing: a test run can now take screenshots of Parsek's own windows.**
   Every run already collected any screenshots it found, and the run report already had a
   place to show them - but nothing ever took one, because the only way to take a

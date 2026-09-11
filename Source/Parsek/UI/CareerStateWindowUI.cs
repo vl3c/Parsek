@@ -70,9 +70,20 @@ namespace Parsek
             new TooltipEchoBox(TooltipEchoBox.DefaultSpacing, TooltipEchoBox.SingleLine);
 
         internal const float DefaultWindowWidth = 820f;
+        /// <summary>
+        /// The key this window's IMGUI window id is hashed from. Named once and used at
+        /// BOTH the <c>ClickThruBlocker.GUILayoutWindow</c> call below and
+        /// <c>UiWindowHandle.GetWindowId</c> (wired by
+        /// <c>ParsekTestCommandAddon.ResolveWindowHandle</c>), which the <c>UiAction op=find</c>
+        /// seam uses to scope a captured GUI tree to THIS window's subtree. Two copies of
+        /// the literal would let the seam search the wrong window's children and answer a
+        /// plausible rect for a control in another window.
+        /// </summary>
+        internal const string WindowIdKey = "ParsekCareerState";
+
         private const float DefaultWindowHeight = 400f;
         internal const float MinWindowWidth = 520f;
-        private const float MinWindowHeight = 200f;
+        internal const float MinWindowHeight = 200f;
         // Internal so the design-7.2 mode-change close set (`ParsekUI.BuildGatedWindowCloseSet`)
         // can carry the id, which lets the in-game lock-leak test assert directly against
         // InputLockManager instead of hardcoding a duplicate string.
@@ -1226,7 +1237,7 @@ namespace Parsek
             try
             {
                 careerStateWindowRect = ClickThruBlocker.GUILayoutWindow(
-                    "ParsekCareerState".GetHashCode(),
+                    WindowIdKey.GetHashCode(),
                     careerStateWindowRect,
                     DrawCareerStateWindow,
                     "Parsek - Career State",

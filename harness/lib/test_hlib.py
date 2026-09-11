@@ -14651,6 +14651,202 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
             with self.subTest(mode=mode):
                 self.assertIn('ModeToken = "%s"' % mode, text)
 
+    def test_the_ops_needing_a_window_mirror_the_c_sharp_predicate(self):
+        """Reads OUTSIDE harness/. Closes the one gap the vocabulary mirror above left:
+        it checks that every op TOKEN appears in the C#, and nothing checked WHICH ops
+        require a `window=` arg. An op added to TestCommandUiAction.OpNeedsWindow and not
+        to hlib.UIACTION_OPS_NEEDING_WINDOW (or the reverse) passed both suites and cost
+        a whole KSP boot to discover: the harness validates a window-less step as legal
+        and the seam answers REJECTED window-arg-missing.
+
+        Derived from the method BODY's `UiActionOp.<Name>` references rather than from a
+        hand-kept list, and comment lines are stripped first for the reason the window
+        parse strips them: that method's own doc comment names `pointer` and `dialog` as
+        the two ops deliberately ABSENT from the set, so a regex that read comments would
+        report them as members and pass GREEN against a source that says the opposite."""
+        path = os.path.join(PARSEK_SOURCE_DIR, "TestCommands", "TestCommandUiAction.cs")
+        self.assertTrue(os.path.isfile(path),
+                        "the C# OpNeedsWindow moved; this mirror is vacuous: %s" % path)
+        with open(path, encoding="utf-8-sig") as fh:
+            text = fh.read()
+        body = self._parse_cs_op_needs_window_body(text)
+        cs_ops = sorted(set(re.findall(r"UiActionOp\.([A-Za-z]+)", body)))
+        expected = sorted(op.capitalize() for op in hlib.UIACTION_OPS_NEEDING_WINDOW)
+        self.assertEqual(expected, cs_ops,
+                         "hlib.UIACTION_OPS_NEEDING_WINDOW %r vs the C# "
+                         "OpNeedsWindow body's ops %r"
+                         % (list(hlib.UIACTION_OPS_NEEDING_WINDOW), cs_ops))
+        # And the two deliberate absences, stated rather than implied by the equality.
+        for absent in ("pointer", "dialog"):
+            with self.subTest(op=absent):
+                self.assertIn(absent, hlib.UIACTION_OP_VALUES)
+                self.assertNotIn(absent, hlib.UIACTION_OPS_NEEDING_WINDOW)
+
+    @staticmethod
+    def _parse_cs_op_needs_window_body(text):
+        """The comment-free body of `OpNeedsWindow`, from its signature to the first
+        `;`."""
+        stripped = "\n".join(
+            line for line in text.splitlines()
+            if not line.strip().startswith("//") and not line.strip().startswith("///"))
+        marker = "internal static bool OpNeedsWindow(UiActionOp op)"
+        at = stripped.find(marker)
+        assert at >= 0, "OpNeedsWindow signature not found"
+        end = stripped.find(";", at)
+        assert end > at, "OpNeedsWindow body has no terminator"
+        return stripped[at + len(marker):end]
+
+    def test_the_op_needs_window_parse_is_not_vacuous(self):
+        """Anti-vacuity for the parse above, over a SYNTHETIC source: the real method's
+        doc comment names `Pointer` and `Dialog`, so a parse that read comments would
+        return them and the mirror would pass against a source that excludes them."""
+        synthetic = "\n".join([
+            "        /// <summary>A comment naming UiActionOp.Pointer and",
+            "        /// UiActionOp.Dialog, which are NOT in the set.</summary>",
+            "        internal static bool OpNeedsWindow(UiActionOp op)",
+            "            => op == UiActionOp.Open || op == UiActionOp.Close;",
+        ])
+        body = self._parse_cs_op_needs_window_body(synthetic)
+        self.assertEqual(["Close", "Open"],
+                         sorted(set(re.findall(r"UiActionOp\.([A-Za-z]+)", body))))
+
+    def test_the_census_ops_closed_arg_rows_name_their_owner_verbs(self):
+        """The four new closed-value rows, and specifically that `ctrl=` is NOT spelled
+        `kind=`. VERB_SCOPED_CLOSED_ARGS allows exactly one owner verb per key and
+        `kind=` is ListHandles' - so a find op that took `kind=` would be rejected
+        pre-launch as "only the ListHandles verb reads it", on every spec that used it."""
+        self.assertEqual("ctrl", hlib.UIACTION_CTRL_KEY)
+        self.assertEqual("ListHandles",
+                         hlib.VERB_SCOPED_CLOSED_ARGS[hlib.LISTHANDLES_KIND_KEY][0])
+        for key in (hlib.UIACTION_CTRL_KEY, hlib.UIACTION_STATE_KEY,
+                    hlib.UIACTION_PARK_KEY):
+            with self.subTest(key=key):
+                self.assertEqual("UiAction", hlib.VERB_SCOPED_CLOSED_ARGS[key][0])
+        self.assertEqual(
+            "AnswerMergeDialog",
+            hlib.VERB_SCOPED_CLOSED_ARGS[hlib.ANSWERMERGE_DIALOG_KEY][0])
+        # The answerable-dialog set is deliberately ONE value: the pre-switch decision
+        # dialog is not answerable through that verb (its buttons change no scene, and
+        # the verb completes on a scene change), so a `dialog=preswitch` must fail
+        # pre-launch rather than silently answer the merge dialog.
+        self.assertEqual(("merge",), hlib.ANSWERMERGE_DIALOG_VALUES)
+
+    def test_uiaction_find_requires_text_and_a_numeric_index(self):
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "find", "window": "settings"})
+        self.assertTrue(any("find-text-arg-missing" in e for e in errors), errors)
+        errors = hlib.validate_ui_action_step(
+            1, {"op": "find", "window": "settings", "text": "Close", "index": "-1"})
+        self.assertTrue(any("find-index-arg-invalid" in e for e in errors), errors)
+        self.assertEqual([], hlib.validate_ui_action_step(
+            2, {"op": "find", "window": "settings", "text": "Close", "ctrl": "button",
+                "index": "2"}))
+
+    def test_uiaction_find_args_are_flagged_on_other_ops(self):
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "open", "window": "settings", "text": "Close"})
+        self.assertTrue(any("only mean anything on op=find" in e for e in errors), errors)
+
+    def test_uiaction_expand_keys_are_validated_against_that_windows_prefixes(self):
+        self.assertTrue(any(
+            "expand-key-arg-missing" in e for e in hlib.validate_ui_action_step(
+                0, {"op": "expand", "window": "missions"})))
+        # A logistics prefix on the missions window.
+        self.assertTrue(any(
+            "must be" in e for e in hlib.validate_ui_action_step(
+                1, {"op": "expand", "window": "missions", "key": "row:x"})))
+        # A window that keeps no driveable expansion state at all.
+        self.assertTrue(any(
+            "expand-unsupported-window" in e for e in hlib.validate_ui_action_step(
+                2, {"op": "expand", "window": "timeline", "key": "all"})))
+        # A bulk key already carries its direction, so a state= beside it is a conflict
+        # rather than a redundancy the seam resolves silently.
+        self.assertTrue(any(
+            "expand-state-with-bulk-key" in e for e in hlib.validate_ui_action_step(
+                3, {"op": "expand", "window": "missions", "key": "all",
+                    "state": "true"})))
+        self.assertEqual([], hlib.validate_ui_action_step(
+            3, {"op": "expand", "window": "missions", "key": "all"}))
+        self.assertEqual([], hlib.validate_ui_action_step(
+            3, {"op": "expand", "window": "missions", "key": "group:Apollo",
+                "state": "false"}))
+        self.assertEqual([], hlib.validate_ui_action_step(
+            4, {"op": "expand", "window": "missions", "key": "vessel:m1:h2"}))
+        self.assertEqual([], hlib.validate_ui_action_step(
+            5, {"op": "expand", "window": "logistics", "key": "row:dormant:section"}))
+
+    def test_uiaction_expand_args_are_flagged_on_other_ops(self):
+        for args in ({"op": "open", "window": "missions", "key": "all"},
+                     {"op": "open", "window": "missions", "state": "true"}):
+            errors = hlib.validate_ui_action_step(0, args)
+            self.assertTrue(
+                any("only op=expand reads it" in e for e in errors), errors)
+
+    def test_uiaction_target_takes_exactly_one_selector_on_the_structure_window(self):
+        self.assertTrue(any(
+            "target-arg-missing" in e for e in hlib.validate_ui_action_step(
+                0, {"op": "target", "window": "structure"})))
+        self.assertTrue(any(
+            "target-arg-conflict" in e for e in hlib.validate_ui_action_step(
+                1, {"op": "target", "window": "structure", "mission": "A",
+                    "route": "B"})))
+        self.assertTrue(any(
+            "target-unsupported-window" in e for e in hlib.validate_ui_action_step(
+                2, {"op": "target", "window": "missions", "mission": "A"})))
+        self.assertEqual([], hlib.validate_ui_action_step(
+            3, {"op": "target", "window": "structure", "mission": "Apollo"}))
+
+    def test_uiaction_picker_selectors_are_per_window(self):
+        self.assertTrue(any(
+            "picker-arg-missing" in e for e in hlib.validate_ui_action_step(
+                0, {"op": "picker", "window": "missions"})))
+        self.assertTrue(any(
+            "picker-arg-conflict" in e for e in hlib.validate_ui_action_step(
+                1, {"op": "picker", "window": "missions", "route": "R"})))
+        self.assertTrue(any(
+            "picker-unsupported-window" in e for e in hlib.validate_ui_action_step(
+                2, {"op": "picker", "window": "settings", "group": "G"})))
+        self.assertEqual([], hlib.validate_ui_action_step(
+            3, {"op": "picker", "window": "missions", "group": "Apollo"}))
+        self.assertEqual([], hlib.validate_ui_action_step(
+            4, {"op": "picker", "window": "logistics", "route": "Mun Depot"}))
+
+    def test_uiaction_pointer_takes_a_pair_or_park_and_names_no_window(self):
+        self.assertTrue(any(
+            "pointer-arg-missing" in e for e in hlib.validate_ui_action_step(
+                0, {"op": "pointer", "x": "100"})))
+        self.assertTrue(any(
+            "pointer-arg-conflict" in e for e in hlib.validate_ui_action_step(
+                1, {"op": "pointer", "x": "100", "y": "200", "park": "true"})))
+        self.assertTrue(any(
+            "dot-decimal" in e for e in hlib.validate_ui_action_step(
+                2, {"op": "pointer", "x": "100,5", "y": "200"})))
+        # A window arg on an op that does not read one.
+        self.assertTrue(any(
+            "does not read it" in e for e in hlib.validate_ui_action_step(
+                3, {"op": "pointer", "window": "main", "park": "true"})))
+        self.assertEqual([], hlib.validate_ui_action_step(
+            4, {"op": "pointer", "x": "640", "y": "360"}))
+        self.assertEqual([], hlib.validate_ui_action_step(5, {"op": "pointer",
+                                                              "park": "true"}))
+
+    def test_pointer_x_and_y_are_not_flagged_as_stray_rect_args(self):
+        """The regression this guards: `x` / `y` belonged to op=rect alone, and the
+        stray-arg branch flagged them on every other op. op=pointer takes the same two
+        in the same client-pixel frame, so the exclusive set narrows to w/h there - and
+        `w` on a pointer step is still flagged."""
+        self.assertEqual([], hlib.validate_ui_action_step(
+            0, {"op": "pointer", "x": "10", "y": "20"}))
+        errors = hlib.validate_ui_action_step(
+            1, {"op": "pointer", "x": "10", "y": "20", "w": "300"})
+        self.assertTrue(any("only mean anything on op=rect" in e for e in errors), errors)
+        # And the original rule is untouched for an op that takes neither.
+        errors = hlib.validate_ui_action_step(2, {"op": "describe", "x": "10"})
+        self.assertTrue(any("only mean anything on op=rect" in e for e in errors), errors)
+
+    def test_uiaction_dialog_needs_nothing(self):
+        self.assertEqual([], hlib.validate_ui_action_step(0, {"op": "dialog"}))
+
     def test_the_window_table_parse_is_not_vacuous(self):
         """Anti-vacuity for the parse above, and specifically for the comment-stripping
         half: the C# table's header comment mentions tab-shaped and window-shaped words,
@@ -14775,6 +14971,121 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
 
     def test_describe_needs_nothing(self):
         self.assertEqual([], hlib.validate_ui_action_step(0, {"op": "describe"}))
+
+    # ----- R10 handle references vs the per-value shape checks -----
+
+    def test_the_documented_find_then_pointer_chain_validates(self):
+        """The defect this closes. Every per-value SHAPE check here ran on the value as
+        AUTHORED, before run.py's `substitute_step_args` replaces an R10 reference with
+        the referenced step's payload field - so `x=${f1.cx}` was asked whether it is a
+        dot-decimal number, answered no, and the find-then-pointer chain the seam's own
+        design doc documents was a PRE-LAUNCH validation error. Unwritable, with no
+        workaround: the whole point of the chain is that the coordinates are not known
+        until the find answers."""
+        self.assertEqual([], hlib.validate_ui_action_step(
+            0, {"op": "pointer", "x": "${f1.cx}", "y": "${f1.cy}"}))
+        # PARTIALLY templated too, which is the shape a lane uses to place a window
+        # relative to something it read: find_handle_refs returns TOKENS, so a value is
+        # a template and not a whole-value alias.
+        self.assertEqual([], hlib.validate_ui_action_step(
+            1, {"op": "rect", "window": "missions", "x": "${w.x}", "y": "${w.y}",
+                "w": "800", "h": "600"}))
+
+    def test_a_malformed_literal_beside_a_handle_is_still_refused(self):
+        """The skip is per VALUE, not per step: a handle in `x` buys `y` no exemption.
+        Without this cell the fix could have been written as a step-level bypass and
+        nothing would have noticed."""
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "pointer", "x": "${f1.cx}", "y": "200,5"})
+        self.assertTrue(any("dot-decimal" in e and "args.y" in e for e in errors),
+                        errors)
+        # A plain literal step is untouched by the change.
+        errors = hlib.validate_ui_action_step(
+            1, {"op": "pointer", "x": "100,5", "y": "200"})
+        self.assertTrue(any("dot-decimal" in e for e in errors), errors)
+        # REQUIREDNESS is not a shape check: a templated `x` alone is still a half-move.
+        errors = hlib.validate_ui_action_step(2, {"op": "pointer", "x": "${f1.cx}"})
+        self.assertTrue(any("pointer-arg-missing" in e for e in errors), errors)
+
+    def test_a_handle_validates_in_find_index_and_expand_key(self):
+        """The other two per-value shape checks on this verb. `index=` is an
+        `.isdigit()` and `key=` is a `<prefix>:<value>` split, and both rejected every
+        well-formed reference for the same reason the coordinate parse did."""
+        self.assertEqual([], hlib.validate_ui_action_step(
+            0, {"op": "find", "window": "logistics", "text": "Mun Depot",
+                "index": "${n.matches}"}))
+        self.assertEqual([], hlib.validate_ui_action_step(
+            1, {"op": "expand", "window": "logistics", "key": "${r.key}"}))
+        # An embedded reference under a real prefix too (the shape a lane writes when
+        # the prefix is known and only the id comes from a handle).
+        self.assertEqual([], hlib.validate_ui_action_step(
+            2, {"op": "expand", "window": "missions", "key": "group:${g.name}"}))
+        # And the literal rules still bite when no reference is present.
+        self.assertTrue(any("find-index-arg-invalid" in e
+                            for e in hlib.validate_ui_action_step(
+                                3, {"op": "find", "window": "logistics",
+                                    "text": "x", "index": "-1"})))
+        self.assertTrue(any("must be" in e for e in hlib.validate_ui_action_step(
+            4, {"op": "expand", "window": "logistics", "key": "group:x"})))
+
+    def test_the_two_label_verbs_accept_a_templated_label(self):
+        """The same trap on the other two census verbs: `label=` is a filename-safe
+        regex and `superSize=` an `.isdigit()`, and a `${}` is filename-unsafe by that
+        regex. Named here rather than left implicit because the fix is ONE shared rule
+        (`hlib.value_is_handle_templated`) that a future verb validator must follow."""
+        for fn in (hlib.validate_capture_screenshot_step,
+                   hlib.validate_dump_gui_tree_step):
+            with self.subTest(validator=fn.__name__):
+                self.assertEqual([], fn(0, {"label": "route-${r.id}"}))
+                self.assertTrue(any("filename-safe" in e
+                                    for e in fn(1, {"label": "has space"})))
+                # Still REQUIRED: the skip is about shape, never about presence.
+                self.assertTrue(any("REQUIRES" in e for e in fn(2, {})))
+        self.assertEqual([], hlib.validate_capture_screenshot_step(
+            3, {"label": "a", "superSize": "${s.n}"}))
+        self.assertTrue(any("integer 1.." in e
+                            for e in hlib.validate_capture_screenshot_step(
+                                4, {"label": "a", "superSize": "9"})))
+
+    def test_a_malformed_dollar_token_is_not_a_handle_and_does_not_exempt(self):
+        """`value_is_handle_templated` is `find_handle_refs`, which is the WELL-FORMED
+        grammar - so a typo'd `${f1cx}` buys no exemption and the coordinate check still
+        fires. That matters because the malformed-token scan that would ALSO catch it
+        lives in validate_spec's R10 pass, and a step validated on its own (as every
+        cell above does) never reaches it."""
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "pointer", "x": "${f1cx}", "y": "200"})
+        self.assertTrue(any("dot-decimal" in e for e in errors), errors)
+        self.assertFalse(hlib.value_is_handle_templated("${f1cx}"))
+        self.assertFalse(hlib.value_is_handle_templated("${runSave}"))
+        self.assertFalse(hlib.value_is_handle_templated("640"))
+        self.assertFalse(hlib.value_is_handle_templated(640))
+        self.assertTrue(hlib.value_is_handle_templated("${f1.cx}"))
+
+    def test_the_closed_value_rows_are_deliberately_not_exempt(self):
+        """The one place the skip is NOT applied, stated so it cannot be read as an
+        oversight. The closed vocabularies (`op=`, `window=`, `ctrl=`, `state=`,
+        `park=`, `dialog=`) are checked by VERB_SCOPED_CLOSED_ARGS in validate_spec, not
+        by the per-value shape checks here, and they stay fail-closed: they are fixed at
+        authoring time and small enough to write out, so a handle in one would mean a
+        spec that does not know which op it is running.
+
+        Asserted as a DISJOINTNESS between the two key sets rather than by driving a
+        whole spec: the shape-checked keys and the closed-value keys must not overlap,
+        which is what makes "skip the shape check" unable to reach a closed row."""
+        shape_checked = {"x", "y", "w", "h", hlib.UIFIND_INDEX_KEY,
+                         hlib.UIACTION_EXPAND_KEY, hlib.CAPTURE_LABEL_KEY,
+                         hlib.CAPTURE_SUPERSIZE_KEY}
+        closed = set(hlib.VERB_SCOPED_CLOSED_ARGS)
+        self.assertEqual(set(), shape_checked & closed,
+                         "a key cannot be both shape-checked (handle-exempt) and a "
+                         "closed-value row (fail-closed): %r"
+                         % sorted(shape_checked & closed))
+        for key in (hlib.UIACTION_OP_KEY, hlib.UIACTION_WINDOW_KEY,
+                    hlib.UIACTION_CTRL_KEY, hlib.UIACTION_STATE_KEY,
+                    hlib.UIACTION_PARK_KEY, hlib.ANSWERMERGE_DIALOG_KEY):
+            with self.subTest(key=key):
+                self.assertIn(key, closed)
 
     # ----- the census specs' pinned describe echoes -----
 

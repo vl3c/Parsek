@@ -47,6 +47,12 @@ namespace Parsek.Tests
         [InlineData("complexity", 4)]
         [InlineData("rect", 5)]
         [InlineData("describe", 6)]
+        [InlineData("pointer", 7)]
+        [InlineData("find", 8)]
+        [InlineData("expand", 9)]
+        [InlineData("target", 10)]
+        [InlineData("picker", 11)]
+        [InlineData("dialog", 12)]
         public void EveryOpToken_Parses_AndRoundTrips(string raw, int expectedOp)
         {
             Assert.True(TestCommandUiAction.TryParseOp(raw, out UiActionOp op, out string r));
@@ -68,6 +74,12 @@ namespace Parsek.Tests
             Assert.Equal(4, (int)UiActionOp.Complexity);
             Assert.Equal(5, (int)UiActionOp.Rect);
             Assert.Equal(6, (int)UiActionOp.Describe);
+            Assert.Equal(7, (int)UiActionOp.Pointer);
+            Assert.Equal(8, (int)UiActionOp.Find);
+            Assert.Equal(9, (int)UiActionOp.Expand);
+            Assert.Equal(10, (int)UiActionOp.Target);
+            Assert.Equal(11, (int)UiActionOp.Picker);
+            Assert.Equal(12, (int)UiActionOp.Dialog);
         }
 
         [Theory]
@@ -86,9 +98,10 @@ namespace Parsek.Tests
         {
             string listed = TestCommandUiAction.ValidOpNames;
             foreach (string token in new[] { "open", "close", "tab", "complexity", "rect",
-                                            "describe" })
+                                            "describe", "pointer", "find", "expand",
+                                            "target", "picker", "dialog" })
                 Assert.Contains(token, listed.Split(','));
-            Assert.Equal(6, listed.Split(',').Length);
+            Assert.Equal(12, listed.Split(',').Length);
         }
 
         [Theory]
@@ -96,8 +109,14 @@ namespace Parsek.Tests
         [InlineData(2, true)]    // close
         [InlineData(3, true)]    // tab
         [InlineData(5, true)]    // rect
+        [InlineData(8, true)]    // find
+        [InlineData(9, true)]    // expand
+        [InlineData(10, true)]   // target
+        [InlineData(11, true)]   // picker
         [InlineData(4, false)]   // complexity
         [InlineData(6, false)]   // describe
+        [InlineData(7, false)]   // pointer - screen space, no window in the grammar
+        [InlineData(12, false)]  // dialog - a uGUI popup no table row can name
         public void OpNeedsWindow_MatchesTheOpsThatNameOne(int op, bool needs)
         {
             Assert.Equal(needs, TestCommandUiAction.OpNeedsWindow((UiActionOp)op));
@@ -481,7 +500,13 @@ namespace Parsek.Tests
         [InlineData(3, false)]    // tab
         [InlineData(4, false)]    // complexity
         [InlineData(6, false)]    // describe
-        public void OpIsTwoPhase_IsExactlyOpenAndRect(int op, bool twoPhase)
+        [InlineData(7, true)]     // pointer
+        [InlineData(8, true)]     // find
+        [InlineData(9, true)]     // expand
+        [InlineData(10, true)]    // target
+        [InlineData(11, true)]    // picker
+        [InlineData(12, false)]   // dialog - read-only, it writes nothing
+        public void OpIsTwoPhase_IsEveryOpThatChangesDrawnState(int op, bool twoPhase)
         {
             // The set is pinned rather than counted, because each membership is its own
             // argument. `open` and `rect` are in it because their read-back only means
@@ -499,6 +524,13 @@ namespace Parsek.Tests
             // window a settled close read-back could catch. `tab` is out because the one live clamp
             // (RecordingsTableUI's Basic tab clamp) runs from the complexity LATCH, which
             // the applier drives synchronously in Update, not from a draw.
+            //
+            // The six GUI-census ops follow the same rule rather than an exception to it:
+            // `pointer` / `find` / `expand` / `target` / `picker` all CHANGE what the next
+            // frame draws (a hover, a capture, a disclosure, a window's contents, a popup),
+            // so each holds the head for one frame and reads its own effect back. Only
+            // `dialog` is single-phase, and only because it writes nothing at all. What the
+            // settle CHECKS still differs per op, which is SettleChecksHostShowUi's job.
             Assert.Equal(twoPhase, TestCommandUiAction.OpIsTwoPhase((UiActionOp)op));
         }
 
@@ -676,8 +708,14 @@ namespace Parsek.Tests
         public void RectPayload_ReportsTheReadBackNotTheRequest()
         {
             var p = TestCommandUiAction.BuildRectPayload(
-                "missions", new UiActionRect { X = 5f, Y = 6f, W = 700f, H = 812f });
+                "missions", new UiActionRect { X = 5f, Y = 6f, W = 700f, H = 812f },
+                clamped: false, minW: 0f, minH: 0f);
             Assert.Equal("5,6,700,812", Value(p, "rect"));
+            // Present BOTH ways (the `already` rule), so a reader of an unclamped call
+            // knows the commanded size is what the window got.
+            Assert.Equal("false", Value(p, "clamped"));
+            Assert.Equal("0", Value(p, "minW"));
+            Assert.Equal("0", Value(p, "minH"));
         }
 
         [Fact]
@@ -704,7 +742,8 @@ namespace Parsek.Tests
             {
                 string prefix = "w" + i.ToString(CultureInfo.InvariantCulture);
                 Assert.Equal(rows[i].Name, Value(p, prefix));
-                foreach (string suffix in new[] { "avail", "open", "rect", "tabs", "tab" })
+                foreach (string suffix in new[] { "avail", "open", "rect", "min", "tabs",
+                                                  "tab" })
                     Assert.Contains(prefix + suffix, p.Select(kv => kv.Key));
             }
             // The two flight-only rows are present and marked unavailable.
@@ -726,6 +765,9 @@ namespace Parsek.Tests
             Assert.Equal("-", Value(p, "w0rect"));
             Assert.Equal("-", Value(p, "w0tabs"));
             Assert.Equal("-", Value(p, "w0tab"));
+            // A window with no resize handle has no minimum at all, which `0,0` would
+            // misreport as a real floor of zero.
+            Assert.Equal("-", Value(p, "w0min"));
         }
 
         [Fact]

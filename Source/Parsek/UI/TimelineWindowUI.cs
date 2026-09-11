@@ -63,9 +63,20 @@ namespace Parsek
         private bool timelineWindowHasInputLock;
         private const string TimelineInputLockId = "Parsek_TimelineWindow";
         private Rect lastTimelineWindowRect;
+        /// <summary>
+        /// The key this window's IMGUI window id is hashed from. Named once and used at
+        /// BOTH the <c>ClickThruBlocker.GUILayoutWindow</c> call below and
+        /// <c>UiWindowHandle.GetWindowId</c> (wired by
+        /// <c>ParsekTestCommandAddon.ResolveWindowHandle</c>), which the <c>UiAction op=find</c>
+        /// seam uses to scope a captured GUI tree to THIS window's subtree. Two copies of
+        /// the literal would let the seam search the wrong window's children and answer a
+        /// plausible rect for a control in another window.
+        /// </summary>
+        internal const string WindowIdKey = "ParsekTimeline";
+
         private const float DefaultWindowWidth = CareerStateWindowUI.DefaultWindowWidth;
-        private const float MinWindowWidth = CareerStateWindowUI.MinWindowWidth;
-        private const float MinWindowHeight = 150f;
+        internal const float MinWindowWidth = CareerStateWindowUI.MinWindowWidth;
+        internal const float MinWindowHeight = 150f;
         private const float ApproxRowHeight = 20f;
         private const float TimeColumnWidth = 160f;
         // Keep the short row actions aligned; GoTo stays wider for its text label.
@@ -279,7 +290,7 @@ namespace Parsek
             try
             {
                 timelineWindowRect = ClickThruBlocker.GUILayoutWindow(
-                    "ParsekTimeline".GetHashCode(),
+                    WindowIdKey.GetHashCode(),
                     timelineWindowRect,
                     DrawTimelineWindow,
                     "Parsek - Timeline",

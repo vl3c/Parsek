@@ -29,6 +29,20 @@ namespace Parsek.TestCommands
         internal Action<Rect> SetRect;
         internal Func<int> GetTab;
         internal Action<int> SetTab;
+
+        /// <summary>The window class's OWN minimum width, or 0 for a window with no resize
+        /// handle. Read from the class's constant through this ONE row rather than copied
+        /// into the seam, for the reason the struct exists: a per-window number duplicated
+        /// in the seam would drift the first time the window class moved its floor, and the
+        /// headless suite could not witness it.</summary>
+        internal float MinW;
+
+        /// <summary>The window class's own minimum height, or 0.</summary>
+        internal float MinH;
+
+        /// <summary>The IMGUI window id this window is drawn with, so
+        /// <c>op=find</c> can scope a captured tree to its subtree.</summary>
+        internal Func<int> GetWindowId;
     }
 
     /// <summary>
@@ -78,18 +92,61 @@ namespace Parsek.TestCommands
     /// </summary>
     public partial class ParsekTestCommandAddon
     {
-        // Two-phase state for an in-flight `open` / `rect`. ALL SIX are re-armed wholesale
-        // by ArmUiActionSettle, so a stale value can never be read across commands (the
-        // TimeJump field contract). The commanded rect is a PARAMETER of that arm rather
-        // than a write the caller makes beside it: `open` passes default(UiActionRect) and
-        // `rect` passes what it wrote, so there is no ordering in which the settle can read
-        // a previous command's rect.
-        private UiActionOp uiActionOp;
-        private string uiActionWindow;
-        private UiActionRect uiActionCommandedRect;
-        private bool uiActionAlready;
-        private bool uiActionSizeHostControlled;
-        private int uiActionStartFrame;
+        // Two-phase state for an in-flight op, as ONE struct rather than a field per op.
+        //
+        // WHY A STRUCT. The original six fields were re-armed wholesale by
+        // ArmUiActionSettle, which is what kept a stale value from being read across
+        // commands (the TimeJump field contract). Seven two-phase ops need twenty-odd
+        // fields, and "wholesale" stops being checkable the moment an arm sets some of them
+        // beside a call that resets the rest. A struct assignment re-arms every field by
+        // construction: there is no ordering in which a settle can read a previous
+        // command's key, target or pointer coordinate.
+        private struct UiActionPending
+        {
+            internal UiActionOp Op;
+            internal string Window;
+            internal int StartFrame;
+
+            // open / rect
+            internal UiActionRect CommandedRect;
+            internal bool Already;
+            internal bool SizeHostControlled;
+            internal bool Clamped;
+            internal float MinW;
+            internal float MinH;
+
+            // pointer
+            internal float PointerX;
+            internal float PointerY;
+            internal bool PointerPark;
+            internal int PointerScreenX;
+            internal int PointerScreenY;
+            internal string PointerVia;
+
+            // find
+            internal string FindText;
+            internal string FindCtrl;
+            internal int FindIndex;
+            internal int FindWindowId;
+            internal int FindCaptureSeqAtArm;
+
+            // expand
+            internal string ExpandKey;
+            internal bool ExpandState;
+            internal int ExpandChanged;
+
+            // target
+            internal UiTargetKind TargetKind;
+            internal string TargetId;
+            internal string TargetTitle;
+            internal int TargetSteps;
+
+            // picker
+            internal UiPickerMode PickerMode;
+            internal string PickerTarget;
+        }
+
+        private UiActionPending uiActionPending;
 
         private void UiActionImpl(ParsedCommand cmd)
         {
@@ -139,6 +196,16 @@ namespace Parsek.TestCommands
                 if (op == UiActionOp.Complexity)
                 {
                     UiActionComplexity(cmd);
+                    return;
+                }
+                if (op == UiActionOp.Pointer)
+                {
+                    UiActionPointerOp(cmd);
+                    return;
+                }
+                if (op == UiActionOp.Dialog)
+                {
+                    UiActionDialogOp();
                     return;
                 }
                 UiActionDescribe(ui, scene);
@@ -196,6 +263,18 @@ namespace Parsek.TestCommands
                 case UiActionOp.Tab:
                     UiActionTab(cmd, handle, spec);
                     return;
+                case UiActionOp.Find:
+                    UiActionFindOp(cmd, handle, spec);
+                    return;
+                case UiActionOp.Expand:
+                    UiActionExpandOp(cmd, ui, spec);
+                    return;
+                case UiActionOp.Target:
+                    UiActionTargetOp(cmd, ui, spec);
+                    return;
+                case UiActionOp.Picker:
+                    UiActionPickerOp(cmd, ui, spec);
+                    return;
                 default:
                     UiActionRectOp(cmd, handle, spec);
                     return;
@@ -246,7 +325,13 @@ namespace Parsek.TestCommands
                 return;
             }
 
-            ArmUiActionSettle(op, spec, already, hostControlled: false);
+            uiActionPending = new UiActionPending
+            {
+                Op = op,
+                Window = spec.Name,
+                StartFrame = Time.frameCount,
+                Already = already,
+            };
             ParsekLog.Info(Tag, $"uiaction open initiated window={spec.Name} "
                 + $"already={Bool(already)} (awaiting one drawn frame)");
             SetExecResult(PendingVerdict, null, null);
@@ -312,34 +397,41 @@ namespace Parsek.TestCommands
                 return;
             }
 
-            handle.SetRect(new Rect(want.X, want.Y, want.W, want.H));
+            // CLAMP to the window class's own resize floor before the write. Nothing else
+            // does: ParsekUI.HandleResizeDrag is the only clamp in the program and it runs
+            // only during a drag, so a rect written straight into the field could be
+            // narrower than any player can make it - which is exactly what the census did
+            // to the Logistics window (commanded 1280 against a 1410 floor) and photographed
+            // as a layout that does not exist. The CLAMPED rect is what the read-back is
+            // then measured against, because it is what was written.
+            bool clamped;
+            UiActionRect applied = TestCommandUiAction.ClampRectToMinimums(
+                want, handle.MinW, handle.MinH, out clamped);
+            handle.SetRect(new Rect(applied.X, applied.Y, applied.W, applied.H));
 
             // TWO-PHASE, and this is the whole reason: a GUILayout window's rect is
             // resolved during the DRAW (GUILayout.Window returns the resolved rect and the
             // window class assigns it back), so reading it back in the same Update compares
             // the field with the value just written to it - which is what the first draft
             // did, leaving RectAppliedWithinTolerance unable to fire on any input.
-            ArmUiActionSettle(UiActionOp.Rect, spec, already: false,
-                hostControlled: TestCommandUiAction.SizeIsHostControlled(spec.Name),
-                commandedRect: want);
+            uiActionPending = new UiActionPending
+            {
+                Op = UiActionOp.Rect,
+                Window = spec.Name,
+                StartFrame = Time.frameCount,
+                CommandedRect = applied,
+                SizeHostControlled = TestCommandUiAction.SizeIsHostControlled(spec.Name),
+                Clamped = clamped,
+                MinW = handle.MinW,
+                MinH = handle.MinH,
+            };
             ParsekLog.Info(Tag, $"uiaction rect initiated window={spec.Name} "
-                + $"want={TestCommandUiAction.FormatRect(want)} (awaiting one drawn frame)");
+                + $"want={TestCommandUiAction.FormatRect(want)} "
+                + $"applied={TestCommandUiAction.FormatRect(applied)} "
+                + $"clamped={Bool(clamped)} "
+                + $"min={TestCommandUiAction.FormatMinSize(handle.MinW, handle.MinH)} "
+                + "(awaiting one drawn frame)");
             SetExecResult(PendingVerdict, null, null);
-        }
-
-        // `commandedRect` is only meaningful for op=rect; `open` passes the default, which
-        // is what makes this arm WHOLESALE - every field the settle reads is written here,
-        // so no caller can leave a previous command's rect behind for it to read.
-        private void ArmUiActionSettle(UiActionOp op, UiWindowSpec spec, bool already,
-                                       bool hostControlled,
-                                       UiActionRect commandedRect = default(UiActionRect))
-        {
-            uiActionOp = op;
-            uiActionWindow = spec.Name;
-            uiActionAlready = already;
-            uiActionSizeHostControlled = hostControlled;
-            uiActionCommandedRect = commandedRect;
-            uiActionStartFrame = Time.frameCount;
         }
 
         // Bounded, observable completion (the LoadGame contract): wait for ONE drawn frame,
@@ -347,9 +439,50 @@ namespace Parsek.TestCommands
         // OnGUI, so a single advanced frame guarantees a full IMGUI pass has happened -
         // the pass in which a self-closing window closes itself and in which GUILayout
         // resolves a window rect.
+        /// <summary>Everything a per-op settle completion needs besides the pending
+        /// struct: the response envelope, the frame count it settled on, and the two live
+        /// readings the common preamble already took.</summary>
+        private struct UiActionSettleContext
+        {
+            internal string Id;
+            internal long Seq;
+            internal string Verb;
+            internal int Frames;
+            internal bool HostShowUi;
+            internal ParsekUI Ui;
+        }
+
         private void TryCompleteUiAction(double now)
         {
-            int framesElapsed = Time.frameCount - uiActionStartFrame;
+            // `find` has its own poll, and it must: its completion signal is a CAPTURE
+            // arriving (the recorder flushes from LateUpdate, so the tree is not assembled
+            // until the frame AFTER the one that drew it), not a frame having been drawn.
+            // Routed here rather than inside the shared poll so the shared poll keeps
+            // meaning exactly "one frame was drawn".
+            if (uiActionPending.Op == UiActionOp.Find)
+            {
+                TryCompleteUiActionFind(now);
+                return;
+            }
+
+            // `pointer` likewise. Its completion signal is Unity's input state AGREEING
+            // with the OS cursor move, which is a different pipeline from the renderer:
+            // a frame having been drawn says nothing about when Unity next sampled the
+            // mouse. Under the shared poll the read-back was taken ONCE, one frame after
+            // the write, so a one-frame input lag was a hard `pointer-not-applied` over a
+            // move that was about to be correct. See TestCommandUiPointer.DecidePoll.
+            //
+            // It also needs neither of the shared preamble's two guards: the ParsekUI
+            // lookup (this op touches no window) and the host-showUI refusal
+            // (SettleChecksHostShowUi is open/rect only - a hidden host is exactly the
+            // hover-free capture a `park` step wants).
+            if (uiActionPending.Op == UiActionOp.Pointer)
+            {
+                TryCompleteUiActionPointer(now);
+                return;
+            }
+
+            int framesElapsed = Time.frameCount - uiActionPending.StartFrame;
             double budget = DeferralBudget.BudgetSeconds("UiAction");
             bool expired = DeferralBudget.ShouldTimeout(completionStartedAt, now, budget);
             UiActionSettleOutcome outcome =
@@ -360,11 +493,9 @@ namespace Parsek.TestCommands
             string id = completionId;
             long seq = completionSeq;
             string verb = completionVerb;
-            UiActionOp op = uiActionOp;
-            string window = uiActionWindow;
-            bool already = uiActionAlready;
-            UiActionRect commanded = uiActionCommandedRect;
-            bool hostControlled = uiActionSizeHostControlled;
+            UiActionPending pending = uiActionPending;
+            UiActionOp op = pending.Op;
+            string window = pending.Window;
             ClearTwoPhase();
 
             if (outcome == UiActionSettleOutcome.TimedOut)
@@ -410,8 +541,15 @@ namespace Parsek.TestCommands
             // ui == null check above already covers a lost host (ParsekUI.ActiveInstance is
             // set by those same hosts), so that combination is not reachable - and if it
             // ever were, "nothing was drawing" is still the true statement.
+            // The host-visibility gate applies to `open` and `rect` ALONE
+            // (TestCommandUiAction.SettleChecksHostShowUi): those two read back a FIELD, so
+            // a frame that never reached the window compares the written value with itself.
+            // The later ops read a captured tree, the OS cursor, or a collection, none of
+            // which a hidden host can fake - and a `pointer park` with the surface
+            // deliberately hidden is exactly the hover-free capture a census wants.
             bool hostShowUi = ReadHostShowUi();
-            if (TestCommandUiAction.SettleRefusedForHiddenHost(window, hostShowUi))
+            if (TestCommandUiAction.SettleChecksHostShowUi(op)
+                && TestCommandUiAction.SettleRefusedForHiddenHost(window, hostShowUi))
             {
                 ParsekLog.Error(Tag, "uiaction error reason="
                     + TestCommandUiAction.WindowHostHiddenReason
@@ -423,7 +561,34 @@ namespace Parsek.TestCommands
                 return;
             }
 
+            var ctx = new UiActionSettleContext
+            {
+                Id = id,
+                Seq = seq,
+                Verb = verb,
+                Frames = framesElapsed,
+                HostShowUi = hostShowUi,
+                Ui = ui,
+            };
+            switch (op)
+            {
+                // Pointer is absent on purpose: it is routed to its own poll at the top of
+                // this method, the way `find` is, so it never reaches the shared preamble.
+                case UiActionOp.Expand:
+                    CompleteUiActionExpand(ctx, pending);
+                    return;
+                case UiActionOp.Target:
+                    CompleteUiActionTarget(ctx, pending);
+                    return;
+                case UiActionOp.Picker:
+                    CompleteUiActionPicker(ctx, pending);
+                    return;
+            }
+
             UiWindowHandle handle = ResolveWindowHandle(ui, window);
+            bool already = pending.Already;
+            UiActionRect commanded = pending.CommandedRect;
+            bool hostControlled = pending.SizeHostControlled;
 
             if (op == UiActionOp.Open)
             {
@@ -468,10 +633,13 @@ namespace Parsek.TestCommands
 
             ParsekLog.Info(Tag, $"uiaction rect window={window} "
                 + $"rect={TestCommandUiAction.FormatRect(settled)} "
+                + $"clamped={Bool(pending.Clamped)} "
+                + $"min={TestCommandUiAction.FormatMinSize(pending.MinW, pending.MinH)} "
                 + $"frames={Int(framesElapsed)} hostShowUi={Bool(hostShowUi)}");
             EmitExecutedTerminal(id, seq, verb, "OK",
-                TestCommandUiAction.BuildRectPayload(window, settled), null,
-                dequeueHead: true);
+                TestCommandUiAction.BuildRectPayload(
+                    window, settled, pending.Clamped, pending.MinW, pending.MinH),
+                null, dequeueHead: true);
         }
 
         // ----- op=complexity -----
@@ -563,6 +731,11 @@ namespace Parsek.TestCommands
                     // discriminator because every seed site tests `width < 1`.
                     row.RectKnown = rect.W >= 1f;
                     row.Rect = rect;
+                    // Read from the window class's own constant through the handle, so the
+                    // number a spec author sizes a capture against cannot disagree with the
+                    // floor the resize drag enforces.
+                    row.MinW = handle.MinW;
+                    row.MinH = handle.MinH;
                     if (spec.Tabs != null && spec.Tabs.Length > 0)
                         row.Tab = TestCommandUiAction.TabTokenAt(spec, handle.GetTab());
                 }
@@ -601,15 +774,21 @@ namespace Parsek.TestCommands
             {
                 case TestCommandUiAction.MainWindow:
                     // The only row that reaches the SCENE HOST rather than ParsekUI - see
-                    // the host accessors at the bottom of this file.
+                    // the host accessors at the bottom of this file. NO minimum: both hosts
+                    // pass a fixed GUILayout.Width(250) and zero the height every frame, so
+                    // its size is host-owned and there is no resize handle to have a floor.
                     return Handle(ReadHostShowUi, WriteHostShowUi,
-                                  ReadHostMainRect, WriteHostMainRect);
+                                  ReadHostMainRect, WriteHostMainRect,
+                                  windowId: ReadHostMainWindowId);
                 case TestCommandUiAction.MissionsWindow:
                 {
                     RecordingsTableUI w = ui.GetRecordingsTableUI();
                     return Handle(() => w.IsOpen, v => w.IsOpen = v,
                                   () => w.WindowRectForTesting, r => w.WindowRectForTesting = r,
-                                  () => w.SelectedTabForTesting, i => w.SelectedTabForTesting = i);
+                                  () => w.SelectedTabForTesting, i => w.SelectedTabForTesting = i,
+                                  RecordingsTableUI.MinWindowWidth,
+                                  RecordingsTableUI.MinWindowHeight,
+                                  () => RecordingsTableUI.WindowIdKey.GetHashCode());
                 }
                 case TestCommandUiAction.TimelineWindow:
                 {
@@ -617,57 +796,85 @@ namespace Parsek.TestCommands
                     return Handle(() => w.IsOpen, v => w.IsOpen = v,
                                   () => w.WindowRectForTesting, r => w.WindowRectForTesting = r,
                                   () => w.TierFilterModeIndexForTesting,
-                                  i => w.TierFilterModeIndexForTesting = i);
+                                  i => w.TierFilterModeIndexForTesting = i,
+                                  TimelineWindowUI.MinWindowWidth,
+                                  TimelineWindowUI.MinWindowHeight,
+                                  () => TimelineWindowUI.WindowIdKey.GetHashCode());
                 }
                 case TestCommandUiAction.KerbalsWindow:
                 {
                     KerbalsWindowUI w = ui.GetKerbalsUI();
                     return Handle(() => w.IsOpen, v => w.IsOpen = v,
                                   () => w.WindowRectForTesting, r => w.WindowRectForTesting = r,
-                                  () => w.SelectedTabForTesting, i => w.SelectedTabForTesting = i);
+                                  () => w.SelectedTabForTesting, i => w.SelectedTabForTesting = i,
+                                  KerbalsWindowUI.MinWindowWidth,
+                                  KerbalsWindowUI.MinWindowHeight,
+                                  () => KerbalsWindowUI.WindowIdKey.GetHashCode());
                 }
                 case TestCommandUiAction.CareerWindow:
                 {
                     CareerStateWindowUI w = ui.GetCareerStateUI();
                     return Handle(() => w.IsOpen, v => w.IsOpen = v,
                                   () => w.WindowRectForTesting, r => w.WindowRectForTesting = r,
-                                  () => w.SelectedTabForTesting, i => w.SelectedTabForTesting = i);
+                                  () => w.SelectedTabForTesting, i => w.SelectedTabForTesting = i,
+                                  CareerStateWindowUI.MinWindowWidth,
+                                  CareerStateWindowUI.MinWindowHeight,
+                                  () => CareerStateWindowUI.WindowIdKey.GetHashCode());
                 }
                 case TestCommandUiAction.LogisticsWindow:
                 {
                     LogisticsWindowUI w = ui.GetLogisticsUI();
                     return Handle(() => w.IsOpen, v => w.IsOpen = v,
-                                  () => w.WindowRectForTesting, r => w.WindowRectForTesting = r);
+                                  () => w.WindowRectForTesting, r => w.WindowRectForTesting = r,
+                                  minW: LogisticsWindowUI.MinWindowWidth,
+                                  minH: LogisticsWindowUI.MinWindowHeight,
+                                  windowId: () => LogisticsWindowUI.WindowIdKey.GetHashCode());
                 }
                 case TestCommandUiAction.StructureWindow:
                 {
                     StructureListWindowUI w = ui.GetStructureListUI();
                     return Handle(() => w.IsOpen, v => w.IsOpen = v,
-                                  () => w.WindowRectForTesting, r => w.WindowRectForTesting = r);
+                                  () => w.WindowRectForTesting, r => w.WindowRectForTesting = r,
+                                  minW: StructureListWindowUI.MinWindowWidth,
+                                  minH: StructureListWindowUI.MinWindowHeight,
+                                  windowId: () => StructureListWindowUI.WindowIdKey.GetHashCode());
                 }
                 case TestCommandUiAction.SettingsWindow:
                 {
                     SettingsWindowUI w = ui.GetSettingsWindowUI();
+                    // NO minimum: this window has no resize handle at all, so there is no
+                    // drag floor to reproduce. It still GROWS to its own content minimum
+                    // during the layout pass, which is what the rect read-back's size
+                    // floors already tolerate.
                     return Handle(() => w.IsOpen, v => w.IsOpen = v,
-                                  () => w.WindowRectForTesting, r => w.WindowRectForTesting = r);
+                                  () => w.WindowRectForTesting, r => w.WindowRectForTesting = r,
+                                  windowId: () => SettingsWindowUI.WindowIdKey.GetHashCode());
                 }
                 case TestCommandUiAction.SpawnControlWindow:
                 {
                     SpawnControlUI w = ui.GetSpawnControlUI();
                     return Handle(() => w.IsOpen, v => w.IsOpen = v,
-                                  () => w.WindowRectForTesting, r => w.WindowRectForTesting = r);
+                                  () => w.WindowRectForTesting, r => w.WindowRectForTesting = r,
+                                  minW: SpawnControlUI.MinWindowWidth,
+                                  minH: SpawnControlUI.MinWindowHeight,
+                                  windowId: () => SpawnControlUI.WindowIdKey.GetHashCode());
                 }
                 case TestCommandUiAction.GloopsWindow:
                 {
                     GloopsRecorderUI w = ui.GetGloopsUI();
+                    // NO minimum: no resize handle (the class says so in place).
                     return Handle(() => w.IsOpen, v => w.IsOpen = v,
-                                  () => w.WindowRectForTesting, r => w.WindowRectForTesting = r);
+                                  () => w.WindowRectForTesting, r => w.WindowRectForTesting = r,
+                                  windowId: () => GloopsRecorderUI.WindowIdKey.GetHashCode());
                 }
                 case TestCommandUiAction.TestRunnerWindow:
                 {
                     TestRunnerUI w = ui.GetTestRunnerUI();
                     return Handle(() => w.IsOpen, v => w.IsOpen = v,
-                                  () => w.WindowRectForTesting, r => w.WindowRectForTesting = r);
+                                  () => w.WindowRectForTesting, r => w.WindowRectForTesting = r,
+                                  minW: TestRunnerUI.MinWindowWidth,
+                                  minH: TestRunnerUI.MinWindowHeight,
+                                  windowId: () => TestRunnerUI.WindowIdKey.GetHashCode());
                 }
                 default:
                     throw new ArgumentOutOfRangeException(nameof(window), window);
@@ -677,7 +884,9 @@ namespace Parsek.TestCommands
         private static UiWindowHandle Handle(Func<bool> getOpen, Action<bool> setOpen,
                                              Func<Rect> getRect, Action<Rect> setRect,
                                              Func<int> getTab = null,
-                                             Action<int> setTab = null)
+                                             Action<int> setTab = null,
+                                             float minW = 0f, float minH = 0f,
+                                             Func<int> windowId = null)
             => new UiWindowHandle
             {
                 GetOpen = getOpen,
@@ -686,6 +895,9 @@ namespace Parsek.TestCommands
                 SetRect = setRect,
                 GetTab = getTab,
                 SetTab = setTab,
+                MinW = minW,
+                MinH = minH,
+                GetWindowId = windowId,
             };
 
         private static UiActionRect ToRect(Rect r)
@@ -719,6 +931,14 @@ namespace Parsek.TestCommands
             if (flight != null) { flight.ShowUIForTesting = show; return; }
             ParsekKSC ksc = UnityEngine.Object.FindObjectOfType<ParsekKSC>();
             if (ksc != null) ksc.ShowUIForTesting = show;
+        }
+
+        private static int ReadHostMainWindowId()
+        {
+            ParsekFlight flight = ParsekFlight.Instance;
+            if (flight != null) return flight.MainWindowIdForTesting;
+            ParsekKSC ksc = UnityEngine.Object.FindObjectOfType<ParsekKSC>();
+            return ksc != null ? ksc.MainWindowIdForTesting : 0;
         }
 
         private static Rect ReadHostMainRect()

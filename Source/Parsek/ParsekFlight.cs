@@ -978,6 +978,16 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The IMGUI window id the main Parsek window is drawn with. Read by
+        /// <c>UiWindowHandle.GetWindowId</c> (wired by
+        /// <c>ParsekTestCommandAddon.ResolveWindowHandle</c>) so <c>UiAction op=find</c> can
+        /// scope a captured GUI tree to this window's subtree; the sub-windows publish a
+        /// <c>WindowIdKey</c> const instead, because theirs is a hash of a literal while
+        /// this one is the host MonoBehaviour's own instance id and cannot be a const.
+        /// </summary>
+        internal int MainWindowIdForTesting => GetInstanceID();
+
+        /// <summary>
         /// The main window's live rect. Read by the automation-only <c>UiAction</c> seam verb
         /// (<c>op=describe</c> reports it, <c>op=rect</c> moves it).
         /// <para>Its SIZE is host-controlled: <c>OnGUI</c> passes a fixed

@@ -42,6 +42,99 @@ namespace Parsek
         /// default when <c>width &lt; 1</c>, so a commanded rect suppresses the seed rather
         /// than being overwritten by it.</para>
         /// </summary>
+        // ----- GUI-census seam accessors (UiAction op=expand / op=picker) -----
+        //
+        // One set backs every disclosure in this window, and these are ALL FOUR key shapes
+        // it holds, re-derived from the four sites that write `expandedRows` rather than
+        // from this comment's earlier wording:
+        //   DrawRouteRow      route.Id ?? "<no-id>"          (:1040)
+        //   DrawCandidateRow  "cand:" + (tree.Id ?? "<no-tree>")  (:1546)
+        //   the three fixed subsection headers  dormant: / nearmiss: / dismissed: section
+        // The seam drives the set by RAW KEY and the three section constants are published
+        // here rather than copied into the seam.
+        //
+        // EnumerateRowKeysForTesting must list every one of those shapes, because it is
+        // what `op=expand key=all` iterates AND what `key=row:<k>` is validated against:
+        // a shape it omits is silently unexpandable in bulk and REJECTED
+        // `expand-key-unknown` when named. The candidate rows were the omission
+        // (fixed 2026-09-11); a route with a null id is deliberately still skipped,
+        // because "<no-id>" collides across every such route and naming one would toggle
+        // an arbitrary other.
+        //
+        // The link picker's opener is the one genuinely unreachable surface in the census's
+        // click-gated list: it is armed from an expanded route row's button and is private.
+        // Exposed as a wrapper over the SAME private method, so the picker opens through its
+        // own production path (source validation, rect reset, selection cleared) and the
+        // seam adds no second opener.
+
+        internal const string DormantSectionKeyForTesting = DormantSectionKey;
+        internal const string NearMissSectionKeyForTesting = NearMissSectionKey;
+        internal const string DismissedSectionKeyForTesting = DismissedSectionKey;
+
+        internal bool IsRowExpandedForTesting(string key)
+            => key != null && expandedRows.Contains(key);
+
+        internal bool SetRowExpandedForTesting(string key, bool expanded)
+        {
+            if (string.IsNullOrEmpty(key)) return false;
+            return expanded ? expandedRows.Add(key) : expandedRows.Remove(key);
+        }
+
+        internal int ExpandedRowCountForTesting => expandedRows.Count;
+
+        /// <summary>Every raw <c>expandedRows</c> key the window could draw a disclosure
+        /// for: the three fixed sections, every committed route's id, and one
+        /// <c>"cand:"</c> key per candidate row.
+        ///
+        /// <para>The candidate keys come from this window's OWN cached candidate list, not
+        /// from a fresh <c>RouteCandidateFinder.DeriveCandidates()</c> call: the cache is
+        /// what <c>DrawCandidateRow</c> draws from (rebuilt on the ~1 Hz refresh), so a
+        /// live derivation here could answer keys for rows the window is not drawing this
+        /// second - and deriving candidates off the throttle is the one thing the cache
+        /// exists to prevent. The null form matches the draw site's exactly
+        /// (<c>"cand:" + (Tree?.Id ?? "&lt;no-tree&gt;")</c>); a mismatch there would be
+        /// worse than the omission, because the key would LOOK addressable and toggle
+        /// nothing.</para></summary>
+        internal List<string> EnumerateRowKeysForTesting()
+        {
+            var keys = new List<string>
+            {
+                DormantSectionKey, NearMissSectionKey, DismissedSectionKey,
+            };
+            IReadOnlyList<Logistics.Route> routes = Logistics.RouteStore.CommittedRoutes;
+            for (int i = 0; i < routes.Count; i++)
+            {
+                string id = routes[i] != null ? routes[i].Id : null;
+                if (!string.IsNullOrEmpty(id)) keys.Add(id);
+            }
+            List<RouteCandidate> candidates = cachedCandidates;
+            for (int i = 0; candidates != null && i < candidates.Count; i++)
+                keys.Add(CandidateRowKey(candidates[i]));
+            return keys;
+        }
+
+        /// <summary>The <c>expandedRows</c> key of one candidate row. ONE site, called by
+        /// both <see cref="DrawCandidateRow"/> and
+        /// <see cref="EnumerateRowKeysForTesting"/>, so the drawn key and the enumerated
+        /// key cannot drift - which is the defect the enumeration's omission was a
+        /// symptom of.</summary>
+        internal static string CandidateRowKey(RouteCandidate candidate)
+            => "cand:" + (candidate?.Tree?.Id ?? "<no-tree>");
+
+        /// <summary>Opens the round-trip link picker on a route through the production
+        /// opener. The mouse position only seeds the popup's first rect, so the seam passes
+        /// the window's own origin rather than a cursor it does not have.</summary>
+        internal bool OpenLinkPickerForTesting(Logistics.Route source)
+        {
+            if (source == null) return false;
+            OpenLinkPicker(source, new Vector2(windowRect.x, windowRect.y));
+            return linkPickerOpen;
+        }
+
+        /// <summary>Whether the link picker is up, for the seam's post-settle
+        /// read-back.</summary>
+        internal bool LinkPickerOpenForTesting => linkPickerOpen;
+
         internal Rect WindowRectForTesting
         {
             get { return windowRect; }
@@ -72,6 +165,17 @@ namespace Parsek
         // while the window is open rather than every IMGUI frame.
         private List<RouteCandidate> cachedCandidates = new List<RouteCandidate>();
         private float lastCandidateComputeRealtime = -1f;
+        /// <summary>
+        /// The key this window's IMGUI window id is hashed from. Named once and used at
+        /// BOTH the <c>ClickThruBlocker.GUILayoutWindow</c> call below and
+        /// <c>UiWindowHandle.GetWindowId</c> (wired by
+        /// <c>ParsekTestCommandAddon.ResolveWindowHandle</c>), which the <c>UiAction op=find</c>
+        /// seam uses to scope a captured GUI tree to THIS window's subtree. Two copies of
+        /// the literal would let the seam search the wrong window's children and answer a
+        /// plausible rect for a control in another window.
+        /// </summary>
+        internal const string WindowIdKey = "ParsekLogistics";
+
         private const float CandidateRecomputeIntervalSeconds = 1.0f;
 
         // Run-cost (Phase 3.4): per-candidate net funds cost, keyed by tree id and
@@ -387,8 +491,8 @@ namespace Parsek
         // than its content. The remaining columns (Status / Destination) are candidates
         // for a further fold in a later pass; this L2 step does a conservative one-column
         // compression that is safe without in-game validation.
-        private const float MinWindowWidth = 1410f;
-        private const float MinWindowHeight = 500f;
+        internal const float MinWindowWidth = 1410f;
+        internal const float MinWindowHeight = 500f;
 
         public bool IsOpen
         {
@@ -442,7 +546,7 @@ namespace Parsek
             try
             {
                 windowRect = ClickThruBlocker.GUILayoutWindow(
-                    "ParsekLogistics".GetHashCode(),
+                    WindowIdKey.GetHashCode(),
                     windowRect,
                     DrawWindow,
                     "Parsek - Logistics",
@@ -1475,7 +1579,7 @@ namespace Parsek
         {
             if (candidate?.Analysis == null) return;
             string treeId = candidate.Tree?.Id ?? "<no-tree>";
-            string rowKey = "cand:" + treeId;
+            string rowKey = CandidateRowKey(candidate);
             bool expanded = expandedRows.Contains(rowKey);
 
             string name = RouteCreationFormatters.GenerateDefaultRouteName(candidate.Analysis, candidate.Tree);

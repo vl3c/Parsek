@@ -64,13 +64,24 @@ namespace Parsek
         // permanently visible box of constant height.
         private readonly TooltipEchoBox tooltipEcho = new TooltipEchoBox(SpacingSmall);
 
+        /// <summary>
+        /// The key this window's IMGUI window id is hashed from. Named once and used at
+        /// BOTH the <c>ClickThruBlocker.GUILayoutWindow</c> call below and
+        /// <c>UiWindowHandle.GetWindowId</c> (wired by
+        /// <c>ParsekTestCommandAddon.ResolveWindowHandle</c>), which the <c>UiAction op=find</c>
+        /// seam uses to scope a captured GUI tree to THIS window's subtree. Two copies of
+        /// the literal would let the seam search the wrong window's children and answer a
+        /// plausible rect for a control in another window.
+        /// </summary>
+        internal const string WindowIdKey = "ParsekTestRunner";
+
         private const float SpacingSmall = 3f;
         private const float DefaultWindowWidth = 440f;
         private const float DefaultWindowHeight = 600f;
-        private const float MinWindowWidth = 320f;
+        internal const float MinWindowWidth = 320f;
         // Default height is also the minimum: the window opens at this height
         // and will not shrink below it (matches the Logistics window).
-        private const float MinWindowHeight = DefaultWindowHeight;
+        internal const float MinWindowHeight = DefaultWindowHeight;
         private const float ErrorIndent = 40f;
         private const float ErrorMaxWidth = 380f;
 
@@ -120,7 +131,7 @@ namespace Parsek
             try
             {
                 testRunnerWindowRect = ClickThruBlocker.GUILayoutWindow(
-                    "ParsekTestRunner".GetHashCode(),
+                    WindowIdKey.GetHashCode(),
                     testRunnerWindowRect,
                     DrawTestRunnerWindow,
                     "Parsek - Test Runner",

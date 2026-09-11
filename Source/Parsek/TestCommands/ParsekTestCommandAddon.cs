@@ -803,11 +803,19 @@ namespace Parsek.TestCommands
                 TryCompleteDumpGuiTree(now);
                 return;
             }
-            // GUI census: the settle poll for the two two-phase UiAction ops (`open` and
-            // `rect`). Same bounded-completion contract; it waits for ONE drawn frame,
-            // because before a draw the read-back would compare the field with the value
-            // just written to it - and a window that force-closes itself on its first draw
-            // (SpawnControlUI with nothing in range) would report OK and then not be there.
+            // GUI census: the settle poll for the SEVEN two-phase UiAction ops
+            // (TestCommandUiAction.OpIsTwoPhase is the authority: open, rect, pointer,
+            // find, expand, target, picker). Same bounded-completion contract, but the
+            // SIGNAL is not the same for all of them, which is why TryCompleteUiAction
+            // routes two of them to their own polls:
+            //   open / rect / expand / target / picker  ONE DRAWN FRAME. Before a draw the
+            //     read-back would compare the field with the value just written to it -
+            //     and a window that force-closes itself on its first draw (SpawnControlUI
+            //     with nothing in range) would report OK and then not be there.
+            //   find     a CAPTURE arriving (the recorder flushes from LateUpdate, so the
+            //     tree is not assembled until the frame AFTER the one that drew it).
+            //   pointer  Unity's input state AGREEING with the OS cursor move, POLLED - a
+            //     drawn frame says nothing about when the mouse was next sampled.
             if (completionVerb == "UiAction")
             {
                 TryCompleteUiAction(now);
@@ -2254,10 +2262,34 @@ namespace Parsek.TestCommands
                 return;
             }
 
+            // WHICH dialog. Defaults to the tree merge dialog, which is what every spec
+            // written before this arg existed meant, and is a closed set rather than a bare
+            // default so a value outside it fails loudly instead of silently answering the
+            // merge dialog. The pre-switch decision dialog is deliberately NOT in the set:
+            // this verb completes on the post-answer scene settling out of FLIGHT, and that
+            // dialog's buttons end in SetActiveVessel, which for a loaded target changes no
+            // scene at all - so answering it here would time out over an answer that
+            // landed. It is reachable for inspection through UiAction op=dialog.
+            if (!TestCommandUiDialog.TryParseAnswerDialog(
+                    ArgOrNull(cmd, TestCommandUiDialog.DialogArg), out string dialogToken,
+                    out string dialogReject))
+            {
+                string raw = ArgOrNull(cmd, TestCommandUiDialog.DialogArg) ?? string.Empty;
+                ParsekLog.Warn(Tag, $"answermergedialog refused reason={dialogReject} "
+                    + $"dialog={raw}");
+                SetExecResult("REJECTED", null,
+                    $"{dialogReject} dialog={raw} "
+                    + $"valid={TestCommandUiDialog.ValidAnswerDialogNames}");
+                return;
+            }
+            string dialogName = MergeDialog.DialogName;
+            ParsekLog.Verbose(Tag, $"answermergedialog target dialog={dialogToken} "
+                + $"name={dialogName}");
+
             ParsekScenario scenario = ParsekScenario.Instance;
             bool markerLive = scenario != null && scenario.ActiveReFlySessionMarker != null;
 
-            PopupDialog popup = markerLive ? FindReFlyMergePopup() : null;
+            PopupDialog popup = markerLive ? FindPopupByName(dialogName) : null;
             if (popup == null)
             {
                 if (!markerLive)
@@ -2520,10 +2552,34 @@ namespace Parsek.TestCommands
             }
         }
 
-        // Locate the live re-fly merge popup by MergeDialog.DialogName. Returns null when no
-        // "ParsekMerge" popup is live or the reflection bind failed.
+        // Locate the live re-fly merge popup. Returns null when no popup with that name is
+        // live or the reflection bind failed.
         private static PopupDialog FindReFlyMergePopup()
         {
+            // The dispatch readiness bit and the completion re-scan both mean "the tree
+            // merge dialog": the only answerable dialog token today resolves to this name
+            // (TestCommandUiDialog.ValidAnswerDialogNames), so there is one name to look up
+            // and no per-call state to thread through the pump.
+            return FindPopupByName(MergeDialog.DialogName);
+        }
+
+        /// <summary>
+        /// The live <c>PopupDialog</c> whose <c>MultiOptionDialog</c> name is
+        /// <paramref name="dialogName"/>, or null.
+        ///
+        /// <para>SCOPED BY NAME, and that is the fix rather than a refactor.
+        /// <c>TryInvokeMergeButton</c> selects a button BY ORDER, and until the pre-switch
+        /// decision dialog got its own name (<c>MergeDialog.PreSwitchDialogName</c>) three
+        /// spawn sites shared one - so a pre-switch popup live at the moment
+        /// <c>AnswerMergeDialog</c> ran would have had its merge action invoked by a step
+        /// that believed it was concluding a re-fly. The dispatch bit narrowed the window
+        /// by also requiring a live re-fly marker, which is a correlation and not an
+        /// identity: both dialogs are reachable inside one re-fly attempt. Now the verb
+        /// looks up exactly the dialog its <c>dialog=</c> arg names.</para>
+        /// </summary>
+        private static PopupDialog FindPopupByName(string dialogName)
+        {
+            if (string.IsNullOrEmpty(dialogName)) return null;
             if (PopupDialogToDisplayField == null || MultiOptionDialogNameField == null)
                 return null;
             PopupDialog[] popups = UnityEngine.Object.FindObjectsOfType<PopupDialog>();
@@ -2533,7 +2589,7 @@ namespace Parsek.TestCommands
                 MultiOptionDialog dialog = PopupDialogToDisplayField.GetValue(popups[i]) as MultiOptionDialog;
                 if (dialog == null) continue;
                 string name = MultiOptionDialogNameField.GetValue(dialog) as string;
-                if (name == MergeDialog.DialogName) return popups[i];
+                if (name == dialogName) return popups[i];
             }
             return null;
         }
@@ -2585,12 +2641,13 @@ namespace Parsek.TestCommands
             if (dialog == null) return result;
             DialogGUIBase[] options = MultiOptionDialogOptionsField.GetValue(dialog) as DialogGUIBase[];
             if (options == null) return result;
-            for (int i = 0; i < options.Length; i++)
-            {
-                DialogGUIButton b = options[i] as DialogGUIButton;
-                if (b != null) result.Add(b);
-            }
-            return result;
+            // Walks NESTED layouts, not just the top level of `options`: a dialog that puts
+            // its buttons inside a DialogGUIHorizontalLayout / DialogGUIVerticalLayout - the
+            // ordinary way to place two buttons on one row - used to report zero buttons
+            // here, which reached `UiAction op=dialog` as `nbuttons=0` over a popup that
+            // plainly has some. Depth-first left-to-right, so the by-position selection in
+            // TryPressMergeDialogButton still means what it says.
+            return TestCommandUiDialog.CollectButtons(options);
         }
 
         // The KscAction dispatch readiness bit (CareerPresent). CAREER mode + the singleton

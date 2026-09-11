@@ -1011,6 +1011,58 @@ carried, which the census found nothing else exposes. The triage held it back fr
 batch for exactly this reason: deleting it is cheap and irreversible, wiring it is cheap and
 adds the most information per byte of any item in the audit.
 
+## ~~MERGE-DIALOG-NAME-SHARED-WITH-PRE-SWITCH-DIALOG: `AnswerMergeDialog` could press the pre-switch decision dialog's Merge button believing it was concluding a re-fly~~ [FILED AND FIXED 2026-09-11 by the GUI-census ops wave (`gui-census-ops`), off the code-derived GUI inventory. Latent, never observed in a run; the fix makes the confusion unrepresentable rather than unlikely]
+
+**The shape.** `MergeDialog` spawned three different modals under ONE popup name,
+`MergeDialog.DialogName` = "ParsekMerge": the post-transition whole-tree merge dialog
+(`MergeDialog.cs` `ShowTreeDialog`), its pre-transition sibling, and
+`ShowPreSwitchDecisionDialog` - the rapid Switch-To decision. The first two ARE the tree
+merge dialog and are both what `AnswerMergeDialog` means. The third is a different
+decision that happens to carry Merge / Discard buttons in the same positions, and the seam
+verb selects its button BY ORDER (`TryInvokeMergeButton`: index 0, the last one, and the
+middle one for `seal`) precisely so it does not depend on mutable label text. So with a
+pre-switch popup live at the moment the verb executed, the verb would have invoked THAT
+dialog's merge action - finalizing and committing a switch segment - while reporting
+`choice=merge result=committed` for a re-fly conclusion.
+
+**Why the mitigation on record was not enough.** `design-autotest-seam-verbs-c1.md` risk 8
+named the collision when the verb shipped and mitigated it with a dialog-kind-scoped
+dispatch bit: `ReFlyMergeDialogPresent` = a live ParsekMerge popup AND
+`ActiveReFlySessionMarker != null`. That is a CORRELATION, not an identity. Both dialogs
+are reachable inside ONE re-fly attempt - a Map-view Switch-To during an attempt runs
+`MapFocusObjectOnSelectPatch`'s prefix, which spawns the pre-switch dialog with the re-fly
+marker still live - so the conjunction is satisfied by the wrong popup. The window was
+narrow (it needs a Switch-To between the rewind and the conclusion) and no lane has ever
+driven one, which is why this was never observed rather than why it was safe.
+
+**The fix.** The pre-switch dialog spawns under its own name,
+`MergeDialog.PreSwitchDialogName` = "ParsekPreSwitch". `AnswerMergeDialog` gains a
+`dialog=` arg (closed set, default `merge`) and looks its target up through
+`FindPopupByName(dialogName)` instead of taking any ParsekMerge popup, so the verb answers
+the dialog it was ASKED to answer. `MergeDialog`'s two non-button teardown paths
+(`DismissAndClearPendingFlag`, and the pre-switch spawn site's own pre-dismiss) dismiss
+BOTH names, because that helper is the cleanup path for every dialog the class spawns and
+a pre-switch popup left standing over the input lock it releases is the stealth state the
+Esc-respawn contract exists to prevent.
+
+**`dialog=preswitch` is deliberately NOT accepted**, and that is a contract rather than an
+omission - checked in the mirror direction. `AnswerMergeDialog`'s completion is
+answer-applied AND the post-answer scene SETTLING OUT OF FLIGHT
+(`TestCommandMergeAnswer.DecideAnswerCompletion`), while the pre-switch buttons end in
+`FlightGlobals.SetActiveVessel`, which for a LOADED target changes no scene at all. So
+answering it through that verb would hold the FIFO head until the budget expired and then
+report a timeout over an answer that had landed. The popup is reachable for INSPECTION
+through the new `UiAction op=dialog`, which reports its name, title and ordered button
+labels - which is what a GUI census needs of it.
+
+**Coverage.** `TestCommandUiCensusOpsTests.Dialog_TheTwoMergeDialogNamesAreDistinct` pins
+the two names apart and that both still scan as Parsek's for `op=dialog`;
+`Dialog_TheAnswerArgIsAClosedSet_SoAWrongValueCannotFallBack` pins that `preswitch` is a
+REJECTED rather than a silent fallback to the merge dialog; harness-side,
+`test_the_census_ops_closed_arg_rows_name_their_owner_verbs` pins the one-value set and
+its owner verb. Risk 8 in `design-autotest-seam-verbs-c1.md` is struck in place with the
+reasoning above.
+
 ---
 
 ## BDOCK1-STATION-COMMIT-READOPT-LIMBO-FALLBACK-DIALOG: after BDOCK-1's mid-mission CommitTree, the re-adopted station continuation is stashed to Limbo by the interceptor launch and surfaces as a whole-tree merge dialog over already-committed recordings [FILED 2026-09-10 by wave package A2 (`cheap-flights-arming`) off its BDOCK-1 reading run; REWRITTEN 2026-09-11 off the archive grep. The dialog is the lane's deterministic shape on every post-fix build (4 of 4 logs), reached through a CORRECT refusal; OPEN PRODUCT QUESTION narrowed to the fallback dialog's UX over committed-overlap recordings; not fixed in this wave]
@@ -1621,6 +1673,44 @@ zero-candidate count measured on the other host. So the first step is a scratch 
 run on that host reading the auto-close line, not a spec. A GUI-3 lane would also be the
 natural place to photograph the other flight-only surface a census still cannot reach
 (GUI-CENSUS-STRUCTURE-WINDOW-HAS-NO-DRIVEABLE-TARGET names the KSC half of that problem).
+
+## GUI-CENSUS-PICKER-POPUPS-ARE-PHOTOGRAPHABLE-BUT-NOT-FINDABLE: a row-armed picker's contents never enter a GUI-tree dump, so `op=find` cannot reach a control inside one [Filed 2026-09-11 off the review of the six census ops. Not a defect: a structural property of uGUI, recorded so a lane author does not spend a boot discovering it]
+
+`op=picker` opens a `PopupDialog`-hosted popup (Set Parent Group, Manage Groups, the
+Logistics round-trip link picker). `GuiTreeRecorder` patches `GUI.DoWindow` and the other
+IMGUI funnels, and a `PopupDialog` is uGUI - it draws through no funnel at all - so a
+picker's rows are absent from every `DumpGuiTree` capture. The consequences, both ways:
+`op=find window=missions text=<row>` cannot find a row inside the picker (the window node
+it scopes to is the IMGUI window BEHIND the popup), and `op=pointer` therefore has no
+centre to chain to, so a picker row cannot be hovered by label either. `op=dialog` does not
+cover these: it reports the live `MultiOptionDialog`, and a picker is not one.
+
+What DOES work today, and is what the census uses: open the picker through its production
+opener and photograph it (`op=picker` -> `CaptureScreenshot`), which shows the reviewer the
+rows. The dump beside that PNG describes the window underneath, and says so honestly.
+
+Fix (only if a lane ever needs to ASSERT a picker's contents rather than show them): a uGUI
+reader is a second capture pipeline - walk the popup's `RectTransform` tree and emit the
+same node shape the IMGUI recorder does - for three popups whose contents a PNG already
+carries. Not worth it on today's evidence.
+
+## GUI-CENSUS-EXPAND-ANSWERS-OK-OVER-A-SURFACE-THE-MODE-IS-NOT-DRAWING: `op=expand` in Basic toggles Recordings-tab state the window is not showing, so a capture paired with it shows nothing moved [Filed 2026-09-11 off the same review. By design; the LANE owns the fix]
+
+The settle's host-visibility gate is per OP (`TestCommandUiAction.SettleChecksHostShowUi`:
+`open` and `rect` alone, because those two read back a FIELD that a hidden host would let
+them compare with itself). `expand` reads a COLLECTION, which a hidden host cannot fake, so
+it is exempt - and that exemption is per op, not per surface. In Basic the missions window's
+Recordings tab is hidden, and `op=expand window=missions key=group:<name>` there toggles the
+set and reads back a changed `expanded=` count. The answer is honest about what the op did;
+a lane that pairs it with a `CaptureScreenshot` gets a picture in which nothing moved, and a
+reviewer reads that as a Parsek defect.
+
+Fix: in the LANE - `op=complexity mode=advanced`, or `op=tab window=missions
+tab=recordings`, before the expand. Closing it in the seam would need the seam to model
+which surface each expansion PREFIX belongs to (five prefixes across two tabs of one window
+today) and would refuse the legitimate case of arranging state now and photographing it
+after a later mode switch. Recorded beside `SettleChecksHostShowUi` and in
+`design-autotest-command-seam.md` -> "REVIEW FOLLOW-UPS (2026-09-11)"; no behaviour change.
 
 ## ~~GUITREE-INTERCEPTION-LAYER-NEVER-RUN: the GUI-tree dump's Harmony interception of the UnityEngine IMGUI funnels has never executed inside KSP, so four premises the whole design rests on are unmeasured~~ [Filed 2026-09-10 on branch `gui-dump-spike`. CLOSED 2026-09-11 by the GUI census's first flight - runs `2026-09-10_2255` / `_2256` (GUI-1) and `2026-09-10_2259` / `_2300` (GUI-2). The layer RAN, and it ran clean. CONFIRMED UNDER A VERDICT by the two PASS reading runs of 2026-09-11, `2026-09-11_0548` (GUI-1, attempt 1, 96 s) and `2026-09-11_0551` (GUI-2, attempt 1, 57 s): 27 more arms (23 + 4), every one `patched=17/17`, zero `[WARN][GuiTree]` / `[ERROR][GuiTree]` lines, every anomaly counter zero, and the cell's PASS line identical to the pixel (`box=[60,60,320,300] ... declared=[60,60,320,300]`, same `kinds=`, `repaintPasses=5`)]
 

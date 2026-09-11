@@ -29,8 +29,39 @@ namespace Parsek.TestCommands
         Rect = 5,
 
         /// <summary><c>op=describe</c>: the read-only inventory (scene, mode, and every
-        /// window's availability / open state / rect / tabs).</summary>
+        /// window's availability / open state / rect / tabs / minimum size).</summary>
         Describe = 6,
+
+        /// <summary><c>op=pointer x= y=</c> or <c>op=pointer park=true</c>: move the REAL
+        /// OS cursor into the game client so Unity's own hit test runs (hover styles,
+        /// <c>GUI.tooltip</c>, the tooltip echo strip, the disabled-hover echo). The only
+        /// op that touches something outside the process.</summary>
+        Pointer = 7,
+
+        /// <summary><c>op=find window= text= [ctrl=] [index=]</c>: locate one control in a
+        /// freshly captured GUI tree and answer its rect plus centre, so a spec can chain
+        /// <c>${stepN.cx}</c> / <c>${stepN.cy}</c> into <c>op=pointer</c>.</summary>
+        Find = 8,
+
+        /// <summary><c>op=expand window= key= [state=]</c>: drive a window's own
+        /// set-of-expanded-keys (group folders, chain blocks, mission vessel / leg /
+        /// digest rows, logistics route / candidate / section rows).</summary>
+        Expand = 9,
+
+        /// <summary><c>op=target window=structure mission=|route=</c>: open a window ON a
+        /// target through its own production opener, rather than raising a bare
+        /// <c>IsOpen</c> that leaves the window empty.</summary>
+        Target = 10,
+
+        /// <summary><c>op=picker window=missions group=|recording=</c> or
+        /// <c>op=picker window=logistics route=</c>: open a popup that a ROW arms, the way
+        /// that row's own button arms it.</summary>
+        Picker = 11,
+
+        /// <summary><c>op=dialog</c>: read-only report of the live Parsek
+        /// <c>PopupDialog</c> (name, title, ordered button labels). uGUI, so it is
+        /// invisible to <c>DumpGuiTree</c> and visible only in a PNG.</summary>
+        Dialog = 12,
     }
 
     /// <summary>What one settle poll of a TWO-PHASE <c>UiAction</c> op concludes.</summary>
@@ -101,6 +132,15 @@ namespace Parsek.TestCommands
         /// <summary>The selected tab / filter-mode token, or null when the window has no
         /// selector (or is unavailable).</summary>
         internal string Tab;
+
+        /// <summary>The window class's OWN minimum width, read live from its resize clamp
+        /// constant. Zero for a window that has no resize handle and therefore no minimum
+        /// (main, settings, gloops). Reported by describe so a spec author can size a
+        /// capture without reading the source.</summary>
+        internal float MinW;
+
+        /// <summary>The window class's own minimum height. Zero when it has none.</summary>
+        internal float MinH;
     }
 
     /// <summary>
@@ -159,6 +199,12 @@ namespace Parsek.TestCommands
         internal const string ComplexityOpToken = "complexity";
         internal const string RectOpToken = "rect";
         internal const string DescribeOpToken = "describe";
+        internal const string PointerOpToken = "pointer";
+        internal const string FindOpToken = "find";
+        internal const string ExpandOpToken = "expand";
+        internal const string TargetOpToken = "target";
+        internal const string PickerOpToken = "picker";
+        internal const string DialogOpToken = "dialog";
 
         // ----- complexity tokens (the wire spelling of UiComplexityMode) -----
 
@@ -466,7 +512,8 @@ namespace Parsek.TestCommands
         internal static string ValidOpNames => string.Join(",", new[]
         {
             OpenOpToken, CloseOpToken, TabOpToken, ComplexityOpToken, RectOpToken,
-            DescribeOpToken,
+            DescribeOpToken, PointerOpToken, FindOpToken, ExpandOpToken, TargetOpToken,
+            PickerOpToken, DialogOpToken,
         });
 
         /// <summary>A window's tab tokens, comma-joined, or the empty string when it has
@@ -495,6 +542,12 @@ namespace Parsek.TestCommands
                 case ComplexityOpToken: op = UiActionOp.Complexity; break;
                 case RectOpToken: op = UiActionOp.Rect; break;
                 case DescribeOpToken: op = UiActionOp.Describe; break;
+                case PointerOpToken: op = UiActionOp.Pointer; break;
+                case FindOpToken: op = UiActionOp.Find; break;
+                case ExpandOpToken: op = UiActionOp.Expand; break;
+                case TargetOpToken: op = UiActionOp.Target; break;
+                case PickerOpToken: op = UiActionOp.Picker; break;
+                case DialogOpToken: op = UiActionOp.Dialog; break;
                 default:
                     rejectReason = OpArgInvalidReason;
                     return false;
@@ -514,14 +567,34 @@ namespace Parsek.TestCommands
                 case UiActionOp.Complexity: return ComplexityOpToken;
                 case UiActionOp.Rect: return RectOpToken;
                 case UiActionOp.Describe: return DescribeOpToken;
+                case UiActionOp.Pointer: return PointerOpToken;
+                case UiActionOp.Find: return FindOpToken;
+                case UiActionOp.Expand: return ExpandOpToken;
+                case UiActionOp.Target: return TargetOpToken;
+                case UiActionOp.Picker: return PickerOpToken;
+                case UiActionOp.Dialog: return DialogOpToken;
                 default: return string.Empty;
             }
         }
 
-        /// <summary>True for the ops that require a <c>window=</c> arg.</summary>
+        /// <summary>
+        /// True for the ops that require a <c>window=</c> arg.
+        ///
+        /// <para>MIRRORED, not re-derived: <c>hlib.UIACTION_OPS_NEEDING_WINDOW</c> carries
+        /// the same set, and <c>GuiCensusSeamVerbTests.test_the_ops_needing_a_window_mirror
+        /// _the_c_sharp_predicate</c> reads THIS method body so the two cannot drift. An op
+        /// added here and not there is a spec the harness validates as legal and the seam
+        /// then REJECTS after a whole KSP boot.</para>
+        ///
+        /// <para><c>pointer</c> and <c>dialog</c> are deliberately absent: the pointer moves
+        /// in SCREEN space with no window in the grammar at all, and the dialog report is
+        /// about a uGUI popup no window table row can name.</para>
+        /// </summary>
         internal static bool OpNeedsWindow(UiActionOp op)
             => op == UiActionOp.Open || op == UiActionOp.Close
-               || op == UiActionOp.Tab || op == UiActionOp.Rect;
+               || op == UiActionOp.Tab || op == UiActionOp.Rect
+               || op == UiActionOp.Find || op == UiActionOp.Expand
+               || op == UiActionOp.Target || op == UiActionOp.Picker;
 
         // ----- the two-phase ops -----
 
@@ -566,6 +639,41 @@ namespace Parsek.TestCommands
         /// <c>Update</c>, before any draw), not from a draw.</para>
         /// </summary>
         internal static bool OpIsTwoPhase(UiActionOp op)
+            => op == UiActionOp.Open || op == UiActionOp.Rect
+               || op == UiActionOp.Pointer || op == UiActionOp.Find
+               || op == UiActionOp.Expand || op == UiActionOp.Target
+               || op == UiActionOp.Picker;
+
+        /// <summary>
+        /// Whether a SETTLED two-phase op's read-back must additionally be refused when the
+        /// scene host's <c>showUI</c> is false (<see cref="SettleRefusedForHiddenHost"/>).
+        ///
+        /// <para>ONLY <c>open</c> and <c>rect</c>, and the asymmetry is the point rather
+        /// than an oversight. Those two read back a FIELD, so a frame that never reached
+        /// the window compares the written value with itself. The five later two-phase ops
+        /// do not have that hole: <c>find</c> reads a captured TREE, in which an undrawn
+        /// window is simply absent (<see cref="TestCommandUiFind.WindowNotDrawnReason"/>);
+        /// <c>pointer</c> reads <c>Input.mousePosition</c>, which no window draws at all;
+        /// and <c>expand</c> / <c>target</c> / <c>picker</c> read a collection or an open
+        /// flag whose only other writer is a player click this seam never synthesises.
+        /// Applying the host gate to them would refuse correct work - a <c>pointer</c> park
+        /// with the Parsek surface deliberately hidden is exactly the hover-free capture a
+        /// census wants.</para>
+        ///
+        /// <para><b>THE KNOWN CONSEQUENCE, recorded rather than closed.</b> The exemption
+        /// is per OP, not per surface, so <c>op=expand</c> answers OK over a surface the
+        /// current complexity mode is not drawing: in Basic, the Recordings tab of the
+        /// missions window is hidden, and a <c>key=group:...</c> against it still toggles
+        /// the set and still reads back a changed count. That is the HONEST answer for what
+        /// the op does - it drives model state, and the state really did change - but a
+        /// lane that pairs it with a capture gets a picture in which nothing moved. The
+        /// fix belongs in the LANE (set <c>op=complexity mode=advanced</c>, or select the
+        /// tab, before expanding), not here: adding a per-op visibility gate would need the
+        /// seam to model which surface each expansion PREFIX belongs to, and would refuse
+        /// the legitimate case of arranging state now and photographing it after a later
+        /// mode switch. No behaviour change; this paragraph is the whole treatment.</para>
+        /// </summary>
+        internal static bool SettleChecksHostShowUi(UiActionOp op)
             => op == UiActionOp.Open || op == UiActionOp.Rect;
 
         /// <summary>
@@ -819,6 +927,49 @@ namespace Parsek.TestCommands
         internal static bool SizeIsHostControlled(string windowName)
             => windowName == MainWindow;
 
+        /// <summary>
+        /// Raises a commanded rect to the window class's OWN minimum size before it is
+        /// written.
+        ///
+        /// <para><b>WHY THE OP CLAMPS INSTEAD OF REFUSING.</b> Every minimum in Parsek is
+        /// enforced in ONE place, <c>ParsekUI.HandleResizeDrag</c>, which runs only during
+        /// a resize DRAG. Nothing clamps a rect written straight into the field - which is
+        /// exactly what <c>op=rect</c> does - so the census commanded <c>w=1280</c> on a
+        /// window whose <c>MinWindowWidth</c> is 1410 and photographed a layout no player
+        /// can produce: a squeezed Logistics window, read by a reviewer as a layout defect.
+        /// Clamping reproduces the drag's own floor, so the picture is a state the game can
+        /// actually be in. A REJECT was the alternative and is worse: the honest answer to
+        /// "this window does not fit 1280 px" is a CLIPPED picture of the real layout, not
+        /// no picture.</para>
+        ///
+        /// <para>The clamp is per-AXIS and one-directional (raise only), so a caller that
+        /// commands MORE than the minimum keeps what it asked for. Zero minimums (a window
+        /// with no resize handle: main, settings, gloops) clamp nothing.</para>
+        ///
+        /// <para>The CLAMPED rect is what the read-back tolerance is then measured against,
+        /// because it is what was written; measuring against the unclamped request would
+        /// fail <see cref="RectAppliedWithinTolerance"/> on every clamped call.</para>
+        /// </summary>
+        internal static UiActionRect ClampRectToMinimums(
+            UiActionRect commanded, float minW, float minH, out bool clamped)
+        {
+            UiActionRect result = commanded;
+            clamped = false;
+            if (minW > 0f && result.W < minW) { result.W = minW; clamped = true; }
+            if (minH > 0f && result.H < minH) { result.H = minH; clamped = true; }
+            return result;
+        }
+
+        /// <summary>The <c>min=</c> value for a describe row: <c>minW,minH</c>, or <c>-</c>
+        /// for a window with no resize handle and therefore no minimum at all. The dash is
+        /// the describe payload's own absent-value sentinel (see
+        /// <see cref="BuildDescribePayload"/>); <c>0,0</c> would read as a real minimum of
+        /// zero rather than as "this window has none".</summary>
+        internal static string FormatMinSize(float minW, float minH)
+            => minW <= 0f && minH <= 0f
+                ? "-"
+                : FormatCoord(minW) + "," + FormatCoord(minH);
+
         // ----- payload builders -----
         //
         // Every builder leads with `op` so a reader (and a ${step.field} substitution) can
@@ -878,12 +1029,19 @@ namespace Parsek.TestCommands
         /// the rect is the READ-BACK and not the request - a height GUILayout grew is
         /// reported as it really is.</summary>
         internal static List<KeyValuePair<string, string>> BuildRectPayload(
-            string window, UiActionRect observed)
+            string window, UiActionRect observed, bool clamped, float minW, float minH)
             => new List<KeyValuePair<string, string>>
             {
                 Kv("op", RectOpToken),
                 Kv("window", window ?? string.Empty),
                 Kv("rect", FormatRect(observed)),
+                // ALWAYS present, both ways (the `already` rule): a census author reading
+                // `clamped=false` knows the commanded size is what the window got, and a
+                // reader of a clipped capture sees `clamped=true` with the floor that
+                // caused it instead of guessing at a layout defect.
+                Kv("clamped", Bool(clamped)),
+                Kv("minW", FormatCoord(minW)),
+                Kv("minH", FormatCoord(minH)),
             };
 
         /// <summary>
@@ -892,14 +1050,19 @@ namespace Parsek.TestCommands
         /// <para><c>op=describe scene=&lt;token&gt; complexity=&lt;mode&gt;
         /// count=&lt;n&gt;</c> then, per window in table order,
         /// <c>w&lt;i&gt;=&lt;name&gt; w&lt;i&gt;avail= w&lt;i&gt;open= w&lt;i&gt;rect=
-        /// w&lt;i&gt;tabs= w&lt;i&gt;tab=</c>.</para>
+        /// w&lt;i&gt;min= w&lt;i&gt;tabs= w&lt;i&gt;tab=</c>.</para>
+        ///
+        /// <para><c>min=</c> is the window class's own resize-drag floor, read live from
+        /// its constant rather than copied here, so a spec author can size a capture
+        /// without opening the source - and can tell a CLIPPED picture (the floor exceeds
+        /// the instance width) from a squeezed one before flying the lane.</para>
         ///
         /// <para>EVERY window gets a row, including the ones this scene does not draw, and
         /// EVERY row carries all six keys. An absent row would be indistinguishable from an
         /// older seam build, and a reader comparing a KSC describe with a FLIGHT one needs
         /// the flight-only rows present-and-unavailable rather than missing. A window with
-        /// no tabs reports <c>tabs=-</c> / <c>tab=-</c>, and an unmeasured rect reports
-        /// <c>rect=-</c>: a single-character sentinel rather than an empty value, because a
+        /// no tabs reports <c>tabs=-</c> / <c>tab=-</c>, a window with no resize handle
+        /// reports <c>min=-</c>, and an unmeasured rect reports <c>rect=-</c>: a single-character sentinel rather than an empty value, because a
         /// trailing <c>key=</c> on the wire is easy to misread as a truncated line.</para>
         ///
         /// <para>The list is NOT capped. Unlike <c>ListHandles</c>, whose families are
@@ -927,6 +1090,7 @@ namespace Parsek.TestCommands
                 payload.Add(Kv(prefix + "avail", Bool(row.Available)));
                 payload.Add(Kv(prefix + "open", Bool(row.Open)));
                 payload.Add(Kv(prefix + "rect", row.RectKnown ? FormatRect(row.Rect) : "-"));
+                payload.Add(Kv(prefix + "min", FormatMinSize(row.MinW, row.MinH)));
                 string tabs = TabsTokenFor(row.Name);
                 payload.Add(Kv(prefix + "tabs", tabs));
                 payload.Add(Kv(prefix + "tab", string.IsNullOrEmpty(row.Tab) ? "-" : row.Tab));

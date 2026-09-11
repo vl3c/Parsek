@@ -159,18 +159,20 @@ steps = [
   { cmd = "UiAction", args = { op = "close", window = "gloops" }, expect = "OK" },
 
   # One shared window over a live scene, to show the chrome in flight. Its tab walk
-  # belongs to GUI-1. Commanded to `x = 0 w = 1280` - the whole instance width - because
-  # RecordingsTableUI is laid out for 1355 px. The WINDOW does not scroll, so anything
-  # narrower clips its FIXED HEADER ROW (drawn outside the scroll view,
+  # belongs to GUI-1. Commanded at its OWN MinWindowWidth (1355) rather than at the
+  # instance width: op=rect clamps to that floor, so `w = 1280` - what this step used to
+  # say - now produces the same 1355 rect with `clamped=true`, and naming the floor keeps
+  # the spec honest about what it asked for. The WINDOW does not scroll, so a NARROWER
+  # window clips its FIXED HEADER ROW (drawn outside the scroll view,
   # RecordingsTableUI.cs:1647) while the table BODY grows a horizontal bar
-  # (BeginScrollView(pos, false, true, ...) at :1650-1651) - the right-hand columns are
-  # off-screen either way. It is still 75 px short on a 1280x720 profile; that residue is
-  # filed as
-  # GUI-CENSUS-TWO-WINDOWS-EXCEED-THE-INSTANCE-WIDTH, and at this width it also covers the
-  # main window, which is unavoidable (the host's showUI gate keeps main open).
+  # (BeginScrollView(pos, false, true, ...) at :1650-1651); at the floor the whole layout
+  # is intact and the last 75 px simply fall off the 1280 px client edge. That residue is
+  # filed as GUI-CENSUS-TWO-WINDOWS-EXCEED-THE-INSTANCE-WIDTH, and at this width the
+  # window also covers the main one, which is unavoidable (the host's showUI gate keeps
+  # main open).
   { cmd = "UiAction", args = { op = "open", window = "missions" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "rect", window = "missions", x = "0", y = "8", w = "1280", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "missions", x = "0", y = "8", w = "1355", h = "700" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "tab", window = "missions", tab = "missions" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "flight-missions-missions-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "flight-missions-missions-advanced" }, expect = "OK" },

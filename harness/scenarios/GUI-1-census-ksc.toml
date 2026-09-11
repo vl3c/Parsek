@@ -112,10 +112,21 @@ tier = "operator"
 # whole section stack the same way through the options-only overload
 # (LogisticsWindowUI.cs:541), which defaults to the same show-if-needed behaviour. So a
 # capture shows only the left-hand columns either way, but the body's are reachable
-# behind a bar rather than gone. Both are therefore commanded to `x = 0 w = 1280` - the
-# whole instance width, which is the smallest mismatch this instance can produce - and
-# the residue is filed as GUI-CENSUS-TWO-WINDOWS-EXCEED-THE-INSTANCE-WIDTH rather than
-# left to surprise a reviewer who counts columns.
+# behind a bar rather than gone.
+#
+# THEY ARE NOW COMMANDED AT THEIR OWN MINIMUM (`missions` 1355, `logistics` 1410) rather
+# than at the instance width, and the change is a FIX rather than a preference. The first
+# flight commanded `w = 1280` on both, and nothing clamped it: every minimum in Parsek is
+# enforced in `ParsekUI.HandleResizeDrag`, which runs only during a resize DRAG, so a rect
+# written straight into the field could be narrower than any player can make it. The
+# pictures were squeezed layouts that do not exist in play, which a reviewer counting
+# columns reads as a layout defect. `op=rect` now clamps to the window's own floor and
+# reports `clamped= minW= minH=`, so commanding 1280 would have produced the same 1355 /
+# 1410 rect with `clamped=true`; the steps name the floor outright so the spec says what
+# the picture is. The consequence is HONEST CLIPPING: both windows now extend past the
+# 1280 px client edge, so the right-hand columns are off-screen rather than crushed. That
+# residue is GUI-CENSUS-TWO-WINDOWS-EXCEED-THE-INSTANCE-WIDTH, unchanged, and the only way
+# to close it is a wider instance profile.
 #
 # KNOWN THIN CAPTURE: `structure` opens with no target, so it photographs the empty
 # "Parsek - Structure" chrome. Its populated forms are reached from a Missions or
@@ -172,7 +183,7 @@ steps = [
   # missions (the RecordingsTableUI window; its second tab is the raw table)
   { cmd = "UiAction", args = { op = "open", window = "missions" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "rect", window = "missions", x = "0", y = "8", w = "1280", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "missions", x = "0", y = "8", w = "1355", h = "700" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "tab", window = "missions", tab = "missions" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "ksc-missions-missions-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "ksc-missions-missions-advanced" }, expect = "OK" },
@@ -234,12 +245,15 @@ steps = [
   # wider than the profile's 1280x720 screen. The WINDOW does not scroll, but its whole
   # section stack is inside a BeginScrollView (LogisticsWindowUI.cs:541, the options-only
   # overload - horizontal bar when needed), so a narrower window shows the left-hand
-  # columns with the rest behind a bar rather than simply losing them. Commanded to the
-  # full instance width at x=0 so the mismatch is as small as this instance can make it;
-  # the residue is filed as GUI-CENSUS-TWO-WINDOWS-EXCEED-THE-INSTANCE-WIDTH.
+  # columns with the rest behind a bar rather than simply losing them. Commanded at its
+  # OWN MinWindowWidth (1410) at x=0: op=rect clamps to that floor anyway, so a smaller
+  # number would only produce the same rect with `clamped=true` and a spec that lies about
+  # what it asked for. The picture is therefore honestly CLIPPED at the 1280 px client
+  # edge rather than squeezed into a layout no drag can produce; the residue is filed as
+  # GUI-CENSUS-TWO-WINDOWS-EXCEED-THE-INSTANCE-WIDTH.
   { cmd = "UiAction", args = { op = "open", window = "logistics" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "rect", window = "logistics", x = "0", y = "8", w = "1280", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "logistics", x = "0", y = "8", w = "1410", h = "700" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "ksc-logistics-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "ksc-logistics-advanced" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "logistics" }, expect = "OK" },
@@ -283,7 +297,7 @@ steps = [
   # `tab=recordings` would be an honest ERROR (`tab-not-applied`) rather than a capture.
   { cmd = "UiAction", args = { op = "open", window = "missions" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "rect", window = "missions", x = "0", y = "8", w = "1280", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "missions", x = "0", y = "8", w = "1355", h = "700" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "ksc-missions-basic" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "ksc-missions-basic" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "missions" }, expect = "OK" },
@@ -297,7 +311,7 @@ steps = [
 
   { cmd = "UiAction", args = { op = "open", window = "logistics" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
-  { cmd = "UiAction", args = { op = "rect", window = "logistics", x = "0", y = "8", w = "1280", h = "700" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "rect", window = "logistics", x = "0", y = "8", w = "1410", h = "700" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "ksc-logistics-basic" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "ksc-logistics-basic" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "close", window = "logistics" }, expect = "OK" },

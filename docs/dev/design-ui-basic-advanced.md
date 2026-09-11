@@ -135,7 +135,7 @@ The Career window's two `Button(` hits are both `Close` (`CareerStateWindowUI.cs
 | Wipe / delete confirms | `ParsekUI.cs:921`, `:954`, `RecordingsTableUI.cs:3979/4022/4058`, `LogisticsWindowUI.cs:2496/2537/2640` | Settings Data Management, Recordings tab, Logistics |
 | Save-failed popup | `SceneExitInterceptor.cs:536` | Scene-exit save failure |
 | Blocked-action popup | `CommittedActionDialog.cs:31` | Game event, no UI parent |
-| Flight-map ghost icon menu | `Patches/GhostVesselLoadPatch.cs:324` (`GhostIconMenu`) | Clicking a ghost icon in the flight map; NO parent window |
+| Flight-map ghost icon menu | `Patches/GhostVesselLoadPatch.cs:324` (`ParsekGhostIconMenu`) | Clicking a ghost icon in the flight map; NO parent window |
 | Tracking Station ghost icon menu | `ParsekTrackingStation.cs:1241` (`ParsekTrackingStationGhostMenu`) | Clicking a ghost icon in the TS; NO parent window; includes Materialize |
 | Flight map markers | `ParsekUI.DrawMapMarkers` | Map view |
 | Tracking Station markers | `ParsekTrackingStation.cs` OnGUI (`:337`) | Tracking Station |

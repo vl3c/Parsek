@@ -1064,14 +1064,33 @@ Exhaustive. Each: scenario -> expected behavior -> v1 or deferred.
    the verb DRIVES the conclusion scene-exit itself and answers the resulting dialog (it
    does not wait for a separate scene-change step, which would deadlock under strict FIFO
    - AnswerMergeDialog Behavior, A-B1). v1.
-8. **AnswerMergeDialog answers the WRONG "ParsekMerge" popup.** Three spawn sites share
-   `MergeDialog.DialogName` "ParsekMerge" (whole-tree merge, pre-transition re-fly merge,
-   and the pre-switch decision dialog). The bounded-wait signal is dialog-kind-scoped
-   (`ReFlyMergeDialogPresent` = a live ParsekMerge popup AND `ActiveReFlySessionMarker != null`),
-   so a stray pre-switch decision popup with no re-fly marker does NOT satisfy the
-   precondition and is never answered with a re-fly `choice`. If somehow a non-re-fly
-   popup is live at execute time with no marker, the verb reports `ERROR msg=no-live-dialog`
-   rather than clicking a foreign button. v1.
+8. **AnswerMergeDialog answers the WRONG "ParsekMerge" popup.** ~~Three spawn sites share
+   `MergeDialog.DialogName` "ParsekMerge"~~ **CLOSED 2026-09-11 (the GUI-census ops).**
+   Three spawn sites DID share `MergeDialog.DialogName` "ParsekMerge" (whole-tree merge,
+   pre-transition re-fly merge, and the pre-switch decision dialog), and the mitigation was
+   a CORRELATION rather than an identity: `ReFlyMergeDialogPresent` = a live ParsekMerge
+   popup AND `ActiveReFlySessionMarker != null`. That is not a discriminator, because both
+   dialogs are reachable INSIDE one re-fly attempt - a Switch-To during an attempt spawns
+   the pre-switch dialog with the marker live - and the verb selects its button BY ORDER
+   ([Merge, (Seal), Discard]), which the pre-switch dialog's [Merge, Discard] satisfies
+   positionally. So the narrow window was real: the verb would have invoked the pre-switch
+   dialog's MERGE action believing it was concluding a re-fly.
+
+   THE FIX, which makes the confusion unrepresentable rather than unlikely: the pre-switch
+   dialog now spawns under its own name, `MergeDialog.PreSwitchDialogName`
+   ("ParsekPreSwitch"), and `AnswerMergeDialog` takes a `dialog=` arg (default `merge`)
+   whose value scopes the lookup through `FindPopupByName`. `MergeDialog`'s two teardown
+   paths dismiss BOTH names, so a non-button teardown cannot leave a pre-switch popup
+   standing over the input lock it releases.
+
+   `preswitch` is NOT an answerable `dialog=` value, and the reason is this verb's own
+   completion contract rather than tidiness: it completes on answer-applied AND the
+   post-answer scene settling out of FLIGHT (`DecideAnswerCompletion`), while the
+   pre-switch buttons end in `FlightGlobals.SetActiveVessel`, which for a LOADED target
+   changes no scene - so answering it here would time out over an answer that landed. The
+   popup is reachable for inspection through `UiAction op=dialog`. A live non-re-fly popup
+   at execute time with no marker still reports `ERROR msg=no-live-dialog` rather than
+   clicking a foreign button. v1.
 9. **AnswerMergeDialog choice=seal on a 2-button dialog.** The located popup has no
    Merge-and-Seal button -> `ERROR msg=choice-unavailable`. v1.
 10. **AnswerMergeDialog: the popup was dismissed between sample and execute.** No live

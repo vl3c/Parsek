@@ -4442,7 +4442,7 @@ Title is the ghost's vessel name, body is empty.
 
 **(b) Class + spawn method.** `GhostOrbitNodeClickPatch.Prefix(OrbitRendererBase, Mouse.Buttons)` -
 `Patches/GhostVesselLoadPatch.cs:253`; spawn at `Patches/GhostVesselLoadPatch.cs:324`.
-Dialog name `"GhostIconMenu"` (`:326`).
+Dialog name `"ParsekGhostIconMenu"` (`:326`).
 
 **(c) Scenes + trigger.** FLIGHT + map view only. Harmony prefix on
 `OrbitRendererBase.objectNode_OnClick` (`Patches/GhostVesselLoadPatch.cs:221`). Four gates,

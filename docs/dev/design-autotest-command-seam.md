@@ -558,16 +558,62 @@ journal, verdicts) is designed once and the later commands slot in without a for
 > poll, and the two-phase shape is not optional: `ScreenCapture.CaptureScreenshot` returns
 > immediately and Unity encodes the PNG at the end of a later frame, so a single-phase OK
 > would claim a file that may not exist and the NEXT step (another capture, a window close,
-> a scene exit) would race the write. `UiAction` is two-phase in exactly TWO of its six
+> a scene exit) would race the write. `UiAction` was two-phase in exactly two of its six
 > ops - `open` and `rect`, whose read-back only means something after a frame has been
-> DRAWN - and single-phase in the other four, including the one that LOOKS deferred; see
-> its section for both. Full contracts below (`#### CaptureScreenshot`, `#### UiAction`).
+> DRAWN - and single-phase in the other four, including the one that LOOKS deferred; the
+> census-ops update above takes it to twelve ops, eleven of them state-changing and
+> therefore two-phase, with only `describe` and `dialog` (which write nothing) single-phase
+> alongside `close` / `tab` / `complexity`. See its section for all of it. Full contracts
+> below (`#### CaptureScreenshot`, `#### UiAction`).
 >
 > NO NEW PLAYER-FACING SURFACE, which is a house rule rather than a preference: `UiAction`
 > writes the same fields the existing buttons write and reads them back. It adds no window,
 > no button and nothing reachable in a normal game; the only production entry points it
 > calls are `ParsekUI.SetUiComplexityMode` and `ApplyPendingUiComplexityModeIfAny`.
 
+> Update (the GUI census, the missing ops, 2026-09-11): SIX further `UiAction` OPS and
+> one new arg on an existing verb - and **NO new verb, so the table does not move: 36
+> implemented / 5 reserved**. `UiAction` goes from six ops to twelve:
+> `op=<open|close|tab|complexity|rect|describe|pointer|find|expand|target|picker|dialog>`,
+> and `AnswerMergeDialog` gains `dialog=<merge>`.
+>
+> WHY, measured rather than argued. A code-derived inventory of every player-facing
+> surface (105 of them) against the two census runs found 22 with a picture. The missing
+> ones fall into three classes, and only one of them is a lane problem: (1) the fixture
+> lacked the data, (2) the state needs a CLICK the seam cannot make - an expanded row, a
+> populated Structure window, a group picker, the Logistics link picker, (3) the surface is
+> outside the GUI-tree recorder by construction - 21 stock `PopupDialog`s, the overlays,
+> and every tooltip, which only paints with a pointer over a control. Classes 2 and 3 are
+> what these ops close.
+>
+> `pointer` is the only op in the seam that reaches OUTSIDE the process, and there is no
+> alternative: `Input.mousePosition` is read-only and `Event.current.mousePosition` is
+> filled from it, so the four hover-dependent surfaces (the IMGUI hover style,
+> `GUI.tooltip`, the `TooltipEchoBox` strip, `DisabledHoverEcho`) cannot be reached from
+> managed code at all. It moves the OS cursor with `user32!SetCursorPos` and then confirms
+> from `Input.mousePosition` that the move reached Unity. `find` exists because a spec
+> cannot know a control's pixels (layout depends on the rect, the complexity mode, the
+> save's row counts and the skin), so a lane asks by TEXT and chains the answer's centre
+> into `pointer` through the R10 `${stepN.cx}` mechanism. `expand` / `target` / `picker`
+> poke the same fields and call the same openers the buttons do - the `UiAction` argument,
+> unchanged. `dialog` is the read-only half a PNG cannot carry.
+>
+> AND ONE DEFECT FIXED, found by the same inventory: three `MergeDialog` spawn sites shared
+> one popup NAME while `AnswerMergeDialog` selects its button BY ORDER, so a live
+> pre-switch decision dialog could have had its merge action invoked by a step that
+> believed it was concluding a re-fly. The pre-switch dialog now carries
+> `MergeDialog.PreSwitchDialogName`, and `FindPopupByName` looks up exactly the dialog the
+> arg names.
+>
+> `preswitch` is deliberately NOT an answerable `dialog=` value, checked in the mirror
+> direction rather than assumed: that verb completes on answer-applied AND the post-answer
+> scene settling out of FLIGHT (`TestCommandMergeAnswer.DecideAnswerCompletion`), while the
+> pre-switch buttons end in `FlightGlobals.SetActiveVessel`, which for a LOADED target
+> changes no scene at all - so answering it through that verb would hold the FIFO head
+> until the budget expired and then report a timeout over an answer that landed. The popup
+> is reachable for INSPECTION through `UiAction op=dialog`, which is what a census needs of
+> it. Risk 8 in `design-autotest-seam-verbs-c1.md` is the entry this closes.
+>
 > Update (the GUI census, half two, 2026-09-11): ONE further ADDITIVE verb,
 > `DumpGuiTree label=<name>`, the same shape again - never in the reserved list, so the
 > implemented table moves alone: **36 implemented / 5 reserved**.
@@ -1616,8 +1662,9 @@ and a harness cell reads that set out of the source to keep the two from driftin
 
 #### UiAction (additive; drive the Parsek windows for a capture)
 
-`UiAction op=<open|close|tab|complexity|rect|describe> [window=] [tab=] [mode=]
-[x= y= w= h=]`. Precondition `RequiresGameLoaded`, NOT `RequiresFlight`, and the choice is
+`UiAction op=<open|close|tab|complexity|rect|describe|pointer|find|expand|target|picker|dialog>
+[window=] [tab=] [mode=] [x= y= w= h=] [park=] [text=] [ctrl=] [index=] [key=] [state=]
+[mission=] [route=] [group=] [recording=]`. Precondition `RequiresGameLoaded`, NOT `RequiresFlight`, and the choice is
 the `ListHandles` one: the Parsek UI is hosted in SPACECENTER as well as FLIGHT, so a KSC
 census under a flight row would defer to its budget and TIMEOUT. A scene that hosts no
 Parsek UI at all - the Tracking Station draws markers only (`ParsekTrackingStation.OnGUI`)
@@ -1632,8 +1679,24 @@ layout at a specific rect - not reproducible, and not better proof of anything, 
 the button handler's whole body IS the field write. The seam writes the same fields and
 READS THEM BACK.
 
-**TWO OPS ARE TWO-PHASE: `open` and `rect`** (`TestCommandUiAction.OpIsTwoPhase`), and
-neither is optionally so. Both write a value whose read-back only means something after an
+**EVERY OP THAT CHANGES DRAWN STATE IS TWO-PHASE** (`TestCommandUiAction.OpIsTwoPhase`):
+`open`, `rect`, and the five census ops `pointer` / `find` / `expand` / `target` /
+`picker`. `close`, `tab` and `complexity` are single-phase for the reasons below, and
+`describe` / `dialog` are single-phase because they write nothing at all.
+
+WHAT THE SETTLE CHECKS is NOT uniform, and the asymmetry is deliberate
+(`TestCommandUiAction.SettleChecksHostShowUi`). The host-visibility gate
+(`window-host-hidden`) applies to `open` and `rect` ALONE, because those two read back a
+FIELD: a frame that never reached the window compares the written value with itself. The
+five later ops do not have that hole - `find` reads a captured TREE, in which an undrawn
+window is simply absent (`find-window-not-drawn`); `pointer` reads
+`Input.mousePosition`, which no window draws; and `expand` / `target` / `picker` read a
+collection or an open flag whose only other writer is a player click the seam never
+synthesises. Applying the gate to them would refuse correct work: a `pointer park` issued
+with the Parsek surface deliberately hidden is exactly the hover-free capture a census
+wants.
+
+**`open` AND `rect`** were the original two, and both write a value whose read-back only means something after an
 OnGUI pass has run, so before a frame is DRAWN both read back exactly what was just
 written and prove nothing. For `open` that is not academic: `SpawnControlUI.DrawIfOpen`
 force-closes itself on its FIRST draw whenever `ResolveAutoCloseReason` fires - and
@@ -1713,6 +1776,21 @@ rather than a selector. `op=tab` on either is `REJECTED window-has-no-tabs`, del
 distinct from `tab-unknown`: "this window has no tabs" and "this window has tabs but not
 that one" send an author to different fixes.
 
+**`op=rect` CLAMPS to the window's own minimum before it writes.** Every minimum in
+Parsek is enforced in ONE place, `ParsekUI.HandleResizeDrag`, and that runs only during a
+resize DRAG - so nothing clamped a rect written straight into the field, which is exactly
+what this op does. The census commanded `w = 1280` (its instance width) on the Logistics
+window, whose `MinWindowWidth` is 1410, and photographed a squeezed layout no player can
+produce; a reviewer counting columns reads that as a layout defect. The op now raises each
+axis to that window's own floor, reports `clamped= minW= minH=` in the payload and on the
+log line, and `op=describe` carries every window's floor as `w<i>min=` so a spec author can
+size a capture without reading the source. A REJECT was the alternative and is worse: the
+honest answer to "this window does not fit 1280 px" is a CLIPPED picture of the real
+layout, not no picture. The floors are read LIVE from each class's own `MinWindowWidth` /
+`MinWindowHeight` through the one window-handle resolver, so no number is duplicated in the
+seam; `main`, `settings` and `gloops` have no resize handle and therefore report `min=-`
+and clamp nothing.
+
 **`op=rect` and its ASYMMETRIC read-back.** The op exists so a census can place and
 enlarge a window and show more rows than the default size fits. All four of `x/y/w/h` are
 required - a partial rect mixes a commanded position with a stale size, so the capture
@@ -1744,7 +1822,8 @@ content minimum looks like; both census sites now command `w = 400`, above eithe
 
 **`op=describe` is the reviewer's inventory**, and it is what a supervising agent reads
 next to the images: `op=describe scene=<token> complexity=<mode> count=<n>` then, per
-window in table order, `w<i>`, `w<i>avail`, `w<i>open`, `w<i>rect`, `w<i>tabs`, `w<i>tab`.
+window in table order, `w<i>`, `w<i>avail`, `w<i>open`, `w<i>rect`, `w<i>min`,
+`w<i>tabs`, `w<i>tab`.
 Its LOG line carries a second, coarser form that the payload does not need and a SPEC
 does: `open=<n> openWindows=<comma-joined names, or ->`. The per-window keys are on the
 WIRE, which never reaches `KSP.log`, so an `[expectations.logContracts]` regex could not
@@ -1755,15 +1834,185 @@ check that the four window-token -> live-object mappings are wired to the window
 name. The labelled screenshot is still the final instrument; this catches a mis-wire
 before anyone opens the folder.
 EVERY window gets a row including the ones this scene does not draw, and every row carries
-all six keys: an absent row would be indistinguishable from an older seam build, and a
+all seven keys: an absent row would be indistinguishable from an older seam build, and a
 reader comparing a KSC describe with a FLIGHT one needs the flight-only rows
 present-and-unavailable rather than missing. Absent values report a `-` sentinel rather
 than an empty value, because a trailing `key=` on the wire is easy to misread as a
 truncated line. An unmeasured rect (a window whose rect field is still all-zero before its
 first draw seeds the default from the main window's position) reports `rect=-` rather than
-`0,0,0,0`, which would send a reader hunting an off-screen window. The list is NOT capped,
+`0,0,0,0`, which would send a reader hunting an off-screen window. A window with no resize
+handle reports `min=-` rather than `0,0`, which would read as a real floor of zero. The
+list is NOT capped,
 unlike `ListHandles`: this one is bounded BY CONSTRUCTION at the table's length, a
 compile-time literal.
+
+**`op=pointer` MOVES THE REAL OS CURSOR**, and it is the only op in the seam that reaches
+outside the process. There is no alternative: `Input.mousePosition` is read-only and Unity
+fills `Event.current.mousePosition` from it, so the four hover-dependent surfaces (the
+IMGUI hover style, `GUI.tooltip`, the per-window `TooltipEchoBox` strip, and
+`DisabledHoverEcho`'s "why is this greyed out?" sentence) cannot be reached from managed
+code at all. Synthesising an IMGUI event instead would have to be injected into one
+window's layout at one rect and would prove nothing about the hit test a player's cursor
+drives.
+
+THREE COORDINATE FRAMES, and the conversion is the whole hazard. The WIRE is game-client
+pixels with y DOWN from the top-left, because that is the frame the GUI-tree dump's `rect`
+reports and therefore the frame an `op=find` answer produces. `SetCursorPos` takes DESKTOP
+pixels, reached by adding the window's client origin through `ClientToScreen`.
+`Input.mousePosition` is client pixels with y UP, converted back for the read-back with
+`TestCommandUiPointer.GuiYFromUnityMouseY` - the same `height - y` expression Unity applies
+when it fills an IMGUI pass. Getting any one of the three wrong lands the cursor somewhere
+plausible and photographs a hover of the wrong control, which is why the op CONFIRMS
+instead of assuming: two-phase, and `ERROR pointer-not-applied` when the settled
+`Input.mousePosition` is more than 2 px away.
+
+HOW THE WINDOW IS FOUND, in order, with the answer reported as `via=`: `GetActiveWindow()`
+(the calling thread's active window - Unity's main thread owns the game window, so this is
+it whenever the game has focus, and `IntPtr.Zero` when it does not); then
+`FindWindow(null, Application.productName)` and `FindWindow(null, "Kerbal Space Program")`
+by title; then, as a last resort, an ASSUMED client origin of (0,0), which is exactly right
+for exclusive fullscreen and is safe to guess ONLY because the read-back catches it when it
+is not. `GetForegroundWindow()` is deliberately absent from the chain: it answers with
+whatever window is foreground, including another process's, and nothing could check that
+against anything.
+
+THE FOCUS ASYMMETRY, checked in both directions. A foreground window belonging to ANOTHER
+process does NOT block the move - `SetCursorPos` is machine-wide, so the cursor lands over
+the game either way. What focus governs is whether Unity UPDATES `Input.mousePosition`, and
+that is the same condition that decides whether the hover would have painted. So the
+read-back is not a proxy for the move; it is the actual question, and an unfocused game is
+an honest ERROR rather than a capture of an unhovered control.
+
+THE OPERATOR CAVEAT, recorded rather than guarded. A harness run happens on the operator's
+own desktop, so this op yanks his cursor mid-run; a cursor is a single machine-wide
+resource and there is no way to hover without doing that. The op therefore logs an Info
+line EVERY time it moves the pointer (not rate-limited, not verbose-gated), naming the
+client and desktop points and saying that an operator using the mouse will see it jump and
+that his own next move invalidates the hover. A run whose captures look wrong is then
+readable back against "someone was using the mouse", and the number of moves in a lane is
+recoverable from `KSP.log` alone. A lane that uses the op says so in its header. Also
+`op=pointer park=true`, which parks at the client corner so later captures are hover-free.
+
+**`op=find` turns a control's TEXT into a rect and a centre.** `op=pointer` takes pixels
+and a spec cannot know them: a window's layout depends on its rect, its complexity mode,
+the save's row counts and the skin, so a hard-coded coordinate would hover whatever moved
+into that spot. A lane therefore asks for the control by the words a reviewer can see and
+chains the answer - `${stepN.cx}` / `${stepN.cy}`, the R10 runtime-handle mechanism -
+straight into the pointer step. Every payload key is a bare `[A-Za-z0-9_]` identifier for
+that reason: `hlib.HANDLE_REF_RE` cannot capture a field whose name carries a dash or a
+dot.
+
+It captures ONE GUI tree in memory to answer. A control's rect exists only inside the IMGUI
+pass that drew it, and the GUI-tree recorder already intercepts exactly that pass and
+already converts every rect to screen space - so the honest way to answer "where is the
+Close button" is to record a frame and read it. The arm is
+`GuiTreeRecorder.ArmForNextRepaint(label, writeToDisk: false)`, a mode added for this op:
+the capture is identical (same funnels, same assembler, same `LastTree`) and only the JSON
+write is skipped, because a census calls find several times per lane and each dump would
+otherwise land a file beside the ones a reviewer is reading. `GuiTreeRecorder.CaptureSeq`
+is the completion signal in that mode, since the written-path pair deliberately does not
+move; the poll reuses `TestCommandDumpGuiTree.DecidePoll`, which already models exactly
+this wait (the recorder flushes from `LateUpdate` on a CHANGED frame number, so a tree
+armed in frame N is assembled during frame N+1 - one frame after the shared one-frame
+settle would have read a null tree).
+
+THE WINDOW IS SCOPED BY ID. Every window node the recorder emits carries the `windowId`
+Unity was handed, and each Parsek window class now publishes the key that id is hashed from
+(`WindowIdKey`, used at BOTH its own `GUILayoutWindow` call and the seam's resolver, so
+there is no second literal to drift). Matching on the TITLE would break on the Structure
+window, whose title is built from its target; matching on the RECT would race the one-frame
+skew between a window's rect field and the rect `GUILayout` resolved.
+
+THE MATCH IS A LADDER, not one rule: exact, then prefix, then contains, and the FIRST rung
+with any hit wins OUTRIGHT rather than all three being pooled. A window with both a "Close"
+and a "Close all" button must answer the exact one for `text=Close`; pooling would make the
+answer depend on draw order, and a spec pinned against it would silently re-aim the moment
+a row was added. Case-sensitive, like every other token in this grammar. `index=`
+disambiguates WITHIN the winning rung in draw order - how a lane addresses the third row's
+`G` button - and past the end is its own error naming the count rather than a clamp to the
+last one. `ctrl=` filters by the dump's own kind names (`GuiTreeAssembler.KindName`), and is
+spelled `ctrl` rather than `kind` because `VERB_SCOPED_CLOSED_ARGS` allows one owner verb
+per arg key and `kind=` is `ListHandles`'. Text-less and zero-area nodes are skipped by the
+flattener: a spec addresses a control by its words, and a rect with no centre would produce
+a pointer step that hovers whatever is behind it. The window node ITSELF is included, which
+is the only way to aim at a window's title-bar drag strip.
+
+**`op=expand` drives a window's own set-of-expanded-keys.** A whole class of missing census
+surfaces is not missing data and not outside the recorder: it is drawn only when some set
+contains the right string. `op=expand window=<missions|logistics> key=<...> [state=]`
+reaches them the way the rest of `UiAction` does, by writing the field the caret click
+writes.
+
+THE KEY GRAMMAR IS NAMESPACED because the sets are. The Missions window alone keeps five
+independent collections with overlapping key shapes - `expandedGroups` (group NAMES),
+`expandedChains` (block ids), `expandedVessels` and `collapsedLegs` (both
+`missionId:headId`, identical in shape), and `digestExpanded` (mission ids) - so a flat key
+could not say which one it meant and two of them are indistinguishable. The wire key is
+`<prefix>:<value>` split at the FIRST colon (`group` / `chain` / `vessel` / `leg` /
+`digest` for the Missions window, which covers BOTH its tabs; `row` for Logistics, whose
+one set holds route ids, `cand:` keys and three fixed section keys). `collapsedLegs` is
+INVERTED on the production side and the op hides that: the wire always speaks "expanded"
+and the polarity flip lives once in the accessor rather than in every spec.
+
+`key=all` / `key=none` is the affordance that actually buys the pictures. A census wants
+"every group folder open", not one, and the ids it would otherwise have to name are
+save-specific so a committed spec cannot carry them. Each window class enumerates its own
+keys - only the class knows which collection is keyed by what, and the enumeration has to
+agree with the tree the player sees, so the group list comes from the PRODUCTION
+`GroupPickerPresentation.BuildTreeModel` and the chain list routes through ERS. The payload
+reports `changed=` alongside `expanded=` / `total=`: `changed=0` on a `key=all` step means
+the window was already in that state, which reads differently from `changed=16` in a
+capture that came out looking the same. A well-formed key naming something the live window
+does not have is a REJECTED that LISTS what it does have (capped at eight with a counted
+tail, because the list is unbounded in the save and the response is one line).
+
+**`op=target` opens a window ON a target.** `op=open window=structure` raises `IsOpen` and
+nothing else, so the window draws its "Nothing to show." chrome - the census's
+`ksc-structure-advanced` label is a picture of an empty box. The populated forms are built
+by `StructureListWindowUI.OpenForMission` / `OpenForRoute`, which set the target AND rebuild
+before raising the flag, so the op calls those and reports the row count they produced
+(`steps=`). `mission=` / `route=` resolve on three rungs - the id itself, the display NAME,
+then the tree's own name - because a census spec names what a reviewer can read off the
+window while a `${step.field}` chain carries an id. Exactly one selector: both is a
+REJECTED rather than a precedence, since the two open different lists and guessing would
+photograph the wrong one under the caller's label.
+
+**`op=picker` opens a popup a ROW arms.** The three windows the original table named as
+deliberate exclusions were excluded because they are popups over a SELECTION, and raising
+a bare flag would photograph an empty picker. Two of them are now reachable through their
+own production openers: `op=picker window=missions group=<name>` calls
+`GroupPickerUI.OpenForGroup` (titled "Set Parent Group"), `recording=<id|first>` calls
+`OpenForRecording` (titled "Manage Groups" - the mode is DERIVED from which opener ran,
+`groupPopupGroup != null`, not from an arg), and `op=picker window=logistics route=<name>`
+reaches the round-trip link picker through a wrapper over the same private
+`OpenLinkPicker`. The recording variant is wrapped inside `RecordingsTableUI` because its
+opener takes an INDEX into the committed list and that class is where the convention lives
+(and is the one on the ERS allowlist); `first` exists because a committed spec cannot name
+a save-specific recording id and the popup looks the same over any row. The third
+exclusion, `TestRunnerShortcut`, is unchanged: it is a separate MonoBehaviour with no
+accessor.
+
+**`op=dialog` is the read-only half a PNG cannot carry.** Every Parsek modal is a stock
+`PopupDialog`, which is uGUI, and `GuiTreeRecorder` patches `GUI.DoWindow` - the IMGUI
+funnel - so a dialog is structurally invisible to `DumpGuiTree` and visible only in an
+image. That made a dialog capture the one census step with no machine-readable half. This
+op reports `open= count= name= title= buttons= nbuttons=`, read out of the live
+`MultiOptionDialog`, so a lane can run `op=dialog` -> `CaptureScreenshot` ->
+`AnswerMergeDialog` and PIN what it photographed. It is the only new op that is
+single-phase, and for the rule rather than against it: it writes nothing, so no drawn frame
+could disagree.
+
+IT DOES NOT HOLD THE DIALOG OPEN, and nothing needs to: a `PopupDialog` stands until
+something dismisses it, and the only dismissers are its own buttons, Esc, and
+`MergeDialog.DismissAndClearPendingFlag` - none of which the seam presses between a report
+and a capture. Ownership is a NAME-PREFIX scan (`Parsek`) rather than a list of the
+twenty-odd spawn sites: a list would go stale the first time a dialog was added, and its
+failure mode is "no dialog open" reported over a live modal, the worst possible answer from
+a verb whose job is to say what is on screen. The scan's own cost is that the PREFIX has to
+be there on every site, which one was not - see follow-up 3 below and the source-derived
+gate that now holds the premise. `count=` is separate from `nbuttons=` so a reader can see
+that a two-modal state was reported as one arbitrarily; Parsek's own contract is that at
+most one stands, so `count > 1` is itself a finding.
 
 **Terminals.** `REJECTED`: `op-arg-missing` / `op-arg-invalid` (the message carries the
 valid op list), `window-arg-missing` / `window-unknown` (the message carries the whole
@@ -1787,7 +2036,123 @@ that believed it photographed the Recordings tab in Basic photographed Missions)
 `complexity-not-applied`, `rect-not-applied`, `ui-action-not-settled` (the budget expired
 before a single frame was drawn: the renderer stopped or the pump never reached another
 safe point - NOT a refusal, which is why it is not spelled like one),
-`window-host-hidden` (see below), `ui-action-threw`.
+`window-host-hidden` (see below - and it applies to `open` / `rect` ALONE, see
+`SettleChecksHostShowUi` above), `ui-action-threw`.
+
+THE SIX CENSUS OPS ADD, all typed and all distinct from the above. `op=pointer`:
+`REJECTED pointer-arg-missing` (neither `park=true` nor BOTH `x` and `y` - a lone
+coordinate is a missing arg, not a half-move) / `pointer-arg-invalid` /
+`pointer-arg-conflict` (`park=true` AND a coordinate: refused rather than resolved by
+precedence, since the two say different things about where the cursor ends up) /
+`pointer-off-screen` (a cursor parked off the game window hovers nothing, so every later
+capture would be silently hover-free under a step that claims otherwise);
+`ERROR pointer-unsupported-platform` (the move is a `user32` P/Invoke; named so a Linux
+reader does not hunt a Parsek defect) / `pointer-window-unresolved` /
+`pointer-not-applied`. `op=find`: `REJECTED find-text-arg-missing` /
+`find-ctrl-arg-invalid` / `find-index-arg-invalid`; `ERROR find-capture-failed` (the
+recorder refused, gave up with no Repaint, or faulted - one token, three causes separated
+on the log line) / `find-window-not-drawn` (the capture succeeded and this window is not
+in it: kept apart from the next because the fix is to open the window, not to fix the
+text) / `control-not-found` (the message carries how many text-carrying candidates were
+searched, so "0" - a window drawn but empty - reads differently from "231" - a typo) /
+`find-index-out-of-range` ("there are 2 of these, you asked for the 5th").
+`op=expand`: `REJECTED expand-unsupported-window` / `expand-key-arg-missing` /
+`expand-key-invalid` (message carries THAT window's prefixes) / `expand-key-unknown`
+(message lists what does exist) / `state-arg-invalid` / `expand-state-with-bulk-key`
+(`state=` beside `key=all` / `key=none`, which already CARRY their direction - refused
+rather than resolved by precedence, the `op=pointer` park-versus-coordinates rule, because
+letting the token win silently would make a step reading "collapse everything" expand
+everything). `op=target`:
+`REJECTED target-unsupported-window` / `target-arg-missing` / `target-arg-conflict` /
+`target-not-found` (message lists the missions or routes that exist);
+`ERROR target-not-opened`. `op=picker`: `REJECTED picker-unsupported-window` /
+`picker-arg-missing` / `picker-arg-conflict` / `picker-target-not-found`;
+`ERROR picker-not-opened`. `op=dialog` has none: it writes nothing and reports
+`open=false` with `-` sentinels when no Parsek popup stands, because a lane that asserts
+"no dialog is up" needs a key to assert on. `AnswerMergeDialog` gains
+`REJECTED dialog-arg-invalid` (message carries the valid set).
+
+**REVIEW FOLLOW-UPS (2026-09-11).** Five defects and two residues, found reviewing the six
+ops above.
+
+1. **The find-then-pointer chain did not validate.** `hlib.validate_ui_action_step` ran its
+   per-value SHAPE checks (`x`/`y`/`w`/`h` as dot-decimal, `index` as an integer, `key` as
+   `<prefix>:<value>`, and the two label verbs' filename regex) on the value as AUTHORED -
+   before run.py's `substitute_step_args` replaces an R10 `${step.field}` with the
+   referenced payload field. So `op=pointer x=${f1.cx} y=${f1.cy}` - the chain this
+   document documents - was a PRE-LAUNCH validation error with no workaround. The rule now:
+   a per-value shape check is SKIPPED when `hlib.value_is_handle_templated(value)`, and
+   nothing else changes. Requiredness still applies (a templated `x` with no `y` is still
+   `pointer-arg-missing`), the token is still checked by the R10 static pass (malformed
+   `${}`, and a ref naming a later or non-OK step), and the CLOSED-VALUE rows (`op=`,
+   `window=`, `ctrl=`, `state=`, `park=`, `dialog=`) stay fail-closed on purpose: those
+   vocabularies are fixed at authoring time, so a handle in one would mean a spec that does
+   not know which op it is running.
+2. **`op=pointer` read its confirmation once.** The op settled on the shared frame poll and
+   then read `Input.mousePosition` a single time. The OS cursor move and Unity's next input
+   sample are different pipelines, so a one-frame lag between them was a hard
+   `pointer-not-applied` ERROR over a move that was about to be correct - and
+   indistinguishable, from one sample, from the unfocused game that reason describes. It
+   now POLLS (`TestCommandUiPointer.DecidePoll`, routed from `TryCompleteUiAction`'s head
+   beside `find`'s): frames become a FLOOR and landing is the signal, with the
+   settled-beats-budget ordering the other polls use. A budget expiry with the cursor still
+   elsewhere is still `pointer-not-applied`, now with the poll count on `frames=`.
+3. **One Parsek modal was invisible to `op=dialog`.** The prefix scan's premise - that every
+   Parsek-spawned `MultiOptionDialog` carries the `Parsek` name prefix - was false:
+   `Patches/GhostVesselLoadPatch.cs` named the flight-map ghost icon menu `GhostIconMenu`,
+   so `op=dialog` answered `open=false` over a live modal. Renamed `ParsekGhostIconMenu`,
+   and the premise is now kept mechanically true by a source-derived gate
+   (`ParsekDialogNamePrefixSourceGateTests`) that walks `Source/Parsek` for every
+   `new MultiOptionDialog(...)` - comments stripped first, both the literal and the
+   `const string` argument shapes resolved - and asserts each name passes
+   `IsParsekDialogName`.
+4. **`nbuttons=` read only the top level.** `GetDialogButtons` scanned
+   `MultiOptionDialog.options` without descending, so a dialog that wraps its buttons in a
+   `DialogGUIHorizontal/VerticalLayout` - the ordinary way to put two buttons on one row -
+   reported `nbuttons=0` over a popup that plainly has some. It now walks
+   `DialogGUIBase.children` recursively (`TestCommandUiDialog.CollectButtons`), depth-first
+   left-to-right so `AnswerMergeDialog`'s by-position selection still means what it says,
+   not descending into a button's own children, and depth-bounded because `children` is a
+   mutable public field on a stock type.
+5. **The logistics candidate rows were not enumerable.** `EnumerateRowKeysForTesting`
+   listed the three fixed sections and the committed routes and omitted the candidate rows,
+   so `op=expand key=all` left every candidate collapsed and `key=row:cand:<treeId>` was
+   `REJECTED expand-key-unknown` - over rows the window was drawing. The key is now built at
+   one site (`LogisticsWindowUI.CandidateRowKey`) that both the draw path and the
+   enumeration call, and the keys come from the window's OWN cached candidate list rather
+   than a fresh `DeriveCandidates()` (which would answer rows the window is not drawing and
+   would derive candidates off the ~1 Hz throttle the cache exists to enforce).
+
+Three applier tables that no cell could reach are now mirrored from their SOURCE against
+the pure side's own tables (`GuiCensusApplierSourceGateTests`, comments stripped first):
+`ResolveExpandSets`' per-window prefix list against `TestCommandUiState.ExpandPrefixesFor`
+(ordered), `ResolveWindowHandle`'s per-window `MinW`/`MinH` against each window class's own
+`MinWindowWidth`/`MinWindowHeight` (with the three deliberately minimum-less rows named as a
+claim rather than tolerated as an absence), and
+`MergeDialog.DismissAndClearPendingFlag` dismissing BOTH dialog names through one iterated
+call site.
+
+**RESIDUE: a picker popup is photographable but not `find`-able.** `op=picker` opens a
+`PopupDialog`-hosted popup, which is uGUI - the same structural reason `op=dialog` exists
+for modals. `GuiTreeRecorder` patches `GUI.DoWindow`, the IMGUI funnel, so a picker's
+contents never enter a `DumpGuiTree` capture and `op=find window=missions text=<row>` cannot
+reach a row inside one. A census step can still PHOTOGRAPH the picker
+(`op=picker` -> `CaptureScreenshot`) and assert the window it belongs to; what it cannot do
+is pick a control out of it by text, or hover one by centre. `op=dialog` does not cover
+these either - it reports the live `MultiOptionDialog`, and a picker is not one. Not worth
+closing: a uGUI reader would be a second capture pipeline for three popups whose contents a
+PNG already shows.
+
+**RESIDUE: `op=expand` answers OK over a surface the complexity mode is not drawing.** The
+host-visibility gate is per OP (`SettleChecksHostShowUi`: `open` and `rect` alone), so in
+Basic - where the missions window's Recordings tab is hidden - a `key=group:...` expand
+toggles the set and reads back a changed count. That is the honest answer for what the op
+does; a lane that pairs it with a capture gets a picture in which nothing moved. The fix
+belongs in the LANE (`op=complexity mode=advanced`, or select the tab, before expanding).
+Closing it in the seam would need a model of which surface each expansion PREFIX belongs to,
+and would refuse the legitimate case of arranging state now and photographing it after a
+later mode switch. No behaviour change; the note beside `SettleChecksHostShowUi` is the
+whole treatment.
 
 **THE SETTLE'S HOST-VISIBILITY GATE (`window-host-hidden`).** A frame count says a frame
 HAPPENED, never that this window was in it. Both hosts gate the WHOLE Parsek surface
@@ -1849,13 +2214,32 @@ that has one calls `SetUiComplexityMode` first, so the setting already equals th
 by the time it gets here),
 `ParsekFlight.MainWindowRectForTesting`, and `ShowUIForTesting` +
 `MainWindowRectForTesting` on `ParsekKSC` (whose `showUI` had no accessor at all - only
-the two toolbar callbacks wrote it). The KSC host is found with
+the two toolbar callbacks wrote it).
+
+THE CENSUS OPS ADD, all `internal`, still no player-facing surface: `WindowIdKey` on each
+of the ten sub-window classes (a const used at BOTH its own `GUILayoutWindow` call and the
+seam's resolver, so the id is single-sourced) plus `MainWindowIdForTesting` on both scene
+hosts; `MinWindowWidth` / `MinWindowHeight` widened from `private` to `internal` on the
+eight classes that have a resize clamp, so `op=rect`'s floor is read live rather than
+copied; the expansion accessors and key enumerations on `MissionsWindowUI`
+(`Set`/`Is`-VesselExpanded, the INVERTED leg pair, digest, and the three
+`Enumerate*ForTesting` walks over the SAME flattened row model the draw uses),
+`RecordingsTableUI` (group / chain set+get, `EnumerateGroupNamesForTesting` through the
+production picker tree model, `EnumerateChainIdsForTesting` through ERS, and the two
+`TryOpenGroupPicker*ForTesting` wrappers that own the committed-list index convention) and
+`LogisticsWindowUI` (`Set`/`Is`-RowExpanded, `EnumerateRowKeysForTesting`, the three
+published section-key constants, `OpenLinkPickerForTesting` over the same private opener,
+and `LinkPickerOpenForTesting`); `StepCountForTesting` + `TargetModeForTesting` on
+`StructureListWindowUI`; and, on the recorder,
+`GuiTreeRecorder.ArmForNextRepaint(label, writeToDisk)` + `GuiTreeRecorder.CaptureSeq`
+(the in-memory arm `op=find` needs, and its completion signal). The KSC host is found with
 `FindObjectOfType<ParsekKSC>()` rather than a new static `Instance`: a UiAction step runs
 a few times per run, and adding a static plus its lifecycle would be a bigger change - and
 a new stale-reference risk across scene loads - than this caller justifies.
 
 **Harness-side validation.** `op` / `window` / `mode` are `VERB_SCOPED_CLOSED_ARGS` rows
-(taking that table from five to eight), and two dedicated validators own what a flat table
+(taking that table from five to eight; the census ops add `ctrl` / `state` / `park` under
+`UiAction` and `dialog` under `AnswerMergeDialog`, taking it to twelve), and two dedicated validators own what a flat table
 cannot express: `validate_ui_action_step` holds the per-op REQUIREDNESS (`op` itself, the
 window for the four window-ops, `tab` for `op=tab`, `mode` for `op=complexity`, all four
 coordinates for `op=rect`), flags an arg an op does not read, and validates `tab` against
@@ -1877,6 +2261,22 @@ capture labels read in, and each tab's INDEX is the value the live selector fiel
 so a reordered vocabulary would photograph the wrong tab under the right label. A sibling
 cell drives the parse over a SYNTHETIC source carrying decoy `NewSpec(...)` text inside
 comments, so the comment-stripping half cannot go vacuous.
+
+ONE MIRROR GAP WAS CLOSED with the census ops:
+`test_the_ops_needing_a_window_mirror_the_c_sharp_predicate` now reads
+`OpNeedsWindow`'s BODY out of the C# and compares it to
+`hlib.UIACTION_OPS_NEEDING_WINDOW`. Until then nothing checked WHICH ops require a
+`window=`: only that each op token appeared somewhere in the file, so an op added on one
+side alone validated as legal here and was REJECTED by the seam after a whole KSP boot.
+Comments are stripped first for the same reason as the table parse - that method's own doc
+comment NAMES `pointer` and `dialog` as the two ops deliberately absent from the set, so a
+regex that read comments would report them as members and pass GREEN against a source
+saying the opposite - and a sibling synthetic-source cell keeps that half non-vacuous. The
+per-op REQUIREDNESS of the new args (`text` for find, `key` for expand, one selector for
+target / picker, a pair-or-park for pointer) lives in `validate_ui_action_step` alongside
+the originals, including the one shared-key subtlety: `x` / `y` belong to BOTH `op=rect`
+and `op=pointer`, so the stray-rect-arg branch narrows to `w` / `h` on a pointer step
+rather than flagging the two coordinates the op actually reads.
 
 **Tail / post-mission roles.** `world-mutating` and `recording`, and the tail role is NOT
 about opening windows: `op=complexity` PERSISTS `uiComplexityMode` through
@@ -2043,7 +2443,7 @@ parsed, N deferred), with bounded per-command Info lines (command counts are sma
 | `LoadGame` | any scene incl. MAINMENU (the BOOT CHANNEL); Reject if a recorder is live (`msg=recording-active`, unless `allowLiveRecorder=refly` is passed AND a re-fly session marker is live - RF-3/A1) or a load is already in flight (`msg=load-in-flight`) | long-running two-phase (like `RunTests`): journal `CLAIMED` -> initiate load (`HighLogic.SaveFolder = dir`; `GamePersistence.LoadGame(...)`; `FlightDriver.StartAndFocusVessel(...)` - the same Assembly-CSharp-only sequence as v0.5.4 `TestingTools.LoadSave`, no kRPC types); response deferred until the new scene settles (pure `TestCommandLoadGame.DecideLoadCompletion`): a settled FLIGHT scene with `HighLogic.CurrentGame != null` -> journal `EXECUTED` + terminal `OK`; a settle-back to MAINMENU -> `ERROR msg=load-failed-returned-to-menu` (a failed flight boot, e.g. an NRE in `FlightDriver.Start` on an incompatible save); the LoadGame budget expiring -> `ERROR msg=load-timeout`. A null / incompatible game detected up front (before two-phase) is still `ERROR msg=load-failed` | `scene`, `save`, `allowLiveRecorder` |
 | `MissionMark` | any scene | emit a stable `[Parsek][Info][TestCommands] MISSIONMARK label=<label> ut=<ut>` log line (H3-style correlation) | `label` echoed |
 | `CaptureScreenshot` | any scene (the `ExportRenderManifest` row; the safe-point gate already excludes LOADING / a transition / the settle window, which is when a capture would photograph a black frame) | pre-delete a colliding target, then the reflectively-resolved `UnityEngine.ScreenCapture.CaptureScreenshot(<KSP root>/Screenshots/<label>.png, superSize)`; TWO-PHASE, holding the head until the file reports the same non-zero size on two consecutive polls | `label`, `path` (relative), `bytes` (settled), `superSize`, `overwrote` |
-| `UiAction` | game loaded, any scene that HOSTS the Parsek UI (FLIGHT / SPACECENTER); a scene with no host is `REJECTED ui-host-unavailable`, never a defer | per `op`: write a window's `IsOpen`, write a tab selector, `ParsekUI.SetUiComplexityMode` + the production `Update` latch, write a window rect, or walk the window table read-only. Every op read-back-verified - and `open` / `rect` TWO-PHASE, holding the head for one DRAWN frame so the read-back describes what the window's own draw resolved rather than the value just written | per op: `op window open already` / `op window tab index already` / `op mode already` / `op window rect` / the describe inventory (`scene complexity count` + six keys per window) |
+| `UiAction` | game loaded, any scene that HOSTS the Parsek UI (FLIGHT / SPACECENTER); a scene with no host is `REJECTED ui-host-unavailable`, never a defer | per `op`: write a window's `IsOpen`, write a tab selector, `ParsekUI.SetUiComplexityMode` + the production `Update` latch, write a window rect (CLAMPED to that window's own resize floor), walk the window table read-only, move the OS cursor (`user32!SetCursorPos` after `ClientToScreen`), capture one in-memory GUI tree and locate a control by text, drive a window's set-of-expanded-keys, call `StructureListWindowUI.OpenForMission` / `OpenForRoute`, open `GroupPickerUI` / the Logistics link picker the way a row's button does, or report the live `PopupDialog`. Every op read-back-verified - and every op that changes drawn state TWO-PHASE, holding the head for one DRAWN frame (or, for `find`, for one CAPTURE) so the read-back describes what the game did rather than the value just written | per op: `op window open already` / `op window tab index already` / `op mode already` / `op window rect clamped minW minH` / the describe inventory (`scene complexity count` + seven keys per window) / `op x y park sx sy via` / `op window text ctrl match matches x y w h cx cy` / `op window key state changed expanded total` / `op window target id title steps open` / `op window picker target open` / `op open count name title buttons nbuttons` |
 | `DumpGuiTree` | any scene (the `CaptureScreenshot` row) | `GuiTreeRecorder.ArmForNextRepaint(label)` from the Update-phase pump (the recorder REFUSES to arm from inside an IMGUI pass), then TWO-PHASE, holding the head until the recorder reports THIS arm's dump written to `<KSP root>/Screenshots/<label>.gui.json` | `label`, `path` (relative), `bytes`, `windows`, `nodes`, `patched` (`<ok>/<of>`, the arm-time reading), `hits` |
 | `FlushAndQuit` | any scene (incl. menus) | if a game is loaded, force a scenario/game save so committed data is durable, THEN `Application.Quit()` deferred one frame; response + journal `DONE` written and flushed BEFORE quitting. Deliberately replaces kRPC master's `Quit()` RPC (a bare `Application.Quit()`, not commit-safe). | `saved` bool |
 

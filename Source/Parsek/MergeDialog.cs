@@ -12,6 +12,32 @@ namespace Parsek
         // this name and invokes the chosen DialogGUIButton's own callback. Widening from
         // private -> internal exposes no behavior (the const value is unchanged).
         internal const string DialogName = "ParsekMerge";
+
+        /// <summary>
+        /// The PRE-SWITCH decision dialog's own popup name, distinct from
+        /// <see cref="DialogName"/>.
+        ///
+        /// <para><b>WHY IT IS NOT "ParsekMerge".</b> It was, and that was a live hazard.
+        /// <c>AnswerMergeDialog</c> locates its target by popup NAME and then selects a
+        /// button BY ORDER ([Merge, (Seal), Discard], stable across every
+        /// <c>ShowTreeDialog</c> overload). The pre-switch dialog carries Merge / Discard in
+        /// that same order but its buttons run a DIFFERENT decision - what to do with the
+        /// prior switch segment before <c>SetActiveVessel</c> - so a pre-switch popup live
+        /// at the moment the verb ran would have had its merge action invoked by a seam
+        /// step that believed it was concluding a re-fly. The dispatch bit
+        /// (<c>ReFlyMergeDialogPresent</c>) narrowed that window by also requiring a live
+        /// re-fly marker, which is a correlation and not an identity: both dialogs can be
+        /// reachable inside one re-fly attempt. A separate name makes the confusion
+        /// unrepresentable in both directions.</para>
+        ///
+        /// <para>It is NOT answerable through <c>AnswerMergeDialog</c>, and that is a
+        /// contract rather than an omission: that verb completes on answer-applied AND the
+        /// post-answer scene settling out of FLIGHT, while these buttons end in
+        /// <c>SetActiveVessel</c>, which for a loaded target changes no scene at all. The
+        /// popup is reachable for inspection through <c>UiAction op=dialog</c>, which is
+        /// what a GUI census needs of it.</para>
+        /// </summary>
+        internal const string PreSwitchDialogName = "ParsekPreSwitch";
         private const string MergeLockId = "ParsekMergeDialog";
         // SplitAtSection writes back-to-back UT bounds; 50ms covers float
         // rounding and one-frame skew without bridging a real inter-recording gap.
@@ -71,16 +97,24 @@ namespace Parsek
         /// </summary>
         internal static void DismissAndClearPendingFlag(string reason)
         {
-            try
+            // BOTH names: this is the non-button cleanup path for every dialog this class
+            // spawns, and the pre-switch popup now carries its own name. Dismissing only
+            // the merge name would leave a pre-switch popup standing over the input lock
+            // that the ClearPendingFlag below releases - the exact stealth state the
+            // pre-switch dialog's Esc-respawn contract exists to prevent.
+            foreach (string dialogName in new[] { DialogName, PreSwitchDialogName })
             {
-                PopupDialog.DismissPopup(DialogName);
-            }
-            catch (System.Exception ex)
-            {
-                ParsekLog.Warn("MergeDialog",
-                    $"DismissAndClearPendingFlag: DismissPopup('{DialogName}') threw " +
-                    $"{ex.GetType().Name}: {ex.Message}; continuing cleanup " +
-                    $"(reason='{FormatClearReason(reason)}')");
+                try
+                {
+                    PopupDialog.DismissPopup(dialogName);
+                }
+                catch (System.Exception ex)
+                {
+                    ParsekLog.Warn("MergeDialog",
+                        $"DismissAndClearPendingFlag: DismissPopup('{dialogName}') threw " +
+                        $"{ex.GetType().Name}: {ex.Message}; continuing cleanup " +
+                        $"(reason='{FormatClearReason(reason)}')");
+                }
             }
 
             ClearPendingFlag(reason);
@@ -714,7 +748,11 @@ namespace Parsek
             // Mirror the scene-exit dialog's lock/flag sequencing so input is
             // blocked the same way and the OnDismiss teardown clears the lock
             // even if the popup is dismissed via a non-button path.
+            // Both names: the merge popup for the same reason this line always dismissed
+            // it (only one Parsek modal may stand at a time), and this dialog's OWN name
+            // because the Esc-respawn handler below re-enters this method.
             PopupDialog.DismissPopup(DialogName);
+            PopupDialog.DismissPopup(PreSwitchDialogName);
             LockInput();
             ParsekScenario.MergeDialogPending = true;
             // KSP's stock PopupDialog hard-codes Esc -> Dismiss() in its
@@ -727,7 +765,7 @@ namespace Parsek
                 new Vector2(0.5f, 0.5f),
                 new Vector2(0.5f, 0.5f),
                 new MultiOptionDialog(
-                    DialogName,
+                    PreSwitchDialogName,
                     message,
                     title,
                     HighLogic.UISkin,

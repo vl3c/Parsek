@@ -87,6 +87,152 @@ namespace Parsek
             set { scrollPos = value; }
         }
 
+        // ----- GUI-census seam accessors (UiAction op=expand) -----
+        //
+        // Three INDEPENDENT expansion collections back this tab, and the seam addresses all
+        // three through one namespaced key grammar (TestCommandUiState). They are exposed
+        // rather than driven by a synthesised click for the reason the UiAction applier's
+        // header gives: every click handler's whole body IS one of these writes, so the
+        // seam does the same write and reads it back.
+        //
+        // POLARITY: collapsedLegs holds what is COLLAPSED. The two leg accessors below
+        // speak "expanded" so the wire never has to carry a flip, and the flip lives here
+        // once instead of in every spec that expands a leg.
+        //
+        // The enumerations exist for `key=all` and for the "what does exist" reject
+        // message. They are DERIVED, not cached: a census runs them a handful of times per
+        // lane, and a stale list would expand keys the window no longer draws.
+
+        internal bool IsVesselExpandedForTesting(string key)
+            => key != null && expandedVessels.Contains(key);
+
+        internal bool SetVesselExpandedForTesting(string key, bool expanded)
+        {
+            if (key == null) return false;
+            return expanded ? expandedVessels.Add(key) : expandedVessels.Remove(key);
+        }
+
+        internal bool IsLegExpandedForTesting(string key)
+            => key != null && !collapsedLegs.Contains(key);
+
+        internal bool SetLegExpandedForTesting(string key, bool expanded)
+        {
+            if (key == null) return false;
+            return expanded ? collapsedLegs.Remove(key) : collapsedLegs.Add(key);
+        }
+
+        internal bool IsDigestExpandedForTesting(string missionId)
+            => missionId != null && digestExpanded.TryGetValue(missionId, out bool e) && e;
+
+        internal bool SetDigestExpandedForTesting(string missionId, bool expanded)
+        {
+            if (string.IsNullOrEmpty(missionId)) return false;
+            bool before = IsDigestExpandedForTesting(missionId);
+            digestExpanded[missionId] = expanded;
+            return before != expanded;
+        }
+
+        internal int ExpandedVesselCountForTesting => expandedVessels.Count;
+
+        internal int CollapsedLegCountForTesting => collapsedLegs.Count;
+
+        internal int ExpandedDigestCountForTesting
+        {
+            get
+            {
+                int n = 0;
+                foreach (KeyValuePair<string, bool> kv in digestExpanded)
+                    if (kv.Value) n++;
+                return n;
+            }
+        }
+
+        /// <summary>Every <c>missionId:headId</c> key a per-vessel row could expand under,
+        /// walked over the SAME flattened row model the draw uses.</summary>
+        internal List<string> EnumerateVesselExpandKeysForTesting()
+        {
+            var keys = new List<string>();
+            var trees = RecordingStore.CommittedTrees;
+            var missions = MissionStore.Missions;
+            for (int i = 0; i < missions.Count; i++)
+            {
+                Mission mission = missions[i];
+                RecordingTree tree = FindTree(trees, mission.TreeId);
+                if (tree == null) continue;
+                CollectVesselRowKeys(mission, GetVesselRows(tree), keys);
+            }
+            return keys;
+        }
+
+        private void CollectVesselRowKeys(Mission mission, List<MissionVesselRow> rows,
+                                          List<string> keys)
+        {
+            if (rows == null) return;
+            for (int i = 0; i < rows.Count; i++)
+            {
+                MissionVesselRow row = rows[i];
+                if (row == null) continue;
+                if (!string.IsNullOrEmpty(row.OwnerHeadId))
+                    keys.Add(CollapseKey(mission, row.OwnerHeadId));
+                CollectVesselRowKeys(mission, row.Children, keys);
+            }
+        }
+
+        /// <summary>
+        /// Every <c>missionId:headId</c> key a composition (interval) row could collapse
+        /// under, taken from the vessel rows' own interval lists.
+        ///
+        /// <para>It is a SUPERSET: only a node WITH CHILDREN reads the set, so some keys
+        /// here are inert. That is deliberate and cheaper than re-walking the composition
+        /// tree for the has-children predicate - an inert key in the set changes no
+        /// drawing, while a MISSING key would leave a staircase the census cannot
+        /// open.</para>
+        /// </summary>
+        internal List<string> EnumerateLegExpandKeysForTesting()
+        {
+            var keys = new List<string>();
+            var trees = RecordingStore.CommittedTrees;
+            var missions = MissionStore.Missions;
+            for (int i = 0; i < missions.Count; i++)
+            {
+                Mission mission = missions[i];
+                RecordingTree tree = FindTree(trees, mission.TreeId);
+                if (tree == null) continue;
+                CollectLegKeys(mission, GetVesselRows(tree), keys);
+            }
+            return keys;
+        }
+
+        private void CollectLegKeys(Mission mission, List<MissionVesselRow> rows,
+                                    List<string> keys)
+        {
+            if (rows == null) return;
+            for (int i = 0; i < rows.Count; i++)
+            {
+                MissionVesselRow row = rows[i];
+                if (row == null) continue;
+                for (int j = 0; j < row.Intervals.Count; j++)
+                {
+                    string headLegId = row.Intervals[j] != null
+                        ? row.Intervals[j].HeadLegId : null;
+                    if (!string.IsNullOrEmpty(headLegId))
+                        keys.Add(CollapseKey(mission, headLegId));
+                }
+                CollectLegKeys(mission, row.Children, keys);
+            }
+        }
+
+        /// <summary>Every mission id, which is what the event-digest foldout is keyed
+        /// by.</summary>
+        internal List<string> EnumerateDigestKeysForTesting()
+        {
+            var keys = new List<string>();
+            var missions = MissionStore.Missions;
+            for (int i = 0; i < missions.Count; i++)
+                if (!string.IsNullOrEmpty(missions[i].Id)) keys.Add(missions[i].Id);
+            return keys;
+        }
+
         // Collapsed through-line heads, keyed "missionId:headId" so two Missions over
         // the same tree collapse independently. Transient UI state (not persisted). The
         // include selection lives per-Mission in Mission.ExcludedThroughLineHeadIds.
