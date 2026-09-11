@@ -8183,6 +8183,10 @@ class UnityExceptionScanTests(unittest.TestCase):
         #     S4.1 n=19: 18x0 and one 1.
         #     H5   n=3: 4 and 2 in the failure population, 0 fresh - a thin sample, so
         #          the ceiling is the status doc's short-spec band top, not a pin.
+        #     GS-4 n=5: 4, 1, 2 (older DLLs) + 2, 1 (wave DLL). A WINDOW kept at 4 by
+        #          supervisor ruling, reachable on the wave DLL (GS-9 `2026-09-10_1944`
+        #          flew this machine and measured 4); composition, n and the legal
+        #          shape above it (5) are in its dict entry below.
         expected = {
             "B10-career-passive-safety.toml": 0,
             "CL-2-pod-impact-ledger.toml": 0,
@@ -8237,16 +8241,20 @@ class UnityExceptionScanTests(unittest.TestCase):
             "H23-tracking-station.toml": 6,
             "S4.1-rewind-merge.toml": 3,
             "H5-invariants-corpus.toml": 5,
-            # GS-4, armed 2026-09-10 (ghost-replay Tier B item 9). n=5 readings, every
-            # one driver-valid PASS or MISSION-OK: 4 (`2026-08-27_2145`), 1 (`_2204`), 2
-            # (`2026-08-28_1550`), then two wave-DLL readings, 2 (`2026-09-10_1924`:
-            # STAGING 1 + MECHJEB-ONDESTROY 1) and 1 (`2026-09-10_1930`: HATCH-TOOLTIP
-            # 1). 4 is the OBSERVED BAND TOP, NOT a mechanism bound (the H5 shape, not
-            # H23's), and the wave's own GS-9 flight of this machine measured 4 on the
-            # same DLL (FLIGHT-CAMERA-STARTUP 1 + MECHJEB-ONDESTROY 1 + the MAP-FOCUS
-            # pair 2), so the wave-only top of 2 would red a measured legal total. THE
-            # LEGAL SHAPE ABOVE IT: every class at its per-run count in one flight = 6.
-            # Every class is stock KSP or MechJeb, with no `Parsek.` frame in any stack.
+            # GS-4, armed 2026-09-10 (ghost-replay Tier B item 9); the ceiling is KEPT at
+            # 4 by supervisor ruling. A WINDOW, not a mechanism bound (the H5 shape, not
+            # H23's), and REACHABLE on the wave DLL by the identical stock class set.
+            # COMPOSITION OF 4: the MAP-FOCUS KnowledgeBase pair counted twice ([ERR] +
+            # [EXC]) + STAGING + a teardown NRE (`2026-08-27_2145`: STAGING 1 + MAP-FOCUS
+            # 2 + HATCH-TOOLTIP 1). n: GS-4 readings 4 / 1 / 2 on older DLLs
+            # (`2026-08-27_2145` / `_2204` / `2026-08-28_1550`) + 2 / 1 on the wave DLL
+            # (`2026-09-10_1924`: STAGING 1 + MECHJEB-ONDESTROY 1; `_1930`: HATCH-TOOLTIP
+            # 1), every one driver-valid. WAVE-DLL REACHABILITY: GS-9 `2026-09-10_1944`
+            # flew this machine's unchanged cycle 1 and teardown and measured 4
+            # (MAP-FOCUS 2 + FLIGHT-CAMERA-STARTUP 1 + MECHJEB-ONDESTROY 1), so 2 would
+            # false-red a legal stock shape. THE LEGAL SHAPE THAT WOULD EXCEED IT: 5 -
+            # those four plus one more stock NRE (e.g. both teardown classes in one
+            # flight). Every class is stock KSP or MechJeb, no `Parsek.` frame in any stack.
             "GS-4-kerbalx-rewind-watch.toml": 4,
         }
         armed = {}

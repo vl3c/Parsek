@@ -199,8 +199,8 @@ required  = [
   "exittospacecenter complete scene=SPACECENTER game-loaded=true elapsed=[0-9.]+s",
   "\\[SwitchSegment\\] created [^\\n]*sessionId=([0-9a-f-]{36}) [^\\n]*segmentRecId=([0-9a-f-]{36}) [\\s\\S]*?\\[SwitchSegment\\] route=standalone [^\\n]*sessionId=\\1 [^\\n]*segmentRecId=\\2 [\\s\\S]*?TryClassifyActiveSwitchSegmentNoOp: sessionId=\\1 segId=\\2 disposition=Standalone subtreeCount=1 hasDescendants=False noOp=True reason=no-op",
 ]
-# The suite-wide ERROR pattern; the DEFERRED shape (P3 / the negative control's
-# mirror line); and any commit at all - the discard must pre-empt commit routing.
+# The suite-wide ERROR pattern; the DEFERRED shape (P3, the line the mirror
+# measurement produces); and any commit at all - the discard must pre-empt commit routing.
 forbidden = ["\\[Parsek\\]\\[ERROR\\]",
              "TryAutoDiscardNoOpSwitchSegment: no-op detected but disposition=",
              "Committed tree '"]

@@ -66,10 +66,10 @@ id = "GS-9-kerbalx-repeat-rewind"
 #        recordings replay) spawnLines=16 destroyLines=16 unbalanced=0; recordings=8;
 #        rows 9/9 met.
 #   (O2) ONE-SHOT QUICKSAVE. The cycle-2 rewind is REJECTED `rewind-gate Rewind save
-#        file missing` (the file was consumed) or `rewind-gate No rewind save
-#        available` (the hint was cleared): the mission flakes in REWIND naming
-#        Parsek's own reason. The roadmap question is answered "no" - a PRODUCT
-#        finding.
+#        file missing` (consumed) or `rewind-gate No rewind save available` (hint
+#        cleared): REWIND flakes naming Parsek's reason, so the run reads INVALID
+#        (autopilot-flake), NEVER PARSEK-FAIL - the forbidden token cannot red a flaked
+#        mission. Read that reason before any D9 re-claim. A PRODUCT finding ("no").
 #   (O3) CYCLE-2 CENSUS DIVERGES: fewer spawn / destroy lines after the second rewind,
 #        a population missing (a cycle-2 required token reds), or a ghost that leaks
 #        in cycle 2 (destroyLines < spawnLines). The idempotence finding this lane
@@ -188,16 +188,16 @@ count = { min = 8, max = 8 }
 #
 # GROUP 7 - THE PER-CYCLE CENSUS, pinned EXACTLY off the reading run (8 MeshSpawned and
 # 8 MeshDestroyed lines in each cycle). Four line-bracketed regexes, one per phase per
-# cycle. A "gap line" is any line that is NEITHER a line of that phase NOR a rewind
-# line, so the eight groups cannot skip a line of the phase or cross a rewind:
+# cycle; a "gap line" is NEITHER a line of that phase NOR a rewind line, so no group
+# can skip a line of the phase or cross a rewind (linear by construction):
 #   - CYCLE 1: from a rewind line, exactly eight lines of the phase, then gap lines up
 #     to the NEXT rewind line. Only the first rewind has a next one.
 #   - CYCLE 2: from a rewind line, exactly eight lines of the phase, then gap lines to
-#     the END of the log. Only the LAST rewind line has no rewind after it.
-# Linear by construction (no group can pick among alternatives). Measured on the
-# reading's 28.8 MB log: 0.06-0.16 s per pattern matching, and 0.15-0.18 s missing on
-# the same log with one line of the phase removed from or duplicated in one cycle. Each
-# such edit reds exactly the one pattern for that phase and cycle.
+#     the END of the log. Only the LAST rewind has no rewind after it, so this pair ALSO
+#     matches a single-cycle log (GS-4 `2026-09-10_1924` / `_1930`: 1 each). The
+#     two-cycle proof is GROUP 6 plus the CYCLE-1 pair, which miss both of those logs.
+# 0.06-0.18 s per pattern on the reading's 28.8 MB log, matching or missing; removing or
+# duplicating one line of a phase in one cycle reds exactly that phase-cycle pattern.
 required  = ["Auto-record started \\((?:PRELAUNCH|LANDED|first staging on pad)",
              "Recording started",
              "Controllable split children: \\[[0-9]+,[0-9]+\\]",

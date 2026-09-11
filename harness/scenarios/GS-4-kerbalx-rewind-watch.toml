@@ -417,22 +417,22 @@ recordings     = { min = 8 }
 branchPoints   = { JointBreak = { min = 4 } }
 terminalStates = { SubOrbital = { min = 2 }, Destroyed = { min = 4 } }
 
-# ARMED 2026-09-10 (`ghost-replay-tier-b`, ghost-replay Tier B item 9). THE CEILING
-# IS AN OBSERVED BAND TOP, not a mechanism bound: nothing in the code bounds any
-# class at its observed count. The readings on record, n=5: `2026-08-27_2145` 4,
-# `2026-08-27_2204` 1, `2026-08-28_1550` 2 (older DLLs), and this wave's two readings
-# `2026-09-10_1924` 2 and `2026-09-10_1930` 1. The wave-DLL pair alone tops at 2, but
-# the same wave's GS-9 reading `2026-09-10_1944` - this machine with cycle 1
-# unchanged and the same watch teardown - measured 4 on that DLL, all stock or
-# MechJeb. A ceiling of 2 would therefore sit below a legal total already measured
-# on the DLL it gates. The per-reading classes are in the STATUS list above. No
-# reading carried a `Parsek.` frame in any NRE stack.
-# THE LEGAL SHAPE ABOVE THE CEILING: every measured class at its per-run observed
-# count in ONE flight - STAGING 1 + MAP-FOCUS 2 + HATCH-TOOLTIP 1 +
-# MECHJEB-ONDESTROY 1 + FLIGHT-CAMERA-STARTUP 1 = 6 (GS-9's four plus a staging NRE =
-# 5). If a red at 5 or 6 has stacks that carry no `Parsek.` frame, it is that shape:
-# file it with its per-class census and re-pin with the new n. A `Parsek.` frame is a
-# finding at any count, and is never a reason to raise the ceiling.
+# ARMED 2026-09-10 (`ghost-replay-tier-b`, ghost-replay Tier B item 9); the ceiling is
+# KEPT at 4 by supervisor ruling. It is a WINDOW, not a mechanism bound, and 4 is
+# REACHABLE on the wave DLL by this machine's identical stock class set. THE
+# COMPOSITION THAT MAKES 4: the MAP-FOCUS KnowledgeBase pair (one event counted twice,
+# [ERR] + [EXC]) + STAGING + a teardown NRE - `2026-08-27_2145` exactly (STAGING 1 +
+# MAP-FOCUS 2 + HATCH-TOOLTIP 1). n: GS-4's readings 4 / 1 / 2 on older DLLs
+# (`2026-08-27_2145` / `_2204` / `2026-08-28_1550`) and 2 / 1 on the wave DLL
+# (`2026-09-10_1924` / `_1930`). THE WAVE-DLL REACHABILITY PROOF is GS-9's reading
+# `2026-09-10_1944`: it flew this machine's unchanged cycle 1 and teardown and measured
+# 4 (MAP-FOCUS 2 + FLIGHT-CAMERA-STARTUP 1 + MECHJEB-ONDESTROY 1), so a ceiling of 2
+# would false-red a legal stock shape. No reading carried a `Parsek.` frame.
+# THE LEGAL SHAPE THAT WOULD EXCEED IT: 5 - those four plus one more stock NRE, e.g.
+# both teardown classes (HATCH-TOOLTIP and MECHJEB-ONDESTROY) in one flight. A red at
+# 5 whose stacks carry no `Parsek.` frame is that shape: file it with its per-class
+# census and re-pin with the new n. A `Parsek.` frame is a finding at any count, and
+# is never a reason to raise the ceiling.
 [expectations.unityExceptions]
 maxTotal = 4
 
