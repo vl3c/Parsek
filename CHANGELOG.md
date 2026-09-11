@@ -38,7 +38,11 @@ _(unreleased — entries accumulate here per commit)_
   to go. A window that ends up BIGGER than requested is now accepted on both measurements;
   one that comes back smaller than asked is still reported, because that is the reading
   that means nothing drew. The tour now asks for a Settings window wider than either
-  interface mode needs, so the picture is not cropped either way.
+  interface mode needs, so the picture is not cropped either way. BOTH TOURS HAVE NOW RUN
+  GREEN, on 2026-09-11: each finished first time, the Space Center one in 96 seconds with
+  22 pictures and 22 descriptions beside them, the flight one in 57 seconds with four of
+  each, and the Settings window came back exactly as wide as it was asked for in both
+  interface modes.
 
 - **Automated testing: the flight window tour no longer tries to photograph a window
   that shuts itself.** Real Spawn Control closes again the instant it draws with nothing

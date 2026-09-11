@@ -213,10 +213,12 @@ wrote the first ones: 23 under `results/2026-09-10_2255_GUI-1-census-ksc_shots/`
 labels plus the `GuiTree` cell's own `parsek-guitree-probe`) and 5 under
 `results/2026-09-10_2259_GUI-2-census-flight_shots/`, every one at `patched=17/17` with
 every anomaly counter zero, and `--batch` rendered all 23 of GUI-1's into `<label>.gui.html`
-plus `gui-tree-index.html` in that directory. Both lanes read INVALID on one seam step each
-(neither of them a dump), so what those runs prove is the RECORDER rather than a green
-lane. The reading, premise by premise, and the two things it did not settle:
-`docs/dev/design-gui-tree-dump.md` -> "What the first flight measured".
+plus `gui-tree-index.html` in that directory. Both of those lanes read INVALID on one seam
+step each (neither of them a dump), so what those runs proved is the RECORDER rather than a
+green lane - AND BOTH READ GREEN THE NEXT DAY: `results/2026-09-11_0548_GUI-1-census-ksc_shots/`
+(PASS, 23 dumps) and `results/2026-09-11_0551_GUI-2-census-flight_shots/` (PASS, 4), which
+are the directories to read now. The reading, premise by premise, and the two things it did
+not settle: `docs/dev/design-gui-tree-dump.md` -> "What the first flight measured".
 
 ### The GUI-census sheet (`tools/gui_contact_sheet.py`)
 
@@ -286,6 +288,15 @@ Both lanes are `tier = "operator"` and fly on request only. In order:
    python run.py --id GUI-2-census-flight
    ```
 
+   MEASURED WALL, so a run that has not finished in a couple of minutes is stuck rather
+   than slow: **96 s for GUI-1** and **57 s for GUI-2** on the green reading runs of
+   2026-09-11 (`2026-09-11_0548` and `2026-09-11_0551`, both PASS on attempt 1). THE WALK
+   IS THE SMALLER HALF, measured off GUI-1's own log: KSP boot to the seam's first `recv`
+   takes 37 s, the `LoadGame` 8 s, and all 115 steps - 22 captures, 22 dumps, the tab walk
+   and the one-cell batch - 29 s. So a slower host moves the boot, not the census. The
+   budgets are far above either (1500 s and 1000 s) on purpose: the product is the images
+   and the trees, and a KILLED run leaves neither.
+
 4. **Read the pictures**, from inside the run's own shots directory:
 
    ```
@@ -311,8 +322,9 @@ Read the seam's own lines before reading the layout: every dump step pins
 `patched=17/17`, so a lane that goes red there is telling you a UnityEngine IMGUI funnel
 signature drifted out from under its Harmony patch - a fact about the recorder, not about
 the window in the picture. On the first flight (2026-09-10) all 56 arms across the four
-runs read 17/17 with zero repairs, so that reading is now a REGRESSION check rather than
-an open question.
+runs read 17/17 with zero repairs, and the two green reading runs of 2026-09-11 added 27
+more (23 on GUI-1, 4 on GUI-2) at the same 17/17, so that reading is now a REGRESSION
+check rather than an open question.
 
 ## The produced-save snapshot (harvest from here, not from the instance)
 

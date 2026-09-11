@@ -378,24 +378,25 @@ allowedAnomalies = []
 # contain; a reader compares it across the 22 dumps instead. `windows=` / `nodes=` are
 # unpinned for the same reason.
 #
-# THE BATCH LINE IS AN INTERIM PIN, AND STAYS ONE THROUGH THE FIRST FLIGHT. `total=1` is
-# exact and derived from the source (hlib.parse_ingame_test_declarations sees exactly one
+# THE BATCH LINE IS A WHOLE PIN SINCE THE READING RUN, and it was an INTERIM one until
+# then. `total=1` was always exact and derived from the source
+# (hlib.parse_ingame_test_declarations sees exactly one
 # [InGameTest(Category = "GuiTree")] declaration, scene-agnostic and batch-safe, so at
 # scene=SPACECENTER the derivation is total=1 = 0 scene-skipped + 0 batch-skipped + 1
-# executable); `passed=` and `skipped=` are REGEXED because the cell carries a run-time
-# self-skip (it gives up if its probe window never sees a Repaint within 240 frames).
-# THE FIRST FLIGHT MEASURED THAT SPLIT - `total=1 passed=1 failed=0 skipped=0`, identical
-# on both attempts, the self-skip nowhere near firing (`repaintPasses=5`) - and the pin is
-# deliberately NOT tightened off it: both attempts read INVALID on the rect step above, and
-# a whole pin belongs to a run that READ a verdict. The reading run takes it whole and
-# drops this id from IngameBatchWiringGroupTests.INTERIM_PIN_IDS. `passed=[1-9][0-9]*` still rejects the whole vacuous family, which is
-# what the anti-vacuity rule asks of it. Registered in
-# IngameBatchWiringGroupTests.INTERIM_PIN_IDS until the first flight, after which the
-# split is pinned WHOLE off the measured line. A SELF-SKIP THEREFORE REDS THIS LANE ON
-# THE logContract ROW, and that is the intended reading rather than a gap: the lane claims
-# the cell RAN, `passed=[0-9]+` is not available because `hlib.batch_contract_vacuity_gap`
-# requires ONE pattern to reject the whole vacuous family, and the remedy for a red here
-# is a HOST where the probe draws - never a looser pin.
+# executable); `passed=` and `skipped=` were REGEXED because the cell carries a run-time
+# self-skip (it gives up if its probe window never sees a Repaint within 240 frames) and
+# no run had measured which way that goes. THE FIRST FLIGHT MEASURED THE SPLIT but did
+# not buy the pin: `2026-09-10_2255` and attempt 2 `_2256` both read
+# `total=1 passed=1 failed=0 skipped=0` with the self-skip nowhere near firing
+# (`repaintPasses=5`), and both read INVALID on the rect step above, so the split stayed
+# regexed by decision - a whole pin belongs to a run that READ a verdict. THE READING RUN
+# IS `2026-09-11_0548` (PASS, attempt 1, 96 s wall): the same line came back a third
+# time, verbatim, so the pin is now the whole measured line and this id has LEFT
+# IngameBatchWiringGroupTests.INTERIM_PIN_IDS
+# (GuiCensusSeamVerbTests.test_the_gui_1_batch_pin_is_whole_off_the_reading_run is the
+# cell that keeps it there). A SELF-SKIP THEREFORE REDS THIS LANE ON THE logContract ROW,
+# and that is the intended reading rather than a gap: the lane claims the cell RAN, and
+# the remedy for a red here is a HOST where the probe draws - never a looser pin.
 required = [
   # --- Advanced pass: main alone, then one per window opened ---
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] uiaction describe scene=SPACECENTER complexity=advanced windows=11 open=1 openWindows=main",
@@ -438,8 +439,8 @@ required = [
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-timeline-basic .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-logistics-basic .*patched=17/17",
   "\\[Parsek\\]\\[INFO\\]\\[TestCommands\\] dumpguitree ok label=ksc-settings-basic .*patched=17/17",
-  # --- and the GuiTree batch (INTERIM: total exact, the split regexed) ---
-  "BATCH_COMPLETE v1 total=1 passed=[1-9][0-9]* failed=0 skipped=[0-9]+ category=GuiTree scene=SPACECENTER",
+  # --- and the GuiTree batch, pinned WHOLE off the reading run `2026-09-11_0548` ---
+  "BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=GuiTree scene=SPACECENTER",
 ]
 # EMPTY, deliberately, and this is a HOST decision rather than a weakened gate: the
 # `[Parsek][ERROR]` surface of a real multi-year career's cold OnLoad (route reconcile,
@@ -480,10 +481,12 @@ gating = false
 # 22 captures and 22 dumps, each holding the FIFO head for a couple of frames, plus a
 # 300 s cold load of a 42 MB career, ~60 single-phase UI ops and one one-cell in-game
 # batch. 1500 s is generous on purpose: the product is the images and the trees, and a
-# KILLED run leaves neither. The 300 s added over the pre-dump 1200 s is not a measured
-# cost - nothing here has ever flown - it is head-room for 22 more two-phase steps whose
-# flush assembles, serialises and writes a file inside ONE LateUpdate, which is a visible
-# hitch on a big window by design.
+# KILLED run leaves neither. The 300 s added over the pre-dump 1200 s was never a measured
+# cost - it is head-room for 22 more two-phase steps whose flush assembles, serialises and
+# writes a file inside ONE LateUpdate, which is a visible hitch on a big window by design.
+# THE MEASURED WALL IS 96 s (reading run `2026-09-11_0548`, PASS attempt 1; the two
+# 2026-09-10 INVALID attempts read 79 / 80 s), so the budget is 15x the measurement and
+# stays where it is rather than being trimmed to it.
 budgetSeconds = 1500
 
 [retry]

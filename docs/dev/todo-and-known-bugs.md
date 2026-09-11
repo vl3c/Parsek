@@ -67,6 +67,29 @@ if it were staged. It is not staged either: `stage_local_fixture.py` now drops t
 top-level `analysis/` directory unconditionally, because under Forbid mode a staged
 `baseline.cfg` is itself a `BASELINE-FORBIDDEN` FAIL -> `INVALID(fixture-authoring)`.
 
+THE REPORT-ONLY ROW HAS NOW CARRIED TWO PASS VERDICTS, which is the half of this entry
+that was a prediction. On the reading runs `2026-09-11_0548` (GUI-1) and
+`2026-09-11_0551` (GUI-2), both PASS on attempt 1, the analyzer row read
+`status=REPORT gating=false verdictStatus=PARSEK-FAIL red=1
+topRule=INV2-NO-DOUBLE-COVER failNonBaselined=7 staleNonBaselined=0`, the chain did NOT
+short-circuit, and every later verifier evaluated - `logValidate`, `testResults`,
+`anomalySweep`, `expectations` (all 38 log contracts on GUI-1) and `driverValidity` all
+PASS, `saveParse` / `ghostLifecycle` / `renderCompose` / `unityExceptions` REPORT. So the
+demote-findings-only fold behaves as designed on a real host, and the lanes gate on their
+own contracts.
+
+THE STAGED POPULATION IS SMALLER THAN THE OFFLINE ONE, and the difference is recorded
+rather than explained: the run's own report over the STAGED `c1-gui`
+(`saves/c1-gui/analysis/c1-gui.analysis.txt`, written by both reading runs) reads
+`save=c1-gui generation=4 FAIL=7 WARN=6 INFO=2 STALE=0 BASELINED=0 RED=1` - seven
+`INV2-NO-DOUBLE-COVER` FAILs across FOUR recordings, not the 25 across seven that the
+2026-09-10 offline reading of the operator's own un-staged `c1` measured. Staging is not
+a copy (`stage_local_fixture.py --no-quicksaves`, and the top-level `analysis/` directory
+dropped unconditionally), so a smaller population is unsurprising, but which recordings
+the staging drops has not been read. It changes nothing about the decision here: `RED=1`
+either way, and the row is report-only either way. The number to quote when talking about
+a CENSUS RUN is the staged 7; the 25 belongs to the offline reading of `c1`.
+
 WHAT IS STILL OPEN, and it is a question about the FINDINGS rather than about the lanes:
 are the 25 `INV2-NO-DOUBLE-COVER` overlaps a real recorder defect from an earlier era?
 They are on recordings months old, on a save that has been through many builds, and
@@ -167,13 +190,17 @@ run on that host reading the auto-close line, not a spec. A GUI-3 lane would als
 natural place to photograph the other flight-only surface a census still cannot reach
 (GUI-CENSUS-STRUCTURE-WINDOW-HAS-NO-DRIVEABLE-TARGET names the KSC half of that problem).
 
-## ~~GUITREE-INTERCEPTION-LAYER-NEVER-RUN: the GUI-tree dump's Harmony interception of the UnityEngine IMGUI funnels has never executed inside KSP, so four premises the whole design rests on are unmeasured~~ [Filed 2026-09-10 on branch `gui-dump-spike`. CLOSED 2026-09-11 by the GUI census's first flight - runs `2026-09-10_2255` / `_2256` (GUI-1) and `2026-09-10_2259` / `_2300` (GUI-2). The layer RAN, and it ran clean]
+## ~~GUITREE-INTERCEPTION-LAYER-NEVER-RUN: the GUI-tree dump's Harmony interception of the UnityEngine IMGUI funnels has never executed inside KSP, so four premises the whole design rests on are unmeasured~~ [Filed 2026-09-10 on branch `gui-dump-spike`. CLOSED 2026-09-11 by the GUI census's first flight - runs `2026-09-10_2255` / `_2256` (GUI-1) and `2026-09-10_2259` / `_2300` (GUI-2). The layer RAN, and it ran clean. CONFIRMED UNDER A VERDICT by the two PASS reading runs of 2026-09-11, `2026-09-11_0548` (GUI-1, attempt 1, 96 s) and `2026-09-11_0551` (GUI-2, attempt 1, 57 s): 27 more arms (23 + 4), every one `patched=17/17`, zero `[WARN][GuiTree]` / `[ERROR][GuiTree]` lines, every anomaly counter zero, and the cell's PASS line identical to the pixel (`box=[60,60,320,300] ... declared=[60,60,320,300]`, same `kinds=`, `repaintPasses=5`)]
 
 WHAT THE FLIGHT WAS. Both census lanes flew on this branch's DLL and both read INVALID -
 each on exactly ONE seam step, neither of them a dump (GUI-1 on a rect width read-back
 that has since been fixed, GUI-2 on Real Spawn Control shutting itself; see the two
 entries above and below). Every dump step passed in every attempt, so the measurement
-this entry was waiting for is complete even though no lane has yet read a verdict.
+this entry was waiting for was complete even before any lane read a verdict. THE VERDICT
+CAME THE NEXT DAY: both lanes were re-flown on the fixed shape and both PASSED on attempt
+1 - `2026-09-11_0548` (GUI-1, 96 s, 46 harvested files) and `2026-09-11_0551` (GUI-2,
+57 s, 9 harvested files) - with 27 further arms reading `patched=17/17`, so the closure
+below is a reading taken under a green verdict rather than beside an INVALID one.
 
 THE READING, aggregated over the 56 dumps the four runs wrote (23 per GUI-1 attempt - 22
 census labels plus the `GuiTree` cell's own probe - and 5 per GUI-2 attempt):

@@ -275,8 +275,9 @@ items and the record of why. Re-derive before acting: `ls harness/scenarios/*.to
 (245 at `659be2a68`), `hlib.compute_coverage` (170 of 248 cells, 78 uncovered), and the category
 inventory (**113 of 113 categories driven, 624 of 624 declarations as of 2026-09-11,
 when `GUI-1-census-ksc` gained a `RunTests category="GuiTree"` step - the in-game
-coverage axis is CLOSED BY SPEC COVERAGE, which is not the same as flown: that lane
-has never run**; the superseded reading below is kept because it is the derivation,
+coverage axis is CLOSED BY SPEC COVERAGE and, since the reading run
+`2026-09-11_0548` (PASS attempt 1), BY A FLOWN VERDICT on that row too**; the
+superseded reading below is kept because it is the derivation,
 and only the one row moved. This
 112-of-113 / 623-of-624 pair was re-derived 2026-09-10 on the `gui-dump-spike`
 branch with `hlib.parse_ingame_test_declarations` over every `.cs` under
@@ -294,8 +295,9 @@ because the test process can move the OS pointer even though no seam verb can. W
 remains on this axis is ONE item: the named cell
 `RuntimeTests.EvaKerbalGhostHasVesselSnapshot`, which wants a crewed craft FLYING low
 over terrain and which no seam verb lofts. The `GuiTree` row that re-opened the axis
-on 2026-09-10 was closed on 2026-09-11 by a `RunTests` step on `GUI-1-census-ksc`;
-what item 12 still owes is the FLIGHT, not the spec).
+on 2026-09-10 was closed on 2026-09-11 by a `RunTests` step on `GUI-1-census-ksc`, and
+item 12 owes nothing further: the reading run `2026-09-11_0548` read the batch line whole
+under a PASS, so the row is in inventory bucket **A**).
 STANDING 2026-09-08, end of day: item 1
 SHIPPED (#1653); items 2 and 3 are in flight in separate sessions (branches
 `chain-interaction` and `ghost-replay-tier-a`); the promotion calls in item 7 are DONE
@@ -501,8 +503,9 @@ remains is, in order:
     that moves `hlib.compute_coverage` and every number derived from it. Definitions,
     evidence and the per-lane readings: "The re-fly continuation program (RF-1..RF-12)"
     below.
-12. ~~**Drive the `GuiTree` category**~~ SPEC LANDED 2026-09-11, ~~**and its first
-    flight is the measurement**~~ FLOWN 2026-09-10: `GUI-1-census-ksc` carries one
+12. ~~**Drive the `GuiTree` category, and its first flight is the measurement**~~ DONE
+    2026-09-11. SPEC LANDED 2026-09-11, FLOWN 2026-09-10 and READ GREEN 2026-09-11:
+    `GUI-1-census-ksc` carries one
     ordinary `RunTests category="GuiTree"` step, which re-closed the in-game category
     axis at 113 of 113 / 624 of 624 BY SPEC COVERAGE, and on runs `2026-09-10_2255` /
     `_2256` the cell EXECUTED AND PASSED - `BATCH_COMPLETE v1 total=1 passed=1 failed=0
@@ -525,13 +528,18 @@ remains is, in order:
     unbudgeted. Those two, plus the per-window `GUI.matrix` and the one-node
     `Toolbar` / `SelectionGrid`, are the residue in `design-gui-tree-dump.md` ->
     "What the first flight measured"; GUITREE-INTERCEPTION-LAYER-NEVER-RUN in
-    `todo-and-known-bugs.md` is ~~done~~. WHAT REMAINS ON THIS ITEM IS NOT A
-    MEASUREMENT BUT A VERDICT: both lanes read INVALID, each on one seam step unrelated
+    `todo-and-known-bugs.md` is ~~done~~. WHAT REMAINED ON THIS ITEM WAS NOT A
+    MEASUREMENT BUT A VERDICT - both lanes read INVALID, each on one seam step unrelated
     to the dump (a rect width read-back and Real Spawn Control self-closing, both fixed
-    in the same PR), so the `GuiTree` row stays in inventory bucket **B** - the promotion
-    rule wants the tally pinned WHOLE, and the whole pin is tightened off the READING run
-    rather than off an INVALID one. `tools/gui_tree_view.py --batch` also read its first
-    real input, rendering all 23 of GUI-1's dumps. Nothing in the harness CONSUMES a dump
+    in the same PR) - AND THE READING RUNS DELIVERED IT: `2026-09-11_0548`
+    (GUI-1, PASS attempt 1, 96 s wall, 46 harvested files, the Settings rect reading back
+    `270,8,400,718` in Advanced and `270,8,400,700` in Basic with width held at the
+    commanded 400) and `2026-09-11_0551` (GUI-2, PASS attempt 1, 57 s wall, 9 harvested
+    files, the pinned `window-self-closed window=spawncontrol` ERROR met). The batch line
+    came back verbatim a third time, so the tally is pinned WHOLE, `GUI-1-census-ksc` has
+    left `IngameBatchWiringGroupTests.INTERIM_PIN_IDS`, and the `GuiTree` row is in
+    inventory bucket **A**. `tools/gui_tree_view.py --batch` also read its first real
+    input, rendering all 23 of GUI-1's dumps. Nothing in the harness CONSUMES a dump
     yet - the harvest and the viewer render it, no verifier asserts on it, which is still
     the right order.
 
@@ -1851,9 +1859,11 @@ than a census - and the lane then FLEW the same day (`2026-09-10_2255`, attempt 
 `_2256`), with the cell EXECUTING AND PASSING both times (`total=1 passed=1 failed=0
 skipped=0` at SPACECENTER, `repaintPasses=5`, so the 240-frame self-skip never came
 near firing). So the axis is a reading on this host rather than a prediction; it stays
-a prediction for hosts nobody has asked. Item 12 below carries what is left, which is
-no longer the flight but the lane's VERDICT: both census lanes read INVALID on one
-seam step each, so the inventory row stays in bucket B until the reading run.
+a prediction for hosts nobody has asked. Item 12 below is now DONE: what was left after
+those flights was the lane's VERDICT - both census lanes read INVALID on one seam step
+each - and the reading runs `2026-09-11_0548` (GUI-1) and `2026-09-11_0551` (GUI-2) were
+both PASS on attempt 1, so the tally is pinned whole and the inventory row is in
+bucket A.
 Flight? ALL SIX FLOWN 2026-09-07 AND GREEN ON ATTEMPT 1. The first pair are LT-1
 (`2026-09-07_1511`) and LT-2 (`_1516`); the second wave flew the same evening -
 LT-1's 30-constituent re-pin `2026-09-07_2030` (292 s), LT-3 `_2035` (64 s), LT-4

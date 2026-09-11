@@ -118,7 +118,7 @@ Two limits of this table, stated so nobody over-reads it:
 | `GhostMapOrbits` | 2 | 2 | 1 | 1 | 0 | 1 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 1 of 2; the map cell wants ghost map vessels, which no unattended FLIGHT batch arms). NOT an LT-2 constituent: its SPACECENTER slice measured the same skip on the census | B |
 | `GhostPlayback` | 42 | 41 | 1 | 1 | 1 | 12 | S1.4 | B |
 | `GhostVisuals` | 4 | 4 | 3 | 3 | 0 | 0 | H15 | A |
-| `GuiTree` | 1 | 1 | 1 | 1 | 0 | 1 | GUI-1-census-ksc (one ordinary `RunTests category="GuiTree"` step added 2026-09-11, FLOWN 2026-09-10 and EXECUTED: `BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=GuiTree scene=SPACECENTER` on runs `2026-09-10_2255` and attempt 2 `_2256`, identical on both - the cell's FIRST EXECUTION ANYWHERE, with the run-time self-skip NOT firing (`repaintPasses=5`, so its probe window saw a Repaint pass well inside the 240-frame budget). The lane is the KSC GUI census, so the batch runs at SPACECENTER, where the attributes derive total=1 = 0 scene-skipped + 0 batch-skipped + 1 executable - measured exactly. It draws its own probe window, so no host fixture is at stake and the census lane was the cheapest carrier rather than a considered host choice; the flight confirms that reading, since the probe drew on the one host that was tried. STAYS IN BUCKET **B**, and the reason is now precise rather than provisional: the promotion rule wants the tally pinned WHOLE *and* the lane driving the category at its own boot, and only the second half is in. The pin is still INTERIM (`total=1` exact, `passed=[1-9][0-9]*` / `skipped=[0-9]+` regexed) because the lane read INVALID - on one unrelated seam step, a rect width read-back fixed in the same PR - and a whole pin is tightened off a READING run, not off an INVALID one. The reading run buys the promotion with no further measurement needed) | B |
+| `GuiTree` | 1 | 1 | 1 | 1 | 0 | 1 | GUI-1-census-ksc (one ordinary `RunTests category="GuiTree"` step added 2026-09-11, and LIVE-PROVEN the same day: reading run `2026-09-11_0548`, PASS attempt 1, 96 s wall, every verifier PASS or REPORT, `BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=GuiTree scene=SPACECENTER` matched verbatim and now pinned WHOLE off that run. THREE EXECUTIONS READ THE IDENTICAL LINE - runs `2026-09-10_2255` and attempt 2 `_2256` first, inside a lane that read INVALID on one unrelated seam step, then `_0548` under a verdict - with the run-time self-skip NOT firing on any of them (`repaintPasses=5`, so its probe window saw a Repaint pass well inside the 240-frame budget). The lane is the KSC GUI census, so the batch runs at SPACECENTER, where the attributes derive total=1 = 0 scene-skipped + 0 batch-skipped + 1 executable - measured exactly. It draws its own probe window, so no host fixture is at stake and the census lane was the cheapest carrier rather than a considered host choice; the flights confirm that reading, since the probe drew on the one host that was tried. PROMOTED to bucket **A** by the reading run, on the promotion rule below - the tally is pinned WHOLE *and* the lane drives the category at its own boot; GUI-1 is an ordinary single-category lane, so it joins A1's path rather than A3's. The self-skip column stays 1: the cell can still give up if no Repaint arrives, and the skip is what it falls back to) | A |
 | `IdentityLoss` | 3 | 3 | 0 | 0 | 0 | 3 | LT-1-long-tail-flight (MULTI, flown 2026-09-07, executes 3 of 3 - the whole category at FLIGHT with zero skips) | A |
 | `IncompleteBallistic` | 11 | 11 | 0 | 0 | 0 | 0 | H9 | A |
 | `KSP` | 6 | 6 | 4 | 4 | 0 | 0 | H13 | A |
@@ -207,12 +207,13 @@ Two limits of this table, stated so nobody over-reads it:
 
 ## Triage
 
-Totals, re-derived: **113 categories / 624 declarations**. Buckets **A 86 categories
-(349 declarations)**, **B 27 categories (275 declarations)**, **C 0 categories (0
-declarations)** - all three re-derived mechanically 2026-09-08 by counting the table's
+Totals, re-derived: **113 categories / 624 declarations**. Buckets **A 87 categories
+(350 declarations)**, **B 26 categories (274 declarations)**, **C 0 categories (0
+declarations)** - all three re-derived mechanically 2026-09-11 by counting the table's
 rows per Bucket cell and summing their Decls column, which is also how the bucket
-section headers below are derived. The bucket numbers in this line had drifted
-further than any other count in the doc (they read A 36 / 240 and B 76 / 381 while
+section headers below are derived. The 2026-09-08 reading was A 86 / 349 and B 27 / 275;
+the one row that moved is `GuiTree`, promoted by its reading run `2026-09-11_0548`.
+The bucket numbers in this line had once drifted further than any other count in the doc (they read A 36 / 240 and B 76 / 381 while
 the table already said A 52 / 291 and B 60 / 330), for the standing reason: a
 hand-maintained total beside a machine-derived table rots toward understatement.
 The 107th is `AutoMergeCommit` (R4, the AUTOMERGE-ON-BY-DEFAULT
@@ -314,10 +315,13 @@ whose Driven-by cell is not `-`, and sum their Decls column - `hlib` reads 624
 declarations in 113 categories over `Source/Parsek`, `GuiTree` among them at total=1. The
 2026-09-08 reading was 112 of 112; the GUI-tree dump spike opened a 113th row on
 2026-09-10 and `GUI-1-census-ksc` claimed it on 2026-09-11). DRIVEN IS NOT FLOWN, and the
-`GuiTree` row is now the cleanest illustration in the table: GUI-1 FLEW on 2026-09-10 and
-the cell EXECUTED AND PASSED (1 of 1, zero skips, run `2026-09-10_2255`), yet its bucket
-stays **B** - the lane itself read INVALID on an unrelated seam step and its tally pin is
-still interim, so the promotion rule has one of its two halves.
+`GuiTree` row spent a day as the cleanest illustration of that in the table: GUI-1 flew on
+2026-09-10 and the cell EXECUTED AND PASSED (1 of 1, zero skips, run `2026-09-10_2255`),
+yet the row stayed in **B** because the lane itself read INVALID on an unrelated seam step
+and its tally pin was still interim - one of the promotion rule's two halves. THE READING
+RUN CLOSED THE OTHER HALF the next day (`2026-09-11_0548`, PASS attempt 1, 96 s, the same
+batch line under a verdict, pin taken whole), so the row is now bucket **A** and the
+illustration has to be read in the past tense.
 
 **THE AXIS CLOSED ON 2026-09-08.** The last two undriven categories were the two the
 2026-09-07 wave had declared NOT host questions, and both readings were wrong in the
@@ -696,7 +700,7 @@ categories in 297 s and `LT-2` took 6 more in 46 s. The one-step rule stands, an
 question is still "is what it executes worth a boot", but a boot now buys a whole
 bucket rather than one row.
 
-### Bucket A - wired now (86 categories, 349 declarations)
+### Bucket A - wired now (87 categories, 350 declarations)
 
 Three sub-classes, admitted on DIFFERENT grounds. Conflating them is how a spec would
 end up pinned against the wrong derivation.
@@ -1069,10 +1073,12 @@ drive WHOLE: `Contracts` (2 of 2, LT-3), `RouteLiveAnchor` (1 of 1, LT-4) and
 to be read against, and LT-1 flew its own 30-constituent pin green the same evening
 (`2026-09-07_2030`, 292 s).
 
-### Bucket B - wireable, but needs something first (27 categories, 275 declarations)
+### Bucket B - wireable, but needs something first (26 categories, 274 declarations)
 
 Not one list but seven reasons, and the reason is what decides whether it is worth
-doing. (Seven since 2026-09-10, when the GUI-tree dump spike added B7.)
+doing. (Seven since 2026-09-10, when the GUI-tree dump spike added B7; B7 is RETIRED as of
+2026-09-11 - its one category promoted to A on the reading run - and is kept for its
+reasoning rather than its contents, the way bucket C's two sub-reasons are.)
 
 **B1 - needs a corpus or fixture extension.** The FUTURE recommendation in
 `todo-and-known-bugs.md` was to wire `EvaSpawnPosition` AND `CrewReservationLive`
@@ -1458,9 +1464,9 @@ the game window and can, so the cell places the pointer itself (CEN-12 `_1035`);
 LT-1's 31st constituent at 1 of 1. Both lanes flew the closure on runs `2026-09-08_1041` (LT-1) and `2026-09-08_1040` (LT-4), both PASS attempt 1,
 and the axis read 112 of 112 categories.
 
-**RE-OPENED BY ONE ROW ON 2026-09-10, POINTED AT ON 2026-09-11 AND FLOWN THE SAME
-DAY.** The 113th category, `GuiTree`, arrived with the GUI-tree dump spike and read
-112 of 113 / 623 of 624 for a day: it is not residue in the sense the table below
+**RE-OPENED BY ONE ROW ON 2026-09-10, POINTED AT ON 2026-09-11, FLOWN THE SAME DAY AND
+CLOSED THE NEXT.** The 113th category, `GuiTree`, arrived with the GUI-tree dump spike and
+read 112 of 113 / 623 of 624 for a day: it is not residue in the sense the table below
 means, since its cell is scene-agnostic and batch-safe and needs no fixture and no
 seam verb - what was missing was a `RunTests` step. `GUI-1-census-ksc` carries one, so
 the axis reads **113 of 113 categories / 624 of 624 declarations by SPEC COVERAGE** -
@@ -1468,9 +1474,12 @@ and that number is no longer only a spec claim. The lane flew (`2026-09-10_2255`
 attempt 2 `_2256`) and the cell EXECUTED AND PASSED both times, `total=1 passed=1
 failed=0 skipped=0` at SPACECENTER: the 240-frame self-skip did not fire
 (`repaintPasses=5`), and the interception layer underneath - which had never run inside
-KSP - read `patched=17/17` on every arm of both runs. What the flight did NOT buy is a
-VERDICT: both census lanes read INVALID, each on one seam step unrelated to the dump, so
-the tally pin stays interim and the row stays in bucket **B** until the reading run.
+KSP - read `patched=17/17` on every arm of both runs. What those flights did NOT buy is a
+VERDICT: both census lanes read INVALID, each on one seam step unrelated to the dump. THE
+READING RUNS BOUGHT IT ON 2026-09-11 - `2026-09-11_0548` (GUI-1, PASS attempt 1, 96 s) and
+`2026-09-11_0551` (GUI-2, PASS attempt 1, 57 s), both green on the first attempt with the
+two fixed steps reading as designed - so the batch line was taken WHOLE off `_0548` and
+the row is in bucket **A**.
 
 **WHAT REMAINS IS RESIDUE RATHER THAN UNDRIVEN CATEGORIES, and it is worth listing
 because each item is a bound on a lane that already exists:**
@@ -1615,8 +1624,8 @@ is not a free swap: `eva3-pad-3crew` would buy it, but its launch clamps trip
 `RealSpawnControl_WarpToRecordingEnd_OnPad_*`'s own skip, so it trades one cell for
 another rather than closing the lane.
 
-**B7 - SPEC LANDED 2026-09-11; ITS FIRST FLIGHT IS IN, and it measured everything
-except a verdict.**
+**B7 - RETIRED 2026-09-11, EMPTY: spec landed, first flight measured everything except
+a verdict, and the reading run bought the verdict. Kept for the reasoning.**
 `GuiTree` (1 declaration, added 2026-09-10 with the GUI-tree dump spike). Its cell
 arms `GuiTreeRecorder.ArmForNextRepaint` for one frame over a probe window it draws
 itself and asserts the captured tree, so it needs no fixture and no seam verb -
@@ -1633,22 +1642,27 @@ TWO THINGS WERE TO BE EXPECTED ON THAT FIRST FLIGHT, and NEITHER happened.
 Repaint pass and skips with a stated reason if none arrives, which is why its
 self-skip column still reads 1 - and it did not: `repaintPasses=5`, so the probe
 drew almost at once, and the batch line read `total=1 passed=1 failed=0 skipped=0`
-on both attempts of run `2026-09-10_2255` / `_2256`. "Any host executes it" is
-still a prediction for hosts other than this one, but it is no longer a prediction
-for all of them. (2) Its exact per-kind pins - 14 labels, 1 button, 1 toggle, 1
+on both attempts of run `2026-09-10_2255` / `_2256`, and a third time on the reading
+run `2026-09-11_0548`. "Any host executes it" is still a prediction for hosts other
+than this one, but it is no longer a prediction for all of them. (2) Its exact per-kind pins - 14 labels, 1 button, 1 toggle, 1
 text field, 1 scroll view, 1 layout group, 0 boxes, `maxDepth=4`, 2 repeat buttons
 and 1 slider - were predictions derived from the decompiled IMGUI source, and the
 flight measured EVERY ONE of them exactly (`kinds=scrollview=1 layoutgroup=1
 label=14 button=1 repeatbutton=2 toggle=1 textfield=1 slider=1 maxDepth=4` on the
 PASS line), so nothing needed correcting. The interception layer underneath, which
 had never run inside KSP, read `patched=17/17` on all 56 arms across the four
-census runs with every anomaly counter zero; the readings premise by premise are in
+2026-09-10 census runs with every anomaly counter zero, and on all 27 arms of the two
+PASS reading runs of 2026-09-11; the readings premise by premise are in
 `design-gui-tree-dump.md` -> "What the first flight measured", and
 GUITREE-INTERCEPTION-LAYER-NEVER-RUN in `todo-and-known-bugs.md` is ~~done~~. WHAT
-KEEPS THE ROW IN **B** is the lane's verdict, not the cell: both census lanes read
-INVALID on one seam step each (a rect width read-back and a self-closing window,
-both fixed in the same PR), so the tally pin is still interim and the promotion
-rule wants it pinned whole.
+KEPT THE ROW IN **B** for a day was the lane's verdict, not the cell: both census lanes
+read INVALID on one seam step each (a rect width read-back and a self-closing window,
+both fixed in the same PR), so the tally pin was still interim where the promotion rule
+wants it pinned whole. THE READING RUNS PAID THAT: `2026-09-11_0548` (GUI-1) and
+`2026-09-11_0551` (GUI-2) were both PASS on attempt 1, the batch line came back a third
+time verbatim and was taken WHOLE, `GUI-1-census-ksc` left
+`IngameBatchWiringGroupTests.INTERIM_PIN_IDS`, and the row moved to bucket **A** - which
+empties this sub-reason.
 
 ### Bucket C - not batch-runnable (0 categories, 0 declarations)
 

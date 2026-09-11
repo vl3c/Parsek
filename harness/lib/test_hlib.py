@@ -4186,19 +4186,24 @@ class IngameBatchWiringGroupTests(unittest.TestCase):
     # literal, which would be an empty DICT - the two membership cells below would then
     # answer False for every id and pass vacuously).
     #
-    # GUI-1-census-ksc is declared here as the register of record for its interim pin,
-    # and one thing about that has to be said plainly rather than left to be discovered:
-    # this class's own cells DO NOT READ IT for that id. GROUP_ID_RE admits H-series ids
-    # only, so a `GUI-` lane is not a member of this family (nor of the isolated or
-    # multi-category ones) and `self.specs` never contains it. What DOES gate it is
-    # CommittedBatchTallySourceSyncTests, which sweeps every batch-owning spec on disk
-    # and re-derives its pinned `total=` from the C# attributes, plus
-    # GuiCensusSeamVerbTests.test_the_gui_1_batch_pin_is_interim_and_declared below,
-    # which reads THIS set for that id so the declaration is load-bearing rather than
-    # decorative. The entry stays here because CLAUDE.md names this set as the place a
-    # never-flown lane's loose pin is registered, and splitting that register in two
-    # would be worse than one honest cross-reference.
-    INTERIM_PIN_IDS: set = {"GUI-1-census-ksc"}
+    # GUI-1-census-ksc WAS declared here, as the register of record for its interim pin,
+    # and it LEFT on 2026-09-11 when its reading run (`2026-09-11_0548`, PASS attempt 1,
+    # 96 s wall) read `BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0
+    # category=GuiTree scene=SPACECENTER` a third time running and the spec took that
+    # line WHOLE. One thing about that entry has to be said plainly rather than left to
+    # be rediscovered by the next `GUI-` lane: this class's own cells NEVER READ IT for
+    # such an id. GROUP_ID_RE admits H-series ids only, so a `GUI-` lane is not a member
+    # of this family (nor of the isolated or multi-category ones) and `self.specs` never
+    # contains it. What DOES gate a `GUI-` lane is CommittedBatchTallySourceSyncTests,
+    # which sweeps every batch-owning spec on disk and re-derives its pinned `total=`
+    # from the C# attributes, plus
+    # GuiCensusSeamVerbTests.test_the_gui_1_batch_pin_is_whole_off_the_reading_run below,
+    # which reads THIS set for that id - now asserting ABSENCE - so the declaration is
+    # load-bearing in both directions rather than decorative in either. A future
+    # never-flown `GUI-` lane gets registered here again, because CLAUDE.md names this
+    # set as the place a never-flown lane's loose pin is registered, and splitting that
+    # register in two would be worse than one honest cross-reference.
+    INTERIM_PIN_IDS: set = set()
 
     # Every committed spec whose id matches this is an H-SERIES batch spec.
     # Membership is DISCOVERED from disk and then compared for set equality against
@@ -9116,8 +9121,8 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # for a missing directory. Neither owes outstanding HUMAN work in the sense this
         # tag names - what they owe is a first flight, and the images that flight
         # produces ARE the deliverable rather than a verdict to calibrate.
-        "GUI-1-census-ksc.toml": "tier=operator by MECHANISM (the FORGE class): its host is an operator-local, uncommitted fixture no clone can stage, so a cadence tier would red everywhere for a missing directory - a TERMINAL INVALID(staging), which tier_runner classifies RED. FLOWN 2026-09-10 (`2026-09-10_2255`, attempt 2 `_2256`), both INVALID on ONE step and nothing else: `UiAction op=rect window=settings` read back 375x718 against a commanded 360x700 - the window grew to its content minimum in BOTH axes - and the width half of the read-back was a two-sided check at the time. Width is a FLOOR now and both Settings sites are commanded w=400, so the next flight is the reading run. Everything else landed, including the `GuiTree` batch (`total=1 passed=1 failed=0 skipped=0`, the cell's first execution anywhere) and all 22 dumps at `patched=17/17` - which is what closed GUITREE-INTERCEPTION-LAYER-NEVER-RUN. The batch pin stays INTERIM through that flight by decision, not by oversight: a whole pin belongs to a run that READ a verdict. Its host's own pre-existing analyzer findings (measured 2026-09-10: FAIL=25 RED=1, all INV2-NO-DOUBLE-COVER, on recordings months older than the lane) are handled by declaring the analyzer row REPORT-ONLY (`[expectations.analyzer] gating = false`, allowlisted in AnalyzerReportOnlyModeTests) rather than by an `[expectedFail]` quarantine - the quarantine short-circuited the whole verifier chain, so the lane's own log contracts were never evaluated at all. The flight proved that too: the row read `PARSEK-FAIL red=1 topRule=INV2-NO-DOUBLE-COVER (triage-only)` and the chain continued. No human call is outstanding.",
-        "GUI-2-census-flight.toml": "tier=operator by MECHANISM, identical to GUI-1's (same operator-local host, same report-only analyzer row). FLOWN 2026-09-10 (`2026-09-10_2259`, attempt 2 `_2300`), both INVALID on ONE step and nothing else. The thing its first flight had to be read for was a WINDOW, not the clock, and the first draft of this row had that backwards: the subject's situation reads SUB_ORBITAL, but its orbit (SMA 3621574.94, ECC 0.815, periapsis 69.55 km, apoapsis 5973.6 km, 6.400 h) is ASCENDING at load - 5469.8 km up, 1.07 h from apoapsis, periapsis 69.55 km above the GROUND, so it cannot impact on this orbit at all - and the lane flew in 54 s at 1x. What DID stop it is the window this row named: `op=open window=spawncontrol` answered `ERROR window-self-closed ... frames=1` (`SpawnControlUI.DrawIfOpen` force-closing itself on its first draw with `reason=zero-candidates candidates=0`), so the two-phase settle reported it instead of an OK over a capture of empty scenery. THE REMEDY THIS ROW PREDICTED WAS THE WRONG HALF: a re-stage was called for and the change made instead is a SPEC one, because a re-stage cannot be committed (the host is operator-local by construction) and the auto-close is worth ASSERTING - the step is now `expect = ERROR` with the reason pinned, its five follow-on steps removed, and the picture is owed to a GUI-3 lane on a committed candidate host (GUI-CENSUS-SPAWN-CONTROL-NEEDS-A-CANDIDATE-HOST). No human call is outstanding; what is owed is the reading flight of the fixed shape.",
+        "GUI-1-census-ksc.toml": "tier=operator by MECHANISM (the FORGE class): its host is an operator-local, uncommitted fixture no clone can stage, so a cadence tier would red everywhere for a missing directory - a TERMINAL INVALID(staging), which tier_runner classifies RED. FLOWN GREEN 2026-09-11: the READING RUN is `2026-09-11_0548`, PASS on attempt 1, 96 s wall, every step met, 46 harvested files (22 PNG + 22 `<label>.gui.json` + the `GuiTree` cell's own `parsek-guitree-probe.gui.json` + KSP.log). The one thing that reading had to settle is the step both 2026-09-10 attempts died on: `UiAction op=rect window=settings` now reads back `rect=270,8,400,718` in Advanced and `rect=270,8,400,700` in Basic - WIDTH held at the commanded 400 in both modes while the Advanced height grew 18 px over its 700 floor, which is exactly the floor semantics the fix shipped. PRIOR (2026-09-10, `_2255` and attempt 2 `_2256`): both INVALID on that ONE step and nothing else, at 375x718 against a commanded 360x700 when the width half was still a two-sided check. The `GuiTree` batch read `total=1 passed=1 failed=0 skipped=0` on all three runs and the pin is now WHOLE off the reading run - the id has LEFT IngameBatchWiringGroupTests.INTERIM_PIN_IDS, which is what 'a whole pin belongs to a run that READ a verdict' was waiting for - and all 22 dumps read `patched=17/17`, the reading that closed GUITREE-INTERCEPTION-LAYER-NEVER-RUN. Its host's own pre-existing analyzer findings (measured 2026-09-10: FAIL=25 RED=1, all INV2-NO-DOUBLE-COVER, on recordings months older than the lane) are handled by declaring the analyzer row REPORT-ONLY (`[expectations.analyzer] gating = false`, allowlisted in AnalyzerReportOnlyModeTests) rather than by an `[expectedFail]` quarantine - the quarantine short-circuited the whole verifier chain, so the lane's own log contracts were never evaluated at all. The reading run proved that a third time: the row read REPORT with `verdictStatus=PARSEK-FAIL red=1 topRule=INV2-NO-DOUBLE-COVER failNonBaselined=7`, gating=false, and the chain ran on to a PASS. (The STAGED host reads FAIL=7 over four recordings where the offline reading of the un-staged `c1` read FAIL=25 over seven - staging is not a copy; both are RED=1, which is all this declaration turns on.) No human call is outstanding.",
+        "GUI-2-census-flight.toml": "tier=operator by MECHANISM, identical to GUI-1's (same operator-local host, same report-only analyzer row). FLOWN GREEN 2026-09-11: the READING RUN is `2026-09-11_0551`, PASS on attempt 1, 57 s wall, all 29 steps met, 9 harvested files (4 PNG + 4 `<label>.gui.json` + KSP.log). The step this lane existed to re-read is the one its first flight died on, and it is now an ASSERTION rather than a failure: `op=open window=spawncontrol` answered `uiaction error reason=window-self-closed window=spawncontrol frames=1` under `expect = ERROR` with that reason pinned as a log contract, so the lane now TESTS that Real Spawn Control force-closes itself on a candidate-less host (`SpawnControlUI.DrawIfOpen`, `reason=zero-candidates candidates=0`) instead of photographing empty scenery under that window's name. PRIOR (2026-09-10, `_2259` and attempt 2 `_2300`): both INVALID on that one step. The first draft of this row also had the HAZARD backwards and the correction stands: the subject's situation reads SUB_ORBITAL, but its orbit (SMA 3621574.94, ECC 0.815, periapsis 69.55 km, apoapsis 5973.6 km, 6.400 h) is ASCENDING at load - 5469.8 km up, 1.07 h from apoapsis, periapsis 69.55 km above the GROUND, so it cannot impact on this orbit at all - and the lane flew in 57 s at 1x. The PICTURE of Real Spawn Control is still owed to a GUI-3 lane on a committed candidate host (GUI-CENSUS-SPAWN-CONTROL-NEEDS-A-CANDIDATE-HOST); a re-stage cannot pay it, because the host is operator-local by construction. No human call is outstanding.",
         "V26T-interbody-route-ts-arrival.toml": "operator by the calibration discipline; FLOWN 2026-09-02, ARMED-DISCIPLINE COMPLETE (reading run, pins tightened off it, armed re-flight PASS attempt 1, and a negative control that red PARSEK-FAIL(expectation) on exactly the seeded token). V18T's tracking-station grammar on the inter-body subject. It carries ONE genuinely open question the reading run must answer rather than pass: V18T's front-door tokens (`ghostDriving=[1-9]`, `routeMissions=[1-9]`) are deliberately NOT required, because this subject's Duna route has `loopAnchorUT = -1` and has never run a cycle, so whether a never-dispatched route enters the GhostDriving selection is unmeasured - and RUN 1 ANSWERED IT: `ghostDriving=1` and `routeMissions=1` both printed, so dispatch history is NOT a precondition for a route driving a tracking-station ghost, and both tokens are REQUIRED from the armed re-flight onward. The renderComposition arming pass this lane owed was TAKEN 2026-09-07 (package P16, after reading run 3 `2026-09-06_2115` PASS attempt 1): armed on `routeLineBuilds = {min = 2}` + `routeCoDrawViolations = {max = 0}`, deliberately symmetric with V26M and with no `unevaluable` ceiling on either. The armed re-flight and the negative control are OWED.",
     }
 
@@ -14012,21 +14017,31 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
                          "the two inert sets have drifted (FlushAndQuit excluded by "
                          "name - it is the latch's reader, not a mutator)")
 
-    def test_the_gui_1_batch_pin_is_interim_and_declared(self):
+    def test_the_gui_1_batch_pin_is_whole_off_the_reading_run(self):
         """GUI-1 drives the `GuiTree` cell, which closes the in-game category axis at
-        113 of 113. Its BATCH_COMPLETE pin is INTERIM - `total=` exact and derived,
+        113 of 113. Its BATCH_COMPLETE pin WAS interim - `total=` exact and derived,
         `passed=` / `skipped=` regexed - because the cell carries a run-time self-skip
         (it gives up when its probe window sees no Repaint within 240 frames) and no
-        live run has measured which way that goes.
+        live run had measured which way that goes.
 
-        This cell is what makes the INTERIM_PIN_IDS entry load-bearing: the H-series
-        wiring family cannot read it (its id pattern excludes `GUI-`), so without this
-        the declaration would be a comment. It asserts the three properties that matter
-        together - the id IS declared, the pin IS loose in exactly the declared way, and
-        `total=` is still the number the C# attributes derive."""
+        THE READING RUN MEASURED IT: `2026-09-11_0548`, PASS attempt 1, 96 s wall,
+        `BATCH_COMPLETE v1 total=1 passed=1 failed=0 skipped=0 category=GuiTree
+        scene=SPACECENTER` - the same line the two INVALID attempts of 2026-09-10 read,
+        now under a verdict. The pin is the whole line and the id has LEFT
+        INTERIM_PIN_IDS.
+
+        This cell is what makes that register load-bearing in BOTH directions: the
+        H-series wiring family cannot read it (its id pattern excludes `GUI-`), so
+        without this the declaration - and now the absence - would be a comment. It
+        asserts the four properties that matter together: the id is NOT declared
+        interim, the pin is WHOLE (every one of the four tally tokens a literal),
+        `total=` is still the number the C# attributes derive, and the whole pin is the
+        measured split rather than some other one."""
         spec = load_spec("GUI-1-census-ksc.toml")
         sid = spec.get("id")
-        self.assertIn(sid, IngameBatchWiringGroupTests.INTERIM_PIN_IDS)
+        self.assertNotIn(sid, IngameBatchWiringGroupTests.INTERIM_PIN_IDS,
+                         "GUI-1 read a verdict on 2026-09-11_0548 and its pin is whole; "
+                         "re-registering it as interim would re-loosen a measured split")
         lc = (spec.get("expectations", {}) or {}).get("logContracts", {}) or {}
         pin = hlib.resolve_batch_tally_pin(lc.get("required", []) or [])
         self.assertIsNotNone(pin, "GUI-1 drives a RunTests batch but pins no tally")
@@ -14036,9 +14051,10 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
         self.assertEqual("GuiTree", pin.category)
         self.assertEqual("SPACECENTER", pin.scene)
         self.assertEqual(1, pin.total)
-        # Loose in exactly the declared way, and no looser: total stays a literal.
-        self.assertIsNone(pin.passed)
-        self.assertIsNone(pin.skipped)
+        # WHOLE, and holding exactly the line the reading run printed.
+        self.assertEqual((1, 0, 0), (pin.passed, pin.failed, pin.skipped),
+                         "the whole pin must be the split `2026-09-11_0548` measured "
+                         "(passed=1 failed=0 skipped=0), not another one")
         # And still agreeing with the C# it describes.
         decls = load_ingame_test_declarations()
         self.assertEqual([], hlib.batch_tally_pin_mismatches(pin, decls))
@@ -14046,8 +14062,8 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
         self.assertEqual((1, 0, 0, 1),
                          (derived.total, derived.scene_skipped, derived.batch_skipped,
                           derived.executable))
-        # The interim `passed=` class still rejects the whole vacuous family, which is
-        # what the anti-vacuity rule asks of a loose pin.
+        # A whole pin rejects the vacuous family a fortiori; asserted rather than
+        # assumed, because it is the property the interim form had to buy by hand.
         self.assertIsNone(
             hlib.batch_contract_vacuity_gap(lc.get("required", []) or [], "GuiTree"))
 
