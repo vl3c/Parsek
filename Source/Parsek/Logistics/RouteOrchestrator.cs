@@ -398,8 +398,8 @@ namespace Parsek.Logistics
                 return;
 
             // Snapshot the route list to avoid mid-iteration mutation if AddRoute
-            // fires (Apply* methods do not call AddRoute today, but a user-driven
-            // RouteCreationDialog can still mutate the store between Apply calls).
+            // fires (Apply* methods do not call AddRoute today, but the Logistics window's
+            // Create Route confirm can still mutate the store between Apply calls).
             int initialCount = routes.Count;
             Route[] snapshot = new Route[initialCount];
             for (int i = 0; i < initialCount; i++)

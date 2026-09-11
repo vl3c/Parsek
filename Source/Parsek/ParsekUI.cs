@@ -560,7 +560,7 @@ namespace Parsek
         /// <para>Every entry gets its OWN try/catch: <c>InputLockManager.RemoveControlLock</c>
         /// fires <c>GameEvents.onInputLocksModified</c>, and a third-party listener that
         /// throws must not abort the loop and strand the windows after it still holding
-        /// locks (precedent: <c>RouteCreationDialog.cs:466-480</c>). A swallowed exception is
+        /// locks. A swallowed exception is
         /// logged at Warn with the window name and the exception type + message
         /// (design 12.2).</para>
         /// <para>Blast radius if a release is nevertheless missed: one frame. Every window's

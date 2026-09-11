@@ -504,6 +504,37 @@ spawn point). That is a feature with a surface decision behind it, not a wiring 
 three methods deleted with their tests; the class header now says what is true and records
 why the warning is absent, so the next reader does not re-derive this from scratch.
 
+## ~~GUI-D4-ROUTE-CREATION-DIALOG-WAS-UNREACHABLE~~: a whole post-commit modal, ~30 test cells, and a stale docstring naming a hook that no longer fires [FILED + FIXED 2026-09-11 by the GUI fix batch]
+
+**Evidence.** `UI/RouteCreationDialog.cs`'s class doc opened "Post-commit 'Create Supply
+Route?' dialog. Fired by `MergeDialog.OnTreeCommitted`" - a hook that no longer exists.
+`TryShow` (`:81`), `TryShowDeferredIfPending` (`:136`), `TryShowDeferredIfPendingForScene`
+(`:147`), `Spawn` (`:241`), `OnConfirm` (`:358`) and `OnCancel` (`:436`) had callers only in
+`Source/Parsek.Tests/Logistics/RouteCreationDialogTests.cs`, all of them driving the
+`TestHookForConfirm` seam, so no player could reach the modal. `DismissIfOpen` (`:448`) DID
+have one live production caller - `ParsekFlight.cs:2323`, the flight scene's scene-change
+cleanup - but with nothing able to open the dialog it could only ever take its
+"dialog not open" early return.
+
+**Fix.** The file is reduced to the one part with live callers:
+`ComputeRootToUndockSpan`, the shared default-interval geometry, called from
+`RouteCreationFormatters` (`:426`), `LogisticsWindowUI` (`:2801`, `:3661`),
+`ParsekTestCommandAddon.RouteCommand` (`:150`) and two test files. The class NAME stays
+because those five call sites and several comments use it. `DismissIfOpen` and its
+`ParsekFlight` call went together - a no-op call in scene teardown is worse than no call,
+because it reads as live cleanup. `RouteCreationDialogTests` keeps its two span cells and
+gains a third for the fallback paths (null analysis, no connection window, non-positive
+span), which the deleted dialog cells used to reach incidentally.
+
+**Player-facing route creation is unaffected**, and this is the check that made the
+deletion safe: the reachable paths are the Logistics window's Candidates section
+(`SpawnCreateRouteConfirmation`) and the main window's Record-Supply-Run banner
+(`RouteRunPrompt`), neither of which ever went through this class. Three stale comments
+elsewhere that described the auto-dialog as live (`LogisticsWindowUI.cs:2697`,
+`RouteOrchestrator.cs:402`, `RouteWindowIntervalTests.cs:70`) and one broken line reference
+(`ParsekUI.cs:536` cited `RouteCreationDialog.cs:466-480` for an input-lock precedent) were
+corrected in the same commit.
+
 ---
 
 ## BDOCK1-STATION-COMMIT-READOPT-LIMBO-FALLBACK-DIALOG: after BDOCK-1's mid-mission CommitTree, the re-adopted station continuation is stashed to Limbo by the interceptor launch and surfaces as a whole-tree merge dialog over already-committed recordings [FILED 2026-09-10 by wave package A2 (`cheap-flights-arming`) off its BDOCK-1 reading run; REWRITTEN 2026-09-11 off the archive grep. The dialog is the lane's deterministic shape on every post-fix build (4 of 4 logs), reached through a CORRECT refusal; OPEN PRODUCT QUESTION narrowed to the fallback dialog's UX over committed-overlap recordings; not fixed in this wave]

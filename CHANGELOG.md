@@ -1259,6 +1259,14 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Dev
 
+- **An unreachable "Create Supply Route?" dialog removed.** It was written to appear right
+  after a flight was committed, from a hook that no longer exists; nothing could open it,
+  and the only live call into it - the flight scene dismissing it on the way out - could
+  only ever find nothing to dismiss. Creating a route from a flight you have already flown
+  works exactly as before, from the Logistics window's Candidates list or the prompt on the
+  main window. The piece of it that both of those share, the default delivery interval
+  worked out from the flight's own launch-to-dock span, is untouched.
+
 - **Seven more unused internals removed, three of them able to delete recordings.** Four
   operations on the recording store had no caller outside their own tests - two that read
   and DELETED a whole chain of recordings with their files, one superseded global

@@ -2316,12 +2316,6 @@ namespace Parsek
             watchMode.ExitWatchMode();
             InputLockManager.RemoveControlLock(WatchModeController.WatchModeLockId); // safety net
 
-            // Dismiss the route creation dialog if it is still open — the
-            // tree it cached belongs to this scene's RecordingStore state
-            // and outliving the scene would let the next scene confirm a
-            // stale route. DismissIfOpen is a no-op when no dialog is open.
-            RouteCreationDialog.DismissIfOpen("scene-change");
-
             // Clear ghost-icon sticky state and force atlas re-init so the next
             // scene loads its own sprite atlas (the tracking station and flight
             // scenes may resolve different Texture2D instances for the same
