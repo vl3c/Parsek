@@ -2155,7 +2155,15 @@ namespace Parsek
                 // list RP-backed rows refuse hide just like the virtual group
                 // rows. IsUnfinishedFlight is cheap (single RewindPoints scan)
                 // so the accept-side branch tolerates this per-row call.
-                if (EffectiveState.IsUnfinishedFlight(rec))
+                //
+                // The direction is now part of the gate (finding P17, mirror
+                // half): only HIDING is refused. Refusing the un-hide too - which
+                // the undirected check did - would keep a flight that is ALREADY
+                // buried buried, the exact opposite of "rewind access must remain
+                // visible", and it is the only way back for a row an older build's
+                // ungated group hide-all wrote Hidden over.
+                if (IsArchiveRefusedForUnfinishedFlight(
+                        hidden, EffectiveState.IsUnfinishedFlight(rec)))
                 {
                     ParsekLog.Warn("UnfinishedFlights",
                         $"Hide refused for Unfinished Flight rec={rec.RecordingId ?? "<no-id>"} " +
@@ -2857,16 +2865,47 @@ namespace Parsek
             GUILayout.EndHorizontal();
             if (newAllHidden != allHidden)
             {
-                foreach (int idx in descendants)
-                    committed[idx].Hidden = newAllHidden;
-                // Also update group-level visibility
+                // The per-row Archive checkbox refuses to hide an Unfinished Flight
+                // (see DrawRecordingRow: rewind access must remain visible). This
+                // path wrote Hidden over every descendant with no such check, so
+                // archiving a FOLDER buried exactly the re-flyable flight the per-row
+                // control exists to protect (finding P17). Same guard, group
+                // granularity: refuse the whole toggle so the folder's Hidden flag and
+                // its members' can never disagree, and name the count so the player
+                // knows what to resolve. Only the HIDE direction is gated - un-hiding
+                // an Unfinished Flight is the recovery path, never a loss.
+                int unfinishedCount = 0;
                 if (newAllHidden)
-                    GroupHierarchyStore.AddHiddenGroup(groupName);
+                {
+                    foreach (int idx in descendants)
+                        if (EffectiveState.IsUnfinishedFlight(committed[idx]))
+                            unfinishedCount++;
+                }
+
+                if (IsArchiveRefusedForUnfinishedFlight(newAllHidden, unfinishedCount > 0))
+                {
+                    ParsekLog.Warn("UnfinishedFlights",
+                        $"Group hide-all refused for group '{groupName}': "
+                        + $"{unfinishedCount.ToString(System.Globalization.CultureInfo.InvariantCulture)} of "
+                        + $"{memberCount.ToString(System.Globalization.CultureInfo.InvariantCulture)} "
+                        + "member(s) are Unfinished Flights; rewind access must remain "
+                        + "visible (design §7.33)");
+                    ParsekLog.ScreenMessage(
+                        BuildGroupArchiveRefusedMessage(groupName, unfinishedCount), 4f);
+                }
                 else
-                    GroupHierarchyStore.RemoveHiddenGroup(groupName);
-                NotifyTimelineOfArchiveChange();
-                ParsekLog.Info("UI",
-                    $"Group '{groupName}' hide-all={newAllHidden} ({memberCount} recordings)");
+                {
+                    foreach (int idx in descendants)
+                        committed[idx].Hidden = newAllHidden;
+                    // Also update group-level visibility
+                    if (newAllHidden)
+                        GroupHierarchyStore.AddHiddenGroup(groupName);
+                    else
+                        GroupHierarchyStore.RemoveHiddenGroup(groupName);
+                    NotifyTimelineOfArchiveChange();
+                    ParsekLog.Info("UI",
+                        $"Group '{groupName}' hide-all={newAllHidden} ({memberCount} recordings)");
+                }
             }
 
             GUILayout.EndHorizontal();
@@ -3201,11 +3240,27 @@ namespace Parsek
                 GUILayout.EndHorizontal();
                 if (newAllHidden != allHidden)
                 {
-                    foreach (int idx in descendants)
-                        committed[idx].Hidden = newAllHidden;
-                    NotifyTimelineOfArchiveChange();
-                    ParsekLog.Info("UI",
-                        $"Virtual group '{groupName}' hide-all={newAllHidden} ({memberCount} recordings)");
+                    // Every member of THIS group is an Unfinished Flight by construction,
+                    // so a CanHide flip would have buried all of them at once. Route the
+                    // same refusal the ordinary group path now carries (finding P17 / D18)
+                    // rather than leaving the future-flip guard half-written.
+                    if (IsArchiveRefusedForUnfinishedFlight(newAllHidden, memberCount > 0))
+                    {
+                        ParsekLog.Warn("UnfinishedFlights",
+                            $"Virtual group hide-all refused for '{groupName}': every member "
+                            + "is an Unfinished Flight; rewind access must remain visible "
+                            + "(design §7.33)");
+                        ParsekLog.ScreenMessage(
+                            BuildGroupArchiveRefusedMessage(groupName, memberCount), 4f);
+                    }
+                    else
+                    {
+                        foreach (int idx in descendants)
+                            committed[idx].Hidden = newAllHidden;
+                        NotifyTimelineOfArchiveChange();
+                        ParsekLog.Info("UI",
+                            $"Virtual group '{groupName}' hide-all={newAllHidden} ({memberCount} recordings)");
+                    }
                 }
             }
             else
@@ -3758,6 +3813,61 @@ namespace Parsek
         internal static bool ShouldShowGroupLegacyRewindButton(Recording rec, double now)
         {
             return ShouldSurfaceLaunchRewindButton(rec, now);
+        }
+
+        /// <summary>
+        /// Is an Archive write refused because it would bury an Unfinished Flight? The one
+        /// decision both Archive controls read: the per-row checkbox
+        /// (<c>DrawRecordingRow</c>) and the group hide-all (<c>DrawGroupHeaderRow</c>).
+        /// <para>DIRECTIONAL by design. Refusing is about keeping rewind access VISIBLE, so
+        /// it can only apply to hiding: an un-hide of an Unfinished Flight is the recovery
+        /// path (and the only way back for a row an older build's ungated group hide-all
+        /// already wrote Hidden over), so gating it would enforce the opposite of the rule.
+        /// The per-row guard used to be undirected, which made its un-hide half both wrong
+        /// and unreachable-by-construction - the mirror direction of finding P17.</para>
+        /// <para>Pure so the rule has one testable decision point instead of two IMGUI
+        /// branches that can drift; the caller supplies the classifier's answer.</para>
+        /// </summary>
+        internal static bool IsArchiveRefusedForUnfinishedFlight(
+            bool requestedHidden, bool isUnfinishedFlight)
+        {
+            return requestedHidden && isUnfinishedFlight;
+        }
+
+        /// <summary>
+        /// The screen message for a refused group hide-all: names the folder and how many of
+        /// its members are Unfinished Flights, so the refusal is actionable rather than a
+        /// dead click. Pure for unit testing.
+        /// </summary>
+        internal static string BuildGroupArchiveRefusedMessage(string groupName, int unfinishedCount)
+        {
+            var ic = System.Globalization.CultureInfo.InvariantCulture;
+            string plural = unfinishedCount == 1 ? "" : "s";
+            return string.Format(ic,
+                "Cannot archive '{0}' - {1} Unfinished Flight{2} inside. "
+                + "Re-fly the rewind point or merge as Immutable, or archive the other rows "
+                + "one at a time.",
+                groupName ?? "",
+                unfinishedCount.ToString(ic),
+                plural);
+        }
+
+        /// <summary>
+        /// Is this row the LAUNCH row of its rewind save - the recording that owns the
+        /// quicksave, or the visible effective replacement for a hidden original owner?
+        /// <para>The "one Rewind button per launch" half of
+        /// <see cref="ShouldShowLegacyRewindButton"/>, without its UT check or its
+        /// this-row-is-itself-an-unfinished-flight suppression. Exposed because the Timeline
+        /// needs exactly this half (finding P12): every branch of a tree - debris, decouple
+        /// children, EVA splits - resolves the SAME root launch save through
+        /// <see cref="RecordingStore.GetRewindRecording"/>, so a predicate built on "a save
+        /// resolves" puts an R on all of them and each one rewinds the PARENT launch. This
+        /// table has suppressed that since the multi-segment-chain fix; the Timeline had
+        /// not.</para>
+        /// </summary>
+        internal static bool IsLaunchRewindRow(Recording rec)
+        {
+            return TryResolveLaunchRewindSurface(rec, out _, out _);
         }
 
         private static bool ShouldSurfaceLaunchRewindButton(Recording rec, double now)

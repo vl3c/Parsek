@@ -506,6 +506,25 @@ namespace Parsek.Tests
             Assert.Contains("Recordings tab", MissionPresentation.IncludeCheckboxTooltip);
         }
 
+        // catches: the chapter header row's tri-state toggle going back to carrying no
+        // explanation at all (finding P21). It is the only tri-state control in the mod and
+        // was the only unlabelled one, and its "[~]" marker is defined nowhere else a player
+        // can read - so the tooltip has to name the marker as well as what a click does.
+        [Fact]
+        public void ChapterIncludeCheckboxTooltip_ExplainsTheMixedMarkerAndTheClick()
+        {
+            string tip = MissionPresentation.ChapterIncludeCheckboxTooltip;
+
+            Assert.Contains("loop unit", tip);
+            Assert.Contains("[~]", tip);
+            Assert.Contains("Does not hide the ghost", tip);
+            // Single-line strip in the host Recordings window: 1355 px wide, budgeted at
+            // 189 characters by TooltipEchoBudgetTests' Missions row.
+            Assert.True(tip.Length <= 189,
+                $"chapter tooltip is {tip.Length} chars; the host strip holds 189");
+            Assert.DoesNotContain("\n", tip);
+        }
+
         // ===================== T1.6 - the loop-conflict outcome =====================
 
         [Fact]

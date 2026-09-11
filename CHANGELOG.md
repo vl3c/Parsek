@@ -471,6 +471,39 @@ _(unreleased — entries accumulate here per commit)_
   instead of hunting for where it moved. The Diagnostics table also gained the two tracing
   switches it was missing. Guide-only: no code behind any of it changed.
 
+- **Archiving a folder can no longer bury a flight you could still re-fly.** The
+  per-recording Archive checkbox has always refused to hide an Unfinished Flight - the
+  row that IS your way back into an unresolved split - and said so on screen. The folder
+  checkbox above it did not: one click wrote "archived" over every recording inside,
+  including exactly those rows. It now refuses the whole folder and names how many
+  Unfinished Flights are in it, so the refusal tells you what to resolve instead of
+  quietly doing nothing. And the per-row refusal now applies to hiding ONLY: it used to
+  refuse the UN-archive too, which was the opposite of the point and the only way back
+  for a row an older build's folder click had already buried.
+
+- **The Timeline's "R" button no longer offers to rewind a launch from a row that is not
+  the launch.** An EVA, a separated booster, a decoupled probe - every branch of a flight
+  resolves the same launch quicksave, so every one of them drew its own "Rewind to this
+  launch" button, and clicking any of them rewound the PARENT launch. Only the confirm
+  dialog's "(from branch ...)" line hinted at it. The Recordings table has suppressed
+  this for a long time; the Timeline now shares the same rule, so the button appears once
+  per launch, on the launch.
+
+- **The "Mission Outcomes" rows in the Kerbals window now open the Timeline they promise
+  to scroll.** The row's hover text says it scrolls the Timeline to the flight the row
+  came from. With the Timeline closed - the common case, since the two windows sit in
+  different places - the click stored the request and nothing happened; the scroll then
+  landed unannounced whenever the player next opened the Timeline for something else. The
+  click now opens the window and scrolls it, the way the Timeline's own GoTo button
+  already opens the Missions window.
+
+- **Basic mode no longer leaves one loop-authoring click on screen.** A chapter header
+  row in the Missions tab carried a tick box that writes which segments the mission's
+  loop replays - the same set every checkbox around it authors, all of which Basic hides.
+  In Basic it is now a blank cell like its siblings. In Advanced it gained the hover text
+  it never had: it is the only three-state control in the mod, and its "[~]" marker for
+  "some of this chapter is in" was explained nowhere a player could read.
+
 - **Four Settings and main-window labels now say what the buttons behind them do.**
   "Wipe All Game Actions" only ever cleared the MILESTONE list - every career action on
   the ledger survived it, and the next recalculation still walked them - so the most

@@ -254,6 +254,8 @@ namespace Parsek
             new GUIContent("", MissionPresentation.IncludeCheckboxTooltip);
         private static readonly GUIContent PartnerJourneyCheckboxContent =
             new GUIContent("", MissionPresentation.PartnerJourneyTooltip);
+        private static readonly GUIContent ChapterIncludeCheckboxContent =
+            new GUIContent("", MissionPresentation.ChapterIncludeCheckboxTooltip);
 
         // The one stamp every ExcludedIntervalKeys write site must pair with the mutation: an
         // interval edit is authored against CURRENT key numbering, and a gen-0 mission whose
@@ -1881,31 +1883,47 @@ namespace Parsek
             // there is no existing mixed-state toggle style in this codebase to borrow. Checked
             // means "some of this chapter is included", so one click drops the whole chapter and
             // the next brings all of it back.
-            bool shownChecked = state != ChapterSelectionState.AllExcluded;
-            bool toggled = GUILayout.Toggle(shownChecked, "",
-                GUILayout.Width(ColW_Index), GUILayout.ExpandHeight(true));
-            if (toggled != shownChecked)
+            //
+            // Gated with its siblings (finding P21): this toggle writes
+            // Mission.ExcludedIntervalKeys, which is the loop-authoring set Basic hides - it was
+            // the ONE interval-writing control that escaped ShowsLoopAuthoringControls, so a
+            // Basic player still had a click here that authored a set nothing else in the mode
+            // could see or undo. The else branch is the SAME single blank cell the per-interval
+            // and per-vessel rows draw, so the "#" column keeps its width and the rows stay
+            // aligned with the header.
+            if (ShowsLoopAuthoringControls(ParsekUI.AppliedUiComplexityMode))
             {
-                int changed = 0;
-                foreach (string key in chapter.IntervalKeys)
+                bool shownChecked = state != ChapterSelectionState.AllExcluded;
+                bool toggled = GUILayout.Toggle(shownChecked, ChapterIncludeCheckboxContent,
+                    GUILayout.Width(ColW_Index), GUILayout.ExpandHeight(true));
+                if (toggled != shownChecked)
                 {
-                    if (toggled)
+                    int changed = 0;
+                    foreach (string key in chapter.IntervalKeys)
                     {
-                        if (mission.ExcludedIntervalKeys.Remove(key)) changed++;
+                        if (toggled)
+                        {
+                            if (mission.ExcludedIntervalKeys.Remove(key)) changed++;
+                        }
+                        else if (mission.ExcludedIntervalKeys.Add(key))
+                        {
+                            changed++;
+                        }
                     }
-                    else if (mission.ExcludedIntervalKeys.Add(key))
-                    {
-                        changed++;
-                    }
+                    // Same reason as the per-interval checkbox: this edit is authored against
+                    // CURRENT key numbering, so a gen-0 mission that became editable
+                    // mid-session must not be extended across its @dock sub-siblings by the
+                    // next load's legacy reconcile.
+                    mission.SelectionSchemaGeneration = Mission.CurrentSelectionSchemaGeneration;
+                    ParsekLog.Info("Mission",
+                        $"chapter '{chapter.Root.Title}' {(toggled ? "include" : "exclude")} " +
+                        $"keys={changed.ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
+                        $"mission='{mission.Name}'");
                 }
-                // Same reason as the per-interval checkbox: this edit is authored against CURRENT
-                // key numbering, so a gen-0 mission that became editable mid-session must not be
-                // extended across its @dock sub-siblings by the next load's legacy reconcile.
-                mission.SelectionSchemaGeneration = Mission.CurrentSelectionSchemaGeneration;
-                ParsekLog.Info("Mission",
-                    $"chapter '{chapter.Root.Title}' {(toggled ? "include" : "exclude")} " +
-                    $"keys={changed.ToString(System.Globalization.CultureInfo.InvariantCulture)} " +
-                    $"mission='{mission.Name}'");
+            }
+            else
+            {
+                GUILayout.Label("", bodyCellLabel, GUILayout.Width(ColW_Index));
             }
 
             Color prevColor = GUI.color;

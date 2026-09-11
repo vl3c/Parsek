@@ -163,6 +163,110 @@ GUI-D4.
 
 ---
 
+## ~~GUI-P17-GROUP-HIDE-ALL-BYPASSES-THE-UNFINISHED-FLIGHT-REFUSAL~~: archiving a folder wrote Hidden over the re-flyable rows the per-row checkbox exists to protect [FILED + FIXED 2026-09-11 by the GUI fix batch; covers D18]
+
+**Evidence.** The per-row Archive checkbox refuses the write when
+`EffectiveState.IsUnfinishedFlight(rec)` and posts a Warn plus a ScreenMessage
+(`UI/RecordingsTableUI.cs:2147-2174`, design §7.33: rewind access must remain visible).
+The group hide-all at `:2866-2878` was `foreach (int idx in descendants)
+committed[idx].Hidden = newAllHidden;` with no such check, so one click on a folder
+checkbox buried every Unfinished Flight inside it.
+
+**Mirror direction, checked - and it found a second defect.** The per-row guard was
+UNDIRECTED: it fired on any change of the flag, so it refused the UN-hide too. That is the
+opposite of what the guard is for. Un-hiding is what makes a buried row visible again, and
+it is the only way back for a row an older build's ungated group hide-all had already
+written Hidden over. The refusal is now directional in both places.
+
+**Fix.** One pure decision, `RecordingsTableUI.IsArchiveRefusedForUnfinishedFlight
+(requestedHidden, isUnfinishedFlight)`, read by every Archive write site, plus
+`BuildGroupArchiveRefusedMessage(groupName, unfinishedCount)` for the group toast. The
+group path refuses the WHOLE toggle rather than hiding the rest: a partial hide would leave
+the folder's own `GroupHierarchyStore` hidden flag and its members' `Hidden` flags
+disagreeing, and the player can still archive the other rows one at a time. Guarded by
+`RenameOnUnfinishedFlightTests.ArchiveRefusal_AppliesToHidingOnly`,
+`GroupArchiveRefusedMessage_NamesTheFolderAndTheCount`, and the source-inspection cell
+`GroupHideAll_RoutesThroughTheSharedArchiveRefusal` (the branch is inside an IMGUI draw
+method with no headless seam - the same reason the existing depth-gate cell in that file
+uses source inspection).
+
+**D18 verified after the fix.** The virtual Unfinished Flights group's own hide-all branch
+(`:3228`) is still unreachable - `GroupHierarchyStore.CanHide` returns false for the system
+group - but its body would have buried every member (all of which are Unfinished Flights by
+construction) if `CanHide` ever flipped, which its own comment says it is guarding against.
+It now routes through the same refusal, so that future-flip guard is complete rather than
+half-written.
+
+## ~~GUI-P12-TIMELINE-R-ON-A-NON-LAUNCH-ROW-REWINDS-THE-PARENT~~: every branch of a flight drew its own "Rewind to this launch" button [FILED + FIXED 2026-09-11 by the GUI fix batch]
+
+**Evidence.** `TimelineWindowUI.ShouldShowRewindButton` (`:1569`) was
+`!isFuture && rec != null && !string.IsNullOrEmpty(RecordingStore.GetRewindSaveFileName(rec))`.
+`GetRewindSaveFileName` -> `GetRewindRecording` walks to the TREE ROOT
+(`RecordingStore.cs:5162-5179`), so an EVA row, a separated booster and a decoupled probe
+all answer non-empty with the ROOT's save. Each got an R tooltipped "Rewind to this
+launch", and clicking it rewound the parent launch, mitigated only by the confirm dialog's
+"(from branch ...)" line (`:4463`). The Recordings table deliberately suppresses this
+(`ShouldShowLegacyRewindButton` -> `ShouldSurfaceLaunchRewindButton`, which requires the
+row to BE the save's owner or its effective supersede replacement).
+
+**Fix.** The launch-row half of the table's predicate is now shared as
+`RecordingsTableUI.IsLaunchRewindRow(rec)` and the Timeline reads it. Deliberately NOT the
+whole predicate: the table also suppresses a row that is ITSELF an unfinished flight
+because it gives such a row a dedicated Re-Fly-column button, and the Timeline has no such
+column on a RecordingStart row - suppressing there would strand the crashed-parent row
+with no rewind at all, which
+`TimelineWindowUITests.ShouldShowRewindButton_ActiveParentUnfinishedFlightWithLaunchSave_ReturnsTrue`
+pins. Guarded by
+`RecordingsTableUIStashRewindTests.TimelineRewindButton_TreeBranchNonOwner_IsSuppressedLikeTheTable`,
+which asserts both surfaces against one root+branch fixture.
+
+**No design doc carries this.** The triage asked for the contract to be recorded in the
+Timeline design doc; there is no live Timeline design doc in `docs/dev/` (the rewind design
+lives in archived plans, cited from source as "design §7.33"). The contract is recorded
+here and on `IsLaunchRewindRow`'s own docstring, which names the consistency rule and why
+the Timeline takes only half the table's predicate.
+
+## ~~GUI-P6-KERBALS-GOTO-SCROLLED-NOTHING-WITH-THE-TIMELINE-CLOSED~~: the Mission Outcomes cross-link stored a request the closed window never consumed [FILED + FIXED 2026-09-11 by the GUI fix batch]
+
+**What happened with the Timeline closed** (read before changing anything, as the triage
+asked). The row's tooltip (`UI/KerbalsWindowUI.cs:642`) promises "Scrolls the Timeline
+window to the flight this row came from". The click runs `OnFatesRowClicked` ->
+`TimelineWindowUI.ScrollToRecording` (`:322`), whose whole body was
+`pendingScrollToRecordingId = recordingId` plus a Verbose line. The consumer is inside
+`DrawWindow`'s scroll-target search (`:1091-1120`), and `DrawIfOpen` returns immediately
+when `showTimelineWindow` is false - so with the window shut NOTHING happened at the click,
+and the stored id SURVIVED: the scroll then landed unannounced whenever the player next
+opened the Timeline for an unrelated reason. Not a no-op, a deferred surprise.
+
+**Fix.** `ScrollToRecording` opens the window (it has exactly one caller, the Kerbals row,
+so no other path changes shape) and logs `windowWasOpen=`. This is the precedent the
+sibling cross-link already sets: `RecordingsTableUI.ShowMissionForRecording` (`:467`) sets
+`showRecordingsWindow = true` for the same reason. Guarded by
+`KerbalsWindowUITests.ScrollToRecording_OpensTheTimelineWindowWhenItIsClosed`.
+
+## ~~GUI-P21-CHAPTER-TRI-STATE-TOGGLE-ESCAPED-THE-BASIC-GATE-AND-HAD-NO-TOOLTIP~~: the only tri-state control in the mod was also the only unlabelled one, and the only interval-writing control outside the loop-authoring gate [FILED + FIXED 2026-09-11 by the GUI fix batch]
+
+**Evidence.** `UI/MissionsWindowUI.cs:1885` drew `GUILayout.Toggle(shownChecked, "")` on
+the chapter header row: no `GUIContent`, so no hover text, and no
+`ShowsLoopAuthoringControls` check. It writes `Mission.ExcludedIntervalKeys` - the
+loop-authoring set Basic hides - so in Basic a player still had one click that authored a
+set nothing else in the mode could see or undo, while the per-interval (`:1632`),
+per-vessel (`:1419`) and partner-journey (`:2060`) checkboxes around it were all gated. Its
+"[~]" mixed marker (`:1920`) was defined nowhere a player could read.
+
+**Fix.** Gated with its siblings, with the SAME single blank-cell else branch so the "#"
+column keeps its width, and given `MissionPresentation.ChapterIncludeCheckboxTooltip`,
+which explains the marker as well as the click (the marker is the only way the mixed state
+shows). Guarded by
+`MissionsWindowLoopGateTests.EveryIncludeCheckboxIsDrawnInsideTheLoopAuthoringGate` - a
+source scan over all four include-family `GUIContent` fields, mutation-checked by replacing
+the new gate with `if (true)`, which reds it - plus
+`TheIncludeCheckboxContentFamilyIsStillFourFields` so a fifth include checkbox cannot slip
+in ungated, and
+`MissionPresentationTests.ChapterIncludeCheckboxTooltip_ExplainsTheMixedMarkerAndTheClick`.
+
+---
+
 ## BDOCK1-STATION-COMMIT-READOPT-LIMBO-FALLBACK-DIALOG: after BDOCK-1's mid-mission CommitTree, the re-adopted station continuation is stashed to Limbo by the interceptor launch and surfaces as a whole-tree merge dialog over already-committed recordings [FILED 2026-09-10 by wave package A2 (`cheap-flights-arming`) off its BDOCK-1 reading run; REWRITTEN 2026-09-11 off the archive grep. The dialog is the lane's deterministic shape on every post-fix build (4 of 4 logs), reached through a CORRECT refusal; OPEN PRODUCT QUESTION narrowed to the fallback dialog's UX over committed-overlap recordings; not fixed in this wave]
 
 **What happens**, from `2026-09-10_1815_BDOCK-1-station-interceptor`'s own KSP.log (local

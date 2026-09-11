@@ -265,5 +265,63 @@ namespace Parsek.Tests
             Assert.DoesNotContain("unfinishedFlightRowDepth > 0", hideBlock);
             Assert.Contains("EffectiveState.IsUnfinishedFlight(rec)", hideBlock);
         }
+
+        // catches: the Archive refusal losing its DIRECTION. Refusing exists to keep rewind
+        // access visible, so it can only apply to HIDING; the undirected check the per-row
+        // branch used to carry also refused the UN-hide, which would keep a flight that is
+        // already buried buried - and un-hiding is the only way back for a row an older
+        // build's ungated group hide-all wrote Hidden over (finding P17, mirror half).
+        [Fact]
+        public void ArchiveRefusal_AppliesToHidingOnly()
+        {
+            Assert.True(RecordingsTableUI.IsArchiveRefusedForUnfinishedFlight(
+                requestedHidden: true, isUnfinishedFlight: true));
+            Assert.False(RecordingsTableUI.IsArchiveRefusedForUnfinishedFlight(
+                requestedHidden: false, isUnfinishedFlight: true));
+            Assert.False(RecordingsTableUI.IsArchiveRefusedForUnfinishedFlight(
+                requestedHidden: true, isUnfinishedFlight: false));
+            Assert.False(RecordingsTableUI.IsArchiveRefusedForUnfinishedFlight(
+                requestedHidden: false, isUnfinishedFlight: false));
+        }
+
+        // catches: a refused folder archive becoming a dead click. The message must name the
+        // folder and the count so the player knows what to resolve, and singular / plural
+        // must agree (the count is the only number in it).
+        [Fact]
+        public void GroupArchiveRefusedMessage_NamesTheFolderAndTheCount()
+        {
+            string one = RecordingsTableUI.BuildGroupArchiveRefusedMessage("Munshots", 1);
+            Assert.Contains("Munshots", one);
+            Assert.Contains("1 Unfinished Flight inside", one);
+
+            string many = RecordingsTableUI.BuildGroupArchiveRefusedMessage("Munshots", 3);
+            Assert.Contains("3 Unfinished Flights inside", many);
+        }
+
+        // catches: the GROUP hide-all going back to writing Hidden over every descendant
+        // with no Unfinished-Flight check, which is what let archiving a folder bury the
+        // re-flyable flight the per-row control refuses to bury (finding P17). Source
+        // inspection for the same reason the depth-gate cell above uses it: the branch lives
+        // inside an IMGUI draw method that cannot be driven headlessly.
+        [Fact]
+        public void GroupHideAll_RoutesThroughTheSharedArchiveRefusal()
+        {
+            string srcRoot = System.IO.Path.GetFullPath(
+                System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory,
+                    "..", "..", "..", "..", "Parsek"));
+            string uiSrc = System.IO.File.ReadAllText(
+                System.IO.Path.Combine(srcRoot, "UI", "RecordingsTableUI.cs"));
+
+            int anchor = uiSrc.IndexOf("// Hide group checkbox", StringComparison.Ordinal);
+            Assert.True(anchor >= 0,
+                "Hide group checkbox anchor should exist in RecordingsTableUI.cs");
+            int blockEnd = uiSrc.IndexOf("hide-all={newAllHidden}", anchor, StringComparison.Ordinal);
+            Assert.True(blockEnd > anchor, "Expected the group hide-all log line after the anchor");
+            string groupHideBlock = uiSrc.Substring(anchor, blockEnd - anchor);
+
+            Assert.Contains("IsArchiveRefusedForUnfinishedFlight(newAllHidden", groupHideBlock);
+            Assert.Contains("EffectiveState.IsUnfinishedFlight(committed[idx])", groupHideBlock);
+            Assert.Contains("BuildGroupArchiveRefusedMessage(groupName", groupHideBlock);
+        }
     }
 }

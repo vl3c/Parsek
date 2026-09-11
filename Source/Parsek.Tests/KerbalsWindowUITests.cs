@@ -958,6 +958,36 @@ namespace Parsek.Tests
             Assert.Equal(1, matches);
         }
 
+        // catches: the Mission Outcomes row's tooltip promise ("Scrolls the Timeline window
+        // to the flight this row came from") going back to doing nothing visible with the
+        // Timeline closed. The pending id is consumed inside the Timeline's DRAW path, so
+        // storing it against a shut window scrolls nothing now and then jumps the list
+        // whenever the player next opens it for something else (finding P6). The sibling
+        // cross-link RecordingsTableUI.ShowMissionForRecording opens its window the same way.
+        [Fact]
+        public void ScrollToRecording_OpensTheTimelineWindowWhenItIsClosed()
+        {
+            var ui = new ParsekUI(UIMode.KSC);
+            try
+            {
+                TimelineWindowUI timeline = ui.GetTimelineUI();
+                Assert.False(timeline.IsOpen);
+
+                // Exactly what the Mission Outcomes row hands OnFatesRowClicked.
+                KerbalsWindowUI.OnFatesRowClicked(timeline.ScrollToRecording, "rec-fate-7");
+
+                Assert.True(timeline.IsOpen);
+                Assert.Contains(logLines, l =>
+                    l.Contains("[Timeline]")
+                    && l.Contains("recordingId=rec-fate-7")
+                    && l.Contains("windowWasOpen=False"));
+            }
+            finally
+            {
+                try { ui.Cleanup(); } catch { }
+            }
+        }
+
         [Fact]
         public void Build_EmitsVerboseLog_WithNewCounters()
         {
