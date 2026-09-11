@@ -107,6 +107,35 @@ picker, populated Structure); or the surface is outside the recorder's reach by 
 (all 21 dialogs, all 7 overlays, every populated tooltip). Section 6 is organised by those
 three, with the cheapest route per target.
 
+### 2.1 Known inconsistencies between the two source notes
+
+The two research notes were written by different passes and disagree in seven places. This
+document carries the values named below with that caveat; none has been reconciled against
+the code yet, and each is a one-grep check for whoever next touches the area.
+
+- Screen-message totals: the inventory counts 95 producers (107 raw minus 12 excluded); the
+  exposure note counts 77 `ParsekLog.ScreenMessage` sites across 23 files. The difference is
+  consistent with the remaining 18 being `ScreenMessages.PostScreenMessage` calls, but neither
+  note states that split. This document uses 95 and attributes it to the combined grep.
+- EXPOSED row count: a mechanical re-tally of the exposure note's Class column gives 272, its own
+  header says 265 + 7 "EXPOSED-in-Advanced-only". Section 4 folds the two together. The Class
+  column also carries three non-class values (`NOT PRESENT` x4, `n/a` x2, `(see next rows)` x1)
+  that the note's tally absorbs silently.
+- Per-area screen-message citations in the inventory's section 0b (`ParsekFlight.cs:8313`,
+  `:8371`, `:10764`, `:13388`, `:13393`, `:12851`, `:4287`, `:12642`, `:3498`, `:2912`, and the
+  Gloops sites `:17388` / `:17499`) do not appear in its own appendix 2, so one of the two lists
+  is partial.
+- Item P14 cites `docs/user-guide.md:336` for two different claims ("Show ghosts in Tracking
+  Station" and "pin on click"); at most one is that line.
+- The Missions warp-to-launch dialog is cited at `UI/MissionsWindowUI.cs:2993` in the body and
+  `:3006` in the dialog tally; both may be real (method vs the `SpawnPopupDialog` call). The
+  dialogs table uses `:3006`, the line the 21-site grep counted.
+- Appendix 2 of the inventory prints `PParsekLog.ScreenMessage` (double P) in about 15 rows; a
+  transcription artefact, not a code symbol.
+- The census host is named `fixtures/local-saves/c1-gui` in the inventory header and in the
+  spec (`GUI-1-census-ksc.toml:34-44`), but appendix 4 also spells sibling hosts as
+  `harness/fixtures/saves/...`; only the local-saves form is the staged fixture.
+
 ## 3. The structure
 
 ### 3.0 Window index
