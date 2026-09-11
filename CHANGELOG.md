@@ -10,6 +10,14 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Automated testing: pointing the mouse at a control a run looked up now passes the
+  pre-flight check.** Looking a control up by its label and then pointing at it is the one
+  reproducible way to take a picture of a hover, and it is the whole reason the lookup
+  reports a centre at all - but the check that runs before the game starts read the "use
+  the answer from the earlier step" placeholder as a malformed number and refused every
+  test that did it. So the one documented way to take a hover picture failed before KSP
+  was even launched. It now passes, and a test pins it in both directions.
+
 - **Automated testing: a test run can now hover, point at a control by its label, and
   open the parts of a window that only appear after a click.** The screenshot work below
   photographed Parsek's windows; going through every surface the mod can put on screen

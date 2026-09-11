@@ -1189,6 +1189,26 @@ HANDLE_LABEL_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_-]*$")
 # form, so it can never match here.
 HANDLE_REF_RE = re.compile(r"\$\{([A-Za-z0-9][A-Za-z0-9_-]*)\.([A-Za-z0-9_]+)\}")
 
+
+def is_handle_ref(value) -> bool:
+    """True when a raw arg value is EXACTLY one ``${<ref>.<field>}`` reference.
+
+    Substitution happens in ``run.py``'s drive loop, long after ``validate_spec``
+    runs, so a pre-launch shape check that parses an arg's VALUE must not read a
+    reference as a malformed literal. The ``op=pointer`` coordinates are the
+    DOCUMENTED case and the one that was broken: a census resolves a control with
+    ``op=find`` and chains ``${stepN.cx}`` / ``${stepN.cy}`` into the pointer step,
+    which is the entire reason ``op=find`` reports a centre, and the coordinate
+    parse refused exactly that spec. ``op=rect``'s four coordinates take the same
+    rule for the same reason rather than by symmetry: both are parsed with
+    InvariantCulture on the seam side, so both are legal chain consumers.
+
+    WHOLE-VALUE ONLY, matching ``substitute_step_args``: an EMBEDDED reference is
+    not substituted and would reach the wire verbatim, so it stays a literal here
+    and the numeric parse correctly refuses it."""
+    return bool(HANDLE_REF_RE.fullmatch(str(value)))
+
+
 # The four envelope keys of a seam response line. They describe the EXCHANGE, not
 # the object the verb answered about, so they are never captured as handle fields
 # (a `${x.verdict}` would be a spec saying something the harness already knows).
@@ -2467,7 +2487,10 @@ def validate_ui_action_step(index: int, step_args: Dict) -> List[str]:
                 "half-move" % index)
         for key in ("x", "y"):
             raw = step_args.get(key)
-            if raw is None:
+            if raw is None or is_handle_ref(raw):
+                # A `${find.cx}` chain is the documented way to aim this op; see
+                # `is_handle_ref`. The substitution runs in the drive loop, so the
+                # literal parse below would refuse the only reproducible spelling.
                 continue
             try:
                 float(str(raw))
@@ -2491,7 +2514,9 @@ def validate_ui_action_step(index: int, step_args: Dict) -> List[str]:
                 % (index, ",".join(UIACTION_RECT_KEYS), ",".join(missing)))
         for key in UIACTION_RECT_KEYS:
             raw = step_args.get(key)
-            if raw is None:
+            if raw is None or is_handle_ref(raw):
+                # Same rule as op=pointer's pair: a runtime handle is substituted in
+                # the drive loop, so it is not a malformed literal here.
                 continue
             try:
                 float(str(raw))

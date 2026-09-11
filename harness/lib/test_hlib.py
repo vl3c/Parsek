@@ -14844,6 +14844,35 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
         errors = hlib.validate_ui_action_step(2, {"op": "describe", "x": "10"})
         self.assertTrue(any("only mean anything on op=rect" in e for e in errors), errors)
 
+    def test_a_runtime_handle_is_a_legal_pointer_or_rect_coordinate(self):
+        """THE DEFECT THIS PINS, found by the first lane that tried to use the op the
+        way its own design document describes: `op=find` exists so a census can resolve
+        a control by the words a reviewer can read and chain `${stepN.cx}` /
+        `${stepN.cy}` into the pointer step - and the coordinate parse refused exactly
+        that, because substitution happens in run.py's drive loop, long after
+        validate_spec has read the raw value as a literal. So the ONE documented
+        spelling of a hover step failed pre-launch validation and no census could hover
+        anything.
+
+        The exemption is WHOLE-VALUE only, matching `substitute_step_args`: an embedded
+        reference is never substituted and reaches the wire verbatim, so it stays a
+        malformed literal here. `op=rect` takes the same rule for the same reason."""
+        self.assertEqual([], hlib.validate_ui_action_step(
+            0, {"op": "pointer", "x": "${findlogi.cx}", "y": "${findlogi.cy}"}))
+        self.assertEqual([], hlib.validate_ui_action_step(
+            1, {"op": "rect", "window": "missions", "x": "${a.x}", "y": "${a.y}",
+                "w": "${a.w}", "h": "${a.h}"}))
+        # A harness step id is a legal <ref> too, so the numeric-looking form passes.
+        self.assertEqual([], hlib.validate_ui_action_step(
+            2, {"op": "pointer", "x": "${0004.cx}", "y": "${0004.cy}"}))
+        # NOT a blanket hole: an embedded reference, a malformed one and a plain
+        # non-numeric literal are all still refused.
+        for bad in ("${findlogi.cx}px", "${findlogi}", "${.cx}", "100,5"):
+            with self.subTest(x=bad):
+                self.assertTrue(any(
+                    "dot-decimal" in e for e in hlib.validate_ui_action_step(
+                        3, {"op": "pointer", "x": bad, "y": "200"})), bad)
+
     def test_uiaction_dialog_needs_nothing(self):
         self.assertEqual([], hlib.validate_ui_action_step(0, {"op": "dialog"}))
 
