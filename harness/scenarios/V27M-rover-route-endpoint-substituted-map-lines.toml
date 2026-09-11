@@ -313,6 +313,20 @@ steps = [
 ]
 
 [dimensionsCovered]
+# D3 `absolute`, CLAIMED 2026-09-10 (claim-gap wave A1), off the already-required
+# `KSC SURFACE playback resolved: recording=.* body=Kerbin branch=absolute`. The branch
+# value comes from ParsekKSC.Playback's DescribeKscBranch, which answers `absolute` only
+# when the resolved TrackSection's referenceFrame is Absolute (it answers `no-section` /
+# `body-fixed-primary` otherwise). The line is emitted only after a successful pose. So it
+# witnesses production playback of an Absolute section, not a flat-point or body-fixed
+# fallback. Its intermittency on older lanes predates the
+# KSC-SURFACE-RESOLVED-TWO-EMITTERS-SHARE-ONE-RATE-LIMIT-KEY fix, so the lane was
+# re-flown unedited on the wave DLL (a0abbed1) before the claim:
+#  - armed run `2026-09-10_1748` PASS attempt 1 (`branch=absolute` x3, `branch=relative` 0);
+#  - negative control `2026-09-10_1752`, the entry inverted to `branch=relative` and then
+#    reverted: PARSEK-FAIL(expectation) on exactly that entry, routes block PASS, drift
+#    gate 3 / 0.
+D3  = ["absolute"]
 D10 = ["route-endpoint-rebind-render"]
 D14 = ["sandbox", "scene-flight"]
 

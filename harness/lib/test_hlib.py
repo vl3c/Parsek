@@ -6968,6 +6968,9 @@ class MultiCategoryBatchWiringGroupTests(unittest.TestCase):
             "WarpToTime": 1,
             "TestRunnerIsolation": 2,
             "SwitchIntentPatch": 3,
+            # Appended 2026-09-10; pinned whole off reading run 2026-09-10_1734,
+            # re-read token for token by armed re-flight 2026-09-10_1957.
+            "SceneAndPatch": 7,
         }),
         # The 2026-09-07 second census moved three LT-1 constituents to hosts that
         # execute more of them and added the cells only those hosts reach.
@@ -6994,6 +6997,24 @@ class MultiCategoryBatchWiringGroupTests(unittest.TestCase):
     # empty, NEVER a `{}` literal, which would be an empty DICT and make every
     # membership read False).
     INTERIM_PIN_IDS: set = set()
+
+    # PER-CONSTITUENT NARROWING of INTERIM_PIN_IDS. A member listed here has only
+    # the named constituents interim, and every OTHER constituent must stay pinned
+    # whole. A member listed in INTERIM_PIN_IDS but NOT here is interim in every
+    # constituent (a never-flown lane). This exists for the case the whole-spec
+    # switch cannot express: a flown lane that GAINS a constituent keeps its
+    # measured lines gating while the new one waits for its reading. Loosening the
+    # measured lines to fit the switch would un-gate them for no reason.
+    # EMPTY IS ITS HEALTHY STATE (a dict literal, unlike INTERIM_PIN_IDS). First
+    # used by LT-2's `SceneAndPatch`, appended 2026-09-10 (claim-gap wave A1-4) and
+    # converted to measured by reading run 2026-09-10_1734.
+    INTERIM_CONSTITUENTS: dict = {}
+
+    def _constituent_is_interim(self, sid, category):
+        if sid not in self.INTERIM_PIN_IDS:
+            return False
+        narrowed = self.INTERIM_CONSTITUENTS.get(sid)
+        return narrowed is None or category in narrowed
 
     @classmethod
     def setUpClass(cls):
@@ -7088,6 +7109,38 @@ class MultiCategoryBatchWiringGroupTests(unittest.TestCase):
             self.INTERIM_PIN_IDS, set(self.GROUP),
             "INTERIM_PIN_IDS names ids that are not GROUP members: %s"
             % sorted(self.INTERIM_PIN_IDS - set(self.GROUP)))
+
+    def test_the_interim_constituent_map_narrows_only_interim_members(self):
+        # The narrowing is only meaningful under the switch it narrows: an entry
+        # for a member NOT in INTERIM_PIN_IDS would be read by nothing, and a
+        # constituent the member does not batch would exempt nothing while looking
+        # like it exempts something. Each value must be a non-empty SET (a `{}`
+        # value is an empty dict, the trap the sibling cell guards).
+        self.assertIsInstance(self.INTERIM_CONSTITUENTS, dict)
+        self.assertLessEqual(
+            set(self.INTERIM_CONSTITUENTS), self.INTERIM_PIN_IDS,
+            "INTERIM_CONSTITUENTS names ids missing from INTERIM_PIN_IDS: %s"
+            % sorted(set(self.INTERIM_CONSTITUENTS) - self.INTERIM_PIN_IDS))
+        for sid, cats in sorted(self.INTERIM_CONSTITUENTS.items()):
+            with self.subTest(spec=sid):
+                self.assertIsInstance(cats, set)
+                self.assertTrue(cats, "%s: an empty narrowing exempts nothing" % sid)
+                self.assertLessEqual(
+                    cats, set(self.GROUP[sid][1]),
+                    "%s: INTERIM_CONSTITUENTS names categories the member does "
+                    "not batch: %s" % (sid, sorted(cats - set(self.GROUP[sid][1]))))
+
+    def test_the_narrowing_rule_reads_both_tables(self):
+        # Synthetic, so it holds whatever is registered today: listed + narrowed
+        # -> only the named constituent; listed + not narrowed -> every
+        # constituent; not listed -> none.
+        probe = MultiCategoryBatchWiringGroupTests("test_the_narrowing_rule_reads_both_tables")
+        probe.INTERIM_PIN_IDS = {"ZZ-narrowed", "ZZ-whole-spec"}
+        probe.INTERIM_CONSTITUENTS = {"ZZ-narrowed": {"Watch"}}
+        self.assertTrue(probe._constituent_is_interim("ZZ-narrowed", "Watch"))
+        self.assertFalse(probe._constituent_is_interim("ZZ-narrowed", "Unity"))
+        self.assertTrue(probe._constituent_is_interim("ZZ-whole-spec", "Unity"))
+        self.assertFalse(probe._constituent_is_interim("ZZ-unlisted", "Watch"))
 
     def test_the_group_is_exactly_the_committed_set(self):
         # SET EQUALITY against disk. Passes at zero on both sides, and fires the
@@ -7198,9 +7251,9 @@ class MultiCategoryBatchWiringGroupTests(unittest.TestCase):
                     self.assertIsNotNone(pin, sid)
                     loose = pin.passed is None or pin.skipped is None
                     self.assertEqual(
-                        sid in self.INTERIM_PIN_IDS, loose,
+                        self._constituent_is_interim(sid, category), loose,
                         "%s / %s: interim-vs-whole pin state disagrees with "
-                        "INTERIM_PIN_IDS" % (sid, category))
+                        "INTERIM_PIN_IDS / INTERIM_CONSTITUENTS" % (sid, category))
                     self.assertIsNotNone(
                         pin.total,
                         "%s must pin total= for %s even when the split is "
@@ -8451,7 +8504,7 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
     # `test_every_untagged_candidate_is_classified` until someone decides.
     REVIEWED_UNTAGGED = {
         # THE G3b RENDER-SURFACE LANE, 2026-09-07, same shape as H59 below.
-        "V27M-rover-route-endpoint-substituted-map-lines.toml": "tier=operator on the calibration-discipline shape, NOT debt: reading run `2026-09-07_1858`, armed re-flight `_1902` PASS attempt 1, negative control `_1903` red on exactly the inverted `Route line build ... legs=1` token, `[expectations.routes]` GATING - roadmap gap G3b closed by it the same day; it stays operator because its subject is a liveState-patched fixture whose value is the one-off class answer (no render surface consults a rebound endpoint), not a regression floor worth a nightly slot.",
+        "V27M-rover-route-endpoint-substituted-map-lines.toml": "tier=operator on the calibration-discipline shape, NOT debt: reading run `2026-09-07_1858`, armed re-flight `_1902` PASS attempt 1, negative control `_1903` red on exactly the inverted `Route line build ... legs=1` token, `[expectations.routes]` GATING - roadmap gap G3b closed by it the same day; it stays operator because its subject is a liveState-patched fixture whose value is the one-off class answer (no render surface consults a rebound endpoint), not a regression floor worth a nightly slot. Claim-gap wave 2026-09-10: armed `2026-09-10_1748` + control `_1752`, D3 `absolute` claimed off its KSC `branch=absolute` token.",
         # THE D11 CENSUS LANE, 2026-09-02, same reading-run shape as the four below.
         "H59-surface-route-map-lines.toml":        "tier=operator as a CENSUS reading run, NOT debt: roadmap Tier D item 11 (registry dimension D10) asks for a route-map-lines lane on a SURFACE route authored against the measured landed pin LANDED-TERMINAL-LOOP-HAS-NO-MAP-PRESENCE-OUTSIDE-THE-FLIGHT-SCENE rather than against V18T's orbital pins. Every token is structural or a VALUE REGEX and the two plausible outcomes (a surface route's overview line drawn, routesDrawn=1 legsDrawn>=1; or not drawn, with other= / malformed= / skippedOwned= discriminating WHY) are pre-registered in the spec header, so the flight's product is a census a human reads. It is also the first committed lane to drive EnterMapView on a route or a landed subject, which is what makes `Polyline frame:` (RC-OWN-DRAW-HALF-IS-MAP-GATED's own evidence rule) a required instrument token here. Nothing armed; what is owed is the FLIGHT, not a human review call",
         # THE FOUR 2026-09-02 READING-RUN LANES, authored so every live-gated todo entry
@@ -8632,8 +8685,11 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # is nothing - they are kept here because an operator-tier spec with no
         # `pending-operator` tag has to be classified somewhere.
         "RF-1-continuation-stays-open.toml":
-            "operator by the reading-run discipline; AUTHORED 2026-09-09, NEVER "
-            "FLOWN. Owes a flight, not a human call",
+            "operator by the reading-run discipline; LIVE-PROVEN, rewind block "
+            "armed 2026-09-09. Claim-gap wave: armed re-flight _2011 red on a UT "
+            "literal (re-pinned from bytes); the re-pin flew green 2026-09-11 "
+            "(_0138, controls _0142 / _0147), so D4 hysteresis + "
+            "surface-graze-suppression and seven coveredBy-only cells are claimed",
         "RF-2-two-reflies-in-sequence.toml":
             "operator by the reading-run discipline; AUTHORED 2026-09-09, NEVER "
             "FLOWN. Owes a flight, not a human call",
@@ -8644,8 +8700,9 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
             "operator by the reading-run discipline; AUTHORED 2026-09-09, NEVER "
             "FLOWN. Owes a flight, not a human call",
         "RF-5-seal-closes-the-slot.toml":
-            "operator by the reading-run discipline; AUTHORED 2026-09-09, NEVER "
-            "FLOWN. First consumer of SealSlot's rp= + slot= form. Owes a flight",
+            "operator by the reading-run discipline; LIVE-PROVEN 2026-09-09. First "
+            "consumer of SealSlot's rp= + slot= form. D9 seal-stash-fly + "
+            "rp-disk-reaper claimed 2026-09-10 off its required tokens",
         "RF-6-rewind-category-live-session.toml":
             "operator by the reading-run discipline; AUTHORED 2026-09-09, NEVER "
             "FLOWN, INTERIM tally pin. Owes a flight, not a human call",
@@ -8665,10 +8722,12 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
             "FLOWN. The READ side of PR #1658 over RF-9's own harvested save, and "
             "the first consumer of refly-autopilot-recorded. Owes a flight",
         "RF-9-atmosphere-exit-split-stays-open.toml":
-            "operator by the reading-run discipline; AUTHORED 2026-09-09, NEVER "
-            "FLOWN. The sealing defect's live reproduction (the only lane whose "
-            "promoted recording crosses an environment boundary the optimizer "
-            "splits on); reds on a pre-#1658 DLL BY DESIGN. Owes a flight",
+            "operator by the reading-run discipline; LIVE-PROVEN, rewind block "
+            "armed 2026-09-09. The sealing defect's live reproduction (the only lane "
+            "whose promoted recording crosses an environment boundary the optimizer "
+            "splits on); reds on a pre-#1658 DLL BY DESIGN. Claim-gap wave armed "
+            "re-flight 2026-09-10_2050 PASS: D4 env-body-split + seven coveredBy-only "
+            "cells claimed; D4 seed-event-split claimed 2026-09-11 after control _0151",
         "RF-11-both-slots-in-sequence.toml":
             "operator by the reading-run discipline; AUTHORED 2026-09-09, NEVER "
             "FLOWN. The lane RF-2 was commissioned as, now that "
