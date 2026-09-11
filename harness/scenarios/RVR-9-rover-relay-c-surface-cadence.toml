@@ -225,11 +225,24 @@ terminalStates = { Landed = { min = 5 }, Docked = { min = 2 } }
 branchPoints   = { Dock = { min = 2, max = 2 }, Undock = { min = 2, max = 2 } }
 
 [expectations.routes]
+# ARMED 2026-09-10 (`gating = true`, wave package A2) off the reading run
+# `2026-09-10_1731` (stock-minimal, wave DLL a0abbed1, PASS attempt 1): every declared
+# window read exactly as declared - count=1 dormant=0 stops=2 sourceRefs=3
+# completedCycles=1 skippedCycles=0 statuses={Paused:1}; measured-only holdKinds={} - so
+# the arming moved NO number. Any report-only wording below is the authoring record.
+# `recordings.structure` above stays a report-only reading. ARMED RE-FLIGHT
+# `2026-09-10_2134` (same DLL): PASS attempt 1, saveParse gating PASS, armed ['routes'],
+# no mismatch, every routes and structure facet identical to the reading. The windows
+# gate through the routes evaluator paths already inverted live (RVR-7 skippedCycles,
+# RVR-20 completedCycles, V18T statuses); the one path never inverted, the set-key
+# facet, takes its control on RVR-18.
+#
 # REPORT-ONLY, and the values are RVR-7's - which is the point: the ONLY thing this lane
 # changes is the clock, so the produced route must be indistinguishable from RVR-7's.
 # `statuses = {Paused: 1}` is the falsifiable half against the control run, which read
 # `{Active: 1}` because the armed send-once was never consumed by a cycle that never
 # happened.
+gating          = true
 count           = { min = 1, max = 1 }
 dormant         = { min = 0, max = 0 }
 stops           = { min = 2, max = 2 }

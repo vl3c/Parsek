@@ -497,6 +497,25 @@ terminalStates = { Landed = { min = 3 }, Docked = { min = 1 } }
 branchPoints   = { Dock = { min = 1, max = 1 }, Undock = { min = 1, max = 1 } }
 
 [expectations.routes]
+# ARMED 2026-09-10 (`gating = true`, wave package A2) off the reading run
+# `2026-09-10_1728` (stock-minimal, wave DLL a0abbed1, PASS attempt 1): every declared
+# window read exactly as declared - count=1 dormant=0 stops=1 sourceRefs=2
+# completedCycles=1 skippedCycles=1 statuses={Paused:1}
+# destinationVesselPids=['2875537755']; measured-only holdKinds={DestinationFull:1} - so
+# the arming moved NO number. Any report-only wording below is the authoring record.
+# `recordings.structure` above stays a report-only reading. ARMED RE-FLIGHT
+# `2026-09-10_2130` (same DLL): PASS attempt 1, saveParse gating PASS, armed ['routes'],
+# no mismatch, every routes and structure facet identical to the reading. THE SET-KEY
+# NEGATIVE CONTROL FLEW in the 2026-09-11 closing round (same DLL):
+# `2026-09-11_0249_RVR-18-rover-route-endpoint-removed`. `destinationVesselPids` was
+# inverted in place to a pid no stop carries (`"1"`), flown alone, then reverted. It
+# red PARSEK-FAIL(save-structure) attempt 1 on EXACTLY one mismatch,
+# `routes.destinationVesselPids ['2875537755'] != ['1']`, with expectations PASS. It is
+# VALID: the run's own facet read `['2875537755']`, and every other routes window read
+# as on `_2130` (count 1, dormant 0, stops 1, sourceRefs 2, completedCycles 1,
+# skippedCycles 1, Paused 1). This was the one routes path no lane had inverted live;
+# the arming discipline is complete.
+#
 # REPORT-ONLY and DERIVED. The shape keys are RVR-16's, measured twice on this fixture:
 # one delivering cycle and one blocked one, the route left Paused.
 #
@@ -514,10 +533,11 @@ branchPoints   = { Dock = { min = 1, max = 1 }, Undock = { min = 1, max = 1 } }
 # skippedCycles=1 statuses={Paused:1}`) and the measured-only `holdKinds` reading
 # `{DestinationFull:1}`.
 #
-# It stays REPORT-ONLY for the standing reason: arming a saveParse block is a separate
-# operator decision taken after a report-only reading run whose facets match, with its own
-# `ARMED_ALLOWLIST` entry in `harness/lib/test_hlib.py`. That reading run now exists and
-# matched, so arming is available to the operator - it is deliberately not taken here.
+# It stayed REPORT-ONLY at authoring for the standing reason: arming a saveParse block is
+# a separate operator decision taken after a report-only reading run whose facets match,
+# with its own `ARMED_ALLOWLIST` entry in `harness/lib/test_hlib.py`. That reading run
+# existed and matched; the arming itself was taken 2026-09-10 (top of this comment).
+gating                = true
 count                 = { min = 1, max = 1 }
 dormant               = { min = 0, max = 0 }
 stops                 = { min = 1, max = 1 }

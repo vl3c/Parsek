@@ -245,6 +245,20 @@ GATING_KEY = saveparse.GATING_KEY
 GHOST_LIFECYCLE_BLOCK = "ghostLifecycle"
 
 SPAWNED_KEY = "spawned"
+# The two LINE-count windows. `spawned` counts DISTINCT recordings and the
+# balance ledger is SET-based (a recording is balanced once ANY of its ghosts
+# was destroyed), so neither can see a replay that runs the SAME committed
+# recordings twice and leaks a ghost the second time: the recId was already
+# destroyed once, and the distinct count does not move. A window over the line
+# counts is the only surface that states "both replays rendered AND derendered
+# every ghost" - the repeat-rewind lane (GS-9, ghost-replay Tier B item 8) is
+# the motivating declarer. HONEST ONLY ON A NON-LOOPING LANE: under loop
+# playback a cycle advance demotes the live primary to an overlap shell with no
+# destroy emit (see the facet comment in `observed_ghost_lifecycle_facets`), so
+# destroyLines lags spawnLines by design there and a window over either would
+# be a statement about the loop engine's bookkeeping, not about a leak.
+SPAWN_LINES_KEY = "spawnLines"
+DESTROY_LINES_KEY = "destroyLines"
 REQUIRE_BALANCED_KEY = "requireBalanced"
 DESTROYED_REASONS_KEY = "destroyedReasons"
 FORBIDDEN_KEY = "forbidden"
@@ -253,9 +267,11 @@ FORBIDDEN_KEY = "forbidden"
 # `observed_ghost_lifecycle_facets` (pinned by a unit cell), because a window
 # over a facet the module does not measure could only ever be answered by a
 # default - the vacuity `_check_windows_against_facets` refuses to invent.
-GHOST_LIFECYCLE_WINDOW_KEYS: Tuple[str, ...] = (SPAWNED_KEY,)
+GHOST_LIFECYCLE_WINDOW_KEYS: Tuple[str, ...] = (
+    SPAWNED_KEY, SPAWN_LINES_KEY, DESTROY_LINES_KEY)
 GHOST_LIFECYCLE_ASSERTION_KEYS: Tuple[str, ...] = (
-    SPAWNED_KEY, REQUIRE_BALANCED_KEY, DESTROYED_REASONS_KEY)
+    SPAWNED_KEY, SPAWN_LINES_KEY, DESTROY_LINES_KEY, REQUIRE_BALANCED_KEY,
+    DESTROYED_REASONS_KEY)
 GHOST_LIFECYCLE_BLOCK_KEYS: Tuple[str, ...] = (
     (GATING_KEY,) + GHOST_LIFECYCLE_ASSERTION_KEYS)
 
@@ -390,9 +406,9 @@ def validate_ghost_lifecycle_expectations(block: Any) -> List[str]:
     errs.extend(_validate_gating(prefix, block))
     errs.extend(_validate_armed_unreddable(prefix, block,
                                            GHOST_LIFECYCLE_WINDOW_KEYS))
-    if SPAWNED_KEY in block:
-        errs.extend(_validate_window("%s.%s" % (prefix, SPAWNED_KEY),
-                                     block[SPAWNED_KEY]))
+    for key in GHOST_LIFECYCLE_WINDOW_KEYS:
+        if key in block:
+            errs.extend(_validate_window("%s.%s" % (prefix, key), block[key]))
     if REQUIRE_BALANCED_KEY in block and not isinstance(
             block[REQUIRE_BALANCED_KEY], bool):
         errs.append("%s.%s: %r must be a bool"
@@ -579,9 +595,13 @@ def observed_ghost_lifecycle_facets(snapshot: Optional[GhostLifecycleSnapshot]
             # primary emits a fresh MeshSpawned, so under loop playback
             # spawnLines grows per cycle and destroyLines does not. The
             # per-recording balance ledger (`unbalanced`) is the honest leak
-            # signal; the line counts are census only.
-            "spawnLines": len(snapshot.spawns),
-            "destroyLines": len(snapshot.destroys),
+            # signal on a looping lane. On a NON-looping lane that replays the
+            # same recordings more than once (repeat rewind) the ledger is blind
+            # to a second-replay leak, and these two are what a window reads
+            # (see SPAWN_LINES_KEY). Written unconditionally: both are window
+            # keys.
+            SPAWN_LINES_KEY: len(snapshot.spawns),
+            DESTROY_LINES_KEY: len(snapshot.destroys),
             "destroyedRecordings": len(destroy_ids),
             "unbalanced": [dict(u) for u in unbalanced],
             "spawnedRecordingIds": list(spawn_ids),

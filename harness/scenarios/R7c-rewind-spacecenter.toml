@@ -115,6 +115,14 @@ steps = [
 #    `LedgerTombstone` for its ActionId, and `EffectiveState.ComputeELS()` - called
 #    directly - must NOT credit that action. The tombstone is written AND observed to
 #    take effect on the effective ledger, which is the whole point of the value.
+#  - D4 `split-at-ut` <- `RecordingOptimizer.SplitAtUT`'s own success line, scoped to
+#    the spanned origin (added 2026-09-10, claim-gap wave A1-5). It is a DIFFERENT
+#    EMITTER from the Step 2.13 summary that backs `head-tip-split`. That line is the
+#    splitter's HEAD / TIP bookkeeping; this one is the in-recording cut primitive the
+#    registry value names, printed only after the cut returned a tip. One event
+#    realises both values, and each value still rests on its own line. Claimed after
+#    armed re-flight `2026-09-10_2007` and negative control `_2009` (see the
+#    logContracts comment).
 #
 # THE RECOVERY-BUNDLE CELL CLAIMS NOTHING NEW, and that is deliberate. Its subject is
 # the composite retirement of a stock recovery bundle across a re-fly merge - the
@@ -133,6 +141,7 @@ steps = [
 # `read-back-guard` (no invoke happens here - the marker is forged).
 D9  = ["seal-stash-fly", "rp-disk-reaper", "unfinished-flights-stash", "head-tip-split"]
 D8  = ["tombstones", "ers-els-routing"]
+D4  = ["split-at-ut"]
 D14 = ["career", "scene-ksc"]
 
 [expectations]
@@ -255,9 +264,44 @@ count = { min = 3, max = 3 }
 #    remaining substrings unique to those two sites. Both were confirmed ABSENT (0
 #    occurrences) in both archived R7c logs, which is what makes them a live
 #    discriminator rather than a hopeful negative.
+#
+# THE TALLY'S FIRST FLIGHT AFTER THE 38 -> 39 MOVE. Reading run
+# `2026-09-10_1736_R7c-rewind-spacecenter` (claim-gap wave, DLL a0abbed1): PASS
+# attempt 1, 50 s, mismatches=0, recordings=3, zero ERROR lines, both forbidden skip
+# tokens absent. It re-read `total=39 passed=6 failed=0 skipped=33` token for token.
+#
+# THE SPLITATUT TOKEN (added 2026-09-10 off that reading, claim-gap wave A1-5; the D4
+# `split-at-ut` claim it supports was taken after the armed re-flight and the negative
+# control recorded below).
+#  - REQUIRED, `RecordingOptimizer.SplitAtUT`'s own success line (its step-6
+#    ParsekLog.Info, printed only after the in-recording cut returned a tip). A
+#    DIFFERENT EMITTER from the Step 2.13 splitter summary above: that one records the
+#    orchestrator's HEAD / TIP bookkeeping (D9 `head-tip-split`); this one is the cut
+#    primitive the registry value names. So one measurement per value still holds.
+#  - SCOPED TO THE SPANNED ORIGIN. The reading printed TWO success lines, one per
+#    spanning cell:
+#      `SplitAtUT: split spanned_split_origin_8d90b6ab at UT=34.24 (head=[8.42..34.24],
+#       tail=[34.24..52.70], syntheticBoundaryInserted=true)`
+#      `SplitAtUT: split recovery_bundle_origin_86128d1b at UT=340.00
+#       (head=[330.00..340.00], tail=[340.00..348.08], syntheticBoundaryInserted=true)`
+#    Their UTs differ, so an unscoped pattern would have to regex them. Scoped to
+#    `spanned_split_origin_`, the UTs are that cell's fixture constants, byte-equal on
+#    all three flights read (`2026-08-04_1914`, `2026-08-04_1630`, the reading), so they
+#    are literal. Only the 8-hex id suffix, a per-run guid slice, is regexed.
+#  - ARMED RE-FLIGHT `2026-09-10_2007_R7c-rewind-spacecenter` (wave DLL a0abbed1,
+#    committed spec 5f201f2c5): PASS attempt 1, 51 s, mismatches=0, recordings=3. The
+#    tally re-read token for token, and the run printed the same two `SplitAtUT: split`
+#    lines as the reading, with both forbidden skip tokens absent.
+#  - NEGATIVE CONTROL `2026-09-10_2009`: `syntheticBoundaryInserted=true` -> `=false` in
+#    the entry below, reverted with `git checkout`. It read PARSEK-FAIL(expectation)
+#    with exactly one mismatch, on that entry, and every other row PASS / REPORT /
+#    SKIPPED. Drift gate in the control's own KSP.log: the original pattern matched 1
+#    line and the inverted 0. The recovery-bundle line also says `=true`, but its
+#    origin prefix matches neither pattern.
 required  = [
   "BATCH_COMPLETE v1 total=39 passed=6 failed=0 skipped=33 category=Rewind scene=SPACECENTER",
   "Split origin \\S+ at UT=[0-9.]+: HEAD=\\[[0-9.]+\\.\\.[0-9.]+\\] \\(kept, id unchanged\\), TIP=\\S+ \\[[0-9.]+\\.\\.[0-9.]+\\] \\(will be superseded\\)",
+  "SplitAtUT: split spanned_split_origin_[0-9a-f]{8} at UT=34\\.24 \\(head=\\[8\\.42\\.\\.34\\.24\\], tail=\\[34\\.24\\.\\.52\\.70\\], syntheticBoundaryInserted=true\\)",
 ]
 forbidden = [
   "\\[Parsek\\]\\[ERROR\\]",

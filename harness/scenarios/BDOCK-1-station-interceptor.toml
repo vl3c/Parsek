@@ -194,6 +194,13 @@ undockTimeoutSeconds        = 120
 # noted in the todo doc, NOT invented here.
 [dimensionsCovered]
 D1  = ["auto-record-launch"]
+# D2 proximity-cadence-bg, CLAIMED 2026-09-11 (wave package A2) after the armed run
+# `2026-09-10_2215` and both negative controls (offline over that run's log, live
+# `2026-09-10_2305`); ledger in the count block. GATING TOKEN: the required
+# `Sample rate changed: pid=... dist=...m interval=0.2s (5.0 Hz)` line - the background
+# recorder stepping a background vessel into its 5 Hz proximity band - which the
+# 6.0 Hz inversion (a value a 0.2 s interval cannot print) proved able to red alone.
+D2  = ["proximity-cadence-bg"]
 D3  = ["orbital-checkpoint"]
 D4  = ["atmospheric", "exo-propulsive"]
 D5  = ["cross-tree-foreign-dock", "undock-split", "bg-recording"]
@@ -213,10 +220,59 @@ allowedAnomalies = []
 [expectations.recordings]
 # Two trees (Station TB + Interceptor TA), each ascent drops launch clamps / boosters
 # / nose cones as parent-anchored debris children, and TA additionally gains the merged
-# dock child + the two undock split children. Window spans both trees (MINOR 13):
-# min 2 (the two main recordings floor), max 20 (two ascents' debris + merge + undock
-# ceiling, widened to absorb per-run debris-timing variance -- never tightened).
-count = { min = 2, max = 20 }
+# dock child + the two undock split children. Window spans both trees (MINOR 13).
+#
+# MIN RAISED 2 -> 19 ON 2026-09-10 (wave package A2) off the reading run
+# `2026-09-10_1815_BDOCK-1-station-interceptor` (stock-minimal, wave DLL a0abbed1, PASS
+# attempt 1, MISSION-OK, count 19), ATTRIBUTED PER TYPE from its produced save:
+#   debris 12   6 per ascent, one per `ProcessBreakupEvent: debris child created` line
+#               (12 in the run, and 12 in all 15 archived BDOCK-1 logs that flew both
+#               ascents)
+#   mains 2     the station and interceptor roots
+#   probes 2    one controlled `Kerbal X Probe` child per ascent (mission assertions
+#               stationSeparated / interceptorSeparated)
+#   dock 1      the merged `Tree merge created: type=Dock` child (assertion docked)
+#   undock 2    the `Tree branch created: type=Undock` active + background children
+#               (assertion undocked); the active one finalizes at 1 point and is kept
+# = 19, in two committed trees of 8 (station) + 11 (interceptor). Every member comes from
+# an event the mission asserts or from the craft's fixed staging, before or apart from
+# the commit / stash mechanics. The floor is MEASURED in ONE shape only: the FALLBACK
+# MERGE-DIALOG shape (todo BDOCK1-STATION-COMMIT-READOPT-LIMBO-FALLBACK-DIALOG), which
+# all 3 wave-DLL flights landed (`_1815`, `_2215`, `_2305`). No completed no-dialog run
+# exists on a current build, so nothing here claims the floor for any other shape.
+# The archive grep (2026-09-11) says why: all 14 archived runs that reached the
+# interceptor launch before commit 9e3538150 (`2026-07-24_0043` .. `_1405`) ended the
+# stash with RestoreActiveTreeFromPending's NAME fallback ADOPTING the fresh-rollout
+# interceptor into the station's pending tree (`name match 'Kerbal X'`, then
+# `PID remap 3620499050` to the rollout pid), the launch-identity mis-adoption that
+# commit's QuickloadResumeMatchGuard removed. Every post-fix log (`2026-07-24_1501` and
+# the three wave runs, 4 of 4) prints `refusing to adopt fresh-rollout vessel` and lands
+# the dialog. `2026-07-24_1501` and the committed `bdock-recorded` fixture (the
+# 2026-08-11 PASS save; its log is not archived, so its shape is unknown) carry the same
+# 19 with the same per-type split, as corroboration only. `2026-07-24_1405`'s single
+# 18-recording tree is that pre-fix adoption (it merged the two flights) and is not
+# evidence. The max stays 20 and is NOT tightened (supervisor ruling: only wave bytes of
+# both shapes may move it).
+#
+# ARMED RUN OF RECORD: `2026-09-10_2215_BDOCK-1-station-interceptor` (PASS attempt 1,
+# MISSION-OK, wall 2163 s): count 19 in the same two trees (terminals Destroyed 12,
+# Docked 1, Orbiting 5; branch points JointBreak 10, Dock 1, Undock 1), the 5.0 Hz
+# token 15 lines, the debris-creation line 12 - in the FALLBACK-DIALOG shape again
+# (`showing tree merge dialog (fallback)` 1, `StashActiveTreeAsPendingLimbo` 2).
+# NEGATIVE CONTROLS on the D2 token, `(5\.0 Hz)` inverted to `(6\.0 Hz)`:
+#   OFFLINE, over `_2215`'s archived KSP.log: this spec loaded by tomllib and evaluated
+#     by `hlib.evaluate_expectations` with count 19 - as committed PASS, no mismatch;
+#     inverted FAIL on exactly one mismatch, the inverted token; drift 15 / 0.
+#   LIVE, `2026-09-10_2305` (the wave's last flight; edited in place, reverted):
+#     PARSEK-FAIL(expectation) attempt 1, MISSION-OK, wall 2430 s, exactly one
+#     mismatch, `logContracts.required not matched: ...interval=0\.2s \(6\.0 Hz\)`;
+#     count 19; drift in its own KSP.log 15 / 0; the dialog shape again.
+# All three wave flights landed the dialog shape (every post-fix log, 4 of 4), so no
+# wave bytes of the no-dialog shape exist and the max stays 20. One member's terminal
+# moved between the armed run and the control (Destroyed 12 against Destroyed 11 +
+# Landed 1, same count and branch points), which is why no terminalStates window is
+# declared here.
+count = { min = 19, max = 20 }
 
 [expectations.logContracts]
 # Required: the recording lifecycle, the cross-tree Dock branch + the authoritative
@@ -233,6 +289,17 @@ required = [
   "OnVesselsUndocking:entry",
   "Tree branch created: type=Undock",
   "Route window delta:",
+  # D2 proximity-cadence-bg WITNESS, REQUIRED 2026-09-10 off the reading `_1815` (15
+  # lines: 12 on staging debris at 18-19 m, 2 at probe separations, 1 on the undock
+  # background child): the BG recorder stepping a background vessel into its 5 Hz
+  # proximity band. It prints in every archived two-ascent log, pre-fix and post-fix
+  # (12-15 lines). CLAIMED 2026-09-11 (D2 above) after the armed run `_2215` (15 lines) and
+  # both negative controls, offline over `_2215`'s log and live `_2305`, each red on
+  # exactly this token inverted to 6.0 Hz (ledger in the count block).
+  "Sample rate changed: pid=[0-9]+ dist=[0-9]+m interval=0\\.2s \\(5\\.0 Hz\\)",
+  # The debris population's creation line (12 in the reading, 6 per ascent): with
+  # the count floor above, it names where the 12 debris members come from.
+  "ProcessBreakupEvent: debris child created: pid=",
 ]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 

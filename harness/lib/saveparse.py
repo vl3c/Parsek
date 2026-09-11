@@ -1642,10 +1642,11 @@ def armed_structure_blocks(expectations: Optional[Dict]) -> Tuple[str, ...]:
 
 
 def gating_armed(expectations: Optional[Dict]) -> bool:
-    """True iff ANY declared M-C2 block carries ``gating = true``. Exactly one
-    committed spec does - S4.1-rewind-merge, armed 2026-07-31 (guarded by an
-    allowlist test-suite sweep); arming is an operator decision taken after
-    reading report-only facets off green runs."""
+    """True iff ANY declared M-C2 block carries ``gating = true``. Arming is a
+    per-block operator decision taken after reading report-only facets off green
+    runs; the committed armed set is pinned by ``ARMED_ALLOWLIST`` in
+    ``test_hlib.py``, whose ``test_no_committed_spec_arms_gating`` sweep reds on
+    any committed spec that arms a block the allowlist does not name."""
     return bool(armed_structure_blocks(expectations))
 
 

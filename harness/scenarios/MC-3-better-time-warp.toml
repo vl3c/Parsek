@@ -1,0 +1,207 @@
+schema = 1
+id = "MC-3-better-time-warp"
+tier = "operator"
+# =====================================================================================
+# MC-3: THE BETTER-TIME-WARP INTERACTION, READ ON A LIVE AIRLESS-BODY RECORDING.
+# READ 2026-09-10 ON OUTCOME (A), PINNED FROM THAT RUN'S BYTES, THEN ARMED-DISCIPLINE
+# COMPLETE THE SAME DAY (ARMED RE-FLIGHT PASS, NEGATIVE CONTROL VALID). D17 CLAIMED.
+# =====================================================================================
+#
+# WHAT THE LANE IS FOR (R14 residue, registry D17 `better-time-warp`). The one
+# concrete Parsek <-> BetterTimeWarp interaction (docs/dev/mod-compatibility-notes.md,
+# "Better Time Warp"): BTW overrides every body's `timeWarpAltitudeLimits` at MainMenu
+# and zeroes index [4], which `FlightRecorder.ComputeApproachAltitude` uses as the
+# AIRLESS-body recording-split threshold. `StockWarpAltitudeLimits` snapshots the
+# stock arrays on `OnPSystemReady`, before that override, and `ComputeApproachAltitude`
+# prefers the snapshot. When the live [4] is <= 0 AND the snapshot resolved, it prints
+# (VerboseRateLimited, key = body name, first occurrence always prints):
+#     [StockWarpLimits] ComputeApproachAltitude(<body>): live limit zeroed by a warp
+#     mod; using stock <N>m
+# That line cannot print on stock-minimal (no warp mod, the live [4] is positive), so
+# it is the discriminating witness. BetterTimeWarp is in the modded-compat profile's
+# `devSourcedMods` and absent from stock-minimal's GameData.
+#
+# WHY AN AIRLESS BODY, AND WHY THIS FIXTURE. On Kerbin the recovered value is
+# computed and DISCARDED: `ReseedAltitudeState` skips the call for atmospheric bodies
+# and `SegmentPhaseClassifier.ClassifyFromValues` reads `approachAltitude` only when
+# the body has no atmosphere. So a Kerbin witness proves only that the snapshot
+# recovered a number. On an airless body the value is CONSUMED: the recorder's
+# boundary-detection init (`FlightRecorder`, "Seed altitude boundary state (airless
+# bodies)") calls `ReseedAltitudeState(v)` on recording start, which stores it as
+# `currentAltitudeThreshold` and prints the Verbose
+#     Altitude state reseeded: body=<body>, aboveThreshold=<b> (was <b>),
+#     threshold=<N>m, alt=<N>m
+# and the finalize path's `SegmentPhaseClassifier.TryClassify` consumes it again for
+# the approach/exo phase. `fixtures/saves/mun-park-kerbalx` puts exactly that subject
+# on the pad: activeVessel=1 is the crewed Kerbal X upper stage ORBITING the Mun at
+# ~139.6 km, the Parsek-stripped derivative of `mun-orbit-recorded` (no `Parsek/`
+# directory, no committed tree - test_b30_mun_minmus pins the strip byte-level), so a
+# seam `StartRecording` opens a fresh standalone tree on it. `B30-mun-minmus-transfer`
+# started its recording through the seam on this exact fixture and flew green
+# (2026-08-24_1536), on stock-minimal. It has NEVER been booted on modded-compat
+# (Kopernicus, ReStock, Waterfall present); a load failure there is a driver INVALID,
+# never a Parsek verdict.
+#
+# ARCHIVE PRIORS (corroboration only, never the reading - wave ruling G1). Across the
+# 508 collected KSP.logs: the zeroed line appears 11 times, every one of them
+# `ComputeApproachAltitude(Kerbin): ... using stock 120000m` on the DEV instance (which
+# carries BTW); no airless body has ever printed it. The reseed line reads
+# `body=Mun, aboveThreshold=True ..., threshold=25000m` 123 times on stock builds, so
+# the Mun's stock [4] is 25000 m. The radius fallback (Radius x 0.15 clamped to
+# [5000, 200000]) would give 30000 m for the 200 km Mun.
+#
+# THREE OUTCOMES, PRE-REGISTERED so the reading is diagnosed rather than re-argued.
+# Read them off the run's own KSP.log (the zeroed line is MEASURED, not required):
+#   (A) EXPECTED. `ComputeApproachAltitude(Mun): live limit zeroed by a warp mod;
+#       using stock 25000m` present (>= 1) AND the Mun reseed line reads
+#       `threshold=25000m`. BTW zeroed the Mun's live [4], the snapshot recovered the
+#       stock value, and the recorder consumed it. Arming then pins the zeroed line
+#       and the reseed threshold as literals, the capture body count and the recording
+#       count from the bytes, and the lane takes its negative control.
+#   (B) The zeroed line ABSENT, the reseed line `threshold=25000m`. BTW did not zero
+#       the Mun's [4] on this install (it leaves it, or writes a positive value), so
+#       this body cannot discriminate the mod. Not a Parsek defect; the cell needs a
+#       supervisor decision (the Kerbin fallback is honest only as "snapshot
+#       recovery, value discarded").
+#   (C) The zeroed line ABSENT, the reseed line `threshold=30000m`. The live [4] was
+#       zeroed and the snapshot did NOT resolve the Mun, so the recorder fell back to
+#       the radius value: the pre-hardening behavior `StockWarpAltitudeLimits` exists
+#       to prevent. A PARSEK FINDING (file it; do not arm). The reading still reads
+#       PASS by construction, because the reseed token below is a regex over the
+#       threshold - which is exactly why this outcome is written down here.
+#   Anything else (a different threshold, the reseed line missing, a zeroed line for
+#   a body other than the Mun) is reported from the bytes before any edit.
+#
+# THE READING: `2026-09-10_2025_MC-3-better-time-warp` (wave package A2), the first
+# flight, on modded-compat re-provisioned to the wave DLL a0abbed1 after MC-1 (`_2021`)
+# and MC-2 (`_2023`) re-flew green on it as controls. PASS attempt 1, wall 53 s.
+# OUTCOME (A), measured: the zeroed line printed once,
+#     ComputeApproachAltitude(Mun): live limit zeroed by a warp mod; using stock 25000m
+# (the run's only ComputeApproachAltitude line), and the Mun reseed read
+#     aboveThreshold=True (was False), threshold=25000m, alt=139585m
+# twice, each beside `Boundary detection initialized: body=Mun ... altThreshold=25000m`.
+# The capture line read `for 17 bodies (reason=OnPSystemReady)` (the same 17 as
+# stock-minimal); `BetterTimeWarpContinued` V2.3.14 loaded. The recording count was 1:
+# one committed tree, one Orbiting recording at 1 point, kept. The reseed and boundary
+# lines print TWICE because the committed tree is re-adopted 0.003 s after
+# `committree committed=true` (the known CommitTree re-adoption trap:
+# `TryTakeCommittedTreeForSpawnedVesselRestore copy-on-write`, then a second
+# `Recording started ... promotion`); the zeroed line prints ONCE because it is
+# rate-limited by body. The pins below are presence regexes, so neither count is pinned.
+# Zero `[Parsek][ERROR]`; the one Unity NRE is stock `CrewHatchController.OnDestroy`
+# after `Application.Quit`, no Parsek frame.
+#
+# THE ARMED RE-FLIGHT: `2026-09-10_2208_MC-3-better-time-warp`, modded-compat, wave DLL
+# a0abbed1, the spec as committed. PASS attempt 1, wall 68 s, no mismatch, count 1. The
+# same lines at the same counts: the zeroed line once, the Mun reseed
+# `threshold=25000m, alt=139585m` twice, the capture line `17 bodies` once, zero
+# `[Parsek][ERROR]`, zero Unity exceptions. Structure and points identical to the
+# reading (one tree, one 1-point Orbiting recording).
+#
+# THE NEGATIVE CONTROL (the mirror direction): `2026-09-10_2213_MC-3-better-time-warp`,
+# this spec flown with `instanceProfile` edited in place to "stock-minimal"
+# (uncommitted, reverted with `git checkout`, tree clean). There is no BTW there, and it
+# red PARSEK-FAIL(expectation), attempt 1, wall 47 s, on EXACTLY ONE unmet token:
+#     logContracts.required not matched: ComputeApproachAltitude\(Mun\): live limit
+#     zeroed by a warp mod; using stock 25000m
+# The capture line (`17 bodies`), the Mun reseed line and S0.6's markers stayed met;
+# count 1. DRIFT GATE in the control's own KSP.log: the reseed regex
+# `Altitude state reseeded: body=Mun, aboveThreshold=True \(was False\), threshold=25000m`
+# matched 2 lines and `live limit zeroed by a warp mod` matched 0, with no
+# BetterTimeWarp line at all. So the subject recorded on the Mun at 25000 m on both
+# instances (stock-minimal's live [4] is already positive), and only the zeroed-limit
+# line tells them apart: that literal is the gate. Shape note, not gated: the control
+# printed `Recording stopped` twice (the second at quit, 0 points) where the armed run
+# printed it once; the token is presence-only.
+#
+# NOT H-SERIES, same reason as MC-1: the H7+ wiring group pins a stock-fixture skip
+# floor this instance does not share. THE TIER STAYS operator: a nightly slot beside
+# MC-1 / MC-2 is the operator's cadence call, reported rather than taken here.
+description = "Seam StartRecording/StopRecording/CommitTree on the Parsek-stripped Mun-orbit Kerbal X (mun-park-kerbalx) on the modded-compat instance, where BetterTimeWarp zeroes the live timeWarpAltitudeLimits[4]: reads whether Parsek's stock snapshot recovers the Mun's approach altitude and the recorder consumes it as its airless-body split threshold. Read 2026-09-10 on the pre-registered outcome (A), run 2026-09-10_2025, pinned from those bytes, then armed (re-flight 2026-09-10_2208 PASS) and controlled (stock-minimal negative control 2026-09-10_2213 red on exactly the zeroed-limit token); claims D17 better-time-warp."
+instanceProfile = "modded-compat"
+tags = ["modded-compat", "R14", "better-time-warp", "live-recording", "MC-3"]
+
+[dimensionsCovered]
+# D17 better-time-warp, CLAIMED 2026-09-11 (wave package A2) after the armed re-flight
+# `2026-09-10_2208` and the negative control `2026-09-10_2213` (wave ruling G4). GATING
+# TOKEN: the required literal `ComputeApproachAltitude\(Mun\): live limit zeroed by a
+# warp mod; using stock 25000m`, which prints only when BetterTimeWarp has zeroed the
+# Mun's live timeWarpAltitudeLimits[4] and the stock snapshot recovered the value the
+# recorder then consumes as its airless-body threshold (the reseed token beside it); the
+# control proved it absent without the mod. No D14 row: the boot and scene facts are
+# MC-1 / MC-2's on this instance and B30's on this fixture, and re-declaring them gates
+# nothing new.
+D17 = ["better-time-warp"]
+
+[fixture]
+# The Parsek-stripped Mun park B30 flies (see the header). No injected recordings: the
+# count below starts from nothing, and nothing in the save is a committed tree the
+# restore path could resume.
+saveTemplate = "fixtures/saves/mun-park-kerbalx"
+injectedRecordings = "none"
+craft = []
+
+[driver]
+kind = "seam"
+# B30's scene-entry preamble on this same fixture (read B25's header: the
+# StopRecording/DiscardTree pair kills a promotion stub and is idempotent-OK on an
+# entry state that has none; the FIXTURE is what closes the committed-restore window),
+# then S0.6's record/commit tail. verboseLogging=true is LOAD-BEARING: both witness
+# lines are Verbose. A new step shape, derived from those two proven ones and never
+# flown as a whole; whether StartRecording reaches `ReseedAltitudeState` on this live
+# orbiting vessel is part of what the reading measures.
+steps = [
+  { cmd = "LoadGame",       args = { save = "${runSave}", name = "persistent" },   expect = "OK", budget = 300 },
+  { cmd = "StopRecording",                                                         expect = "OK" },
+  { cmd = "DiscardTree",                                                           expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "autoRecordOnLaunch", value = "false" }, expect = "OK" },
+  { cmd = "SetSetting",     args = { name = "verboseLogging",     value = "true" },  expect = "OK" },
+  { cmd = "StartRecording",                                                        expect = "OK" },
+  { cmd = "StopRecording",                                                         expect = "OK" },
+  { cmd = "CommitTree",                                                            expect = "OK" },
+  { cmd = "FlushAndQuit",                                                          expect = "OK" },
+]
+
+[expectations]
+# PLACEMENT IS LOAD-BEARING (see S0.6): this table stays ahead of the sub-tables.
+allowedAnomalies = []
+
+[expectations.recordings]
+# PINNED 2026-09-10 from the reading `2026-09-10_2025`: one live vessel, one standalone
+# tree, ONE recording, kept at 1 point (the reading shape admitted 0 for S0.6's
+# under-2-points drop; the bytes show the recording is kept). Exact: nothing else in the
+# save is recorded, and the post-commit re-adoption commits no second recording.
+count = { min = 1, max = 1 }
+
+[expectations.logContracts]
+# PINNED 2026-09-10 FROM THE READING `2026-09-10_2025` (outcome A): literals, except the
+# genuinely per-run `alt=` value.
+#  1. The snapshot ran at boot (Info, `StockWarpAltitudeLimits.CaptureFromBodies`): 17
+#     bodies, reason OnPSystemReady, as measured here and on stock-minimal.
+#  2. THE DISCRIMINATING WITNESS (Verbose, rate-limited by body): BetterTimeWarp zeroed
+#     the Mun's live `timeWarpAltitudeLimits[4]` and the snapshot recovered the stock
+#     25000 m. It cannot print on stock-minimal: the negative control's inversion.
+#  3. The recorder CONSUMED that value on the Mun at recording start (Verbose,
+#     `ReseedAltitudeState`): 25000 m, not outcome (C)'s 30000 m radius fallback.
+#     `(was False)` is the fresh recorder's initial state.
+#  4-6. S0.6's record/commit markers.
+required  = [
+  "\\[StockWarpLimits\\] captured stock timeWarpAltitudeLimits for 17 bodies \\(reason=OnPSystemReady\\)",
+  "ComputeApproachAltitude\\(Mun\\): live limit zeroed by a warp mod; using stock 25000m",
+  "Altitude state reseeded: body=Mun, aboveThreshold=True \\(was False\\), threshold=25000m, alt=[0-9]+m",
+  "Recording started",
+  "Recording stopped",
+  "committree committed=true",
+]
+forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
+
+[runtime]
+# S0.6's budget arithmetic: 300 LoadGame + 180 StartRecording scene-wait ceiling + the
+# fast non-deferred verbs + margin.
+budgetSeconds = 600
+
+[retry]
+policy = "once"
+
+[expectedFail]
+bugId = ""

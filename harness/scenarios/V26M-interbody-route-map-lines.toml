@@ -518,7 +518,22 @@ routeLineBuilds = { min = 2 }
 routeCoDrawViolations = { max = 0 }
 
 [expectations.routes]
-# M-C2 save-parse, DECLARED REPORT-ONLY: `gating` IS DELIBERATELY OMITTED. The
+# ARMED 2026-09-11 (`gating = true`, wave package A2) off the reading run
+# `2026-09-10_2151_V26M-interbody-route-map-lines` (stock-minimal, wave DLL a0abbed1,
+# PASS attempt 1, wall 60 s): all twelve leaves read exactly as declared and identical
+# to B32's same-day reading, key for key, so the arming moved NO number; the
+# report-only wording below is the authoring record. The same run flew the
+# renderComposition block above ARMED (gating PASS, routeLineBuilds=2,
+# routeCoDrawViolations=0, no mismatch). ARMED RE-FLIGHT
+# `2026-09-11_0201_V26M-interbody-route-map-lines` (same DLL, the wave's make-up
+# round): PASS attempt 1, saveParse gating PASS on ['routes'] with every routes facet
+# but the per-run ids identical to the reading, renderComposition gating PASS, no
+# mismatch. Its group windows share B32's evaluator paths, whose two negative controls
+# red on exactly their leaf (`2026-09-11_0206` connectionKinds, `_0209`
+# destinationBodies). Still owed, outside this block: the renderComposition negative
+# control.
+#
+# (authoring record) M-C2 save-parse, DECLARED REPORT-ONLY: `gating` IS DELIBERATELY OMITTED. The
 # windows below were written from the fixture's committed bytes and are now
 # CORROBORATED by two runs' produced saves, but arming stays a separate operator
 # decision taken deliberately (`ARMED_ALLOWLIST` /
@@ -529,6 +544,7 @@ routeCoDrawViolations = { max = 0 }
 # reads, and
 # `RouteFacetFixtureAgreementTests.test_the_interbody_fixture_is_the_corpus_only_cross_body_route`
 # pins that this is the only committed fixture where they differ.
+gating = true
 count = { min = 2, max = 2 }
 dormant = { max = 0 }
 stops = { min = 2, max = 2 }
