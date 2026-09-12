@@ -19,7 +19,7 @@ The generated views live in `docs/dev/arch/` and are committed:
 | File | View |
 | --- | --- |
 | `edges.json` | The module data: file counts and metrics, and every module edge with weight, `cyclic` and `upward` flags, referencing files and referenced type names. |
-| `types.json` | The type data: name, module, file, kind, modifiers, bases, enclosing, role, level, fan-in, fan-out, references to and references from. |
+| `types.json` | The type data: name, module, file, kind, modifiers, bases, enclosing, role, level, knot, sublevel, fan-in, fan-out, references to and references from. |
 | `modules.dot`, `modules.svg` | Graphviz layered dependency graph of the production modules. |
 | `matrix.html` | Dependency structure matrix. |
 | `explore.html` | Interactive neighbourhood explorer. |
@@ -92,11 +92,12 @@ ambiguous, every upward edge (a more stable module depending on a less stable
 one), every two-way coupling between production modules with both weights, the
 25 types with the highest file-based fan-in, the count per type role with three
 example names, the per-module level profile (type count per level, plus the
-module's and the overall max level), and every `[forbidden]` edge that exists
-with its weight, referenced types and referencing files. When `[allowed]` is
-non-empty it also lists every production edge not in that list; while
-`[allowed]` is empty that section is skipped. The last line is always
-`ARCH-CHECK report-only`.
+module's and the overall max level), every knot with its size and module
+breakdown followed by the largest knot's hubs and greedy cut sequence, and
+every `[forbidden]` edge that exists with its weight, referenced types and
+referencing files. When `[allowed]` is non-empty it also lists every production
+edge not in that list; while `[allowed]` is empty that section is skipped. The
+last line is always `ARCH-CHECK report-only`.
 
 ## Reading the views
 
@@ -150,7 +151,9 @@ references in `types.json`; level 0 means the type references no in-repo type.
 Cycles are condensed first, so every member of a cycle shares one level. A
 level is a property of the dependency chain, not a quality judgment: the
 logging core and the stores sit high because everything lines up underneath
-them, not because they are more abstract in the usual sense.
+them, not because they are more abstract in the usual sense. When a whole knot
+sits at one level, that level's row is split into sub-rows (see "Knots"
+below).
 
 A **role** is one letter in the chip glyph, assigned by the first matching
 rule:
@@ -184,6 +187,47 @@ logic. A third, rarer one: the entry-point attribute window is a plain 300
 character lookback, so a type declared just after an attributed type (a nested
 enum near the top of an attributed class, for example) can be tagged `entry`
 without carrying the attribute itself.
+
+## Knots
+
+A **knot** is a strongly connected component of the type graph with more than
+one member: a group of types that reach one another in a cycle, directly or
+through other members. Longest-path levelling condenses a cycle to one level,
+so the kernel's 392-type knot collapses into a single ladder row and only the
+types above it (levels 8 to 11 here, mostly patches and harness entry points)
+rise above. A knot is why that row is flat: the levelling cannot order types
+that depend on each other.
+
+`types.json` records this per type: `knot` is the 1-based index of the type's
+component in largest-first order, or null outside a knot, and `sublevel` is
+that type's position inside the knot's cut order (again null outside). On the
+current tree the knots are one of 392, then of 19, 4, 3 and 2.
+
+`--check` first lists every knot with its size and module breakdown, then for
+the largest knot it shows the hubs (the members other members reference most,
+with their in-knot references) and a **greedy cut sequence**: each step picks
+the sink whose outgoing references, when removed, break the knot the most, and
+reports the references that were dropped. `392 -> cut ParsekLog -> 335` means
+removing `ParsekLog`'s two references inside the knot (`ParsekSettings` and
+`RecorderStateSnapshot`) splits off 57 members. The first rows are cheap
+inversions: one or two references between hubs hold whole regions together, and
+those are the references a refactor should look at first. Later rows are design
+work: the remaining knot is held together by many small references, and the
+named sink usually needs a new abstraction (an interface, a data boundary)
+rather than moved edges. The table is a research list, not a verdict - the tool
+never says a reference is wrong, only that it holds a cycle together. Nothing
+in this phase changes any dependency; it reports them.
+
+`ladder.html` shows the same information in place. The row of a knot level is
+split into sub-rows, top to bottom by descending sublevel (level 0 of the knot
+at the bottom, so the bottom-up reading still holds), grouped by a brown
+bracket labeled `knot N (size)`. A chip marked `X` is a sink from the cut
+sequence; hover it to see the references it drops.
+
+Sub-levels are a display order only: the cuts remove references from the
+levelling used to draw the knot, nothing else. Levels of types outside the
+knot do not change (the cut is a display device for ordering inside the knot,
+not a claim about the code).
 
 ## Editing `modules.toml`
 

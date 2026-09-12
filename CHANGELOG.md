@@ -38,7 +38,15 @@ _(unreleased — entries accumulate here per commit)_
   references and what references it. Roles are heuristics over the same text scan
   (entry point, interface, abstract, enum, static, implements, data, service), and
   the report also prints the 25 most-referenced types, the count per role, and a
-  per-module level profile. No player-visible behavior changes.
+  per-module level profile.
+
+  The ladder now also explains why its biggest row is flat: the 392 types that
+  reference one another in a cycle (a "knot") are reported with their size and
+  module mix, the hub types holding each one together, and a greedy cut sequence
+  that names the few references worth untangling first, while the knot's ladder
+  row is split into ordered sub-rows with the cut sinks marked. Nothing about the
+  code changes; the cuts are a display order for the view. No player-visible
+  behavior changes.
 
 ### Changed
 

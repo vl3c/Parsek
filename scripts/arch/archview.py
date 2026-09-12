@@ -18,8 +18,9 @@ docs/dev/arch/README.md.
 
 Every decision function here (assign_module, strip_comments_and_strings,
 declared_types, references, metrics, sccs, type_declarations, type_references,
-type_role, type_levels, type_fanin) is pure: it takes data and returns data,
-and performs no I/O, so the unit tests can drive it directly.
+type_role, type_levels, type_fanin, knots, knot_hubs, greedy_sink_cuts,
+sublevels) is pure: it takes data and returns data, and performs no I/O, so the
+unit tests can drive it directly.
 """
 
 from __future__ import annotations
@@ -721,6 +722,149 @@ def type_fanin(name, file_references, declaring_files):
     )
 
 
+def knots(type_graph, type_modules):
+    """Return every strongly connected component of size 2 or more, largest first.
+
+    Each entry is {members, size, modules}: `members` are the sorted type
+    names in the component and `modules` counts members per module. A knot is
+    where longest-path levelling collapses, because every member shares one
+    level.
+    """
+    nodes = sorted(type_graph)
+    edges = [
+        (name, target)
+        for name in nodes
+        for target in type_graph[name]
+        if target in type_graph and target != name
+    ]
+    components = [sorted(component) for component in sccs(nodes, edges) if len(component) >= 2]
+    components.sort(key=lambda members: (-len(members), members[0]))
+    result = []
+    for members in components:
+        counts = defaultdict(int)
+        for name in members:
+            counts[type_modules.get(name, "?")] += 1
+        result.append(
+            {
+                "members": members,
+                "size": len(members),
+                "modules": {module: counts[module] for module in sorted(counts)},
+            }
+        )
+    return result
+
+
+def knot_hubs(component, type_graph):
+    """Return one knot's members as hubs: in-knot fan-in, then in-knot references.
+
+    Fan-in counts only OTHER members of the component, so a popular type that
+    the rest of the codebase uses but the knot itself does not is not a hub.
+    Rows are sorted by fan-in descending, name ascending.
+    """
+    member_set = set(component)
+    fan_in = {name: 0 for name in component}
+    references = {name: [] for name in component}
+    for name in component:
+        for target in type_graph.get(name, ()):
+            if target in member_set and target != name:
+                references[name].append(target)
+                fan_in[target] += 1
+    hubs = [
+        {"name": name, "fanIn": fan_in[name], "references": sorted(references[name])}
+        for name in component
+    ]
+    hubs.sort(key=lambda hub: (-hub["fanIn"], hub["name"]))
+    return hubs
+
+
+def greedy_sink_cuts(component, type_graph, max_steps=12, candidates=12):
+    """Cut one knot apart by removing the outgoing edges of chosen sink types.
+
+    At each step, among the `candidates` members of the current largest
+    component with the highest in-knot fan-in, the sink whose outgoing in-knot
+    edges leave the smallest largest component wins (ties by name). Those
+    edges are removed for good and the step is recorded. The sequence stops
+    after the cut that leaves the largest remaining component below 30 (so a
+    knot that starts small still gets its first cut), or after `max_steps`
+    steps.
+    """
+    members = sorted(component)
+    member_set = set(members)
+    edges = {
+        (name, target)
+        for name in members
+        for target in type_graph.get(name, ())
+        if target in member_set and target != name
+    }
+    cuts = []
+    while len(cuts) < max_steps:
+        components = [part for part in sccs(members, edges) if len(part) >= 2]
+        components.sort(key=lambda part: (-len(part), sorted(part)[0]))
+        if not components:
+            break
+        largest = components[0]
+        size_before = len(largest)
+        largest_set = set(largest)
+        fan_in = {name: 0 for name in largest}
+        for frm, to in edges:
+            if frm in largest_set and to in largest_set:
+                fan_in[to] += 1
+        ranked = sorted(largest, key=lambda name: (-fan_in[name], name))[:candidates]
+
+        best_name = None
+        best_key = None
+        best_outgoing = None
+        for name in ranked:
+            outgoing = {(frm, to) for (frm, to) in edges if frm == name and to in largest_set}
+            trial = edges - outgoing
+            after = max((len(part) for part in sccs(members, trial)), default=0)
+            key = (after, name)
+            if best_key is None or key < best_key:
+                best_name, best_key, best_outgoing = name, key, outgoing
+        size_after = best_key[0]
+        dropped = sorted(target for (_frm, target) in best_outgoing)
+        edges -= best_outgoing
+        cuts.append(
+            {
+                "step": len(cuts) + 1,
+                "sink": best_name,
+                "sizeBefore": size_before,
+                "sizeAfter": size_after,
+                "droppedReferences": dropped,
+            }
+        )
+        # The size stop applies once a cut has happened: a 30-member remainder
+        # is small enough that further nibbling reorders nothing useful, while
+        # a knot that starts small still gets its one cut so the sublevels
+        # inside it have an order at all.
+        if size_after < 30:
+            break
+    return cuts
+
+
+def sublevels(component, type_graph, cuts):
+    """Return {member: sublevel} after the cut sequence's edges are removed.
+
+    The cut is a display device: it only removes the outgoing edges of the
+    sinks named by `cuts`, then runs the ordinary longest-path levelling over
+    what is left of the component. Members still inside a residual cycle share
+    a sublevel, exactly as they shared a level before.
+    """
+    member_set = set(component)
+    removed = {
+        (cut["sink"], target) for cut in cuts for target in cut["droppedReferences"]
+    }
+    subgraph = {
+        name: [
+            target
+            for target in type_graph.get(name, ())
+            if target in member_set and target != name and (name, target) not in removed
+        ]
+        for name in component
+    }
+    return type_levels(subgraph)
+
+
 # ---------------------------------------------------------------------------
 # extraction shell
 # ---------------------------------------------------------------------------
@@ -878,6 +1022,22 @@ def build_model(source_root, rules, tooling):
         for target in refs:
             reverse_references[target].add(name)
 
+    # Knots: the SCCs of size 2+ where the level collapses. Each knot gets a
+    # 1-based index in largest-first order, a greedy cut sequence, and a
+    # sublevel per member (the ordinary levelling after the cut edges are
+    # removed) so the ladder can order the inside of the knot.
+    type_modules_map = {name: first_declaration[name][0] for name in graph_names}
+    knot_list = knots(type_graph, type_modules_map)
+    knot_of = {}
+    sublevel_of = {}
+    for index, knot in enumerate(knot_list, 1):
+        knot["index"] = index
+        cuts = greedy_sink_cuts(knot["members"], type_graph)
+        knot["cuts"] = cuts
+        for name, level in sublevels(knot["members"], type_graph, cuts).items():
+            knot_of[name] = index
+            sublevel_of[name] = level
+
     types = []
     for name in sorted(graph_names, key=lambda n: (first_declaration[n][0], n)):
         module, rel_path, declaration = first_declaration[name]
@@ -908,6 +1068,8 @@ def build_model(source_root, rules, tooling):
                 "enclosing": declaration["enclosing"],
                 "role": type_role(role_declaration),
                 "level": type_level[name],
+                "knot": knot_of.get(name),
+                "sublevel": sublevel_of.get(name),
                 "fanIn": type_fanin(name, file_references, declaring_files[name]),
                 "fanOut": len(type_graph[name]),
                 "referencesTo": type_graph[name],
@@ -929,6 +1091,7 @@ def build_model(source_root, rules, tooling):
         "ambiguousTypes": ambiguous,
         "types": types,
         "typeLevels": levels_payload,
+        "knots": knot_list,
     }
 
 
@@ -1526,6 +1689,12 @@ td.cell.expanded .more { display: none; }
 .chip.hl-down { border-color: #2e5e9c; box-shadow: 0 0 0 2px rgba(46,94,156,0.35); }
 .chip.hl-up { border-color: #b45309; box-shadow: 0 0 0 2px rgba(180,83,9,0.35); }
 .chip.hl-self { border-color: #e8810c; box-shadow: 0 0 0 3px rgba(232,129,12,0.45); }
+tr.knot-row > :first-child { border-left: 3px solid #b45309; }
+tr.knot-row td { background: #fffaf3; }
+th.lvl.knot { vertical-align: top; }
+th.lvl.knot .knotlabel { display: block; color: #b45309; font-weight: 400; font-size: 9px; }
+.xmark { display: inline-block; margin-left: 3px; padding: 0 2px; border: 1px solid #b45309;
+  border-radius: 3px; color: #b45309; font-size: 8px; font-weight: 700; cursor: help; }
 .legend .chip { cursor: default; }
 </style>
 </head>
@@ -1544,7 +1713,9 @@ td.cell.expanded .more { display: none; }
         <span class="chip role-D"><span class="glyph">D</span>data</span>
         <span class="chip role-C"><span class="glyph">C</span>service</span>
       </span>
-      <span class="legend">rows: level (top = most abstract), chip number = fan-in in files</span>
+      <span class="legend"><span class="xmark">X</span> cut sink (hover for the references it drops)</span>
+      <span class="legend">rows: level (top = most abstract); a knot is split into sub-rows,
+        top = higher sublevel</span>
     </div>
     <div id="board"><table class="ladder" id="ladder"></table></div>
   </div>
@@ -1561,12 +1732,20 @@ const DATA = @@DATA@@;
 const MODULES = DATA.modules;
 const TYPES = DATA.types;
 const MAX_LEVEL = DATA.maxLevel;
+const KNOTS = DATA.knots || [];
 const ROLE_LETTER = { entry: "E", interface: "I", abstract: "A", enum: "N", "static": "S",
   implements: "M", data: "D", service: "C" };
 const COLLAPSE_AT = 12;
 
 const BY_NAME = {};
 TYPES.forEach(function (t) { BY_NAME[t.name] = t; });
+
+// Sink types from each knot's greedy cut sequence, so a chip can carry the X
+// marker and say what it drops.
+const SINK_DROPS = {};
+KNOTS.forEach(function (knot) {
+  Object.keys(knot.sinks || {}).forEach(function (name) { SINK_DROPS[name] = knot.sinks[name]; });
+});
 
 let selected = null;
 let filter = "";
@@ -1577,16 +1756,59 @@ function esc(s) {
 
 function chipHtml(type, hidden) {
   const letter = ROLE_LETTER[type.role];
+  let marker = "";
+  if (SINK_DROPS[type.name]) {
+    marker = '<span class="xmark" title="cut sink; drops: ' +
+      esc(SINK_DROPS[type.name].join(", ")) + '">X</span>';
+  }
   return '<span class="chip role-' + letter + (hidden ? " chip-hidden" : "") +
     '" data-name="' + esc(type.name) + '"><span class="glyph">' + letter + "</span>" +
-    esc(type.name) + '<span class="fi">' + type.fanIn + "</span></span>";
+    esc(type.name) + '<span class="fi">' + type.fanIn + "</span>" + marker + "</span>";
+}
+
+function cellHtml(cells, module, level, knot, sub) {
+  const knotPart = knot === null || knot === undefined ? "" : knot;
+  const subPart = sub === null || sub === undefined ? "" : sub;
+  const key = module + "\\u0000" + level + "\\u0000" + knotPart + "\\u0000" + subPart;
+  const list = (cells[key] || []).slice().sort(function (a, b) {
+    return b.fanIn - a.fanIn || (a.name < b.name ? -1 : 1);
+  });
+  let cell = '<td class="cell">';
+  list.forEach(function (t, i) { cell += chipHtml(t, i >= COLLAPSE_AT); });
+  if (list.length > COLLAPSE_AT) {
+    cell += '<span class="more">+' + (list.length - COLLAPSE_AT) + " more</span>";
+  }
+  return cell + "</td>";
+}
+
+function rowHtml(cells, level, knot, sub, rowspan) {
+  let html = '<tr class="' + (knot ? "knot-row" : "") + '">';
+  if (knot) {
+    if (rowspan) {
+      html += '<th class="lvl knot" rowspan="' + rowspan + '">L' + level +
+        '<span class="knotlabel">knot ' + knot.index + " (" + knot.size + ")</span></th>";
+    }
+  } else {
+    html += '<th class="lvl">L' + level + "</th>";
+  }
+  MODULES.forEach(function (m) {
+    html += cellHtml(cells, m.name, level, knot ? knot.index : null, sub);
+  });
+  return html + "</tr>";
 }
 
 function buildTable() {
   const cells = {};
+  const knotSubs = {};
   TYPES.forEach(function (t) {
-    const key = t.module + "\\u0000" + t.level;
+    const knotPart = t.knot === null || t.knot === undefined ? "" : t.knot;
+    const subPart = t.sublevel === null || t.sublevel === undefined ? "" : t.sublevel;
+    const key = t.module + "\\u0000" + t.level + "\\u0000" + knotPart + "\\u0000" + subPart;
     (cells[key] = cells[key] || []).push(t);
+    if (knotPart !== "") {
+      const levelKey = knotPart + "\\u0000" + t.level;
+      (knotSubs[levelKey] = knotSubs[levelKey] || {})[subPart] = true;
+    }
   });
   let html = '<thead><tr><th class="lvl corner">level</th>';
   MODULES.forEach(function (m) {
@@ -1595,19 +1817,15 @@ function buildTable() {
   });
   html += "</tr></thead><tbody>";
   for (let level = MAX_LEVEL; level >= 0; level--) {
-    html += '<tr><th class="lvl">L' + level + "</th>";
-    MODULES.forEach(function (m) {
-      const list = (cells[m.name + "\\u0000" + level] || []).slice().sort(function (a, b) {
-        return b.fanIn - a.fanIn || (a.name < b.name ? -1 : 1);
+    html += rowHtml(cells, level, null, null, null);
+    KNOTS.forEach(function (knot) {
+      const subs = Object.keys(knotSubs[knot.index + "\\u0000" + level] || {});
+      if (!subs.length) return;
+      subs.sort(function (a, b) { return Number(b) - Number(a); });
+      subs.forEach(function (sub, i) {
+        html += rowHtml(cells, level, knot, Number(sub), i === 0 ? subs.length : null);
       });
-      let cell = '<td class="cell">';
-      list.forEach(function (t, i) { cell += chipHtml(t, i >= COLLAPSE_AT); });
-      if (list.length > COLLAPSE_AT) {
-        cell += '<span class="more">+' + (list.length - COLLAPSE_AT) + " more</span>";
-      }
-      html += cell + "</td>";
     });
-    html += "</tr>";
   }
   document.getElementById("ladder").innerHTML = html + "</tbody>";
 }
@@ -1724,6 +1942,14 @@ def render_ladder_html(model):
         ],
         "types": model.get("types", []),
         "maxLevel": model.get("typeLevels", {}).get("max", 0),
+        "knots": [
+            {
+                "index": knot["index"],
+                "size": knot["size"],
+                "sinks": {cut["sink"]: cut["droppedReferences"] for cut in knot["cuts"]},
+            }
+            for knot in model.get("knots", [])
+        ],
     }
     data = json.dumps(payload, ensure_ascii=True, separators=(",", ":")).replace("</", "<\\/")
     return LADDER_TEMPLATE.replace("@@DATA@@", data)
@@ -1889,6 +2115,45 @@ def run_check(model, forbidden, allowed):
         print("  %-13s %4d types  %-42s max level=%d" % (module, total, levels_text, max_level))
     if profile:
         print("  Overall max level: %d" % overall)
+
+    knot_list = model.get("knots", [])
+    print()
+    print("KNOTS (strongly connected components of size 2 or more):")
+    if not knot_list:
+        print("  none.")
+    for knot in knot_list[:10]:
+        breakdown = ", ".join(
+            "%s=%d" % (module, count)
+            for module, count in sorted(knot["modules"].items(), key=lambda item: (-item[1], item[0]))
+        )
+        print("  size=%-4d %s" % (knot["size"], breakdown))
+    if len(knot_list) > 10:
+        print("  +%d more knots (total %d)." % (len(knot_list) - 10, len(knot_list)))
+    if knot_list:
+        type_graph = {entry["name"]: entry["referencesTo"] for entry in model.get("types", [])}
+        largest = knot_list[0]
+        print("Largest knot hubs (top 15 by in-knot fan-in):")
+        hubs = knot_hubs(largest["members"], type_graph)[:15]
+        if not hubs:
+            print("  none.")
+        for hub in hubs:
+            refs = ", ".join(hub["references"][:8])
+            if len(hub["references"]) > 8:
+                refs += " +%d" % (len(hub["references"]) - 8)
+            print("  %-28s in-knot fan-in=%-4d -> %s" % (hub["name"], hub["fanIn"], refs or "none"))
+        print("Greedy sink cuts (largest knot):")
+        if not largest["cuts"]:
+            print("  none.")
+        for cut in largest["cuts"]:
+            print(
+                "  %d -> cut %s -> %d (drops: %s)"
+                % (
+                    cut["sizeBefore"],
+                    cut["sink"],
+                    cut["sizeAfter"],
+                    ", ".join(cut["droppedReferences"]),
+                )
+            )
 
     lookup = {(e["from"], e["to"]): e for e in model["edges"]}
     print()

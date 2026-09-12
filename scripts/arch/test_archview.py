@@ -301,6 +301,142 @@ class TypeFanInTests(unittest.TestCase):
         self.assertEqual(archview.type_fanin("BarThing", file_references, set()), 1)
 
 
+class KnotTests(unittest.TestCase):
+    def test_two_cycles_and_a_chain_largest_first(self):
+        graph = {
+            "AOne": ["ATwo"],
+            "ATwo": ["AOne", "DOne"],
+            "BOne": ["BTwo", "BThree"],
+            "BTwo": ["BOne"],
+            "BThree": ["BTwo"],
+            "DOne": ["DTwo"],
+            "DTwo": [],
+        }
+        modules = {
+            "AOne": "ModA",
+            "ATwo": "ModA",
+            "BOne": "ModB",
+            "BTwo": "ModB",
+            "BThree": "ModB",
+            "DOne": "ModD",
+            "DTwo": "ModD",
+        }
+        result = archview.knots(graph, modules)
+        self.assertEqual([knot["size"] for knot in result], [3, 2])
+        self.assertEqual(result[0]["members"], ["BOne", "BThree", "BTwo"])
+        self.assertEqual(result[0]["modules"], {"ModB": 3})
+        self.assertEqual(result[1]["members"], ["AOne", "ATwo"])
+        self.assertEqual(result[1]["modules"], {"ModA": 2})
+
+    def test_dag_has_no_knots(self):
+        graph = {"AOne": ["BTwo"], "BTwo": ["CThree"], "CThree": []}
+        self.assertEqual(archview.knots(graph, {"AOne": "M", "BTwo": "M", "CThree": "M"}), [])
+
+
+class KnotHubTests(unittest.TestCase):
+    def test_outside_referrer_does_not_count(self):
+        graph = {
+            "InsideOne": ["InsideTwo"],
+            "InsideTwo": ["InsideOne", "Outside"],
+            "Outside": ["InsideOne"],
+        }
+        hubs = archview.knot_hubs(["InsideOne", "InsideTwo"], graph)
+        by_name = {hub["name"]: hub for hub in hubs}
+        self.assertEqual(by_name["InsideOne"]["fanIn"], 1)
+        self.assertEqual(by_name["InsideTwo"]["fanIn"], 1)
+        self.assertEqual(by_name["InsideTwo"]["references"], ["InsideOne"])
+
+    def test_hubs_sorted_by_fanin_then_name(self):
+        graph = {
+            "HubOne": ["HubTwo"],
+            "HubTwo": ["HubOne"],
+            "HubThree": ["HubOne", "HubTwo"],
+        }
+        hubs = archview.knot_hubs(["HubOne", "HubTwo", "HubThree"], graph)
+        self.assertEqual([hub["name"] for hub in hubs], ["HubOne", "HubTwo", "HubThree"])
+        self.assertEqual(hubs[0]["fanIn"], 2)
+
+
+class GreedySinkCutTests(unittest.TestCase):
+    @staticmethod
+    def _two_cycle_graph(alpha_names, beta_names):
+        """Two cycles joined by alpha[0] -> beta[0] and beta[-1] -> alpha[0]."""
+        graph = {}
+        for index, name in enumerate(alpha_names):
+            graph[name] = [alpha_names[(index + 1) % len(alpha_names)]]
+        for index, name in enumerate(beta_names):
+            graph[name] = [beta_names[(index + 1) % len(beta_names)]]
+        graph[alpha_names[0]].append(beta_names[0])
+        graph[beta_names[-1]].append(alpha_names[0])
+        return graph
+
+    def test_picks_the_sink_that_shrinks_the_component_most(self):
+        # ZSink sits in the 5-cycle, ASink in the 3-cycle. Both have equal
+        # in-knot fan-in, and only the size criterion can separate them: the
+        # cut that leaves the 3-cycle (ZSink, alphabetically last) wins.
+        graph = self._two_cycle_graph(
+            ["ZSink", "QOne", "QTwo", "QThree", "QFour"], ["ASink", "POne", "PTwo"]
+        )
+        component = sorted(graph)
+        cuts = archview.greedy_sink_cuts(component, graph)
+        self.assertEqual(cuts[0]["sink"], "ZSink")
+        self.assertEqual(cuts[0]["sizeBefore"], 8)
+        self.assertEqual(cuts[0]["sizeAfter"], 3)
+        self.assertEqual(cuts[0]["droppedReferences"], ["ASink", "QOne"])
+
+    def test_equal_result_ties_break_by_name(self):
+        graph = self._two_cycle_graph(
+            ["BetaSink", "XOne", "XTwo"], ["AlphaSink", "YOne", "YTwo"]
+        )
+        component = sorted(graph)
+        cuts = archview.greedy_sink_cuts(component, graph)
+        self.assertEqual(cuts[0]["sink"], "AlphaSink")
+        self.assertEqual(cuts[0]["sizeAfter"], 3)
+
+    def test_small_knot_stops_after_one_cut(self):
+        graph = {"AOne": ["BTwo"], "BTwo": ["CThree"], "CThree": ["DFour"], "DFour": ["AOne"]}
+        component = ["AOne", "BTwo", "CThree", "DFour"]
+        cuts = archview.greedy_sink_cuts(component, graph)
+        self.assertEqual(len(cuts), 1)
+        self.assertLess(cuts[0]["sizeAfter"], 30)
+
+    def test_max_steps_zero_returns_nothing(self):
+        graph = {"AOne": ["BTwo"], "BTwo": ["AOne"]}
+        self.assertEqual(archview.greedy_sink_cuts(["AOne", "BTwo"], graph, max_steps=0), [])
+
+
+class SublevelTests(unittest.TestCase):
+    def test_cutting_one_sink_turns_the_cycle_into_a_chain(self):
+        graph = {"AOne": ["BTwo"], "BTwo": ["CThree"], "CThree": ["DFour"], "DFour": ["AOne"]}
+        component = ["AOne", "BTwo", "CThree", "DFour"]
+        cuts = archview.greedy_sink_cuts(component, graph)
+        self.assertEqual(cuts[0]["sink"], "AOne")
+        sublevels = archview.sublevels(component, graph, cuts)
+        self.assertEqual(sublevels, {"AOne": 0, "DFour": 1, "CThree": 2, "BTwo": 3})
+
+    def test_residual_cycle_shares_a_sublevel(self):
+        graph = {
+            "SinkThing": ["LoopOne"],
+            "LoopOne": ["LoopTwo"],
+            "LoopTwo": ["LoopOne", "LeafThing"],
+            "LeafThing": ["SinkThing"],
+        }
+        component = sorted(graph)
+        cuts = [
+            {
+                "step": 1,
+                "sink": "SinkThing",
+                "sizeBefore": 4,
+                "sizeAfter": 3,
+                "droppedReferences": ["LoopOne"],
+            }
+        ]
+        sublevels = archview.sublevels(component, graph, cuts)
+        self.assertEqual(sublevels["LoopOne"], sublevels["LoopTwo"])
+        self.assertGreater(sublevels["LoopOne"], sublevels["LeafThing"])
+        self.assertEqual(sublevels["SinkThing"], 0)
+
+
 class LadderRenderTests(unittest.TestCase):
     def test_ladder_html_is_self_contained(self):
         model = {
@@ -540,6 +676,22 @@ class ModelWiringTests(unittest.TestCase):
         self.assertEqual(types["BigThing"]["role"], "entry")
         self.assertEqual(types["BigThing"]["bases"], ["MonoBehaviour"])
 
+    def test_types_carry_knot_and_sublevel(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            self._write(root, "One/A.cs", "class AlphaThing { BetaThing b; }")
+            self._write(root, "One/B.cs", "class BetaThing { AlphaThing a; }")
+            self._write(root, "One/C.cs", "class GammaThing { AlphaThing a; }")
+            model = archview.build_model(root, [{"name": "One", "folder": "One"}], set())
+        types = {t["name"]: t for t in model["types"]}
+        self.assertEqual(types["AlphaThing"]["knot"], 1)
+        self.assertEqual(types["BetaThing"]["knot"], 1)
+        self.assertIsNotNone(types["AlphaThing"]["sublevel"])
+        self.assertIsNone(types["GammaThing"]["knot"])
+        self.assertIsNone(types["GammaThing"]["sublevel"])
+        self.assertEqual(len(model["knots"]), 1)
+        self.assertEqual(model["knots"][0]["size"], 2)
+
 
 def _small_model():
     return {
@@ -709,6 +861,64 @@ class CheckerOutputTests(unittest.TestCase):
         self.assertLess(text.index("HUB TYPES"), text.index("Forbidden edges"))
         self.assertEqual(self._last_line(text), "ARCH-CHECK report-only")
 
+    def test_knot_section_reports_sizes_hubs_and_cuts(self):
+        def typed(name, refs):
+            return {
+                "name": name,
+                "module": "Alpha",
+                "file": "Alpha/A.cs",
+                "kind": "class",
+                "modifiers": [],
+                "bases": [],
+                "enclosing": None,
+                "role": "service",
+                "level": 1,
+                "knot": 1,
+                "sublevel": 0,
+                "fanIn": 1,
+                "fanOut": 1,
+                "referencesTo": refs,
+                "referencedBy": [],
+            }
+
+        model = {
+            "modules": [
+                {"name": "Alpha", "files": 1, "fanIn": 0, "fanOut": 0, "instability": 0.0, "tooling": False}
+            ],
+            "edges": [],
+            "unclassified": [],
+            "types": [typed("AlphaThing", ["BetaThing"]), typed("BetaThing", ["AlphaThing"])],
+            "typeLevels": {"max": 1, "histogram": {1: 2}},
+            "knots": [
+                {
+                    "index": 1,
+                    "members": ["AlphaThing", "BetaThing"],
+                    "size": 2,
+                    "modules": {"Alpha": 2},
+                    "cuts": [
+                        {
+                            "step": 1,
+                            "sink": "AlphaThing",
+                            "sizeBefore": 2,
+                            "sizeAfter": 1,
+                            "droppedReferences": ["BetaThing"],
+                        }
+                    ],
+                }
+            ],
+        }
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            archview.run_check(model, [], [])
+        text = captured.getvalue()
+        self.assertIn("KNOTS", text)
+        self.assertIn("size=2", text)
+        self.assertIn("Alpha=2", text)
+        self.assertIn("in-knot fan-in", text)
+        self.assertIn("2 -> cut AlphaThing -> 1 (drops: BetaThing)", text)
+        self.assertLess(text.index("KNOTS"), text.index("Forbidden edges"))
+        self.assertEqual(self._last_line(text), "ARCH-CHECK report-only")
+
 
 @unittest.skipUnless(REAL_SOURCE.is_dir(), "Source/Parsek is not present")
 class RealTreeSmokeTests(unittest.TestCase):
@@ -745,6 +955,26 @@ class RealTreeSmokeTests(unittest.TestCase):
     def test_every_type_has_a_level_and_max_is_at_least_four(self):
         self.assertTrue(all(isinstance(entry["level"], int) for entry in self.model["types"]))
         self.assertGreaterEqual(self.model["typeLevels"]["max"], 4)
+
+    def test_largest_knot_is_large_and_spans_modules(self):
+        largest = self.model["knots"][0]
+        self.assertGreater(largest["size"], 300)
+        self.assertGreater(len(largest["modules"]), 10)
+
+    def test_first_greedy_sink_is_parseklog(self):
+        self.assertEqual(self.model["knots"][0]["cuts"][0]["sink"], "ParsekLog")
+
+    def test_cut_sequence_halves_the_largest_knot(self):
+        largest = self.model["knots"][0]
+        self.assertLess(largest["cuts"][-1]["sizeAfter"], largest["size"] / 2)
+
+    def test_types_outside_a_knot_have_no_sublevel(self):
+        outside = [entry for entry in self.model["types"] if entry["knot"] is None]
+        self.assertTrue(outside)
+        self.assertTrue(all(entry["sublevel"] is None for entry in outside))
+        inside = [entry for entry in self.model["types"] if entry["knot"] is not None]
+        self.assertTrue(all(entry["knot"] >= 1 for entry in inside))
+        self.assertTrue(all(entry["sublevel"] is not None for entry in inside))
 
     def test_no_record_declarations_in_the_tree(self):
         # The literal `\brecord\b` grep would also match a local variable named
