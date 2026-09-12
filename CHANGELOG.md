@@ -10,7 +10,7 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
-- **Developer tooling: the source tree now has a module dependency map with three
+- **Developer tooling: the source tree now has a module dependency map with four
   ways to look at it, and a boundary check that reports without failing anything.**
   Parsek is a single assembly of roughly 750 files, and until now nothing showed how
   its parts depend on one another. `scripts/arch/archview.py` groups every file into
@@ -42,11 +42,11 @@ _(unreleased — entries accumulate here per commit)_
 
   The ladder now also explains why its biggest row is flat: the 392 types that
   reference one another in a cycle (a "knot") are reported with their size and
-  module mix, the hub types holding each one together, and a greedy cut sequence
-  that names the few references worth untangling first, while the knot's ladder
-  row is split into ordered sub-rows with the cut sinks marked. Nothing about the
-  code changes; the cuts are a display order for the view. No player-visible
-  behavior changes.
+  module mix, the largest knot's hub types, and a greedy cut sequence that names
+  the few references worth untangling first, while the knot's ladder row is
+  split into ordered sub-rows with the cut sinks marked. Nothing about the code
+  changes; the cuts are a display order for the view. No player-visible behavior
+  changes.
 
 ### Changed
 

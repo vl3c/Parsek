@@ -19,7 +19,7 @@ The generated views live in `docs/dev/arch/` and are committed:
 | File | View |
 | --- | --- |
 | `edges.json` | The module data: file counts and metrics, and every module edge with weight, `cyclic` and `upward` flags, referencing files and referenced type names. |
-| `types.json` | The type data: name, module, file, kind, modifiers, bases, enclosing, role, level, knot, sublevel, fan-in, fan-out, references to and references from. |
+| `types.json` | The type data: name, module, file, kind, modifiers, bases, enclosing, role, level, knot, sublevel, fan-in, fan-out, references to and references from; plus a top-level `levels` summary with the max level and the count per level. |
 | `modules.dot`, `modules.svg` | Graphviz layered dependency graph of the production modules. |
 | `matrix.html` | Dependency structure matrix. |
 | `explore.html` | Interactive neighbourhood explorer. |
@@ -87,12 +87,13 @@ and still writes the other six files. When a source file matches no rule in
 `modules.toml`, the script warns and skips it.
 
 `--check` prints, in order: the per-module metrics table (name, files, fan-out,
-fan-in, instability, sorted by fan-in + fan-out), the type names excluded as
-ambiguous, every upward edge (a more stable module depending on a less stable
-one), every two-way coupling between production modules with both weights, the
-25 types with the highest file-based fan-in, the count per type role with three
-example names, the per-module level profile (type count per level, plus the
-module's and the overall max level), every knot with its size and module
+fan-in, instability, sorted by fan-in + fan-out) followed by a line naming the
+tooling modules hidden from it, the type names excluded as ambiguous, every
+upward edge (a more stable module depending on a less stable one), every
+two-way coupling between production modules with both weights, the 25 types
+with the highest file-based fan-in, the count per type role with three example
+names, the per-module level profile (type count per level, plus the module's
+and the overall max level), the first 10 knots with their size and module
 breakdown followed by the largest knot's hubs and greedy cut sequence, and
 every `[forbidden]` edge that exists with its weight, referenced types and
 referencing files. When `[allowed]` is non-empty it also lists every production
@@ -179,44 +180,46 @@ names containing a substring.
 
 Two heuristics have known blind spots. A **static class with mutable state
 still reads as `static`**, because the modifier is all the scan sees, so a
-static cache or registry looks the same as a stateless helper. A **class whose
-members are all expression-bodied may read as `data`**, because the method
-check looks for a declaration shaped like `Type Name(` ...; a type with only
-properties and `=>` members can fall through to `data` even though it holds
-logic. A third, rarer one: the entry-point attribute window is a plain 300
-character lookback, so a type declared just after an attributed type (a nested
-enum near the top of an attributed class, for example) can be tagged `entry`
-without carrying the attribute itself.
+static cache or registry looks the same as a stateless helper. A class with
+only fields, properties or expression-bodied properties **reads as `data`**,
+because the method check wants a declaration shaped like `Type Name(` ...
+(expression-bodied methods and properties with parentheses do match, but a
+paren-less member set falls through even though it holds logic). A third,
+rarer one: the entry-point attribute window is a plain 300 character lookback,
+so a type declared just after an attributed type (a nested enum near the top of
+an attributed class, for example) can be tagged `entry` without carrying the
+attribute itself.
 
 ## Knots
 
 A **knot** is a strongly connected component of the type graph with more than
 one member: a group of types that reach one another in a cycle, directly or
 through other members. Longest-path levelling condenses a cycle to one level,
-so the kernel's 392-type knot collapses into a single ladder row and only the
-types above it (levels 8 to 11 here, mostly patches and harness entry points)
-rise above. A knot is why that row is flat: the levelling cannot order types
-that depend on each other.
+so the kernel's 392-type knot collapses into a single level and only the types
+above it (levels 8 to 11 here, mostly patches and harness entry points) rise
+above. A knot is why that level is flat: the levelling cannot order types that
+depend on each other.
 
 `types.json` records this per type: `knot` is the 1-based index of the type's
 component in largest-first order, or null outside a knot, and `sublevel` is
-that type's position inside the knot's cut order (again null outside). On the
-current tree the knots are one of 392, then of 19, 4, 3 and 2.
+the type's level inside its knot after the cut edges are removed (again null
+outside). On the current tree the knots are one of 392, then of 19, 4, 3 and 2.
 
-`--check` first lists every knot with its size and module breakdown, then for
-the largest knot it shows the hubs (the members other members reference most,
-with their in-knot references) and a **greedy cut sequence**: each step picks
-the sink whose outgoing references, when removed, break the knot the most, and
+`--check` first lists the first 10 knots (all five on the current tree) with
+their size and module breakdown, then for the largest knot it shows the hubs
+(the members other members reference most, with their in-knot references) and a
+**greedy cut sequence**: each step picks, among the highest-fan-in members, the
+sink whose outgoing references, when removed, break the knot the most, and
 reports the references that were dropped. `392 -> cut ParsekLog -> 335` means
 removing `ParsekLog`'s two references inside the knot (`ParsekSettings` and
-`RecorderStateSnapshot`) splits off 57 members. The first rows are cheap
-inversions: one or two references between hubs hold whole regions together, and
-those are the references a refactor should look at first. Later rows are design
-work: the remaining knot is held together by many small references, and the
-named sink usually needs a new abstraction (an interface, a data boundary)
-rather than moved edges. The table is a research list, not a verdict - the tool
-never says a reference is wrong, only that it holds a cycle together. Nothing
-in this phase changes any dependency; it reports them.
+`RecorderStateSnapshot`) splits off 57 members. The early cuts can be cheap
+inversions - one or two references between hubs may hold whole regions
+together, and those are the references a refactor should look at first - while
+the later cuts usually touch many small references, and the named sink there
+often needs a new abstraction (an interface, a data boundary) rather than moved
+edges. The table is a research list, not a verdict - the tool never says a
+reference is wrong, only that it holds a cycle together. Nothing in this phase
+changes any dependency; it reports them.
 
 `ladder.html` shows the same information in place. The row of a knot level is
 split into sub-rows, top to bottom by descending sublevel (level 0 of the knot

@@ -45,7 +45,6 @@ MIN_TYPE_NAME_LEN = 4
 
 TYPE_DECL_RE = re.compile(r"\b(?:class|struct|interface|enum)\s+([A-Z][A-Za-z0-9_]+)")
 IDENT_RE = re.compile(r"\b[A-Z][A-Za-z0-9_]{3,}\b")
-NEW_BEFORE_RE = re.compile(r"\bnew\s+$")
 PATH_SPLIT_RE = re.compile(r"[\\/]")
 
 
@@ -314,8 +313,11 @@ def _is_plain_call(source, start, end):
     """True when the identifier is invoked as a method: `Name(` not preceded by `new`.
 
     A type name is never directly followed by `(` except in a constructor call,
-    which carries `new` before it. A local or static method that happens to
-    share a type's name (`return Decision(true, ...)`) is not a reference.
+    which carries `new` before it. The lookback walks back over a dotted name
+    first, so `new Namespace.Type(` and `new Outer.Nested(` count as
+    constructors even though only the last segment is in the type table. A
+    local or static method that happens to share a type's name
+    (`return Decision(true, ...)`) is not a reference.
     """
     j = end
     n = len(source)
@@ -323,7 +325,16 @@ def _is_plain_call(source, start, end):
         j += 1
     if j >= n or source[j] != "(":
         return False
-    return not NEW_BEFORE_RE.search(source, max(0, start - 16), start)
+    k = start
+    while k > 0 and (source[k - 1].isalnum() or source[k - 1] in "_."):
+        k -= 1
+    q = k
+    while q > 0 and source[q - 1] in " \t\r\n":
+        q -= 1
+    if q >= 3 and source[q - 3 : q] == "new":
+        if q == 3 or not (source[q - 4].isalnum() or source[q - 4] == "_"):
+            return False
+    return True
 
 
 def metrics(module_files, edge_weights):
@@ -536,6 +547,11 @@ def type_declarations(source):
         if len(name) < MIN_TYPE_NAME_LEN:
             continue
         start = match.start()
+        # `record class Foo` / `record struct Foo` match the class/struct
+        # keyword but are records, which are out of scope; a positional record
+        # with no body would otherwise swallow the next declaration's braces.
+        if re.search(r"\brecord\s+$", source[max(0, start - 16) : start]):
+            continue
         i = match.end()
         while i < n and source[i] in " \t\r\n":
             i += 1
@@ -810,6 +826,8 @@ def greedy_sink_cuts(component, type_graph, max_steps=12, candidates=12):
             if frm in largest_set and to in largest_set:
                 fan_in[to] += 1
         ranked = sorted(largest, key=lambda name: (-fan_in[name], name))[:candidates]
+        if not ranked:
+            break
 
         best_name = None
         best_key = None

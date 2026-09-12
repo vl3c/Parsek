@@ -10,6 +10,7 @@ tree, so it exercises the extractor end to end.
 
 import contextlib
 import io
+import json
 import pathlib
 import re
 import sys
@@ -144,6 +145,23 @@ class DeclaredTypesAndReferencesTests(unittest.TestCase):
         source = "Decision d = Make(); List<Decision> all;"
         self.assertEqual(archview.references(source, type_modules, "Ghost"), [("Decision", "GameActions")])
 
+    def test_qualified_constructor_call_is_a_reference(self):
+        type_modules = {
+            "SeamNodeRecord": "Logistics",
+            "AnchorFrame": "Rendering",
+            "ParentAnchoredChild": "Rendering",
+        }
+        source = "var x = new RouteProofCapture.SeamNodeRecord();"
+        self.assertEqual(
+            archview.references(source, type_modules, "Recorder"),
+            [("SeamNodeRecord", "Logistics")],
+        )
+        source = "var x = new AnchorFrame.ParentAnchoredChild(a, b);"
+        self.assertEqual(
+            archview.references(source, type_modules, "Recorder"),
+            [("AnchorFrame", "Rendering"), ("ParentAnchoredChild", "Rendering")],
+        )
+
     def test_declared_types(self):
         stripped = archview.strip_comments_and_strings(self.SNIPPET)
         self.assertEqual(
@@ -213,6 +231,17 @@ class TypeDeclarationTests(unittest.TestCase):
         source = "record PointPair(int X, int Y);\nrecord Pair(int X) { }\nclass AfterRecord { }"
         self.assertEqual(archview.declared_types(source), ["AfterRecord"])
         self.assertEqual([d["name"] for d in archview.type_declarations(source)], ["AfterRecord"])
+
+    def test_record_class_and_struct_declarations_are_ignored(self):
+        source = (
+            "public record struct PairThing(int X);\n"
+            "internal record class WrapThing(int Y);\n"
+            "class AfterThing { }\n"
+        )
+        declarations = archview.type_declarations(source)
+        self.assertEqual([d["name"] for d in declarations], ["AfterThing"])
+        start, end = declarations[0]["span"]
+        self.assertEqual(source[start:end], "{ }")
 
     def test_enum_underlying_type_is_not_a_base(self):
         declarations = archview.type_declarations("internal enum ModeThing : byte { A, B }")
@@ -300,6 +329,12 @@ class TypeFanInTests(unittest.TestCase):
         self.assertEqual(archview.type_fanin("FooThing", file_references, set()), 2)
         self.assertEqual(archview.type_fanin("BarThing", file_references, set()), 1)
 
+    def test_fanin_counts_files_not_other_names_in_them(self):
+        file_references = {"a.cs": {"FooThing", "BarThing", "BazThing"}, "b.cs": {"FooThing"}}
+        self.assertEqual(archview.type_fanin("FooThing", file_references, set()), 2)
+        self.assertEqual(archview.type_fanin("BarThing", file_references, set()), 1)
+        self.assertEqual(archview.type_fanin("BazThing", file_references, set()), 1)
+
 
 class KnotTests(unittest.TestCase):
     def test_two_cycles_and_a_chain_largest_first(self):
@@ -352,7 +387,7 @@ class KnotHubTests(unittest.TestCase):
             "HubTwo": ["HubOne"],
             "HubThree": ["HubOne", "HubTwo"],
         }
-        hubs = archview.knot_hubs(["HubOne", "HubTwo", "HubThree"], graph)
+        hubs = archview.knot_hubs(["HubThree", "HubTwo", "HubOne"], graph)
         self.assertEqual([hub["name"] for hub in hubs], ["HubOne", "HubTwo", "HubThree"])
         self.assertEqual(hubs[0]["fanIn"], 2)
 
@@ -373,12 +408,14 @@ class GreedySinkCutTests(unittest.TestCase):
     def test_picks_the_sink_that_shrinks_the_component_most(self):
         # ZSink sits in the 5-cycle, ASink in the 3-cycle. Both have equal
         # in-knot fan-in, and only the size criterion can separate them: the
-        # cut that leaves the 3-cycle (ZSink, alphabetically last) wins.
+        # cut that leaves the 3-cycle (ZSink, alphabetically last) wins. The
+        # residual 3-cycle is under 30, so the sequence must stop after it.
         graph = self._two_cycle_graph(
             ["ZSink", "QOne", "QTwo", "QThree", "QFour"], ["ASink", "POne", "PTwo"]
         )
         component = sorted(graph)
         cuts = archview.greedy_sink_cuts(component, graph)
+        self.assertEqual(len(cuts), 1)
         self.assertEqual(cuts[0]["sink"], "ZSink")
         self.assertEqual(cuts[0]["sizeBefore"], 8)
         self.assertEqual(cuts[0]["sizeAfter"], 3)
@@ -436,8 +473,39 @@ class SublevelTests(unittest.TestCase):
         self.assertGreater(sublevels["LoopOne"], sublevels["LeafThing"])
         self.assertEqual(sublevels["SinkThing"], 0)
 
+    def test_every_cut_in_the_sequence_orders_the_subgraph(self):
+        graph = {
+            "SinkOne": ["AOne"],
+            "SinkTwo": ["BTwo"],
+            "AOne": ["BTwo", "SinkTwo"],
+            "BTwo": ["CThree"],
+            "CThree": ["AOne", "SinkOne"],
+        }
+        component = sorted(graph)
+        both_cuts = archview.sublevels(
+            component,
+            graph,
+            [
+                {"sink": "SinkOne", "droppedReferences": ["AOne"]},
+                {"sink": "SinkTwo", "droppedReferences": ["BTwo"]},
+            ],
+        )
+        first_cut_only = archview.sublevels(
+            component, graph, [{"sink": "SinkOne", "droppedReferences": ["AOne"]}]
+        )
+        self.assertNotEqual(both_cuts, first_cut_only)
+        self.assertEqual(both_cuts["SinkTwo"], 0)
+        self.assertEqual(first_cut_only["SinkTwo"], 1)
+
 
 class LadderRenderTests(unittest.TestCase):
+    @staticmethod
+    def _payload(text):
+        match = re.search(r"const DATA = (\{.*?\});", text, re.S)
+        if match is None:
+            raise AssertionError("embedded DATA not found")
+        return json.loads(match.group(1))
+
     def test_ladder_html_is_self_contained(self):
         model = {
             "modules": [{"name": "Alpha", "files": 1, "instability": 0.5, "tooling": False}],
@@ -464,6 +532,73 @@ class LadderRenderTests(unittest.TestCase):
         self.assertNotIn("http", text)
         self.assertIn('"name":"SomeThing"', text)
         self.assertIn("role-C", text)
+
+    def test_ladder_payload_pins_modules_maxlevel_and_knots(self):
+        model = {
+            "modules": [
+                {"name": "Tooling", "files": 1, "instability": 0.9, "tooling": True},
+                {"name": "Beta", "files": 2, "instability": 0.2, "tooling": False},
+                {"name": "Alpha", "files": 3, "instability": 0.8, "tooling": False},
+            ],
+            "types": [
+                {
+                    "name": "KnotThing",
+                    "module": "Alpha",
+                    "file": "Alpha/A.cs",
+                    "kind": "class",
+                    "modifiers": [],
+                    "bases": [],
+                    "enclosing": None,
+                    "role": "service",
+                    "level": 4,
+                    "knot": 1,
+                    "sublevel": 0,
+                    "fanIn": 2,
+                    "fanOut": 1,
+                    "referencesTo": ["OtherThing"],
+                    "referencedBy": [],
+                }
+            ],
+            "typeLevels": {"max": 4, "histogram": {4: 1}},
+            "knots": [
+                {
+                    "index": 1,
+                    "size": 2,
+                    "members": ["KnotThing", "OtherThing"],
+                    "cuts": [{"sink": "KnotThing", "droppedReferences": ["OtherThing"]}],
+                }
+            ],
+        }
+        payload = self._payload(archview.render_ladder_html(model))
+        self.assertEqual([m["name"] for m in payload["modules"]], ["Alpha", "Beta"])
+        self.assertEqual(payload["maxLevel"], 4)
+        self.assertEqual(payload["knots"][0]["index"], 1)
+        self.assertEqual(payload["knots"][0]["size"], 2)
+        self.assertEqual(payload["knots"][0]["sinks"], {"KnotThing": ["OtherThing"]})
+        self.assertEqual(payload["types"][0]["knot"], 1)
+        self.assertEqual(payload["types"][0]["sublevel"], 0)
+
+
+class ExploreRenderTests(unittest.TestCase):
+    def test_explore_html_is_self_contained_and_substituted(self):
+        model = {
+            "modules": [
+                {
+                    "name": "Alpha",
+                    "files": 1,
+                    "fanIn": 0,
+                    "fanOut": 0,
+                    "instability": 0.5,
+                    "tooling": False,
+                }
+            ],
+            "edges": [],
+        }
+        text = archview.render_explore_html(model, 8)
+        self.assertNotIn("<script src", text)
+        self.assertNotIn("<link", text)
+        self.assertNotIn("@@", text)
+        self.assertIn('"name":"Alpha"', text)
 
 
 class MetricsTests(unittest.TestCase):
@@ -691,6 +826,16 @@ class ModelWiringTests(unittest.TestCase):
         self.assertIsNone(types["GammaThing"]["sublevel"])
         self.assertEqual(len(model["knots"]), 1)
         self.assertEqual(model["knots"][0]["size"], 2)
+
+    def test_repeated_mentions_in_one_file_count_once(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            self._write(root, "One/A.cs", "class AlphaThing { BetaThing b; BetaThing c; }")
+            self._write(root, "Two/B.cs", "class BetaThing { }")
+            rules = [{"name": "One", "folder": "One"}, {"name": "Two", "folder": "Two"}]
+            model = archview.build_model(root, rules, set())
+        types = {t["name"]: t for t in model["types"]}
+        self.assertEqual(types["BetaThing"]["fanIn"], 1)
 
 
 def _small_model():
@@ -961,12 +1106,23 @@ class RealTreeSmokeTests(unittest.TestCase):
         self.assertGreater(largest["size"], 300)
         self.assertGreater(len(largest["modules"]), 10)
 
-    def test_first_greedy_sink_is_parseklog(self):
-        self.assertEqual(self.model["knots"][0]["cuts"][0]["sink"], "ParsekLog")
+    def test_knot_sizes_match_the_documented_tree(self):
+        self.assertEqual([knot["size"] for knot in self.model["knots"]], [392, 19, 4, 3, 2])
+
+    def test_first_cut_matches_the_documented_tree(self):
+        first = self.model["knots"][0]["cuts"][0]
+        self.assertEqual(first["sink"], "ParsekLog")
+        self.assertEqual(first["sizeBefore"], 392)
+        self.assertEqual(first["sizeAfter"], 335)
+        self.assertEqual(first["droppedReferences"], ["ParsekSettings", "RecorderStateSnapshot"])
 
     def test_cut_sequence_halves_the_largest_knot(self):
         largest = self.model["knots"][0]
         self.assertLess(largest["cuts"][-1]["sizeAfter"], largest["size"] / 2)
+
+    def test_largest_knot_has_many_sublevels(self):
+        sublevels = {entry["sublevel"] for entry in self.model["types"] if entry["knot"] == 1}
+        self.assertGreater(len(sublevels), 5)
 
     def test_types_outside_a_knot_have_no_sublevel(self):
         outside = [entry for entry in self.model["types"] if entry["knot"] is None]
@@ -979,8 +1135,9 @@ class RealTreeSmokeTests(unittest.TestCase):
     def test_no_record_declarations_in_the_tree(self):
         # The literal `\brecord\b` grep would also match a local variable named
         # `record` (KspStatePatcher.cs has one), so this pins the declaration
-        # shape instead: a record keyword followed by a type name.
-        pattern = re.compile(r"\brecord\s+[A-Z]")
+        # shape instead: the record keyword, an optional class/struct, then a
+        # type name.
+        pattern = re.compile(r"\brecord\s+(?:class\s+|struct\s+)?[A-Z]")
         for rel in archview.iter_source_files(REAL_SOURCE):
             text = (REAL_SOURCE / rel).read_text(encoding="utf-8-sig", errors="replace")
             stripped = archview.strip_comments_and_strings(text)
