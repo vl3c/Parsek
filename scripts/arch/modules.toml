@@ -114,7 +114,8 @@ prefix = "^ParsekLog|^FileIO|^ParsekProcess|^Suppression|^PreParsek"
 # --- R1 name-family placements (phase 2) ----------------------------------
 # A file whose name starts with one of the family prefixes goes to the
 # family's module regardless of references; the family is a unit. The
-# evidence table is docs/dev/arch/core-placement.md.
+# evidence table is docs/dev/arch/core-placement.md. The Mission family is
+# already placed by the Missions rule above.
 
 [[module]]
 name = "GuiTree"
@@ -258,6 +259,7 @@ placement = "R2"
 name = "Recording"
 prefix = '^TerminalState\.cs$'
 placement = "R2"
+
 # Catch-all for unclassified root files. MUST stay last.
 [[module]]
 name = "Core"

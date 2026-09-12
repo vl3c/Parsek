@@ -976,20 +976,23 @@ def placement_evidence(model):
     """Return per-file placement evidence for the model's catch-all module.
 
     One entry per catch-all file, sorted by external references descending
-    (ties by file): declared type count, how many of them are in knot 1, the
-    number of (referencing type, referenced type) pairs arriving from types in
-    other modules, that count split by referencing module, the top module's
-    share of it, and the highest file-based fan-in among the file's types.
+    (ties by file): declared type count (a name declared in more than one
+    module still counts here even though the type graph drops it), how many of
+    them are in knot 1, the number of (referencing type, referenced type) pairs
+    arriving from types in other modules, that count split by referencing
+    module, the top module's share of it, and the highest file-based fan-in
+    among the file's types.
     """
     catch_all = model.get("catchAll")
     entries = model.get("types", [])
+    declared = model.get("declaredTypeCounts", {})
     module_of = {entry["name"]: entry["module"] for entry in entries}
     per_file = {}
     for rel_path, module in model.get("fileModules", {}).items():
         if module == catch_all:
             per_file[rel_path] = {
                 "file": rel_path,
-                "types": 0,
+                "types": declared.get(rel_path, 0),
                 "knotTypes": 0,
                 "byModule": {},
                 "hub": "",
@@ -999,7 +1002,6 @@ def placement_evidence(model):
         bucket = per_file.get(entry["file"])
         if bucket is None:
             continue
-        bucket["types"] += 1
         if entry.get("knot") == 1:
             bucket["knotTypes"] += 1
         if entry.get("fanIn", 0) > bucket["hubFanIn"]:
@@ -1034,7 +1036,7 @@ def print_placement_evidence(model):
     """Print one evidence line per file left in the catch-all module."""
     catch_all = model.get("catchAll")
     evidence = placement_evidence(model)
-    print("CORE PLACEMENT EVIDENCE (files assigned to the catch-all module %s):" % catch_all)
+    print("PLACEMENT EVIDENCE (files assigned to the catch-all module %s):" % catch_all)
     print(
         "  %-34s %5s %5s %7s %6s  %s"
         % ("file", "types", "knot", "extRefs", "share", "top=Module(count), second=Module(count)  hub=Name(fanIn)")
@@ -1383,11 +1385,13 @@ def build_model(source_root, rules, tooling):
     all_declarations = defaultdict(list)
     references_union = defaultdict(set)
     declaring_files = defaultdict(set)
+    declared_counts = {}
     file_references = {}
     for rel_path, module in assignments:
         if module in tooling:
             continue
         declarations = type_declarations(stripped[rel_path])
+        declared_counts[rel_path] = len(declarations)
         file_references[rel_path] = file_type_references(stripped[rel_path], graph_names)
         for declaration in declarations:
             name = declaration["name"]
@@ -1480,6 +1484,7 @@ def build_model(source_root, rules, tooling):
         "typeLevels": levels_payload,
         "knots": knot_list,
         "fileModules": {rel_path: module for rel_path, module in assignments},
+        "declaredTypeCounts": declared_counts,
         "catchAll": rules[-1]["name"] if rules else None,
     }
 
@@ -2621,7 +2626,7 @@ def main(argv=None):
     parser.add_argument(
         "--place",
         action="store_true",
-        help="print catch-all placement evidence and write docs/dev/arch/core-placement.md",
+        help="print catch-all placement evidence and write core-placement.md under --out",
     )
     args = parser.parse_args(argv)
 

@@ -24,6 +24,7 @@ The generated views live in `docs/dev/arch/` and are committed:
 | `matrix.html` | Dependency structure matrix. |
 | `explore.html` | Interactive neighbourhood explorer. |
 | `ladder.html` | Interactive type ladder (modules as columns, levels as rows). |
+| `core-placement.md` | The catch-all placement evidence (see "Placing catch-all files"); written by `--place`. |
 
 ## What the scan is, and is not
 
@@ -68,8 +69,9 @@ reflection.
 From the repo root:
 
 ```bash
-python scripts/arch/archview.py            # writes the seven files in docs/dev/arch/
+python scripts/arch/archview.py            # writes the seven views in docs/dev/arch/
 python scripts/arch/archview.py --check    # same, plus the report on stdout
+python scripts/arch/archview.py --place    # same, plus core-placement.md (leaves it stale otherwise)
 python -m unittest scripts/arch/test_archview.py
 ```
 
@@ -80,9 +82,10 @@ Options:
 - `--min-edge N` (default 8): edges lighter than N references are hidden from
   the dot view; the explorer slider starts at N but can go down to 1.
 - `--modules FILE` (default `scripts/arch/modules.toml`)
-- `--place` (default off): print the placement evidence for every file still
-  assigned to the catch-all module, and write `core-placement.md` (see
-  "Placing catch-all files")
+- `--place` (default off): print the placement evidence for the current
+  catch-all files and write `core-placement.md`, the before-phase placement
+  table (see "Placing catch-all files"). Plain regeneration leaves that report
+  alone, so run `--place` when its input changed.
 
 Requirements: Python 3.11+ (the TOML reader is `tomllib`) and, for the SVG
 only, Graphviz `dot` on PATH. If `dot` is missing the script prints a warning
@@ -244,9 +247,10 @@ the phase that placed the first batch left its evidence in
 `core-placement.md`. That report is generated evidence - produced by
 `--place`, never edited by hand.
 
-For every catch-all file the evidence line gives its declared type count, how
-many of those are in knot 1, the number of (referencing type, referenced type)
-pairs arriving from other modules, that count split by module, the top
+For every catch-all file the evidence line gives its declared type count (a
+name the type graph drops because two modules declare it still counts here),
+how many of those are in knot 1, the number of (referencing type, referenced
+type) pairs arriving from other modules, that count split by module, the top
 module's share, and the file's highest fan-in. The policy applies five rules
 in order, and the first that fires wins:
 
@@ -265,8 +269,10 @@ written as one exact-name rule per file (`^Name\.cs$`) under a comment with
 its evidence, and R1 moves as one family prefix rule per family; every
 placement rule carries `placement = "R1"` or `"R2"` so the report can rebuild
 the state before the phase. Files that stay behind are a legitimate outcome:
-`UNDECIDED` means no module owns a majority, not that the file is bad, and the
-report lists each with its evidence so a human can place it.
+`UNDECIDED` means no rule fired - most such files sit below the five-reference
+floor, and the rest have no owner with a majority or a two-times lead. That is
+not a verdict on the file, and the report lists each one with its evidence so
+a human can place it.
 
 The phase that introduced this moved 48 of the 123 catch-all files (R1 31, R2
 17); 75 remain (7 orphan, 68 undecided, no split candidates). `GuiTree` (the
