@@ -1,0 +1,1206 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Parsek Atlas</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Source+Sans+3:ital,wght@0,400;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+:root {
+  --bg: #f4f6f8; --panel: #ffffff; --ink: #1b2430; --ink-2: #4d5a68; --ink-3: #7b8794;
+  --rule: #d6dde5; --accent: #2f6fb3; --accent-soft: #e3edf8; --red: #c0392b; --red-soft: #f9e4e1;
+  --amber: #b8730a; --amber-soft: #fbefd9; --mono-bg: #eef2f6;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f151c; --panel: #161e27; --ink: #e6ebf1; --ink-2: #aab5c1; --ink-3: #7d8994;
+    --rule: #2a3542; --accent: #6ea4e0; --accent-soft: #1d2c3f; --red: #e06b5e; --red-soft: #3a1f1c;
+    --amber: #e0a23a; --amber-soft: #3a2c14; --mono-bg: #1d2733;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f151c; --panel: #161e27; --ink: #e6ebf1; --ink-2: #aab5c1; --ink-3: #7d8994;
+  --rule: #2a3542; --accent: #6ea4e0; --accent-soft: #1d2c3f; --red: #e06b5e; --red-soft: #3a1f1c;
+  --amber: #e0a23a; --amber-soft: #3a2c14; --mono-bg: #1d2733;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
+  font-size: 17px; line-height: 1.55; margin: 0; }
+main { max-width: 1120px; margin: 0 auto; padding: 40px 28px 80px; }
+h1, h2, h3 { font-family: "Barlow Condensed", "Arial Narrow", sans-serif; text-wrap: balance; margin: 0; line-height: 1.05; }
+h1 { font-size: 64px; font-weight: 700; letter-spacing: -0.01em; }
+h2 { font-size: 34px; font-weight: 600; margin-top: 64px; padding-top: 18px; border-top: 2px solid var(--ink); }
+h3 { font-size: 22px; font-weight: 600; margin-top: 28px; color: var(--ink); }
+p, li { max-width: 70ch; }
+p { margin: 14px 0; }
+.eyebrow { font-family: "Barlow Condensed", sans-serif; font-weight: 600; font-size: 14px; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--accent); }
+.lede { font-size: 20px; color: var(--ink-2); max-width: 64ch; }
+code, .id { font-family: "JetBrains Mono", Consolas, monospace; font-size: 0.86em; background: var(--mono-bg);
+  padding: 1px 5px; border-radius: 3px; }
+.tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin: 28px 0 8px; }
+.tile { background: var(--panel); border: 1px solid var(--rule); padding: 14px 16px 12px; }
+.tile .n { font-family: "Barlow Condensed", sans-serif; font-size: 44px; font-weight: 700; line-height: 1;
+  font-variant-numeric: tabular-nums; }
+.tile .l { color: var(--ink-2); font-size: 14px; margin-top: 6px; }
+.panel { background: #ffffff; border: 1px solid var(--rule); padding: 14px; overflow-x: auto; margin: 18px 0; }
+.panel svg { display: block; min-width: 1100px; height: auto; }
+.wide { overflow-x: auto; margin: 18px 0; }
+table { border-collapse: collapse; width: 100%; font-size: 15px; }
+th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--rule); }
+th { font-family: "Barlow Condensed", sans-serif; font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--ink-2); font-weight: 600; white-space: nowrap; }
+td.num { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+th.num { text-align: right; }
+td.name { font-weight: 600; white-space: nowrap; }
+td .id { white-space: nowrap; }
+.layer { font-family: "Barlow Condensed", sans-serif; font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--ink-3); }
+tr.band td { background: var(--accent-soft); font-family: "Barlow Condensed", sans-serif; font-size: 15px;
+  letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); font-weight: 600; padding: 6px 10px; }
+.up { color: var(--red); font-weight: 600; }
+.knot { color: var(--amber); font-weight: 600; }
+.callout { border-left: 4px solid var(--accent); background: var(--panel); padding: 12px 18px; margin: 20px 0; max-width: 78ch; }
+.callout.red { border-color: var(--red); }
+ol.steps { counter-reset: s; list-style: none; padding: 0; }
+ol.steps li { counter-increment: s; position: relative; padding-left: 52px; margin: 14px 0; }
+ol.steps li::before { content: counter(s); position: absolute; left: 0; top: 0; width: 36px; height: 36px;
+  border: 2px solid var(--accent); color: var(--accent); font-family: "Barlow Condensed", sans-serif;
+  font-weight: 700; font-size: 20px; display: flex; align-items: center; justify-content: center; }
+dl { display: grid; grid-template-columns: max-content 1fr; gap: 8px 18px; max-width: 80ch; }
+dt { font-family: "JetBrains Mono", monospace; font-size: 14px; white-space: nowrap; padding-top: 2px; }
+dd { margin: 0; color: var(--ink-2); }
+.foot { color: var(--ink-3); font-size: 14px; margin-top: 56px; border-top: 1px solid var(--rule); padding-top: 14px; }
+@media (max-width: 760px) { .tiles { grid-template-columns: repeat(2, 1fr); } h1 { font-size: 46px; } dl { grid-template-columns: 1fr; } }
+</style>
+</head><body><main>
+<div class="eyebrow">Source snapshot, 2026-09-12, branch arch-view</div>
+<h1>Parsek Atlas</h1>
+<p class="lede">What the mod is made of, how the parts lean on each other, which names you must know first, and where the structure resists change. Every number below comes from the text scan in <code>scripts/arch/archview.py</code>; it counts type references between files, not compiler facts, and it is accurate to the folder, not the line.</p>
+
+<div class="tiles">
+  <div class="tile"><div class="n">747</div><div class="l">C&#35; files in one assembly</div></div>
+  <div class="tile"><div class="n">1,335</div><div class="l">production types across 20 modules</div></div>
+  <div class="tile"><div class="n">605</div><div class="l">of those types depend on nothing in the repo: plain data and enums</div></div>
+  <div class="tile"><div class="n knot">391</div><div class="l">types locked in one dependency cycle</div></div>
+</div>
+
+<h2>The map</h2>
+<p>Twenty production modules, drawn as layers. A module's <em>instability</em> is the share of its references that point outward: near 1 means it only depends on others (the top), near 0 means it is only depended on (the bottom). Grey arrows point down the gradient, which is the healthy direction. <span class="up">Red arrows point back up</span>: a more stable module leaning on a less stable one. Arrows carrying fewer than 8 references are hidden. Tooling modules (in-game tests, the command seam, the analyzer, the GUI census and harness support, 243 files together) are excluded from every figure on this page.</p>
+<div class="panel"><svg
+ viewBox="0.00 0.00 2256.00 584.00" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<g id="graph0" class="graph" transform="scale(1 1) rotate(0) translate(4 580)">
+<title>modules</title>
+<polygon fill="white" stroke="none" points="-4,4 -4,-580 2252,-580 2252,4 -4,4"/>
+<!-- Config -->
+<g id="node1" class="node">
+<title>Config</title>
+<g id="a_node1"><a xlink:title="Config: 3 files, fan&#45;out 11, fan&#45;in 126, instability 0.08">
+<path fill="#eef3fa" stroke="#4c78a8" d="M2032,-36C2032,-36 2002,-36 2002,-36 1996,-36 1990,-30 1990,-24 1990,-24 1990,-12 1990,-12 1990,-6 1996,0 2002,0 2002,0 2032,0 2032,0 2038,0 2044,-6 2044,-12 2044,-12 2044,-24 2044,-24 2044,-30 2038,-36 2032,-36"/>
+<text xml:space="preserve" text-anchor="middle" x="2017" y="-20.5" font-family="Helvetica,sans-Serif" font-size="10.00">Config</text>
+<text xml:space="preserve" text-anchor="middle" x="2017" y="-8.5" font-family="Helvetica,sans-Serif" font-size="10.00">3 files</text>
+</a>
+</g>
+</g>
+<!-- Controllers -->
+<g id="node2" class="node">
+<title>Controllers</title>
+<g id="a_node2"><a xlink:title="Controllers: 36 files, fan&#45;out 534, fan&#45;in 206, instability 0.72">
+<path fill="#eef3fa" stroke="#4c78a8" d="M1300.62,-486C1300.62,-486 1261.38,-486 1261.38,-486 1255.38,-486 1249.38,-480 1249.38,-474 1249.38,-474 1249.38,-462 1249.38,-462 1249.38,-456 1255.38,-450 1261.38,-450 1261.38,-450 1300.62,-450 1300.62,-450 1306.62,-450 1312.62,-456 1312.62,-462 1312.62,-462 1312.62,-474 1312.62,-474 1312.62,-480 1306.62,-486 1300.62,-486"/>
+<text xml:space="preserve" text-anchor="middle" x="1281" y="-470.5" font-family="Helvetica,sans-Serif" font-size="10.00">Controllers</text>
+<text xml:space="preserve" text-anchor="middle" x="1281" y="-458.5" font-family="Helvetica,sans-Serif" font-size="10.00">36 files</text>
+</a>
+</g>
+</g>
+<!-- Controllers&#45;&gt;Config -->
+<g id="edge33" class="edge">
+<title>Controllers&#45;&gt;Config</title>
+<g id="a_edge33"><a xlink:title="Controllers &#45;&gt; Config: 24 references; types: DistanceThresholds, GhostFlight, GhostPlayback, KscGhosts, LoopTiming, ParsekSettings, ParsekSettingsPersistence, WarpThresholds, WatchMode">
+<path fill="none" stroke="#8a949e" stroke-width="1.7" d="M1312.93,-466.01C1385.94,-462.83 1569.75,-449.7 1712,-396 1782.61,-369.35 1803.91,-360.62 1856,-306 1933.37,-224.88 1986.72,-99.5 2007.42,-45.37"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.7" points="2009.71,-46.24 2009.88,-38.82 2005.12,-44.51 2009.71,-46.24"/>
+</a>
+</g>
+</g>
+<!-- Core -->
+<g id="node3" class="node">
+<title>Core</title>
+<g id="a_node3"><a xlink:title="Core: 8 files, fan&#45;out 55, fan&#45;in 260, instability 0.17">
+<path fill="#eef3fa" stroke="#4c78a8" d="M1669,-36C1669,-36 1639,-36 1639,-36 1633,-36 1627,-30 1627,-24 1627,-24 1627,-12 1627,-12 1627,-6 1633,0 1639,0 1639,0 1669,0 1669,0 1675,0 1681,-6 1681,-12 1681,-12 1681,-24 1681,-24 1681,-30 1675,-36 1669,-36"/>
+<text xml:space="preserve" text-anchor="middle" x="1654" y="-20.5" font-family="Helvetica,sans-Serif" font-size="10.00">Core</text>
+<text xml:space="preserve" text-anchor="middle" x="1654" y="-8.5" font-family="Helvetica,sans-Serif" font-size="10.00">8 files</text>
+</a>
+</g>
+</g>
+<!-- Controllers&#45;&gt;Core -->
+<g id="edge29" class="edge">
+<title>Controllers&#45;&gt;Core</title>
+<g id="a_edge29"><a xlink:title="Controllers &#45;&gt; Core: 27 references; types: BranchPoint, BranchPointType, GroupHierarchyStore, IPlaybackTrajectory, InventoryItem, InventoryManifest, MaxDistanceBackfillRoute, MaxDistanceReferenceSurface, MilestoneStore, PlaybackTrajectoryBoundsResolver, RecordingEndpointPhase, VesselLaunchIdentity (+1 more)">
+<path fill="none" stroke="#8a949e" stroke-width="1.78" d="M1312.98,-462.63C1419.49,-447.33 1758.76,-392.39 1818,-306 1852.18,-256.16 1891.85,-246.74 1776,-90 1754.73,-61.23 1718.05,-42.18 1690.44,-31.12"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.78" points="1691.39,-28.87 1683.98,-28.64 1689.64,-33.44 1691.39,-28.87"/>
+</a>
+</g>
+</g>
+<!-- GameActions -->
+<g id="node6" class="node">
+<title>GameActions</title>
+<g id="a_node6"><a xlink:title="GameActions: 40 files, fan&#45;out 83, fan&#45;in 279, instability 0.23">
+<path fill="#eef3fa" stroke="#4c78a8" d="M968.62,-216C968.62,-216 917.38,-216 917.38,-216 911.38,-216 905.38,-210 905.38,-204 905.38,-204 905.38,-192 905.38,-192 905.38,-186 911.38,-180 917.38,-180 917.38,-180 968.62,-180 968.62,-180 974.62,-180 980.62,-186 980.62,-192 980.62,-192 980.62,-204 980.62,-204 980.62,-210 974.62,-216 968.62,-216"/>
+<text xml:space="preserve" text-anchor="middle" x="943" y="-200.5" font-family="Helvetica,sans-Serif" font-size="10.00">GameActions</text>
+<text xml:space="preserve" text-anchor="middle" x="943" y="-188.5" font-family="Helvetica,sans-Serif" font-size="10.00">40 files</text>
+</a>
+</g>
+</g>
+<!-- Controllers&#45;&gt;GameActions -->
+<g id="edge42" class="edge">
+<title>Controllers&#45;&gt;GameActions</title>
+<g id="a_edge42"><a xlink:title="Controllers &#45;&gt; GameActions: 19 references; types: GameAction, GameStateRecorder, GameStateStore, KspStatePatcher, Ledger, LedgerOrchestrator, LedgerTombstone, PendingScienceSubject, RecoveredVesselIdentity, RecoveryPayoutContext, RecoveryPayoutContextStore">
+<path fill="none" stroke="#8a949e" stroke-width="1.55" d="M1265.79,-449.56C1233.34,-413.07 1153.87,-327.3 1075,-270 1048.21,-250.54 1015.45,-232.89 989.26,-220.05"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.55" points="990.49,-217.92 983.12,-217.08 988.35,-222.33 990.49,-217.92"/>
+</a>
+</g>
+</g>
+<!-- Ghost -->
+<g id="node7" class="node">
+<title>Ghost</title>
+<g id="a_node7"><a xlink:title="Ghost: 48 files, fan&#45;out 294, fan&#45;in 408, instability 0.42">
+<path fill="#eef3fa" stroke="#4c78a8" d="M1495,-396C1495,-396 1465,-396 1465,-396 1459,-396 1453,-390 1453,-384 1453,-384 1453,-372 1453,-372 1453,-366 1459,-360 1465,-360 1465,-360 1495,-360 1495,-360 1501,-360 1507,-366 1507,-372 1507,-372 1507,-384 1507,-384 1507,-390 1501,-396 1495,-396"/>
+<text xml:space="preserve" text-anchor="middle" x="1480" y="-380.5" font-family="Helvetica,sans-Serif" font-size="10.00">Ghost</text>
+<text xml:space="preserve" text-anchor="middle" x="1480" y="-368.5" font-family="Helvetica,sans-Serif" font-size="10.00">48 files</text>
+</a>
+</g>
+</g>
+<!-- Controllers&#45;&gt;Ghost -->
+<g id="edge4" class="edge">
+<title>Controllers&#45;&gt;Ghost</title>
+<g id="a_edge4"><a xlink:title="Controllers &#45;&gt; Ghost: 87 references; types: AutoLoopLaunchSchedule, CameraActionEvent, CameraActionType, ChainLink, DebrisRelativeCoverageMode, DebrisRelativeCoveragePrimitives, FrameContext, GhostAnchorCandidate, GhostAudioPresets, GhostChain, GhostChainWalker, GhostLifecycleEvent (+34 more)">
+<path fill="none" stroke="#8a949e" stroke-width="3.52" d="M1310.53,-449.61C1345.48,-432.73 1402.92,-407.46 1441.35,-392.18"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="3.52" points="1442.02,-394.54 1447.65,-389.71 1440.24,-389.98 1442.02,-394.54"/>
+</a>
+</g>
+</g>
+<!-- LogIO -->
+<g id="node8" class="node">
+<title>LogIO</title>
+<g id="a_node8"><a xlink:title="LogIO: 5 files, fan&#45;out 7, fan&#45;in 503, instability 0.01">
+<path fill="#eef3fa" stroke="#4c78a8" d="M528,-36C528,-36 498,-36 498,-36 492,-36 486,-30 486,-24 486,-24 486,-12 486,-12 486,-6 492,0 498,0 498,0 528,0 528,0 534,0 540,-6 540,-12 540,-12 540,-24 540,-24 540,-30 534,-36 528,-36"/>
+<text xml:space="preserve" text-anchor="middle" x="513" y="-20.5" font-family="Helvetica,sans-Serif" font-size="10.00">LogIO</text>
+<text xml:space="preserve" text-anchor="middle" x="513" y="-8.5" font-family="Helvetica,sans-Serif" font-size="10.00">5 files</text>
+</a>
+</g>
+</g>
+<!-- Controllers&#45;&gt;LogIO -->
+<g id="edge20" class="edge">
+<title>Controllers&#45;&gt;LogIO</title>
+<g id="a_edge20"><a xlink:title="Controllers &#45;&gt; LogIO: 31 references; types: FileIOUtils, ParsekLog, ParsekProcess, PreParsekBackup, SuppressionGuard">
+<path fill="none" stroke="#8a949e" stroke-width="1.9" d="M1248.97,-465.42C1097.47,-457.84 456.62,-424.33 372,-396 301.5,-372.4 266.73,-371.2 231,-306 192.82,-236.33 203.33,-185.64 305,-90 352.8,-45.03 430.26,-28.44 475.95,-22.39"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.9" points="476.24,-24.83 482.89,-21.54 475.64,-19.96 476.24,-24.83"/>
+</a>
+</g>
+</g>
+<!-- Logistics -->
+<g id="node9" class="node">
+<title>Logistics</title>
+<g id="a_node9"><a xlink:title="Logistics: 55 files, fan&#45;out 140, fan&#45;in 394, instability 0.26">
+<path fill="#eef3fa" stroke="#4c78a8" d="M1534.5,-306C1534.5,-306 1503.5,-306 1503.5,-306 1497.5,-306 1491.5,-300 1491.5,-294 1491.5,-294 1491.5,-282 1491.5,-282 1491.5,-276 1497.5,-270 1503.5,-270 1503.5,-270 1534.5,-270 1534.5,-270 1540.5,-270 1546.5,-276 1546.5,-282 1546.5,-282 1546.5,-294 1546.5,-294 1546.5,-300 1540.5,-306 1534.5,-306"/>
+<text xml:space="preserve" text-anchor="middle" x="1519" y="-290.5" font-family="Helvetica,sans-Serif" font-size="10.00">Logistics</text>
+<text xml:space="preserve" text-anchor="middle" x="1519" y="-278.5" font-family="Helvetica,sans-Serif" font-size="10.00">55 files</text>
+</a>
+</g>
+</g>
+<!-- Controllers&#45;&gt;Logistics -->
+<g id="edge30" class="edge">
+<title>Controllers&#45;&gt;Logistics</title>
+<g id="a_edge30"><a xlink:title="Controllers &#45;&gt; Logistics: 26 references; types: ResourceAmount, ResourceManifest, Route, RouteConnectionKind, RouteConnectionWindow, RouteDiscardObservability, RouteEndpoint, RouteEndpointResolver, RouteEndpointTransfer, RouteGhostDriverSelector, RouteOrchestrator, RouteOriginProof (+7 more)">
+<path fill="none" stroke="#8a949e" stroke-width="1.75" d="M1304.25,-449.61C1347.35,-417.37 1439.65,-348.35 1488,-312.18"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.75" points="1489.39,-314.2 1493.53,-308.05 1486.46,-310.28 1489.39,-314.2"/>
+</a>
+</g>
+</g>
+<!-- MapRender -->
+<g id="node10" class="node">
+<title>MapRender</title>
+<g id="a_node10"><a xlink:title="MapRender: 40 files, fan&#45;out 116, fan&#45;in 204, instability 0.36">
+<path fill="#eef3fa" stroke="#4c78a8" d="M301.12,-306C301.12,-306 258.88,-306 258.88,-306 252.88,-306 246.88,-300 246.88,-294 246.88,-294 246.88,-282 246.88,-282 246.88,-276 252.88,-270 258.88,-270 258.88,-270 301.12,-270 301.12,-270 307.12,-270 313.12,-276 313.12,-282 313.12,-282 313.12,-294 313.12,-294 313.12,-300 307.12,-306 301.12,-306"/>
+<text xml:space="preserve" text-anchor="middle" x="280" y="-290.5" font-family="Helvetica,sans-Serif" font-size="10.00">MapRender</text>
+<text xml:space="preserve" text-anchor="middle" x="280" y="-278.5" font-family="Helvetica,sans-Serif" font-size="10.00">40 files</text>
+</a>
+</g>
+</g>
+<!-- Controllers&#45;&gt;MapRender -->
+<g id="edge76" class="edge">
+<title>Controllers&#45;&gt;MapRender</title>
+<g id="a_edge76"><a xlink:title="Controllers &#45;&gt; MapRender: 10 references; types: MapRenderTrace, MapViewScene, MarkerOutcome, MarkerRideReason, RenderCompositionRecorder, ShadowRenderDriver, TrackingStationScene">
+<path fill="none" stroke="#8a949e" stroke-width="1.29" d="M1249.18,-465.12C1106.99,-456.58 533.46,-420.9 457,-396 399.62,-377.31 341.31,-337.05 308,-311.59"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.29" points="309.87,-309.94 302.83,-307.59 306.87,-313.81 309.87,-309.94"/>
+</a>
+</g>
+</g>
+<!-- Missions -->
+<g id="node11" class="node">
+<title>Missions</title>
+<g id="a_node11"><a xlink:title="Missions: 17 files, fan&#45;out 118, fan&#45;in 250, instability 0.32">
+<path fill="#eef3fa" stroke="#4c78a8" d="M1741.5,-306C1741.5,-306 1710.5,-306 1710.5,-306 1704.5,-306 1698.5,-300 1698.5,-294 1698.5,-294 1698.5,-282 1698.5,-282 1698.5,-276 1704.5,-270 1710.5,-270 1710.5,-270 1741.5,-270 1741.5,-270 1747.5,-270 1753.5,-276 1753.5,-282 1753.5,-282 1753.5,-294 1753.5,-294 1753.5,-300 1747.5,-306 1741.5,-306"/>
+<text xml:space="preserve" text-anchor="middle" x="1726" y="-290.5" font-family="Helvetica,sans-Serif" font-size="10.00">Missions</text>
+<text xml:space="preserve" text-anchor="middle" x="1726" y="-278.5" font-family="Helvetica,sans-Serif" font-size="10.00">17 files</text>
+</a>
+</g>
+</g>
+<!-- Controllers&#45;&gt;Missions -->
+<g id="edge43" class="edge">
+<title>Controllers&#45;&gt;Missions</title>
+<g id="a_edge43"><a xlink:title="Controllers &#45;&gt; Missions: 19 references; types: FlightGlobalsBodyInfo, IBodyInfo, Mission, MissionLoopUnitBuilder, MissionStore, TransitedBodyRotationMode">
+<path fill="none" stroke="#8a949e" stroke-width="1.55" d="M1313.01,-459.77C1359.99,-448.69 1449.96,-425.62 1523,-396 1583.96,-371.28 1650.74,-333.93 1690.47,-310.53"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.55" points="1691.49,-312.77 1696.26,-307.1 1688.99,-308.56 1691.49,-312.77"/>
+</a>
+</g>
+</g>
+<!-- Patches -->
+<g id="node12" class="node">
+<title>Patches</title>
+<g id="a_node12"><a xlink:title="Patches: 23 files, fan&#45;out 109, fan&#45;in 23, instability 0.83">
+<path fill="#eef3fa" stroke="#4c78a8" d="M927,-486C927,-486 897,-486 897,-486 891,-486 885,-480 885,-474 885,-474 885,-462 885,-462 885,-456 891,-450 897,-450 897,-450 927,-450 927,-450 933,-450 939,-456 939,-462 939,-462 939,-474 939,-474 939,-480 933,-486 927,-486"/>
+<text xml:space="preserve" text-anchor="middle" x="912" y="-470.5" font-family="Helvetica,sans-Serif" font-size="10.00">Patches</text>
+<text xml:space="preserve" text-anchor="middle" x="912" y="-458.5" font-family="Helvetica,sans-Serif" font-size="10.00">23 files</text>
+</a>
+</g>
+</g>
+<!-- Controllers&#45;&gt;Patches -->
+<g id="edge77" class="edge">
+<title>Controllers&#45;&gt;Patches</title>
+<g id="a_edge77"><a xlink:title="Controllers &#45;&gt; Patches: 9 references; types: GhostIconClickPatch, GhostTrackingStationSelection, PhysicsFramePatch, TrackingStationGhostActionContext, TrackingStationGhostActionKind, TrackingStationGhostActionPresentation, TrackingStationGhostActionSafety, TrackingStationGhostActionState, TrackingStationGhostSelectionInfo">
+<path fill="none" stroke="#cc0000" stroke-width="1.26" d="M1248.97,-468C1148.7,-468 1048.43,-468 948.15,-468"/>
+<polygon fill="#cc0000" stroke="#cc0000" stroke-width="1.26" points="948.29,-465.55 941.29,-468 948.29,-470.45 948.29,-465.55"/>
+</a>
+</g>
+</g>
+<!-- Recording -->
+<g id="node14" class="node">
+<title>Recording</title>
+<g id="a_node14"><a xlink:title="Recording: 68 files, fan&#45;out 252, fan&#45;in 1057, instability 0.19">
+<path fill="#eef3fa" stroke="#4c78a8" d="M1196.12,-126C1196.12,-126 1159.88,-126 1159.88,-126 1153.88,-126 1147.88,-120 1147.88,-114 1147.88,-114 1147.88,-102 1147.88,-102 1147.88,-96 1153.88,-90 1159.88,-90 1159.88,-90 1196.12,-90 1196.12,-90 1202.12,-90 1208.12,-96 1208.12,-102 1208.12,-102 1208.12,-114 1208.12,-114 1208.12,-120 1202.12,-126 1196.12,-126"/>
+<text xml:space="preserve" text-anchor="middle" x="1178" y="-110.5" font-family="Helvetica,sans-Serif" font-size="10.00">Recording</text>
+<text xml:space="preserve" text-anchor="middle" x="1178" y="-98.5" font-family="Helvetica,sans-Serif" font-size="10.00">68 files</text>
+</a>
+</g>
+</g>
+<!-- Controllers&#45;&gt;Recording -->
+<g id="edge1" class="edge">
+<title>Controllers&#45;&gt;Recording</title>
+<g id="a_edge1"><a xlink:title="Controllers &#45;&gt; Recording: 138 references; types: AnchorCandidateSource, AnchorDetector, AnchorPose, BackgroundRecorder, ChainSegmentManager, ControllerInfo, DiagnosticFormatters, DiscardSidecarReap, FinalizationCacheStatus, FlagEvent, FlightRecorder, GhostSnapshotMode (+38 more)">
+<path fill="none" stroke="#8a949e" stroke-width="5" d="M1270.5,-449.73C1246.06,-392.9 1193.28,-211.22 1179.61,-139.01"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="5" points="1182.65,-138.63 1178.46,-132.24 1176.61,-139.66 1182.65,-138.63"/>
+</a>
+</g>
+</g>
+<!-- Rendering -->
+<g id="node15" class="node">
+<title>Rendering</title>
+<g id="a_node15"><a xlink:title="Rendering: 15 files, fan&#45;out 80, fan&#45;in 41, instability 0.66">
+<path fill="#eef3fa" stroke="#4c78a8" d="M459.12,-306C459.12,-306 422.88,-306 422.88,-306 416.88,-306 410.88,-300 410.88,-294 410.88,-294 410.88,-282 410.88,-282 410.88,-276 416.88,-270 422.88,-270 422.88,-270 459.12,-270 459.12,-270 465.12,-270 471.12,-276 471.12,-282 471.12,-282 471.12,-294 471.12,-294 471.12,-300 465.12,-306 459.12,-306"/>
+<text xml:space="preserve" text-anchor="middle" x="441" y="-290.5" font-family="Helvetica,sans-Serif" font-size="10.00">Rendering</text>
+<text xml:space="preserve" text-anchor="middle" x="441" y="-278.5" font-family="Helvetica,sans-Serif" font-size="10.00">15 files</text>
+</a>
+</g>
+</g>
+<!-- Controllers&#45;&gt;Rendering -->
+<g id="edge69" class="edge">
+<title>Controllers&#45;&gt;Rendering</title>
+<g id="a_edge69"><a xlink:title="Controllers &#45;&gt; Rendering: 11 references; types: AnchorCorrection, AnchorCorrectionInterval, AnchorIntervalKind, AnchorSide, NonLoopLivePidGuard, RenderSessionState, SectionAnnotationStore, SmoothingSpline, TerrainCacheBuckets">
+<path fill="none" stroke="#8a949e" stroke-width="1.32" d="M1249.19,-464.99C1106.01,-455.83 526.77,-417.58 495,-396 467.41,-377.25 453.2,-340.03 446.43,-314.81"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.32" points="448.82,-314.26 444.74,-308.07 444.06,-315.45 448.82,-314.26"/>
+</a>
+</g>
+</g>
+<!-- Rewind -->
+<g id="node16" class="node">
+<title>Rewind</title>
+<g id="a_node16"><a xlink:title="Rewind: 41 files, fan&#45;out 246, fan&#45;in 380, instability 0.39">
+<path fill="#eef3fa" stroke="#4c78a8" d="M809,-306C809,-306 779,-306 779,-306 773,-306 767,-300 767,-294 767,-294 767,-282 767,-282 767,-276 773,-270 779,-270 779,-270 809,-270 809,-270 815,-270 821,-276 821,-282 821,-282 821,-294 821,-294 821,-300 815,-306 809,-306"/>
+<text xml:space="preserve" text-anchor="middle" x="794" y="-290.5" font-family="Helvetica,sans-Serif" font-size="10.00">Rewind</text>
+<text xml:space="preserve" text-anchor="middle" x="794" y="-278.5" font-family="Helvetica,sans-Serif" font-size="10.00">41 files</text>
+</a>
+</g>
+</g>
+<!-- Controllers&#45;&gt;Rewind -->
+<g id="edge7" class="edge">
+<title>Controllers&#45;&gt;Rewind</title>
+<g id="a_edge7"><a xlink:title="Controllers &#45;&gt; Rewind: 58 references; types: CheckpointDoubleCoverRetire, ChildSlot, CrashCoalescer, EffectiveState, Kind, LoadTimeSweep, MergeDialog, MergeJournal, MergeJournalOrchestrator, MergeState, Phase, PreconditionCache (+20 more)">
+<path fill="none" stroke="#8a949e" stroke-width="2.68" d="M1249.13,-455.55C1200.76,-434.63 1108.28,-389.68 1027,-360 959.37,-335.3 878.9,-313.72 832.05,-301.02"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="2.68" points="832.76,-298.67 825.37,-299.2 831.48,-303.4 832.76,-298.67"/>
+</a>
+</g>
+</g>
+<!-- SwitchIntent -->
+<g id="node17" class="node">
+<title>SwitchIntent</title>
+<g id="a_node17"><a xlink:title="SwitchIntent: 5 files, fan&#45;out 22, fan&#45;in 42, instability 0.34">
+<path fill="#eef3fa" stroke="#4c78a8" d="M1015.38,-396C1015.38,-396 968.62,-396 968.62,-396 962.62,-396 956.62,-390 956.62,-384 956.62,-384 956.62,-372 956.62,-372 956.62,-366 962.62,-360 968.62,-360 968.62,-360 1015.38,-360 1015.38,-360 1021.38,-360 1027.38,-366 1027.38,-372 1027.38,-372 1027.38,-384 1027.38,-384 1027.38,-390 1021.38,-396 1015.38,-396"/>
+<text xml:space="preserve" text-anchor="middle" x="992" y="-380.5" font-family="Helvetica,sans-Serif" font-size="10.00">SwitchIntent</text>
+<text xml:space="preserve" text-anchor="middle" x="992" y="-368.5" font-family="Helvetica,sans-Serif" font-size="10.00">5 files</text>
+</a>
+</g>
+</g>
+<!-- Controllers&#45;&gt;SwitchIntent -->
+<g id="edge51" class="edge">
+<title>Controllers&#45;&gt;SwitchIntent</title>
+<g id="a_edge51"><a xlink:title="Controllers &#45;&gt; SwitchIntent: 16 references; types: StockActionIntentConsumeDecision, StockActionIntentConsumeResult, StockActionIntentMarker, StockActionIntentStaleness, StockActionType, SwitchCloseCacheApplyDecision, SwitchCloseTerminalStampDecision, SwitchContinuationParentStatus, SwitchSegmentBuilder, SwitchSegmentDisposition, SwitchSegmentEntryReason, SwitchSegmentEntryRoute (+2 more)">
+<path fill="none" stroke="#8a949e" stroke-width="1.46" d="M1248.97,-457.25C1197.25,-441.5 1095.22,-410.43 1036.48,-392.54"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.46" points="1037.31,-390.24 1029.9,-390.54 1035.88,-394.92 1037.31,-390.24"/>
+</a>
+</g>
+</g>
+<!-- Trajectory -->
+<g id="node19" class="node">
+<title>Trajectory</title>
+<g id="a_node19"><a xlink:title="Trajectory: 19 files, fan&#45;out 78, fan&#45;in 301, instability 0.21">
+<path fill="#eef3fa" stroke="#4c78a8" d="M603.75,-216C603.75,-216 568.25,-216 568.25,-216 562.25,-216 556.25,-210 556.25,-204 556.25,-204 556.25,-192 556.25,-192 556.25,-186 562.25,-180 568.25,-180 568.25,-180 603.75,-180 603.75,-180 609.75,-180 615.75,-186 615.75,-192 615.75,-192 615.75,-204 615.75,-204 615.75,-210 609.75,-216 603.75,-216"/>
+<text xml:space="preserve" text-anchor="middle" x="586" y="-200.5" font-family="Helvetica,sans-Serif" font-size="10.00">Trajectory</text>
+<text xml:space="preserve" text-anchor="middle" x="586" y="-188.5" font-family="Helvetica,sans-Serif" font-size="10.00">19 files</text>
+</a>
+</g>
+</g>
+<!-- Controllers&#45;&gt;Trajectory -->
+<g id="edge24" class="edge">
+<title>Controllers&#45;&gt;Trajectory</title>
+<g id="a_edge24"><a xlink:title="Controllers &#45;&gt; Trajectory: 28 references; types: CatmullRomFit, FrameTransform, IncompleteBallisticSceneExitFinalizer, OrbitSegment, TrajectoryMath, TrajectoryPoint, TrajectoryPointFlags">
+<path fill="none" stroke="#8a949e" stroke-width="1.81" d="M1249.03,-465.18C1120.6,-457.1 645.17,-419.79 561,-306 543.4,-282.2 556.32,-247.94 569.23,-224.64"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.81" points="571.31,-225.94 572.73,-218.66 567.08,-223.47 571.31,-225.94"/>
+</a>
+</g>
+</g>
+<!-- UI -->
+<g id="node20" class="node">
+<title>UI</title>
+<g id="a_node20"><a xlink:title="UI: 45 files, fan&#45;out 314, fan&#45;in 85, instability 0.79">
+<path fill="#eef3fa" stroke="#4c78a8" d="M1635,-576C1635,-576 1605,-576 1605,-576 1599,-576 1593,-570 1593,-564 1593,-564 1593,-552 1593,-552 1593,-546 1599,-540 1605,-540 1605,-540 1635,-540 1635,-540 1641,-540 1647,-546 1647,-552 1647,-552 1647,-564 1647,-564 1647,-570 1641,-576 1635,-576"/>
+<text xml:space="preserve" text-anchor="middle" x="1620" y="-560.5" font-family="Helvetica,sans-Serif" font-size="10.00">UI</text>
+<text xml:space="preserve" text-anchor="middle" x="1620" y="-548.5" font-family="Helvetica,sans-Serif" font-size="10.00">45 files</text>
+</a>
+</g>
+</g>
+<!-- Controllers&#45;&gt;UI -->
+<g id="edge70" class="edge">
+<title>Controllers&#45;&gt;UI</title>
+<g id="a_edge70"><a xlink:title="Controllers &#45;&gt; UI: 11 references; types: DockEventGraphCache, NearbySpawnCandidate, ParsekTimeFormat, ParsekUI, RecordingsTableUI, SelectiveSpawnUI, UIMode">
+<path fill="none" stroke="#cc0000" stroke-width="1.32" d="M1312.99,-475.57C1376.72,-490.44 1517.45,-526.82 1584.13,-545.51"/>
+<polygon fill="#cc0000" stroke="#cc0000" stroke-width="1.32" points="1583.33,-547.83 1590.73,-547.37 1584.66,-543.11 1583.33,-547.83"/>
+</a>
+</g>
+</g>
+<!-- Core&#45;&gt;Recording -->
+<g id="edge37" class="edge">
+<title>Core&#45;&gt;Recording</title>
+<g id="a_edge37"><a xlink:title="Core &#45;&gt; Recording: 21 references; types: FlagEvent, LoopTimeUnit, PartEvent, Recording, RecordingEndpointResolver, RecordingPaths, RecordingStore, RecordingTree, ReferenceFrame, SurfacePosition, TerminalState, TrackSection (+1 more)">
+<path fill="none" stroke="#cc0000" stroke-width="1.61" d="M1626.6,-25.28C1545.95,-41.53 1311.67,-84.84 1217.49,-100.9"/>
+<polygon fill="#cc0000" stroke="#cc0000" stroke-width="1.61" points="1217.18,-98.46 1210.69,-102.05 1218,-103.3 1217.18,-98.46"/>
+</a>
+</g>
+</g>
+<!-- Core&#45;&gt;Trajectory -->
+<g id="edge78" class="edge">
+<title>Core&#45;&gt;Trajectory</title>
+<g id="a_edge78"><a xlink:title="Core &#45;&gt; Trajectory: 9 references; types: OrbitReseed, OrbitSeedResolver, OrbitSegment, TailDerivedOrbitSeed, TailSeedUse, TrajectoryMath, TrajectoryPoint">
+<path fill="none" stroke="#cc0000" stroke-width="1.26" d="M1626.63,-19.96C1532.18,-23.66 1211.4,-39.41 952,-90 829.87,-113.82 689.78,-160.34 623.94,-183.39"/>
+<polygon fill="#cc0000" stroke="#cc0000" stroke-width="1.26" points="623.49,-180.95 617.7,-185.58 625.12,-185.57 623.49,-180.95"/>
+</a>
+</g>
+</g>
+<!-- Crew -->
+<g id="node4" class="node">
+<title>Crew</title>
+<g id="a_node4"><a xlink:title="Crew: 9 files, fan&#45;out 28, fan&#45;in 59, instability 0.32">
+<path fill="#eef3fa" stroke="#4c78a8" d="M961,-306C961,-306 931,-306 931,-306 925,-306 919,-300 919,-294 919,-294 919,-282 919,-282 919,-276 925,-270 931,-270 931,-270 961,-270 961,-270 967,-270 973,-276 973,-282 973,-282 973,-294 973,-294 973,-300 967,-306 961,-306"/>
+<text xml:space="preserve" text-anchor="middle" x="946" y="-290.5" font-family="Helvetica,sans-Serif" font-size="10.00">Crew</text>
+<text xml:space="preserve" text-anchor="middle" x="946" y="-278.5" font-family="Helvetica,sans-Serif" font-size="10.00">9 files</text>
+</a>
+</g>
+</g>
+<!-- Crew&#45;&gt;GameActions -->
+<g id="edge86" class="edge">
+<title>Crew&#45;&gt;GameActions</title>
+<g id="a_edge86"><a xlink:title="Crew &#45;&gt; GameActions: 8 references; types: GameAction, GameActionType, GameStateStore, IResourceModule, LedgerOrchestrator">
+<path fill="none" stroke="#8a949e" stroke-width="1.23" d="M935.62,-269.61C932.74,-256.84 931.72,-239.27 932.84,-224.85"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.23" points="935.24,-225.43 933.6,-218.2 930.37,-224.87 935.24,-225.43"/>
+</a>
+</g>
+</g>
+<!-- Display -->
+<g id="node5" class="node">
+<title>Display</title>
+<g id="a_node5"><a xlink:title="Display: 4 files, fan&#45;out 47, fan&#45;in 31, instability 0.60">
+<path fill="#eef3fa" stroke="#4c78a8" d="M913,-396C913,-396 883,-396 883,-396 877,-396 871,-390 871,-384 871,-384 871,-372 871,-372 871,-366 877,-360 883,-360 883,-360 913,-360 913,-360 919,-360 925,-366 925,-372 925,-372 925,-384 925,-384 925,-390 919,-396 913,-396"/>
+<text xml:space="preserve" text-anchor="middle" x="898" y="-380.5" font-family="Helvetica,sans-Serif" font-size="10.00">Display</text>
+<text xml:space="preserve" text-anchor="middle" x="898" y="-368.5" font-family="Helvetica,sans-Serif" font-size="10.00">4 files</text>
+</a>
+</g>
+</g>
+<!-- Display&#45;&gt;MapRender -->
+<g id="edge87" class="edge">
+<title>Display&#45;&gt;MapRender</title>
+<g id="a_edge87"><a xlink:title="Display &#45;&gt; MapRender: 8 references; types: CrossMemberSeamStitcher, MapRenderTrace, MarkerRideReason, RenderCompositionRecorder, RenderGeometrySampler, ShadowRenderDriver, TracedPathTreatment">
+<path fill="none" stroke="#8a949e" stroke-width="1.23" d="M870.58,-375.58C787.52,-370.39 535.73,-350.4 321.87,-306.04"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.23" points="322.5,-303.66 315.14,-304.63 321.49,-308.46 322.5,-303.66"/>
+</a>
+</g>
+</g>
+<!-- Display&#45;&gt;Recording -->
+<g id="edge88" class="edge">
+<title>Display&#45;&gt;Recording</title>
+<g id="a_edge88"><a xlink:title="Display &#45;&gt; Recording: 8 references; types: Recording, RecordingStore, RecordingTree, ReferenceFrame, TrackSection">
+<path fill="none" stroke="#8a949e" stroke-width="1.23" d="M925.39,-366.17C974.74,-346.64 1073.6,-307.41 1075,-306 1117.52,-263.32 1095.61,-232.6 1125,-180 1134.26,-163.42 1146.92,-146.32 1157.54,-133.05"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.23" points="1159.19,-134.91 1161.71,-127.93 1155.39,-131.81 1159.19,-134.91"/>
+</a>
+</g>
+</g>
+<!-- GameActions&#45;&gt;Core -->
+<g id="edge79" class="edge">
+<title>GameActions&#45;&gt;Core</title>
+<g id="a_edge79"><a xlink:title="GameActions &#45;&gt; Core: 9 references; types: MilestoneStore, VesselLaunchIdentity, VesselSpawner">
+<path fill="none" stroke="#8a949e" stroke-width="1.26" d="M966.65,-179.63C1001.12,-155.28 1068.04,-111.56 1132,-90 1307.18,-30.94 1531.16,-20.88 1617.66,-19.26"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.26" points="1617.69,-21.71 1624.65,-19.15 1617.61,-16.81 1617.69,-21.71"/>
+</a>
+</g>
+</g>
+<!-- GameActions&#45;&gt;Crew -->
+<g id="edge71" class="edge">
+<title>GameActions&#45;&gt;Crew</title>
+<g id="a_edge71"><a xlink:title="GameActions &#45;&gt; Crew: 11 references; types: CrewReservationManager, KerbalCareerEntries, KerbalCareerLogEntry, KerbalEndState, KerbalLoadRepairDiagnostics, KerbalsModule">
+<path fill="none" stroke="#cc0000" stroke-width="1.32" d="M953.37,-216.35C956.23,-229 957.26,-246.36 956.19,-260.7"/>
+<polygon fill="#cc0000" stroke="#cc0000" stroke-width="1.32" points="953.76,-260.4 955.42,-267.63 958.63,-260.95 953.76,-260.4"/>
+</a>
+</g>
+</g>
+<!-- GameActions&#45;&gt;LogIO -->
+<g id="edge21" class="edge">
+<title>GameActions&#45;&gt;LogIO</title>
+<g id="a_edge21"><a xlink:title="GameActions &#45;&gt; LogIO: 31 references; types: FileIOUtils, ParsekLog, SuppressionGuard">
+<path fill="none" stroke="#8a949e" stroke-width="1.9" d="M906.24,-179.53C859.77,-157.66 777.12,-119.51 705,-90 651.25,-68.01 587.9,-45.17 549.09,-31.52"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.9" points="550.38,-29.37 542.97,-29.37 548.76,-34 550.38,-29.37"/>
+</a>
+</g>
+</g>
+<!-- GameActions&#45;&gt;Recording -->
+<g id="edge45" class="edge">
+<title>GameActions&#45;&gt;Recording</title>
+<g id="a_edge45"><a xlink:title="GameActions &#45;&gt; Recording: 18 references; types: FlightRecorder, PendingTreeState, Recording, RecordingPaths, RecordingStore, RecordingTree, TerminalState, VesselSnapshot">
+<path fill="none" stroke="#8a949e" stroke-width="1.52" d="M979.9,-179.51C1023.28,-162.02 1094.25,-135.62 1138.66,-120.57"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.52" points="1139.4,-122.91 1145.26,-118.36 1137.84,-118.26 1139.4,-122.91"/>
+</a>
+</g>
+</g>
+<!-- Ghost&#45;&gt;Config -->
+<g id="edge18" class="edge">
+<title>Ghost&#45;&gt;Config</title>
+<g id="a_edge18"><a xlink:title="Ghost &#45;&gt; Config: 32 references; types: DistanceThresholds, GhostAudio, GhostFlight, GhostPlayback, LoopTiming, ParsekSettings, WarpThresholds, WatchMode">
+<path fill="none" stroke="#8a949e" stroke-width="1.93" d="M1507.29,-375.8C1561.31,-372.31 1684.06,-358.71 1770,-306 1881.71,-237.49 1969.21,-101.66 2002.47,-44.89"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.93" points="2004.49,-46.29 2005.88,-39.01 2000.25,-43.84 2004.49,-46.29"/>
+</a>
+</g>
+</g>
+<!-- Ghost&#45;&gt;Controllers -->
+<g id="edge36" class="edge">
+<title>Ghost&#45;&gt;Controllers</title>
+<g id="a_edge36"><a xlink:title="Ghost &#45;&gt; Controllers: 22 references; types: DebrisRelativePlaybackPolicy, IGhostPositioner, IndexShift, ParentAnchoredDebrisCoverageDiagnostic, ParsekFlight, ParsekPlaybackPolicy, ParsekScenario, RelativeSectionPlaybackTarget, SessionSuppressionState, ZoneRenderingResult">
+<path fill="none" stroke="#cc0000" stroke-width="1.64" d="M1452.81,-395.25C1418.6,-411.89 1360.57,-437.48 1321.28,-453.18"/>
+<polygon fill="#cc0000" stroke="#cc0000" stroke-width="1.64" points="1320.63,-450.8 1315.02,-455.65 1322.43,-455.36 1320.63,-450.8"/>
+</a>
+</g>
+</g>
+<!-- Ghost&#45;&gt;Core -->
+<g id="edge23" class="edge">
+<title>Ghost&#45;&gt;Core</title>
+<g id="a_edge23"><a xlink:title="Ghost &#45;&gt; Core: 30 references; types: BranchPoint, BranchPointType, IPlaybackTrajectory, PlaybackTrajectoryBoundsResolver, RecordingEndpointPhase, VesselLaunchIdentity, VesselSpawner">
+<path fill="none" stroke="#8a949e" stroke-width="1.87" d="M1506.57,-359.51C1524.54,-346.55 1547.7,-327.46 1563,-306 1622.16,-223.04 1643.99,-100.01 1651.03,-46.04"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.87" points="1653.44,-46.55 1651.87,-39.3 1648.58,-45.94 1653.44,-46.55"/>
+</a>
+</g>
+</g>
+<!-- Ghost&#45;&gt;LogIO -->
+<g id="edge19" class="edge">
+<title>Ghost&#45;&gt;LogIO</title>
+<g id="a_edge19"><a xlink:title="Ghost &#45;&gt; LogIO: 32 references; types: ParsekLog">
+<path fill="none" stroke="#8a949e" stroke-width="1.93" d="M1452.6,-375.72C1285.84,-367.88 413.67,-325.93 395,-306 321.33,-227.36 434.82,-96.4 487.97,-42.89"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.93" points="489.43,-44.89 492.67,-38.22 485.98,-41.41 489.43,-44.89"/>
+</a>
+</g>
+</g>
+<!-- Ghost&#45;&gt;Missions -->
+<g id="edge61" class="edge">
+<title>Ghost&#45;&gt;Missions</title>
+<g id="a_edge61"><a xlink:title="Ghost &#45;&gt; Missions: 13 references; types: DockEventGraph, DockEventNode, DockPartnerDescription, DockPartnerStatus, FlightGlobalsBodyInfo, IBodyInfo, LaunchTimingEntry, Mission, MissionLoopUnitBuilder, MissionPeriodicity, MissionRelaunchSchedule, MissionStore (+1 more)">
+<path fill="none" stroke="#8a949e" stroke-width="1.38" d="M1507.49,-364.02C1552.28,-346.38 1639.65,-315.22 1689.54,-299.18"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.38" points="1690.18,-301.54 1696.11,-297.09 1688.69,-296.87 1690.18,-301.54"/>
+</a>
+</g>
+</g>
+<!-- Reaim -->
+<g id="node13" class="node">
+<title>Reaim</title>
+<g id="a_node13"><a xlink:title="Reaim: 20 files, fan&#45;out 67, fan&#45;in 85, instability 0.44">
+<path fill="#eef3fa" stroke="#4c78a8" d="M1612,-486C1612,-486 1582,-486 1582,-486 1576,-486 1570,-480 1570,-474 1570,-474 1570,-462 1570,-462 1570,-456 1576,-450 1582,-450 1582,-450 1612,-450 1612,-450 1618,-450 1624,-456 1624,-462 1624,-462 1624,-474 1624,-474 1624,-480 1618,-486 1612,-486"/>
+<text xml:space="preserve" text-anchor="middle" x="1597" y="-470.5" font-family="Helvetica,sans-Serif" font-size="10.00">Reaim</text>
+<text xml:space="preserve" text-anchor="middle" x="1597" y="-458.5" font-family="Helvetica,sans-Serif" font-size="10.00">20 files</text>
+</a>
+</g>
+</g>
+<!-- Ghost&#45;&gt;Reaim -->
+<g id="edge72" class="edge">
+<title>Ghost&#45;&gt;Reaim</title>
+<g id="a_edge72"><a xlink:title="Ghost &#45;&gt; Reaim: 11 references; types: ArrivalRestitch, DescentHeadPhase, DescentRenderTrace, DescentTrigger, ReaimMissionPlan, ReaimPlaybackResolver, ReaimWindowPlanner, ReaimWindowSchedule">
+<path fill="none" stroke="#cc0000" stroke-width="1.32" d="M1507.49,-392.88C1528.95,-406.55 1557.6,-427.68 1576.98,-443.89"/>
+<polygon fill="#cc0000" stroke="#cc0000" stroke-width="1.32" points="1575.24,-445.62 1582.15,-448.31 1578.43,-441.9 1575.24,-445.62"/>
+</a>
+</g>
+</g>
+<!-- Ghost&#45;&gt;Recording -->
+<g id="edge3" class="edge">
+<title>Ghost&#45;&gt;Recording</title>
+<g id="a_edge3"><a xlink:title="Ghost &#45;&gt; Recording: 92 references; types: AnchorPose, AntennaSpec, ChainBridgeAction, ChainHandoffLogic, EndpointOrbitSeedDiagnostics, FlagEvent, FlightRecorder, HeatLevel, LoopTimeUnit, PartEvent, PartEventType, Recording (+18 more)">
+<path fill="none" stroke="#8a949e" stroke-width="3.67" d="M1452.65,-361.63C1424.89,-340.73 1383.15,-302.25 1347,-270 1292.93,-221.76 1228.98,-166.5 1196.89,-134.88"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="3.67" points="1198.92,-133.45 1192.26,-130.19 1195.44,-136.89 1198.92,-133.45"/>
+</a>
+</g>
+</g>
+<!-- Ghost&#45;&gt;Rewind -->
+<g id="edge53" class="edge">
+<title>Ghost&#45;&gt;Rewind</title>
+<g id="a_edge53"><a xlink:title="Ghost &#45;&gt; Rewind: 15 references; types: EffectiveState, Kind, Phase, ReFlySessionMarker, ReFlySettleStabilityTracker, TimelineInactiveReason">
+<path fill="none" stroke="#8a949e" stroke-width="1.43" d="M1452.63,-373.95C1369.73,-364.64 1114.17,-335.45 903,-306 878.71,-302.61 851.45,-298.36 830.26,-294.96"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.43" points="830.73,-292.55 823.43,-293.85 829.95,-297.39 830.73,-292.55"/>
+</a>
+</g>
+</g>
+<!-- Ghost&#45;&gt;Trajectory -->
+<g id="edge15" class="edge">
+<title>Ghost&#45;&gt;Trajectory</title>
+<g id="a_edge15"><a xlink:title="Ghost &#45;&gt; Trajectory: 34 references; types: OrbitReseed, OrbitSeedResolver, OrbitSegment, TailDerivedOrbitSeed, TailSeedUse, TrajectoryMath, TrajectoryPoint, TrajectoryPointFlags">
+<path fill="none" stroke="#8a949e" stroke-width="1.99" d="M1452.66,-375.11C1328.22,-366.4 818.37,-329.54 751,-306 697.52,-287.31 644.04,-247.89 613.04,-222.47"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.99" points="614.92,-220.85 607.97,-218.26 611.79,-224.62 614.92,-220.85"/>
+</a>
+</g>
+</g>
+<!-- Logistics&#45;&gt;Core -->
+<g id="edge52" class="edge">
+<title>Logistics&#45;&gt;Core</title>
+<g id="a_edge52"><a xlink:title="Logistics &#45;&gt; Core: 16 references; types: BranchPoint, BranchPointType, InventoryItem, VesselLaunchIdentity, VesselSpawner">
+<path fill="none" stroke="#8a949e" stroke-width="1.46" d="M1527.65,-269.83C1550.74,-223.99 1613.92,-98.56 1641.19,-44.43"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.46" points="1643.29,-45.7 1644.25,-38.35 1638.92,-43.5 1643.29,-45.7"/>
+</a>
+</g>
+</g>
+<!-- Logistics&#45;&gt;GameActions -->
+<g id="edge62" class="edge">
+<title>Logistics&#45;&gt;GameActions</title>
+<g id="a_edge62"><a xlink:title="Logistics &#45;&gt; GameActions: 13 references; types: FundsEarningSource, GameAction, GameActionType, Ledger">
+<path fill="none" stroke="#8a949e" stroke-width="1.38" d="M1491.22,-282.76C1399.43,-268.73 1105.21,-223.78 989.95,-206.17"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.38" points="990.34,-203.75 983.05,-205.12 989.6,-208.6 990.34,-203.75"/>
+</a>
+</g>
+</g>
+<!-- Logistics&#45;&gt;Ghost -->
+<g id="edge80" class="edge">
+<title>Logistics&#45;&gt;Ghost</title>
+<g id="a_edge80"><a xlink:title="Logistics &#45;&gt; Ghost: 9 references; types: GhostMapPresence, GhostPlaybackLogic, LoopUnit">
+<path fill="none" stroke="#cc0000" stroke-width="1.26" d="M1511.31,-306.35C1505.6,-319.24 1497.72,-337.02 1491.29,-351.52"/>
+<polygon fill="#cc0000" stroke="#cc0000" stroke-width="1.26" points="1489.07,-350.48 1488.48,-357.87 1493.55,-352.46 1489.07,-350.48"/>
+</a>
+</g>
+</g>
+<!-- Logistics&#45;&gt;LogIO -->
+<g id="edge22" class="edge">
+<title>Logistics&#45;&gt;LogIO</title>
+<g id="a_edge22"><a xlink:title="Logistics &#45;&gt; LogIO: 31 references; types: ParsekLog">
+<path fill="none" stroke="#8a949e" stroke-width="1.9" d="M1511.97,-269.82C1501.63,-246.49 1480.21,-204.86 1450,-180 1366.51,-111.3 1329.04,-115.62 1224,-90 971.52,-28.41 656.14,-20.08 549.87,-19.08"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.9" points="550.15,-16.63 543.13,-19.03 550.11,-21.53 550.15,-16.63"/>
+</a>
+</g>
+</g>
+<!-- Logistics&#45;&gt;Missions -->
+<g id="edge47" class="edge">
+<title>Logistics&#45;&gt;Missions</title>
+<g id="a_edge47"><a xlink:title="Logistics &#45;&gt; Missions: 17 references; types: FlightGlobalsBodyInfo, IBodyInfo, Mission, MissionCompositionBuilder, MissionCompositionNode, MissionCrossTreeDock, MissionLoopUnitBuilder, MissionPeriodicity, MissionStore, MissionStructure, MissionStructureBuilder, TransitedBodyRotationMode">
+<path fill="none" stroke="#cc0000" stroke-width="1.49" d="M1546.9,-288C1594.22,-288 1641.54,-288 1688.87,-288"/>
+<polygon fill="#cc0000" stroke="#cc0000" stroke-width="1.49" points="1688.76,-290.45 1695.76,-288 1688.76,-285.55 1688.76,-290.45"/>
+</a>
+</g>
+</g>
+<!-- Logistics&#45;&gt;Recording -->
+<g id="edge14" class="edge">
+<title>Logistics&#45;&gt;Recording</title>
+<g id="a_edge14"><a xlink:title="Logistics &#45;&gt; Recording: 36 references; types: LoopTimeUnit, Recording, RecordingStore, RecordingTree, VesselSnapshot">
+<path fill="none" stroke="#8a949e" stroke-width="2.04" d="M1491.01,-270.2C1461.08,-247.12 1413.8,-205.57 1367,-180 1318.25,-153.36 1257.62,-133.85 1218.05,-122.1"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="2.04" points="1218.83,-119.77 1211.42,-120.15 1217.44,-124.47 1218.83,-119.77"/>
+</a>
+</g>
+</g>
+<!-- MapRender&#45;&gt;Display -->
+<g id="edge57" class="edge">
+<title>MapRender&#45;&gt;Display</title>
+<g id="a_edge57"><a xlink:title="MapRender &#45;&gt; Display: 14 references; types: BodySurfaceInfo, Driver, GhostTrajectoryPolylineRenderer, LegPolyline, RouteLineScope, RouteTrajectoryLineRenderer">
+<path fill="none" stroke="#cc0000" stroke-width="1.41" d="M313.41,-295.62C326.26,-299.15 340.27,-303.31 353,-306 542.54,-345.98 773.16,-366.51 861.62,-373.82"/>
+<polygon fill="#cc0000" stroke="#cc0000" stroke-width="1.41" points="861.41,-376.26 868.59,-374.39 861.81,-371.38 861.41,-376.26"/>
+</a>
+</g>
+</g>
+<!-- MapRender&#45;&gt;Ghost -->
+<g id="edge25" class="edge">
+<title>MapRender&#45;&gt;Ghost</title>
+<g id="a_edge25"><a xlink:title="MapRender &#45;&gt; Ghost: 28 references; types: GhostMapPresence, GhostPlaybackLogic, LoopCut, LoopUnit, LoopUnitSet, SpanLoopFrame">
+<path fill="none" stroke="#cc0000" stroke-width="1.81" d="M313.45,-300.36C321.11,-302.57 329.27,-304.63 337,-306 448,-325.73 1259.63,-366.24 1443.18,-375.21"/>
+<polygon fill="#cc0000" stroke="#cc0000" stroke-width="1.81" points="1442.81,-377.65 1449.93,-375.54 1443.05,-372.75 1442.81,-377.65"/>
+</a>
+</g>
+</g>
+<!-- MapRender&#45;&gt;LogIO -->
+<g id="edge73" class="edge">
+<title>MapRender&#45;&gt;LogIO</title>
+<g id="a_edge73"><a xlink:title="MapRender &#45;&gt; LogIO: 11 references; types: FileIOUtils, ParsekLog">
+<path fill="none" stroke="#8a949e" stroke-width="1.32" d="M280.17,-269.59C281.45,-232 289.63,-142.45 337,-90 373.75,-49.31 437.09,-31.52 476.93,-24.05"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.32" points="477.1,-26.51 483.57,-22.87 476.25,-21.68 477.1,-26.51"/>
+</a>
+</g>
+</g>
+<!-- MapRender&#45;&gt;Reaim -->
+<g id="edge81" class="edge">
+<title>MapRender&#45;&gt;Reaim</title>
+<g id="a_edge81"><a xlink:title="MapRender &#45;&gt; Reaim: 9 references; types: DescentHeadPhase, DescentTrigger, DestinationArrivalSolver, ReaimLoiterCompressor, ReaimMissionPlan, ReaimPlaybackResolver, ReaimWindowPlanner, ReaimWindowSchedule">
+<path fill="none" stroke="#cc0000" stroke-width="1.26" d="M313.58,-299.73C321.23,-301.98 329.36,-304.2 337,-306 813.21,-417.97 1410.22,-456.78 1561.1,-465.15"/>
+<polygon fill="#cc0000" stroke="#cc0000" stroke-width="1.26" points="1560.56,-467.57 1567.68,-465.51 1560.82,-462.68 1560.56,-467.57"/>
+</a>
+</g>
+</g>
+<!-- MapRender&#45;&gt;Rewind -->
+<g id="edge38" class="edge">
+<title>MapRender&#45;&gt;Rewind</title>
+<g id="a_edge38"><a xlink:title="MapRender &#45;&gt; Rewind: 21 references; types: Kind, Phases, ReFlySettleStabilityTracker">
+<path fill="none" stroke="#cc0000" stroke-width="1.61" d="M313.4,-302.92C339.41,-313.68 376.73,-327.28 411,-333 549.53,-356.13 592.65,-373.93 727,-333 741.05,-328.72 754.82,-320.4 766.2,-312.07"/>
+<polygon fill="#cc0000" stroke="#cc0000" stroke-width="1.61" points="767.66,-314.03 771.73,-307.83 764.68,-310.14 767.66,-314.03"/>
+</a>
+</g>
+</g>
+<!-- MapRender&#45;&gt;Trajectory -->
+<g id="edge58" class="edge">
+<title>MapRender&#45;&gt;Trajectory</title>
+<g id="a_edge58"><a xlink:title="MapRender &#45;&gt; Trajectory: 14 references; types: OrbitSegment, TrajectoryMath, TrajectoryPoint">
+<path fill="none" stroke="#8a949e" stroke-width="1.41" d="M313.62,-277.33C370.89,-260.86 487.01,-227.47 547.46,-210.08"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.41" points="547.86,-212.52 553.92,-208.23 546.51,-207.81 547.86,-212.52"/>
+</a>
+</g>
+</g>
+<!-- Missions&#45;&gt;Core -->
+<g id="edge48" class="edge">
+<title>Missions&#45;&gt;Core</title>
+<g id="a_edge48"><a xlink:title="Missions &#45;&gt; Core: 17 references; types: BranchPoint, BranchPointType, GroupHierarchyStore, VesselLaunchIdentity">
+<path fill="none" stroke="#8a949e" stroke-width="1.49" d="M1733.51,-269.58C1747.71,-233.85 1774.54,-150.52 1745,-90 1733.36,-66.15 1709.41,-47.98 1689.01,-35.99"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.49" points="1690.37,-33.95 1683.07,-32.65 1687.97,-38.22 1690.37,-33.95"/>
+</a>
+</g>
+</g>
+<!-- Missions&#45;&gt;Ghost -->
+<g id="edge59" class="edge">
+<title>Missions&#45;&gt;Ghost</title>
+<g id="a_edge59"><a xlink:title="Missions &#45;&gt; Ghost: 14 references; types: GhostPlaybackLogic, LoopCut, LoopSeamMarker, LoopSeamMarkerBuilder, LoopUnit, LoopUnitSet, MemberWindow">
+<path fill="none" stroke="#cc0000" stroke-width="1.41" d="M1698.29,-302.07C1653.17,-319.82 1565.25,-351.17 1515.6,-367.1"/>
+<polygon fill="#cc0000" stroke="#cc0000" stroke-width="1.41" points="1515.05,-364.7 1509.12,-369.15 1516.53,-369.38 1515.05,-364.7"/>
+</a>
+</g>
+</g>
+<!-- Missions&#45;&gt;LogIO -->
+<g id="edge65" class="edge">
+<title>Missions&#45;&gt;LogIO</title>
+<g id="a_edge65"><a xlink:title="Missions &#45;&gt; LogIO: 12 references; types: ParsekLog">
+<path fill="none" stroke="#8a949e" stroke-width="1.35" d="M1698.09,-280.83C1537.27,-245.3 729.56,-66.85 548.89,-26.93"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.35" points="549.64,-24.59 542.27,-25.47 548.58,-29.37 549.64,-24.59"/>
+</a>
+</g>
+</g>
+<!-- Missions&#45;&gt;Reaim -->
+<g id="edge39" class="edge">
+<title>Missions&#45;&gt;Reaim</title>
+<g id="a_edge39"><a xlink:title="Missions &#45;&gt; Reaim: 21 references; types: ArrivalHoldPlanner, ArrivalHoldResult, DescentEngageDecision, DescentTrigger, DestinationConstraintExtractor, DestinationConstraintSet, DestinationLoiterTrim, DestinationLoiterTrimResult, Diagnosis, LoiterRun, MemberArrivalInfo, MemberFacts (+8 more)">
+<path fill="none" stroke="#cc0000" stroke-width="1.61" d="M1720.84,-306.46C1703.32,-338.42 1654.42,-406.36 1623.11,-442.77"/>
+<polygon fill="#cc0000" stroke="#cc0000" stroke-width="1.61" points="1621.48,-440.9 1618.7,-447.78 1625.16,-444.14 1621.48,-440.9"/>
+</a>
+</g>
+</g>
+<!-- Missions&#45;&gt;Recording -->
+<g id="edge17" class="edge">
+<title>Missions&#45;&gt;Recording</title>
+<g id="a_edge17"><a xlink:title="Missions &#45;&gt; Recording: 33 references; types: FlightRecorder, LoopTimeUnit, PartEvent, PartEventType, Recording, RecordingGroupStore, RecordingStore, RecordingTree, ReferenceFrame, SegmentEnvironment, TerminalState, TrackSection">
+<path fill="none" stroke="#8a949e" stroke-width="1.96" d="M1698.17,-274.99C1648.81,-253.96 1542.42,-209.87 1450,-180 1368.68,-153.72 1271.35,-130.17 1217.96,-117.92"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.96" points="1218.78,-115.59 1211.41,-116.42 1217.69,-120.37 1218.78,-115.59"/>
+</a>
+</g>
+</g>
+<!-- Patches&#45;&gt;GameActions -->
+<g id="edge49" class="edge">
+<title>Patches&#45;&gt;GameActions</title>
+<g id="a_edge49"><a xlink:title="Patches &#45;&gt; GameActions: 17 references; types: GameStateEventType, GameStateRecorder, GameStateStore, LedgerOrchestrator">
+<path fill="none" stroke="#8a949e" stroke-width="1.49" d="M892.3,-449.62C878.94,-436.43 862.4,-417.03 855,-396 849.69,-380.91 851.12,-375.52 855,-360 868.18,-307.3 902.85,-253.36 924.53,-223.22"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.49" points="926.26,-225.01 928.42,-217.91 922.31,-222.12 926.26,-225.01"/>
+</a>
+</g>
+</g>
+<!-- Patches&#45;&gt;Ghost -->
+<g id="edge66" class="edge">
+<title>Patches&#45;&gt;Ghost</title>
+<g id="a_edge66"><a xlink:title="Patches &#45;&gt; Ghost: 12 references; types: GhostChain, GhostChainWalker, GhostMapPresence, GhostPlaybackLogic, LoopUnit, LoopUnitSet, NoBoundsSuppressTransition">
+<path fill="none" stroke="#8a949e" stroke-width="1.35" d="M939.4,-462.76C1032.74,-448.29 1338.4,-400.94 1443.85,-384.6"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.35" points="1443.99,-387.06 1450.53,-383.57 1443.24,-382.22 1443.99,-387.06"/>
+</a>
+</g>
+</g>
+<!-- Patches&#45;&gt;LogIO -->
+<g id="edge34" class="edge">
+<title>Patches&#45;&gt;LogIO</title>
+<g id="a_edge34"><a xlink:title="Patches &#45;&gt; LogIO: 24 references; types: ParsekLog, ParsekProcess, SuppressionGuard">
+<path fill="none" stroke="#8a949e" stroke-width="1.7" d="M884.7,-466.74C746.64,-464.71 132,-446.82 132,-289 132,-289 132,-289 132,-197 132,-146.07 134.23,-123.02 173,-90 218.57,-51.2 397.91,-29.88 476.16,-22.26"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.7" points="476.32,-24.71 483.06,-21.6 475.86,-19.83 476.32,-24.71"/>
+</a>
+</g>
+</g>
+<!-- Patches&#45;&gt;SwitchIntent -->
+<g id="edge74" class="edge">
+<title>Patches&#45;&gt;SwitchIntent</title>
+<g id="a_edge74"><a xlink:title="Patches &#45;&gt; SwitchIntent: 11 references; types: StockActionIntentMarker, StockActionSourceScene, StockActionType, SwitchSegmentDisposition, SwitchSegmentSession">
+<path fill="none" stroke="#8a949e" stroke-width="1.32" d="M927.81,-449.61C939.97,-436.24 956.91,-417.6 970.34,-402.83"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.32" points="971.99,-404.66 974.88,-397.83 968.36,-401.36 971.99,-404.66"/>
+</a>
+</g>
+</g>
+<!-- Reaim&#45;&gt;Ghost -->
+<g id="edge67" class="edge">
+<title>Reaim&#45;&gt;Ghost</title>
+<g id="a_edge67"><a xlink:title="Reaim &#45;&gt; Ghost: 12 references; types: GhostPlaybackLogic, LoopCut, LoopUnit, MemberWindow">
+<path fill="none" stroke="#8a949e" stroke-width="1.35" d="M1569.72,-453.25C1548.2,-439.56 1519.36,-418.3 1499.92,-402.03"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.35" points="1501.67,-400.3 1494.76,-397.61 1498.49,-404.02 1501.67,-400.3"/>
+</a>
+</g>
+</g>
+<!-- Reaim&#45;&gt;Missions -->
+<g id="edge40" class="edge">
+<title>Reaim&#45;&gt;Missions</title>
+<g id="a_edge40"><a xlink:title="Reaim &#45;&gt; Missions: 21 references; types: ConstraintKind, IBodyInfo, MissionPeriodicity, PhaseConstraint, TransitedBodyRotationMode">
+<path fill="none" stroke="#8a949e" stroke-width="1.61" d="M1602.12,-449.61C1619.6,-417.71 1668.48,-349.77 1699.83,-313.31"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.61" points="1701.46,-315.17 1704.24,-308.29 1697.78,-311.93 1701.46,-315.17"/>
+</a>
+</g>
+</g>
+<!-- Reaim&#45;&gt;Recording -->
+<g id="edge82" class="edge">
+<title>Reaim&#45;&gt;Recording</title>
+<g id="a_edge82"><a xlink:title="Reaim &#45;&gt; Recording: 9 references; types: FlagEvent, LoopTimeUnit, PartEvent, SurfacePosition, TerminalState, TrackSection, VesselSnapshot">
+<path fill="none" stroke="#8a949e" stroke-width="1.26" d="M1624.32,-454.24C1685.17,-424.07 1822.49,-345.21 1770,-270 1705.1,-177.02 1338.63,-127.33 1217.14,-113.24"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.26" points="1217.61,-110.83 1210.38,-112.47 1217.05,-115.7 1217.61,-110.83"/>
+</a>
+</g>
+</g>
+<!-- Reaim&#45;&gt;Trajectory -->
+<g id="edge83" class="edge">
+<title>Reaim&#45;&gt;Trajectory</title>
+<g id="a_edge83"><a xlink:title="Reaim &#45;&gt; Trajectory: 9 references; types: OrbitSegment, TrajectoryMath, TrajectoryPoint">
+<path fill="none" stroke="#8a949e" stroke-width="1.26" d="M1569.7,-461.26C1489.27,-444.44 1246.08,-394.33 1043,-360 878.27,-332.15 815.83,-389.28 671,-306 637.78,-286.9 612.64,-249.31 598.61,-224.16"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.26" points="600.85,-223.14 595.36,-218.15 596.54,-225.47 600.85,-223.14"/>
+</a>
+</g>
+</g>
+<!-- Recording&#45;&gt;Config -->
+<g id="edge60" class="edge">
+<title>Recording&#45;&gt;Config</title>
+<g id="a_edge60"><a xlink:title="Recording &#45;&gt; Config: 14 references; types: BackgroundSampling, DistanceThresholds, LoopTiming, ParsekSettings, RelativeFrame, SamplingDensity">
+<path fill="none" stroke="#8a949e" stroke-width="1.41" d="M1208.36,-103.82C1337.44,-90.28 1840.55,-37.51 1980.62,-22.82"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.41" points="1980.87,-25.25 1987.57,-22.09 1980.36,-20.38 1980.87,-25.25"/>
+</a>
+</g>
+</g>
+<!-- Recording&#45;&gt;Controllers -->
+<g id="edge54" class="edge">
+<title>Recording&#45;&gt;Controllers</title>
+<g id="a_edge54"><a xlink:title="Recording &#45;&gt; Controllers: 15 references; types: ParsekFlight, ParsekScenario, QuickloadTrimScope, TerminalOrbitSpawnSafety">
+<path fill="none" stroke="#cc0000" stroke-width="1.43" d="M1188.42,-126.09C1213.27,-183.73 1267.58,-371.19 1280.08,-440.73"/>
+<polygon fill="#cc0000" stroke="#cc0000" stroke-width="1.43" points="1277.66,-441.09 1281.21,-447.6 1282.49,-440.29 1277.66,-441.09"/>
+</a>
+</g>
+</g>
+<!-- Recording&#45;&gt;Core -->
+<g id="edge26" class="edge">
+<title>Recording&#45;&gt;Core</title>
+<g id="a_edge26"><a xlink:title="Recording &#45;&gt; Core: 28 references; types: BranchPoint, BranchPointType, GroupHierarchyStore, IPlaybackTrajectory, InventoryItem, MilestoneStore, PlaybackTrajectoryBoundsResolver, RecordingEndpointPhase, VesselLaunchIdentity, VesselSpawner">
+<path fill="none" stroke="#8a949e" stroke-width="1.81" d="M1208.52,-100.09C1292.79,-83.21 1526.31,-40.07 1617.37,-24.62"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.81" points="1617.55,-27.07 1624.04,-23.49 1616.74,-22.24 1617.55,-27.07"/>
+</a>
+</g>
+</g>
+<!-- Recording&#45;&gt;GameActions -->
+<g id="edge75" class="edge">
+<title>Recording&#45;&gt;GameActions</title>
+<g id="a_edge75"><a xlink:title="Recording &#45;&gt; GameActions: 11 references; types: GameStateEvent, GameStateRecorder, GameStateStore, Ledger, LedgerOrchestrator, PendingScienceSubject">
+<path fill="none" stroke="#cc0000" stroke-width="1.32" d="M1147.55,-123.87C1107.2,-140.37 1036.56,-166.8 989.56,-182.96"/>
+<polygon fill="#cc0000" stroke="#cc0000" stroke-width="1.32" points="988.8,-180.63 982.96,-185.21 990.38,-185.27 988.8,-180.63"/>
+</a>
+</g>
+</g>
+<!-- Recording&#45;&gt;Ghost -->
+<g id="edge84" class="edge">
+<title>Recording&#45;&gt;Ghost</title>
+<g id="a_edge84"><a xlink:title="Recording &#45;&gt; Ghost: 9 references; types: DebrisRelativeCoverageMode, DebrisRelativeCoveragePrimitives, GhostExtender, GhostMapPresence, GhostPlaybackEngine, GhostPlaybackLogic, GhostingTriggerClassifier">
+<path fill="none" stroke="#cc0000" stroke-width="1.26" d="M1208.21,-126.47C1248.64,-155.85 1319.75,-217.14 1379,-270 1410.83,-298.4 1447,-331.62 1467.04,-353.43"/>
+<polygon fill="#cc0000" stroke="#cc0000" stroke-width="1.26" points="1464.97,-354.78 1471.45,-358.38 1468.63,-351.53 1464.97,-354.78"/>
+</a>
+</g>
+</g>
+<!-- Recording&#45;&gt;LogIO -->
+<g id="edge11" class="edge">
+<title>Recording&#45;&gt;LogIO</title>
+<g id="a_edge11"><a xlink:title="Recording &#45;&gt; LogIO: 42 references; types: FileIOUtils, ParsekLog">
+<path fill="none" stroke="#8a949e" stroke-width="2.22" d="M1147.7,-102.99C1039.17,-88.63 670.03,-39.78 550.61,-23.98"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="2.22" points="551.08,-21.57 543.82,-23.08 550.44,-26.43 551.08,-21.57"/>
+</a>
+</g>
+</g>
+<!-- Recording&#45;&gt;Logistics -->
+<g id="edge32" class="edge">
+<title>Recording&#45;&gt;Logistics</title>
+<g id="a_edge32"><a xlink:title="Recording &#45;&gt; Logistics: 25 references; types: DockSeamHalfIdentity, DockSeamPairAdmission, DockSeamPairCandidate, HarvestActivityTransition, ResourceAmount, RouteConnectionKind, RouteConnectionWindow, RouteDiscardObservability, RouteHarvestCapture, RouteHarvestWindow, RouteOriginProof, RouteProofCapture (+5 more)">
+<path fill="none" stroke="#cc0000" stroke-width="1.72" d="M1208.43,-113.81C1253.26,-123.08 1336.03,-145.6 1399,-180 1441.05,-202.97 1483.5,-238.86 1505.65,-262.64"/>
+<polygon fill="#cc0000" stroke="#cc0000" stroke-width="1.72" points="1503.64,-264.07 1510.12,-267.67 1507.3,-260.81 1503.64,-264.07"/>
+</a>
+</g>
+</g>
+<!-- Recording&#45;&gt;Rewind -->
+<g id="edge27" class="edge">
+<title>Recording&#45;&gt;Rewind</title>
+<g id="a_edge27"><a xlink:title="Recording &#45;&gt; Rewind: 28 references; types: ChildSlot, EffectiveState, MergeJournal, MergeState, Phase, Phases, ReFlyAnchorSelection, ReFlyRevertButtonGate, ReFlySessionMarker, ReFlySettleStabilityTracker, RewindContext, RewindPoint (+4 more)">
+<path fill="none" stroke="#cc0000" stroke-width="1.81" d="M1147.76,-111.4C1094.54,-116.46 984.41,-132.1 905,-180 870.69,-200.7 841.9,-237.8 821.29,-262.41"/>
+<polygon fill="#cc0000" stroke="#cc0000" stroke-width="1.81" points="819.61,-260.61 816.94,-267.53 823.34,-263.78 819.61,-260.61"/>
+</a>
+</g>
+</g>
+<!-- Recording&#45;&gt;Trajectory -->
+<g id="edge5" class="edge">
+<title>Recording&#45;&gt;Trajectory</title>
+<g id="a_edge5"><a xlink:title="Recording &#45;&gt; Trajectory: 65 references; types: BallisticExtrapolator, ExtrapolationFailureReason, IncompleteBallisticFinalizationResult, IncompleteBallisticSceneExitFinalizer, OrbitReseed, OrbitSegment, OrbitSegmentCheckpointBridge, OrbitSegmentCheckpointBridgeStats, OrbitalCheckpointDensifier, RecordingStats, TrajectoryMath, TrajectoryPoint (+5 more)">
+<path fill="none" stroke="#cc0000" stroke-width="2.88" d="M1147.49,-114.45C1048.62,-130.31 739.43,-176.26 627.04,-191.8"/>
+<polygon fill="#cc0000" stroke="#cc0000" stroke-width="2.88" points="626.78,-189.36 620.18,-192.74 627.45,-194.22 626.78,-189.36"/>
+</a>
+</g>
+</g>
+<!-- Rendering&#45;&gt;LogIO -->
+<g id="edge85" class="edge">
+<title>Rendering&#45;&gt;LogIO</title>
+<g id="a_edge85"><a xlink:title="Rendering &#45;&gt; LogIO: 9 references; types: FileIOUtils, ParsekLog">
+<path fill="none" stroke="#8a949e" stroke-width="1.26" d="M445.61,-269.83C457.9,-224.08 491.49,-99.08 506.08,-44.76"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.26" points="508.39,-45.61 507.84,-38.22 503.65,-44.34 508.39,-45.61"/>
+</a>
+</g>
+</g>
+<!-- Rendering&#45;&gt;Recording -->
+<g id="edge12" class="edge">
+<title>Rendering&#45;&gt;Recording</title>
+<g id="a_edge12"><a xlink:title="Rendering &#45;&gt; Recording: 39 references; types: AnchorPose, Recording, RecordingStore, RecordingTree, ReferenceFrame, RelativeAnchorResolveFailure, RelativeAnchorResolveOutcome, RelativeAnchorResolver, RelativeAnchorResolverContext, SegmentEnvironment, TrackSection, TrackSectionSource">
+<path fill="none" stroke="#8a949e" stroke-width="2.13" d="M451.24,-269.74C466.91,-245.09 499.33,-200.53 540,-180 645.49,-126.74 1014.03,-113 1137.4,-109.85"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="2.13" points="1137.39,-112.3 1144.33,-109.68 1137.27,-107.4 1137.39,-112.3"/>
+</a>
+</g>
+</g>
+<!-- Rendering&#45;&gt;Trajectory -->
+<g id="edge46" class="edge">
+<title>Rendering&#45;&gt;Trajectory</title>
+<g id="a_edge46"><a xlink:title="Rendering &#45;&gt; Trajectory: 18 references; types: CatmullRomFit, FrameTransform, OrbitSegment, TrajectoryMath, TrajectoryPoint, TrajectoryPointFlags">
+<path fill="none" stroke="#8a949e" stroke-width="1.52" d="M469.65,-269.61C492.59,-255.69 524.9,-236.08 549.66,-221.05"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.52" points="550.73,-223.27 555.45,-217.54 548.19,-219.08 550.73,-223.27"/>
+</a>
+</g>
+</g>
+<!-- Rewind&#45;&gt;Controllers -->
+<g id="edge28" class="edge">
+<title>Rewind&#45;&gt;Controllers</title>
+<g id="a_edge28"><a xlink:title="Rewind &#45;&gt; Controllers: 28 references; types: ParsekFlight, ParsekScenario">
+<path fill="none" stroke="#cc0000" stroke-width="1.81" d="M821.15,-293.35C870.6,-303.3 974.76,-329.24 1059,-360 1128.47,-385.37 1206.13,-421.9 1249.12,-445.03"/>
+<polygon fill="#cc0000" stroke="#cc0000" stroke-width="1.81" points="1247.78,-447.09 1255.1,-448.3 1250.14,-442.79 1247.78,-447.09"/>
+</a>
+</g>
+</g>
+<!-- Rewind&#45;&gt;Core -->
+<g id="edge44" class="edge">
+<title>Rewind&#45;&gt;Core</title>
+<g id="a_edge44"><a xlink:title="Rewind &#45;&gt; Core: 19 references; types: BranchPoint, BranchPointType, GroupHierarchyStore, MilestoneStore, PlaybackTrajectoryBoundsResolver, VesselLaunchIdentity, VesselSpawner">
+<path fill="none" stroke="#8a949e" stroke-width="1.55" d="M797.12,-269.56C802.12,-246.32 814.03,-205.19 839,-180 910.21,-108.18 950.31,-116.16 1048,-90 1258.46,-33.65 1521.93,-22.01 1617.37,-19.62"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.55" points="1617.31,-22.07 1624.25,-19.46 1617.19,-17.17 1617.31,-22.07"/>
+</a>
+</g>
+</g>
+<!-- Rewind&#45;&gt;GameActions -->
+<g id="edge13" class="edge">
+<title>Rewind&#45;&gt;GameActions</title>
+<g id="a_edge13"><a xlink:title="Rewind &#45;&gt; GameActions: 39 references; types: FundsSpendingSource, GameAction, GameActionType, GameStateRecorder, GameStateStore, Ledger, LedgerOrchestrator, LedgerTombstone, Milestone, PendingScienceSubject, RecalculationEngine, ResurrectionRetirementEligibility (+3 more)">
+<path fill="none" stroke="#8a949e" stroke-width="2.13" d="M821.33,-270.86C844.8,-257 878.89,-236.86 905.02,-221.43"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="2.13" points="905.99,-223.7 910.77,-218.03 903.5,-219.48 905.99,-223.7"/>
+</a>
+</g>
+</g>
+<!-- Rewind&#45;&gt;LogIO -->
+<g id="edge16" class="edge">
+<title>Rewind&#45;&gt;LogIO</title>
+<g id="a_edge16"><a xlink:title="Rewind &#45;&gt; LogIO: 34 references; types: FileIOUtils, ParsekLog, SuppressionGuard">
+<path fill="none" stroke="#8a949e" stroke-width="1.99" d="M775.99,-269.83C727.54,-223.61 594.25,-96.49 538.28,-43.11"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.99" points="540.16,-41.51 533.4,-38.45 536.77,-45.06 540.16,-41.51"/>
+</a>
+</g>
+</g>
+<!-- Rewind&#45;&gt;Recording -->
+<g id="edge2" class="edge">
+<title>Rewind&#45;&gt;Recording</title>
+<g id="a_edge2"><a xlink:title="Rewind &#45;&gt; Recording: 98 references; types: AnchorDetector, DiagnosticFormatters, FlightGlobalsProvider, FlightRecorder, IFlightGlobalsProvider, PendingTreeState, Recording, RecordingAnchorCandidate, RecordingGroupStore, RecordingOptimizer, RecordingPaths, RecordingRewindRetirement (+11 more)">
+<path fill="none" stroke="#8a949e" stroke-width="3.84" d="M793.92,-269.61C804,-245.65 835.14,-202.84 873,-180 956.02,-129.92 1072.61,-115.11 1135.25,-110.77"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="3.84" points="1135.13,-113.23 1141.97,-110.35 1134.83,-108.34 1135.13,-113.23"/>
+</a>
+</g>
+</g>
+<!-- SwitchIntent&#45;&gt;Recording -->
+<g id="edge63" class="edge">
+<title>SwitchIntent&#45;&gt;Recording</title>
+<g id="a_edge63"><a xlink:title="SwitchIntent &#45;&gt; Recording: 13 references; types: PartEvent, PartEventType, Recording, RecordingStore, RecordingTree, ReferenceFrame, SegmentEnvironment, SegmentEvent, SegmentEventType, TerminalState, TrackSection">
+<path fill="none" stroke="#8a949e" stroke-width="1.38" d="M1027.61,-369.88C1061.15,-361.11 1109.63,-342.62 1133,-306 1163.14,-258.77 1121.64,-233.88 1137,-180 1141.73,-163.41 1151.17,-146.61 1159.8,-133.52"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.38" points="1161.65,-135.16 1163.57,-128 1157.6,-132.4 1161.65,-135.16"/>
+</a>
+</g>
+</g>
+<!-- Timeline -->
+<g id="node18" class="node">
+<title>Timeline</title>
+<g id="a_node18"><a xlink:title="Timeline: 3 files, fan&#45;out 25, fan&#45;in 7, instability 0.78">
+<path fill="#eef3fa" stroke="#4c78a8" d="M1047,-306C1047,-306 1017,-306 1017,-306 1011,-306 1005,-300 1005,-294 1005,-294 1005,-282 1005,-282 1005,-276 1011,-270 1017,-270 1017,-270 1047,-270 1047,-270 1053,-270 1059,-276 1059,-282 1059,-282 1059,-294 1059,-294 1059,-300 1053,-306 1047,-306"/>
+<text xml:space="preserve" text-anchor="middle" x="1032" y="-290.5" font-family="Helvetica,sans-Serif" font-size="10.00">Timeline</text>
+<text xml:space="preserve" text-anchor="middle" x="1032" y="-278.5" font-family="Helvetica,sans-Serif" font-size="10.00">3 files</text>
+</a>
+</g>
+</g>
+<!-- Timeline&#45;&gt;GameActions -->
+<g id="edge55" class="edge">
+<title>Timeline&#45;&gt;GameActions</title>
+<g id="a_edge55"><a xlink:title="Timeline &#45;&gt; GameActions: 15 references; types: FundsSpendingSource, GameAction, GameActionDisplay, GameActionType, GameStateEvent, GameStateEventConverter, GameStateEventDisplay, GameStateEventType, GameStateStore, Milestone">
+<path fill="none" stroke="#8a949e" stroke-width="1.43" d="M1014.42,-269.61C1000.76,-256.11 981.7,-237.26 966.7,-222.43"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.43" points="968.79,-221.05 962.09,-217.87 965.34,-224.54 968.79,-221.05"/>
+</a>
+</g>
+</g>
+<!-- Trajectory&#45;&gt;LogIO -->
+<g id="edge64" class="edge">
+<title>Trajectory&#45;&gt;LogIO</title>
+<g id="a_edge64"><a xlink:title="Trajectory &#45;&gt; LogIO: 13 references; types: FileIOUtils, ParsekLog">
+<path fill="none" stroke="#8a949e" stroke-width="1.38" d="M578.87,-179.61C565.95,-148.1 538.62,-81.46 523.54,-44.69"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.38" points="525.88,-43.94 520.95,-38.39 521.34,-45.8 525.88,-43.94"/>
+</a>
+</g>
+</g>
+<!-- Trajectory&#45;&gt;Recording -->
+<g id="edge9" class="edge">
+<title>Trajectory&#45;&gt;Recording</title>
+<g id="a_edge9"><a xlink:title="Trajectory &#45;&gt; Recording: 51 references; types: FlagEvent, GhostSnapshotMode, PartEvent, PartEventType, Recording, RecordingFinalizationTerminalOrbit, RecordingStore, RecordingTree, ReferenceFrame, SegmentEnvironment, SegmentEvent, SegmentEventType (+5 more)">
+<path fill="none" stroke="#8a949e" stroke-width="2.48" d="M616.01,-191.63C714.33,-175.85 1024.39,-129.76 1136.97,-114.2"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="2.48" points="1137.22,-116.64 1143.82,-113.26 1136.56,-111.78 1137.22,-116.64"/>
+</a>
+</g>
+</g>
+<!-- UI&#45;&gt;Config -->
+<g id="edge56" class="edge">
+<title>UI&#45;&gt;Config</title>
+<g id="a_edge56"><a xlink:title="UI &#45;&gt; Config: 15 references; types: GhostPlayback, LoopTiming, ParsekSettings, ParsekSettingsPersistence, SamplingDensity">
+<path fill="none" stroke="#8a949e" stroke-width="1.43" d="M1647.24,-557.77C1723.5,-558.95 1944.26,-555.67 2109,-486 2180.8,-455.63 2248,-456.96 2248,-379 2248,-379 2248,-379 2248,-197 2248,-99.81 2118.1,-48.29 2053.12,-28.59"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.43" points="2053.89,-26.27 2046.48,-26.64 2052.5,-30.97 2053.89,-26.27"/>
+</a>
+</g>
+</g>
+<!-- UI&#45;&gt;Controllers -->
+<g id="edge50" class="edge">
+<title>UI&#45;&gt;Controllers</title>
+<g id="a_edge50"><a xlink:title="UI &#45;&gt; Controllers: 17 references; types: MapMarkerRenderer, ParsekFlight, ParsekScenario, RewindTargetKind, TimeJumpManager, WarpFieldKind, WarpPlanKind, WarpToTimeController, WarpToTimeMath, WarpToTimeRequest">
+<path fill="none" stroke="#8a949e" stroke-width="1.49" d="M1592.6,-551.5C1532.67,-537.69 1391.71,-501.33 1321.58,-481.81"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.49" points="1322.55,-479.54 1315.15,-480.01 1321.23,-484.26 1322.55,-479.54"/>
+</a>
+</g>
+</g>
+<!-- UI&#45;&gt;Core -->
+<g id="edge68" class="edge">
+<title>UI&#45;&gt;Core</title>
+<g id="a_edge68"><a xlink:title="UI &#45;&gt; Core: 12 references; types: BranchPointType, GroupHierarchyStore, InventoryItem, MilestoneStore, VesselSpawner">
+<path fill="none" stroke="#8a949e" stroke-width="1.35" d="M1647.43,-556.45C1715.3,-554.21 1895.51,-542.93 2032,-486 2107.58,-454.48 2182,-460.89 2182,-379 2182,-379 2182,-379 2182,-287 2182,-65.83 1809.08,-27.12 1690.05,-20.4"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.35" points="1690.44,-17.97 1683.32,-20.04 1690.18,-22.86 1690.44,-17.97"/>
+</a>
+</g>
+</g>
+<!-- UI&#45;&gt;GameActions -->
+<g id="edge35" class="edge">
+<title>UI&#45;&gt;GameActions</title>
+<g id="a_edge35"><a xlink:title="UI &#45;&gt; GameActions: 24 references; types: ContractsModule, FacilitiesModule, GameAction, GameActionType, GameStateEvent, GameStateEventType, GameStateStore, KspFacilityIds, LedgerOrchestrator, Milestone, MilestonesModule, StrategiesModule (+1 more)">
+<path fill="none" stroke="#8a949e" stroke-width="1.7" d="M1592.56,-556.18C1460.27,-552.03 892.14,-531.62 829,-486 746.27,-426.22 692.67,-353.76 751,-270 783.42,-223.44 850.07,-207.34 895.65,-201.82"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.7" points="895.79,-204.27 902.48,-201.07 895.26,-199.39 895.79,-204.27"/>
+</a>
+</g>
+</g>
+<!-- UI&#45;&gt;Ghost -->
+<g id="edge89" class="edge">
+<title>UI&#45;&gt;Ghost</title>
+<g id="a_edge89"><a xlink:title="UI &#45;&gt; Ghost: 8 references; types: GhostMapPresence, GhostPlaybackEngine, GhostPlaybackLogic, GroupWatchAdvanceResult, LoopUnit, LoopUnitSet">
+<path fill="none" stroke="#8a949e" stroke-width="1.23" d="M1602.44,-539.55C1588.69,-525.55 1569.39,-505.15 1554,-486 1532.23,-458.91 1509.9,-425.74 1495.54,-403.57"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.23" points="1497.67,-402.35 1491.82,-397.79 1493.55,-405 1497.67,-402.35"/>
+</a>
+</g>
+</g>
+<!-- UI&#45;&gt;LogIO -->
+<g id="edge41" class="edge">
+<title>UI&#45;&gt;LogIO</title>
+<g id="a_edge41"><a xlink:title="UI &#45;&gt; LogIO: 20 references; types: ParsekLog">
+<path fill="none" stroke="#8a949e" stroke-width="1.58" d="M1592.56,-556.97C1379.68,-556.38 0,-546.11 0,-379 0,-379 0,-379 0,-197 0,-120.44 65.34,-121.77 135,-90 251.91,-36.67 406.67,-23.4 476.3,-20.09"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.58" points="476.27,-22.55 483.15,-19.8 476.05,-17.65 476.27,-22.55"/>
+</a>
+</g>
+</g>
+<!-- UI&#45;&gt;Logistics -->
+<g id="edge6" class="edge">
+<title>UI&#45;&gt;Logistics</title>
+<g id="a_edge6"><a xlink:title="UI &#45;&gt; Logistics: 59 references; types: EligibilityFailureKind, InventoryPayloadItem, LiveDeliveryCapacityProbe, LiveRouteRuntimeEnvironment, LogisticsCostPresentation, LogisticsIntervalPresentation, ResourceAmount, Route, RouteAnalysisResult, RouteAnalysisStatus, RouteCadence, RouteCandidate (+24 more)">
+<path fill="none" stroke="#8a949e" stroke-width="2.71" d="M1628.54,-539.58C1637.87,-518.1 1650.23,-480.65 1640,-450 1621.58,-394.83 1576,-343.37 1546.34,-314.1"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="2.71" points="1548.12,-312.41 1541.38,-309.3 1544.71,-315.93 1548.12,-312.41"/>
+</a>
+</g>
+</g>
+<!-- UI&#45;&gt;Missions -->
+<g id="edge10" class="edge">
+<title>UI&#45;&gt;Missions</title>
+<g id="a_edge10"><a xlink:title="UI &#45;&gt; Missions: 50 references; types: ChapterRoot, ChapterSelectionState, ConstraintExtraction, ConstraintKind, DockEventGraph, DockEventNode, DockPartnerDescription, DockPartnerStatus, FlightGlobalsBodyInfo, ForeignDockLink, Mission, MissionChapters (+30 more)">
+<path fill="none" stroke="#8a949e" stroke-width="2.45" d="M1633.51,-539.77C1643.85,-525.89 1657.85,-505.55 1667,-486 1693.92,-428.49 1711.92,-355.8 1720.39,-316.78"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="2.45" points="1722.75,-317.47 1721.81,-310.11 1717.96,-316.45 1722.75,-317.47"/>
+</a>
+</g>
+</g>
+<!-- UI&#45;&gt;Recording -->
+<g id="edge8" class="edge">
+<title>UI&#45;&gt;Recording</title>
+<g id="a_edge8"><a xlink:title="UI &#45;&gt; Recording: 52 references; types: LoopTimeUnit, Recording, RecordingGroupStore, RecordingOptimizer, RecordingPaths, RecordingRewindRetirement, RecordingStore, RecordingSupersedeRelation, RecordingTree, RecordingVisualClassifier, RecordingVisualKind, ReferenceFrame (+3 more)">
+<path fill="none" stroke="#8a949e" stroke-width="2.51" d="M1647.37,-553.3C1751.35,-538.49 2116,-479.41 2116,-379 2116,-379 2116,-379 2116,-287 2116,-194.31 1399.82,-127.7 1219.05,-112.36"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="2.51" points="1219.38,-109.93 1212.2,-111.78 1218.97,-114.81 1219.38,-109.93"/>
+</a>
+</g>
+</g>
+<!-- UI&#45;&gt;Rewind -->
+<g id="edge31" class="edge">
+<title>UI&#45;&gt;Rewind</title>
+<g id="a_edge31"><a xlink:title="UI &#45;&gt; Rewind: 26 references; types: ChildSlot, EffectiveState, Kind, Phase, RewindInvoker, RewindPoint, RewindPointDiskUsage, UnfinishedFlightClassifier, UnfinishedFlightSealHandler, UnfinishedFlightStashHandler">
+<path fill="none" stroke="#8a949e" stroke-width="1.75" d="M1592.64,-556.11C1464.52,-551.7 927.68,-530.67 869,-486 814.83,-444.77 799.79,-359.45 795.61,-315.88"/>
+<polygon fill="#8a949e" stroke="#8a949e" stroke-width="1.75" points="798.07,-315.9 795.04,-309.14 793.19,-316.32 798.07,-315.9"/>
+</a>
+</g>
+</g>
+</g>
+</svg>
+</div>
+<p>The reading, top to bottom: KSP touches Parsek through <strong>Patches</strong> and <strong>UI</strong>; <strong>Controllers</strong> (the scene addons and the scenario module) orchestrate; <strong>Ghost</strong>, <strong>Rewind</strong>, <strong>Missions</strong>, <strong>MapRender</strong> and <strong>Logistics</strong> are the feature layer; <strong>Recording</strong> and <strong>GameActions</strong> are the persistent model; <strong>Trajectory</strong>, <strong>Core</strong>, <strong>Config</strong> and <strong>LogIO</strong> are the floor.</p>
+
+<h2>Module directory</h2>
+<p>Ordered by layer. "Hubs" are the module's most-referenced types, counted by how many other files use them. Descriptions are from the design docs, not derived.</p>
+<div class="wide"><table>
+<tr><th>Module</th><th>What it is</th><th class="num">Files</th><th class="num">Types</th><th class="num">I</th><th>Hubs</th></tr>
+<tr class="band"><td colspan="6">Entry layer: KSP calls in</td></tr>
+<tr><td class="name">Patches</td><td>Harmony patches into stock KSP: physics frame, tracking station, orbit lines, facility and contract hooks, crew dialogs. 41 of its 76 types are entry points.</td><td class="num">23</td><td class="num">76</td><td class="num">0.83</td><td><span class="id">PhysicsFramePatch</span> <span class="id">GhostOrbitLinePatch</span></td></tr>
+<tr><td class="name">UI</td><td>The IMGUI windows and tabs: recordings table, settings, missions, logistics, kerbals, spawn control, plus the stock-UI overlays KSP instantiates.</td><td class="num">45</td><td class="num">130</td><td class="num">0.79</td><td><span class="id">ParsekUI</span> <span class="id">RecordingsTableUI</span> <span class="id">TooltipEchoBox</span></td></tr>
+<tr><td class="name">Timeline</td><td>Builds the timeline window's entries from ledger and recording events.</td><td class="num">3</td><td class="num">6</td><td class="num">0.78</td><td><span class="id">TimelineBuilder</span></td></tr>
+<tr><td class="name">Controllers</td><td>The scene controllers: <span class="id">ParsekScenario</span> (save, load, the OnLoad sweeps), <span class="id">ParsekFlight</span> (flight scene, recording, chains, input), KSC and tracking-station addons, warp-to-time.</td><td class="num">36</td><td class="num">88</td><td class="num">0.72</td><td><span class="id">ParsekScenario</span> <span class="id">ParsekFlight</span> <span class="id">TimeJumpManager</span></td></tr>
+<tr class="band"><td colspan="6">Feature layer</td></tr>
+<tr><td class="name">Rendering</td><td>Smoothing, anchoring and outlier handling for drawn trajectories.</td><td class="num">15</td><td class="num">28</td><td class="num">0.66</td><td><span class="id">SmoothingSpline</span> <span class="id">AnchorSide</span></td></tr>
+<tr><td class="name">Display</td><td>The map-view ghost trajectory polyline renderer and its route line sibling.</td><td class="num">4</td><td class="num">31</td><td class="num">0.60</td><td><span class="id">GhostTrajectoryPolylineRenderer</span></td></tr>
+<tr><td class="name">Reaim</td><td>Re-aiming a recorded mission at a new arrival: descent triggers, loiter compression, arrival hold planning.</td><td class="num">20</td><td class="num">43</td><td class="num">0.44</td><td><span class="id">DescentTrigger</span> <span class="id">ReaimPlaybackResolver</span></td></tr>
+<tr><td class="name">Ghost</td><td>Ghost playback: the engine, map presence (proto vessels for the tracking station), loop units, visual building, spawn safety and FX.</td><td class="num">48</td><td class="num">149</td><td class="num">0.42</td><td><span class="id">GhostPlaybackLogic</span> <span class="id">GhostMapPresence</span> <span class="id">LoopUnit</span></td></tr>
+<tr><td class="name">Rewind</td><td>Rewind-to-separation and re-fly: rewind points, supersede relations, the merge journal, effective state, revert and scene-exit interceptors.</td><td class="num">41</td><td class="num">99</td><td class="num">0.39</td><td><span class="id">EffectiveState</span> <span class="id">ReFlySessionMarker</span> <span class="id">RewindPoint</span></td></tr>
+<tr><td class="name">MapRender</td><td>Map and tracking-station render composition: phases, treatments, traces, the render manifest.</td><td class="num">40</td><td class="num">123</td><td class="num">0.36</td><td><span class="id">Treatment</span> <span class="id">MapRenderTrace</span> <span class="id">RenderSegment</span></td></tr>
+<tr><td class="name">SwitchIntent</td><td>Stock-action intent markers and vessel-switch continuation segments.</td><td class="num">5</td><td class="num">18</td><td class="num">0.34</td><td><span class="id">StockActionIntentMarker</span> <span class="id">SwitchSegmentSession</span></td></tr>
+<tr><td class="name">Missions</td><td>The Missions tab model: composition trees, structure, periodicity, per-vessel rows, group linking.</td><td class="num">17</td><td class="num">60</td><td class="num">0.32</td><td><span class="id">Mission</span> <span class="id">MissionStructure</span> <span class="id">IBodyInfo</span></td></tr>
+<tr><td class="name">Crew</td><td>Crew reservations and kerbal end states.</td><td class="num">9</td><td class="num">21</td><td class="num">0.32</td><td><span class="id">CrewReservationManager</span> <span class="id">KerbalEndState</span></td></tr>
+<tr><td class="name">Logistics</td><td>Routes between recorded vessels: endpoints, stops, proofs of origin and harvest, the route store, delivery capacity.</td><td class="num">55</td><td class="num">137</td><td class="num">0.26</td><td><span class="id">Route</span> <span class="id">RouteStore</span> <span class="id">RouteEndpoint</span></td></tr>
+<tr class="band"><td colspan="6">Model layer</td></tr>
+<tr><td class="name">GameActions</td><td>The ledger: game actions, recalculation, resource modules, KSP state patching, game-state events.</td><td class="num">40</td><td class="num">114</td><td class="num">0.23</td><td><span class="id">GameAction</span> <span class="id">LedgerOrchestrator</span> <span class="id">GameStateStore</span></td></tr>
+<tr><td class="name">Trajectory</td><td>Pure math over orbits and samples: segments, points, frames, ballistic extrapolation.</td><td class="num">19</td><td class="num">48</td><td class="num">0.21</td><td><span class="id">OrbitSegment</span> <span class="id">TrajectoryPoint</span> <span class="id">TrajectoryMath</span></td></tr>
+<tr><td class="name">Recording</td><td>The recording itself: <span class="id">Recording</span>, its tree, track sections, the store, the flight and background recorders, sidecar codecs, the optimizer.</td><td class="num">68</td><td class="num">126</td><td class="num">0.19</td><td><span class="id">Recording</span> <span class="id">RecordingStore</span> <span class="id">RecordingTree</span> <span class="id">TrackSection</span></td></tr>
+<tr class="band"><td colspan="6">Floor</td></tr>
+<tr><td class="name">Core</td><td>The eight files every module uses and no module owns: branch points, the playback trajectory interface, launch identity, the spawner, milestone and group stores, inventory manifests.</td><td class="num">8</td><td class="num">16</td><td class="num">0.17</td><td><span class="id">IPlaybackTrajectory</span> <span class="id">BranchPoint</span> <span class="id">VesselLaunchIdentity</span></td></tr>
+<tr><td class="name">Config</td><td>Settings, loop timing, distance thresholds.</td><td class="num">3</td><td class="num">13</td><td class="num">0.08</td><td><span class="id">ParsekSettings</span> <span class="id">LoopTiming</span></td></tr>
+<tr><td class="name">LogIO</td><td>Logging, safe file I/O, the process id, the pre-Parsek backup.</td><td class="num">5</td><td class="num">9</td><td class="num">0.01</td><td><span class="id">ParsekLog</span> <span class="id">FileIOUtils</span></td></tr>
+</table></div>
+
+<h2>The vocabulary</h2>
+<p>Learn these names before reading any file. Each is ranked by how many other files reference it. Together they are the language the whole mod is written in; the rest of the code is sentences made of them.</p>
+<dl>
+  <dt>ParsekLog <span class="layer">295 files</span></dt><dd>The logger. Every subsystem writes through it; the KSP.log is the primary debugging tool.</dd>
+  <dt>Recording <span class="layer">162</span></dt><dd>One recorded flight segment: metadata, trajectory points, track sections, part events, terminal state.</dd>
+  <dt>RecordingStore <span class="layer">91</span></dt><dd>The static store of committed recordings that survives scene changes; also the index-keyed live state contract.</dd>
+  <dt>RecordingTree <span class="layer">82</span></dt><dd>The branch topology a flight produces: splits, docks, continuations, all rooted at one launch.</dd>
+  <dt>OrbitSegment <span class="layer">67</span></dt><dd>A Keplerian arc in KSP-native elements; the unit of on-rails coverage.</dd>
+  <dt>TrajectoryPoint <span class="layer">61</span></dt><dd>One sampled position and rotation; body-fixed in absolute sections, anchor-local metres in relative ones.</dd>
+  <dt>TrackSection <span class="layer">54</span></dt><dd>A run of points sharing one reference frame and environment classification.</dd>
+  <dt>ParsekScenario <span class="layer">52</span></dt><dd>The ScenarioModule: save and load, coroutine host, the OnLoad sweeps.</dd>
+  <dt>TerminalState <span class="layer">50</span></dt><dd>How a recording ended: landed, recovered, destroyed, disassembled, and so on.</dd>
+  <dt>ReferenceFrame <span class="layer">48</span></dt><dd>Absolute or relative; decides how a point's coordinates are read.</dd>
+  <dt>GameAction <span class="layer">45</span></dt><dd>One ledger row: a funds, science, reputation, crew or facility effect attributed to a recording.</dd>
+  <dt>Route <span class="layer">45</span></dt><dd>A logistics route between recorded vessels, with stops and proofs.</dd>
+  <dt>GhostPlaybackLogic <span class="layer">44</span></dt><dd>The pure decision half of ghost playback: what to show, when, from which section.</dd>
+  <dt>EffectiveState <span class="layer">43</span></dt><dd>The one place that resolves which recordings and ledger rows are in effect after supersedes and chains.</dd>
+  <dt>TrajectoryMath <span class="layer">42</span></dt><dd>Sampling, interpolation, orbit search, the relative-offset converters, the Zup swizzle.</dd>
+  <dt>ParsekFlight <span class="layer">38</span></dt><dd>The flight-scene controller: policy, recording, chains, input.</dd>
+  <dt>IPlaybackTrajectory <span class="layer">32</span></dt><dd>The interface the playback engine sees instead of a Recording.</dd>
+  <dt>BranchPoint <span class="layer">30</span></dt><dd>Where and why a tree branched: decouple, dock, undock, EVA, switch.</dd>
+</dl>
+
+<h2>The knot</h2>
+<p><span class="knot">391 types, 29 percent of the production code, sit in one strongly connected component.</span> Every one of them can reach every other through references. It spans Logistics (60), GameActions (49), Rewind (41), Recording (39), UI (38), Ghost (32), Missions (21) and twelve more modules. This is why the module map is one big cycle underneath the layering, and it is the single fact that most constrains refactoring: nothing inside the knot can be tested, extracted or reasoned about in isolation.</p>
+<p>The knot is not held together by popularity. It is held by a few outgoing references from the hub types. Making a hub a pure sink (removing its own references to other knot members) shrinks the knot by this much:</p>
+<div class="wide"><table>
+<tr><th>Make this a sink</th><th class="num">Knot before</th><th class="num">after</th><th>Its references inside the knot</th></tr>
+<tr><td class="name">ParsekLog</td><td class="num">391</td><td class="num">335</td><td><span class="id">ParsekSettings</span> (the verbose flag), <span class="id">RecorderStateSnapshot</span></td></tr>
+<tr><td class="name">Recording</td><td class="num">335</td><td class="num">281</td><td><span class="id">RecordingStore</span>, <span class="id">KerbalsModule</span></td></tr>
+<tr><td class="name">RecordingStore</td><td class="num">281</td><td class="num">253</td><td>37 types: stores, codecs, the scenario, the flight controller, the ledger</td></tr>
+<tr><td class="name">GameAction</td><td class="num">253</td><td class="num">228</td><td><span class="id">Ledger</span>, <span class="id">VesselSpawner</span></td></tr>
+<tr><td class="name">Route</td><td class="num">228</td><td class="num">205</td><td><span class="id">GhostPlaybackLogic</span>, <span class="id">LoopUnit</span>, route codecs and evaluators</td></tr>
+<tr><td class="name">GhostPlaybackLogic</td><td class="num">205</td><td class="num">194</td><td>16 playback, mission and render types</td></tr>
+<tr><td class="name">LoopUnit</td><td class="num">194</td><td class="num">181</td><td><span class="id">MissionRelaunchSchedule</span></td></tr>
+</table></div>
+<div class="callout"><strong>How to read it.</strong> The first two rows are afternoon-sized: the logger reads its verbose flag from a settings object, and the recording data type calls into its own store and into the kerbals ledger module. Those four references tie 110 types into the knot. From row three on, the cuts name god objects, and the residual after twelve cuts is still 114 types, so the kernel is genuinely tangled, not merely miswired. That residual is design work, and it is where the phase 4 opportunity list will spend its argument.</div>
+
+<h2>Where the layering breaks</h2>
+<p>68 module edges run upward. Most are light. These are the ones that carry weight, with the types that cause them; the pairs at the end reference each other in both directions, which is the module-level signature of the knot.</p>
+<div class="wide"><table>
+<tr><th>Upward edge</th><th class="num">Refs</th><th>Through</th><th>Reading</th></tr>
+<tr><td class="name"><span class="up">Recording &rarr; Trajectory</span></td><td class="num">65</td><td><span class="id">BallisticExtrapolator</span>, <span class="id">OrbitReseed</span>, the scene-exit finalizer</td><td>Instabilities 0.19 and 0.21: a near tie, not a real inversion. The extrapolator lives in Trajectory but is used by the recorder.</td></tr>
+<tr><td class="name"><span class="up">MapRender &rarr; Ghost</span></td><td class="num">28</td><td><span class="id">GhostMapPresence</span>, <span class="id">LoopUnit</span>, <span class="id">LoopCut</span></td><td>The map renderer asks playback for what is present. Expected, given the layering; worth an interface.</td></tr>
+<tr><td class="name"><span class="up">Recording &rarr; Rewind</span></td><td class="num">28</td><td><span class="id">EffectiveState</span>, <span class="id">MergeState</span>, <span class="id">ChildSlot</span></td><td>The model reaches up into supersede resolution. Paired with Rewind &rarr; Recording at 98: the two are one subsystem on paper.</td></tr>
+<tr><td class="name"><span class="up">Rewind &rarr; Controllers</span></td><td class="num">28</td><td><span class="id">ParsekFlight</span>, <span class="id">ParsekScenario</span></td><td>Feature code calling the scene controllers directly, through their static instances.</td></tr>
+<tr><td class="name"><span class="up">Recording &rarr; Logistics</span></td><td class="num">25</td><td>dock seam identity and admission types</td><td>Route detection hooks living in the recorder path.</td></tr>
+<tr><td class="name"><span class="up">Missions &harr; Reaim</span></td><td class="num">21 / 21</td><td>arrival hold, descent decisions, destination constraints</td><td>Perfectly symmetric. Either one module, or a cut is needed.</td></tr>
+<tr><td class="name"><span class="up">Core &rarr; Recording</span></td><td class="num">21</td><td><span class="id">Recording</span>, <span class="id">PartEvent</span>, <span class="id">FlagEvent</span></td><td>The kernel vocabulary reaching up into the model; mostly <span class="id">BranchPoint</span> and the spawner.</td></tr>
+<tr><td class="name"><span class="up">Missions &rarr; Logistics</span></td><td class="num">2</td><td><span class="id">Route</span>, <span class="id">RouteStop</span></td><td>The one declared boundary the scan finds crossed: the route structure list reads route types.</td></tr>
+</table></div>
+
+<h2>Reading order</h2>
+<p>If you were new to this codebase, or coming back to it after months, this is the order in which the abstractions build on each other. Each step depends only on the ones before it.</p>
+<ol class="steps">
+  <li><strong>The floor.</strong> <span class="id">ParsekLog</span>, <span class="id">ParsekSettings</span>, <span class="id">FileIOUtils</span>. Then the enums: <span class="id">TerminalState</span>, <span class="id">ReferenceFrame</span>, <span class="id">GameActionType</span>, <span class="id">BranchPointType</span>. 605 types sit at this level; you need about a dozen.</li>
+  <li><strong>Trajectory math.</strong> <span class="id">OrbitSegment</span>, <span class="id">TrajectoryPoint</span>, <span class="id">TrajectoryMath</span>, the frame contracts in CLAUDE.md. Pure, testable, and the ground truth for every position on screen.</li>
+  <li><strong>The recording model.</strong> <span class="id">Recording</span>, <span class="id">TrackSection</span>, <span class="id">RecordingTree</span>, <span class="id">BranchPoint</span>, <span class="id">VesselSnapshot</span>. What a flight becomes on disk.</li>
+  <li><strong>The stores and the ledger.</strong> <span class="id">RecordingStore</span>, <span class="id">GameAction</span>, <span class="id">Ledger</span>, <span class="id">LedgerOrchestrator</span>. What persists across scenes and how it patches KSP's career state.</li>
+  <li><strong>Effective state and rewind.</strong> <span class="id">EffectiveState</span>, <span class="id">RewindPoint</span>, <span class="id">ReFlySessionMarker</span>, the merge journal. Which recordings count, given supersedes and re-flies.</li>
+  <li><strong>Playback.</strong> <span class="id">IPlaybackTrajectory</span>, <span class="id">GhostPlaybackLogic</span>, <span class="id">GhostPlaybackEngine</span>, <span class="id">GhostMapPresence</span>, <span class="id">LoopUnit</span>. How recordings become ghosts in flight and on the map.</li>
+  <li><strong>Features over the model.</strong> Logistics, Missions, Reaim, MapRender. Each reads steps 3 to 6 and adds its own vocabulary.</li>
+  <li><strong>The controllers and the surface.</strong> <span class="id">ParsekScenario</span>, <span class="id">ParsekFlight</span>, the UI windows, the Harmony patches. Read last: they are where everything meets, and they only make sense once the parts do.</li>
+</ol>
+
+<h2>The generated views</h2>
+<p>This page is a snapshot with prose. The live views regenerate from source in a few seconds and stay honest as the code moves. All are under <code>docs/dev/arch/</code> on the <code>arch-view</code> branch.</p>
+<dl>
+  <dt>explore.html</dt><dd>The module graph as an interactive page: click a module to see its neighbours and the exact types behind each edge.</dd>
+  <dt>matrix.html</dt><dd>The dependency structure matrix. Both axes sorted by stability, so everything above the diagonal is an upward edge.</dd>
+  <dt>ladder.html</dt><dd>Every type placed by module and abstraction level, with the knot split into sub-rows and its cut sinks marked.</dd>
+  <dt>modules.svg</dt><dd>The static map shown above.</dd>
+  <dt>core-placement.md</dt><dd>The evidence table behind where each former root file went.</dd>
+  <dt>archview.py --check</dt><dd>The text report: metrics, upward edges, couplings, hubs, roles, level profile, knots, forbidden edges.</dd>
+</dl>
+
+<p class="foot">Text-scan approximation. Type references are matched by name after stripping comments, strings and preprocessor lines; names declared in two modules are excluded; method calls that share a type's name are skipped. Good enough to place files and rank couplings; not sound enough to gate a build. The Roslyn extractor planned for phase 5 replaces the edges with semantic-model facts and keeps every view.</p>
+</main>
+</body></html>
