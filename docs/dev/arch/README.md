@@ -275,9 +275,22 @@ not a verdict on the file, and the report lists each one with its evidence so
 a human can place it.
 
 The phase that introduced this moved 48 of the 123 catch-all files (R1 31, R2
-17); 75 remain (7 orphan, 68 undecided, no split candidates). `GuiTree` (the
+17); 75 remained (7 orphan, 68 undecided, no split candidates). `GuiTree` (the
 GUI census recorder, added to `[tooling]`) and `Config` (settings types, a
 production sink) are the two modules the move created.
+
+A follow-up placed 67 of those 75 by hand as `placement = "R0"` rules (operator
+decisions, each group commented with the reason in `modules.toml`): session
+and revert machinery to Rewind, sidecar I/O and recorder policy to Recording,
+playback and spawn support to Ghost, scene-level control including the
+`WarpToTime` family to Controllers, dialogs and Unity-instantiated overlays to
+UI, and in-game test support to a new `Harness` module in `[tooling]`. R0
+rules sit above R1 and win on first match. The 8 files that stay in `Core`
+are the kernel vocabulary (`BranchPoint`, `IPlaybackTrajectory`,
+`VesselLaunchIdentity`, `VesselSpawner`, `MilestoneStore`,
+`GroupHierarchyStore`, `InventoryManifest`, `PlaybackTrajectoryBoundsResolver`):
+every module uses them, so no owner has a majority, and that is the intended
+meaning of Core from here on.
 
 ## Editing `modules.toml`
 

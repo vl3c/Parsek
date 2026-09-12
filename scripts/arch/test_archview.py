@@ -1365,15 +1365,15 @@ class RealTreeSmokeTests(unittest.TestCase):
         self.assertGreater(len(largest["modules"]), 10)
 
     def test_knot_sizes_match_the_documented_tree(self):
-        self.assertEqual([knot["size"] for knot in self.model["knots"]], [392, 4, 2])
+        self.assertEqual([knot["size"] for knot in self.model["knots"]], [391, 4, 2])
 
     def test_phase_two_catch_all_count(self):
         # Phase 2's revised placement policy (R1 name families first, then
         # externalRefs >= 5 AND (share >= 0.5 OR top >= 2 * second) on the
-        # rebuilt evidence) moves 48 files; 75 stay in the catch-all as
-        # SPLIT-CANDIDATE, ORPHAN or UNDECIDED and are listed with evidence in
-        # docs/dev/arch/core-placement.md.
-        self.assertEqual(self.by_name["Core"]["files"], 75)
+        # rebuilt evidence) moved 48 files and left 75; the R0 operator rules
+        # then placed 67 of those by hand, leaving the 8 kernel files that
+        # every module uses (see README, "Editing modules.toml").
+        self.assertEqual(self.by_name["Core"]["files"], 8)
 
     def test_phase_two_placements(self):
         modules = self.model["fileModules"]
@@ -1404,7 +1404,7 @@ class RealTreeSmokeTests(unittest.TestCase):
     def test_first_cut_matches_the_documented_tree(self):
         first = self.model["knots"][0]["cuts"][0]
         self.assertEqual(first["sink"], "ParsekLog")
-        self.assertEqual(first["sizeBefore"], 392)
+        self.assertEqual(first["sizeBefore"], 391)
         self.assertEqual(first["sizeAfter"], 335)
         self.assertEqual(first["droppedReferences"], ["ParsekSettings", "RecorderStateSnapshot"])
 

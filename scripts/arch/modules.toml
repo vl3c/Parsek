@@ -111,6 +111,67 @@ prefix = "^Parsek(Flight|KSC|TrackingStation|Scenario|Harmony|Playback)|^WatchMo
 name = "LogIO"
 prefix = "^ParsekLog|^FileIO|^ParsekProcess|^Suppression|^PreParsek"
 
+# --- R0 operator placements (phase 2b) ------------------------------------
+# Files below the R2 evidence floor or referenced by nothing outside Core,
+# placed by hand from what each file does. The eight kernel files stay in Core
+# on purpose: BranchPoint, IPlaybackTrajectory, VesselLaunchIdentity,
+# VesselSpawner, MilestoneStore, GroupHierarchyStore, InventoryManifest and
+# PlaybackTrajectoryBoundsResolver have no majority owner because every module
+# uses them; that is the shared vocabulary, not a placement gap.
+
+# session lifecycle, revert and unfinished-flight machinery (named in the rewind section of CLAUDE.md); SceneExitInterceptor is a Harmony-driven entry point referenced only from comments
+[[module]]
+name = "Rewind"
+prefix = "^UnfinishedFlightClassifier[.]cs$|^UnfinishedFlightSealHandler[.]cs$|^UnfinishedFlightStashHandler[.]cs$|^PostLoadStripper[.]cs$|^ReconciliationBundle[.]cs$|^MarkerValidator[.]cs$|^RevertDetector[.]cs$|^RevertInterceptor[.]cs$|^SceneExitInterceptor[.]cs$|^QuickloadResumeMatchGuard[.]cs$|^CrashCoalescer[.]cs$|^CheckpointDoubleCoverRetire[.]cs$"
+placement = "R0"
+
+# sidecar I/O, recorder policy and classifiers; each referenced only by Recording or by Recording plus one controller
+[[module]]
+name = "Recording"
+prefix = "^SnapshotSidecarCodec[.]cs$|^SidecarFileCommitBatch[.]cs$|^SessionMerger[.]cs$|^TreeDiscardPurge[.]cs$|^DiscardSidecarReap[.]cs$|^PartStateSeeder[.]cs$|^PartStateSeeder[.]Diff[.]cs$|^ProximityRateSelector[.]cs$|^SegmentPhaseClassifier[.]cs$|^TraceSeparation[.]cs$|^DebrisParentStateGate[.]cs$|^DebrisRelativeRecorderPolicy[.]cs$|^IdentityLossClassifier[.]cs$|^StockWarpAltitudeLimits[.]cs$|^AntennaSpec[.]cs$|^DiagnosticFormatters[.]cs$|^RecorderStateSnapshot[.]cs$"
+placement = "R0"
+
+# playback, spawn and ghost visual support
+[[module]]
+name = "Ghost"
+prefix = "^PlaybackTrace[.]cs$|^PlaybackScopeTracker[.]cs$|^PlaybackOrbitDiagnostics[.]cs$|^EngineFxBuilder[.]cs$|^MaterialCleanup[.]cs$|^RecordedRelativeAnchorPoseResolver[.]cs$|^DebrisRelativeCoveragePrimitives[.]cs$|^LoopSeamMarkerRuntime[.]cs$|^LoopSeamMarkerBuilder[.]cs$|^VesselGhoster[.]cs$|^SpawnCollisionDetector[.]cs$|^TerrainCorrector[.]cs$|^SpawnWarningUI[.]cs$|^VesselDisassemblyClassifier[.]cs$"
+placement = "R0"
+
+# scene-level runtime control; the WarpToTime family is one unit
+[[module]]
+name = "Controllers"
+prefix = "^TimeJumpManager[.]cs$|^PauseMenuGate[.]cs$|^InputFocusGuard[.]cs$|^MapMarkerRenderer[.]cs$|^ConnectionProducerClassifier[.]cs$|^WarpToTimeController[.]cs$|^WarpToTimeConsumer[.]cs$|^WarpToTimeMath[.]cs$|^WarpToTimeRequest[.]cs$"
+placement = "R0"
+
+# dialogs, caches for windows, and Unity-instantiated overlays that no code references (KSP creates them)
+[[module]]
+name = "UI"
+prefix = "^CommittedActionDialog[.]cs$|^DockEventGraphCache[.]cs$|^ResourceBudget[.]cs$|^CurrencyReservationOverlay[.]cs$|^OverlayBadge[.]cs$|^StockUiOverlayController[.]cs$|^ParsekToolbarRegistration[.]cs$"
+placement = "R0"
+
+# all three references come from Display
+[[module]]
+name = "Display"
+prefix = "^ForwardRenderWindow[.]cs$"
+placement = "R0"
+
+# all references come from Rendering
+[[module]]
+name = "Rendering"
+prefix = "^PannotationsSidecarBinary[.]cs$"
+placement = "R0"
+
+# ledger observability
+[[module]]
+name = "GameActions"
+prefix = "^LedgerTrace[.]cs$"
+placement = "R0"
+
+# in-game test and harness support; tooling, hidden from production views
+[[module]]
+name = "Harness"
+prefix = "^LedgerGroundTruth[.]cs$|^LedgerGroundTruthDiff[.]cs$|^CareerSaveParser[.]cs$|^TestBatchMarker[.]cs$|^CareerStartSnapshot[.]cs$"
+placement = "R0"
 # --- R1 name-family placements (phase 2) ----------------------------------
 # A file whose name starts with one of the family prefixes goes to the
 # family's module regardless of references; the family is a unit. The
@@ -161,103 +222,103 @@ placement = "R1"
 # evidence: externalRefs=9 share=0.56 top=Rewind(5) second=Recording(2)
 [[module]]
 name = "Rewind"
-prefix = '^ChildSlot\.cs$'
+prefix = '^ChildSlot[.]cs$'
 placement = "R2"
 
 # evidence: externalRefs=8 share=0.50 top=Controllers(4) second=Ghost(4)
 [[module]]
 name = "Controllers"
-prefix = '^DebrisRelativePlaybackPolicy\.cs$'
+prefix = '^DebrisRelativePlaybackPolicy[.]cs$'
 placement = "R2"
 
 # evidence: externalRefs=18 share=0.50 top=Missions(9) second=UI(9)
 [[module]]
 name = "Missions"
-prefix = '^DockEventGraph\.cs$'
+prefix = '^DockEventGraph[.]cs$'
 placement = "R2"
 
 # evidence: externalRefs=5 share=1.00 top=Recording(5) second=-
 [[module]]
 name = "Recording"
-prefix = '^EnvironmentDetector\.cs$'
+prefix = '^EnvironmentDetector[.]cs$'
 placement = "R2"
 
 # evidence: externalRefs=6 share=0.50 top=Controllers(3) second=Ghost(3)
 [[module]]
 name = "Controllers"
-prefix = '^IGhostPositioner\.cs$'
+prefix = '^IGhostPositioner[.]cs$'
 placement = "R2"
 
 # evidence: externalRefs=6 share=0.67 top=Controllers(4) second=Ghost(2)
 [[module]]
 name = "Controllers"
-prefix = '^IndexShift\.cs$'
+prefix = '^IndexShift[.]cs$'
 placement = "R2"
 
 # evidence: externalRefs=6 share=0.67 top=GameActions(4) second=Rewind(1)
 [[module]]
 name = "GameActions"
-prefix = '^Milestone\.cs$'
+prefix = '^Milestone[.]cs$'
 placement = "R2"
 
 # evidence: externalRefs=8 share=0.38 top=UI(3) second=Controllers(1)
 [[module]]
 name = "UI"
-prefix = '^ParsekTimeFormat\.cs$'
+prefix = '^ParsekTimeFormat[.]cs$'
 placement = "R2"
 
 # evidence: externalRefs=5 share=1.00 top=Recording(5) second=-
 [[module]]
 name = "Recording"
-prefix = '^ProximitySamplingCadence\.cs$'
+prefix = '^ProximitySamplingCadence[.]cs$'
 placement = "R2"
 
 # evidence: externalRefs=13 share=0.77 top=GameActions(10) second=Controllers(3)
 [[module]]
 name = "GameActions"
-prefix = '^RecoveryPayoutContext\.cs$'
+prefix = '^RecoveryPayoutContext[.]cs$'
 placement = "R2"
 
 # evidence: externalRefs=8 share=0.62 top=Ghost(5) second=Controllers(3)
 [[module]]
 name = "Ghost"
-prefix = '^RenderingZoneManager\.cs$'
+prefix = '^RenderingZoneManager[.]cs$'
 placement = "R2"
 
 # evidence: externalRefs=25 share=0.68 top=Logistics(17) second=Recording(3)
 [[module]]
 name = "Logistics"
-prefix = '^ResourceManifest\.cs$'
+prefix = '^ResourceManifest[.]cs$'
 placement = "R2"
 
 # evidence: externalRefs=9 share=0.78 top=UI(7) second=Controllers(2)
 [[module]]
 name = "UI"
-prefix = '^SelectiveSpawnUI\.cs$'
+prefix = '^SelectiveSpawnUI[.]cs$'
 placement = "R2"
 
 # evidence: externalRefs=6 share=0.50 top=Controllers(3) second=Ghost(2)
 [[module]]
 name = "Controllers"
-prefix = '^SessionSuppressionState\.cs$'
+prefix = '^SessionSuppressionState[.]cs$'
 placement = "R2"
 
 # evidence: externalRefs=5 share=1.00 top=Rewind(5) second=-
 [[module]]
 name = "Rewind"
-prefix = '^TerminalKindClassifier\.cs$'
+prefix = '^TerminalKindClassifier[.]cs$'
 placement = "R2"
 
 # evidence: externalRefs=7 share=0.86 top=Controllers(6) second=Recording(1)
 [[module]]
 name = "Controllers"
-prefix = '^TerminalOrbitSpawnSafety\.cs$'
+prefix = '^TerminalOrbitSpawnSafety[.]cs$'
 placement = "R2"
 
 # evidence: externalRefs=43 share=0.28 top=Recording(12) second=Controllers(6)
 [[module]]
 name = "Recording"
-prefix = '^TerminalState\.cs$'
+prefix = '^TerminalState[.]cs$'
 placement = "R2"
 
 # Catch-all for unclassified root files. MUST stay last.
@@ -270,7 +331,7 @@ prefix = ".*"
 # from the checker's metrics table. explore.html shows them behind a checkbox.
 
 [tooling]
-modules = ["InGameTests", "TestCommands", "Diagnostics", "Analyzer", "GuiTree"]
+modules = ["InGameTests", "TestCommands", "Diagnostics", "Analyzer", "GuiTree", "Harness"]
 
 # --- dependency policy -----------------------------------------------------
 # Both lists use the edge form "From -> To", meaning "code in From references

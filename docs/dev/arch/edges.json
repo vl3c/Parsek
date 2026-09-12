@@ -18,18 +18,18 @@
     },
     {
       "name": "Controllers",
-      "files": 27,
-      "fanIn": 189,
-      "fanOut": 513,
-      "instability": 0.7308,
+      "files": 36,
+      "fanIn": 206,
+      "fanOut": 534,
+      "instability": 0.7216,
       "tooling": false
     },
     {
       "name": "Core",
-      "files": 75,
-      "fanIn": 447,
-      "fanOut": 357,
-      "instability": 0.444,
+      "files": 8,
+      "fanIn": 260,
+      "fanOut": 55,
+      "instability": 0.1746,
       "tooling": false
     },
     {
@@ -50,7 +50,7 @@
     },
     {
       "name": "Display",
-      "files": 3,
+      "files": 4,
       "fanIn": 31,
       "fanOut": 47,
       "instability": 0.6026,
@@ -58,18 +58,18 @@
     },
     {
       "name": "GameActions",
-      "files": 39,
+      "files": 40,
       "fanIn": 279,
-      "fanOut": 85,
-      "instability": 0.2335,
+      "fanOut": 83,
+      "instability": 0.2293,
       "tooling": false
     },
     {
       "name": "Ghost",
-      "files": 34,
-      "fanIn": 396,
-      "fanOut": 251,
-      "instability": 0.3879,
+      "files": 48,
+      "fanIn": 408,
+      "fanOut": 294,
+      "instability": 0.4188,
       "tooling": false
     },
     {
@@ -78,6 +78,14 @@
       "fanIn": 21,
       "fanOut": 6,
       "instability": 0.2222,
+      "tooling": true
+    },
+    {
+      "name": "Harness",
+      "files": 5,
+      "fanIn": 24,
+      "fanOut": 13,
+      "instability": 0.3514,
       "tooling": true
     },
     {
@@ -138,26 +146,26 @@
     },
     {
       "name": "Recording",
-      "files": 51,
-      "fanIn": 1079,
-      "fanOut": 250,
-      "instability": 0.1881,
+      "files": 68,
+      "fanIn": 1057,
+      "fanOut": 252,
+      "instability": 0.1925,
       "tooling": false
     },
     {
       "name": "Rendering",
-      "files": 14,
-      "fanIn": 45,
-      "fanOut": 82,
-      "instability": 0.6457,
+      "files": 15,
+      "fanIn": 41,
+      "fanOut": 80,
+      "instability": 0.6612,
       "tooling": false
     },
     {
       "name": "Rewind",
-      "files": 29,
+      "files": 41,
       "fanIn": 380,
-      "fanOut": 190,
-      "instability": 0.3333,
+      "fanOut": 246,
+      "instability": 0.393,
       "tooling": false
     },
     {
@@ -194,10 +202,10 @@
     },
     {
       "name": "UI",
-      "files": 38,
-      "fanIn": 72,
-      "fanOut": 290,
-      "instability": 0.8011,
+      "files": 45,
+      "fanIn": 85,
+      "fanOut": 314,
+      "instability": 0.787,
       "tooling": false
     }
   ],
@@ -205,7 +213,7 @@
     {
       "from": "InGameTests",
       "to": "Recording",
-      "weight": 344,
+      "weight": 349,
       "cyclic": false,
       "upward": false,
       "files": [
@@ -317,9 +325,12 @@
         "FlightRecorder",
         "GhostSnapshotMode",
         "IRecordingFinalizationVesselView",
+        "IdentityLossClassifier",
         "LoopTimeUnit",
         "PartEvent",
         "PartEventType",
+        "PartStateSeeder",
+        "PartTrackingSets",
         "PendingTreeState",
         "Recording",
         "RecordingFinalizationCache",
@@ -337,11 +348,13 @@
         "ReferenceFrame",
         "RelativeAnchorResolver",
         "SegmentEnvironment",
+        "StockWarpAltitudeLimits",
         "SurfacePosition",
         "SurfaceSituation",
         "TerminalState",
         "TrackSection",
         "TrackSectionSource",
+        "TreeDiscardPurge",
         "VesselSnapshot"
       ]
     },
@@ -444,7 +457,7 @@
     {
       "from": "InGameTests",
       "to": "Ghost",
-      "weight": 199,
+      "weight": 204,
       "cyclic": false,
       "upward": false,
       "files": [
@@ -516,6 +529,7 @@
         "ConverterLoopTransformState",
         "DeployableGhostInfo",
         "DeployableTransformState",
+        "EngineFxBuilder",
         "EngineGhostInfo",
         "ExplosionOneShotAudioCandidate",
         "FrameContext",
@@ -549,9 +563,11 @@
         "PristinePartFxResolver",
         "RcsGhostInfo",
         "ReStockPatchFxIndex",
+        "RecordedRelativeAnchorPoseResolver",
         "ReentryFxInfo",
         "RoboticGhostInfo",
         "RoboticVisualMode",
+        "SpawnCollisionDetector",
         "SunTrackingGhostInfo",
         "TrackingStationGhostSource",
         "TrajectoryPlaybackFlags",
@@ -640,6 +656,103 @@
         "TracedPathTreatment",
         "TrajectoryPhase",
         "Treatment"
+      ]
+    },
+    {
+      "from": "InGameTests",
+      "to": "Rewind",
+      "weight": 155,
+      "cyclic": false,
+      "upward": false,
+      "files": [
+        "InGameTests/BgOnRailsAllOrbitalSpineInGameTest.cs",
+        "InGameTests/ContractTombstonesAcrossSupersedeTest.cs",
+        "InGameTests/DescentHandoffVisibilityInGameTest.cs",
+        "InGameTests/F5MidReFlyResumeTest.cs",
+        "InGameTests/IncompleteBallisticRuntimeTests.cs",
+        "InGameTests/InvokeRPStripAndActivateTest.cs",
+        "InGameTests/JointArrivalHoldInGameTest.cs",
+        "InGameTests/JoolConfigHoldInGameTest.cs",
+        "InGameTests/JournalFinisherMarkerPresentVariantTest.cs",
+        "InGameTests/KerbalExperienceReassertTest.cs",
+        "InGameTests/KerbalRecoveryOnSupersedeTest.cs",
+        "InGameTests/LedgerGroundTruthHarness.cs",
+        "InGameTests/LogisticsGrappleRuntimeTests.cs",
+        "InGameTests/LogisticsRoundTripRuntimeTests.cs",
+        "InGameTests/LogisticsRouteProofRuntimeTests.cs",
+        "InGameTests/MergeAndSealReFlyClosesSlotTest.cs",
+        "InGameTests/MergeCrashedReFlyCreatesCPSupersedeTest.cs",
+        "InGameTests/MergeInterruptionRecoveryTest.cs",
+        "InGameTests/MergeLandedReFlyCreatesImmutableSupersedeTest.cs",
+        "InGameTests/MergeNonFocusReFlyToOrbitImmutableTest.cs",
+        "InGameTests/MergeReFlyStructuralMutationAutoSealsTest.cs",
+        "InGameTests/MergeReFlyToSubOrbitalKeepsSlotOpenTest.cs",
+        "InGameTests/MissionPhasingInGameTests.cs",
+        "InGameTests/OnFlightReadyMergeDialogGuardInGameTest.cs",
+        "InGameTests/OptimizerSplitKeepsPromotedSlotOpenTest.cs",
+        "InGameTests/PersistenceSplitOptimizerTest.cs",
+        "InGameTests/RPReapOnLastSlotImmutableTest.cs",
+        "InGameTests/ReFlyForkSegmentPhaseTest.cs",
+        "InGameTests/ReFlyRecoveryBundleRuntimeTest.cs",
+        "InGameTests/ReFlyRevertButtonGateTest.cs",
+        "InGameTests/ReFlyRevertDialogPrelaunchTest.cs",
+        "InGameTests/ReFlyRevertDialogTest.cs",
+        "InGameTests/ReFlyWorldPreservationTests.cs",
+        "InGameTests/RealSaveMissionFinder.cs",
+        "InGameTests/RealSaveMissionInGameTests.cs",
+        "InGameTests/RouteLifecycleRuntimeTests.cs",
+        "InGameTests/RouteRewindRedeliveryInGameTest.cs",
+        "InGameTests/RouteRewindTimelineRuntimeTests.cs",
+        "InGameTests/RuntimeTests.cs",
+        "InGameTests/SavePathRootThenMoveTest.cs",
+        "InGameTests/StableLeafUnfinishedFlightsRuntimeTest.cs",
+        "InGameTests/StructureListRuntimeTests.cs",
+        "InGameTests/TreeDiscardRemovesSupersedesAndTombstonesTest.cs",
+        "InGameTests/UnfinishedFlightSealDialogTest.cs",
+        "InGameTests/UnfinishedFlightsRenderingAndNoHideTest.cs",
+        "InGameTests/WarpZeroedDuringSaveTest.cs",
+        "InGameTests/WatchAutoFollowFollowsSupersedeForkRuntimeTest.cs"
+      ],
+      "types": [
+        "ChildSlot",
+        "EconomySnapshot",
+        "EffectiveState",
+        "FaultInjectionException",
+        "Kind",
+        "LoadTimeSweep",
+        "MergeDialog",
+        "MergeJournal",
+        "MergeJournalOrchestrator",
+        "MergeState",
+        "Phase",
+        "Phases",
+        "PostLoadStripResult",
+        "PreRewindCarveOutReason",
+        "PreconditionCache",
+        "ReFlyAutoSealPreviewer",
+        "ReFlyAutoSealReason",
+        "ReFlyRevertButtonGate",
+        "ReFlyRevertDialog",
+        "ReFlySessionMarker",
+        "ReFlySettleStabilityTracker",
+        "ReFlySlotAffinity",
+        "ReFlySlotPidSets",
+        "ReconciliationBundle",
+        "RevertInterceptor",
+        "RevertTarget",
+        "RewindContext",
+        "RewindInvokeContext",
+        "RewindInvoker",
+        "RewindPoint",
+        "RewindPointReaper",
+        "RewindReadbackGuard",
+        "Snapshot",
+        "SupersedeCommit",
+        "TerminalKind",
+        "TerminalKindClassifier",
+        "UnfinishedFlightClassifier",
+        "UnfinishedFlightSealHandler",
+        "UnfinishedFlightStashHandler"
       ]
     },
     {
@@ -791,97 +904,9 @@
       ]
     },
     {
-      "from": "InGameTests",
-      "to": "Rewind",
-      "weight": 140,
-      "cyclic": false,
-      "upward": false,
-      "files": [
-        "InGameTests/BgOnRailsAllOrbitalSpineInGameTest.cs",
-        "InGameTests/ContractTombstonesAcrossSupersedeTest.cs",
-        "InGameTests/DescentHandoffVisibilityInGameTest.cs",
-        "InGameTests/F5MidReFlyResumeTest.cs",
-        "InGameTests/IncompleteBallisticRuntimeTests.cs",
-        "InGameTests/InvokeRPStripAndActivateTest.cs",
-        "InGameTests/JointArrivalHoldInGameTest.cs",
-        "InGameTests/JoolConfigHoldInGameTest.cs",
-        "InGameTests/JournalFinisherMarkerPresentVariantTest.cs",
-        "InGameTests/KerbalExperienceReassertTest.cs",
-        "InGameTests/KerbalRecoveryOnSupersedeTest.cs",
-        "InGameTests/LedgerGroundTruthHarness.cs",
-        "InGameTests/LogisticsGrappleRuntimeTests.cs",
-        "InGameTests/LogisticsRoundTripRuntimeTests.cs",
-        "InGameTests/LogisticsRouteProofRuntimeTests.cs",
-        "InGameTests/MergeAndSealReFlyClosesSlotTest.cs",
-        "InGameTests/MergeCrashedReFlyCreatesCPSupersedeTest.cs",
-        "InGameTests/MergeInterruptionRecoveryTest.cs",
-        "InGameTests/MergeLandedReFlyCreatesImmutableSupersedeTest.cs",
-        "InGameTests/MergeNonFocusReFlyToOrbitImmutableTest.cs",
-        "InGameTests/MergeReFlyStructuralMutationAutoSealsTest.cs",
-        "InGameTests/MergeReFlyToSubOrbitalKeepsSlotOpenTest.cs",
-        "InGameTests/MissionPhasingInGameTests.cs",
-        "InGameTests/OnFlightReadyMergeDialogGuardInGameTest.cs",
-        "InGameTests/OptimizerSplitKeepsPromotedSlotOpenTest.cs",
-        "InGameTests/PersistenceSplitOptimizerTest.cs",
-        "InGameTests/RPReapOnLastSlotImmutableTest.cs",
-        "InGameTests/ReFlyForkSegmentPhaseTest.cs",
-        "InGameTests/ReFlyRecoveryBundleRuntimeTest.cs",
-        "InGameTests/ReFlyRevertButtonGateTest.cs",
-        "InGameTests/ReFlyRevertDialogPrelaunchTest.cs",
-        "InGameTests/ReFlyRevertDialogTest.cs",
-        "InGameTests/ReFlyWorldPreservationTests.cs",
-        "InGameTests/RealSaveMissionFinder.cs",
-        "InGameTests/RealSaveMissionInGameTests.cs",
-        "InGameTests/RouteLifecycleRuntimeTests.cs",
-        "InGameTests/RuntimeTests.cs",
-        "InGameTests/SavePathRootThenMoveTest.cs",
-        "InGameTests/StableLeafUnfinishedFlightsRuntimeTest.cs",
-        "InGameTests/StructureListRuntimeTests.cs",
-        "InGameTests/TreeDiscardRemovesSupersedesAndTombstonesTest.cs",
-        "InGameTests/UnfinishedFlightSealDialogTest.cs",
-        "InGameTests/UnfinishedFlightsRenderingAndNoHideTest.cs",
-        "InGameTests/WarpZeroedDuringSaveTest.cs",
-        "InGameTests/WatchAutoFollowFollowsSupersedeForkRuntimeTest.cs"
-      ],
-      "types": [
-        "ChildSlot",
-        "EconomySnapshot",
-        "EffectiveState",
-        "FaultInjectionException",
-        "Kind",
-        "LoadTimeSweep",
-        "MergeDialog",
-        "MergeJournal",
-        "MergeJournalOrchestrator",
-        "MergeState",
-        "Phase",
-        "Phases",
-        "PreRewindCarveOutReason",
-        "PreconditionCache",
-        "ReFlyAutoSealPreviewer",
-        "ReFlyAutoSealReason",
-        "ReFlyRevertButtonGate",
-        "ReFlyRevertDialog",
-        "ReFlySessionMarker",
-        "ReFlySettleStabilityTracker",
-        "ReFlySlotAffinity",
-        "ReFlySlotPidSets",
-        "RewindContext",
-        "RewindInvokeContext",
-        "RewindInvoker",
-        "RewindPoint",
-        "RewindPointReaper",
-        "RewindReadbackGuard",
-        "Snapshot",
-        "SupersedeCommit",
-        "TerminalKind",
-        "TerminalKindClassifier"
-      ]
-    },
-    {
       "from": "Controllers",
       "to": "Recording",
-      "weight": 124,
+      "weight": 138,
       "cyclic": true,
       "upward": false,
       "files": [
@@ -904,6 +929,9 @@
         "ParsekTrackingStation.cs",
         "SessionSuppressionState.cs",
         "TerminalOrbitSpawnSafety.cs",
+        "TimeJumpManager.cs",
+        "WarpToTimeConsumer.cs",
+        "WarpToTimeController.cs",
         "WatchModeController.Cycle.cs",
         "WatchModeController.cs"
       ],
@@ -914,6 +942,8 @@
         "BackgroundRecorder",
         "ChainSegmentManager",
         "ControllerInfo",
+        "DiagnosticFormatters",
+        "DiscardSidecarReap",
         "FinalizationCacheStatus",
         "FlagEvent",
         "FlightRecorder",
@@ -924,6 +954,7 @@
         "PartEvent",
         "PartEventType",
         "PendingTreeState",
+        "RecorderStateSnapshot",
         "Recording",
         "RecordingAnchorCandidate",
         "RecordingEndpointResolver",
@@ -945,211 +976,15 @@
         "SegmentBoundaryLogic",
         "SegmentEnvironment",
         "SegmentEvent",
+        "SegmentEventType",
+        "SegmentPhaseClassifier",
         "SurfacePosition",
         "SurfaceSituation",
         "SwitchSegmentDiscardDisposition",
         "TerminalState",
+        "TraceSeparation",
         "TrackSection",
         "UndockSplitDecision",
-        "VesselSnapshot"
-      ]
-    },
-    {
-      "from": "InGameTests",
-      "to": "Core",
-      "weight": 123,
-      "cyclic": false,
-      "upward": false,
-      "files": [
-        "InGameTests/BgOnRailsAllOrbitalSpineInGameTest.cs",
-        "InGameTests/ColdLoadClockGuardInGameTest.cs",
-        "InGameTests/CrossTreeDockLoopUnitInGameTest.cs",
-        "InGameTests/CurrencyTooltipLiveInvariantTest.cs",
-        "InGameTests/DescentEndToEndSpineInGameTest.cs",
-        "InGameTests/DescentReStitchInGameTest.cs",
-        "InGameTests/DockEventGraphInGameTest.cs",
-        "InGameTests/ExtendedRuntimeTests.cs",
-        "InGameTests/F5MidReFlyResumeTest.cs",
-        "InGameTests/FlagOnParityBaselineInGameTest.cs",
-        "InGameTests/GrappleCaptureInGameTest.cs",
-        "InGameTests/Helpers/UnloadedFuelVesselFixture.cs",
-        "InGameTests/InGameTestRunner.cs",
-        "InGameTests/IncompleteBallisticRuntimeTests.cs",
-        "InGameTests/InvokeRPStripAndActivateTest.cs",
-        "InGameTests/LedgerGroundTruthHarness.cs",
-        "InGameTests/LogisticsDeliveryRuntimeTests.cs",
-        "InGameTests/LogisticsDockBoundaryDeliveryCadenceRuntimeTests.cs",
-        "InGameTests/LogisticsGrappleRuntimeTests.cs",
-        "InGameTests/LogisticsMultiOriginRuntimeTests.cs",
-        "InGameTests/LogisticsMultiStopRuntimeTests.cs",
-        "InGameTests/LogisticsOriginDebitRuntimeTests.cs",
-        "InGameTests/LogisticsPickupRuntimeTests.cs",
-        "InGameTests/LogisticsRoundTripRuntimeTests.cs",
-        "InGameTests/LogisticsRouteOnMissionsRuntimeTests.cs",
-        "InGameTests/LogisticsRouteProofRuntimeTests.cs",
-        "InGameTests/LogisticsShuttleRuntimeTests.cs",
-        "InGameTests/LoopBoundaryIconWarpLagTest.cs",
-        "InGameTests/LoopGhostCreationFrameIconTest.cs",
-        "InGameTests/MapRenderTracerCoverageInGameTest.cs",
-        "InGameTests/MergeAndSealReFlyClosesSlotTest.cs",
-        "InGameTests/MergeNonFocusReFlyToOrbitImmutableTest.cs",
-        "InGameTests/MergeReFlyStructuralMutationAutoSealsTest.cs",
-        "InGameTests/MergeReFlyToSubOrbitalKeepsSlotOpenTest.cs",
-        "InGameTests/MissionDockCompositionRuntimeTest.cs",
-        "InGameTests/MultiBodyConcurrentGhostsParityInGameTest.cs",
-        "InGameTests/OptimizerSplitKeepsPromotedSlotOpenTest.cs",
-        "InGameTests/ParentAnchoredChildSpineInGameTest.cs",
-        "InGameTests/PhaseSpineSwapInGameTest.cs",
-        "InGameTests/PreParsekBackupInGameTests.cs",
-        "InGameTests/RPReapOnLastSlotImmutableTest.cs",
-        "InGameTests/ReFlyRecoveryBundleRuntimeTest.cs",
-        "InGameTests/ReFlyRevertDialogPrelaunchTest.cs",
-        "InGameTests/ReFlyRevertDialogTest.cs",
-        "InGameTests/ReStockCompatTests.cs",
-        "InGameTests/ReaimedLoopSynthesizedOracleInGameTest.cs",
-        "InGameTests/RenderParityBaselineTest.cs",
-        "InGameTests/RenderParitySamplerFixtureTest.cs",
-        "InGameTests/RouteDockCaptureInGameTest.cs",
-        "InGameTests/RouteEscrowContentionInGameTest.cs",
-        "InGameTests/RouteRewindRedeliveryInGameTest.cs",
-        "InGameTests/RouteRewindTimelineRuntimeTests.cs",
-        "InGameTests/RuntimeTests.cs",
-        "InGameTests/SpawnRotationInGameTests.cs",
-        "InGameTests/StableLeafUnfinishedFlightsRuntimeTest.cs",
-        "InGameTests/SuppressedMarkerOwnedDrawInGameTest.cs",
-        "InGameTests/TestRunnerShortcut.cs",
-        "InGameTests/TracedPathOwnedDrawInGameTest.cs",
-        "InGameTests/TreeDiscardRemovesSupersedesAndTombstonesTest.cs",
-        "InGameTests/UnfinishedFlightSealDialogTest.cs",
-        "InGameTests/UnfinishedFlightsRenderingAndNoHideTest.cs",
-        "InGameTests/WatchAutoFollowFollowsSupersedeForkRuntimeTest.cs",
-        "InGameTests/WaterfallCompatTests.cs"
-      ],
-      "types": [
-        "BranchPoint",
-        "BranchPointType",
-        "CareerSaveParser",
-        "CareerSaveSnapshot",
-        "CareerStartSnapshot",
-        "CommittedActionDialog",
-        "ConnectionProducerClassifier",
-        "CurrencyReservationOverlay",
-        "DockEventGraphCache",
-        "EngineFxBuilder",
-        "FacetTolerances",
-        "GroupHierarchyStore",
-        "IPlaybackTrajectory",
-        "IdentityLossClassifier",
-        "LedgerDivergenceReport",
-        "LedgerGroundTruthDiff",
-        "LedgerReconstructionSnapshot",
-        "MapMarkerRenderer",
-        "MilestoneStore",
-        "PartStateSeeder",
-        "PartTrackingSets",
-        "PostLoadStripResult",
-        "ReconciliationBundle",
-        "RecordedRelativeAnchorPoseResolver",
-        "RecordingEndpointPhase",
-        "RecoveryCredit",
-        "RevertInterceptor",
-        "RevertTarget",
-        "SpawnCollisionDetector",
-        "SpawnableClassification",
-        "StockUiOverlayController",
-        "StockWarpAltitudeLimits",
-        "TestBatchMarker",
-        "TimeJumpManager",
-        "TreeDiscardPurge",
-        "UnfinishedFlightClassifier",
-        "UnfinishedFlightSealHandler",
-        "UnfinishedFlightStashHandler",
-        "VesselIconEntry",
-        "VesselLaunchIdentity",
-        "VesselSpawner",
-        "WarpPlanKind",
-        "WarpToTimeController",
-        "WarpToTimeMath"
-      ]
-    },
-    {
-      "from": "Core",
-      "to": "Recording",
-      "weight": 119,
-      "cyclic": true,
-      "upward": false,
-      "files": [
-        "CareerStartSnapshot.cs",
-        "CheckpointDoubleCoverRetire.cs",
-        "DebrisParentStateGate.cs",
-        "DebrisRelativeRecorderPolicy.cs",
-        "DiscardSidecarReap.cs",
-        "DockEventGraphCache.cs",
-        "GroupHierarchyStore.cs",
-        "IPlaybackTrajectory.cs",
-        "IdentityLossClassifier.cs",
-        "MarkerValidator.cs",
-        "MilestoneStore.cs",
-        "PartStateSeeder.Diff.cs",
-        "PartStateSeeder.cs",
-        "PlaybackOrbitDiagnostics.cs",
-        "PlaybackTrace.cs",
-        "PlaybackTrajectoryBoundsResolver.cs",
-        "ReconciliationBundle.cs",
-        "RecordedRelativeAnchorPoseResolver.cs",
-        "RecorderStateSnapshot.cs",
-        "ResourceBudget.cs",
-        "RevertInterceptor.cs",
-        "SceneExitInterceptor.cs",
-        "SegmentPhaseClassifier.cs",
-        "SessionMerger.cs",
-        "SnapshotSidecarCodec.cs",
-        "SpawnCollisionDetector.cs",
-        "StockUiOverlayController.cs",
-        "TerrainCorrector.cs",
-        "TimeJumpManager.cs",
-        "TreeDiscardPurge.cs",
-        "UnfinishedFlightClassifier.cs",
-        "UnfinishedFlightSealHandler.cs",
-        "UnfinishedFlightStashHandler.cs",
-        "VesselGhoster.cs",
-        "VesselLaunchIdentity.cs",
-        "VesselSpawner.cs",
-        "WarpToTimeConsumer.cs",
-        "WarpToTimeController.cs"
-      ],
-      "types": [
-        "AnchorPose",
-        "ChainSegmentManager",
-        "ControllerInfo",
-        "FlagEvent",
-        "FlightRecorder",
-        "HeatLevel",
-        "LoopTimeUnit",
-        "PartEvent",
-        "PartEventType",
-        "PendingTreeState",
-        "Recording",
-        "RecordingEndpointResolver",
-        "RecordingOptimizer",
-        "RecordingPaths",
-        "RecordingRewindRetirement",
-        "RecordingStore",
-        "RecordingSupersedeRelation",
-        "RecordingTree",
-        "ReferenceFrame",
-        "RelativeAnchorResolveFailure",
-        "RelativeAnchorResolveOutcome",
-        "RelativeAnchorResolver",
-        "RelativeAnchorResolverContext",
-        "SegmentEnvironment",
-        "SegmentEvent",
-        "SegmentEventType",
-        "SplitBoundaryReason",
-        "SurfacePosition",
-        "TerminalState",
-        "TrackSection",
-        "TrackSectionSource",
         "VesselSnapshot"
       ]
     },
@@ -1289,6 +1124,134 @@
       ]
     },
     {
+      "from": "Rewind",
+      "to": "Recording",
+      "weight": 98,
+      "cyclic": true,
+      "upward": false,
+      "files": [
+        "CheckpointDoubleCoverRetire.cs",
+        "ChildSlot.cs",
+        "EffectiveState.cs",
+        "LoadTimeSweep.cs",
+        "MarkerValidator.cs",
+        "MergeDialog.Commit.cs",
+        "MergeDialog.DialogText.cs",
+        "MergeDialog.ReFlyDiscard.cs",
+        "MergeDialog.cs",
+        "MergeJournalOrchestrator.cs",
+        "ReFlyAnchorSelection.cs",
+        "ReFlyAutoSealPreview.cs",
+        "ReFlyConclusionRoute.cs",
+        "ReFlySettleStabilityTracker.cs",
+        "ReconciliationBundle.cs",
+        "RecordingTreeSplitter.cs",
+        "RevertInterceptor.cs",
+        "RewindInvoker.cs",
+        "RewindPointAuthor.cs",
+        "RewindPointDiskUsage.cs",
+        "RewindPointReaper.cs",
+        "SceneExitInterceptor.cs",
+        "SupersedeCommit.cs",
+        "TerminalKindClassifier.cs",
+        "UnfinishedFlightClassifier.cs",
+        "UnfinishedFlightSealHandler.cs",
+        "UnfinishedFlightStashHandler.cs"
+      ],
+      "types": [
+        "AnchorDetector",
+        "DiagnosticFormatters",
+        "FlightGlobalsProvider",
+        "FlightRecorder",
+        "IFlightGlobalsProvider",
+        "PendingTreeState",
+        "Recording",
+        "RecordingAnchorCandidate",
+        "RecordingGroupStore",
+        "RecordingOptimizer",
+        "RecordingPaths",
+        "RecordingRewindRetirement",
+        "RecordingStore",
+        "RecordingSupersedeRelation",
+        "RecordingTree",
+        "ReferenceFrame",
+        "SegmentEnvironment",
+        "SplitBoundaryReason",
+        "SwitchSegmentDiscardDisposition",
+        "TerminalState",
+        "TrackSection",
+        "TreeSlotSource",
+        "VesselSnapshot"
+      ]
+    },
+    {
+      "from": "Ghost",
+      "to": "Recording",
+      "weight": 92,
+      "cyclic": true,
+      "upward": false,
+      "files": [
+        "GhostAudioPresets.cs",
+        "GhostChainWalker.cs",
+        "GhostCommNetRelay.cs",
+        "GhostExtender.cs",
+        "GhostMapPresence.OverlapSchedule.cs",
+        "GhostMapPresence.ReFlySuppressionCache.cs",
+        "GhostMapPresence.SuppressionFinders.cs",
+        "GhostMapPresence.cs",
+        "GhostPartEventApplyLog.cs",
+        "GhostPlaybackEngine.ActivationHold.cs",
+        "GhostPlaybackEngine.PendingInterpolation.cs",
+        "GhostPlaybackEngine.cs",
+        "GhostPlaybackLogic.SpanClock.cs",
+        "GhostPlaybackLogic.WarpLoopPolicy.cs",
+        "GhostPlaybackLogic.WatchMode.cs",
+        "GhostPlaybackLogic.cs",
+        "GhostRenderTrace.cs",
+        "GhostVisualBuilder.SnapshotBaseline.cs",
+        "GhostVisualBuilder.cs",
+        "GhostingTriggerClassifier.cs",
+        "PlaybackOrbitDiagnostics.cs",
+        "PlaybackTrace.cs",
+        "RecordedRelativeAnchorPoseResolver.cs",
+        "SpawnCollisionDetector.cs",
+        "TerrainCorrector.cs",
+        "VesselGhoster.cs"
+      ],
+      "types": [
+        "AnchorPose",
+        "AntennaSpec",
+        "ChainBridgeAction",
+        "ChainHandoffLogic",
+        "EndpointOrbitSeedDiagnostics",
+        "FlagEvent",
+        "FlightRecorder",
+        "HeatLevel",
+        "LoopTimeUnit",
+        "PartEvent",
+        "PartEventType",
+        "Recording",
+        "RecordingEndpointResolver",
+        "RecordingRewindRetirement",
+        "RecordingStore",
+        "RecordingSupersedeRelation",
+        "RecordingTree",
+        "ReferenceFrame",
+        "RelativeAnchorResolution",
+        "RelativeAnchorResolveFailure",
+        "RelativeAnchorResolveOutcome",
+        "RelativeAnchorResolver",
+        "RelativeAnchorResolverContext",
+        "SegmentEnvironment",
+        "SegmentEventType",
+        "SurfacePosition",
+        "TerminalState",
+        "TrackSection",
+        "TrackSectionSource",
+        "VesselSnapshot"
+      ]
+    },
+    {
       "from": "InGameTests",
       "to": "Trajectory",
       "weight": 90,
@@ -1365,65 +1328,82 @@
       ]
     },
     {
-      "from": "Ghost",
-      "to": "Recording",
-      "weight": 72,
+      "from": "Controllers",
+      "to": "Ghost",
+      "weight": 87,
       "cyclic": true,
       "upward": false,
       "files": [
-        "GhostAudioPresets.cs",
-        "GhostChainWalker.cs",
-        "GhostExtender.cs",
-        "GhostMapPresence.OverlapSchedule.cs",
-        "GhostMapPresence.ReFlySuppressionCache.cs",
-        "GhostMapPresence.SuppressionFinders.cs",
-        "GhostMapPresence.cs",
-        "GhostPartEventApplyLog.cs",
-        "GhostPlaybackEngine.ActivationHold.cs",
-        "GhostPlaybackEngine.PendingInterpolation.cs",
-        "GhostPlaybackEngine.cs",
-        "GhostPlaybackLogic.SpanClock.cs",
-        "GhostPlaybackLogic.WarpLoopPolicy.cs",
-        "GhostPlaybackLogic.WatchMode.cs",
-        "GhostPlaybackLogic.cs",
-        "GhostRenderTrace.cs",
-        "GhostVisualBuilder.SnapshotBaseline.cs",
-        "GhostVisualBuilder.cs",
-        "GhostingTriggerClassifier.cs"
+        "DebrisRelativePlaybackPolicy.cs",
+        "IGhostPositioner.cs",
+        "ParsekFlight.Finalization.cs",
+        "ParsekFlight.PostSwitchPredicates.cs",
+        "ParsekFlight.TailLift.cs",
+        "ParsekFlight.TerminalEvents.cs",
+        "ParsekFlight.cs",
+        "ParsekKSC.Playback.cs",
+        "ParsekKSC.cs",
+        "ParsekPlaybackPolicy.cs",
+        "ParsekScenario.cs",
+        "ParsekTrackingStation.cs",
+        "TimeJumpManager.cs",
+        "WatchModeController.Cycle.cs",
+        "WatchModeController.Diagnostics.cs",
+        "WatchModeController.cs"
       ],
       "types": [
-        "AnchorPose",
-        "ChainBridgeAction",
-        "ChainHandoffLogic",
-        "EndpointOrbitSeedDiagnostics",
-        "FlagEvent",
-        "FlightRecorder",
-        "HeatLevel",
-        "LoopTimeUnit",
-        "PartEvent",
-        "PartEventType",
-        "Recording",
-        "RecordingEndpointResolver",
-        "RecordingRewindRetirement",
-        "RecordingStore",
-        "RecordingSupersedeRelation",
-        "RecordingTree",
-        "ReferenceFrame",
-        "RelativeAnchorResolution",
-        "RelativeAnchorResolver",
-        "SegmentEnvironment",
-        "SegmentEventType",
-        "SurfacePosition",
-        "TerminalState",
-        "TrackSection",
-        "TrackSectionSource",
-        "VesselSnapshot"
+        "AutoLoopLaunchSchedule",
+        "CameraActionEvent",
+        "CameraActionType",
+        "ChainLink",
+        "DebrisRelativeCoverageMode",
+        "DebrisRelativeCoveragePrimitives",
+        "FrameContext",
+        "GhostAnchorCandidate",
+        "GhostAudioPresets",
+        "GhostChain",
+        "GhostChainWalker",
+        "GhostLifecycleEvent",
+        "GhostMapPresence",
+        "GhostPlaybackEngine",
+        "GhostPlaybackLogic",
+        "GhostPlaybackSkipReason",
+        "GhostPlaybackState",
+        "GhostRenderTrace",
+        "GhostVisualBuilder",
+        "GhostingTriggerClassifier",
+        "InterpolationResult",
+        "LoopRestartedEvent",
+        "LoopUnit",
+        "LoopUnitSet",
+        "OverlapExpiredEvent",
+        "PlaybackCompletedEvent",
+        "PlaybackOrbitDiagnostics",
+        "PlaybackScopeTracker",
+        "RecordedRelativeAnchorPoseResolver",
+        "RenderingZone",
+        "RenderingZoneManager",
+        "SeamMarkerEvent",
+        "SeamMarkerKind",
+        "SeamMessageAccumulator",
+        "SpawnCollisionDetector",
+        "SpawnWarningUI",
+        "StockExplosionFxResult",
+        "TailLiftPlan",
+        "TerrainCorrector",
+        "TrackingStationGhostSource",
+        "TrajectoryPlaybackFlags",
+        "UnitMemberRenderDecision",
+        "VesselDeathEvidence",
+        "VesselDeathKind",
+        "VesselDisassemblyClassifier",
+        "VesselGhoster"
       ]
     },
     {
       "from": "InGameTests",
       "to": "Controllers",
-      "weight": 72,
+      "weight": 79,
       "cyclic": false,
       "upward": false,
       "files": [
@@ -1480,7 +1460,9 @@
         "InGameTests/WatchCoverageRetiredEligibilityRuntimeTest.cs"
       ],
       "types": [
+        "ConnectionProducerClassifier",
         "IGhostPositioner",
+        "MapMarkerRenderer",
         "ParsekFlight",
         "ParsekHarmony",
         "ParsekKSC",
@@ -1490,192 +1472,85 @@
         "SessionSuppressionState",
         "TerminalOrbitSpawnSafety",
         "TerminalOrbitSpawnSafetyAction",
+        "TimeJumpManager",
+        "VesselIconEntry",
+        "WarpPlanKind",
+        "WarpToTimeController",
+        "WarpToTimeMath",
         "WatchCameraTransitionState",
         "WatchModeController",
         "ZoneRenderingResult"
       ]
     },
     {
-      "from": "Rewind",
-      "to": "Recording",
-      "weight": 72,
-      "cyclic": true,
-      "upward": false,
-      "files": [
-        "ChildSlot.cs",
-        "EffectiveState.cs",
-        "LoadTimeSweep.cs",
-        "MergeDialog.Commit.cs",
-        "MergeDialog.DialogText.cs",
-        "MergeDialog.ReFlyDiscard.cs",
-        "MergeDialog.cs",
-        "MergeJournalOrchestrator.cs",
-        "ReFlyAnchorSelection.cs",
-        "ReFlyAutoSealPreview.cs",
-        "ReFlyConclusionRoute.cs",
-        "ReFlySettleStabilityTracker.cs",
-        "RecordingTreeSplitter.cs",
-        "RewindInvoker.cs",
-        "RewindPointAuthor.cs",
-        "RewindPointDiskUsage.cs",
-        "RewindPointReaper.cs",
-        "SupersedeCommit.cs",
-        "TerminalKindClassifier.cs"
-      ],
-      "types": [
-        "AnchorDetector",
-        "FlightGlobalsProvider",
-        "FlightRecorder",
-        "IFlightGlobalsProvider",
-        "Recording",
-        "RecordingAnchorCandidate",
-        "RecordingGroupStore",
-        "RecordingOptimizer",
-        "RecordingPaths",
-        "RecordingRewindRetirement",
-        "RecordingStore",
-        "RecordingSupersedeRelation",
-        "RecordingTree",
-        "ReferenceFrame",
-        "SegmentEnvironment",
-        "SwitchSegmentDiscardDisposition",
-        "TerminalState",
-        "TreeSlotSource",
-        "VesselSnapshot"
-      ]
-    },
-    {
-      "from": "Controllers",
+      "from": "InGameTests",
       "to": "Core",
-      "weight": 70,
-      "cyclic": true,
+      "weight": 74,
+      "cyclic": false,
       "upward": false,
       "files": [
-        "DebrisRelativePlaybackPolicy.cs",
-        "IGhostPositioner.cs",
-        "ParsekFlight.Finalization.cs",
-        "ParsekFlight.PostSwitchPredicates.cs",
-        "ParsekFlight.TailLift.cs",
-        "ParsekFlight.TerminalEvents.cs",
-        "ParsekFlight.TerminalOrbit.cs",
-        "ParsekFlight.TimeJump.cs",
-        "ParsekFlight.cs",
-        "ParsekKSC.Playback.cs",
-        "ParsekKSC.cs",
-        "ParsekPlaybackPolicy.cs",
-        "ParsekScenario.HydrationRepair.cs",
-        "ParsekScenario.Trim.cs",
-        "ParsekScenario.cs",
-        "ParsekTrackingStation.cs",
-        "WatchModeController.cs"
+        "InGameTests/BgOnRailsAllOrbitalSpineInGameTest.cs",
+        "InGameTests/ColdLoadClockGuardInGameTest.cs",
+        "InGameTests/CrossTreeDockLoopUnitInGameTest.cs",
+        "InGameTests/DescentEndToEndSpineInGameTest.cs",
+        "InGameTests/DescentReStitchInGameTest.cs",
+        "InGameTests/DockEventGraphInGameTest.cs",
+        "InGameTests/F5MidReFlyResumeTest.cs",
+        "InGameTests/FlagOnParityBaselineInGameTest.cs",
+        "InGameTests/GrappleCaptureInGameTest.cs",
+        "InGameTests/Helpers/UnloadedFuelVesselFixture.cs",
+        "InGameTests/IncompleteBallisticRuntimeTests.cs",
+        "InGameTests/LogisticsDeliveryRuntimeTests.cs",
+        "InGameTests/LogisticsDockBoundaryDeliveryCadenceRuntimeTests.cs",
+        "InGameTests/LogisticsMultiOriginRuntimeTests.cs",
+        "InGameTests/LogisticsMultiStopRuntimeTests.cs",
+        "InGameTests/LogisticsOriginDebitRuntimeTests.cs",
+        "InGameTests/LogisticsPickupRuntimeTests.cs",
+        "InGameTests/LogisticsRoundTripRuntimeTests.cs",
+        "InGameTests/LogisticsRouteOnMissionsRuntimeTests.cs",
+        "InGameTests/LogisticsRouteProofRuntimeTests.cs",
+        "InGameTests/LogisticsShuttleRuntimeTests.cs",
+        "InGameTests/LoopBoundaryIconWarpLagTest.cs",
+        "InGameTests/LoopGhostCreationFrameIconTest.cs",
+        "InGameTests/MapRenderTracerCoverageInGameTest.cs",
+        "InGameTests/MissionDockCompositionRuntimeTest.cs",
+        "InGameTests/MultiBodyConcurrentGhostsParityInGameTest.cs",
+        "InGameTests/OptimizerSplitKeepsPromotedSlotOpenTest.cs",
+        "InGameTests/ParentAnchoredChildSpineInGameTest.cs",
+        "InGameTests/PhaseSpineSwapInGameTest.cs",
+        "InGameTests/RPReapOnLastSlotImmutableTest.cs",
+        "InGameTests/ReFlyRecoveryBundleRuntimeTest.cs",
+        "InGameTests/ReaimedLoopSynthesizedOracleInGameTest.cs",
+        "InGameTests/RenderParityBaselineTest.cs",
+        "InGameTests/RenderParitySamplerFixtureTest.cs",
+        "InGameTests/RouteDockCaptureInGameTest.cs",
+        "InGameTests/RouteEscrowContentionInGameTest.cs",
+        "InGameTests/RouteRewindRedeliveryInGameTest.cs",
+        "InGameTests/RuntimeTests.cs",
+        "InGameTests/SpawnRotationInGameTests.cs",
+        "InGameTests/StableLeafUnfinishedFlightsRuntimeTest.cs",
+        "InGameTests/SuppressedMarkerOwnedDrawInGameTest.cs",
+        "InGameTests/TracedPathOwnedDrawInGameTest.cs",
+        "InGameTests/TreeDiscardRemovesSupersedesAndTombstonesTest.cs",
+        "InGameTests/UnfinishedFlightsRenderingAndNoHideTest.cs",
+        "InGameTests/WatchAutoFollowFollowsSupersedeForkRuntimeTest.cs"
       ],
       "types": [
         "BranchPoint",
         "BranchPointType",
-        "CheckpointDoubleCoverRetire",
-        "ConnectionProducerClassifier",
-        "CrashCoalescer",
-        "DebrisRelativeCoverageMode",
-        "DebrisRelativeCoveragePrimitives",
-        "DiagnosticFormatters",
-        "DiscardSidecarReap",
-        "DockEventGraphCache",
         "GroupHierarchyStore",
         "IPlaybackTrajectory",
-        "InputFocusGuard",
-        "InventoryItem",
-        "InventoryManifest",
-        "MapMarkerRenderer",
-        "MarkerClickContext",
-        "MaxDistanceBackfillRoute",
-        "MaxDistanceReferenceSurface",
         "MilestoneStore",
-        "PauseMenuGate",
-        "PlaybackOrbitDiagnostics",
-        "PlaybackScopeTracker",
-        "PlaybackTrajectoryBoundsResolver",
-        "QuickloadResumeMatchGuard",
-        "RecordedRelativeAnchorPoseResolver",
-        "RecorderStateSnapshot",
         "RecordingEndpointPhase",
-        "RevertDetector",
-        "RevertKind",
-        "SeamMessageAccumulator",
-        "SegmentPhaseClassifier",
-        "SpawnCollisionDetector",
-        "SpawnWarningUI",
-        "TailLiftPlan",
-        "TerrainCorrector",
-        "TestBatchMarker",
-        "TimeJumpManager",
-        "TraceSeparation",
-        "VesselDeathEvidence",
-        "VesselDeathKind",
-        "VesselDisassemblyClassifier",
-        "VesselGhoster",
+        "SpawnableClassification",
         "VesselLaunchIdentity",
         "VesselSpawner"
       ]
     },
     {
-      "from": "Controllers",
-      "to": "Ghost",
-      "weight": 63,
-      "cyclic": true,
-      "upward": false,
-      "files": [
-        "IGhostPositioner.cs",
-        "ParsekFlight.Finalization.cs",
-        "ParsekFlight.PostSwitchPredicates.cs",
-        "ParsekFlight.cs",
-        "ParsekKSC.Playback.cs",
-        "ParsekKSC.cs",
-        "ParsekPlaybackPolicy.cs",
-        "ParsekScenario.cs",
-        "ParsekTrackingStation.cs",
-        "WatchModeController.Cycle.cs",
-        "WatchModeController.Diagnostics.cs",
-        "WatchModeController.cs"
-      ],
-      "types": [
-        "AutoLoopLaunchSchedule",
-        "CameraActionEvent",
-        "CameraActionType",
-        "ChainLink",
-        "FrameContext",
-        "GhostAnchorCandidate",
-        "GhostAudioPresets",
-        "GhostChain",
-        "GhostChainWalker",
-        "GhostLifecycleEvent",
-        "GhostMapPresence",
-        "GhostPlaybackEngine",
-        "GhostPlaybackLogic",
-        "GhostPlaybackSkipReason",
-        "GhostPlaybackState",
-        "GhostRenderTrace",
-        "GhostVisualBuilder",
-        "GhostingTriggerClassifier",
-        "InterpolationResult",
-        "LoopRestartedEvent",
-        "LoopUnit",
-        "LoopUnitSet",
-        "OverlapExpiredEvent",
-        "PlaybackCompletedEvent",
-        "RenderingZone",
-        "RenderingZoneManager",
-        "SeamMarkerEvent",
-        "SeamMarkerKind",
-        "StockExplosionFxResult",
-        "TrackingStationGhostSource",
-        "TrajectoryPlaybackFlags",
-        "UnitMemberRenderDecision"
-      ]
-    },
-    {
       "from": "Recording",
       "to": "Trajectory",
-      "weight": 60,
+      "weight": 65,
       "cyclic": true,
       "upward": true,
       "files": [
@@ -1685,6 +1560,7 @@
         "BackgroundRecorder.Testing.cs",
         "BackgroundRecorder.cs",
         "ChainSegmentManager.cs",
+        "DebrisRelativeRecorderPolicy.cs",
         "FlightRecorder.ReFlyCanonicalization.cs",
         "FlightRecorder.cs",
         "Recording.cs",
@@ -1699,6 +1575,8 @@
         "RecordingStore.cs",
         "RecordingTreeRecordCodec.cs",
         "RelativeAnchorResolver.cs",
+        "SessionMerger.cs",
+        "TraceSeparation.cs",
         "TrackSection.cs"
       ],
       "types": [
@@ -1785,126 +1663,106 @@
       ]
     },
     {
-      "from": "Recording",
-      "to": "Core",
-      "weight": 57,
-      "cyclic": true,
-      "upward": true,
-      "files": [
-        "AnchorDetector.cs",
-        "BackgroundRecorder.State.cs",
-        "BackgroundRecorder.cs",
-        "ChainSegmentManager.cs",
-        "FlightRecorder.cs",
-        "Recording.cs",
-        "RecordingEndpointResolver.cs",
-        "RecordingFinalizationCacheApplier.cs",
-        "RecordingGroupStore.cs",
-        "RecordingManifestCodec.cs",
-        "RecordingOptimizer.TailTrim.cs",
-        "RecordingOptimizer.cs",
-        "RecordingSidecarStore.cs",
-        "RecordingStore.SupersedeTerminalSpawn.cs",
-        "RecordingStore.cs",
-        "RecordingTree.cs",
-        "RecordingTreeRecordCodec.cs"
-      ],
-      "types": [
-        "AntennaSpec",
-        "BranchPoint",
-        "BranchPointType",
-        "BudgetSummary",
-        "DebrisParentStateGate",
-        "DebrisRelativeRecorderPolicy",
-        "DiagnosticFormatters",
-        "GroupHierarchyStore",
-        "IPlaybackTrajectory",
-        "IdentityLossClassifier",
-        "InventoryItem",
-        "MilestoneStore",
-        "PartStateSeeder",
-        "PartTrackingSets",
-        "PlaybackTrajectoryBoundsResolver",
-        "ProximityRateSelector",
-        "RecordingEndpointPhase",
-        "SegmentPhaseClassifier",
-        "SessionMerger",
-        "SidecarFileCommitBatch",
-        "SnapshotSidecarCodec",
-        "SnapshotSidecarProbe",
-        "StagedChange",
-        "StockWarpAltitudeLimits",
-        "TraceSeparation",
-        "TreeDiscardPurge",
-        "UnfinishedFlightClassifier",
-        "VesselLaunchIdentity",
-        "VesselSpawner"
-      ]
-    },
-    {
-      "from": "Core",
-      "to": "LogIO",
-      "weight": 56,
+      "from": "Controllers",
+      "to": "Rewind",
+      "weight": 58,
       "cyclic": true,
       "upward": false,
       "files": [
-        "AntennaSpec.cs",
-        "CareerSaveParser.cs",
-        "CareerStartSnapshot.cs",
-        "CheckpointDoubleCoverRetire.cs",
-        "CommittedActionDialog.cs",
-        "CrashCoalescer.cs",
-        "CurrencyReservationOverlay.cs",
-        "DebrisRelativeRecorderPolicy.cs",
-        "DiscardSidecarReap.cs",
-        "EngineFxBuilder.cs",
-        "ForwardRenderWindow.cs",
-        "GroupHierarchyStore.cs",
-        "LedgerGroundTruthDiff.cs",
-        "LedgerTrace.cs",
-        "LoopSeamMarkerBuilder.cs",
-        "MapMarkerRenderer.cs",
-        "MarkerValidator.cs",
-        "MilestoneStore.cs",
-        "OverlayBadge.cs",
-        "PannotationsSidecarBinary.cs",
-        "ParsekToolbarRegistration.cs",
-        "PartStateSeeder.Diff.cs",
-        "PartStateSeeder.cs",
-        "PauseMenuGate.cs",
-        "PlaybackTrace.cs",
-        "PostLoadStripper.cs",
-        "ReconciliationBundle.cs",
-        "ResourceBudget.cs",
-        "RevertDetector.cs",
-        "RevertInterceptor.cs",
-        "SceneExitInterceptor.cs",
-        "SessionMerger.cs",
-        "SidecarFileCommitBatch.cs",
-        "SnapshotSidecarCodec.cs",
-        "SpawnCollisionDetector.cs",
-        "SpawnWarningUI.cs",
-        "StockUiOverlayController.cs",
-        "StockWarpAltitudeLimits.cs",
-        "TerrainCorrector.cs",
+        "ParsekFlight.Finalization.cs",
+        "ParsekFlight.TerminalOrbit.cs",
+        "ParsekFlight.cs",
+        "ParsekKSC.cs",
+        "ParsekPlaybackPolicy.cs",
+        "ParsekScenario.HydrationRepair.cs",
+        "ParsekScenario.Trim.cs",
+        "ParsekScenario.cs",
+        "ParsekTrackingStation.cs",
+        "SessionSuppressionState.cs",
         "TimeJumpManager.cs",
-        "TraceSeparation.cs",
-        "TreeDiscardPurge.cs",
-        "UnfinishedFlightClassifier.cs",
-        "UnfinishedFlightSealHandler.cs",
-        "UnfinishedFlightStashHandler.cs",
-        "VesselDisassemblyClassifier.cs",
-        "VesselGhoster.cs",
-        "VesselSpawner.cs",
         "WarpToTimeConsumer.cs",
         "WarpToTimeController.cs",
-        "WarpToTimeRequest.cs"
+        "WarpToTimeMath.cs"
       ],
       "types": [
-        "FileIOUtils",
-        "ParsekLog",
-        "ParsekProcess",
-        "SuppressionGuard"
+        "CheckpointDoubleCoverRetire",
+        "ChildSlot",
+        "CrashCoalescer",
+        "EffectiveState",
+        "Kind",
+        "LoadTimeSweep",
+        "MergeDialog",
+        "MergeJournal",
+        "MergeJournalOrchestrator",
+        "MergeState",
+        "Phase",
+        "PreconditionCache",
+        "QuickloadResumeMatchGuard",
+        "ReFlyConclusionRoute",
+        "ReFlyProvisionalBinding",
+        "ReFlyProvisionalPruneAction",
+        "ReFlyProvisionalRetirement",
+        "ReFlyRevertButtonGate",
+        "ReFlySessionMarker",
+        "ReFlySettleStabilityTracker",
+        "RevertDetector",
+        "RevertKind",
+        "RewindContext",
+        "RewindInvokeContext",
+        "RewindInvoker",
+        "RewindPoint",
+        "RewindPointAuthor",
+        "RewindPointAuthorContext",
+        "RewindPointReaper",
+        "SupersedeCommit",
+        "TimelineInactiveReason",
+        "UnboundProvisionalRaise"
+      ]
+    },
+    {
+      "from": "UI",
+      "to": "Recording",
+      "weight": 52,
+      "cyclic": true,
+      "upward": false,
+      "files": [
+        "DockEventGraphCache.cs",
+        "ParsekUI.cs",
+        "ResourceBudget.cs",
+        "SelectiveSpawnUI.cs",
+        "StockUiOverlayController.cs",
+        "UI/GloopsRecorderUI.cs",
+        "UI/GroupPickerPresentation.cs",
+        "UI/GroupPickerUI.cs",
+        "UI/KerbalsWindowUI.cs",
+        "UI/LogisticsWindowUI.cs",
+        "UI/MissionsWindowUI.cs",
+        "UI/RecordingsTableFormatters.cs",
+        "UI/RecordingsTableUI.cs",
+        "UI/RouteCreationDialog.cs",
+        "UI/SettingsWindowPresentation.cs",
+        "UI/SettingsWindowUI.cs",
+        "UI/StructureListWindowUI.cs",
+        "UI/TimeRangeFilter.cs",
+        "UI/TimelineWindowUI.cs",
+        "UI/UnfinishedFlightsGroup.cs"
+      ],
+      "types": [
+        "LoopTimeUnit",
+        "Recording",
+        "RecordingGroupStore",
+        "RecordingOptimizer",
+        "RecordingPaths",
+        "RecordingRewindRetirement",
+        "RecordingStore",
+        "RecordingSupersedeRelation",
+        "RecordingTree",
+        "RecordingVisualClassifier",
+        "RecordingVisualKind",
+        "ReferenceFrame",
+        "TerminalState",
+        "TrackSection",
+        "VesselSnapshot"
       ]
     },
     {
@@ -1945,107 +1803,14 @@
       ]
     },
     {
-      "from": "Controllers",
-      "to": "Rewind",
-      "weight": 48,
-      "cyclic": true,
-      "upward": false,
-      "files": [
-        "ParsekFlight.Finalization.cs",
-        "ParsekFlight.TerminalOrbit.cs",
-        "ParsekFlight.cs",
-        "ParsekKSC.cs",
-        "ParsekPlaybackPolicy.cs",
-        "ParsekScenario.HydrationRepair.cs",
-        "ParsekScenario.Trim.cs",
-        "ParsekScenario.cs",
-        "ParsekTrackingStation.cs",
-        "SessionSuppressionState.cs"
-      ],
-      "types": [
-        "ChildSlot",
-        "EffectiveState",
-        "Kind",
-        "LoadTimeSweep",
-        "MergeDialog",
-        "MergeJournal",
-        "MergeJournalOrchestrator",
-        "MergeState",
-        "Phase",
-        "PreconditionCache",
-        "ReFlyConclusionRoute",
-        "ReFlyProvisionalBinding",
-        "ReFlyProvisionalPruneAction",
-        "ReFlyProvisionalRetirement",
-        "ReFlyRevertButtonGate",
-        "ReFlySessionMarker",
-        "ReFlySettleStabilityTracker",
-        "RewindContext",
-        "RewindInvokeContext",
-        "RewindInvoker",
-        "RewindPoint",
-        "RewindPointAuthor",
-        "RewindPointAuthorContext",
-        "RewindPointReaper",
-        "SupersedeCommit",
-        "TimelineInactiveReason",
-        "UnboundProvisionalRaise"
-      ]
-    },
-    {
-      "from": "Core",
-      "to": "Rewind",
-      "weight": 48,
+      "from": "UI",
+      "to": "Missions",
+      "weight": 50,
       "cyclic": true,
       "upward": false,
       "files": [
         "DockEventGraphCache.cs",
-        "GroupHierarchyStore.cs",
-        "LedgerGroundTruth.cs",
-        "LedgerGroundTruthDiff.cs",
-        "LoopSeamMarkerBuilder.cs",
-        "MarkerValidator.cs",
-        "PostLoadStripper.cs",
-        "ReconciliationBundle.cs",
-        "RevertInterceptor.cs",
-        "SceneExitInterceptor.cs",
         "StockUiOverlayController.cs",
-        "TimeJumpManager.cs",
-        "TreeDiscardPurge.cs",
-        "UnfinishedFlightClassifier.cs",
-        "UnfinishedFlightSealHandler.cs",
-        "UnfinishedFlightStashHandler.cs",
-        "VesselGhoster.cs",
-        "VesselSpawner.cs",
-        "WarpToTimeConsumer.cs",
-        "WarpToTimeController.cs",
-        "WarpToTimeMath.cs"
-      ],
-      "types": [
-        "ChildSlot",
-        "EffectiveState",
-        "Kind",
-        "MergeDialog",
-        "MergeDialogButtonLabels",
-        "MergeJournal",
-        "MergeState",
-        "ReFlyRevertButtonGate",
-        "ReFlyRevertDialog",
-        "ReFlySessionMarker",
-        "RewindInvoker",
-        "RewindPoint",
-        "RewindPointReaper",
-        "Snapshot",
-        "SupersedeCommit"
-      ]
-    },
-    {
-      "from": "UI",
-      "to": "Missions",
-      "weight": 48,
-      "cyclic": true,
-      "upward": false,
-      "files": [
         "UI/MissionsWindowUI.cs",
         "UI/RecordingsTableUI.cs",
         "UI/StructureListWindowUI.cs"
@@ -2074,6 +1839,7 @@
         "MissionLoopUnitBuilder",
         "MissionPeriodicity",
         "MissionPresentation",
+        "MissionSelection",
         "MissionStore",
         "MissionStructure",
         "MissionStructureBuilder",
@@ -2095,46 +1861,55 @@
       ]
     },
     {
-      "from": "UI",
-      "to": "Recording",
-      "weight": 47,
+      "from": "Recording",
+      "to": "LogIO",
+      "weight": 42,
       "cyclic": true,
       "upward": false,
       "files": [
-        "ParsekUI.cs",
-        "SelectiveSpawnUI.cs",
-        "UI/GloopsRecorderUI.cs",
-        "UI/GroupPickerPresentation.cs",
-        "UI/GroupPickerUI.cs",
-        "UI/KerbalsWindowUI.cs",
-        "UI/LogisticsWindowUI.cs",
-        "UI/MissionsWindowUI.cs",
-        "UI/RecordingsTableFormatters.cs",
-        "UI/RecordingsTableUI.cs",
-        "UI/RouteCreationDialog.cs",
-        "UI/SettingsWindowPresentation.cs",
-        "UI/SettingsWindowUI.cs",
-        "UI/StructureListWindowUI.cs",
-        "UI/TimeRangeFilter.cs",
-        "UI/TimelineWindowUI.cs",
-        "UI/UnfinishedFlightsGroup.cs"
+        "AnchorDetector.cs",
+        "AntennaSpec.cs",
+        "BackgroundRecorder.PartEventPolling.cs",
+        "BackgroundRecorder.cs",
+        "ChainSegmentManager.cs",
+        "DebrisRelativeRecorderPolicy.cs",
+        "DiscardSidecarReap.cs",
+        "EnvironmentDetector.cs",
+        "FlightRecorder.ReFlyCanonicalization.cs",
+        "FlightRecorder.ReflectionClassifiers.cs",
+        "FlightRecorder.cs",
+        "PartStateSeeder.Diff.cs",
+        "PartStateSeeder.cs",
+        "Recording.cs",
+        "RecordingEndpointResolver.cs",
+        "RecordingFinalizationCacheApplier.cs",
+        "RecordingFinalizationCacheProducer.cs",
+        "RecordingGroupStore.cs",
+        "RecordingManifestCodec.cs",
+        "RecordingOptimizer.SeedEvents.cs",
+        "RecordingOptimizer.TailTrim.cs",
+        "RecordingOptimizer.cs",
+        "RecordingPaths.cs",
+        "RecordingSidecarStore.cs",
+        "RecordingStore.CommittedListNotifications.cs",
+        "RecordingStore.Optimization.cs",
+        "RecordingStore.OrphanCleanup.cs",
+        "RecordingStore.SupersedeTerminalSpawn.cs",
+        "RecordingStore.cs",
+        "RecordingTree.cs",
+        "RecordingTreeRecordCodec.cs",
+        "RelativeAnchorResolver.cs",
+        "SegmentBoundaryLogic.cs",
+        "SessionMerger.cs",
+        "SidecarFileCommitBatch.cs",
+        "SnapshotSidecarCodec.cs",
+        "StockWarpAltitudeLimits.cs",
+        "TraceSeparation.cs",
+        "TreeDiscardPurge.cs"
       ],
       "types": [
-        "LoopTimeUnit",
-        "Recording",
-        "RecordingGroupStore",
-        "RecordingOptimizer",
-        "RecordingPaths",
-        "RecordingRewindRetirement",
-        "RecordingStore",
-        "RecordingSupersedeRelation",
-        "RecordingTree",
-        "RecordingVisualClassifier",
-        "RecordingVisualKind",
-        "ReferenceFrame",
-        "TerminalState",
-        "TrackSection",
-        "VesselSnapshot"
+        "FileIOUtils",
+        "ParsekLog"
       ]
     },
     {
@@ -2166,6 +1941,44 @@
         "SegmentEnvironment",
         "TrackSection",
         "TrackSectionSource"
+      ]
+    },
+    {
+      "from": "Rewind",
+      "to": "GameActions",
+      "weight": 39,
+      "cyclic": true,
+      "upward": false,
+      "files": [
+        "EffectiveState.cs",
+        "LoadTimeSweep.cs",
+        "MergeDialog.Commit.cs",
+        "MergeDialog.ReFlyDiscard.cs",
+        "MergeJournalOrchestrator.cs",
+        "ReFlyAutoSealPreview.cs",
+        "ReconciliationBundle.cs",
+        "RecordingTreeSplitter.cs",
+        "RewindInvoker.cs",
+        "RewindPointAuthor.cs",
+        "RewindPointReaper.cs",
+        "SupersedeCommit.cs"
+      ],
+      "types": [
+        "FundsSpendingSource",
+        "GameAction",
+        "GameActionType",
+        "GameStateRecorder",
+        "GameStateStore",
+        "Ledger",
+        "LedgerOrchestrator",
+        "LedgerTombstone",
+        "Milestone",
+        "PendingScienceSubject",
+        "RecalculationEngine",
+        "ResurrectionRetirementEligibility",
+        "ScienceMethod",
+        "TombstoneAttributionHelper",
+        "TombstoneEligibility"
       ]
     },
     {
@@ -2282,44 +2095,81 @@
     },
     {
       "from": "Ghost",
-      "to": "Core",
-      "weight": 35,
+      "to": "Trajectory",
+      "weight": 34,
       "cyclic": true,
-      "upward": true,
+      "upward": false,
       "files": [
-        "GhostChainWalker.cs",
-        "GhostCommNetRelay.cs",
-        "GhostMapPresence.OverlapSchedule.cs",
+        "DebrisRelativeCoveragePrimitives.cs",
+        "GhostMapPresence.Observability.cs",
         "GhostMapPresence.cs",
         "GhostPlaybackEngine.ActivationHold.cs",
-        "GhostPlaybackEngine.LoopBounds.cs",
         "GhostPlaybackEngine.PendingInterpolation.cs",
         "GhostPlaybackEngine.cs",
         "GhostPlaybackEvents.cs",
         "GhostPlaybackLogic.WarpLoopPolicy.cs",
-        "GhostPlaybackLogic.WatchMode.cs",
         "GhostPlaybackLogic.cs",
         "GhostRenderTrace.cs",
-        "GhostVisualBuilder.cs",
-        "GhostingTriggerClassifier.cs"
+        "PlaybackOrbitDiagnostics.cs",
+        "PlaybackTrace.cs",
+        "RecordedRelativeAnchorPoseResolver.cs",
+        "SpawnCollisionDetector.cs",
+        "VesselGhoster.cs"
       ],
       "types": [
-        "AntennaSpec",
-        "BranchPoint",
-        "BranchPointType",
-        "DebrisRelativeCoverageMode",
-        "EngineFxBuilder",
-        "IPlaybackTrajectory",
-        "LoopSeamMarkerRuntime",
-        "MaterialCleanup",
-        "PlaybackOrbitDiagnostics",
-        "PlaybackScopeTracker",
-        "PlaybackTrace",
-        "PlaybackTrajectoryBoundsResolver",
-        "RecordedRelativeAnchorPoseResolver",
-        "RecordingEndpointPhase",
-        "VesselLaunchIdentity",
-        "VesselSpawner"
+        "OrbitReseed",
+        "OrbitSeedResolver",
+        "OrbitSegment",
+        "TailDerivedOrbitSeed",
+        "TailSeedUse",
+        "TrajectoryMath",
+        "TrajectoryPoint",
+        "TrajectoryPointFlags"
+      ]
+    },
+    {
+      "from": "Rewind",
+      "to": "LogIO",
+      "weight": 34,
+      "cyclic": true,
+      "upward": false,
+      "files": [
+        "CheckpointDoubleCoverRetire.cs",
+        "CrashCoalescer.cs",
+        "EffectiveState.cs",
+        "LoadTimeSweep.cs",
+        "MarkerValidator.cs",
+        "MergeDialog.Commit.cs",
+        "MergeDialog.DialogText.cs",
+        "MergeDialog.ReFlyDiscard.cs",
+        "MergeDialog.cs",
+        "MergeJournalOrchestrator.cs",
+        "PostLoadStripper.cs",
+        "ReFlyAnchorSelection.cs",
+        "ReFlyConclusionRoute.cs",
+        "ReFlyRevertButtonGate.cs",
+        "ReFlyRevertDialog.cs",
+        "ReFlySettleStabilityTracker.cs",
+        "ReconciliationBundle.cs",
+        "RecordingTreeSplitter.cs",
+        "RevertDetector.cs",
+        "RevertInterceptor.cs",
+        "RewindContext.cs",
+        "RewindInvoker.cs",
+        "RewindPointAuthor.cs",
+        "RewindPointDiskUsage.cs",
+        "RewindPointReaper.cs",
+        "RewindReadbackGuard.cs",
+        "SceneExitInterceptor.cs",
+        "SupersedeCommit.cs",
+        "UnfinishedFlightClassifier.cs",
+        "UnfinishedFlightSealHandler.cs",
+        "UnfinishedFlightStashHandler.cs"
+      ],
+      "types": [
+        "FileIOUtils",
+        "ParsekLog",
+        "SuppressionGuard"
       ]
     },
     {
@@ -2358,45 +2208,9 @@
       ]
     },
     {
-      "from": "Rewind",
-      "to": "GameActions",
-      "weight": 33,
-      "cyclic": true,
-      "upward": false,
-      "files": [
-        "EffectiveState.cs",
-        "LoadTimeSweep.cs",
-        "MergeDialog.Commit.cs",
-        "MergeDialog.ReFlyDiscard.cs",
-        "MergeJournalOrchestrator.cs",
-        "ReFlyAutoSealPreview.cs",
-        "RecordingTreeSplitter.cs",
-        "RewindInvoker.cs",
-        "RewindPointAuthor.cs",
-        "RewindPointReaper.cs",
-        "SupersedeCommit.cs"
-      ],
-      "types": [
-        "FundsSpendingSource",
-        "GameAction",
-        "GameActionType",
-        "GameStateRecorder",
-        "GameStateStore",
-        "Ledger",
-        "LedgerOrchestrator",
-        "LedgerTombstone",
-        "Milestone",
-        "RecalculationEngine",
-        "ResurrectionRetirementEligibility",
-        "ScienceMethod",
-        "TombstoneAttributionHelper",
-        "TombstoneEligibility"
-      ]
-    },
-    {
       "from": "Ghost",
       "to": "Config",
-      "weight": 31,
+      "weight": 32,
       "cyclic": true,
       "upward": false,
       "files": [
@@ -2412,6 +2226,7 @@
         "GhostPlaybackLogic.cs",
         "GhostRenderTrace.cs",
         "GhostVisualBuilder.cs",
+        "LoopSeamMarkerBuilder.cs",
         "RenderingZoneManager.cs"
       ],
       "types": [
@@ -2423,6 +2238,133 @@
         "ParsekSettings",
         "WarpThresholds",
         "WatchMode"
+      ]
+    },
+    {
+      "from": "Ghost",
+      "to": "LogIO",
+      "weight": 32,
+      "cyclic": true,
+      "upward": false,
+      "files": [
+        "EngineFxBuilder.cs",
+        "GhostAudioPresets.cs",
+        "GhostChainWalker.cs",
+        "GhostCommNetRelay.cs",
+        "GhostExtender.cs",
+        "GhostFxEmissionProbe.cs",
+        "GhostFxFingerprint.cs",
+        "GhostMapPresence.Observability.cs",
+        "GhostMapPresence.cs",
+        "GhostPartEventApplyLog.cs",
+        "GhostPlaybackEngine.PendingInterpolation.cs",
+        "GhostPlaybackEngine.cs",
+        "GhostPlaybackLogic.SpanClock.cs",
+        "GhostPlaybackLogic.WarpLoopPolicy.cs",
+        "GhostPlaybackLogic.WatchMode.cs",
+        "GhostPlaybackLogic.cs",
+        "GhostRenderTrace.cs",
+        "GhostVisualBuilder.Parsing.cs",
+        "GhostVisualBuilder.Variants.cs",
+        "GhostVisualBuilder.cs",
+        "GhostingTriggerClassifier.cs",
+        "LoopSeamMarkerBuilder.cs",
+        "PlaybackTrace.cs",
+        "PristinePartFxResolver.cs",
+        "ReStockPatchFxIndex.cs",
+        "RenderingZoneManager.cs",
+        "SpawnCollisionDetector.cs",
+        "SpawnWarningUI.cs",
+        "TerrainCorrector.cs",
+        "VesselDisassemblyClassifier.cs",
+        "VesselGhoster.cs",
+        "WaterfallCompat.cs"
+      ],
+      "types": [
+        "ParsekLog"
+      ]
+    },
+    {
+      "from": "Controllers",
+      "to": "LogIO",
+      "weight": 31,
+      "cyclic": true,
+      "upward": false,
+      "files": [
+        "MapMarkerRenderer.cs",
+        "ParsekFlight.Finalization.cs",
+        "ParsekFlight.TailLift.cs",
+        "ParsekFlight.TerminalEvents.cs",
+        "ParsekFlight.TerminalOrbit.cs",
+        "ParsekFlight.TimeJump.cs",
+        "ParsekFlight.cs",
+        "ParsekHarmony.cs",
+        "ParsekKSC.Decisions.cs",
+        "ParsekKSC.Playback.cs",
+        "ParsekKSC.cs",
+        "ParsekPlaybackPolicy.cs",
+        "ParsekScenario.HydrationRepair.cs",
+        "ParsekScenario.Trim.cs",
+        "ParsekScenario.cs",
+        "ParsekTrackingStation.cs",
+        "PauseMenuGate.cs",
+        "SessionSuppressionState.cs",
+        "TimeJumpManager.cs",
+        "WarpToTimeConsumer.cs",
+        "WarpToTimeController.cs",
+        "WarpToTimeRequest.cs",
+        "WatchModeController.Diagnostics.cs",
+        "WatchModeController.Runtime.cs",
+        "WatchModeController.cs"
+      ],
+      "types": [
+        "FileIOUtils",
+        "ParsekLog",
+        "ParsekProcess",
+        "PreParsekBackup",
+        "SuppressionGuard"
+      ]
+    },
+    {
+      "from": "GameActions",
+      "to": "LogIO",
+      "weight": 31,
+      "cyclic": true,
+      "upward": false,
+      "files": [
+        "GameActions/ContractsModule.cs",
+        "GameActions/FacilitiesModule.cs",
+        "GameActions/FacilityStatePatcher.cs",
+        "GameActions/FundsModule.cs",
+        "GameActions/GameAction.cs",
+        "GameActions/GameStateEventConverter.cs",
+        "GameActions/KscActionReconciler.cs",
+        "GameActions/KspStatePatcher.cs",
+        "GameActions/Ledger.cs",
+        "GameActions/LedgerLoadMigration.cs",
+        "GameActions/LedgerOrchestrator.cs",
+        "GameActions/LedgerRecoveryFundsPairing.cs",
+        "GameActions/LedgerRolloutAdoption.cs",
+        "GameActions/MilestonesModule.cs",
+        "GameActions/PostWalkActionReconciler.cs",
+        "GameActions/RecalculationEngine.cs",
+        "GameActions/ReputationModule.cs",
+        "GameActions/RouteModule.cs",
+        "GameActions/ScienceModule.cs",
+        "GameActions/StrategiesModule.cs",
+        "GameStateBaseline.cs",
+        "GameStateEvent.cs",
+        "GameStateFacilityRecorder.cs",
+        "GameStateRecorder.Handlers.cs",
+        "GameStateRecorder.cs",
+        "GameStateStore.cs",
+        "LedgerTrace.cs",
+        "RecoveryPayoutContext.cs"
+      ],
+      "types": [
+        "FileIOUtils",
+        "ParsekLog",
+        "SuppressionGuard"
       ]
     },
     {
@@ -2469,119 +2411,116 @@
       ]
     },
     {
-      "from": "Recording",
-      "to": "LogIO",
+      "from": "TestCommands",
+      "to": "Recording",
       "weight": 31,
-      "cyclic": true,
+      "cyclic": false,
       "upward": false,
       "files": [
-        "AnchorDetector.cs",
-        "BackgroundRecorder.PartEventPolling.cs",
-        "BackgroundRecorder.cs",
-        "ChainSegmentManager.cs",
-        "EnvironmentDetector.cs",
-        "FlightRecorder.ReFlyCanonicalization.cs",
-        "FlightRecorder.ReflectionClassifiers.cs",
-        "FlightRecorder.cs",
-        "Recording.cs",
-        "RecordingEndpointResolver.cs",
-        "RecordingFinalizationCacheApplier.cs",
-        "RecordingFinalizationCacheProducer.cs",
-        "RecordingGroupStore.cs",
-        "RecordingManifestCodec.cs",
-        "RecordingOptimizer.SeedEvents.cs",
-        "RecordingOptimizer.TailTrim.cs",
-        "RecordingOptimizer.cs",
-        "RecordingPaths.cs",
-        "RecordingSidecarStore.cs",
-        "RecordingStore.CommittedListNotifications.cs",
-        "RecordingStore.Optimization.cs",
-        "RecordingStore.OrphanCleanup.cs",
-        "RecordingStore.SupersedeTerminalSpawn.cs",
-        "RecordingStore.cs",
-        "RecordingTree.cs",
-        "RecordingTreeRecordCodec.cs",
-        "RelativeAnchorResolver.cs",
-        "SegmentBoundaryLogic.cs"
+        "TestCommands/ParsekTestCommandAddon.DeleteRecording.cs",
+        "TestCommands/ParsekTestCommandAddon.EnterWatchMode.cs",
+        "TestCommands/ParsekTestCommandAddon.ExitToSpaceCenter.cs",
+        "TestCommands/ParsekTestCommandAddon.InvokeRewindToLaunch.cs",
+        "TestCommands/ParsekTestCommandAddon.ListHandles.cs",
+        "TestCommands/ParsekTestCommandAddon.MissionConfig.cs",
+        "TestCommands/ParsekTestCommandAddon.RouteCommand.cs",
+        "TestCommands/ParsekTestCommandAddon.SealSlot.cs",
+        "TestCommands/ParsekTestCommandAddon.SimulateSwitchClick.cs",
+        "TestCommands/ParsekTestCommandAddon.StartLoopPlayback.cs",
+        "TestCommands/ParsekTestCommandAddon.UiState.cs",
+        "TestCommands/ParsekTestCommandAddon.cs",
+        "TestCommands/TestCommandDispatcher.cs",
+        "TestCommands/TestCommandRecordingVerbs.cs",
+        "TestCommands/TestCommandSealSlot.cs"
       ],
       "types": [
-        "FileIOUtils",
-        "ParsekLog"
+        "DiscardSidecarReap",
+        "LoopTimeUnit",
+        "RecorderStateSnapshot",
+        "Recording",
+        "RecordingStore",
+        "RecordingSupersedeRelation",
+        "RecordingTree"
       ]
     },
     {
-      "from": "GameActions",
-      "to": "LogIO",
+      "from": "Ghost",
+      "to": "Core",
       "weight": 30,
       "cyclic": true,
       "upward": false,
       "files": [
-        "GameActions/ContractsModule.cs",
-        "GameActions/FacilitiesModule.cs",
-        "GameActions/FacilityStatePatcher.cs",
-        "GameActions/FundsModule.cs",
-        "GameActions/GameAction.cs",
-        "GameActions/GameStateEventConverter.cs",
-        "GameActions/KscActionReconciler.cs",
-        "GameActions/KspStatePatcher.cs",
-        "GameActions/Ledger.cs",
-        "GameActions/LedgerLoadMigration.cs",
-        "GameActions/LedgerOrchestrator.cs",
-        "GameActions/LedgerRecoveryFundsPairing.cs",
-        "GameActions/LedgerRolloutAdoption.cs",
-        "GameActions/MilestonesModule.cs",
-        "GameActions/PostWalkActionReconciler.cs",
-        "GameActions/RecalculationEngine.cs",
-        "GameActions/ReputationModule.cs",
-        "GameActions/RouteModule.cs",
-        "GameActions/ScienceModule.cs",
-        "GameActions/StrategiesModule.cs",
-        "GameStateBaseline.cs",
-        "GameStateEvent.cs",
-        "GameStateFacilityRecorder.cs",
-        "GameStateRecorder.Handlers.cs",
-        "GameStateRecorder.cs",
-        "GameStateStore.cs",
-        "RecoveryPayoutContext.cs"
-      ],
-      "types": [
-        "FileIOUtils",
-        "ParsekLog",
-        "SuppressionGuard"
-      ]
-    },
-    {
-      "from": "Core",
-      "to": "Trajectory",
-      "weight": 29,
-      "cyclic": true,
-      "upward": false,
-      "files": [
-        "CheckpointDoubleCoverRetire.cs",
-        "CrashCoalescer.cs",
-        "DebrisRelativeCoveragePrimitives.cs",
-        "DebrisRelativeRecorderPolicy.cs",
-        "ForwardRenderWindow.cs",
-        "IPlaybackTrajectory.cs",
+        "GhostChainWalker.cs",
+        "GhostMapPresence.OverlapSchedule.cs",
+        "GhostMapPresence.cs",
+        "GhostPlaybackEngine.ActivationHold.cs",
+        "GhostPlaybackEngine.LoopBounds.cs",
+        "GhostPlaybackEngine.PendingInterpolation.cs",
+        "GhostPlaybackEngine.cs",
+        "GhostPlaybackEvents.cs",
+        "GhostPlaybackLogic.WarpLoopPolicy.cs",
+        "GhostPlaybackLogic.WatchMode.cs",
+        "GhostPlaybackLogic.cs",
+        "GhostRenderTrace.cs",
+        "GhostVisualBuilder.cs",
+        "GhostingTriggerClassifier.cs",
+        "LoopSeamMarkerBuilder.cs",
         "PlaybackOrbitDiagnostics.cs",
         "PlaybackTrace.cs",
         "RecordedRelativeAnchorPoseResolver.cs",
-        "SessionMerger.cs",
-        "SpawnCollisionDetector.cs",
-        "TraceSeparation.cs",
-        "VesselGhoster.cs",
-        "VesselSpawner.cs"
+        "VesselGhoster.cs"
       ],
       "types": [
-        "OrbitReseed",
-        "OrbitSeedResolver",
-        "OrbitSegment",
-        "OrbitSegmentCheckpointBridge",
-        "TailDerivedOrbitSeed",
-        "TailSeedUse",
-        "TrajectoryMath",
-        "TrajectoryPoint",
-        "TrajectoryPointFlags"
+        "BranchPoint",
+        "BranchPointType",
+        "IPlaybackTrajectory",
+        "PlaybackTrajectoryBoundsResolver",
+        "RecordingEndpointPhase",
+        "VesselLaunchIdentity",
+        "VesselSpawner"
+      ]
+    },
+    {
+      "from": "InGameTests",
+      "to": "UI",
+      "weight": 29,
+      "cyclic": false,
+      "upward": false,
+      "files": [
+        "InGameTests/CurrencyTooltipLiveInvariantTest.cs",
+        "InGameTests/DisabledHoverEchoImguiTest.cs",
+        "InGameTests/DockEventGraphInGameTest.cs",
+        "InGameTests/IncompleteBallisticRuntimeTests.cs",
+        "InGameTests/InvokeRPStripAndActivateTest.cs",
+        "InGameTests/LogisticsTooltipEchoImguiTest.cs",
+        "InGameTests/MissionRevealInGameTests.cs",
+        "InGameTests/RuntimeTests.cs",
+        "InGameTests/SettingsWindowHeightFitInGameTests.cs",
+        "InGameTests/StableLeafUnfinishedFlightsRuntimeTest.cs",
+        "InGameTests/TestRunnerShortcut.cs",
+        "InGameTests/TooltipEchoWrapSizingImguiTest.cs",
+        "InGameTests/UiComplexityModeInGameTests.cs",
+        "InGameTests/UnfinishedFlightsRenderingAndNoHideTest.cs"
+      ],
+      "types": [
+        "CareerStateWindowUI",
+        "CommittedActionDialog",
+        "CurrencyReservationOverlay",
+        "DisabledHoverEcho",
+        "DockEventGraphCache",
+        "GatedWindowCloseTarget",
+        "GroupPickerUI",
+        "MissionsWindowUI",
+        "ParsekUI",
+        "ReFlyColumnAction",
+        "RecordingsTableUI",
+        "SettingsWindowUI",
+        "StockUiOverlayController",
+        "TooltipEchoBox",
+        "UiComplexityMode",
+        "UiSurface",
+        "UiSurfaceVisibility",
+        "UnfinishedFlightsGroup"
       ]
     },
     {
@@ -2622,37 +2561,6 @@
       "types": [
         "ParsekLog",
         "ParsekProcess"
-      ]
-    },
-    {
-      "from": "TestCommands",
-      "to": "Recording",
-      "weight": 29,
-      "cyclic": false,
-      "upward": false,
-      "files": [
-        "TestCommands/ParsekTestCommandAddon.DeleteRecording.cs",
-        "TestCommands/ParsekTestCommandAddon.EnterWatchMode.cs",
-        "TestCommands/ParsekTestCommandAddon.ExitToSpaceCenter.cs",
-        "TestCommands/ParsekTestCommandAddon.InvokeRewindToLaunch.cs",
-        "TestCommands/ParsekTestCommandAddon.ListHandles.cs",
-        "TestCommands/ParsekTestCommandAddon.MissionConfig.cs",
-        "TestCommands/ParsekTestCommandAddon.RouteCommand.cs",
-        "TestCommands/ParsekTestCommandAddon.SealSlot.cs",
-        "TestCommands/ParsekTestCommandAddon.SimulateSwitchClick.cs",
-        "TestCommands/ParsekTestCommandAddon.StartLoopPlayback.cs",
-        "TestCommands/ParsekTestCommandAddon.UiState.cs",
-        "TestCommands/ParsekTestCommandAddon.cs",
-        "TestCommands/TestCommandDispatcher.cs",
-        "TestCommands/TestCommandRecordingVerbs.cs",
-        "TestCommands/TestCommandSealSlot.cs"
-      ],
-      "types": [
-        "LoopTimeUnit",
-        "Recording",
-        "RecordingStore",
-        "RecordingSupersedeRelation",
-        "RecordingTree"
       ]
     },
     {
@@ -2718,42 +2626,185 @@
       ]
     },
     {
-      "from": "Rewind",
+      "from": "Recording",
       "to": "Core",
-      "weight": 27,
+      "weight": 28,
+      "cyclic": true,
+      "upward": false,
+      "files": [
+        "AnchorDetector.cs",
+        "BackgroundRecorder.cs",
+        "ChainSegmentManager.cs",
+        "FlightRecorder.cs",
+        "Recording.cs",
+        "RecordingEndpointResolver.cs",
+        "RecordingGroupStore.cs",
+        "RecordingManifestCodec.cs",
+        "RecordingOptimizer.TailTrim.cs",
+        "RecordingOptimizer.cs",
+        "RecordingSidecarStore.cs",
+        "RecordingStore.SupersedeTerminalSpawn.cs",
+        "RecordingStore.cs",
+        "RecordingTree.cs",
+        "RecordingTreeRecordCodec.cs"
+      ],
+      "types": [
+        "BranchPoint",
+        "BranchPointType",
+        "GroupHierarchyStore",
+        "IPlaybackTrajectory",
+        "InventoryItem",
+        "MilestoneStore",
+        "PlaybackTrajectoryBoundsResolver",
+        "RecordingEndpointPhase",
+        "VesselLaunchIdentity",
+        "VesselSpawner"
+      ]
+    },
+    {
+      "from": "Recording",
+      "to": "Rewind",
+      "weight": 28,
+      "cyclic": true,
+      "upward": true,
+      "files": [
+        "AnchorDetector.cs",
+        "BackgroundRecorder.cs",
+        "FlightRecorder.cs",
+        "Recording.cs",
+        "RecordingOptimizer.cs",
+        "RecordingStore.RewindSupersedeRollback.cs",
+        "RecordingStore.cs",
+        "RecordingTreeRecordCodec.cs",
+        "RelativeAnchorResolver.cs",
+        "TreeDiscardPurge.cs"
+      ],
+      "types": [
+        "ChildSlot",
+        "EffectiveState",
+        "MergeJournal",
+        "MergeState",
+        "Phase",
+        "Phases",
+        "ReFlyAnchorSelection",
+        "ReFlyRevertButtonGate",
+        "ReFlySessionMarker",
+        "ReFlySettleStabilityTracker",
+        "RewindContext",
+        "RewindPoint",
+        "RewindPointAuthor",
+        "RewindPointAuthorContext",
+        "SupersedeCommit",
+        "UnfinishedFlightClassifier"
+      ]
+    },
+    {
+      "from": "Rewind",
+      "to": "Controllers",
+      "weight": 28,
       "cyclic": true,
       "upward": true,
       "files": [
         "EffectiveState.cs",
         "LoadTimeSweep.cs",
+        "MarkerValidator.cs",
         "MergeDialog.Commit.cs",
-        "ReFlyAutoSealPreview.cs",
+        "MergeDialog.DialogText.cs",
+        "MergeDialog.ReFlyDiscard.cs",
+        "MergeDialog.cs",
+        "MergeJournalOrchestrator.cs",
+        "ReFlyAnchorSelection.cs",
+        "ReFlyRevertButtonGate.cs",
         "ReFlyRevertDialog.cs",
-        "ReFlySettleStabilityTracker.cs",
+        "ReconciliationBundle.cs",
         "RecordingTreeSplitter.cs",
-        "RewindContext.cs",
-        "RewindInvokeContext.cs",
+        "RevertInterceptor.cs",
         "RewindInvoker.cs",
         "RewindPointAuthor.cs",
-        "SupersedeCommit.cs"
+        "RewindPointDiskUsage.cs",
+        "RewindPointReaper.cs",
+        "SceneExitInterceptor.cs",
+        "SupersedeCommit.cs",
+        "UnfinishedFlightClassifier.cs",
+        "UnfinishedFlightSealHandler.cs",
+        "UnfinishedFlightStashHandler.cs"
+      ],
+      "types": [
+        "ParsekFlight",
+        "ParsekScenario"
+      ]
+    },
+    {
+      "from": "TestCommands",
+      "to": "Rewind",
+      "weight": 28,
+      "cyclic": false,
+      "upward": false,
+      "files": [
+        "TestCommands/ParsekTestCommandAddon.ExitToSpaceCenter.cs",
+        "TestCommands/ParsekTestCommandAddon.InvokeRewindToLaunch.cs",
+        "TestCommands/ParsekTestCommandAddon.ListHandles.cs",
+        "TestCommands/ParsekTestCommandAddon.SealSlot.cs",
+        "TestCommands/ParsekTestCommandAddon.UiFind.cs",
+        "TestCommands/ParsekTestCommandAddon.cs",
+        "TestCommands/TestCommandExitToSpaceCenter.cs",
+        "TestCommands/TestCommandJournal.cs",
+        "TestCommands/TestCommandKscAction.cs",
+        "TestCommands/TestCommandListHandles.cs",
+        "TestCommands/TestCommandSealSlot.cs",
+        "TestCommands/TestCommandUiFind.cs"
+      ],
+      "types": [
+        "ChildSlot",
+        "DialogVariant",
+        "Kind",
+        "MergeDialog",
+        "MergeJournal",
+        "MergeState",
+        "Phase",
+        "Phases",
+        "ReFlySessionMarker",
+        "RewindContext",
+        "RewindInvokeContext",
+        "RewindInvoker",
+        "RewindPoint",
+        "SceneExitInterceptor",
+        "UnfinishedFlightSealHandler"
+      ]
+    },
+    {
+      "from": "Controllers",
+      "to": "Core",
+      "weight": 27,
+      "cyclic": true,
+      "upward": false,
+      "files": [
+        "DebrisRelativePlaybackPolicy.cs",
+        "IGhostPositioner.cs",
+        "ParsekFlight.Finalization.cs",
+        "ParsekFlight.PostSwitchPredicates.cs",
+        "ParsekFlight.TerminalOrbit.cs",
+        "ParsekFlight.cs",
+        "ParsekKSC.Playback.cs",
+        "ParsekKSC.cs",
+        "ParsekPlaybackPolicy.cs",
+        "ParsekScenario.HydrationRepair.cs",
+        "ParsekScenario.Trim.cs",
+        "ParsekScenario.cs",
+        "WatchModeController.cs"
       ],
       "types": [
         "BranchPoint",
         "BranchPointType",
-        "BudgetSummary",
-        "DefaultVesselEnumeration",
-        "DiagnosticFormatters",
         "GroupHierarchyStore",
-        "IStrippableVessel",
-        "MarkerValidator",
+        "IPlaybackTrajectory",
+        "InventoryItem",
+        "InventoryManifest",
+        "MaxDistanceBackfillRoute",
+        "MaxDistanceReferenceSurface",
         "MilestoneStore",
         "PlaybackTrajectoryBoundsResolver",
-        "PostLoadStripResult",
-        "PostLoadStripper",
-        "ReconciliationBundle",
-        "RevertTarget",
-        "UnfinishedFlightClassifier",
-        "UnfinishedFlightSealHandler",
+        "RecordingEndpointPhase",
         "VesselLaunchIdentity",
         "VesselSpawner"
       ]
@@ -2761,10 +2812,11 @@
     {
       "from": "Controllers",
       "to": "Logistics",
-      "weight": 25,
+      "weight": 26,
       "cyclic": true,
       "upward": false,
       "files": [
+        "ConnectionProducerClassifier.cs",
         "ParsekFlight.cs",
         "ParsekKSC.cs",
         "ParsekScenario.cs",
@@ -2790,6 +2842,40 @@
         "RouteStore",
         "RouteTreeGuard",
         "StartDockedOriginBindState"
+      ]
+    },
+    {
+      "from": "UI",
+      "to": "Rewind",
+      "weight": 26,
+      "cyclic": true,
+      "upward": false,
+      "files": [
+        "DockEventGraphCache.cs",
+        "ParsekUI.cs",
+        "StockUiOverlayController.cs",
+        "UI/CareerStateWindowUI.cs",
+        "UI/GroupPickerUI.cs",
+        "UI/KerbalsWindowUI.cs",
+        "UI/LogisticsFlowPresentation.cs",
+        "UI/LogisticsWindowUI.cs",
+        "UI/MissionsWindowUI.cs",
+        "UI/RecordingsTableUI.cs",
+        "UI/SettingsWindowUI.cs",
+        "UI/TimelineWindowUI.cs",
+        "UI/UnfinishedFlightsGroup.cs"
+      ],
+      "types": [
+        "ChildSlot",
+        "EffectiveState",
+        "Kind",
+        "Phase",
+        "RewindInvoker",
+        "RewindPoint",
+        "RewindPointDiskUsage",
+        "UnfinishedFlightClassifier",
+        "UnfinishedFlightSealHandler",
+        "UnfinishedFlightStashHandler"
       ]
     },
     {
@@ -2826,42 +2912,6 @@
       ]
     },
     {
-      "from": "UI",
-      "to": "Core",
-      "weight": 25,
-      "cyclic": true,
-      "upward": false,
-      "files": [
-        "ParsekUI.cs",
-        "UI/GroupPickerUI.cs",
-        "UI/MissionsWindowUI.cs",
-        "UI/RecordingsTableFormatters.cs",
-        "UI/RecordingsTableUI.cs",
-        "UI/SettingsWindowUI.cs",
-        "UI/StructureListWindowUI.cs",
-        "UI/TimelineWindowUI.cs"
-      ],
-      "types": [
-        "BranchPointType",
-        "DockEventGraphCache",
-        "GroupHierarchyStore",
-        "InventoryItem",
-        "MapMarkerRenderer",
-        "MilestoneStore",
-        "RewindTargetKind",
-        "TimeJumpManager",
-        "UnfinishedFlightClassifier",
-        "UnfinishedFlightSealHandler",
-        "UnfinishedFlightStashHandler",
-        "VesselSpawner",
-        "WarpFieldKind",
-        "WarpPlanKind",
-        "WarpToTimeController",
-        "WarpToTimeMath",
-        "WarpToTimeRequest"
-      ]
-    },
-    {
       "from": "Controllers",
       "to": "Config",
       "weight": 24,
@@ -2888,150 +2938,6 @@
         "ParsekSettingsPersistence",
         "WarpThresholds",
         "WatchMode"
-      ]
-    },
-    {
-      "from": "Controllers",
-      "to": "LogIO",
-      "weight": 24,
-      "cyclic": true,
-      "upward": false,
-      "files": [
-        "ParsekFlight.Finalization.cs",
-        "ParsekFlight.TailLift.cs",
-        "ParsekFlight.TerminalEvents.cs",
-        "ParsekFlight.TerminalOrbit.cs",
-        "ParsekFlight.TimeJump.cs",
-        "ParsekFlight.cs",
-        "ParsekHarmony.cs",
-        "ParsekKSC.Decisions.cs",
-        "ParsekKSC.Playback.cs",
-        "ParsekKSC.cs",
-        "ParsekPlaybackPolicy.cs",
-        "ParsekScenario.HydrationRepair.cs",
-        "ParsekScenario.Trim.cs",
-        "ParsekScenario.cs",
-        "ParsekTrackingStation.cs",
-        "SessionSuppressionState.cs",
-        "WatchModeController.Diagnostics.cs",
-        "WatchModeController.Runtime.cs",
-        "WatchModeController.cs"
-      ],
-      "types": [
-        "FileIOUtils",
-        "ParsekLog",
-        "ParsekProcess",
-        "PreParsekBackup",
-        "SuppressionGuard"
-      ]
-    },
-    {
-      "from": "Core",
-      "to": "Ghost",
-      "weight": 24,
-      "cyclic": true,
-      "upward": false,
-      "files": [
-        "EngineFxBuilder.cs",
-        "LoopSeamMarkerBuilder.cs",
-        "LoopSeamMarkerRuntime.cs",
-        "PostLoadStripper.cs",
-        "SpawnCollisionDetector.cs",
-        "SpawnWarningUI.cs",
-        "TimeJumpManager.cs",
-        "VesselGhoster.cs",
-        "VesselSpawner.cs"
-      ],
-      "types": [
-        "EngineGhostInfo",
-        "GhostChain",
-        "GhostExtender",
-        "GhostExtensionStrategy",
-        "GhostFxEmissionProbe",
-        "GhostMapPresence",
-        "GhostPlaybackEngine",
-        "GhostPlaybackLogic",
-        "GhostVisualBuilder",
-        "LoopSeamMarker",
-        "LoopUnit",
-        "MemberWindow",
-        "PristinePartFxData",
-        "PristinePartFxResolver",
-        "ReStockPatchFxIndex",
-        "SeamMarkerKind",
-        "WaterfallCompat"
-      ]
-    },
-    {
-      "from": "Ghost",
-      "to": "LogIO",
-      "weight": 24,
-      "cyclic": true,
-      "upward": false,
-      "files": [
-        "GhostAudioPresets.cs",
-        "GhostChainWalker.cs",
-        "GhostCommNetRelay.cs",
-        "GhostExtender.cs",
-        "GhostFxEmissionProbe.cs",
-        "GhostFxFingerprint.cs",
-        "GhostMapPresence.Observability.cs",
-        "GhostMapPresence.cs",
-        "GhostPartEventApplyLog.cs",
-        "GhostPlaybackEngine.PendingInterpolation.cs",
-        "GhostPlaybackEngine.cs",
-        "GhostPlaybackLogic.SpanClock.cs",
-        "GhostPlaybackLogic.WarpLoopPolicy.cs",
-        "GhostPlaybackLogic.WatchMode.cs",
-        "GhostPlaybackLogic.cs",
-        "GhostRenderTrace.cs",
-        "GhostVisualBuilder.Parsing.cs",
-        "GhostVisualBuilder.Variants.cs",
-        "GhostVisualBuilder.cs",
-        "GhostingTriggerClassifier.cs",
-        "PristinePartFxResolver.cs",
-        "ReStockPatchFxIndex.cs",
-        "RenderingZoneManager.cs",
-        "WaterfallCompat.cs"
-      ],
-      "types": [
-        "ParsekLog"
-      ]
-    },
-    {
-      "from": "InGameTests",
-      "to": "UI",
-      "weight": 24,
-      "cyclic": false,
-      "upward": false,
-      "files": [
-        "InGameTests/DisabledHoverEchoImguiTest.cs",
-        "InGameTests/IncompleteBallisticRuntimeTests.cs",
-        "InGameTests/InvokeRPStripAndActivateTest.cs",
-        "InGameTests/LogisticsTooltipEchoImguiTest.cs",
-        "InGameTests/MissionRevealInGameTests.cs",
-        "InGameTests/SettingsWindowHeightFitInGameTests.cs",
-        "InGameTests/StableLeafUnfinishedFlightsRuntimeTest.cs",
-        "InGameTests/TestRunnerShortcut.cs",
-        "InGameTests/TooltipEchoWrapSizingImguiTest.cs",
-        "InGameTests/UiComplexityModeInGameTests.cs",
-        "InGameTests/UnfinishedFlightsRenderingAndNoHideTest.cs"
-      ],
-      "types": [
-        "CareerStateWindowUI",
-        "DisabledHoverEcho",
-        "GatedWindowCloseTarget",
-        "GroupPickerUI",
-        "MissionsWindowUI",
-        "ParsekUI",
-        "ReFlyColumnAction",
-        "RecordingsTableUI",
-        "SettingsWindowUI",
-        "TooltipEchoBox",
-        "UiComplexityMode",
-        "UiSurface",
-        "UiSurfaceVisibility",
-        "UnfinishedFlightsGroup"
       ]
     },
     {
@@ -3069,161 +2975,95 @@
       ]
     },
     {
-      "from": "Recording",
-      "to": "Rewind",
-      "weight": 24,
-      "cyclic": true,
-      "upward": true,
-      "files": [
-        "AnchorDetector.cs",
-        "BackgroundRecorder.cs",
-        "FlightRecorder.cs",
-        "Recording.cs",
-        "RecordingOptimizer.cs",
-        "RecordingStore.RewindSupersedeRollback.cs",
-        "RecordingStore.cs",
-        "RecordingTreeRecordCodec.cs",
-        "RelativeAnchorResolver.cs"
-      ],
-      "types": [
-        "ChildSlot",
-        "EffectiveState",
-        "MergeJournal",
-        "MergeState",
-        "Phase",
-        "Phases",
-        "ReFlyAnchorSelection",
-        "ReFlySessionMarker",
-        "ReFlySettleStabilityTracker",
-        "RewindContext",
-        "RewindPoint",
-        "RewindPointAuthor",
-        "RewindPointAuthorContext"
-      ]
-    },
-    {
-      "from": "Ghost",
-      "to": "Trajectory",
-      "weight": 23,
-      "cyclic": true,
-      "upward": false,
-      "files": [
-        "GhostMapPresence.Observability.cs",
-        "GhostMapPresence.cs",
-        "GhostPlaybackEngine.ActivationHold.cs",
-        "GhostPlaybackEngine.PendingInterpolation.cs",
-        "GhostPlaybackEngine.cs",
-        "GhostPlaybackEvents.cs",
-        "GhostPlaybackLogic.WarpLoopPolicy.cs",
-        "GhostPlaybackLogic.cs",
-        "GhostRenderTrace.cs"
-      ],
-      "types": [
-        "OrbitReseed",
-        "OrbitSeedResolver",
-        "OrbitSegment",
-        "TailDerivedOrbitSeed",
-        "TailSeedUse",
-        "TrajectoryMath",
-        "TrajectoryPoint"
-      ]
-    },
-    {
-      "from": "Core",
+      "from": "UI",
       "to": "GameActions",
-      "weight": 22,
+      "weight": 24,
       "cyclic": true,
       "upward": false,
       "files": [
         "CurrencyReservationOverlay.cs",
-        "LedgerGroundTruth.cs",
-        "LedgerGroundTruthDiff.cs",
-        "MilestoneStore.cs",
-        "ReconciliationBundle.cs",
+        "ParsekUI.cs",
         "ResourceBudget.cs",
         "StockUiOverlayController.cs",
-        "TimeJumpManager.cs",
-        "TreeDiscardPurge.cs"
+        "UI/CareerStateWindowUI.cs",
+        "UI/KerbalsWindowUI.cs",
+        "UI/LogisticsFlowPresentation.cs",
+        "UI/LogisticsWindowUI.cs",
+        "UI/TimelineWindowUI.cs"
       ],
       "types": [
-        "FacilityStatePatcher",
+        "ContractsModule",
+        "FacilitiesModule",
         "GameAction",
+        "GameActionType",
         "GameStateEvent",
         "GameStateEventType",
-        "GameStateRecorder",
         "GameStateStore",
-        "Ledger",
+        "KspFacilityIds",
         "LedgerOrchestrator",
-        "LedgerTombstone",
         "Milestone",
-        "PendingScienceSubject"
+        "MilestonesModule",
+        "StrategiesModule",
+        "StrategyResource"
       ]
     },
     {
-      "from": "Rewind",
-      "to": "LogIO",
+      "from": "Ghost",
+      "to": "Controllers",
       "weight": 22,
       "cyclic": true,
-      "upward": false,
+      "upward": true,
       "files": [
-        "EffectiveState.cs",
-        "LoadTimeSweep.cs",
-        "MergeDialog.Commit.cs",
-        "MergeDialog.DialogText.cs",
-        "MergeDialog.ReFlyDiscard.cs",
-        "MergeDialog.cs",
-        "MergeJournalOrchestrator.cs",
-        "ReFlyAnchorSelection.cs",
-        "ReFlyConclusionRoute.cs",
-        "ReFlyRevertButtonGate.cs",
-        "ReFlyRevertDialog.cs",
-        "ReFlySettleStabilityTracker.cs",
-        "RecordingTreeSplitter.cs",
-        "RewindContext.cs",
-        "RewindInvoker.cs",
-        "RewindPointAuthor.cs",
-        "RewindPointDiskUsage.cs",
-        "RewindPointReaper.cs",
-        "RewindReadbackGuard.cs",
-        "SupersedeCommit.cs"
+        "GhostChainWalker.cs",
+        "GhostMapPresence.SuppressionFinders.cs",
+        "GhostMapPresence.cs",
+        "GhostPlaybackEngine.ActivationHold.cs",
+        "GhostPlaybackEngine.PendingInterpolation.cs",
+        "GhostPlaybackEngine.cs",
+        "GhostPlaybackLogic.cs",
+        "RecordedRelativeAnchorPoseResolver.cs"
       ],
       "types": [
-        "FileIOUtils",
-        "ParsekLog",
-        "SuppressionGuard"
+        "DebrisRelativePlaybackPolicy",
+        "IGhostPositioner",
+        "IndexShift",
+        "ParentAnchoredDebrisCoverageDiagnostic",
+        "ParsekFlight",
+        "ParsekPlaybackPolicy",
+        "ParsekScenario",
+        "RelativeSectionPlaybackTarget",
+        "SessionSuppressionState",
+        "ZoneRenderingResult"
       ]
     },
     {
-      "from": "TestCommands",
-      "to": "Rewind",
-      "weight": 22,
-      "cyclic": false,
-      "upward": false,
+      "from": "Core",
+      "to": "Recording",
+      "weight": 21,
+      "cyclic": true,
+      "upward": true,
       "files": [
-        "TestCommands/ParsekTestCommandAddon.InvokeRewindToLaunch.cs",
-        "TestCommands/ParsekTestCommandAddon.ListHandles.cs",
-        "TestCommands/ParsekTestCommandAddon.SealSlot.cs",
-        "TestCommands/ParsekTestCommandAddon.UiFind.cs",
-        "TestCommands/ParsekTestCommandAddon.cs",
-        "TestCommands/TestCommandJournal.cs",
-        "TestCommands/TestCommandKscAction.cs",
-        "TestCommands/TestCommandListHandles.cs",
-        "TestCommands/TestCommandSealSlot.cs",
-        "TestCommands/TestCommandUiFind.cs"
+        "GroupHierarchyStore.cs",
+        "IPlaybackTrajectory.cs",
+        "MilestoneStore.cs",
+        "PlaybackTrajectoryBoundsResolver.cs",
+        "VesselLaunchIdentity.cs",
+        "VesselSpawner.cs"
       ],
       "types": [
-        "ChildSlot",
-        "Kind",
-        "MergeDialog",
-        "MergeJournal",
-        "MergeState",
-        "Phase",
-        "Phases",
-        "ReFlySessionMarker",
-        "RewindContext",
-        "RewindInvokeContext",
-        "RewindInvoker",
-        "RewindPoint"
+        "FlagEvent",
+        "LoopTimeUnit",
+        "PartEvent",
+        "Recording",
+        "RecordingEndpointResolver",
+        "RecordingPaths",
+        "RecordingStore",
+        "RecordingTree",
+        "ReferenceFrame",
+        "SurfacePosition",
+        "TerminalState",
+        "TrackSection",
+        "VesselSnapshot"
       ]
     },
     {
@@ -3231,7 +3071,7 @@
       "to": "Rewind",
       "weight": 21,
       "cyclic": true,
-      "upward": false,
+      "upward": true,
       "files": [
         "MapRender/AnchorFrame.cs",
         "MapRender/ChainAssembler.cs",
@@ -3314,94 +3154,6 @@
       ]
     },
     {
-      "from": "UI",
-      "to": "Rewind",
-      "weight": 21,
-      "cyclic": true,
-      "upward": false,
-      "files": [
-        "ParsekUI.cs",
-        "UI/CareerStateWindowUI.cs",
-        "UI/GroupPickerUI.cs",
-        "UI/KerbalsWindowUI.cs",
-        "UI/LogisticsFlowPresentation.cs",
-        "UI/LogisticsWindowUI.cs",
-        "UI/MissionsWindowUI.cs",
-        "UI/RecordingsTableUI.cs",
-        "UI/SettingsWindowUI.cs",
-        "UI/TimelineWindowUI.cs",
-        "UI/UnfinishedFlightsGroup.cs"
-      ],
-      "types": [
-        "ChildSlot",
-        "EffectiveState",
-        "Kind",
-        "Phase",
-        "RewindInvoker",
-        "RewindPoint",
-        "RewindPointDiskUsage"
-      ]
-    },
-    {
-      "from": "Core",
-      "to": "Controllers",
-      "weight": 20,
-      "cyclic": true,
-      "upward": true,
-      "files": [
-        "DockEventGraphCache.cs",
-        "GroupHierarchyStore.cs",
-        "IdentityLossClassifier.cs",
-        "MarkerValidator.cs",
-        "ParsekToolbarRegistration.cs",
-        "ReconciliationBundle.cs",
-        "RecordedRelativeAnchorPoseResolver.cs",
-        "RevertInterceptor.cs",
-        "SceneExitInterceptor.cs",
-        "TreeDiscardPurge.cs",
-        "UnfinishedFlightClassifier.cs",
-        "UnfinishedFlightSealHandler.cs",
-        "UnfinishedFlightStashHandler.cs",
-        "VesselSpawner.cs",
-        "WarpToTimeController.cs"
-      ],
-      "types": [
-        "ParsekFlight",
-        "ParsekScenario",
-        "TerminalOrbitSpawnSafety",
-        "TerminalOrbitSpawnSafetyAction",
-        "TerminalOrbitSpawnSafetyDecision"
-      ]
-    },
-    {
-      "from": "Ghost",
-      "to": "Controllers",
-      "weight": 20,
-      "cyclic": true,
-      "upward": true,
-      "files": [
-        "GhostChainWalker.cs",
-        "GhostMapPresence.SuppressionFinders.cs",
-        "GhostMapPresence.cs",
-        "GhostPlaybackEngine.ActivationHold.cs",
-        "GhostPlaybackEngine.PendingInterpolation.cs",
-        "GhostPlaybackEngine.cs",
-        "GhostPlaybackLogic.cs"
-      ],
-      "types": [
-        "DebrisRelativePlaybackPolicy",
-        "IGhostPositioner",
-        "IndexShift",
-        "ParentAnchoredDebrisCoverageDiagnostic",
-        "ParsekFlight",
-        "ParsekPlaybackPolicy",
-        "ParsekScenario",
-        "RelativeSectionPlaybackTarget",
-        "SessionSuppressionState",
-        "ZoneRenderingResult"
-      ]
-    },
-    {
       "from": "InGameTests",
       "to": "Config",
       "weight": 20,
@@ -3426,35 +3178,6 @@
         "ParsekSettings",
         "SamplingDensity",
         "WatchMode"
-      ]
-    },
-    {
-      "from": "Rewind",
-      "to": "Controllers",
-      "weight": 20,
-      "cyclic": true,
-      "upward": true,
-      "files": [
-        "EffectiveState.cs",
-        "LoadTimeSweep.cs",
-        "MergeDialog.Commit.cs",
-        "MergeDialog.DialogText.cs",
-        "MergeDialog.ReFlyDiscard.cs",
-        "MergeDialog.cs",
-        "MergeJournalOrchestrator.cs",
-        "ReFlyAnchorSelection.cs",
-        "ReFlyRevertButtonGate.cs",
-        "ReFlyRevertDialog.cs",
-        "RecordingTreeSplitter.cs",
-        "RewindInvoker.cs",
-        "RewindPointAuthor.cs",
-        "RewindPointDiskUsage.cs",
-        "RewindPointReaper.cs",
-        "SupersedeCommit.cs"
-      ],
-      "types": [
-        "ParsekFlight",
-        "ParsekScenario"
       ]
     },
     {
@@ -3518,6 +3241,64 @@
       ]
     },
     {
+      "from": "UI",
+      "to": "LogIO",
+      "weight": 20,
+      "cyclic": true,
+      "upward": false,
+      "files": [
+        "CommittedActionDialog.cs",
+        "CurrencyReservationOverlay.cs",
+        "OverlayBadge.cs",
+        "ParsekToolbarRegistration.cs",
+        "ParsekUI.cs",
+        "ResourceBudget.cs",
+        "StockUiOverlayController.cs",
+        "UI/CareerStateWindowUI.cs",
+        "UI/GloopsRecorderUI.cs",
+        "UI/GroupPickerUI.cs",
+        "UI/KerbalsWindowUI.cs",
+        "UI/LogisticsWindowUI.cs",
+        "UI/MissionsWindowUI.cs",
+        "UI/RecordingsTableUI.cs",
+        "UI/SettingsWindowUI.cs",
+        "UI/SpawnControlUI.cs",
+        "UI/StructureListWindowUI.cs",
+        "UI/TestRunnerUI.cs",
+        "UI/TimelineWindowUI.cs",
+        "UI/UnfinishedFlightsGroup.cs"
+      ],
+      "types": [
+        "ParsekLog"
+      ]
+    },
+    {
+      "from": "Controllers",
+      "to": "GameActions",
+      "weight": 19,
+      "cyclic": true,
+      "upward": false,
+      "files": [
+        "ParsekFlight.cs",
+        "ParsekKSC.cs",
+        "ParsekScenario.cs",
+        "TimeJumpManager.cs"
+      ],
+      "types": [
+        "GameAction",
+        "GameStateRecorder",
+        "GameStateStore",
+        "KspStatePatcher",
+        "Ledger",
+        "LedgerOrchestrator",
+        "LedgerTombstone",
+        "PendingScienceSubject",
+        "RecoveredVesselIdentity",
+        "RecoveryPayoutContext",
+        "RecoveryPayoutContextStore"
+      ]
+    },
+    {
       "from": "Controllers",
       "to": "Missions",
       "weight": 19,
@@ -3570,28 +3351,59 @@
       ]
     },
     {
-      "from": "Controllers",
-      "to": "GameActions",
-      "weight": 18,
+      "from": "Rewind",
+      "to": "Core",
+      "weight": 19,
       "cyclic": true,
       "upward": false,
       "files": [
-        "ParsekFlight.cs",
-        "ParsekKSC.cs",
-        "ParsekScenario.cs"
+        "CrashCoalescer.cs",
+        "EffectiveState.cs",
+        "LoadTimeSweep.cs",
+        "MergeDialog.Commit.cs",
+        "QuickloadResumeMatchGuard.cs",
+        "ReFlyAutoSealPreview.cs",
+        "ReconciliationBundle.cs",
+        "RecordingTreeSplitter.cs",
+        "RewindInvoker.cs",
+        "RewindPointAuthor.cs",
+        "SupersedeCommit.cs"
       ],
       "types": [
-        "GameAction",
-        "GameStateRecorder",
-        "GameStateStore",
-        "KspStatePatcher",
-        "Ledger",
-        "LedgerOrchestrator",
-        "LedgerTombstone",
-        "PendingScienceSubject",
-        "RecoveredVesselIdentity",
-        "RecoveryPayoutContext",
-        "RecoveryPayoutContextStore"
+        "BranchPoint",
+        "BranchPointType",
+        "GroupHierarchyStore",
+        "MilestoneStore",
+        "PlaybackTrajectoryBoundsResolver",
+        "VesselLaunchIdentity",
+        "VesselSpawner"
+      ]
+    },
+    {
+      "from": "TestCommands",
+      "to": "Controllers",
+      "weight": 19,
+      "cyclic": false,
+      "upward": false,
+      "files": [
+        "TestCommands/ParsekTestCommandAddon.DeleteRecording.cs",
+        "TestCommands/ParsekTestCommandAddon.EnterWatchMode.cs",
+        "TestCommands/ParsekTestCommandAddon.Eva.cs",
+        "TestCommands/ParsekTestCommandAddon.ExitToSpaceCenter.cs",
+        "TestCommands/ParsekTestCommandAddon.InvokeRewindToLaunch.cs",
+        "TestCommands/ParsekTestCommandAddon.ListHandles.cs",
+        "TestCommands/ParsekTestCommandAddon.SealSlot.cs",
+        "TestCommands/ParsekTestCommandAddon.SimulateSwitchClick.cs",
+        "TestCommands/ParsekTestCommandAddon.StartLoopPlayback.cs",
+        "TestCommands/ParsekTestCommandAddon.TimeJumpKscAction.cs",
+        "TestCommands/ParsekTestCommandAddon.UiAction.cs",
+        "TestCommands/ParsekTestCommandAddon.cs"
+      ],
+      "types": [
+        "ParsekFlight",
+        "ParsekKSC",
+        "ParsekScenario",
+        "TimeJumpManager"
       ]
     },
     {
@@ -3623,33 +3435,6 @@
       ]
     },
     {
-      "from": "Missions",
-      "to": "Core",
-      "weight": 18,
-      "cyclic": true,
-      "upward": true,
-      "files": [
-        "DockEventGraph.cs",
-        "MissionChapters.cs",
-        "MissionComposition.cs",
-        "MissionCrossTreeDock.cs",
-        "MissionEventDigest.cs",
-        "MissionGroupLink.cs",
-        "MissionLoopUnitBuilder.cs",
-        "MissionPeriodicity.cs",
-        "MissionPresentation.cs",
-        "MissionRouteStructureList.cs",
-        "MissionStructure.cs"
-      ],
-      "types": [
-        "BranchPoint",
-        "BranchPointType",
-        "GroupHierarchyStore",
-        "LoopSeamMarkerBuilder",
-        "VesselLaunchIdentity"
-      ]
-    },
-    {
       "from": "Rendering",
       "to": "Trajectory",
       "weight": 18,
@@ -3670,32 +3455,6 @@
         "TrajectoryMath",
         "TrajectoryPoint",
         "TrajectoryPointFlags"
-      ]
-    },
-    {
-      "from": "TestCommands",
-      "to": "Controllers",
-      "weight": 18,
-      "cyclic": false,
-      "upward": false,
-      "files": [
-        "TestCommands/ParsekTestCommandAddon.DeleteRecording.cs",
-        "TestCommands/ParsekTestCommandAddon.EnterWatchMode.cs",
-        "TestCommands/ParsekTestCommandAddon.Eva.cs",
-        "TestCommands/ParsekTestCommandAddon.ExitToSpaceCenter.cs",
-        "TestCommands/ParsekTestCommandAddon.InvokeRewindToLaunch.cs",
-        "TestCommands/ParsekTestCommandAddon.ListHandles.cs",
-        "TestCommands/ParsekTestCommandAddon.SealSlot.cs",
-        "TestCommands/ParsekTestCommandAddon.SimulateSwitchClick.cs",
-        "TestCommands/ParsekTestCommandAddon.StartLoopPlayback.cs",
-        "TestCommands/ParsekTestCommandAddon.TimeJumpKscAction.cs",
-        "TestCommands/ParsekTestCommandAddon.UiAction.cs",
-        "TestCommands/ParsekTestCommandAddon.cs"
-      ],
-      "types": [
-        "ParsekFlight",
-        "ParsekKSC",
-        "ParsekScenario"
       ]
     },
     {
@@ -3726,6 +3485,32 @@
       ]
     },
     {
+      "from": "Missions",
+      "to": "Core",
+      "weight": 17,
+      "cyclic": true,
+      "upward": false,
+      "files": [
+        "DockEventGraph.cs",
+        "MissionChapters.cs",
+        "MissionComposition.cs",
+        "MissionCrossTreeDock.cs",
+        "MissionEventDigest.cs",
+        "MissionGroupLink.cs",
+        "MissionLoopUnitBuilder.cs",
+        "MissionPeriodicity.cs",
+        "MissionPresentation.cs",
+        "MissionRouteStructureList.cs",
+        "MissionStructure.cs"
+      ],
+      "types": [
+        "BranchPoint",
+        "BranchPointType",
+        "GroupHierarchyStore",
+        "VesselLaunchIdentity"
+      ]
+    },
+    {
       "from": "Patches",
       "to": "GameActions",
       "weight": 17,
@@ -3752,29 +3537,31 @@
     },
     {
       "from": "UI",
-      "to": "GameActions",
+      "to": "Controllers",
       "weight": 17,
       "cyclic": true,
       "upward": false,
       "files": [
+        "DockEventGraphCache.cs",
+        "ParsekToolbarRegistration.cs",
         "ParsekUI.cs",
-        "UI/CareerStateWindowUI.cs",
-        "UI/KerbalsWindowUI.cs",
-        "UI/LogisticsFlowPresentation.cs",
-        "UI/LogisticsWindowUI.cs",
+        "UI/GloopsRecorderUI.cs",
+        "UI/MissionsWindowUI.cs",
+        "UI/RecordingsTableUI.cs",
+        "UI/SpawnControlUI.cs",
         "UI/TimelineWindowUI.cs"
       ],
       "types": [
-        "ContractsModule",
-        "FacilitiesModule",
-        "GameAction",
-        "GameActionType",
-        "GameStateStore",
-        "KspFacilityIds",
-        "LedgerOrchestrator",
-        "MilestonesModule",
-        "StrategiesModule",
-        "StrategyResource"
+        "MapMarkerRenderer",
+        "ParsekFlight",
+        "ParsekScenario",
+        "RewindTargetKind",
+        "TimeJumpManager",
+        "WarpFieldKind",
+        "WarpPlanKind",
+        "WarpToTimeController",
+        "WarpToTimeMath",
+        "WarpToTimeRequest"
       ]
     },
     {
@@ -3834,7 +3621,7 @@
       "to": "Core",
       "weight": 16,
       "cyclic": true,
-      "upward": true,
+      "upward": false,
       "files": [
         "Logistics/LiveInventoryPickupWriter.cs",
         "Logistics/RouteAnalysisEngine.cs",
@@ -3853,6 +3640,57 @@
         "InventoryItem",
         "VesselLaunchIdentity",
         "VesselSpawner"
+      ]
+    },
+    {
+      "from": "Ghost",
+      "to": "Rewind",
+      "weight": 15,
+      "cyclic": true,
+      "upward": false,
+      "files": [
+        "GhostMapPresence.SuppressionFinders.cs",
+        "GhostMapPresence.cs",
+        "GhostPlaybackEngine.cs",
+        "GhostPlaybackEvents.cs",
+        "GhostPlaybackLogic.SpanClock.cs",
+        "GhostPlaybackLogic.WatchMode.cs",
+        "GhostRenderTrace.cs",
+        "LoopSeamMarkerBuilder.cs",
+        "VesselGhoster.cs"
+      ],
+      "types": [
+        "EffectiveState",
+        "Kind",
+        "Phase",
+        "ReFlySessionMarker",
+        "ReFlySettleStabilityTracker",
+        "TimelineInactiveReason"
+      ]
+    },
+    {
+      "from": "Recording",
+      "to": "Controllers",
+      "weight": 15,
+      "cyclic": true,
+      "upward": true,
+      "files": [
+        "BackgroundRecorder.cs",
+        "ChainSegmentManager.cs",
+        "FlightRecorder.cs",
+        "IdentityLossClassifier.cs",
+        "RecordingOptimizer.cs",
+        "RecordingSidecarStore.cs",
+        "RecordingStore.Optimization.cs",
+        "RecordingStore.cs",
+        "SegmentBoundaryLogic.cs",
+        "TreeDiscardPurge.cs"
+      ],
+      "types": [
+        "ParsekFlight",
+        "ParsekScenario",
+        "QuickloadTrimScope",
+        "TerminalOrbitSpawnSafety"
       ]
     },
     {
@@ -3899,34 +3737,6 @@
         "ParsekSettings",
         "ParsekSettingsPersistence",
         "SamplingDensity"
-      ]
-    },
-    {
-      "from": "GameActions",
-      "to": "Core",
-      "weight": 14,
-      "cyclic": true,
-      "upward": true,
-      "files": [
-        "GameActions/FacilityStatePatcher.cs",
-        "GameActions/GameAction.cs",
-        "GameActions/KspStatePatcher.cs",
-        "GameActions/LedgerOrchestrator.cs",
-        "GameActions/PostWalkActionReconciler.cs",
-        "GameActions/RecoveryPickAmbiguity.cs",
-        "GameActions/ResurrectionRetirementEligibility.cs",
-        "GameStateRecorder.Handlers.cs",
-        "GameStateRecorder.cs",
-        "GameStateStore.cs",
-        "RecoveryPayoutContext.cs"
-      ],
-      "types": [
-        "LedgerStructuralSnapshot",
-        "LedgerTrace",
-        "MilestoneStore",
-        "VesselLaunchIdentity",
-        "VesselSpawner",
-        "WarpToTimeConsumer"
       ]
     },
     {
@@ -3980,53 +3790,76 @@
       ]
     },
     {
-      "from": "UI",
-      "to": "LogIO",
+      "from": "Missions",
+      "to": "Ghost",
+      "weight": 14,
+      "cyclic": true,
+      "upward": true,
+      "files": [
+        "MissionCrossTreeDock.cs",
+        "MissionLoopUnitBuilder.cs",
+        "MissionPeriodicity.cs"
+      ],
+      "types": [
+        "GhostPlaybackLogic",
+        "LoopCut",
+        "LoopSeamMarker",
+        "LoopSeamMarkerBuilder",
+        "LoopUnit",
+        "LoopUnitSet",
+        "MemberWindow"
+      ]
+    },
+    {
+      "from": "Recording",
+      "to": "Config",
       "weight": 14,
       "cyclic": true,
       "upward": false,
       "files": [
-        "ParsekUI.cs",
-        "UI/CareerStateWindowUI.cs",
-        "UI/GloopsRecorderUI.cs",
-        "UI/GroupPickerUI.cs",
-        "UI/KerbalsWindowUI.cs",
-        "UI/LogisticsWindowUI.cs",
-        "UI/MissionsWindowUI.cs",
-        "UI/RecordingsTableUI.cs",
-        "UI/SettingsWindowUI.cs",
-        "UI/SpawnControlUI.cs",
-        "UI/StructureListWindowUI.cs",
-        "UI/TestRunnerUI.cs",
-        "UI/TimelineWindowUI.cs",
-        "UI/UnfinishedFlightsGroup.cs"
+        "AnchorDetector.cs",
+        "BackgroundRecorder.cs",
+        "ChainSegmentManager.cs",
+        "FlightRecorder.cs",
+        "ProximityRateSelector.cs",
+        "Recording.cs",
+        "RecordingOptimizer.cs",
+        "RecordingSidecarStore.cs"
       ],
       "types": [
-        "ParsekLog"
+        "BackgroundSampling",
+        "DistanceThresholds",
+        "LoopTiming",
+        "ParsekSettings",
+        "RelativeFrame",
+        "SamplingDensity"
       ]
     },
     {
       "from": "Ghost",
-      "to": "Rewind",
+      "to": "Missions",
       "weight": 13,
       "cyclic": true,
       "upward": false,
       "files": [
-        "GhostMapPresence.SuppressionFinders.cs",
         "GhostMapPresence.cs",
-        "GhostPlaybackEngine.cs",
-        "GhostPlaybackEvents.cs",
         "GhostPlaybackLogic.SpanClock.cs",
-        "GhostPlaybackLogic.WatchMode.cs",
-        "GhostRenderTrace.cs"
+        "LoopSeamMarkerBuilder.cs"
       ],
       "types": [
-        "EffectiveState",
-        "Kind",
-        "Phase",
-        "ReFlySessionMarker",
-        "ReFlySettleStabilityTracker",
-        "TimelineInactiveReason"
+        "DockEventGraph",
+        "DockEventNode",
+        "DockPartnerDescription",
+        "DockPartnerStatus",
+        "FlightGlobalsBodyInfo",
+        "IBodyInfo",
+        "LaunchTimingEntry",
+        "Mission",
+        "MissionLoopUnitBuilder",
+        "MissionPeriodicity",
+        "MissionRelaunchSchedule",
+        "MissionStore",
+        "TransitedBodyRotationMode"
       ]
     },
     {
@@ -4048,49 +3881,6 @@
         "GameAction",
         "GameActionType",
         "Ledger"
-      ]
-    },
-    {
-      "from": "Missions",
-      "to": "Ghost",
-      "weight": 13,
-      "cyclic": true,
-      "upward": true,
-      "files": [
-        "MissionCrossTreeDock.cs",
-        "MissionLoopUnitBuilder.cs",
-        "MissionPeriodicity.cs"
-      ],
-      "types": [
-        "GhostPlaybackLogic",
-        "LoopCut",
-        "LoopSeamMarker",
-        "LoopUnit",
-        "LoopUnitSet",
-        "MemberWindow"
-      ]
-    },
-    {
-      "from": "Recording",
-      "to": "Controllers",
-      "weight": 13,
-      "cyclic": true,
-      "upward": true,
-      "files": [
-        "BackgroundRecorder.cs",
-        "ChainSegmentManager.cs",
-        "FlightRecorder.cs",
-        "RecordingOptimizer.cs",
-        "RecordingSidecarStore.cs",
-        "RecordingStore.Optimization.cs",
-        "RecordingStore.cs",
-        "SegmentBoundaryLogic.cs"
-      ],
-      "types": [
-        "ParsekFlight",
-        "ParsekScenario",
-        "QuickloadTrimScope",
-        "TerminalOrbitSpawnSafety"
       ]
     },
     {
@@ -4163,6 +3953,31 @@
       ]
     },
     {
+      "from": "InGameTests",
+      "to": "Harness",
+      "weight": 12,
+      "cyclic": false,
+      "upward": false,
+      "files": [
+        "InGameTests/InGameTestRunner.cs",
+        "InGameTests/LedgerGroundTruthHarness.cs",
+        "InGameTests/PreParsekBackupInGameTests.cs",
+        "InGameTests/RuntimeTests.cs",
+        "InGameTests/TestRunnerShortcut.cs"
+      ],
+      "types": [
+        "CareerSaveParser",
+        "CareerSaveSnapshot",
+        "CareerStartSnapshot",
+        "FacetTolerances",
+        "LedgerDivergenceReport",
+        "LedgerGroundTruthDiff",
+        "LedgerReconstructionSnapshot",
+        "RecoveryCredit",
+        "TestBatchMarker"
+      ]
+    },
+    {
       "from": "Missions",
       "to": "LogIO",
       "weight": 12,
@@ -4232,26 +4047,28 @@
       ]
     },
     {
-      "from": "Recording",
-      "to": "Config",
+      "from": "UI",
+      "to": "Core",
       "weight": 12,
       "cyclic": true,
       "upward": false,
       "files": [
-        "AnchorDetector.cs",
-        "BackgroundRecorder.cs",
-        "ChainSegmentManager.cs",
-        "FlightRecorder.cs",
-        "Recording.cs",
-        "RecordingOptimizer.cs",
-        "RecordingSidecarStore.cs"
+        "ParsekUI.cs",
+        "StockUiOverlayController.cs",
+        "UI/GroupPickerUI.cs",
+        "UI/MissionsWindowUI.cs",
+        "UI/RecordingsTableFormatters.cs",
+        "UI/RecordingsTableUI.cs",
+        "UI/SettingsWindowUI.cs",
+        "UI/StructureListWindowUI.cs",
+        "UI/TimelineWindowUI.cs"
       ],
       "types": [
-        "DistanceThresholds",
-        "LoopTiming",
-        "ParsekSettings",
-        "RelativeFrame",
-        "SamplingDensity"
+        "BranchPointType",
+        "GroupHierarchyStore",
+        "InventoryItem",
+        "MilestoneStore",
+        "VesselSpawner"
       ]
     },
     {
@@ -4275,6 +4092,31 @@
         "SectionAnnotationStore",
         "SmoothingSpline",
         "TerrainCacheBuckets"
+      ]
+    },
+    {
+      "from": "Controllers",
+      "to": "UI",
+      "weight": 11,
+      "cyclic": true,
+      "upward": true,
+      "files": [
+        "ParsekFlight.cs",
+        "ParsekKSC.cs",
+        "ParsekScenario.cs",
+        "ParsekTrackingStation.cs",
+        "WarpToTimeConsumer.cs",
+        "WarpToTimeController.cs",
+        "WarpToTimeMath.cs"
+      ],
+      "types": [
+        "DockEventGraphCache",
+        "NearbySpawnCandidate",
+        "ParsekTimeFormat",
+        "ParsekUI",
+        "RecordingsTableUI",
+        "SelectiveSpawnUI",
+        "UIMode"
       ]
     },
     {
@@ -4388,6 +4230,27 @@
       ]
     },
     {
+      "from": "Recording",
+      "to": "GameActions",
+      "weight": 11,
+      "cyclic": true,
+      "upward": true,
+      "files": [
+        "ChainSegmentManager.cs",
+        "RecordingStore.Optimization.cs",
+        "RecordingStore.cs",
+        "TreeDiscardPurge.cs"
+      ],
+      "types": [
+        "GameStateEvent",
+        "GameStateRecorder",
+        "GameStateStore",
+        "Ledger",
+        "LedgerOrchestrator",
+        "PendingScienceSubject"
+      ]
+    },
+    {
       "from": "Analyzer",
       "to": "Trajectory",
       "weight": 10,
@@ -4451,70 +4314,6 @@
       ]
     },
     {
-      "from": "Patches",
-      "to": "Core",
-      "weight": 10,
-      "cyclic": true,
-      "upward": false,
-      "files": [
-        "Patches/ContractAcceptPatch.cs",
-        "Patches/FacilityUpgradePatch.cs",
-        "Patches/KerbalHirePatch.cs",
-        "Patches/PartMassivePartCheckSeederPatch.cs",
-        "Patches/TechResearchPatch.cs"
-      ],
-      "types": [
-        "CommittedActionDialog",
-        "MilestoneStore",
-        "ResourceBudget",
-        "VesselSpawner"
-      ]
-    },
-    {
-      "from": "Recording",
-      "to": "GameActions",
-      "weight": 10,
-      "cyclic": true,
-      "upward": true,
-      "files": [
-        "ChainSegmentManager.cs",
-        "RecordingStore.Optimization.cs",
-        "RecordingStore.cs"
-      ],
-      "types": [
-        "GameStateEvent",
-        "GameStateRecorder",
-        "GameStateStore",
-        "Ledger",
-        "LedgerOrchestrator",
-        "PendingScienceSubject"
-      ]
-    },
-    {
-      "from": "TestCommands",
-      "to": "Core",
-      "weight": 10,
-      "cyclic": false,
-      "upward": false,
-      "files": [
-        "TestCommands/ParsekTestCommandAddon.ExitToSpaceCenter.cs",
-        "TestCommands/ParsekTestCommandAddon.SealSlot.cs",
-        "TestCommands/ParsekTestCommandAddon.StartLoopPlayback.cs",
-        "TestCommands/ParsekTestCommandAddon.cs",
-        "TestCommands/TestCommandExitToSpaceCenter.cs",
-        "TestCommands/TestCommandRecordingVerbs.cs"
-      ],
-      "types": [
-        "DialogVariant",
-        "DiscardSidecarReap",
-        "LedgerGroundTruthDiff",
-        "RecorderStateSnapshot",
-        "SceneExitInterceptor",
-        "TimeJumpManager",
-        "UnfinishedFlightSealHandler"
-      ]
-    },
-    {
       "from": "Controllers",
       "to": "Patches",
       "weight": 9,
@@ -4537,25 +4336,46 @@
       ]
     },
     {
-      "from": "Ghost",
-      "to": "Missions",
+      "from": "Core",
+      "to": "Trajectory",
+      "weight": 9,
+      "cyclic": true,
+      "upward": true,
+      "files": [
+        "IPlaybackTrajectory.cs",
+        "VesselSpawner.cs"
+      ],
+      "types": [
+        "OrbitReseed",
+        "OrbitSeedResolver",
+        "OrbitSegment",
+        "TailDerivedOrbitSeed",
+        "TailSeedUse",
+        "TrajectoryMath",
+        "TrajectoryPoint"
+      ]
+    },
+    {
+      "from": "GameActions",
+      "to": "Core",
       "weight": 9,
       "cyclic": true,
       "upward": false,
       "files": [
-        "GhostMapPresence.cs",
-        "GhostPlaybackLogic.SpanClock.cs"
+        "GameActions/GameAction.cs",
+        "GameActions/LedgerOrchestrator.cs",
+        "GameActions/PostWalkActionReconciler.cs",
+        "GameActions/RecoveryPickAmbiguity.cs",
+        "GameActions/ResurrectionRetirementEligibility.cs",
+        "GameStateRecorder.Handlers.cs",
+        "GameStateRecorder.cs",
+        "GameStateStore.cs",
+        "RecoveryPayoutContext.cs"
       ],
       "types": [
-        "FlightGlobalsBodyInfo",
-        "IBodyInfo",
-        "LaunchTimingEntry",
-        "Mission",
-        "MissionLoopUnitBuilder",
-        "MissionPeriodicity",
-        "MissionRelaunchSchedule",
-        "MissionStore",
-        "TransitedBodyRotationMode"
+        "MilestoneStore",
+        "VesselLaunchIdentity",
+        "VesselSpawner"
       ]
     },
     {
@@ -4642,69 +4462,51 @@
       ]
     },
     {
+      "from": "Recording",
+      "to": "Ghost",
+      "weight": 9,
+      "cyclic": true,
+      "upward": true,
+      "files": [
+        "BackgroundRecorder.cs",
+        "DebrisRelativeRecorderPolicy.cs",
+        "FlightRecorder.cs",
+        "RecordingEndpointResolver.cs",
+        "RecordingOptimizer.TailTrim.cs",
+        "RecordingOptimizer.cs",
+        "RecordingSidecarStore.cs",
+        "RecordingVisualClassifier.cs"
+      ],
+      "types": [
+        "DebrisRelativeCoverageMode",
+        "DebrisRelativeCoveragePrimitives",
+        "GhostExtender",
+        "GhostMapPresence",
+        "GhostPlaybackEngine",
+        "GhostPlaybackLogic",
+        "GhostingTriggerClassifier"
+      ]
+    },
+    {
       "from": "Rendering",
-      "to": "Core",
+      "to": "LogIO",
       "weight": 9,
       "cyclic": true,
       "upward": false,
       "files": [
+        "PannotationsSidecarBinary.cs",
         "Rendering/AnchorCandidateBuilder.cs",
         "Rendering/AnchorPropagator.cs",
+        "Rendering/NonLoopLivePidGuard.cs",
+        "Rendering/OutlierClassifier.cs",
         "Rendering/ProductionAnchorWorldFrameResolver.cs",
         "Rendering/RenderSessionState.cs",
-        "Rendering/SmoothingPipeline.cs"
+        "Rendering/SmoothingPipeline.cs",
+        "Rendering/TerrainCacheBuckets.cs"
       ],
       "types": [
-        "BranchPoint",
-        "BranchPointType",
-        "DebrisRelativeCoveragePrimitives",
-        "PannotationsSidecarBinary",
-        "PannotationsSidecarProbe",
-        "SmoothingConfiguration"
-      ]
-    },
-    {
-      "from": "Analyzer",
-      "to": "Core",
-      "weight": 8,
-      "cyclic": false,
-      "upward": false,
-      "files": [
-        "Analyzer/AnalysisReport.cs",
-        "Analyzer/AnalyzerModel.cs",
-        "Analyzer/Rules/Inv7bAnnotationStale.cs",
-        "Analyzer/Rules/Inv8Ledger.cs"
-      ],
-      "types": [
-        "CareerSaveSnapshot",
-        "FacetTolerances",
-        "LedgerDivergenceReport",
-        "LedgerGroundTruthDiff",
-        "LedgerReconstructionSnapshot",
-        "PannotationsSidecarBinary",
-        "PannotationsSidecarProbe"
-      ]
-    },
-    {
-      "from": "Core",
-      "to": "Crew",
-      "weight": 8,
-      "cyclic": true,
-      "upward": false,
-      "files": [
-        "CareerSaveParser.cs",
-        "LedgerGroundTruth.cs",
-        "LedgerGroundTruthDiff.cs",
-        "ReconciliationBundle.cs",
-        "StockUiOverlayController.cs",
-        "TreeDiscardPurge.cs",
-        "VesselSpawner.cs"
-      ],
-      "types": [
-        "CrewReservationManager",
-        "KerbalCareerLogEntry",
-        "KerbalReservationKind",
-        "KerbalsModule"
+        "FileIOUtils",
+        "ParsekLog"
       ]
     },
     {
@@ -4785,26 +4587,6 @@
       ]
     },
     {
-      "from": "Rendering",
-      "to": "LogIO",
-      "weight": 8,
-      "cyclic": true,
-      "upward": false,
-      "files": [
-        "Rendering/AnchorCandidateBuilder.cs",
-        "Rendering/AnchorPropagator.cs",
-        "Rendering/NonLoopLivePidGuard.cs",
-        "Rendering/OutlierClassifier.cs",
-        "Rendering/ProductionAnchorWorldFrameResolver.cs",
-        "Rendering/RenderSessionState.cs",
-        "Rendering/SmoothingPipeline.cs",
-        "Rendering/TerrainCacheBuckets.cs"
-      ],
-      "types": [
-        "ParsekLog"
-      ]
-    },
-    {
       "from": "UI",
       "to": "Ghost",
       "weight": 8,
@@ -4859,68 +4641,6 @@
         "KerbalEndState",
         "KerbalLoadRepairDiagnostics",
         "KerbalSlotLoadSummary"
-      ]
-    },
-    {
-      "from": "Controllers",
-      "to": "UI",
-      "weight": 7,
-      "cyclic": true,
-      "upward": true,
-      "files": [
-        "ParsekFlight.cs",
-        "ParsekKSC.cs",
-        "ParsekScenario.cs",
-        "ParsekTrackingStation.cs"
-      ],
-      "types": [
-        "NearbySpawnCandidate",
-        "ParsekTimeFormat",
-        "ParsekUI",
-        "RecordingsTableUI",
-        "SelectiveSpawnUI",
-        "UIMode"
-      ]
-    },
-    {
-      "from": "Core",
-      "to": "Logistics",
-      "weight": 7,
-      "cyclic": true,
-      "upward": false,
-      "files": [
-        "ConnectionProducerClassifier.cs",
-        "ReconciliationBundle.cs",
-        "VesselSpawner.cs"
-      ],
-      "types": [
-        "InventoryPayloadItem",
-        "ResourceAmount",
-        "Route",
-        "RouteConnectionKind",
-        "RouteLedgerRetire",
-        "RouteRewindClassifier",
-        "RouteStore"
-      ]
-    },
-    {
-      "from": "Core",
-      "to": "Rendering",
-      "weight": 7,
-      "cyclic": true,
-      "upward": true,
-      "files": [
-        "PannotationsSidecarBinary.cs",
-        "SessionMerger.cs"
-      ],
-      "types": [
-        "AnchorCandidate",
-        "AnchorKey",
-        "AnchorSide",
-        "AnchorSource",
-        "OutlierFlags",
-        "OutlierThresholds",
-        "SmoothingSpline"
       ]
     },
     {
@@ -5061,29 +4781,6 @@
       ]
     },
     {
-      "from": "Recording",
-      "to": "Ghost",
-      "weight": 7,
-      "cyclic": true,
-      "upward": true,
-      "files": [
-        "BackgroundRecorder.cs",
-        "FlightRecorder.cs",
-        "RecordingEndpointResolver.cs",
-        "RecordingOptimizer.TailTrim.cs",
-        "RecordingOptimizer.cs",
-        "RecordingSidecarStore.cs",
-        "RecordingVisualClassifier.cs"
-      ],
-      "types": [
-        "GhostExtender",
-        "GhostMapPresence",
-        "GhostPlaybackEngine",
-        "GhostPlaybackLogic",
-        "GhostingTriggerClassifier"
-      ]
-    },
-    {
       "from": "TestCommands",
       "to": "Ghost",
       "weight": 7,
@@ -5160,22 +4857,22 @@
       ]
     },
     {
-      "from": "Core",
-      "to": "Missions",
+      "from": "Analyzer",
+      "to": "Harness",
       "weight": 6,
-      "cyclic": true,
+      "cyclic": false,
       "upward": false,
       "files": [
-        "DockEventGraphCache.cs",
-        "LoopSeamMarkerBuilder.cs",
-        "StockUiOverlayController.cs"
+        "Analyzer/AnalysisReport.cs",
+        "Analyzer/AnalyzerModel.cs",
+        "Analyzer/Rules/Inv8Ledger.cs"
       ],
       "types": [
-        "DockEventGraph",
-        "DockEventNode",
-        "DockPartnerDescription",
-        "DockPartnerStatus",
-        "MissionSelection"
+        "CareerSaveSnapshot",
+        "FacetTolerances",
+        "LedgerDivergenceReport",
+        "LedgerGroundTruthDiff",
+        "LedgerReconstructionSnapshot"
       ]
     },
     {
@@ -5232,21 +4929,41 @@
       ]
     },
     {
-      "from": "MapRender",
-      "to": "Core",
+      "from": "Display",
+      "to": "Trajectory",
       "weight": 6,
       "cyclic": true,
-      "upward": true,
+      "upward": false,
       "files": [
-        "MapRender/ChainAssembler.cs",
-        "MapRender/GhostMapSceneBase.cs",
-        "MapRender/IGhostMapScene.cs",
-        "MapRender/PhaseFactory.cs",
-        "MapRender/ShadowRenderDriver.cs"
+        "Display/GhostTrajectoryPolylineRenderer.cs",
+        "ForwardRenderWindow.cs"
       ],
       "types": [
-        "IPlaybackTrajectory",
-        "SegmentPhaseClassifier"
+        "ArcSampleResult",
+        "OrbitArcSampler",
+        "OrbitSegment",
+        "TrajectoryMath",
+        "TrajectoryPoint"
+      ]
+    },
+    {
+      "from": "MapRender",
+      "to": "Recording",
+      "weight": 6,
+      "cyclic": true,
+      "upward": false,
+      "files": [
+        "MapRender/ITrajectorySample.cs",
+        "MapRender/PhaseFactory.cs",
+        "MapRender/RenderCompositionRecorder.cs",
+        "MapRender/TracedPathTreatment.cs",
+        "MapRenderProbe.cs"
+      ],
+      "types": [
+        "Recording",
+        "ReferenceFrame",
+        "SegmentPhaseClassifier",
+        "TrackSection"
       ]
     },
     {
@@ -5286,6 +5003,45 @@
       ]
     },
     {
+      "from": "Recording",
+      "to": "Crew",
+      "weight": 6,
+      "cyclic": true,
+      "upward": true,
+      "files": [
+        "ChainSegmentManager.cs",
+        "Recording.cs",
+        "RecordingManifestCodec.cs",
+        "RecordingStore.cs",
+        "TreeDiscardPurge.cs"
+      ],
+      "types": [
+        "CrewReservationManager",
+        "KerbalEndState",
+        "KerbalsModule"
+      ]
+    },
+    {
+      "from": "Rewind",
+      "to": "UI",
+      "weight": 6,
+      "cyclic": true,
+      "upward": true,
+      "files": [
+        "LoadTimeSweep.cs",
+        "MergeDialog.DialogText.cs",
+        "MergeDialog.ReFlyDiscard.cs",
+        "RewindContext.cs",
+        "RewindPointAuthor.cs",
+        "RewindPointReaper.cs"
+      ],
+      "types": [
+        "BudgetSummary",
+        "ParsekTimeFormat",
+        "RecordingsTableUI"
+      ]
+    },
+    {
       "from": "TestCommands",
       "to": "Config",
       "weight": 6,
@@ -5307,7 +5063,7 @@
       "to": "Core",
       "weight": 6,
       "cyclic": true,
-      "upward": true,
+      "upward": false,
       "files": [
         "IncompleteBallisticSceneExitFinalizer.cs",
         "OrbitSeedResolver.cs",
@@ -5323,20 +5079,22 @@
     },
     {
       "from": "UI",
-      "to": "Controllers",
+      "to": "Crew",
       "weight": 6,
       "cyclic": true,
       "upward": false,
       "files": [
         "ParsekUI.cs",
-        "UI/GloopsRecorderUI.cs",
-        "UI/MissionsWindowUI.cs",
-        "UI/RecordingsTableUI.cs",
-        "UI/SpawnControlUI.cs"
+        "StockUiOverlayController.cs",
+        "UI/KerbalsWindowUI.cs"
       ],
       "types": [
-        "ParsekFlight",
-        "ParsekScenario"
+        "CrewReservationManager",
+        "KerbalEndState",
+        "KerbalReservation",
+        "KerbalReservationKind",
+        "KerbalSlot",
+        "KerbalsModule"
       ]
     },
     {
@@ -5360,21 +5118,37 @@
     },
     {
       "from": "Core",
-      "to": "UI",
+      "to": "Controllers",
       "weight": 5,
       "cyclic": true,
       "upward": true,
       "files": [
         "GroupHierarchyStore.cs",
-        "TreeDiscardPurge.cs",
-        "WarpToTimeConsumer.cs",
-        "WarpToTimeController.cs",
-        "WarpToTimeMath.cs"
+        "VesselSpawner.cs"
       ],
       "types": [
-        "ParsekTimeFormat",
-        "RecordingsTableUI",
-        "UnfinishedFlightsGroup"
+        "ParsekScenario",
+        "TerminalOrbitSpawnSafety",
+        "TerminalOrbitSpawnSafetyAction",
+        "TerminalOrbitSpawnSafetyDecision",
+        "TimeJumpManager"
+      ]
+    },
+    {
+      "from": "Core",
+      "to": "LogIO",
+      "weight": 5,
+      "cyclic": true,
+      "upward": false,
+      "files": [
+        "GroupHierarchyStore.cs",
+        "MilestoneStore.cs",
+        "VesselSpawner.cs"
+      ],
+      "types": [
+        "FileIOUtils",
+        "ParsekLog",
+        "SuppressionGuard"
       ]
     },
     {
@@ -5392,23 +5166,6 @@
         "MissionThroughLine",
         "MissionThroughLineBuilder",
         "MissionThroughLineView"
-      ]
-    },
-    {
-      "from": "Display",
-      "to": "Trajectory",
-      "weight": 5,
-      "cyclic": true,
-      "upward": false,
-      "files": [
-        "Display/GhostTrajectoryPolylineRenderer.cs"
-      ],
-      "types": [
-        "ArcSampleResult",
-        "OrbitArcSampler",
-        "OrbitSegment",
-        "TrajectoryMath",
-        "TrajectoryPoint"
       ]
     },
     {
@@ -5507,21 +5264,19 @@
     },
     {
       "from": "MapRender",
-      "to": "Recording",
+      "to": "Core",
       "weight": 5,
       "cyclic": true,
       "upward": false,
       "files": [
-        "MapRender/ITrajectorySample.cs",
+        "MapRender/ChainAssembler.cs",
+        "MapRender/GhostMapSceneBase.cs",
+        "MapRender/IGhostMapScene.cs",
         "MapRender/PhaseFactory.cs",
-        "MapRender/RenderCompositionRecorder.cs",
-        "MapRender/TracedPathTreatment.cs",
-        "MapRenderProbe.cs"
+        "MapRender/ShadowRenderDriver.cs"
       ],
       "types": [
-        "Recording",
-        "ReferenceFrame",
-        "TrackSection"
+        "IPlaybackTrajectory"
       ]
     },
     {
@@ -5542,39 +5297,89 @@
       ]
     },
     {
-      "from": "Recording",
+      "from": "Patches",
+      "to": "Core",
+      "weight": 5,
+      "cyclic": true,
+      "upward": false,
+      "files": [
+        "Patches/ContractAcceptPatch.cs",
+        "Patches/FacilityUpgradePatch.cs",
+        "Patches/KerbalHirePatch.cs",
+        "Patches/PartMassivePartCheckSeederPatch.cs",
+        "Patches/TechResearchPatch.cs"
+      ],
+      "types": [
+        "MilestoneStore",
+        "VesselSpawner"
+      ]
+    },
+    {
+      "from": "Patches",
+      "to": "UI",
+      "weight": 5,
+      "cyclic": true,
+      "upward": false,
+      "files": [
+        "Patches/ContractAcceptPatch.cs",
+        "Patches/FacilityUpgradePatch.cs",
+        "Patches/KerbalHirePatch.cs",
+        "Patches/TechResearchPatch.cs"
+      ],
+      "types": [
+        "CommittedActionDialog",
+        "ResourceBudget"
+      ]
+    },
+    {
+      "from": "Rendering",
+      "to": "Core",
+      "weight": 5,
+      "cyclic": true,
+      "upward": false,
+      "files": [
+        "Rendering/AnchorCandidateBuilder.cs",
+        "Rendering/AnchorPropagator.cs",
+        "Rendering/RenderSessionState.cs"
+      ],
+      "types": [
+        "BranchPoint",
+        "BranchPointType"
+      ]
+    },
+    {
+      "from": "Rewind",
       "to": "Crew",
       "weight": 5,
       "cyclic": true,
-      "upward": true,
+      "upward": false,
       "files": [
-        "ChainSegmentManager.cs",
-        "Recording.cs",
-        "RecordingManifestCodec.cs",
-        "RecordingStore.cs"
+        "MergeDialog.Commit.cs",
+        "MergeDialog.ReFlyDiscard.cs",
+        "ReconciliationBundle.cs",
+        "SupersedeCommit.cs"
       ],
       "types": [
         "CrewReservationManager",
-        "KerbalEndState",
         "KerbalsModule"
       ]
     },
     {
       "from": "Rewind",
-      "to": "UI",
+      "to": "Logistics",
       "weight": 5,
       "cyclic": true,
-      "upward": true,
+      "upward": false,
       "files": [
-        "LoadTimeSweep.cs",
-        "MergeDialog.DialogText.cs",
-        "MergeDialog.ReFlyDiscard.cs",
-        "RewindPointAuthor.cs",
-        "RewindPointReaper.cs"
+        "MergeDialog.Commit.cs",
+        "ReconciliationBundle.cs"
       ],
       "types": [
-        "ParsekTimeFormat",
-        "RecordingsTableUI"
+        "Route",
+        "RouteLedgerRetire",
+        "RouteRewindClassifier",
+        "RouteRunPrompt",
+        "RouteStore"
       ]
     },
     {
@@ -5611,24 +5416,6 @@
         "RenderSessionState",
         "SectionAnnotationStore",
         "SmoothingSpline"
-      ]
-    },
-    {
-      "from": "UI",
-      "to": "Crew",
-      "weight": 5,
-      "cyclic": true,
-      "upward": false,
-      "files": [
-        "ParsekUI.cs",
-        "UI/KerbalsWindowUI.cs"
-      ],
-      "types": [
-        "CrewReservationManager",
-        "KerbalEndState",
-        "KerbalReservation",
-        "KerbalSlot",
-        "KerbalsModule"
       ]
     },
     {
@@ -5730,20 +5517,34 @@
     },
     {
       "from": "Core",
-      "to": "Config",
+      "to": "GameActions",
       "weight": 4,
       "cyclic": true,
-      "upward": false,
+      "upward": true,
       "files": [
-        "LedgerTrace.cs",
-        "LoopSeamMarkerBuilder.cs",
-        "ProximityRateSelector.cs"
+        "MilestoneStore.cs"
       ],
       "types": [
-        "BackgroundSampling",
-        "DistanceThresholds",
-        "LoopTiming",
-        "ParsekSettings"
+        "GameStateEvent",
+        "GameStateEventType",
+        "GameStateStore",
+        "Milestone"
+      ]
+    },
+    {
+      "from": "Core",
+      "to": "Rewind",
+      "weight": 4,
+      "cyclic": true,
+      "upward": true,
+      "files": [
+        "GroupHierarchyStore.cs",
+        "VesselSpawner.cs"
+      ],
+      "types": [
+        "EffectiveState",
+        "MarkerValidator",
+        "Snapshot"
       ]
     },
     {
@@ -5776,6 +5577,22 @@
         "GhostPlaybackLogic",
         "LoopUnit",
         "LoopUnitSet"
+      ]
+    },
+    {
+      "from": "Display",
+      "to": "LogIO",
+      "weight": 4,
+      "cyclic": true,
+      "upward": false,
+      "files": [
+        "Display/GhostTrajectoryPolylineRenderer.cs",
+        "Display/RouteMemberRunExpansion.cs",
+        "Display/RouteTrajectoryLineRenderer.cs",
+        "ForwardRenderWindow.cs"
+      ],
+      "types": [
+        "ParsekLog"
       ]
     },
     {
@@ -5813,20 +5630,19 @@
       ]
     },
     {
-      "from": "LogIO",
-      "to": "Core",
+      "from": "Harness",
+      "to": "LogIO",
       "weight": 4,
-      "cyclic": true,
-      "upward": true,
+      "cyclic": false,
+      "upward": false,
       "files": [
-        "ParsekLog.cs",
-        "PreParsekBackup.cs"
+        "CareerSaveParser.cs",
+        "CareerStartSnapshot.cs",
+        "LedgerGroundTruthDiff.cs"
       ],
       "types": [
-        "CareerSaveParser",
-        "CareerSaveSnapshot",
-        "RecorderMode",
-        "RecorderStateSnapshot"
+        "FileIOUtils",
+        "ParsekLog"
       ]
     },
     {
@@ -5866,7 +5682,7 @@
       "to": "Core",
       "weight": 4,
       "cyclic": true,
-      "upward": true,
+      "upward": false,
       "files": [
         "Reaim/ReaimPlaybackResolver.cs",
         "Reaim/ReaimSplitSiblingDiag.cs",
@@ -5896,18 +5712,20 @@
     },
     {
       "from": "Rewind",
-      "to": "Crew",
+      "to": "Trajectory",
       "weight": 4,
       "cyclic": true,
       "upward": false,
       "files": [
-        "MergeDialog.Commit.cs",
-        "MergeDialog.ReFlyDiscard.cs",
-        "SupersedeCommit.cs"
+        "CheckpointDoubleCoverRetire.cs",
+        "CrashCoalescer.cs",
+        "RewindInvoker.cs"
       ],
       "types": [
-        "CrewReservationManager",
-        "KerbalsModule"
+        "OrbitSegment",
+        "OrbitSegmentCheckpointBridge",
+        "TrajectoryPoint",
+        "TrajectorySidecarProbe"
       ]
     },
     {
@@ -5989,18 +5807,35 @@
       ]
     },
     {
-      "from": "Display",
-      "to": "LogIO",
+      "from": "Controllers",
+      "to": "Harness",
       "weight": 3,
-      "cyclic": true,
+      "cyclic": false,
       "upward": false,
       "files": [
-        "Display/GhostTrajectoryPolylineRenderer.cs",
-        "Display/RouteMemberRunExpansion.cs",
-        "Display/RouteTrajectoryLineRenderer.cs"
+        "ParsekScenario.cs",
+        "WarpToTimeConsumer.cs",
+        "WarpToTimeController.cs"
       ],
       "types": [
-        "ParsekLog"
+        "CareerStartSnapshot",
+        "TestBatchMarker"
+      ]
+    },
+    {
+      "from": "GameActions",
+      "to": "Controllers",
+      "weight": 3,
+      "cyclic": true,
+      "upward": true,
+      "files": [
+        "GameActions/LedgerOrchestrator.cs",
+        "GameStateRecorder.cs"
+      ],
+      "types": [
+        "ParsekFlight",
+        "ParsekScenario",
+        "WarpToTimeConsumer"
       ]
     },
     {
@@ -6016,6 +5851,52 @@
         "Route",
         "RouteGhostDriverSelector",
         "RouteStore"
+      ]
+    },
+    {
+      "from": "Harness",
+      "to": "Crew",
+      "weight": 3,
+      "cyclic": false,
+      "upward": false,
+      "files": [
+        "CareerSaveParser.cs",
+        "LedgerGroundTruth.cs",
+        "LedgerGroundTruthDiff.cs"
+      ],
+      "types": [
+        "KerbalCareerLogEntry"
+      ]
+    },
+    {
+      "from": "Harness",
+      "to": "GameActions",
+      "weight": 3,
+      "cyclic": false,
+      "upward": false,
+      "files": [
+        "LedgerGroundTruth.cs",
+        "LedgerGroundTruthDiff.cs"
+      ],
+      "types": [
+        "FacilityStatePatcher",
+        "Milestone"
+      ]
+    },
+    {
+      "from": "LogIO",
+      "to": "Recording",
+      "weight": 3,
+      "cyclic": true,
+      "upward": true,
+      "files": [
+        "ParsekLog.cs",
+        "PreParsekBackup.cs"
+      ],
+      "types": [
+        "RecorderMode",
+        "RecorderStateSnapshot",
+        "RecordingPaths"
       ]
     },
     {
@@ -6142,6 +6023,22 @@
       ]
     },
     {
+      "from": "Rewind",
+      "to": "Ghost",
+      "weight": 3,
+      "cyclic": true,
+      "upward": true,
+      "files": [
+        "MergeDialog.Commit.cs",
+        "PostLoadStripper.cs",
+        "RewindInvoker.cs"
+      ],
+      "types": [
+        "GhostMapPresence",
+        "GhostPlaybackLogic"
+      ]
+    },
+    {
       "from": "SwitchIntent",
       "to": "LogIO",
       "weight": 3,
@@ -6172,17 +6069,59 @@
       ]
     },
     {
-      "from": "Core",
-      "to": "SwitchIntent",
+      "from": "Analyzer",
+      "to": "Rendering",
       "weight": 2,
-      "cyclic": true,
+      "cyclic": false,
       "upward": false,
       "files": [
-        "SceneExitInterceptor.cs"
+        "Analyzer/Rules/Inv7bAnnotationStale.cs"
       ],
       "types": [
-        "SwitchSegmentDisposition",
-        "SwitchSegmentSession"
+        "PannotationsSidecarBinary",
+        "PannotationsSidecarProbe"
+      ]
+    },
+    {
+      "from": "Core",
+      "to": "Crew",
+      "weight": 2,
+      "cyclic": true,
+      "upward": true,
+      "files": [
+        "VesselSpawner.cs"
+      ],
+      "types": [
+        "CrewReservationManager",
+        "KerbalsModule"
+      ]
+    },
+    {
+      "from": "Core",
+      "to": "Ghost",
+      "weight": 2,
+      "cyclic": true,
+      "upward": true,
+      "files": [
+        "VesselSpawner.cs"
+      ],
+      "types": [
+        "GhostMapPresence",
+        "SpawnCollisionDetector"
+      ]
+    },
+    {
+      "from": "Core",
+      "to": "Logistics",
+      "weight": 2,
+      "cyclic": true,
+      "upward": true,
+      "files": [
+        "VesselSpawner.cs"
+      ],
+      "types": [
+        "InventoryPayloadItem",
+        "ResourceAmount"
       ]
     },
     {
@@ -6257,20 +6196,6 @@
     },
     {
       "from": "Display",
-      "to": "Core",
-      "weight": 2,
-      "cyclic": true,
-      "upward": false,
-      "files": [
-        "Display/GhostTrajectoryPolylineRenderer.cs"
-      ],
-      "types": [
-        "ForwardRenderWindow",
-        "ForwardWindow"
-      ]
-    },
-    {
-      "from": "Display",
       "to": "Reaim",
       "weight": 2,
       "cyclic": true,
@@ -6281,21 +6206,6 @@
       "types": [
         "DescentHeadPhase",
         "DescentTrigger"
-      ]
-    },
-    {
-      "from": "GameActions",
-      "to": "Controllers",
-      "weight": 2,
-      "cyclic": true,
-      "upward": true,
-      "files": [
-        "GameActions/LedgerOrchestrator.cs",
-        "GameStateRecorder.cs"
-      ],
-      "types": [
-        "ParsekFlight",
-        "ParsekScenario"
       ]
     },
     {
@@ -6313,6 +6223,20 @@
       ]
     },
     {
+      "from": "Harness",
+      "to": "Rewind",
+      "weight": 2,
+      "cyclic": false,
+      "upward": true,
+      "files": [
+        "LedgerGroundTruth.cs",
+        "LedgerGroundTruthDiff.cs"
+      ],
+      "types": [
+        "Kind"
+      ]
+    },
+    {
       "from": "InGameTests",
       "to": "Timeline",
       "weight": 2,
@@ -6324,6 +6248,20 @@
       "types": [
         "TimelineBuilder",
         "TimelineEntryType"
+      ]
+    },
+    {
+      "from": "LogIO",
+      "to": "Harness",
+      "weight": 2,
+      "cyclic": false,
+      "upward": true,
+      "files": [
+        "PreParsekBackup.cs"
+      ],
+      "types": [
+        "CareerSaveParser",
+        "CareerSaveSnapshot"
       ]
     },
     {
@@ -6398,18 +6336,47 @@
       ]
     },
     {
-      "from": "Rewind",
-      "to": "Ghost",
+      "from": "Recording",
+      "to": "Rendering",
       "weight": 2,
       "cyclic": true,
       "upward": true,
       "files": [
-        "MergeDialog.Commit.cs",
-        "RewindInvoker.cs"
+        "RecordingSidecarStore.cs",
+        "SessionMerger.cs"
       ],
       "types": [
-        "GhostMapPresence",
-        "GhostPlaybackLogic"
+        "AnchorKey",
+        "SmoothingPipeline"
+      ]
+    },
+    {
+      "from": "Recording",
+      "to": "UI",
+      "weight": 2,
+      "cyclic": true,
+      "upward": true,
+      "files": [
+        "RecordingStore.cs",
+        "TreeDiscardPurge.cs"
+      ],
+      "types": [
+        "BudgetSummary",
+        "RecordingsTableUI"
+      ]
+    },
+    {
+      "from": "Rewind",
+      "to": "SwitchIntent",
+      "weight": 2,
+      "cyclic": true,
+      "upward": false,
+      "files": [
+        "SceneExitInterceptor.cs"
+      ],
+      "types": [
+        "SwitchSegmentDisposition",
+        "SwitchSegmentSession"
       ]
     },
     {
@@ -6417,7 +6384,7 @@
       "to": "Core",
       "weight": 2,
       "cyclic": true,
-      "upward": true,
+      "upward": false,
       "files": [
         "SwitchSegmentBuilder.cs"
       ],
@@ -6576,11 +6543,24 @@
       ]
     },
     {
+      "from": "Core",
+      "to": "UI",
+      "weight": 1,
+      "cyclic": true,
+      "upward": true,
+      "files": [
+        "GroupHierarchyStore.cs"
+      ],
+      "types": [
+        "UnfinishedFlightsGroup"
+      ]
+    },
+    {
       "from": "Crew",
       "to": "Core",
       "weight": 1,
       "cyclic": true,
-      "upward": true,
+      "upward": false,
       "files": [
         "CrewReservationManager.SeatMatch.cs"
       ],
@@ -6642,6 +6622,19 @@
     },
     {
       "from": "GameActions",
+      "to": "Config",
+      "weight": 1,
+      "cyclic": true,
+      "upward": false,
+      "files": [
+        "LedgerTrace.cs"
+      ],
+      "types": [
+        "ParsekSettings"
+      ]
+    },
+    {
+      "from": "GameActions",
       "to": "Ghost",
       "weight": 1,
       "cyclic": true,
@@ -6693,6 +6686,19 @@
       ]
     },
     {
+      "from": "Harness",
+      "to": "Recording",
+      "weight": 1,
+      "cyclic": false,
+      "upward": false,
+      "files": [
+        "CareerStartSnapshot.cs"
+      ],
+      "types": [
+        "RecordingPaths"
+      ]
+    },
+    {
       "from": "LogIO",
       "to": "Config",
       "weight": 1,
@@ -6716,19 +6722,6 @@
       ],
       "types": [
         "GameStateRecorder"
-      ]
-    },
-    {
-      "from": "LogIO",
-      "to": "Recording",
-      "weight": 1,
-      "cyclic": true,
-      "upward": true,
-      "files": [
-        "PreParsekBackup.cs"
-      ],
-      "types": [
-        "RecordingPaths"
       ]
     },
     {
@@ -6862,19 +6855,6 @@
       ]
     },
     {
-      "from": "Recording",
-      "to": "Rendering",
-      "weight": 1,
-      "cyclic": true,
-      "upward": true,
-      "files": [
-        "RecordingSidecarStore.cs"
-      ],
-      "types": [
-        "SmoothingPipeline"
-      ]
-    },
-    {
       "from": "Rendering",
       "to": "Config",
       "weight": 1,
@@ -6888,11 +6868,24 @@
       ]
     },
     {
+      "from": "Rendering",
+      "to": "Ghost",
+      "weight": 1,
+      "cyclic": true,
+      "upward": false,
+      "files": [
+        "Rendering/ProductionAnchorWorldFrameResolver.cs"
+      ],
+      "types": [
+        "DebrisRelativeCoveragePrimitives"
+      ]
+    },
+    {
       "from": "Rewind",
       "to": "Diagnostics",
       "weight": 1,
       "cyclic": false,
-      "upward": true,
+      "upward": false,
       "files": [
         "RewindPointDiskUsage.cs"
       ],
@@ -6915,19 +6908,6 @@
     },
     {
       "from": "Rewind",
-      "to": "Logistics",
-      "weight": 1,
-      "cyclic": true,
-      "upward": false,
-      "files": [
-        "MergeDialog.Commit.cs"
-      ],
-      "types": [
-        "RouteRunPrompt"
-      ]
-    },
-    {
-      "from": "Rewind",
       "to": "Rendering",
       "weight": 1,
       "cyclic": true,
@@ -6937,19 +6917,6 @@
       ],
       "types": [
         "RenderSessionState"
-      ]
-    },
-    {
-      "from": "Rewind",
-      "to": "Trajectory",
-      "weight": 1,
-      "cyclic": true,
-      "upward": false,
-      "files": [
-        "RewindInvoker.cs"
-      ],
-      "types": [
-        "TrajectorySidecarProbe"
       ]
     },
     {
@@ -6976,6 +6943,19 @@
       ],
       "types": [
         "Route"
+      ]
+    },
+    {
+      "from": "TestCommands",
+      "to": "Harness",
+      "weight": 1,
+      "cyclic": false,
+      "upward": false,
+      "files": [
+        "TestCommands/ParsekTestCommandAddon.cs"
+      ],
+      "types": [
+        "LedgerGroundTruthDiff"
       ]
     },
     {

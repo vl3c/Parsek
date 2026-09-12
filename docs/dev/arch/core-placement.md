@@ -239,21 +239,21 @@ recommendations.
 
 | module | files before | files after | fan-out before | fan-out after | fan-in before | fan-in after | I before | I after |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Core | 123 | 75 | 454 | 357 | 1301 | 447 | 0.26 | 0.44 |
+| Core | 123 | 8 | 454 | 55 | 1301 | 260 | 0.26 | 0.17 |
 | Config | 0 | 3 | 0 | 11 | 0 | 126 | 0.00 | 0.08 |
-| Controllers | 22 | 27 | 514 | 513 | 167 | 189 | 0.75 | 0.73 |
-| GameActions | 31 | 39 | 102 | 85 | 217 | 279 | 0.32 | 0.23 |
-| Ghost | 33 | 34 | 254 | 251 | 391 | 396 | 0.39 | 0.39 |
+| Controllers | 22 | 36 | 514 | 534 | 167 | 206 | 0.75 | 0.72 |
+| GameActions | 31 | 40 | 102 | 83 | 217 | 279 | 0.32 | 0.23 |
+| Ghost | 33 | 48 | 254 | 294 | 391 | 408 | 0.39 | 0.42 |
 | GuiTree | 0 | 5 | 0 | 6 | 0 | 21 | 0.00 | 0.22 |
 | Logistics | 50 | 55 | 185 | 140 | 283 | 394 | 0.40 | 0.26 |
 | MapRender | 38 | 40 | 117 | 116 | 163 | 204 | 0.42 | 0.36 |
 | Missions | 16 | 17 | 121 | 118 | 236 | 250 | 0.34 | 0.32 |
-| Recording | 38 | 51 | 329 | 250 | 880 | 1079 | 0.27 | 0.19 |
-| Rewind | 27 | 29 | 196 | 190 | 355 | 380 | 0.36 | 0.33 |
-| UI | 35 | 38 | 281 | 290 | 70 | 72 | 0.80 | 0.80 |
+| Recording | 38 | 68 | 329 | 252 | 880 | 1057 | 0.27 | 0.19 |
+| Rewind | 27 | 41 | 196 | 246 | 355 | 380 | 0.36 | 0.39 |
+| UI | 35 | 45 | 281 | 314 | 70 | 85 | 0.80 | 0.79 |
 
-Upward edges (production, no tooling): before 65, after 72.
+Upward edges (production, no tooling): before 65, after 68.
 
-Catch-all (Core): 123 files before, 75 files after.
+Catch-all (Core): 123 files before, 8 files after.
 
 Placement rules whose destination does not match the current map: none.

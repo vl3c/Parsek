@@ -582,6 +582,30 @@
       ]
     },
     {
+      "name": "ConnectionProducerClassifier",
+      "module": "Controllers",
+      "file": "ConnectionProducerClassifier.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "static",
+      "level": 1,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 1,
+      "fanOut": 1,
+      "referencesTo": [
+        "RouteConnectionKind"
+      ],
+      "referencedBy": [
+        "ParsekFlight"
+      ]
+    },
+    {
       "name": "CycleResolution",
       "module": "Controllers",
       "file": "WatchModeController.Cycle.cs",
@@ -1024,6 +1048,28 @@
       ]
     },
     {
+      "name": "InputFocusGuard",
+      "module": "Controllers",
+      "file": "InputFocusGuard.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "static",
+      "level": 0,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 1,
+      "fanOut": 0,
+      "referencesTo": [],
+      "referencedBy": [
+        "ParsekFlight"
+      ]
+    },
+    {
       "name": "KscAnchorFrame",
       "module": "Controllers",
       "file": "ParsekKSC.Playback.cs",
@@ -1063,6 +1109,58 @@
       "referencesTo": [],
       "referencedBy": [
         "ParsekKSC"
+      ]
+    },
+    {
+      "name": "MapMarkerRenderer",
+      "module": "Controllers",
+      "file": "MapMarkerRenderer.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "static",
+      "level": 7,
+      "knot": 1,
+      "sublevel": 1,
+      "fanIn": 3,
+      "fanOut": 4,
+      "referencesTo": [
+        "MarkerClickContext",
+        "ParsekLog",
+        "SpriteAtlasRecord",
+        "VesselIconEntry"
+      ],
+      "referencedBy": [
+        "ParsekFlight",
+        "ParsekTrackingStation",
+        "ParsekUI"
+      ]
+    },
+    {
+      "name": "MarkerClickContext",
+      "module": "Controllers",
+      "file": "MapMarkerRenderer.cs",
+      "kind": "struct",
+      "modifiers": [
+        "internal",
+        "readonly"
+      ],
+      "bases": [],
+      "enclosing": "MapMarkerRenderer",
+      "role": "data",
+      "level": 0,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 1,
+      "fanOut": 0,
+      "referencesTo": [],
+      "referencedBy": [
+        "MapMarkerRenderer",
+        "ParsekTrackingStation"
       ]
     },
     {
@@ -1606,7 +1704,7 @@
       "knot": 1,
       "sublevel": 19,
       "fanIn": 52,
-      "fanOut": 87,
+      "fanOut": 86,
       "referencesTo": [
         "ActiveTreeRestoreMode",
         "ActiveTreeSidecarSavePlan",
@@ -1689,7 +1787,6 @@
         "SwitchSegmentSession",
         "TerminalOrbitSpawnSafety",
         "TerminalState",
-        "TestBatchMarker",
         "TrackSection",
         "TrajectoryPoint",
         "UnboundProvisionalRaise",
@@ -1818,6 +1915,32 @@
       ],
       "referencedBy": [
         "Driver"
+      ]
+    },
+    {
+      "name": "PauseMenuGate",
+      "module": "Controllers",
+      "file": "PauseMenuGate.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "static",
+      "level": 7,
+      "knot": 1,
+      "sublevel": 1,
+      "fanIn": 3,
+      "fanOut": 1,
+      "referencesTo": [
+        "ParsekLog"
+      ],
+      "referencedBy": [
+        "ParsekFlight",
+        "ParsekKSC",
+        "ParsekTrackingStation"
       ]
     },
     {
@@ -2184,6 +2307,54 @@
       ]
     },
     {
+      "name": "RewindTarget",
+      "module": "Controllers",
+      "file": "WarpToTimeController.cs",
+      "kind": "struct",
+      "modifiers": [
+        "internal",
+        "readonly"
+      ],
+      "bases": [],
+      "enclosing": "WarpToTimeController",
+      "role": "data",
+      "level": 1,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 0,
+      "fanOut": 2,
+      "referencesTo": [
+        "Kind",
+        "RewindTargetKind"
+      ],
+      "referencedBy": [
+        "WarpToTimeController"
+      ]
+    },
+    {
+      "name": "RewindTargetKind",
+      "module": "Controllers",
+      "file": "WarpToTimeController.cs",
+      "kind": "enum",
+      "modifiers": [
+        "internal"
+      ],
+      "bases": [],
+      "enclosing": "WarpToTimeController",
+      "role": "enum",
+      "level": 0,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 1,
+      "fanOut": 0,
+      "referencesTo": [],
+      "referencedBy": [
+        "RewindTarget",
+        "TimelineWindowUI",
+        "WarpToTimeController"
+      ]
+    },
+    {
       "name": "SameBodyTermMemo",
       "module": "Controllers",
       "file": "WatchModeController.cs",
@@ -2236,6 +2407,28 @@
         "ParsekFlight",
         "ParsekKSC",
         "WatchModeController"
+      ]
+    },
+    {
+      "name": "SpriteAtlasRecord",
+      "module": "Controllers",
+      "file": "MapMarkerRenderer.cs",
+      "kind": "struct",
+      "modifiers": [
+        "internal",
+        "readonly"
+      ],
+      "bases": [],
+      "enclosing": "MapMarkerRenderer",
+      "role": "data",
+      "level": 0,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 0,
+      "fanOut": 0,
+      "referencesTo": [],
+      "referencedBy": [
+        "MapMarkerRenderer"
       ]
     },
     {
@@ -2359,6 +2552,271 @@
         "ParsekPlaybackPolicy",
         "TerminalOrbitSpawnSafety",
         "VesselSpawner"
+      ]
+    },
+    {
+      "name": "TimeJumpManager",
+      "module": "Controllers",
+      "file": "TimeJumpManager.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "static",
+      "level": 7,
+      "knot": 1,
+      "sublevel": 19,
+      "fanIn": 8,
+      "fanOut": 13,
+      "referencesTo": [
+        "EffectiveState",
+        "FlightRecorder",
+        "GhostChain",
+        "GhostMapPresence",
+        "GhostPlaybackEngine",
+        "LedgerOrchestrator",
+        "ParsekLog",
+        "PlaybackScopeTracker",
+        "Recording",
+        "RecordingStore",
+        "SegmentEvent",
+        "SegmentEventType",
+        "VesselGhoster"
+      ],
+      "referencedBy": [
+        "MissionsWindowUI",
+        "ParsekFlight",
+        "ParsekTrackingStation",
+        "RecordingsTableUI",
+        "VesselSpawner",
+        "WarpToTimeConsumer",
+        "WarpToTimeController"
+      ]
+    },
+    {
+      "name": "VesselIconEntry",
+      "module": "Controllers",
+      "file": "MapMarkerRenderer.cs",
+      "kind": "struct",
+      "modifiers": [
+        "internal",
+        "readonly"
+      ],
+      "bases": [],
+      "enclosing": "MapMarkerRenderer",
+      "role": "data",
+      "level": 0,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 0,
+      "fanOut": 0,
+      "referencesTo": [],
+      "referencedBy": [
+        "MapMarkerRenderer"
+      ]
+    },
+    {
+      "name": "WarpFieldKind",
+      "module": "Controllers",
+      "file": "WarpToTimeMath.cs",
+      "kind": "enum",
+      "modifiers": [
+        "internal"
+      ],
+      "bases": [],
+      "enclosing": "WarpToTimeMath",
+      "role": "enum",
+      "level": 0,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 1,
+      "fanOut": 0,
+      "referencesTo": [],
+      "referencedBy": [
+        "TimelineWindowUI",
+        "WarpToTimeMath"
+      ]
+    },
+    {
+      "name": "WarpPlan",
+      "module": "Controllers",
+      "file": "WarpToTimeMath.cs",
+      "kind": "struct",
+      "modifiers": [
+        "internal",
+        "readonly"
+      ],
+      "bases": [],
+      "enclosing": "WarpToTimeMath",
+      "role": "data",
+      "level": 1,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 1,
+      "fanOut": 2,
+      "referencesTo": [
+        "Kind",
+        "WarpPlanKind"
+      ],
+      "referencedBy": [
+        "WarpToTimeController",
+        "WarpToTimeMath"
+      ]
+    },
+    {
+      "name": "WarpPlanKind",
+      "module": "Controllers",
+      "file": "WarpToTimeMath.cs",
+      "kind": "enum",
+      "modifiers": [
+        "internal"
+      ],
+      "bases": [],
+      "enclosing": "WarpToTimeMath",
+      "role": "enum",
+      "level": 0,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 2,
+      "fanOut": 0,
+      "referencesTo": [],
+      "referencedBy": [
+        "TimelineWindowUI",
+        "WarpPlan",
+        "WarpToTimeController",
+        "WarpToTimeMath"
+      ]
+    },
+    {
+      "name": "WarpToTimeConsumer",
+      "module": "Controllers",
+      "file": "WarpToTimeConsumer.cs",
+      "kind": "class",
+      "modifiers": [
+        "public"
+      ],
+      "bases": [
+        "MonoBehaviour"
+      ],
+      "enclosing": null,
+      "role": "entry",
+      "level": 7,
+      "knot": 1,
+      "sublevel": 19,
+      "fanIn": 2,
+      "fanOut": 8,
+      "referencesTo": [
+        "EffectiveState",
+        "ParsekLog",
+        "ParsekTimeFormat",
+        "RecordingStore",
+        "TimeJumpManager",
+        "WarpToTimeController",
+        "WarpToTimeMath",
+        "WarpToTimeRequest"
+      ],
+      "referencedBy": [
+        "LedgerOrchestrator",
+        "WarpToTimeController"
+      ]
+    },
+    {
+      "name": "WarpToTimeController",
+      "module": "Controllers",
+      "file": "WarpToTimeController.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "static",
+      "level": 7,
+      "knot": 1,
+      "sublevel": 19,
+      "fanIn": 2,
+      "fanOut": 16,
+      "referencesTo": [
+        "EffectiveState",
+        "Kind",
+        "ParsekFlight",
+        "ParsekLog",
+        "ParsekScenario",
+        "ParsekTimeFormat",
+        "Recording",
+        "RecordingStore",
+        "RewindTarget",
+        "RewindTargetKind",
+        "TimeJumpManager",
+        "WarpPlan",
+        "WarpPlanKind",
+        "WarpToTimeConsumer",
+        "WarpToTimeMath",
+        "WarpToTimeRequest"
+      ],
+      "referencedBy": [
+        "TimelineWindowUI",
+        "WarpToTimeConsumer"
+      ]
+    },
+    {
+      "name": "WarpToTimeMath",
+      "module": "Controllers",
+      "file": "WarpToTimeMath.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "static",
+      "level": 2,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 3,
+      "fanOut": 4,
+      "referencesTo": [
+        "ParsekTimeFormat",
+        "WarpFieldKind",
+        "WarpPlan",
+        "WarpPlanKind"
+      ],
+      "referencedBy": [
+        "TimelineWindowUI",
+        "WarpToTimeConsumer",
+        "WarpToTimeController"
+      ]
+    },
+    {
+      "name": "WarpToTimeRequest",
+      "module": "Controllers",
+      "file": "WarpToTimeRequest.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "static",
+      "level": 7,
+      "knot": 1,
+      "sublevel": 1,
+      "fanIn": 3,
+      "fanOut": 2,
+      "referencesTo": [
+        "ParsekLog",
+        "ParsekProcess"
+      ],
+      "referencedBy": [
+        "TimelineWindowUI",
+        "WarpToTimeConsumer",
+        "WarpToTimeController"
       ]
     },
     {
@@ -2595,99 +3053,6 @@
       ]
     },
     {
-      "name": "AntennaSpec",
-      "module": "Core",
-      "file": "AntennaSpec.cs",
-      "kind": "struct",
-      "modifiers": [
-        "internal"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "data",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 3,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "AntennaSpecExtractor",
-        "GhostCommNetRelay",
-        "Recording",
-        "RecordingOptimizer"
-      ]
-    },
-    {
-      "name": "AntennaSpecExtractor",
-      "module": "Core",
-      "file": "AntennaSpec.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 8,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 0,
-      "fanOut": 2,
-      "referencesTo": [
-        "AntennaSpec",
-        "ParsekLog"
-      ],
-      "referencedBy": []
-    },
-    {
-      "name": "ApplicantOverlayKind",
-      "module": "Core",
-      "file": "StockUiOverlayController.cs",
-      "kind": "enum",
-      "modifiers": [
-        "internal"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "enum",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 0,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "ApplicantOverlayMark",
-        "StockUiOverlayController"
-      ]
-    },
-    {
-      "name": "ApplicantOverlayMark",
-      "module": "Core",
-      "file": "StockUiOverlayController.cs",
-      "kind": "struct",
-      "modifiers": [
-        "internal"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "data",
-      "level": 1,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 0,
-      "fanOut": 2,
-      "referencesTo": [
-        "ApplicantOverlayKind",
-        "Kind"
-      ],
-      "referencedBy": [
-        "StockUiOverlayController"
-      ]
-    },
-    {
       "name": "BodyFixedSectionSample",
       "module": "Core",
       "file": "VesselSpawner.cs",
@@ -2709,29 +3074,6 @@
       ],
       "referencedBy": [
         "VesselSpawner"
-      ]
-    },
-    {
-      "name": "BoundaryDiscontinuityMeasurement",
-      "module": "Core",
-      "file": "SessionMerger.cs",
-      "kind": "struct",
-      "modifiers": [
-        "private"
-      ],
-      "bases": [],
-      "enclosing": "SessionMerger",
-      "role": "data",
-      "level": 2,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 0,
-      "fanOut": 1,
-      "referencesTo": [
-        "AnchorKey"
-      ],
-      "referencedBy": [
-        "SessionMerger"
       ]
     },
     {
@@ -2840,802 +3182,6 @@
       ]
     },
     {
-      "name": "BudgetSummary",
-      "module": "Core",
-      "file": "ResourceBudget.cs",
-      "kind": "struct",
-      "modifiers": [
-        "internal"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "data",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 2,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "RecordingStore",
-        "RewindContext"
-      ]
-    },
-    {
-      "name": "CareerSaveParser",
-      "module": "Core",
-      "file": "CareerSaveParser.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 7,
-      "knot": 1,
-      "sublevel": 1,
-      "fanIn": 1,
-      "fanOut": 6,
-      "referencesTo": [
-        "CareerSaveSnapshot",
-        "KerbalCareerLogEntry",
-        "ParsekLog",
-        "SaveKerbal",
-        "SaveStrategy",
-        "SaveVessel"
-      ],
-      "referencedBy": [
-        "PreParsekBackup"
-      ]
-    },
-    {
-      "name": "CareerSaveSnapshot",
-      "module": "Core",
-      "file": "LedgerGroundTruth.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "sealed"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "data",
-      "level": 1,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 3,
-      "fanOut": 4,
-      "referencesTo": [
-        "KerbalCareerLogEntry",
-        "SaveKerbal",
-        "SaveStrategy",
-        "SaveVessel"
-      ],
-      "referencedBy": [
-        "CareerSaveParser",
-        "LedgerGroundTruthDiff",
-        "PreParsekBackup"
-      ]
-    },
-    {
-      "name": "CareerStartSnapshot",
-      "module": "Core",
-      "file": "CareerStartSnapshot.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 7,
-      "knot": 1,
-      "sublevel": 2,
-      "fanIn": 2,
-      "fanOut": 3,
-      "referencesTo": [
-        "FileIOUtils",
-        "ParsekLog",
-        "RecordingPaths"
-      ],
-      "referencedBy": [
-        "WarpToTimeConsumer",
-        "WarpToTimeController"
-      ]
-    },
-    {
-      "name": "CheckpointDoubleCoverRetire",
-      "module": "Core",
-      "file": "CheckpointDoubleCoverRetire.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 7,
-      "knot": 1,
-      "sublevel": 19,
-      "fanIn": 1,
-      "fanOut": 9,
-      "referencesTo": [
-        "OrbitSegment",
-        "OrbitSegmentCheckpointBridge",
-        "ParsekLog",
-        "Recording",
-        "RecordingOptimizer",
-        "RecordingStore",
-        "ReferenceFrame",
-        "SplitBoundaryReason",
-        "TrackSection"
-      ],
-      "referencedBy": [
-        "ParsekScenario"
-      ]
-    },
-    {
-      "name": "CommittedActionDialog",
-      "module": "Core",
-      "file": "CommittedActionDialog.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 8,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 4,
-      "fanOut": 1,
-      "referencesTo": [
-        "ParsekLog"
-      ],
-      "referencedBy": [
-        "ContractAcceptPatch",
-        "FacilityUpgradePatch",
-        "KerbalHirePatch",
-        "TechResearchPatch"
-      ]
-    },
-    {
-      "name": "CommittedChange",
-      "module": "Core",
-      "file": "SidecarFileCommitBatch.cs",
-      "kind": "class",
-      "modifiers": [
-        "private",
-        "sealed"
-      ],
-      "bases": [],
-      "enclosing": "SidecarFileCommitBatch",
-      "role": "data",
-      "level": 1,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 0,
-      "fanOut": 1,
-      "referencesTo": [
-        "StagedChange"
-      ],
-      "referencedBy": [
-        "SidecarFileCommitBatch"
-      ]
-    },
-    {
-      "name": "ConnectionProducerClassifier",
-      "module": "Core",
-      "file": "ConnectionProducerClassifier.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 1,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 1,
-      "fanOut": 1,
-      "referencesTo": [
-        "RouteConnectionKind"
-      ],
-      "referencedBy": [
-        "ParsekFlight"
-      ]
-    },
-    {
-      "name": "ContractOverlayMark",
-      "module": "Core",
-      "file": "StockUiOverlayController.cs",
-      "kind": "struct",
-      "modifiers": [
-        "internal"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "data",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 0,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "StockUiOverlayController"
-      ]
-    },
-    {
-      "name": "CrashCoalescer",
-      "module": "Core",
-      "file": "CrashCoalescer.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "service",
-      "level": 7,
-      "knot": 1,
-      "sublevel": 1,
-      "fanIn": 1,
-      "fanOut": 4,
-      "referencesTo": [
-        "BranchPoint",
-        "BranchPointType",
-        "ParsekLog",
-        "TrajectoryPoint"
-      ],
-      "referencedBy": [
-        "ParsekFlight"
-      ]
-    },
-    {
-      "name": "CurrencyReservationOverlay",
-      "module": "Core",
-      "file": "CurrencyReservationOverlay.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "sealed"
-      ],
-      "bases": [
-        "MonoBehaviour"
-      ],
-      "enclosing": null,
-      "role": "entry",
-      "level": 8,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 0,
-      "fanOut": 2,
-      "referencesTo": [
-        "LedgerOrchestrator",
-        "ParsekLog"
-      ],
-      "referencedBy": []
-    },
-    {
-      "name": "DeOverlapResult",
-      "module": "Core",
-      "file": "SpawnCollisionDetector.cs",
-      "kind": "struct",
-      "modifiers": [
-        "internal"
-      ],
-      "bases": [],
-      "enclosing": "SpawnCollisionDetector",
-      "role": "data",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 0,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "SpawnCollisionDetector"
-      ]
-    },
-    {
-      "name": "DebrisParentStateGate",
-      "module": "Core",
-      "file": "DebrisParentStateGate.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 7,
-      "knot": 1,
-      "sublevel": 7,
-      "fanIn": 1,
-      "fanOut": 2,
-      "referencesTo": [
-        "Recording",
-        "RecordingTree"
-      ],
-      "referencedBy": [
-        "BackgroundRecorder"
-      ]
-    },
-    {
-      "name": "DebrisRelativeCoverageMode",
-      "module": "Core",
-      "file": "DebrisRelativeCoveragePrimitives.cs",
-      "kind": "enum",
-      "modifiers": [
-        "internal"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "enum",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 3,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "DebrisRelativeCoveragePrimitives",
-        "DebrisRelativePlaybackPolicy",
-        "DebrisRelativeRecorderPolicy",
-        "GhostPlaybackEngine"
-      ]
-    },
-    {
-      "name": "DebrisRelativeCoveragePrimitives",
-      "module": "Core",
-      "file": "DebrisRelativeCoveragePrimitives.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 1,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 3,
-      "fanOut": 3,
-      "referencesTo": [
-        "DebrisRelativeCoverageMode",
-        "OrbitSegment",
-        "TrajectoryPoint"
-      ],
-      "referencedBy": [
-        "DebrisRelativePlaybackPolicy",
-        "DebrisRelativeRecorderPolicy",
-        "ProductionAnchorWorldFrameResolver"
-      ]
-    },
-    {
-      "name": "DebrisRelativeRecorderPolicy",
-      "module": "Core",
-      "file": "DebrisRelativeRecorderPolicy.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 7,
-      "knot": 1,
-      "sublevel": 4,
-      "fanIn": 2,
-      "fanOut": 9,
-      "referencesTo": [
-        "DebrisRelativeCoverageMode",
-        "DebrisRelativeCoveragePrimitives",
-        "OrbitSegment",
-        "ParentAnchoredDebrisTailNormalizationResult",
-        "ParsekLog",
-        "Recording",
-        "RecordingEndpointResolver",
-        "ReferenceFrame",
-        "TrackSection"
-      ],
-      "referencedBy": [
-        "BackgroundRecorder",
-        "RecordingFinalizationCacheApplier"
-      ]
-    },
-    {
-      "name": "DefaultVesselEnumeration",
-      "module": "Core",
-      "file": "PostLoadStripper.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "sealed"
-      ],
-      "bases": [
-        "IVesselEnumeration"
-      ],
-      "enclosing": null,
-      "role": "implements",
-      "level": 2,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 1,
-      "fanOut": 3,
-      "referencesTo": [
-        "IStrippableVessel",
-        "IVesselEnumeration",
-        "LiveVesselAdapter"
-      ],
-      "referencedBy": [
-        "PostLoadStripper",
-        "RewindInvoker"
-      ]
-    },
-    {
-      "name": "DiagnosticFormatters",
-      "module": "Core",
-      "file": "DiagnosticFormatters.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 4,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "BackgroundRecorder",
-        "FlightRecorder",
-        "ParsekFlight",
-        "ReFlySettleStabilityTracker"
-      ]
-    },
-    {
-      "name": "DialogVariant",
-      "module": "Core",
-      "file": "SceneExitInterceptor.cs",
-      "kind": "enum",
-      "modifiers": [
-        "internal"
-      ],
-      "bases": [],
-      "enclosing": "SceneExitInterceptor",
-      "role": "enum",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 0,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "HighLogic_LoadScene_Patch",
-        "SceneExitInterceptor"
-      ]
-    },
-    {
-      "name": "DiscardSidecarReap",
-      "module": "Core",
-      "file": "DiscardSidecarReap.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 7,
-      "knot": 1,
-      "sublevel": 7,
-      "fanIn": 1,
-      "fanOut": 6,
-      "referencesTo": [
-        "ParsekLog",
-        "ReapOutcome",
-        "Recording",
-        "RecordingPaths",
-        "RecordingStore",
-        "RecordingTree"
-      ],
-      "referencedBy": [
-        "ParsekFlight"
-      ]
-    },
-    {
-      "name": "DivergenceFacet",
-      "module": "Core",
-      "file": "LedgerGroundTruth.cs",
-      "kind": "enum",
-      "modifiers": [
-        "internal"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "enum",
-      "level": 8,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 1,
-      "fanOut": 1,
-      "referencesTo": [
-        "Milestone"
-      ],
-      "referencedBy": [
-        "LedgerDivergence",
-        "LedgerDivergenceReport",
-        "LedgerGroundTruthDiff"
-      ]
-    },
-    {
-      "name": "DivergenceKind",
-      "module": "Core",
-      "file": "LedgerGroundTruth.cs",
-      "kind": "enum",
-      "modifiers": [
-        "internal"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "enum",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 1,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "LedgerDivergence",
-        "LedgerDivergenceReport",
-        "LedgerGroundTruthDiff"
-      ]
-    },
-    {
-      "name": "DockEventGraphCache",
-      "module": "Core",
-      "file": "DockEventGraphCache.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 7,
-      "knot": 1,
-      "sublevel": 19,
-      "fanIn": 3,
-      "fanOut": 6,
-      "referencesTo": [
-        "DockEventGraph",
-        "EffectiveState",
-        "ParsekScenario",
-        "Recording",
-        "RecordingStore",
-        "RecordingTree"
-      ],
-      "referencedBy": [
-        "MissionsWindowUI",
-        "ParsekFlight",
-        "RecordingsTableUI"
-      ]
-    },
-    {
-      "name": "EngineFxBuilder",
-      "module": "Core",
-      "file": "EngineFxBuilder.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 7,
-      "knot": 1,
-      "sublevel": 19,
-      "fanIn": 1,
-      "fanOut": 11,
-      "referencesTo": [
-        "EngineGhostInfo",
-        "GhostFxEmissionProbe",
-        "GhostVisualBuilder",
-        "ModelFxConfigEntry",
-        "ParsekLog",
-        "PrefabFxConfigEntry",
-        "PrefabParticleRotationMode",
-        "PristinePartFxData",
-        "PristinePartFxResolver",
-        "ReStockPatchFxIndex",
-        "WaterfallCompat"
-      ],
-      "referencedBy": [
-        "GhostVisualBuilder"
-      ]
-    },
-    {
-      "name": "EventOverlayMark",
-      "module": "Core",
-      "file": "StockUiOverlayController.cs",
-      "kind": "struct",
-      "modifiers": [
-        "private"
-      ],
-      "bases": [],
-      "enclosing": "StockUiOverlayController",
-      "role": "data",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 0,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "StockUiOverlayController"
-      ]
-    },
-    {
-      "name": "FacetTolerances",
-      "module": "Core",
-      "file": "LedgerGroundTruth.cs",
-      "kind": "struct",
-      "modifiers": [
-        "internal"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "data",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 1,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "LedgerGroundTruthDiff"
-      ]
-    },
-    {
-      "name": "FlightGlobalsBodyPoseSource",
-      "module": "Core",
-      "file": "RecordedRelativeAnchorPoseResolver.cs",
-      "kind": "class",
-      "modifiers": [
-        "private",
-        "sealed"
-      ],
-      "bases": [
-        "IAnchorBodyPoseSource"
-      ],
-      "enclosing": "RecordedRelativeAnchorPoseResolver",
-      "role": "implements",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 0,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "RecordedRelativeAnchorPoseResolver"
-      ]
-    },
-    {
-      "name": "ForwardRenderWindow",
-      "module": "Core",
-      "file": "ForwardRenderWindow.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 7,
-      "knot": 1,
-      "sublevel": 1,
-      "fanIn": 1,
-      "fanOut": 4,
-      "referencesTo": [
-        "ForwardStopReason",
-        "ForwardWindow",
-        "OrbitSegment",
-        "ParsekLog"
-      ],
-      "referencedBy": [
-        "Driver",
-        "GhostTrajectoryPolylineRenderer"
-      ]
-    },
-    {
-      "name": "ForwardStopReason",
-      "module": "Core",
-      "file": "ForwardRenderWindow.cs",
-      "kind": "enum",
-      "modifiers": [
-        "internal"
-      ],
-      "bases": [],
-      "enclosing": "ForwardRenderWindow",
-      "role": "enum",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 0,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "ForwardRenderWindow",
-        "ForwardWindow"
-      ]
-    },
-    {
-      "name": "ForwardWindow",
-      "module": "Core",
-      "file": "ForwardRenderWindow.cs",
-      "kind": "struct",
-      "modifiers": [
-        "internal"
-      ],
-      "bases": [],
-      "enclosing": "ForwardRenderWindow",
-      "role": "data",
-      "level": 1,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 1,
-      "fanOut": 1,
-      "referencesTo": [
-        "ForwardStopReason"
-      ],
-      "referencedBy": [
-        "Driver",
-        "ForwardRenderWindow"
-      ]
-    },
-    {
-      "name": "GhostedVesselInfo",
-      "module": "Core",
-      "file": "VesselGhoster.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal"
-      ],
-      "bases": [],
-      "enclosing": "VesselGhoster",
-      "role": "data",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 0,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "VesselGhoster"
-      ]
-    },
-    {
       "name": "GroupHierarchyStore",
       "module": "Core",
       "file": "GroupHierarchyStore.cs",
@@ -3670,57 +3216,6 @@
         "RecordingStore",
         "RecordingsTableUI",
         "TimelineWindowUI"
-      ]
-    },
-    {
-      "name": "HighLogic_LoadScene_Patch",
-      "module": "Core",
-      "file": "SceneExitInterceptor.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "entry",
-      "level": 9,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 0,
-      "fanOut": 9,
-      "referencesTo": [
-        "DialogVariant",
-        "MergeDialog",
-        "MergeDialogButtonLabels",
-        "ParsekFlight",
-        "ParsekLog",
-        "ParsekScenario",
-        "RecordingStore",
-        "RecordingTree",
-        "SceneExitInterceptor"
-      ],
-      "referencedBy": []
-    },
-    {
-      "name": "IAnchorBodyPoseSource",
-      "module": "Core",
-      "file": "RecordedRelativeAnchorPoseResolver.cs",
-      "kind": "interface",
-      "modifiers": [
-        "internal"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "interface",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 0,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "RecordedRelativeAnchorPoseResolver"
       ]
     },
     {
@@ -3784,101 +3279,6 @@
       ]
     },
     {
-      "name": "IStrippableVessel",
-      "module": "Core",
-      "file": "PostLoadStripper.cs",
-      "kind": "interface",
-      "modifiers": [
-        "internal"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "interface",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 1,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "DefaultVesselEnumeration",
-        "IVesselEnumeration",
-        "PostLoadStripper",
-        "RewindInvoker"
-      ]
-    },
-    {
-      "name": "IVesselEnumeration",
-      "module": "Core",
-      "file": "PostLoadStripper.cs",
-      "kind": "interface",
-      "modifiers": [
-        "internal"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "interface",
-      "level": 1,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 0,
-      "fanOut": 1,
-      "referencesTo": [
-        "IStrippableVessel"
-      ],
-      "referencedBy": [
-        "DefaultVesselEnumeration",
-        "PostLoadStripper"
-      ]
-    },
-    {
-      "name": "IdentityLossClassifier",
-      "module": "Core",
-      "file": "IdentityLossClassifier.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 7,
-      "knot": 1,
-      "sublevel": 18,
-      "fanIn": 1,
-      "fanOut": 2,
-      "referencesTo": [
-        "ParsekFlight",
-        "Recording"
-      ],
-      "referencedBy": [
-        "BackgroundRecorder"
-      ]
-    },
-    {
-      "name": "InputFocusGuard",
-      "module": "Core",
-      "file": "InputFocusGuard.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 1,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "ParsekFlight"
-      ]
-    },
-    {
       "name": "InventoryItem",
       "module": "Core",
       "file": "InventoryManifest.cs",
@@ -3933,381 +3333,6 @@
       ]
     },
     {
-      "name": "LedgerDivergence",
-      "module": "Core",
-      "file": "LedgerGroundTruth.cs",
-      "kind": "struct",
-      "modifiers": [
-        "internal"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "data",
-      "level": 9,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 1,
-      "fanOut": 3,
-      "referencesTo": [
-        "DivergenceFacet",
-        "DivergenceKind",
-        "Kind"
-      ],
-      "referencedBy": [
-        "LedgerDivergenceReport",
-        "LedgerGroundTruthDiff"
-      ]
-    },
-    {
-      "name": "LedgerDivergenceReport",
-      "module": "Core",
-      "file": "LedgerGroundTruth.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "sealed"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "service",
-      "level": 10,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 1,
-      "fanOut": 4,
-      "referencesTo": [
-        "DivergenceFacet",
-        "DivergenceKind",
-        "Kind",
-        "LedgerDivergence"
-      ],
-      "referencedBy": [
-        "LedgerGroundTruthDiff"
-      ]
-    },
-    {
-      "name": "LedgerGroundTruthDiff",
-      "module": "Core",
-      "file": "LedgerGroundTruthDiff.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 11,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 0,
-      "fanOut": 12,
-      "referencesTo": [
-        "CareerSaveSnapshot",
-        "DivergenceFacet",
-        "DivergenceKind",
-        "FacetTolerances",
-        "FacilityStatePatcher",
-        "KerbalCareerLogEntry",
-        "Kind",
-        "LedgerDivergence",
-        "LedgerDivergenceReport",
-        "LedgerReconstructionSnapshot",
-        "Milestone",
-        "ParsekLog"
-      ],
-      "referencedBy": []
-    },
-    {
-      "name": "LedgerReconstructionSnapshot",
-      "module": "Core",
-      "file": "LedgerGroundTruth.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "sealed"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "data",
-      "level": 1,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 1,
-      "fanOut": 2,
-      "referencesTo": [
-        "KerbalCareerLogEntry",
-        "RecoveryCredit"
-      ],
-      "referencedBy": [
-        "LedgerGroundTruthDiff"
-      ]
-    },
-    {
-      "name": "LedgerStructuralSnapshot",
-      "module": "Core",
-      "file": "LedgerTrace.cs",
-      "kind": "struct",
-      "modifiers": [
-        "internal"
-      ],
-      "bases": [],
-      "enclosing": "LedgerTrace",
-      "role": "data",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 1,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "LedgerOrchestrator",
-        "LedgerTrace"
-      ]
-    },
-    {
-      "name": "LedgerTrace",
-      "module": "Core",
-      "file": "LedgerTrace.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 7,
-      "knot": 1,
-      "sublevel": 2,
-      "fanIn": 3,
-      "fanOut": 3,
-      "referencesTo": [
-        "LedgerStructuralSnapshot",
-        "ParsekLog",
-        "ParsekSettings"
-      ],
-      "referencedBy": [
-        "FacilityStatePatcher",
-        "KspStatePatcher",
-        "LedgerOrchestrator"
-      ]
-    },
-    {
-      "name": "LiveVesselAdapter",
-      "module": "Core",
-      "file": "PostLoadStripper.cs",
-      "kind": "class",
-      "modifiers": [
-        "private",
-        "sealed"
-      ],
-      "bases": [
-        "IStrippableVessel"
-      ],
-      "enclosing": "DefaultVesselEnumeration",
-      "role": "implements",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 0,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "DefaultVesselEnumeration"
-      ]
-    },
-    {
-      "name": "LoopSeamMarkerBuilder",
-      "module": "Core",
-      "file": "LoopSeamMarkerBuilder.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 7,
-      "knot": 1,
-      "sublevel": 12,
-      "fanIn": 1,
-      "fanOut": 13,
-      "referencesTo": [
-        "BranchPointType",
-        "DockEventGraph",
-        "DockEventNode",
-        "DockPartnerDescription",
-        "DockPartnerStatus",
-        "GhostPlaybackLogic",
-        "Kind",
-        "LoopSeamMarker",
-        "LoopTiming",
-        "LoopUnit",
-        "MemberWindow",
-        "ParsekLog",
-        "SeamMarkerKind"
-      ],
-      "referencedBy": [
-        "MissionLoopUnitBuilder"
-      ]
-    },
-    {
-      "name": "LoopSeamMarkerRuntime",
-      "module": "Core",
-      "file": "LoopSeamMarkerRuntime.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "sealed"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "service",
-      "level": 7,
-      "knot": 1,
-      "sublevel": 10,
-      "fanIn": 1,
-      "fanOut": 3,
-      "referencesTo": [
-        "GhostPlaybackLogic",
-        "LoopSeamMarker",
-        "MemberState"
-      ],
-      "referencedBy": [
-        "GhostPlaybackEngine"
-      ]
-    },
-    {
-      "name": "MapMarkerRenderer",
-      "module": "Core",
-      "file": "MapMarkerRenderer.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 7,
-      "knot": 1,
-      "sublevel": 1,
-      "fanIn": 3,
-      "fanOut": 4,
-      "referencesTo": [
-        "MarkerClickContext",
-        "ParsekLog",
-        "SpriteAtlasRecord",
-        "VesselIconEntry"
-      ],
-      "referencedBy": [
-        "ParsekFlight",
-        "ParsekTrackingStation",
-        "ParsekUI"
-      ]
-    },
-    {
-      "name": "MarkerClickContext",
-      "module": "Core",
-      "file": "MapMarkerRenderer.cs",
-      "kind": "struct",
-      "modifiers": [
-        "internal",
-        "readonly"
-      ],
-      "bases": [],
-      "enclosing": "MapMarkerRenderer",
-      "role": "data",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 1,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "MapMarkerRenderer",
-        "ParsekTrackingStation"
-      ]
-    },
-    {
-      "name": "MarkerValidationResult",
-      "module": "Core",
-      "file": "MarkerValidator.cs",
-      "kind": "struct",
-      "modifiers": [
-        "internal"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "data",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 0,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "MarkerValidator"
-      ]
-    },
-    {
-      "name": "MarkerValidator",
-      "module": "Core",
-      "file": "MarkerValidator.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 7,
-      "knot": 1,
-      "sublevel": 19,
-      "fanIn": 2,
-      "fanOut": 8,
-      "referencesTo": [
-        "MarkerValidationResult",
-        "MergeState",
-        "ParsekLog",
-        "ParsekScenario",
-        "ReFlySessionMarker",
-        "Recording",
-        "RecordingStore",
-        "RewindPoint"
-      ],
-      "referencedBy": [
-        "GroupHierarchyStore",
-        "LoadTimeSweep"
-      ]
-    },
-    {
-      "name": "MaterialCleanup",
-      "module": "Core",
-      "file": "MaterialCleanup.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal"
-      ],
-      "bases": [
-        "MonoBehaviour"
-      ],
-      "enclosing": null,
-      "role": "entry",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 1,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "GhostVisualBuilder"
-      ]
-    },
-    {
       "name": "MaxDistanceBackfillRoute",
       "module": "Core",
       "file": "VesselSpawner.cs",
@@ -4350,28 +3375,6 @@
         "BodyFixedSectionSample",
         "ParsekFlight",
         "VesselSpawner"
-      ]
-    },
-    {
-      "name": "MemberState",
-      "module": "Core",
-      "file": "LoopSeamMarkerRuntime.cs",
-      "kind": "class",
-      "modifiers": [
-        "private",
-        "sealed"
-      ],
-      "bases": [],
-      "enclosing": "LoopSeamMarkerRuntime",
-      "role": "data",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 0,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "LoopSeamMarkerRuntime"
       ]
     },
     {
@@ -4418,319 +3421,6 @@
       ]
     },
     {
-      "name": "ModelFxConfigEntry",
-      "module": "Core",
-      "file": "EngineFxBuilder.cs",
-      "kind": "struct",
-      "modifiers": [
-        "internal"
-      ],
-      "bases": [],
-      "enclosing": "EngineFxBuilder",
-      "role": "data",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 0,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "EngineFxBuilder"
-      ]
-    },
-    {
-      "name": "OverlayBadge",
-      "module": "Core",
-      "file": "OverlayBadge.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "sealed"
-      ],
-      "bases": [
-        "MonoBehaviour",
-        "IPointerEnterHandler",
-        "IPointerExitHandler"
-      ],
-      "enclosing": null,
-      "role": "entry",
-      "level": 8,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 1,
-      "fanOut": 1,
-      "referencesTo": [
-        "ParsekLog"
-      ],
-      "referencedBy": [
-        "StockUiOverlayController"
-      ]
-    },
-    {
-      "name": "PannotationsSidecarBinary",
-      "module": "Core",
-      "file": "PannotationsSidecarBinary.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 7,
-      "knot": 1,
-      "sublevel": 2,
-      "fanIn": 1,
-      "fanOut": 9,
-      "referencesTo": [
-        "AnchorCandidate",
-        "AnchorSide",
-        "AnchorSource",
-        "FileIOUtils",
-        "OutlierFlags",
-        "OutlierThresholds",
-        "PannotationsSidecarProbe",
-        "SmoothingConfiguration",
-        "SmoothingSpline"
-      ],
-      "referencedBy": [
-        "SmoothingPipeline"
-      ]
-    },
-    {
-      "name": "PannotationsSidecarProbe",
-      "module": "Core",
-      "file": "PannotationsSidecarBinary.cs",
-      "kind": "struct",
-      "modifiers": [
-        "internal"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "data",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 1,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "PannotationsSidecarBinary",
-        "SmoothingPipeline"
-      ]
-    },
-    {
-      "name": "ParentAnchoredDebrisTailNormalizationResult",
-      "module": "Core",
-      "file": "DebrisRelativeRecorderPolicy.cs",
-      "kind": "struct",
-      "modifiers": [
-        "internal"
-      ],
-      "bases": [],
-      "enclosing": "DebrisRelativeRecorderPolicy",
-      "role": "data",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 0,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "DebrisRelativeRecorderPolicy"
-      ]
-    },
-    {
-      "name": "ParsekToolbarRegistration",
-      "module": "Core",
-      "file": "ParsekToolbarRegistration.cs",
-      "kind": "class",
-      "modifiers": [
-        "public"
-      ],
-      "bases": [
-        "MonoBehaviour"
-      ],
-      "enclosing": null,
-      "role": "entry",
-      "level": 8,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 0,
-      "fanOut": 2,
-      "referencesTo": [
-        "ParsekFlight",
-        "ParsekLog"
-      ],
-      "referencedBy": []
-    },
-    {
-      "name": "PartStateSeeder",
-      "module": "Core",
-      "file": "PartStateSeeder.Diff.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "partial",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 7,
-      "knot": 1,
-      "sublevel": 19,
-      "fanIn": 2,
-      "fanOut": 6,
-      "referencesTo": [
-        "FlightRecorder",
-        "HeatLevel",
-        "ParsekLog",
-        "PartEvent",
-        "PartEventType",
-        "PartTrackingSets"
-      ],
-      "referencedBy": [
-        "BackgroundRecorder",
-        "FlightRecorder"
-      ]
-    },
-    {
-      "name": "PartTrackingSets",
-      "module": "Core",
-      "file": "PartStateSeeder.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "data",
-      "level": 1,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 3,
-      "fanOut": 1,
-      "referencesTo": [
-        "HeatLevel"
-      ],
-      "referencedBy": [
-        "BackgroundRecorder",
-        "FlightRecorder",
-        "PartStateSeeder"
-      ]
-    },
-    {
-      "name": "PauseMenuGate",
-      "module": "Core",
-      "file": "PauseMenuGate.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 7,
-      "knot": 1,
-      "sublevel": 1,
-      "fanIn": 3,
-      "fanOut": 1,
-      "referencesTo": [
-        "ParsekLog"
-      ],
-      "referencedBy": [
-        "ParsekFlight",
-        "ParsekKSC",
-        "ParsekTrackingStation"
-      ]
-    },
-    {
-      "name": "PlaybackOrbitDiagnostics",
-      "module": "Core",
-      "file": "PlaybackOrbitDiagnostics.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 4,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 2,
-      "fanOut": 4,
-      "referencesTo": [
-        "IPlaybackTrajectory",
-        "OrbitSegment",
-        "ReferenceFrame",
-        "TrackSection"
-      ],
-      "referencedBy": [
-        "GhostMapPresence",
-        "ParsekFlight"
-      ]
-    },
-    {
-      "name": "PlaybackScopeTracker",
-      "module": "Core",
-      "file": "PlaybackScopeTracker.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 5,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "GhostMapPresence",
-        "ParsekFlight",
-        "ParsekKSC",
-        "ParsekScenario",
-        "TimeJumpManager"
-      ]
-    },
-    {
-      "name": "PlaybackTrace",
-      "module": "Core",
-      "file": "PlaybackTrace.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 7,
-      "knot": 1,
-      "sublevel": 3,
-      "fanIn": 2,
-      "fanOut": 5,
-      "referencesTo": [
-        "IPlaybackTrajectory",
-        "ParsekLog",
-        "ReferenceFrame",
-        "TrajectoryMath",
-        "TrajectoryPointFlags"
-      ],
-      "referencedBy": [
-        "GhostPlaybackEngine",
-        "GhostRenderTrace"
-      ]
-    },
-    {
       "name": "PlaybackTrajectoryBoundsResolver",
       "module": "Core",
       "file": "PlaybackTrajectoryBoundsResolver.cs",
@@ -4760,335 +3450,6 @@
         "Recording",
         "RecordingOptimizer",
         "SupersedeCommit"
-      ]
-    },
-    {
-      "name": "PostLoadStripResult",
-      "module": "Core",
-      "file": "PostLoadStripper.cs",
-      "kind": "struct",
-      "modifiers": [
-        "internal"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "data",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 1,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "PostLoadStripper",
-        "RewindInvoker"
-      ]
-    },
-    {
-      "name": "PostLoadStripper",
-      "module": "Core",
-      "file": "PostLoadStripper.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 7,
-      "knot": 1,
-      "sublevel": 19,
-      "fanIn": 1,
-      "fanOut": 8,
-      "referencesTo": [
-        "DefaultVesselEnumeration",
-        "GhostMapPresence",
-        "IStrippableVessel",
-        "IVesselEnumeration",
-        "ParsekLog",
-        "PostLoadStripResult",
-        "RewindPoint",
-        "SuppressionGuard"
-      ],
-      "referencedBy": [
-        "RewindInvoker"
-      ]
-    },
-    {
-      "name": "PrefabFxConfigEntry",
-      "module": "Core",
-      "file": "EngineFxBuilder.cs",
-      "kind": "struct",
-      "modifiers": [
-        "internal"
-      ],
-      "bases": [],
-      "enclosing": "EngineFxBuilder",
-      "role": "data",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 0,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "EngineFxBuilder"
-      ]
-    },
-    {
-      "name": "PrefabParticleRotationMode",
-      "module": "Core",
-      "file": "EngineFxBuilder.cs",
-      "kind": "enum",
-      "modifiers": [
-        "internal"
-      ],
-      "bases": [],
-      "enclosing": "EngineFxBuilder",
-      "role": "enum",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 0,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "EngineFxBuilder"
-      ]
-    },
-    {
-      "name": "ProximityRateSelector",
-      "module": "Core",
-      "file": "ProximityRateSelector.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 2,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 2,
-      "fanOut": 2,
-      "referencesTo": [
-        "BackgroundSampling",
-        "DistanceThresholds"
-      ],
-      "referencedBy": [
-        "BackgroundRecorder",
-        "BackgroundVesselState"
-      ]
-    },
-    {
-      "name": "QuickloadResumeMatchGuard",
-      "module": "Core",
-      "file": "QuickloadResumeMatchGuard.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 7,
-      "knot": 1,
-      "sublevel": 3,
-      "fanIn": 1,
-      "fanOut": 2,
-      "referencesTo": [
-        "QuickloadResumeRejection",
-        "VesselLaunchIdentity"
-      ],
-      "referencedBy": [
-        "ParsekFlight"
-      ]
-    },
-    {
-      "name": "QuickloadResumeRejection",
-      "module": "Core",
-      "file": "QuickloadResumeMatchGuard.cs",
-      "kind": "enum",
-      "modifiers": [
-        "internal"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "enum",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 0,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "QuickloadResumeMatchGuard"
-      ]
-    },
-    {
-      "name": "ReapOutcome",
-      "module": "Core",
-      "file": "DiscardSidecarReap.cs",
-      "kind": "struct",
-      "modifiers": [
-        "internal"
-      ],
-      "bases": [],
-      "enclosing": "DiscardSidecarReap",
-      "role": "data",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 0,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "DiscardSidecarReap"
-      ]
-    },
-    {
-      "name": "ReconciliationBundle",
-      "module": "Core",
-      "file": "ReconciliationBundle.cs",
-      "kind": "struct",
-      "modifiers": [
-        "internal"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "data",
-      "level": 7,
-      "knot": 1,
-      "sublevel": 19,
-      "fanIn": 2,
-      "fanOut": 24,
-      "referencesTo": [
-        "CrewReservationManager",
-        "GameAction",
-        "GameStateRecorder",
-        "GroupHierarchyStore",
-        "Ledger",
-        "LedgerTombstone",
-        "MergeJournal",
-        "Milestone",
-        "MilestoneStore",
-        "ParsekLog",
-        "ParsekScenario",
-        "PendingScienceSubject",
-        "ReFlyRevertButtonGate",
-        "ReFlySessionMarker",
-        "Recording",
-        "RecordingRewindRetirement",
-        "RecordingStore",
-        "RecordingSupersedeRelation",
-        "RecordingTree",
-        "RewindPoint",
-        "Route",
-        "RouteLedgerRetire",
-        "RouteRewindClassifier",
-        "RouteStore"
-      ],
-      "referencedBy": [
-        "RewindInvokeContext",
-        "RewindInvoker"
-      ]
-    },
-    {
-      "name": "RecordedRelativeAnchorPoseResolver",
-      "module": "Core",
-      "file": "RecordedRelativeAnchorPoseResolver.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 7,
-      "knot": 1,
-      "sublevel": 19,
-      "fanIn": 2,
-      "fanOut": 18,
-      "referencesTo": [
-        "AnchorPose",
-        "FlightGlobalsBodyPoseSource",
-        "IAnchorBodyPoseSource",
-        "IPlaybackTrajectory",
-        "OrbitSegment",
-        "ParsekFlight",
-        "ParsekScenario",
-        "Recording",
-        "RecordingStore",
-        "RecordingTree",
-        "ReferenceFrame",
-        "RelativeAnchorResolveFailure",
-        "RelativeAnchorResolveOutcome",
-        "RelativeAnchorResolver",
-        "RelativeAnchorResolverContext",
-        "TrackSection",
-        "TrajectoryMath",
-        "TrajectoryPoint"
-      ],
-      "referencedBy": [
-        "GhostMapPresence",
-        "ParsekKSC"
-      ]
-    },
-    {
-      "name": "RecorderMode",
-      "module": "Core",
-      "file": "RecorderStateSnapshot.cs",
-      "kind": "enum",
-      "modifiers": [
-        "internal"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "enum",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 1,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "ParsekLog",
-        "RecorderStateSnapshot"
-      ]
-    },
-    {
-      "name": "RecorderStateSnapshot",
-      "module": "Core",
-      "file": "RecorderStateSnapshot.cs",
-      "kind": "struct",
-      "modifiers": [
-        "internal"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "data",
-      "level": 7,
-      "knot": 1,
-      "sublevel": 19,
-      "fanIn": 3,
-      "fanOut": 6,
-      "referencesTo": [
-        "ChainSegmentManager",
-        "FlightRecorder",
-        "PendingTreeState",
-        "RecorderMode",
-        "Recording",
-        "RecordingTree"
-      ],
-      "referencedBy": [
-        "ParsekFlight",
-        "ParsekLog",
-        "ParsekScenario"
       ]
     },
     {
@@ -5124,622 +3485,6 @@
       ]
     },
     {
-      "name": "RecoveryCredit",
-      "module": "Core",
-      "file": "LedgerGroundTruth.cs",
-      "kind": "struct",
-      "modifiers": [
-        "internal"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "data",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 0,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "LedgerReconstructionSnapshot"
-      ]
-    },
-    {
-      "name": "ResourceBudget",
-      "module": "Core",
-      "file": "ResourceBudget.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 8,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 1,
-      "fanOut": 4,
-      "referencesTo": [
-        "GameStateEventType",
-        "Milestone",
-        "ParsekLog",
-        "Recording"
-      ],
-      "referencedBy": [
-        "TechResearchPatch"
-      ]
-    },
-    {
-      "name": "RevertDetector",
-      "module": "Core",
-      "file": "RevertDetector.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 7,
-      "knot": 1,
-      "sublevel": 1,
-      "fanIn": 1,
-      "fanOut": 2,
-      "referencesTo": [
-        "ParsekLog",
-        "RevertKind"
-      ],
-      "referencedBy": [
-        "ParsekScenario"
-      ]
-    },
-    {
-      "name": "RevertInterceptor",
-      "module": "Core",
-      "file": "RevertInterceptor.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 9,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 0,
-      "fanOut": 12,
-      "referencesTo": [
-        "ChildSlot",
-        "MergeDialog",
-        "ParsekLog",
-        "ParsekScenario",
-        "ReFlyRevertButtonGate",
-        "ReFlyRevertDialog",
-        "ReFlySessionMarker",
-        "RecordingStore",
-        "RevertTarget",
-        "RewindInvoker",
-        "RewindPoint",
-        "SupersedeCommit"
-      ],
-      "referencedBy": [
-        "RevertToLaunchInterceptor",
-        "RevertToPrelaunchInterceptor"
-      ]
-    },
-    {
-      "name": "RevertKind",
-      "module": "Core",
-      "file": "RevertDetector.cs",
-      "kind": "enum",
-      "modifiers": [
-        "internal"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "enum",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 1,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "ParsekScenario",
-        "RevertDetector"
-      ]
-    },
-    {
-      "name": "RevertTarget",
-      "module": "Core",
-      "file": "RevertInterceptor.cs",
-      "kind": "enum",
-      "modifiers": [
-        "internal"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "enum",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 1,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "ReFlyRevertDialog",
-        "RevertInterceptor",
-        "RevertToLaunchInterceptor",
-        "RevertToPrelaunchInterceptor"
-      ]
-    },
-    {
-      "name": "RevertToLaunchInterceptor",
-      "module": "Core",
-      "file": "RevertInterceptor.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "entry",
-      "level": 10,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 0,
-      "fanOut": 2,
-      "referencesTo": [
-        "RevertInterceptor",
-        "RevertTarget"
-      ],
-      "referencedBy": []
-    },
-    {
-      "name": "RevertToPrelaunchInterceptor",
-      "module": "Core",
-      "file": "RevertInterceptor.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "entry",
-      "level": 10,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 0,
-      "fanOut": 2,
-      "referencesTo": [
-        "RevertInterceptor",
-        "RevertTarget"
-      ],
-      "referencedBy": []
-    },
-    {
-      "name": "RewindTarget",
-      "module": "Core",
-      "file": "WarpToTimeController.cs",
-      "kind": "struct",
-      "modifiers": [
-        "internal",
-        "readonly"
-      ],
-      "bases": [],
-      "enclosing": "WarpToTimeController",
-      "role": "data",
-      "level": 1,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 0,
-      "fanOut": 2,
-      "referencesTo": [
-        "Kind",
-        "RewindTargetKind"
-      ],
-      "referencedBy": [
-        "WarpToTimeController"
-      ]
-    },
-    {
-      "name": "RewindTargetKind",
-      "module": "Core",
-      "file": "WarpToTimeController.cs",
-      "kind": "enum",
-      "modifiers": [
-        "internal"
-      ],
-      "bases": [],
-      "enclosing": "WarpToTimeController",
-      "role": "enum",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 1,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "RewindTarget",
-        "TimelineWindowUI",
-        "WarpToTimeController"
-      ]
-    },
-    {
-      "name": "SaveKerbal",
-      "module": "Core",
-      "file": "LedgerGroundTruth.cs",
-      "kind": "struct",
-      "modifiers": [
-        "internal"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "data",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 1,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "CareerSaveParser",
-        "CareerSaveSnapshot"
-      ]
-    },
-    {
-      "name": "SaveStrategy",
-      "module": "Core",
-      "file": "LedgerGroundTruth.cs",
-      "kind": "struct",
-      "modifiers": [
-        "internal"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "data",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 1,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "CareerSaveParser",
-        "CareerSaveSnapshot"
-      ]
-    },
-    {
-      "name": "SaveVessel",
-      "module": "Core",
-      "file": "LedgerGroundTruth.cs",
-      "kind": "struct",
-      "modifiers": [
-        "internal"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "data",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 1,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "CareerSaveParser",
-        "CareerSaveSnapshot"
-      ]
-    },
-    {
-      "name": "SceneExitInterceptor",
-      "module": "Core",
-      "file": "SceneExitInterceptor.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 8,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 0,
-      "fanOut": 9,
-      "referencesTo": [
-        "DialogVariant",
-        "ParsekFlight",
-        "ParsekLog",
-        "ParsekScenario",
-        "PendingTreeState",
-        "RecordingStore",
-        "RecordingTree",
-        "SwitchSegmentDisposition",
-        "SwitchSegmentSession"
-      ],
-      "referencedBy": [
-        "HighLogic_LoadScene_Patch"
-      ]
-    },
-    {
-      "name": "SeamMessageAccumulator",
-      "module": "Core",
-      "file": "LoopSeamMarkerRuntime.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "sealed"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "service",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 1,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "ParsekPlaybackPolicy"
-      ]
-    },
-    {
-      "name": "SegmentPhaseClassifier",
-      "module": "Core",
-      "file": "SegmentPhaseClassifier.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 7,
-      "knot": 1,
-      "sublevel": 19,
-      "fanIn": 4,
-      "fanOut": 2,
-      "referencesTo": [
-        "FlightRecorder",
-        "SegmentEnvironment"
-      ],
-      "referencedBy": [
-        "ChainSegmentManager",
-        "ParsekFlight",
-        "PhaseFactory",
-        "RecordingOptimizer"
-      ]
-    },
-    {
-      "name": "SessionMerger",
-      "module": "Core",
-      "file": "SessionMerger.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 7,
-      "knot": 1,
-      "sublevel": 20,
-      "fanIn": 1,
-      "fanOut": 16,
-      "referencesTo": [
-        "AnchorKey",
-        "BoundaryDiscontinuityMeasurement",
-        "ControllerInfo",
-        "FlightRecorder",
-        "OrbitSegment",
-        "OrbitSegmentCheckpointBridge",
-        "ParsekLog",
-        "PartEvent",
-        "Recording",
-        "RecordingStore",
-        "RecordingTree",
-        "ReferenceFrame",
-        "SegmentEvent",
-        "TrackSection",
-        "TrackSectionSource",
-        "TrajectoryPoint"
-      ],
-      "referencedBy": [
-        "RecordingStore"
-      ]
-    },
-    {
-      "name": "SidecarFileCommitBatch",
-      "module": "Core",
-      "file": "SidecarFileCommitBatch.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 7,
-      "knot": 1,
-      "sublevel": 1,
-      "fanIn": 1,
-      "fanOut": 3,
-      "referencesTo": [
-        "CommittedChange",
-        "ParsekLog",
-        "StagedChange"
-      ],
-      "referencedBy": [
-        "RecordingSidecarStore"
-      ]
-    },
-    {
-      "name": "SmoothingConfiguration",
-      "module": "Core",
-      "file": "PannotationsSidecarBinary.cs",
-      "kind": "struct",
-      "modifiers": [
-        "internal"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "data",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 1,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "PannotationsSidecarBinary",
-        "SmoothingPipeline"
-      ]
-    },
-    {
-      "name": "SnapshotSidecarCodec",
-      "module": "Core",
-      "file": "SnapshotSidecarCodec.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 7,
-      "knot": 1,
-      "sublevel": 4,
-      "fanIn": 2,
-      "fanOut": 4,
-      "referencesTo": [
-        "FileIOUtils",
-        "RecordingStore",
-        "SnapshotSidecarEncoding",
-        "SnapshotSidecarProbe"
-      ],
-      "referencedBy": [
-        "RecordingSidecarStore",
-        "RecordingStore"
-      ]
-    },
-    {
-      "name": "SnapshotSidecarEncoding",
-      "module": "Core",
-      "file": "SnapshotSidecarCodec.cs",
-      "kind": "enum",
-      "modifiers": [
-        "internal"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "enum",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 0,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "SnapshotSidecarCodec",
-        "SnapshotSidecarProbe"
-      ]
-    },
-    {
-      "name": "SnapshotSidecarProbe",
-      "module": "Core",
-      "file": "SnapshotSidecarCodec.cs",
-      "kind": "struct",
-      "modifiers": [
-        "internal"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "data",
-      "level": 1,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 2,
-      "fanOut": 1,
-      "referencesTo": [
-        "SnapshotSidecarEncoding"
-      ],
-      "referencedBy": [
-        "RecordingSidecarStore",
-        "RecordingStore",
-        "SnapshotSidecarCodec"
-      ]
-    },
-    {
-      "name": "SpawnCollisionDetector",
-      "module": "Core",
-      "file": "SpawnCollisionDetector.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 7,
-      "knot": 1,
-      "sublevel": 19,
-      "fanIn": 4,
-      "fanOut": 6,
-      "referencesTo": [
-        "DeOverlapResult",
-        "GhostMapPresence",
-        "ParsekLog",
-        "Recording",
-        "TrajectoryMath",
-        "TrajectoryPoint"
-      ],
-      "referencedBy": [
-        "ParsekFlight",
-        "ParsekKSC",
-        "VesselGhoster",
-        "VesselSpawner"
-      ]
-    },
-    {
-      "name": "SpawnWarningUI",
-      "module": "Core",
-      "file": "SpawnWarningUI.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 7,
-      "knot": 1,
-      "sublevel": 1,
-      "fanIn": 1,
-      "fanOut": 2,
-      "referencesTo": [
-        "GhostChain",
-        "ParsekLog"
-      ],
-      "referencedBy": [
-        "ParsekFlight"
-      ]
-    },
-    {
       "name": "SpawnableClassification",
       "module": "Core",
       "file": "VesselSpawner.cs",
@@ -5759,141 +3504,6 @@
       "referencedBy": [
         "VesselSpawner"
       ]
-    },
-    {
-      "name": "SpriteAtlasRecord",
-      "module": "Core",
-      "file": "MapMarkerRenderer.cs",
-      "kind": "struct",
-      "modifiers": [
-        "internal",
-        "readonly"
-      ],
-      "bases": [],
-      "enclosing": "MapMarkerRenderer",
-      "role": "data",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 0,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "MapMarkerRenderer"
-      ]
-    },
-    {
-      "name": "StagedChange",
-      "module": "Core",
-      "file": "SidecarFileCommitBatch.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "sealed"
-      ],
-      "bases": [],
-      "enclosing": "SidecarFileCommitBatch",
-      "role": "data",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 1,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "CommittedChange",
-        "RecordingSidecarStore",
-        "SidecarFileCommitBatch"
-      ]
-    },
-    {
-      "name": "StockUiOverlayController",
-      "module": "Core",
-      "file": "StockUiOverlayController.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "sealed"
-      ],
-      "bases": [
-        "MonoBehaviour"
-      ],
-      "enclosing": null,
-      "role": "entry",
-      "level": 9,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 0,
-      "fanOut": 16,
-      "referencesTo": [
-        "ApplicantOverlayKind",
-        "ApplicantOverlayMark",
-        "ContractOverlayMark",
-        "EventOverlayMark",
-        "GameStateEvent",
-        "GameStateEventType",
-        "GameStateStore",
-        "KerbalReservationKind",
-        "Kind",
-        "LedgerOrchestrator",
-        "MilestoneStore",
-        "MissionSelection",
-        "OverlayBadge",
-        "ParsekLog",
-        "Recording",
-        "TechNodeOverlayMark"
-      ],
-      "referencedBy": []
-    },
-    {
-      "name": "StockWarpAltitudeLimits",
-      "module": "Core",
-      "file": "StockWarpAltitudeLimits.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 7,
-      "knot": 1,
-      "sublevel": 1,
-      "fanIn": 1,
-      "fanOut": 1,
-      "referencesTo": [
-        "ParsekLog"
-      ],
-      "referencedBy": [
-        "FlightRecorder",
-        "StockWarpAltitudeLimitsCapture"
-      ]
-    },
-    {
-      "name": "StockWarpAltitudeLimitsCapture",
-      "module": "Core",
-      "file": "StockWarpAltitudeLimits.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "sealed"
-      ],
-      "bases": [
-        "MonoBehaviour"
-      ],
-      "enclosing": null,
-      "role": "entry",
-      "level": 8,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 0,
-      "fanOut": 2,
-      "referencesTo": [
-        "ParsekLog",
-        "StockWarpAltitudeLimits"
-      ],
-      "referencedBy": []
     },
     {
       "name": "SurfaceRepairCoordinateSource",
@@ -5916,434 +3526,6 @@
       ],
       "referencedBy": [
         "VesselSpawner"
-      ]
-    },
-    {
-      "name": "TailLiftPlan",
-      "module": "Core",
-      "file": "TerrainCorrector.cs",
-      "kind": "struct",
-      "modifiers": [
-        "internal",
-        "readonly"
-      ],
-      "bases": [],
-      "enclosing": "TerrainCorrector",
-      "role": "data",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 2,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "ParsekFlight",
-        "TerrainCorrector"
-      ]
-    },
-    {
-      "name": "TechNodeOverlayMark",
-      "module": "Core",
-      "file": "StockUiOverlayController.cs",
-      "kind": "struct",
-      "modifiers": [
-        "internal"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "data",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 0,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "StockUiOverlayController"
-      ]
-    },
-    {
-      "name": "TerrainCorrector",
-      "module": "Core",
-      "file": "TerrainCorrector.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 7,
-      "knot": 1,
-      "sublevel": 1,
-      "fanIn": 3,
-      "fanOut": 3,
-      "referencesTo": [
-        "ParsekLog",
-        "TailLiftPlan",
-        "TerminalState"
-      ],
-      "referencedBy": [
-        "ParsekFlight",
-        "VesselGhoster"
-      ]
-    },
-    {
-      "name": "TestBatchMarker",
-      "module": "Core",
-      "file": "TestBatchMarker.cs",
-      "kind": "class",
-      "modifiers": [
-        "public"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "service",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 1,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "ParsekScenario"
-      ]
-    },
-    {
-      "name": "TimeJumpManager",
-      "module": "Core",
-      "file": "TimeJumpManager.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 7,
-      "knot": 1,
-      "sublevel": 19,
-      "fanIn": 8,
-      "fanOut": 13,
-      "referencesTo": [
-        "EffectiveState",
-        "FlightRecorder",
-        "GhostChain",
-        "GhostMapPresence",
-        "GhostPlaybackEngine",
-        "LedgerOrchestrator",
-        "ParsekLog",
-        "PlaybackScopeTracker",
-        "Recording",
-        "RecordingStore",
-        "SegmentEvent",
-        "SegmentEventType",
-        "VesselGhoster"
-      ],
-      "referencedBy": [
-        "MissionsWindowUI",
-        "ParsekFlight",
-        "ParsekTrackingStation",
-        "RecordingsTableUI",
-        "VesselSpawner",
-        "WarpToTimeConsumer",
-        "WarpToTimeController"
-      ]
-    },
-    {
-      "name": "TraceSeparation",
-      "module": "Core",
-      "file": "TraceSeparation.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 7,
-      "knot": 1,
-      "sublevel": 1,
-      "fanIn": 3,
-      "fanOut": 2,
-      "referencesTo": [
-        "ParsekLog",
-        "TrajectoryPoint"
-      ],
-      "referencedBy": [
-        "BackgroundRecorder",
-        "FlightRecorder",
-        "ParsekFlight"
-      ]
-    },
-    {
-      "name": "TreeDiscardPurge",
-      "module": "Core",
-      "file": "TreeDiscardPurge.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 7,
-      "knot": 1,
-      "sublevel": 20,
-      "fanIn": 1,
-      "fanOut": 11,
-      "referencesTo": [
-        "CrewReservationManager",
-        "Ledger",
-        "ParsekLog",
-        "ParsekScenario",
-        "ReFlyRevertButtonGate",
-        "RecordingPaths",
-        "RecordingStore",
-        "RecordingTree",
-        "RecordingsTableUI",
-        "RewindPoint",
-        "SupersedeCommit"
-      ],
-      "referencedBy": [
-        "RecordingStore"
-      ]
-    },
-    {
-      "name": "UnfinishedFlightClassifier",
-      "module": "Core",
-      "file": "UnfinishedFlightClassifier.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 7,
-      "knot": 1,
-      "sublevel": 19,
-      "fanIn": 6,
-      "fanOut": 11,
-      "referencesTo": [
-        "ChildSlot",
-        "EffectiveState",
-        "MergeState",
-        "ParsekLog",
-        "ParsekScenario",
-        "Recording",
-        "RecordingSupersedeRelation",
-        "RecordingTree",
-        "RewindPoint",
-        "SupersedeCommit",
-        "TerminalState"
-      ],
-      "referencedBy": [
-        "EffectiveState",
-        "RecordingStore",
-        "RecordingsTableUI",
-        "SupersedeCommit",
-        "UnfinishedFlightSealHandler",
-        "UnfinishedFlightStashHandler"
-      ]
-    },
-    {
-      "name": "UnfinishedFlightSealHandler",
-      "module": "Core",
-      "file": "UnfinishedFlightSealHandler.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 7,
-      "knot": 1,
-      "sublevel": 19,
-      "fanIn": 2,
-      "fanOut": 9,
-      "referencesTo": [
-        "EffectiveState",
-        "MergeState",
-        "ParsekLog",
-        "ParsekScenario",
-        "Recording",
-        "RecordingSupersedeRelation",
-        "RewindPoint",
-        "RewindPointReaper",
-        "UnfinishedFlightClassifier"
-      ],
-      "referencedBy": [
-        "MergeDialog",
-        "RecordingsTableUI"
-      ]
-    },
-    {
-      "name": "UnfinishedFlightStashHandler",
-      "module": "Core",
-      "file": "UnfinishedFlightStashHandler.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 7,
-      "knot": 1,
-      "sublevel": 19,
-      "fanIn": 1,
-      "fanOut": 9,
-      "referencesTo": [
-        "EffectiveState",
-        "MergeState",
-        "ParsekLog",
-        "ParsekScenario",
-        "Recording",
-        "RecordingSupersedeRelation",
-        "RewindPoint",
-        "RewindPointReaper",
-        "UnfinishedFlightClassifier"
-      ],
-      "referencedBy": [
-        "RecordingsTableUI"
-      ]
-    },
-    {
-      "name": "VesselDeathEvidence",
-      "module": "Core",
-      "file": "VesselDisassemblyClassifier.cs",
-      "kind": "struct",
-      "modifiers": [
-        "internal"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "data",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 1,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "ParsekFlight",
-        "VesselDisassemblyClassifier"
-      ]
-    },
-    {
-      "name": "VesselDeathKind",
-      "module": "Core",
-      "file": "VesselDisassemblyClassifier.cs",
-      "kind": "enum",
-      "modifiers": [
-        "internal"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "enum",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 1,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "ParsekFlight",
-        "VesselDisassemblyClassifier"
-      ]
-    },
-    {
-      "name": "VesselDisassemblyClassifier",
-      "module": "Core",
-      "file": "VesselDisassemblyClassifier.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 7,
-      "knot": 1,
-      "sublevel": 1,
-      "fanIn": 1,
-      "fanOut": 3,
-      "referencesTo": [
-        "ParsekLog",
-        "VesselDeathEvidence",
-        "VesselDeathKind"
-      ],
-      "referencedBy": [
-        "ParsekFlight"
-      ]
-    },
-    {
-      "name": "VesselGhoster",
-      "module": "Core",
-      "file": "VesselGhoster.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "service",
-      "level": 7,
-      "knot": 1,
-      "sublevel": 19,
-      "fanIn": 2,
-      "fanOut": 14,
-      "referencesTo": [
-        "EffectiveState",
-        "FlightRecorder",
-        "GhostChain",
-        "GhostExtender",
-        "GhostExtensionStrategy",
-        "GhostedVesselInfo",
-        "ParsekLog",
-        "Recording",
-        "RecordingEndpointResolver",
-        "SpawnCollisionDetector",
-        "TerrainCorrector",
-        "TrajectoryPoint",
-        "VesselSnapshot",
-        "VesselSpawner"
-      ],
-      "referencedBy": [
-        "ParsekFlight",
-        "TimeJumpManager"
-      ]
-    },
-    {
-      "name": "VesselIconEntry",
-      "module": "Core",
-      "file": "MapMarkerRenderer.cs",
-      "kind": "struct",
-      "modifiers": [
-        "internal",
-        "readonly"
-      ],
-      "bases": [],
-      "enclosing": "MapMarkerRenderer",
-      "role": "data",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 0,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "MapMarkerRenderer"
       ]
     },
     {
@@ -6475,209 +3657,6 @@
         "RouteProofCodec",
         "StructureListWindowUI",
         "VesselGhoster"
-      ]
-    },
-    {
-      "name": "WarpFieldKind",
-      "module": "Core",
-      "file": "WarpToTimeMath.cs",
-      "kind": "enum",
-      "modifiers": [
-        "internal"
-      ],
-      "bases": [],
-      "enclosing": "WarpToTimeMath",
-      "role": "enum",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 1,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "TimelineWindowUI",
-        "WarpToTimeMath"
-      ]
-    },
-    {
-      "name": "WarpPlan",
-      "module": "Core",
-      "file": "WarpToTimeMath.cs",
-      "kind": "struct",
-      "modifiers": [
-        "internal",
-        "readonly"
-      ],
-      "bases": [],
-      "enclosing": "WarpToTimeMath",
-      "role": "data",
-      "level": 1,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 1,
-      "fanOut": 2,
-      "referencesTo": [
-        "Kind",
-        "WarpPlanKind"
-      ],
-      "referencedBy": [
-        "WarpToTimeController",
-        "WarpToTimeMath"
-      ]
-    },
-    {
-      "name": "WarpPlanKind",
-      "module": "Core",
-      "file": "WarpToTimeMath.cs",
-      "kind": "enum",
-      "modifiers": [
-        "internal"
-      ],
-      "bases": [],
-      "enclosing": "WarpToTimeMath",
-      "role": "enum",
-      "level": 0,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 2,
-      "fanOut": 0,
-      "referencesTo": [],
-      "referencedBy": [
-        "TimelineWindowUI",
-        "WarpPlan",
-        "WarpToTimeController",
-        "WarpToTimeMath"
-      ]
-    },
-    {
-      "name": "WarpToTimeConsumer",
-      "module": "Core",
-      "file": "WarpToTimeConsumer.cs",
-      "kind": "class",
-      "modifiers": [
-        "public"
-      ],
-      "bases": [
-        "MonoBehaviour"
-      ],
-      "enclosing": null,
-      "role": "entry",
-      "level": 7,
-      "knot": 1,
-      "sublevel": 19,
-      "fanIn": 2,
-      "fanOut": 9,
-      "referencesTo": [
-        "CareerStartSnapshot",
-        "EffectiveState",
-        "ParsekLog",
-        "ParsekTimeFormat",
-        "RecordingStore",
-        "TimeJumpManager",
-        "WarpToTimeController",
-        "WarpToTimeMath",
-        "WarpToTimeRequest"
-      ],
-      "referencedBy": [
-        "LedgerOrchestrator",
-        "WarpToTimeController"
-      ]
-    },
-    {
-      "name": "WarpToTimeController",
-      "module": "Core",
-      "file": "WarpToTimeController.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 7,
-      "knot": 1,
-      "sublevel": 19,
-      "fanIn": 2,
-      "fanOut": 17,
-      "referencesTo": [
-        "CareerStartSnapshot",
-        "EffectiveState",
-        "Kind",
-        "ParsekFlight",
-        "ParsekLog",
-        "ParsekScenario",
-        "ParsekTimeFormat",
-        "Recording",
-        "RecordingStore",
-        "RewindTarget",
-        "RewindTargetKind",
-        "TimeJumpManager",
-        "WarpPlan",
-        "WarpPlanKind",
-        "WarpToTimeConsumer",
-        "WarpToTimeMath",
-        "WarpToTimeRequest"
-      ],
-      "referencedBy": [
-        "TimelineWindowUI",
-        "WarpToTimeConsumer"
-      ]
-    },
-    {
-      "name": "WarpToTimeMath",
-      "module": "Core",
-      "file": "WarpToTimeMath.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 2,
-      "knot": null,
-      "sublevel": null,
-      "fanIn": 3,
-      "fanOut": 4,
-      "referencesTo": [
-        "ParsekTimeFormat",
-        "WarpFieldKind",
-        "WarpPlan",
-        "WarpPlanKind"
-      ],
-      "referencedBy": [
-        "TimelineWindowUI",
-        "WarpToTimeConsumer",
-        "WarpToTimeController"
-      ]
-    },
-    {
-      "name": "WarpToTimeRequest",
-      "module": "Core",
-      "file": "WarpToTimeRequest.cs",
-      "kind": "class",
-      "modifiers": [
-        "internal",
-        "static"
-      ],
-      "bases": [],
-      "enclosing": null,
-      "role": "static",
-      "level": 7,
-      "knot": 1,
-      "sublevel": 1,
-      "fanIn": 3,
-      "fanOut": 2,
-      "referencesTo": [
-        "ParsekLog",
-        "ParsekProcess"
-      ],
-      "referencedBy": [
-        "TimelineWindowUI",
-        "WarpToTimeConsumer",
-        "WarpToTimeController"
       ]
     },
     {
@@ -6843,19 +3822,15 @@
       "level": 0,
       "knot": null,
       "sublevel": null,
-      "fanIn": 5,
+      "fanIn": 2,
       "fanOut": 0,
       "referencesTo": [],
       "referencedBy": [
-        "CareerSaveParser",
-        "CareerSaveSnapshot",
         "GameStateRecorder",
         "IKerbalRosterFacade",
         "KerbalCareerEntries",
         "KerbalRosterFacade",
-        "KerbalsModule",
-        "LedgerGroundTruthDiff",
-        "LedgerReconstructionSnapshot"
+        "KerbalsModule"
       ]
     },
     {
@@ -7465,6 +4440,80 @@
       "referencedBy": [
         "Driver",
         "GhostTrajectoryPolylineRenderer"
+      ]
+    },
+    {
+      "name": "ForwardRenderWindow",
+      "module": "Display",
+      "file": "ForwardRenderWindow.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "static",
+      "level": 7,
+      "knot": 1,
+      "sublevel": 1,
+      "fanIn": 1,
+      "fanOut": 4,
+      "referencesTo": [
+        "ForwardStopReason",
+        "ForwardWindow",
+        "OrbitSegment",
+        "ParsekLog"
+      ],
+      "referencedBy": [
+        "Driver",
+        "GhostTrajectoryPolylineRenderer"
+      ]
+    },
+    {
+      "name": "ForwardStopReason",
+      "module": "Display",
+      "file": "ForwardRenderWindow.cs",
+      "kind": "enum",
+      "modifiers": [
+        "internal"
+      ],
+      "bases": [],
+      "enclosing": "ForwardRenderWindow",
+      "role": "enum",
+      "level": 0,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 0,
+      "fanOut": 0,
+      "referencesTo": [],
+      "referencedBy": [
+        "ForwardRenderWindow",
+        "ForwardWindow"
+      ]
+    },
+    {
+      "name": "ForwardWindow",
+      "module": "Display",
+      "file": "ForwardRenderWindow.cs",
+      "kind": "struct",
+      "modifiers": [
+        "internal"
+      ],
+      "bases": [],
+      "enclosing": "ForwardRenderWindow",
+      "role": "data",
+      "level": 1,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 1,
+      "fanOut": 1,
+      "referencesTo": [
+        "ForwardStopReason"
+      ],
+      "referencedBy": [
+        "Driver",
+        "ForwardRenderWindow"
       ]
     },
     {
@@ -8374,7 +5423,7 @@
       "level": 7,
       "knot": 1,
       "sublevel": 19,
-      "fanIn": 3,
+      "fanIn": 2,
       "fanOut": 7,
       "referencesTo": [
         "FacilitiesModule",
@@ -8387,7 +5436,6 @@
       ],
       "referencedBy": [
         "KspStatePatcher",
-        "LedgerGroundTruthDiff",
         "LedgerOrchestrator"
       ]
     },
@@ -9771,6 +6819,28 @@
       ]
     },
     {
+      "name": "LedgerStructuralSnapshot",
+      "module": "GameActions",
+      "file": "LedgerTrace.cs",
+      "kind": "struct",
+      "modifiers": [
+        "internal"
+      ],
+      "bases": [],
+      "enclosing": "LedgerTrace",
+      "role": "data",
+      "level": 0,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 1,
+      "fanOut": 0,
+      "referencesTo": [],
+      "referencedBy": [
+        "LedgerOrchestrator",
+        "LedgerTrace"
+      ]
+    },
+    {
       "name": "LedgerTombstone",
       "module": "GameActions",
       "file": "GameActions/LedgerTombstone.cs",
@@ -9796,6 +6866,34 @@
       ]
     },
     {
+      "name": "LedgerTrace",
+      "module": "GameActions",
+      "file": "LedgerTrace.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "static",
+      "level": 7,
+      "knot": 1,
+      "sublevel": 2,
+      "fanIn": 3,
+      "fanOut": 3,
+      "referencesTo": [
+        "LedgerStructuralSnapshot",
+        "ParsekLog",
+        "ParsekSettings"
+      ],
+      "referencedBy": [
+        "FacilityStatePatcher",
+        "KspStatePatcher",
+        "LedgerOrchestrator"
+      ]
+    },
+    {
       "name": "Milestone",
       "module": "GameActions",
       "file": "Milestone.cs",
@@ -9809,16 +6907,14 @@
       "level": 7,
       "knot": 1,
       "sublevel": 2,
-      "fanIn": 10,
+      "fanIn": 8,
       "fanOut": 1,
       "referencesTo": [
         "GameStateEvent"
       ],
       "referencedBy": [
-        "DivergenceFacet",
         "FundsEarningSource",
         "GameActionDisplay",
-        "LedgerGroundTruthDiff",
         "MilestoneStore",
         "PostWalkActionReconciler",
         "ReconciliationBundle",
@@ -11600,6 +8696,79 @@
       ]
     },
     {
+      "name": "DeOverlapResult",
+      "module": "Ghost",
+      "file": "SpawnCollisionDetector.cs",
+      "kind": "struct",
+      "modifiers": [
+        "internal"
+      ],
+      "bases": [],
+      "enclosing": "SpawnCollisionDetector",
+      "role": "data",
+      "level": 0,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 0,
+      "fanOut": 0,
+      "referencesTo": [],
+      "referencedBy": [
+        "SpawnCollisionDetector"
+      ]
+    },
+    {
+      "name": "DebrisRelativeCoverageMode",
+      "module": "Ghost",
+      "file": "DebrisRelativeCoveragePrimitives.cs",
+      "kind": "enum",
+      "modifiers": [
+        "internal"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "enum",
+      "level": 0,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 3,
+      "fanOut": 0,
+      "referencesTo": [],
+      "referencedBy": [
+        "DebrisRelativeCoveragePrimitives",
+        "DebrisRelativePlaybackPolicy",
+        "DebrisRelativeRecorderPolicy",
+        "GhostPlaybackEngine"
+      ]
+    },
+    {
+      "name": "DebrisRelativeCoveragePrimitives",
+      "module": "Ghost",
+      "file": "DebrisRelativeCoveragePrimitives.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "static",
+      "level": 1,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 3,
+      "fanOut": 3,
+      "referencesTo": [
+        "DebrisRelativeCoverageMode",
+        "OrbitSegment",
+        "TrajectoryPoint"
+      ],
+      "referencedBy": [
+        "DebrisRelativePlaybackPolicy",
+        "DebrisRelativeRecorderPolicy",
+        "ProductionAnchorWorldFrameResolver"
+      ]
+    },
+    {
       "name": "DeployableGhostInfo",
       "module": "Ghost",
       "file": "GhostTypes.cs",
@@ -11673,6 +8842,40 @@
       "referencedBy": [
         "GhostPlaybackEngine",
         "GhostPlaybackLogic"
+      ]
+    },
+    {
+      "name": "EngineFxBuilder",
+      "module": "Ghost",
+      "file": "EngineFxBuilder.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "static",
+      "level": 7,
+      "knot": 1,
+      "sublevel": 19,
+      "fanIn": 1,
+      "fanOut": 11,
+      "referencesTo": [
+        "EngineGhostInfo",
+        "GhostFxEmissionProbe",
+        "GhostVisualBuilder",
+        "ModelFxConfigEntry",
+        "ParsekLog",
+        "PrefabFxConfigEntry",
+        "PrefabParticleRotationMode",
+        "PristinePartFxData",
+        "PristinePartFxResolver",
+        "ReStockPatchFxIndex",
+        "WaterfallCompat"
+      ],
+      "referencedBy": [
+        "GhostVisualBuilder"
       ]
     },
     {
@@ -11880,6 +9083,30 @@
       "referencesTo": [],
       "referencedBy": [
         "GhostPlaybackLogic"
+      ]
+    },
+    {
+      "name": "FlightGlobalsBodyPoseSource",
+      "module": "Ghost",
+      "file": "RecordedRelativeAnchorPoseResolver.cs",
+      "kind": "class",
+      "modifiers": [
+        "private",
+        "sealed"
+      ],
+      "bases": [
+        "IAnchorBodyPoseSource"
+      ],
+      "enclosing": "RecordedRelativeAnchorPoseResolver",
+      "role": "implements",
+      "level": 0,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 0,
+      "fanOut": 0,
+      "referencesTo": [],
+      "referencedBy": [
+        "RecordedRelativeAnchorPoseResolver"
       ]
     },
     {
@@ -13018,7 +10245,7 @@
       "knot": 1,
       "sublevel": 19,
       "fanIn": 2,
-      "fanOut": 13,
+      "fanOut": 14,
       "referencesTo": [
         "GhostPlaybackState",
         "IPlaybackTrajectory",
@@ -13029,6 +10256,7 @@
         "ReferenceFrame",
         "SectionContext",
         "SegmentEnvironment",
+        "TraceState",
         "TrackSection",
         "TrackSectionSource",
         "TrajectoryMath",
@@ -13164,6 +10392,27 @@
       "referencesTo": [],
       "referencedBy": [
         "GhostPlaybackEngine"
+      ]
+    },
+    {
+      "name": "GhostedVesselInfo",
+      "module": "Ghost",
+      "file": "VesselGhoster.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal"
+      ],
+      "bases": [],
+      "enclosing": "VesselGhoster",
+      "role": "data",
+      "level": 0,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 0,
+      "fanOut": 0,
+      "referencesTo": [],
+      "referencedBy": [
+        "VesselGhoster"
       ]
     },
     {
@@ -13315,6 +10564,27 @@
       "referencedBy": [
         "GhostVisualBuilder",
         "HeatGhostInfo"
+      ]
+    },
+    {
+      "name": "IAnchorBodyPoseSource",
+      "module": "Ghost",
+      "file": "RecordedRelativeAnchorPoseResolver.cs",
+      "kind": "interface",
+      "modifiers": [
+        "internal"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "interface",
+      "level": 0,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 0,
+      "fanOut": 0,
+      "referencesTo": [],
+      "referencedBy": [
+        "RecordedRelativeAnchorPoseResolver"
       ]
     },
     {
@@ -13590,6 +10860,68 @@
       ]
     },
     {
+      "name": "LoopSeamMarkerBuilder",
+      "module": "Ghost",
+      "file": "LoopSeamMarkerBuilder.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "static",
+      "level": 7,
+      "knot": 1,
+      "sublevel": 12,
+      "fanIn": 1,
+      "fanOut": 13,
+      "referencesTo": [
+        "BranchPointType",
+        "DockEventGraph",
+        "DockEventNode",
+        "DockPartnerDescription",
+        "DockPartnerStatus",
+        "GhostPlaybackLogic",
+        "Kind",
+        "LoopSeamMarker",
+        "LoopTiming",
+        "LoopUnit",
+        "MemberWindow",
+        "ParsekLog",
+        "SeamMarkerKind"
+      ],
+      "referencedBy": [
+        "MissionLoopUnitBuilder"
+      ]
+    },
+    {
+      "name": "LoopSeamMarkerRuntime",
+      "module": "Ghost",
+      "file": "LoopSeamMarkerRuntime.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "sealed"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "service",
+      "level": 7,
+      "knot": 1,
+      "sublevel": 10,
+      "fanIn": 1,
+      "fanOut": 3,
+      "referencesTo": [
+        "GhostPlaybackLogic",
+        "LoopSeamMarker",
+        "MemberState"
+      ],
+      "referencedBy": [
+        "GhostPlaybackEngine"
+      ]
+    },
+    {
       "name": "LoopUnit",
       "module": "Ghost",
       "file": "GhostPlaybackLogic.SpanClock.cs",
@@ -13683,6 +11015,51 @@
       ]
     },
     {
+      "name": "MaterialCleanup",
+      "module": "Ghost",
+      "file": "MaterialCleanup.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal"
+      ],
+      "bases": [
+        "MonoBehaviour"
+      ],
+      "enclosing": null,
+      "role": "entry",
+      "level": 0,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 1,
+      "fanOut": 0,
+      "referencesTo": [],
+      "referencedBy": [
+        "GhostVisualBuilder"
+      ]
+    },
+    {
+      "name": "MemberState",
+      "module": "Ghost",
+      "file": "LoopSeamMarkerRuntime.cs",
+      "kind": "class",
+      "modifiers": [
+        "private",
+        "sealed"
+      ],
+      "bases": [],
+      "enclosing": "LoopSeamMarkerRuntime",
+      "role": "data",
+      "level": 0,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 0,
+      "fanOut": 0,
+      "referencesTo": [],
+      "referencedBy": [
+        "LoopSeamMarkerRuntime"
+      ]
+    },
+    {
       "name": "MemberWindow",
       "module": "Ghost",
       "file": "GhostPlaybackLogic.SpanClock.cs",
@@ -13707,6 +11084,27 @@
         "MissionCrossTreeDock",
         "MissionLoopUnitBuilder",
         "MissionPeriodicity"
+      ]
+    },
+    {
+      "name": "ModelFxConfigEntry",
+      "module": "Ghost",
+      "file": "EngineFxBuilder.cs",
+      "kind": "struct",
+      "modifiers": [
+        "internal"
+      ],
+      "bases": [],
+      "enclosing": "EngineFxBuilder",
+      "role": "data",
+      "level": 0,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 0,
+      "fanOut": 0,
+      "referencesTo": [],
+      "referencedBy": [
+        "EngineFxBuilder"
       ]
     },
     {
@@ -13911,6 +11309,132 @@
       ]
     },
     {
+      "name": "PlaybackOrbitDiagnostics",
+      "module": "Ghost",
+      "file": "PlaybackOrbitDiagnostics.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "static",
+      "level": 4,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 2,
+      "fanOut": 4,
+      "referencesTo": [
+        "IPlaybackTrajectory",
+        "OrbitSegment",
+        "ReferenceFrame",
+        "TrackSection"
+      ],
+      "referencedBy": [
+        "GhostMapPresence",
+        "ParsekFlight"
+      ]
+    },
+    {
+      "name": "PlaybackScopeTracker",
+      "module": "Ghost",
+      "file": "PlaybackScopeTracker.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "static",
+      "level": 0,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 5,
+      "fanOut": 0,
+      "referencesTo": [],
+      "referencedBy": [
+        "GhostMapPresence",
+        "ParsekFlight",
+        "ParsekKSC",
+        "ParsekScenario",
+        "TimeJumpManager"
+      ]
+    },
+    {
+      "name": "PlaybackTrace",
+      "module": "Ghost",
+      "file": "PlaybackTrace.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "static",
+      "level": 7,
+      "knot": 1,
+      "sublevel": 3,
+      "fanIn": 2,
+      "fanOut": 6,
+      "referencesTo": [
+        "IPlaybackTrajectory",
+        "ParsekLog",
+        "ReferenceFrame",
+        "TraceState",
+        "TrajectoryMath",
+        "TrajectoryPointFlags"
+      ],
+      "referencedBy": [
+        "GhostPlaybackEngine",
+        "GhostRenderTrace"
+      ]
+    },
+    {
+      "name": "PrefabFxConfigEntry",
+      "module": "Ghost",
+      "file": "EngineFxBuilder.cs",
+      "kind": "struct",
+      "modifiers": [
+        "internal"
+      ],
+      "bases": [],
+      "enclosing": "EngineFxBuilder",
+      "role": "data",
+      "level": 0,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 0,
+      "fanOut": 0,
+      "referencesTo": [],
+      "referencedBy": [
+        "EngineFxBuilder"
+      ]
+    },
+    {
+      "name": "PrefabParticleRotationMode",
+      "module": "Ghost",
+      "file": "EngineFxBuilder.cs",
+      "kind": "enum",
+      "modifiers": [
+        "internal"
+      ],
+      "bases": [],
+      "enclosing": "EngineFxBuilder",
+      "role": "enum",
+      "level": 0,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 0,
+      "fanOut": 0,
+      "referencesTo": [],
+      "referencedBy": [
+        "EngineFxBuilder"
+      ]
+    },
+    {
       "name": "PristinePartFxData",
       "module": "Ghost",
       "file": "PristinePartFxResolver.cs",
@@ -14064,6 +11588,48 @@
       "referencedBy": [
         "EngineFxBuilder",
         "GhostVisualBuilder"
+      ]
+    },
+    {
+      "name": "RecordedRelativeAnchorPoseResolver",
+      "module": "Ghost",
+      "file": "RecordedRelativeAnchorPoseResolver.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "static",
+      "level": 7,
+      "knot": 1,
+      "sublevel": 19,
+      "fanIn": 2,
+      "fanOut": 18,
+      "referencesTo": [
+        "AnchorPose",
+        "FlightGlobalsBodyPoseSource",
+        "IAnchorBodyPoseSource",
+        "IPlaybackTrajectory",
+        "OrbitSegment",
+        "ParsekFlight",
+        "ParsekScenario",
+        "Recording",
+        "RecordingStore",
+        "RecordingTree",
+        "ReferenceFrame",
+        "RelativeAnchorResolveFailure",
+        "RelativeAnchorResolveOutcome",
+        "RelativeAnchorResolver",
+        "RelativeAnchorResolverContext",
+        "TrackSection",
+        "TrajectoryMath",
+        "TrajectoryPoint"
+      ],
+      "referencedBy": [
+        "GhostMapPresence",
+        "ParsekKSC"
       ]
     },
     {
@@ -14250,6 +11816,28 @@
       ]
     },
     {
+      "name": "SeamMessageAccumulator",
+      "module": "Ghost",
+      "file": "LoopSeamMarkerRuntime.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "sealed"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "service",
+      "level": 0,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 1,
+      "fanOut": 0,
+      "referencesTo": [],
+      "referencedBy": [
+        "ParsekPlaybackPolicy"
+      ]
+    },
+    {
       "name": "SectionContext",
       "module": "Ghost",
       "file": "GhostRenderTrace.cs",
@@ -14394,6 +11982,63 @@
       ]
     },
     {
+      "name": "SpawnCollisionDetector",
+      "module": "Ghost",
+      "file": "SpawnCollisionDetector.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "static",
+      "level": 7,
+      "knot": 1,
+      "sublevel": 19,
+      "fanIn": 4,
+      "fanOut": 6,
+      "referencesTo": [
+        "DeOverlapResult",
+        "GhostMapPresence",
+        "ParsekLog",
+        "Recording",
+        "TrajectoryMath",
+        "TrajectoryPoint"
+      ],
+      "referencedBy": [
+        "ParsekFlight",
+        "ParsekKSC",
+        "VesselGhoster",
+        "VesselSpawner"
+      ]
+    },
+    {
+      "name": "SpawnWarningUI",
+      "module": "Ghost",
+      "file": "SpawnWarningUI.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "static",
+      "level": 7,
+      "knot": 1,
+      "sublevel": 1,
+      "fanIn": 1,
+      "fanOut": 2,
+      "referencesTo": [
+        "GhostChain",
+        "ParsekLog"
+      ],
+      "referencedBy": [
+        "ParsekFlight"
+      ]
+    },
+    {
       "name": "StateVectorWorldFrame",
       "module": "Ghost",
       "file": "GhostMapPresence.cs",
@@ -14487,6 +12132,79 @@
         "GhostPlaybackState",
         "GhostVisualBuilder",
         "PendingGhostVisualBuild"
+      ]
+    },
+    {
+      "name": "TailLiftPlan",
+      "module": "Ghost",
+      "file": "TerrainCorrector.cs",
+      "kind": "struct",
+      "modifiers": [
+        "internal",
+        "readonly"
+      ],
+      "bases": [],
+      "enclosing": "TerrainCorrector",
+      "role": "data",
+      "level": 0,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 2,
+      "fanOut": 0,
+      "referencesTo": [],
+      "referencedBy": [
+        "ParsekFlight",
+        "TerrainCorrector"
+      ]
+    },
+    {
+      "name": "TerrainCorrector",
+      "module": "Ghost",
+      "file": "TerrainCorrector.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "static",
+      "level": 7,
+      "knot": 1,
+      "sublevel": 1,
+      "fanIn": 3,
+      "fanOut": 3,
+      "referencesTo": [
+        "ParsekLog",
+        "TailLiftPlan",
+        "TerminalState"
+      ],
+      "referencedBy": [
+        "ParsekFlight",
+        "VesselGhoster"
+      ]
+    },
+    {
+      "name": "TraceState",
+      "module": "Ghost",
+      "file": "GhostRenderTrace.cs",
+      "kind": "struct",
+      "modifiers": [
+        "private",
+        "sealed"
+      ],
+      "bases": [],
+      "enclosing": "GhostRenderTrace",
+      "role": "data",
+      "level": 0,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 0,
+      "fanOut": 0,
+      "referencesTo": [],
+      "referencedBy": [
+        "GhostRenderTrace",
+        "PlaybackTrace"
       ]
     },
     {
@@ -14654,6 +12372,113 @@
       ]
     },
     {
+      "name": "VesselDeathEvidence",
+      "module": "Ghost",
+      "file": "VesselDisassemblyClassifier.cs",
+      "kind": "struct",
+      "modifiers": [
+        "internal"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "data",
+      "level": 0,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 1,
+      "fanOut": 0,
+      "referencesTo": [],
+      "referencedBy": [
+        "ParsekFlight",
+        "VesselDisassemblyClassifier"
+      ]
+    },
+    {
+      "name": "VesselDeathKind",
+      "module": "Ghost",
+      "file": "VesselDisassemblyClassifier.cs",
+      "kind": "enum",
+      "modifiers": [
+        "internal"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "enum",
+      "level": 0,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 1,
+      "fanOut": 0,
+      "referencesTo": [],
+      "referencedBy": [
+        "ParsekFlight",
+        "VesselDisassemblyClassifier"
+      ]
+    },
+    {
+      "name": "VesselDisassemblyClassifier",
+      "module": "Ghost",
+      "file": "VesselDisassemblyClassifier.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "static",
+      "level": 7,
+      "knot": 1,
+      "sublevel": 1,
+      "fanIn": 1,
+      "fanOut": 3,
+      "referencesTo": [
+        "ParsekLog",
+        "VesselDeathEvidence",
+        "VesselDeathKind"
+      ],
+      "referencedBy": [
+        "ParsekFlight"
+      ]
+    },
+    {
+      "name": "VesselGhoster",
+      "module": "Ghost",
+      "file": "VesselGhoster.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "service",
+      "level": 7,
+      "knot": 1,
+      "sublevel": 19,
+      "fanIn": 2,
+      "fanOut": 14,
+      "referencesTo": [
+        "EffectiveState",
+        "FlightRecorder",
+        "GhostChain",
+        "GhostExtender",
+        "GhostExtensionStrategy",
+        "GhostedVesselInfo",
+        "ParsekLog",
+        "Recording",
+        "RecordingEndpointResolver",
+        "SpawnCollisionDetector",
+        "TerrainCorrector",
+        "TrajectoryPoint",
+        "VesselSnapshot",
+        "VesselSpawner"
+      ],
+      "referencedBy": [
+        "ParsekFlight",
+        "TimeJumpManager"
+      ]
+    },
+    {
       "name": "WaterfallCompat",
       "module": "Ghost",
       "file": "WaterfallCompat.cs",
@@ -14736,13 +12561,12 @@
       "level": 7,
       "knot": 1,
       "sublevel": 1,
-      "fanIn": 15,
+      "fanIn": 14,
       "fanOut": 1,
       "referencesTo": [
         "ParsekLog"
       ],
       "referencedBy": [
-        "CareerStartSnapshot",
         "FlightRecorder",
         "GameStateStore",
         "Ledger",
@@ -14795,7 +12619,7 @@
       "level": 7,
       "knot": 1,
       "sublevel": 0,
-      "fanIn": 298,
+      "fanIn": 295,
       "fanOut": 6,
       "referencesTo": [
         "OnChangeState",
@@ -14814,8 +12638,6 @@
         "AstronautComplexHireRecruitPatch",
         "BackgroundRecorder",
         "BallisticExtrapolator",
-        "CareerSaveParser",
-        "CareerStartSnapshot",
         "CareerStateWindowUI",
         "ChainAssembler",
         "ChainSegmentManager",
@@ -14895,6 +12717,7 @@
         "GroupHierarchyStore",
         "GroupPickerUI",
         "GuiTreeRecorderPatches",
+        "Handlers",
         "HighLogic_LoadScene_Patch",
         "IncompleteBallisticSceneExitFinalizer",
         "KerbalDismissalPatch",
@@ -14907,7 +12730,6 @@
         "KscVesselMarkerFlyPatch",
         "KspStatePatcher",
         "Ledger",
-        "LedgerGroundTruthDiff",
         "LedgerLoadMigration",
         "LedgerOrchestrator",
         "LedgerRecoveryFundsPairing",
@@ -15143,11 +12965,9 @@
       "knot": 1,
       "sublevel": 2,
       "fanIn": 1,
-      "fanOut": 6,
+      "fanOut": 4,
       "referencesTo": [
         "CapturedPristineVerdict",
-        "CareerSaveParser",
-        "CareerSaveSnapshot",
         "FileIOUtils",
         "ParsekLog",
         "RecordingPaths"
@@ -27860,6 +25680,53 @@
       ]
     },
     {
+      "name": "AntennaSpec",
+      "module": "Recording",
+      "file": "AntennaSpec.cs",
+      "kind": "struct",
+      "modifiers": [
+        "internal"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "data",
+      "level": 0,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 3,
+      "fanOut": 0,
+      "referencesTo": [],
+      "referencedBy": [
+        "AntennaSpecExtractor",
+        "GhostCommNetRelay",
+        "Recording",
+        "RecordingOptimizer"
+      ]
+    },
+    {
+      "name": "AntennaSpecExtractor",
+      "module": "Recording",
+      "file": "AntennaSpec.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "static",
+      "level": 8,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 0,
+      "fanOut": 2,
+      "referencesTo": [
+        "AntennaSpec",
+        "ParsekLog"
+      ],
+      "referencedBy": []
+    },
+    {
       "name": "BackgroundOnRailsState",
       "module": "Recording",
       "file": "BackgroundRecorder.State.cs",
@@ -28049,6 +25916,29 @@
       ]
     },
     {
+      "name": "BoundaryDiscontinuityMeasurement",
+      "module": "Recording",
+      "file": "SessionMerger.cs",
+      "kind": "struct",
+      "modifiers": [
+        "private"
+      ],
+      "bases": [],
+      "enclosing": "SessionMerger",
+      "role": "data",
+      "level": 2,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 0,
+      "fanOut": 1,
+      "referencesTo": [
+        "AnchorKey"
+      ],
+      "referencedBy": [
+        "SessionMerger"
+      ]
+    },
+    {
       "name": "CachedModulePollDecision",
       "module": "Recording",
       "file": "FlightRecorder.Classifiers.cs",
@@ -28162,6 +26052,30 @@
       ]
     },
     {
+      "name": "CommittedChange",
+      "module": "Recording",
+      "file": "SidecarFileCommitBatch.cs",
+      "kind": "class",
+      "modifiers": [
+        "private",
+        "sealed"
+      ],
+      "bases": [],
+      "enclosing": "SidecarFileCommitBatch",
+      "role": "data",
+      "level": 1,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 0,
+      "fanOut": 1,
+      "referencesTo": [
+        "StagedChange"
+      ],
+      "referencedBy": [
+        "SidecarFileCommitBatch"
+      ]
+    },
+    {
       "name": "ControllerInfo",
       "module": "Recording",
       "file": "ControllerInfo.cs",
@@ -28186,6 +26100,64 @@
         "RecordingOptimizer",
         "RecordingTreeRecordCodec",
         "SessionMerger"
+      ]
+    },
+    {
+      "name": "DebrisParentStateGate",
+      "module": "Recording",
+      "file": "DebrisParentStateGate.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "static",
+      "level": 7,
+      "knot": 1,
+      "sublevel": 7,
+      "fanIn": 1,
+      "fanOut": 2,
+      "referencesTo": [
+        "Recording",
+        "RecordingTree"
+      ],
+      "referencedBy": [
+        "BackgroundRecorder"
+      ]
+    },
+    {
+      "name": "DebrisRelativeRecorderPolicy",
+      "module": "Recording",
+      "file": "DebrisRelativeRecorderPolicy.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "static",
+      "level": 7,
+      "knot": 1,
+      "sublevel": 4,
+      "fanIn": 2,
+      "fanOut": 9,
+      "referencesTo": [
+        "DebrisRelativeCoverageMode",
+        "DebrisRelativeCoveragePrimitives",
+        "OrbitSegment",
+        "ParentAnchoredDebrisTailNormalizationResult",
+        "ParsekLog",
+        "Recording",
+        "RecordingEndpointResolver",
+        "ReferenceFrame",
+        "TrackSection"
+      ],
+      "referencedBy": [
+        "BackgroundRecorder",
+        "RecordingFinalizationCacheApplier"
       ]
     },
     {
@@ -28231,6 +26203,60 @@
         "IModuleFieldValues",
         "LegacyPartModuleFieldValues",
         "PartModuleFieldValues"
+      ]
+    },
+    {
+      "name": "DiagnosticFormatters",
+      "module": "Recording",
+      "file": "DiagnosticFormatters.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "static",
+      "level": 0,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 4,
+      "fanOut": 0,
+      "referencesTo": [],
+      "referencedBy": [
+        "BackgroundRecorder",
+        "FlightRecorder",
+        "ParsekFlight",
+        "ReFlySettleStabilityTracker"
+      ]
+    },
+    {
+      "name": "DiscardSidecarReap",
+      "module": "Recording",
+      "file": "DiscardSidecarReap.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "static",
+      "level": 7,
+      "knot": 1,
+      "sublevel": 7,
+      "fanIn": 1,
+      "fanOut": 6,
+      "referencesTo": [
+        "ParsekLog",
+        "ReapOutcome",
+        "Recording",
+        "RecordingPaths",
+        "RecordingStore",
+        "RecordingTree"
+      ],
+      "referencedBy": [
+        "ParsekFlight"
       ]
     },
     {
@@ -28690,6 +26716,31 @@
       ]
     },
     {
+      "name": "IdentityLossClassifier",
+      "module": "Recording",
+      "file": "IdentityLossClassifier.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "static",
+      "level": 7,
+      "knot": 1,
+      "sublevel": 18,
+      "fanIn": 1,
+      "fanOut": 2,
+      "referencesTo": [
+        "ParsekFlight",
+        "Recording"
+      ],
+      "referencedBy": [
+        "BackgroundRecorder"
+      ]
+    },
+    {
       "name": "IndexedPartEvent",
       "module": "Recording",
       "file": "RecordingOptimizer.SeedEvents.cs",
@@ -28820,6 +26871,27 @@
       ]
     },
     {
+      "name": "ParentAnchoredDebrisTailNormalizationResult",
+      "module": "Recording",
+      "file": "DebrisRelativeRecorderPolicy.cs",
+      "kind": "struct",
+      "modifiers": [
+        "internal"
+      ],
+      "bases": [],
+      "enclosing": "DebrisRelativeRecorderPolicy",
+      "role": "data",
+      "level": 0,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 0,
+      "fanOut": 0,
+      "referencesTo": [],
+      "referencedBy": [
+        "DebrisRelativeRecorderPolicy"
+      ]
+    },
+    {
       "name": "PartEvent",
       "module": "Recording",
       "file": "PartEvent.cs",
@@ -28925,6 +26997,62 @@
       ]
     },
     {
+      "name": "PartStateSeeder",
+      "module": "Recording",
+      "file": "PartStateSeeder.Diff.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "partial",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "static",
+      "level": 7,
+      "knot": 1,
+      "sublevel": 19,
+      "fanIn": 2,
+      "fanOut": 6,
+      "referencesTo": [
+        "FlightRecorder",
+        "HeatLevel",
+        "ParsekLog",
+        "PartEvent",
+        "PartEventType",
+        "PartTrackingSets"
+      ],
+      "referencedBy": [
+        "BackgroundRecorder",
+        "FlightRecorder"
+      ]
+    },
+    {
+      "name": "PartTrackingSets",
+      "module": "Recording",
+      "file": "PartStateSeeder.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "data",
+      "level": 1,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 3,
+      "fanOut": 1,
+      "referencesTo": [
+        "HeatLevel"
+      ],
+      "referencedBy": [
+        "BackgroundRecorder",
+        "FlightRecorder",
+        "PartStateSeeder"
+      ]
+    },
+    {
       "name": "PendingTreeState",
       "module": "Recording",
       "file": "RecordingStore.cs",
@@ -28949,6 +27077,32 @@
         "RecordingStore",
         "RecordingStoreTestSnapshot",
         "SceneExitInterceptor"
+      ]
+    },
+    {
+      "name": "ProximityRateSelector",
+      "module": "Recording",
+      "file": "ProximityRateSelector.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "static",
+      "level": 2,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 2,
+      "fanOut": 2,
+      "referencesTo": [
+        "BackgroundSampling",
+        "DistanceThresholds"
+      ],
+      "referencedBy": [
+        "BackgroundRecorder",
+        "BackgroundVesselState"
       ]
     },
     {
@@ -29040,6 +27194,79 @@
       "referencesTo": [],
       "referencedBy": [
         "RecordingSidecarStore"
+      ]
+    },
+    {
+      "name": "ReapOutcome",
+      "module": "Recording",
+      "file": "DiscardSidecarReap.cs",
+      "kind": "struct",
+      "modifiers": [
+        "internal"
+      ],
+      "bases": [],
+      "enclosing": "DiscardSidecarReap",
+      "role": "data",
+      "level": 0,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 0,
+      "fanOut": 0,
+      "referencesTo": [],
+      "referencedBy": [
+        "DiscardSidecarReap"
+      ]
+    },
+    {
+      "name": "RecorderMode",
+      "module": "Recording",
+      "file": "RecorderStateSnapshot.cs",
+      "kind": "enum",
+      "modifiers": [
+        "internal"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "enum",
+      "level": 0,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 1,
+      "fanOut": 0,
+      "referencesTo": [],
+      "referencedBy": [
+        "ParsekLog",
+        "RecorderStateSnapshot"
+      ]
+    },
+    {
+      "name": "RecorderStateSnapshot",
+      "module": "Recording",
+      "file": "RecorderStateSnapshot.cs",
+      "kind": "struct",
+      "modifiers": [
+        "internal"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "data",
+      "level": 7,
+      "knot": 1,
+      "sublevel": 19,
+      "fanIn": 3,
+      "fanOut": 6,
+      "referencesTo": [
+        "ChainSegmentManager",
+        "FlightRecorder",
+        "PendingTreeState",
+        "RecorderMode",
+        "Recording",
+        "RecordingTree"
+      ],
+      "referencedBy": [
+        "ParsekFlight",
+        "ParsekLog",
+        "ParsekScenario"
       ]
     },
     {
@@ -29727,14 +27954,13 @@
       "level": 7,
       "knot": 1,
       "sublevel": 1,
-      "fanIn": 16,
+      "fanIn": 15,
       "fanOut": 2,
       "referencesTo": [
         "ParsekLog",
         "RecordingIdValidationLogContext"
       ],
       "referencedBy": [
-        "CareerStartSnapshot",
         "DefaultScenePaths",
         "DiscardSidecarReap",
         "FlightRecorder",
@@ -30686,6 +28912,149 @@
       ]
     },
     {
+      "name": "SegmentPhaseClassifier",
+      "module": "Recording",
+      "file": "SegmentPhaseClassifier.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "static",
+      "level": 7,
+      "knot": 1,
+      "sublevel": 19,
+      "fanIn": 4,
+      "fanOut": 2,
+      "referencesTo": [
+        "FlightRecorder",
+        "SegmentEnvironment"
+      ],
+      "referencedBy": [
+        "ChainSegmentManager",
+        "ParsekFlight",
+        "PhaseFactory",
+        "RecordingOptimizer"
+      ]
+    },
+    {
+      "name": "SessionMerger",
+      "module": "Recording",
+      "file": "SessionMerger.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "static",
+      "level": 7,
+      "knot": 1,
+      "sublevel": 20,
+      "fanIn": 1,
+      "fanOut": 16,
+      "referencesTo": [
+        "AnchorKey",
+        "BoundaryDiscontinuityMeasurement",
+        "ControllerInfo",
+        "FlightRecorder",
+        "OrbitSegment",
+        "OrbitSegmentCheckpointBridge",
+        "ParsekLog",
+        "PartEvent",
+        "Recording",
+        "RecordingStore",
+        "RecordingTree",
+        "ReferenceFrame",
+        "SegmentEvent",
+        "TrackSection",
+        "TrackSectionSource",
+        "TrajectoryPoint"
+      ],
+      "referencedBy": [
+        "RecordingStore"
+      ]
+    },
+    {
+      "name": "SidecarFileCommitBatch",
+      "module": "Recording",
+      "file": "SidecarFileCommitBatch.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "static",
+      "level": 7,
+      "knot": 1,
+      "sublevel": 1,
+      "fanIn": 1,
+      "fanOut": 3,
+      "referencesTo": [
+        "CommittedChange",
+        "ParsekLog",
+        "StagedChange"
+      ],
+      "referencedBy": [
+        "RecordingSidecarStore"
+      ]
+    },
+    {
+      "name": "SnapshotSidecarCodec",
+      "module": "Recording",
+      "file": "SnapshotSidecarCodec.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "static",
+      "level": 7,
+      "knot": 1,
+      "sublevel": 4,
+      "fanIn": 2,
+      "fanOut": 4,
+      "referencesTo": [
+        "FileIOUtils",
+        "RecordingStore",
+        "SnapshotSidecarEncoding",
+        "SnapshotSidecarProbe"
+      ],
+      "referencedBy": [
+        "RecordingSidecarStore",
+        "RecordingStore"
+      ]
+    },
+    {
+      "name": "SnapshotSidecarEncoding",
+      "module": "Recording",
+      "file": "SnapshotSidecarCodec.cs",
+      "kind": "enum",
+      "modifiers": [
+        "internal"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "enum",
+      "level": 0,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 0,
+      "fanOut": 0,
+      "referencesTo": [],
+      "referencedBy": [
+        "SnapshotSidecarCodec",
+        "SnapshotSidecarProbe"
+      ]
+    },
+    {
       "name": "SnapshotSidecarLoadState",
       "module": "Recording",
       "file": "RecordingStore.cs",
@@ -30732,6 +29101,31 @@
       ]
     },
     {
+      "name": "SnapshotSidecarProbe",
+      "module": "Recording",
+      "file": "SnapshotSidecarCodec.cs",
+      "kind": "struct",
+      "modifiers": [
+        "internal"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "data",
+      "level": 1,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 2,
+      "fanOut": 1,
+      "referencesTo": [
+        "SnapshotSidecarEncoding"
+      ],
+      "referencedBy": [
+        "RecordingSidecarStore",
+        "RecordingStore",
+        "SnapshotSidecarCodec"
+      ]
+    },
+    {
       "name": "SplitBoundaryReason",
       "module": "Recording",
       "file": "RecordingOptimizer.cs",
@@ -30752,6 +29146,80 @@
         "CheckpointDoubleCoverRetire",
         "RecordingOptimizer"
       ]
+    },
+    {
+      "name": "StagedChange",
+      "module": "Recording",
+      "file": "SidecarFileCommitBatch.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "sealed"
+      ],
+      "bases": [],
+      "enclosing": "SidecarFileCommitBatch",
+      "role": "data",
+      "level": 0,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 1,
+      "fanOut": 0,
+      "referencesTo": [],
+      "referencedBy": [
+        "CommittedChange",
+        "RecordingSidecarStore",
+        "SidecarFileCommitBatch"
+      ]
+    },
+    {
+      "name": "StockWarpAltitudeLimits",
+      "module": "Recording",
+      "file": "StockWarpAltitudeLimits.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "static",
+      "level": 7,
+      "knot": 1,
+      "sublevel": 1,
+      "fanIn": 1,
+      "fanOut": 1,
+      "referencesTo": [
+        "ParsekLog"
+      ],
+      "referencedBy": [
+        "FlightRecorder",
+        "StockWarpAltitudeLimitsCapture"
+      ]
+    },
+    {
+      "name": "StockWarpAltitudeLimitsCapture",
+      "module": "Recording",
+      "file": "StockWarpAltitudeLimits.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "sealed"
+      ],
+      "bases": [
+        "MonoBehaviour"
+      ],
+      "enclosing": null,
+      "role": "entry",
+      "level": 8,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 0,
+      "fanOut": 2,
+      "referencesTo": [
+        "ParsekLog",
+        "StockWarpAltitudeLimits"
+      ],
+      "referencedBy": []
     },
     {
       "name": "SurfacePosition",
@@ -30906,6 +29374,33 @@
         "TrackingStationGhostSelectionInfo",
         "UnfinishedFlightClassifier",
         "VesselSpawner"
+      ]
+    },
+    {
+      "name": "TraceSeparation",
+      "module": "Recording",
+      "file": "TraceSeparation.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "static",
+      "level": 7,
+      "knot": 1,
+      "sublevel": 1,
+      "fanIn": 3,
+      "fanOut": 2,
+      "referencesTo": [
+        "ParsekLog",
+        "TrajectoryPoint"
+      ],
+      "referencedBy": [
+        "BackgroundRecorder",
+        "FlightRecorder",
+        "ParsekFlight"
       ]
     },
     {
@@ -31106,6 +29601,40 @@
       ],
       "referencedBy": [
         "RecordingOptimizer"
+      ]
+    },
+    {
+      "name": "TreeDiscardPurge",
+      "module": "Recording",
+      "file": "TreeDiscardPurge.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "static",
+      "level": 7,
+      "knot": 1,
+      "sublevel": 20,
+      "fanIn": 1,
+      "fanOut": 11,
+      "referencesTo": [
+        "CrewReservationManager",
+        "Ledger",
+        "ParsekLog",
+        "ParsekScenario",
+        "ReFlyRevertButtonGate",
+        "RecordingPaths",
+        "RecordingStore",
+        "RecordingTree",
+        "RecordingsTableUI",
+        "RewindPoint",
+        "SupersedeCommit"
+      ],
+      "referencedBy": [
+        "RecordingStore"
       ]
     },
     {
@@ -31792,6 +30321,60 @@
       ]
     },
     {
+      "name": "PannotationsSidecarBinary",
+      "module": "Rendering",
+      "file": "PannotationsSidecarBinary.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "static",
+      "level": 7,
+      "knot": 1,
+      "sublevel": 2,
+      "fanIn": 1,
+      "fanOut": 9,
+      "referencesTo": [
+        "AnchorCandidate",
+        "AnchorSide",
+        "AnchorSource",
+        "FileIOUtils",
+        "OutlierFlags",
+        "OutlierThresholds",
+        "PannotationsSidecarProbe",
+        "SmoothingConfiguration",
+        "SmoothingSpline"
+      ],
+      "referencedBy": [
+        "SmoothingPipeline"
+      ]
+    },
+    {
+      "name": "PannotationsSidecarProbe",
+      "module": "Rendering",
+      "file": "PannotationsSidecarBinary.cs",
+      "kind": "struct",
+      "modifiers": [
+        "internal"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "data",
+      "level": 0,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 1,
+      "fanOut": 0,
+      "referencesTo": [],
+      "referencedBy": [
+        "PannotationsSidecarBinary",
+        "SmoothingPipeline"
+      ]
+    },
+    {
       "name": "ProductionAnchorWorldFrameResolver",
       "module": "Rendering",
       "file": "Rendering/ProductionAnchorWorldFrameResolver.cs",
@@ -31949,6 +30532,28 @@
       ]
     },
     {
+      "name": "SmoothingConfiguration",
+      "module": "Rendering",
+      "file": "PannotationsSidecarBinary.cs",
+      "kind": "struct",
+      "modifiers": [
+        "internal"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "data",
+      "level": 0,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 1,
+      "fanOut": 0,
+      "referencesTo": [],
+      "referencedBy": [
+        "PannotationsSidecarBinary",
+        "SmoothingPipeline"
+      ]
+    },
+    {
       "name": "SmoothingPipeline",
       "module": "Rendering",
       "file": "Rendering/SmoothingPipeline.cs",
@@ -32090,6 +30695,38 @@
       ]
     },
     {
+      "name": "CheckpointDoubleCoverRetire",
+      "module": "Rewind",
+      "file": "CheckpointDoubleCoverRetire.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "static",
+      "level": 7,
+      "knot": 1,
+      "sublevel": 19,
+      "fanIn": 1,
+      "fanOut": 9,
+      "referencesTo": [
+        "OrbitSegment",
+        "OrbitSegmentCheckpointBridge",
+        "ParsekLog",
+        "Recording",
+        "RecordingOptimizer",
+        "RecordingStore",
+        "ReferenceFrame",
+        "SplitBoundaryReason",
+        "TrackSection"
+      ],
+      "referencedBy": [
+        "ParsekScenario"
+      ]
+    },
+    {
       "name": "ChildSlot",
       "module": "Rewind",
       "file": "ChildSlot.cs",
@@ -32121,6 +30758,32 @@
         "RewindPoint",
         "RewindPointAuthor",
         "UnfinishedFlightClassifier"
+      ]
+    },
+    {
+      "name": "CrashCoalescer",
+      "module": "Rewind",
+      "file": "CrashCoalescer.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "service",
+      "level": 7,
+      "knot": 1,
+      "sublevel": 1,
+      "fanIn": 1,
+      "fanOut": 4,
+      "referencesTo": [
+        "BranchPoint",
+        "BranchPointType",
+        "ParsekLog",
+        "TrajectoryPoint"
+      ],
+      "referencedBy": [
+        "ParsekFlight"
       ]
     },
     {
@@ -32201,6 +30864,57 @@
       ],
       "referencedBy": [
         "RewindPointAuthor"
+      ]
+    },
+    {
+      "name": "DefaultVesselEnumeration",
+      "module": "Rewind",
+      "file": "PostLoadStripper.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "sealed"
+      ],
+      "bases": [
+        "IVesselEnumeration"
+      ],
+      "enclosing": null,
+      "role": "implements",
+      "level": 2,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 1,
+      "fanOut": 3,
+      "referencesTo": [
+        "IStrippableVessel",
+        "IVesselEnumeration",
+        "LiveVesselAdapter"
+      ],
+      "referencedBy": [
+        "PostLoadStripper",
+        "RewindInvoker"
+      ]
+    },
+    {
+      "name": "DialogVariant",
+      "module": "Rewind",
+      "file": "SceneExitInterceptor.cs",
+      "kind": "enum",
+      "modifiers": [
+        "internal"
+      ],
+      "bases": [],
+      "enclosing": "SceneExitInterceptor",
+      "role": "enum",
+      "level": 0,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 0,
+      "fanOut": 0,
+      "referencesTo": [],
+      "referencedBy": [
+        "HighLogic_LoadScene_Patch",
+        "SceneExitInterceptor"
       ]
     },
     {
@@ -32335,6 +31049,62 @@
       ]
     },
     {
+      "name": "Handlers",
+      "module": "Rewind",
+      "file": "ReFlyRevertButtonGate.cs",
+      "kind": "class",
+      "modifiers": [
+        "private",
+        "sealed"
+      ],
+      "bases": [],
+      "enclosing": "ReFlyRevertButtonGate",
+      "role": "service",
+      "level": 7,
+      "knot": 1,
+      "sublevel": 1,
+      "fanIn": 0,
+      "fanOut": 2,
+      "referencesTo": [
+        "ParsekLog",
+        "RevertKind"
+      ],
+      "referencedBy": [
+        "ReFlyRevertButtonGate",
+        "RevertDetector"
+      ]
+    },
+    {
+      "name": "HighLogic_LoadScene_Patch",
+      "module": "Rewind",
+      "file": "SceneExitInterceptor.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "entry",
+      "level": 9,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 0,
+      "fanOut": 9,
+      "referencesTo": [
+        "DialogVariant",
+        "MergeDialog",
+        "MergeDialogButtonLabels",
+        "ParsekFlight",
+        "ParsekLog",
+        "ParsekScenario",
+        "RecordingStore",
+        "RecordingTree",
+        "SceneExitInterceptor"
+      ],
+      "referencedBy": []
+    },
+    {
       "name": "ISaveRootProvider",
       "module": "Rewind",
       "file": "RewindPointAuthor.cs",
@@ -32379,6 +31149,30 @@
       ]
     },
     {
+      "name": "IStrippableVessel",
+      "module": "Rewind",
+      "file": "PostLoadStripper.cs",
+      "kind": "interface",
+      "modifiers": [
+        "internal"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "interface",
+      "level": 0,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 1,
+      "fanOut": 0,
+      "referencesTo": [],
+      "referencedBy": [
+        "DefaultVesselEnumeration",
+        "IVesselEnumeration",
+        "PostLoadStripper",
+        "RewindInvoker"
+      ]
+    },
+    {
       "name": "ITimeWarpProvider",
       "module": "Rewind",
       "file": "RewindPointAuthor.cs",
@@ -32398,6 +31192,30 @@
       "referencedBy": [
         "DefaultTimeWarpProvider",
         "RewindPointAuthorContext"
+      ]
+    },
+    {
+      "name": "IVesselEnumeration",
+      "module": "Rewind",
+      "file": "PostLoadStripper.cs",
+      "kind": "interface",
+      "modifiers": [
+        "internal"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "interface",
+      "level": 1,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 0,
+      "fanOut": 1,
+      "referencesTo": [
+        "IStrippableVessel"
+      ],
+      "referencedBy": [
+        "DefaultVesselEnumeration",
+        "PostLoadStripper"
       ]
     },
     {
@@ -32435,7 +31253,7 @@
       "level": 0,
       "knot": null,
       "sublevel": null,
-      "fanIn": 52,
+      "fanIn": 50,
       "fanOut": 0,
       "referencesTo": [],
       "referencedBy": [
@@ -32462,9 +31280,6 @@
         "GhostPlaybackEngine",
         "IGhostRenderTreatment",
         "ITrajectorySample",
-        "LedgerDivergence",
-        "LedgerDivergenceReport",
-        "LedgerGroundTruthDiff",
         "LiveVesselAnchor",
         "LogisticsFlowPresentation",
         "LogisticsWindowUI",
@@ -32587,6 +31402,30 @@
       ]
     },
     {
+      "name": "LiveVesselAdapter",
+      "module": "Rewind",
+      "file": "PostLoadStripper.cs",
+      "kind": "class",
+      "modifiers": [
+        "private",
+        "sealed"
+      ],
+      "bases": [
+        "IStrippableVessel"
+      ],
+      "enclosing": "DefaultVesselEnumeration",
+      "role": "implements",
+      "level": 0,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 0,
+      "fanOut": 0,
+      "referencesTo": [],
+      "referencedBy": [
+        "DefaultVesselEnumeration"
+      ]
+    },
+    {
       "name": "LoadTimeSweep",
       "module": "Rewind",
       "file": "LoadTimeSweep.cs",
@@ -32627,6 +31466,59 @@
       ],
       "referencedBy": [
         "ParsekScenario"
+      ]
+    },
+    {
+      "name": "MarkerValidationResult",
+      "module": "Rewind",
+      "file": "MarkerValidator.cs",
+      "kind": "struct",
+      "modifiers": [
+        "internal"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "data",
+      "level": 0,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 0,
+      "fanOut": 0,
+      "referencesTo": [],
+      "referencedBy": [
+        "MarkerValidator"
+      ]
+    },
+    {
+      "name": "MarkerValidator",
+      "module": "Rewind",
+      "file": "MarkerValidator.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "static",
+      "level": 7,
+      "knot": 1,
+      "sublevel": 19,
+      "fanIn": 2,
+      "fanOut": 8,
+      "referencesTo": [
+        "MarkerValidationResult",
+        "MergeState",
+        "ParsekLog",
+        "ParsekScenario",
+        "ReFlySessionMarker",
+        "Recording",
+        "RecordingStore",
+        "RewindPoint"
+      ],
+      "referencedBy": [
+        "GroupHierarchyStore",
+        "LoadTimeSweep"
       ]
     },
     {
@@ -32967,6 +31859,59 @@
       ]
     },
     {
+      "name": "PostLoadStripResult",
+      "module": "Rewind",
+      "file": "PostLoadStripper.cs",
+      "kind": "struct",
+      "modifiers": [
+        "internal"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "data",
+      "level": 0,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 1,
+      "fanOut": 0,
+      "referencesTo": [],
+      "referencedBy": [
+        "PostLoadStripper",
+        "RewindInvoker"
+      ]
+    },
+    {
+      "name": "PostLoadStripper",
+      "module": "Rewind",
+      "file": "PostLoadStripper.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "static",
+      "level": 7,
+      "knot": 1,
+      "sublevel": 19,
+      "fanIn": 1,
+      "fanOut": 8,
+      "referencesTo": [
+        "DefaultVesselEnumeration",
+        "GhostMapPresence",
+        "IStrippableVessel",
+        "IVesselEnumeration",
+        "ParsekLog",
+        "PostLoadStripResult",
+        "RewindPoint",
+        "SuppressionGuard"
+      ],
+      "referencedBy": [
+        "RewindInvoker"
+      ]
+    },
+    {
       "name": "PreRewindCarveOutReason",
       "module": "Rewind",
       "file": "SupersedeCommit.cs",
@@ -33034,6 +31979,52 @@
       "referencedBy": [
         "PartLoaderPrecondition",
         "PreconditionCache"
+      ]
+    },
+    {
+      "name": "QuickloadResumeMatchGuard",
+      "module": "Rewind",
+      "file": "QuickloadResumeMatchGuard.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "static",
+      "level": 7,
+      "knot": 1,
+      "sublevel": 3,
+      "fanIn": 1,
+      "fanOut": 2,
+      "referencesTo": [
+        "QuickloadResumeRejection",
+        "VesselLaunchIdentity"
+      ],
+      "referencedBy": [
+        "ParsekFlight"
+      ]
+    },
+    {
+      "name": "QuickloadResumeRejection",
+      "module": "Rewind",
+      "file": "QuickloadResumeMatchGuard.cs",
+      "kind": "enum",
+      "modifiers": [
+        "internal"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "enum",
+      "level": 0,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 0,
+      "fanOut": 0,
+      "referencesTo": [],
+      "referencedBy": [
+        "QuickloadResumeMatchGuard"
       ]
     },
     {
@@ -33383,8 +32374,9 @@
       "knot": 1,
       "sublevel": 19,
       "fanIn": 9,
-      "fanOut": 2,
+      "fanOut": 3,
       "referencesTo": [
+        "Handlers",
         "ParsekLog",
         "ParsekScenario"
       ],
@@ -33573,6 +32565,53 @@
       ]
     },
     {
+      "name": "ReconciliationBundle",
+      "module": "Rewind",
+      "file": "ReconciliationBundle.cs",
+      "kind": "struct",
+      "modifiers": [
+        "internal"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "data",
+      "level": 7,
+      "knot": 1,
+      "sublevel": 19,
+      "fanIn": 2,
+      "fanOut": 24,
+      "referencesTo": [
+        "CrewReservationManager",
+        "GameAction",
+        "GameStateRecorder",
+        "GroupHierarchyStore",
+        "Ledger",
+        "LedgerTombstone",
+        "MergeJournal",
+        "Milestone",
+        "MilestoneStore",
+        "ParsekLog",
+        "ParsekScenario",
+        "PendingScienceSubject",
+        "ReFlyRevertButtonGate",
+        "ReFlySessionMarker",
+        "Recording",
+        "RecordingRewindRetirement",
+        "RecordingStore",
+        "RecordingSupersedeRelation",
+        "RecordingTree",
+        "RewindPoint",
+        "Route",
+        "RouteLedgerRetire",
+        "RouteRewindClassifier",
+        "RouteStore"
+      ],
+      "referencedBy": [
+        "RewindInvokeContext",
+        "RewindInvoker"
+      ]
+    },
+    {
       "name": "RecordingIdentityHint",
       "module": "Rewind",
       "file": "MergeDialog.Commit.cs",
@@ -33633,6 +32672,161 @@
       "referencedBy": [
         "MergeJournalOrchestrator"
       ]
+    },
+    {
+      "name": "RevertDetector",
+      "module": "Rewind",
+      "file": "RevertDetector.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "static",
+      "level": 7,
+      "knot": 1,
+      "sublevel": 2,
+      "fanIn": 1,
+      "fanOut": 3,
+      "referencesTo": [
+        "Handlers",
+        "ParsekLog",
+        "RevertKind"
+      ],
+      "referencedBy": [
+        "ParsekScenario"
+      ]
+    },
+    {
+      "name": "RevertInterceptor",
+      "module": "Rewind",
+      "file": "RevertInterceptor.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "static",
+      "level": 9,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 0,
+      "fanOut": 12,
+      "referencesTo": [
+        "ChildSlot",
+        "MergeDialog",
+        "ParsekLog",
+        "ParsekScenario",
+        "ReFlyRevertButtonGate",
+        "ReFlyRevertDialog",
+        "ReFlySessionMarker",
+        "RecordingStore",
+        "RevertTarget",
+        "RewindInvoker",
+        "RewindPoint",
+        "SupersedeCommit"
+      ],
+      "referencedBy": [
+        "RevertToLaunchInterceptor",
+        "RevertToPrelaunchInterceptor"
+      ]
+    },
+    {
+      "name": "RevertKind",
+      "module": "Rewind",
+      "file": "RevertDetector.cs",
+      "kind": "enum",
+      "modifiers": [
+        "internal"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "enum",
+      "level": 0,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 1,
+      "fanOut": 0,
+      "referencesTo": [],
+      "referencedBy": [
+        "Handlers",
+        "ParsekScenario",
+        "RevertDetector"
+      ]
+    },
+    {
+      "name": "RevertTarget",
+      "module": "Rewind",
+      "file": "RevertInterceptor.cs",
+      "kind": "enum",
+      "modifiers": [
+        "internal"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "enum",
+      "level": 0,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 1,
+      "fanOut": 0,
+      "referencesTo": [],
+      "referencedBy": [
+        "ReFlyRevertDialog",
+        "RevertInterceptor",
+        "RevertToLaunchInterceptor",
+        "RevertToPrelaunchInterceptor"
+      ]
+    },
+    {
+      "name": "RevertToLaunchInterceptor",
+      "module": "Rewind",
+      "file": "RevertInterceptor.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "entry",
+      "level": 10,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 0,
+      "fanOut": 2,
+      "referencesTo": [
+        "RevertInterceptor",
+        "RevertTarget"
+      ],
+      "referencedBy": []
+    },
+    {
+      "name": "RevertToPrelaunchInterceptor",
+      "module": "Rewind",
+      "file": "RevertInterceptor.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "entry",
+      "level": 10,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 0,
+      "fanOut": 2,
+      "referencesTo": [
+        "RevertInterceptor",
+        "RevertTarget"
+      ],
+      "referencedBy": []
     },
     {
       "name": "RewindContext",
@@ -33982,6 +33176,38 @@
       ]
     },
     {
+      "name": "SceneExitInterceptor",
+      "module": "Rewind",
+      "file": "SceneExitInterceptor.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "static",
+      "level": 8,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 0,
+      "fanOut": 9,
+      "referencesTo": [
+        "DialogVariant",
+        "ParsekFlight",
+        "ParsekLog",
+        "ParsekScenario",
+        "PendingTreeState",
+        "RecordingStore",
+        "RecordingTree",
+        "SwitchSegmentDisposition",
+        "SwitchSegmentSession"
+      ],
+      "referencedBy": [
+        "HighLogic_LoadScene_Patch"
+      ]
+    },
+    {
       "name": "Snapshot",
       "module": "Rewind",
       "file": "RewindPointDiskUsage.cs",
@@ -34267,6 +33493,110 @@
         "ParsekFlight",
         "ParsekScenario",
         "ReFlyProvisionalBinding"
+      ]
+    },
+    {
+      "name": "UnfinishedFlightClassifier",
+      "module": "Rewind",
+      "file": "UnfinishedFlightClassifier.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "static",
+      "level": 7,
+      "knot": 1,
+      "sublevel": 19,
+      "fanIn": 6,
+      "fanOut": 11,
+      "referencesTo": [
+        "ChildSlot",
+        "EffectiveState",
+        "MergeState",
+        "ParsekLog",
+        "ParsekScenario",
+        "Recording",
+        "RecordingSupersedeRelation",
+        "RecordingTree",
+        "RewindPoint",
+        "SupersedeCommit",
+        "TerminalState"
+      ],
+      "referencedBy": [
+        "EffectiveState",
+        "RecordingStore",
+        "RecordingsTableUI",
+        "SupersedeCommit",
+        "UnfinishedFlightSealHandler",
+        "UnfinishedFlightStashHandler"
+      ]
+    },
+    {
+      "name": "UnfinishedFlightSealHandler",
+      "module": "Rewind",
+      "file": "UnfinishedFlightSealHandler.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "static",
+      "level": 7,
+      "knot": 1,
+      "sublevel": 19,
+      "fanIn": 2,
+      "fanOut": 9,
+      "referencesTo": [
+        "EffectiveState",
+        "MergeState",
+        "ParsekLog",
+        "ParsekScenario",
+        "Recording",
+        "RecordingSupersedeRelation",
+        "RewindPoint",
+        "RewindPointReaper",
+        "UnfinishedFlightClassifier"
+      ],
+      "referencedBy": [
+        "MergeDialog",
+        "RecordingsTableUI"
+      ]
+    },
+    {
+      "name": "UnfinishedFlightStashHandler",
+      "module": "Rewind",
+      "file": "UnfinishedFlightStashHandler.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "static",
+      "level": 7,
+      "knot": 1,
+      "sublevel": 19,
+      "fanIn": 1,
+      "fanOut": 9,
+      "referencesTo": [
+        "EffectiveState",
+        "MergeState",
+        "ParsekLog",
+        "ParsekScenario",
+        "Recording",
+        "RecordingSupersedeRelation",
+        "RewindPoint",
+        "RewindPointReaper",
+        "UnfinishedFlightClassifier"
+      ],
+      "referencedBy": [
+        "RecordingsTableUI"
       ]
     },
     {
@@ -36374,6 +35704,52 @@
       ]
     },
     {
+      "name": "ApplicantOverlayKind",
+      "module": "UI",
+      "file": "StockUiOverlayController.cs",
+      "kind": "enum",
+      "modifiers": [
+        "internal"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "enum",
+      "level": 0,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 0,
+      "fanOut": 0,
+      "referencesTo": [],
+      "referencedBy": [
+        "ApplicantOverlayMark",
+        "StockUiOverlayController"
+      ]
+    },
+    {
+      "name": "ApplicantOverlayMark",
+      "module": "UI",
+      "file": "StockUiOverlayController.cs",
+      "kind": "struct",
+      "modifiers": [
+        "internal"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "data",
+      "level": 1,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 0,
+      "fanOut": 2,
+      "referencesTo": [
+        "ApplicantOverlayKind",
+        "Kind"
+      ],
+      "referencedBy": [
+        "StockUiOverlayController"
+      ]
+    },
+    {
       "name": "ArmedSendKind",
       "module": "UI",
       "file": "UI/LogisticsWindowUI.cs",
@@ -36414,6 +35790,28 @@
       "referencedBy": [
         "SettingsWindowPresentation",
         "SettingsWindowUI"
+      ]
+    },
+    {
+      "name": "BudgetSummary",
+      "module": "UI",
+      "file": "ResourceBudget.cs",
+      "kind": "struct",
+      "modifiers": [
+        "internal"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "data",
+      "level": 0,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 2,
+      "fanOut": 0,
+      "referencesTo": [],
+      "referencedBy": [
+        "RecordingStore",
+        "RewindContext"
       ]
     },
     {
@@ -36583,6 +35981,33 @@
       ]
     },
     {
+      "name": "CommittedActionDialog",
+      "module": "UI",
+      "file": "CommittedActionDialog.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "static",
+      "level": 8,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 4,
+      "fanOut": 1,
+      "referencesTo": [
+        "ParsekLog"
+      ],
+      "referencedBy": [
+        "ContractAcceptPatch",
+        "FacilityUpgradePatch",
+        "KerbalHirePatch",
+        "TechResearchPatch"
+      ]
+    },
+    {
       "name": "ContractAcc",
       "module": "UI",
       "file": "UI/CareerStateWindowUI.cs",
@@ -36602,6 +36027,27 @@
       "referencesTo": [],
       "referencedBy": [
         "CareerStateWindowUI"
+      ]
+    },
+    {
+      "name": "ContractOverlayMark",
+      "module": "UI",
+      "file": "StockUiOverlayController.cs",
+      "kind": "struct",
+      "modifiers": [
+        "internal"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "data",
+      "level": 0,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 0,
+      "fanOut": 0,
+      "referencesTo": [],
+      "referencedBy": [
+        "StockUiOverlayController"
       ]
     },
     {
@@ -36744,6 +36190,31 @@
         "KerbalsViewModel",
         "KerbalsWindowUI"
       ]
+    },
+    {
+      "name": "CurrencyReservationOverlay",
+      "module": "UI",
+      "file": "CurrencyReservationOverlay.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "sealed"
+      ],
+      "bases": [
+        "MonoBehaviour"
+      ],
+      "enclosing": null,
+      "role": "entry",
+      "level": 8,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 0,
+      "fanOut": 2,
+      "referencesTo": [
+        "LedgerOrchestrator",
+        "ParsekLog"
+      ],
+      "referencedBy": []
     },
     {
       "name": "CycleFlowLine",
@@ -36909,6 +36380,58 @@
         "SettingsWindowUI",
         "SpawnControlUI",
         "TimelineWindowUI"
+      ]
+    },
+    {
+      "name": "DockEventGraphCache",
+      "module": "UI",
+      "file": "DockEventGraphCache.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "static",
+      "level": 7,
+      "knot": 1,
+      "sublevel": 19,
+      "fanIn": 3,
+      "fanOut": 6,
+      "referencesTo": [
+        "DockEventGraph",
+        "EffectiveState",
+        "ParsekScenario",
+        "Recording",
+        "RecordingStore",
+        "RecordingTree"
+      ],
+      "referencedBy": [
+        "MissionsWindowUI",
+        "ParsekFlight",
+        "RecordingsTableUI"
+      ]
+    },
+    {
+      "name": "EventOverlayMark",
+      "module": "UI",
+      "file": "StockUiOverlayController.cs",
+      "kind": "struct",
+      "modifiers": [
+        "private"
+      ],
+      "bases": [],
+      "enclosing": "StockUiOverlayController",
+      "role": "data",
+      "level": 0,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 0,
+      "fanOut": 0,
+      "referencesTo": [],
+      "referencedBy": [
+        "StockUiOverlayController"
       ]
     },
     {
@@ -38090,6 +37613,34 @@
       ]
     },
     {
+      "name": "OverlayBadge",
+      "module": "UI",
+      "file": "OverlayBadge.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "sealed"
+      ],
+      "bases": [
+        "MonoBehaviour",
+        "IPointerEnterHandler",
+        "IPointerExitHandler"
+      ],
+      "enclosing": null,
+      "role": "entry",
+      "level": 8,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 1,
+      "fanOut": 1,
+      "referencesTo": [
+        "ParsekLog"
+      ],
+      "referencedBy": [
+        "StockUiOverlayController"
+      ]
+    },
+    {
       "name": "ParsekTimeFormat",
       "module": "UI",
       "file": "ParsekTimeFormat.cs",
@@ -38121,6 +37672,30 @@
         "WarpToTimeController",
         "WarpToTimeMath"
       ]
+    },
+    {
+      "name": "ParsekToolbarRegistration",
+      "module": "UI",
+      "file": "ParsekToolbarRegistration.cs",
+      "kind": "class",
+      "modifiers": [
+        "public"
+      ],
+      "bases": [
+        "MonoBehaviour"
+      ],
+      "enclosing": null,
+      "role": "entry",
+      "level": 8,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 0,
+      "fanOut": 2,
+      "referencesTo": [
+        "ParsekFlight",
+        "ParsekLog"
+      ],
+      "referencedBy": []
     },
     {
       "name": "ParsekUI",
@@ -38379,6 +37954,33 @@
         "RewindPointReaper",
         "TimelineWindowUI",
         "TreeDiscardPurge"
+      ]
+    },
+    {
+      "name": "ResourceBudget",
+      "module": "UI",
+      "file": "ResourceBudget.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "static"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "static",
+      "level": 8,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 1,
+      "fanOut": 4,
+      "referencesTo": [
+        "GameStateEventType",
+        "Milestone",
+        "ParsekLog",
+        "Recording"
+      ],
+      "referencedBy": [
+        "TechResearchPatch"
       ]
     },
     {
@@ -38987,6 +38589,45 @@
       ]
     },
     {
+      "name": "StockUiOverlayController",
+      "module": "UI",
+      "file": "StockUiOverlayController.cs",
+      "kind": "class",
+      "modifiers": [
+        "internal",
+        "sealed"
+      ],
+      "bases": [
+        "MonoBehaviour"
+      ],
+      "enclosing": null,
+      "role": "entry",
+      "level": 9,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 0,
+      "fanOut": 16,
+      "referencesTo": [
+        "ApplicantOverlayKind",
+        "ApplicantOverlayMark",
+        "ContractOverlayMark",
+        "EventOverlayMark",
+        "GameStateEvent",
+        "GameStateEventType",
+        "GameStateStore",
+        "KerbalReservationKind",
+        "Kind",
+        "LedgerOrchestrator",
+        "MilestoneStore",
+        "MissionSelection",
+        "OverlayBadge",
+        "ParsekLog",
+        "Recording",
+        "TechNodeOverlayMark"
+      ],
+      "referencedBy": []
+    },
+    {
       "name": "StrategiesTabVM",
       "module": "UI",
       "file": "UI/CareerStateWindowUI.cs",
@@ -39117,6 +38758,27 @@
       ],
       "referencedBy": [
         "StructureListWindowUI"
+      ]
+    },
+    {
+      "name": "TechNodeOverlayMark",
+      "module": "UI",
+      "file": "StockUiOverlayController.cs",
+      "kind": "struct",
+      "modifiers": [
+        "internal"
+      ],
+      "bases": [],
+      "enclosing": null,
+      "role": "data",
+      "level": 0,
+      "knot": null,
+      "sublevel": null,
+      "fanIn": 0,
+      "fanOut": 0,
+      "referencesTo": [],
+      "referencedBy": [
+        "StockUiOverlayController"
       ]
     },
     {
@@ -39619,20 +39281,19 @@
     }
   ],
   "levels": {
-    "max": 11,
+    "max": 10,
     "histogram": {
-      "0": 611,
-      "1": 181,
+      "0": 605,
+      "1": 179,
       "2": 57,
       "3": 15,
       "4": 22,
       "5": 3,
       "6": 4,
-      "7": 392,
-      "8": 46,
-      "9": 9,
-      "10": 7,
-      "11": 1
+      "7": 391,
+      "8": 45,
+      "9": 8,
+      "10": 6
     }
   }
 }
