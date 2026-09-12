@@ -24,9 +24,9 @@ recommendations.
 | ParsekSettings.cs | 2 | 1 | 24 | 0.29 | Recording(7) | UI(6) | R1 | Config |
 | VesselLaunchIdentity.cs | 1 | 1 | 25 | 0.20 | Logistics(5) | Recording(5) | R5 | UNDECIDED |
 | VesselSpawner.cs | 6 | 1 | 22 | 0.27 | Controllers(6) | Logistics(4) | R5 | UNDECIDED |
-| MapRenderTrace.cs | 8 | 1 | 19 | 0.42 | MapRender(8) | Patches(4) | R1 | MapRender |
-| DockEventGraph.cs | 5 | 1 | 18 | 0.50 | Missions(9) | UI(9) | R2 | Missions |
-| ParsekUI.cs | 7 | 1 | 18 | 0.83 | UI(15) | Controllers(3) | R1 | UI |
+| MapRenderTrace.cs | 10 | 1 | 19 | 0.42 | MapRender(8) | Patches(4) | R1 | MapRender |
+| DockEventGraph.cs | 6 | 1 | 18 | 0.50 | Missions(9) | UI(9) | R2 | Missions |
+| ParsekUI.cs | 8 | 1 | 18 | 0.83 | UI(15) | Controllers(3) | R1 | UI |
 | GameStateRecorder.Handlers.cs | 1 | 1 | 17 | 0.47 | Patches(8) | GameActions(3) | R1 | GameActions |
 | GameStateStore.cs | 1 | 1 | 17 | 0.35 | GameActions(6) | Rewind(3) | R1 | GameActions |
 | GuiTreeRecorder.cs | 2 | 0 | 17 | 1.00 | Patches(17) | - | R1 | GuiTree |
@@ -86,14 +86,14 @@ recommendations.
 | LoopSeamMarkerRuntime.cs | 3 | 1 | 2 | 0.50 | Controllers(1) | Ghost(1) | R5 | UNDECIDED |
 | MapRenderProbe.cs | 5 | 1 | 2 | 1.00 | MapRender(2) | - | R1 | MapRender |
 | PartStateSeeder.Diff.cs | 1 | 1 | 2 | 1.00 | Recording(2) | - | R5 | UNDECIDED |
-| PartStateSeeder.cs | 1 | 0 | 2 | 1.00 | Recording(2) | - | R5 | UNDECIDED |
+| PartStateSeeder.cs | 2 | 0 | 2 | 1.00 | Recording(2) | - | R5 | UNDECIDED |
 | PlaybackOrbitDiagnostics.cs | 1 | 0 | 2 | 0.50 | Controllers(1) | Ghost(1) | R5 | UNDECIDED |
-| PlaybackTrace.cs | 1 | 1 | 2 | 1.00 | Ghost(2) | - | R5 | UNDECIDED |
+| PlaybackTrace.cs | 2 | 1 | 2 | 1.00 | Ghost(2) | - | R5 | UNDECIDED |
 | ProximityRateSelector.cs | 1 | 0 | 2 | 1.00 | Recording(2) | - | R5 | UNDECIDED |
 | ReconciliationBundle.cs | 1 | 1 | 2 | 1.00 | Rewind(2) | - | R5 | UNDECIDED |
 | RecordedRelativeAnchorPoseResolver.cs | 3 | 1 | 2 | 0.50 | Controllers(1) | Ghost(1) | R5 | UNDECIDED |
-| RelativeAnchorResolution.cs | 1 | 0 | 2 | 0.50 | Controllers(1) | Ghost(1) | R1 | Recording |
-| RevertDetector.cs | 2 | 1 | 2 | 1.00 | Controllers(2) | - | R5 | UNDECIDED |
+| RelativeAnchorResolution.cs | 2 | 0 | 2 | 0.50 | Controllers(1) | Ghost(1) | R1 | Recording |
+| RevertDetector.cs | 3 | 1 | 2 | 1.00 | Controllers(2) | - | R5 | UNDECIDED |
 | SidecarFileCommitBatch.cs | 3 | 1 | 2 | 1.00 | Recording(2) | - | R5 | UNDECIDED |
 | SpawnCollisionDetector.cs | 2 | 1 | 2 | 1.00 | Controllers(2) | - | R5 | UNDECIDED |
 | TerrainCorrector.cs | 2 | 1 | 2 | 1.00 | Controllers(2) | - | R5 | UNDECIDED |
@@ -127,7 +127,7 @@ recommendations.
 | CareerStartSnapshot.cs | 1 | 1 | 0 | 0.00 | - | - | R4 | ORPHAN |
 | CurrencyReservationOverlay.cs | 1 | 0 | 0 | 0.00 | - | - | R4 | ORPHAN |
 | GameStateFacilityRecorder.cs | 1 | 1 | 0 | 0.00 | - | - | R1 | GameActions |
-| GameStateRecorder.cs | 2 | 1 | 0 | 0.00 | - | - | R1 | GameActions |
+| GameStateRecorder.cs | 3 | 1 | 0 | 0.00 | - | - | R1 | GameActions |
 | GuiTreeGeometry.cs | 3 | 0 | 0 | 0.00 | - | - | R1 | GuiTree |
 | GuiTreeJson.cs | 3 | 0 | 0 | 0.00 | - | - | R1 | GuiTree |
 | LedgerGroundTruthDiff.cs | 1 | 0 | 0 | 0.00 | - | - | R4 | ORPHAN |
@@ -198,13 +198,13 @@ recommendations.
 - DebrisRelativeRecorderPolicy.cs (types=2, knot=1, extRefs=2, share=1.00, top=Recording(2), second=-, hub=DebrisRelativeRecorderPolicy(2))
 - LoopSeamMarkerRuntime.cs (types=3, knot=1, extRefs=2, share=0.50, top=Controllers(1), second=Ghost(1), hub=LoopSeamMarkerRuntime(1))
 - PartStateSeeder.Diff.cs (types=1, knot=1, extRefs=2, share=1.00, top=Recording(2), second=-, hub=PartStateSeeder(2))
-- PartStateSeeder.cs (types=1, knot=0, extRefs=2, share=1.00, top=Recording(2), second=-, hub=PartTrackingSets(3))
+- PartStateSeeder.cs (types=2, knot=0, extRefs=2, share=1.00, top=Recording(2), second=-, hub=PartTrackingSets(3))
 - PlaybackOrbitDiagnostics.cs (types=1, knot=0, extRefs=2, share=0.50, top=Controllers(1), second=Ghost(1), hub=PlaybackOrbitDiagnostics(2))
-- PlaybackTrace.cs (types=1, knot=1, extRefs=2, share=1.00, top=Ghost(2), second=-, hub=PlaybackTrace(2))
+- PlaybackTrace.cs (types=2, knot=1, extRefs=2, share=1.00, top=Ghost(2), second=-, hub=PlaybackTrace(2))
 - ProximityRateSelector.cs (types=1, knot=0, extRefs=2, share=1.00, top=Recording(2), second=-, hub=ProximityRateSelector(2))
 - ReconciliationBundle.cs (types=1, knot=1, extRefs=2, share=1.00, top=Rewind(2), second=-, hub=ReconciliationBundle(2))
 - RecordedRelativeAnchorPoseResolver.cs (types=3, knot=1, extRefs=2, share=0.50, top=Controllers(1), second=Ghost(1), hub=RecordedRelativeAnchorPoseResolver(2))
-- RevertDetector.cs (types=2, knot=1, extRefs=2, share=1.00, top=Controllers(2), second=-, hub=RevertDetector(1))
+- RevertDetector.cs (types=3, knot=1, extRefs=2, share=1.00, top=Controllers(2), second=-, hub=RevertDetector(1))
 - SidecarFileCommitBatch.cs (types=3, knot=1, extRefs=2, share=1.00, top=Recording(2), second=-, hub=SidecarFileCommitBatch(1))
 - SpawnCollisionDetector.cs (types=2, knot=1, extRefs=2, share=1.00, top=Controllers(2), second=-, hub=SpawnCollisionDetector(4))
 - TerrainCorrector.cs (types=2, knot=1, extRefs=2, share=1.00, top=Controllers(2), second=-, hub=TerrainCorrector(3))
