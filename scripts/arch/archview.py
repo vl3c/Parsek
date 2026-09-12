@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Parsek module dependency map.
+"""Parsek module and type dependency map.
 
 Reads scripts/arch/modules.toml, walks Source/Parsek/**/*.cs, and writes a
-module-level dependency graph plus three views (Graphviz layered digraph,
-dependency structure matrix, interactive neighbourhood explorer) into
-docs/dev/arch/.
+module-level dependency graph, a type-level ladder (types.json + ladder.html)
+and the views (Graphviz layered digraph, dependency structure matrix,
+interactive neighbourhood explorer) into docs/dev/arch/.
 
 APPROXIMATION NOTICE: this is a source-text scan, not a compiler. References
 are found by matching identifiers against a table of declared type names, so
@@ -12,13 +12,14 @@ it can miss a reference spelled in a way the text does not literally contain
 (aliases, nameof, generic inference, reflection) and can over-count a name
 reused as an unqualified local or a string (string literals and comments are
 stripped first, which removes the common false positives). The scan is
-deliberately good enough to answer "which modules reference which" at the
-folder granularity; it is not sound enough to gate a build. See
+deliberately good enough to answer "which modules and types reference which"
+at folder granularity; it is not sound enough to gate a build. See
 docs/dev/arch/README.md.
 
 Every decision function here (assign_module, strip_comments_and_strings,
-declared_types, references, metrics, sccs) is pure: it takes data and returns
-data, and performs no I/O, so the unit tests can drive it directly.
+declared_types, references, metrics, sccs, type_declarations, type_references,
+type_role, type_levels, type_fanin) is pure: it takes data and returns data,
+and performs no I/O, so the unit tests can drive it directly.
 """
 
 from __future__ import annotations
@@ -409,6 +410,318 @@ def sccs(nodes, edges):
 
 
 # ---------------------------------------------------------------------------
+# type-level decisions
+# ---------------------------------------------------------------------------
+
+TYPE_MODIFIERS = (
+    "public",
+    "internal",
+    "protected",
+    "private",
+    "static",
+    "abstract",
+    "sealed",
+    "partial",
+    "readonly",
+    "unsafe",
+    "new",
+)
+CSHARP_NON_BASE = {
+    "byte",
+    "sbyte",
+    "short",
+    "ushort",
+    "int",
+    "uint",
+    "long",
+    "ulong",
+    "float",
+    "double",
+    "decimal",
+    "char",
+    "bool",
+    "string",
+    "object",
+}
+TYPE_HEADER_RE = re.compile(
+    r"(?:(?:%s)\s+)*(?P<kind>class|struct|interface|enum)\s+(?P<name>[A-Z][A-Za-z0-9_]*)"
+    % "|".join(TYPE_MODIFIERS)
+)
+METHOD_DECL_RE = re.compile(r"\w+\s+\w+\s*\([^)]*\)\s*(?:\{|=>)")
+ENTRY_BASES = {"MonoBehaviour", "ScenarioModule", "PartModule", "VesselModule"}
+ROLE_ORDER = ("entry", "interface", "abstract", "enum", "static", "implements", "data", "service")
+
+
+def _matches_word(source, i, word):
+    n = len(source)
+    if not source.startswith(word, i):
+        return False
+    before_ok = i == 0 or not (source[i - 1].isalnum() or source[i - 1] == "_")
+    after = i + len(word)
+    after_ok = after >= n or not (source[after].isalnum() or source[after] == "_")
+    return before_ok and after_ok
+
+
+def _skip_generic_args(source, i):
+    """Skip a <...> run starting at i; return the index after the closing >."""
+    depth = 0
+    n = len(source)
+    while i < n:
+        if source[i] == "<":
+            depth += 1
+        elif source[i] == ">":
+            depth -= 1
+            if depth == 0:
+                return i + 1
+        i += 1
+    return n
+
+
+def _strip_generics(text):
+    out = []
+    depth = 0
+    for char in text:
+        if char == "<":
+            depth += 1
+        elif char == ">":
+            depth = max(0, depth - 1)
+        elif depth == 0:
+            out.append(char)
+    return "".join(out)
+
+
+def _base_names(text):
+    """Split a base list into bare type names ("List<Foo>" -> "List")."""
+    parts = []
+    depth = 0
+    current = []
+    for char in text:
+        if char in "<([":
+            depth += 1
+        elif char in ">)]":
+            depth = max(0, depth - 1)
+        if char == "," and depth == 0:
+            parts.append("".join(current))
+            current = []
+        else:
+            current.append(char)
+    parts.append("".join(current))
+    names = []
+    for part in parts:
+        stripped = _strip_generics(part).split("::")[-1].split(".")[-1].strip()
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", stripped) and stripped not in CSHARP_NON_BASE:
+            names.append(stripped)
+    return names
+
+
+def type_declarations(source):
+    """Return one dict per type declaration in already-stripped source.
+
+    Keys: name, kind, modifiers (set), bases (base names with generic arguments
+    and namespace qualifiers stripped), span (open-brace offset, offset after
+    the matching close brace), start (offset of the first modifier), body (the
+    text inside the braces), before (the 300 characters before the header, so
+    attribute-based roles can see it), enclosing (name of the enclosing type or
+    None) and parent (index of the enclosing declaration or None, used to
+    attribute nested-type references). Names shorter than four characters are
+    skipped, same as declared_types.
+    """
+    declarations = []
+    stack = []
+    n = len(source)
+    for match in TYPE_HEADER_RE.finditer(source):
+        name = match.group("name")
+        kind = match.group("kind")
+        if len(name) < MIN_TYPE_NAME_LEN:
+            continue
+        start = match.start()
+        i = match.end()
+        while i < n and source[i] in " \t\r\n":
+            i += 1
+        if i < n and source[i] == "<":
+            i = _skip_generic_args(source, i)
+            while i < n and source[i] in " \t\r\n":
+                i += 1
+        bases = []
+        j = i
+        if kind != "enum" and j < n and source[j] == ":":
+            j += 1
+            depth = 0
+            while j < n:
+                char = source[j]
+                if depth == 0 and (char == "{" or char == ";" or _matches_word(source, j, "where")):
+                    break
+                if char == "<":
+                    depth += 1
+                elif char == ">":
+                    depth = max(0, depth - 1)
+                j += 1
+            bases = _base_names(source[i + 1 : j])
+        open_brace = source.find("{", j)
+        if open_brace == -1:
+            continue
+        depth = 0
+        k = open_brace
+        while k < n:
+            if source[k] == "{":
+                depth += 1
+            elif source[k] == "}":
+                depth -= 1
+                if depth == 0:
+                    break
+            k += 1
+        end = k + 1 if k < n else n
+        modifiers = set(re.findall(r"[a-z]+", match.group(0)[: match.start("kind") - start]))
+        modifiers &= set(TYPE_MODIFIERS)
+        declaration = {
+            "name": name,
+            "kind": kind,
+            "modifiers": modifiers,
+            "bases": bases,
+            "span": (open_brace, end),
+            "start": start,
+            "body": source[open_brace + 1 : max(open_brace + 1, end - 1)],
+            "before": source[max(0, start - 300) : start],
+        }
+        while stack and declarations[stack[-1]]["span"][1] <= start:
+            stack.pop()
+        declaration["parent"] = stack[-1] if stack else None
+        declaration["enclosing"] = declarations[stack[-1]]["name"] if stack else None
+        stack.append(len(declarations))
+        declarations.append(declaration)
+    return declarations
+
+
+def type_references(source, declarations, type_table):
+    """Return {declared type name: set of other in-table names its body references}.
+
+    A reference inside a nested type's span belongs to the nested type only:
+    the outer type's scan skips the nested declaration's whole range, header
+    included. Duplicate names in one call are merged.
+    """
+    result = defaultdict(set)
+    by_parent = defaultdict(list)
+    for index, declaration in enumerate(declarations):
+        by_parent[declaration["parent"]].append((index, declaration))
+    for index, declaration in enumerate(declarations):
+        segments = []
+        pos = declaration["span"][0] + 1
+        for _child_index, child in sorted(by_parent.get(index, []), key=lambda pair: pair[1]["start"]):
+            segments.append((pos, child["start"]))
+            pos = child["span"][1]
+        segments.append((pos, declaration["span"][1] - 1))
+        found = result[declaration["name"]]
+        for seg_start, seg_end in segments:
+            if seg_end <= seg_start:
+                continue
+            text = source[seg_start:seg_end]
+            for match in IDENT_RE.finditer(text):
+                ident = match.group(0)
+                if ident == declaration["name"] or ident not in type_table:
+                    continue
+                if _is_plain_call(text, match.start(), match.end()):
+                    continue
+                found.add(ident)
+    return result
+
+
+def type_role(declaration):
+    """Return exactly one role string for a declaration, in checked order."""
+    if any(base in ENTRY_BASES for base in declaration["bases"]):
+        return "entry"
+    if "[KSPAddon" in declaration["before"] or "[HarmonyPatch" in declaration["before"]:
+        return "entry"
+    if declaration["kind"] == "interface":
+        return "interface"
+    if "abstract" in declaration["modifiers"]:
+        return "abstract"
+    if declaration["kind"] == "enum":
+        return "enum"
+    if "static" in declaration["modifiers"]:
+        return "static"
+    if any(re.match(r"^I[A-Z]", base) for base in declaration["bases"]):
+        return "implements"
+    if declaration["kind"] == "struct" or not METHOD_DECL_RE.search(declaration["body"]):
+        return "data"
+    return "service"
+
+
+def type_levels(type_graph):
+    """Return {type name: level}; a level is the longest path to a sink.
+
+    `type_graph` maps a type name to an iterable of the type names it
+    references. Cycles are condensed with `sccs`, so every member of a cycle
+    shares one level, and a level-0 type references no in-repo type.
+    """
+    nodes = sorted(type_graph)
+    edges = []
+    for name in nodes:
+        for target in type_graph[name]:
+            if target in type_graph and target != name:
+                edges.append((name, target))
+    components = sccs(nodes, edges)
+    component_of = {}
+    for index, component in enumerate(components):
+        for member in component:
+            component_of[member] = index
+    successors = {index: set() for index in range(len(components))}
+    for frm, to in edges:
+        a, b = component_of[frm], component_of[to]
+        if a != b:
+            successors[a].add(b)
+
+    order = []
+    seen = set()
+    for root in sorted(successors):
+        if root in seen:
+            continue
+        seen.add(root)
+        stack = [(root, iter(sorted(successors[root])))]
+        while stack:
+            node, iterator = stack[-1]
+            advanced = False
+            for nxt in iterator:
+                if nxt not in seen:
+                    seen.add(nxt)
+                    stack.append((nxt, iter(sorted(successors[nxt]))))
+                    advanced = True
+                    break
+            if not advanced:
+                order.append(node)
+                stack.pop()
+
+    level = {}
+    for node in order:
+        child_levels = [level[child] for child in successors[node]]
+        level[node] = 0 if not child_levels else 1 + max(child_levels)
+    return {name: level[component_of[name]] for name in nodes}
+
+
+def file_type_references(source, type_table):
+    """Set of type-table names referenced anywhere in an already-stripped file."""
+    found = set()
+    for match in IDENT_RE.finditer(source):
+        ident = match.group(0)
+        if ident in type_table and not _is_plain_call(source, match.start(), match.end()):
+            found.add(ident)
+    return found
+
+
+def type_fanin(name, file_references, declaring_files):
+    """Number of distinct files outside the declaring file that reference the type.
+
+    Deliberately file-based: a big file counts once, so the number reads as
+    "how many files must be understood before this type" rather than as a raw
+    reference count.
+    """
+    return sum(
+        1
+        for rel_path, names in file_references.items()
+        if name in names and rel_path not in declaring_files
+    )
+
+
+# ---------------------------------------------------------------------------
 # extraction shell
 # ---------------------------------------------------------------------------
 
@@ -527,11 +840,95 @@ def build_model(source_root, rules, tooling):
             }
         )
 
+    # Type ladder: production types only, keyed by name. A name declared by
+    # more than one module is excluded (text cannot say which one a use means),
+    # and tooling modules do not contribute types at all.
+    graph_names = {
+        name
+        for name, declaring in declaring_modules.items()
+        if len(declaring) == 1 and next(iter(declaring)) not in tooling
+    }
+    first_declaration = {}
+    all_declarations = defaultdict(list)
+    references_union = defaultdict(set)
+    declaring_files = defaultdict(set)
+    file_references = {}
+    for rel_path, module in assignments:
+        if module in tooling:
+            continue
+        declarations = type_declarations(stripped[rel_path])
+        file_references[rel_path] = file_type_references(stripped[rel_path], graph_names)
+        for declaration in declarations:
+            name = declaration["name"]
+            if name not in graph_names:
+                continue
+            declaring_files[name].add(rel_path)
+            all_declarations[name].append(declaration)
+            if name not in first_declaration:
+                first_declaration[name] = (module, rel_path, declaration)
+        for name, refs in type_references(stripped[rel_path], declarations, graph_names).items():
+            if name in graph_names:
+                references_union[name] |= {ref for ref in refs if ref in graph_names and ref != name}
+    graph_names &= set(first_declaration)
+
+    type_graph = {name: sorted(references_union[name]) for name in graph_names}
+    type_level = type_levels(type_graph)
+    reverse_references = defaultdict(set)
+    for name, refs in type_graph.items():
+        for target in refs:
+            reverse_references[target].add(name)
+
+    types = []
+    for name in sorted(graph_names, key=lambda n: (first_declaration[n][0], n)):
+        module, rel_path, declaration = first_declaration[name]
+        # A partial type declares its base and modifiers on one part only, so
+        # the merged name sees the union of every part rather than whichever
+        # file the walk met first.
+        modifiers = sorted({mod for part in all_declarations[name] for mod in part["modifiers"]})
+        bases = []
+        for part in all_declarations[name]:
+            for base in part["bases"]:
+                if base not in bases:
+                    bases.append(base)
+        role_declaration = {
+            "kind": declaration["kind"],
+            "modifiers": set(modifiers),
+            "bases": bases,
+            "body": declaration["body"],
+            "before": " ".join(part["before"] for part in all_declarations[name]),
+        }
+        types.append(
+            {
+                "name": name,
+                "module": module,
+                "file": rel_path,
+                "kind": declaration["kind"],
+                "modifiers": modifiers,
+                "bases": bases,
+                "enclosing": declaration["enclosing"],
+                "role": type_role(role_declaration),
+                "level": type_level[name],
+                "fanIn": type_fanin(name, file_references, declaring_files[name]),
+                "fanOut": len(type_graph[name]),
+                "referencesTo": type_graph[name],
+                "referencedBy": sorted(reverse_references.get(name, set())),
+            }
+        )
+    histogram = defaultdict(int)
+    for entry in types:
+        histogram[entry["level"]] += 1
+    levels_payload = {
+        "max": max(histogram) if histogram else 0,
+        "histogram": {level: histogram[level] for level in sorted(histogram)},
+    }
+
     return {
         "modules": modules,
         "edges": edges,
         "unclassified": unclassified,
         "ambiguousTypes": ambiguous,
+        "types": types,
+        "typeLevels": levels_payload,
     }
 
 
@@ -1054,6 +1451,284 @@ def render_explore_html(model, min_edge):
     return text
 
 
+def write_types_json(model, out_path):
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "types": model.get("types", []),
+        "levels": model.get("typeLevels", {"max": 0, "histogram": {}}),
+    }
+    out_path.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=True) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+
+
+LADDER_TEMPLATE = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Parsek type ladder</title>
+<style>
+html, body { margin: 0; height: 100%; font-family: "Segoe UI", Arial, sans-serif; color: #222;
+  background: #fcfdfe; }
+#app { display: flex; height: 100%; }
+#main { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; }
+#controls { padding: 8px 12px; border-bottom: 1px solid #d0d6dd; display: flex; gap: 18px;
+  align-items: center; flex-wrap: wrap; font-size: 13px; background: #f6f8fa; }
+#board { flex: 1 1 auto; overflow: auto; }
+#panel { width: 340px; flex: 0 0 340px; border-left: 1px solid #d0d6dd; overflow: auto;
+  padding: 10px 14px; font-size: 13px; box-sizing: border-box; background: #ffffff; }
+#panel h2 { font-size: 15px; margin: 4px 0 2px; }
+#panel h3 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: #667;
+  margin: 14px 0 4px; }
+#panel p.metrics { color: #555; font-size: 12px; margin: 0 0 6px; }
+#panel p.hint, #panel p.none { color: #777; }
+#panel ul { list-style: none; margin: 0; padding: 0; }
+#panel li { padding: 4px 0; border-bottom: 1px solid #eef1f4; }
+#panel .mod { color: #667; font-size: 11px; }
+#panel .fi { color: #667; font-size: 11px; }
+#panel a.ref { color: #2e5e9c; cursor: pointer; text-decoration: none; }
+#panel a.ref:hover { text-decoration: underline; }
+table.ladder { border-collapse: collapse; font-size: 11px; }
+table.ladder th, table.ladder td { border: 1px solid #e3e8ee; padding: 3px 5px;
+  vertical-align: top; }
+table.ladder thead th { position: sticky; top: 0; background: #f6f8fa; z-index: 2;
+  font-weight: 600; white-space: nowrap; text-align: left; }
+table.ladder th.lvl { position: sticky; left: 0; background: #f6f8fa; z-index: 1;
+  font-weight: 600; text-align: right; white-space: nowrap; }
+table.ladder thead th.corner { position: sticky; left: 0; top: 0; z-index: 3; }
+td.cell { min-width: 130px; max-width: 230px; }
+.chip { display: inline-flex; align-items: center; border: 1px solid #d7dde4; border-radius: 9px;
+  padding: 1px 6px 1px 2px; margin: 1px; background: #ffffff; cursor: pointer;
+  white-space: nowrap; }
+.chip:hover { border-color: #4c78a8; }
+.chip .glyph { display: inline-block; width: 14px; line-height: 14px; text-align: center;
+  border-radius: 50%; background: #4c78a8; color: #ffffff; font-size: 9px; margin-right: 4px; }
+.chip .fi { color: #667; font-size: 9px; margin-left: 4px; }
+.chip.role-E .glyph { background: #b45309; }
+.chip.role-I .glyph { background: #7c3aed; }
+.chip.role-A .glyph { background: #0e7490; }
+.chip.role-N .glyph { background: #6d7681; }
+.chip.role-S .glyph { background: #15803d; }
+.chip.role-M .glyph { background: #2e5e9c; }
+.chip.role-D .glyph { background: #9aa4b1; }
+.chip.role-C .glyph { background: #cc0000; }
+.chip-hidden { display: none; }
+td.cell.expanded .chip-hidden { display: inline-flex; }
+td.cell.expanded .more { display: none; }
+.more { color: #2e5e9c; cursor: pointer; font-size: 10px; margin-left: 3px; }
+.ladder.filtering .chip { display: none; }
+.ladder.filtering .chip.match { display: inline-flex; }
+.ladder.filtering .more { display: none; }
+.chip.dim { opacity: 0.15; }
+.chip.hl-down { border-color: #2e5e9c; box-shadow: 0 0 0 2px rgba(46,94,156,0.35); }
+.chip.hl-up { border-color: #b45309; box-shadow: 0 0 0 2px rgba(180,83,9,0.35); }
+.chip.hl-self { border-color: #e8810c; box-shadow: 0 0 0 3px rgba(232,129,12,0.45); }
+.legend .chip { cursor: default; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="main">
+    <div id="controls">
+      <label>filter <input type="text" id="filter" placeholder="type name"></label>
+      <span class="legend">roles:
+        <span class="chip role-E"><span class="glyph">E</span>entry</span>
+        <span class="chip role-I"><span class="glyph">I</span>interface</span>
+        <span class="chip role-A"><span class="glyph">A</span>abstract</span>
+        <span class="chip role-N"><span class="glyph">N</span>enum</span>
+        <span class="chip role-S"><span class="glyph">S</span>static</span>
+        <span class="chip role-M"><span class="glyph">M</span>implements</span>
+        <span class="chip role-D"><span class="glyph">D</span>data</span>
+        <span class="chip role-C"><span class="glyph">C</span>service</span>
+      </span>
+      <span class="legend">rows: level (top = most abstract), chip number = fan-in in files</span>
+    </div>
+    <div id="board"><table class="ladder" id="ladder"></table></div>
+  </div>
+  <div id="panel">
+    <p class="hint">Click a chip to see what it references and what references it.</p>
+  </div>
+</div>
+<script>
+"use strict";
+// Self-contained: no library, no network. Columns are production modules by
+// descending instability; rows are levels, highest at the top, so a bottom-up
+// read is a dependency-order read.
+const DATA = @@DATA@@;
+const MODULES = DATA.modules;
+const TYPES = DATA.types;
+const MAX_LEVEL = DATA.maxLevel;
+const ROLE_LETTER = { entry: "E", interface: "I", abstract: "A", enum: "N", "static": "S",
+  implements: "M", data: "D", service: "C" };
+const COLLAPSE_AT = 12;
+
+const BY_NAME = {};
+TYPES.forEach(function (t) { BY_NAME[t.name] = t; });
+
+let selected = null;
+let filter = "";
+
+function esc(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function chipHtml(type, hidden) {
+  const letter = ROLE_LETTER[type.role];
+  return '<span class="chip role-' + letter + (hidden ? " chip-hidden" : "") +
+    '" data-name="' + esc(type.name) + '"><span class="glyph">' + letter + "</span>" +
+    esc(type.name) + '<span class="fi">' + type.fanIn + "</span></span>";
+}
+
+function buildTable() {
+  const cells = {};
+  TYPES.forEach(function (t) {
+    const key = t.module + "\\u0000" + t.level;
+    (cells[key] = cells[key] || []).push(t);
+  });
+  let html = '<thead><tr><th class="lvl corner">level</th>';
+  MODULES.forEach(function (m) {
+    html += "<th>" + esc(m.name) + '<div class="mod">' + m.files + " files, I=" +
+      m.instability.toFixed(2) + "</div></th>";
+  });
+  html += "</tr></thead><tbody>";
+  for (let level = MAX_LEVEL; level >= 0; level--) {
+    html += '<tr><th class="lvl">L' + level + "</th>";
+    MODULES.forEach(function (m) {
+      const list = (cells[m.name + "\\u0000" + level] || []).slice().sort(function (a, b) {
+        return b.fanIn - a.fanIn || (a.name < b.name ? -1 : 1);
+      });
+      let cell = '<td class="cell">';
+      list.forEach(function (t, i) { cell += chipHtml(t, i >= COLLAPSE_AT); });
+      if (list.length > COLLAPSE_AT) {
+        cell += '<span class="more">+' + (list.length - COLLAPSE_AT) + " more</span>";
+      }
+      html += cell + "</td>";
+    });
+    html += "</tr>";
+  }
+  document.getElementById("ladder").innerHTML = html + "</tbody>";
+}
+
+function applyFilter() {
+  const table = document.getElementById("ladder");
+  table.classList.toggle("filtering", filter !== "");
+  document.querySelectorAll("#ladder .chip").forEach(function (chip) {
+    const name = chip.getAttribute("data-name").toLowerCase();
+    chip.classList.toggle("match", filter !== "" && name.indexOf(filter) !== -1);
+  });
+}
+
+function clearSelection() {
+  selected = null;
+  document.querySelectorAll("#ladder .chip").forEach(function (chip) {
+    chip.classList.remove("dim", "hl-down", "hl-up", "hl-self");
+  });
+  document.getElementById("panel").innerHTML =
+    '<p class="hint">Click a chip to see what it references and what references it.</p>';
+}
+
+function refList(names) {
+  const byModule = {};
+  names.forEach(function (name) {
+    const type = BY_NAME[name];
+    if (!type) return;
+    (byModule[type.module] = byModule[type.module] || []).push(type);
+  });
+  const modules = Object.keys(byModule).sort();
+  if (!modules.length) return '<p class="none">none</p>';
+  let html = "";
+  modules.forEach(function (module) {
+    byModule[module].sort(function (a, b) {
+      return b.fanIn - a.fanIn || (a.name < b.name ? -1 : 1);
+    });
+    html += '<div><span class="mod">' + esc(module) + "</span><ul>";
+    byModule[module].forEach(function (type) {
+      html += '<li><a class="ref" data-name="' + esc(type.name) + '">' + esc(type.name) +
+        '</a> <span class="fi">fan-in ' + type.fanIn + ", L" + type.level + "</span></li>";
+    });
+    html += "</ul></div>";
+  });
+  return html;
+}
+
+function renderPanel(type) {
+  document.getElementById("panel").innerHTML =
+    "<h2>" + esc(type.name) + "</h2>" +
+    '<p class="metrics">' + esc(type.role) + " " + esc(type.kind) + ", " + esc(type.module) +
+    " - level " + type.level + ", fan-in " + type.fanIn + ", fan-out " + type.fanOut +
+    (type.enclosing ? ", nested in " + esc(type.enclosing) : "") + "</p>" +
+    "<h3>references (" + type.referencesTo.length + ")</h3>" + refList(type.referencesTo) +
+    "<h3>referenced by (" + type.referencedBy.length + ")</h3>" + refList(type.referencedBy);
+  document.getElementById("panel").scrollTop = 0;
+}
+
+function selectType(name) {
+  const type = BY_NAME[name];
+  if (!type) return;
+  selected = name;
+  const down = {};
+  const up = {};
+  type.referencesTo.forEach(function (n) { down[n] = true; });
+  type.referencedBy.forEach(function (n) { up[n] = true; });
+  document.querySelectorAll("#ladder .chip").forEach(function (chip) {
+    const n = chip.getAttribute("data-name");
+    const isSelf = n === name;
+    const isDown = !!down[n];
+    const isUp = !!up[n];
+    chip.classList.toggle("hl-self", isSelf);
+    chip.classList.toggle("hl-down", !isSelf && isDown);
+    chip.classList.toggle("hl-up", !isSelf && isUp);
+    chip.classList.toggle("dim", !isSelf && !isDown && !isUp);
+  });
+  renderPanel(type);
+}
+
+document.getElementById("ladder").addEventListener("click", function (evt) {
+  const more = evt.target.closest ? evt.target.closest(".more") : null;
+  if (more) { more.parentElement.classList.add("expanded"); return; }
+  const chip = evt.target.closest ? evt.target.closest(".chip") : null;
+  if (chip) { selectType(chip.getAttribute("data-name")); return; }
+  clearSelection();
+});
+document.getElementById("filter").addEventListener("input", function () {
+  filter = this.value.trim().toLowerCase();
+  applyFilter();
+});
+document.getElementById("panel").addEventListener("click", function (evt) {
+  const link = evt.target.closest ? evt.target.closest("a.ref") : null;
+  if (link) selectType(link.getAttribute("data-name"));
+});
+
+buildTable();
+applyFilter();
+clearSelection();
+</script>
+</body>
+</html>
+"""
+
+
+def render_ladder_html(model):
+    """Return the type ladder as a standalone HTML page."""
+    modules = sorted(
+        (m for m in model["modules"] if not m["tooling"]),
+        key=lambda m: (-m["instability"], m["name"]),
+    )
+    payload = {
+        "modules": [
+            {"name": m["name"], "files": m["files"], "instability": m["instability"]}
+            for m in modules
+        ],
+        "types": model.get("types", []),
+        "maxLevel": model.get("typeLevels", {}).get("max", 0),
+    }
+    data = json.dumps(payload, ensure_ascii=True, separators=(",", ":")).replace("</", "<\\/")
+    return LADDER_TEMPLATE.replace("@@DATA@@", data)
+
+
 # ---------------------------------------------------------------------------
 # checker (report-only)
 # ---------------------------------------------------------------------------
@@ -1113,6 +1788,41 @@ def two_way_couplings(model):
     return pairs
 
 
+def hub_types(model, limit=25):
+    """Types with the highest file-based fan-in, name-sorted on ties."""
+    return sorted(model.get("types", []), key=lambda t: (-t["fanIn"], t["name"]))[:limit]
+
+
+def type_role_groups(model):
+    """[(role, count, [three example names])] by count, then role order."""
+    groups = defaultdict(list)
+    for entry in model.get("types", []):
+        groups[entry["role"]].append(entry)
+    rows = []
+    for role in sorted(groups, key=lambda r: (-len(groups[r]), ROLE_ORDER.index(r))):
+        examples = sorted(groups[role], key=lambda t: (-t["fanIn"], t["name"]))[:3]
+        rows.append((role, len(groups[role]), [t["name"] for t in examples]))
+    return rows
+
+
+def level_profile(model):
+    """([(module, total, {level: count}, max level)], overall max level)."""
+    by_module = defaultdict(list)
+    for entry in model.get("types", []):
+        by_module[entry["module"]].append(entry)
+    production = sorted(m["name"] for m in model["modules"] if not m["tooling"])
+    profile = []
+    overall = 0
+    for module in production:
+        counts = defaultdict(int)
+        for entry in by_module.get(module, []):
+            counts[entry["level"]] += 1
+        max_level = max(counts) if counts else 0
+        overall = max(overall, max_level)
+        profile.append((module, len(by_module.get(module, [])), dict(counts), max_level))
+    return profile, overall
+
+
 def run_check(model, forbidden, allowed):
     """Print the report-only architecture check.
 
@@ -1149,6 +1859,36 @@ def run_check(model, forbidden, allowed):
         print("  none.")
     for a, b, weight_ab, weight_ba in pairs:
         print("  %s <-> %s: %s->%s=%d, %s->%s=%d" % (a, b, a, b, weight_ab, b, a, weight_ba))
+
+    print()
+    print("HUB TYPES (top 25 by file-based fan-in):")
+    hubs = hub_types(model)
+    if not hubs:
+        print("  none.")
+    for entry in hubs:
+        print(
+            "  %-28s fan-in=%-4d role=%-10s module=%-13s level=%d"
+            % (entry["name"], entry["fanIn"], entry["role"], entry["module"], entry["level"])
+        )
+
+    print()
+    print("TYPE ROLES:")
+    roles = type_role_groups(model)
+    if not roles:
+        print("  none.")
+    for role, count, examples in roles:
+        print("  %-10s %4d  e.g. %s" % (role, count, ", ".join(examples)))
+
+    print()
+    print("LEVEL PROFILE (production modules):")
+    profile, overall = level_profile(model)
+    if not profile:
+        print("  none.")
+    for module, total, counts, max_level in profile:
+        levels_text = " ".join("L%d=%d" % (level, counts[level]) for level in sorted(counts))
+        print("  %-13s %4d types  %-42s max level=%d" % (module, total, levels_text, max_level))
+    if profile:
+        print("  Overall max level: %d" % overall)
 
     lookup = {(e["from"], e["to"]): e for e in model["edges"]}
     print()
@@ -1264,6 +2004,14 @@ def main(argv=None):
             explore_path = out_dir / "explore.html"
             _write_text(explore_path, render_explore_html(model, args.min_edge))
             print("Wrote %s" % explore_path)
+
+            types_path = out_dir / "types.json"
+            write_types_json(model, types_path)
+            print("Wrote %s" % types_path)
+
+            ladder_path = out_dir / "ladder.html"
+            _write_text(ladder_path, render_ladder_html(model))
+            print("Wrote %s" % ladder_path)
         except Exception as exc:
             print("WARN archview: %s" % exc, file=sys.stderr)
 

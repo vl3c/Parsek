@@ -11,6 +11,7 @@ tree, so it exercises the extractor end to end.
 import contextlib
 import io
 import pathlib
+import re
 import sys
 import tempfile
 import unittest
@@ -177,6 +178,156 @@ class DeclaredTypesAndReferencesTests(unittest.TestCase):
     def test_declared_types_ignore_short_names(self):
         stripped = archview.strip_comments_and_strings("class Key { } class Router { }")
         self.assertEqual(archview.declared_types(stripped), ["Router"])
+
+
+class TypeDeclarationTests(unittest.TestCase):
+    def test_modifiers_bases_and_where_clause(self):
+        source = (
+            "[SomeAttr(1)]\n"
+            "public sealed partial class OuterThing : MonoBehaviour, Parsek.Logistics.Route, List<FooThing>\n"
+            "    where T : class\n"
+            "{\n"
+            "    private static class InnerHelper : IRunnable { int Value; }\n"
+            "}\n"
+        )
+        declaration_list = archview.type_declarations(source)
+        declarations = {d["name"]: d for d in declaration_list}
+        outer = declarations["OuterThing"]
+        self.assertEqual(outer["kind"], "class")
+        self.assertEqual(outer["modifiers"], {"public", "sealed", "partial"})
+        self.assertEqual(outer["bases"], ["MonoBehaviour", "Route", "List"])
+        self.assertIsNone(outer["enclosing"])
+        helper = declarations["InnerHelper"]
+        self.assertEqual(helper["enclosing"], "OuterThing")
+        self.assertEqual(declaration_list[helper["parent"]]["name"], "OuterThing")
+
+    def test_span_is_the_brace_body(self):
+        source = "class BodyThing\n{\n    int Value;\n}\nclass NextThing { }"
+        declarations = {d["name"]: d for d in archview.type_declarations(source)}
+        start, end = declarations["BodyThing"]["span"]
+        self.assertEqual(source[start], "{")
+        self.assertEqual(source[end - 1], "}")
+        self.assertEqual(source[start:end], "{\n    int Value;\n}")
+
+    def test_record_declarations_are_ignored(self):
+        source = "record PointPair(int X, int Y);\nrecord Pair(int X) { }\nclass AfterRecord { }"
+        self.assertEqual(archview.declared_types(source), ["AfterRecord"])
+        self.assertEqual([d["name"] for d in archview.type_declarations(source)], ["AfterRecord"])
+
+    def test_enum_underlying_type_is_not_a_base(self):
+        declarations = archview.type_declarations("internal enum ModeThing : byte { A, B }")
+        self.assertEqual(declarations[0]["kind"], "enum")
+        self.assertEqual(declarations[0]["bases"], [])
+
+    def test_interface_bases_are_kept(self):
+        declarations = archview.type_declarations("interface IReaderThing : IBaseThing { }")
+        self.assertEqual(declarations[0]["bases"], ["IBaseThing"])
+
+
+def _role_of(snippet):
+    return {d["name"]: archview.type_role(d) for d in archview.type_declarations(snippet)}
+
+
+class TypeRoleTests(unittest.TestCase):
+    def test_one_snippet_per_role(self):
+        self.assertEqual(
+            _role_of("[KSPAddon(KSPAddon.Startup.Flight, false)]\npublic class AddonThing { }")[
+                "AddonThing"
+            ],
+            "entry",
+        )
+        self.assertEqual(_role_of("class MonoThing : MonoBehaviour { }")["MonoThing"], "entry")
+        self.assertEqual(_role_of("interface IReaderThing { }")["IReaderThing"], "interface")
+        self.assertEqual(_role_of("abstract class BaseThing { }")["BaseThing"], "abstract")
+        self.assertEqual(_role_of("internal enum ModeThing { A, B }")["ModeThing"], "enum")
+        self.assertEqual(_role_of("static class HelperThing { }")["HelperThing"], "static")
+        self.assertEqual(
+            _role_of("class ImplThing : IReaderThing { }")["ImplThing"], "implements"
+        )
+        self.assertEqual(_role_of("internal struct PairThing { public int X; }")["PairThing"], "data")
+        self.assertEqual(_role_of("class DataThing { public int X = 1; }")["DataThing"], "data")
+        self.assertEqual(_role_of("class ServiceThing { void Work() { } }")["ServiceThing"], "service")
+
+    def test_order_static_beats_implements(self):
+        self.assertEqual(_role_of("static class BothThing : IReaderThing { }")["BothThing"], "static")
+
+    def test_order_interface_beats_bases(self):
+        self.assertEqual(_role_of("interface IChildThing : IBaseThing { }")["IChildThing"], "interface")
+
+    def test_harmony_patch_attribute_is_entry(self):
+        roles = _role_of("[HarmonyPatch(typeof(FooThing))]\nclass PatchThing { }")
+        self.assertEqual(roles["PatchThing"], "entry")
+
+
+class TypeReferenceTests(unittest.TestCase):
+    def test_reference_inside_nested_type_is_not_credited_to_outer(self):
+        source = "class OuterThing { AlphaThing a; class InnerThing { BetaThing b; } GammaThing c; }"
+        declarations = archview.type_declarations(source)
+        table = {"OuterThing", "InnerThing", "AlphaThing", "BetaThing", "GammaThing"}
+        refs = archview.type_references(source, declarations, table)
+        self.assertEqual(refs["OuterThing"], {"AlphaThing", "GammaThing"})
+        self.assertEqual(refs["InnerThing"], {"BetaThing"})
+
+    def test_plain_method_call_is_not_a_reference(self):
+        source = "class CallerThing { void Run() { Decision(true); var d = new Decision(); } }"
+        declarations = archview.type_declarations(source)
+        refs = archview.type_references(source, declarations, {"CallerThing", "Decision"})
+        self.assertEqual(refs["CallerThing"], {"Decision"})
+
+
+class TypeLevelTests(unittest.TestCase):
+    def test_chain_levels(self):
+        levels = archview.type_levels({"AThing": ["BThing"], "BThing": ["CThing"], "CThing": []})
+        self.assertEqual(levels["CThing"], 0)
+        self.assertEqual(levels["BThing"], 1)
+        self.assertEqual(levels["AThing"], 2)
+
+    def test_cycle_shares_one_level(self):
+        levels = archview.type_levels(
+            {"AThing": ["BThing"], "BThing": ["AThing"], "CThing": ["AThing"]}
+        )
+        self.assertEqual(levels["AThing"], levels["BThing"])
+        self.assertEqual(levels["CThing"], levels["AThing"] + 1)
+
+    def test_type_with_no_references_is_level_zero(self):
+        self.assertEqual(archview.type_levels({"LonelyThing": []})["LonelyThing"], 0)
+
+
+class TypeFanInTests(unittest.TestCase):
+    def test_fanin_counts_files_not_references(self):
+        file_references = {"a.cs": {"FooThing"}, "b.cs": {"FooThing"}, "c.cs": {"BarThing"}}
+        self.assertEqual(archview.type_fanin("FooThing", file_references, {"a.cs"}), 1)
+        self.assertEqual(archview.type_fanin("FooThing", file_references, set()), 2)
+        self.assertEqual(archview.type_fanin("BarThing", file_references, set()), 1)
+
+
+class LadderRenderTests(unittest.TestCase):
+    def test_ladder_html_is_self_contained(self):
+        model = {
+            "modules": [{"name": "Alpha", "files": 1, "instability": 0.5, "tooling": False}],
+            "types": [
+                {
+                    "name": "SomeThing",
+                    "module": "Alpha",
+                    "file": "Alpha/A.cs",
+                    "kind": "class",
+                    "modifiers": [],
+                    "bases": [],
+                    "enclosing": None,
+                    "role": "service",
+                    "level": 0,
+                    "fanIn": 3,
+                    "fanOut": 0,
+                    "referencesTo": [],
+                    "referencedBy": [],
+                }
+            ],
+            "typeLevels": {"max": 0, "histogram": {0: 1}},
+        }
+        text = archview.render_ladder_html(model)
+        self.assertNotIn("http", text)
+        self.assertIn('"name":"SomeThing"', text)
+        self.assertIn("role-C", text)
 
 
 class MetricsTests(unittest.TestCase):
@@ -367,6 +518,28 @@ class ModelWiringTests(unittest.TestCase):
         self.assertEqual(model["unclassified"], ["Mystery/X.cs"])
         self.assertEqual([m["name"] for m in model["modules"]], [])
 
+    def test_tooling_types_are_not_in_the_graph(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            self._write(root, "Prod/A.cs", "class UsesThing { ToolThing t; }")
+            self._write(root, "Tool/T.cs", "class ToolThing { }")
+            rules = [{"name": "Prod", "folder": "Prod"}, {"name": "Tool", "folder": "Tool"}]
+            model = archview.build_model(root, rules, {"Tool"})
+        types = {t["name"]: t for t in model["types"]}
+        self.assertEqual(sorted(types), ["UsesThing"])
+        self.assertEqual(types["UsesThing"]["referencesTo"], [])
+        self.assertEqual(types["UsesThing"]["level"], 0)
+
+    def test_partial_declarations_merge_bases_for_the_role(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            self._write(root, "One/A.cs", "public partial class BigThing { }")
+            self._write(root, "One/B.cs", "public partial class BigThing : MonoBehaviour { }")
+            model = archview.build_model(root, [{"name": "One", "folder": "One"}], set())
+        types = {t["name"]: t for t in model["types"]}
+        self.assertEqual(types["BigThing"]["role"], "entry")
+        self.assertEqual(types["BigThing"]["bases"], ["MonoBehaviour"])
+
 
 def _small_model():
     return {
@@ -497,6 +670,45 @@ class CheckerOutputTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertIn("WARN unclassified file: Mystery/X.cs", captured.getvalue())
 
+    def test_type_sections_print_before_forbidden(self):
+        def typed(name, role, level, fan_in):
+            return {
+                "name": name,
+                "module": "Alpha",
+                "file": "Alpha/A.cs",
+                "kind": "class",
+                "modifiers": [],
+                "bases": [],
+                "enclosing": None,
+                "role": role,
+                "level": level,
+                "fanIn": fan_in,
+                "fanOut": 0,
+                "referencesTo": [],
+                "referencedBy": [],
+            }
+
+        model = {
+            "modules": [
+                {"name": "Alpha", "files": 1, "fanIn": 0, "fanOut": 0, "instability": 0.0, "tooling": False}
+            ],
+            "edges": [],
+            "unclassified": [],
+            "types": [typed("HubThing", "static", 2, 7), typed("LeafThing", "data", 0, 1)],
+            "typeLevels": {"max": 2, "histogram": {0: 1, 2: 1}},
+        }
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            archview.run_check(model, [], [])
+        text = captured.getvalue()
+        self.assertIn("HUB TYPES", text)
+        self.assertIn("HubThing", text)
+        self.assertIn("TYPE ROLES", text)
+        self.assertIn("LEVEL PROFILE", text)
+        self.assertIn("Overall max level: 2", text)
+        self.assertLess(text.index("HUB TYPES"), text.index("Forbidden edges"))
+        self.assertEqual(self._last_line(text), "ARCH-CHECK report-only")
+
 
 @unittest.skipUnless(REAL_SOURCE.is_dir(), "Source/Parsek is not present")
 class RealTreeSmokeTests(unittest.TestCase):
@@ -505,6 +717,7 @@ class RealTreeSmokeTests(unittest.TestCase):
         rules, tooling, _forbidden, _allowed = archview.load_rules(archview.DEFAULT_MODULES)
         cls.model = archview.build_model(REAL_SOURCE, rules, tooling)
         cls.by_name = {module["name"]: module for module in cls.model["modules"]}
+        cls.types = {entry["name"]: entry for entry in cls.model["types"]}
 
     def test_logio_is_a_pure_sink(self):
         self.assertIn("LogIO", self.by_name)
@@ -516,6 +729,32 @@ class RealTreeSmokeTests(unittest.TestCase):
 
     def test_every_source_file_is_classified(self):
         self.assertEqual(self.model["unclassified"], [])
+
+    def test_parseklog_has_the_highest_fanin(self):
+        top = max(self.model["types"], key=lambda entry: entry["fanIn"])
+        self.assertEqual(top["name"], "ParsekLog")
+
+    def test_recording_fanin_is_above_one_hundred(self):
+        self.assertGreater(self.types["Recording"]["fanIn"], 100)
+
+    def test_interface_count_is_between_twenty_and_forty(self):
+        count = sum(1 for entry in self.model["types"] if entry["role"] == "interface")
+        self.assertGreaterEqual(count, 20)
+        self.assertLessEqual(count, 40)
+
+    def test_every_type_has_a_level_and_max_is_at_least_four(self):
+        self.assertTrue(all(isinstance(entry["level"], int) for entry in self.model["types"]))
+        self.assertGreaterEqual(self.model["typeLevels"]["max"], 4)
+
+    def test_no_record_declarations_in_the_tree(self):
+        # The literal `\brecord\b` grep would also match a local variable named
+        # `record` (KspStatePatcher.cs has one), so this pins the declaration
+        # shape instead: a record keyword followed by a type name.
+        pattern = re.compile(r"\brecord\s+[A-Z]")
+        for rel in archview.iter_source_files(REAL_SOURCE):
+            text = (REAL_SOURCE / rel).read_text(encoding="utf-8-sig", errors="replace")
+            stripped = archview.strip_comments_and_strings(text)
+            self.assertIsNone(pattern.search(stripped), "record declaration in %s" % rel.as_posix())
 
 
 if __name__ == "__main__":

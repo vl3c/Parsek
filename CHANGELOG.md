@@ -29,8 +29,16 @@ _(unreleased — entries accumulate here per commit)_
   excluded from the scan, which removed the phantom hits an earlier pass reported.
   The checker always exits 0 and gates nothing, even on a typo in the module map; a
   version that could fail a build would have to read the compiled code (Roslyn),
-  because a text scan cannot see conditional compilation or reflection. No
-  player-visible behavior changes.
+  because a text scan cannot see conditional compilation or reflection.
+
+  The map now also gives every production type a role, a fan-in and a level, and
+  lays them out as a ladder in `docs/dev/arch/ladder.html` (the raw data is
+  `types.json`): modules are columns, levels are rows, a chip is one type, and a
+  bottom-up read follows the dependency order, with a click showing what a type
+  references and what references it. Roles are heuristics over the same text scan
+  (entry point, interface, abstract, enum, static, implements, data, service), and
+  the report also prints the 25 most-referenced types, the count per role, and a
+  per-module level profile. No player-visible behavior changes.
 
 ### Changed
 
