@@ -45,8 +45,15 @@ _(unreleased — entries accumulate here per commit)_
   module mix, the largest knot's hub types, and a greedy cut sequence that names
   the few references worth untangling first, while the knot's ladder row is
   split into ordered sub-rows with the cut sinks marked. Nothing about the code
-  changes; the cuts are a display order for the view. No player-visible behavior
-  changes.
+  changes; the cuts are a display order for the view.
+
+  The module map's catch-all is now a maintenance queue with a placement report
+  rather than a pile: `--place` scores every root file still in it by who
+  references it, moves the 48 files a name family or a clear owner claims
+  (including two new modules, the GUI census recorder and the settings types),
+  and lists the 75 that stay with their evidence in
+  `docs/dev/arch/core-placement.md` so a human can place them. No
+  player-visible behavior changes.
 
 ### Changed
 

@@ -80,6 +80,9 @@ Options:
 - `--min-edge N` (default 8): edges lighter than N references are hidden from
   the dot view; the explorer slider starts at N but can go down to 1.
 - `--modules FILE` (default `scripts/arch/modules.toml`)
+- `--place` (default off): print the placement evidence for every file still
+  assigned to the catch-all module, and write `core-placement.md` (see
+  "Placing catch-all files")
 
 Requirements: Python 3.11+ (the TOML reader is `tomllib`) and, for the SVG
 only, Graphviz `dot` on PATH. If `dot` is missing the script prints a warning
@@ -203,9 +206,9 @@ depend on each other.
 `types.json` records this per type: `knot` is the 1-based index of the type's
 component in largest-first order, or null outside a knot, and `sublevel` is
 the type's level inside its knot after the cut edges are removed (again null
-outside). On the current tree the knots are one of 392, then of 19, 4, 3 and 2.
+outside). On the current tree the knots are one of 392, then of 4 and 2.
 
-`--check` first lists the first 10 knots (all five on the current tree) with
+`--check` first lists the first 10 knots (all three on the current tree) with
 their size and module breakdown, then for the largest knot it shows the hubs
 (the members other members reference most, with their in-knot references) and a
 **greedy cut sequence**: each step picks, among the highest-fan-in members, the
@@ -231,6 +234,44 @@ Sub-levels are a display order only: the cuts remove references from the
 levelling used to draw the knot, nothing else. Levels of types outside the
 knot do not change (the cut is a display device for ordering inside the knot,
 not a claim about the code).
+
+## Placing catch-all files
+
+`modules.toml` ends with a catch-all rule (currently `Core`) that catches every
+root-level file no other rule claims. That is a map maintenance queue, not a
+module: `--place` reports what is in it and which module owns each file, and
+the phase that placed the first batch left its evidence in
+`core-placement.md`. That report is generated evidence - produced by
+`--place`, never edited by hand.
+
+For every catch-all file the evidence line gives its declared type count, how
+many of those are in knot 1, the number of (referencing type, referenced type)
+pairs arriving from other modules, that count split by module, the top
+module's share, and the file's highest fan-in. The policy applies five rules
+in order, and the first that fires wins:
+
+| Rule | Condition | Outcome |
+| --- | --- | --- |
+| R1 | the file name starts with a family prefix (`GuiTree`, `GameState`, `ParsekConfig`/`ParsekSettings`/`SettingWhitelist`, `ParsekUI`, `MapRender`, the `Route*` family, the event/anchor family) | move to the family's module regardless of references; the family is a unit |
+| R2 | `externalRefs >= 5` and (the top module owns at least half of them, or has at least twice the second module) | move to the top module |
+| R3 | `externalRefs >= 5` and the top two modules reach 0.8 of them with neither alone at 0.6 | leave in the catch-all, tagged `SPLIT-CANDIDATE` with both names |
+| R4 | no references from other modules | leave in the catch-all, tagged `ORPHAN` (dead, reflective, or reached only by Unity lifecycle) |
+| R5 | anything else | leave in the catch-all, tagged `UNDECIDED`, with its evidence line |
+
+R1 runs first and its moves are rebuilt into the map before R2-R5 are
+evaluated, because moving a family out of the catch-all turns references from
+those files into external references for everything left behind. R2 moves are
+written as one exact-name rule per file (`^Name\.cs$`) under a comment with
+its evidence, and R1 moves as one family prefix rule per family; every
+placement rule carries `placement = "R1"` or `"R2"` so the report can rebuild
+the state before the phase. Files that stay behind are a legitimate outcome:
+`UNDECIDED` means no module owns a majority, not that the file is bad, and the
+report lists each with its evidence so a human can place it.
+
+The phase that introduced this moved 48 of the 123 catch-all files (R1 31, R2
+17); 75 remain (7 orphan, 68 undecided, no split candidates). `GuiTree` (the
+GUI census recorder, added to `[tooling]`) and `Config` (settings types, a
+production sink) are the two modules the move created.
 
 ## Editing `modules.toml`
 

@@ -111,6 +111,153 @@ prefix = "^Parsek(Flight|KSC|TrackingStation|Scenario|Harmony|Playback)|^WatchMo
 name = "LogIO"
 prefix = "^ParsekLog|^FileIO|^ParsekProcess|^Suppression|^PreParsek"
 
+# --- R1 name-family placements (phase 2) ----------------------------------
+# A file whose name starts with one of the family prefixes goes to the
+# family's module regardless of references; the family is a unit. The
+# evidence table is docs/dev/arch/core-placement.md.
+
+[[module]]
+name = "GuiTree"
+prefix = "^GuiTree"
+placement = "R1"
+
+[[module]]
+name = "GameActions"
+prefix = "^GameState"
+placement = "R1"
+
+[[module]]
+name = "Config"
+prefix = "^ParsekConfig|^ParsekSettings|^SettingWhitelist"
+placement = "R1"
+
+[[module]]
+name = "UI"
+prefix = "^ParsekUI"
+placement = "R1"
+
+[[module]]
+name = "MapRender"
+prefix = "^MapRender"
+placement = "R1"
+
+[[module]]
+name = "Logistics"
+prefix = "^RouteProof|^RouteConnection|^RouteEndpoint|^RouteHarvest|^RouteRun|^RouteOrigin|^Route"
+placement = "R1"
+
+[[module]]
+name = "Recording"
+prefix = "^PartEvent|^FlagEvent|^SegmentEvent|^SegmentBoundary|^SurfacePosition|^AnchorDetector|^RelativeAnchor|^TrackSection|^ControllerInfo"
+placement = "R1"
+
+# --- R2 clear-owner placements (phase 2) ----------------------------------
+# One exact-file rule per placement: the module that references the file most
+# owns it (a majority share of its external references, or at least twice the
+# second module). Evidence is the comment above each rule; the full table is
+# docs/dev/arch/core-placement.md.
+
+# evidence: externalRefs=9 share=0.56 top=Rewind(5) second=Recording(2)
+[[module]]
+name = "Rewind"
+prefix = '^ChildSlot\.cs$'
+placement = "R2"
+
+# evidence: externalRefs=8 share=0.50 top=Controllers(4) second=Ghost(4)
+[[module]]
+name = "Controllers"
+prefix = '^DebrisRelativePlaybackPolicy\.cs$'
+placement = "R2"
+
+# evidence: externalRefs=18 share=0.50 top=Missions(9) second=UI(9)
+[[module]]
+name = "Missions"
+prefix = '^DockEventGraph\.cs$'
+placement = "R2"
+
+# evidence: externalRefs=5 share=1.00 top=Recording(5) second=-
+[[module]]
+name = "Recording"
+prefix = '^EnvironmentDetector\.cs$'
+placement = "R2"
+
+# evidence: externalRefs=6 share=0.50 top=Controllers(3) second=Ghost(3)
+[[module]]
+name = "Controllers"
+prefix = '^IGhostPositioner\.cs$'
+placement = "R2"
+
+# evidence: externalRefs=6 share=0.67 top=Controllers(4) second=Ghost(2)
+[[module]]
+name = "Controllers"
+prefix = '^IndexShift\.cs$'
+placement = "R2"
+
+# evidence: externalRefs=6 share=0.67 top=GameActions(4) second=Rewind(1)
+[[module]]
+name = "GameActions"
+prefix = '^Milestone\.cs$'
+placement = "R2"
+
+# evidence: externalRefs=8 share=0.38 top=UI(3) second=Controllers(1)
+[[module]]
+name = "UI"
+prefix = '^ParsekTimeFormat\.cs$'
+placement = "R2"
+
+# evidence: externalRefs=5 share=1.00 top=Recording(5) second=-
+[[module]]
+name = "Recording"
+prefix = '^ProximitySamplingCadence\.cs$'
+placement = "R2"
+
+# evidence: externalRefs=13 share=0.77 top=GameActions(10) second=Controllers(3)
+[[module]]
+name = "GameActions"
+prefix = '^RecoveryPayoutContext\.cs$'
+placement = "R2"
+
+# evidence: externalRefs=8 share=0.62 top=Ghost(5) second=Controllers(3)
+[[module]]
+name = "Ghost"
+prefix = '^RenderingZoneManager\.cs$'
+placement = "R2"
+
+# evidence: externalRefs=25 share=0.68 top=Logistics(17) second=Recording(3)
+[[module]]
+name = "Logistics"
+prefix = '^ResourceManifest\.cs$'
+placement = "R2"
+
+# evidence: externalRefs=9 share=0.78 top=UI(7) second=Controllers(2)
+[[module]]
+name = "UI"
+prefix = '^SelectiveSpawnUI\.cs$'
+placement = "R2"
+
+# evidence: externalRefs=6 share=0.50 top=Controllers(3) second=Ghost(2)
+[[module]]
+name = "Controllers"
+prefix = '^SessionSuppressionState\.cs$'
+placement = "R2"
+
+# evidence: externalRefs=5 share=1.00 top=Rewind(5) second=-
+[[module]]
+name = "Rewind"
+prefix = '^TerminalKindClassifier\.cs$'
+placement = "R2"
+
+# evidence: externalRefs=7 share=0.86 top=Controllers(6) second=Recording(1)
+[[module]]
+name = "Controllers"
+prefix = '^TerminalOrbitSpawnSafety\.cs$'
+placement = "R2"
+
+# evidence: externalRefs=43 share=0.28 top=Recording(12) second=Controllers(6)
+[[module]]
+name = "Recording"
+prefix = '^TerminalState\.cs$'
+placement = "R2"
 # Catch-all for unclassified root files. MUST stay last.
 [[module]]
 name = "Core"
@@ -121,7 +268,7 @@ prefix = ".*"
 # from the checker's metrics table. explore.html shows them behind a checkbox.
 
 [tooling]
-modules = ["InGameTests", "TestCommands", "Diagnostics", "Analyzer"]
+modules = ["InGameTests", "TestCommands", "Diagnostics", "Analyzer", "GuiTree"]
 
 # --- dependency policy -----------------------------------------------------
 # Both lists use the edge form "From -> To", meaning "code in From references

@@ -336,6 +336,163 @@ class TypeFanInTests(unittest.TestCase):
         self.assertEqual(archview.type_fanin("BazThing", file_references, set()), 1)
 
 
+def _place_evidence(name, external, by_module=None):
+    by = sorted(by_module or [], key=lambda item: (-item[1], item[0]))
+    return {
+        "file": name,
+        "types": 1,
+        "knotTypes": 0,
+        "externalRefs": external,
+        "byModule": by,
+        "share": (by[0][1] / external) if (external and by) else 0.0,
+        "hub": "",
+        "hubFanIn": 0,
+    }
+
+
+class PlacementEvidenceTests(unittest.TestCase):
+    @staticmethod
+    def _model():
+        return {
+            "catchAll": "CatchAll",
+            "fileModules": {
+                "AlphaFile.cs": "CatchAll",
+                "LocalFile.cs": "CatchAll",
+                "EmptyFile.cs": "CatchAll",
+                "BetaFile.cs": "Beta",
+                "GammaFile.cs": "Gamma",
+            },
+            "types": [
+                {
+                    "name": "AlphaThing",
+                    "file": "AlphaFile.cs",
+                    "module": "CatchAll",
+                    "knot": 1,
+                    "fanIn": 5,
+                    "referencedBy": ["BetaThing", "BetaThingTwo", "GammaThing", "LocalThing"],
+                },
+                {
+                    "name": "LocalThing",
+                    "file": "LocalFile.cs",
+                    "module": "CatchAll",
+                    "knot": None,
+                    "fanIn": 1,
+                    "referencedBy": [],
+                },
+                {
+                    "name": "BetaThing",
+                    "file": "BetaFile.cs",
+                    "module": "Beta",
+                    "knot": None,
+                    "fanIn": 1,
+                    "referencedBy": [],
+                },
+                {
+                    "name": "BetaThingTwo",
+                    "file": "BetaFile.cs",
+                    "module": "Beta",
+                    "knot": None,
+                    "fanIn": 0,
+                    "referencedBy": [],
+                },
+                {
+                    "name": "GammaThing",
+                    "file": "GammaFile.cs",
+                    "module": "Gamma",
+                    "knot": None,
+                    "fanIn": 0,
+                    "referencedBy": [],
+                },
+            ],
+        }
+
+    def test_share_and_bymodule_count_only_other_modules(self):
+        evidence = archview.placement_evidence(self._model())
+        self.assertEqual(
+            [entry["file"] for entry in evidence],
+            ["AlphaFile.cs", "EmptyFile.cs", "LocalFile.cs"],
+        )
+        alpha = evidence[0]
+        self.assertEqual(alpha["types"], 1)
+        self.assertEqual(alpha["knotTypes"], 1)
+        self.assertEqual(alpha["externalRefs"], 3)
+        self.assertEqual(alpha["byModule"], [("Beta", 2), ("Gamma", 1)])
+        self.assertAlmostEqual(alpha["share"], 2 / 3)
+        self.assertEqual(alpha["hub"], "AlphaThing")
+        self.assertEqual(alpha["hubFanIn"], 5)
+        local = evidence[2]
+        self.assertEqual(local["externalRefs"], 0)
+        self.assertEqual(local["byModule"], [])
+
+    def test_file_with_no_external_references_reports_zero(self):
+        evidence = {entry["file"]: entry for entry in archview.placement_evidence(self._model())}
+        empty = evidence["EmptyFile.cs"]
+        self.assertEqual(empty["types"], 0)
+        self.assertEqual(empty["externalRefs"], 0)
+        self.assertEqual(empty["share"], 0.0)
+        self.assertEqual(empty["byModule"], [])
+
+
+class PlaceTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.rules = archview.default_placement_rules()
+
+    def test_r1_family_wins_over_r2(self):
+        entry = _place_evidence("GuiTreeFunnels.cs", 100, [("Logistics", 100)])
+        self.assertEqual(archview.place(entry, self.rules), ("GuiTree", "R1", ""))
+
+    def test_r1_families(self):
+        cases = {
+            "GameStateEvent.cs": "GameActions",
+            "ParsekSettings.cs": "Config",
+            "ParsekUI.cs": "UI",
+            "MapRenderTrace.cs": "MapRender",
+            "RouteProofMetadata.cs": "Logistics",
+            "PartEvent.cs": "Recording",
+            "MissionStore.cs": "Missions",
+        }
+        for name, destination in cases.items():
+            self.assertEqual(
+                archview.place(_place_evidence(name, 0), self.rules),
+                (destination, "R1", ""),
+            )
+
+    def test_r2_majority_share(self):
+        entry = _place_evidence("SomeFile.cs", 10, [("Logistics", 6), ("Recording", 4)])
+        self.assertEqual(archview.place(entry, self.rules), ("Logistics", "R2", ""))
+
+    def test_r2_dominance_over_the_second_module(self):
+        entry = _place_evidence("SomeFile.cs", 6, [("Rewind", 4), ("Recording", 2)])
+        self.assertEqual(archview.place(entry, self.rules), ("Rewind", "R2", ""))
+
+    def test_r2_needs_the_floor(self):
+        entry = _place_evidence("SomeFile.cs", 4, [("Logistics", 4)])
+        self.assertEqual(archview.place(entry, self.rules), (None, "R5", "UNDECIDED"))
+
+    def test_r3_two_owners_without_a_majority(self):
+        entry = _place_evidence("SomeFile.cs", 5, [("Missions", 2), ("UI", 2)])
+        self.assertEqual(
+            archview.place(entry, self.rules),
+            (None, "R3", "SPLIT-CANDIDATE: Missions, UI"),
+        )
+
+    def test_r3_requires_neither_owner_at_sixty_percent(self):
+        # top 3 of 5 is 0.60, so R2 fires first and R3 never sees the file
+        entry = _place_evidence("SomeFile.cs", 5, [("Missions", 3), ("UI", 1)])
+        self.assertEqual(archview.place(entry, self.rules), ("Missions", "R2", ""))
+
+    def test_r4_orphan(self):
+        self.assertEqual(
+            archview.place(_place_evidence("SomeFile.cs", 0), self.rules),
+            (None, "R4", "ORPHAN"),
+        )
+
+    def test_r5_undecided(self):
+        entry = _place_evidence("SomeFile.cs", 3, [("Missions", 1), ("UI", 1)])
+        self.assertEqual(archview.place(entry, self.rules), (None, "R5", "UNDECIDED"))
+
+
 class KnotTests(unittest.TestCase):
     def test_two_cycles_and_a_chain_largest_first(self):
         graph = {
@@ -1107,7 +1264,23 @@ class RealTreeSmokeTests(unittest.TestCase):
         self.assertGreater(len(largest["modules"]), 10)
 
     def test_knot_sizes_match_the_documented_tree(self):
-        self.assertEqual([knot["size"] for knot in self.model["knots"]], [392, 19, 4, 3, 2])
+        self.assertEqual([knot["size"] for knot in self.model["knots"]], [392, 4, 2])
+
+    def test_phase_two_catch_all_count(self):
+        # Phase 2's revised placement policy (R1 name families first, then
+        # externalRefs >= 5 AND (share >= 0.5 OR top >= 2 * second) on the
+        # rebuilt evidence) moves 48 files; 75 stay in the catch-all as
+        # SPLIT-CANDIDATE, ORPHAN or UNDECIDED and are listed with evidence in
+        # docs/dev/arch/core-placement.md.
+        self.assertEqual(self.by_name["Core"]["files"], 75)
+
+    def test_phase_two_placements(self):
+        modules = self.model["fileModules"]
+        self.assertEqual(modules["RouteProofMetadata.cs"], "Logistics")
+        self.assertEqual(modules["GuiTreeFunnels.cs"], "GuiTree")
+        self.assertEqual(modules["GameStateEvent.cs"], "GameActions")
+        self.assertEqual(modules["ResourceManifest.cs"], "Logistics")
+        self.assertEqual(modules["RecoveryPayoutContext.cs"], "GameActions")
 
     def test_first_cut_matches_the_documented_tree(self):
         first = self.model["knots"][0]["cuts"][0]

@@ -884,6 +884,375 @@ def sublevels(component, type_graph, cuts):
 
 
 # ---------------------------------------------------------------------------
+# catch-all placement
+# ---------------------------------------------------------------------------
+
+PLACEMENT_FAMILIES = (
+    ("GuiTree", "GuiTree"),
+    ("GameState", "GameActions"),
+    ("ParsekConfig", "Config"),
+    ("ParsekSettings", "Config"),
+    ("SettingWhitelist", "Config"),
+    ("ParsekUI", "UI"),
+    ("MapRender", "MapRender"),
+    ("RouteProof", "Logistics"),
+    ("RouteConnection", "Logistics"),
+    ("RouteEndpoint", "Logistics"),
+    ("RouteHarvest", "Logistics"),
+    ("RouteRun", "Logistics"),
+    ("RouteOrigin", "Logistics"),
+    ("Route", "Logistics"),
+    ("PartEvent", "Recording"),
+    ("FlagEvent", "Recording"),
+    ("SegmentEvent", "Recording"),
+    ("SegmentBoundary", "Recording"),
+    ("SurfacePosition", "Recording"),
+    ("AnchorDetector", "Recording"),
+    ("RelativeAnchor", "Recording"),
+    ("TrackSection", "Recording"),
+    ("ControllerInfo", "Recording"),
+    ("Mission", "Missions"),
+)
+
+
+def default_placement_rules():
+    """The five placement rules, as data, in checked order.
+
+    R1 runs first and its moves are rebuilt into the map before R2-R5 are
+    applied, so the evidence their thresholds see is the post-R1 state (root
+    utilities gain external references from the files R1 just moved).
+    """
+    return [
+        {"id": "R1", "families": dict(PLACEMENT_FAMILIES)},
+        {"id": "R2", "minExternal": 5, "minShare": 0.5, "dominance": 2.0},
+        {"id": "R3", "minExternal": 5, "pairShare": 0.8, "soloShare": 0.6},
+        {"id": "R4"},
+    ]
+
+
+def place(evidence, rules):
+    """Return (destination, rule_id, tag) for one file's placement evidence.
+
+    Rules are checked in order and the first that fires wins. R1 matches the
+    file name against a family prefix; R2 moves a file whose references have a
+    clear owner (a majority share, or a top module at least `dominance` times
+    the second); R3 keeps a two-owner file in the catch-all as a
+    SPLIT-CANDIDATE; R4 tags a file nothing references outside as an ORPHAN;
+    nothing matching is UNDECIDED.
+    """
+    name = evidence["file"]
+    external = evidence["externalRefs"]
+    by_module = evidence["byModule"]
+    for rule in rules:
+        rule_id = rule["id"]
+        if rule_id == "R1":
+            for prefix, module in rule["families"].items():
+                if name.startswith(prefix):
+                    return module, "R1", ""
+        elif rule_id == "R2":
+            if external >= rule["minExternal"] and by_module:
+                top_count = by_module[0][1]
+                second_count = by_module[1][1] if len(by_module) > 1 else 0
+                if top_count / external >= rule["minShare"] or (
+                    second_count and top_count >= rule["dominance"] * second_count
+                ):
+                    return by_module[0][0], "R2", ""
+        elif rule_id == "R3":
+            if external >= rule["minExternal"] and len(by_module) >= 2:
+                top_share = by_module[0][1] / external
+                pair_share = (by_module[0][1] + by_module[1][1]) / external
+                if top_share < rule["soloShare"] and pair_share >= rule["pairShare"]:
+                    return None, "R3", "SPLIT-CANDIDATE: %s, %s" % (
+                        by_module[0][0],
+                        by_module[1][0],
+                    )
+        elif rule_id == "R4":
+            if external == 0:
+                return None, "R4", "ORPHAN"
+    return None, "R5", "UNDECIDED"
+
+
+def placement_evidence(model):
+    """Return per-file placement evidence for the model's catch-all module.
+
+    One entry per catch-all file, sorted by external references descending
+    (ties by file): declared type count, how many of them are in knot 1, the
+    number of (referencing type, referenced type) pairs arriving from types in
+    other modules, that count split by referencing module, the top module's
+    share of it, and the highest file-based fan-in among the file's types.
+    """
+    catch_all = model.get("catchAll")
+    entries = model.get("types", [])
+    module_of = {entry["name"]: entry["module"] for entry in entries}
+    per_file = {}
+    for rel_path, module in model.get("fileModules", {}).items():
+        if module == catch_all:
+            per_file[rel_path] = {
+                "file": rel_path,
+                "types": 0,
+                "knotTypes": 0,
+                "byModule": {},
+                "hub": "",
+                "hubFanIn": 0,
+            }
+    for entry in entries:
+        bucket = per_file.get(entry["file"])
+        if bucket is None:
+            continue
+        bucket["types"] += 1
+        if entry.get("knot") == 1:
+            bucket["knotTypes"] += 1
+        if entry.get("fanIn", 0) > bucket["hubFanIn"]:
+            bucket["hubFanIn"] = entry["fanIn"]
+            bucket["hub"] = entry["name"]
+        for other in entry.get("referencedBy", []):
+            other_module = module_of.get(other)
+            if other_module is not None and other_module != catch_all:
+                bucket["byModule"][other_module] = bucket["byModule"].get(other_module, 0) + 1
+
+    evidence = []
+    for bucket in per_file.values():
+        by_module = sorted(bucket["byModule"].items(), key=lambda item: (-item[1], item[0]))
+        external = sum(count for _module, count in by_module)
+        evidence.append(
+            {
+                "file": bucket["file"],
+                "types": bucket["types"],
+                "knotTypes": bucket["knotTypes"],
+                "externalRefs": external,
+                "byModule": by_module,
+                "share": (by_module[0][1] / external) if external else 0.0,
+                "hub": bucket["hub"],
+                "hubFanIn": bucket["hubFanIn"],
+            }
+        )
+    evidence.sort(key=lambda entry: (-entry["externalRefs"], entry["file"]))
+    return evidence
+
+
+def print_placement_evidence(model):
+    """Print one evidence line per file left in the catch-all module."""
+    catch_all = model.get("catchAll")
+    evidence = placement_evidence(model)
+    print("CORE PLACEMENT EVIDENCE (files assigned to the catch-all module %s):" % catch_all)
+    print(
+        "  %-34s %5s %5s %7s %6s  %s"
+        % ("file", "types", "knot", "extRefs", "share", "top=Module(count), second=Module(count)  hub=Name(fanIn)")
+    )
+    if not evidence:
+        print("  none.")
+    for entry in evidence:
+        by_module = entry["byModule"]
+        top = "%s(%d)" % by_module[0] if by_module else "-"
+        second = "%s(%d)" % by_module[1] if len(by_module) > 1 else "-"
+        hub = "%s(%d)" % (entry["hub"], entry["hubFanIn"]) if entry["hub"] else "-"
+        print(
+            "  %-34s %5d %5d %7d %6.2f  top=%s, second=%s  hub=%s"
+            % (
+                entry["file"],
+                entry["types"],
+                entry["knotTypes"],
+                entry["externalRefs"],
+                entry["share"],
+                top,
+                second,
+                hub,
+            )
+        )
+
+
+def _placement_evidence_line(entry):
+    by_module = entry["byModule"]
+    top = "%s(%d)" % by_module[0] if by_module else "-"
+    second = "%s(%d)" % by_module[1] if len(by_module) > 1 else "-"
+    hub = "%s(%d)" % (entry["hub"], entry["hubFanIn"]) if entry["hub"] else "-"
+    return (
+        "types=%d, knot=%d, extRefs=%d, share=%.2f, top=%s, second=%s, hub=%s"
+        % (
+            entry["types"],
+            entry["knotTypes"],
+            entry["externalRefs"],
+            entry["share"],
+            top,
+            second,
+            hub,
+        )
+    )
+
+
+def render_placement_report(before_model, after_r1_model, after_model, rules):
+    """Return the core-placement report as Markdown (evidence only).
+
+    `before_model` is the map before the phase, `after_r1_model` the map with
+    only the R1 family rules applied, and `after_model` the final map. R1 rows
+    carry the original evidence; R2-R5 rows carry the evidence recomputed
+    after the R1 moves, because that is the state their thresholds saw.
+    """
+    catch_all = before_model.get("catchAll") or "?"
+    original = placement_evidence(before_model)
+    post_r1 = {entry["file"]: entry for entry in placement_evidence(after_r1_model)}
+    families = {}
+    for rule in rules:
+        if rule["id"] == "R1":
+            families.update(rule["families"])
+
+    placements = []
+    for entry in original:
+        destination = None
+        for prefix, module in families.items():
+            if entry["file"].startswith(prefix):
+                destination = module
+                break
+        if destination is not None:
+            placements.append((entry, destination, "R1", ""))
+        else:
+            post = post_r1.get(entry["file"], entry)
+            placed, rule_id, tag = place(post, rules)
+            placements.append((post, placed, rule_id, tag))
+
+    moved = defaultdict(int)
+    split = []
+    orphan = []
+    undecided = []
+    rows = []
+    for entry, destination, rule_id, tag in placements:
+        if destination:
+            moved[destination] += 1
+        elif rule_id == "R3":
+            split.append(entry)
+        elif rule_id == "R4":
+            orphan.append(entry)
+        else:
+            undecided.append(entry)
+        by_module = entry["byModule"]
+        top = "%s(%d)" % by_module[0] if by_module else "-"
+        second = "%s(%d)" % by_module[1] if len(by_module) > 1 else "-"
+        rows.append(
+            "| %s | %d | %d | %d | %.2f | %s | %s | %s | %s |"
+            % (
+                entry["file"],
+                entry["types"],
+                entry["knotTypes"],
+                entry["externalRefs"],
+                entry["share"],
+                top,
+                second,
+                rule_id,
+                destination if destination else tag,
+            )
+        )
+
+    def module_entry(model, name):
+        for module in model["modules"]:
+            if module["name"] == name:
+                return module
+        return None
+
+    def upward_count(model):
+        return sum(1 for edge in model["edges"] if edge["upward"] and not_tooling(model, edge))
+
+    destinations = sorted(moved)
+    table_modules = [catch_all] + destinations
+    metric_rows = []
+    for name in table_modules:
+        before = module_entry(before_model, name) or {}
+        after = module_entry(after_model, name) or {}
+        metric_rows.append(
+            "| %s | %d | %d | %d | %d | %d | %d | %.2f | %.2f |"
+            % (
+                name,
+                before.get("files", 0),
+                after.get("files", 0),
+                before.get("fanOut", 0),
+                after.get("fanOut", 0),
+                before.get("fanIn", 0),
+                after.get("fanIn", 0),
+                before.get("instability", 0.0),
+                after.get("instability", 0.0),
+            )
+        )
+
+    mismatches = [
+        entry["file"]
+        for entry, destination, _rule_id, _tag in placements
+        if destination
+        and after_model.get("fileModules", {}).get(entry["file"]) != destination
+    ]
+
+    lines = [
+        "# Core placement evidence",
+        "",
+        "Generated by `scripts/arch/archview.py --place`; do not edit by hand.",
+        "The table is the state before this phase's placement rules: every file then",
+        "assigned to the catch-all module, the rule the placement policy fires for it,",
+        "and where it went. R1 rows carry the original evidence (the name family does",
+        "not consult it); every other row carries the evidence recomputed after the R1",
+        "moves, which is the state R2-R5 were applied to. Evidence only, no",
+        "recommendations.",
+        "",
+        "## Files and evidence",
+        "",
+        "| file | types | knot 1 | extRefs | share | top | second | rule | destination or tag |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+    ]
+    lines.extend(rows)
+    lines.extend(["", "## Files moved", ""])
+    if moved:
+        for destination in destinations:
+            lines.append("- %s: %d" % (destination, moved[destination]))
+    else:
+        lines.append("- none")
+    lines.extend(["", "## SPLIT-CANDIDATE", ""])
+    if split:
+        for entry in split:
+            lines.append("- %s (%s)" % (entry["file"], _placement_evidence_line(entry)))
+    else:
+        lines.append("- none")
+    lines.extend(["", "## ORPHAN", ""])
+    if orphan:
+        for entry in orphan:
+            lines.append("- %s (%s)" % (entry["file"], _placement_evidence_line(entry)))
+    else:
+        lines.append("- none")
+    lines.extend(["", "## UNDECIDED", ""])
+    if undecided:
+        for entry in undecided:
+            lines.append("- %s (%s)" % (entry["file"], _placement_evidence_line(entry)))
+    else:
+        lines.append("- none")
+    lines.extend(
+        [
+            "",
+            "## Module metrics before and after",
+            "",
+            "| module | files before | files after | fan-out before | fan-out after |"
+            " fan-in before | fan-in after | I before | I after |",
+            "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        ]
+    )
+    lines.extend(metric_rows)
+    lines.extend(
+        [
+            "",
+            "Upward edges (production, no tooling): before %d, after %d."
+            % (upward_count(before_model), upward_count(after_model)),
+            "",
+            "Catch-all (%s): %d files before, %d files after."
+            % (
+                catch_all,
+                (module_entry(before_model, catch_all) or {}).get("files", 0),
+                (module_entry(after_model, catch_all) or {}).get("files", 0),
+            ),
+            "",
+            "Placement rules whose destination does not match the current map: %s."
+            % (", ".join(sorted(mismatches)) if mismatches else "none"),
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # extraction shell
 # ---------------------------------------------------------------------------
 
@@ -1110,6 +1479,8 @@ def build_model(source_root, rules, tooling):
         "types": types,
         "typeLevels": levels_payload,
         "knots": knot_list,
+        "fileModules": {rel_path: module for rel_path, module in assignments},
+        "catchAll": rules[-1]["name"] if rules else None,
     }
 
 
@@ -2247,6 +2618,11 @@ def main(argv=None):
         action="store_true",
         help="print the report-only architecture check after generating the views",
     )
+    parser.add_argument(
+        "--place",
+        action="store_true",
+        help="print catch-all placement evidence and write docs/dev/arch/core-placement.md",
+    )
     args = parser.parse_args(argv)
 
     # Report-only contract: a missing or malformed input is a warning, never a
@@ -2295,6 +2671,26 @@ def main(argv=None):
             ladder_path = out_dir / "ladder.html"
             _write_text(ladder_path, render_ladder_html(model))
             print("Wrote %s" % ladder_path)
+
+            if args.place:
+                print()
+                print_placement_evidence(model)
+                before_rules = [rule for rule in rules if not rule.get("placement")]
+                after_r1_rules = [
+                    rule
+                    for rule in rules
+                    if not rule.get("placement") or rule.get("placement") == "R1"
+                ]
+                before_model = build_model(args.source, before_rules, tooling)
+                after_r1_model = build_model(args.source, after_r1_rules, tooling)
+                report_path = out_dir / "core-placement.md"
+                _write_text(
+                    report_path,
+                    render_placement_report(
+                        before_model, after_r1_model, model, default_placement_rules()
+                    ),
+                )
+                print("Wrote %s" % report_path)
         except Exception as exc:
             print("WARN archview: %s" % exc, file=sys.stderr)
 
