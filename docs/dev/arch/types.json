@@ -21949,7 +21949,7 @@
       "level": 2,
       "knot": null,
       "sublevel": null,
-      "fanIn": 5,
+      "fanIn": 6,
       "fanOut": 2,
       "referencesTo": [
         "AnchorFrameKind",
@@ -21960,6 +21960,7 @@
         "CrossMemberSeamStitcher",
         "DualTreatmentConicPhase",
         "GeometryParityComparator",
+        "PhaseFactory",
         "RenderCompositionRecorder",
         "TracedPhase",
         "TrajectoryPhase"
@@ -22989,13 +22990,15 @@
       "level": 2,
       "knot": null,
       "sublevel": null,
-      "fanIn": 0,
+      "fanIn": 1,
       "fanOut": 2,
       "referencesTo": [
         "AnchorFrameKind",
         "Kind"
       ],
-      "referencedBy": []
+      "referencedBy": [
+        "MovingTargetStationApproach"
+      ]
     },
     {
       "name": "ManifestHeader",
@@ -23012,11 +23015,12 @@
       "level": 0,
       "knot": null,
       "sublevel": null,
-      "fanIn": 0,
+      "fanIn": 1,
       "fanOut": 0,
       "referencesTo": [],
       "referencedBy": [
-        "RenderCompositionManifest"
+        "RenderCompositionManifest",
+        "RenderCompositionRecorder"
       ]
     },
     {
@@ -23062,12 +23066,13 @@
       "knot": null,
       "sublevel": null,
       "fanIn": 0,
-      "fanOut": 9,
+      "fanOut": 10,
       "referencesTo": [
         "AnchorFrame",
         "HeliocentricTransferPhase",
         "HoldPhase",
         "Kind",
+        "LiveVesselAnchor",
         "OrbitSegment",
         "PhaseId",
         "PhaseSeam",
@@ -23166,7 +23171,7 @@
       "level": 1,
       "knot": 5,
       "sublevel": 1,
-      "fanIn": 0,
+      "fanIn": 1,
       "fanOut": 2,
       "referencesTo": [
         "AnchorFrameKind",
@@ -23174,7 +23179,8 @@
       ],
       "referencedBy": [
         "AnchorFrameKind",
-        "AnchorFrameTokens"
+        "AnchorFrameTokens",
+        "PhaseFactory"
       ]
     },
     {
@@ -23325,11 +23331,12 @@
       "knot": 1,
       "sublevel": 19,
       "fanIn": 1,
-      "fanOut": 28,
+      "fanOut": 30,
       "referencesTo": [
         "AnchorFrame",
         "ArrivalLoiterPhase",
         "AscentPhase",
+        "BodyAnchor",
         "ChainAssembler",
         "DepartureLoiterPhase",
         "DescentPhase",
@@ -23343,6 +23350,7 @@
         "IPlaybackTrajectory",
         "MapRenderTrace",
         "OrbitSegment",
+        "ParentAnchoredChild",
         "ParsekLog",
         "PhaseChain",
         "PhaseId",
@@ -23864,7 +23872,7 @@
       "knot": 1,
       "sublevel": 19,
       "fanIn": 11,
-      "fanOut": 57,
+      "fanOut": 58,
       "referencesTo": [
         "AnchorFrame",
         "BodyAnchor",
@@ -23885,6 +23893,7 @@
         "LoopCut",
         "LoopUnit",
         "LoopUnitSet",
+        "ManifestHeader",
         "MapRenderProbe",
         "MapRenderTrace",
         "Mission",

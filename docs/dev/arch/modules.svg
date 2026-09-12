@@ -98,7 +98,7 @@
 <!-- Logistics -->
 <g id="node8" class="node">
 <title>Logistics</title>
-<g id="a_node8"><a xlink:title="Logistics: 50 files, fan&#45;out 185, fan&#45;in 282, instability 0.40">
+<g id="a_node8"><a xlink:title="Logistics: 50 files, fan&#45;out 185, fan&#45;in 283, instability 0.40">
 <path fill="#eef3fa" stroke="#4c78a8" d="M1878.5,-666C1878.5,-666 1847.5,-666 1847.5,-666 1841.5,-666 1835.5,-660 1835.5,-654 1835.5,-654 1835.5,-642 1835.5,-642 1835.5,-636 1841.5,-630 1847.5,-630 1847.5,-630 1878.5,-630 1878.5,-630 1884.5,-630 1890.5,-636 1890.5,-642 1890.5,-642 1890.5,-654 1890.5,-654 1890.5,-660 1884.5,-666 1878.5,-666"/>
 <text xml:space="preserve" text-anchor="middle" x="1863" y="-650.5" font-family="Helvetica,sans-Serif" font-size="10.00">Logistics</text>
 <text xml:space="preserve" text-anchor="middle" x="1863" y="-638.5" font-family="Helvetica,sans-Serif" font-size="10.00">50 files</text>
@@ -174,7 +174,7 @@
 <!-- Rendering -->
 <g id="node14" class="node">
 <title>Rendering</title>
-<g id="a_node14"><a xlink:title="Rendering: 14 files, fan&#45;out 82, fan&#45;in 43, instability 0.66">
+<g id="a_node14"><a xlink:title="Rendering: 14 files, fan&#45;out 82, fan&#45;in 45, instability 0.65">
 <path fill="#eef3fa" stroke="#4c78a8" d="M427.12,-396C427.12,-396 390.88,-396 390.88,-396 384.88,-396 378.88,-390 378.88,-384 378.88,-384 378.88,-372 378.88,-372 378.88,-366 384.88,-360 390.88,-360 390.88,-360 427.12,-360 427.12,-360 433.12,-360 439.12,-366 439.12,-372 439.12,-372 439.12,-384 439.12,-384 439.12,-390 433.12,-396 427.12,-396"/>
 <text xml:space="preserve" text-anchor="middle" x="409" y="-380.5" font-family="Helvetica,sans-Serif" font-size="10.00">Rendering</text>
 <text xml:space="preserve" text-anchor="middle" x="409" y="-368.5" font-family="Helvetica,sans-Serif" font-size="10.00">14 files</text>
@@ -314,7 +314,7 @@
 <!-- MapRender -->
 <g id="node9" class="node">
 <title>MapRender</title>
-<g id="a_node9"><a xlink:title="MapRender: 38 files, fan&#45;out 117, fan&#45;in 159, instability 0.42">
+<g id="a_node9"><a xlink:title="MapRender: 38 files, fan&#45;out 117, fan&#45;in 163, instability 0.42">
 <path fill="#eef3fa" stroke="#4c78a8" d="M669.12,-666C669.12,-666 626.88,-666 626.88,-666 620.88,-666 614.88,-660 614.88,-654 614.88,-654 614.88,-642 614.88,-642 614.88,-636 620.88,-630 626.88,-630 626.88,-630 669.12,-630 669.12,-630 675.12,-630 681.12,-636 681.12,-642 681.12,-642 681.12,-654 681.12,-654 681.12,-660 675.12,-666 669.12,-666"/>
 <text xml:space="preserve" text-anchor="middle" x="648" y="-650.5" font-family="Helvetica,sans-Serif" font-size="10.00">MapRender</text>
 <text xml:space="preserve" text-anchor="middle" x="648" y="-638.5" font-family="Helvetica,sans-Serif" font-size="10.00">38 files</text>

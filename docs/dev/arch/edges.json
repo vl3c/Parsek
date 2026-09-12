@@ -68,7 +68,7 @@
       "name": "InGameTests",
       "files": 144,
       "fanIn": 15,
-      "fanOut": 1899,
+      "fanOut": 1906,
       "instability": 0.9922,
       "tooling": true
     },
@@ -83,17 +83,17 @@
     {
       "name": "Logistics",
       "files": 50,
-      "fanIn": 282,
+      "fanIn": 283,
       "fanOut": 185,
-      "instability": 0.3961,
+      "instability": 0.3953,
       "tooling": false
     },
     {
       "name": "MapRender",
       "files": 38,
-      "fanIn": 159,
+      "fanIn": 163,
       "fanOut": 117,
-      "instability": 0.4239,
+      "instability": 0.4179,
       "tooling": false
     },
     {
@@ -131,9 +131,9 @@
     {
       "name": "Rendering",
       "files": 14,
-      "fanIn": 43,
+      "fanIn": 45,
       "fanOut": 82,
-      "instability": 0.656,
+      "instability": 0.6457,
       "tooling": false
     },
     {
@@ -906,12 +906,13 @@
     {
       "from": "InGameTests",
       "to": "Logistics",
-      "weight": 167,
+      "weight": 168,
       "cyclic": false,
       "upward": false,
       "files": [
         "InGameTests/GrappleCaptureInGameTest.cs",
         "InGameTests/Helpers/DestinationHeadroomFixture.cs",
+        "InGameTests/Helpers/UnloadedFuelVesselFixture.cs",
         "InGameTests/LogisticsDeliveryRuntimeTests.cs",
         "InGameTests/LogisticsDockBoundaryDeliveryCadenceRuntimeTests.cs",
         "InGameTests/LogisticsHarvestRuntimeTests.cs",
@@ -1130,7 +1131,7 @@
     {
       "from": "InGameTests",
       "to": "MapRender",
-      "weight": 128,
+      "weight": 132,
       "cyclic": false,
       "upward": false,
       "files": [
@@ -1162,6 +1163,7 @@
         "AnchorFrameResolver",
         "ArrivalLoiterPhase",
         "AscentPhase",
+        "BodyAnchor",
         "ChainAssembler",
         "ChainSampler",
         "ConicPhase",
@@ -3671,6 +3673,37 @@
     },
     {
       "from": "InGameTests",
+      "to": "Rendering",
+      "weight": 19,
+      "cyclic": false,
+      "upward": false,
+      "files": [
+        "InGameTests/InvokeRPStripAndActivateTest.cs",
+        "InGameTests/OnFlightReadyMergeDialogGuardInGameTest.cs",
+        "InGameTests/ReFlyRevertButtonGateTest.cs",
+        "InGameTests/ReFlyRevertDialogPrelaunchTest.cs",
+        "InGameTests/ReFlyRevertDialogTest.cs",
+        "InGameTests/RuntimeTests.cs"
+      ],
+      "types": [
+        "AnchorCandidate",
+        "AnchorCandidateBuilder",
+        "AnchorCorrection",
+        "AnchorPropagator",
+        "AnchorSide",
+        "AnchorSource",
+        "IAnchorWorldFrameResolver",
+        "OutlierFlags",
+        "RecordingTreeContext",
+        "RenderSessionState",
+        "SectionAnnotationStore",
+        "SmoothingPipeline",
+        "SmoothingSpline",
+        "TerrainCacheBuckets"
+      ]
+    },
+    {
+      "from": "InGameTests",
       "to": "UI",
       "weight": 19,
       "cyclic": false,
@@ -3838,35 +3871,6 @@
         "TestRunnerUI",
         "TimelineWindowUI",
         "UiComplexityMode"
-      ]
-    },
-    {
-      "from": "InGameTests",
-      "to": "Rendering",
-      "weight": 17,
-      "cyclic": false,
-      "upward": false,
-      "files": [
-        "InGameTests/InvokeRPStripAndActivateTest.cs",
-        "InGameTests/OnFlightReadyMergeDialogGuardInGameTest.cs",
-        "InGameTests/ReFlyRevertButtonGateTest.cs",
-        "InGameTests/ReFlyRevertDialogPrelaunchTest.cs",
-        "InGameTests/ReFlyRevertDialogTest.cs",
-        "InGameTests/RuntimeTests.cs"
-      ],
-      "types": [
-        "AnchorCandidateBuilder",
-        "AnchorCorrection",
-        "AnchorPropagator",
-        "AnchorSide",
-        "AnchorSource",
-        "IAnchorWorldFrameResolver",
-        "OutlierFlags",
-        "RenderSessionState",
-        "SectionAnnotationStore",
-        "SmoothingPipeline",
-        "SmoothingSpline",
-        "TerrainCacheBuckets"
       ]
     },
     {

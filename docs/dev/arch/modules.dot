@@ -10,13 +10,13 @@ digraph modules {
   "GameActions" [label="GameActions\n31 files", tooltip="GameActions: 31 files, fan-out 102, fan-in 217, instability 0.32"];
   "Ghost" [label="Ghost\n33 files", tooltip="Ghost: 33 files, fan-out 254, fan-in 391, instability 0.39"];
   "LogIO" [label="LogIO\n5 files", tooltip="LogIO: 5 files, fan-out 7, fan-in 503, instability 0.01"];
-  "Logistics" [label="Logistics\n50 files", tooltip="Logistics: 50 files, fan-out 185, fan-in 282, instability 0.40"];
-  "MapRender" [label="MapRender\n38 files", tooltip="MapRender: 38 files, fan-out 117, fan-in 159, instability 0.42"];
+  "Logistics" [label="Logistics\n50 files", tooltip="Logistics: 50 files, fan-out 185, fan-in 283, instability 0.40"];
+  "MapRender" [label="MapRender\n38 files", tooltip="MapRender: 38 files, fan-out 117, fan-in 163, instability 0.42"];
   "Missions" [label="Missions\n16 files", tooltip="Missions: 16 files, fan-out 121, fan-in 236, instability 0.34"];
   "Patches" [label="Patches\n23 files", tooltip="Patches: 23 files, fan-out 109, fan-in 23, instability 0.83"];
   "Reaim" [label="Reaim\n20 files", tooltip="Reaim: 20 files, fan-out 67, fan-in 85, instability 0.44"];
   "Recording" [label="Recording\n38 files", tooltip="Recording: 38 files, fan-out 329, fan-in 880, instability 0.27"];
-  "Rendering" [label="Rendering\n14 files", tooltip="Rendering: 14 files, fan-out 82, fan-in 43, instability 0.66"];
+  "Rendering" [label="Rendering\n14 files", tooltip="Rendering: 14 files, fan-out 82, fan-in 45, instability 0.65"];
   "Rewind" [label="Rewind\n27 files", tooltip="Rewind: 27 files, fan-out 196, fan-in 355, instability 0.36"];
   "SwitchIntent" [label="SwitchIntent\n5 files", tooltip="SwitchIntent: 5 files, fan-out 22, fan-in 42, instability 0.34"];
   "Timeline" [label="Timeline\n3 files", tooltip="Timeline: 3 files, fan-out 25, fan-in 7, instability 0.78"];
