@@ -1120,7 +1120,7 @@ dd { margin: 0; color: var(--ink-2); }
 <tr><td class="name">Trajectory</td><td>Pure math over orbits and samples: segments, points, frames, ballistic extrapolation.</td><td class="num">19</td><td class="num">48</td><td class="num">0.21</td><td><span class="id">OrbitSegment</span> <span class="id">TrajectoryPoint</span> <span class="id">TrajectoryMath</span></td></tr>
 <tr><td class="name">Recording</td><td>The recording itself: <span class="id">Recording</span>, its tree, track sections, the store, the flight and background recorders, sidecar codecs, the optimizer.</td><td class="num">68</td><td class="num">126</td><td class="num">0.19</td><td><span class="id">Recording</span> <span class="id">RecordingStore</span> <span class="id">RecordingTree</span></td></tr>
 <tr class="band"><td colspan="6">Floor</td></tr>
-<tr><td class="name">Core</td><td>The eight files every module uses and no module owns: branch points, the playback trajectory interface, launch identity, the spawner, milestone and group stores, inventory manifests.</td><td class="num">8</td><td class="num">16</td><td class="num">0.17</td><td><span class="id">IPlaybackTrajectory</span> <span class="id">BranchPoint</span> <span class="id">VesselLaunchIdentity</span></td></tr>
+<tr><td class="name">Core</td><td>The eight files used across many modules and owned by none: branch points, the playback trajectory interface, launch identity, the spawner, milestone and group stores, inventory manifests.</td><td class="num">8</td><td class="num">16</td><td class="num">0.17</td><td><span class="id">IPlaybackTrajectory</span> <span class="id">BranchPoint</span> <span class="id">VesselLaunchIdentity</span></td></tr>
 <tr><td class="name">Config</td><td>Settings, loop timing, distance thresholds.</td><td class="num">3</td><td class="num">13</td><td class="num">0.08</td><td><span class="id">LoopTiming</span> <span class="id">ParsekSettings</span> <span class="id">DistanceThresholds</span></td></tr>
 <tr><td class="name">LogIO</td><td>Logging, safe file I/O, the process id, the pre-Parsek backup.</td><td class="num">5</td><td class="num">9</td><td class="num">0.01</td><td><span class="id">ParsekLog</span> <span class="id">FileIOUtils</span> <span class="id">SuppressionGuard</span></td></tr>
 </table></div>
@@ -1136,7 +1136,7 @@ dd { margin: 0; color: var(--ink-2); }
   <dt>TrajectoryPoint <span class="layer">61 files</span></dt><dd>One sampled position and rotation; body-fixed in absolute sections, anchor-local metres in relative ones.</dd>
   <dt>TrackSection <span class="layer">54 files</span></dt><dd>A run of points sharing one reference frame and environment classification.</dd>
   <dt>ParsekScenario <span class="layer">52 files</span></dt><dd>The ScenarioModule: save and load, coroutine host, the OnLoad sweeps.</dd>
-  <dt>Kind <span class="layer">50 files</span></dt><dd>What a rewind split mutated: a branch point, a debris parent, a track-section anchor or a ledger row.</dd>
+  <dt>Kind <span class="layer">50 files</span></dt><dd>What a rewind split mutated: a branch point, a debris parent, a track-section anchor, a ledger row or a milestone row.</dd>
   <dt>TerminalState <span class="layer">50 files</span></dt><dd>How a recording ended: landed, recovered, destroyed, disassembled, and so on.</dd>
   <dt>ReferenceFrame <span class="layer">48 files</span></dt><dd>Absolute or relative; decides how a point's coordinates are read.</dd>
   <dt>GameAction <span class="layer">45 files</span></dt><dd>One ledger row: a funds, science, reputation, crew or facility effect attributed to a recording.</dd>
@@ -1145,7 +1145,7 @@ dd { margin: 0; color: var(--ink-2); }
   <dt>EffectiveState <span class="layer">43 files</span></dt><dd>The one place that resolves which recordings and ledger rows are in effect after supersedes and chains.</dd>
   <dt>TrajectoryMath <span class="layer">42 files</span></dt><dd>Sampling, interpolation, orbit search, the relative-offset converters, the Zup swizzle.</dd>
   <dt>ParsekFlight <span class="layer">38 files</span></dt><dd>The flight-scene controller: policy, recording, chains, input.</dd>
-  <dt>GameActionType <span class="layer">36 files</span></dt><dd>The ledger row category: funds, science, reputation, crew or facility.</dd>
+  <dt>GameActionType <span class="layer">36 files</span></dt><dd>The kind of ledger row: which economy, roster or facility effect it records (science, funds, milestones, contracts, reputation, crew, facilities, strategies and route cycles).</dd>
 </dl>
 
 <h2>The knot</h2>
