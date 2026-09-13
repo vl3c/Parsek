@@ -582,6 +582,8 @@ class PlacementReportTests(unittest.TestCase):
             self.assertEqual((rc_a, rc_b), (0, 0))
             report = (root / "out-a" / "core-placement.md").read_text(encoding="utf-8")
             self.assertEqual(report, (root / "out-b" / "core-placement.md").read_text(encoding="utf-8"))
+            atlas = (root / "out-a" / "atlas.html").read_text(encoding="utf-8")
+        self.assertIn("Parsek Atlas", atlas)
         self.assertIn("PLACEMENT EVIDENCE", captured.getvalue())
         self.assertIn("| GuiTreeFunnels.cs | 1 | 0 | 0 | 0.00 | - | - | R1 | GuiTree |", report)
         self.assertIn("## ORPHAN", report)
@@ -712,8 +714,11 @@ def _atlas_model():
             {"name": "BetaThing", "module": "Beta", "file": "Beta/B.cs", "role": "data",
              "level": 0, "knot": None, "sublevel": None, "fanIn": 2, "fanOut": 0,
              "referencesTo": [], "referencedBy": []},
+            {"name": "GammaThing", "module": "Alpha", "file": "Alpha/A.cs", "role": "data",
+             "level": 0, "knot": None, "sublevel": None, "fanIn": 1, "fanOut": 0,
+             "referencesTo": [], "referencedBy": []},
         ],
-        "typeLevels": {"max": 1, "histogram": {0: 1, 1: 1}},
+        "typeLevels": {"max": 1, "histogram": {0: 2, 1: 1}},
         "knots": [
             {
                 "index": 1,
@@ -759,13 +764,42 @@ class AtlasRenderTests(unittest.TestCase):
         self.assertIn("Alpha summary.", text)
         self.assertIn("Beta summary.", text)
         self.assertIn("Alpha meaning.", text)
+        self.assertIn("(no meaning yet)", text)
         self.assertIn("Reading text.", text)
         self.assertNotIn("Vanished reading.", text)
-        self.assertIn('<div class="n">4</div>', text)
-        self.assertIn('<div class="n">2</div>', text)
-        self.assertIn('<div class="n">1</div>', text)
-        self.assertIn('<div class="n knot">2</div>', text)
+        self.assertIn(
+            '<div class="n">4</div><div class="l">C&#35; files in one assembly</div>', text
+        )
+        self.assertIn(
+            '<div class="n">3</div><div class="l">production types across 2 modules</div>', text
+        )
+        self.assertIn('<div class="n">2</div><div class="l">of those types depend on nothing', text)
+        self.assertIn(
+            '<div class="n knot">2</div><div class="l">types locked in one dependency cycle</div>',
+            text,
+        )
+        self.assertIn("2 types, 67 percent", text)
         self.assertIn("Step one.", text)
+        self.assertIn('<strong>Step one.</strong> <span class="id">AlphaThing</span>. Do it.', text)
+
+    def test_reverse_reading_is_rendered(self):
+        prose = _atlas_prose()
+        prose["upward_readings"] = [{"edge": "Alpha -> Beta", "reading": "Reverse reading."}]
+        text = archview.render_atlas_html(_atlas_model(), prose, None, ["Beta -> Alpha"])
+        self.assertIn("Reverse reading.", text)
+
+    def test_eyebrow_format_and_fallback(self):
+        self.assertRegex(
+            archview._atlas_eyebrow(),
+            r"^Source snapshot, \d{4}-\d{2}-\d{2}, branch \S+$",
+        )
+        import unittest.mock as mock
+
+        with mock.patch.object(archview.subprocess, "run", side_effect=OSError("no git")):
+            eyebrow = archview._atlas_eyebrow()
+        self.assertRegex(
+            eyebrow, r"^Source snapshot, \d{4}-\d{2}-\d{2}, branch unknown$"
+        )
 
     def test_module_without_a_summary(self):
         prose = _atlas_prose()
@@ -1433,6 +1467,30 @@ class CheckerOutputTests(unittest.TestCase):
         self.assertIn("glossary entries outside the live top 18: none.", text)
         self.assertLess(text.index("ATLAS"), text.index("Forbidden edges"))
 
+    def test_atlas_section_reports_a_stale_glossary_entry(self):
+        names = ["Type%02d" % index for index in range(1, 20)]
+        model = {
+            "modules": [
+                {"name": "Alpha", "files": 1, "fanIn": 0, "fanOut": 0, "instability": 0.5,
+                 "tooling": False}
+            ],
+            "edges": [],
+            "types": [
+                {"name": name, "module": "Alpha", "file": "Alpha/f.cs", "role": "service",
+                 "level": 0, "knot": None, "sublevel": None, "fanIn": 100 - index, "fanOut": 0,
+                 "referencesTo": [], "referencedBy": []}
+                for index, name in enumerate(names)
+            ],
+            "typeLevels": {"max": 0, "histogram": {0: len(names)}},
+            "knots": [],
+        }
+        prose = {"glossary": {"Type15": {"meaning": "x"}, "Type19": {"meaning": "x"}}}
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            archview.run_check(model, [], [], prose)
+        # Type15 is inside the top 18 and must not be flagged; Type19 is not.
+        self.assertIn("glossary entries outside the live top 18 (1): Type19", captured.getvalue())
+
     def test_main_warns_about_unclassified_files(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
@@ -1557,8 +1615,9 @@ class CheckerOutputTests(unittest.TestCase):
 class RealTreeSmokeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        rules, tooling, _forbidden, _allowed = archview.load_rules(archview.DEFAULT_MODULES)
+        rules, tooling, forbidden, _allowed = archview.load_rules(archview.DEFAULT_MODULES)
         cls.model = archview.build_model(REAL_SOURCE, rules, tooling)
+        cls.forbidden = forbidden
         cls.by_name = {module["name"]: module for module in cls.model["modules"]}
         cls.types = {entry["name"]: entry for entry in cls.model["types"]}
 
@@ -1657,6 +1716,24 @@ class RealTreeSmokeTests(unittest.TestCase):
             return re.sub(pattern, "SNAPSHOT", page)
 
         self.assertEqual(normalized(first), normalized(second))
+
+    def test_production_module_count(self):
+        production = [module for module in self.model["modules"] if not module["tooling"]]
+        self.assertEqual(len(production), 20)
+
+    def test_committed_atlas_matches_a_fresh_render(self):
+        prose = archview.load_prose(archview.DEFAULT_ATLAS)
+        svg = (REPO_ROOT / "docs" / "dev" / "arch" / "modules.svg").read_text(encoding="utf-8")
+        fresh = archview.render_atlas_html(self.model, prose, svg, self.forbidden)
+        committed = (REPO_ROOT / "docs" / "dev" / "arch" / "atlas.html").read_text(
+            encoding="utf-8"
+        )
+        pattern = r"Source snapshot, \d{4}-\d{2}-\d{2}, branch \S+"
+
+        def normalized(page):
+            return re.sub(pattern, "SNAPSHOT", page)
+
+        self.assertEqual(normalized(fresh), normalized(committed))
 
     def test_first_cut_matches_the_documented_tree(self):
         first = self.model["knots"][0]["cuts"][0]

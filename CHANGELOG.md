@@ -40,7 +40,7 @@ _(unreleased — entries accumulate here per commit)_
   the report also prints the 25 most-referenced types, the count per role, and a
   per-module level profile.
 
-  The ladder now also explains why its biggest row is flat: the 392 types that
+  The ladder now also explains why its biggest row is flat: the 391 types that
   reference one another in a cycle (a "knot") are reported with their size and
   module mix, the largest knot's hub types, and a greedy cut sequence that names
   the few references worth untangling first, while the knot's ladder row is
@@ -52,7 +52,7 @@ _(unreleased — entries accumulate here per commit)_
   references it, moves the 48 files a name family or a clear owner claims
   (including two new modules, the GUI census recorder and the settings types),
   and lists the rest with their evidence in `docs/dev/arch/core-placement.md`.
-  The 67 files left after that were then placed by hand into the module each
+  67 of the 75 that remained were then placed by hand into the module each
   belongs to, which leaves the eight kernel vocabulary files in `Core`.
 
   The atlas is now generated rather than hand-assembled: `atlas.html` renders

@@ -1,11 +1,12 @@
 # Parsek Atlas prose.
 #
 # `scripts/arch/archview.py` renders docs/dev/arch/atlas.html from the live
-# model plus this file. Every hand-written sentence on the page lives here;
-# numbers, tables, chips and the map are generated. `--check` reports prose
-# that no longer matches the model (missing module summaries, glossary names
-# that are gone, readings for vanished edges, reading-order types that do not
-# exist).
+# model plus this file. The narrative prose lives here; numbers, tables, chips
+# and the map are generated, and the structural strings (headings, tile
+# captions, the generated-views list) stay in the renderer template. `--check`
+# reports prose that no longer matches the model (missing module summaries,
+# glossary names that are gone, readings for vanished edges, reading-order
+# types that do not exist).
 #
 # Inline markup (`<span class="id">Name</span>`, `<em>`, `<code>`) is part of
 # the prose and is rendered as-is.
@@ -85,7 +86,7 @@ summary = "Pure math over orbits and samples: segments, points, frames, ballisti
 summary = "The recording itself: <span class=\"id\">Recording</span>, its tree, track sections, the store, the flight and background recorders, sidecar codecs, the optimizer."
 
 [modules.Core]
-summary = "The eight files every module uses and no module owns: branch points, the playback trajectory interface, launch identity, the spawner, milestone and group stores, inventory manifests."
+summary = "The eight files used across many modules and owned by none: branch points, the playback trajectory interface, launch identity, the spawner, milestone and group stores, inventory manifests."
 
 [modules.Config]
 summary = "Settings, loop timing, distance thresholds."
@@ -148,10 +149,10 @@ meaning = "The interface the playback engine sees instead of a Recording."
 meaning = "Where and why a tree branched: decouple, dock, undock, EVA, switch."
 
 [glossary.Kind]
-meaning = "What a rewind split mutated: a branch point, a debris parent, a track-section anchor or a ledger row."
+meaning = "What a rewind split mutated: a branch point, a debris parent, a track-section anchor, a ledger row or a milestone row."
 
 [glossary.GameActionType]
-meaning = "The ledger row category: funds, science, reputation, crew or facility."
+meaning = "The kind of ledger row: which economy, roster or facility effect it records (science, funds, milestones, contracts, reputation, crew, facilities, strategies and route cycles)."
 
 [[upward_readings]]
 edge = "Recording -> Trajectory"

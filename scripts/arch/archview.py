@@ -2381,10 +2381,13 @@ def prose_findings(model, prose):
     """
     production = [module for module in model["modules"] if not module["tooling"]]
     summaries = prose.get("modules", {})
+
+    def has_summary(name):
+        entry = summaries.get(name)
+        return isinstance(entry, dict) and bool(entry.get("summary"))
+
     missing_summaries = sorted(
-        module["name"]
-        for module in production
-        if not summaries.get(module["name"], {}).get("summary")
+        module["name"] for module in production if not has_summary(module["name"])
     )
     type_names = {entry["name"] for entry in model.get("types", [])}
     glossary = prose.get("glossary", {})
@@ -2397,16 +2400,25 @@ def prose_findings(model, prose):
     edge_keys = {(edge["from"], edge["to"]) for edge in model["edges"]}
     stale_readings = []
     for reading in prose.get("upward_readings", []):
+        if not isinstance(reading, dict):
+            stale_readings.append(str(reading))
+            continue
+        spec = reading.get("edge", "")
         try:
-            frm, to = parse_edge_spec(reading["edge"])
-        except (KeyError, ValueError):
-            stale_readings.append(str(reading.get("edge", "?")))
+            frm, to = parse_edge_spec(spec)
+        except (ValueError, TypeError):
+            stale_readings.append(str(spec))
             continue
         if (frm, to) not in edge_keys:
-            stale_readings.append(reading["edge"])
-    order_types = {
-        name for step in prose.get("reading_order", []) for name in step.get("types", [])
-    }
+            stale_readings.append(spec)
+    order_types = set()
+    for step in prose.get("reading_order", []):
+        if not isinstance(step, dict):
+            continue
+        names = step.get("types", [])
+        if not isinstance(names, list):
+            continue
+        order_types.update(name for name in names if isinstance(name, str))
     missing_order = sorted(name for name in order_types if name not in type_names)
     return {
         "missingSummaries": missing_summaries,
@@ -2505,7 +2517,12 @@ def _atlas_directory(model, prose):
         for module in grouped[band_id]:
             entries = by_module.get(module["name"], [])
             hubs = sorted(entries, key=lambda t: (-t["fanIn"], t["name"]))[:3]
-            summary = summaries.get(module["name"], {}).get("summary", "(no summary yet)")
+            summary_entry = summaries.get(module["name"])
+            summary = (
+                summary_entry.get("summary")
+                if isinstance(summary_entry, dict)
+                else None
+            ) or "(no summary yet)"
             lines.append(
                 '<tr><td class="name">%s</td><td>%s</td><td class="num">%d</td>'
                 '<td class="num">%d</td><td class="num">%.2f</td><td>%s</td></tr>'
@@ -2525,7 +2542,10 @@ def _atlas_vocabulary(model, prose):
     glossary = prose.get("glossary", {})
     lines = []
     for entry in sorted(model.get("types", []), key=lambda t: (-t["fanIn"], t["name"]))[:18]:
-        meaning = glossary.get(entry["name"], {}).get("meaning", "(no meaning yet)")
+        meaning_entry = glossary.get(entry["name"])
+        meaning = (
+            meaning_entry.get("meaning") if isinstance(meaning_entry, dict) else None
+        ) or "(no meaning yet)"
         lines.append(
             "  <dt>%s <span class=\"layer\">%d files</span></dt><dd>%s</dd>"
             % (html.escape(entry["name"]), entry["fanIn"], meaning)
@@ -2582,9 +2602,15 @@ def _atlas_knot_cuts(model):
 def _atlas_upward_rows(model, prose, forbidden):
     tooling = {module["name"] for module in model["modules"] if module["tooling"]}
     edge_by = {(edge["from"], edge["to"]): edge for edge in model["edges"]}
-    readings = {
-        reading["edge"]: reading["reading"] for reading in prose.get("upward_readings", [])
-    }
+    readings = {}
+    for reading in prose.get("upward_readings", []):
+        if not isinstance(reading, dict):
+            continue
+        try:
+            key = parse_edge_spec(reading.get("edge", ""))
+        except (ValueError, TypeError):
+            continue
+        readings[key] = reading.get("reading", "")
     rows = [
         edge
         for edge in model["edges"]
@@ -2626,9 +2652,9 @@ def _atlas_upward_rows(model, prose, forbidden):
                 html.escape(edge["to"]),
             )
             weight = str(edge["weight"])
-        reading = readings.get("%s -> %s" % (edge["from"], edge["to"]), "")
+        reading = readings.get((edge["from"], edge["to"]), "")
         if not reading:
-            reading = readings.get("%s -> %s" % (edge["to"], edge["from"]), "")
+            reading = readings.get((edge["to"], edge["from"]), "")
         lines.append(
             '<tr><td class="name">%s</td><td class="num">%s</td><td>%s</td><td>%s</td></tr>'
             % (name, weight, _type_chips(edge["types"][:3]), reading)
@@ -2639,8 +2665,12 @@ def _atlas_upward_rows(model, prose, forbidden):
 def _atlas_reading_order(prose):
     lines = []
     for step in prose.get("reading_order", []):
-        chips = _type_chips(step.get("types", []))
-        body = (chips + ". " if chips else "") + step.get("text", "")
+        if not isinstance(step, dict):
+            continue
+        names = step.get("types", [])
+        chips = _type_chips([name for name in names if isinstance(name, str)]) if isinstance(names, list) else ""
+        text = step.get("text", "")
+        body = (chips + ". " if chips else "") + (text if isinstance(text, str) else "")
         lines.append("  <li><strong>%s</strong> %s</li>" % (step.get("title", ""), body))
     return "\n".join(lines)
 
@@ -3146,7 +3176,8 @@ def main(argv=None):
             print("Wrote %s" % dot_path)
 
             svg_path = out_dir / "modules.svg"
-            if render_svg(dot_path, svg_path):
+            svg_rendered = render_svg(dot_path, svg_path)
+            if svg_rendered:
                 print("Wrote %s" % svg_path)
 
             matrix_path = out_dir / "matrix.html"
@@ -3167,7 +3198,7 @@ def main(argv=None):
 
             atlas_path = out_dir / "atlas.html"
             svg_text = None
-            if svg_path.exists():
+            if svg_rendered and svg_path.exists():
                 svg_text = svg_path.read_text(encoding="utf-8")
             _write_text(atlas_path, render_atlas_html(model, prose, svg_text, forbidden))
             print("Wrote %s" % atlas_path)

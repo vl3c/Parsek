@@ -71,7 +71,7 @@ reflection.
 From the repo root:
 
 ```bash
-python scripts/arch/archview.py            # writes the seven views in docs/dev/arch/
+python scripts/arch/archview.py            # writes the eight views in docs/dev/arch/
 python scripts/arch/archview.py --check    # same, plus the report on stdout
 python scripts/arch/archview.py --place    # same, plus core-placement.md (leaves it stale otherwise)
 python -m unittest scripts/arch/test_archview.py
@@ -91,7 +91,8 @@ Options:
 
 Requirements: Python 3.11+ (the TOML reader is `tomllib`) and, for the SVG
 only, Graphviz `dot` on PATH. If `dot` is missing the script prints a warning
-and still writes the other six files. When a source file matches no rule in
+and still writes the other seven files (`atlas.html` shows a one-line notice
+where the map would be). When a source file matches no rule in
 `modules.toml`, the script warns and skips it.
 
 `--check` prints, in order: the per-module metrics table (name, files, fan-out,
@@ -102,11 +103,14 @@ two-way coupling between production modules with both weights, the 25 types
 with the highest file-based fan-in, the count per type role with three example
 names, the per-module level profile (type count per level, plus the module's
 and the overall max level), the first 10 knots with their size and module
-breakdown followed by the largest knot's hubs and greedy cut sequence, and
-every `[forbidden]` edge that exists with its weight, referenced types and
-referencing files. When `[allowed]` is non-empty it also lists every production
-edge not in that list; while `[allowed]` is empty that section is skipped. The
-last line is always `ARCH-CHECK report-only`.
+breakdown followed by the largest knot's hubs and greedy cut sequence, the
+ATLAS prose-vs-model section (production modules without a summary, glossary
+entries naming a missing type, stale glossary entries, readings for vanished
+edges, missing reading-order types), and every `[forbidden]` edge that exists
+with its weight, referenced types and referencing files. When `[allowed]` is
+non-empty it also lists every production edge not in that list; while
+`[allowed]` is empty that section is skipped. The last line is always
+`ARCH-CHECK report-only`.
 
 ## Reading the views
 
@@ -203,24 +207,24 @@ attribute itself.
 A **knot** is a strongly connected component of the type graph with more than
 one member: a group of types that reach one another in a cycle, directly or
 through other members. Longest-path levelling condenses a cycle to one level,
-so the kernel's 392-type knot collapses into a single level and only the types
-above it (levels 8 to 11 here, mostly patches and harness entry points) rise
-above. A knot is why that level is flat: the levelling cannot order types that
-depend on each other.
+so the kernel's 391-type knot collapses into a single level and only the types
+above it (levels 8 to 10 here, mostly patches and entry points) rise above. A
+knot is why that level is flat: the levelling cannot order types that depend on
+each other.
 
 `types.json` records this per type: `knot` is the 1-based index of the type's
 component in largest-first order, or null outside a knot, and `sublevel` is
 the type's level inside its knot after the cut edges are removed (again null
-outside). On the current tree the knots are one of 392, then of 4 and 2.
+outside). On the current tree the knots are one of 391, then of 4 and 2.
 
 `--check` first lists the first 10 knots (all three on the current tree) with
 their size and module breakdown, then for the largest knot it shows the hubs
 (the members other members reference most, with their in-knot references) and a
 **greedy cut sequence**: each step picks, among the highest-fan-in members, the
 sink whose outgoing references, when removed, break the knot the most, and
-reports the references that were dropped. `392 -> cut ParsekLog -> 335` means
+reports the references that were dropped. `391 -> cut ParsekLog -> 335` means
 removing `ParsekLog`'s two references inside the knot (`ParsekSettings` and
-`RecorderStateSnapshot`) splits off 57 members. The early cuts can be cheap
+`RecorderStateSnapshot`) splits off 56 members. The early cuts can be cheap
 inversions - one or two references between hubs may hold whole regions
 together, and those are the references a refactor should look at first - while
 the later cuts usually touch many small references, and the named sink there
@@ -267,14 +271,15 @@ in order, and the first that fires wins:
 R1 runs first and its moves are rebuilt into the map before R2-R5 are
 evaluated, because moving a family out of the catch-all turns references from
 those files into external references for everything left behind. R2 moves are
-written as one exact-name rule per file (`^Name\.cs$`) under a comment with
-its evidence, and R1 moves as one family prefix rule per family; every
-placement rule carries `placement = "R1"` or `"R2"` so the report can rebuild
-the state before the phase. Files that stay behind are a legitimate outcome:
-`UNDECIDED` means no rule fired - most such files sit below the five-reference
-floor, and the rest have no owner with a majority or a two-times lead. That is
-not a verdict on the file, and the report lists each one with its evidence so
-a human can place it.
+written as one exact-name rule per file (`^Name[.]cs$`, the bracket keeping the
+TOML literal string readable) under a comment with its evidence, and R1 moves
+as one family prefix rule per family; every phase-2 placement rule carries
+`placement = "R1"` or `"R2"` (the hand placement later added `"R0"`) so the
+report can rebuild the state before the phase. Files that stay behind are a
+legitimate outcome: `UNDECIDED` means no rule fired - most such files sit below
+the five-reference floor, and the rest have no owner with a majority or a
+two-times lead. That is not a verdict on the file, and the report lists each
+one with its evidence so a human can place it.
 
 The phase that introduced this moved 48 of the 123 catch-all files (R1 31, R2
 17); 75 remained (7 orphan, 68 undecided, no split candidates). `GuiTree` (the
@@ -291,7 +296,7 @@ rules sit above R1 and win on first match. The 8 files that stay in `Core`
 are the kernel vocabulary (`BranchPoint`, `IPlaybackTrajectory`,
 `VesselLaunchIdentity`, `VesselSpawner`, `MilestoneStore`,
 `GroupHierarchyStore`, `InventoryManifest`, `PlaybackTrajectoryBoundsResolver`):
-every module uses them, so no owner has a majority, and that is the intended
+used across many modules, so no owner has a majority, and that is the intended
 meaning of Core from here on.
 
 ## The atlas
@@ -300,8 +305,9 @@ meaning of Core from here on.
 module directory grouped by layer, the top hub vocabulary, the largest knot
 with its cut table, the weighted upward edges, and a reading order. Everything
 numeric, tabular and visual is rendered from the live model by
-`render_atlas_html`; the only hand-written parts are the prose strings in
-`scripts/arch/atlas.toml`.
+`render_atlas_html`; the narrative prose comes from `scripts/arch/atlas.toml`,
+while the structural strings (headings, tile captions and the generated-views
+list) live in the renderer template.
 
 ### Editing the atlas prose
 
