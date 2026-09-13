@@ -4,11 +4,14 @@ Run from the repo root:
 
     python -m unittest scripts/arch/test_archview.py
 
-Stdlib only. The final test is a smoke test that scans the real Source/Parsek
-tree, so it exercises the extractor end to end.
+Stdlib only. The smoke tests at the end scan the real Source/Parsek tree and
+the worktree's git history, so the extractor, the atlas and the history
+metrics are exercised end to end. The history tests skip when the checkout
+has no git history (a tarball or shallow clone).
 """
 
 import contextlib
+import datetime
 import io
 import json
 import pathlib
@@ -552,7 +555,7 @@ class PlacementReportTests(unittest.TestCase):
             modules.write_text(
                 '[[module]]\nname = "GuiTree"\nprefix = "^GuiTree"\nplacement = "R1"\n\n'
                 '[[module]]\nname = "Other"\nprefix = "^Other"\n\n'
-                '[[module]]\nname = "Core"\nprefix = ".*"\n',
+                '[[module]]\nname = "Cell"\nprefix = "^SoloFile[.]cs$"\n',
                 encoding="utf-8",
             )
             captured = io.StringIO()
@@ -583,14 +586,31 @@ class PlacementReportTests(unittest.TestCase):
             report = (root / "out-a" / "core-placement.md").read_text(encoding="utf-8")
             self.assertEqual(report, (root / "out-b" / "core-placement.md").read_text(encoding="utf-8"))
             atlas = (root / "out-a" / "atlas.html").read_text(encoding="utf-8")
+            history = json.loads((root / "out-a" / "history.json").read_text(encoding="utf-8"))
         self.assertIn("Parsek Atlas", atlas)
+        self.assertEqual(
+            sorted(history),
+            [
+                "commits",
+                "filePairs",
+                "files",
+                "hotspots",
+                "largestSweep",
+                "modulePairs",
+                "modules",
+                "since",
+                "skippedSweeps",
+            ],
+        )
         self.assertIn("PLACEMENT EVIDENCE", captured.getvalue())
         self.assertIn("| GuiTreeFunnels.cs | 1 | 0 | 0 | 0.00 | - | - | R1 | GuiTree |", report)
         self.assertIn("## ORPHAN", report)
         self.assertIn("- OrphanFile.cs", report)
         self.assertIn("## UNDECIDED", report)
         self.assertIn("- SoloFile.cs", report)
-        self.assertIn("Catch-all (Core): 3 files before, 2 files after.", report)
+        # The before-state needs the historical catch-all rebuild: the live last
+        # rule is an explicit one-file list, so without it the before count is 1.
+        self.assertIn("Catch-all (Cell): 3 files before, 1 files after.", report)
         self.assertIn(
             "Placement rules whose destination does not match the current map: none.", report
         )
@@ -682,10 +702,11 @@ class ProseTests(unittest.TestCase):
             "upward_readings": [
                 {"edge": "Gone -> Type", "reading": "x"},
                 {"edge": "NoArrow", "reading": "x"},
+                {"edge": 5, "reading": "x"},
             ]
         }
         findings = archview.prose_findings(self._model(), prose)
-        self.assertEqual(findings["staleReadings"], ["Gone -> Type", "NoArrow"])
+        self.assertEqual(findings["staleReadings"], ["Gone -> Type", "NoArrow", "5"])
 
     def test_missing_reading_order_types(self):
         prose = {"reading_order": [{"title": "t", "types": ["NopeThing"], "text": "x"}]}
@@ -821,6 +842,36 @@ class AtlasRenderTests(unittest.TestCase):
     def test_atlas_history_notice_when_empty(self):
         text = archview.render_atlas_html(_atlas_model(), _atlas_prose(), None, [], None)
         self.assertIn("No co-change history in the window.", text)
+
+    def test_atlas_history_truncates_to_ten_rows(self):
+        history = {
+            "since": "2025-03-01",
+            "commits": 3,
+            "skippedSweeps": 0,
+            "largestSweep": 0,
+            "hotspots": [
+                {"name": "Hot%02d" % index, "module": "Alpha", "file": "Alpha/A.cs",
+                 "fileCommits": 1, "fanIn": 1, "hotspot": 1}
+                for index in range(12)
+            ],
+            "modulePairs": [
+                {"a": "Alpha", "b": "Mod%02d" % index, "both": 1, "either": 2, "jaccard": 0.5}
+                for index in range(12)
+            ],
+            "filePairs": [
+                {"a": "Alpha/F%02d.cs" % index, "b": "Beta/B.cs", "moduleA": "Alpha",
+                 "moduleB": "Beta", "count": 9}
+                for index in range(12)
+            ],
+            "modules": [],
+        }
+        text = archview.render_atlas_html(_atlas_model(), _atlas_prose(), None, [], history)
+        self.assertIn("Hot09", text)
+        self.assertNotIn("Hot10", text)
+        self.assertIn("Mod09", text)
+        self.assertNotIn("Mod10", text)
+        self.assertIn("Alpha/F09.cs", text)
+        self.assertNotIn("Alpha/F10.cs", text)
 
     def test_eyebrow_format_and_fallback(self):
         self.assertRegex(
@@ -1202,6 +1253,10 @@ class CheckerHelperTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             archview.parse_edge_spec("A -> ")
 
+    def test_parse_edge_spec_rejects_non_strings(self):
+        with self.assertRaises(ValueError):
+            archview.parse_edge_spec(5)
+
 
 class InterpolatedStringTests(unittest.TestCase):
     def test_nested_string_literal_in_hole_does_not_leak(self):
@@ -1255,6 +1310,30 @@ class WalkerEdgeCaseTests(unittest.TestCase):
 
 
 class HistoryParseTests(unittest.TestCase):
+    def test_default_since_is_eighteen_months_back_on_the_first(self):
+        today = datetime.date.today()
+        if today.month > 6:
+            expected = datetime.date(today.year - 1, today.month - 6, 1)
+        else:
+            expected = datetime.date(today.year - 2, today.month + 6, 1)
+        self.assertEqual(archview.default_since(), expected.isoformat())
+
+    def test_history_git_args_pin_the_window_and_format(self):
+        self.assertEqual(
+            archview.history_git_args("2025-03-01"),
+            [
+                "git",
+                "log",
+                "--no-merges",
+                "--since=2025-03-01",
+                "--date=short",
+                "--pretty=format:COMMIT%x09%H%x09%ad",
+                "--name-only",
+                "--",
+                "Source/Parsek",
+            ],
+        )
+
     def test_parse_history_filters_skips_and_dates(self):
         sweep = "\n".join("Source/Parsek/Sweep%02d.cs" % index for index in range(41))
         text = (
@@ -1287,6 +1366,26 @@ class HistoryParseTests(unittest.TestCase):
             {"commits": [], "skipped": 0, "largest": 0},
         )
 
+    def test_parse_history_dedups_and_keeps_exactly_forty(self):
+        text = (
+            "COMMIT\td1\t2026-09-01\n"
+            "Source/Parsek/Alpha.cs\n"
+            "Source/Parsek/Alpha.cs\n"
+            "\n"
+            "COMMIT\td2\t2026-09-02\n"
+            + "\n".join("Source/Parsek/Keep%02d.cs" % index for index in range(40))
+            + "\n"
+        )
+        parsed = archview.parse_history(text)
+        self.assertEqual(parsed["commits"][0]["files"], ["Alpha.cs"])
+        self.assertEqual(len(parsed["commits"][1]["files"]), 40)
+        self.assertEqual(parsed["skipped"], 0)
+
+    def test_parse_history_unquotes_a_quoted_path(self):
+        text = 'COMMIT\tq1\t2026-09-01\n"Source/Parsek/Quoted.cs"\n'
+        parsed = archview.parse_history(text)
+        self.assertEqual(parsed["commits"][0]["files"], ["Quoted.cs"])
+
 
 class HistoryMetricsTests(unittest.TestCase):
     @staticmethod
@@ -1310,6 +1409,7 @@ class HistoryMetricsTests(unittest.TestCase):
                 {"name": "AlphaThing", "file": "One/A.cs", "module": "One", "fanIn": 10},
                 {"name": "BetaThing", "file": "One/B.cs", "module": "One", "fanIn": 3},
                 {"name": "GammaThing", "file": "Two/C.cs", "module": "Two", "fanIn": 7},
+                {"name": "ToolThing", "file": "Tool/T.cs", "module": "Tool", "fanIn": 5},
             ],
         }
 
@@ -1355,6 +1455,24 @@ class HistoryMetricsTests(unittest.TestCase):
             metrics["filePairs"],
             [{"a": "One/A.cs", "b": "Two/C.cs", "moduleA": "One", "moduleB": "Two", "count": 5}],
         )
+
+    def test_cross_module_file_pair_below_the_floor(self):
+        commits = [
+            {"sha": "c%d" % index, "date": "2026-09-%02d" % index,
+             "files": ["One/A.cs", "Two/C.cs"]}
+            for index in range(1, 5)
+        ]
+        metrics = archview.history_metrics(commits, self._model(), [])
+        self.assertEqual(metrics["filePairs"], [])
+
+    def test_unknown_history_files_go_through_the_rules(self):
+        commits = [{"sha": "c1", "date": "2026-09-01", "files": ["LegacyOld.cs"]}]
+        metrics = archview.history_metrics(
+            commits, self._model(), [{"name": "One", "prefix": "^Legacy"}]
+        )
+        files = {row["file"]: row for row in metrics["files"]}
+        self.assertEqual(files["LegacyOld.cs"]["commits"], 1)
+        self.assertEqual(files["LegacyOld.cs"]["module"], "One")
 
 
 class KernelGuardTests(unittest.TestCase):
@@ -1733,6 +1851,42 @@ class CheckerOutputTests(unittest.TestCase):
             archview.run_check(self._two_module_model(), [], [])
         self.assertIn("no co-change history", captured.getvalue())
 
+    def test_history_section_truncates_to_the_top_slices(self):
+        def hotspot(index):
+            return {"name": "Hub%02d" % index, "module": "Alpha", "file": "Alpha/A.cs",
+                    "fileCommits": 1, "fanIn": 1, "hotspot": 1}
+
+        def module_pair(index):
+            return {"a": "Alpha", "b": "M%02d" % index, "both": 1, "either": 2, "jaccard": 0.5}
+
+        def file_pair(index):
+            return {"a": "Alpha/A%02d.cs" % index, "b": "Beta/B.cs", "moduleA": "Alpha",
+                    "moduleB": "Beta", "count": 9}
+
+        history = dict(self._small_history())
+        history["hotspots"] = [hotspot(index) for index in range(20)]
+        history["modulePairs"] = [module_pair(index) for index in range(12)]
+        history["filePairs"] = [file_pair(index) for index in range(20)]
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            archview.run_check(self._two_module_model(), [], [], None, history)
+        text = captured.getvalue()
+        self.assertIn("Hub14", text)
+        self.assertNotIn("Hub15", text)
+        self.assertIn("M09", text)
+        self.assertNotIn("M10", text)
+        self.assertIn("Alpha/A14.cs", text)
+        self.assertNotIn("Alpha/A15.cs", text)
+
+    def test_non_string_policy_specs_are_warned_not_raised(self):
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            archview.run_check(_small_model(), [5], [5])
+        text = captured.getvalue()
+        self.assertIn("WARN bad [forbidden] edge spec", text)
+        self.assertIn("WARN bad [allowed] edge spec", text)
+        self.assertEqual(self._last_line(text), "ARCH-CHECK report-only")
+
     def test_main_warns_about_unclassified_files(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
@@ -1857,9 +2011,8 @@ class CheckerOutputTests(unittest.TestCase):
 class RealTreeSmokeTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        rules, tooling, forbidden, _allowed = archview.load_rules(archview.DEFAULT_MODULES)
+        rules, tooling, _forbidden, _allowed = archview.load_rules(archview.DEFAULT_MODULES)
         cls.model = archview.build_model(REAL_SOURCE, rules, tooling)
-        cls.forbidden = forbidden
         cls.by_name = {module["name"]: module for module in cls.model["modules"]}
         cls.types = {entry["name"]: entry for entry in cls.model["types"]}
         since = archview.default_since()
@@ -1871,6 +2024,7 @@ class RealTreeSmokeTests(unittest.TestCase):
             "largestSweep": parsed["largest"],
         }
         cls.history.update(archview.history_metrics(parsed["commits"], cls.model, rules))
+        cls.has_history = cls.history["commits"] > 0
 
     def test_logio_is_a_pure_sink(self):
         self.assertIn("LogIO", self.by_name)
@@ -2018,22 +2172,38 @@ class RealTreeSmokeTests(unittest.TestCase):
         self.assertTrue(all(entry["sublevel"] is not None for entry in inside))
 
     def test_history_window_has_commits(self):
+        if not self.has_history:
+            self.skipTest("no git history available in this checkout")
         self.assertGreater(self.history["commits"], 100)
 
     def test_history_hotspots_exist_in_the_model(self):
-        self.assertTrue(self.history["hotspots"])
+        if not self.has_history:
+            self.skipTest("no git history available in this checkout")
+        self.assertTrue(any(row["fileCommits"] > 0 for row in self.history["hotspots"]))
         for row in self.history["hotspots"]:
             self.assertIn(row["name"], self.types)
 
     def test_top_hotspot_fan_in_is_at_least_thirty(self):
+        if not self.has_history:
+            self.skipTest("no git history available in this checkout")
         self.assertGreaterEqual(self.history["hotspots"][0]["fanIn"], 30)
 
     def test_module_pairs_are_symmetric_free(self):
+        if not self.has_history:
+            self.skipTest("no git history available in this checkout")
+        self.assertEqual(len(self.history["modulePairs"]), 190)
+        self.assertTrue(self.history["filePairs"])
         seen = set()
         for row in self.history["modulePairs"]:
             self.assertNotIn((row["a"], row["b"]), seen)
             self.assertNotIn((row["b"], row["a"]), seen)
             seen.add((row["a"], row["b"]))
+
+    def test_history_caps(self):
+        if not self.has_history:
+            self.skipTest("no git history available in this checkout")
+        self.assertEqual(len(self.history["hotspots"]), 30)
+        self.assertEqual(len(self.history["filePairs"]), 40)
 
     def test_no_record_declarations_in_the_tree(self):
         # The literal `\brecord\b` grep would also match a local variable named

@@ -12,7 +12,7 @@ Everything lives in `scripts/arch/`:
 | --- | --- |
 | `modules.toml` | The hand-authored input that maps source paths to module names. |
 | `atlas.toml` | The atlas prose: the lede, the section notes, the module summaries, the glossary, the upward-edge readings and the reading order (see "Editing the atlas prose"). |
-| `archview.py` | Extracts the module graph and the type ladder, writes `edges.json`, `types.json` and the views, and prints the `--check` report. |
+| `archview.py` | Extracts the module graph and the type ladder, builds the co-change history, writes `edges.json`, `types.json`, `history.json` and the views, and prints the `--check` report. |
 | `test_archview.py` | Unit tests plus a smoke test over the real `Source/Parsek` tree. |
 
 The generated views are written to `docs/dev/arch/` and are gitignored (they
@@ -28,7 +28,7 @@ go stale on every commit that touches `Source/`; regenerate before reading):
 | `explore.html` | Interactive neighbourhood explorer. |
 | `ladder.html` | Interactive type ladder (modules as columns, levels as rows). |
 | `atlas.html` | The Parsek Atlas: a prose reading over the live model (see "The atlas"). |
-| `core-placement.md` | The catch-all placement evidence (see "Placing catch-all files"); written by `--place`. |
+| `core-placement.md` | The historical catch-all placement evidence (see "Placing catch-all files"); written by `--place`. |
 
 ## What the scan is, and is not
 
@@ -71,8 +71,8 @@ reflection.
 ## Regenerating
 
 Nothing under `docs/dev/arch/` except this README is tracked. Run the script
-first; the nine files it writes are the current truth for the checkout you
-ran it in, and nothing else.
+first; the nine files it writes (ten with `--place`) are the current truth for
+the checkout you ran it in, and nothing else.
 
 From the repo root:
 
@@ -90,10 +90,11 @@ Options:
 - `--min-edge N` (default 8): edges lighter than N references are hidden from
   the dot view; the explorer slider starts at N but can go down to 1.
 - `--modules FILE` (default `scripts/arch/modules.toml`)
-- `--place` (default off): print the placement evidence for the current
-  catch-all files and write `core-placement.md`, the before-phase placement
-  table (see "Placing catch-all files"). Plain regeneration leaves that report
-  alone, so run `--place` when its input changed.
+- `--place` (default off): print the placement evidence for the files in the
+  module the last rule names (the Core kernel list now; the old catch-all in
+  the historical report) and write `core-placement.md`, the before-phase
+  placement table (see "Placing catch-all files"). Plain regeneration leaves
+  that report alone, so run `--place` when its input changed.
 
 Requirements: Python 3.11+ (the TOML reader is `tomllib`) and, for the SVG
 only, Graphviz `dot` on PATH. If `dot` is missing the script prints a warning
@@ -355,24 +356,24 @@ files actually change together. `history.json` is built from a single
 call: only `.cs` files count, and a commit touching more than 40 source files
 is treated as a sweep (a rename or a bulk edit) and skipped, because it would
 dominate every co-change number. The payload records the window, the kept
-commit count, how many sweeps were skipped and the largest one, then four
-tables:
+commit count, how many sweeps were skipped and the largest one, then five
+arrays:
 
 - **files**: commits and last-touched date per production file, with a churn
   rank;
 - **hotspots**: `file commits * fan-in` for every production type, top 30,
   which finds types that are both widely referenced and frequently edited;
-- **modules** and **modulePairs**: commits touching each module, and for every
-  production pair the number of commits touching both, the union, and their
-  Jaccard ratio;
+- **modules**: commits touching each module;
+- **modulePairs**: for every production pair, the commits touching both, the
+  union, and their Jaccard ratio;
 - **filePairs**: the top 40 cross-module file pairs with at least 5 shared
   commits - files the map calls separate that keep changing together.
 
 Tooling modules are excluded everywhere. If git is missing or the window is
-empty, the payload is empty and both the checker and the atlas say so instead
-of failing. A co-change number is evidence, not a verdict: two files can share
-commits because one change touches both sides of a real boundary, and that is
-what the list is for.
+empty, the commit count is zero and the tables carry no counts; the checker
+and the atlas say so instead of failing. A co-change number is evidence, not a
+verdict: two files can share commits because one change touches both sides of
+a real boundary, and that is what the list is for.
 
 `--check` prints the HISTORY section after ATLAS. The atlas has a "What
 changes together" section between "Where the layering breaks" and "Reading

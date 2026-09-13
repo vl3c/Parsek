@@ -989,15 +989,17 @@ def place(evidence, rules):
 
 
 def placement_evidence(model):
-    """Return per-file placement evidence for the model's catch-all module.
+    """Return per-file placement evidence for the module the last rule names.
 
-    One entry per catch-all file, sorted by external references descending
-    (ties by file): declared type count (a name declared in more than one
-    module still counts here even though the type graph drops it), how many of
-    them are in knot 1, the number of (referencing type, referenced type) pairs
-    arriving from types in other modules, that count split by referencing
-    module, the top module's share of it, and the highest file-based fan-in
-    among the file's types.
+    Historically that module was the catch-all; after the kernel guard it is
+    the explicit Core kernel list, and the report rebuilds the old catch-all
+    for its before-state. One entry per file in that module, sorted by external
+    references descending (ties by file): declared type count (a name declared
+    in more than one module still counts here even though the type graph drops
+    it), how many of them are in knot 1, the number of (referencing type,
+    referenced type) pairs arriving from types in other modules, that count
+    split by referencing module, the top module's share of it, and the highest
+    file-based fan-in among the file's types.
     """
     catch_all = model.get("catchAll")
     entries = model.get("types", [])
@@ -1049,10 +1051,10 @@ def placement_evidence(model):
 
 
 def print_placement_evidence(model):
-    """Print one evidence line per file left in the catch-all module."""
+    """Print one evidence line per file in the module the last rule names."""
     catch_all = model.get("catchAll")
     evidence = placement_evidence(model)
-    print("PLACEMENT EVIDENCE (files assigned to the catch-all module %s):" % catch_all)
+    print("PLACEMENT EVIDENCE (files in the module the last rule names, %s):" % catch_all)
     print(
         "  %-34s %5s %5s %7s %6s  %s"
         % ("file", "types", "knot", "extRefs", "share", "top=Module(count), second=Module(count)  hub=Name(fanIn)")
@@ -1601,7 +1603,12 @@ def render_dot(model, min_edge):
 
 
 def render_svg(dot_path, svg_path):
-    """Run graphviz over the dot file. Warns and returns False when absent."""
+    """Run graphviz over the dot file. Warns and returns False when absent.
+
+    A failure removes the target so a previous run's map is not left behind
+    pretending to be current.
+    """
+    svg_path = Path(svg_path)
     try:
         completed = subprocess.run(
             ["dot", "-Tsvg", str(dot_path), "-o", str(svg_path)],
@@ -1611,12 +1618,14 @@ def render_svg(dot_path, svg_path):
         )
     except FileNotFoundError:
         print("WARN graphviz 'dot' not found; modules.svg not written", file=sys.stderr)
+        svg_path.unlink(missing_ok=True)
         return False
     if completed.returncode != 0:
         print(
             "WARN dot failed (exit %d): %s" % (completed.returncode, completed.stderr.strip()),
             file=sys.stderr,
         )
+        svg_path.unlink(missing_ok=True)
         return False
     return True
 
@@ -2932,23 +2941,28 @@ def default_since():
     return today.replace(year=year, month=month, day=1).isoformat()
 
 
+def history_git_args(since):
+    """Return the single git log invocation the history is built from."""
+    return [
+        "git",
+        "log",
+        "--no-merges",
+        "--since=%s" % since,
+        "--date=short",
+        "--pretty=format:COMMIT%x09%H%x09%ad",
+        "--name-only",
+        "--",
+        "Source/Parsek",
+    ]
+
+
 def git_log_lines(repo_root, since=None):
     """Return raw `git log --name-only` text for Source/Parsek, or "" on failure."""
     if since is None:
         since = default_since()
     try:
         completed = subprocess.run(
-            [
-                "git",
-                "log",
-                "--no-merges",
-                "--since=%s" % since,
-                "--date=short",
-                "--pretty=format:COMMIT%x09%H%x09%ad",
-                "--name-only",
-                "--",
-                "Source/Parsek",
-            ],
+            history_git_args(since),
             cwd=str(repo_root),
             capture_output=True,
             text=True,
@@ -3164,7 +3178,13 @@ def write_history_json(payload, out_path):
 
 
 def parse_edge_spec(spec):
-    """Return (from, to) for a "From -> To" policy string."""
+    """Return (from, to) for a "From -> To" policy string.
+
+    A non-string spec raises ValueError like any other malformed spec, so
+    callers that guard with `except ValueError` cover both.
+    """
+    if not isinstance(spec, str):
+        raise ValueError("bad edge spec: %r" % (spec,))
     parts = [part.strip() for part in spec.split("->")]
     if len(parts) != 2 or not parts[0] or not parts[1]:
         raise ValueError("bad edge spec: %r" % spec)
@@ -3504,7 +3524,7 @@ def main(argv=None):
     parser.add_argument(
         "--place",
         action="store_true",
-        help="print catch-all placement evidence and write core-placement.md under --out",
+        help="print placement evidence for the last rule's module and write core-placement.md under --out",
     )
     args = parser.parse_args(argv)
 

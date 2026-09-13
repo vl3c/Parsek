@@ -1,4 +1,4 @@
-# Dev logs (KSP logs, saves, recordings — large files for debugging)
+# Dev logs (KSP logs, saves, recordings - large files for debugging)
 docs/dev/logs/
 
 # Transient PR-body scratch file (used by gh pr create --body-file)
