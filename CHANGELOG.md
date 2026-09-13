@@ -55,7 +55,9 @@ _(unreleased — entries accumulate here per commit)_
   67 of the 75 that remained were then placed by hand into the module each
   belongs to, which leaves the eight kernel vocabulary files in `Core`.
 
-  The atlas is now generated rather than hand-assembled: `atlas.html` renders
+  The generated views are not committed: they are gitignored and regenerated on
+  demand, so a reader never meets a stale one. The atlas is now generated rather
+  than hand-assembled: `atlas.html` renders
   every number, table and the map from the live model, while the prose lives in
   `scripts/arch/atlas.toml`, and the checker reports prose that no longer
   matches the model instead of letting the page go quietly stale. No

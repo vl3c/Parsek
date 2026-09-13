@@ -15,7 +15,8 @@ Everything lives in `scripts/arch/`:
 | `archview.py` | Extracts the module graph and the type ladder, writes `edges.json`, `types.json` and the views, and prints the `--check` report. |
 | `test_archview.py` | Unit tests plus a smoke test over the real `Source/Parsek` tree. |
 
-The generated views live in `docs/dev/arch/` and are committed:
+The generated views are written to `docs/dev/arch/` and are gitignored (they
+go stale on every commit that touches `Source/`; regenerate before reading):
 
 | File | View |
 | --- | --- |
@@ -67,6 +68,10 @@ compilation, partial classes across files, or references built through
 reflection.
 
 ## Regenerating
+
+Nothing under `docs/dev/arch/` except this README is tracked. Run the script
+first; the eight files it writes are the current truth for the checkout you
+ran it in, and nothing else.
 
 From the repo root:
 

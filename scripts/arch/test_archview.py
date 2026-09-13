@@ -1685,10 +1685,14 @@ class RealTreeSmokeTests(unittest.TestCase):
         fresh = archview.render_placement_report(
             before_model, after_r1_model, self.model, archview.default_placement_rules()
         )
-        committed = (REPO_ROOT / "docs" / "dev" / "arch" / "core-placement.md").read_text(
-            encoding="utf-8"
+        again = archview.render_placement_report(
+            before_model, after_r1_model, self.model, archview.default_placement_rules()
         )
-        self.assertEqual(fresh, committed)
+        # The report is generated, gitignored output; pin determinism and the
+        # facts a reader relies on rather than a committed copy.
+        self.assertEqual(fresh, again)
+        self.assertIn("| Core |", fresh)
+        self.assertIn("| Core | 123 | 8 |", fresh)
 
     def test_atlas_prose_matches_the_tree(self):
         prose = archview.load_prose(archview.DEFAULT_ATLAS)
@@ -1720,20 +1724,6 @@ class RealTreeSmokeTests(unittest.TestCase):
     def test_production_module_count(self):
         production = [module for module in self.model["modules"] if not module["tooling"]]
         self.assertEqual(len(production), 20)
-
-    def test_committed_atlas_matches_a_fresh_render(self):
-        prose = archview.load_prose(archview.DEFAULT_ATLAS)
-        svg = (REPO_ROOT / "docs" / "dev" / "arch" / "modules.svg").read_text(encoding="utf-8")
-        fresh = archview.render_atlas_html(self.model, prose, svg, self.forbidden)
-        committed = (REPO_ROOT / "docs" / "dev" / "arch" / "atlas.html").read_text(
-            encoding="utf-8"
-        )
-        pattern = r"Source snapshot, \d{4}-\d{2}-\d{2}, branch \S+"
-
-        def normalized(page):
-            return re.sub(pattern, "SNAPSHOT", page)
-
-        self.assertEqual(normalized(fresh), normalized(committed))
 
     def test_first_cut_matches_the_documented_tree(self):
         first = self.model["knots"][0]["cuts"][0]
