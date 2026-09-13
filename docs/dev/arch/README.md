@@ -10,8 +10,9 @@ Everything lives in `scripts/arch/`:
 
 | File | Role |
 | --- | --- |
-| `modules.toml` | The only hand-authored input: maps source paths to module names. |
-| `archview.py` | Extracts the module graph and the type ladder, writes `edges.json`, `types.json` and the four views, and prints the `--check` report. |
+| `modules.toml` | The hand-authored input that maps source paths to module names. |
+| `atlas.toml` | The atlas prose: the lede, the section notes, the module summaries, the glossary, the upward-edge readings and the reading order (see "Editing the atlas prose"). |
+| `archview.py` | Extracts the module graph and the type ladder, writes `edges.json`, `types.json` and the views, and prints the `--check` report. |
 | `test_archview.py` | Unit tests plus a smoke test over the real `Source/Parsek` tree. |
 
 The generated views live in `docs/dev/arch/` and are committed:
@@ -24,6 +25,7 @@ The generated views live in `docs/dev/arch/` and are committed:
 | `matrix.html` | Dependency structure matrix. |
 | `explore.html` | Interactive neighbourhood explorer. |
 | `ladder.html` | Interactive type ladder (modules as columns, levels as rows). |
+| `atlas.html` | The Parsek Atlas: a prose reading over the live model (see "The atlas"). |
 | `core-placement.md` | The catch-all placement evidence (see "Placing catch-all files"); written by `--place`. |
 
 ## What the scan is, and is not
@@ -291,6 +293,40 @@ are the kernel vocabulary (`BranchPoint`, `IPlaybackTrajectory`,
 `GroupHierarchyStore`, `InventoryManifest`, `PlaybackTrajectoryBoundsResolver`):
 every module uses them, so no owner has a majority, and that is the intended
 meaning of Core from here on.
+
+## The atlas
+
+`atlas.html` is the narrative page over the other views: the map inline, the
+module directory grouped by layer, the top hub vocabulary, the largest knot
+with its cut table, the weighted upward edges, and a reading order. Everything
+numeric, tabular and visual is rendered from the live model by
+`render_atlas_html`; the only hand-written parts are the prose strings in
+`scripts/arch/atlas.toml`.
+
+### Editing the atlas prose
+
+`atlas.toml` holds the lede, the note above each section, the module
+summaries, the glossary meanings, the upward-edge readings, the reading order
+and the instability bands for the module directory. The renderer looks up
+prose by name:
+
+- a production module with no `[modules.<Name>]` entry renders
+  `(no summary yet)`;
+- a top-18 hub with no `[glossary.<Type>]` entry renders `(no meaning yet)`;
+- an `[[upward_readings]]` entry for an edge that no longer exists is simply
+  not rendered;
+- bands are matched top-down by the first `min` an instability reaches, so
+  keep the `[bands]` entries ordered from the highest threshold down. The four
+  in the file reproduce the current grouping: entry 0.70, feature 0.25, model
+  0.18, floor 0.00.
+
+Numbers written inside a prose sentence (a count in a module summary, for
+example) are not checked; the generated numbers around them are. `--check`
+does not silently show stale prose: its ATLAS section (after KNOTS) lists
+production modules without a summary, glossary entries naming a type that is
+not in the model, glossary entries outside the live top 18 (informational),
+upward readings whose edge no longer exists, and reading-order types not in
+the model.
 
 ## Editing `modules.toml`
 

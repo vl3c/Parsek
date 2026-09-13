@@ -1,0 +1,226 @@
+# Parsek Atlas prose.
+#
+# `scripts/arch/archview.py` renders docs/dev/arch/atlas.html from the live
+# model plus this file. Every hand-written sentence on the page lives here;
+# numbers, tables, chips and the map are generated. `--check` reports prose
+# that no longer matches the model (missing module summaries, glossary names
+# that are gone, readings for vanished edges, reading-order types that do not
+# exist).
+#
+# Inline markup (`<span class="id">Name</span>`, `<em>`, `<code>`) is part of
+# the prose and is rendered as-is.
+
+[page]
+lede = "What the mod is made of, how the parts lean on each other, which names you must know first, and where the structure resists change. Every number below comes from the text scan in <code>scripts/arch/archview.py</code>; it counts type references between files, not compiler facts, and it is accurate to the folder, not the line."
+map_note = "Twenty production modules, drawn as layers. A module's <em>instability</em> is the share of its references that point outward: near 1 means it only depends on others (the top), near 0 means it is only depended on (the bottom). Grey arrows point down the gradient, which is the healthy direction. <span class=\"up\">Red arrows point back up</span>: a more stable module leaning on a less stable one. Arrows carrying fewer than 8 references are hidden. Tooling modules (in-game tests, the command seam, the analyzer, the GUI census and harness support, 243 files together) are excluded from every figure on this page."
+map_reading = "The reading, top to bottom: KSP touches Parsek through <strong>Patches</strong> and <strong>UI</strong>; <strong>Controllers</strong> (the scene addons and the scenario module) orchestrate; <strong>Ghost</strong>, <strong>Rewind</strong>, <strong>Missions</strong>, <strong>MapRender</strong> and <strong>Logistics</strong> are the feature layer; <strong>Recording</strong> and <strong>GameActions</strong> are the persistent model; <strong>Trajectory</strong>, <strong>Core</strong>, <strong>Config</strong> and <strong>LogIO</strong> are the floor."
+directory_note = "Ordered by layer. \"Hubs\" are the module's most-referenced types, counted by how many other files use them. Descriptions are from the design docs, not derived."
+vocabulary_note = "Learn these names before reading any file. Each is ranked by how many other files reference it. Together they are the language the whole mod is written in; the rest of the code is sentences made of them."
+knot_note = "Every one of them can reach every other through references."
+knot_consequence = "This is why the module map is one big cycle underneath the layering, and it is the single fact that most constrains refactoring: nothing inside the knot can be tested, extracted or reasoned about in isolation."
+knot_cuts_note = "The knot is not held together by popularity. It is held by a few outgoing references from the hub types. Making a hub a pure sink (removing its own references to other knot members) shrinks the knot by this much:"
+knot_callout = "<strong>How to read it.</strong> The first two rows are afternoon-sized: the logger reads its verbose flag from a settings object, and the recording data type calls into its own store and into the kerbals ledger module. Those four references tie 110 types into the knot. From row three on, the cuts name god objects, and the residual after twelve cuts is still 114 types, so the kernel is genuinely tangled, not merely miswired. That residual is design work, and it is where the phase 4 opportunity list will spend its argument."
+layering_note = "68 module edges run upward. Most are light. These are the ones that carry weight, with the types that cause them; the pairs at the end reference each other in both directions, which is the module-level signature of the knot."
+reading_note = "If you were new to this codebase, or coming back to it after months, this is the order in which the abstractions build on each other. Each step depends only on the ones before it."
+views_note = "This page is a snapshot with prose. The live views regenerate from source in a few seconds and stay honest as the code moves. All are under <code>docs/dev/arch/</code> on the <code>arch-view</code> branch."
+approximation_note = "Text-scan approximation. Type references are matched by name after stripping comments, strings and preprocessor lines; names declared in two modules are excluded; method calls that share a type's name are skipped. Good enough to place files and rank couplings; not sound enough to gate a build. The Roslyn extractor planned for phase 5 replaces the edges with semantic-model facts and keeps every view."
+
+# Layer bands for the module directory, by instability. A module belongs to the
+# first band whose `min` it reaches, so keep the list ordered high to low.
+[bands]
+entry = { min = 0.70, label = "Entry layer: KSP calls in" }
+feature = { min = 0.25, label = "Feature layer" }
+model = { min = 0.18, label = "Model layer" }
+floor = { min = 0.00, label = "Floor" }
+
+[modules.Patches]
+summary = "Harmony patches into stock KSP: physics frame, tracking station, orbit lines, facility and contract hooks, crew dialogs. 41 of its 76 types are entry points."
+
+[modules.UI]
+summary = "The IMGUI windows and tabs: recordings table, settings, missions, logistics, kerbals, spawn control, plus the stock-UI overlays KSP instantiates."
+
+[modules.Timeline]
+summary = "Builds the timeline window's entries from ledger and recording events."
+
+[modules.Controllers]
+summary = "The scene controllers: <span class=\"id\">ParsekScenario</span> (save, load, the OnLoad sweeps), <span class=\"id\">ParsekFlight</span> (flight scene, recording, chains, input), KSC and tracking-station addons, warp-to-time."
+
+[modules.Rendering]
+summary = "Smoothing, anchoring and outlier handling for drawn trajectories."
+
+[modules.Display]
+summary = "The map-view ghost trajectory polyline renderer and its route line sibling."
+
+[modules.Reaim]
+summary = "Re-aiming a recorded mission at a new arrival: descent triggers, loiter compression, arrival hold planning."
+
+[modules.Ghost]
+summary = "Ghost playback: the engine, map presence (proto vessels for the tracking station), loop units, visual building, spawn safety and FX."
+
+[modules.Rewind]
+summary = "Rewind-to-separation and re-fly: rewind points, supersede relations, the merge journal, effective state, revert and scene-exit interceptors."
+
+[modules.MapRender]
+summary = "Map and tracking-station render composition: phases, treatments, traces, the render manifest."
+
+[modules.SwitchIntent]
+summary = "Stock-action intent markers and vessel-switch continuation segments."
+
+[modules.Missions]
+summary = "The Missions tab model: composition trees, structure, periodicity, per-vessel rows, group linking."
+
+[modules.Crew]
+summary = "Crew reservations and kerbal end states."
+
+[modules.Logistics]
+summary = "Routes between recorded vessels: endpoints, stops, proofs of origin and harvest, the route store, delivery capacity."
+
+[modules.GameActions]
+summary = "The ledger: game actions, recalculation, resource modules, KSP state patching, game-state events."
+
+[modules.Trajectory]
+summary = "Pure math over orbits and samples: segments, points, frames, ballistic extrapolation."
+
+[modules.Recording]
+summary = "The recording itself: <span class=\"id\">Recording</span>, its tree, track sections, the store, the flight and background recorders, sidecar codecs, the optimizer."
+
+[modules.Core]
+summary = "The eight files every module uses and no module owns: branch points, the playback trajectory interface, launch identity, the spawner, milestone and group stores, inventory manifests."
+
+[modules.Config]
+summary = "Settings, loop timing, distance thresholds."
+
+[modules.LogIO]
+summary = "Logging, safe file I/O, the process id, the pre-Parsek backup."
+
+[glossary.ParsekLog]
+meaning = "The logger. Every subsystem writes through it; the KSP.log is the primary debugging tool."
+
+[glossary.Recording]
+meaning = "One recorded flight segment: metadata, trajectory points, track sections, part events, terminal state."
+
+[glossary.RecordingStore]
+meaning = "The static store of committed recordings that survives scene changes; also the index-keyed live state contract."
+
+[glossary.RecordingTree]
+meaning = "The branch topology a flight produces: splits, docks, continuations, all rooted at one launch."
+
+[glossary.OrbitSegment]
+meaning = "A Keplerian arc in KSP-native elements; the unit of on-rails coverage."
+
+[glossary.TrajectoryPoint]
+meaning = "One sampled position and rotation; body-fixed in absolute sections, anchor-local metres in relative ones."
+
+[glossary.TrackSection]
+meaning = "A run of points sharing one reference frame and environment classification."
+
+[glossary.ParsekScenario]
+meaning = "The ScenarioModule: save and load, coroutine host, the OnLoad sweeps."
+
+[glossary.TerminalState]
+meaning = "How a recording ended: landed, recovered, destroyed, disassembled, and so on."
+
+[glossary.ReferenceFrame]
+meaning = "Absolute or relative; decides how a point's coordinates are read."
+
+[glossary.GameAction]
+meaning = "One ledger row: a funds, science, reputation, crew or facility effect attributed to a recording."
+
+[glossary.Route]
+meaning = "A logistics route between recorded vessels, with stops and proofs."
+
+[glossary.GhostPlaybackLogic]
+meaning = "The pure decision half of ghost playback: what to show, when, from which section."
+
+[glossary.EffectiveState]
+meaning = "The one place that resolves which recordings and ledger rows are in effect after supersedes and chains."
+
+[glossary.TrajectoryMath]
+meaning = "Sampling, interpolation, orbit search, the relative-offset converters, the Zup swizzle."
+
+[glossary.ParsekFlight]
+meaning = "The flight-scene controller: policy, recording, chains, input."
+
+[glossary.IPlaybackTrajectory]
+meaning = "The interface the playback engine sees instead of a Recording."
+
+[glossary.BranchPoint]
+meaning = "Where and why a tree branched: decouple, dock, undock, EVA, switch."
+
+[glossary.Kind]
+meaning = "What a rewind split mutated: a branch point, a debris parent, a track-section anchor or a ledger row."
+
+[glossary.GameActionType]
+meaning = "The ledger row category: funds, science, reputation, crew or facility."
+
+[[upward_readings]]
+edge = "Recording -> Trajectory"
+reading = "Instabilities 0.19 and 0.21: a near tie, not a real inversion. The extrapolator lives in Trajectory but is used by the recorder."
+
+[[upward_readings]]
+edge = "MapRender -> Ghost"
+reading = "The map renderer asks playback for what is present. Expected, given the layering; worth an interface."
+
+[[upward_readings]]
+edge = "Recording -> Rewind"
+reading = "The model reaches up into supersede resolution. Paired with Rewind -> Recording at 98: the two are one subsystem on paper."
+
+[[upward_readings]]
+edge = "Rewind -> Controllers"
+reading = "Feature code calling the scene controllers directly, through their static instances."
+
+[[upward_readings]]
+edge = "Recording -> Logistics"
+reading = "Route detection hooks living in the recorder path."
+
+[[upward_readings]]
+edge = "Missions -> Reaim"
+reading = "Perfectly symmetric. Either one module, or a cut is needed."
+
+[[upward_readings]]
+edge = "Core -> Recording"
+reading = "The kernel vocabulary reaching up into the model; mostly <span class=\"id\">BranchPoint</span> and the spawner."
+
+[[upward_readings]]
+edge = "Missions -> Logistics"
+reading = "The one declared boundary the scan finds crossed: the route structure list reads route types."
+
+[[reading_order]]
+title = "The floor."
+types = ["ParsekLog", "ParsekSettings", "FileIOUtils", "TerminalState", "ReferenceFrame", "GameActionType", "BranchPointType"]
+text = "605 types sit at this level; you need about a dozen."
+
+[[reading_order]]
+title = "Trajectory math."
+types = ["OrbitSegment", "TrajectoryPoint", "TrajectoryMath"]
+text = "the frame contracts in CLAUDE.md. Pure, testable, and the ground truth for every position on screen."
+
+[[reading_order]]
+title = "The recording model."
+types = ["Recording", "TrackSection", "RecordingTree", "BranchPoint", "VesselSnapshot"]
+text = "What a flight becomes on disk."
+
+[[reading_order]]
+title = "The stores and the ledger."
+types = ["RecordingStore", "GameAction", "Ledger", "LedgerOrchestrator"]
+text = "What persists across scenes and how it patches KSP's career state."
+
+[[reading_order]]
+title = "Effective state and rewind."
+types = ["EffectiveState", "RewindPoint", "ReFlySessionMarker"]
+text = "the merge journal. Which recordings count, given supersedes and re-flies."
+
+[[reading_order]]
+title = "Playback."
+types = ["IPlaybackTrajectory", "GhostPlaybackLogic", "GhostPlaybackEngine", "GhostMapPresence", "LoopUnit"]
+text = "How recordings become ghosts in flight and on the map."
+
+[[reading_order]]
+title = "Features over the model."
+types = []
+text = "Logistics, Missions, Reaim, MapRender. Each reads steps 3 to 6 and adds its own vocabulary."
+
+[[reading_order]]
+title = "The controllers and the surface."
+types = ["ParsekScenario", "ParsekFlight"]
+text = "the UI windows, the Harmony patches. Read last: they are where everything meets, and they only make sense once the parts do."

@@ -594,6 +594,207 @@ class PlacementReportTests(unittest.TestCase):
         )
 
 
+class BandForTests(unittest.TestCase):
+    BANDS = {
+        "entry": {"min": 0.70, "label": "Entry"},
+        "feature": {"min": 0.25, "label": "Feature"},
+        "model": {"min": 0.18, "label": "Model"},
+        "floor": {"min": 0.00, "label": "Floor"},
+    }
+
+    def test_boundaries(self):
+        self.assertEqual(archview.band_for(0.70, self.BANDS), ("entry", "Entry"))
+        self.assertEqual(archview.band_for(0.699, self.BANDS), ("feature", "Feature"))
+        self.assertEqual(archview.band_for(0.25, self.BANDS), ("feature", "Feature"))
+        self.assertEqual(archview.band_for(0.249, self.BANDS), ("model", "Model"))
+        self.assertEqual(archview.band_for(0.18, self.BANDS), ("model", "Model"))
+        self.assertEqual(archview.band_for(0.0, self.BANDS), ("floor", "Floor"))
+
+    def test_real_bands_reproduce_the_page_grouping(self):
+        prose = archview.load_prose(archview.DEFAULT_ATLAS)
+        bands = prose["bands"]
+        self.assertEqual(archview.band_for(0.7216, bands)[0], "entry")
+        self.assertEqual(archview.band_for(0.6612, bands)[0], "feature")
+        self.assertEqual(archview.band_for(0.1925, bands)[0], "model")
+        self.assertEqual(archview.band_for(0.0137, bands)[0], "floor")
+
+
+class ProseTests(unittest.TestCase):
+    @staticmethod
+    def _model(module_names=("Alpha",), type_names=()):
+        return {
+            "modules": [
+                {
+                    "name": name,
+                    "files": 1,
+                    "fanIn": 0,
+                    "fanOut": 0,
+                    "instability": 0.5,
+                    "tooling": False,
+                }
+                for name in module_names
+            ],
+            "edges": [],
+            "types": [
+                {
+                    "name": name,
+                    "module": "Alpha",
+                    "file": "Alpha/f.cs",
+                    "role": "service",
+                    "level": 0,
+                    "knot": None,
+                    "sublevel": None,
+                    "fanIn": 100 - index,
+                    "fanOut": 0,
+                    "referencesTo": [],
+                    "referencedBy": [],
+                }
+                for index, name in enumerate(type_names)
+            ],
+        }
+
+    def test_load_prose_reads_a_toml_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "prose.toml"
+            path.write_text('[page]\nlede = "Hello."\n', encoding="utf-8")
+            prose = archview.load_prose(path)
+        self.assertEqual(prose["page"]["lede"], "Hello.")
+
+    def test_missing_summaries(self):
+        findings = archview.prose_findings(self._model(), {})
+        self.assertEqual(findings["missingSummaries"], ["Alpha"])
+
+    def test_missing_glossary_type(self):
+        prose = {"glossary": {"GhostThing": {"meaning": "x"}}}
+        findings = archview.prose_findings(self._model(), prose)
+        self.assertEqual(findings["missingGlossary"], ["GhostThing"])
+
+    def test_stale_glossary_outside_the_top_eighteen(self):
+        names = ["Type%02d" % index for index in range(1, 20)]
+        prose = {"glossary": {"Type19": {"meaning": "x"}}}
+        findings = archview.prose_findings(self._model(type_names=names), prose)
+        self.assertEqual(findings["staleGlossary"], ["Type19"])
+
+    def test_stale_readings(self):
+        prose = {
+            "upward_readings": [
+                {"edge": "Gone -> Type", "reading": "x"},
+                {"edge": "NoArrow", "reading": "x"},
+            ]
+        }
+        findings = archview.prose_findings(self._model(), prose)
+        self.assertEqual(findings["staleReadings"], ["Gone -> Type", "NoArrow"])
+
+    def test_missing_reading_order_types(self):
+        prose = {"reading_order": [{"title": "t", "types": ["NopeThing"], "text": "x"}]}
+        findings = archview.prose_findings(self._model(), prose)
+        self.assertEqual(findings["missingReadingOrder"], ["NopeThing"])
+
+
+def _atlas_model():
+    return {
+        "modules": [
+            {"name": "Alpha", "files": 1, "fanIn": 0, "fanOut": 6, "instability": 0.75,
+             "tooling": False},
+            {"name": "Beta", "files": 2, "fanIn": 4, "fanOut": 1, "instability": 0.2,
+             "tooling": False},
+            {"name": "Tool", "files": 1, "fanIn": 0, "fanOut": 0, "instability": 0.0,
+             "tooling": True},
+        ],
+        "edges": [
+            {"from": "Beta", "to": "Alpha", "weight": 4, "upward": True,
+             "types": ["AlphaThing", "BetaThing"], "files": [], "cyclic": False},
+        ],
+        "types": [
+            {"name": "AlphaThing", "module": "Alpha", "file": "Alpha/A.cs", "role": "service",
+             "level": 1, "knot": None, "sublevel": None, "fanIn": 5, "fanOut": 0,
+             "referencesTo": [], "referencedBy": []},
+            {"name": "BetaThing", "module": "Beta", "file": "Beta/B.cs", "role": "data",
+             "level": 0, "knot": None, "sublevel": None, "fanIn": 2, "fanOut": 0,
+             "referencesTo": [], "referencedBy": []},
+        ],
+        "typeLevels": {"max": 1, "histogram": {0: 1, 1: 1}},
+        "knots": [
+            {
+                "index": 1,
+                "size": 2,
+                "members": ["AlphaThing", "BetaThing"],
+                "modules": {"Alpha": 1, "Beta": 1},
+                "cuts": [
+                    {"step": 1, "sink": "AlphaThing", "sizeBefore": 2, "sizeAfter": 1,
+                     "droppedReferences": ["BetaThing"]}
+                ],
+            }
+        ],
+    }
+
+
+def _atlas_prose():
+    return {
+        "page": {"lede": "Lede text.", "approximation_note": "Foot text."},
+        "bands": {
+            "entry": {"min": 0.70, "label": "Entry"},
+            "floor": {"min": 0.00, "label": "Floor"},
+        },
+        "modules": {
+            "Alpha": {"summary": "Alpha summary."},
+            "Beta": {"summary": "Beta summary."},
+        },
+        "glossary": {"AlphaThing": {"meaning": "Alpha meaning."}},
+        "upward_readings": [
+            {"edge": "Beta -> Alpha", "reading": "Reading text."},
+            {"edge": "Gone -> Type", "reading": "Vanished reading."},
+        ],
+        "reading_order": [{"title": "Step one.", "types": ["AlphaThing"], "text": "Do it."}],
+    }
+
+
+class AtlasRenderTests(unittest.TestCase):
+    def test_markers_replaced_and_regions_rendered(self):
+        text = archview.render_atlas_html(
+            _atlas_model(), _atlas_prose(), None, ["Beta -> Alpha"]
+        )
+        self.assertNotIn("@@", text)
+        self.assertIn("modules.svg is missing", text)
+        self.assertIn("Alpha summary.", text)
+        self.assertIn("Beta summary.", text)
+        self.assertIn("Alpha meaning.", text)
+        self.assertIn("Reading text.", text)
+        self.assertNotIn("Vanished reading.", text)
+        self.assertIn('<div class="n">4</div>', text)
+        self.assertIn('<div class="n">2</div>', text)
+        self.assertIn('<div class="n">1</div>', text)
+        self.assertIn('<div class="n knot">2</div>', text)
+        self.assertIn("Step one.", text)
+
+    def test_module_without_a_summary(self):
+        prose = _atlas_prose()
+        del prose["modules"]["Beta"]
+        text = archview.render_atlas_html(_atlas_model(), prose)
+        self.assertIn("(no summary yet)", text)
+
+    def test_vanished_reading_is_not_rendered(self):
+        prose = _atlas_prose()
+        prose["upward_readings"] = [{"edge": "Gone -> Type", "reading": "Vanished reading."}]
+        text = archview.render_atlas_html(_atlas_model(), prose)
+        self.assertNotIn("Vanished reading.", text)
+
+    def test_svg_is_inlined_without_prolog_or_size(self):
+        svg = (
+            '<?xml version="1.0" encoding="UTF-8"?>\n'
+            '<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://x/x.dtd">\n'
+            "<!-- Generated by graphviz -->\n"
+            '<svg width="100pt" height="50pt" viewBox="0 0 100 50">'
+            "<g/></svg>"
+        )
+        text = archview.render_atlas_html(_atlas_model(), _atlas_prose(), svg)
+        self.assertNotIn("<?xml", text)
+        self.assertEqual(text.count("<!DOCTYPE"), 1)
+        self.assertNotIn("Generated by graphviz", text)
+        self.assertIn('<svg viewBox="0 0 100 50">', text)
+        self.assertNotIn('width="100pt"', text)
+
+
 class KnotTests(unittest.TestCase):
     def test_two_cycles_and_a_chain_largest_first(self):
         graph = {
@@ -1203,6 +1404,35 @@ class CheckerOutputTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(self._last_line(captured.getvalue()), "ARCH-CHECK report-only")
 
+    def test_atlas_section_reports_prose_staleness(self):
+        model = {
+            "modules": [
+                {"name": "Alpha", "files": 1, "fanIn": 0, "fanOut": 0, "instability": 0.5,
+                 "tooling": False}
+            ],
+            "edges": [],
+            "types": [],
+            "typeLevels": {"max": 0, "histogram": {}},
+            "knots": [],
+        }
+        prose = {
+            "modules": {},
+            "glossary": {"GoneThing": {"meaning": "x"}},
+            "upward_readings": [{"edge": "Gone -> Type", "reading": "x"}],
+            "reading_order": [{"title": "t", "types": ["NopeThing"], "text": "x"}],
+        }
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            archview.run_check(model, [], [], prose)
+        text = captured.getvalue()
+        self.assertIn("ATLAS (prose against the live model)", text)
+        self.assertIn("production modules without a summary (1): Alpha", text)
+        self.assertIn("glossary entries naming a missing type (1): GoneThing", text)
+        self.assertIn("upward readings whose edge no longer exists (1): Gone -> Type", text)
+        self.assertIn("reading-order types not in the model (1): NopeThing", text)
+        self.assertIn("glossary entries outside the live top 18: none.", text)
+        self.assertLess(text.index("ATLAS"), text.index("Forbidden edges"))
+
     def test_main_warns_about_unclassified_files(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
@@ -1400,6 +1630,33 @@ class RealTreeSmokeTests(unittest.TestCase):
             encoding="utf-8"
         )
         self.assertEqual(fresh, committed)
+
+    def test_atlas_prose_matches_the_tree(self):
+        prose = archview.load_prose(archview.DEFAULT_ATLAS)
+        findings = archview.prose_findings(self.model, prose)
+        self.assertEqual(findings["missingSummaries"], [])
+        self.assertEqual(findings["missingGlossary"], [])
+        self.assertEqual(findings["staleReadings"], [])
+        self.assertEqual(findings["missingReadingOrder"], [])
+
+    def test_rendered_atlas_contains_the_live_facts(self):
+        prose = archview.load_prose(archview.DEFAULT_ATLAS)
+        text = archview.render_atlas_html(self.model, prose, None, [])
+        self.assertIn("ParsekLog", text)
+        self.assertIn("%d types," % self.model["knots"][0]["size"], text)
+        self.assertNotIn("(no summary yet)", text)
+        self.assertNotIn("(no meaning yet)", text)
+
+    def test_rendering_twice_is_identical_apart_from_the_date(self):
+        prose = archview.load_prose(archview.DEFAULT_ATLAS)
+        first = archview.render_atlas_html(self.model, prose, None, [])
+        second = archview.render_atlas_html(self.model, prose, None, [])
+        pattern = r"Source snapshot, \d{4}-\d{2}-\d{2}, branch \S+"
+
+        def normalized(page):
+            return re.sub(pattern, "SNAPSHOT", page)
+
+        self.assertEqual(normalized(first), normalized(second))
 
     def test_first_cut_matches_the_documented_tree(self):
         first = self.model["knots"][0]["cuts"][0]

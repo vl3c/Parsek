@@ -26,19 +26,21 @@ unit tests can drive it directly.
 from __future__ import annotations
 
 import argparse
+import datetime
 import html
 import json
 import re
 import subprocess
 import sys
 import tomllib
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 
 DEFAULT_SOURCE = "Source/Parsek"
 DEFAULT_OUT = "docs/dev/arch"
 DEFAULT_MIN_EDGE = 8
 DEFAULT_MODULES = Path(__file__).resolve().parent / "modules.toml"
+DEFAULT_ATLAS = Path(__file__).resolve().parent / "atlas.toml"
 
 SKIP_DIR_NAMES = {"bin", "obj", "Properties"}
 MIN_TYPE_NAME_LEN = 4
@@ -2350,6 +2352,469 @@ def render_ladder_html(model):
 
 
 # ---------------------------------------------------------------------------
+# atlas renderer
+# ---------------------------------------------------------------------------
+
+
+def load_prose(path):
+    """Return the atlas prose dict from a TOML file."""
+    with open(path, "rb") as handle:
+        return tomllib.load(handle)
+
+
+def band_for(instability, bands):
+    """Return (band_id, label) for an instability value; first match wins."""
+    for band_id, band in bands.items():
+        if instability >= band["min"]:
+            return band_id, band["label"]
+    return None, ""
+
+
+def prose_findings(model, prose):
+    """Return the five atlas staleness lists for prose against the live model.
+
+    Keys: missingSummaries (production modules with no summary),
+    missingGlossary (glossary names that are not declared types),
+    staleGlossary (glossary names outside the live top 18 hubs, informational),
+    staleReadings (upward readings whose edge no longer exists) and
+    missingReadingOrder (reading-order types not in the model).
+    """
+    production = [module for module in model["modules"] if not module["tooling"]]
+    summaries = prose.get("modules", {})
+    missing_summaries = sorted(
+        module["name"]
+        for module in production
+        if not summaries.get(module["name"], {}).get("summary")
+    )
+    type_names = {entry["name"] for entry in model.get("types", [])}
+    glossary = prose.get("glossary", {})
+    missing_glossary = sorted(name for name in glossary if name not in type_names)
+    hubs = {
+        entry["name"]
+        for entry in sorted(model.get("types", []), key=lambda t: (-t["fanIn"], t["name"]))[:18]
+    }
+    stale_glossary = sorted(name for name in glossary if name in type_names and name not in hubs)
+    edge_keys = {(edge["from"], edge["to"]) for edge in model["edges"]}
+    stale_readings = []
+    for reading in prose.get("upward_readings", []):
+        try:
+            frm, to = parse_edge_spec(reading["edge"])
+        except (KeyError, ValueError):
+            stale_readings.append(str(reading.get("edge", "?")))
+            continue
+        if (frm, to) not in edge_keys:
+            stale_readings.append(reading["edge"])
+    order_types = {
+        name for step in prose.get("reading_order", []) for name in step.get("types", [])
+    }
+    missing_order = sorted(name for name in order_types if name not in type_names)
+    return {
+        "missingSummaries": missing_summaries,
+        "missingGlossary": missing_glossary,
+        "staleGlossary": stale_glossary,
+        "staleReadings": stale_readings,
+        "missingReadingOrder": missing_order,
+    }
+
+
+def _thousands(value):
+    return format(int(value), ",")
+
+
+def _type_chips(names):
+    return " ".join('<span class="id">%s</span>' % html.escape(name) for name in names)
+
+
+def _svg_inline(svg_text):
+    """Return modules.svg ready to inline: prolog, doctype and size gone."""
+    if not svg_text:
+        return (
+            '<p class="layer">modules.svg is missing; run the generator with Graphviz '
+            "on PATH to draw the map.</p>"
+        )
+    start = svg_text.find("<svg")
+    text = svg_text[start:] if start != -1 else svg_text
+    text = re.sub(
+        r"<svg\b[^>]*>",
+        lambda match: re.sub(r'\s+(width|height)="[^"]*"', "", match.group(0)),
+        text,
+        count=1,
+    )
+    return text.lstrip()
+
+
+def _atlas_eyebrow():
+    today = datetime.date.today().isoformat()
+    branch = "unknown"
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            branch = result.stdout.strip()
+    except Exception:
+        pass
+    return "Source snapshot, %s, branch %s" % (today, branch)
+
+
+def _atlas_tiles(model):
+    files = sum(module["files"] for module in model["modules"])
+    types = len(model.get("types", []))
+    histogram = model.get("typeLevels", {}).get("histogram", {})
+    level_zero = histogram.get(0, histogram.get("0", 0))
+    knots = model.get("knots", [])
+    knot_size = knots[0]["size"] if knots else 0
+    modules = sum(1 for module in model["modules"] if not module["tooling"])
+    return "\n".join(
+        [
+            '  <div class="tile"><div class="n">%s</div>'
+            '<div class="l">C&#35; files in one assembly</div></div>' % _thousands(files),
+            '  <div class="tile"><div class="n">%s</div>'
+            '<div class="l">production types across %d modules</div></div>'
+            % (_thousands(types), modules),
+            '  <div class="tile"><div class="n">%s</div>'
+            '<div class="l">of those types depend on nothing in the repo:'
+            " plain data and enums</div></div>" % _thousands(level_zero),
+            '  <div class="tile"><div class="n knot">%s</div>'
+            '<div class="l">types locked in one dependency cycle</div></div>'
+            % _thousands(knot_size),
+        ]
+    )
+
+
+def _atlas_directory(model, prose):
+    production = [module for module in model["modules"] if not module["tooling"]]
+    by_module = defaultdict(list)
+    for entry in model.get("types", []):
+        by_module[entry["module"]].append(entry)
+    summaries = prose.get("modules", {})
+    bands = prose.get("bands", {})
+    grouped = defaultdict(list)
+    band_order = []
+    for module in sorted(production, key=lambda m: (-m["instability"], m["name"])):
+        band_id, label = band_for(module["instability"], bands)
+        if band_id not in grouped:
+            band_order.append((band_id, label))
+        grouped[band_id].append(module)
+    lines = []
+    for band_id, label in band_order:
+        lines.append('<tr class="band"><td colspan="6">%s</td></tr>' % html.escape(label))
+        for module in grouped[band_id]:
+            entries = by_module.get(module["name"], [])
+            hubs = sorted(entries, key=lambda t: (-t["fanIn"], t["name"]))[:3]
+            summary = summaries.get(module["name"], {}).get("summary", "(no summary yet)")
+            lines.append(
+                '<tr><td class="name">%s</td><td>%s</td><td class="num">%d</td>'
+                '<td class="num">%d</td><td class="num">%.2f</td><td>%s</td></tr>'
+                % (
+                    html.escape(module["name"]),
+                    summary,
+                    module["files"],
+                    len(entries),
+                    module["instability"],
+                    _type_chips([hub["name"] for hub in hubs]),
+                )
+            )
+    return "\n".join(lines)
+
+
+def _atlas_vocabulary(model, prose):
+    glossary = prose.get("glossary", {})
+    lines = []
+    for entry in sorted(model.get("types", []), key=lambda t: (-t["fanIn"], t["name"]))[:18]:
+        meaning = glossary.get(entry["name"], {}).get("meaning", "(no meaning yet)")
+        lines.append(
+            "  <dt>%s <span class=\"layer\">%d files</span></dt><dd>%s</dd>"
+            % (html.escape(entry["name"]), entry["fanIn"], meaning)
+        )
+    return "\n".join(lines)
+
+
+def _atlas_knot_intro(model, prose):
+    page = prose.get("page", {})
+    knots = model.get("knots", [])
+    if not knots:
+        return "<p>No knot today.</p>"
+    knot = knots[0]
+    production_types = len(model.get("types", [])) or 1
+    percent = round(100 * knot["size"] / production_types)
+    module_of = {entry["name"]: entry["module"] for entry in model.get("types", [])}
+    counts = Counter(module_of[name] for name in knot["members"] if name in module_of)
+    top = sorted(counts.items(), key=lambda item: (-item[1], item[0]))[:8]
+    listed = ", ".join("%s (%d)" % (html.escape(name), count) for name, count in top)
+    more = len(counts) - len(top)
+    tail = " and %d more modules" % more if more > 0 else ""
+    return (
+        '<p><span class="knot">%d types, %d percent of the production code, sit in one '
+        "strongly connected component.</span> %s It spans %s%s. %s</p>"
+        % (
+            knot["size"],
+            percent,
+            page.get("knot_note", ""),
+            listed,
+            tail,
+            page.get("knot_consequence", ""),
+        )
+    )
+
+
+def _atlas_knot_cuts(model):
+    knots = model.get("knots", [])
+    if not knots:
+        return ""
+    lines = []
+    for cut in knots[0]["cuts"][:7]:
+        drops = cut["droppedReferences"]
+        names = _type_chips(drops[:4])
+        if len(drops) > 4:
+            names += " +%d" % (len(drops) - 4)
+        lines.append(
+            '<tr><td class="name">%s</td><td class="num">%d</td><td class="num">%d</td>'
+            "<td>%s</td></tr>"
+            % (html.escape(cut["sink"]), cut["sizeBefore"], cut["sizeAfter"], names)
+        )
+    return "\n".join(lines)
+
+
+def _atlas_upward_rows(model, prose, forbidden):
+    tooling = {module["name"] for module in model["modules"] if module["tooling"]}
+    edge_by = {(edge["from"], edge["to"]): edge for edge in model["edges"]}
+    readings = {
+        reading["edge"]: reading["reading"] for reading in prose.get("upward_readings", [])
+    }
+    rows = [
+        edge
+        for edge in model["edges"]
+        if edge["upward"]
+        and edge["from"] not in tooling
+        and edge["to"] not in tooling
+        and edge["weight"] >= 14
+    ]
+    seen = {(edge["from"], edge["to"]) for edge in rows}
+    for spec in forbidden or []:
+        try:
+            frm, to = parse_edge_spec(spec)
+        except ValueError:
+            continue
+        edge = edge_by.get((frm, to))
+        if edge is not None and (frm, to) not in seen:
+            rows.append(edge)
+            seen.add((frm, to))
+    rows.sort(key=lambda edge: (-edge["weight"], edge["from"], edge["to"]))
+    lines = []
+    seen_pairs = set()
+    for edge in rows:
+        pair = tuple(sorted((edge["from"], edge["to"])))
+        if pair in seen_pairs:
+            # The reverse edge is already in the list: the pair row carries
+            # both weights, including the forbidden edge's.
+            continue
+        seen_pairs.add(pair)
+        reverse = edge_by.get((edge["to"], edge["from"]))
+        if reverse is not None:
+            name = '<span class="up">%s &harr; %s</span>' % (
+                html.escape(edge["from"]),
+                html.escape(edge["to"]),
+            )
+            weight = "%d / %d" % (edge["weight"], reverse["weight"])
+        else:
+            name = '<span class="up">%s &rarr; %s</span>' % (
+                html.escape(edge["from"]),
+                html.escape(edge["to"]),
+            )
+            weight = str(edge["weight"])
+        reading = readings.get("%s -> %s" % (edge["from"], edge["to"]), "")
+        if not reading:
+            reading = readings.get("%s -> %s" % (edge["to"], edge["from"]), "")
+        lines.append(
+            '<tr><td class="name">%s</td><td class="num">%s</td><td>%s</td><td>%s</td></tr>'
+            % (name, weight, _type_chips(edge["types"][:3]), reading)
+        )
+    return "\n".join(lines)
+
+
+def _atlas_reading_order(prose):
+    lines = []
+    for step in prose.get("reading_order", []):
+        chips = _type_chips(step.get("types", []))
+        body = (chips + ". " if chips else "") + step.get("text", "")
+        lines.append("  <li><strong>%s</strong> %s</li>" % (step.get("title", ""), body))
+    return "\n".join(lines)
+
+
+def render_atlas_html(model, prose, svg_text=None, forbidden=None):
+    """Return the Parsek Atlas page: prose from `prose`, everything else generated."""
+    page = prose.get("page", {})
+    replacements = {
+        "@@EYEBROW@@": _atlas_eyebrow(),
+        "@@LEDE@@": page.get("lede", ""),
+        "@@TILES@@": _atlas_tiles(model),
+        "@@MAP_NOTE@@": page.get("map_note", ""),
+        "@@MAP@@": _svg_inline(svg_text),
+        "@@MAP_READING@@": page.get("map_reading", ""),
+        "@@DIRECTORY_NOTE@@": page.get("directory_note", ""),
+        "@@DIRECTORY@@": _atlas_directory(model, prose),
+        "@@VOCABULARY_NOTE@@": page.get("vocabulary_note", ""),
+        "@@VOCABULARY@@": _atlas_vocabulary(model, prose),
+        "@@KNOT_INTRO@@": _atlas_knot_intro(model, prose),
+        "@@KNOT_CUTS_NOTE@@": page.get("knot_cuts_note", ""),
+        "@@KNOT_CUTS@@": _atlas_knot_cuts(model),
+        "@@KNOT_CALLOUT@@": page.get("knot_callout", ""),
+        "@@LAYERING_NOTE@@": page.get("layering_note", ""),
+        "@@UPWARD@@": _atlas_upward_rows(model, prose, forbidden),
+        "@@READING_NOTE@@": page.get("reading_note", ""),
+        "@@READING@@": _atlas_reading_order(prose),
+        "@@VIEWS_NOTE@@": page.get("views_note", ""),
+        "@@FOOT@@": page.get("approximation_note", ""),
+    }
+    text = ATLAS_TEMPLATE
+    for marker, value in replacements.items():
+        text = text.replace(marker, value)
+    return text
+
+
+ATLAS_TEMPLATE = """<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Parsek Atlas</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Source+Sans+3:ital,wght@0,400;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+:root {
+  --bg: #f4f6f8; --panel: #ffffff; --ink: #1b2430; --ink-2: #4d5a68; --ink-3: #7b8794;
+  --rule: #d6dde5; --accent: #2f6fb3; --accent-soft: #e3edf8; --red: #c0392b; --red-soft: #f9e4e1;
+  --amber: #b8730a; --amber-soft: #fbefd9; --mono-bg: #eef2f6;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f151c; --panel: #161e27; --ink: #e6ebf1; --ink-2: #aab5c1; --ink-3: #7d8994;
+    --rule: #2a3542; --accent: #6ea4e0; --accent-soft: #1d2c3f; --red: #e06b5e; --red-soft: #3a1f1c;
+    --amber: #e0a23a; --amber-soft: #3a2c14; --mono-bg: #1d2733;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f151c; --panel: #161e27; --ink: #e6ebf1; --ink-2: #aab5c1; --ink-3: #7d8994;
+  --rule: #2a3542; --accent: #6ea4e0; --accent-soft: #1d2c3f; --red: #e06b5e; --red-soft: #3a1f1c;
+  --amber: #e0a23a; --amber-soft: #3a2c14; --mono-bg: #1d2733;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
+  font-size: 17px; line-height: 1.55; margin: 0; }
+main { max-width: 1120px; margin: 0 auto; padding: 40px 28px 80px; }
+h1, h2, h3 { font-family: "Barlow Condensed", "Arial Narrow", sans-serif; text-wrap: balance; margin: 0; line-height: 1.05; }
+h1 { font-size: 64px; font-weight: 700; letter-spacing: -0.01em; }
+h2 { font-size: 34px; font-weight: 600; margin-top: 64px; padding-top: 18px; border-top: 2px solid var(--ink); }
+h3 { font-size: 22px; font-weight: 600; margin-top: 28px; color: var(--ink); }
+p, li { max-width: 70ch; }
+p { margin: 14px 0; }
+.eyebrow { font-family: "Barlow Condensed", sans-serif; font-weight: 600; font-size: 14px; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--accent); }
+.lede { font-size: 20px; color: var(--ink-2); max-width: 64ch; }
+code, .id { font-family: "JetBrains Mono", Consolas, monospace; font-size: 0.86em; background: var(--mono-bg);
+  padding: 1px 5px; border-radius: 3px; }
+.tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin: 28px 0 8px; }
+.tile { background: var(--panel); border: 1px solid var(--rule); padding: 14px 16px 12px; }
+.tile .n { font-family: "Barlow Condensed", sans-serif; font-size: 44px; font-weight: 700; line-height: 1;
+  font-variant-numeric: tabular-nums; }
+.tile .l { color: var(--ink-2); font-size: 14px; margin-top: 6px; }
+.panel { background: #ffffff; border: 1px solid var(--rule); padding: 14px; overflow-x: auto; margin: 18px 0; }
+.panel svg { display: block; min-width: 1100px; height: auto; }
+.wide { overflow-x: auto; margin: 18px 0; }
+table { border-collapse: collapse; width: 100%; font-size: 15px; }
+th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--rule); }
+th { font-family: "Barlow Condensed", sans-serif; font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--ink-2); font-weight: 600; white-space: nowrap; }
+td.num { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+th.num { text-align: right; }
+td.name { font-weight: 600; white-space: nowrap; }
+td .id { white-space: nowrap; }
+.layer { font-family: "Barlow Condensed", sans-serif; font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--ink-3); }
+tr.band td { background: var(--accent-soft); font-family: "Barlow Condensed", sans-serif; font-size: 15px;
+  letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); font-weight: 600; padding: 6px 10px; }
+.up { color: var(--red); font-weight: 600; }
+.knot { color: var(--amber); font-weight: 600; }
+.callout { border-left: 4px solid var(--accent); background: var(--panel); padding: 12px 18px; margin: 20px 0; max-width: 78ch; }
+.callout.red { border-color: var(--red); }
+ol.steps { counter-reset: s; list-style: none; padding: 0; }
+ol.steps li { counter-increment: s; position: relative; padding-left: 52px; margin: 14px 0; }
+ol.steps li::before { content: counter(s); position: absolute; left: 0; top: 0; width: 36px; height: 36px;
+  border: 2px solid var(--accent); color: var(--accent); font-family: "Barlow Condensed", sans-serif;
+  font-weight: 700; font-size: 20px; display: flex; align-items: center; justify-content: center; }
+dl { display: grid; grid-template-columns: max-content 1fr; gap: 8px 18px; max-width: 80ch; }
+dt { font-family: "JetBrains Mono", monospace; font-size: 14px; white-space: nowrap; padding-top: 2px; }
+dd { margin: 0; color: var(--ink-2); }
+.foot { color: var(--ink-3); font-size: 14px; margin-top: 56px; border-top: 1px solid var(--rule); padding-top: 14px; }
+@media (max-width: 760px) { .tiles { grid-template-columns: repeat(2, 1fr); } h1 { font-size: 46px; } dl { grid-template-columns: 1fr; } }
+</style>
+</head><body><main>
+<div class="eyebrow">@@EYEBROW@@</div>
+<h1>Parsek Atlas</h1>
+<p class="lede">@@LEDE@@</p>
+
+<div class="tiles">
+@@TILES@@
+</div>
+
+<h2>The map</h2>
+<p>@@MAP_NOTE@@</p>
+<div class="panel">@@MAP@@</div>
+<p>@@MAP_READING@@</p>
+
+<h2>Module directory</h2>
+<p>@@DIRECTORY_NOTE@@</p>
+<div class="wide"><table>
+<tr><th>Module</th><th>What it is</th><th class="num">Files</th><th class="num">Types</th><th class="num">I</th><th>Hubs</th></tr>
+@@DIRECTORY@@
+</table></div>
+
+<h2>The vocabulary</h2>
+<p>@@VOCABULARY_NOTE@@</p>
+<dl>
+@@VOCABULARY@@
+</dl>
+
+<h2>The knot</h2>
+@@KNOT_INTRO@@
+<p>@@KNOT_CUTS_NOTE@@</p>
+<div class="wide"><table>
+<tr><th>Make this a sink</th><th class="num">Knot before</th><th class="num">after</th><th>Its references inside the knot</th></tr>
+@@KNOT_CUTS@@
+</table></div>
+<div class="callout">@@KNOT_CALLOUT@@</div>
+
+<h2>Where the layering breaks</h2>
+<p>@@LAYERING_NOTE@@</p>
+<div class="wide"><table>
+<tr><th>Upward edge</th><th class="num">Refs</th><th>Through</th><th>Reading</th></tr>
+@@UPWARD@@
+</table></div>
+
+<h2>Reading order</h2>
+<p>@@READING_NOTE@@</p>
+<ol class="steps">
+@@READING@@
+</ol>
+
+<h2>The generated views</h2>
+<p>@@VIEWS_NOTE@@</p>
+<dl>
+  <dt>explore.html</dt><dd>The module graph as an interactive page: click a module to see its neighbours and the exact types behind each edge.</dd>
+  <dt>matrix.html</dt><dd>The dependency structure matrix. Both axes sorted by stability, so everything above the diagonal is an upward edge.</dd>
+  <dt>ladder.html</dt><dd>Every type placed by module and abstraction level, with the knot split into sub-rows and its cut sinks marked.</dd>
+  <dt>modules.svg</dt><dd>The static map shown above.</dd>
+  <dt>core-placement.md</dt><dd>The evidence table behind where each former root file went.</dd>
+  <dt>archview.py --check</dt><dd>The text report: metrics, upward edges, couplings, hubs, roles, level profile, knots, forbidden edges.</dd>
+</dl>
+
+<p class="foot">@@FOOT@@</p>
+</main>
+</body></html>
+"""
+
+
+# ---------------------------------------------------------------------------
 # checker (report-only)
 # ---------------------------------------------------------------------------
 
@@ -2443,12 +2908,14 @@ def level_profile(model):
     return profile, overall
 
 
-def run_check(model, forbidden, allowed):
+def run_check(model, forbidden, allowed, prose=None):
     """Print the report-only architecture check.
 
     Never raises on a malformed policy spec: a bad "From -> To" string is
     reported and skipped, because the final line and the exit code are part of
-    the report contract.
+    the report contract. `prose` is the atlas prose dict (None for callers that
+    do not have it); the ATLAS section reports prose that no longer matches the
+    model.
     """
     print()
     hidden = sorted(m["name"] for m in model["modules"] if m["tooling"])
@@ -2549,6 +3016,22 @@ def run_check(model, forbidden, allowed):
                 )
             )
 
+    findings = prose_findings(model, prose or {})
+    print()
+    print("ATLAS (prose against the live model):")
+
+    def atlas_list(title, items):
+        if items:
+            print("  %s (%d): %s" % (title, len(items), ", ".join(items)))
+        else:
+            print("  %s: none." % title)
+
+    atlas_list("production modules without a summary", findings["missingSummaries"])
+    atlas_list("glossary entries naming a missing type", findings["missingGlossary"])
+    atlas_list("glossary entries outside the live top 18", findings["staleGlossary"])
+    atlas_list("upward readings whose edge no longer exists", findings["staleReadings"])
+    atlas_list("reading-order types not in the model", findings["missingReadingOrder"])
+
     lookup = {(e["from"], e["to"]): e for e in model["edges"]}
     print()
     print("Forbidden edges (declared boundaries that must not exist):")
@@ -2634,12 +3117,17 @@ def main(argv=None):
     # nonzero exit, and --check always ends with the ARCH-CHECK line.
     forbidden = []
     allowed = []
+    prose = {}
     model = None
     try:
         rules, tooling, forbidden, allowed = load_rules(args.modules)
         model = build_model(args.source, rules, tooling)
     except Exception as exc:
         print("WARN archview: %s" % exc, file=sys.stderr)
+    try:
+        prose = load_prose(DEFAULT_ATLAS)
+    except Exception as exc:
+        print("WARN archview: atlas prose not loaded: %s" % exc, file=sys.stderr)
 
     if model is not None:
         try:
@@ -2677,6 +3165,13 @@ def main(argv=None):
             _write_text(ladder_path, render_ladder_html(model))
             print("Wrote %s" % ladder_path)
 
+            atlas_path = out_dir / "atlas.html"
+            svg_text = None
+            if svg_path.exists():
+                svg_text = svg_path.read_text(encoding="utf-8")
+            _write_text(atlas_path, render_atlas_html(model, prose, svg_text, forbidden))
+            print("Wrote %s" % atlas_path)
+
             if args.place:
                 print()
                 print_placement_evidence(model)
@@ -2702,7 +3197,7 @@ def main(argv=None):
     if args.check:
         if model is not None:
             try:
-                run_check(model, forbidden, allowed)
+                run_check(model, forbidden, allowed, prose)
             except Exception as exc:
                 print("WARN arch-check: %s" % exc, file=sys.stderr)
                 print()

@@ -51,8 +51,14 @@ _(unreleased — entries accumulate here per commit)_
   rather than a pile: `--place` scores every root file still in it by who
   references it, moves the 48 files a name family or a clear owner claims
   (including two new modules, the GUI census recorder and the settings types),
-  and lists the 75 that stay with their evidence in
-  `docs/dev/arch/core-placement.md` so a human can place them. No
+  and lists the rest with their evidence in `docs/dev/arch/core-placement.md`.
+  The 67 files left after that were then placed by hand into the module each
+  belongs to, which leaves the eight kernel vocabulary files in `Core`.
+
+  The atlas is now generated rather than hand-assembled: `atlas.html` renders
+  every number, table and the map from the live model, while the prose lives in
+  `scripts/arch/atlas.toml`, and the checker reports prose that no longer
+  matches the model instead of letting the page go quietly stale. No
   player-visible behavior changes.
 
 ### Changed
