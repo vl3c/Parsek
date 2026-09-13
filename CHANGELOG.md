@@ -64,8 +64,11 @@ _(unreleased — entries accumulate here per commit)_
 
   The map's `Core` module is a guard now rather than a catch-all: it names the
   eight kernel files explicitly, so a new root file that no rule matches is
-  reported as an unplaced root file instead of quietly joining the kernel. No
-  player-visible behavior changes.
+  reported as an unplaced root file instead of quietly joining the kernel. The
+  map is also cross-checked against change history: one `git log` pass over the
+  last 18 months reports type hotspots, module co-change (Jaccard), and the
+  cross-module file pairs that keep changing together, in the checker and in a
+  new atlas section. No player-visible behavior changes.
 
 ### Changed
 

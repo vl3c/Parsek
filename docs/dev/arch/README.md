@@ -22,6 +22,7 @@ go stale on every commit that touches `Source/`; regenerate before reading):
 | --- | --- |
 | `edges.json` | The module data: file counts and metrics, and every module edge with weight, `cyclic` and `upward` flags, referencing files and referenced type names. |
 | `types.json` | The type data: name, module, file, kind, modifiers, bases, enclosing, role, level, knot, sublevel, fan-in, fan-out, references to and references from; plus a top-level `levels` summary with the max level and the count per level. |
+| `history.json` | The co-change history (see "Change history"): the window, per-file churn ranks, type hotspots, module commit counts, module-pair Jaccard, and the cross-module file pairs that keep changing together. |
 | `modules.dot`, `modules.svg` | Graphviz layered dependency graph of the production modules. |
 | `matrix.html` | Dependency structure matrix. |
 | `explore.html` | Interactive neighbourhood explorer. |
@@ -70,13 +71,13 @@ reflection.
 ## Regenerating
 
 Nothing under `docs/dev/arch/` except this README is tracked. Run the script
-first; the eight files it writes are the current truth for the checkout you
+first; the nine files it writes are the current truth for the checkout you
 ran it in, and nothing else.
 
 From the repo root:
 
 ```bash
-python scripts/arch/archview.py            # writes the eight views in docs/dev/arch/
+python scripts/arch/archview.py            # writes the nine files in docs/dev/arch/
 python scripts/arch/archview.py --check    # same, plus the report on stdout
 python scripts/arch/archview.py --place    # same, plus core-placement.md (leaves it stale otherwise)
 python -m unittest scripts/arch/test_archview.py
@@ -96,7 +97,7 @@ Options:
 
 Requirements: Python 3.11+ (the TOML reader is `tomllib`) and, for the SVG
 only, Graphviz `dot` on PATH. If `dot` is missing the script prints a warning
-and still writes the other seven files (`atlas.html` shows a one-line notice
+and still writes the other eight files (`atlas.html` shows a one-line notice
 where the map would be). When a source file matches no rule in
 `modules.toml`, the script warns and skips it.
 
@@ -111,7 +112,11 @@ and the overall max level), the first 10 knots with their size and module
 breakdown followed by the largest knot's hubs and greedy cut sequence, the
 ATLAS prose-vs-model section (production modules without a summary, glossary
 entries naming a missing type, stale glossary entries, readings for vanished
-edges, missing reading-order types), and every `[forbidden]` edge that exists
+edges, missing reading-order types), the HISTORY co-change section (the window
+and commit counts, the top 15 hotspots, the top 10 module pairs by Jaccard,
+the top 15 cross-module file pairs, and one line per forbidden edge with how
+many commits touched both of its sides), and every `[forbidden]` edge that
+exists
 with its weight, referenced types and referencing files. When `[allowed]` is
 non-empty it also lists every production edge not in that list; while
 `[allowed]` is empty that section is skipped. The last line is always
@@ -341,6 +346,38 @@ production modules without a summary, glossary entries naming a type that is
 not in the model, glossary entries outside the live top 18 (informational),
 upward readings whose edge no longer exists, and reading-order types not in
 the model.
+
+## Change history
+
+The module map says which files reference each other; `git log` says which
+files actually change together. `history.json` is built from a single
+`git log --no-merges --since=<18 months ago> --name-only -- Source/Parsek`
+call: only `.cs` files count, and a commit touching more than 40 source files
+is treated as a sweep (a rename or a bulk edit) and skipped, because it would
+dominate every co-change number. The payload records the window, the kept
+commit count, how many sweeps were skipped and the largest one, then four
+tables:
+
+- **files**: commits and last-touched date per production file, with a churn
+  rank;
+- **hotspots**: `file commits * fan-in` for every production type, top 30,
+  which finds types that are both widely referenced and frequently edited;
+- **modules** and **modulePairs**: commits touching each module, and for every
+  production pair the number of commits touching both, the union, and their
+  Jaccard ratio;
+- **filePairs**: the top 40 cross-module file pairs with at least 5 shared
+  commits - files the map calls separate that keep changing together.
+
+Tooling modules are excluded everywhere. If git is missing or the window is
+empty, the payload is empty and both the checker and the atlas say so instead
+of failing. A co-change number is evidence, not a verdict: two files can share
+commits because one change touches both sides of a real boundary, and that is
+what the list is for.
+
+`--check` prints the HISTORY section after ATLAS. The atlas has a "What
+changes together" section between "Where the layering breaks" and "Reading
+order" with the top 10 module pairs, top 10 cross-module file pairs and top 10
+hotspots.
 
 ## Editing `modules.toml`
 

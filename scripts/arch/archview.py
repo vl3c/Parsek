@@ -41,9 +41,11 @@ DEFAULT_OUT = "docs/dev/arch"
 DEFAULT_MIN_EDGE = 8
 DEFAULT_MODULES = Path(__file__).resolve().parent / "modules.toml"
 DEFAULT_ATLAS = Path(__file__).resolve().parent / "atlas.toml"
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 SKIP_DIR_NAMES = {"bin", "obj", "Properties"}
 MIN_TYPE_NAME_LEN = 4
+HISTORY_SWEEP_LIMIT = 40
 
 TYPE_DECL_RE = re.compile(r"\b(?:class|struct|interface|enum)\s+([A-Z][A-Za-z0-9_]+)")
 IDENT_RE = re.compile(r"\b[A-Z][A-Za-z0-9_]{3,}\b")
@@ -2687,7 +2689,59 @@ def _atlas_reading_order(prose):
     return "\n".join(lines)
 
 
-def render_atlas_html(model, prose, svg_text=None, forbidden=None):
+def _atlas_history(history):
+    """Return the atlas co-change tables, or a one-line notice when empty."""
+    if not history or not history.get("commits"):
+        return '<p class="layer">No co-change history in the window.</p>'
+    lines = [
+        "<h3>Module pairs that change together</h3>",
+        '<div class="wide"><table>',
+        '<tr><th>Modules</th><th class="num">Both</th><th class="num">Either</th>'
+        '<th class="num">Jaccard</th></tr>',
+    ]
+    for row in history.get("modulePairs", [])[:10]:
+        lines.append(
+            '<tr><td class="name">%s &harr; %s</td><td class="num">%d</td>'
+            '<td class="num">%d</td><td class="num">%.2f</td></tr>'
+            % (html.escape(row["a"]), html.escape(row["b"]), row["both"], row["either"],
+               row["jaccard"])
+        )
+    lines.extend(
+        [
+            "</table></div>",
+            "<h3>Files that change together across modules</h3>",
+            '<div class="wide"><table>',
+            '<tr><th>Files</th><th>Modules</th><th class="num">Commits</th></tr>',
+        ]
+    )
+    for row in history.get("filePairs", [])[:10]:
+        lines.append(
+            '<tr><td><span class="id">%s</span> &harr; <span class="id">%s</span></td>'
+            '<td>%s, %s</td><td class="num">%d</td></tr>'
+            % (html.escape(row["a"]), html.escape(row["b"]), html.escape(row["moduleA"]),
+               html.escape(row["moduleB"]), row["count"])
+        )
+    lines.extend(
+        [
+            "</table></div>",
+            "<h3>Hotspots (file commits times fan-in)</h3>",
+            '<div class="wide"><table>',
+            '<tr><th>Type</th><th>Module</th><th class="num">File commits</th>'
+            '<th class="num">Fan-in</th><th class="num">Hotspot</th></tr>',
+        ]
+    )
+    for row in history.get("hotspots", [])[:10]:
+        lines.append(
+            '<tr><td class="name">%s</td><td>%s</td><td class="num">%d</td>'
+            '<td class="num">%d</td><td class="num">%d</td></tr>'
+            % (html.escape(row["name"]), html.escape(row["module"]), row["fileCommits"],
+               row["fanIn"], row["hotspot"])
+        )
+    lines.append("</table></div>")
+    return "\n".join(lines)
+
+
+def render_atlas_html(model, prose, svg_text=None, forbidden=None, history=None):
     """Return the Parsek Atlas page: prose from `prose`, everything else generated."""
     page = prose.get("page", {})
     replacements = {
@@ -2707,6 +2761,8 @@ def render_atlas_html(model, prose, svg_text=None, forbidden=None):
         "@@KNOT_CALLOUT@@": page.get("knot_callout", ""),
         "@@LAYERING_NOTE@@": page.get("layering_note", ""),
         "@@UPWARD@@": _atlas_upward_rows(model, prose, forbidden),
+        "@@HISTORY_READING@@": page.get("history_reading", ""),
+        "@@HISTORY_BODY@@": _atlas_history(history),
         "@@READING_NOTE@@": page.get("reading_note", ""),
         "@@READING@@": _atlas_reading_order(prose),
         "@@VIEWS_NOTE@@": page.get("views_note", ""),
@@ -2833,6 +2889,10 @@ dd { margin: 0; color: var(--ink-2); }
 @@UPWARD@@
 </table></div>
 
+<h2>What changes together</h2>
+<p>@@HISTORY_READING@@</p>
+@@HISTORY_BODY@@
+
 <h2>Reading order</h2>
 <p>@@READING_NOTE@@</p>
 <ol class="steps">
@@ -2854,6 +2914,248 @@ dd { margin: 0; color: var(--ink-2); }
 </main>
 </body></html>
 """
+
+
+# ---------------------------------------------------------------------------
+# change history
+# ---------------------------------------------------------------------------
+
+
+def default_since():
+    """Return the ISO date 18 months before today."""
+    today = datetime.date.today()
+    month = today.month - 18
+    year = today.year
+    while month <= 0:
+        month += 12
+        year -= 1
+    return today.replace(year=year, month=month, day=1).isoformat()
+
+
+def git_log_lines(repo_root, since=None):
+    """Return raw `git log --name-only` text for Source/Parsek, or "" on failure."""
+    if since is None:
+        since = default_since()
+    try:
+        completed = subprocess.run(
+            [
+                "git",
+                "log",
+                "--no-merges",
+                "--since=%s" % since,
+                "--date=short",
+                "--pretty=format:COMMIT%x09%H%x09%ad",
+                "--name-only",
+                "--",
+                "Source/Parsek",
+            ],
+            cwd=str(repo_root),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except Exception as exc:
+        print("WARN archview: git log unavailable: %s" % exc, file=sys.stderr)
+        return ""
+    if completed.returncode != 0:
+        print(
+            "WARN archview: git log failed (exit %d): %s"
+            % (completed.returncode, completed.stderr.strip()),
+            file=sys.stderr,
+        )
+        return ""
+    return completed.stdout
+
+
+def _history_path(line):
+    """Return the build_model-style rel path for a git log file line, or None."""
+    if line.startswith('"') and line.endswith('"'):
+        line = line[1:-1].replace('\\"', '"').replace("\\\\", "\\")
+    line = line.replace("\\", "/")
+    if not line.endswith(".cs"):
+        return None
+    prefix = "Source/Parsek/"
+    if not line.startswith(prefix):
+        return None
+    rel_path = line[len(prefix) :]
+    if any(part in SKIP_DIR_NAMES for part in rel_path.split("/")[:-1]):
+        return None
+    return rel_path
+
+
+def parse_history(text):
+    """Parse `git log --name-only` text into commits (pure).
+
+    Returns {"commits": [{"sha", "date", "files"}], "skipped": N,
+    "largest": M}. Only .cs files under Source/Parsek/ count, bin/obj/
+    Properties directories are skipped the way build_model skips them, and a
+    commit touching more than HISTORY_SWEEP_LIMIT source files is a sweep: it
+    is skipped, and `largest` is the biggest skipped sweep.
+    """
+    commits = []
+    current = None
+    for raw_line in text.split("\n"):
+        line = raw_line.rstrip("\r").strip()
+        if not line:
+            continue
+        if line.startswith("COMMIT\t"):
+            parts = line.split("\t")
+            current = None
+            if len(parts) >= 3:
+                current = {"sha": parts[1], "date": parts[2], "files": []}
+                commits.append(current)
+            continue
+        if current is None:
+            continue
+        rel_path = _history_path(line)
+        if rel_path is not None:
+            current["files"].append(rel_path)
+    kept = []
+    skipped = 0
+    largest = 0
+    for commit in commits:
+        files = sorted(set(commit["files"]))
+        if not files:
+            continue
+        if len(files) > HISTORY_SWEEP_LIMIT:
+            skipped += 1
+            largest = max(largest, len(files))
+            continue
+        kept.append({"sha": commit["sha"], "date": commit["date"], "files": files})
+    return {"commits": kept, "skipped": skipped, "largest": largest}
+
+
+def history_metrics(commits, model, rules):
+    """Return the co-change tables for the scanned commits (pure).
+
+    `commits` is parse_history's list, `model` supplies the file-to-module map
+    and the type fan-ins, and `rules` is the fallback assigner for files the
+    model does not know. Tooling modules are excluded everywhere. Tables:
+    files (commits, lastTouched, churnRank), hotspots (top 30 by
+    fileCommits * fanIn), modules (commits touching it) and modulePairs (every
+    unordered production pair with both/either/jaccard), and filePairs (top 40
+    cross-module pairs with count >= 5).
+    """
+    tooling = {module["name"] for module in model["modules"] if module["tooling"]}
+    module_of_file = {}
+    for rel_path, module in model.get("fileModules", {}).items():
+        if module not in tooling:
+            module_of_file[rel_path] = module
+    for commit in commits:
+        for rel_path in commit["files"]:
+            if rel_path in module_of_file:
+                continue
+            module = assign_module(rel_path, rules)
+            if module is not None and module not in tooling:
+                module_of_file[rel_path] = module
+
+    file_commits = defaultdict(int)
+    last_touched = {}
+    for commit in commits:
+        for rel_path in set(commit["files"]):
+            if rel_path not in module_of_file:
+                continue
+            file_commits[rel_path] += 1
+            date = commit["date"]
+            if rel_path not in last_touched or date > last_touched[rel_path]:
+                last_touched[rel_path] = date
+
+    module_commits = defaultdict(set)
+    file_pair_counts = Counter()
+    for index, commit in enumerate(commits):
+        files = sorted({rel_path for rel_path in commit["files"] if rel_path in module_of_file})
+        for module in {module_of_file[rel_path] for rel_path in files}:
+            module_commits[module].add(index)
+        for i in range(len(files)):
+            for j in range(i + 1, len(files)):
+                a, b = files[i], files[j]
+                if module_of_file[a] != module_of_file[b]:
+                    file_pair_counts[(a, b)] += 1
+
+    files = []
+    for rel_path in sorted(module_of_file):
+        files.append(
+            {
+                "file": rel_path,
+                "module": module_of_file[rel_path],
+                "commits": file_commits.get(rel_path, 0),
+                "lastTouched": last_touched.get(rel_path),
+            }
+        )
+    files.sort(key=lambda row: (-row["commits"], row["file"]))
+    for rank, row in enumerate(files, 1):
+        row["churnRank"] = rank
+
+    hotspots = []
+    for entry in model.get("types", []):
+        if entry["file"] not in module_of_file:
+            continue
+        commits_for_file = file_commits.get(entry["file"], 0)
+        hotspots.append(
+            {
+                "name": entry["name"],
+                "module": entry["module"],
+                "file": entry["file"],
+                "fileCommits": commits_for_file,
+                "fanIn": entry["fanIn"],
+                "hotspot": commits_for_file * entry["fanIn"],
+            }
+        )
+    hotspots.sort(key=lambda row: (-row["hotspot"], row["name"]))
+    hotspots = hotspots[:30]
+
+    module_names = sorted(module_commits)
+    modules = [{"name": name, "commits": len(module_commits[name])} for name in module_names]
+    module_pairs = []
+    for i in range(len(module_names)):
+        for j in range(i + 1, len(module_names)):
+            a, b = module_names[i], module_names[j]
+            both = len(module_commits[a] & module_commits[b])
+            either = len(module_commits[a] | module_commits[b])
+            module_pairs.append(
+                {
+                    "a": a,
+                    "b": b,
+                    "both": both,
+                    "either": either,
+                    "jaccard": round(both / either, 4) if either else 0.0,
+                }
+            )
+    module_pairs.sort(key=lambda row: (-row["jaccard"], -row["both"], row["a"], row["b"]))
+
+    file_pairs = []
+    for (a, b), count in file_pair_counts.items():
+        if count < 5:
+            continue
+        file_pairs.append(
+            {
+                "a": a,
+                "b": b,
+                "moduleA": module_of_file[a],
+                "moduleB": module_of_file[b],
+                "count": count,
+            }
+        )
+    file_pairs.sort(key=lambda row: (-row["count"], row["a"], row["b"]))
+    file_pairs = file_pairs[:40]
+
+    return {
+        "files": files,
+        "hotspots": hotspots,
+        "modules": modules,
+        "modulePairs": module_pairs,
+        "filePairs": file_pairs,
+    }
+
+
+def write_history_json(payload, out_path):
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(
+        json.dumps(payload, indent=2, ensure_ascii=True) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -2950,14 +3252,14 @@ def level_profile(model):
     return profile, overall
 
 
-def run_check(model, forbidden, allowed, prose=None):
+def run_check(model, forbidden, allowed, prose=None, history=None):
     """Print the report-only architecture check.
 
     Never raises on a malformed policy spec: a bad "From -> To" string is
     reported and skipped, because the final line and the exit code are part of
-    the report contract. `prose` is the atlas prose dict (None for callers that
-    do not have it); the ATLAS section reports prose that no longer matches the
-    model.
+    the report contract. `prose` is the atlas prose dict and `history` the
+    history.json payload (None for callers that do not have them); the ATLAS
+    and HISTORY sections report what no longer matches the model.
     """
     print()
     hidden = sorted(m["name"] for m in model["modules"] if m["tooling"])
@@ -3074,6 +3376,57 @@ def run_check(model, forbidden, allowed, prose=None):
     atlas_list("upward readings whose edge no longer exists", findings["staleReadings"])
     atlas_list("reading-order types not in the model", findings["missingReadingOrder"])
 
+    print()
+    print("HISTORY (co-change over Source/Parsek):")
+    if not history or not history.get("commits"):
+        print("  no co-change history (git log unavailable or the window is empty).")
+    else:
+        print(
+            "  window: since %s, %d commits (%d sweeps skipped, largest %d files)"
+            % (
+                history["since"],
+                history["commits"],
+                history["skippedSweeps"],
+                history["largestSweep"],
+            )
+        )
+        print("  Top hotspots (type, module, file commits, fan-in, hotspot):")
+        if not history.get("hotspots"):
+            print("    none.")
+        for row in history["hotspots"][:15]:
+            print(
+                "    %-26s %-12s file commits=%-4d fan-in=%-4d hotspot=%d"
+                % (row["name"], row["module"], row["fileCommits"], row["fanIn"], row["hotspot"])
+            )
+        print("  Top module pairs by jaccard:")
+        if not history.get("modulePairs"):
+            print("    none.")
+        for row in history["modulePairs"][:10]:
+            print(
+                "    %s <-> %s: both=%d, either=%d, jaccard=%.2f"
+                % (row["a"], row["b"], row["both"], row["either"], row["jaccard"])
+            )
+        print("  Top cross-module file pairs:")
+        if not history.get("filePairs"):
+            print("    none.")
+        for row in history["filePairs"][:15]:
+            print(
+                "    %s <-> %s: count=%d (%s, %s)"
+                % (row["a"], row["b"], row["count"], row["moduleA"], row["moduleB"])
+            )
+        pair_lookup = {
+            (row["a"], row["b"]): row["both"] for row in history.get("modulePairs", [])
+        }
+        print("  Forbidden edges (commits touching both sides in the window):")
+        if not forbidden:
+            print("    none.")
+        for spec in forbidden:
+            try:
+                frm, to = parse_edge_spec(spec)
+            except ValueError:
+                continue
+            print("    %s -> %s: %d" % (frm, to, pair_lookup.get(tuple(sorted((frm, to))), 0)))
+
     lookup = {(e["from"], e["to"]): e for e in model["edges"]}
     print()
     print("Forbidden edges (declared boundaries that must not exist):")
@@ -3160,6 +3513,7 @@ def main(argv=None):
     forbidden = []
     allowed = []
     prose = {}
+    history_payload = None
     model = None
     try:
         rules, tooling, forbidden, allowed = load_rules(args.modules)
@@ -3184,6 +3538,16 @@ def main(argv=None):
 
             out_dir = Path(args.out)
             out_dir.mkdir(parents=True, exist_ok=True)
+
+            since = default_since()
+            parsed = parse_history(git_log_lines(REPO_ROOT, since))
+            history_payload = {
+                "since": since,
+                "commits": len(parsed["commits"]),
+                "skippedSweeps": parsed["skipped"],
+                "largestSweep": parsed["largest"],
+            }
+            history_payload.update(history_metrics(parsed["commits"], model, rules))
 
             json_path = out_dir / "edges.json"
             write_json(model, json_path)
@@ -3214,11 +3578,18 @@ def main(argv=None):
             _write_text(ladder_path, render_ladder_html(model))
             print("Wrote %s" % ladder_path)
 
+            history_path = out_dir / "history.json"
+            write_history_json(history_payload, history_path)
+            print("Wrote %s" % history_path)
+
             atlas_path = out_dir / "atlas.html"
             svg_text = None
             if svg_rendered and svg_path.exists():
                 svg_text = svg_path.read_text(encoding="utf-8")
-            _write_text(atlas_path, render_atlas_html(model, prose, svg_text, forbidden))
+            _write_text(
+                atlas_path,
+                render_atlas_html(model, prose, svg_text, forbidden, history_payload),
+            )
             print("Wrote %s" % atlas_path)
 
             if args.place:
@@ -3250,7 +3621,7 @@ def main(argv=None):
     if args.check:
         if model is not None:
             try:
-                run_check(model, forbidden, allowed, prose)
+                run_check(model, forbidden, allowed, prose, history_payload)
             except Exception as exc:
                 print("WARN arch-check: %s" % exc, file=sys.stderr)
                 print()
