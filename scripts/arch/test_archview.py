@@ -1220,6 +1220,50 @@ class WalkerEdgeCaseTests(unittest.TestCase):
         self.assertEqual(found, ["Foo/Kept.cs"])
 
 
+class KernelGuardTests(unittest.TestCase):
+    def test_unplaced_root_file_is_warned_about_and_skipped(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            src = root / "src"
+            src.mkdir()
+            (src / "KernelFile.cs").write_text("class KernelThing { }", encoding="utf-8")
+            (src / "MysteryFile.cs").write_text("class MysteryThing { }", encoding="utf-8")
+            (src / "Other").mkdir()
+            (src / "Other" / "Thing.cs").write_text("class OtherThing { }", encoding="utf-8")
+            modules = root / "modules.toml"
+            modules.write_text(
+                '[[module]]\nname = "Core"\nprefix = "^KernelFile[.]cs$"\n',
+                encoding="utf-8",
+            )
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured), contextlib.redirect_stderr(io.StringIO()):
+                rc = archview.main(
+                    [
+                        "--source",
+                        str(src),
+                        "--modules",
+                        str(modules),
+                        "--out",
+                        str(root / "out"),
+                    ]
+                )
+            self.assertEqual(rc, 0)
+            output = captured.getvalue()
+            self.assertIn(
+                "WARN unplaced root file: MysteryFile.cs (add a rule to modules.toml;"
+                " Core is the kernel, not a catch-all)",
+                output,
+            )
+            self.assertIn(
+                "WARN unclassified file: Other/Thing.cs (add a rule to modules.toml)",
+                output,
+            )
+            rules, tooling, _forbidden, _allowed = archview.load_rules(modules)
+            model = archview.build_model(src, rules, tooling)
+            self.assertEqual(model["fileModules"], {"KernelFile.cs": "Core"})
+            self.assertEqual(model["unclassified"], ["MysteryFile.cs", "Other/Thing.cs"])
+
+
 class ModelWiringTests(unittest.TestCase):
     @staticmethod
     def _write(root, rel, text):
@@ -1660,9 +1704,23 @@ class RealTreeSmokeTests(unittest.TestCase):
         # Phase 2's revised placement policy (R1 name families first, then
         # externalRefs >= 5 AND (share >= 0.5 OR top >= 2 * second) on the
         # rebuilt evidence) moved 48 files and left 75; the R0 operator rules
-        # then placed 67 of those by hand, leaving the 8 kernel files that
-        # every module uses (see README, "Editing modules.toml").
+        # then placed 67 of those by hand, leaving the 8 kernel files that are
+        # used across many modules (see README, "Editing modules.toml").
         self.assertEqual(self.by_name["Core"]["files"], 8)
+
+    def test_kernel_files_resolve_to_core(self):
+        kernel = [
+            "BranchPoint.cs",
+            "IPlaybackTrajectory.cs",
+            "VesselLaunchIdentity.cs",
+            "VesselSpawner.cs",
+            "MilestoneStore.cs",
+            "GroupHierarchyStore.cs",
+            "InventoryManifest.cs",
+            "PlaybackTrajectoryBoundsResolver.cs",
+        ]
+        for name in kernel:
+            self.assertEqual(self.model["fileModules"][name], "Core")
 
     def test_phase_two_placements(self):
         modules = self.model["fileModules"]
@@ -1674,12 +1732,16 @@ class RealTreeSmokeTests(unittest.TestCase):
 
     def test_committed_placement_report_matches_a_fresh_render(self):
         rules, tooling, _forbidden, _allowed = archview.load_rules(archview.DEFAULT_MODULES)
-        before_rules = [rule for rule in rules if not rule.get("placement")]
-        after_r1_rules = [
-            rule
-            for rule in rules
-            if not rule.get("placement") or rule.get("placement") == "R1"
-        ]
+        before_rules = archview.historical_catch_all_rules(
+            [rule for rule in rules if not rule.get("placement")]
+        )
+        after_r1_rules = archview.historical_catch_all_rules(
+            [
+                rule
+                for rule in rules
+                if not rule.get("placement") or rule.get("placement") == "R1"
+            ]
+        )
         before_model = archview.build_model(REAL_SOURCE, before_rules, tooling)
         after_r1_model = archview.build_model(REAL_SOURCE, after_r1_rules, tooling)
         fresh = archview.render_placement_report(

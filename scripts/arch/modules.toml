@@ -8,8 +8,9 @@
 #   folder = match the first path segment under Source/Parsek/ (only applies to
 #            files inside a subfolder; a folder rule never matches a root file).
 #   prefix = a regex applied to the file name of a ROOT-LEVEL file only.
-# A file that matches no rule is reported as unclassified and skipped; the
-# Core catch-all is written last so it can never shadow a rule above it.
+# A file that matches no rule is reported as unplaced and skipped; Core is the
+# kernel list (eight explicit files), written last so it can never shadow a
+# rule above it. A new root file must get a rule.
 
 # --- folder rules ---------------------------------------------------------
 
@@ -321,10 +322,12 @@ name = "Recording"
 prefix = '^TerminalState[.]cs$'
 placement = "R2"
 
-# Catch-all for unclassified root files. MUST stay last.
+# Core is the kernel vocabulary, not a catch-all: exactly the eight root files
+# every module leans on. Any other root file must be placed by a rule above; an
+# unplaced root file is reported by the checker and skipped. MUST stay last.
 [[module]]
 name = "Core"
-prefix = ".*"
+prefix = "^BranchPoint[.]cs$|^IPlaybackTrajectory[.]cs$|^VesselLaunchIdentity[.]cs$|^VesselSpawner[.]cs$|^MilestoneStore[.]cs$|^GroupHierarchyStore[.]cs$|^InventoryManifest[.]cs$|^PlaybackTrajectoryBoundsResolver[.]cs$"
 
 # --- production views ------------------------------------------------------
 # Modules listed here are hidden from the production views (dot + matrix) and

@@ -251,12 +251,15 @@ not a claim about the code).
 
 ## Placing catch-all files
 
-`modules.toml` ends with a catch-all rule (currently `Core`) that catches every
-root-level file no other rule claims. That is a map maintenance queue, not a
-module: `--place` reports what is in it and which module owns each file, and
-the phase that placed the first batch left its evidence in
-`core-placement.md`. That report is generated evidence - produced by
-`--place`, never edited by hand.
+`modules.toml` used to end with a catch-all rule (`Core`) that collected every
+root-level file no other rule claimed. That was a map maintenance queue, not a
+module, and the placement policy below emptied it. The kernel guard has since
+replaced the catch-all with an explicit list: `Core` now names the eight kernel
+files, and an unplaced root file is reported and skipped rather than silently
+joining the kernel. `--place` still scores the files in the last rule's module
+and writes the phase's evidence to `core-placement.md`; for the historical
+report it rebuilds the before-state with the old catch-all semantics. That
+report is generated evidence - produced by `--place`, never edited by hand.
 
 For every catch-all file the evidence line gives its declared type count (a
 name the type graph drops because two modules declare it still counts here),
@@ -346,11 +349,15 @@ Rules are read top to bottom and the first match wins.
 - `folder = "X"` matches the first path segment under `Source/Parsek/`, so it
   applies to files in that folder and its subfolders.
 - `prefix = "regex"` is matched against the file name of root-level files only.
-- Keep a catch-all `prefix = ".*"` rule (`Core`) LAST; anything above it wins.
+- `Core` is the kernel list (eight explicit file names) and MUST stay last; a
+  new root file must get its own rule above it. An unplaced root file warns as
+  `WARN unplaced root file: <name> (add a rule to modules.toml; Core is the
+  kernel, not a catch-all)`; an unplaced folder file keeps the
+  `WARN unclassified file` wording.
 - `bin/`, `obj/` and `Properties/` are always skipped.
 
 Add the most specific rules first, confirm with
-`python scripts/arch/archview.py --check` that nothing is unclassified, and
+`python scripts/arch/archview.py --check` that nothing is unplaced, and
 mention module additions in the same commit as the code they cover.
 
 The other sections:

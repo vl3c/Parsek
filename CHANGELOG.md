@@ -60,7 +60,11 @@ _(unreleased — entries accumulate here per commit)_
   than hand-assembled: `atlas.html` renders
   every number, table and the map from the live model, while the prose lives in
   `scripts/arch/atlas.toml`, and the checker reports prose that no longer
-  matches the model instead of letting the page go quietly stale. No
+  matches the model instead of letting the page go quietly stale.
+
+  The map's `Core` module is a guard now rather than a catch-all: it names the
+  eight kernel files explicitly, so a new root file that no rule matches is
+  reported as an unplaced root file instead of quietly joining the kernel. No
   player-visible behavior changes.
 
 ### Changed

@@ -932,6 +932,18 @@ def default_placement_rules():
     ]
 
 
+def historical_catch_all_rules(rules):
+    """Return rules whose last entry matches every root file.
+
+    The kernel guard made Core an explicit list, so a reconstruction of a
+    pre-phase map has no catch-all left; the placement report still rebuilds
+    the historical last-rule bucket this way.
+    """
+    if not rules:
+        return list(rules)
+    return list(rules[:-1]) + [{"name": rules[-1]["name"], "prefix": ".*"}]
+
+
 def place(evidence, rules):
     """Return (destination, rule_id, tag) for one file's placement evidence.
 
@@ -3162,7 +3174,13 @@ def main(argv=None):
     if model is not None:
         try:
             for rel_path in model["unclassified"]:
-                print("WARN unclassified file: %s (add a rule to modules.toml)" % rel_path)
+                if "/" in rel_path:
+                    print("WARN unclassified file: %s (add a rule to modules.toml)" % rel_path)
+                else:
+                    print(
+                        "WARN unplaced root file: %s (add a rule to modules.toml;"
+                        " Core is the kernel, not a catch-all)" % rel_path
+                    )
 
             out_dir = Path(args.out)
             out_dir.mkdir(parents=True, exist_ok=True)
@@ -3206,12 +3224,16 @@ def main(argv=None):
             if args.place:
                 print()
                 print_placement_evidence(model)
-                before_rules = [rule for rule in rules if not rule.get("placement")]
-                after_r1_rules = [
-                    rule
-                    for rule in rules
-                    if not rule.get("placement") or rule.get("placement") == "R1"
-                ]
+                before_rules = historical_catch_all_rules(
+                    [rule for rule in rules if not rule.get("placement")]
+                )
+                after_r1_rules = historical_catch_all_rules(
+                    [
+                        rule
+                        for rule in rules
+                        if not rule.get("placement") or rule.get("placement") == "R1"
+                    ]
+                )
                 before_model = build_model(args.source, before_rules, tooling)
                 after_r1_model = build_model(args.source, after_r1_rules, tooling)
                 report_path = out_dir / "core-placement.md"
