@@ -163,7 +163,7 @@ reading = "The map renderer asks playback for what is present. Expected, given t
 
 [[upward_readings]]
 edge = "Recording -> Rewind"
-reading = "The model reaches up into supersede resolution. Paired with Rewind -> Recording at 98: the two are one subsystem on paper."
+reading = "The model reaches up into supersede resolution. Paired with Rewind &rarr; Recording at 98: the two are one subsystem on paper."
 
 [[upward_readings]]
 edge = "Rewind -> Controllers"
