@@ -241,7 +241,7 @@ The window is draggable, resizable, and the tab bar uses the same styling as the
 
 ### Settings
 
-Click the "Settings" button in the main Parsek window to open the Settings panel. Settings are saved per-save and can also be accessed from KSP's Difficulty Settings screen (Esc > Settings > Parsek).
+Click the "Settings" button in the main Parsek window to open the Settings panel. This is the only place Parsek settings are edited: KSP's own Difficulty Options screen (Esc > Settings) deliberately shows no Parsek section. Values you change stick across saves and sessions.
 
 Recording:
 

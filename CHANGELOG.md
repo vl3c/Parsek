@@ -655,6 +655,17 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Parsek settings are no longer editable from KSP's own Difficulty Options screen,
+  where the edit was quietly thrown away.** That screen used to show a "Parsek" section
+  with eight of Parsek's settings in it - verbose logging, the three tracing switches,
+  readable sidecar mirrors, supply-route paths on the map, recorder sample density and
+  ghost audio volume. Changing one there looked like it worked and then reverted at the
+  next load, because Parsek keeps those preferences in its own file and puts them back
+  over whatever a save happens to carry. Two settings screens for the same settings, one
+  of which loses the change, was the confusion; the stock screen no longer lists Parsek at
+  all. Every setting is still in Parsek's own Settings window, still remembered exactly as
+  before, and every stored value in existing saves is kept and read as before.
+
 - **Table cells now sit under their own column headings in Real Spawn Control, Career
   State and the Structure window.** Photographing every window and measuring the rects
   showed the headings and the rows they label were laid out from different starting

@@ -108,7 +108,8 @@
 2. Save game (F5 or Esc → Save)
 3. Reload (F9 or Load)
 4. Open Settings → verify values persisted
-5. Also verify via Esc → Settings → Parsek (KSP difficulty screen)
+5. Also verify Esc → Settings shows NO "Parsek" section or tab (the stock difficulty
+   screen deliberately draws none since 2026-09-14; `ParsekSettings.GameMode` is `NONE`)
 
 ## 18. Defaults button
 1. Change all settings to non-default values
