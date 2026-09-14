@@ -81,9 +81,18 @@ namespace Parsek
     /// </para>
     ///
     /// <para>
-    /// <b>Default behavior is warn-only and MUST NOT alter any successful rewind.</b>
-    /// Aborting the patch is opt-in via <see cref="AbortRewindPatchOnDivergence"/>
-    /// (default OFF).
+    /// <b>The guard is warn-only and MUST NOT alter any successful rewind.</b> There is no
+    /// production switch to abort the patch (operator decision 2026-09-14, recorded at
+    /// <c>docs/dev/ledger-state-reconstruction-audit.md</c> §8 rec #1). An abort would not
+    /// be fail-closed: the guard is cleared in <c>RewindInvoker</c>'s <c>finally</c> while
+    /// the ReFly marker keeps <c>authoritativeReduction=true</c>, so the next unguarded
+    /// recalc writes the identical target. It would also break a DESIGNED rewind: Step 3b
+    /// <c>RetireResurrectedVesselRecoveryRows</c> tombstones the recovery rows of vessels
+    /// the rewind resurrects, so after any post-RP spend the correct target sits BELOW both
+    /// witnesses. And it would skip
+    /// Science/TechTree/Funds/Reputation/Facilities/Milestones/Contracts wholesale after the
+    /// crew roster was already applied. The abort code path survives only as the test seam
+    /// <see cref="ForceAbortForTesting"/>, which keeps the early-return branch pinned.
     /// </para>
     ///
     /// <para>
@@ -108,16 +117,10 @@ namespace Parsek
         internal static EconomySnapshot Loaded;
 
         /// <summary>
-        /// Opt-in: when true AND a divergence is flagged, the runner asks
-        /// <see cref="KspStatePatcher.PatchAll"/> to abort before writing the economy.
-        /// Default OFF — the guard is warn-only out of the box and never alters a
-        /// successful rewind.
-        /// </summary>
-        internal static bool AbortRewindPatchOnDivergence = false;
-
-        /// <summary>
-        /// Test seam: forces the abort decision on a flagged divergence without flipping
-        /// the production opt-in. Mirrors <c>MapRenderTrace.ForceEnabledForTesting</c>.
+        /// Test seam: forces the abort decision on a flagged divergence. The only writer of
+        /// the abort branch - production is unconditionally warn-and-proceed, so this seam
+        /// is what keeps <see cref="KspStatePatcher.PatchAll"/>'s early return pinned.
+        /// Mirrors <c>MapRenderTrace.ForceEnabledForTesting</c>.
         /// </summary>
         internal static bool ForceAbortForTesting;
 
@@ -137,7 +140,7 @@ namespace Parsek
                 $"eBeforeFunds={Fmt(before.Funds)} eRpFunds={Fmt(loaded.Funds)} " +
                 $"eBeforeScience={Fmt(before.Science)} eRpScience={Fmt(loaded.Science)} " +
                 $"eBeforeRep={Fmt(before.Reputation)} eRpRep={Fmt(loaded.Reputation)} " +
-                $"abortOnDivergence={AbortRewindPatchOnDivergence}");
+                "mode=warn-and-proceed");
         }
 
         /// <summary>Disarms the guard and drops both witnesses. Idempotent.</summary>
@@ -148,11 +151,10 @@ namespace Parsek
             Loaded = default(EconomySnapshot);
         }
 
-        /// <summary>Resets all state including the abort opt-in / test seam. Tests only.</summary>
+        /// <summary>Resets all state including the abort test seam. Tests only.</summary>
         internal static void ResetForTesting()
         {
             Clear();
-            AbortRewindPatchOnDivergence = false;
             ForceAbortForTesting = false;
         }
 

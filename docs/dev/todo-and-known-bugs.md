@@ -1067,13 +1067,45 @@ fail-loud contract working as designed, but it is not what `ParsekUI.cs:937-940`
   affordability is deliberately unchecked. Science IS enforced
   (`Patches/TechResearchPatch.cs:78`), so the two currencies behave differently behind
   identical-looking tooltips and the player finds out when the drawdown clamp fires.
-- D7: `RewindReadbackGuard.AbortRewindPatchOnDivergence` is hardcoded `false` (`:116`).
+- ~~D7: `RewindReadbackGuard.AbortRewindPatchOnDivergence` is hardcoded `false` (`:116`).
   The divergence it guards is named in the code as "possible silent career corruption"
-  (`KspStatePatcher.cs:3732`); today the code names the failure, logs a Warn, and proceeds.
+  (`KspStatePatcher.cs:3732`); today the code names the failure, logs a Warn, and
+  proceeds.~~ **RESOLVED 2026-09-14 (operator decision after a second-opinion review): the
+  abort option is retired and the guard stays warn-and-proceed**, because the abort is not
+  fail-closed (the guard is cleared in `RewindInvoker.cs`'s `finally` while the ReFly marker
+  keeps `authoritativeReduction=true`, so the next unguarded recalc writes the identical
+  target) and it would break a DESIGNED rewind (Step 3b `RetireResurrectedVesselRecoveryRows`
+  puts the correct target below both witnesses after any post-RP spend), while skipping
+  Science/TechTree/Funds/Reputation/Facilities/Milestones/Contracts wholesale after the crew
+  roster was already applied - and it has never fired (57 armed rewinds across 665 collected
+  logs, 0 `FLAGGED DIVERGENCE`). Fix: field deleted; the WARN now states the measured
+  meaning (target below the pre-rewind / rewind-point floor, written anyway under the
+  authoritative rewind) and names the two legitimate causes; the abort branch survives only
+  under `RewindReadbackGuard.ForceAbortForTesting`.
 
-**Decision:** arm either gate, or delete it and say in the tooltip / log that the check is
-advisory. Two named, unarmed safety gates are worse than none, because the next reader
-assumes they fire.
+**Decision:** P15 remains open - arm the funds gate, or delete it and say in the tooltip that
+the check is advisory. A named, unarmed safety gate is worse than none, because the next
+reader assumes it fires. D7 is closed above.
+
+## REWIND-READBACK-GUARD-HAS-NO-LIVE-WITNESS-LANE [FILED 2026-09-14 by the guard-retire decision]
+
+**Evidence.** The rewind read-back divergence guard is warn-and-proceed by decision (see the
+D7 resolution above), so its only product is the `FLAGGED DIVERGENCE` WARN - and across 665
+collected logs and 57 armed rewinds that line has never been emitted, with all 8 career runs
+reading `delta=0`. The predicate is unit-pinned (`RewindReadbackGuardTests.cs`), but nothing
+drives the DESIGNED flag through a real career.
+
+**Follow-ups.**
+
+- A career harness lane that recovers a vessel, spends funds post-RP, then `InvokeRewind`s,
+  with HARD `[expectations.ledger]` facets on the post-rewind pools and a `logContract`
+  requiring `FLAGGED DIVERGENCE`. That turns the Step-3b retirement arithmetic into a live
+  witness instead of a unit-test argument, and it is the only way to learn what the WARN
+  looks like on real data before any future gate is considered.
+- The modded-compat / strategy rewind lane (coverage-audit row A7): a rewind on a career
+  carrying a strategy conversion or a mod-granted earning channel. That is the only shape
+  where a per-resource floor that EXEMPTS Step-3b resurrected-recovery retirements would be
+  the right gate, so the lane has to exist before such a floor could be designed.
 
 ## GUI-P19-CANDIDATES-EMPTY-STATE-TELLS-THE-PLAYER-TO-DO-WHAT-THEY-DID [FILED 2026-09-11 by the GUI fix batch]
 

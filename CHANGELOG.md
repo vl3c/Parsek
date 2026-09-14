@@ -78,6 +78,17 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **The rewind career self-check is now warn-and-proceed with no abort switch, and says
+  what it actually measured.** The check that compares a Rewind-to-Separation's rebuilt
+  career economy against your real funds, science and reputation carried an unused option to
+  abort the rebuild when the comparison came out low. That option is gone: aborting would
+  have skipped the whole economy, tech, facility and contract rebuild after the crew roster
+  had already been applied, the next ordinary recalculation would have written the same
+  values anyway, and a low reading can be entirely correct - rewinding a flight that
+  resurrects a recovered vessel correctly takes that recovery's payout back off your
+  balance. The warning itself no longer says "possible silent career corruption"; it states
+  that the rebuilt value sits below your pre-rewind and rewind-point balance and is being
+  written anyway, and names the two known innocent causes.
 - **Internal: the logging helper no longer depends on anything else in the mod.** Every
   part of Parsek writes to the log, so the logging helper is the one piece nearly all the
   code touches - and it used to reach back out to two things itself: the settings object,
