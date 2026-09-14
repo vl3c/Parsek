@@ -111,7 +111,11 @@ namespace Parsek
             NoTrajectoryPoints,
             OutsideTimeRange,
             SuppressedByChainFilter,
-            OrbitSegmentActive
+            OrbitSegmentActive,
+            // GUI-P1: the player unticked this recording's playback box, so it has no
+            // presence anywhere - including this non-proto marker, which is the only TS
+            // surface that survives the proto being retired.
+            PlaybackDisabled
         }
 
         internal struct AtmosphericMarkerSummary
@@ -131,6 +135,8 @@ namespace Parsek
             public int BracketMiss;
             public int MissingBody;
             public int LoopMemberHidden; // Phase F: member outside its loop window this cycle
+            // GUI-P1: recordings hidden by the per-recording playback tick box.
+            public int PlaybackDisabled;
 
             internal bool HasSignal =>
                 Candidates > 0
@@ -146,14 +152,15 @@ namespace Parsek
                 || OrbitSegmentActive > 0
                 || BracketMiss > 0
                 || MissingBody > 0
-                || LoopMemberHidden > 0;
+                || LoopMemberHidden > 0
+                || PlaybackDisabled > 0;
         }
 
         internal static string FormatAtmosphericMarkerSummary(AtmosphericMarkerSummary summary)
         {
             return string.Format(
                 CultureInfo.InvariantCulture,
-                "Atmospheric marker summary: event={0} candidates={1} drawn={2} cameraUnavailable={3} noCommitted={4} nativeIcon={5} nullRecording={6} debris={7} noPoints={8} outsideTimeRange={9} chainSuppressed={10} orbitSegment={11} bracketMiss={12} missingBody={13} loopMemberHidden={14}",
+                "Atmospheric marker summary: event={0} candidates={1} drawn={2} cameraUnavailable={3} noCommitted={4} nativeIcon={5} nullRecording={6} debris={7} noPoints={8} outsideTimeRange={9} chainSuppressed={10} orbitSegment={11} bracketMiss={12} missingBody={13} loopMemberHidden={14} playbackDisabled={15}",
                 string.IsNullOrEmpty(summary.EventTypeName) ? "(unknown)" : summary.EventTypeName,
                 summary.Candidates,
                 summary.Drawn,
@@ -168,7 +175,8 @@ namespace Parsek
                 summary.OrbitSegmentActive,
                 summary.BracketMiss,
                 summary.MissingBody,
-                summary.LoopMemberHidden);
+                summary.LoopMemberHidden,
+                summary.PlaybackDisabled);
         }
 
         private static void LogAtmosphericMarkerSummary(AtmosphericMarkerSummary summary)
@@ -209,6 +217,9 @@ namespace Parsek
                 case AtmosphericMarkerSkipReason.OrbitSegmentActive:
                     summary.OrbitSegmentActive++;
                     break;
+                case AtmosphericMarkerSkipReason.PlaybackDisabled:
+                    summary.PlaybackDisabled++;
+                    break;
             }
         }
 
@@ -229,6 +240,7 @@ namespace Parsek
             RecordingStore.CommittedRecordingRemoving += OnCommittedRecordingRemoving;
             RecordingStore.CommittedRecordingRemoved += OnCommittedRecordingRemoved;
             RecordingStore.CommittedRecordingInserted += OnCommittedRecordingInserted;
+            RecordingStore.RecordingPlaybackEnabledChanged += OnRecordingPlaybackEnabledChanged;
 
             ParsekLog.Info(Tag,
                 $"ParsekTrackingStation initialized: created {created} ghost vessel(s), " +
@@ -565,6 +577,11 @@ namespace Parsek
                 if (skipReason != AtmosphericMarkerSkipReason.None)
                 {
                     CountAtmosphericMarkerSkip(ref summary, skipReason);
+                    // GUI-P1: one line per recording when the playback tick box starts hiding
+                    // this marker, not once per TS frame (the aggregate stays in the summary).
+                    if (skipReason == AtmosphericMarkerSkipReason.PlaybackDisabled)
+                        GhostMapPresence.LogMapPresencePlaybackSuppressedOnChange(
+                            "ts-atmospheric-marker", rec.RecordingId, rec.VesselName);
                     // C-1: pass the RAW skip reason so the finer TS taxonomy (folded away by
                     // MapSkipReasonToMarkerOutcome) survives as the tsSkip= field on this ghost's line.
                     EmitMarkerDecision(MapSkipReasonToMarkerOutcome(skipReason), skipReason,
@@ -837,6 +854,8 @@ namespace Parsek
                 case AtmosphericMarkerSkipReason.OutsideTimeRange: return "outside-time-range";
                 case AtmosphericMarkerSkipReason.SuppressedByChainFilter: return "suppressed-by-chain-filter";
                 case AtmosphericMarkerSkipReason.OrbitSegmentActive: return "orbit-segment-active";
+                case AtmosphericMarkerSkipReason.PlaybackDisabled:
+                    return GhostMapPresence.TrackingStationGhostSkipPlaybackDisabled;
                 default: return "unknown";
             }
         }
@@ -865,6 +884,12 @@ namespace Parsek
                     return AtmosphericMarkerSkipReason.NativeIconActive;
             }
             if (rec == null) return AtmosphericMarkerSkipReason.NullRecording;
+            // GUI-P1: the per-recording playback tick box is OFF. This marker is the ONE
+            // Tracking Station surface that outlives the retired ProtoVessel (the block above
+            // only fires while a proto exists), so without this gate an unticked recording
+            // still painted its labelled marker over the TS map.
+            if (GhostMapPresence.IsMapPresenceHiddenByPlaybackToggle(rec))
+                return AtmosphericMarkerSkipReason.PlaybackDisabled;
             if (rec.IsDebris) return AtmosphericMarkerSkipReason.Debris;
             if (rec.Points == null || rec.Points.Count == 0)
                 return AtmosphericMarkerSkipReason.NoTrajectoryPoints;
@@ -932,11 +957,29 @@ namespace Parsek
             nextLifecycleCheckTime = 0f;
         }
 
+        /// <summary>
+        /// GUI-P1: the per-recording playback tick box flipped while the Tracking Station is
+        /// open. The atmospheric-marker pass already re-derives every frame, but the PROTO
+        /// lifecycle (icon + orbit line + the stock TS row) runs on a 0.25 s tick, so force
+        /// the next tick NOW - the same treatment a committed-list mutation gets - and the
+        /// row comes back on the next frame instead of up to a quarter second later.
+        /// </summary>
+        private void OnRecordingPlaybackEnabledChanged(Recording rec, bool enabled)
+        {
+            nextLifecycleCheckTime = 0f;
+            ParsekLog.Verbose(Tag,
+                "Playback tick box changed for rec="
+                    + (rec?.RecordingId ?? "(null)")
+                    + " enabled=" + enabled
+                    + " - forcing the map-presence lifecycle tick this frame");
+        }
+
         void OnDestroy()
         {
             RecordingStore.CommittedRecordingRemoving -= OnCommittedRecordingRemoving;
             RecordingStore.CommittedRecordingRemoved -= OnCommittedRecordingRemoved;
             RecordingStore.CommittedRecordingInserted -= OnCommittedRecordingInserted;
+            RecordingStore.RecordingPlaybackEnabledChanged -= OnRecordingPlaybackEnabledChanged;
             DismissCurrentGhostPopup("tracking-station-cleanup");
             DestroyAtmosphericFocusTarget("tracking-station-cleanup");
             GhostTrackingStationSelection.ClearSelectedGhost("tracking-station-cleanup");

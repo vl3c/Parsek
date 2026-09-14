@@ -3560,6 +3560,11 @@ namespace Parsek.Display
             Debris,
             NoTrajectoryPoints,
             SuppressedByChainFilter,
+            // GUI-P1: the player's per-recording playback tick box is OFF, so this
+            // recording draws nothing anywhere - the polyline included. The polyline is a
+            // separate draw authority from the ProtoVessel, so retiring the proto does not
+            // retire the line: it needs its own arm of the same gate.
+            PlaybackDisabled,
         }
 
         /// <summary>
@@ -3582,6 +3587,8 @@ namespace Parsek.Display
             Recording rec, HashSet<string> suppressedIds)
         {
             if (rec == null) return PolylineStaticSkipReason.NullRecording;
+            if (GhostMapPresence.IsMapPresenceHiddenByPlaybackToggle(rec))
+                return PolylineStaticSkipReason.PlaybackDisabled;
             if (rec.IsDebris) return PolylineStaticSkipReason.Debris;
             if (rec.Points == null || rec.Points.Count == 0)
                 return PolylineStaticSkipReason.NoTrajectoryPoints;
@@ -4583,6 +4590,12 @@ namespace Parsek.Display
                     if (staticSkip != PolylineStaticSkipReason.None)
                     {
                         frameSkippedStatic++;
+                        // GUI-P1: one line per recording when the playback tick box starts
+                        // hiding its line, not once per frame (the frame aggregate stays in
+                        // frameSkippedStatic).
+                        if (staticSkip == PolylineStaticSkipReason.PlaybackDisabled)
+                            GhostMapPresence.LogMapPresencePlaybackSuppressedOnChange(
+                                "polyline", rec.RecordingId, rec.VesselName);
                         continue;
                     }
 

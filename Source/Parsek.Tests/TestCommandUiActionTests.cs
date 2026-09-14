@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using Parsek;
@@ -53,6 +53,7 @@ namespace Parsek.Tests
         [InlineData("target", 10)]
         [InlineData("picker", 11)]
         [InlineData("dialog", 12)]
+        [InlineData("playback", 13)]
         public void EveryOpToken_Parses_AndRoundTrips(string raw, int expectedOp)
         {
             Assert.True(TestCommandUiAction.TryParseOp(raw, out UiActionOp op, out string r));
@@ -80,6 +81,7 @@ namespace Parsek.Tests
             Assert.Equal(10, (int)UiActionOp.Target);
             Assert.Equal(11, (int)UiActionOp.Picker);
             Assert.Equal(12, (int)UiActionOp.Dialog);
+            Assert.Equal(13, (int)UiActionOp.Playback);
         }
 
         [Theory]
@@ -99,9 +101,10 @@ namespace Parsek.Tests
             string listed = TestCommandUiAction.ValidOpNames;
             foreach (string token in new[] { "open", "close", "tab", "complexity", "rect",
                                             "describe", "pointer", "find", "expand",
-                                            "target", "picker", "dialog" })
+                                            "target", "picker", "dialog",
+                                            "playback" })
                 Assert.Contains(token, listed.Split(','));
-            Assert.Equal(12, listed.Split(',').Length);
+            Assert.Equal(13, listed.Split(',').Length);
         }
 
         [Theory]
@@ -117,6 +120,7 @@ namespace Parsek.Tests
         [InlineData(6, false)]   // describe
         [InlineData(7, false)]   // pointer - screen space, no window in the grammar
         [InlineData(12, false)]  // dialog - a uGUI popup no table row can name
+        [InlineData(13, false)]  // playback - drives a field on the Recording, not a window
         public void OpNeedsWindow_MatchesTheOpsThatNameOne(int op, bool needs)
         {
             Assert.Equal(needs, TestCommandUiAction.OpNeedsWindow((UiActionOp)op));

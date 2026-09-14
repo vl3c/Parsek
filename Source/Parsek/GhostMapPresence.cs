@@ -278,6 +278,12 @@ namespace Parsek
         }
 
         internal const string TrackingStationGhostSkipSuppressed = "suppressed";
+        // GUI-P1: the per-recording playback tick box in the Recordings tab is OFF for this
+        // recording, so it has no presence on any render surface (world ghost, map icon,
+        // orbit line, Tracking Station row, non-proto marker, trajectory polyline). Distinct
+        // from "suppressed" (chain / supersede / re-fly visibility, which the player does not
+        // drive) so a log reader can tell a player choice from a derived state.
+        internal const string TrackingStationGhostSkipPlaybackDisabled = "playback-disabled";
         internal const string TrackingStationGhostSkipAlreadySpawned = "already-spawned";
         internal const string TrackingStationGhostSkipLiveAnchorDouble = "live-anchor-double";
         internal const string TrackingStationGhostSkipEndpointConflict = "endpoint-conflict";
@@ -5145,6 +5151,24 @@ namespace Parsek
                 return ReturnDecision(TrackingStationGhostSource.None, skipReason, "isDebris=True");
             }
 
+            // GUI-P1: the player's per-recording playback tick box is OFF. Decline the whole
+            // map presence here - no ProtoVessel means no map icon, no orbit line and no
+            // Tracking Station row (a stock TS row exists iff the proto does), on BOTH the
+            // flight-map create path (which passes isSuppressed:false unconditionally) and the
+            // Tracking Station one. Placed BEFORE the covering-segment / EndpointTail
+            // resolution per Appendix A: a decline inside the endpoint-tail resolver falls
+            // through to a stale launch/transfer segment. The retire side of the same gate is
+            // GetTrackingStationGhostRemovalReason, so an existing proto goes away on the next
+            // lifecycle tick rather than lingering until the recording expires.
+            if (IsMapPresenceHiddenByPlaybackToggle(traj))
+            {
+                skipReason = TrackingStationGhostSkipPlaybackDisabled;
+                LogMapPresencePlaybackSuppressedOnChange(
+                    "map-presence", traj.RecordingId, (traj as Recording)?.VesselName);
+                return ReturnDecision(
+                    TrackingStationGhostSource.None, skipReason, "playbackEnabled=False");
+            }
+
             if (isSuppressed)
             {
                 skipReason = TrackingStationGhostSkipSuppressed;
@@ -9532,6 +9556,15 @@ namespace Parsek
             // genuine terminal is the no-covering-segment return at the bottom of this method.
             if (rec == null)
                 return "tracking-station-recording-missing";
+
+            // GUI-P1 retire side of the create gate in ResolveMapPresenceGhostSource: the
+            // player unticked this recording's playback box, so an already-materialized
+            // Tracking Station ghost retires on this lifecycle tick (icon + orbit line + the
+            // stock TS row all go with the proto). Pure: reads only the recording's own flag,
+            // so re-ticking the box stops returning a removal reason immediately and the
+            // create path re-seeds the proto on the same tick.
+            if (IsMapPresenceHiddenByPlaybackToggle(rec))
+                return TrackingStationGhostSkipPlaybackDisabled;
 
             if (isSuppressed)
                 return "tracking-station-child-started";

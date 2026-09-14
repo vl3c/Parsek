@@ -811,7 +811,7 @@ read them on 2026-09-11; where a file was edited by the fix batch the SYMBOL is 
 not the number. An entry that says `Decision:` is waiting on an operator ruling, per the
 triage.
 
-## GUI-P1-PLAYBACK-CHECKBOX-LEAVES-MAP-PRESENCE: the per-recording playback tick box does about a third of what its tooltip promises [FILED 2026-09-11 by the GUI fix batch, from the census's PROMISED-NOT-DELIVERED list]
+## ~~GUI-P1-PLAYBACK-CHECKBOX-LEAVES-MAP-PRESENCE~~: the per-recording playback tick box did about a third of what its tooltip promised [FILED 2026-09-11 by the GUI fix batch, from the census's PROMISED-NOT-DELIVERED list. RULED + FIXED + LIVE-PROVEN 2026-09-14, run `2026-09-14_2137`]
 
 **The claim.** The Recordings-tab row checkbox's tooltip
 (`UI/RecordingsTableUI.cs:1849`): "Play this recording back as a ghost. Unticked, the
@@ -832,6 +832,38 @@ cannot see.
 **Decision:** whether the terminal-vessel spawn is part of "no ghost". Ticking it off
 currently still gives you the recovered craft at the end; suppressing that changes what the
 career ends up holding, which is a bigger promise than the tooltip makes.
+
+**RULED 2026-09-14, and the line is drawn where this paragraph asked.** Unticked means no
+ghost on any RENDER surface - world ghost, map icon, stock orbit line, Tracking Station row,
+non-proto atmospheric marker, trajectory polyline. The CAREER effect is deliberately NOT part
+of it: the Space Center terminal-vessel spawn still fires for a hidden recording and bug #433's
+visibility-only reject stands unchanged, because hiding a ghost is a view decision and
+rewriting what the career ends up holding is not.
+
+**Fix.** One shared pure predicate,
+`GhostMapPresence.IsMapPresenceHiddenByPlaybackToggle(IPlaybackTrajectory)`, and one reason
+string `"playback-disabled"` (distinct from `"suppressed"`, which is derived rather than
+chosen), gated at FOUR draw authorities' own pure classifiers:
+`GhostMapPresence.ResolveMapPresenceGhostSource` (declines the ProtoVessel, so icon + stock
+orbit line + TS row all go - Parsek builds no TS rows, so a row exists iff the proto does),
+`GetTrackingStationGhostRemovalReason` (retires an ALREADY-materialized proto next tick),
+`ParsekTrackingStation.ClassifyAtmosphericMarkerSkip` (the one TS surface that outlives the
+proto), and `GhostTrajectoryPolylineRenderer.ClassifyPolylineStaticSkip` (a separate draw
+authority; killing the proto does not kill the line). `ParsekUI`'s ghostless fallback marker
+carries the gate explicitly though it is covered transitively. `ResolveMarkerDrawDecision` is
+untouched, per Appendix A. All five UI affordances now write through one
+`RecordingStore.SetRecordingPlaybackEnabled`, so the row, select-all, both group headers and
+the chain block behave identically; it raises `RecordingPlaybackEnabledChanged`, which the
+Tracking Station uses to run its 0.25 s proto tick immediately so re-ticking restores within a
+frame. Deliberately NOT folded into `FindTrackingStationSuppressedRecordingIds`' set, cheap as
+that looked: the same set gates the TS spawn handoff, so it would have suppressed the career
+effect.
+
+**Proof.** 21 xUnit cells in `PlaybackTogglePresenceScopeTests.cs` for the five seams and the
+writer, plus the live lane `GUI-9-playback-toggle-map-scope` (run `2026-09-14_2137`) - map and TS
+presence is exactly the surface a unit test cannot see. The lane needed NEW seam surface: nothing
+in the M-A2 command seam could flip `PlaybackEnabled` before, so `UiAction op=playback` was added
+with it.
 
 ## GUI-P2-LOOP-PERIOD-CELL-SHOWS-A-PERIOD-THE-ENGINE-IS-NOT-FLYING: the 20-clone cap silently raises the cadence [FILED 2026-09-11 by the GUI fix batch]
 
