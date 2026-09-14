@@ -153,23 +153,22 @@ says they do not co-change enough to force a merge), or move `MergeState` and
 Rewind. Decide after items 2 to 4 land, since those change what Recording
 references.
 
-### 6. Trajectory and Recording reference each other
+### 6. Trajectory and Recording reference each other (closed 2026-09-14 as a placement error)
 
-Evidence:
+Evidence at ranking time: Recording referenced Trajectory 65 times and
+Trajectory referenced Recording 51, instabilities 0.19 and 0.21.
 
-- Recording references Trajectory 65 times and Trajectory references Recording
-  51. Instabilities 0.19 and 0.21, so the map calls it a near tie rather than
-  an inversion.
-- The types behind the upward edge are `BallisticExtrapolator`, `OrbitReseed`
-  and the incomplete-ballistic scene-exit finalizer: Trajectory code that reads
-  recording types.
+What it turned out to be: five files matched the Trajectory family prefixes
+(`^Trajectory`, `^Orbit`, `^Incomplete`) but are recorder-side code: the
+scene-exit finalizer, the two trajectory sidecar codecs, the checkpoint bridge
+and densifier, and the orbit seed resolver. Placed in Recording by operator
+rule, Trajectory reads as 13 files at instability 0.06 with 6 upward
+references (`BallisticExtrapolator` and the Catmull-Rom fit reading
+`TerminalState`, `ReferenceFrame`, `TrackSection`, `SegmentEnvironment`).
+The remaining six are a small real coupling of the extrapolator to the
+recorder's enums; not worth a PR on their own.
 
-What a change would buy: pure math that references no model. The
-extrapolator's Recording-aware half moves to Recording; the numeric half stays.
-Low risk, medium size, mostly file moves. Worth doing because Trajectory is
-the one module the docs promise is pure.
-
-### 7. VesselSpawner is a controller helper filed as kernel
+### 7. VesselSpawner is a controller helper filed as kernel (plan written 2026-09-14)
 
 Evidence:
 
@@ -179,9 +178,14 @@ Evidence:
 - It is the reason Core reaches up into Recording (21 references, the only
   upward edge out of the kernel).
 
-What a change would buy: a kernel that is really eight small vocabulary files.
-Move it to Controllers, or split it into the pure snapshot and manifest half
-(kernel) and the live spawn and recover half (Controllers). Small to medium.
+The member-level read (`docs/dev/research/vesselspawner-split-plan-2026-09-14.md`)
+found 103 pure members over data types, 30 live-KSP operations, 50
+recording-model readers and 17 glue members, and one decisive fact: the ledger
+and every Logistics caller use the pure bucket only, so moving the live half
+creates no upward edge from GameActions. The plan is three types
+(`VesselSnapshotOps` in the kernel, `RecordingSpawnPlanner` and
+`LiveVesselOps` in Recording) in five build-green steps, with the three
+regressions to guard named per member. Small to medium per step.
 
 ### 8. Missions and Reaim: cut, do not merge
 

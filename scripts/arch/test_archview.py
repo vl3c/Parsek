@@ -2115,7 +2115,7 @@ class RealTreeSmokeTests(unittest.TestCase):
         # facts a reader relies on rather than a committed copy.
         self.assertEqual(fresh, again)
         self.assertIn("| Core |", fresh)
-        self.assertIn("| Core | 123 | 8 |", fresh)
+        self.assertIn("| Core | 124 | 8 |", fresh)  # 124: the narrowed Trajectory family rule leaves the scene-exit finalizer in the historical before-state
 
     def test_atlas_prose_matches_the_tree(self):
         prose = archview.load_prose(archview.DEFAULT_ATLAS)

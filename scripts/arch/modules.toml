@@ -68,51 +68,8 @@ folder = "UI"
 
 # --- root-level file rules -------------------------------------------------
 
-[[module]]
-name = "Missions"
-prefix = "^Mission"
-
-# The Gloops recorder engine has no root-level files today; its only file,
-# UI/GloopsRecorderUI.cs, belongs to the UI folder module. The rule stays so
-# the declared [forbidden] Gloops boundaries are enforced the moment a
-# Gloops root file appears.
-[[module]]
-name = "Gloops"
-prefix = "^Gloops"
-
-[[module]]
-name = "Ghost"
-prefix = "^Ghost|^Waterfall|^Pristine|^ReStock"
-
-[[module]]
-name = "Rewind"
-prefix = "^Rewind|^Supersede|^Merge|^EffectiveState|^ReFly|^LoadTimeSweep|^RecordingTreeSplit"
-
-[[module]]
-name = "SwitchIntent"
-prefix = "^Switch|^StockAction"
-
-[[module]]
-name = "Recording"
-prefix = "^Recording|^BackgroundRecorder|^FlightRecorder|^Chain|^Track|^Optimiz"
-
-[[module]]
-name = "Trajectory"
-prefix = "^Trajectory|^Orbit|^Ballistic|^PatchedConic|^TwoBody|^Incomplete"
-
-[[module]]
-name = "Crew"
-prefix = "^Crew|^Kerbal"
-
-[[module]]
-name = "Controllers"
-prefix = "^Parsek(Flight|KSC|TrackingStation|Scenario|Harmony|Playback)|^WatchMode"
-
-[[module]]
-name = "LogIO"
-prefix = "^ParsekLog|^FileIO|^ParsekProcess|^Suppression|^PreParsek"
-
 # --- R0 operator placements (phase 2b) ------------------------------------
+# Evaluated FIRST so an explicit file name beats every family prefix below.
 # Files below the R2 evidence floor or referenced by nothing outside Core,
 # placed by hand from what each file does. The eight kernel files stay in Core
 # on purpose: BranchPoint, IPlaybackTrajectory, VesselLaunchIdentity,
@@ -129,7 +86,7 @@ placement = "R0"
 # sidecar I/O, recorder policy and classifiers; each referenced only by Recording or by Recording plus one controller
 [[module]]
 name = "Recording"
-prefix = "^SnapshotSidecarCodec[.]cs$|^RecorderStateLog[.]cs$|^SidecarFileCommitBatch[.]cs$|^SessionMerger[.]cs$|^TreeDiscardPurge[.]cs$|^DiscardSidecarReap[.]cs$|^PartStateSeeder[.]cs$|^PartStateSeeder[.]Diff[.]cs$|^ProximityRateSelector[.]cs$|^SegmentPhaseClassifier[.]cs$|^TraceSeparation[.]cs$|^DebrisParentStateGate[.]cs$|^DebrisRelativeRecorderPolicy[.]cs$|^IdentityLossClassifier[.]cs$|^StockWarpAltitudeLimits[.]cs$|^AntennaSpec[.]cs$|^DiagnosticFormatters[.]cs$|^RecorderStateSnapshot[.]cs$"
+prefix = "^SnapshotSidecarCodec[.]cs$|^RecorderStateLog[.]cs$|^IncompleteBallisticSceneExitFinalizer[.]cs$|^TrajectorySidecarBinary[.]cs$|^TrajectoryTextSidecarCodec[.]cs$|^OrbitSegmentCheckpointBridge[.]cs$|^OrbitalCheckpointDensifier[.]cs$|^OrbitSeedResolver[.]cs$|^SidecarFileCommitBatch[.]cs$|^SessionMerger[.]cs$|^TreeDiscardPurge[.]cs$|^DiscardSidecarReap[.]cs$|^PartStateSeeder[.]cs$|^PartStateSeeder[.]Diff[.]cs$|^ProximityRateSelector[.]cs$|^SegmentPhaseClassifier[.]cs$|^TraceSeparation[.]cs$|^DebrisParentStateGate[.]cs$|^DebrisRelativeRecorderPolicy[.]cs$|^IdentityLossClassifier[.]cs$|^StockWarpAltitudeLimits[.]cs$|^AntennaSpec[.]cs$|^DiagnosticFormatters[.]cs$|^RecorderStateSnapshot[.]cs$"
 placement = "R0"
 
 # playback, spawn and ghost visual support
@@ -173,6 +130,50 @@ placement = "R0"
 name = "Harness"
 prefix = "^LedgerGroundTruth[.]cs$|^LedgerGroundTruthDiff[.]cs$|^CareerSaveParser[.]cs$|^TestBatchMarker[.]cs$|^CareerStartSnapshot[.]cs$"
 placement = "R0"
+[[module]]
+name = "Missions"
+prefix = "^Mission"
+
+# The Gloops recorder engine has no root-level files today; its only file,
+# UI/GloopsRecorderUI.cs, belongs to the UI folder module. The rule stays so
+# the declared [forbidden] Gloops boundaries are enforced the moment a
+# Gloops root file appears.
+[[module]]
+name = "Gloops"
+prefix = "^Gloops"
+
+[[module]]
+name = "Ghost"
+prefix = "^Ghost|^Waterfall|^Pristine|^ReStock"
+
+[[module]]
+name = "Rewind"
+prefix = "^Rewind|^Supersede|^Merge|^EffectiveState|^ReFly|^LoadTimeSweep|^RecordingTreeSplit"
+
+[[module]]
+name = "SwitchIntent"
+prefix = "^Switch|^StockAction"
+
+[[module]]
+name = "Recording"
+prefix = "^Recording|^BackgroundRecorder|^FlightRecorder|^Chain|^Track|^Optimiz"
+
+[[module]]
+name = "Trajectory"
+prefix = "^Trajectory|^Orbit|^Ballistic|^PatchedConic|^TwoBody"
+
+[[module]]
+name = "Crew"
+prefix = "^Crew|^Kerbal"
+
+[[module]]
+name = "Controllers"
+prefix = "^Parsek(Flight|KSC|TrackingStation|Scenario|Harmony|Playback)|^WatchMode"
+
+[[module]]
+name = "LogIO"
+prefix = "^ParsekLog|^FileIO|^ParsekProcess|^Suppression|^PreParsek"
+
 # --- R1 name-family placements (phase 2) ----------------------------------
 # A file whose name starts with one of the family prefixes goes to the
 # family's module regardless of references; the family is a unit. The

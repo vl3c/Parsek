@@ -57,7 +57,11 @@ _(unreleased — entries accumulate here per commit)_
 
   The ranked reading of all three signals is
   `docs/dev/research/architecture-opportunities-2026-09-14.md`; it names candidates
-  with their numbers and changes nothing. The generated views are not committed: they are gitignored and regenerated on
+  with their numbers and changes nothing. A member-level split plan for `VesselSpawner`
+  (`docs/dev/research/vesselspawner-split-plan-2026-09-14.md`) sits beside it; the
+  scene-exit finalizer, the trajectory sidecar codecs and the checkpoint
+  bookkeeping are now placed in Recording, which leaves Trajectory reading as the
+  near-pure math module the docs describe. The generated views are not committed: they are gitignored and regenerated on
   demand, so a reader never meets a stale one. The atlas is now generated rather
   than hand-assembled: `atlas.html` renders
   every number, table and the map from the live model, while the prose lives in
