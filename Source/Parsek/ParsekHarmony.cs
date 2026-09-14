@@ -36,6 +36,15 @@ namespace Parsek
                 return;
             }
 
+            // Earliest scene-independent Parsek entry point: this addon is
+            // [KSPAddon(Startup.Instantly, once: true)], so it runs at game load before any
+            // scene exists and therefore before ParsekScenario.OnAwake/OnLoad in EVERY
+            // scene that can load recordings. Recording.StampTerminalState needs the
+            // crew-end-state observer in place before the first recording is stamped, and
+            // KerbalsModule's static constructor alone would not run until something first
+            // touched that type - which a save load can reach only after stamping.
+            KerbalsModule.EnsureTerminalStampObserverInstalled();
+
             var assembly = typeof(ParsekHarmony).Assembly;
             var harmony = new Harmony("com.parsek.mod");
 

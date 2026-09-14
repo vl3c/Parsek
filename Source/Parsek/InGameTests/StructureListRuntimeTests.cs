@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Parsek.Logistics;
 
 namespace Parsek.InGameTests
 {

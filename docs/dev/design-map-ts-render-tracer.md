@@ -509,10 +509,15 @@ the save block in particular ships a setting that loads and restores but never p
    early-returns unless `MapRenderTrace.IsEnabled`. Delete the standalone `Enabled`
    flag.
 
-Both representations are required to match the existing pattern: the
-`[GameParameters.CustomParameterUI]` attribute drives the stock difficulty-settings
+Both representations were required to match the existing pattern at the time: the
+`[GameParameters.CustomParameterUI]` attribute drove the stock difficulty-settings
 screen, and the manual `SettingsWindowUI` toggle drives the Parsek settings window.
-`ghostRenderTracing` carries both; `mapRenderTracing` must too.
+`ghostRenderTracing` carries both; `mapRenderTracing` does too. SUPERSEDED 2026-09-14
+for the attribute half only: `ParsekSettings.GameMode` now returns
+`GameParameters.GameMode.NONE`, so no `CustomParameterUI` on this node draws anywhere and
+the `SettingsWindowUI` toggle is the sole surface. The attribute is kept (inert, and its
+`autoPersistance` default is what keeps the value in the save); a NEW setting needs the
+`SettingsWindowUI` half and the persistence mirror, not a difficulty-screen control.
 
 ---
 

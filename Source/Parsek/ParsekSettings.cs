@@ -19,7 +19,45 @@ namespace Parsek
         private const string SamplingDensityKey = "samplingDensity";
 
         public override string Title => "Parsek";
-        public override GameParameters.GameMode GameMode => GameParameters.GameMode.ANY;
+
+        /// <summary>
+        /// <b>NONE by design (operator ruling 2026-09-14): the stock Settings &gt;
+        /// Difficulty Options screen must not draw a Parsek section at all.</b> Every
+        /// Parsek setting is a runtime debugging or preference option that belongs in
+        /// Parsek's own Settings window, and the stock screen was a SECOND writer for the
+        /// same fields that silently lost the edit: it writes the <c>GameParameters</c>
+        /// field without calling the matching
+        /// <c>ParsekSettingsPersistence.Record*</c>, so
+        /// <c>ParsekSettingsPersistence.ApplyTo</c> overwrote the change from the sidecar
+        /// at the next load (todo entry GUI-P7).
+        ///
+        /// <para>Mechanism, from the decompiled KSP 1.12.5 <c>DifficultyOptionsMenu</c> -
+        /// the single screen that draws custom parameter nodes, serving both the in-game
+        /// Esc &gt; Settings path and the new-game advanced-options path through its own
+        /// <c>isNewGame</c> flag: the node loop skips a node outright when
+        /// <c>(customParamNode.GameMode &amp; currentGameModeFilter) == 0</c>, BEFORE it
+        /// reads any member or its <c>CustomParameterUI</c> attribute, and the
+        /// <c>listDictionary.Add(customParamNode.Section, ...)</c> that creates the
+        /// section/tab sits inside that same loop. <c>GameMode.NONE</c> is 0, so the
+        /// filter can never match and no Parsek section or tab is built in any game mode.
+        /// Hiding the individual members instead (<c>Enabled</c> returning false, or
+        /// dropping the attributes) would still leave an empty "Parsek" tab: the loop adds
+        /// a blank label when a node produced no controls.</para>
+        ///
+        /// <para>Storage is untouched, which is why this override is the whole change:
+        /// <c>GameParameters.Save</c> walks the <c>customParams</c> dictionary and
+        /// <c>ParameterNode.Save</c> writes every public field regardless of
+        /// <c>GameMode</c> (it consults <c>CustomParameterUI</c> only for
+        /// <c>autoPersistance</c>), so the save's <c>ParsekSettings</c> node still carries
+        /// every key and load still overlays it. The Parsek Settings window, the settings
+        /// sidecar and the harness <c>SettingWhitelist</c> / <c>SetSetting</c> seam all
+        /// write the fields directly and are unaffected.</para>
+        /// </summary>
+        public override GameParameters.GameMode GameMode => GameParameters.GameMode.NONE;
+
+        // Section / DisplaySection / SectionOrder are abstract on CustomParameterNode and
+        // must return something, but with GameMode.NONE above nothing reads them: the node
+        // never reaches the section-building line.
         public override string Section => "Parsek";
         public override string DisplaySection => "Parsek";
         public override int SectionOrder => 1;
@@ -66,6 +104,12 @@ namespace Parsek
         /// </summary>
         public bool autoMerge = true;
 
+        // The CustomParameterUI / CustomIntParameterUI / CustomFloatParameterUI attributes
+        // below no longer draw anything: GameMode.NONE (above) removes the whole Parsek
+        // section from the stock Difficulty Options screen before any member is read. They
+        // are kept because they are inert and because their autoPersistance default is what
+        // keeps every field in the save; the Parsek Settings window is the only surface that
+        // draws these settings, and its own labels and tooltips live in SettingsWindowUI.
         [GameParameters.CustomParameterUI("Verbose logging",
             toolTip = "When enabled, write detailed diagnostics to KSP.log (default for development)")]
         public bool verboseLogging = true;
@@ -258,6 +302,29 @@ namespace Parsek
                  : LoopTimeUnit.Sec;
             set => autoLoopTimeUnit = value == LoopTimeUnit.Min ? 1
                  : value == LoopTimeUnit.Hour ? 2 : 0;
+        }
+
+        static ParsekSettings()
+        {
+            // Pushes the verbose gate INTO the logger instead of letting the logger
+            // read this type. ParsekLog is referenced by nearly every file in the
+            // assembly, so a reference OUT of it drags this settings type - and the
+            // dependency cycle it sits in - behind every log call. This runs on the
+            // first touch of any ParsekSettings static member; before that ParsekLog's
+            // null provider answers verbose ON, exactly what the old
+            // "Current == null" branch returned.
+            ParsekLog.VerboseProvider = () => Current?.verboseLogging ?? true;
+            // A static constructor that throws poisons this type for the whole
+            // AppDomain (TypeInitializationException on every later access), and the
+            // log call can reach a test sink the test owns. The evidence line is worth
+            // keeping; a failure to write it is not worth the type.
+            try
+            {
+                ParsekLog.Verbose("Settings", "verbose provider installed");
+            }
+            catch (Exception)
+            {
+            }
         }
 
         public static ParsekSettings Current =>

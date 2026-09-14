@@ -89,6 +89,34 @@ _(unreleased — entries accumulate here per commit)_
   balance. The warning itself no longer says "possible silent career corruption"; it states
   that the rebuilt value sits below your pre-rewind and rewind-point balance and is being
   written anyway, and names the two known innocent causes.
+- **Internal: the logging helper no longer depends on anything else in the mod.** Every
+  part of Parsek writes to the log, so the logging helper is the one piece nearly all the
+  code touches - and it used to reach back out to two things itself: the settings object,
+  to ask whether verbose logging is on, and the recorder's state summary, to format one
+  diagnostic line. Those two reaches were enough to tie it into a single tangle of 391
+  types that cannot be reasoned about, changed or tested apart from one another. The
+  verbose switch is now handed TO the logger by the settings when they first load (with the
+  same answer as before, including "on" while no save is loaded yet), and the recorder
+  diagnostic line moved into its own small file, so the logger reaches for nothing. That
+  tangle drops from 391 types to 336 on its own, and 110 more types leave it once the
+  companion change lands. Nothing a player sees, reads or does changes: the log lines,
+  their wording and the verbose setting all behave exactly as before.
+- **Internal: the recording data type no longer calls back into its own store or the crew
+  ledger.** A recording is the piece of data almost everything in Parsek reads, and it used
+  to reach upwards twice: it asked the recording store for the two schema numbers it stamps
+  itself with, and it told the crew bookkeeping directly whenever a flight's ending was
+  decided. Both directions are now one-way. The schema numbers live in a small holder of
+  their own that the store passes through under exactly the same names, and the crew
+  bookkeeping registers itself with the recording type at startup instead of being called by
+  name. Together with the same treatment for the logger, that takes 110 types out of a
+  single tangle in which nothing could be read, tested or changed on its own. Nothing a
+  player sees or reaches changes.
+- **Internal tidy: the supply-route step list now lives next to the routes it reads.**
+  The code that turns a supply route into the step-by-step log shown in the Log window
+  sat among the mission code, which meant the mission half of Parsek had to know about
+  supply routes in order to build at all. It moved in with the rest of the route code, so
+  the two halves are independent again. Nothing about the windows, the wording of a step,
+  or what gets recorded changes.
 
 - **Automated testing: five fixes to the new hover / point / open-everything support,
   found by reviewing it.** Pointing at a control by its label and then moving the mouse
@@ -637,6 +665,17 @@ _(unreleased — entries accumulate here per commit)_
   is fixed.
 
 ### Fixed
+
+- **Parsek settings are no longer editable from KSP's own Difficulty Options screen,
+  where the edit was quietly thrown away.** That screen used to show a "Parsek" section
+  with eight of Parsek's settings in it - verbose logging, the three tracing switches,
+  readable sidecar mirrors, supply-route paths on the map, recorder sample density and
+  ghost audio volume. Changing one there looked like it worked and then reverted at the
+  next load, because Parsek keeps those preferences in its own file and puts them back
+  over whatever a save happens to carry. Two settings screens for the same settings, one
+  of which loses the change, was the confusion; the stock screen no longer lists Parsek at
+  all. Every setting is still in Parsek's own Settings window, still remembered exactly as
+  before, and every stored value in existing saves is kept and read as before.
 
 - **Table cells now sit under their own column headings in Real Spawn Control, Career
   State and the Structure window.** Photographing every window and measuring the rects

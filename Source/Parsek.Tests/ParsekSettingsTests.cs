@@ -145,6 +145,66 @@ namespace Parsek.Tests
             }
         }
 
+        /// <summary>
+        /// Pins the operator ruling of 2026-09-14: the stock Settings &gt; Difficulty
+        /// Options screen draws NO Parsek section. The mechanism is the node's
+        /// <c>GameMode</c>: decompiled KSP 1.12.5 <c>DifficultyOptionsMenu</c> skips a
+        /// custom parameter node - and so never reaches the
+        /// <c>listDictionary.Add(node.Section, ...)</c> that builds the section and its
+        /// tab - whenever <c>(node.GameMode &amp; currentGameModeFilter) == 0</c>, tested
+        /// before it reads any member or attribute. <c>GameMode.NONE</c> is 0, so the
+        /// filter misses for every mode the screen can be opened in.
+        ///
+        /// This cell reproduces that filter per mode rather than only comparing the
+        /// property, so re-annotating or adding a drawable member cannot resurface the
+        /// section; and it pins the storage half too, because <c>autoPersistance</c> (not
+        /// the GameMode) is what <c>GameParameters.ParameterNode.Save</c> consults when it
+        /// writes every public field into the save's <c>ParsekSettings</c> node.
+        ///
+        /// Fails if: someone restores a non-NONE GameMode (two settings screens for the
+        /// same fields, the stock one silently losing the edit - todo GUI-P7), or annotates
+        /// a member <c>autoPersistance = false</c> (that value would stop persisting).
+        /// </summary>
+        [Fact]
+        public void StockDifficultyScreen_DrawsNoParsekSection()
+        {
+            var settings = new ParsekSettings();
+
+            Assert.Equal(GameParameters.GameMode.NONE, settings.GameMode);
+
+            // The four single-mode filters DifficultyOptionsMenu can build, plus ANY.
+            foreach (GameParameters.GameMode filter in new[]
+            {
+                GameParameters.GameMode.SANDBOX,
+                GameParameters.GameMode.SCIENCE,
+                GameParameters.GameMode.CAREER,
+                GameParameters.GameMode.MISSION,
+                GameParameters.GameMode.ANY,
+            })
+            {
+                // The stock skip predicate, verbatim: a zero intersection means the node is
+                // passed over before any section, tab or control is built for it.
+                Assert.Equal(0, (int)(settings.GameMode & filter));
+            }
+
+            // Every drawable-annotated member still persists (the attributes are inert for
+            // drawing now, but autoPersistance is what keeps the value in the save).
+            MemberInfo[] members = typeof(ParsekSettings).GetMembers(
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.FlattenHierarchy);
+            int annotated = 0;
+            foreach (MemberInfo member in members)
+            {
+                var ui = member.GetCustomAttribute<GameParameters.CustomParameterUI>();
+                if (ui == null) continue;
+                annotated++;
+                Assert.True(ui.autoPersistance,
+                    $"{member.Name} would stop persisting into the save");
+            }
+
+            // Sanity: the annotated set is non-empty, so the loop above proved something.
+            Assert.True(annotated > 0);
+        }
+
         [Fact]
         public void ResolveSamplingDensityFromConfig_UsesStoredSamplingDensityWhenPresent()
         {
