@@ -371,19 +371,19 @@ namespace Parsek.Tests
         {
             // KSC: body first, "KSC" in the biome slot; status Prelaunch.
             Assert.Equal("Kerbin, KSC",
-                StructureLocationFormatter.EndpointLocation(new RouteEndpoint { BodyName = "Kerbin" }, true));
+                RouteEndpointLocationFormatter.EndpointLocation(new RouteEndpoint { BodyName = "Kerbin" }, true));
             Assert.Equal("Prelaunch",
-                StructureLocationFormatter.EndpointStatus(new RouteEndpoint { BodyName = "Kerbin" }, true));
+                RouteEndpointLocationFormatter.EndpointStatus(new RouteEndpoint { BodyName = "Kerbin" }, true));
 
             // Surface: body first + coords; status Landed.
             RouteEndpoint surf = new RouteEndpoint { BodyName = "Mun", IsSurface = true, Latitude = 1, Longitude = 2 };
-            Assert.StartsWith("Mun", StructureLocationFormatter.EndpointLocation(surf, false));
-            Assert.Equal("Landed", StructureLocationFormatter.EndpointStatus(surf, false));
+            Assert.StartsWith("Mun", RouteEndpointLocationFormatter.EndpointLocation(surf, false));
+            Assert.Equal("Landed", RouteEndpointLocationFormatter.EndpointStatus(surf, false));
 
             // Orbit: body only; status Orbiting.
             RouteEndpoint orb = new RouteEndpoint { BodyName = "Duna", IsSurface = false };
-            Assert.Equal("Duna", StructureLocationFormatter.EndpointLocation(orb, false));
-            Assert.Equal("Orbiting", StructureLocationFormatter.EndpointStatus(orb, false));
+            Assert.Equal("Duna", RouteEndpointLocationFormatter.EndpointLocation(orb, false));
+            Assert.Equal("Orbiting", RouteEndpointLocationFormatter.EndpointStatus(orb, false));
         }
 
         [Fact]
@@ -393,13 +393,13 @@ namespace Parsek.Tests
 
             // With a resolver: "body, biome" replaces the coordinate fallback.
             Assert.Equal("Mun, Midlands",
-                StructureLocationFormatter.EndpointLocation(surf, false, (body, lat, lon) => "Midlands"));
+                RouteEndpointLocationFormatter.EndpointLocation(surf, false, (body, lat, lon) => "Midlands"));
             // Resolver yielding nothing -> coordinate fallback survives.
             Assert.StartsWith("Mun (",
-                StructureLocationFormatter.EndpointLocation(surf, false, (body, lat, lon) => null));
+                RouteEndpointLocationFormatter.EndpointLocation(surf, false, (body, lat, lon) => null));
             // KSC ignores the resolver (keeps "KSC" in the biome slot).
             Assert.Equal("Kerbin, KSC",
-                StructureLocationFormatter.EndpointLocation(
+                RouteEndpointLocationFormatter.EndpointLocation(
                     new RouteEndpoint { BodyName = "Kerbin" }, true, (body, lat, lon) => "Shores"));
         }
 

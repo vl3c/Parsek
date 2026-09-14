@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using ClickThroughFix;
+using Parsek.Logistics;
 using UnityEngine;
 
 namespace Parsek
@@ -13,7 +14,7 @@ namespace Parsek
     /// route's "Log (Route)" / "Log (Mission)" buttons (Logistics window). One reusable
     /// instance owned by <see cref="ParsekUI"/>; reopening retargets it. Read-only over
     /// already-recorded data; the ordered step list comes from the pure
-    /// <see cref="MissionStructureListBuilder"/> / <see cref="RouteStructureListBuilder"/>.
+    /// <see cref="MissionStructureListBuilder"/> / <see cref="Logistics.RouteStructureListBuilder"/>.
     /// </summary>
     internal class StructureListWindowUI
     {

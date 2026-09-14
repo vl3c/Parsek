@@ -100,6 +100,12 @@ _(unreleased — entries accumulate here per commit)_
   name. Together with the same treatment for the logger, that takes 110 types out of a
   single tangle in which nothing could be read, tested or changed on its own. Nothing a
   player sees or reaches changes.
+- **Internal tidy: the supply-route step list now lives next to the routes it reads.**
+  The code that turns a supply route into the step-by-step log shown in the Log window
+  sat among the mission code, which meant the mission half of Parsek had to know about
+  supply routes in order to build at all. It moved in with the rest of the route code, so
+  the two halves are independent again. Nothing about the windows, the wording of a step,
+  or what gets recorded changes.
 
 - **Automated testing: five fixes to the new hover / point / open-everything support,
   found by reviewing it.** Pointing at a control by its label and then moving the mouse
