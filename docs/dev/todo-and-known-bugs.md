@@ -15,6 +15,98 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ARCH-PARSEKFLIGHT-CHANGE-HUB: ParsekFlight.cs is 27,591 lines and on one side of every top cross-module co-change pair [FILED 2026-09-14 off the architecture program (`docs/dev/research/architecture-opportunities-2026-09-14.md` item 1). A STRUCTURAL debt, not a defect. OPEN; the largest item on the list and the last to start]
+
+**What is true.**
+- Touched in 1,125 of the 5,127 commits since 2025-03-01 (22 percent of every commit to
+  `Source/Parsek`); the next file is `ParsekScenario.cs` at 420.
+- The top cross-module co-change pairs are all this file with another: `FlightRecorder.cs`
+  (147 commits together), `RecordingStore.cs` (128), `GhostPlaybackEngine.cs` (106),
+  `BackgroundRecorder.cs` (90), `ParsekUI.cs` (87), `GhostPlaybackLogic.cs` (79),
+  `GhostVisualBuilder.cs` (75), `VesselSpawner.cs` (63), `Recording.cs` (60).
+- Regenerate the evidence with `python scripts/arch/archview.py --check --place`
+  (HISTORY section; the views are gitignored).
+
+**Fix.** Extract one seam per PR, each behind a harness tier, in co-change order: the recorder
+hookup (`FlightRecorder` / `BackgroundRecorder`), playback hosting, spawning, the merge flow.
+`WatchModeController`, `ParsekPlaybackPolicy` and `ChainSegmentManager` are prior extractions
+of the same shape. Do this AFTER ARCH-KNOT-CHEAP-CUTS and ARCH-RECORDINGSTORE-GOD-OBJECT, which
+make the types it touches easier to reason about.
+
+## ARCH-KNOT-CHEAP-CUTS: two hub types sit in the 391-type dependency cycle because of four stray references, and cutting them frees 110 types [FILED 2026-09-14 off the architecture program (items 2 and 3 of the opportunities doc). OPEN; first on the suggested order, afternoon-sized each]
+
+**What is true.**
+- 391 production types (29 percent) form one strongly connected component; nothing inside it
+  can be tested or reasoned about in isolation.
+- `ParsekLog` (fan-in 295 files, 24 commits) is in the cycle only because it references
+  `ParsekSettings` (the verbose flag) and `RecorderStateSnapshot`. Making it a sink drops the
+  knot 391 -> 335.
+- `Recording` (fan-in 162, 132 commits, the top hotspot) is in the cycle because it references
+  `RecordingStore` and `KerbalsModule`. Making it a sink drops the knot 335 -> 281.
+- The `KNOTS` section of `--check` prints the greedy cut sequence; re-run after each cut.
+
+**Fix.**
+1. Settings pushes the verbose flag into the logger (static bool or delegate set at settings
+   load); the snapshot reference moves to its caller.
+2. The store lookups and the kerbals-module call on `Recording` move to the callers or to
+   `RecordingStore`; `Recording` becomes plain data.
+3. Pin the new knot size in `test_archview.py` so the cut cannot silently regress.
+
+## ARCH-RECORDINGSTORE-GOD-OBJECT: RecordingStore is a list plus eight services in one type [FILED 2026-09-14 off the architecture program (item 4). OPEN; the first item with real design content, after the cheap cuts]
+
+**What is true.**
+- 6,970 lines plus partials, fan-in 91 files, touched in 408 commits (third most churned file);
+  co-changes with `ParsekScenario.cs` 131 times and `ParsekFlight.cs` 128.
+- Inside the knot it references 37 other members: stores, codecs, the scenario, the flight
+  controller, the ledger orchestrator, the crew manager. It is the third greedy cut and the
+  first that names a design problem rather than a stray reference.
+- `CommittedListNotifications` documents one contract (the index-keyed live state); the sidecar
+  I/O, optimizer, orphan cleanup, tree discard, group hierarchy, ledger trigger and
+  switch-segment classification it also drives have no stated contract.
+
+**Fix.** The store as the committed list with its notifications; the operations that use it
+(optimizer, purge, sidecar commit, session merge) as services on top that the scenario module
+calls directly. One service per PR; the co-change with `ParsekScenario.cs` is the measure.
+
+## ARCH-KERNEL-AND-TRAJECTORY-PLACEMENT: three files are filed where the map says they do not belong [FILED 2026-09-14 off the architecture program (items 6, 7 and 9). OPEN; file moves and one interface, no behaviour change]
+
+**What is true.**
+- `VesselSpawner.cs` (6,897 lines, 163 commits, co-changes with `ParsekFlight.cs` 63 times)
+  stays in the eight-file Core kernel because no module owns a majority of its references, and
+  it is the only reason Core references Recording (21 references, the kernel's one upward edge).
+- Trajectory references Recording 51 times through `BallisticExtrapolator`, `OrbitReseed` and
+  the incomplete-ballistic scene-exit finalizer, so the one module the docs call pure math is
+  not.
+- `MissionRouteStructureList.cs` references `Logistics.Route` and `RouteStop`: the one declared
+  boundary (`[forbidden]` in `scripts/arch/modules.toml`) the checker finds crossed.
+
+**Fix.** Split `VesselSpawner` into the snapshot/manifest half (kernel) and the live spawn and
+recover half (Controllers); move the Recording-aware half of the extrapolator into Recording;
+move the route structure list into Logistics or read it through an interface Missions owns.
+Update `modules.toml` in the same commits so the placement report stays true.
+
+## ARCH-TOOLING-ROSLYN-AND-CI: the architecture checker is a text scan that gates nothing [FILED 2026-09-14 off the architecture program (phases 5 and 6). OPEN; tooling, no product change until the namespace tidy]
+
+**What is true.**
+- `scripts/arch/archview.py` matches identifiers against declared type names after stripping
+  comments, strings and directives. It cannot see reflection, string-keyed lookups or generic
+  inference, and names declared in two modules are dropped. Good enough to place files and rank
+  couplings; not sound enough to fail a build.
+- The three declared boundaries in `modules.toml` `[forbidden]` are report-only, and the
+  placement contract (no unplaced root file, every module has a summary) runs only when someone
+  runs the script. Nothing in CI or the xUnit suite executes it.
+- Namespaces do not match the module map: 370 of 749 files sit in the flat `namespace Parsek`,
+  so no off-the-shelf tool (ArchUnitNET, NsDepCop, NDepend) can express the boundaries either.
+
+**Fix.**
+1. A Roslyn extractor in `Parsek.Tests` that walks the semantic model and emits the same
+   `edges.json` / `types.json` shape, so every view and every number stays comparable.
+2. An xUnit test that fails on the placement contract only (unplaced root file, missing atlas
+   summary) while dependency findings stay report-only; add the regeneration command to the
+   per-commit docs checklist in `.claude/CLAUDE.md`.
+3. Then the mechanical namespace rename to match `modules.toml`, and arm the three forbidden
+   edges as failing tests.
+
 ## UNITY-SCANNER-BLIND-TO-PARSEK-STACK-FRAMES: the unity-exception scan counts exception LINES and never reads the stack under them, so a Parsek-frame NRE passes under any `maxTotal` ceiling [FILED 2026-09-11 off the wave-0910 decision memo (`docs/dev/research/wave-0910-open-decisions-2026-09-11.md` section 7). A HARNESS INSTRUMENT gap, not a product defect. OPEN; needs no decision]
 
 **What is true.**
