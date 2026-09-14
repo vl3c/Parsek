@@ -42,6 +42,11 @@ namespace Parsek.Tests
             CrewReservationManager.ResetReplacementsForTesting();
             RecalculationEngine.ClearModules();
             LedgerOrchestrator.SetKerbalsForTesting(new KerbalsModule());
+            // The seam reaches the crew-end-state invalidation through
+            // Recording.OnTerminalStamped. Production installs it from the Harmony startup
+            // addon, which no unit test runs, and the uninstalled-branch test below nulls
+            // it deliberately - so every test re-installs here.
+            KerbalsModule.EnsureTerminalStampObserverInstalled();
         }
 
         public void Dispose()
@@ -411,6 +416,57 @@ namespace Parsek.Tests
             Assert.True(SawInvalidation());
             Assert.Equal(KerbalEndState.Dead, rec.CrewEndStates["Jebediah Kerman"]);
             Assert.Equal(KerbalEndState.Dead, Recalc(rec).Single().KerbalEndStateField);
+        }
+
+        // ========================================================
+        // The observer indirection itself
+        // ========================================================
+
+        [Fact]
+        public void StampWithNoObserverInstalled_AssignsTheVerdictButWarnsAndReturnsFalse()
+        {
+            var rec = AddFork("observer-missing", new[] { "Jebediah Kerman" },
+                terminal: TerminalState.Landed);
+            Assert.Equal(KerbalEndState.Aboard, Recalc(rec).Single().KerbalEndStateField);
+            ClearLog();
+
+            var saved = Recording.OnTerminalStamped;
+            try
+            {
+                Recording.OnTerminalStamped = null;
+
+                Assert.False(rec.StampTerminalState(TerminalState.Recovered, "test-no-observer"));
+
+                // The verdict still lands; only the invalidation is skipped.
+                Assert.Equal(TerminalState.Recovered, rec.TerminalStateValue);
+                Assert.False(SawInvalidation());
+                Assert.Contains(logLines, l =>
+                    l.Contains("[Recording]")
+                    && l.Contains("terminal stamp observer not installed; crew end states "
+                        + "not invalidated context=test-no-observer"));
+            }
+            finally
+            {
+                Recording.OnTerminalStamped = saved;
+                KerbalsModule.EnsureTerminalStampObserverInstalled();
+            }
+        }
+
+        [Fact]
+        public void StampWithObserverInstalled_RoutesToTheCrewEndStateInvalidation()
+        {
+            var rec = AddFork("observer-installed", new[] { "Jebediah Kerman" },
+                terminal: TerminalState.Landed);
+            Assert.Equal(KerbalEndState.Aboard, Recalc(rec).Single().KerbalEndStateField);
+            ClearLog();
+
+            Assert.NotNull(Recording.OnTerminalStamped);
+            Assert.True(rec.StampTerminalState(TerminalState.Recovered, "test-observer-installed"));
+
+            Assert.True(SawInvalidation());
+            Assert.DoesNotContain(logLines, l => l.Contains("terminal stamp observer not installed"));
+            Assert.Equal(KerbalEndState.Recovered, rec.CrewEndStates["Jebediah Kerman"]);
+            Assert.Equal(KerbalEndState.Recovered, Recalc(rec).Single().KerbalEndStateField);
         }
     }
 }
