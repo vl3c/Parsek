@@ -1,0 +1,358 @@
+# Parsek architecture-view module map.
+#
+# `scripts/arch/archview.py` reads this file to assign every C# file under
+# Source/Parsek/ to exactly one module. It is the single hand-authored input;
+# edges.json and every view are derived from it.
+#
+# Rules are evaluated in file order and the FIRST match wins.
+#   folder = match the first path segment under Source/Parsek/ (only applies to
+#            files inside a subfolder; a folder rule never matches a root file).
+#   prefix = a regex applied to the file name of a ROOT-LEVEL file only.
+# A file that matches no rule is reported as unplaced and skipped; Core is the
+# kernel list (eight explicit files), written last so it can never shadow a
+# rule above it. A new root file must get a rule.
+
+# --- folder rules ---------------------------------------------------------
+
+[[module]]
+name = "Analyzer"
+folder = "Analyzer"
+
+[[module]]
+name = "Diagnostics"
+folder = "Diagnostics"
+
+[[module]]
+name = "Display"
+folder = "Display"
+
+[[module]]
+name = "GameActions"
+folder = "GameActions"
+
+[[module]]
+name = "InGameTests"
+folder = "InGameTests"
+
+[[module]]
+name = "Logistics"
+folder = "Logistics"
+
+[[module]]
+name = "MapRender"
+folder = "MapRender"
+
+[[module]]
+name = "Patches"
+folder = "Patches"
+
+[[module]]
+name = "Reaim"
+folder = "Reaim"
+
+[[module]]
+name = "Rendering"
+folder = "Rendering"
+
+[[module]]
+name = "TestCommands"
+folder = "TestCommands"
+
+[[module]]
+name = "Timeline"
+folder = "Timeline"
+
+[[module]]
+name = "UI"
+folder = "UI"
+
+# --- root-level file rules -------------------------------------------------
+
+# --- R0 operator placements (phase 2b) ------------------------------------
+# Evaluated FIRST so an explicit file name beats every family prefix below.
+# Files below the R2 evidence floor or referenced by nothing outside Core,
+# placed by hand from what each file does. The eight kernel files stay in Core
+# on purpose: BranchPoint, IPlaybackTrajectory, VesselLaunchIdentity,
+# VesselSpawner, MilestoneStore, GroupHierarchyStore, InventoryManifest and
+# PlaybackTrajectoryBoundsResolver have no majority owner because every module
+# uses them; that is the shared vocabulary, not a placement gap.
+
+# session lifecycle, revert and unfinished-flight machinery (named in the rewind section of CLAUDE.md); SceneExitInterceptor is a Harmony-driven entry point referenced only from comments
+[[module]]
+name = "Rewind"
+prefix = "^UnfinishedFlightClassifier[.]cs$|^UnfinishedFlightSealHandler[.]cs$|^UnfinishedFlightStashHandler[.]cs$|^PostLoadStripper[.]cs$|^ReconciliationBundle[.]cs$|^MarkerValidator[.]cs$|^RevertDetector[.]cs$|^RevertInterceptor[.]cs$|^SceneExitInterceptor[.]cs$|^QuickloadResumeMatchGuard[.]cs$|^CrashCoalescer[.]cs$|^CheckpointDoubleCoverRetire[.]cs$"
+placement = "R0"
+
+# sidecar I/O, recorder policy and classifiers; each referenced only by Recording or by Recording plus one controller
+[[module]]
+name = "Recording"
+prefix = "^SnapshotSidecarCodec[.]cs$|^RecorderStateLog[.]cs$|^IncompleteBallisticSceneExitFinalizer[.]cs$|^TrajectorySidecarBinary[.]cs$|^TrajectoryTextSidecarCodec[.]cs$|^OrbitSegmentCheckpointBridge[.]cs$|^OrbitalCheckpointDensifier[.]cs$|^OrbitSeedResolver[.]cs$|^SidecarFileCommitBatch[.]cs$|^SessionMerger[.]cs$|^TreeDiscardPurge[.]cs$|^DiscardSidecarReap[.]cs$|^PartStateSeeder[.]cs$|^PartStateSeeder[.]Diff[.]cs$|^ProximityRateSelector[.]cs$|^SegmentPhaseClassifier[.]cs$|^TraceSeparation[.]cs$|^DebrisParentStateGate[.]cs$|^DebrisRelativeRecorderPolicy[.]cs$|^IdentityLossClassifier[.]cs$|^StockWarpAltitudeLimits[.]cs$|^AntennaSpec[.]cs$|^DiagnosticFormatters[.]cs$|^RecorderStateSnapshot[.]cs$"
+placement = "R0"
+
+# playback, spawn and ghost visual support
+[[module]]
+name = "Ghost"
+prefix = "^PlaybackTrace[.]cs$|^PlaybackScopeTracker[.]cs$|^PlaybackOrbitDiagnostics[.]cs$|^EngineFxBuilder[.]cs$|^MaterialCleanup[.]cs$|^RecordedRelativeAnchorPoseResolver[.]cs$|^DebrisRelativeCoveragePrimitives[.]cs$|^LoopSeamMarkerRuntime[.]cs$|^LoopSeamMarkerBuilder[.]cs$|^VesselGhoster[.]cs$|^SpawnCollisionDetector[.]cs$|^TerrainCorrector[.]cs$|^SpawnWarningUI[.]cs$|^VesselDisassemblyClassifier[.]cs$"
+placement = "R0"
+
+# scene-level runtime control; the WarpToTime family is one unit
+[[module]]
+name = "Controllers"
+prefix = "^TimeJumpManager[.]cs$|^PauseMenuGate[.]cs$|^InputFocusGuard[.]cs$|^MapMarkerRenderer[.]cs$|^ConnectionProducerClassifier[.]cs$|^WarpToTimeController[.]cs$|^WarpToTimeConsumer[.]cs$|^WarpToTimeMath[.]cs$|^WarpToTimeRequest[.]cs$"
+placement = "R0"
+
+# dialogs, caches for windows, and Unity-instantiated overlays that no code references (KSP creates them)
+[[module]]
+name = "UI"
+prefix = "^CommittedActionDialog[.]cs$|^DockEventGraphCache[.]cs$|^ResourceBudget[.]cs$|^CurrencyReservationOverlay[.]cs$|^OverlayBadge[.]cs$|^StockUiOverlayController[.]cs$|^ParsekToolbarRegistration[.]cs$"
+placement = "R0"
+
+# all three references come from Display
+[[module]]
+name = "Display"
+prefix = "^ForwardRenderWindow[.]cs$"
+placement = "R0"
+
+# all references come from Rendering
+[[module]]
+name = "Rendering"
+prefix = "^PannotationsSidecarBinary[.]cs$"
+placement = "R0"
+
+# ledger observability
+[[module]]
+name = "GameActions"
+prefix = "^LedgerTrace[.]cs$"
+placement = "R0"
+
+# in-game test and harness support; tooling, hidden from production views
+[[module]]
+name = "Harness"
+prefix = "^LedgerGroundTruth[.]cs$|^LedgerGroundTruthDiff[.]cs$|^CareerSaveParser[.]cs$|^TestBatchMarker[.]cs$|^CareerStartSnapshot[.]cs$"
+placement = "R0"
+[[module]]
+name = "Missions"
+prefix = "^Mission"
+
+# The Gloops recorder engine has no root-level files today; its only file,
+# UI/GloopsRecorderUI.cs, belongs to the UI folder module. The rule stays so
+# the declared [forbidden] Gloops boundaries are enforced the moment a
+# Gloops root file appears.
+[[module]]
+name = "Gloops"
+prefix = "^Gloops"
+
+[[module]]
+name = "Ghost"
+prefix = "^Ghost|^Waterfall|^Pristine|^ReStock"
+
+[[module]]
+name = "Rewind"
+prefix = "^Rewind|^Supersede|^Merge|^EffectiveState|^ReFly|^LoadTimeSweep|^RecordingTreeSplit"
+
+[[module]]
+name = "SwitchIntent"
+prefix = "^Switch|^StockAction"
+
+[[module]]
+name = "Recording"
+prefix = "^Recording|^BackgroundRecorder|^FlightRecorder|^Chain|^Track|^Optimiz"
+
+[[module]]
+name = "Trajectory"
+prefix = "^Trajectory|^Orbit|^Ballistic|^PatchedConic|^TwoBody"
+
+[[module]]
+name = "Crew"
+prefix = "^Crew|^Kerbal"
+
+[[module]]
+name = "Controllers"
+prefix = "^Parsek(Flight|KSC|TrackingStation|Scenario|Harmony|Playback)|^WatchMode"
+
+[[module]]
+name = "LogIO"
+prefix = "^ParsekLog|^FileIO|^ParsekProcess|^Suppression|^PreParsek"
+
+# --- R1 name-family placements (phase 2) ----------------------------------
+# A file whose name starts with one of the family prefixes goes to the
+# family's module regardless of references; the family is a unit. The
+# evidence table is docs/dev/arch/core-placement.md. The Mission family is
+# already placed by the Missions rule above.
+
+[[module]]
+name = "GuiTree"
+prefix = "^GuiTree"
+placement = "R1"
+
+[[module]]
+name = "GameActions"
+prefix = "^GameState"
+placement = "R1"
+
+[[module]]
+name = "Config"
+prefix = "^ParsekConfig|^ParsekSettings|^SettingWhitelist"
+placement = "R1"
+
+[[module]]
+name = "UI"
+prefix = "^ParsekUI"
+placement = "R1"
+
+[[module]]
+name = "MapRender"
+prefix = "^MapRender"
+placement = "R1"
+
+[[module]]
+name = "Logistics"
+prefix = "^RouteProof|^RouteConnection|^RouteEndpoint|^RouteHarvest|^RouteRun|^RouteOrigin|^Route"
+placement = "R1"
+
+[[module]]
+name = "Recording"
+prefix = "^PartEvent|^FlagEvent|^SegmentEvent|^SegmentBoundary|^SurfacePosition|^AnchorDetector|^RelativeAnchor|^TrackSection|^ControllerInfo"
+placement = "R1"
+
+# --- R2 clear-owner placements (phase 2) ----------------------------------
+# One exact-file rule per placement: the module that references the file most
+# owns it (a majority share of its external references, or at least twice the
+# second module). Evidence is the comment above each rule; the full table is
+# docs/dev/arch/core-placement.md.
+
+# evidence: externalRefs=9 share=0.56 top=Rewind(5) second=Recording(2)
+[[module]]
+name = "Rewind"
+prefix = '^ChildSlot[.]cs$'
+placement = "R2"
+
+# evidence: externalRefs=8 share=0.50 top=Controllers(4) second=Ghost(4)
+[[module]]
+name = "Controllers"
+prefix = '^DebrisRelativePlaybackPolicy[.]cs$'
+placement = "R2"
+
+# evidence: externalRefs=18 share=0.50 top=Missions(9) second=UI(9)
+[[module]]
+name = "Missions"
+prefix = '^DockEventGraph[.]cs$'
+placement = "R2"
+
+# evidence: externalRefs=5 share=1.00 top=Recording(5) second=-
+[[module]]
+name = "Recording"
+prefix = '^EnvironmentDetector[.]cs$'
+placement = "R2"
+
+# evidence: externalRefs=6 share=0.50 top=Controllers(3) second=Ghost(3)
+[[module]]
+name = "Controllers"
+prefix = '^IGhostPositioner[.]cs$'
+placement = "R2"
+
+# evidence: externalRefs=6 share=0.67 top=Controllers(4) second=Ghost(2)
+[[module]]
+name = "Controllers"
+prefix = '^IndexShift[.]cs$'
+placement = "R2"
+
+# evidence: externalRefs=6 share=0.67 top=GameActions(4) second=Rewind(1)
+[[module]]
+name = "GameActions"
+prefix = '^Milestone[.]cs$'
+placement = "R2"
+
+# evidence: externalRefs=8 share=0.38 top=UI(3) second=Controllers(1)
+[[module]]
+name = "UI"
+prefix = '^ParsekTimeFormat[.]cs$'
+placement = "R2"
+
+# evidence: externalRefs=5 share=1.00 top=Recording(5) second=-
+[[module]]
+name = "Recording"
+prefix = '^ProximitySamplingCadence[.]cs$'
+placement = "R2"
+
+# evidence: externalRefs=13 share=0.77 top=GameActions(10) second=Controllers(3)
+[[module]]
+name = "GameActions"
+prefix = '^RecoveryPayoutContext[.]cs$'
+placement = "R2"
+
+# evidence: externalRefs=8 share=0.62 top=Ghost(5) second=Controllers(3)
+[[module]]
+name = "Ghost"
+prefix = '^RenderingZoneManager[.]cs$'
+placement = "R2"
+
+# evidence: externalRefs=25 share=0.68 top=Logistics(17) second=Recording(3)
+[[module]]
+name = "Logistics"
+prefix = '^ResourceManifest[.]cs$'
+placement = "R2"
+
+# evidence: externalRefs=9 share=0.78 top=UI(7) second=Controllers(2)
+[[module]]
+name = "UI"
+prefix = '^SelectiveSpawnUI[.]cs$'
+placement = "R2"
+
+# evidence: externalRefs=6 share=0.50 top=Controllers(3) second=Ghost(2)
+[[module]]
+name = "Controllers"
+prefix = '^SessionSuppressionState[.]cs$'
+placement = "R2"
+
+# evidence: externalRefs=5 share=1.00 top=Rewind(5) second=-
+[[module]]
+name = "Rewind"
+prefix = '^TerminalKindClassifier[.]cs$'
+placement = "R2"
+
+# evidence: externalRefs=7 share=0.86 top=Controllers(6) second=Recording(1)
+[[module]]
+name = "Controllers"
+prefix = '^TerminalOrbitSpawnSafety[.]cs$'
+placement = "R2"
+
+# evidence: externalRefs=43 share=0.28 top=Recording(12) second=Controllers(6)
+[[module]]
+name = "Recording"
+prefix = '^TerminalState[.]cs$'
+placement = "R2"
+
+# Core is the kernel vocabulary, not a catch-all: exactly the eight root files
+# every module leans on. Any other root file must be placed by a rule above; an
+# unplaced root file is reported by the checker and skipped. MUST stay last.
+[[module]]
+name = "Core"
+prefix = "^BranchPoint[.]cs$|^IPlaybackTrajectory[.]cs$|^VesselLaunchIdentity[.]cs$|^VesselSpawner[.]cs$|^MilestoneStore[.]cs$|^GroupHierarchyStore[.]cs$|^InventoryManifest[.]cs$|^PlaybackTrajectoryBoundsResolver[.]cs$|^VesselSnapshotOps[.]cs$"
+
+# --- production views ------------------------------------------------------
+# Modules listed here are hidden from the production views (dot + matrix) and
+# from the checker's metrics table. explore.html shows them behind a checkbox.
+
+[tooling]
+modules = ["InGameTests", "TestCommands", "Diagnostics", "Analyzer", "GuiTree", "Harness"]
+
+# --- dependency policy -----------------------------------------------------
+# Both lists use the edge form "From -> To", meaning "code in From references
+# types declared in To".
+#
+# forbidden: edges that must never exist. Report-only today.
+# allowed:   while this list is EMPTY the checker skips the allowlist section
+#            entirely. Once any edge is listed, every production edge not
+#            listed here is reported.
+
+[forbidden]
+edges = [
+  "Missions -> Logistics",
+  "Gloops -> GameActions",
+  "Gloops -> Timeline",
+  "Ghost -> GameActions",
+]
+
+[allowed]
+edges = []

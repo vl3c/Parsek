@@ -8,6 +8,74 @@ All notable changes to Parsek are documented here.
 
 _(unreleased — entries accumulate here per commit)_
 
+### Added
+
+- **Developer tooling: the source tree now has a module dependency map with four
+  ways to look at it, and a boundary check that reports without failing anything.**
+  Parsek is a single assembly of roughly 750 files, and until now nothing showed how
+  its parts depend on one another. `scripts/arch/archview.py` groups every file into
+  a module using the hand-written `scripts/arch/modules.toml`, then counts which
+  modules reference which by matching identifiers against declared type names (a
+  source-text approximation, not a compiler) and writes the result to
+  `docs/dev/arch/`: a graph layered along the stability gradient (modules that
+  mostly depend on others at the top, pure sinks at the bottom, with the arrows
+  that point back up drawn in red), a dependency structure matrix, and an
+  interactive explorer where clicking a module shows its direct neighbours. Running
+  it with `--check` also prints a metrics table, every upward edge, every pair of
+  modules that reference each other, and every declared boundary it finds crossed.
+  Today that last list flags one real crossing: Missions code building the route
+  structure list reads Logistics route types. Preprocessor lines, method calls that
+  merely share a type's name, and type names declared in more than one module are
+  excluded from the scan, which removed the phantom hits an earlier pass reported.
+  The checker always exits 0 and gates nothing, even on a typo in the module map; a
+  version that could fail a build would have to read the compiled code (Roslyn),
+  because a text scan cannot see conditional compilation or reflection.
+
+  The map now also gives every production type a role, a fan-in and a level, and
+  lays them out as a ladder in `docs/dev/arch/ladder.html` (the raw data is
+  `types.json`): modules are columns, levels are rows, a chip is one type, and a
+  bottom-up read follows the dependency order, with a click showing what a type
+  references and what references it. Roles are heuristics over the same text scan
+  (entry point, interface, abstract, enum, static, implements, data, service), and
+  the report also prints the 25 most-referenced types, the count per role, and a
+  per-module level profile.
+
+  The ladder now also explains why its biggest row is flat: the 391 types that
+  reference one another in a cycle (a "knot") are reported with their size and
+  module mix, the largest knot's hub types, and a greedy cut sequence that names
+  the few references worth untangling first, while the knot's ladder row is
+  split into ordered sub-rows with the cut sinks marked. Nothing about the code
+  changes; the cuts are a display order for the view.
+
+  The module map's catch-all is now a maintenance queue with a placement report
+  rather than a pile: `--place` scores every root file still in it by who
+  references it, moves the 48 files a name family or a clear owner claims
+  (including two new modules, the GUI census recorder and the settings types),
+  and lists the rest with their evidence in `docs/dev/arch/core-placement.md`.
+  67 of the 75 that remained were then placed by hand into the module each
+  belongs to, which leaves the eight kernel vocabulary files in `Core`.
+
+  The ranked reading of all three signals is
+  `docs/dev/research/architecture-opportunities-2026-09-14.md`; it names candidates
+  with their numbers and changes nothing. A member-level split plan for `VesselSpawner`
+  (`docs/dev/research/vesselspawner-split-plan-2026-09-14.md`) sits beside it; the
+  scene-exit finalizer, the trajectory sidecar codecs and the checkpoint
+  bookkeeping are now placed in Recording, which leaves Trajectory reading as the
+  near-pure math module the docs describe. The generated views are not committed: they are gitignored and regenerated on
+  demand, so a reader never meets a stale one. The atlas is now generated rather
+  than hand-assembled: `atlas.html` renders
+  every number, table and the map from the live model, while the prose lives in
+  `scripts/arch/atlas.toml`, and the checker reports prose that no longer
+  matches the model instead of letting the page go quietly stale.
+
+  The map's `Core` module is a guard now rather than a catch-all: it names the
+  eight kernel files explicitly, so a new root file that no rule matches is
+  reported as an unplaced root file instead of quietly joining the kernel. The
+  map is also cross-checked against change history: one `git log` pass over the
+  last 18 months reports type hotspots, module co-change (Jaccard), and the
+  cross-module file pairs that keep changing together, in the checker and in a
+  new atlas section. No player-visible behavior changes.
+
 ### Changed
 
 - **Automated testing: five fixes to the new hover / point / open-everything support,
