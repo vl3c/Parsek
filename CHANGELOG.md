@@ -78,6 +78,19 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Internal: the logging helper no longer depends on anything else in the mod.** Every
+  part of Parsek writes to the log, so the logging helper is the one piece nearly all the
+  code touches - and it used to reach back out to two things itself: the settings object,
+  to ask whether verbose logging is on, and the recorder's state summary, to format one
+  diagnostic line. Those two reaches were enough to tie it into a single tangle of 391
+  types that cannot be reasoned about, changed or tested apart from one another. The
+  verbose switch is now handed TO the logger by the settings when they first load (with the
+  same answer as before, including "on" while no save is loaded yet), and the recorder
+  diagnostic line moved into its own small file, so the logger reaches for nothing. That
+  tangle drops from 391 types to 336 on its own, and 110 more types leave it once the
+  companion change lands. Nothing a player sees, reads or does changes: the log lines,
+  their wording and the verbose setting all behave exactly as before.
+
 - **Automated testing: five fixes to the new hover / point / open-everything support,
   found by reviewing it.** Pointing at a control by its label and then moving the mouse
   there - the exact pairing the feature was built for - was refused before a run even
