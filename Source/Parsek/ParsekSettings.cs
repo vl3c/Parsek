@@ -270,7 +270,17 @@ namespace Parsek
             // null provider answers verbose ON, exactly what the old
             // "Current == null" branch returned.
             ParsekLog.VerboseProvider = () => Current?.verboseLogging ?? true;
-            ParsekLog.Verbose("Settings", "verbose provider installed");
+            // A static constructor that throws poisons this type for the whole
+            // AppDomain (TypeInitializationException on every later access), and the
+            // log call can reach a test sink the test owns. The evidence line is worth
+            // keeping; a failure to write it is not worth the type.
+            try
+            {
+                ParsekLog.Verbose("Settings", "verbose provider installed");
+            }
+            catch (Exception)
+            {
+            }
         }
 
         public static ParsekSettings Current =>
