@@ -328,7 +328,7 @@ placement = "R2"
 # unplaced root file is reported by the checker and skipped. MUST stay last.
 [[module]]
 name = "Core"
-prefix = "^BranchPoint[.]cs$|^IPlaybackTrajectory[.]cs$|^VesselLaunchIdentity[.]cs$|^VesselSpawner[.]cs$|^MilestoneStore[.]cs$|^GroupHierarchyStore[.]cs$|^InventoryManifest[.]cs$|^PlaybackTrajectoryBoundsResolver[.]cs$"
+prefix = "^BranchPoint[.]cs$|^IPlaybackTrajectory[.]cs$|^VesselLaunchIdentity[.]cs$|^VesselSpawner[.]cs$|^MilestoneStore[.]cs$|^GroupHierarchyStore[.]cs$|^InventoryManifest[.]cs$|^PlaybackTrajectoryBoundsResolver[.]cs$|^VesselSnapshotOps[.]cs$"
 
 # --- production views ------------------------------------------------------
 # Modules listed here are hidden from the production views (dot + matrix) and
