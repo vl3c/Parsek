@@ -840,7 +840,7 @@ namespace Parsek
             // ruling). A save written before the ruling holds the old per-instance
             // fingerprint, so recompute it from each item's own STOREDPART
             // snapshot instead of carrying a migration path.
-            return VesselSpawner.NormalizeLoadedInventoryPayloadItems(items, nodeName);
+            return VesselSnapshotOps.NormalizeLoadedInventoryPayloadItems(items, nodeName);
         }
 
         private static ConfigNode DeserializeStoredPartSnapshot(ConfigNode snapshotNode)

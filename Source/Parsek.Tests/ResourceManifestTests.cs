@@ -59,7 +59,7 @@ namespace Parsek.Tests
         [Fact]
         public void ExtractResourceManifest_NullInput_ReturnsNull()
         {
-            var result = VesselSpawner.ExtractResourceManifest(null);
+            var result = VesselSnapshotOps.ExtractResourceManifest(null);
 
             Assert.Null(result);
         }
@@ -69,7 +69,7 @@ namespace Parsek.Tests
         {
             var vessel = new ConfigNode("VESSEL");
 
-            var result = VesselSpawner.ExtractResourceManifest(vessel);
+            var result = VesselSnapshotOps.ExtractResourceManifest(vessel);
 
             Assert.Null(result);
         }
@@ -80,7 +80,7 @@ namespace Parsek.Tests
             var vessel = MakeVessel(
                 MakePart(MakeResource("LiquidFuel", 400, 400)));
 
-            var result = VesselSpawner.ExtractResourceManifest(vessel);
+            var result = VesselSnapshotOps.ExtractResourceManifest(vessel);
 
             Assert.NotNull(result);
             Assert.Single(result);
@@ -97,7 +97,7 @@ namespace Parsek.Tests
                     MakeResource("LiquidFuel", 400, 400),
                     MakeResource("Oxidizer", 488, 488)));
 
-            var result = VesselSpawner.ExtractResourceManifest(vessel);
+            var result = VesselSnapshotOps.ExtractResourceManifest(vessel);
 
             Assert.NotNull(result);
             Assert.Equal(2, result.Count);
@@ -113,7 +113,7 @@ namespace Parsek.Tests
                 MakePart(MakeResource("LiquidFuel", 400, 400)),
                 MakePart(MakeResource("LiquidFuel", 400, 400)));
 
-            var result = VesselSpawner.ExtractResourceManifest(vessel);
+            var result = VesselSnapshotOps.ExtractResourceManifest(vessel);
 
             Assert.NotNull(result);
             Assert.Single(result);
@@ -133,7 +133,7 @@ namespace Parsek.Tests
                     MakeResource("LiquidFuel", 200, 400),
                     MakeResource("MonoPropellant", 30, 50)));
 
-            var result = VesselSpawner.ExtractResourceManifest(vessel);
+            var result = VesselSnapshotOps.ExtractResourceManifest(vessel);
 
             Assert.NotNull(result);
             Assert.Equal(3, result.Count);
@@ -149,7 +149,7 @@ namespace Parsek.Tests
             var vessel = MakeVessel(
                 MakePart(MakeResource("Ore", 0, 1500)));
 
-            var result = VesselSpawner.ExtractResourceManifest(vessel);
+            var result = VesselSnapshotOps.ExtractResourceManifest(vessel);
 
             Assert.NotNull(result);
             Assert.True(result.ContainsKey("Ore"));
@@ -167,7 +167,7 @@ namespace Parsek.Tests
                 structuralPart,
                 MakePart(MakeResource("LiquidFuel", 100, 100)));
 
-            var result = VesselSpawner.ExtractResourceManifest(vessel);
+            var result = VesselSnapshotOps.ExtractResourceManifest(vessel);
 
             Assert.NotNull(result);
             Assert.Single(result);
@@ -182,7 +182,7 @@ namespace Parsek.Tests
             // No amount or maxAmount values
             var vessel = MakeVessel(MakePart(res));
 
-            var result = VesselSpawner.ExtractResourceManifest(vessel);
+            var result = VesselSnapshotOps.ExtractResourceManifest(vessel);
 
             Assert.NotNull(result);
             Assert.Equal(0.0, result["LiquidFuel"].amount);
@@ -198,7 +198,7 @@ namespace Parsek.Tests
             res.AddValue("maxAmount", "xyz");
             var vessel = MakeVessel(MakePart(res));
 
-            var result = VesselSpawner.ExtractResourceManifest(vessel);
+            var result = VesselSnapshotOps.ExtractResourceManifest(vessel);
 
             Assert.NotNull(result);
             Assert.Equal(0.0, result["LiquidFuel"].amount);
@@ -213,7 +213,7 @@ namespace Parsek.Tests
                     MakeResource("ElectricCharge", 150, 150),
                     MakeResource("LiquidFuel", 400, 400)));
 
-            var result = VesselSpawner.ExtractResourceManifest(vessel);
+            var result = VesselSnapshotOps.ExtractResourceManifest(vessel);
 
             Assert.NotNull(result);
             Assert.False(result.ContainsKey("ElectricCharge"));
@@ -228,7 +228,7 @@ namespace Parsek.Tests
                     MakeResource("IntakeAir", 1, 5),
                     MakeResource("LiquidFuel", 400, 400)));
 
-            var result = VesselSpawner.ExtractResourceManifest(vessel);
+            var result = VesselSnapshotOps.ExtractResourceManifest(vessel);
 
             Assert.NotNull(result);
             Assert.False(result.ContainsKey("IntakeAir"));
@@ -241,7 +241,7 @@ namespace Parsek.Tests
             var vessel = MakeVessel(
                 MakePart(MakeResource("Ablator", 200, 200)));
 
-            var result = VesselSpawner.ExtractResourceManifest(vessel);
+            var result = VesselSnapshotOps.ExtractResourceManifest(vessel);
 
             Assert.NotNull(result);
             Assert.True(result.ContainsKey("Ablator"));
@@ -255,7 +255,7 @@ namespace Parsek.Tests
             var vessel = MakeVessel(
                 MakePart(MakeResource("LiquidFuel", precise, precise)));
 
-            var result = VesselSpawner.ExtractResourceManifest(vessel);
+            var result = VesselSnapshotOps.ExtractResourceManifest(vessel);
 
             Assert.NotNull(result);
             Assert.Equal(precise, result["LiquidFuel"].amount);
@@ -279,7 +279,7 @@ namespace Parsek.Tests
             parts[0].AddNode(lfRes);
             parts[0].AddNode(oxRes);
 
-            var result = VesselSpawner.ExtractResourceManifest(snapshot);
+            var result = VesselSnapshotOps.ExtractResourceManifest(snapshot);
 
             Assert.NotNull(result);
             Assert.Equal(2, result.Count);

@@ -559,7 +559,7 @@ namespace Parsek.InGameTests
 
             var item = new InventoryPayloadItem
             {
-                IdentityHash = VesselSpawner.ComputeInventoryPayloadIdentityHash(payloadNode),
+                IdentityHash = VesselSnapshotOps.ComputeInventoryPayloadIdentityHash(payloadNode),
                 PartName = payloadNode.GetValue("partName"),
                 VariantName = payloadNode.GetValue("variantName"),
                 Quantity = units,

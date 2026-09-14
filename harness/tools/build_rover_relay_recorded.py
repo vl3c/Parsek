@@ -54,7 +54,7 @@ folder that `collect-logs.py` writes):
       `ModuleInventoryPart.StoreCargoPartAtSlot(Part, int)`, which builds a fresh
       `ProtoPartSnapshot` off the live part and therefore re-runs every module's
       `OnSave`. The editor-authored `STOREDPART` in the `.craft` never carries it.
-      `VesselSpawner.ComputeInventoryPayloadIdentityHash` hashes module-level
+      `VesselSnapshotOps.ComputeInventoryPayloadIdentityHash` hashes module-level
       values BY DESIGN, so a value stock adds on the way through changes the
       identity of a part nobody swapped.
       FILED as LOGISTICS-INVENTORY-IDENTITY-HASH-BREAKS-ON-A-LIVE-CARGO-MOVE in

@@ -548,7 +548,7 @@ namespace Parsek
         /// <summary>
         /// True when <paramref name="value"/> is shaped like a canonical
         /// inventory payload kind key (64 lowercase-hex chars, the SHA256
-        /// form <c>VesselSpawner.ComputeInventoryPayloadKindKey</c> emits).
+        /// form <c>VesselSnapshotOps.ComputeInventoryPayloadKindKey</c> emits).
         /// Pre-legibility persisted holds carry the raw hash in their
         /// <c>inventory:</c> token; rendering a hash as a "part name" would be
         /// worse than the generic text, so the describe paths fall back on it.

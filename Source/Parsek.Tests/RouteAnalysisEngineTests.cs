@@ -1115,7 +1115,7 @@ namespace Parsek.Tests
             storedPart.AddValue("slotIndex", "0");
             storedPart.AddValue("partName", partName);
             storedPart.AddValue("quantity", "1");
-            return VesselSpawner.ComputeInventoryPayloadIdentityHash(storedPart);
+            return VesselSnapshotOps.ComputeInventoryPayloadIdentityHash(storedPart);
         }
 
         // ---------------------------------------------------------------

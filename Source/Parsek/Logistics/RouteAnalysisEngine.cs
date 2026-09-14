@@ -2075,7 +2075,7 @@ namespace Parsek.Logistics
         /// cargo has NO harvested provenance, so a transport inventory GAIN with
         /// NO matching endpoint LOSS is unwitnessed cargo and MUST fail closed.
         /// The unit of matching is the KIND key (2026-09-02 ruling; see
-        /// <see cref="VesselSpawner.ComputeInventoryPayloadKindKey"/>), NOT an
+        /// <see cref="VesselSnapshotOps.ComputeInventoryPayloadKindKey"/>), NOT an
         /// individual fingerprint: a stored part that stock re-serialized in
         /// transit is the same kind on both sides of the move. Per kind, the
         /// WITNESSED load term is
