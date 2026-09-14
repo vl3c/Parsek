@@ -129,7 +129,7 @@ placement = "R0"
 # sidecar I/O, recorder policy and classifiers; each referenced only by Recording or by Recording plus one controller
 [[module]]
 name = "Recording"
-prefix = "^SnapshotSidecarCodec[.]cs$|^SidecarFileCommitBatch[.]cs$|^SessionMerger[.]cs$|^TreeDiscardPurge[.]cs$|^DiscardSidecarReap[.]cs$|^PartStateSeeder[.]cs$|^PartStateSeeder[.]Diff[.]cs$|^ProximityRateSelector[.]cs$|^SegmentPhaseClassifier[.]cs$|^TraceSeparation[.]cs$|^DebrisParentStateGate[.]cs$|^DebrisRelativeRecorderPolicy[.]cs$|^IdentityLossClassifier[.]cs$|^StockWarpAltitudeLimits[.]cs$|^AntennaSpec[.]cs$|^DiagnosticFormatters[.]cs$|^RecorderStateSnapshot[.]cs$"
+prefix = "^SnapshotSidecarCodec[.]cs$|^RecorderStateLog[.]cs$|^SidecarFileCommitBatch[.]cs$|^SessionMerger[.]cs$|^TreeDiscardPurge[.]cs$|^DiscardSidecarReap[.]cs$|^PartStateSeeder[.]cs$|^PartStateSeeder[.]Diff[.]cs$|^ProximityRateSelector[.]cs$|^SegmentPhaseClassifier[.]cs$|^TraceSeparation[.]cs$|^DebrisParentStateGate[.]cs$|^DebrisRelativeRecorderPolicy[.]cs$|^IdentityLossClassifier[.]cs$|^StockWarpAltitudeLimits[.]cs$|^AntennaSpec[.]cs$|^DiagnosticFormatters[.]cs$|^RecorderStateSnapshot[.]cs$"
 placement = "R0"
 
 # playback, spawn and ghost visual support
