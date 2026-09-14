@@ -33,7 +33,7 @@ hookup (`FlightRecorder` / `BackgroundRecorder`), playback hosting, spawning, th
 of the same shape. Do this AFTER ARCH-KNOT-CHEAP-CUTS and ARCH-RECORDINGSTORE-GOD-OBJECT, which
 make the types it touches easier to reason about.
 
-## ARCH-KNOT-CHEAP-CUTS: two hub types sit in the 391-type dependency cycle because of four stray references, and cutting them frees 110 types [FILED 2026-09-14 off the architecture program (items 2 and 3 of the opportunities doc). OPEN; first on the suggested order, afternoon-sized each]
+## ARCH-KNOT-CHEAP-CUTS: two hub types sit in the 391-type dependency cycle because of four stray references, and cutting them frees 110 types [FILED 2026-09-14 off the architecture program (items 2 and 3 of the opportunities doc). IN PR: #1683 (ParsekLog leaf, knot 391 -> 336) and #1684 (Recording data-only); the two together measure 282. Close when both merge]
 
 **What is true.**
 - 391 production types (29 percent) form one strongly connected component; nothing inside it
@@ -68,7 +68,7 @@ make the types it touches easier to reason about.
 (optimizer, purge, sidecar commit, session merge) as services on top that the scenario module
 calls directly. One service per PR; the co-change with `ParsekScenario.cs` is the measure.
 
-## ARCH-KERNEL-AND-TRAJECTORY-PLACEMENT: three files are filed where the map says they do not belong [FILED 2026-09-14 off the architecture program (items 6, 7 and 9). OPEN; file moves and one interface, no behaviour change]
+## ARCH-KERNEL-AND-TRAJECTORY-PLACEMENT: three files are filed where the map says they do not belong [FILED 2026-09-14 off the architecture program (items 6, 7 and 9). PARTLY IN PR: the Missions -> Logistics crossing is #1685; the Trajectory half closed as a placement error (five recorder files matched the Trajectory prefixes; `modules.toml` now places them, Trajectory reads at instability 0.06); VesselSpawner step 1 of 5 is #1686, plan in `docs/dev/research/vesselspawner-split-plan-2026-09-14.md`. OPEN for steps 2-5]
 
 **What is true.**
 - `VesselSpawner.cs` (6,897 lines, 163 commits, co-changes with `ParsekFlight.cs` 63 times)
