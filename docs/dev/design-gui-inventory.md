@@ -1094,15 +1094,21 @@ science, reputation, the tech tree, facility levels, progress nodes and the live
 `ContractSystem` (14 call sites from `LedgerOrchestrator.cs:1837`, applied by
 `KspStatePatcher.cs:61`), and the entire subsystem has exactly one player-facing message - the
 drawdown clamp toast at `KspStatePatcher.cs:3514`, latched once per session, after which every
-further divergence is Warn-log only. Alongside it sit two unarmed safety gates:
-`RewindReadbackGuard.AbortRewindPatchOnDivergence` is hardcoded `false` at
-`RewindReadbackGuard.cs:116` while the code names the failure mode as "possible silent career
-corruption" (`KspStatePatcher.cs:3732`), and `LedgerOrchestrator.CanAffordFundsSpending:6500`
-has no production caller while `Patches/FacilityUpgradePatch.cs:36` states that funds
-affordability is deliberately unchecked (science IS enforced at
-`Patches/TechResearchPatch.cs:78`). Three separate decisions: arm the abort or delete it; arm
-the funds gate or delete it and accept the asymmetry with science; and decide whether a
-career-altering rewrite deserves more than one latched toast - remembering that the answer
+further divergence is Warn-log only. Alongside it sat two unarmed safety gates. The
+rewind read-back one is **decided (operator 2026-09-14): the guard stays warn-and-proceed and
+the abort option is retired**, because the abort was not fail-closed (the guard clears in
+`RewindInvoker.cs`'s `finally` while the ReFly marker keeps `authoritativeReduction=true`, so
+the next unguarded recalc writes the same target), it would break a DESIGNED rewind (a Step-3b
+resurrected-recovery retirement legitimately puts the target below both witnesses), it would
+skip the whole economy/tech/contracts patch after the crew roster was already applied, and it
+never fired in 57 armed rewinds across 665 collected logs; the field is deleted and the WARN
+now states the measured meaning instead of "possible silent career corruption" (rationale:
+`docs/dev/ledger-state-reconstruction-audit.md` §8 rec #1). Still open:
+`LedgerOrchestrator.CanAffordFundsSpending:6500` has no production caller while
+`Patches/FacilityUpgradePatch.cs:36` states that funds affordability is deliberately unchecked
+(science IS enforced at `Patches/TechResearchPatch.cs:78`). Two decisions left: arm the funds
+gate or delete it and accept the asymmetry with science; and decide whether a career-altering
+rewrite deserves more than one latched toast - remembering that the answer
 "nothing" is the house default and that the only sanctioned channels are an existing tooltip or
 a one-shot message for an event that actually changed something.
 
