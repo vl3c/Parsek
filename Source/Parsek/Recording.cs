@@ -785,8 +785,12 @@ namespace Parsek
             TerminalStampObserver observer = OnTerminalStamped;
             if (observer == null)
             {
-                // Rate-limited on a constant key so this costs one line per process even
-                // if a load path stamps thousands of recordings uninstalled.
+                // Rate-limited on a constant key so this costs one line per thread (one
+                // line on KSP's main thread) even if a load path stamps thousands of
+                // recordings uninstalled. Deliberately no self-install here: reaching for
+                // the installer would restore the reference to the crew module this
+                // seam exists to remove. A headless host that stamps without installing
+                // gets the warning on the WRN surface the log validator reads.
                 ParsekLog.WarnRateLimited(
                     "Recording",
                     "terminal-stamp-observer-missing",
