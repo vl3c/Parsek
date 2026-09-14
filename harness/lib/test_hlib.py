@@ -8616,6 +8616,21 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
                                        "sentence, so the review IS the product - "
                                        "there is nothing else to assert about a "
                                        "window with no rows.",
+        # THE GUI-P1 LIVE LANE, 2026-09-14. It carries the tag by CADENCE, not debt: the
+        # lane exists to prove one ruling once (the playback tick box hides the map icon,
+        # the orbit line, the Tracking Station row and the polyline), and its host is the
+        # 243-recording showcase corpus, which is a capture host rather than a regression
+        # floor worth a nightly slot. WHAT IS OWED is the FLIGHT plus one operator call:
+        # the RESTORE half is gated by the `changed=243 total=243` seam echo and read from
+        # the second pair of captures, because a whole-log `forbidden` cannot be scoped to
+        # the hidden window - if the operator wants the restore gated by a marker line
+        # instead, that is a second lane with no restore step in it.
+        "GUI-9-playback-toggle-map-scope.toml":
+                                       "tier=operator by CADENCE (capture host, one "
+                                       "ruling proven once). Owed: the first flight, and "
+                                       "the call on whether the restore half deserves a "
+                                       "second lane that never restores so a marker "
+                                       "`forbidden` can gate it.",
     }
 
     # Untagged specs that are CANDIDATES - they MENTION the token, or they are
@@ -14874,11 +14889,62 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
             5, {"op": "expand", "window": "logistics", "key": "row:dormant:section"}))
 
     def test_uiaction_expand_args_are_flagged_on_other_ops(self):
-        for args in ({"op": "open", "window": "missions", "key": "all"},
-                     {"op": "open", "window": "missions", "state": "true"}):
-            errors = hlib.validate_ui_action_step(0, args)
-            self.assertTrue(
-                any("only op=expand reads it" in e for e in errors), errors)
+        # `key=` is op=expand's alone; `state=` is SHARED with op=playback (GUI-P1), so
+        # its message names both owners. Asserted per arg rather than over one phrase:
+        # a single shared substring would have gone on passing if one of the two rules
+        # had stopped firing.
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "open", "window": "missions", "key": "all"})
+        self.assertTrue(
+            any("only op=expand reads it" in e for e in errors), errors)
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "open", "window": "missions", "state": "true"})
+        self.assertTrue(
+            any("only op=expand and op=playback read it" in e for e in errors), errors)
+
+    def test_uiaction_playback_requires_state_and_takes_no_window(self):
+        """GUI-P1. `state=` is REQUIRED (unlike on op=expand, where absent means true):
+        the op is driven BOTH ways by design, so a defaulted direction would silently run
+        the opposite half of a lane's check. `window=` is not in its grammar at all, and
+        `recording=` is optional - absent means EVERY recording, which is the select-all
+        header's own path and the only form a committed spec can write."""
+        errors = hlib.validate_ui_action_step(0, {"op": "playback"})
+        self.assertTrue(any("state-arg-missing" in e for e in errors), errors)
+        # Both accepted shapes, and neither carries a stray-arg complaint.
+        self.assertEqual([], hlib.validate_ui_action_step(
+            1, {"op": "playback", "state": "false"}))
+        self.assertEqual([], hlib.validate_ui_action_step(
+            2, {"op": "playback", "state": "true", "recording": "rec_17"}))
+        # A `window=` is the ops-needing-window rule's own refusal: op=playback is not in
+        # UIACTION_OPS_NEEDING_WINDOW, so the arg would be sent and silently ignored.
+        errors = hlib.validate_ui_action_step(
+            3, {"op": "playback", "state": "true", "window": "missions"})
+        self.assertTrue(any("does not read it" in e for e in errors), errors)
+        self.assertNotIn("playback", hlib.UIACTION_OPS_NEEDING_WINDOW)
+        self.assertIn("playback", hlib.UIACTION_OP_VALUES)
+        # The closed-value half of `state=` stays where it is: VERB_SCOPED_CLOSED_ARGS,
+        # owned by UiAction, so `state = "True"` fails pre-launch on BOTH ops at once.
+        self.assertEqual("UiAction",
+                         hlib.VERB_SCOPED_CLOSED_ARGS[hlib.UIACTION_STATE_KEY][0])
+        # `recording=` is OPEN valued (a save-specific RecordingId, plus the picker's
+        # `first`), so it must NOT be a closed row - a closed set would reject every real
+        # id pre-launch.
+        self.assertEqual("recording", hlib.UIACTION_RECORDING_KEY)
+        self.assertNotIn(hlib.UIACTION_RECORDING_KEY, hlib.VERB_SCOPED_CLOSED_ARGS)
+
+    def test_uiaction_recording_arg_is_flagged_on_ops_that_ignore_it(self):
+        """The mirror direction of the cell above: `recording=` is read by op=picker and
+        op=playback ONLY, so anywhere else it is sent and silently ignored - the failure
+        this validator exists to catch before a KSP boot."""
+        errors = hlib.validate_ui_action_step(
+            0, {"op": "open", "window": "missions", "recording": "rec_17"})
+        self.assertTrue(
+            any("only op=picker and op=playback read it" in e for e in errors), errors)
+        # And the two owners are silent about it.
+        self.assertEqual([], hlib.validate_ui_action_step(
+            1, {"op": "picker", "window": "missions", "recording": "first"}))
+        self.assertEqual([], hlib.validate_ui_action_step(
+            2, {"op": "playback", "state": "true", "recording": "first"}))
 
     def test_uiaction_target_takes_exactly_one_selector_on_the_structure_window(self):
         self.assertTrue(any(

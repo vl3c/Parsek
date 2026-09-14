@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -144,6 +144,19 @@ namespace Parsek.TestCommands
             // picker
             internal UiPickerMode PickerMode;
             internal string PickerTarget;
+
+            // playback
+            /// <summary>What the payload and the log line echo: the named RecordingId, or
+            /// the literal `all`.</summary>
+            internal string PlaybackRecordingToken;
+
+            /// <summary>The named RecordingId, or NULL for an all-recordings flip. Carried
+            /// as the ID rather than as the Recording references so the settle re-resolves
+            /// against the live set.</summary>
+            internal string PlaybackRecordingId;
+
+            internal bool PlaybackState;
+            internal int PlaybackChanged;
         }
 
         private UiActionPending uiActionPending;
@@ -206,6 +219,11 @@ namespace Parsek.TestCommands
                 if (op == UiActionOp.Dialog)
                 {
                     UiActionDialogOp();
+                    return;
+                }
+                if (op == UiActionOp.Playback)
+                {
+                    UiActionPlaybackOp(cmd);
                     return;
                 }
                 UiActionDescribe(ui, scene);
@@ -582,6 +600,9 @@ namespace Parsek.TestCommands
                     return;
                 case UiActionOp.Picker:
                     CompleteUiActionPicker(ctx, pending);
+                    return;
+                case UiActionOp.Playback:
+                    CompleteUiActionPlayback(ctx, pending);
                     return;
             }
 

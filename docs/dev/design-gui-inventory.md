@@ -996,7 +996,7 @@ the full rows; the per-subsystem row counts are in the table above.
 | D3 | `GhostCommNetRelay` is dead while a live Harmony patch cites it as the justification for destroying each ghost's `CommNetVessel` | `GhostCommNetRelay.cs:35`, `:207`, `:239`, `:389`; `Patches/GhostVesselLoadPatch.cs:446`, `:459` |
 | D10 | `IsOverlapPerInstanceGateOn()` returns a constant; the documented OFF branch cannot execute | `GhostMapPresence.cs:76`, branch `:11416-11433` |
 | D11 | `UIMode.TrackingStation` is never constructed, so `CanOfferGhostOnlyDelete`'s TS branch is dead | `UI/RecordingsTableUI.cs:4613`, `ParsekUI.cs:11` |
-| P1 | The per-recording playback checkbox: the map icon, orbit line, TS row and the KSC terminal-vessel spawn all ignore `PlaybackEnabled` (bug #433) | tooltip `UI/RecordingsTableUI.cs:1849`; `GhostMapPresence*.cs` / `ParsekTrackingStation.cs` never read it; `ParsekKSC.cs:373-396` |
+| P1 | The per-recording playback checkbox: the map icon, orbit line, TS row and the KSC terminal-vessel spawn all ignore `PlaybackEnabled` (bug #433). RULED + FIXED 2026-09-14 on the RENDER surfaces (see 5.2); the KSC terminal-vessel spawn stays, by the same ruling | tooltip `UI/RecordingsTableUI.cs:1849`; `GhostMapPresence*.cs` / `ParsekTrackingStation.cs` never read it; `ParsekKSC.cs:373-396` |
 | P2 | The Period cell shows the typed value, not the cadence being flown | header tooltip `UI/RecordingsTableUI.cs:1341`, engine `GhostPlaybackLogic.WarpLoopPolicy.cs:469` |
 | P4 | `Warp to Spawn` performs a time jump only; whether a vessel appears is then decided by 15 silent refusals, and an invalid jump is itself silent | `UI/SpawnControlPresentation.cs:104`, `ParsekFlight.WarpToRecordingEnd:27367`, `:27384-27389` |
 | P13 | The Gloops idle label says `Ghost-only - loops by default` while the code sets `LoopPlayback = false`; the class doc says the opposite of the label | `UI/GloopsRecorderUI.cs:333`, `ParsekFlight.cs:17090`, doc `:8-10` |
@@ -1078,16 +1078,24 @@ sentence is the thing that changes; (b) wording inside the existing TS ghost pop
 (c) a real window, which would be the first new surface in the mod's history and needs an
 explicit exception?
 
-**What should the per-recording playback checkbox mean?** Its tooltip says "Unticked, the
-flight stays recorded but no ghost appears" (`UI/RecordingsTableUI.cs:1849`), and
-`PlaybackEnabled` is read by `ParsekKSC.cs`, `ParsekFlight.cs`, `GhostPlaybackLogic*.cs` and
-`RecordingOptimizer.cs` only. `GhostMapPresence*.cs` and `ParsekTrackingStation.cs` never read
-it, so the map icon, the orbit line and the TS list row survive an unticked box, and
-`ParsekKSC.cs:373-396` still spawns the terminal vessel (bug #433). The proposal on file is to
-make the checkbox mean what its tooltip already says - no ghost anywhere - which needs
-`GhostMapPresence` and `ParsekKSC` changes plus a harness lane to prove it. The alternative is
-to narrow the tooltip to "no flight-scene ghost" and leave the three other surfaces alone. Which
-is the intended contract?
+**What should the per-recording playback checkbox mean? ANSWERED 2026-09-14: no ghost
+anywhere, career effect untouched.** The question as filed: its tooltip said "Unticked, the
+flight stays recorded but no ghost appears", and `PlaybackEnabled` was read by `ParsekKSC.cs`,
+`ParsekFlight.cs`, `GhostPlaybackLogic*.cs` and `RecordingOptimizer.cs` only. `GhostMapPresence*.cs`
+and `ParsekTrackingStation.cs` never read it, so the map icon, the orbit line and the TS list row
+survived an unticked box, and `ParsekKSC.cs`'s past-end branch still spawned the terminal vessel
+(bug #433). THE OPERATOR RULING took the first option and drew the line exactly where the filed
+"Decision" paragraph asked: the checkbox now means no ghost on any RENDER surface - the world
+ghost, the map icon, the stock orbit line, the Tracking Station row, the non-proto atmospheric
+marker and the trajectory polyline - while the recording's CAREER effect is deliberately
+unchanged, because ticking a box off is a view decision and rewriting what the career ends up
+holding is a bigger promise than the tooltip makes. So the terminal-vessel spawn still fires for a
+hidden recording, and bug #433's visibility-only reject stays exactly as it was. The tooltip now
+names where the ghost disappears from ("no ghost appears anywhere - world, map or Tracking
+Station"). Implementation and the four gated draw authorities:
+`docs/dev/design-map-ts-render-architecture.md` Appendix A, "The playback tick box is a
+whole-presence gate". Live proof: `harness/scenarios/GUI-9-playback-toggle-map-scope.toml`, which
+exists because map and TS presence is the one surface a unit test cannot see.
 
 **Should a silent ledger rewrite stay silent?** The recalc-and-patch pipeline rewrites funds,
 science, reputation, the tech tree, facility levels, progress nodes and the live

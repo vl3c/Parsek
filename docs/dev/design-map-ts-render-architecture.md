@@ -925,6 +925,68 @@ or `TracedPathTreatment`.
   when a leg drew, else the trajectory head. The `IsIconSuppressed` / `ghostsWithSuppressedIcon`
   disjunct is the KEPT PERMANENT no-conic / suppressed-icon fallback (see the polyline entry).
 
+### The playback tick box is a whole-presence gate (GUI-P1, 2026-09-14)
+
+A recording whose per-recording playback tick box (Recordings tab, column 0) is UNTICKED has
+no presence on ANY render surface. Before this, `GhostMapPresence*.cs`, `ParsekTrackingStation.cs`
+and the map renderers never read `Recording.PlaybackEnabled`, so only the flight-scene ghost
+honoured it and the map icon, the orbit line, the Tracking Station row and the trajectory
+polyline all survived an unticked box. The operator ruling of 2026-09-14 made the checkbox mean
+what its tooltip said.
+
+- The shared pure predicate is `GhostMapPresence.IsMapPresenceHiddenByPlaybackToggle(IPlaybackTrajectory)`
+  and the single reason string is `GhostMapPresence.TrackingStationGhostSkipPlaybackDisabled`
+  (`"playback-disabled"`), deliberately distinct from `"suppressed"` so a log reader can tell a
+  player's choice from a derived visibility state.
+- FOUR arms, one per draw authority, each at that authority's own pure classifier:
+  `ResolveMapPresenceGhostSource` declines with the reason (no ProtoVessel means no icon, no
+  stock orbit line and no Tracking Station row - Parsek builds no rows, so a row exists iff the
+  proto does); `GetTrackingStationGhostRemovalReason` returns it so an ALREADY-materialized proto
+  retires on the next lifecycle tick; `ParsekTrackingStation.ClassifyAtmosphericMarkerSkip` gains
+  `AtmosphericMarkerSkipReason.PlaybackDisabled`, which is the one TS surface that outlives the
+  retired proto; and `GhostTrajectoryPolylineRenderer.ClassifyPolylineStaticSkip` gains
+  `PolylineStaticSkipReason.PlaybackDisabled`, because the polyline is a SEPARATE draw authority
+  and retiring the proto does not retire the line. The flight-map ghostless fallback marker
+  (`ParsekUI.DrawMapMarkers`) carries the gate explicitly although it is covered transitively
+  (it only draws where the polyline OWNS the phase, and the gated Driver walk publishes no
+  ownership for a hidden recording).
+- `ResolveMarkerDrawDecision` / `ShouldDrawNonProtoMarkerForGhost` are UNCHANGED, and must stay
+  so: they take only a `uint ghostPid`, the decision must remain a SUPERSET of the line-hide, and
+  a recording-keyed suppression belongs at an EARLIER gate rather than as a fourth disjunct
+  flipped false.
+- Do NOT fold the predicate into the `suppressedIds` set `FindTrackingStationSuppressedRecordingIds`
+  builds, however cheap that looks: the same set gates the Tracking Station SPAWN HANDOFF, so
+  folding it in would silently suppress the recording's CAREER effect. That effect is deliberately
+  out of scope - the Space Center terminal-vessel spawn still fires for a hidden recording (Bug
+  #433, `ParsekKSC`'s visibility-only reject) and `GhostPlaybackLogic.ShouldFireHiddenPastEndCompletion`
+  still completes it. Hiding a ghost is a view decision; rewriting a career is not.
+- The single writer is `RecordingStore.SetRecordingPlaybackEnabled`, which all five UI
+  affordances (row toggle, select-all header, the two group headers, the chain block) route
+  through, and which raises `RecordingStore.RecordingPlaybackEnabledChanged`. Per-frame producers
+  need no subscription - they read the flag every pass, which is what makes the restore immediate
+  and leaves no cached hidden state to clear. `ParsekTrackingStation` DOES subscribe, only to
+  force its 0.25 s proto-lifecycle tick to run NOW, the same treatment a committed-list mutation
+  gets. The writer deliberately does not bump `StateVersion`: that version keys committed-LIST
+  index caches and a visibility flip invalidates none of them.
+- OBSERVABILITY, and one instrument had to change for the claim to be readable at all. Each
+  gate logs once per (surface, recording) CHANGE through
+  `GhostMapPresence.LogMapPresencePlaybackSuppressedOnChange` (`VerboseOnChange`, never
+  per-frame), and the per-frame aggregates carry a bucket:
+  `ParsekTrackingStation.AtmosphericMarkerSummary.PlaybackDisabled` and
+  `ParsekUI.MapMarkerSummary.PlaybackDisabled`. Both buckets are part of their `HasSignal`, and
+  that is the point rather than a detail: those summaries are suppressed entirely when the pass
+  has NO signal, so with EVERY recording hidden there was nothing else to count and a `drawn=0`
+  reading was UNREACHABLE by construction - measured on harness run `2026-09-14_2133`, which red
+  on exactly that while the product was already correct. The bucket restores the signal and makes
+  the line say WHY it drew nothing.
+- Live proof: `harness/scenarios/GUI-9-playback-toggle-map-scope.toml`. Unit tests cannot see map
+  or TS presence; that lane gates the hide half on `drawn=0 ... playbackDisabled=<n>` over a
+  243-recording corpus and the sequence on the op's own `changed=` / `total=` echoes. Two
+  cadence traps it paid for: the aggregate is rate-limited at 2.0 s, so a map-view window
+  shorter than that emits nothing at all (the lane now holds the hidden view open past the
+  interval), and a RecordingId carries no prefix - 32 bare hex characters, unlike a
+  RewindPoint's `rp_`.
+
 ### `Display/RouteTrajectoryLineRenderer.cs` + `RouteMemberRunExpansion.cs` - a route MEMBER is a RUN
 
 - `Route.RecordingIds` holds composition RUN HEADS, not recordings.

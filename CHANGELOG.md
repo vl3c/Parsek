@@ -78,6 +78,23 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Unticking a recording's playback box now hides that flight everywhere, not just in
+  the world.** The tick box at the left of every row in the Recordings tab promised that
+  "the flight stays recorded but no ghost appears" - and it hid the ghost you fly past,
+  while the same flight kept its icon on the map, its orbit line, its row in the Tracking
+  Station and its drawn trajectory. So the one control you reach for when the screen is
+  crowded with ghosts turned off about a third of what it claimed. It now turns off all of
+  it: no icon, no orbit line, no Tracking Station entry, no trajectory line, no marker.
+  Re-ticking the box brings every one of them straight back, and the group, folder,
+  flight-block and select-all tick boxes behave exactly like the single row's, because
+  they all now go through one piece of code instead of five copies of it. What has NOT
+  changed is what the flight did to your career: an unticked recording still delivers its
+  craft and its rewards at the Space Center exactly as before, because hiding a ghost is a
+  view decision and rewriting a career is not. The tooltip now says where the ghost
+  disappears from. The map's own diagnostic line can now say it drew no markers *because*
+  the player turned them off, which it could not before - with every recording hidden it had
+  nothing to report and so reported nothing at all.
+
 - **The rewind career self-check is now warn-and-proceed with no abort switch, and says
   what it actually measured.** The check that compares a Rewind-to-Separation's rebuilt
   career economy against your real funds, science and reputation carried an unused option to
