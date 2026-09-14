@@ -260,6 +260,19 @@ namespace Parsek
                  : value == LoopTimeUnit.Hour ? 2 : 0;
         }
 
+        static ParsekSettings()
+        {
+            // Pushes the verbose gate INTO the logger instead of letting the logger
+            // read this type. ParsekLog is referenced by nearly every file in the
+            // assembly, so a reference OUT of it drags this settings type - and the
+            // dependency cycle it sits in - behind every log call. This runs on the
+            // first touch of any ParsekSettings static member; before that ParsekLog's
+            // null provider answers verbose ON, exactly what the old
+            // "Current == null" branch returned.
+            ParsekLog.VerboseProvider = () => Current?.verboseLogging ?? true;
+            ParsekLog.Verbose("Settings", "verbose provider installed");
+        }
+
         public static ParsekSettings Current =>
             CurrentOverrideForTesting ?? HighLogic.CurrentGame?.Parameters?.CustomParams<ParsekSettings>();
 
