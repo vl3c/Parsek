@@ -1206,9 +1206,9 @@ namespace Parsek
                     child.VesselSnapshot = VesselSpawner.TryBackupSnapshot(childVessel);
                     child.GhostVisualSnapshot = child.VesselSnapshot != null
                         ? child.VesselSnapshot.CreateCopy() : null;
-                    child.StartResources = VesselSpawner.ExtractResourceManifest(child.VesselSnapshot);
+                    child.StartResources = VesselSnapshotOps.ExtractResourceManifest(child.VesselSnapshot);
                     int bgChildInvSlots;
-                    child.StartInventory = VesselSpawner.ExtractInventoryManifest(child.VesselSnapshot, out bgChildInvSlots);
+                    child.StartInventory = VesselSnapshotOps.ExtractInventoryManifest(child.VesselSnapshot, out bgChildInvSlots);
                     child.StartInventorySlots = bgChildInvSlots;
                     child.StartCrew = VesselSpawner.ExtractCrewManifest(child.VesselSnapshot);
                     // Pin start-of-recording controller identity from the live child vessel

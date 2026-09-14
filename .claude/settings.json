@@ -1,6 +1,10 @@
 {
-    "model": "opus",
+    "model": "claude-fable-5-1",
     "effortLevel": "high",
+    "env": {
+        "CLAUDE_CODE_SUBAGENT_MODEL": "claude-opus-5",
+        "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": "4"
+    },
     "hooks": {
         "SessionStart": [
             {

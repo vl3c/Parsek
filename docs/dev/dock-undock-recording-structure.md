@@ -424,5 +424,6 @@ When modifying any code in this area, do not violate:
 | `Source/Parsek/Recording.cs` | `Recording` type with `ParentBranchPointId` / `ChildBranchPointId` / `RouteConnectionWindows` |
 | `Source/Parsek/RecordingTree.cs` | `RecordingTree.Recordings`, `BranchPoints`, `BackgroundMap`, `ActiveRecordingId`, `RootRecordingId` |
 | `Source/Parsek/FlightRecorder.cs` | `AppendStructuralEventSnapshot`, `StopRecordingForChainBoundary`, recorder lifecycle |
-| `Source/Parsek/VesselSpawner.cs` | `TryBackupSnapshot`, `ExtractResourceManifest`, `ExtractInventoryPayloadItems`, `CollectPartPersistentIds` |
+| `Source/Parsek/VesselSpawner.cs` | `TryBackupSnapshot` |
+| `Source/Parsek/VesselSnapshotOps.cs` | `ExtractResourceManifest`, `ExtractInventoryPayloadItems`, `CollectPartPersistentIds` |
 | `Source/Parsek/Logistics/RouteAnalysisEngine.cs` | `AnalyzeTree`, `AnalyzeWindow`, `CollectSourcePathRecordingIds`, the eligibility gates |

@@ -10,11 +10,11 @@ namespace Parsek.Tests
     /// per-resource runner (<see cref="KspStatePatcher.RunRewindReadbackGuard"/>) and its
     /// logging, and the warn-only-vs-abort PatchAll integration.
     ///
-    /// The guard exists to turn a silent career-corruption clobber (a recalc that writes
-    /// the economy BELOW the real career economy) into a caught, logged event. Each test
-    /// names the regression it guards. Default behavior is warn-only and must never alter
-    /// a successful rewind; the abort path is opt-in (forced here via
-    /// <see cref="RewindReadbackGuard.ForceAbortForTesting"/>).
+    /// The guard reports a recalc that writes the economy BELOW the real career floor as a
+    /// logged event. Each test names the regression it guards. Production behavior is
+    /// warn-and-proceed and must never alter a successful rewind; the abort early-return
+    /// exists only under <see cref="RewindReadbackGuard.ForceAbortForTesting"/> (there is no
+    /// production abort switch - operator decision 2026-09-14).
     /// </summary>
     [Collection("Sequential")]
     public class RewindReadbackGuardTests : System.IDisposable
@@ -100,6 +100,41 @@ namespace Parsek.Tests
             Assert.Equal(KspStatePatcher.RewindReadbackVerdict.FlaggedDivergence, v);
             Assert.Equal(100000.0, floor);
             Assert.Equal(-40000.0, delta);
+        }
+
+        [Fact]
+        public void Resolve_Step3bResurrectedRecoveryRetirementAfterPostRpSpend_FlaggedByDesign()
+        {
+            // The DESIGNED flag (sequence #15 of the guard second-opinion review): the guard
+            // reports a CORRECT target, which is why arming an abort was rejected as a gate.
+            //   RP taken at funds F = 100000.
+            //   A vessel is recovered live for R = +10000, so the pre-rewind career is F + R.
+            //   S = 500 is then spent post-RP, so eBefore = F + R - S = 109500 and the
+            //   quicksave witness is eRp = F = 100000. Floor = min(109500, 100000) = 100000.
+            //   The rewind resurrects that vessel, so Step 3b
+            //   RetireResurrectedVesselRecoveryRows tombstones its +R recovery row: the correct
+            //   target is F - S = 99500, i.e. 500 BELOW the floor at a funds tolerance of 1.0
+            //   -> FlaggedDivergence on a healthy rewind.
+            const double f = 100000.0, r = 10000.0, s = 500.0;
+
+            var v = KspStatePatcher.ResolveRewindDivergence(
+                "funds", f + r - s, f, f - s, KspStatePatcher.RewindReadbackFundsTolerance,
+                out double floor, out double delta);
+
+            Assert.Equal(KspStatePatcher.RewindReadbackVerdict.FlaggedDivergence, v);
+            Assert.Equal(100000.0, floor);
+            Assert.Equal(-500.0, delta);
+
+            // Mirror: the same sequence with the post-RP spend BELOW tolerance stays quiet, so
+            // the flag tracks an economically meaningful drop rather than the sequence itself.
+            const double sTiny = 0.5;
+            var vQuiet = KspStatePatcher.ResolveRewindDivergence(
+                "funds", f + r - sTiny, f, f - sTiny, KspStatePatcher.RewindReadbackFundsTolerance,
+                out double floorQuiet, out double deltaQuiet);
+
+            Assert.Equal(KspStatePatcher.RewindReadbackVerdict.WithinExpectedRange, vQuiet);
+            Assert.Equal(100000.0, floorQuiet);
+            Assert.Equal(-0.5, deltaQuiet);
         }
 
         [Fact]
@@ -367,7 +402,7 @@ namespace Parsek.Tests
             RewindReadbackGuard.Arm(
                 new EconomySnapshot { Funds = 100000.0 },
                 new EconomySnapshot { Funds = 120000.0 });
-            // ForceAbortForTesting left false; AbortRewindPatchOnDivergence left false.
+            // ForceAbortForTesting left false: the production warn-and-proceed path.
 
             KspStatePatcher.PatchAll(
                 science: null, funds: funds, reputation: null,

@@ -1809,7 +1809,7 @@ namespace Parsek.Tests.Logistics
                 if (b[i].StoredPartSnapshot != null)
                 {
                     Assert.Equal(
-                        VesselSpawner.ComputeInventoryPayloadKindKey(b[i].StoredPartSnapshot),
+                        VesselSnapshotOps.ComputeInventoryPayloadKindKey(b[i].StoredPartSnapshot),
                         b[i].IdentityHash);
                 }
                 else

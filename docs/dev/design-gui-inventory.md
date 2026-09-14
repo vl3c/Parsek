@@ -914,7 +914,7 @@ the full rows; the per-subsystem row counts are in the table above.
 |---|---|---|
 | H1 | No Parsek window or toolbar button in the TRACKING STATION, while the guide advertises that missions and routes loop there (`docs/user-guide.md:160`) | `ParsekTrackingStation.cs:26`, `:350`; the only `AddToAllToolbars` calls are `ParsekFlight.cs:1351`, `ParsekKSC.cs:153` |
 | D1 | The main-window Gloops launcher block never draws in either mode | `ParsekUI.cs:941-951`, gate `UI/UiComplexityMode.cs:140-143` |
-| P7 | The stock Difficulty screen draws 5 Parsek settings whose edits the sidecar silently reverts | `ParsekSettings.cs:77`-`:100`, revert `ParsekSettingsPersistence.cs:229-272` |
+| P7 | ~~The stock Difficulty screen draws 5 Parsek settings whose edits the sidecar silently reverts~~ FIXED 2026-09-14: `ParsekSettings.GameMode` returns `GameParameters.GameMode.NONE`, so the stock screen builds no Parsek section at all (see 5.2) | `ParsekSettings.cs:22-56` |
 | P18 | The Settings launcher tooltip advertises four topics, three of which can be absent | `ParsekUI.cs:957` |
 | - | The `W` cycle key is real and undocumented (the Controls table omits it) | `ParsekFlight.cs:13410` vs `docs/user-guide.md:6-12` |
 
@@ -1102,15 +1102,21 @@ science, reputation, the tech tree, facility levels, progress nodes and the live
 `ContractSystem` (14 call sites from `LedgerOrchestrator.cs:1837`, applied by
 `KspStatePatcher.cs:61`), and the entire subsystem has exactly one player-facing message - the
 drawdown clamp toast at `KspStatePatcher.cs:3514`, latched once per session, after which every
-further divergence is Warn-log only. Alongside it sit two unarmed safety gates:
-`RewindReadbackGuard.AbortRewindPatchOnDivergence` is hardcoded `false` at
-`RewindReadbackGuard.cs:116` while the code names the failure mode as "possible silent career
-corruption" (`KspStatePatcher.cs:3732`), and `LedgerOrchestrator.CanAffordFundsSpending:6500`
-has no production caller while `Patches/FacilityUpgradePatch.cs:36` states that funds
-affordability is deliberately unchecked (science IS enforced at
-`Patches/TechResearchPatch.cs:78`). Three separate decisions: arm the abort or delete it; arm
-the funds gate or delete it and accept the asymmetry with science; and decide whether a
-career-altering rewrite deserves more than one latched toast - remembering that the answer
+further divergence is Warn-log only. Alongside it sat two unarmed safety gates. The
+rewind read-back one is **decided (operator 2026-09-14): the guard stays warn-and-proceed and
+the abort option is retired**, because the abort was not fail-closed (the guard clears in
+`RewindInvoker.cs`'s `finally` while the ReFly marker keeps `authoritativeReduction=true`, so
+the next unguarded recalc writes the same target), it would break a DESIGNED rewind (a Step-3b
+resurrected-recovery retirement legitimately puts the target below both witnesses), it would
+skip the whole economy/tech/contracts patch after the crew roster was already applied, and it
+never fired in 57 armed rewinds across 665 collected logs; the field is deleted and the WARN
+now states the measured meaning instead of "possible silent career corruption" (rationale:
+`docs/dev/ledger-state-reconstruction-audit.md` §8 rec #1). Still open:
+`LedgerOrchestrator.CanAffordFundsSpending:6500` has no production caller while
+`Patches/FacilityUpgradePatch.cs:36` states that funds affordability is deliberately unchecked
+(science IS enforced at `Patches/TechResearchPatch.cs:78`). Two decisions left: arm the funds
+gate or delete it and accept the asymmetry with science; and decide whether a career-altering
+rewrite deserves more than one latched toast - remembering that the answer
 "nothing" is the house default and that the only sanctioned channels are an existing tooltip or
 a one-shot message for an event that actually changed something.
 
@@ -1122,9 +1128,22 @@ tells the player to change three of them (`docs/user-guide.md:320`, `:324`, `:57
 half is being fixed under P14. The remaining question is the fields: do they stay as
 harness-pinned hidden fields (the status quo, with `TestCommands/SettingWhitelist.cs` as the
 only writer), or does the clamp become the value and the field disappear? Attached to the same
-answer: the stock Difficulty-Settings screen draws five other Parsek settings whose edits are
+answer: ~~the stock Difficulty-Settings screen draws five other Parsek settings whose edits are
 silently reverted by the sidecar (P7, `ParsekSettingsPersistence.cs:229-272`) - hide them from
-the stock screen, or honour them? And `D5`: the deferred post-transition Merge/Discard dialog is
+the stock screen, or honour them?~~ ANSWERED 2026-09-14: hidden, and not just those five. The
+ruling is that every Parsek setting is a runtime debugging or preference option belonging only
+to Parsek's own Settings window, so `ParsekSettings.GameMode` now returns
+`GameParameters.GameMode.NONE` (`ParsekSettings.cs:56`) and KSP's Difficulty Options screen
+builds NO Parsek section - the six `CustomParameterUI` toggles and the two numeric controls
+(`samplingDensity`, `ghostAudioVolume`) alike. Decompiled KSP 1.12.5 `DifficultyOptionsMenu`
+skips a node when `(customParamNode.GameMode & currentGameModeFilter) == 0`, before it reads any
+member or attribute, and the `listDictionary.Add(node.Section, ...)` that creates the section and
+its tab sits inside that loop; dropping the attributes instead would have left an empty "Parsek"
+tab, since a node that produced no controls gets a blank label. Storage is untouched
+(`ParameterNode.Save` writes every public field regardless of `GameMode`), so existing saves keep
+every key and the sidecar, Settings window and harness `SetSetting` seam all behave as before.
+Pinned by `ParsekSettingsTests.StockDifficultyScreen_DrawsNoParsekSection`. This leaves the
+hidden-clamped-fields half of the question open. And `D5`: the deferred post-transition Merge/Discard dialog is
 unreachable in shipping play because `autoMerge` is clamped, yet the guide describes it
 (`docs/user-guide.md:45-61`) and the harness still needs it - retire the dialog or keep it as a
 harness-only path?

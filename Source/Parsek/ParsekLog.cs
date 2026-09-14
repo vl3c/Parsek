@@ -1,8 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
-using System.Text;
-using System.Threading;
 using UnityEngine;
 
 namespace Parsek
@@ -15,21 +12,6 @@ namespace Parsek
         // When true, suppresses Debug.Log calls (for unit testing outside Unity)
         [ThreadStatic]
         internal static bool SuppressLogging;
-
-        // [RecState] sequence counter — incremented on every emission so log
-        // readers can spot dropped lines and sort by emission order even when
-        // multiple snapshots fire in the same tick.
-        private static long s_recStateSeq;
-
-        // Last-seen activeRecId, used to populate the "rec.prev" field only on
-        // transitions. Reset for tests via ResetTestOverrides.
-        // [ThreadStatic] is correct for KSP's main-thread-only reality and for
-        // xUnit's per-thread test isolation. Any future caller from a background
-        // thread (e.g., a Harmony prefix on an async path) would silently start
-        // its own transition cache and miss cross-thread transitions — if that
-        // ever happens, convert to a locked shared field.
-        [ThreadStatic]
-        private static string t_lastSeenActiveRecId;
 
         private struct RateLimitState
         {
@@ -60,7 +42,9 @@ namespace Parsek
         private static Dictionary<string, OnChangeState> onChangeStateByIdentity =>
             t_onChangeStateByIdentity ?? (t_onChangeStateByIdentity = new Dictionary<string, OnChangeState>());
 
-        private const double DefaultRateLimitSeconds = 5.0;
+        // internal so satellite log helpers that share the one rate-limit
+        // dictionary (see TryClaimRateLimitSlot) can use the same default.
+        internal const double DefaultRateLimitSeconds = 5.0;
         private static readonly DateTime UnixEpochUtc = new DateTime(1970, 1, 1);
         [ThreadStatic]
         internal static Func<double> ClockOverrideForTesting;
@@ -97,8 +81,32 @@ namespace Parsek
         [ThreadStatic]
         internal static Action<string, float> ScreenMessageSinkForTesting;
 
+        // Production wiring for the verbose gate, installed by the settings type
+        // rather than read from it: this class must reference nothing else in the
+        // assembly so the most-referenced type in the tree stays a dependency leaf.
+        // Null until the settings type is first touched, and a null provider means
+        // verbose ON - the same answer the old "no settings object yet" branch gave.
+        // NOT a test override: ResetTestOverrides must not clear it, or every test
+        // running after the first reset would lose the installed production gate.
+        internal static Func<bool> VerboseProvider;
+
         public static bool IsVerboseEnabled =>
-            VerboseOverrideForTesting ?? (ParsekSettings.Current?.verboseLogging ?? true);
+            VerboseOverrideForTesting ?? (VerboseProvider?.Invoke() ?? true);
+
+        // Test-reset callbacks published by satellite log helpers (RecorderStateLog)
+        // whose own sequence/transition state must clear with this class's overrides.
+        // Registered from the helper's static constructor, so a helper no test ever
+        // touched contributes nothing here. Keeping the callback indirect is what lets
+        // this class stay free of references to the types those helpers format.
+        private static Action satelliteTestResets;
+
+        internal static void RegisterTestResetHook(Action reset)
+        {
+            if (reset == null)
+                return;
+
+            satelliteTestResets += reset;
+        }
 
         internal static void ResetRateLimitsForTesting()
         {
@@ -115,7 +123,7 @@ namespace Parsek
             VerboseOverrideForTesting = null;
             ScreenMessageSinkForTesting = null;
             ResetRateLimitsForTesting();
-            ResetRecStateForTesting();
+            satelliteTestResets?.Invoke();
         }
 
         internal static IDisposable SuppressScope()
@@ -142,17 +150,6 @@ namespace Parsek
                 SuppressLogging = previous;
                 disposed = true;
             }
-        }
-
-        /// <summary>
-        /// Resets the [RecState] sequence counter and last-seen-recId cache.
-        /// Tests call this before asserting on emitted lines so sequence numbers
-        /// and the rec.prev transition cache start from a known baseline.
-        /// </summary>
-        internal static void ResetRecStateForTesting()
-        {
-            Interlocked.Exchange(ref s_recStateSeq, 0);
-            t_lastSeenActiveRecId = null;
         }
 
         public static void Info(string subsystem, string message)
@@ -512,6 +509,53 @@ namespace Parsek
             rateLimitStateByKey[compositeKey] = state;
         }
 
+        /// <summary>
+        /// Shared rate-limit gate for satellite log helpers (RecorderStateLog) that
+        /// must throttle against the SAME per-session dictionary as the loggers here -
+        /// a second dictionary would let two helpers using one key both emit.
+        /// Returns true when the caller may emit now, with
+        /// <paramref name="suppressedCount"/> carrying the emissions swallowed since
+        /// the last one (0 on the first claim for a key) so the caller can render the
+        /// usual "| suppressed=N" suffix. Returns false when still inside the interval,
+        /// having bumped that count.
+        /// </summary>
+        /// <param name="compositeKey">
+        /// Already-composed key including the caller's own prefix, so satellite keys
+        /// cannot collide with the "W|" / "I|" spaces used above.
+        /// </param>
+        internal static bool TryClaimRateLimitSlot(
+            string compositeKey,
+            double minIntervalSeconds,
+            out int suppressedCount)
+        {
+            suppressedCount = 0;
+            double now = GetLogClockSeconds();
+            if (!rateLimitStateByKey.TryGetValue(compositeKey, out var state))
+            {
+                rateLimitStateByKey[compositeKey] = new RateLimitState
+                {
+                    lastEmitSeconds = now,
+                    suppressedCount = 0
+                };
+                return true;
+            }
+
+            bool emit = (now - state.lastEmitSeconds) >= minIntervalSeconds;
+            if (emit)
+            {
+                suppressedCount = state.suppressedCount;
+                state.lastEmitSeconds = now;
+                state.suppressedCount = 0;
+            }
+            else
+            {
+                state.suppressedCount++;
+            }
+
+            rateLimitStateByKey[compositeKey] = state;
+            return emit;
+        }
+
         private static double GetLogClockSeconds()
         {
             if (ClockOverrideForTesting != null)
@@ -520,7 +564,10 @@ namespace Parsek
             return DateTime.UtcNow.Subtract(UnixEpochUtc).TotalSeconds;
         }
 
-        private static void Write(string level, string subsystem, string message)
+        // internal (not private) so satellite log helpers render through the one
+        // "[Parsek][LEVEL][Subsystem]" formatter and honour the same sink / suppress
+        // seams instead of writing their own Debug.Log line.
+        internal static void Write(string level, string subsystem, string message)
         {
             if (SuppressLogging)
                 return;
@@ -588,227 +635,5 @@ namespace Parsek
                 // calls as MissingMethodException instead of the above two.
             }
         }
-
-        // ----- [RecState] structured state-dump logging -----
-
-        /// <summary>
-        /// Emits a single deterministic <c>[RecState]</c> log line summarising
-        /// every recorder-relevant field at the given lifecycle <paramref name="phase"/>.
-        /// Format is field-ordered and stable so log readers can <c>grep "[RecState]"</c>
-        /// and either eyeball or <c>cut -d ' '</c>-parse the output.
-        /// </summary>
-        /// <param name="phase">
-        /// Short free-text tag identifying the call site (e.g. <c>"OnFlightReady"</c>,
-        /// <c>"OnSave:pre"</c>). Always pass a string literal so the
-        /// tag is grep-stable across releases.
-        /// </param>
-        /// <param name="snap">Captured state to render.</param>
-        internal static void RecState(string phase, RecorderStateSnapshot snap)
-        {
-            long seq = Interlocked.Increment(ref s_recStateSeq);
-            string line = FormatRecState(seq, phase, snap, ref t_lastSeenActiveRecId);
-            Write("INFO", "RecState", line);
-        }
-
-        /// <summary>
-        /// Rate-limited variant for hot-path recovery diagnostics that still need
-        /// full <c>[RecState]</c> snapshots on the first occurrence and on summary
-        /// cadence. Normal lifecycle boundaries should call <see cref="RecState"/>.
-        /// </summary>
-        /// <remarks>
-        /// Like the other rate-limited loggers, summaries are emitted only when the
-        /// same key fires again after the interval; trailing suppressed counts for
-        /// abandoned fingerprints are intentionally dropped. Keys live in the shared
-        /// per-session rate-limit dictionary until reset, so callers should use
-        /// coarse, stable fingerprints rather than per-frame values.
-        /// </remarks>
-        internal static void RecStateRateLimited(
-            string phase,
-            RecorderStateSnapshot snap,
-            string key,
-            double minIntervalSeconds = DefaultRateLimitSeconds)
-        {
-            if (string.IsNullOrEmpty(key))
-            {
-                RecState(phase, snap);
-                return;
-            }
-
-            string compositeKey = $"R|RecState|{phase}|{key}";
-            double now = GetLogClockSeconds();
-            if (!rateLimitStateByKey.TryGetValue(compositeKey, out var state))
-            {
-                rateLimitStateByKey[compositeKey] = new RateLimitState
-                {
-                    lastEmitSeconds = now,
-                    suppressedCount = 0
-                };
-                RecState(phase, snap);
-                return;
-            }
-
-            if ((now - state.lastEmitSeconds) >= minIntervalSeconds)
-            {
-                long seq = Interlocked.Increment(ref s_recStateSeq);
-                string line = FormatRecState(seq, phase, snap, ref t_lastSeenActiveRecId);
-                string suffix = state.suppressedCount > 0
-                    ? $" | suppressed={state.suppressedCount}"
-                    : string.Empty;
-                Write("INFO", "RecState", $"{line}{suffix}");
-                state.lastEmitSeconds = now;
-                state.suppressedCount = 0;
-            }
-            else
-            {
-                state.suppressedCount++;
-            }
-
-            rateLimitStateByKey[compositeKey] = state;
-        }
-
-        /// <summary>
-        /// Pure formatting helper exposed for unit tests. The <paramref name="lastSeenRecId"/>
-        /// ref parameter is updated to the current snapshot's activeRecId after rendering,
-        /// implementing the "only show <c>rec.prev</c> on transitions" semantics.
-        /// </summary>
-        internal static string FormatRecState(
-            long seq,
-            string phase,
-            RecorderStateSnapshot snap,
-            ref string lastSeenRecId)
-        {
-            var inv = CultureInfo.InvariantCulture;
-            var sb = new StringBuilder(256);
-
-            sb.Append("[#").Append(seq.ToString(inv)).Append("][")
-              .Append(phase ?? "-").Append("] ");
-
-            sb.Append("mode=").Append(FormatMode(snap.mode));
-
-            sb.Append(" tree=");
-            if (snap.mode == RecorderMode.Tree)
-                sb.Append(TruncateId(snap.treeId)).Append('|').Append(TruncateName(snap.treeName));
-            else
-                sb.Append('-');
-
-            sb.Append(" rec=");
-            if (snap.activeRecId != null || !string.IsNullOrEmpty(snap.activeVesselName) || snap.activeVesselPid != 0)
-            {
-                sb.Append(TruncateId(snap.activeRecId))
-                  .Append('|')
-                  .Append(TruncateName(snap.activeVesselName))
-                  .Append("|pid=")
-                  .Append(snap.activeVesselPid.ToString(inv));
-            }
-            else
-            {
-                sb.Append('-');
-            }
-
-            // rec.prev: only non-'-' on transition since the previous emitted snapshot.
-            // Covers both "changed to different id" and "changed to null" transitions.
-            sb.Append(" rec.prev=");
-            if (lastSeenRecId != null && lastSeenRecId != snap.activeRecId)
-                sb.Append(TruncateId(lastSeenRecId));
-            else
-                sb.Append('-');
-
-            sb.Append(" rec.live=").Append(BoolStr(snap.isRecording))
-              .Append('/').Append(BoolStr(snap.isBackgrounded));
-
-            sb.Append(" rec.buf=")
-              .Append(snap.bufferedPoints.ToString(inv))
-              .Append('/')
-              .Append(snap.bufferedPartEvents.ToString(inv))
-              .Append('/')
-              .Append(snap.bufferedOrbitSegments.ToString(inv));
-
-            sb.Append(" lastUT=");
-            if (double.IsNaN(snap.lastRecordedUT))
-                sb.Append('-');
-            else
-                sb.Append(snap.lastRecordedUT.ToString("F1", inv));
-
-            sb.Append(" tree.recs=")
-              .Append(snap.treeRecordingCount.ToString(inv))
-              .Append('/')
-              .Append(snap.treeBackgroundMapCount.ToString(inv));
-
-            sb.Append(" pend.tree=");
-            if (snap.pendingTreePresent)
-                sb.Append(TruncateId(snap.pendingTreeId))
-                  .Append(':')
-                  .Append(snap.pendingTreeState.ToString());
-            else
-                sb.Append('-');
-
-            sb.Append(" pend.sa=");
-            if (snap.pendingStandalonePresent)
-                sb.Append(TruncateId(snap.pendingStandaloneRecId));
-            else
-                sb.Append('-');
-
-            sb.Append(" pend.split=")
-              .Append(BoolStr(snap.pendingSplitPresent))
-              .Append('/')
-              .Append(BoolStr(snap.pendingSplitInProgress));
-
-            sb.Append(" chain=");
-            if (snap.chainActiveChainId != null)
-                sb.Append(TruncateId(snap.chainActiveChainId))
-                  .Append("|idx=")
-                  .Append(snap.chainNextIndex.ToString(inv));
-            else
-                sb.Append('-');
-
-            // Auxiliary chain fields when continuations are active — only emitted
-            // when non-zero so the line stays compact in the common case.
-            if (snap.chainContinuationPid != 0)
-                sb.Append(" chain.cont=").Append(snap.chainContinuationPid.ToString(inv));
-            if (snap.chainUndockContinuationPid != 0)
-                sb.Append(" chain.undock=").Append(snap.chainUndockContinuationPid.ToString(inv));
-            if (snap.chainBoundaryAnchorPending)
-                sb.Append(" chain.anchor=1");
-
-            sb.Append(" ut=").Append(snap.currentUT.ToString("F1", inv));
-            sb.Append(" scene=").Append(snap.loadedScene.ToString());
-
-            // Update transition cache after rendering so the *next* call reflects
-            // a transition only when activeRecId actually changes.
-            lastSeenRecId = snap.activeRecId;
-
-            return sb.ToString();
-        }
-
-        private static string FormatMode(RecorderMode mode)
-        {
-            switch (mode)
-            {
-                case RecorderMode.Tree: return "tree";
-                case RecorderMode.Standalone: return "sa";
-                case RecorderMode.None: return "none";
-                default: return "?";
-            }
-        }
-
-        private static string TruncateId(string id)
-        {
-            if (string.IsNullOrEmpty(id)) return "-";
-            return id.Length <= 8 ? id : id.Substring(0, 8);
-        }
-
-        // Caps free-text names (vessel / tree) to a bounded length so a 200-char
-        // mod-generated name can't blow out the single-line [RecState] dump.
-        // 32 chars leaves enough room to recognise a stock vessel name; longer
-        // names get a trailing "..." marker.
-        private const int MaxRecStateNameLen = 32;
-        private static string TruncateName(string name)
-        {
-            if (string.IsNullOrEmpty(name)) return "-";
-            if (name.Length <= MaxRecStateNameLen) return name;
-            return name.Substring(0, MaxRecStateNameLen) + "...";
-        }
-
-        private static string BoolStr(bool b) => b ? "T" : "F";
     }
 }

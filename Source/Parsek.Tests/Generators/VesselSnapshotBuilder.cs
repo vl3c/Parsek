@@ -261,7 +261,7 @@ namespace Parsek.Tests.Generators
         /// <summary>
         /// Stores one cargo part inside the part at <paramref name="partIndex"/>'s
         /// <c>ModuleInventoryPart</c>, in the exact node shape
-        /// <c>VesselSpawner.ExtractInventoryPayloadItems</c> walks:
+        /// <c>VesselSnapshotOps.ExtractInventoryPayloadItems</c> walks:
         /// <c>PART -&gt; MODULE(name="ModuleInventoryPart") -&gt; STOREDPARTS -&gt; STOREDPART</c>.
         /// <para>
         /// The STOREDPART carries the keys the production parse reads —
@@ -283,7 +283,7 @@ namespace Parsek.Tests.Generators
         /// </para>
         /// <para>
         /// Note that <c>slot</c> and <c>quantity</c> never enter
-        /// <c>VesselSpawner.ComputeInventoryPayloadKindKey</c>, and neither does
+        /// <c>VesselSnapshotOps.ComputeInventoryPayloadKindKey</c>, and neither does
         /// module state: the KIND is part name + variant + per-resource fill
         /// bucket, and nothing else (2026-09-02 ruling). Vary
         /// <paramref name="storedPartName"/>, <paramref name="variantName"/>, or

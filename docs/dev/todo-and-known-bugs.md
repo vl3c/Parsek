@@ -15,6 +15,122 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ARCH-FINDINGS-REPORT: the architecture findings report and how to regenerate its numbers [FILED 2026-09-15. A POINTER, not a defect. OPEN as the entry point for the refactoring work that follows]
+
+**What is true.**
+- The concise findings report (numbers, module layers, the 391-type cycle and its cut
+  sequence, hotspots, co-change, the ranked opportunity list with PR status) is
+  `docs/dev/research/architecture-findings-2026-09-14.html` (committed snapshot) and
+  published at https://claude.ai/artifact/9Qzf1YvzDFsTSLF6X5We9b.
+- Every number in it regenerates from the source tree and git history in about 20 s:
+  `python scripts/arch/archview.py --check --place` writes the live views under
+  `docs/dev/arch/` (gitignored: `atlas.html`, `explore.html`, `matrix.html`,
+  `ladder.html`, `modules.svg`, `edges.json`, `types.json`, `history.json`,
+  `core-placement.md`) and prints the check report. Hand-authored inputs are
+  `scripts/arch/modules.toml` (file to module, forbidden edges) and
+  `scripts/arch/atlas.toml` (prose). Contract and reading guide: `docs/dev/arch/README.md`.
+- The ranked list behind the report is `docs/dev/research/architecture-opportunities-2026-09-14.md`;
+  the VesselSpawner member-level plan is `docs/dev/research/vesselspawner-split-plan-2026-09-14.md`.
+- Landed so far (2026-09-14): #1682 tooling, #1683 ParsekLog leaf, #1684 Recording data-only,
+  #1685 Missions -> Logistics boundary, #1686 VesselSpawner step 1. Cycle 391 -> 282.
+
+**Fix.** None; this entry is where the next refactoring session starts. Before ranking
+again, regenerate and read the KNOTS greedy cuts and the upward-edge count; the remaining
+items (ARCH-RECORDINGSTORE-GOD-OBJECT, ARCH-PARSEKFLIGHT-CHANGE-HUB, VesselSpawner steps 2-5,
+ARCH-TOOLING-ROSLYN-AND-CI) are design work planned one PR at a time.
+
+## ARCH-PARSEKFLIGHT-CHANGE-HUB: ParsekFlight.cs is 27,591 lines and on one side of every top cross-module co-change pair [FILED 2026-09-14 off the architecture program (`docs/dev/research/architecture-opportunities-2026-09-14.md` item 1). A STRUCTURAL debt, not a defect. OPEN; the largest item on the list and the last to start]
+
+**What is true.**
+- Touched in 1,125 of the 5,127 commits since 2025-03-01 (22 percent of every commit to
+  `Source/Parsek`); the next file is `ParsekScenario.cs` at 420.
+- The top cross-module co-change pairs are all this file with another: `FlightRecorder.cs`
+  (147 commits together), `RecordingStore.cs` (128), `GhostPlaybackEngine.cs` (106),
+  `BackgroundRecorder.cs` (90), `ParsekUI.cs` (87), `GhostPlaybackLogic.cs` (79),
+  `GhostVisualBuilder.cs` (75), `VesselSpawner.cs` (63), `Recording.cs` (60).
+- Regenerate the evidence with `python scripts/arch/archview.py --check --place`
+  (HISTORY section; the views are gitignored).
+
+**Fix.** Extract one seam per PR, each behind a harness tier, in co-change order: the recorder
+hookup (`FlightRecorder` / `BackgroundRecorder`), playback hosting, spawning, the merge flow.
+`WatchModeController`, `ParsekPlaybackPolicy` and `ChainSegmentManager` are prior extractions
+of the same shape. Do this AFTER ARCH-KNOT-CHEAP-CUTS and ARCH-RECORDINGSTORE-GOD-OBJECT, which
+make the types it touches easier to reason about.
+
+## ~~ARCH-KNOT-CHEAP-CUTS~~: two hub types sat in the 391-type dependency cycle because of four stray references, and cutting them freed 110 types [FILED 2026-09-14 off the architecture program (items 2 and 3 of the opportunities doc). DONE 2026-09-14: #1683 (ParsekLog leaf, knot 391 -> 336) and #1684 (Recording data-only) merged; together the knot measures 282. The residual 282 is design work, re-ranked by the greedy cuts in `--check`]
+
+**What is true.**
+- 391 production types (29 percent) form one strongly connected component; nothing inside it
+  can be tested or reasoned about in isolation.
+- `ParsekLog` (fan-in 295 files, 24 commits) is in the cycle only because it references
+  `ParsekSettings` (the verbose flag) and `RecorderStateSnapshot`. Making it a sink drops the
+  knot 391 -> 335.
+- `Recording` (fan-in 162, 132 commits, the top hotspot) is in the cycle because it references
+  `RecordingStore` and `KerbalsModule`. Making it a sink drops the knot 335 -> 281.
+- The `KNOTS` section of `--check` prints the greedy cut sequence; re-run after each cut.
+
+**Fix.**
+1. Settings pushes the verbose flag into the logger (static bool or delegate set at settings
+   load); the snapshot reference moves to its caller.
+2. The store lookups and the kerbals-module call on `Recording` move to the callers or to
+   `RecordingStore`; `Recording` becomes plain data.
+3. Pin the new knot size in `test_archview.py` so the cut cannot silently regress.
+
+## ARCH-RECORDINGSTORE-GOD-OBJECT: RecordingStore is a list plus eight services in one type [FILED 2026-09-14 off the architecture program (item 4). OPEN; the first item with real design content, after the cheap cuts]
+
+**What is true.**
+- 6,970 lines plus partials, fan-in 91 files, touched in 408 commits (third most churned file);
+  co-changes with `ParsekScenario.cs` 131 times and `ParsekFlight.cs` 128.
+- Inside the knot it references 37 other members: stores, codecs, the scenario, the flight
+  controller, the ledger orchestrator, the crew manager. It is the third greedy cut and the
+  first that names a design problem rather than a stray reference.
+- `CommittedListNotifications` documents one contract (the index-keyed live state); the sidecar
+  I/O, optimizer, orphan cleanup, tree discard, group hierarchy, ledger trigger and
+  switch-segment classification it also drives have no stated contract.
+
+**Fix.** The store as the committed list with its notifications; the operations that use it
+(optimizer, purge, sidecar commit, session merge) as services on top that the scenario module
+calls directly. One service per PR; the co-change with `ParsekScenario.cs` is the measure.
+
+## ARCH-KERNEL-AND-TRAJECTORY-PLACEMENT: three files are filed where the map says they do not belong [FILED 2026-09-14 off the architecture program (items 6, 7 and 9). PARTLY DONE 2026-09-14: the Missions -> Logistics crossing closed in #1685 (merged); the Trajectory half closed as a placement error (five recorder files matched the Trajectory prefixes; `modules.toml` now places them, Trajectory reads at instability 0.06); VesselSpawner step 1 of 5 merged as #1686 (`VesselSnapshotOps`), plan in `docs/dev/research/vesselspawner-split-plan-2026-09-14.md`. OPEN for steps 2-5]
+
+**What is true.**
+- `VesselSpawner.cs` (6,897 lines, 163 commits, co-changes with `ParsekFlight.cs` 63 times)
+  stays in the eight-file Core kernel because no module owns a majority of its references, and
+  it is the only reason Core references Recording (21 references, the kernel's one upward edge).
+- Trajectory references Recording 51 times through `BallisticExtrapolator`, `OrbitReseed` and
+  the incomplete-ballistic scene-exit finalizer, so the one module the docs call pure math is
+  not.
+- `MissionRouteStructureList.cs` references `Logistics.Route` and `RouteStop`: the one declared
+  boundary (`[forbidden]` in `scripts/arch/modules.toml`) the checker finds crossed.
+
+**Fix.** Split `VesselSpawner` into the snapshot/manifest half (kernel) and the live spawn and
+recover half (Controllers); move the Recording-aware half of the extrapolator into Recording;
+move the route structure list into Logistics or read it through an interface Missions owns.
+Update `modules.toml` in the same commits so the placement report stays true.
+
+## ARCH-TOOLING-ROSLYN-AND-CI: the architecture checker is a text scan that gates nothing [FILED 2026-09-14 off the architecture program (phases 5 and 6). OPEN; tooling, no product change until the namespace tidy]
+
+**What is true.**
+- `scripts/arch/archview.py` matches identifiers against declared type names after stripping
+  comments, strings and directives. It cannot see reflection, string-keyed lookups or generic
+  inference, and names declared in two modules are dropped. Good enough to place files and rank
+  couplings; not sound enough to fail a build.
+- The three declared boundaries in `modules.toml` `[forbidden]` are report-only, and the
+  placement contract (no unplaced root file, every module has a summary) runs only when someone
+  runs the script. Nothing in CI or the xUnit suite executes it.
+- Namespaces do not match the module map: 370 of 749 files sit in the flat `namespace Parsek`,
+  so no off-the-shelf tool (ArchUnitNET, NsDepCop, NDepend) can express the boundaries either.
+
+**Fix.**
+1. A Roslyn extractor in `Parsek.Tests` that walks the semantic model and emits the same
+   `edges.json` / `types.json` shape, so every view and every number stays comparable.
+2. An xUnit test that fails on the placement contract only (unplaced root file, missing atlas
+   summary) while dependency findings stay report-only; add the regeneration command to the
+   per-commit docs checklist in `.claude/CLAUDE.md`.
+3. Then the mechanical namespace rename to match `modules.toml`, and arm the three forbidden
+   edges as failing tests.
+
 ## UNITY-SCANNER-BLIND-TO-PARSEK-STACK-FRAMES: the unity-exception scan counts exception LINES and never reads the stack under them, so a Parsek-frame NRE passes under any `maxTotal` ceiling [FILED 2026-09-11 off the wave-0910 decision memo (`docs/dev/research/wave-0910-open-decisions-2026-09-11.md` section 7). A HARNESS INSTRUMENT gap, not a product defect. OPEN; needs no decision]
 
 **What is true.**
@@ -983,13 +1099,45 @@ fail-loud contract working as designed, but it is not what `ParsekUI.cs:937-940`
   affordability is deliberately unchecked. Science IS enforced
   (`Patches/TechResearchPatch.cs:78`), so the two currencies behave differently behind
   identical-looking tooltips and the player finds out when the drawdown clamp fires.
-- D7: `RewindReadbackGuard.AbortRewindPatchOnDivergence` is hardcoded `false` (`:116`).
+- ~~D7: `RewindReadbackGuard.AbortRewindPatchOnDivergence` is hardcoded `false` (`:116`).
   The divergence it guards is named in the code as "possible silent career corruption"
-  (`KspStatePatcher.cs:3732`); today the code names the failure, logs a Warn, and proceeds.
+  (`KspStatePatcher.cs:3732`); today the code names the failure, logs a Warn, and
+  proceeds.~~ **RESOLVED 2026-09-14 (operator decision after a second-opinion review): the
+  abort option is retired and the guard stays warn-and-proceed**, because the abort is not
+  fail-closed (the guard is cleared in `RewindInvoker.cs`'s `finally` while the ReFly marker
+  keeps `authoritativeReduction=true`, so the next unguarded recalc writes the identical
+  target) and it would break a DESIGNED rewind (Step 3b `RetireResurrectedVesselRecoveryRows`
+  puts the correct target below both witnesses after any post-RP spend), while skipping
+  Science/TechTree/Funds/Reputation/Facilities/Milestones/Contracts wholesale after the crew
+  roster was already applied - and it has never fired (57 armed rewinds across 665 collected
+  logs, 0 `FLAGGED DIVERGENCE`). Fix: field deleted; the WARN now states the measured
+  meaning (target below the pre-rewind / rewind-point floor, written anyway under the
+  authoritative rewind) and names the two legitimate causes; the abort branch survives only
+  under `RewindReadbackGuard.ForceAbortForTesting`.
 
-**Decision:** arm either gate, or delete it and say in the tooltip / log that the check is
-advisory. Two named, unarmed safety gates are worse than none, because the next reader
-assumes they fire.
+**Decision:** P15 remains open - arm the funds gate, or delete it and say in the tooltip that
+the check is advisory. A named, unarmed safety gate is worse than none, because the next
+reader assumes it fires. D7 is closed above.
+
+## REWIND-READBACK-GUARD-HAS-NO-LIVE-WITNESS-LANE [FILED 2026-09-14 by the guard-retire decision]
+
+**Evidence.** The rewind read-back divergence guard is warn-and-proceed by decision (see the
+D7 resolution above), so its only product is the `FLAGGED DIVERGENCE` WARN - and across 665
+collected logs and 57 armed rewinds that line has never been emitted, with all 8 career runs
+reading `delta=0`. The predicate is unit-pinned (`RewindReadbackGuardTests.cs`), but nothing
+drives the DESIGNED flag through a real career.
+
+**Follow-ups.**
+
+- A career harness lane that recovers a vessel, spends funds post-RP, then `InvokeRewind`s,
+  with HARD `[expectations.ledger]` facets on the post-rewind pools and a `logContract`
+  requiring `FLAGGED DIVERGENCE`. That turns the Step-3b retirement arithmetic into a live
+  witness instead of a unit-test argument, and it is the only way to learn what the WARN
+  looks like on real data before any future gate is considered.
+- The modded-compat / strategy rewind lane (coverage-audit row A7): a rewind on a career
+  carrying a strategy conversion or a mod-granted earning channel. That is the only shape
+  where a per-resource floor that EXEMPTS Step-3b resurrected-recovery retirements would be
+  the right gate, so the lane has to exist before such a floor could be designed.
 
 ## GUI-P19-CANDIDATES-EMPTY-STATE-TELLS-THE-PLAYER-TO-DO-WHAT-THEY-DID [FILED 2026-09-11 by the GUI fix batch]
 
@@ -1015,7 +1163,25 @@ later stop.
 Destination, and offer re-scan per stop. Needs a route with more than one stop to verify,
 so it wants a lane.
 
-## GUI-P7-THE-STOCK-DIFFICULTY-SCREEN-EDITS-FIVE-PARSEK-SETTINGS-AND-LOSES-THEM [FILED 2026-09-11 by the GUI fix batch]
+## ~~GUI-P7-THE-STOCK-DIFFICULTY-SCREEN-EDITS-FIVE-PARSEK-SETTINGS-AND-LOSES-THEM~~ [FILED 2026-09-11 by the GUI fix batch; FIXED 2026-09-14]
+
+**Fixed** (operator ruling 2026-09-14: the six toggles are runtime debugging / preference
+options that belong only in Parsek's own Settings window). `ParsekSettings.GameMode` now
+returns `GameParameters.GameMode.NONE` instead of `ANY`, which removes the WHOLE Parsek
+section from the stock screen - the six toggles plus the two numeric controls
+(`samplingDensity`, `ghostAudioVolume`) that had the same two-writers shape. Mechanism from
+the decompiled KSP 1.12.5 `DifficultyOptionsMenu`: its node loop skips a node when
+`(customParamNode.GameMode & currentGameModeFilter) == 0`, tested BEFORE any member or
+`CustomParameterUI` attribute is read, and the `listDictionary.Add(node.Section, ...)` that
+builds the section and its tab sits inside that same loop, so `NONE` (= 0) yields no
+section in any game mode. Dropping the attributes instead was rejected: an attribute-less
+node still gets its tab, with a blank label. Storage is untouched -
+`GameParameters.Save` walks the `customParams` dictionary and `ParameterNode.Save` writes
+every public field regardless of `GameMode` (it reads `CustomParameterUI` only for
+`autoPersistance`), so existing saves keep and reload every key, and the Settings window,
+the sidecar and the harness `SettingWhitelist` / `SetSetting` seam are unaffected. Pinned by
+`ParsekSettingsTests.StockDifficultyScreen_DrawsNoParsekSection` (reproduces the stock skip
+predicate per game mode and asserts every annotated member still persists).
 
 **Evidence.** `ParsekSettings.cs:77`, `:81`, `:85`, `:89`, `:100` carry
 `GameParameters.CustomParameterUI` attributes, so KSP's own Difficulty screen draws them.
@@ -1026,9 +1192,9 @@ from the sidecar at the next load. Only the Parsek Settings window's own toggles
 `TestCommands/SettingWhitelist.cs:7-14` documents this trap for the harness; nobody applied
 it to the stock screen.
 
-**Decision:** hide the five from the stock Difficulty screen (drop the attributes), or
-honour them there (write through `Record*` on the stock path). Two settings screens for the
-same fields, one of which quietly loses the change, is the state to get out of.
+**Decision (taken 2026-09-14):** hidden - the whole section, through `GameMode.NONE`. The
+alternative (honour the stock edits by writing through `Record*` on the stock path) was not
+taken: the stock screen would still be a second surface for developer diagnostics.
 
 ## GUI-D3-GHOSTCOMMNETRELAY-IS-DEAD-WHILE-A-LIVE-PATCH-CITES-IT-AS-JUSTIFICATION [FILED 2026-09-11 by the GUI fix batch]
 
