@@ -1,5 +1,11 @@
 # Phase 1 review-agent protocol (identical for every pass)
 
+All paths in this protocol and in your task prompt are absolute or resolve against the audit
+worktree root `C:\Users\vlad3\Documents\Code\Parsek\Parsek-test-audit`. Do NOT search, read, or
+write anything under `C:\Users\vlad3\Documents\Code\Parsek\Parsek` (the main checkout) or under
+`C:\Users\vlad3\Documents\Code\Parsek\docs` (an unrelated umbrella docs tree). If a path in your
+assignment does not resolve inside the audit worktree, stop and report BLOCKED naming the path.
+
 You are reviewing xUnit tests for the Parsek unit-test quality audit. Work only inside
 `C:\Users\vlad3\Documents\Code\Parsek\Parsek-test-audit` (the audit worktree). Never run git, never run
 tests, never edit production or test code, never touch `Source/Parsek.Tests` files - read only.

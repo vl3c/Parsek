@@ -1,7 +1,7 @@
 # Plan: Parsek unit-test quality audit
 
 Baseline: `origin/main` at `4aedb0a1a018bd3420081778cffc1337bb6a58aa` (pinned; every finding cites this SHA).
-Status: Phase 0 in progress (plan reviewed by two clean-context agents 2026-09-14; amendments folded in).
+Status: Phase 1 CLOSED 2026-09-15 (427 linted fragments, D1 complete at 20,225 rows, 768 findings, 252 coverage candidates; `docs/dev/research/test-quality-audit-2026-09-14/phase1-summary.md`). Phase 2 (adversarial verification) next.
 Phase A is read-only on production and test code; mutations run only in a detached scratch worktree
 (never in this worktree, never committed).
 Phase 0 results so far: full suite PASS, Failed 0 / Passed 23,420 / Skipped 1, wall 1m09s (TRX

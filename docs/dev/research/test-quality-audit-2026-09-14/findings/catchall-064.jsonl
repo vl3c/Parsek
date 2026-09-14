@@ -1,0 +1,14 @@
+{"kind": "method", "file": "Source/Parsek.Tests/ProjectionMinBalanceTests.cs", "method": "Funds_ProjectionMinBalance_IsTheUnclampedMinimum_WhileAvailableIsFloored", "line": 26, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/ProjectionMinBalanceTests.cs", "method": "Funds_Reset_DropsTheProjectedMinimum", "line": 40, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/ProjectionMinBalanceTests.cs", "method": "Science_ProjectionMinBalance_IsTheUnclampedMinimum_WhileAvailableIsFloored", "line": 55, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/InputFocusGuardTests.cs", "method": "IsTextFieldFocused_KeyboardControlZero_ReturnsFalse", "line": 26, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/InputFocusGuardTests.cs", "method": "IsTextFieldFocused_KeyboardControlNonZero_ReturnsTrue", "line": 34, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/InputFocusGuardTests.cs", "method": "IsTextFieldFocused_KeyboardControlNegative_ReturnsTrue", "line": 44, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/InputFocusGuardTests.cs", "method": "ResetTestOverrides_ClearsProvider", "line": 54, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/ResolveLocalizedNameTests.cs", "method": "ReturnsNullForNull", "line": 19, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/ResolveLocalizedNameTests.cs", "method": "ReturnsEmptyForEmpty", "line": 25, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/ResolveLocalizedNameTests.cs", "method": "ReturnsRegularNameUnchanged", "line": 31, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/ResolveLocalizedNameTests.cs", "method": "ReturnsNonLocKeySpecialCharsUnchanged", "line": 37, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/ResolveLocalizedNameTests.cs", "method": "AutoLocKeyReturnedUnchangedWhenLocalizerUnavailable", "line": 43, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/ResolveLocalizedNameTests.cs", "method": "HashPrefixStringHandledGracefully", "line": 52, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/SequentialCollectionDefinition.cs", "method": "SequentialCollection_DisablesCrossCollectionParallelization", "line": 14, "verdict": "ok"}

@@ -1,0 +1,32 @@
+{"kind":"method","file":"Source/Parsek.Tests/Logistics/RouteRevertSafetyTests.cs","method":"RewindBackedSegment_IsRevertable","line":22,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Logistics/RouteRevertSafetyTests.cs","method":"NonRewindInFlightSegment_IsNotRevertable_TheLeak","line":32,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Logistics/RouteRevertSafetyTests.cs","method":"RewindBacked_WinsEvenInsideAnInFlightSegment","line":45,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Logistics/RouteRevertSafetyTests.cs","method":"NoBacking_NoInFlightSegment_IsRevertable_NormalPlay","line":56,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Logistics/RouteRevertSafetyTests.cs","method":"TruthTable","line":75,"verdict":"duplicate","category":"T2","twin":"Source/Parsek.Tests/Logistics/RouteRevertSafetyTests.cs.NonRewindInFlightSegment_IsNotRevertable_TheLeak","falsifiability":"falsifiability: Source/Parsek/Logistics/RouteRevertSafety.cs PhysicalMutationRevertable; invert the inFlightNonRewindSegment arm -> both red","note":"its four InlineData rows are exactly the four Facts above it (same function, same two inputs, same expectations); self-described belt-and-suspenders"}
+{"kind":"method","file":"Source/Parsek.Tests/Logistics/LogisticsRouteRenameTests.cs","method":"DistinctName_IsChange_AndTrimmed","line":19,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Logistics/LogisticsRouteRenameTests.cs","method":"EmptyOrWhitespace_IsNotChange","line":33,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Logistics/LogisticsRouteRenameTests.cs","method":"NullTyped_IsNotChange","line":44,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Logistics/LogisticsRouteRenameTests.cs","method":"SameAsCurrentAfterTrim_IsNotChange","line":55,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Logistics/LogisticsRouteRenameTests.cs","method":"SurroundingWhitespace_TrimmedAndIsChange","line":66,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Logistics/LogisticsRouteRenameTests.cs","method":"NullCurrent_NonEmptyTyped_IsChange","line":77,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Logistics/RouteStatusEnumTests.cs","method":"EnumExhaustivenessPin","line":31,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Logistics/RouteStatusEnumTests.cs","method":"TransitionTo_LogsFromAndTo","line":52,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Logistics/RouteStatusEnumTests.cs","method":"TransitionTo_SameStatus_LogsVerbose_NotInfo","line":68,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Logistics/RouteAnalysisLogModeTests.cs","method":"Diagnostic_LogsRejectionAtInfo","line":40,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Logistics/RouteAnalysisLogModeTests.cs","method":"Quiet_SuppressesRejectionLog_SameDecision","line":51,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Logistics/RouteAnalysisLogModeTests.cs","method":"DefaultMode_IsDiagnostic","line":62,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Logistics/LogisticsButtonStateTests.cs","method":"NullSequence_IsNotBroken","line":20,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Logistics/LogisticsButtonStateTests.cs","method":"EmptySequence_IsNotBroken","line":26,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Logistics/LogisticsButtonStateTests.cs","method":"HealthyAndBlockedActiveAndPaused_AreNotBroken","line":33,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Logistics/LogisticsButtonStateTests.cs","method":"SingleBrokenStatus_IsBroken","line":52,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Logistics/LogisticsButtonStateTests.cs","method":"MixedSequenceWithBroken_IsBroken","line":60,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Logistics/LogisticsWindowUIDeleteConfirmTests.cs","method":"NamedRoute_BodyUsesRouteName","line":18,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Logistics/LogisticsWindowUIDeleteConfirmTests.cs","method":"EmptyName_FallsBackToShortId_NotLiteralNull","line":31,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Logistics/LogisticsWindowUIDeleteConfirmTests.cs","method":"NullName_FallsBackToShortId","line":48,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Logistics/LogisticsWindowUIDeleteConfirmTests.cs","method":"NullRoute_DoesNotThrow_AndProducesBody","line":62,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Logistics/StatusColorPaletteTests.cs","method":"StatusColor_Green_IsCanonical","line":20,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Logistics/StatusColorPaletteTests.cs","method":"StatusColor_Yellow_IsCanonical","line":26,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Logistics/StatusColorPaletteTests.cs","method":"StatusColor_Red_IsCanonical","line":32,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Logistics/StatusColorPaletteTests.cs","method":"StatusColor_Grey_IsCanonical","line":41,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/Logistics/StatusColorPaletteTests.cs","method":"StatusColor_Cyan_IsCanonical","line":48,"verdict":"ok"}
+{"kind":"finding","id":"F-logistics-route-041-01","file":"Source/Parsek.Tests/Logistics/RouteRevertSafetyTests.cs","line":75,"method":"TruthTable","category":"T2","severity":"Low","confidence":"high","falsifiability":"falsifiability: Source/Parsek/Logistics/RouteRevertSafety.cs PhysicalMutationRevertable; invert the inFlightNonRewindSegment arm -> both red","what_it_asserts":"PhysicalMutationRevertable over all four (rewindBacked, inFlightNonRewind) combinations","why_weak":"the four rows are the same four calls as the four named Facts at lines 22/32/45/56 with the same expectations; nothing can red here without redding one of them","proposed_action":"keep the Theory and drop the four Facts, or keep the Facts and drop the Theory; the named Facts carry the explanatory comments, so removing the Theory is the cheaper cut","effort":"S","july_ref":"none"}
