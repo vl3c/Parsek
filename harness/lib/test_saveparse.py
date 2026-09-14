@@ -3470,17 +3470,21 @@ class CommittedFixtureSweepTests(unittest.TestCase):
                     r"recordingSchemaGeneration = (\d+)", text))
                 self.assertEqual({str(want["schemaGeneration"])}, gens,
                                  "%s: schema generations drifted" % name)
-                store_cs = os.path.join(
+                # The numeric constant is defined on RecordingSchema;
+                # RecordingStore only forwards it by name, so the literal
+                # lives in exactly one file and this is it.
+                schema_cs = os.path.join(
                     os.path.dirname(os.path.abspath(__file__)), "..", "..",
-                    "Source", "Parsek", "RecordingStore.cs")
-                with open(store_cs, encoding="utf-8") as fh:
+                    "Source", "Parsek", "RecordingSchema.cs")
+                with open(schema_cs, encoding="utf-8") as fh:
                     src = fh.read()
                 m = re.search(
                     r"CurrentRecordingSchemaGeneration\s*=\s*(\d+)", src)
-                self.assertIsNotNone(m, "schema-generation constant moved")
+                self.assertIsNotNone(
+                    m, "schema-generation constant moved out of RecordingSchema.cs")
                 self.assertEqual(
                     want["schemaGeneration"], int(m.group(1)),
-                    "%s: RecordingStore.CurrentRecordingSchemaGeneration "
+                    "%s: RecordingSchema.CurrentRecordingSchemaGeneration "
                     "no longer accepts this fixture's recordings - the "
                     "fixture must be re-harvested at the new generation "
                     "(or the consumer lane silently tests nothing)" % name)
