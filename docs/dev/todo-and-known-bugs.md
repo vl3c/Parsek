@@ -15,6 +15,30 @@ When referencing prior item numbers from source comments or plans, consult the r
 
 ---
 
+## ARCH-FINDINGS-REPORT: the architecture findings report and how to regenerate its numbers [FILED 2026-09-15. A POINTER, not a defect. OPEN as the entry point for the refactoring work that follows]
+
+**What is true.**
+- The concise findings report (numbers, module layers, the 391-type cycle and its cut
+  sequence, hotspots, co-change, the ranked opportunity list with PR status) is
+  `docs/dev/research/architecture-findings-2026-09-14.html` (committed snapshot) and
+  published at https://claude.ai/artifact/9Qzf1YvzDFsTSLF6X5We9b.
+- Every number in it regenerates from the source tree and git history in about 20 s:
+  `python scripts/arch/archview.py --check --place` writes the live views under
+  `docs/dev/arch/` (gitignored: `atlas.html`, `explore.html`, `matrix.html`,
+  `ladder.html`, `modules.svg`, `edges.json`, `types.json`, `history.json`,
+  `core-placement.md`) and prints the check report. Hand-authored inputs are
+  `scripts/arch/modules.toml` (file to module, forbidden edges) and
+  `scripts/arch/atlas.toml` (prose). Contract and reading guide: `docs/dev/arch/README.md`.
+- The ranked list behind the report is `docs/dev/research/architecture-opportunities-2026-09-14.md`;
+  the VesselSpawner member-level plan is `docs/dev/research/vesselspawner-split-plan-2026-09-14.md`.
+- Landed so far (2026-09-14): #1682 tooling, #1683 ParsekLog leaf, #1684 Recording data-only,
+  #1685 Missions -> Logistics boundary, #1686 VesselSpawner step 1. Cycle 391 -> 282.
+
+**Fix.** None; this entry is where the next refactoring session starts. Before ranking
+again, regenerate and read the KNOTS greedy cuts and the upward-edge count; the remaining
+items (ARCH-RECORDINGSTORE-GOD-OBJECT, ARCH-PARSEKFLIGHT-CHANGE-HUB, VesselSpawner steps 2-5,
+ARCH-TOOLING-ROSLYN-AND-CI) are design work planned one PR at a time.
+
 ## ARCH-PARSEKFLIGHT-CHANGE-HUB: ParsekFlight.cs is 27,591 lines and on one side of every top cross-module co-change pair [FILED 2026-09-14 off the architecture program (`docs/dev/research/architecture-opportunities-2026-09-14.md` item 1). A STRUCTURAL debt, not a defect. OPEN; the largest item on the list and the last to start]
 
 **What is true.**
@@ -33,7 +57,7 @@ hookup (`FlightRecorder` / `BackgroundRecorder`), playback hosting, spawning, th
 of the same shape. Do this AFTER ARCH-KNOT-CHEAP-CUTS and ARCH-RECORDINGSTORE-GOD-OBJECT, which
 make the types it touches easier to reason about.
 
-## ARCH-KNOT-CHEAP-CUTS: two hub types sit in the 391-type dependency cycle because of four stray references, and cutting them frees 110 types [FILED 2026-09-14 off the architecture program (items 2 and 3 of the opportunities doc). IN PR: #1683 (ParsekLog leaf, knot 391 -> 336) and #1684 (Recording data-only); the two together measure 282. Close when both merge]
+## ~~ARCH-KNOT-CHEAP-CUTS~~: two hub types sat in the 391-type dependency cycle because of four stray references, and cutting them freed 110 types [FILED 2026-09-14 off the architecture program (items 2 and 3 of the opportunities doc). DONE 2026-09-14: #1683 (ParsekLog leaf, knot 391 -> 336) and #1684 (Recording data-only) merged; together the knot measures 282. The residual 282 is design work, re-ranked by the greedy cuts in `--check`]
 
 **What is true.**
 - 391 production types (29 percent) form one strongly connected component; nothing inside it
@@ -68,7 +92,7 @@ make the types it touches easier to reason about.
 (optimizer, purge, sidecar commit, session merge) as services on top that the scenario module
 calls directly. One service per PR; the co-change with `ParsekScenario.cs` is the measure.
 
-## ARCH-KERNEL-AND-TRAJECTORY-PLACEMENT: three files are filed where the map says they do not belong [FILED 2026-09-14 off the architecture program (items 6, 7 and 9). PARTLY IN PR: the Missions -> Logistics crossing is #1685; the Trajectory half closed as a placement error (five recorder files matched the Trajectory prefixes; `modules.toml` now places them, Trajectory reads at instability 0.06); VesselSpawner step 1 of 5 is #1686, plan in `docs/dev/research/vesselspawner-split-plan-2026-09-14.md`. OPEN for steps 2-5]
+## ARCH-KERNEL-AND-TRAJECTORY-PLACEMENT: three files are filed where the map says they do not belong [FILED 2026-09-14 off the architecture program (items 6, 7 and 9). PARTLY DONE 2026-09-14: the Missions -> Logistics crossing closed in #1685 (merged); the Trajectory half closed as a placement error (five recorder files matched the Trajectory prefixes; `modules.toml` now places them, Trajectory reads at instability 0.06); VesselSpawner step 1 of 5 merged as #1686 (`VesselSnapshotOps`), plan in `docs/dev/research/vesselspawner-split-plan-2026-09-14.md`. OPEN for steps 2-5]
 
 **What is true.**
 - `VesselSpawner.cs` (6,897 lines, 163 commits, co-changes with `ParsekFlight.cs` 63 times)
