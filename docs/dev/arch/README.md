@@ -83,6 +83,10 @@ python scripts/arch/archview.py --place    # same, plus core-placement.md (leave
 python -m unittest scripts/arch/test_archview.py
 ```
 
+The unit tests above are not run by CI (`.github/workflows/tests.yml`
+discovers only the harness suites); run them by hand before pushing a change
+to the tool.
+
 Options:
 
 - `--source DIR` (default `Source/Parsek`)
