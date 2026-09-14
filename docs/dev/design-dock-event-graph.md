@@ -245,7 +245,7 @@ Nothing new is persisted. The one persistence-visible effect: `targetVesselPid` 
 | `Logistics/` (all files) | zero reads of the BP field; routes derive from `Recording.TransferTargetVesselPid` / `RouteConnectionWindow` | n/a | Fully insulated |
 | `Analyzer/` (all 13 rules) | zero reads; `Inv7TreeTopology` never walks `tree.BranchPoints` | n/a | No rule fires or changes verdict |
 | UI | zero direct reads; `MissionsWindowUI` renders link fields, never the pid | n/a | Safe |
-| Type-only readers (`GhostingTriggerClassifier:96`, `RouteHarvestAnalysis:625`, `MissionComposition:189/:720`, `MissionRouteStructureList:372`, `Rendering/AnchorCandidateBuilder:179/:230`, `Rendering/AnchorPropagator:313`, `SupersedeCommit:1251`) | `bp.Type` only | n/a | Safe |
+| Type-only readers (`GhostingTriggerClassifier:96`, `RouteHarvestAnalysis:625`, `MissionComposition:189/:720`, `MissionStructureList:343`, `Rendering/AnchorCandidateBuilder:179/:230`, `Rendering/AnchorPropagator:313`, `SupersedeCommit:1251`) | `bp.Type` only | n/a | Safe |
 
 **Tests pinned on gated behavior** (update in PR1, only the named lines): `MergeEventDetectionTests.cs:54` and `:102` (assert 0 on no-target merges; survive if the new parameter defaults to 0), `:209` (drop the bp-target line only; `:210-211` TransferTargetVesselPid==0/TransferKind==None remain the test's point), `ClawCoupleRecordingTests.cs:106` (drop the bp-target line only; `:107-108` remain). `MissionCrossTreeDockTests.cs:242` (`FindLinks_ZeroTargetPid_Skipped`) mutates the fixture directly and stays valid.
 
