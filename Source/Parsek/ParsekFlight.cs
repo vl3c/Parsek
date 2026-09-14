@@ -5543,7 +5543,7 @@ namespace Parsek
             // a pre-couple record of the endpoint, so its `root` index names the launch-unique
             // part flightID. An unreadable root leaves 0, which degrades this endpoint to the
             // pid + proximity walk it always had rather than refusing it.
-            VesselSpawner.TryReadRootPartFlightId(snapshot, out uint snapshotRootPartUId);
+            VesselSnapshotOps.TryReadRootPartFlightId(snapshot, out uint snapshotRootPartUId);
 
             endpoint = new RouteEndpoint
             {
@@ -5916,8 +5916,8 @@ namespace Parsek
             if (proof == null)
                 return;
 
-            List<uint> activePids = VesselSpawner.CollectPartPersistentIds(activeSnapshot);
-            List<uint> backgroundPids = VesselSpawner.CollectPartPersistentIds(bgSnapshot);
+            List<uint> activePids = VesselSnapshotOps.CollectPartPersistentIds(activeSnapshot);
+            List<uint> backgroundPids = VesselSnapshotOps.CollectPartPersistentIds(bgSnapshot);
 
             uint backgroundLivePid = backgroundVessel != null ? backgroundVessel.persistentId : 0u;
             string backgroundLiveGuid = (backgroundVessel != null && backgroundVessel.id != Guid.Empty)
@@ -6465,7 +6465,7 @@ namespace Parsek
                 ConfigNode partnerSnapshot = VesselSpawner.TryBackupSnapshot(partnerVessel);
                 if (partnerSnapshot != null)
                 {
-                    List<uint> pids = VesselSpawner.CollectPartPersistentIds(partnerSnapshot);
+                    List<uint> pids = VesselSnapshotOps.CollectPartPersistentIds(partnerSnapshot);
                     if (pids != null && pids.Count > 0)
                     {
                         ParsekLog.Verbose("Flight",
@@ -6483,7 +6483,7 @@ namespace Parsek
                     Recording r = kvp.Value;
                     if (r != null && r.VesselPersistentId == partnerPid && r.VesselSnapshot != null)
                     {
-                        List<uint> pids = VesselSpawner.CollectPartPersistentIds(r.VesselSnapshot);
+                        List<uint> pids = VesselSnapshotOps.CollectPartPersistentIds(r.VesselSnapshot);
                         if (pids != null && pids.Count > 0)
                         {
                             ParsekLog.Verbose("Flight",
@@ -6503,7 +6503,7 @@ namespace Parsek
                     Recording r = committed[i];
                     if (r != null && r.VesselPersistentId == partnerPid && r.VesselSnapshot != null)
                     {
-                        List<uint> pids = VesselSpawner.CollectPartPersistentIds(r.VesselSnapshot);
+                        List<uint> pids = VesselSnapshotOps.CollectPartPersistentIds(r.VesselSnapshot);
                         if (pids != null && pids.Count > 0)
                         {
                             ParsekLog.Verbose("Flight",
@@ -6599,7 +6599,7 @@ namespace Parsek
             {
                 ConfigNode transportSnapshot =
                     stoppedRecorder?.CaptureAtStop?.VesselSnapshot ?? activeParentRec?.VesselSnapshot;
-                List<uint> transportPartPids = VesselSpawner.CollectPartPersistentIds(transportSnapshot);
+                List<uint> transportPartPids = VesselSnapshotOps.CollectPartPersistentIds(transportSnapshot);
 
                 // Prefer the pre-couple partner snapshot captured in OnPartCouple
                 // (before KSP reparented data.to.vessel to include transport parts).
@@ -6624,12 +6624,12 @@ namespace Parsek
                 List<uint> endpointPartPids = null;
                 if (endpointPreCoupleSnapshot != null)
                 {
-                    endpointPartPids = VesselSpawner.CollectPartPersistentIds(endpointPreCoupleSnapshot);
+                    endpointPartPids = VesselSnapshotOps.CollectPartPersistentIds(endpointPreCoupleSnapshot);
                 }
                 if ((endpointPartPids == null || endpointPartPids.Count == 0)
                     && bgParentRec?.VesselSnapshot != null)
                 {
-                    endpointPartPids = VesselSpawner.CollectPartPersistentIds(bgParentRec.VesselSnapshot);
+                    endpointPartPids = VesselSnapshotOps.CollectPartPersistentIds(bgParentRec.VesselSnapshot);
                 }
 
                 // Cross-tree partner fallback: when the partner has a committed
@@ -6688,11 +6688,11 @@ namespace Parsek
                 // match to the part-pid overlap rather than refusing it.
                 uint endpointRootPartUId = 0u;
                 if (endpointPreCoupleSnapshot == null
-                    || !VesselSpawner.TryReadRootPartFlightId(endpointPreCoupleSnapshot, out endpointRootPartUId))
+                    || !VesselSnapshotOps.TryReadRootPartFlightId(endpointPreCoupleSnapshot, out endpointRootPartUId))
                 {
                     if (bgParentRec?.VesselSnapshot == null
                         || bgParentRec.VesselPersistentId != routeTargetVesselPid
-                        || !VesselSpawner.TryReadRootPartFlightId(bgParentRec.VesselSnapshot, out endpointRootPartUId))
+                        || !VesselSnapshotOps.TryReadRootPartFlightId(bgParentRec.VesselSnapshot, out endpointRootPartUId))
                     {
                         endpointRootPartUId = 0u;
                     }
@@ -7653,9 +7653,9 @@ namespace Parsek
                 : (preCapturedSnapshot != null ? preCapturedSnapshot.CreateCopy() : null);
 
             ConfigNode manifestSnapshot = childRec.GhostVisualSnapshot ?? childRec.VesselSnapshot;
-            childRec.StartResources = VesselSpawner.ExtractResourceManifest(manifestSnapshot);
+            childRec.StartResources = VesselSnapshotOps.ExtractResourceManifest(manifestSnapshot);
             int childInvSlots;
-            childRec.StartInventory = VesselSpawner.ExtractInventoryManifest(manifestSnapshot, out childInvSlots);
+            childRec.StartInventory = VesselSnapshotOps.ExtractInventoryManifest(manifestSnapshot, out childInvSlots);
             childRec.StartInventorySlots = childInvSlots;
             childRec.StartCrew = VesselSpawner.ExtractCrewManifest(manifestSnapshot);
 
@@ -10239,8 +10239,8 @@ namespace Parsek
                 currentUT);
             state.AttitudeThresholdExceededAtUt = double.NaN;
             state.BaselineOrbit = CapturePostSwitchOrbitSnapshot(v);
-            state.BaselineResources = VesselSpawner.ExtractResourceManifest(vesselSnapshot);
-            state.BaselineInventory = VesselSpawner.ExtractInventoryManifest(vesselSnapshot, out _);
+            state.BaselineResources = VesselSnapshotOps.ExtractResourceManifest(vesselSnapshot);
+            state.BaselineInventory = VesselSnapshotOps.ExtractInventoryManifest(vesselSnapshot, out _);
             state.BaselineCrew = VesselSpawner.ExtractCrewManifest(vesselSnapshot);
             state.BaselinePartStateTokens = CapturePostSwitchPartStateTokens(v);
             RefreshPostSwitchAutoRecordModuleCaches(state, v);
@@ -10580,7 +10580,7 @@ namespace Parsek
                 crewChanged = crewDeltaKeys > 0;
                 if (!crewChanged)
                 {
-                    var currentResources = VesselSpawner.ExtractResourceManifest(currentSnapshot);
+                    var currentResources = VesselSnapshotOps.ExtractResourceManifest(currentSnapshot);
                     var resourceDelta = ResourceManifest.ComputeResourceDelta(
                         state.BaselineResources,
                         currentResources);
@@ -10600,7 +10600,7 @@ namespace Parsek
                     }
                     else
                     {
-                        var currentInventory = VesselSpawner.ExtractInventoryManifest(currentSnapshot, out _);
+                        var currentInventory = VesselSnapshotOps.ExtractInventoryManifest(currentSnapshot, out _);
                         var inventoryDelta = InventoryManifest.ComputeInventoryDelta(
                             state.BaselineInventory,
                             currentInventory);

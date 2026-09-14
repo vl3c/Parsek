@@ -644,11 +644,11 @@ namespace Parsek
                     // baseline. The bind REPLACES both with the transport half's own
                     // (ROUTE-ORIGIN-PROOF-TRANSPORT-MANIFESTS-INCLUDE-THE-DEPOT), and an
                     // unbound proof is never an origin, so the merged scope is never costed.
-                    var mergedPids = VesselSpawner.CollectPartPersistentIds(snapshot);
+                    var mergedPids = VesselSnapshotOps.CollectPartPersistentIds(snapshot);
                     Dictionary<string, ResourceAmount> startRes =
-                        VesselSpawner.ExtractResourceManifest(snapshot, mergedPids);
+                        VesselSnapshotOps.ExtractResourceManifest(snapshot, mergedPids);
                     List<InventoryPayloadItem> startInv =
-                        VesselSpawner.ExtractInventoryPayloadItems(snapshot, mergedPids);
+                        VesselSnapshotOps.ExtractInventoryPayloadItems(snapshot, mergedPids);
 
                     proof = new RouteOriginProof
                     {
@@ -794,7 +794,7 @@ namespace Parsek
             if (half.PartPersistentIds != null && snapshot != null)
             {
                 half.StartResources =
-                    VesselSpawner.ExtractResourceManifest(snapshot, half.PartPersistentIds);
+                    VesselSnapshotOps.ExtractResourceManifest(snapshot, half.PartPersistentIds);
                 // MEASURED-AND-EMPTY IS NOT THE SAME AS NEVER-MEASURED, and the extractor
                 // cannot say which it means: ExtractInventoryPayloadItems returns null both
                 // when it found no items and when there was nothing to look at. The pickup
@@ -803,7 +803,7 @@ namespace Parsek
                 // the start MUST let a container arriving later read as one. This half was
                 // measured, so its baseline is explicit even when it is empty.
                 half.StartInventory =
-                    VesselSpawner.ExtractInventoryPayloadItems(snapshot, half.PartPersistentIds)
+                    VesselSnapshotOps.ExtractInventoryPayloadItems(snapshot, half.PartPersistentIds)
                     ?? new List<InventoryPayloadItem>();
             }
             return half;
@@ -1983,10 +1983,10 @@ namespace Parsek
             // a cargo container rather than fuel is witnessed identically (operator ruling).
             bool canMeasure = transportSideSnapshot != null && transportScoped;
             Dictionary<string, ResourceAmount> undockTransportResources = canMeasure
-                ? VesselSpawner.ExtractResourceManifest(transportSideSnapshot, transportPids)
+                ? VesselSnapshotOps.ExtractResourceManifest(transportSideSnapshot, transportPids)
                 : null;
             List<InventoryPayloadItem> undockTransportInventory = canMeasure
-                ? VesselSpawner.ExtractInventoryPayloadItems(transportSideSnapshot, transportPids)
+                ? VesselSnapshotOps.ExtractInventoryPayloadItems(transportSideSnapshot, transportPids)
                 : null;
             // CLASSIFY AGAINST THE HALF'S OWN BASELINE, not the persisted field. The two
             // differ in exactly one way that matters: the half records an explicit empty list
@@ -2066,9 +2066,9 @@ namespace Parsek
                 if (endScopeSnapshot != null)
                 {
                     proof.EndTransportResources =
-                        VesselSpawner.ExtractResourceManifest(endScopeSnapshot, transportPids);
+                        VesselSnapshotOps.ExtractResourceManifest(endScopeSnapshot, transportPids);
                     proof.EndTransportInventory =
-                        VesselSpawner.ExtractInventoryPayloadItems(endScopeSnapshot, transportPids);
+                        VesselSnapshotOps.ExtractInventoryPayloadItems(endScopeSnapshot, transportPids);
                 }
             }
 
@@ -2203,9 +2203,9 @@ namespace Parsek
 
             return ClassifyOriginPickup(
                 half.StartResources,
-                VesselSpawner.ExtractResourceManifest(snapshot, pids),
+                VesselSnapshotOps.ExtractResourceManifest(snapshot, pids),
                 half.StartInventory,
-                VesselSpawner.ExtractInventoryPayloadItems(snapshot, pids));
+                VesselSnapshotOps.ExtractInventoryPayloadItems(snapshot, pids));
         }
 
         /// <summary>
@@ -2270,9 +2270,9 @@ namespace Parsek
                 return;
 
             pendingProof.EndTransportResources =
-                VesselSpawner.ExtractResourceManifest(capture.VesselSnapshot, pendingStartPartPersistentIds);
+                VesselSnapshotOps.ExtractResourceManifest(capture.VesselSnapshot, pendingStartPartPersistentIds);
             pendingProof.EndTransportInventory =
-                VesselSpawner.ExtractInventoryPayloadItems(capture.VesselSnapshot, pendingStartPartPersistentIds);
+                VesselSnapshotOps.ExtractInventoryPayloadItems(capture.VesselSnapshot, pendingStartPartPersistentIds);
             // STOPPED WHILE STILL DOCKED. A chain-boundary stop is the FIRST half of a split
             // (undock / dock / pid change) and the bind runs immediately after it, so only an
             // ordinary stop can conclude that the pair never separated. A chain-boundary stop
@@ -2367,7 +2367,7 @@ namespace Parsek
                 return null;
             }
 
-            List<uint> transportPids = VesselSpawner.CollectPartPersistentIds(snapshot);
+            List<uint> transportPids = VesselSnapshotOps.CollectPartPersistentIds(snapshot);
             if (transportPids == null || transportPids.Count == 0)
             {
                 ParsekLog.Warn("Recorder",
@@ -2377,7 +2377,7 @@ namespace Parsek
             }
 
             Dictionary<string, ResourceAmount> startRes =
-                VesselSpawner.ExtractResourceManifest(snapshot, transportPids);
+                VesselSnapshotOps.ExtractResourceManifest(snapshot, transportPids);
             // Empty -> null normalization (M2 review follow-up): the codec
             // drops empty manifests on save (reload yields null) while the
             // hasher emits ".count=0" for an empty dict - an empty-but-non-null
@@ -2433,7 +2433,7 @@ namespace Parsek
             }
 
             bool overwrite = pending.EndCaptured;
-            Dictionary<string, ResourceAmount> endRes = VesselSpawner.ExtractResourceManifest(
+            Dictionary<string, ResourceAmount> endRes = VesselSnapshotOps.ExtractResourceManifest(
                 capture.VesselSnapshot,
                 pending.TransportPartPersistentIds);
             // Empty -> null normalization: same hash-stability contract as the
@@ -2575,13 +2575,13 @@ namespace Parsek
                 TransportPartPersistentIds = transportPids,
                 EndpointPartPersistentIds = endpointPids,
                 DockTransportResources =
-                    VesselSpawner.ExtractResourceManifest(transportSnapshotForBaseline, transportPids),
+                    VesselSnapshotOps.ExtractResourceManifest(transportSnapshotForBaseline, transportPids),
                 DockEndpointResources =
-                    VesselSpawner.ExtractResourceManifest(endpointSnapshotForBaseline, endpointPids),
+                    VesselSnapshotOps.ExtractResourceManifest(endpointSnapshotForBaseline, endpointPids),
                 DockTransportInventory =
-                    VesselSpawner.ExtractInventoryPayloadItems(transportSnapshotForBaseline, transportPids),
+                    VesselSnapshotOps.ExtractInventoryPayloadItems(transportSnapshotForBaseline, transportPids),
                 DockEndpointInventory =
-                    VesselSpawner.ExtractInventoryPayloadItems(endpointSnapshotForBaseline, endpointPids),
+                    VesselSnapshotOps.ExtractInventoryPayloadItems(endpointSnapshotForBaseline, endpointPids),
                 EndpointAtDock = endpointAtDock,
                 TransferEndpointSituation = transferEndpointSituation
             };
@@ -2809,7 +2809,7 @@ namespace Parsek
                     : endpointPartPersistentIds;
                 string sideLabel = hasTransport ? "transport" : "endpoint";
 
-                List<uint> actual = VesselSpawner.CollectPartPersistentIds(snapshot)
+                List<uint> actual = VesselSnapshotOps.CollectPartPersistentIds(snapshot)
                     ?? new List<uint>();
                 ComputePartSetDifferences(
                     actual,
@@ -2895,7 +2895,7 @@ namespace Parsek
             ConfigNode[] parts = snapshot.GetNodes("PART");
             for (int i = 0; i < parts.Length; i++)
             {
-                if (VesselSpawner.TryGetPartPersistentId(parts[i], out uint pid) &&
+                if (VesselSnapshotOps.TryGetPartPersistentId(parts[i], out uint pid) &&
                     partPersistentIds.Contains(pid))
                 {
                     return true;
@@ -2922,7 +2922,7 @@ namespace Parsek
             for (int i = 0; i < snapshots.Length; i++)
             {
                 Dictionary<string, ResourceAmount> manifest =
-                    VesselSpawner.ExtractResourceManifest(snapshots[i], partPersistentIds);
+                    VesselSnapshotOps.ExtractResourceManifest(snapshots[i], partPersistentIds);
                 if (manifest == null || manifest.Count == 0)
                     continue;
 
@@ -2945,7 +2945,7 @@ namespace Parsek
             for (int i = 0; i < snapshots.Length; i++)
             {
                 List<InventoryPayloadItem> items =
-                    VesselSpawner.ExtractInventoryPayloadItems(snapshots[i], partPersistentIds);
+                    VesselSnapshotOps.ExtractInventoryPayloadItems(snapshots[i], partPersistentIds);
                 if (items == null || items.Count == 0)
                     continue;
 
@@ -3007,7 +3007,7 @@ namespace Parsek
             ConfigNode dockedSnapshot,
             List<uint> transportPartPersistentIds)
         {
-            List<uint> allPids = VesselSpawner.CollectPartPersistentIds(dockedSnapshot);
+            List<uint> allPids = VesselSnapshotOps.CollectPartPersistentIds(dockedSnapshot);
             if (allPids == null || allPids.Count == 0)
                 return null;
 

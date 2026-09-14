@@ -106,6 +106,12 @@ _(unreleased — entries accumulate here per commit)_
   supply routes in order to build at all. It moved in with the rest of the route code, so
   the two halves are independent again. Nothing about the windows, the wording of a step,
   or what gets recorded changes.
+- **Housekeeping: the snapshot readers moved out of the spawner.** The code that reads a
+  saved craft and answers "what fuel is aboard", "what is in the cargo holds" and "is this
+  the same piece of cargo as that one" had grown up inside the file that also spawns and
+  recovers vessels, even though it never touches the live game. It now sits in a file of
+  its own - the first of five steps that take the oversized spawner apart. Nothing visible
+  changes: the same numbers come out in the same places.
 
 - **Automated testing: five fixes to the new hover / point / open-everything support,
   found by reviewing it.** Pointing at a control by its label and then moving the mouse

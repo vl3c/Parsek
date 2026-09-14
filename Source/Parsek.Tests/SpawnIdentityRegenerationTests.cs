@@ -36,7 +36,7 @@ namespace Parsek.Tests
         public void CollectPartPersistentIds_ReturnsAllPartPids()
         {
             var snapshot = Generators.VesselSnapshotBuilder.FleaRocket("Flea", "Jeb", 500000).Build();
-            var ids = VesselSpawner.CollectPartPersistentIds(snapshot);
+            var ids = VesselSnapshotOps.CollectPartPersistentIds(snapshot);
 
             Assert.Equal(3, ids.Count);
             Assert.Contains(100000u, ids);
@@ -51,7 +51,7 @@ namespace Parsek.Tests
             var part = snapshot.AddNode("PART");
             part.AddValue("persistentId", "0");
 
-            var ids = VesselSpawner.CollectPartPersistentIds(snapshot);
+            var ids = VesselSnapshotOps.CollectPartPersistentIds(snapshot);
             Assert.Empty(ids);
         }
 
@@ -62,14 +62,14 @@ namespace Parsek.Tests
             var part = snapshot.AddNode("PART");
             part.AddValue("persistentId", "notanumber");
 
-            var ids = VesselSpawner.CollectPartPersistentIds(snapshot);
+            var ids = VesselSnapshotOps.CollectPartPersistentIds(snapshot);
             Assert.Empty(ids);
         }
 
         [Fact]
         public void CollectPartPersistentIds_NullNode_ReturnsEmpty()
         {
-            var ids = VesselSpawner.CollectPartPersistentIds(null);
+            var ids = VesselSnapshotOps.CollectPartPersistentIds(null);
             Assert.Empty(ids);
         }
 
@@ -77,7 +77,7 @@ namespace Parsek.Tests
         public void CollectPartPersistentIds_NoParts_ReturnsEmpty()
         {
             var snapshot = new ConfigNode("VESSEL");
-            var ids = VesselSpawner.CollectPartPersistentIds(snapshot);
+            var ids = VesselSnapshotOps.CollectPartPersistentIds(snapshot);
             Assert.Empty(ids);
         }
 
@@ -97,7 +97,7 @@ namespace Parsek.Tests
 
             uint nextPid = 5000;
             uint nextUid = 6000;
-            var pidMap = VesselSpawner.RegeneratePartIdentities(
+            var pidMap = VesselSnapshotOps.RegeneratePartIdentities(
                 snapshot,
                 generatePersistentId: () => nextPid++,
                 generateFlightId: () => nextUid++,
@@ -120,7 +120,7 @@ namespace Parsek.Tests
 
             uint nextPid = 7000;
             uint nextUid = 8000;
-            var pidMap = VesselSpawner.RegeneratePartIdentities(
+            var pidMap = VesselSnapshotOps.RegeneratePartIdentities(
                 snapshot,
                 generatePersistentId: () => nextPid++,
                 generateFlightId: () => nextUid++,
@@ -149,7 +149,7 @@ namespace Parsek.Tests
         public void RegeneratePartIdentities_NoParts_EmptyDictionary()
         {
             var snapshot = new ConfigNode("VESSEL");
-            var pidMap = VesselSpawner.RegeneratePartIdentities(
+            var pidMap = VesselSnapshotOps.RegeneratePartIdentities(
                 snapshot, () => 1u, () => 1u, 0, 0);
             Assert.Empty(pidMap);
         }
@@ -157,7 +157,7 @@ namespace Parsek.Tests
         [Fact]
         public void RegeneratePartIdentities_NullNode_EmptyDictionary()
         {
-            var pidMap = VesselSpawner.RegeneratePartIdentities(
+            var pidMap = VesselSnapshotOps.RegeneratePartIdentities(
                 null, () => 1u, () => 1u, 0, 0);
             Assert.Empty(pidMap);
         }
@@ -171,7 +171,7 @@ namespace Parsek.Tests
             // No persistentId field at all
 
             uint nextPid = 9000;
-            var pidMap = VesselSpawner.RegeneratePartIdentities(
+            var pidMap = VesselSnapshotOps.RegeneratePartIdentities(
                 snapshot, () => nextPid++, () => 1u, 0, 0);
 
             // Should still assign a new persistentId
@@ -192,7 +192,7 @@ namespace Parsek.Tests
             p2.AddValue("uid", "0"); p2.AddValue("mid", "0"); p2.AddValue("launchID", "0");
 
             uint nextPid = 5000;
-            var pidMap = VesselSpawner.RegeneratePartIdentities(
+            var pidMap = VesselSnapshotOps.RegeneratePartIdentities(
                 snapshot, () => nextPid++, () => 1u, 0, 0);
 
             Assert.Equal(2, pidMap.Count);
@@ -210,7 +210,7 @@ namespace Parsek.Tests
             var snapshot = BuildRoboticsVessel(axisPid: 100);
             var pidMap = new Dictionary<uint, uint> { { 100, 5000 } };
 
-            int count = VesselSpawner.PatchRoboticsReferences(snapshot, pidMap);
+            int count = VesselSnapshotOps.PatchRoboticsReferences(snapshot, pidMap);
 
             var axis = snapshot.GetNodes("PART")[0]
                 .GetNodes("MODULE")[0]
@@ -226,7 +226,7 @@ namespace Parsek.Tests
             var snapshot = BuildRoboticsVessel(actionPid: 200);
             var pidMap = new Dictionary<uint, uint> { { 200, 6000 } };
 
-            int count = VesselSpawner.PatchRoboticsReferences(snapshot, pidMap);
+            int count = VesselSnapshotOps.PatchRoboticsReferences(snapshot, pidMap);
 
             var action = snapshot.GetNodes("PART")[0]
                 .GetNodes("MODULE")[0]
@@ -242,7 +242,7 @@ namespace Parsek.Tests
             var snapshot = BuildRoboticsVessel(axisPid: 100, symPid: 300);
             var pidMap = new Dictionary<uint, uint> { { 100, 5000 }, { 300, 7000 } };
 
-            int count = VesselSpawner.PatchRoboticsReferences(snapshot, pidMap);
+            int count = VesselSnapshotOps.PatchRoboticsReferences(snapshot, pidMap);
             Assert.Equal(2, count);
 
             var axis = snapshot.GetNodes("PART")[0]
@@ -265,7 +265,7 @@ namespace Parsek.Tests
             axis.AddValue("persistentId", "100");
 
             var pidMap = new Dictionary<uint, uint> { { 100, 5000 } };
-            int count = VesselSpawner.PatchRoboticsReferences(snapshot, pidMap);
+            int count = VesselSnapshotOps.PatchRoboticsReferences(snapshot, pidMap);
 
             Assert.Equal(0, count);
             Assert.Equal("100", axis.GetValue("persistentId"));
@@ -277,7 +277,7 @@ namespace Parsek.Tests
             var snapshot = BuildRoboticsVessel(axisPid: 100);
             var pidMap = new Dictionary<uint, uint> { { 999, 5000 } };
 
-            int count = VesselSpawner.PatchRoboticsReferences(snapshot, pidMap);
+            int count = VesselSnapshotOps.PatchRoboticsReferences(snapshot, pidMap);
 
             Assert.Equal(0, count);
             var axis = snapshot.GetNodes("PART")[0]
@@ -290,9 +290,9 @@ namespace Parsek.Tests
         [Fact]
         public void PatchRoboticsReferences_NullGuards()
         {
-            Assert.Equal(0, VesselSpawner.PatchRoboticsReferences(null, new Dictionary<uint, uint> { { 1, 2 } }));
-            Assert.Equal(0, VesselSpawner.PatchRoboticsReferences(new ConfigNode("V"), null));
-            Assert.Equal(0, VesselSpawner.PatchRoboticsReferences(new ConfigNode("V"), new Dictionary<uint, uint>()));
+            Assert.Equal(0, VesselSnapshotOps.PatchRoboticsReferences(null, new Dictionary<uint, uint> { { 1, 2 } }));
+            Assert.Equal(0, VesselSnapshotOps.PatchRoboticsReferences(new ConfigNode("V"), null));
+            Assert.Equal(0, VesselSnapshotOps.PatchRoboticsReferences(new ConfigNode("V"), new Dictionary<uint, uint>()));
         }
 
         [Fact]
@@ -307,7 +307,7 @@ namespace Parsek.Tests
             axis.AddValue("persistentId", "notanumber");
 
             var pidMap = new Dictionary<uint, uint> { { 100, 5000 } };
-            int count = VesselSpawner.PatchRoboticsReferences(snapshot, pidMap);
+            int count = VesselSnapshotOps.PatchRoboticsReferences(snapshot, pidMap);
             Assert.Equal(0, count);
         }
 
@@ -317,11 +317,11 @@ namespace Parsek.Tests
             var snapshot = BuildRoboticsVessel(axisPid: 100, actionPid: 200);
             var pidMap = new Dictionary<uint, uint> { { 100, 5000 }, { 200, 6000 } };
 
-            VesselSpawner.PatchRoboticsReferences(snapshot, pidMap);
+            VesselSnapshotOps.PatchRoboticsReferences(snapshot, pidMap);
 
             // No log from PatchRoboticsReferences itself (caller logs the summary),
             // but verify it doesn't crash and returns correct count
-            Assert.Equal(2, VesselSpawner.PatchRoboticsReferences(
+            Assert.Equal(2, VesselSnapshotOps.PatchRoboticsReferences(
                 BuildRoboticsVessel(axisPid: 100, actionPid: 200), pidMap));
         }
 
@@ -336,7 +336,7 @@ namespace Parsek.Tests
             uint nextPid = 7000;
             uint nextUid = 8000;
 
-            VesselSpawner.RegeneratePartIdentities(
+            VesselSnapshotOps.RegeneratePartIdentities(
                 snapshot, () => nextPid++, () => nextUid++, 1111, 5);
 
             // RegeneratePartIdentities is called by RegenerateVesselIdentity which logs;

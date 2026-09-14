@@ -416,7 +416,7 @@ namespace Parsek.Logistics
                         for (int s = 0; s < sps.Length; s++)
                         {
                             string storedName = sps[s].GetValue("partName");
-                            // Default-preserving parse (mirrors VesselSpawner's
+                            // Default-preserving parse (mirrors VesselSnapshotOps's
                             // manifest extraction): a malformed value counts as
                             // 1 stored unit, never as 0, so its footprint is
                             // not silently excluded from occupancy.

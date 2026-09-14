@@ -6949,9 +6949,9 @@ namespace Parsek
             }
             RefreshBackupSnapshot(v, "record_start", force: true);
             RefreshFinalizationCache(v, "record_start", force: true);
-            pendingStartResources = VesselSpawner.ExtractResourceManifest(lastGoodVesselSnapshot);
+            pendingStartResources = VesselSnapshotOps.ExtractResourceManifest(lastGoodVesselSnapshot);
             ParsekLog.Verbose("Recorder", $"StartRecording: captured {pendingStartResources?.Count ?? 0} start resource type(s)");
-            pendingStartInventory = VesselSpawner.ExtractInventoryManifest(lastGoodVesselSnapshot, out pendingStartInventorySlots);
+            pendingStartInventory = VesselSnapshotOps.ExtractInventoryManifest(lastGoodVesselSnapshot, out pendingStartInventorySlots);
             ParsekLog.Verbose("Recorder", $"StartRecording: captured {pendingStartInventory?.Count ?? 0} start inventory item type(s), {pendingStartInventorySlots} slot(s)");
             pendingStartCrew = VesselSpawner.ExtractCrewManifest(lastGoodVesselSnapshot);
             ParsekLog.Verbose("Recorder", $"StartRecording: captured {pendingStartCrew?.Count ?? 0} start crew trait(s)");
@@ -7659,7 +7659,7 @@ namespace Parsek
             {
                 double stopUT = Planetarium.GetUniversalTime();
                 Dictionary<string, ResourceAmount> endManifest =
-                    VesselSpawner.ExtractResourceManifest(capture.VesselSnapshot);
+                    VesselSnapshotOps.ExtractResourceManifest(capture.VesselSnapshot);
                 RouteHarvestCapture.CloseWindow(openHarvestWindow, stopUT, endManifest,
                     atRecordingStop: true);
                 lastStopClosedHarvestWindow = openHarvestWindow;
@@ -8076,12 +8076,12 @@ namespace Parsek
                 destroyedFallbackSnapshot ?? lastGoodVesselSnapshot);
             GetFinalizationCacheForRecording(capture);
             capture.StartResources = pendingStartResources;
-            capture.EndResources = VesselSpawner.ExtractResourceManifest(capture.VesselSnapshot);
+            capture.EndResources = VesselSnapshotOps.ExtractResourceManifest(capture.VesselSnapshot);
             ParsekLog.Verbose("Recorder", $"BuildCaptureRecording: captured {capture.EndResources?.Count ?? 0} end resource type(s)");
             capture.StartInventory = pendingStartInventory;
             capture.StartInventorySlots = pendingStartInventorySlots;
             int endInvSlots;
-            capture.EndInventory = VesselSpawner.ExtractInventoryManifest(capture.VesselSnapshot, out endInvSlots);
+            capture.EndInventory = VesselSnapshotOps.ExtractInventoryManifest(capture.VesselSnapshot, out endInvSlots);
             capture.EndInventorySlots = endInvSlots;
             ParsekLog.Verbose("Recorder", $"BuildCaptureRecording: captured {capture.EndInventory?.Count ?? 0} end inventory item type(s), {endInvSlots} slot(s)");
             capture.StartCrew = pendingStartCrew;

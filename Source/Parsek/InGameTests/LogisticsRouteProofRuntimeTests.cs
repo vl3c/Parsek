@@ -166,7 +166,7 @@ namespace Parsek.InGameTests
                     "pick a cargo item carrying at least one module so the kind-key claim is exercised");
 
                 InGameAssert.AreEqual(beforeHash,
-                    VesselSpawner.ComputeInventoryPayloadKindKey(reSerialized),
+                    VesselSnapshotOps.ComputeInventoryPayloadKindKey(reSerialized),
                     "Module values written by a live re-serialization changed the payload KIND key");
 
                 ParsekLog.Verbose("TestRunner",
@@ -428,7 +428,7 @@ namespace Parsek.InGameTests
             uint partPersistentId,
             string partName)
         {
-            List<InventoryPayloadItem> items = VesselSpawner.ExtractInventoryPayloadItems(
+            List<InventoryPayloadItem> items = VesselSnapshotOps.ExtractInventoryPayloadItems(
                 vesselSnapshot,
                 new List<uint> { partPersistentId });
             if (items == null)
@@ -503,7 +503,7 @@ namespace Parsek.InGameTests
             if (vesselSnapshot == null || string.IsNullOrEmpty(identityHash))
                 return null;
 
-            List<InventoryPayloadItem> items = VesselSpawner.ExtractInventoryPayloadItems(
+            List<InventoryPayloadItem> items = VesselSnapshotOps.ExtractInventoryPayloadItems(
                 vesselSnapshot,
                 new List<uint> { partPersistentId });
             if (items == null)

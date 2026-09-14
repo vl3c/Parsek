@@ -275,7 +275,7 @@ namespace Parsek.Tests.Logistics
             ConfigNode snapshot = BuildRoverCargoSnapshot();
 
             List<InventoryPayloadItem> items =
-                VesselSpawner.ExtractInventoryPayloadItems(snapshot);
+                VesselSnapshotOps.ExtractInventoryPayloadItems(snapshot);
 
             Assert.NotNull(items);
             Assert.Equal(2, items.Count);
@@ -312,7 +312,7 @@ namespace Parsek.Tests.Logistics
             // Identity is stable across an identical rebuild: the hash is a
             // function of the stored geometry, not of build order or instance.
             List<InventoryPayloadItem> rebuilt =
-                VesselSpawner.ExtractInventoryPayloadItems(BuildRoverCargoSnapshot());
+                VesselSnapshotOps.ExtractInventoryPayloadItems(BuildRoverCargoSnapshot());
             Assert.Equal(items.Count, rebuilt.Count);
             for (int i = 0; i < items.Count; i++)
                 Assert.Equal(items[i].IdentityHash, rebuilt[i].IdentityHash);

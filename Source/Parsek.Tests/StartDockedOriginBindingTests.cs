@@ -817,7 +817,7 @@ namespace Parsek.Tests
             // An EMPTY (non-null) start inventory is a real baseline and DOES yield a gain -
             // that is the discrimination the guard must not destroy, and it is why
             // BuildSeamHalf records an explicit empty list for a half it actually measured
-            // (VesselSpawner.ExtractInventoryPayloadItems returns null BOTH for "found no
+            // (VesselSnapshotOps.ExtractInventoryPayloadItems returns null BOTH for "found no
             // items" and for "nothing to look at", so the producer has to say which).
             Assert.Equal(
                 OriginPickupKind.Gain,
