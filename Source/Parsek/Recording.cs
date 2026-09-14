@@ -9,8 +9,8 @@ namespace Parsek
     public class Recording : IPlaybackTrajectory
     {
         public string RecordingId = Guid.NewGuid().ToString("N");
-        public int RecordingFormatVersion = RecordingStore.CurrentRecordingFormatVersion;
-        public int RecordingSchemaGeneration = RecordingStore.CurrentRecordingSchemaGeneration;
+        public int RecordingFormatVersion = RecordingSchema.CurrentRecordingFormatVersion;
+        public int RecordingSchemaGeneration = RecordingSchema.CurrentRecordingSchemaGeneration;
         public List<TrajectoryPoint> Points = new List<TrajectoryPoint>();
         public List<OrbitSegment> OrbitSegments = new List<OrbitSegment>();
         public bool HasOrbitSegments => OrbitSegments != null && OrbitSegments.Count > 0;
@@ -729,14 +729,40 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Observer signature for <see cref="StampTerminalState"/>. Returns true when the
+        /// observer actually invalidated (and re-inferred) crew end states.
+        /// </summary>
+        internal delegate bool TerminalStampObserver(
+            Recording recording,
+            TerminalState? previous,
+            TerminalState? updated,
+            string context);
+
+        /// <summary>
+        /// The single installed terminal-stamp observer. Owned by the crew-end-state
+        /// module rather than by this type: a data type 160+ files depend on must not
+        /// reference the modules that consume it. Installed by
+        /// <c>KerbalsModule.EnsureTerminalStampObserverInstalled</c> (and by that type's
+        /// static constructor). Tests may null it to exercise the uninstalled branch.
+        /// </summary>
+        internal static TerminalStampObserver OnTerminalStamped;
+
+        /// <summary>
         /// THE seam every production site that DECIDES a terminal verdict for a
         /// recording goes through. Assigns <see cref="TerminalStateValue"/> and hands
-        /// the (previous -> updated) transition to
-        /// <see cref="KerbalsModule.InvalidateCrewEndStatesForTerminalStamp"/>, which
-        /// retires crew end states inferred against the OLD verdict and re-infers them
-        /// against this one. See that method for the transition guard, the deliberate
-        /// retraction carve-out, why re-inference is immediate, and why the
-        /// invalidation is non-lossy.
+        /// the (previous -> updated) transition to <see cref="OnTerminalStamped"/>, the
+        /// observer the crew-end-state owner installs
+        /// (<c>KerbalsModule.InvalidateCrewEndStatesForTerminalStamp</c>): it retires
+        /// crew end states inferred against the OLD verdict and re-infers them against
+        /// this one. See that method for the transition guard, the deliberate retraction
+        /// carve-out, why re-inference is immediate, and why the invalidation is
+        /// non-lossy. The indirection exists so this data type does not reference the
+        /// modules that read it; installation is
+        /// <c>KerbalsModule.EnsureTerminalStampObserverInstalled</c>.
+        ///
+        /// <para>With no observer installed the verdict is still assigned (the stamp is
+        /// never silently dropped) but crew end states go un-invalidated, so the method
+        /// warns once and returns false.</para>
         ///
         /// <para>Structural copy sites are deliberately NOT routed through here, because
         /// none of them can leave a populated crew-end-state surface sitting under a
@@ -756,8 +782,20 @@ namespace Parsek
         {
             TerminalState? previous = TerminalStateValue;
             TerminalStateValue = value;
-            return KerbalsModule.InvalidateCrewEndStatesForTerminalStamp(
-                this, previous, value, context);
+            TerminalStampObserver observer = OnTerminalStamped;
+            if (observer == null)
+            {
+                // Rate-limited on a constant key so this costs one line per process even
+                // if a load path stamps thousands of recordings uninstalled.
+                ParsekLog.WarnRateLimited(
+                    "Recording",
+                    "terminal-stamp-observer-missing",
+                    "terminal stamp observer not installed; crew end states not invalidated context="
+                        + (context ?? "null"),
+                    double.MaxValue);
+                return false;
+            }
+            return observer(this, previous, value, context);
         }
 
         /// <summary>

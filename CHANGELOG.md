@@ -10,6 +10,17 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Changed
 
+- **Internal: the recording data type no longer calls back into its own store or the crew
+  ledger.** A recording is the piece of data almost everything in Parsek reads, and it used
+  to reach upwards twice: it asked the recording store for the two schema numbers it stamps
+  itself with, and it told the crew bookkeeping directly whenever a flight's ending was
+  decided. Both directions are now one-way. The schema numbers live in a small holder of
+  their own that the store passes through under exactly the same names, and the crew
+  bookkeeping registers itself with the recording type at startup instead of being called by
+  name. Together with the same treatment for the logger, that takes 110 types out of a
+  single tangle in which nothing could be read, tested or changed on its own. Nothing a
+  player sees or reaches changes.
+
 - **Automated testing: five fixes to the new hover / point / open-everything support,
   found by reviewing it.** Pointing at a control by its label and then moving the mouse
   there - the exact pairing the feature was built for - was refused before a run even
