@@ -983,7 +983,25 @@ later stop.
 Destination, and offer re-scan per stop. Needs a route with more than one stop to verify,
 so it wants a lane.
 
-## GUI-P7-THE-STOCK-DIFFICULTY-SCREEN-EDITS-FIVE-PARSEK-SETTINGS-AND-LOSES-THEM [FILED 2026-09-11 by the GUI fix batch]
+## ~~GUI-P7-THE-STOCK-DIFFICULTY-SCREEN-EDITS-FIVE-PARSEK-SETTINGS-AND-LOSES-THEM~~ [FILED 2026-09-11 by the GUI fix batch; FIXED 2026-09-14]
+
+**Fixed** (operator ruling 2026-09-14: the six toggles are runtime debugging / preference
+options that belong only in Parsek's own Settings window). `ParsekSettings.GameMode` now
+returns `GameParameters.GameMode.NONE` instead of `ANY`, which removes the WHOLE Parsek
+section from the stock screen - the six toggles plus the two numeric controls
+(`samplingDensity`, `ghostAudioVolume`) that had the same two-writers shape. Mechanism from
+the decompiled KSP 1.12.5 `DifficultyOptionsMenu`: its node loop skips a node when
+`(customParamNode.GameMode & currentGameModeFilter) == 0`, tested BEFORE any member or
+`CustomParameterUI` attribute is read, and the `listDictionary.Add(node.Section, ...)` that
+builds the section and its tab sits inside that same loop, so `NONE` (= 0) yields no
+section in any game mode. Dropping the attributes instead was rejected: an attribute-less
+node still gets its tab, with a blank label. Storage is untouched -
+`GameParameters.Save` walks the `customParams` dictionary and `ParameterNode.Save` writes
+every public field regardless of `GameMode` (it reads `CustomParameterUI` only for
+`autoPersistance`), so existing saves keep and reload every key, and the Settings window,
+the sidecar and the harness `SettingWhitelist` / `SetSetting` seam are unaffected. Pinned by
+`ParsekSettingsTests.StockDifficultyScreen_DrawsNoParsekSection` (reproduces the stock skip
+predicate per game mode and asserts every annotated member still persists).
 
 **Evidence.** `ParsekSettings.cs:77`, `:81`, `:85`, `:89`, `:100` carry
 `GameParameters.CustomParameterUI` attributes, so KSP's own Difficulty screen draws them.
@@ -994,9 +1012,9 @@ from the sidecar at the next load. Only the Parsek Settings window's own toggles
 `TestCommands/SettingWhitelist.cs:7-14` documents this trap for the harness; nobody applied
 it to the stock screen.
 
-**Decision:** hide the five from the stock Difficulty screen (drop the attributes), or
-honour them there (write through `Record*` on the stock path). Two settings screens for the
-same fields, one of which quietly loses the change, is the state to get out of.
+**Decision (taken 2026-09-14):** hidden - the whole section, through `GameMode.NONE`. The
+alternative (honour the stock edits by writing through `Record*` on the stock path) was not
+taken: the stock screen would still be a second surface for developer diagnostics.
 
 ## GUI-D3-GHOSTCOMMNETRELAY-IS-DEAD-WHILE-A-LIVE-PATCH-CITES-IT-AS-JUSTIFICATION [FILED 2026-09-11 by the GUI fix batch]
 
