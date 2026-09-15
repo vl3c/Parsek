@@ -1,0 +1,18 @@
+diff --git a/Source/Parsek/ParsekFlight.cs b/Source/Parsek/ParsekFlight.cs
+index b5e79c0fa..ce4a4f3b3 100644
+--- a/Source/Parsek/ParsekFlight.cs
++++ b/Source/Parsek/ParsekFlight.cs
+@@ -1,4 +1,4 @@
+-using System;
++﻿using System;
+ using System.Collections;
+ using System.Collections.Generic;
+ using System.Globalization;
+@@ -3314,6 +3314,7 @@ namespace Parsek
+                 if (chainManager.TryGetContinuationRecording(out var contRec))
+                 {
+                     contRec.VesselDestroyed = true;
++                    contRec.VesselSnapshot = null; // MUTATION-T1: reintroduce bug #95 snapshot null
+                     // Bug #95: Do NOT null VesselSnapshot on committed recordings.
+                     // VesselDestroyed already gates spawn via ShouldSpawnAtRecordingEnd.
+                     // Nulling the snapshot permanently prevents re-spawn after revert.
