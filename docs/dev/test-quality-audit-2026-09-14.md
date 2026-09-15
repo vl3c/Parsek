@@ -700,6 +700,9 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
     superseded by `Bug278SnapshotPersistenceTests.SaveRecordingFiles_NullVesselSnapshot_`
     `LeavesExistingVesselCraftOnDisk` (landed with C-legacy-bugfix-024-01). Only the negative
     pin naming the removed `File.Delete(vesselPath)` is kept, now read from stripped source.
+    The wrapper layer `SaveRecordingFiles` is therefore spelling-pinned only: the twin drives the
+    shared body through the explicit-paths seam, so a differently spelled delete in the wrapper is
+    caught by nothing until a wrapper-level cell exists (see C-legacy-bugfix-024-01's note).
   - Flakes: F-logging-001-03 and F-logging-002-02 bracket `gcGen0Baseline` between reads taken
     either side of Reset instead of comparing it to a post-hoc `GC.CollectionCount(0)`;
     both still red when a counter is omitted from Reset.
