@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/GameActions/TombstoneEligibility.cs b/Source/Parsek/GameActions/TombstoneEligibility.cs
+index f7bcefd0e..ae1950940 100644
+--- a/Source/Parsek/GameActions/TombstoneEligibility.cs
++++ b/Source/Parsek/GameActions/TombstoneEligibility.cs
+@@ -193,7 +193,7 @@ namespace Parsek
+                 }
+ 
+                 double delta = Math.Abs(other.UT - candidate.UT);
+-                if (delta <= BundledRepUtWindow)
++                if (delta < BundledRepUtWindow)
+                 {
+                     pairedDeathAction = other;
+                     return true;
+warning: in the working copy of 'Source/Parsek/GameActions/TombstoneEligibility.cs', LF will be replaced by CRLF the next time Git touches it

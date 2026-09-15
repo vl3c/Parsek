@@ -1,0 +1,18 @@
+diff --git a/Source/Parsek/ParsekScenario.cs b/Source/Parsek/ParsekScenario.cs
+index 56b237769..cabd047cf 100644
+--- a/Source/Parsek/ParsekScenario.cs
++++ b/Source/Parsek/ParsekScenario.cs
+@@ -761,10 +761,10 @@ namespace Parsek
+         internal static LimboDispatchOutcome ClassifyLimboDispatch(
+             bool isVesselSwitch, PendingTreeState pendState)
+         {
+-            if (pendState == PendingTreeState.LimboVesselSwitch)
+-                return LimboDispatchOutcome.VesselSwitchRestore;
+             if (isVesselSwitch)
+                 return LimboDispatchOutcome.SafetyNetFinalize;
++            if (pendState == PendingTreeState.LimboVesselSwitch)
++                return LimboDispatchOutcome.VesselSwitchRestore;
+             return LimboDispatchOutcome.QuickloadRestore;
+         }
+ 
+warning: in the working copy of 'Source/Parsek/ParsekScenario.cs', LF will be replaced by CRLF the next time Git touches it

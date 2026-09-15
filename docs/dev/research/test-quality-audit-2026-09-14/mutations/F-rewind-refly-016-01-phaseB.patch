@@ -1,0 +1,15 @@
+diff --git a/Source/Parsek/GameActions/TombstoneEligibility.cs b/Source/Parsek/GameActions/TombstoneEligibility.cs
+index f7bcefd0e..39f7220c3 100644
+--- a/Source/Parsek/GameActions/TombstoneEligibility.cs
++++ b/Source/Parsek/GameActions/TombstoneEligibility.cs
+@@ -183,8 +183,7 @@ namespace Parsek
+                 var other = sameRecordingActions[i];
+                 if (other == null) continue;
+                 if (!IsEligible(other)) continue;
+-                if (!string.Equals(other.RecordingId, candidate.RecordingId, StringComparison.Ordinal))
+-                    continue;
++
+ 
+                 if (candidate.RepPenaltySource == ReputationPenaltySource.KerbalDeath)
+                 {
+warning: in the working copy of 'Source/Parsek/GameActions/TombstoneEligibility.cs', LF will be replaced by CRLF the next time Git touches it

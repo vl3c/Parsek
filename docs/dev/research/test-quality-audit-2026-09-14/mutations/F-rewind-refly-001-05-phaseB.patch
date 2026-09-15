@@ -1,0 +1,16 @@
+diff --git a/Source/Parsek/SupersedeCommit.cs b/Source/Parsek/SupersedeCommit.cs
+index 00b958c1d..19d299276 100644
+--- a/Source/Parsek/SupersedeCommit.cs
++++ b/Source/Parsek/SupersedeCommit.cs
+@@ -1408,9 +1408,7 @@ namespace Parsek
+             if (rec == null || marker == null) return false;
+             if (string.IsNullOrEmpty(marker.TreeId)) return false;
+             if (string.IsNullOrEmpty(rec.TreeId)) return false;
+-            if (!string.Equals(rec.TreeId, marker.TreeId,
+-                    StringComparison.Ordinal))
+-                return false;
++
+ 
+             // Session-local baseline: when the marker was created we
+             // snapshotted every existing BranchPoint.Id in the tree.
+warning: in the working copy of 'Source/Parsek/SupersedeCommit.cs', LF will be replaced by CRLF the next time Git touches it

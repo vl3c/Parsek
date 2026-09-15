@@ -567,25 +567,42 @@ namespace Parsek.Tests
         [Fact]
         public void InitiateRewind_SetsBaselineFromPreLaunch()
         {
-            // Simulate: recording with known PreLaunch values
+            // Recording with known PreLaunch values, deliberately DIFFERENT
+            // from its trajectory's funds so a wrong source field (last point,
+            // first point, reserved) is distinguishable from PreLaunch*.
             var rec = new Recording
             {
+                RecordingId = "rec_rewind_owner",
+                VesselPersistentId = 4711u,
                 RewindSaveFileName = "parsek_rw_test",
                 PreLaunchFunds = 25000.0,
                 PreLaunchScience = 5.0,
-                PreLaunchReputation = 1.5f
+                PreLaunchReputation = 1.5f,
+                RewindReservedFunds = 700.0,
+                RewindReservedScience = 2.0,
+                RewindReservedRep = 0.25f,
             };
-            rec.Points.Add(new TrajectoryPoint { ut = 100, funds = 25000 });
+            rec.Points.Add(new TrajectoryPoint { ut = 100, funds = 30000 });
             rec.Points.Add(new TrajectoryPoint { ut = 200, funds = 45000 });
 
-            // We can't call InitiateRewind (needs KSP file I/O), but we can
-            // verify the baseline fields are stored and cleared correctly.
-            RewindContext.BeginRewind(0, default(BudgetSummary),
-                rec.PreLaunchFunds, rec.PreLaunchScience, rec.PreLaunchReputation);
+            // InitiateRewind itself needs KSP file I/O, but the rewind-context
+            // setup it delegates to is headless-safe: drive the real helper so
+            // the owner -> PreLaunch* argument wiring is under test rather than
+            // re-issued inline by the fixture.
+            RecordingStore.BeginRewindForOwner(rec);
 
             Assert.Equal(25000.0, RewindContext.RewindBaselineFunds);
             Assert.Equal(5.0, RewindContext.RewindBaselineScience);
             Assert.Equal(1.5f, RewindContext.RewindBaselineRep);
+            // Same call's other wiring: rewind UT from the owner's StartUT,
+            // reserved budget from the owner's Rewind* fields, replay scope
+            // armed to the owner.
+            Assert.Equal(100.0, RewindContext.RewindUT);
+            Assert.Equal(700.0, RewindContext.RewindReserved.reservedFunds);
+            Assert.Equal(2.0, RewindContext.RewindReserved.reservedScience);
+            Assert.Equal(0.25f, RewindContext.RewindReserved.reservedReputation);
+            Assert.Equal("rec_rewind_owner", RecordingStore.RewindReplayTargetRecordingId);
+            Assert.Equal(4711u, RecordingStore.RewindReplayTargetSourcePid);
         }
 
         [Fact]
@@ -697,29 +714,34 @@ namespace Parsek.Tests
             Assert.Equal(0.0, RewindContext.RewindAdjustedUT);
         }
 
-        [Fact]
-        public void ResourceCorrection_ResetsToBaseline_NotAbsoluteTarget()
-        {
-            // REGRESSION TEST: On rewind, resources are reset to baseline
-            // (PreLaunch values), NOT baseline - totalCost.
-            // Ghost playback re-applies recording resource deltas at the correct UT.
-            double baseline = 50000.0;
+        // The former ResourceCorrection_ResetsToBaseline_NotAbsoluteTarget cell
+        // lived here. Its "correction" arithmetic was
+        // currentFunds + (baseline - currentFunds), which is baseline for every
+        // input, so no production change could move it. The contract it named
+        // - a rewind landing on the pre-launch balance rather than on
+        // baseline minus the flight's committed cost - now belongs to the
+        // ledger recalc at the adjusted UT
+        // (ParsekScenario.ApplyRewindResourceAdjustment ->
+        // LedgerOrchestrator.RecalculateAndPatch(adjustedUT)) and is pinned
+        // behaviorally by RewindUtCutoffTests.FundsSpending_CutoffFiltersLaterSpending,
+        // where a spend after the cutoff is NOT deducted from the balance.
+        // Only the positive-cost arm of the sign convention was unique to it;
+        // it survives below.
 
+        [Fact]
+        public void FullCommittedCost_SignConvention_PositiveMeansSpent()
+        {
+            // Mirror of FullCommittedCost_SignConvention_NegativeMeansEarned:
+            // a recording that ENDS poorer than it started reports a positive
+            // cost. Both arms together pin the subtraction order.
             var rec = new Recording { PreLaunchFunds = 50000 };
             rec.Points.Add(new TrajectoryPoint { ut = 100, funds = 50000 });
             rec.Points.Add(new TrajectoryPoint { ut = 200, funds = 38000 });
 
-            // The recording spent 12000 funds
             double totalCost = ResourceBudget.FullCommittedFundsCost(rec);
+
+            // Spent 12000 funds -> cost is +12000.
             Assert.Equal(12000.0, totalCost);
-
-            // Rewind correction sets to baseline, NOT baseline - totalCost
-            double currentFunds = 55000.0; // whatever KSP singleton has
-            double correction = baseline - currentFunds;
-            double result = currentFunds + correction;
-            Assert.Equal(50000.0, result); // baseline, NOT 38000
-
-            // Ghost playback will apply the -12000 delta at the correct UT later
         }
 
         #endregion

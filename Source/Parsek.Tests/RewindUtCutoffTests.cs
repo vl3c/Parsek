@@ -823,6 +823,12 @@ namespace Parsek.Tests
         {
             AddAll(
                 FundsSeed(5000f),
+                // Inside (0, 200]: counted under the captured cutoff of 200,
+                // dropped under the cleared global of 0. Without it both
+                // readings produce the same 5000 and a regression that reads
+                // RewindContext.RewindAdjustedUT instead of the argument
+                // stays invisible.
+                Milestone(100.0, "PreRewind", 250f),
                 Milestone(500.0, "PostRewind", 1000f));
 
             // Simulate the production ordering: the synchronous call happens while
@@ -844,7 +850,8 @@ namespace Parsek.Tests
             double second = LedgerOrchestrator.Funds.GetRunningBalance();
 
             Assert.Equal(first, second, 5);
-            Assert.Equal(5000.0, second, 1);
+            // 5000 seed + the UT=100 milestone; the UT=500 one stays filtered.
+            Assert.Equal(5250.0, second, 1);
         }
 
         [Fact]

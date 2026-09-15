@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/RecordingStore.cs b/Source/Parsek/RecordingStore.cs
+index 43dcc4e9b..21867587b 100644
+--- a/Source/Parsek/RecordingStore.cs
++++ b/Source/Parsek/RecordingStore.cs
+@@ -5685,7 +5685,6 @@ namespace Parsek
+         /// </summary>
+         internal static int ReapplyRewindSupersedeDropAfterLoad()
+         {
+-            if (!RewindContext.IsRewinding) return 0;
+             string ownerId = RewindReplayTargetRecordingId;
+             if (string.IsNullOrEmpty(ownerId)) return 0;
+             Recording owner = TryFindCommittedRecordingById(ownerId);
+warning: in the working copy of 'Source/Parsek/RecordingStore.cs', LF will be replaced by CRLF the next time Git touches it

@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/RecordingStore.cs b/Source/Parsek/RecordingStore.cs
+index bb9af7e10..9b4211334 100644
+--- a/Source/Parsek/RecordingStore.cs
++++ b/Source/Parsek/RecordingStore.cs
+@@ -4941,7 +4941,7 @@ namespace Parsek
+         /// </summary>
+         internal static bool ShouldRunPendingCleanupOnFlightReady()
+         {
+-            return PendingCleanupPids != null || PendingCleanupNames != null;
++            return true;
+         }
+ 
+         /// <summary>
+warning: in the working copy of 'Source/Parsek/RecordingStore.cs', LF will be replaced by CRLF the next time Git touches it

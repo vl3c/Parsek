@@ -36,17 +36,19 @@ namespace Parsek.Tests
         [Fact]
         public void RewindStrip_ClearsPendingCleanup_PidsAndNames()
         {
-            // Simulate the rewind path: set cleanup data, then clear it
-            // (as HandleRewindOnLoad does after StripOrphanedSpawnedVessels).
+            // Drive the production clear itself. HandleRewindOnLoad needs a live
+            // KSP, but the clear it performs after StripOrphanedSpawnedVessels is
+            // RecordingStore.ClearPendingCleanupAfterRewindStrip, which is
+            // headless-safe and is the single call site of the bug #134 fix.
             RecordingStore.PendingCleanupPids = new HashSet<uint> { 42, 77 };
             RecordingStore.PendingCleanupNames = new HashSet<string> { "Rocket", "Probe" };
+            RecordingStore.PendingRevertPreExistingPids = new HashSet<uint> { 5 };
 
-            // This is what the fix does after the strip call:
-            RecordingStore.PendingCleanupPids = null;
-            RecordingStore.PendingCleanupNames = null;
+            RecordingStore.ClearPendingCleanupAfterRewindStrip();
 
             Assert.Null(RecordingStore.PendingCleanupPids);
             Assert.Null(RecordingStore.PendingCleanupNames);
+            Assert.Null(RecordingStore.PendingRevertPreExistingPids);
         }
 
         [Fact]
@@ -64,14 +66,16 @@ namespace Parsek.Tests
             Assert.NotNull(RecordingStore.PendingCleanupNames);
             Assert.NotNull(RecordingStore.PendingCleanupPids);
 
-            // 2. Strip runs (simulated), then fix clears pending data
-            RecordingStore.PendingCleanupPids = null;
-            RecordingStore.PendingCleanupNames = null;
+            // OnFlightReady's own gate says "run" while the data is armed.
+            Assert.True(RecordingStore.ShouldRunPendingCleanupOnFlightReady());
 
-            // 3. OnFlightReady checks — both are null, so cleanup is skipped
-            bool wouldRunCleanup = RecordingStore.PendingCleanupPids != null
-                                    || RecordingStore.PendingCleanupNames != null;
-            Assert.False(wouldRunCleanup,
+            // 2. Strip runs (simulated), then the production clear fires.
+            RecordingStore.ClearPendingCleanupAfterRewindStrip();
+
+            // 3. OnFlightReady asks the same gate again - now it skips. Both
+            // sides are the production expressions (ParsekFlight.OnFlightReady
+            // calls ShouldRunPendingCleanupOnFlightReady), not a local copy.
+            Assert.False(RecordingStore.ShouldRunPendingCleanupOnFlightReady(),
                 "After rewind strip clears pending data, OnFlightReady must skip cleanup");
         }
 
@@ -109,18 +113,12 @@ namespace Parsek.Tests
         [Fact]
         public void RewindStrip_LogMessageFormat_ContainsExpectedText()
         {
-            // Note: This tests the expected log message FORMAT, not that production
-            // code actually emits it (HandleRewindOnLoad requires KSP runtime).
-            // Verifies the log message contract — if someone changes the message
-            // text in production, this test reminds them to update the contract.
+            // The log line is now emitted by the production clear itself, so this
+            // asserts what shipped rather than a copy of the message text.
             RecordingStore.PendingCleanupPids = new HashSet<uint> { 1 };
             RecordingStore.PendingCleanupNames = new HashSet<string> { "X" };
 
-            RecordingStore.PendingCleanupPids = null;
-            RecordingStore.PendingCleanupNames = null;
-            ParsekLog.Info("Rewind",
-                "OnLoad: cleared PendingCleanupPids/Names after strip — " +
-                "prevents OnFlightReady from destroying freshly-spawned past vessels");
+            RecordingStore.ClearPendingCleanupAfterRewindStrip();
 
             Assert.Contains(logLines, l =>
                 l.Contains("[Rewind]") &&

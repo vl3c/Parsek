@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/SupersedeCommit.cs b/Source/Parsek/SupersedeCommit.cs
+index 00b958c1d..718b8d823 100644
+--- a/Source/Parsek/SupersedeCommit.cs
++++ b/Source/Parsek/SupersedeCommit.cs
+@@ -1458,7 +1458,7 @@ namespace Parsek
+                 if (!IsStructuralBranchPointType(bp.Type)) continue;
+                 if (bp.UT < cutoffWithSlack) continue;
+                 if (!string.IsNullOrEmpty(bp.Id)
+-                    && preSessionSet.Contains(bp.Id))
++                    && false)
+                 {
+                     // Pre-existing BP re-spliced into the loaded tree by
+                     // SpliceMissingCommittedRecordingsIntoLoadedTree —

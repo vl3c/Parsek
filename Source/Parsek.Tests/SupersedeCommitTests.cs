@@ -984,6 +984,10 @@ namespace Parsek.Tests
                 Id = preExistingBpId,
                 Type = BranchPointType.Breakup,
                 UT = 200.0,
+                // Inside the Re-Fly target's lineage and after the cutoff,
+                // so the session baseline is the ONLY term that can hold
+                // matchedCount at zero.
+                ParentRecordingIds = new List<string> { "rec_provisional" },
             };
             InstallTree("tree_baseline",
                 new List<Recording> { rec },
@@ -1266,6 +1270,9 @@ namespace Parsek.Tests
                 Type = BranchPointType.Breakup,
                 UT = 100.0,
                 ChildRecordingIds = new List<string>(),
+                // In the Re-Fly target's lineage, so the pre-cutoff UT
+                // comparison is the ONLY term that can exclude this BP.
+                ParentRecordingIds = new List<string> { "rec_provisional" },
             };
             InstallTree("tree_pre_rewind",
                 new List<Recording> { rec },
@@ -1289,23 +1296,29 @@ namespace Parsek.Tests
             // vessel without spawning a new one, Launch is the tree root,
             // Terminal marks the recording's end.
             var rec = Rec("rec_provisional", "tree_non_struct");
+            // All three sit in the Re-Fly target's lineage and after the
+            // cutoff, so the type filter is the ONLY term that can hold
+            // matchedCount at zero.
             var dockBp = new BranchPoint
             {
                 Id = "bp_dock",
                 Type = BranchPointType.Dock,
                 UT = 300.0,
+                ParentRecordingIds = new List<string> { "rec_provisional" },
             };
             var boardBp = new BranchPoint
             {
                 Id = "bp_board",
                 Type = BranchPointType.Board,
                 UT = 305.0,
+                ParentRecordingIds = new List<string> { "rec_provisional" },
             };
             var terminalBp = new BranchPoint
             {
                 Id = "bp_terminal",
                 Type = BranchPointType.Terminal,
                 UT = 310.0,
+                ParentRecordingIds = new List<string> { "rec_provisional" },
             };
             InstallTree("tree_non_struct",
                 new List<Recording> { rec },
@@ -1334,10 +1347,26 @@ namespace Parsek.Tests
                 Id = "bp_struct",
                 Type = BranchPointType.Breakup,
                 UT = 300.0,
+                ParentRecordingIds = new List<string> { "rec_provisional" },
             };
             InstallTree("tree_a",
                 new List<Recording> { rec },
                 new List<BranchPoint> { bp });
+            // tree_b exists and carries a post-cutoff structural BP in the
+            // target's lineage: without the TreeId guard the gate would
+            // scan it and answer true, so the guard is the discriminator.
+            InstallTree("tree_b",
+                new List<Recording>(),
+                new List<BranchPoint>
+                {
+                    new BranchPoint
+                    {
+                        Id = "bp_struct_other_tree",
+                        Type = BranchPointType.Breakup,
+                        UT = 300.0,
+                        ParentRecordingIds = new List<string> { "rec_provisional" },
+                    },
+                });
             var marker = Marker("rec_origin", "rec_provisional");
             marker.TreeId = "tree_b";
             marker.InvokedUT = 200.0;

@@ -908,7 +908,12 @@ namespace Parsek.Tests
             InstallTree("tree_1",
                 new List<Recording>
                 {
-                    Rec("rec_origin", MergeState.Immutable), // superseded origin
+                    // CommittedProvisional on purpose: if the walk stopped at
+                    // the origin instead of following the supersede edge, the
+                    // RP would read as still re-flyable and NOT be reaped. The
+                    // Immutable endpoint on the far side of the edge is the
+                    // only thing that makes it eligible.
+                    Rec("rec_origin", MergeState.CommittedProvisional),
                     Rec("rec_provisional", MergeState.Immutable),
                 },
                 new List<BranchPoint> { bp });

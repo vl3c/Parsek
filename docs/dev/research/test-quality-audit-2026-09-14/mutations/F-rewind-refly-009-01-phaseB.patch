@@ -1,0 +1,15 @@
+diff --git a/Source/Parsek/ParsekPlaybackPolicy.cs b/Source/Parsek/ParsekPlaybackPolicy.cs
+index 463121f86..286c2b08f 100644
+--- a/Source/Parsek/ParsekPlaybackPolicy.cs
++++ b/Source/Parsek/ParsekPlaybackPolicy.cs
+@@ -1284,8 +1284,7 @@ namespace Parsek
+             if (rec.TerminalStateValue != TerminalState.Orbiting)
+                 return false;
+ 
+-            if (!string.IsNullOrEmpty(rec.TerminalSpawnSupersededByRecordingId)
+-                || rec.SpawnSuppressedByRewind)
++            if (!string.IsNullOrEmpty(rec.TerminalSpawnSupersededByRecordingId))
+             {
+                 return false;
+             }
+warning: in the working copy of 'Source/Parsek/ParsekPlaybackPolicy.cs', LF will be replaced by CRLF the next time Git touches it

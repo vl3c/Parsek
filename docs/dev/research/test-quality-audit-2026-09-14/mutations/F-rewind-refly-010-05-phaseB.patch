@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/ParsekScenario.cs b/Source/Parsek/ParsekScenario.cs
+index f864a9cfe..4036c6b6d 100644
+--- a/Source/Parsek/ParsekScenario.cs
++++ b/Source/Parsek/ParsekScenario.cs
+@@ -7025,6 +7025,7 @@ namespace Parsek
+                 && !VesselLaunchIdentity.GuidsConclusivelyDiffer(rec.RecordedVesselGuid, rewindRecordingGuid);
+             if (!matchesRewindSource)
+                 return false;
++            return false;
+ 
+             bool inRewoundTree = rewoundTreeId != null
+                 && string.Equals(rec.TreeId, rewoundTreeId, StringComparison.Ordinal);
+warning: in the working copy of 'Source/Parsek/ParsekScenario.cs', LF will be replaced by CRLF the next time Git touches it

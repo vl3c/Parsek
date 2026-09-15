@@ -1,0 +1,15 @@
+diff --git a/Source/Parsek/RecordingStore.cs b/Source/Parsek/RecordingStore.cs
+index bb9af7e10..5fb79224c 100644
+--- a/Source/Parsek/RecordingStore.cs
++++ b/Source/Parsek/RecordingStore.cs
+@@ -4925,9 +4925,6 @@ namespace Parsek
+         /// </summary>
+         internal static void ClearPendingCleanupAfterRewindStrip()
+         {
+-            PendingCleanupPids = null;
+-            PendingCleanupNames = null;
+-            PendingRevertPreExistingPids = null;
+             ParsekLog.Info("Rewind",
+                 "OnLoad: cleared PendingCleanupPids/Names after strip - " +
+                 "prevents OnFlightReady from destroying freshly-spawned past vessels");
+warning: in the working copy of 'Source/Parsek/RecordingStore.cs', LF will be replaced by CRLF the next time Git touches it
