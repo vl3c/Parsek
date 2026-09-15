@@ -360,6 +360,63 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RemoveSessionProvisionalRecordings_DropsBranchPointWhenParentEndpointEmpties()
+        {
+            // Mirror of ScrubsBranchPointEndpointRefs on the PARENT endpoint: the
+            // removed session-tagged recording is the BP's only PARENT, and the
+            // surviving recording is its child. The drop rule is "either endpoint
+            // set went empty", so a rule narrowed to the child side would leave a
+            // BP with a dangling parent edge serialized into the tree and a
+            // survivor still back-pointing at it.
+            var head = MakeAtmoSurfaceRecording("head_id",
+                startUT: 200, midUT: 250, endUT: 300);
+            head.CreatingSessionId = "sess_target";
+            head.TreeId = "tree_X";
+            head.ChildBranchPointId = "bp_session";
+
+            var survivor = MakeAtmoSurfaceRecording("survivor_id",
+                startUT: 300, midUT: 350, endUT: 400);
+            survivor.TreeId = "tree_X";
+            survivor.ParentBranchPointId = "bp_session";
+
+            var bp = new BranchPoint
+            {
+                Id = "bp_session",
+                UT = 300.0,
+                Type = BranchPointType.Launch,
+                ParentRecordingIds = new List<string> { "head_id" },
+                ChildRecordingIds = new List<string> { "survivor_id" },
+            };
+
+            var tree = new RecordingTree
+            {
+                Id = "tree_X",
+                TreeName = "Test Tree",
+                RootRecordingId = "head_id",
+                ActiveRecordingId = "head_id",
+                BranchPoints = new List<BranchPoint> { bp },
+                Recordings =
+                {
+                    ["head_id"] = head,
+                    ["survivor_id"] = survivor,
+                },
+            };
+            RecordingStore.AddCommittedTreeForTesting(tree);
+            RecordingStore.AddRecordingWithTreeForTesting(head, "tree_X");
+            RecordingStore.AddRecordingWithTreeForTesting(survivor, "tree_X");
+
+            int removed = RecordingStore.RemoveSessionProvisionalRecordings(
+                "sess_target",
+                rewindPointId: null,
+                fallbackActiveRecordingId: "survivor_id");
+
+            Assert.Equal(1, removed);
+            Assert.DoesNotContain("head_id", tree.Recordings.Keys);
+            Assert.Empty(tree.BranchPoints);
+            Assert.Null(survivor.ParentBranchPointId);
+        }
+
+        [Fact]
         public void RemoveSessionProvisionalRecordings_TreeDictPruneNullsActiveWhenFallbackMissing()
         {
             var head = MakeAtmoSurfaceRecording("head_only",

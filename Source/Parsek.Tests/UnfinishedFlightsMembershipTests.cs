@@ -534,6 +534,32 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ImmutableDestroyedUnderRP_NotMember_SealedTipClosed()
+        {
+            // Mirror of CommittedProvisionalDestroyedUnderRP_IsMember with the
+            // one difference that closes the slot: MergeState.Immutable. A
+            // sealed / concluded crashed leaf keeps its Destroyed terminal shape,
+            // so every other qualification step still passes; only the
+            // open/closed tip filter keeps it out. Without that filter the leaf
+            // resurfaces as a re-flyable Unfinished Flight row after the user
+            // already concluded it.
+            var rec = Rec("rec_A", MergeState.Immutable,
+                TerminalState.Destroyed, parentBranchPointId: "bp_1",
+                treeId: "tree_1");
+            RecordingStore.AddRecordingWithTreeForTesting(rec, "tree_1");
+
+            InstallScenario(rps: new List<RewindPoint> { Rp("rp_1", "bp_1", "rec_A") });
+
+            ParsekLog.ResetRateLimitsForTesting();
+            logLines.Clear();
+            var members = UnfinishedFlightsGroup.ComputeMembers();
+
+            Assert.Empty(members);
+            Assert.Contains(logLines, l =>
+                l.Contains("[UnfinishedFlights]") && l.Contains("reason=sealedTipClosed"));
+        }
+
+        [Fact]
         public void DestroyedUnderRPWithoutSlot_NotMember()
         {
             // Regression for 2026-04-26_2228: a debris recording can share the

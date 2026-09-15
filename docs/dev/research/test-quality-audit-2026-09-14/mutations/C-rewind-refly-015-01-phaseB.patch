@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/RecordingStore.cs b/Source/Parsek/RecordingStore.cs
+index bb9af7e10..c6a92a303 100644
+--- a/Source/Parsek/RecordingStore.cs
++++ b/Source/Parsek/RecordingStore.cs
+@@ -4208,7 +4208,7 @@ namespace Parsek
+                     || bp.ParentRecordingIds.Count == 0;
+                 bool emptyChildren = bp.ChildRecordingIds == null
+                     || bp.ChildRecordingIds.Count == 0;
+-                if (emptyParents || emptyChildren)
++                if (emptyChildren)
+                 {
+                     if (droppedBranchPointIds == null)
+                         droppedBranchPointIds = new HashSet<string>(StringComparer.Ordinal);

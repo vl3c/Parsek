@@ -1163,6 +1163,101 @@ namespace Parsek.Tests
         }
 
         // -----------------------------------------------------------------
+        // 13b. Production catch path, driven through a throwing seam
+        // -----------------------------------------------------------------
+
+        [Fact]
+        public void SplitOriginAtRewindUT_MidSplitThrow_RollsBackRealSnapshot()
+        {
+            // Every other rollback cell hand-builds a SplitSnapshot, so the
+            // production catch at SplitOriginAtRewindUT (rollback + re-throw) and
+            // the snapshot the orchestrator itself populated are both unpinned:
+            // a dropped ledger entry in RunPostSplitSteps leaves the suite green.
+            // LedgerOrchestrator.OnTimelineDataChanged is fired exactly once on
+            // the forward path (step 9b, after the milestone retag), which makes
+            // it a headless mid-split throw seam. A one-shot delegate is used so
+            // rollback's own guarded invoke is clean.
+            var origin = BuildRecording("rec_origin", 8.0, 53.0, midUT: 34.0,
+                treeId: "tree_13b", terminal: TerminalState.Destroyed);
+            origin.ChainId = "chain_T";
+            origin.ChainIndex = 0;
+            var tree = InstallOriginInTree(origin, "tree_13b");
+
+            var debrisPost = BuildDebrisRecording("d_post", origin.RecordingId,
+                startUT: 40.0, endUT: 52.0, treeId: "tree_13b");
+            tree.AddOrReplaceRecording(debrisPost);
+            RecordingStore.AddCommittedInternal(debrisPost);
+
+            var action50 = new GameAction
+            {
+                UT = 50.0,
+                Type = GameActionType.ReputationPenalty,
+                RecordingId = origin.RecordingId,
+                NominalPenalty = 10f,
+            };
+            Ledger.AddAction(action50);
+
+            var msPost = new Milestone
+            {
+                MilestoneId = "ms_post",
+                StartUT = 40.0,
+                EndUT = 52.0,
+                RecordingId = origin.RecordingId,
+                Committed = true,
+                Events = new List<GameStateEvent>(),
+            };
+            MilestoneStore.AddMilestoneForTesting(msPost);
+
+            int committedCountBefore = RecordingStore.CommittedRecordings.Count;
+            int treeRecCountBefore = tree.Recordings.Count;
+            var marker = BuildMarker(origin, rewindUT: 34.0);
+            string markerTargetBefore = marker.SupersedeTargetId;
+
+            int invocations = 0;
+            LedgerOrchestrator.OnTimelineDataChanged = () =>
+            {
+                invocations++;
+                if (invocations == 1)
+                    throw new InvalidOperationException("injected mid-split failure");
+            };
+
+            try
+            {
+                var thrown = Assert.Throws<InvalidOperationException>(
+                    () => RecordingTreeSplitter.SplitOriginAtRewindUT(marker, null));
+                Assert.Equal("injected mid-split failure", thrown.Message);
+            }
+            finally
+            {
+                LedgerOrchestrator.OnTimelineDataChanged = null;
+            }
+
+            // TIP removed from both the flat list and the tree dictionary.
+            Assert.Equal(committedCountBefore, RecordingStore.CommittedRecordings.Count);
+            Assert.Equal(treeRecCountBefore, tree.Recordings.Count);
+
+            // Origin reference swapped back to the pre-split deep clone: not the
+            // object the splitter trimmed, and still carrying the full span.
+            Recording restoredOrigin = FindCommitted(origin.RecordingId);
+            Assert.NotNull(restoredOrigin);
+            Assert.NotSame(origin, restoredOrigin);
+            Assert.Same(restoredOrigin, tree.Recordings[origin.RecordingId]);
+            Assert.Equal(53.0, restoredOrigin.Points[restoredOrigin.Points.Count - 1].ut);
+
+            // Every retag recorded in the REAL snapshot ledger is undone.
+            Assert.Equal(origin.RecordingId, debrisPost.ParentAnchorRecordingId);
+            Assert.Equal(origin.RecordingId, action50.RecordingId);
+            Assert.Equal(origin.RecordingId, msPost.RecordingId);
+
+            // The throw landed before step 2.10, so the marker was never retargeted.
+            Assert.Equal(markerTargetBefore, marker.SupersedeTargetId);
+
+            Assert.Contains(logLines, l => l.Contains("[Splitter]")
+                && l.Contains("RollBackInMemory: rolled back split")
+                && l.Contains("tipsRemoved=1"));
+        }
+
+        // -----------------------------------------------------------------
         // Reference-swap rollback (origin clone restoration)
         // -----------------------------------------------------------------
 

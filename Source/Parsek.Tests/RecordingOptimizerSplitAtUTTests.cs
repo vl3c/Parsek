@@ -1011,6 +1011,75 @@ namespace Parsek.Tests
             Assert.Equal(pointsCountBefore, rec.Points.Count);
         }
 
+        [Fact]
+        public void SplitAtUT_V13HeadBodyFixedFramesUnderMinimum_ReturnsNull()
+        {
+            // Mirror of the tail-half cell above: the HEAD half of the same
+            // two-branch v13 debris minimum-sample guard. Only the tail branch
+            // had a cell, so a broken head branch would ship debris whose head
+            // carries a one-sample bodyFixedFrames surface — below the two-sample
+            // floor body-fixed primary playback needs.
+            var rec = new Recording
+            {
+                RecordingId = "rec-bf-head-undermin",
+                IsDebris = true,
+                ParentAnchorRecordingId = "parent-rec",
+            };
+            rec.Points.Add(PointAt(8.0));
+            rec.Points.Add(PointAt(42.0));
+            rec.Points.Add(PointAt(53.0));
+            var sectionFrames = new List<TrajectoryPoint>
+            {
+                PointAt(8.0),
+                PointAt(42.0),
+                PointAt(53.0),
+            };
+            // bodyFixedFrames: 1 sample pre-splitUT (40), 3 post (45, 50, 53).
+            // The head half fails the minimum; the tail half would pass.
+            var bodyFixedFrames = new List<TrajectoryPoint>
+            {
+                PointAt(40.0),
+                PointAt(45.0),
+                PointAt(50.0),
+                PointAt(53.0),
+            };
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Relative,
+                anchorRecordingId = "parent-rec",
+                startUT = 8.0,
+                endUT = 53.0,
+                sampleRateHz = 1f,
+                minAltitude = float.NaN,
+                maxAltitude = float.NaN,
+                frames = sectionFrames,
+                bodyFixedFrames = bodyFixedFrames,
+            });
+
+            int sectionCountBefore = rec.TrackSections.Count;
+            double sectionEndUtBefore = rec.TrackSections[0].endUT;
+            int framesCountBefore = rec.TrackSections[0].frames.Count;
+            int bodyFixedCountBefore = rec.TrackSections[0].bodyFixedFrames.Count;
+            int pointsCountBefore = rec.Points.Count;
+
+            var tip = RecordingOptimizer.SplitAtUT(rec, 42.0);
+
+            Assert.Null(tip);
+            Assert.Contains(logLines, l => l.Contains("[Optimizer]")
+                && l.Contains("v13 debris contract")
+                && l.Contains("head-half bodyFixedFrames")
+                && l.Contains("rec-bf-head-undermin"));
+
+            // Mutation-ordering invariant: original.TrackSections must be
+            // structurally identical to its pre-call state.
+            Assert.Equal(sectionCountBefore, rec.TrackSections.Count);
+            Assert.Equal(sectionEndUtBefore, rec.TrackSections[0].endUT);
+            Assert.Equal(framesCountBefore, rec.TrackSections[0].frames.Count);
+            Assert.Equal(bodyFixedCountBefore, rec.TrackSections[0].bodyFixedFrames.Count);
+            Assert.Equal(pointsCountBefore, rec.Points.Count);
+        }
+
         #endregion
 
         #region Defensive guards (Pass 2 review Opus-H1 / Opus-H2)

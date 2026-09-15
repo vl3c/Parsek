@@ -1,0 +1,17 @@
+diff --git a/Source/Parsek/ParsekFlight.TerminalEvents.cs b/Source/Parsek/ParsekFlight.TerminalEvents.cs
+index 57d61688d..413c46f3c 100644
+--- a/Source/Parsek/ParsekFlight.TerminalEvents.cs
++++ b/Source/Parsek/ParsekFlight.TerminalEvents.cs
+@@ -323,10 +323,10 @@ namespace Parsek
+             // would leave a destroyed resume looking like a boring no-op coast and
+             // get auto-discarded. Set unconditionally (even when the terminal is
+             // already Destroyed) so the bool can never drift from the terminal.
+-            rec.VesselDestroyed = true;
+-
+             if (rec.TerminalStateValue == TerminalState.Destroyed) return false;
+ 
++            rec.VesselDestroyed = true;
++
+             var prev = rec.TerminalStateValue;
+             // A genuine X->Destroyed re-stamp: the crew-end-state seam re-infers any
+             // Aboard/Unknown verdict inherited from the overridden terminal into Dead.

@@ -521,6 +521,17 @@ on `testfix-t5-coverage`, each mutation-proved in that worktree with the mutant 
 C-legacy-bugfix-023-01, C-legacy-bugfix-024-01, C-recording-tree-034-01, C-rewind-refly-011-01,
 C-rewind-refly-020-01. Their `status` in the CSV is now `done`.
 
+**Phase B status, second PR (2026-09-15).** Ten of the eleven remaining priority-1 `recording` rows
+landed as xUnit cells on the same branch, each mutation-proved with the mutant the CSV names
+(C-recording-tree-023-01 needed only a throwing seam - a one-shot
+`LedgerOrchestrator.OnTimelineDataChanged`, which the forward path fires exactly once at step 9b -
+so no production change): C-legacy-bugfix-005-01, C-legacy-bugfix-010-01, C-recorder-events-023-01,
+C-recording-tree-011-01, C-recording-tree-022-01, C-recording-tree-023-01, C-recording-tree-030-01,
+C-rewind-refly-004-02, C-rewind-refly-015-01, C-rewind-refly-019-01. C-recorder-events-024-01 is
+`already-covered`: PR #1698 replaced the reflection existence check with an IL call-set comparison
+in `BackgroundPartEventAuditTests.PollPartEvents_CoversAllPolledEventTypes_MatchingFlightRecorder`,
+which is the proposed cell, so no duplicate was written.
+
 Sixteen of the twenty are `direct` and `S` or `M` effort. Numbers 12 and 20 pair with High and
 Medium findings respectively (F-recorder-events-024-01 and F-recording-tree-039-01), which is the
 expected shape: where a test cannot fail, the guard also has no coverage.

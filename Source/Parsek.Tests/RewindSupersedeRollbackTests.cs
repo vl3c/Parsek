@@ -85,6 +85,53 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void Pure_SkipsRelation_WithEmptyOldOrNewId()
+        {
+            // Malformed rows (an empty Old or an empty New) must be skipped
+            // outright. Both shapes are built so they WOULD be dropped if their
+            // guard were removed: the empty-Old row names the owner as its New
+            // (the self-rewind arm), and the empty-New row carries a post-rewind
+            // rel.UT so the orphan fallback would admit it. A valid row is mixed
+            // in because the drop count alone masks the difference otherwise.
+            var owner = MakeRec("orig", startUT: 6.5);
+            var fork = MakeRec("fork-A", startUT: 31.5);
+            var liveById = new Dictionary<string, Recording>
+            {
+                { "orig", owner },
+                { "fork-A", fork }
+            };
+            var emptyOld = new RecordingSupersedeRelation
+            {
+                OldRecordingId = "",
+                NewRecordingId = "orig",
+                UT = 31.5,
+            };
+            var emptyNew = new RecordingSupersedeRelation
+            {
+                OldRecordingId = "orig",
+                NewRecordingId = "",
+                UT = 31.5,
+            };
+            var supersedes = new List<RecordingSupersedeRelation>
+            {
+                emptyOld,
+                emptyNew,
+                MakeRel("orig", "fork-A"),
+            };
+
+            int dropped = RecordingStore.DropSupersedesRewoundOutOfExistencePure(
+                owner, rewindAdjustedUT: 6.5,
+                ownerTreeRecordings: new List<Recording> { owner, fork },
+                liveRecordingsById: liveById,
+                supersedes: supersedes);
+
+            Assert.Equal(1, dropped);
+            Assert.Equal(2, supersedes.Count);
+            Assert.Contains(emptyOld, supersedes);
+            Assert.Contains(emptyNew, supersedes);
+        }
+
+        [Fact]
         public void Drops_OwnerRow_WhenForkInFuture()
         {
             var owner = MakeRec("orig", startUT: 6.5);

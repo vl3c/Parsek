@@ -1736,6 +1736,35 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void RestoreHydrationFailedRecordingsFromPendingTree_DifferentTreeId_ReturnsZero()
+        {
+            // Cross-identity guard: the pending tree carries the SAME recording
+            // id as the loaded tree but a DIFFERENT tree id. Every other cell in
+            // this region uses a matching pending/loaded id, so only this shape
+            // discriminates the id check that keeps a stale pending tree from
+            // overwriting another tree's recording payload.
+            var pendingTree = TreeWithSharedRecording(
+                "tree_pending_other", "rec_shared", "Pending Payload", pointUT: 999.0);
+            RecordingStore.StashPendingTree(pendingTree, PendingTreeState.Limbo);
+
+            var loadedTree = TreeWithSharedRecording(
+                "tree_loaded_other", "rec_shared", "Disk Payload", pointUT: 110.0);
+            var loadedRec = loadedTree.Recordings["rec_shared"];
+            loadedRec.SidecarLoadFailed = true;
+            loadedRec.SidecarLoadFailureReason = "trajectory-missing";
+
+            int restored = ParsekScenario.RestoreHydrationFailedRecordingsFromPendingTree(
+                loadedTree);
+
+            Assert.Equal(0, restored);
+            Assert.Same(loadedRec, loadedTree.Recordings["rec_shared"]);
+            Assert.Equal("Disk Payload", loadedRec.VesselName);
+            Assert.Equal(110.0, loadedRec.Points[0].ut);
+            Assert.True(loadedRec.SidecarLoadFailed);
+            Assert.Equal("trajectory-missing", loadedRec.SidecarLoadFailureReason);
+        }
+
+        [Fact]
         public void RestoreHydrationFailedRecordingsFromPendingTree_RestoresOnlyFailedMatches()
         {
             var pendingTree = MakeTree("tree_salvage", "Pending", 2);
@@ -2540,6 +2569,36 @@ namespace Parsek.Tests
         // ============================================================
         // Test helpers
         // ============================================================
+
+        /// <summary>
+        /// A one-recording tree whose recording id is supplied independently of
+        /// the tree id. <see cref="MakeTree"/> derives recording ids from the
+        /// tree id, so it cannot express "same recording id, different tree" —
+        /// the only shape that discriminates the cross-tree hydration guard.
+        /// </summary>
+        private static RecordingTree TreeWithSharedRecording(
+            string treeId, string recordingId, string vesselName, double pointUT)
+        {
+            var tree = new RecordingTree
+            {
+                Id = treeId,
+                TreeName = treeId,
+                RootRecordingId = recordingId,
+                ActiveRecordingId = recordingId,
+            };
+            var rec = new Recording
+            {
+                RecordingId = recordingId,
+                VesselName = vesselName,
+                TreeId = treeId,
+                ExplicitStartUT = pointUT,
+                ExplicitEndUT = pointUT + 10.0,
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = pointUT });
+            rec.Points.Add(new TrajectoryPoint { ut = pointUT + 10.0 });
+            tree.Recordings[recordingId] = rec;
+            return tree;
+        }
 
         private static RecordingTree MakeTree(string id, string name, int recordingCount)
         {
