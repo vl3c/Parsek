@@ -318,22 +318,31 @@ namespace Parsek.Tests.Rendering
 
         // ----- cluster -----
 
+        // How many of the 16 samples the four injected kraken spikes actually reject. Pinned as a
+        // constant so the positive Cluster case and the under-the-rate mirror below read against the
+        // same measured number instead of a test-side recompute of the production gate.
+        private const int ClusterRejectedSamples = 8;
+
         [Fact]
-        public void OutlierClassifier_Cluster_FlagsSection_When25PercentRejected()
+        public void OutlierClassifier_Cluster_FlagsSection_WhenRejectionRateIsOverTheGate()
         {
-            // 16 samples; 4 (25%) above 0.20 threshold → Cluster bit set.
+            // 16 samples with four alternating kraken spikes; the measured rejection rate is over
+            // the 0.20 ClusterRateThreshold, so the section-wide Cluster bit is set.
             var frames = new List<TrajectoryPoint>();
             for (int i = 0; i < 16; i++)
             {
                 Vector3 v = new Vector3(i * 10, 0, 0);
                 frames.Add(MakePoint(100 + i, 0.001 * i, 0.001 * i, 80000 + i * 10, v));
             }
-            // Inject 4 kraken acceleration samples (all velocity-based, much
-            // larger jump than the 10 m/s baseline).
-            for (int idx = 4; idx < 8; idx++) // indices 4..7
+            // Inject kraken acceleration spikes at ALTERNATING indices (all velocity-based, much
+            // larger jump than the 10 m/s baseline). The original run of four CONSECUTIVE indices
+            // only rejected 2 of 16 - a rate of 0.125, UNDER the 0.20 gate - because the interior
+            // samples of a run share their neighbours' velocity, so the old cell's rate condition
+            // was false and its Cluster assertion never executed at all.
+            foreach (int idx in new[] { 4, 6, 8, 10 })
             {
                 var p = frames[idx];
-                p.velocity = new Vector3(100000, 0, 0); // huge accel from prior sample
+                p.velocity = new Vector3(100000, 0, 0); // huge accel from both neighbours
                 frames[idx] = p;
             }
             var sec = MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute, frames);
@@ -341,15 +350,46 @@ namespace Parsek.Tests.Rendering
             CelestialBody capturedKerbin = fakeKerbin;
             OutlierFlags flags = OutlierClassifier.Classify(rec, 0, OutlierThresholds.Default,
                 name => name == "Kerbin" ? capturedKerbin : null);
+            // The rejected count is pinned FIRST and unconditionally: the old cell wrapped the
+            // Cluster assertion in a test-side recompute of the production rate gate, so any change
+            // that lowered the rejection count silently disabled the assertion the name claims.
+            Assert.Equal(16, flags.SampleCount);
+            Assert.Equal(ClusterRejectedSamples, flags.RejectedCount);
+            Assert.True(flags.RejectedCount > flags.SampleCount * 0.20); // over the 0.20 gate
+            Assert.True((flags.ClassifierMask & (byte)OutlierClassifier.ClassifierBit.Cluster) != 0);
+        }
+
+        /// <summary>
+        /// Mirror of the Cluster cell just above: a rejection rate at or under the 0.20 gate leaves
+        /// the section-wide Cluster bit CLEAR while the per-sample rejections still stand. Without
+        /// this case a classifier that set Cluster whenever anything was rejected passed.
+        /// </summary>
+        [Fact]
+        public void OutlierClassifier_Cluster_NotFlagged_WhenUnderTheRate()
+        {
+            var frames = new List<TrajectoryPoint>();
+            for (int i = 0; i < 16; i++)
+            {
+                Vector3 v = new Vector3(i * 10, 0, 0);
+                frames.Add(MakePoint(100 + i, 0.001 * i, 0.001 * i, 80000 + i * 10, v));
+            }
+            // One kraken sample instead of four: the transitions into and out of it reject a
+            // handful of samples, which must stay at or below 0.20 * 16 for this mirror to mean
+            // anything - the assertion below pins that, so a threshold move reds rather than
+            // quietly turning this into a second copy of the positive case.
+            var p = frames[6];
+            p.velocity = new Vector3(100000, 0, 0);
+            frames[6] = p;
+            var sec = MakeSection(SegmentEnvironment.ExoBallistic, ReferenceFrame.Absolute, frames);
+            var rec = MakeRecording("rec-cluster-under", sec);
+            CelestialBody capturedKerbin = fakeKerbin;
+            OutlierFlags flags = OutlierClassifier.Classify(rec, 0, OutlierThresholds.Default,
+                name => name == "Kerbin" ? capturedKerbin : null);
+
+            Assert.Equal(16, flags.SampleCount);
             Assert.True(flags.RejectedCount >= 1);
-            // The first injection should fire (delta from prior 10 -> 100000 m/s²).
-            // The cluster-bit gate is rate > 0.20 → 4/16 = 0.25, so set.
-            // Note: 4 kraken velocities applied; each transition (3->4, 4->5, 5->6, 6->7, 7->8)
-            // can fire depending on dv magnitude. Verify Cluster bit at minimum given 4 fired.
-            // We assert cluster set so the contract is locked.
-            // If cluster doesn't fire, check rejectedCount and revisit thresholds.
-            if (flags.RejectedCount > flags.SampleCount * 0.20)
-                Assert.True((flags.ClassifierMask & (byte)OutlierClassifier.ClassifierBit.Cluster) != 0);
+            Assert.False(flags.RejectedCount > flags.SampleCount * 0.20); // under the gate
+            Assert.True((flags.ClassifierMask & (byte)OutlierClassifier.ClassifierBit.Cluster) == 0);
         }
 
         // ----- endpoint handling -----
@@ -395,7 +435,11 @@ namespace Parsek.Tests.Rendering
             object sectionsRef = rec.TrackSections;
             object framesRef = rec.TrackSections[0].frames;
             int countBefore = rec.TrackSections[0].frames.Count;
-            double firstUtBefore = rec.TrackSections[0].frames[0].ut;
+
+            // HR-1 is a WHOLE-PAYLOAD read-only invariant, so every sample's values are snapshotted,
+            // not just sample 0's ut: an in-place rewrite of an interior sample (exactly the shape a
+            // future write-back of rejection state would take) left the old assertion set green.
+            var before = new List<TrajectoryPoint>(rec.TrackSections[0].frames);
 
             CelestialBody capturedKerbin = fakeKerbin;
             OutlierClassifier.Classify(rec, 0, OutlierThresholds.Default,
@@ -405,7 +449,19 @@ namespace Parsek.Tests.Rendering
             Assert.Same(sectionsRef, rec.TrackSections);
             Assert.Same(framesRef, rec.TrackSections[0].frames);
             Assert.Equal(countBefore, rec.TrackSections[0].frames.Count);
-            Assert.Equal(firstUtBefore, rec.TrackSections[0].frames[0].ut);
+            for (int i = 0; i < before.Count; i++)
+            {
+                TrajectoryPoint b = before[i];
+                TrajectoryPoint a = rec.TrackSections[0].frames[i];
+                Assert.Equal(b.ut, a.ut);
+                Assert.Equal(b.latitude, a.latitude);
+                Assert.Equal(b.longitude, a.longitude);
+                Assert.Equal(b.altitude, a.altitude);
+                Assert.Equal(b.velocity, a.velocity);
+                Assert.Equal(b.bodyName, a.bodyName);
+                Assert.Equal(b.rotation, a.rotation);
+                Assert.Equal(b.flags, a.flags);
+            }
         }
 
         [Fact]

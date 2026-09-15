@@ -238,8 +238,12 @@ namespace Parsek.Tests
                 effUT: 1234.5,
                 details: "vessel=Munar_Probe");
 
+            // The [INFO] token is the whole point of important=true: the line must survive
+            // verboseLogging being off. The fixture sets VerboseOverrideForTesting=true, so without
+            // the level token a Verbose-routed line matched every other predicate here.
             Assert.Contains(logLines, l =>
-                l.Contains("[MapRenderTrace]")
+                l.Contains("[INFO]")
+                && l.Contains("[MapRenderTrace]")
                 && l.Contains("phase=GhostCreated")
                 && l.Contains("surface=ProtoIcon")
                 && l.Contains("pid=100037")
@@ -352,7 +356,8 @@ namespace Parsek.Tests
                     new Vector3d(1.0, 2.0, 3.0), "tracking-station-lifecycle"));
 
             Assert.Contains(logLines, l =>
-                l.Contains("[MapRenderTrace]")
+                l.Contains("[INFO]")
+                && l.Contains("[MapRenderTrace]")
                 && l.Contains("phase=GhostCreated")
                 && l.Contains("surface=ProtoIcon")
                 && l.Contains("pid=100037")
@@ -456,7 +461,8 @@ namespace Parsek.Tests
                     new Vector3d(1.0, 2.0, 3.0), "Mun", 850000.0, 0.01, "first-truth-read"));
 
             Assert.Contains(logLines, l =>
-                l.Contains("[MapRenderTrace]")
+                l.Contains("[INFO]")
+                && l.Contains("[MapRenderTrace]")
                 && l.Contains("phase=FirstPosition")
                 && l.Contains("surface=ProtoOrbitLine")
                 && l.Contains("pid=100037")

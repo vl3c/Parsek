@@ -1,0 +1,16 @@
+diff --git a/Source/Parsek/MapRenderTrace.cs b/Source/Parsek/MapRenderTrace.cs
+index d26aa6f1e..7cfe6a0bb 100644
+--- a/Source/Parsek/MapRenderTrace.cs
++++ b/Source/Parsek/MapRenderTrace.cs
+@@ -1486,10 +1486,7 @@ namespace Parsek
+ 
+             string message = BuildPrefix(phase, surface, pidKey, currentUT, effUT, CurrentFrameCount(), recId)
+                 + (string.IsNullOrEmpty(details) ? string.Empty : " " + details);
+-            if (important)
+-                ParsekLog.Info(Tag, message);
+-            else
+-                ParsekLog.Verbose(Tag, message);
++            ParsekLog.Verbose(Tag, message);
+         }
+ 
+         /// <summary>
