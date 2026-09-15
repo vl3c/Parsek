@@ -650,58 +650,32 @@ namespace Parsek
             // candidate controllable child if the parent is still alive and trackable.
             Recording parentContRec = null;
 
-            if (parentVessel != null)
+            // Launch-unique identity for the continuation, resolved live-first. See
+            // ResolveSplitRecordingLaunchGuid for why the live vessel outranks the
+            // closed segment's stored guid. Read once so the log line below can show
+            // both inputs. Read only when the parent is alive, matching the gate the
+            // helper applies to the continuation itself.
+            string liveParentGuid = parentVessel != null
+                ? AnchorDetector.TryReadLiveVesselGuid(parentVessel)
+                : null;
+            parentContRec = TryBuildAndAttachParentContinuation(
+                tree, bp, parentRec, parentPid, branchUT,
+                parentVesselAlive: parentVessel != null,
+                continuationRecordingId: parentVessel != null
+                    ? System.Guid.NewGuid().ToString("N")
+                    : null,
+                liveParentGuid: liveParentGuid,
+                // Pin start-of-recording controller identity for the parent continuation
+                // from the live post-split parent vessel. Captures the parts that
+                // stayed with the parent after the split, so a later destructive
+                // crash on the continuation can be detected via identity loss.
+                controllers: parentVessel != null
+                    ? ControllerInfo.CaptureFromVessel(parentVessel)
+                    : null);
+
+            if (parentContRec != null)
             {
-                // Create a continuation recording for the parent vessel itself
-                // (it keeps existing with potentially fewer parts).
-                // The continuation stays at the same Generation as the parent — it's
-                // the same logical vessel, just with fewer parts. Only spinoff children
-                // get parentGeneration + 1.
-                // NOTE: with MaxRecordingGeneration=1 the cap above this point already
-                // returned for any parentRec.Generation >= 1, so today this assignment
-                // is always Generation=0. Kept explicit so future cap bumps (e.g.
-                // MaxRecordingGeneration=2) just work without re-auditing this site.
-                string parentContRecId = System.Guid.NewGuid().ToString("N");
-                // Launch-unique identity for the continuation, resolved live-first. See
-                // ResolveSplitRecordingLaunchGuid for why the live vessel outranks the
-                // closed segment's stored guid. Read once so the log line below can show
-                // both inputs.
-                string liveParentGuid = AnchorDetector.TryReadLiveVesselGuid(parentVessel);
-                parentContRec = new Recording
-                {
-                    RecordingId = parentContRecId,
-                    TreeId = tree.Id,
-                    VesselPersistentId = parentPid,
-                    VesselName = parentRec.VesselName,
-                    ParentBranchPointId = bp.Id,
-                    ExplicitStartUT = branchUT,
-                    IsDebris = parentRec.IsDebris,
-                    // Forward-compat propagation (plan Decision §10): MaxRecordingGeneration=1
-                    // means parent continuations of *debris* recordings are never created
-                    // today, but if Step 4a raises the cap, the contract must already be in
-                    // place — see plan §"`IsDebris` propagation surface" site #8.
-                    ParentAnchorRecordingId = parentRec.ParentAnchorRecordingId,
-                    Generation = parentRec.Generation,
-                    // Pin start-of-recording controller identity for the parent continuation
-                    // from the live post-split parent vessel. Captures the parts that
-                    // stayed with the parent after the split, so a later destructive
-                    // crash on the continuation can be detected via identity loss.
-                    Controllers = ControllerInfo.CaptureFromVessel(parentVessel),
-                    // Launch-unique identity, stamped AT THE WRITE SITE rather than left to
-                    // the RecordingSidecarStore load-time backfill: the continuation captures
-                    // no VesselSnapshot (nothing below assigns one), so the backfill has
-                    // nothing to read and a continuation left blank here stays blank. A
-                    // guid-less continuation chained to a stamped pre-split segment is a
-                    // MIXED survivor set at the recovery correlator, which reads
-                    // corroboration=unknown-launch-guid and makes the KERBAL XP leg refuse an
-                    // ordinary single-launch recovery
-                    // (KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY stage 2).
-                    RecordedVesselGuid = ResolveSplitRecordingLaunchGuid(
-                        liveParentGuid, parentRec.RecordedVesselGuid)
-                };
-                bp.ChildRecordingIds.Insert(0, parentContRecId);
-                tree.AddOrReplaceRecording(parentContRec);
-                tree.BackgroundMap[parentPid] = parentContRecId;
+                string parentContRecId = parentContRec.RecordingId;
 
                 // The guid decision is a state fact the correlator later reads, so it is
                 // logged with BOTH inputs. A conclusive divergence (the pid now carries a
@@ -1312,6 +1286,67 @@ namespace Parsek
             if (!string.IsNullOrEmpty(liveVesselGuid))
                 return liveVesselGuid;
             return string.IsNullOrEmpty(fallbackGuid) ? null : fallbackGuid;
+        }
+
+        /// <summary>
+        /// Pure static method: the bug #285 parent-continuation decision and the tree
+        /// wiring that follows it. Returns null when the parent vessel is gone (the parent
+        /// recording is already closed with ChildBranchPointId set; a continuation for a
+        /// dead vessel would be an empty Recording that clutters disk and logs); otherwise
+        /// builds the continuation, inserts it as the FIRST child of the branch point,
+        /// registers it on the tree and re-points BackgroundMap[parentPid] at it.
+        /// Every live-scene input (the alive verdict, the fresh id, the live launch guid,
+        /// the captured controllers) is supplied by the caller so the decision is testable
+        /// without Unity.
+        /// </summary>
+        internal static Recording TryBuildAndAttachParentContinuation(
+            RecordingTree tree, BranchPoint bp, Recording parentRec, uint parentPid,
+            double branchUT, bool parentVesselAlive, string continuationRecordingId,
+            string liveParentGuid, List<ControllerInfo> controllers)
+        {
+            if (!parentVesselAlive) return null;
+
+            // Create a continuation recording for the parent vessel itself
+            // (it keeps existing with potentially fewer parts).
+            // The continuation stays at the same Generation as the parent - it's
+            // the same logical vessel, just with fewer parts. Only spinoff children
+            // get parentGeneration + 1.
+            // NOTE: with MaxRecordingGeneration=1 the cap above this point already
+            // returned for any parentRec.Generation >= 1, so today this assignment
+            // is always Generation=0. Kept explicit so future cap bumps (e.g.
+            // MaxRecordingGeneration=2) just work without re-auditing this site.
+            var parentContRec = new Recording
+            {
+                RecordingId = continuationRecordingId,
+                TreeId = tree.Id,
+                VesselPersistentId = parentPid,
+                VesselName = parentRec.VesselName,
+                ParentBranchPointId = bp.Id,
+                ExplicitStartUT = branchUT,
+                IsDebris = parentRec.IsDebris,
+                // Forward-compat propagation (plan Decision section 10): MaxRecordingGeneration=1
+                // means parent continuations of *debris* recordings are never created
+                // today, but if Step 4a raises the cap, the contract must already be in
+                // place - see plan section "`IsDebris` propagation surface" site #8.
+                ParentAnchorRecordingId = parentRec.ParentAnchorRecordingId,
+                Generation = parentRec.Generation,
+                Controllers = controllers,
+                // Launch-unique identity, stamped AT THE WRITE SITE rather than left to
+                // the RecordingSidecarStore load-time backfill: the continuation captures
+                // no VesselSnapshot (nothing below assigns one), so the backfill has
+                // nothing to read and a continuation left blank here stays blank. A
+                // guid-less continuation chained to a stamped pre-split segment is a
+                // MIXED survivor set at the recovery correlator, which reads
+                // corroboration=unknown-launch-guid and makes the KERBAL XP leg refuse an
+                // ordinary single-launch recovery
+                // (KERBAL-XP-RECOVERY-PICK-IS-NAME-AND-UT-ONLY stage 2).
+                RecordedVesselGuid = ResolveSplitRecordingLaunchGuid(
+                    liveParentGuid, parentRec.RecordedVesselGuid)
+            };
+            bp.ChildRecordingIds.Insert(0, continuationRecordingId);
+            tree.AddOrReplaceRecording(parentContRec);
+            tree.BackgroundMap[parentPid] = continuationRecordingId;
+            return parentContRec;
         }
 
         /// <summary>

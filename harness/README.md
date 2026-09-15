@@ -256,14 +256,20 @@ survives and then points at images that are gone.
 
 ### Running a GUI census end to end
 
-EIGHT LANES, in two waves, all `tier = "operator"` and all flown on request only.
+NINE CENSUS LANES, in three waves, all `tier = "operator"` and all flown on request only.
+(A tenth `GUI-*` lane, `GUI-9-playback-toggle-map-scope`, carries the `gui-census` tag and
+drives the same ops, but it is a LIVE PROOF of the playback tick box's map scope rather
+than a census of chrome, so it is not in the table below and step 1 does not apply to it.)
 
 WAVE 1 (2026-09-10, flown green 2026-09-11) is `GUI-1-census-ksc` and
 `GUI-2-census-flight`: every Parsek window's CHROME, in Advanced and Basic, on the
 OPERATOR-LOCAL `c1-gui` host. Step 1 below is theirs and theirs alone.
 
 WAVE 2 (2026-09-11, ALL SIX FLOWN PASS the same day) is six lanes on COMMITTED fixtures,
-one host each, and they need NO staging - `run.py --id <lane>` is enough:
+one host each, and they need NO staging - `run.py --id <lane>` is enough. WAVE 3
+(2026-09-15, FLOWN PASS the same day) is one lane on the same footing,
+`GUI-10-census-dialogs`: the first pictures of any Parsek MODAL, which nothing in the seam
+could put on screen until `op=raise` / `op=dismiss` shipped. It is the last row below:
 
 | lane | host | what it photographs |
 |---|---|---|
@@ -273,8 +279,9 @@ one host each, and they need NO staging - `run.py --id <lane>` is enough:
 | `GUI-6-census-flight-playback` | `gloops-airshow` + `part-showcase`, `TimeJump` 55 | the flight status block with `Active Ghosts > 0`, the Gloops recorder, the flight-only Watch column, the map view with ghost markers, the watch-mode overlay, and Real Spawn Control |
 | `GUI-7-census-flight-recording` | `b1-pad-craft` | the flight status block Idle / RECORDING / Ready, and two attempts at the hover echoes (the tooltip strip and the disabled-control reason) - NEITHER painted |
 | `GUI-8-census-empty-states` | `fresh-science` | every window's EMPTY form, and the science-mode Career banners |
+| `GUI-10-census-dialogs` (run `2026-09-15_1538`, PASS attempt 1, 67 s, 8 + 8) | `bdock-recorded`, at the Space Center (`scene = "spacecenter"`: this host's activeVessel is focusable, so the default route would boot into FLIGHT) | six of the 21 modals STANDING - the two informational popups (`actionblocked`, `savefailed`), both Settings wipe confirmations, and the two that need a committed recording (`fastforward`, `seal`) - each with `op=dialog` reporting its name, title and ordered buttons beside the PNG, plus the two typed refusals (`dialog-target-unavailable` for `rewind`, which has no rewind owner on this host, and `dialog-already-open` for a second modal) |
 
-Steps 2 to 6 below apply to any of the eight. In order:
+Steps 2 to 6 below apply to any of the nine. In order:
 
 1. **Stage the host - WAVE 1 ONLY.** Those two lanes need a save with rows in every
    window, which is the operator's own long-lived career - it cannot be committed and
@@ -309,10 +316,11 @@ Steps 2 to 6 below apply to any of the eight. In order:
    python run.py --id GUI-1-census-ksc
    python run.py --id GUI-2-census-flight
    python run.py --id GUI-3-census-logistics-routes      # and GUI-4 .. GUI-8
+   python run.py --id GUI-10-census-dialogs
    ```
 
-   MEASURED WALL FOR ALL EIGHT, so a run that has not finished in a couple of minutes is
-   stuck rather than slow. Every figure below is a PASS on attempt 1:
+   MEASURED WALL, so a run that has not finished in a couple of minutes is stuck rather
+   than slow. Every figure below is a PASS on attempt 1:
 
    | lane | wall | captures (PNG + dump) | reading run |
    |---|---|---|---|
@@ -322,8 +330,9 @@ Steps 2 to 6 below apply to any of the eight. In order:
    | `GUI-4-census-missions-docked` | 67 s | 16 + 16 | `2026-09-11_1551` |
    | `GUI-5-census-career-ksc` | 66 s | 17 + 17 | `2026-09-11_1553` |
    | `GUI-6-census-flight-playback` | 74 s | 12 + 12 | `2026-09-11_1556` |
-   | `GUI-7-census-flight-recording` | 59 s | 8 + 8 | `2026-09-11_1559` |
+   | `GUI-7-census-flight-recording` | 59 s / 63 s | 8 + 8 | `2026-09-11_1559`, re-flown with the two hover flags as `2026-09-15_1539` |
    | `GUI-8-census-empty-states` | 61 s | 12 + 12 | `2026-09-11_1601` |
+   | `GUI-10-census-dialogs` | 67 s | 8 + 8 | `2026-09-15_1538` |
 
    THE WALK IS THE SMALLER HALF, measured off GUI-1's own log: KSP boot to the seam's first
    `recv` takes 37 s, the `LoadGame` 8 s, and all 115 steps - 22 captures, 22 dumps, the tab
@@ -340,11 +349,36 @@ Steps 2 to 6 below apply to any of the eight. In order:
    in the last third BECAUSE a driver-INVALID run still harvests every picture taken before
    it; none of them was needed, since all six passed first time.
 
-   ONE THING A CENSUS CANNOT DO TODAY, measured on those runs and worth knowing before you
-   author a hover step: `op=pointer` lands the OS cursor on the control (read back within
-   1 px) and IMGUI's hover does NOT paint, so a tooltip or disabled-echo capture is a picture
-   of the un-hovered window - see GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT before
-   spending a lane on one.
+   THE HOVER CAPTURES ARE STILL THE OPEN QUESTION, and worth knowing before you author a
+   hover step. Measured on those runs: `op=pointer` lands the OS cursor on the control (read
+   back within 1 px) and IMGUI's hover does NOT paint, so a tooltip or disabled-echo capture
+   is a picture of the un-hovered window -
+   GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT.
+   The op now carries two OPT-IN flags aimed at exactly that, both defaulting false so every
+   lane written before them is byte-identical: `focus=true` brings the game window to the
+   foreground before the move (so it owns the input queue when the move lands), and
+   `nudge=true` sends one relative `SendInput` `(+1,0)`/`(-1,0)` pair after it, so the
+   window receives a real `WM_MOUSEMOVE` rather than only a new cursor position - which is
+   the discriminator, since `SetCursorPos` WARPS the cursor and Unity's per-frame sample
+   follows a warp while the mouse EVENT stream does not. The answer reports what they did
+   (`focus= nudge= fgOutcome= fg= tooltip=`, appended after `via=` so the existing wave-2
+   log contracts still match), and `tooltip=` is the strip text as of the settled frame -
+   the reading four census captures could not state at all. `GUI-7-census-flight-recording` is
+   the lane armed with them, and BOTH HAVE NOW FLOWN AND BOTH REFUTED THE HOVER (run
+   `2026-09-15_1539`, PASS attempt 1): `fgOutcome=attached` on one move and `already` on the
+   other with `fg=true` after both, the `SendInput` pair accepted on both, and `tooltip=-`
+   either way. The same run measured WHY, through the probe the strip latch writes from
+   inside a Parsek `OnGUI` Repaint: `Event.current.mousePosition` reads screen origin
+   (`eventScreen=0.0,0.0`) on every probe while `Input.mousePosition` tracks the commanded
+   point exactly (`input=133,558` -> GUI y 162 against a commanded `133,161`). So the
+   position IMGUI computes its hit test from never follows the cursor at all, and neither
+   flag changes that. Treat the pair as the MEASUREMENT it turned out to be: they stay in so
+   a future candidate is compared against a reading, and a hover lane must still not pin a
+   non-empty strip. THE OPERATOR-DESKTOP CAVEAT GETS WORSE WITH `focus=`: the
+   op already yanks the operator's own cursor machine-wide, and `focus=true` additionally
+   STEALS the foreground from whatever he is doing mid-run. Both facts go on one Info line
+   per move, so a run whose captures look wrong reads back against "someone was using the
+   mouse".
 
 4. **Read the pictures**, from inside the run's own shots directory:
 
@@ -369,23 +403,27 @@ Steps 2 to 6 below apply to any of the eight. In order:
 
 ### The census op vocabulary (what a coverage lane reaches for)
 
-The eight lanes above photograph WINDOWS. A code-derived inventory of the player-facing
+The lanes above photograph WINDOWS, with the wave-3 one photographing MODALS. A
+code-derived inventory of the player-facing
 surfaces found 22 of 57 with a picture after wave 1, and the rest needed either data the
 fixture lacked, a CLICK, or a surface the GUI-tree recorder cannot see at all. `UiAction`
-carries six further ops for the last two classes, and wave 2 drove all six - taking the
+carried six further ops for the last two classes, and wave 2 drove all six - taking the
 reading to 27 of 57 (`docs/dev/design-gui-inventory.md` section 2, which also records that
-the "105" this paragraph used to carry was a hand-sum error). The full contracts are in
+the "105" this paragraph used to carry was a hand-sum error). `raise` and `dismiss` are the
+two newest, and they are what wave 3 flies. The full contracts are in
 `docs/dev/design-autotest-command-seam.md` -> `#### UiAction`, and what follows is the
 authoring summary.
 
 | op | shape | what it reaches |
 |---|---|---|
-| `pointer` | `op=pointer x= y=` or `op=pointer park=true` | moves the REAL OS cursor into the client, INTENDED to make Unity's own hit test run: hover styles, `GUI.tooltip`, the per-window tooltip echo strip, the disabled-hover echo. MEASURED 2026-09-11: the cursor lands (read back within 1 px) and the hover does NOT paint, so none of those four surfaces is reachable yet - GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT. `park=true` goes to the client corner so a LATER capture is hover-free, which still works and is still worth doing |
+| `pointer` | `op=pointer x= y=` or `op=pointer park=true`, plus `[focus=] [nudge=]` | moves the REAL OS cursor into the client, INTENDED to make Unity's own hit test run: hover styles, `GUI.tooltip`, the per-window tooltip echo strip, the disabled-hover echo. MEASURED 2026-09-11: the cursor lands (read back within 1 px) and the hover does NOT paint, so none of those four surfaces is reachable yet - GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT. `park=true` goes to the client corner so a LATER capture is hover-free, which still works and is still worth doing. `focus=true` (take the foreground first) and `nudge=true` (one relative `SendInput` pair after the move, so the window gets a real `WM_MOUSEMOVE`) are the two OPT-IN flags aimed at that defect, both defaulting false and both unflown; the payload reports `focus= nudge= fgOutcome= fg= tooltip=` |
 | `find` | `op=find window= text= [ctrl=] [index=]` | captures one in-memory GUI tree and answers a control's `x y w h cx cy`, so a spec chains `${stepN.cx}` / `${stepN.cy}` into a `pointer` step. The MATCH LADDER is exact, then prefix, then contains, first rung with any hit winning outright - which is what lets `text=Real Spawn Control` address the live `Real Spawn Control (0)` without a spec guessing the count |
 | `expand` | `op=expand window=<missions\|logistics> key=<all\|none\|prefix:value> [state=]` | a window's own set-of-expanded-keys: group folders, chain blocks, mission vessel / leg / digest rows, logistics route / candidate / section rows |
 | `target` | `op=target window=structure mission=<name>` or `route=<name>` | opens the Structure window ON a target through its production opener, so it draws a populated Log instead of empty chrome |
 | `picker` | `op=picker window=missions group=<name>\|recording=<id\|first>`, or `window=logistics route=<name>` | the popups a ROW arms: "Set Parent Group", "Manage Groups", the Logistics round-trip link picker |
 | `dialog` | `op=dialog` | reports the live Parsek `PopupDialog` (`name title buttons`), which `DumpGuiTree` cannot see because a popup is uGUI |
+| `raise` | `op=raise popup=<one of seven>` | calls ONE dialog's own production spawn site and STOPS, so the modal STANDS to be reported and photographed. The closed set is `actionblocked`, `savefailed`, `wiperecordings`, `wipemilestones`, `rewind`, `fastforward`, `seal` - every row whose spawn is reachable by a pure in-process call with data the host already carries. A raise while any Parsek popup stands is `REJECTED dialog-already-open` |
+| `dismiss` | `op=dismiss popup=<same> [press=<OK\|Cancel>]` | takes it down. NO `press=` is the DEFAULT and means `PopupDialog.DismissPopup`, because most of these confirms mutate the save; the seam REFUSES every mutating confirm (`press-not-allowed`), so the only pressable labels across the whole table are the informational `OK` and the confirms' `Cancel` |
 
 FOUR AUTHORING RULES that cost a flight if missed:
 
@@ -396,7 +434,8 @@ FOUR AUTHORING RULES that cost a flight if missed:
   machine-wide; there is no way to hover without doing that. It logs an Info line on every
   move for exactly this reason, so a run whose captures look wrong can be read back against
   "someone was using the mouse". Park the pointer (`op=pointer park=true`) before any
-  capture that must NOT show a hover.
+  capture that must NOT show a hover. A lane adding `focus=true` says THAT too: it steals
+  the operator's foreground mid-run, which the same Info line records.
 - **`op=rect` now CLAMPS to the window's own minimum** and reports `clamped= minW= minH=`.
   Command the floor outright rather than a number below it: `missions` is 1355 and
   `logistics` 1410, both wider than the 1280 px `stock-minimal` profile, so those two
@@ -413,11 +452,25 @@ FOUR AUTHORING RULES that cost a flight if missed:
   Both first-wave lanes proved it: each read INVALID on ONE step and both kept every picture.
   A lane whose header names a question should put that question after its pictures.
 
-THE DIALOG SEQUENCE DOES NOT WORK YET, and this paragraph used to say it did. The shape is
-right - `UiAction op=dialog` (assert what is up) -> `CaptureScreenshot` (the picture) ->
-`AnswerMergeDialog choice=... [dialog=merge]` (dismiss it), with nothing in between that
-dismisses a popup - but it has no first step. MEASURED while authoring wave 2, against the
-source rather than by trying it:
+THE DIALOG SEQUENCE NOW HAS A FIRST STEP, which is what `op=raise` / `op=dismiss` added.
+The census shape is `UiAction op=raise popup=<name>` (put the modal up and leave it) ->
+`UiAction op=dialog` (assert what is up: name, title, ordered buttons) ->
+`CaptureScreenshot label=<...>` (the picture) -> `DumpGuiTree label=<...>` (the same label,
+so the two read as a pair) -> `UiAction op=dismiss popup=<name>` (take it down, unpressed
+unless the button is one of the two harmless labels). Nothing in between dismisses a popup,
+which is what makes the middle three steps safe.
+
+THE DUMP IS NOT THE EVIDENCE HERE, THE PNG IS, and that is structural rather than a
+shortcoming of any lane: every Parsek modal is a stock `PopupDialog`, which is uGUI, and
+`GuiTreeRecorder` patches `GUI.DoWindow` - the IMGUI funnel - so a dialog CANNOT appear in a
+`.gui.json` at all. The dump beside each capture describes the IMGUI windows BEHIND the
+modal, which is worth having (it pins what the frame contained) and says nothing about the
+dialog. The machine-readable half of the dialog is the `op=dialog` step and the raise's own
+response.
+
+WHAT USED TO BLOCK IT, kept because the three refusals are wedge guards that should not
+change and a future author will otherwise try them again. MEASURED while authoring wave 2,
+against the source rather than by trying it:
 
 - `ExitToSpaceCenter` REFUSES `REJECTED dialog-required variant=<RegularMerge|ReFlyAttempt|
   SwitchSegmentSession>` rather than driving an exit into a modal. That refusal is the wedge
@@ -431,14 +484,22 @@ source rather than by trying it:
 - `SimulateStockSwitchClick` turns all THREE pre-switch dialog cases into typed REJECTEDs,
   for the same wedge reason.
 
-So all 21 Parsek modals remain unphotographed and `op=dialog`'s honest use on a census today
-is the NEGATIVE assertion - `uiaction dialog open=false count=0`, which every wave-2 lane
-pins, because a modal nobody expected would sit over every capture after it. The two
-prerequisites are unchanged from `docs/dev/design-gui-inventory.md` section 6.2: a
-surface-only `AnswerMergeDialog` mode that FINDS its popup without invoking a button, and a
-raise path that does not need a live Re-Fly marker. When they exist, the sequence above is
-the one to write. The tree merge dialog holds `ControlTypes.All` while it stands, so answer
-it before any verb that needs input.
+None of those three is the door `op=raise` uses: it calls a dialog's OWN spawn site, which
+is a pure in-process method whose whole body is the `SpawnPopupDialog` call plus its button
+lambdas. That reaches seven of the 21, and `GUI-10` will photograph six of them. The other
+fourteen stay FILED with their reason in `docs/dev/todo-and-known-bugs.md` rather than being
+raised over synthetic state - the tree merge dialog would need a synthetic `RecordingTree`
+whose commit writes invented history, the pre-switch dialog needs a live `Vessel` and
+re-spawns itself on any non-button teardown, the ghost icon menu lives inside a Harmony
+Prefix, the Tracking Station popup's scene runs no `ParsekUI`, and the rest need a live
+RewindPoint, session marker, `Route` or group closure.
+
+`op=dialog`'s NEGATIVE assertion is still worth pinning on every other census lane -
+`uiaction dialog open=false count=0`, which all six wave-2 lanes carry - because a modal
+nobody expected would sit over every capture after it. The tree merge dialog holds
+`ControlTypes.All` while it stands, so answer it before any verb that needs input; the
+`seal` row is the one raisable dialog with the same property, and `op=dismiss` releases that
+lock explicitly when it dismisses without pressing.
 
 Read the seam's own lines before reading the layout: every dump step pins
 `patched=17/17`, so a lane that goes red there is telling you a UnityEngine IMGUI funnel

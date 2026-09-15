@@ -2078,7 +2078,14 @@ UIACTION_OP_VALUES: Tuple[str, ...] = (
     # writer every tick-box affordance routes through. It names NO window (the flag
     # lives on the Recording, and the surfaces it gates are drawn by three hosts, none
     # of which owns it), so it is absent from UIACTION_OPS_NEEDING_WINDOW below.
-    "playback")
+    "playback",
+    # GUI-10: the two ops that finally put a modal on screen. `raise` calls ONE dialog's
+    # own production spawn site and LEAVES IT STANDING, so `op=dialog` can report it and
+    # CaptureScreenshot can photograph it; `dismiss` takes it down, by DismissPopup (the
+    # default, because most of those confirms mutate the save) or by pressing one allowed
+    # button. Both name a `popup=` and NO window - a PopupDialog is uGUI, which no
+    # window-table row can name - so both are absent from UIACTION_OPS_NEEDING_WINDOW.
+    "raise", "dismiss")
 UIACTION_WINDOW_KEY = "window"
 UIACTION_WINDOW_VALUES: Tuple[str, ...] = (
     "main", "missions", "timeline", "kerbals", "career", "logistics", "structure",
@@ -2119,6 +2126,28 @@ UIACTION_RECORDING_KEY = "recording"
 UIACTION_PARK_KEY = "park"
 UIACTION_PARK_VALUES: Tuple[str, ...] = ("true", "false")
 
+# `op=pointer`'s two OPT-IN reach-further flags, both defaulting to false so every lane
+# written before them is byte-identical.
+#
+# WHY THEY EXIST. GUI-CENSUS-POINTER-LANDS-BUT-HOVER-DOES-NOT-PAINT: on three lanes and
+# four captures the cursor landed within 1 px of the resolved control and IMGUI painted
+# no hover, no GUI.tooltip and no disabled-hover echo - the hover dumps hashed IDENTICAL
+# to their un-hovered siblings. `focus=true` brings the game window to the foreground
+# before the move (so it owns the input queue when the move lands); `nudge=true` sends
+# one relative SendInput (+1,0)/(-1,0) pair after it, so the window receives a real
+# WM_MOUSEMOVE rather than only a new cursor position. The second is the discriminator:
+# SetCursorPos WARPS the cursor, and Unity's per-frame position sample follows a warp
+# while the window's mouse EVENT stream does not.
+#
+# WHY NEITHER IS A DEFAULT. `op=pointer` is already the only op that reaches outside the
+# process; the first STEALS the operator's foreground and the second synthesises input at
+# the system level. A lane asks for them explicitly and the answer reports what they did
+# (`focus=`, `nudge=`, `fgOutcome=`, `fg=`, `tooltip=` on the pointer payload).
+UIACTION_FOCUS_KEY = "focus"
+UIACTION_FOCUS_VALUES: Tuple[str, ...] = ("true", "false")
+UIACTION_NUDGE_KEY = "nudge"
+UIACTION_NUDGE_VALUES: Tuple[str, ...] = ("true", "false")
+
 # `op=expand key=` prefixes, per window, mirroring TestCommandUiState. A window absent
 # from this map keeps no expansion state the seam can drive, and `op=expand` against it
 # is the `expand-unsupported-window` REJECTED - so the absence is meaningful here too.
@@ -2154,6 +2183,51 @@ UIACTION_PICKER_ARGS: Dict[str, Tuple[str, ...]] = {
 ANSWERMERGE_DIALOG_KEY = "dialog"
 ANSWERMERGE_DIALOG_VALUES: Tuple[str, ...] = ("merge",)
 
+# `UiAction op=raise` / `op=dismiss`: WHICH Parsek modal, mirroring
+# TestCommandUiDialogRaise's table (TestCommands/TestCommandUiDialogRaise.cs).
+#
+# SPELLED `popup` AND NOT `dialog`, for the same reason `op=find`'s filter is `ctrl` and
+# not `kind`: VERB_SCOPED_CLOSED_ARGS admits exactly ONE owner verb per arg key, and
+# `dialog=` is already AnswerMergeDialog's - so a `dialog=` here would be rejected
+# pre-launch as "only the AnswerMergeDialog verb reads it".
+#
+# THE SET IS SEVEN OF THE 21, and the absences are the design rather than a backlog: a
+# row is here only when its spawn is reachable by a pure in-process call with data the
+# host already carries. The tree merge dialog needs a RecordingTree whose commit would
+# write invented history; the pre-switch dialog needs a live Vessel and RE-SPAWNS ITSELF
+# on non-button teardown; the ghost icon menu is spawned inside a Harmony Prefix over a
+# live ghost in map view; the Tracking Station popup's host scene runs no ParsekUI at
+# all; Re-Fly invoke / revert need a RewindPoint and a live session marker; the three
+# Logistics confirms and Disband Group need a live Route / RouteCandidate / group
+# closure. All of those stay FILED with their reason.
+UIACTION_POPUP_KEY = "popup"
+UIACTION_POPUP_VALUES: Tuple[str, ...] = (
+    # The two that need nothing at all from the host, and the only two with no mutating
+    # button: both are informational and carry a single OK.
+    "actionblocked", "savefailed",
+    # The two Settings wipe confirmations: a count and ParsekUI.ActiveInstance.
+    "wiperecordings", "wipemilestones",
+    # The three that need a committed recording from the effective set. `rewind`
+    # additionally needs one whose rewind OWNER resolves, which its spawn site silently
+    # returns on - the seam answers REJECTED dialog-target-unavailable instead.
+    "rewind", "fastforward", "seal")
+
+# `op=dismiss press=`: press one button instead of dismissing the popup outright.
+#
+# ABSENT IS THE DEFAULT AND MEANS "dismiss without pressing", because most of these
+# confirms MUTATE the save - a wipe deletes every recording, a seal is permanent, a warp
+# moves UT - so a census lane that pressed them would destroy the fixture it is
+# photographing. The seam refuses every mutating confirm (`press-not-allowed`), which is
+# why this closed set is exactly the two harmless labels.
+#
+# Both happen to be single words, and that is NOT load-bearing - an earlier version of this
+# comment said it was. The wire percent-encodes the space, % and = alike (TestCommandProtocol
+# on the C# side, the identical byte test in run.py's encoder), so a future row whose safe
+# button reads "No, cancel" needs no encoder work. The set is closed only because it is small
+# and fixed, which is what lets a typo'd press= fail pre-launch instead of after a KSP boot.
+UIACTION_PRESS_KEY = "press"
+UIACTION_PRESS_VALUES: Tuple[str, ...] = ("OK", "Cancel")
+
 # Per-window tab vocabularies. A window absent from this map has NO tab selector, and
 # `op=tab` against it is the seam's `window-has-no-tabs` REJECTED - which is why the
 # absence is meaningful here and not just missing data. Settings is the one that looks
@@ -2173,9 +2247,10 @@ UIACTION_WINDOW_TABS: Dict[str, Tuple[str, ...]] = {
 # Without it an op added on one side alone validates as legal here and is REJECTED by
 # the seam after a whole KSP boot.
 #
-# `pointer` and `dialog` are absent BY CONSTRUCTION, not by omission: the pointer moves
-# in screen space with no window in its grammar, and the dialog report is about a uGUI
-# popup no window-table row can name.
+# `pointer`, `dialog`, `raise` and `dismiss` are absent BY CONSTRUCTION, not by
+# omission: the pointer moves in screen space with no window in its grammar, and the
+# other three are about uGUI PopupDialogs, which no window-table row can name - those
+# three take `popup=` instead (UIACTION_POPUP_KEY).
 UIACTION_OPS_NEEDING_WINDOW: Tuple[str, ...] = (
     "open", "close", "tab", "rect", "find", "expand", "target", "picker")
 
@@ -2584,10 +2659,37 @@ def validate_ui_action_step(index: int, step_args: Dict) -> List[str]:
                     "driver.steps[%d].args.%s: %r must be a dot-decimal number; the "
                     "seam parses it with InvariantCulture and REJECTS anything else"
                     % (index, key, str(raw)))
-    elif UIACTION_PARK_KEY in step_args:
-        errors.append(
-            "driver.steps[%d].args.%s: only op=pointer reads it, but this step is op=%s "
-            "-- the arg would be silently ignored" % (index, UIACTION_PARK_KEY, op))
+    if op != "pointer":
+        for stray_key in (UIACTION_PARK_KEY, UIACTION_FOCUS_KEY, UIACTION_NUDGE_KEY):
+            if stray_key in step_args:
+                errors.append(
+                    "driver.steps[%d].args.%s: only op=pointer reads it, but this step "
+                    "is op=%s -- the arg would be silently ignored"
+                    % (index, stray_key, op))
+
+    if op in ("raise", "dismiss"):
+        # popup= is REQUIRED on both: there is no default modal, and guessing one would
+        # photograph a dialog the lane never asked for (the op= rule).
+        if step_args.get(UIACTION_POPUP_KEY) is None:
+            errors.append(
+                "driver.steps[%d].args.%s: op=%s REQUIRES it (one of %s); the seam "
+                "answers REJECTED popup-arg-missing"
+                % (index, UIACTION_POPUP_KEY, op, ",".join(UIACTION_POPUP_VALUES)))
+        if op == "raise" and step_args.get(UIACTION_PRESS_KEY) is not None:
+            # A raise that pressed would take its own dialog down before the capture -
+            # the exact defect that made AnswerMergeDialog unusable for the census (it
+            # raises AND presses inside one completion pass).
+            errors.append(
+                "driver.steps[%d].args.%s: only op=dismiss reads it. A raise that "
+                "pressed would dismiss the modal it exists to leave standing"
+                % (index, UIACTION_PRESS_KEY))
+    else:
+        for stray_key in (UIACTION_POPUP_KEY, UIACTION_PRESS_KEY):
+            if stray_key in step_args:
+                errors.append(
+                    "driver.steps[%d].args.%s: only op=raise and op=dismiss read it, but "
+                    "this step is op=%s -- the arg would be silently ignored"
+                    % (index, stray_key, op))
 
     if op == "rect":
         missing = [k for k in UIACTION_RECT_KEYS if step_args.get(k) is None]
@@ -2638,6 +2740,10 @@ VERB_SCOPED_CLOSED_ARGS: Dict[str, Tuple[str, Tuple[str, ...]]] = {
     UIACTION_CTRL_KEY: ("UiAction", UIACTION_CTRL_VALUES),
     UIACTION_STATE_KEY: ("UiAction", UIACTION_STATE_VALUES),
     UIACTION_PARK_KEY: ("UiAction", UIACTION_PARK_VALUES),
+    UIACTION_FOCUS_KEY: ("UiAction", UIACTION_FOCUS_VALUES),
+    UIACTION_NUDGE_KEY: ("UiAction", UIACTION_NUDGE_VALUES),
+    UIACTION_POPUP_KEY: ("UiAction", UIACTION_POPUP_VALUES),
+    UIACTION_PRESS_KEY: ("UiAction", UIACTION_PRESS_VALUES),
     ANSWERMERGE_DIALOG_KEY: ("AnswerMergeDialog", ANSWERMERGE_DIALOG_VALUES),
 }
 
@@ -4657,8 +4763,9 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
                     % (i, BATCH_ISOLATED_KEY, raw,
                        " or ".join(repr(v) for v in BATCH_ISOLATED_VALUES),
                        BATCH_ISOLATED_KEY))
-        # Verb-scoped closed-value args, one row each in VERB_SCOPED_CLOSED_ARGS (eight
-        # as of 2026-09-10; the list is here for orientation, the TABLE is the authority):
+        # Verb-scoped closed-value args, one row each in VERB_SCOPED_CLOSED_ARGS
+        # (sixteen as of 2026-09-15, counted off the table rather than incremented; the
+        # list is here for orientation, the TABLE is the authority):
         #   LoadGame                   scene=              (R12)
         #   LoadGame                   allowLiveRecorder=  (RF-3/A1)
         #   SimulateStockSwitchClick   site=
@@ -4670,6 +4777,10 @@ def validate_spec(spec: Dict, registry: Dict, bug_ids: Optional[Sequence[str]] =
         #   UiAction                   ctrl=               (GUI census ops: op=find)
         #   UiAction                   state=              (GUI census ops: op=expand)
         #   UiAction                   park=               (GUI census ops: op=pointer)
+        #   UiAction                   focus=              (GUI-10: op=pointer)
+        #   UiAction                   nudge=              (GUI-10: op=pointer)
+        #   UiAction                   popup=              (GUI-10: op=raise / op=dismiss)
+        #   UiAction                   press=              (GUI-10: op=dismiss)
         #   AnswerMergeDialog          dialog=             (GUI census ops)
         # Same three failures the isolated guard above catches -- a case-variant KEY, the
         # arg on a verb that does not read it, and a value outside the closed set --

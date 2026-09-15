@@ -126,7 +126,13 @@ namespace Parsek.Tests
                                               // playback reads a field on the Recording,
                                               // which no window host owns - a hidden
                                               // surface cannot fake it.
-                                              UiActionOp.Playback })
+                                              UiActionOp.Playback,
+                                              // raise / dismiss read the live PopupDialog
+                                              // set, which is uGUI and drawn OUTSIDE both
+                                              // hosts' showUI gate entirely: a modal stands
+                                              // over a hidden Parsek surface exactly as it
+                                              // stands over a visible one.
+                                              UiActionOp.Raise, UiActionOp.Dismiss })
             {
                 Assert.False(TestCommandUiAction.SettleChecksHostShowUi(op));
             }
@@ -265,6 +271,134 @@ namespace Parsek.Tests
             Assert.Equal("648", Value(p, "sx"));
             Assert.Equal("391", Value(p, "sy"));
             Assert.Equal("active", Value(p, "via"));
+            // The five flag keys are present on EVERY answer (the describe rule), and the
+            // legacy six-arg overload reports them as "nothing was asked for".
+            Assert.Equal("false", Value(p, "focus"));
+            Assert.Equal("false", Value(p, "nudge"));
+            Assert.Equal("not-requested", Value(p, "fgOutcome"));
+            Assert.Equal("false", Value(p, "fg"));
+            Assert.Equal("-", Value(p, "tooltip"));
+        }
+
+        [Fact]
+        public void PointerPayload_ReportsWhatTheTwoOptInFlagsDid()
+        {
+            var p = TestCommandUiPointer.BuildPayload(
+                observedX: 133f, observedGuiY: 196f, park: false,
+                screenX: 773, screenY: 567, via: "active",
+                focusRequested: true, nudgeApplied: true,
+                focus: UiPointerFocusOutcome.Already, foregroundIsGame: true,
+                tooltip: "Recorded flights, grouped by mission.");
+            Assert.Equal("true", Value(p, "focus"));
+            Assert.Equal("true", Value(p, "nudge"));
+            Assert.Equal("already", Value(p, "fgOutcome"));
+            Assert.Equal("true", Value(p, "fg"));
+            Assert.Equal("Recorded flights, grouped by mission.", Value(p, "tooltip"));
+            // `via` stays where it was: the wave-2 census lanes' log contracts pin
+            // `uiaction pointer at=... park=... via=` and stop there, so every new key has
+            // to be APPENDED after it or those regexes break.
+            var keys = new List<string>();
+            foreach (KeyValuePair<string, string> kv in p) keys.Add(kv.Key);
+            Assert.True(keys.IndexOf("via") < keys.IndexOf("focus"));
+            Assert.True(keys.IndexOf("via") < keys.IndexOf("tooltip"));
+        }
+
+        [Theory]
+        [InlineData(0, "not-requested")]
+        [InlineData(1, "already")]
+        [InlineData(2, "direct")]
+        [InlineData(3, "attached")]
+        [InlineData(4, "refused")]
+        [InlineData(5, "no-window")]
+        public void PointerFocusOutcome_TokensAreClosedAndStable(int outcome, string token)
+        {
+            Assert.Equal(token,
+                TestCommandUiPointer.FocusOutcomeToken((UiPointerFocusOutcome)outcome));
+        }
+
+        [Fact]
+        public void PointerFocus_ClassifiesTheLadderRungThatAnswered()
+        {
+            // Not requested wins over everything, because nothing was called.
+            Assert.Equal(UiPointerFocusOutcome.NotRequested,
+                TestCommandUiPointer.ClassifyFocus(false, true, true, true, true));
+            // No handle: the assumed-origin fallback rung cannot ask for a foreground.
+            Assert.Equal(UiPointerFocusOutcome.NoWindow,
+                TestCommandUiPointer.ClassifyFocus(true, false, false, false, false));
+            // Already foreground is reported AS SUCH rather than as `direct`, and that
+            // distinction is the whole measurement: an unpainted hover after an `already`
+            // is not a foreground problem.
+            Assert.Equal(UiPointerFocusOutcome.Already,
+                TestCommandUiPointer.ClassifyFocus(true, true, true, false, false));
+            Assert.Equal(UiPointerFocusOutcome.Direct,
+                TestCommandUiPointer.ClassifyFocus(true, true, false, true, false));
+            Assert.Equal(UiPointerFocusOutcome.Attached,
+                TestCommandUiPointer.ClassifyFocus(true, true, false, false, true));
+            // Both rungs refused. NOT an error: the move and the read-back are still the
+            // verdict, and this reading is what the census wanted.
+            Assert.Equal(UiPointerFocusOutcome.Refused,
+                TestCommandUiPointer.ClassifyFocus(true, true, false, false, false));
+        }
+
+        [Theory]
+        [InlineData("true", true)]
+        [InlineData("false", false)]
+        [InlineData(null, false)]
+        public void PointerFlags_AbsentIsFalse_AndBothValuesParse(string raw, bool expected)
+        {
+            Assert.True(TestCommandUiPointer.TryParseFlag(raw, out bool value));
+            Assert.Equal(expected, value);
+        }
+
+        [Theory]
+        [InlineData("True")]
+        [InlineData("1")]
+        [InlineData("yes")]
+        [InlineData("")]
+        public void PointerFlags_AreCaseSensitiveAndClosed(string raw)
+        {
+            Assert.False(TestCommandUiPointer.TryParseFlag(raw, out _));
+        }
+
+        [Fact]
+        public void PointerFlags_AreOrthogonalToTheParkAndCoordinateShapes()
+        {
+            // park=true focus=true is legitimate: take the window foreground, then put the
+            // cursor where it hovers nothing.
+            Assert.True(TestCommandUiPointer.TryParseRequest(
+                null, null, "true", "true", null, out UiPointerRequest parked, out _));
+            Assert.True(parked.Park);
+            Assert.True(parked.Focus);
+            Assert.False(parked.Nudge);
+
+            // focus=true nudge=true on a coordinate move is the pair the census flies.
+            Assert.True(TestCommandUiPointer.TryParseRequest(
+                "133", "196", null, "true", "true", out UiPointerRequest moved, out _));
+            Assert.False(moved.Park);
+            Assert.Equal(133f, moved.X);
+            Assert.Equal(196f, moved.Y);
+            Assert.True(moved.Focus);
+            Assert.True(moved.Nudge);
+
+            // A flag cannot make an otherwise-invalid shape valid.
+            Assert.False(TestCommandUiPointer.TryParseRequest(
+                "133", null, null, "true", "true", out _, out string missing));
+            Assert.Equal(TestCommandUiPointer.ArgMissingReason, missing);
+            // And an invalid flag is reported as such rather than masked by the shape.
+            Assert.False(TestCommandUiPointer.TryParseRequest(
+                "133", "196", null, "1", null, out _, out string invalid));
+            Assert.Equal(TestCommandUiPointer.ArgInvalidReason, invalid);
+        }
+
+        [Fact]
+        public void PointerFlags_DefaultFalse_SoEveryExistingLaneIsByteIdentical()
+        {
+            // The three-arg overload is what every spec written before the flags existed
+            // reaches, and it must keep meaning exactly what it did.
+            Assert.True(TestCommandUiPointer.TryParseRequest(
+                "10", "20", null, out UiPointerRequest r, out _));
+            Assert.False(r.Focus);
+            Assert.False(r.Nudge);
         }
 
         [Fact]
@@ -273,7 +407,9 @@ namespace Parsek.Tests
             // hlib.HANDLE_REF_RE captures ${step.<field>} only for [A-Za-z0-9_]+, so a key
             // with a dash or a dot would be silently unreachable from a spec - which is the
             // whole point of these keys.
-            var p = TestCommandUiPointer.BuildPayload(0f, 0f, true, 0, 0, "active");
+            var p = TestCommandUiPointer.BuildPayload(
+                0f, 0f, true, 0, 0, "active", true, true,
+                UiPointerFocusOutcome.Attached, true, "a tooltip");
             foreach (KeyValuePair<string, string> kv in p)
                 Assert.Matches("^[A-Za-z0-9_]+$", kv.Key);
         }
