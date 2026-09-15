@@ -554,6 +554,22 @@ C-ledger-career-014-02, C-ledger-career-015-02, C-ledger-career-021-01, C-ledger
 C-ledger-career-031-01, C-legacy-bugfix-016-01, C-logistics-route-014-01,
 C-recording-tree-021-02, C-recording-tree-051-02. Their `status` in the CSV is now `done`.
 
+**Phase B status, fifth PR (2026-09-15).** Twelve more priority-2 career / recording rows,
+all `direct`: nine are new coverage, two are `already-covered` under the cross-class rule
+(C-rewind-refly-016-01 reds `TombstoneEligibilityTests.RepPenalty_PairedWithDeathAtExactUTBoundary_Eligible`,
+C-ledger-career-003-02 reds `LedgerOrchestratorTests.CreateVesselCostActions_PairedRecoveryEventPreferredOverPointDelta`),
+so no duplicate cell was written for either, and one is `deferred` as obsolete
+(C-rewind-refly-017-01: commit 5d7568c88, the audit day, retired
+`RewindReadbackGuard.AbortRewindPatchOnDivergence`, so the abort OR-gate has no production
+operand left to delete). C-ledger-career-004-02's named single-conjunct mutant proved
+EQUIVALENT - `AdjustStartUtForChainGap` re-derives the gap key from `rec.ChainIndex - 1`
+while the map is keyed by `predecessor.ChainIndex`, so a mismatched predecessor misses the
+lookup anyway - and its cell is proved against the refactor-shaped mutant that also unifies
+the two key sources. The nine landed cells are mutation-proved with no production change:
+C-rewind-refly-006-01, C-rewind-refly-016-02, C-ledger-career-004-02, C-ledger-career-013-01,
+C-ledger-career-018-01, C-ledger-career-027-01, C-ledger-career-034-01, C-catchall-021-01,
+C-ledger-career-036-01. Their `status` in the CSV is now `done`.
+
 Sixteen of the twenty are `direct` and `S` or `M` effort. Numbers 12 and 20 pair with High and
 Medium findings respectively (F-recorder-events-024-01 and F-recording-tree-039-01), which is the
 expected shape: where a test cannot fail, the guard also has no coverage.

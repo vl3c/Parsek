@@ -364,6 +364,44 @@ _(unreleased — entries accumulate here per commit)_
   the ledger cutoff tests own that contract, and its one unique assertion survives as
   its own cell. Nothing a player sees changes.
 
+- **Tests: a third twelve priority-2 career and recording coverage gaps from the
+  unit-test quality audit are closed.** Nine rows were new coverage, two turned out to be
+  guarded already, and one is obsolete, so nine new cells landed. On the career ledger: the
+  career-start funds seed is driven with TWO baselines inside the one-second career-start
+  window (the real save shape after a rewind, added latest-first) and proved to take the
+  earliest one, so a first-wins or last-wins slip that would seed the wrong opening balance
+  now reds; the strategy science CREDIT leg gets the mirror of its covered debit cell in the
+  merge-tombstone matrix, so the credit falling through to the preserve-unknown default (and
+  surviving a re-fly merge for a flight the merge deleted) is caught; a corrupted route
+  manifest is read back with three differently malformed entries beside one valid line and
+  proved to warn-and-skip each bad entry without losing the good one, which is the whole
+  difference between a slightly short ledger and a silently dropped cargo manifest; one
+  headless `PatchAll` call is pinned as a witness for all seven patcher delegations through
+  their distinct null-singleton skip lines, so dropping one (the milestones call, which no
+  other cell observed) reds; re-accepting a contract id that is still active is proved to put
+  the LATEST accept's deadline and penalty on the books, so the synthetic expiry cannot fire
+  early for a stale penalty; and a chain segment whose recorded parent is not its immediate
+  predecessor is proved to keep its commit window at its own start rather than widening back
+  to a stranger's end. Off the ledger: a terminal re-stamp on a ghost-only stable chain tip
+  is proved to KEEP its crew end states when the admission predicate declines, since
+  re-inferring there turns Aboard into Dead and reserves a live kerbal forever; a parallel
+  branch-1 EVA sibling is proved not to strip its kerbal from the branch-0 vessel spawn; and
+  the launch-guid backstop is pinned in both directions - an empty source never blanks the
+  field and a captured guid is never overwritten. The two already-covered rows are the
+  source-agnostic rep-penalty timing window (its mutant reds
+  `TombstoneEligibilityTests.RepPenalty_PairedWithDeathAtExactUTBoundary_Eligible`) and the
+  recovery point-delta fallback (its mutant reds
+  `LedgerOrchestratorTests.CreateVesselCostActions_PairedRecoveryEventPreferredOverPointDelta`);
+  both were found by running the mutant against every class that reaches the method, and the
+  duplicate cells were dropped. The obsolete row is the rewind read-back guard's production
+  abort opt-in, retired in the same-day commit that made the guard warn-and-proceed only, so
+  there is no operand left to mutate. One row's named mutant turned out to be equivalent -
+  the chain-gap lookup key is re-derived downstream, so the conjunct is doubly enforced - and
+  its cell is proved against the refactor-shaped mutant that unifies the two key sources
+  instead. Each landed cell carries a mutation proof under
+  `docs/dev/research/test-quality-audit-2026-09-14/mutations/`. No production change, no
+  player-visible change.
+
 - **Tests: a second twelve priority-2 career-risk coverage gaps from the unit-test
   quality audit are closed.** Ten rows were new coverage and two turned out to be guarded
   already, so ten new cells landed and two rows closed as already covered. On the career

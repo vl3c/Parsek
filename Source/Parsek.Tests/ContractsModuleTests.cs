@@ -1003,5 +1003,46 @@ namespace Parsek.Tests
                 l.Contains("[Contracts]") && l.Contains("PrePass") &&
                 l.Contains("injected 2"));
         }
+
+        // Re-accepting a contract id that is still active OVERWRITES the tracked accept:
+        // the second accept is the one whose deadline and penalties are on the books, so
+        // the synthetic expiry PrePass injects must carry the LATEST accept's values.
+        // Accept_Duplicate_LogsWarning reads only the warn line; ignoring the duplicate
+        // (keeping the first accept) would fail the contract early, at the stale deadline,
+        // for the stale penalty.
+        [Fact]
+        public void PrePass_DuplicateActiveAccept_TracksTheLatestAccept()
+        {
+            var first = new GameAction
+            {
+                Type = GameActionType.ContractAccept,
+                UT = 100,
+                ContractId = "c1",
+                DeadlineUT = 500.0,
+                FundsPenalty = 100f
+            };
+            var second = new GameAction
+            {
+                Type = GameActionType.ContractAccept,
+                UT = 200,
+                ContractId = "c1",
+                DeadlineUT = 900.0,
+                FundsPenalty = 700f
+            };
+            var actions = new List<GameAction>
+            {
+                first,
+                second,
+                new GameAction { Type = GameActionType.FundsEarning, UT = 1000 }
+            };
+
+            module.PrePass(actions);
+
+            var injected = actions[actions.Count - 1];
+            Assert.Equal(GameActionType.ContractFail, injected.Type);
+            Assert.Equal("c1", injected.ContractId);
+            Assert.Equal(900.0, injected.UT);
+            Assert.Equal(700f, injected.FundsPenalty);
+        }
     }
 }

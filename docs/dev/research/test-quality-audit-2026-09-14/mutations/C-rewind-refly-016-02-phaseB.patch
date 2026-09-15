@@ -1,0 +1,12 @@
+diff --git a/Source/Parsek/GameActions/TombstoneEligibility.cs b/Source/Parsek/GameActions/TombstoneEligibility.cs
+index f7bcefd0e..21e1370a3 100644
+--- a/Source/Parsek/GameActions/TombstoneEligibility.cs
++++ b/Source/Parsek/GameActions/TombstoneEligibility.cs
+@@ -75,7 +75,6 @@ namespace Parsek
+                 // KSC-path row (recordingId null) is untouched - this governs only a
+                 // flight-tagged capture.
+                 case GameActionType.StrategyScienceDebit:
+-                case GameActionType.StrategyScienceCredit:
+                 case GameActionType.FundsEarning:
+                 case GameActionType.MilestoneAchievement:
+                 case GameActionType.ContractAccept:
