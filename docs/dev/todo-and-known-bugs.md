@@ -7492,7 +7492,7 @@ Full contract: `docs/dev/design-map-ts-render-tracer.md` Appendix A,
 `Source/Parsek.Tests/GhostPartEventApplyLogTests.cs` (25 cells: grammar, tally,
 per-family outcome per drivable skip class, InvariantCulture under `de-DE`).
 
-## ~~GS6-DEPLOYABLE-NO-RESOLVED-VISUAL-solarPanels5~~: the recorder seeds a DeployableExtended for every OX-STAT panel, and the ghost can never render one, so four recorded events are skipped on every replay of any craft carrying them [MEASURED 2026-09-02 on `GS-6-part-event-applier-sweep` reading run `2026-09-02_1420` (PASS attempt 1). D7 GHOST-VISUAL OBSERVATION. FIXED 2026-09-15 by OPTION (a), the recorder stops seeding - operator decision]
+## ~~GS6-DEPLOYABLE-NO-RESOLVED-VISUAL-solarPanels5~~: the recorder seeds a DeployableExtended for every OX-STAT panel, and the ghost can never render one, so four recorded events are skipped on every replay of any craft carrying them [MEASURED 2026-09-02 on `GS-6-part-event-applier-sweep` reading run `2026-09-02_1420` (PASS attempt 1). D7 GHOST-VISUAL OBSERVATION. FIXED 2026-09-15 by OPTION (a), the recorder stops seeding - operator decision; LIVE-CONFIRMED the same day on GS-6 run `2026-09-15_1604` (PASS attempt 1) and PINNED in the spec]
 
 **FIX (2026-09-15), option (a) of the three below: the RECORDER stops emitting the
 event, at both ends that could produce it.** One predicate,
@@ -7538,6 +7538,31 @@ plus the whitespace boundary, which is deliberately NOT screened because the bui
 still try to sample it). The two batch-summary log lines
 (`deployable-no-pose-animation gate`) sit inside `Vessel`-walking methods and are proved by
 the flight, not by xUnit.
+
+LIVE-CONFIRMED on GS-6 run `2026-09-15_1604` (PASS attempt 1, 534 s), flown on head
+`7a6b4957d`. From the collected `KSP.log`:
+
+```
+BEFORE (runs _1420 / _1505 / _1524):
+  apply family=DeployableExtended surface=deployable rec=0 pid=1114565348 applied=0 skipped=4
+      reason=no-resolved-visual
+AFTER (_1604): that line is ABSENT - zero occurrences - and every deployable applier line reads
+  apply family=DeployableExtended  surface=deployable rec=0 pid=1170199082 applied=1 skipped=0 reason=applied
+  apply family=DeployableExtended  surface=deployable rec=0 pid=2225231708 applied=1 skipped=0 reason=applied
+  apply family=DeployableRetracted surface=deployable rec=0 pid=1170199082 applied=1 skipped=0 reason=applied
+  apply family=DeployableRetracted surface=deployable rec=0 pid=2225231708 applied=1 skipped=0 reason=applied
+plus both new gate lines:
+  [Recorder] Deployable seeding skipped 4 pose-animation-less module(s) (deployable-no-pose-animation gate)
+  [Recorder] Deployable poll skipped 4 pose-animation-less module(s) (deployable-no-pose-animation gate)
+```
+
+The seed count is 4, exactly the craft's four `solarPanels5`, and the poll line repeats
+under its rate limit (`suppressed=2984..2999`), which is the mirror doing its job every
+frame. pid 1114565348 survives in the log ONLY in ghost-build lines (part census, mesh
+clone, `break subtree 'suncatcher' resolved`) - so the panel is still built and still
+breakable, and only its dead event is gone. The `mediumDishAntenna` still deploys and
+retracts, and `telescopicLadderBay` (the ladder family, which has a real animation) is
+unaffected.
 
 THE ORIGINAL READING FOLLOWS, unchanged.
 
@@ -7795,7 +7820,7 @@ craft lifts every PART tail BYTE-FOR-BYTE out of a stock craft KSP itself wrote
 must be harvested from a live VAB session first. Same piece of work as the service-bay
 tail; they should be harvested in one session.
 
-## GS6-LIGHT-EVENTS-OUTNUMBER-THE-GHOSTS-LIGHT-INFOS: two of five light events per toggle land on parts the ghost has no `LightGhostInfo` for [MEASURED 2026-09-02 on run `2026-09-02_1524`. OBSERVATION, REPORT-ONLY - folded here rather than filed separately because it is the same builder question as the two above. LARGELY EXPLAINED 2026-09-15; one count does not close and is re-taken on the GS-6 re-flight]
+## GS6-LIGHT-EVENTS-OUTNUMBER-THE-GHOSTS-LIGHT-INFOS: two of five light events per toggle land on parts the ghost has no `LightGhostInfo` for [MEASURED 2026-09-02 on run `2026-09-02_1524`. OBSERVATION, REPORT-ONLY - folded here rather than filed separately because it is the same builder question as the two above. FULLY EXPLAINED 2026-09-15 on GS-6 run `2026-09-15_1604`, which enumerated the producers directly: FIVE distinct pids, no pid doubled. The pre-flight 'one pid contributed two events' reading written earlier that day is RETRACTED in the body - it came from a census taken against the STOCK cfgs, which miss the ModuleManager patch that gives the ladder bay its ModuleLight. No code change from this entry]
 
 **2026-09-15: THE FIFTH EVENT IS THE DOCKING PORT, and it was never counted.** The
 light-event PRODUCER set is not "parts with a lamp": it is exactly the two call sites of
@@ -7830,26 +7855,48 @@ second `no-family-state` skip.
 gate at `FlightRecorder.cs:2682` excludes it from the light family entirely. Correct, and
 worth writing down so the next reader does not count it as a fifth producer.
 
-THE ARITHMETIC CLOSES, and the fifth event does not need re-taking. Four producer pids
-against a tallied FIVE events means one pid contributed TWO events to that batch, and the
-applier's own two seams say WHICH:
+THE ARITHMETIC CLOSES, AND MY FIRST ANSWER TO IT WAS WRONG. Measured on the GS-6 run
+`2026-09-15_1604` (PASS attempt 1, 534 s), whose collected `KSP.log` enumerates the
+producers directly instead of leaving them to be inferred from a tally representative:
 
-  - `GhostPlaybackLogic.ClassifyUnityLightApply` (`GhostPlaybackLogic.cs:7675-7687`)
-    returns `Applied` as soon as the pid's `LightGhostInfo` holds ONE non-null `Light`.
-    There is no already-in-state check, so a SECOND event on the same pid scores `applied`
-    again rather than collapsing.
-  - `RecordLightPowerEvent` (`GhostPlaybackLogic.cs:2199-2214`) tallies each event exactly
-    once per surface (`tally.Record(...)` for `Light` and again for `ColorChanger`), so the
-    `applied=` / `skipped=` pair counts EVENTS, not pids.
+```
+Part event: LightOn/LightOff 'spotLight1'           pid=900500822    (ModuleLight branch)
+Part event: LightOn/LightOff 'spotLight1'           pid=900500959    (ModuleLight branch)
+Part event: LightOn/LightOff 'telescopicLadderBay'  pid=2225231708   (ModuleLight branch)
+ColorChanger state change: pid=57152010   animState=True/False 'mk1-3pod'
+ColorChanger state change: pid=2530776075 animState=True/False 'dockingPort2'
+```
 
-Only the two `spotLight1` pids carry a `LightGhostInfo` a light event can reach - the pod
-and the docking port have no Unity `Light`, and `telescopicLadderBay` pid 2225231708 has a
-cloned Unity `Light` but no producer module to fire one (its cfg declares only
-`RetractableLadder` and `ModuleCargoPart`). So `applied=3` over two eligible pids means the
-DOUBLED event is necessarily on one of the two spotLights, and `skipped=2` is the pod plus
-the docking port, one each. The shape that produces it is a LightOn / LightOff / LightOn run
-caught inside one `ApplyPartEvents` batch. Nothing is unaccounted for and nothing is a
-defect.
+FIVE DISTINCT PRODUCER PIDS, one event each per direction. No pid is doubled, and the
+"one pid contributed two events" reading written here on 2026-09-15 before the flight is
+RETRACTED.
+
+WHY THE CENSUS THAT PRODUCED IT MISSED ONE: it ran the two producer predicates over the
+craft's parts using the STOCK cfgs, and `telescopicLadderBay` has no ModuleLight in
+`Squad/Parts/Utility/ladderTelescopicBay/ladderTelescopicBay.cfg`. The INSTALL that flies
+adds one -
+`GameData/KSPCommunityFixes/MMPatches/StockTweaks/LadderToggleableLight.cfg` patches
+`@PART[telescopicLadderBay]` with `MODULE { name = ModuleLight lightName = Point light }`,
+and that file is present in the provisioned `automation/stock-minimal` instance. The
+lesson generalises past this entry: a part-module census for a HARNESS reading must be
+taken against the flown instance's GameData (ModuleManager patches included), never
+against the stock cfg alone.
+
+THE TWO SURFACES NOW ACCOUNT FOR THE SAME FIVE EVENTS, from the same log:
+
+```
+family=LightOn|LightOff surface=light        pid=57152010   applied=3 skipped=2 reason=no-info-for-part
+family=LightOn|LightOff surface=colorchanger pid=2225231708 applied=2 skipped=3 reason=no-info-for-part
+```
+
+3 + 2 = 5 and 2 + 3 = 5, and the split is exactly the part populations: the three
+ModuleLight parts APPLY on `surface=light` and skip on `surface=colorchanger`, the two
+Pattern-A colour changers do the reverse. The representative pid differs per surface
+because `GhostPartEventApplyLog`'s grammar names the FIRST pid that SKIPPED in the batch
+when there was any skip (the pod on the light surface, the ladder bay on the colour-changer
+surface), and `applied=` / `skipped=` count EVENTS - `tally.Record` is called once per
+event per surface and `CountsAsApplied` is true only for `Applied`. Nothing is
+unaccounted for and nothing here is a defect.
 
 NO CODE CHANGE from this entry.
 
@@ -7873,7 +7920,7 @@ its own surface is the one reporting `no-family-state` below. The reading is
 therefore consistent rather than alarming; it is recorded so the `skipped=2` is
 not mistaken for a lamp failing to render on a later run.
 
-## ~~GS6-GHOST-HAS-NO-COLORCHANGER-STATE~~: a ghost built from a craft whose pod carries a Pattern-A cabin light has no colour-changer state at all, so every LightOn/LightOff colour-changer apply is skipped `no-family-state` - and this is the SHOWCASE-COLORCHANGER-APPLY-UNOBSERVABLE answer [MEASURED 2026-09-02 on run `2026-09-02_1505`. D7 GHOST-VISUAL FINDING. ROOT CAUSE FOUND AND FIXED 2026-09-15; awaiting the GS-6 re-flight for the live confirmation]
+## ~~GS6-GHOST-HAS-NO-COLORCHANGER-STATE~~: a ghost built from a craft whose pod carries a Pattern-A cabin light has no colour-changer state at all, so every LightOn/LightOff colour-changer apply is skipped `no-family-state` - and this is the SHOWCASE-COLORCHANGER-APPLY-UNOBSERVABLE answer [MEASURED 2026-09-02 on run `2026-09-02_1505`. D7 GHOST-VISUAL FINDING. ROOT CAUSE FOUND AND FIXED 2026-09-15, LIVE-CONFIRMED the same day on GS-6 run `2026-09-15_1604` (PASS attempt 1) and PINNED in the spec]
 
 **ROOT CAUSE (2026-09-15), and it is a real product defect rather than a design
 question.** `GhostVisualBuilder.BuildColorChangerInfos` read its module config out of the
@@ -7954,6 +8001,39 @@ falling back to the prefab, the showcase-shape node winning over a DISAGREEING p
 regression pin that showcase ghost building did not move), no-colour-changer-either-side,
 two-instance order matching, and more-snapshot-nodes-than-prefab. The material clone below
 the resolver needs live renderers and stays flight-proved.
+
+LIVE-CONFIRMED on the same run `2026-09-15_1604`. `no-family-state` is GONE from the
+colour-changer surface (the only two occurrences left in the whole log are the
+converter-loop family, by design - see its own entry):
+
+```
+BEFORE (_1505 / _1524):
+  apply family=LightOn  surface=colorchanger rec=0 pid=57152010 applied=0 skipped=3..5
+      reason=no-family-state          (LightOff mirrors it)
+AFTER (_1604), both directions:
+  apply family=LightOn  surface=colorchanger rec=0 pid=2225231708 applied=2 skipped=3
+      reason=no-info-for-part
+  apply family=LightOff surface=colorchanger rec=0 pid=2225231708 applied=2 skipped=3
+      reason=no-info-for-part
+```
+
+`applied=2` is exactly the two Pattern-A parts the fix was aimed at, and the builder says
+so in its own new summary line, three parts resolved off the PREFAB config where the
+snapshot node carried nothing:
+
+```
+ColorChanger resolve 'mk1-3pod'     pid=57152010   : modules=1 built=1 noShaderProperty=0 unrecognisedPattern=0
+ColorChanger resolve 'dockingPort2' pid=2530776075 : modules=1 built=1 noShaderProperty=0 unrecognisedPattern=0
+ColorChanger resolve 'HeatShield2'  pid=2104924005 : modules=1 built=1 noShaderProperty=0 unrecognisedPattern=0
+```
+
+(the heat shield is Pattern B and is driven by ablation, not by light events - it is built
+now too, which it was not before). `skipped=3` is the three ModuleLight parts, which carry
+no colour changer and correctly report `no-info-for-part` on THIS surface; the
+representative pid 2225231708 is the ladder bay because the grammar names the first pid
+that SKIPPED. The reason class therefore moved from the strongest ("the ghost has no
+colour-changer dictionary at all") to the weakest and correct one ("this particular part
+has no entry"), which is precisely what the fix predicted.
 
 THE ORIGINAL READING FOLLOWS, unchanged.
 
