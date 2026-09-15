@@ -4082,5 +4082,107 @@ namespace Parsek.Tests
 
             Assert.NotEqual(before, Ledger.StateVersion);
         }
+
+        // Two baselines land inside the +/-1 s career-start window - the real save shape
+        // after a rewind, where the RewindPoint's own capture sits beside the career-start
+        // one. TryGetInitialResourceBaseline picks the EARLIEST of them, so the funds seed
+        // is the career's opening balance and not whatever the later capture read. A
+        // first-wins or last-wins regression seeds the wrong career-start funds, and every
+        // reconstruction after it is off by that difference.
+        [Fact]
+        public void TwoInitialBaselines_SelectsEarliestUtSeed()
+        {
+            // Added LATEST first, so a plain first-wins regression is distinguishable from
+            // the earliest-ut rule as well.
+            GameStateStore.AddBaseline(new GameStateBaseline
+            {
+                ut = 0.5,
+                funds = 99999.0,
+                science = 0.0,
+                reputation = 0f
+            });
+            GameStateStore.AddBaseline(new GameStateBaseline
+            {
+                ut = 0.0,
+                funds = 5000.0,
+                science = 0.0,
+                reputation = 0f
+            });
+
+            LedgerOrchestrator.RecalculateAndPatch();
+
+            GameAction seed = null;
+            for (int i = 0; i < Ledger.Actions.Count; i++)
+            {
+                if (Ledger.Actions[i].Type == GameActionType.FundsInitial)
+                {
+                    seed = Ledger.Actions[i];
+                    break;
+                }
+            }
+
+            Assert.NotNull(seed);
+            Assert.Equal(5000f, seed.InitialFunds);
+        }
+
+        // The predecessor-index conjunct: a chain-2 segment whose recorded parent sits at
+        // ChainIndex 0 is NOT its immediate predecessor, so the commit window must stay at
+        // the segment's own start rather than widening backward to a stranger's EndUT.
+        // Widening would sweep an untagged science capture belonging to the missing
+        // chain-1 segment into this segment's subset. Today the conjunct is belt and
+        // braces: AdjustStartUtForChainGap re-derives the lookup key from
+        // rec.ChainIndex - 1 while the map is keyed by predecessor.ChainIndex, so a
+        // mismatched predecessor also misses the lookup. This cell pins the OUTCOME, so
+        // a refactor that unifies the two key sources (and drops the conjunct with it)
+        // reds here instead of silently widening the window.
+        [Fact]
+        public void ResolveStandaloneCommitWindowStartUt_PredecessorIndexMismatch_LeavesSubsetAtOwnStart()
+        {
+            var parent = new Recording
+            {
+                RecordingId = "rec-0",
+                ChainId = "chain-A",
+                ChainIndex = 0,
+                ExplicitStartUT = 100.0,
+                ExplicitEndUT = 142.2
+            };
+            RecordingStore.AddCommittedInternal(parent);
+
+            var child = new Recording
+            {
+                RecordingId = "rec-1",
+                ChainId = "chain-A",
+                ChainIndex = 2,          // not parent.ChainIndex + 1
+                ParentRecordingId = "rec-0",
+                ExplicitStartUT = 142.9,
+                ExplicitEndUT = 200.0
+            };
+            var pending = new List<PendingScienceSubject>
+            {
+                new PendingScienceSubject
+                {
+                    subjectId = "gap@subject",
+                    science = 2.5f,
+                    captureUT = 142.4
+                },
+                new PendingScienceSubject
+                {
+                    subjectId = "inside@subject",
+                    science = 1.0f,
+                    captureUT = 150.0
+                }
+            };
+
+            double startUT = LedgerOrchestrator.ResolveStandaloneCommitWindowStartUt(child, child.StartUT);
+            var subset = LedgerOrchestrator.BuildPendingScienceSubsetForRecording(
+                pending,
+                child.RecordingId,
+                startUT,
+                child.EndUT);
+
+            Assert.Equal(142.9, startUT);
+            Assert.Single(subset);
+            Assert.Equal("inside@subject", subset[0].subjectId);
+        }
     }
 }

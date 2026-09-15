@@ -1264,5 +1264,34 @@ namespace Parsek.Tests
 
             return count;
         }
+
+        // PatchAll is a pure delegation list, and every patcher no-ops on its null KSP
+        // singleton with a DISTINCT skip line - which makes one headless call a witness
+        // for the whole list. Dropping any one delegation (the milestones call in
+        // particular, which no other unit cell observes) silently stops patching that
+        // subsystem after a rewind while the recalc reports success.
+        [Fact]
+        public void PatchAll_InvokesEveryPatcher_DistinctSandboxSkipLines()
+        {
+            var science = new ScienceModule();
+            var funds = new FundsModule();
+            var reputation = new ReputationModule();
+            var milestones = new MilestonesModule();
+            var facilities = new FacilitiesModule();
+            var contracts = new ContractsModule();
+
+            KspStatePatcher.PatchAll(science, funds, reputation, milestones, facilities, contracts);
+
+            Assert.Equal(1, CountLogs("[KspStatePatcher]", "PatchScience: ResearchAndDevelopment.Instance is null"));
+            Assert.Equal(1, CountLogs("[KspStatePatcher]", "PatchTechTree: no target tech set supplied"));
+            Assert.Equal(1, CountLogs("[KspStatePatcher]", "PatchFunds: Funding.Instance is null"));
+            Assert.Equal(1, CountLogs("[KspStatePatcher]", "PatchReputation: Reputation.Instance is null"));
+            Assert.Contains(logLines, l =>
+                l.Contains("PatchFacilities: protoUpgradeables is null")
+                || l.Contains("PatchFacilities: nothing to patch"));
+            Assert.Contains(logLines, l => l.Contains("PatchMilestones: ProgressTracking.Instance is null"));
+            Assert.Contains(logLines, l => l.Contains("PatchContracts: ContractSystem.Instance is null"));
+            Assert.Equal(1, CountLogs("[KspStatePatcher]", "PatchAll complete"));
+        }
     }
 }

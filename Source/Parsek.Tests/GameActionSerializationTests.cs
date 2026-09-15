@@ -1644,5 +1644,50 @@ namespace Parsek.Tests
             Assert.NotNull(node);
             return GameAction.DeserializeFrom(node);
         }
+
+        // A hand-edited or partially corrupted ledger manifest: three of the four
+        // "resource" lines are malformed in the three ways the reader distinguishes (no
+        // separator, empty name, unparseable amount). The designed contract is
+        // warn-and-skip THAT ENTRY - the valid line must still load, because aborting the
+        // manifest (returning null on the first bad entry) silently drops cargo the route
+        // really moved and the ledger then reconstructs the career short.
+        [Fact]
+        public void Deserialize_RouteManifest_MalformedEntries_WarnAndSkipWithoutLosingValidOnes()
+        {
+            var logLines = new List<string>();
+            ParsekLog.TestSinkForTesting = line => logLines.Add(line);
+            try
+            {
+                var node = new ConfigNode("GAME_ACTION");
+                node.AddValue("ut", "50000");
+                node.AddValue("type", ((int)GameActionType.RouteCargoDebited).ToString());
+                node.AddValue("actionId", "act_malformed_manifest");
+                node.AddValue("resource", "LiquidFuel");    // no separator
+                node.AddValue("resource", "|5");            // empty name
+                node.AddValue("resource", "Oxidizer|abc");  // unparseable amount
+                node.AddValue("resource", "Ore|25.5");      // the one valid entry
+
+                var loaded = GameAction.DeserializeFrom(node);
+
+                Assert.NotNull(loaded.RouteResourceManifest);
+                Assert.Single(loaded.RouteResourceManifest);
+                Assert.Equal(25.5, loaded.RouteResourceManifest["Ore"]);
+
+                Assert.Contains(logLines, l =>
+                    l.Contains("[GameAction]") && l.Contains("malformed")
+                    && l.Contains("'resource'") && l.Contains("LiquidFuel"));
+                Assert.Contains(logLines, l =>
+                    l.Contains("[GameAction]") && l.Contains("malformed")
+                    && l.Contains("'resource'") && l.Contains("|5"));
+                Assert.Contains(logLines, l =>
+                    l.Contains("[GameAction]") && l.Contains("unparseable")
+                    && l.Contains("'resource'") && l.Contains("Oxidizer")
+                    && l.Contains("abc"));
+            }
+            finally
+            {
+                ParsekLog.ResetTestOverrides();
+            }
+        }
     }
 }

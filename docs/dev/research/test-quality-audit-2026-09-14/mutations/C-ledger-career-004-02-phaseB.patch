@@ -1,0 +1,22 @@
+diff --git a/Source/Parsek/GameActions/LedgerOrchestrator.cs b/Source/Parsek/GameActions/LedgerOrchestrator.cs
+index f0a7d8a40..9b856b982 100644
+--- a/Source/Parsek/GameActions/LedgerOrchestrator.cs
++++ b/Source/Parsek/GameActions/LedgerOrchestrator.cs
+@@ -7403,15 +7403,14 @@ namespace Parsek
+ 
+             var predecessor = FindRecordingById(rec.ParentRecordingId);
+             if (predecessor == null ||
+-                !string.Equals(predecessor.ChainId ?? "", rec.ChainId ?? "", StringComparison.Ordinal) ||
+-                predecessor.ChainIndex != rec.ChainIndex - 1)
++                !string.Equals(predecessor.ChainId ?? "", rec.ChainId ?? "", StringComparison.Ordinal))
+             {
+                 return startUT;
+             }
+ 
+             var chainEndUTs = new Dictionary<string, double>
+             {
+-                { $"{rec.ChainId}:{predecessor.ChainIndex}", predecessor.EndUT }
++                { $"{rec.ChainId}:{rec.ChainIndex - 1}", predecessor.EndUT }
+             };
+             return AdjustStartUtForChainGap(rec, startUT, chainEndUTs);
+         }

@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/KerbalsModule.cs b/Source/Parsek/KerbalsModule.cs
+index c8f01dde7..64d10551e 100644
+--- a/Source/Parsek/KerbalsModule.cs
++++ b/Source/Parsek/KerbalsModule.cs
+@@ -795,8 +795,7 @@ namespace Parsek
+             rec.CrewEndStatesResolved = false;
+             try
+             {
+-                if (!HasStartCrewSource(rec)
+-                    || !LedgerOrchestrator.NeedsCrewEndStatePopulation(rec))
++                if (!HasStartCrewSource(rec))
+                 {
+                     ParsekLog.Verbose(Tag,
+                         CrewEndStateStaleAfterTerminalStampKey +

@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/GameActions/LedgerOrchestrator.cs b/Source/Parsek/GameActions/LedgerOrchestrator.cs
+index f0a7d8a40..cb85a4bed 100644
+--- a/Source/Parsek/GameActions/LedgerOrchestrator.cs
++++ b/Source/Parsek/GameActions/LedgerOrchestrator.cs
+@@ -1459,7 +1459,7 @@ namespace Parsek
+                             $"has non-positive delta {pairedRecoveryAmount.ToString("F1", CultureInfo.InvariantCulture)} — skipping");
+                     }
+                 }
+-                else if (rec.Points.Count >= 2)
++                if (rec.Points.Count >= 2)
+                 {
+                     double lastFunds = rec.Points[rec.Points.Count - 1].funds;
+                     double penultimateFunds = rec.Points[rec.Points.Count - 2].funds;
