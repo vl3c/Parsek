@@ -14,13 +14,35 @@ namespace Parsek.Tests
     // idiom; the reconcile semantics themselves are covered in MissionStoreTests.
     public class MissionSelectionGenerationStampWiringTests
     {
+        // Comments blanked and literal contents masked before any scan: a raw scan reads a
+        // commented-out stamp as live code, which is the fail-GREEN direction these gates exist
+        // to prevent. Both helpers are length-preserving, so indexes are file indexes.
         private static string ReadMissionsWindowSource()
+        {
+            return SourceScanText.StripCommentsAndMaskLiterals(ReadMissionsWindowSourceRaw());
+        }
+
+        private static string ReadMissionsWindowSourceRaw()
         {
             string projectRoot = Path.GetFullPath(Path.Combine(
                 AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..", ".."));
             string path = Path.Combine(projectRoot, "Source", "Parsek", "UI", "MissionsWindowUI.cs");
             Assert.True(File.Exists(path), $"MissionsWindowUI.cs not found at {path}");
             return File.ReadAllText(path);
+        }
+
+        private const string NL = "\n";
+
+        // Anchors the proximity window to the enclosing method body rather than to a raw
+        // character count alone, so a stamp in a NEIGHBOURING handler cannot satisfy the pairing.
+        private static void AssertSameEnclosingMethod(string prepared, int mutation, int stamp, string what)
+        {
+            int mutationBody = SourceScanText.EnclosingMethodBodyStart(prepared, mutation);
+            int stampBody = SourceScanText.EnclosingMethodBodyStart(prepared, stamp);
+            Assert.True(mutationBody >= 0 && stampBody >= 0,
+                $"{what}: could not resolve the enclosing method body (unexpected block structure)");
+            Assert.True(mutationBody == stampBody,
+                $"{what}: the stamp sits in a different method than the selection write");
         }
 
         [Fact]
@@ -46,6 +68,7 @@ namespace Parsek.Tests
             // Same handler block, not some far-away coincidental call.
             Assert.True(stamp - mutation < 800,
                 "generation stamp is not adjacent to the exclusion mutation (same toggle block)");
+            AssertSameEnclosingMethod(src, mutation, stamp, "interval-exclusion toggle");
 
             // The T2.2 per-vessel toggle pairs its key-set write with the same stamp.
             int vesselMutation = src.IndexOf(
@@ -55,6 +78,7 @@ namespace Parsek.Tests
                 StringComparison.Ordinal);
             Assert.True(vesselStamp >= 0 && vesselStamp - vesselMutation < 800,
                 "per-vessel toggle does not stamp the selection generation in its block");
+            AssertSameEnclosingMethod(src, vesselMutation, vesselStamp, "per-vessel inclusion toggle");
         }
 
         [Fact]
@@ -79,6 +103,35 @@ namespace Parsek.Tests
             Assert.True(stamp >= 0, "generation stamp missing after the chapter bulk mutation");
             Assert.True(stamp - mutation < 800,
                 "generation stamp is not adjacent to the chapter mutation (same toggle block)");
+            AssertSameEnclosingMethod(src, mutation, stamp, "chapter bulk toggle");
+        }
+
+        // catches: the two gates above going vacuous. They scan PREPARED text; if the preparation
+        // were dropped, a stamp that survives only as a comment would satisfy them. This decoy
+        // pins that a commented-out stamp is NOT visible to the scan, on both comment spellings,
+        // while the live call still is.
+        [Fact]
+        public void CommentedOutStamp_IsNotVisibleToTheScan()
+        {
+            const string decoy =
+                "void Handler() {" + NL +
+                "    // StampSelectionEdit(mission);" + NL +
+                "    /* mission.SelectionSchemaGeneration = Mission.CurrentSelectionSchemaGeneration; */" + NL +
+                "    mission.ExcludedIntervalKeys.Add(node.HeadLegId);" + NL +
+                "}" + NL;
+            string prepared = SourceScanText.StripCommentsAndMaskLiterals(decoy);
+
+            Assert.DoesNotContain("StampSelectionEdit(mission);", prepared);
+            Assert.DoesNotContain(
+                "mission.SelectionSchemaGeneration = Mission.CurrentSelectionSchemaGeneration;",
+                prepared);
+            Assert.Contains("mission.ExcludedIntervalKeys.Add(node.HeadLegId);", prepared);
+
+            // And the real file, prepared the same way, still shows both live call sites.
+            string src = ReadMissionsWindowSource();
+            Assert.Contains("StampSelectionEdit(mission);", src);
+            Assert.Contains(
+                "mission.SelectionSchemaGeneration = Mission.CurrentSelectionSchemaGeneration;", src);
         }
     }
 }

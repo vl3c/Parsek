@@ -308,7 +308,10 @@ namespace Parsek.Tests
         {
             const string RelPath = "UI/RecordingsTableUI.cs";
             int budget = BudgetChars(1355f, TooltipEchoBox.SingleLine);
-            string src = ReadParsekSource(RelPath);
+            // Comments blanked (length-preserving, literals untouched, so both the decoded
+            // tooltip text and the reported line numbers stay exact): a commented-out
+            // DrawSortableHeader call must not count toward the anti-vacuity floor below.
+            string src = SourceScanText.StripCSharpComments(ReadParsekSource(RelPath));
 
             const string Needle = "DrawSortableHeader(";
             int found = 0;
@@ -437,6 +440,12 @@ namespace Parsek.Tests
         /// </summary>
         internal static List<LiteralTooltip> ExtractLiteralGuiContentTooltips(string src)
         {
+            // Comments blanked first. StripCSharpComments is length-preserving and leaves string
+            // literals whole, so the decoded tooltips and the line numbers reported below are
+            // unchanged - but a commented-out `new GUIContent(label, tooltip)` no longer counts
+            // toward the caller's anti-vacuity floor, which on the margin-0 rows was the
+            // fail-GREEN direction the floor exists to prevent.
+            src = SourceScanText.StripCSharpComments(src);
             var result = new List<LiteralTooltip>();
             const string Needle = "new GUIContent(";
             int i = 0;

@@ -1,0 +1,16 @@
+diff --git a/Source/Parsek/UI/TimelineWindowUI.cs b/Source/Parsek/UI/TimelineWindowUI.cs
+index 58da3cc98..0fc2cf051 100644
+--- a/Source/Parsek/UI/TimelineWindowUI.cs
++++ b/Source/Parsek/UI/TimelineWindowUI.cs
+@@ -800,8 +800,9 @@ namespace Parsek
+                 ParsekLog.Verbose("UI", "Timeline filter: Overview");
+             }
+             if (GUILayout.Toggle(detailActive,
+-                    new GUIContent("Details",
+-                        "Adds the fine-grained rows Overview hides, such as staging and docking."),
++                    // new GUIContent("Details",
++                    //     "Adds the fine-grained rows Overview hides, such as staging and docking."),
++                    new GUIContent("Details"),
+                     toggleButtonStyle, GUILayout.Width(btnW)) && !detailActive)
+             {
+                 tierFilterMode = TimelineTierFilterMode.Details;

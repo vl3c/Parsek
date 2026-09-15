@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/MergeDialog.Commit.cs b/Source/Parsek/MergeDialog.Commit.cs
+index 9975f6c0e..0f7dcd367 100644
+--- a/Source/Parsek/MergeDialog.Commit.cs
++++ b/Source/Parsek/MergeDialog.Commit.cs
+@@ -131,7 +131,7 @@ namespace Parsek
+             // too — the commit promoted the clone to the new committed tree.
+             var switchSegmentScenario = ParsekScenario.Instance;
+             if (!object.ReferenceEquals(null, switchSegmentScenario)
+-                && switchSegmentScenario.ActiveSwitchSegmentSession != null)
++                && switchSegmentScenario.ActiveSwitchSegmentSession == null)
+             {
+                 switchSegmentScenario.ClearSwitchSegmentSession("scoped-merge-success");
+                 if (RecordingStore.HasCommittedTreeRestoreAttempt)

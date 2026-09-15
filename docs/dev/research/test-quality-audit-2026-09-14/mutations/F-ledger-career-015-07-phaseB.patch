@@ -1,5 +1,5 @@
---- Source/Parsek.Tests/KerbalReservationTests.cs	2026-09-15 18:39:52.861911700 +0300
-+++ /tmp/leak2.cs	2026-09-15 18:39:52.835152600 +0300
+--- a/Source/Parsek.Tests/KerbalReservationTests.cs
++++ b/Source/Parsek.Tests/KerbalReservationTests.cs
 @@ -38,7 +38,6 @@
              RecordingStore.SuppressLogging = false;
              RecordingStore.ResetForTesting();

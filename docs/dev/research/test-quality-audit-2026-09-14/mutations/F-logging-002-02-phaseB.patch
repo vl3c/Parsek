@@ -1,0 +1,12 @@
+diff --git a/Source/Parsek/Diagnostics/DiagnosticsState.cs b/Source/Parsek/Diagnostics/DiagnosticsState.cs
+index 8b4e77450..bd1cfe259 100644
+--- a/Source/Parsek/Diagnostics/DiagnosticsState.cs
++++ b/Source/Parsek/Diagnostics/DiagnosticsState.cs
+@@ -49,7 +49,6 @@ namespace Parsek
+         internal static void ResetSessionCounters()
+         {
+             health.Reset();
+-            playbackFrameHistory.Reset();
+             playbackBudget = default;
+             recordingBudget = default;
+             InvalidateSnapshotCache();

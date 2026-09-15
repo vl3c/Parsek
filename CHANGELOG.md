@@ -297,6 +297,32 @@ _(unreleased — entries accumulate here per commit)_
   `docs/dev/research/test-quality-audit-2026-09-14/mutations/`. No production change, no
   player-visible change.
 
+- **Tests: the remaining nineteen T4 (brittle / flaky) rows from the unit-test quality
+  audit.** Nine source-text wiring gates were reading raw file text, so a call left behind
+  only as a comment satisfied them after the real call was deleted: the Update ordering gate,
+  the archive-refusal policy gate, the four bug-273 dirty-marking pins, the Missions selection
+  stamp, the time-jump recalc pin and the two tooltip-budget scanners now read comment-stripped
+  (and, where no log literal is pinned, literal-masked) source, the Missions gates also anchor
+  their windows to the enclosing method body and carry a comment-only decoy cell, and the
+  tooltip anti-vacuity floors no longer count a commented-out control. Three gates were
+  measuring the wrong thing rather than reading comments: the cold-load defer gate read an
+  intent COMMENT as its contract and pinned an unrelated rate-limit constant (it now
+  brace-matches the defer block and refuses a prune inside it, and no longer reds on a
+  behaviour-neutral log-window edit), the spawn-pending notify gate used a 900-character
+  proximity window that a NEIGHBOURING site's status check could satisfy (it now requires the
+  nearest preceding check in the call's own method with no other notify in between), and the
+  currency-singleton gate extracted its method body up to the NEXT member's doc comment, so
+  its "no ||" negative read comment prose as code. Five pins that could be driven for real
+  now are: the rewind-point UT capture, the switch-segment walker's iteration cap, the
+  marker clear after a successful merge, the F9-to-a-pre-switch-save clear, and the
+  annotation drop on the optimizer's committed split (which also gains its mirror cell: a
+  refused split keeps its annotations). One five-step cross-file grep chain is retired in
+  favour of the behavioural twin that landed with the priority-1 coverage work, keeping only
+  the negative pin that names the removed destructive delete. Two GC-baseline assertions
+  compared a live counter against a post-hoc read and could fail spuriously; they now bracket
+  it, with no loss of strength. Each repair carries a mutation or leak-check proof under
+  `docs/dev/research/test-quality-audit-2026-09-14/mutations/`. No player-visible change.
+
 - **Tests: six repairs from the unit-test quality audit's T4 (brittle / flaky) register.**
   Four source-text wiring gates were scanning raw file text, so a call left behind only as a
   comment - or the same call text inside a nearby log message - kept the gate green after the

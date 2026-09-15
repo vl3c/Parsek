@@ -219,7 +219,12 @@ namespace Parsek.Tests
         /// scrape is deliberately simple — it's not an AST walk, just a body
         /// substring search bounded by brace depth — because the goal is to
         /// catch accidental removal of a single line, not to prove semantic
-        /// correctness.
+        /// correctness. It runs over
+        /// <see cref="SourceScanText.StripCommentsAndMaskLiterals"/> output, so a comment
+        /// naming MarkFilesDirty does not stand in for the call, and braces inside string /
+        /// char literals do not unbalance the body walk.
+        /// AppendCapturedDataToRecording additionally has a behavioural twin in this file;
+        /// the other three rows remain source-level pins.
         /// </summary>
         [Theory]
         [InlineData("ParsekFlight.cs", "static void AppendCapturedDataToRecording(")]
@@ -233,7 +238,7 @@ namespace Parsek.Tests
                 $"Could not locate {fileName} for source scrape. " +
                 "Update LocateSourceFile if the project layout changed.");
 
-            string src = File.ReadAllText(path);
+            string src = SourceScanText.StripCommentsAndMaskLiterals(File.ReadAllText(path));
             int sigIdx = src.IndexOf(methodSignature, StringComparison.Ordinal);
             Assert.True(sigIdx >= 0,
                 $"Method '{methodSignature}' not found in {fileName}. " +
@@ -259,7 +264,10 @@ namespace Parsek.Tests
 
             string body = src.Substring(openBrace, closeBrace - openBrace + 1);
 
-            Assert.Contains("MarkFilesDirty", body);
+            Assert.True(SourceScanText.ContainsIdentifier(body, "MarkFilesDirty"),
+                $"'{methodSignature}' in {fileName} no longer calls MarkFilesDirty(): " +
+                "the in-flight Points / PartEvents / OrbitSegments / TrackSections mutation " +
+                "would not be persisted to the .prec sidecar (bug #273 data loss).");
         }
 
         /// <summary>

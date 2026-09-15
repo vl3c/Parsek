@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/ParsekScenario.cs b/Source/Parsek/ParsekScenario.cs
+index 56b237769..baabf6a90 100644
+--- a/Source/Parsek/ParsekScenario.cs
++++ b/Source/Parsek/ParsekScenario.cs
+@@ -6352,7 +6352,7 @@ namespace Parsek
+         {
+             return Funding.Instance != null
+                    && ResearchAndDevelopment.Instance != null
+-                   && Reputation.Instance != null;
++                   || Reputation.Instance != null;
+         }
+ 
+         /// <summary>
