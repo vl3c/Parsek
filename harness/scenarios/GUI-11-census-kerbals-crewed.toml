@@ -5,8 +5,8 @@ tier = "operator"
 # column tables with a fold over the plain-kerbal bucket, and the two lanes that already
 # photograph them cannot show what that is FOR: `GUI-5-census-career-ksc` has one slot and
 # two flights, `GUI-8-census-empty-states` has neither. This lane opens the same two tabs
-# over a fixture whose ledger produced THREE reserved slots, three stand-ins and eight
-# crewed recordings, so the reserved / stand-in / lost rows and the per-kerbal flight
+# over a fixture whose ledger produced THREE reserved slots, three stand-ins and
+# twenty-four crewed recordings, so the reserved / stand-in / lost rows and the per-kerbal flight
 # groups have a picture with rows in them.
 #
 # WHY THIS FIXTURE. Read off `fixtures/saves/bdock-recorded/persistent.sfs`:
@@ -49,7 +49,16 @@ tier = "operator"
 # photograph the main window's mode diff. A Basic capture here would add a seventh PNG that
 # says nothing this lane is about.
 #
-# NEVER FLOWN at authoring time; the reading run is recorded here once it lands.
+# FLOWN 2026-09-15. Reading run `2026-09-15_1559`, PASS on attempt 1, 60 s wall, all steps
+# met, 6 PNGs + 6 dumps every one `patched=17/17`. It measured the window's header-vs-cell
+# delta at ZERO on both tabs (Roster header cells x=284/478/702/786 against row cells at the
+# same four, Flights 284/368/582/696), three reserved slots each reading
+# `Reserved until recovery` with a dated `Since`, three stand-in rows reading
+# `Stand-in for <owner>`, and `Jane Kerman`'s own row expanding to her slot's chain. It also
+# found TWO defects, both fixed before the re-flight: the compact date clipped an 80 px
+# column (now 130), and this lane's own `unfolded` Flights capture was FOLDED because the
+# bulk `key=none` before it collapses both tabs (an `op=expand key=all` now precedes it).
+# Re-flight: `2026-09-15_1615`.
 description = "GUI census: the rebuilt Kerbals window over a crewed corpus - the Roster tab closed, fully expanded and with one stand-in row's replacement chain open, and the Flights tab unfolded and folded, over a fixture with three reserved slots, three stand-ins and twenty-four crewed recordings."
 instanceProfile = "stock-minimal"
 tags = ["gui-census", "screenshots", "ui", "kerbals", "GUI-11", "pending-operator"]
@@ -72,7 +81,7 @@ steps = [
   { cmd = "UiAction", args = { op = "rect", window = "main", x = "8", y = "8", w = "250", h = "700" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
 
-  # --- the Kerbals window, the subject. Commanded far larger than its own 700x400
+  # --- the Kerbals window, the subject. Commanded far larger than its own 760x400
   # first-open size so a capture shows every row rather than the first screenful.
   { cmd = "UiAction", args = { op = "open", window = "kerbals" }, expect = "OK" },
   { cmd = "UiAction", args = { op = "describe" }, expect = "OK" },
@@ -97,15 +106,19 @@ steps = [
   { cmd = "CaptureScreenshot", args = { label = "bdk-kerbals-roster-standin-chain-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "bdk-kerbals-roster-standin-chain-advanced" }, expect = "OK" },
 
-  # THE FLIGHTS TAB, default form: every kerbal's group unfolded, so the per-flight rows
-  # (date, mission, outcome word, "as <stand-in>") are the picture.
+  # THE FLIGHTS TAB WITH EVERY GROUP OPEN, so the per-flight rows (date, mission, outcome
+  # word, "as <stand-in>") are the picture. The `key=all` is REQUIRED and not redundant
+  # with the tab's own default: the two `key=none` steps above collapsed BOTH tabs' sets,
+  # and the first flight of this lane (`2026-09-15_1559`) photographed three folded
+  # headers under the label `unfolded` because of exactly that. The bulk keys are
+  # per-window, not per-tab - stated here and in the header.
   { cmd = "UiAction", args = { op = "tab", window = "kerbals", tab = "outcomes" }, expect = "OK" },
+  { cmd = "UiAction", args = { op = "expand", window = "kerbals", key = "all" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "bdk-kerbals-flights-unfolded-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "bdk-kerbals-flights-unfolded-advanced" }, expect = "OK" },
 
   # AND FOLDED TO THE HEADER LINES: the bucket summary is the header whether or not a
-  # group is folded (the ruling), so this capture is the summaries alone. The `key=none`
-  # that produces it also re-collapses the Roster tab - see the header.
+  # group is folded (the ruling), so this capture is the summaries alone.
   { cmd = "UiAction", args = { op = "expand", window = "kerbals", key = "none" }, expect = "OK" },
   { cmd = "CaptureScreenshot", args = { label = "bdk-kerbals-flights-folded-advanced" }, expect = "OK" },
   { cmd = "DumpGuiTree", args = { label = "bdk-kerbals-flights-folded-advanced" }, expect = "OK" },

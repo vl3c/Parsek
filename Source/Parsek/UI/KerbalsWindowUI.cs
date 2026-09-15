@@ -55,25 +55,27 @@ namespace Parsek
 
         // ---- column widths, per tab ----
         // Roster: the Name cell holds "Valentina Kerman [Scientist]" (28 chars) and the
-        // Status cell "Reserved for Valentina Kerman until Y1, D23" (43); Since holds one
-        // compact date; Last flight expands. Arithmetic behind the window sizing below.
+        // Status cell "Reserved for Valentina Kerman until Y1, D23" (43); Since and Date
+        // hold one compact date, which KSPUtil.PrintDateCompact renders down to the
+        // minute ("Y1, D01, 02:29", 14 chars = 98 px at the skin's ~7 px advance) - the
+        // first flight measured that clipped at 80. Last flight expands.
         private const float ColW_RosterName = 190f;
         private const float ColW_RosterStatus = 220f;
-        private const float ColW_RosterSince = 80f;
-        // Flights: Date holds one compact date, Mission a mission name, Outcome the
+        private const float ColW_RosterSince = 130f;
+        // Flights: Date holds the same compact date, Mission a mission name, Outcome the
         // longest outcome word ("Outcome unknown", 15 chars), Crew note expands.
-        private const float ColW_FlightDate = 80f;
+        private const float ColW_FlightDate = 130f;
         private const float ColW_FlightMission = 210f;
         private const float ColW_FlightOutcome = 110f;
 
         /// <summary>
         /// Minimum width. The Roster tab is the wider of the two tables: its three fixed
-        /// columns are 190 + 220 + 80 = 490 px, so 520 leaves the expanding "Last flight"
-        /// column a readable sliver at the smallest size the player can drag to. Below
-        /// that the fixed columns would clip instead of shrinking - IMGUI does not
+        /// columns are 190 + 220 + 130 = 540 px, so 570 leaves the expanding "Last
+        /// flight" column a readable sliver at the smallest size the player can drag to.
+        /// Below that the fixed columns would clip instead of shrinking - IMGUI does not
         /// reflow a pinned width.
         /// </summary>
-        internal const float MinWindowWidth = 520f;
+        internal const float MinWindowWidth = 570f;
         internal const float MinWindowHeight = 150f;
 
         /// <summary>
@@ -88,13 +90,13 @@ namespace Parsek
         internal const string WindowIdKey = "ParsekKerbals";
 
         /// <summary>
-        /// First-open width: the Roster tab's 490 px of fixed columns plus 200 px for the
-        /// expanding "Last flight" column plus the window chrome, rounded to 700. The old
+        /// First-open width: the Roster tab's 540 px of fixed columns plus 200 px for the
+        /// expanding "Last flight" column plus the window chrome, rounded to 760. The old
         /// 410 was half of Career's 820 so the two could sit side by side; two column
-        /// tables do not fit in 410, and 700 still leaves Career's own 820 room on a
+        /// tables do not fit in 410, and 760 still leaves Career's own 820 room on a
         /// 1920-wide screen.
         /// </summary>
-        private const float DefaultWindowWidth = 700f;
+        private const float DefaultWindowWidth = 760f;
         private const float DefaultWindowHeight = 400f;
         private Rect lastKerbalsWindowRect;
 
@@ -719,7 +721,7 @@ namespace Parsek
             // Timeline to the flight it came from.
             GUILayout.BeginHorizontal(parentUI.GetTableRowStyle());
             bool clicked = GUILayout.Button(
-                new GUIContent(SubitemIndent + row.DateText,
+                new GUIContent(row.DateText,
                     "Scrolls the Timeline window to the flight this row came from."),
                 cellStyle, GUILayout.Width(ColW_FlightDate));
             clicked |= GUILayout.Button(

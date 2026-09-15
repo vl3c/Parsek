@@ -96,17 +96,19 @@ namespace Parsek.Tests
             yield return new object[] { "UI/SettingsWindowUI.cs", 280f, 10, TooltipEchoBox.DoubleLine };
             // Gloops Flight Recorder: first-open DefaultWindowWidth = 280.
             yield return new object[] { "UI/GloopsRecorderUI.cs", 280f, 3, TooltipEchoBox.DoubleLine };
-            // Kerbals: DefaultWindowWidth = 700 as of the 2026-09-15 column-table rebuild
+            // Kerbals: DefaultWindowWidth = 760 as of the 2026-09-15 column-table rebuild
             // (it was 410, half of Career's 820, while both tabs were indented outlines).
-            // The Roster tab's three fixed columns are 190 + 220 + 80 = 490 px plus 200 for
-            // the expanding "Last flight" column, which 410 cannot hold. Budget at the new
-            // width: 2 * (700 - 30) / 7 = 191 chars, up from 2 * 380 / 7 = 108. The raise
-            // loosens nothing in practice - every literal in the file is still under the
-            // OLD 108 - it only stops the gate budgeting a width the window no longer
-            // opens at. Floor 5 unchanged: the file carries 9 literal tooltips (two tab
-            // labels, three column headers, the plain-bucket fold, the chain expand, the
-            // Flights fold, the row cross-link), so a removal still reds this row.
-            yield return new object[] { "UI/KerbalsWindowUI.cs", 700f, 5, TooltipEchoBox.DoubleLine };
+            // The Roster tab's three fixed columns are 190 + 220 + 130 = 540 px plus 200
+            // for the expanding "Last flight" column, which 410 cannot hold; the 130 on the
+            // date columns is what the first flight measured a compact date needs
+            // ("Y1, D01, 02:29" clipped at 80). Budget at the new width:
+            // 2 * (760 - 30) / 7 = 208 chars, up from 2 * 380 / 7 = 108. The raise loosens
+            // nothing in practice - every literal in the file is still under the OLD 108 -
+            // it only stops the gate budgeting a width the window no longer opens at.
+            // Floor 5 unchanged: the file carries 9 literal tooltips (two tab labels, three
+            // column headers, the plain-bucket fold, the chain expand, the Flights fold,
+            // the row cross-link), so a removal still reds this row.
+            yield return new object[] { "UI/KerbalsWindowUI.cs", 760f, 5, TooltipEchoBox.DoubleLine };
             // Career State: DefaultWindowWidth = 820. Single-line strip: longest help
             // text is 76 chars against a 112-char one-line budget.
             yield return new object[] { "UI/CareerStateWindowUI.cs", 820f, 14, TooltipEchoBox.SingleLine };

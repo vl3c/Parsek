@@ -74,7 +74,7 @@ user-selectable.
 |---|---|---|
 | Kerbal | 190 px | fold arrow (when the row carries a chain) + `"Name [Trait]"`; trait from the live roster, falling back to `KerbalSlot.OwnerTrait`. The bracket is dropped when the trait is unknown |
 | Status now | 220 px | `KerbalsPresentation.ClassifyStatus` + `FormatStatus`; see the vocabulary below |
-| Since | 80 px | `FormatSince`: the calendar date the current status started, for the two statuses the mod dates; else `-` |
+| Since | 130 px | `FormatSince`: the calendar date the current status started, for the two statuses the mod dates; else `-` |
 | Last flight | expands | `FormatLastFlight`: `"{mission} - {outcome word}"` from the kerbal's latest flight row; else `-` |
 
 ### The status vocabulary, in resolution order
@@ -122,7 +122,7 @@ trait bracket is dropped when unknown. Always drawn, folded or not.
 
 | Column | Width | Source |
 |---|---|---|
-| Date | 80 px | `KerbalsWindowUI.FormatRowDate` = `KSPUtil.PrintDateCompact(ut, true)` with the Timeline's own F0 fallback, so both windows date the same flight identically |
+| Date | 130 px | `KerbalsWindowUI.FormatRowDate` = `KSPUtil.PrintDateCompact(ut, true)` with the Timeline's own F0 fallback, so both windows date the same flight identically |
 | Mission | 210 px | `MissionStore.FindOriginalMission(rec.TreeId).Name`, falling back to `Recording.VesselName`, then `(unnamed)`. The raw recording name and id are in the cell's hover text (`DescribeFlightRow`) |
 | Outcome | 110 px | `FormatOutcome`: `Recovered` / `Lost` / `Still aboard` / `Outcome unknown`; the last carries the hover "The flight has no recorded ending." |
 | Crew | expands | `"as <stand-in>"` when someone else flew the seat, else `-` |
@@ -159,14 +159,15 @@ The choice is the primary one BECAUSE the fallback is time-blind: the reverse-ma
 
 | Number | Value | Arithmetic |
 |---|---|---|
-| Roster fixed columns | 190 + 220 + 80 = **490 px** | longest realistic cells: `Valentina Kerman [Scientist]` (28 chars), `Reserved for Valentina Kerman until Y1, D23` (43 chars), one compact date |
-| Flights fixed columns | 80 + 210 + 110 = **400 px** | one compact date, a mission name, `Outcome unknown` (15 chars) |
-| `DefaultWindowWidth` | **700** (was 410) | 490 + 200 for the expanding "Last flight" column + chrome. The old 410 was half of Career's 820 so the two could sit side by side; two column tables do not fit in 410, and 700 still leaves Career's 820 room on a 1920-wide screen |
-| `MinWindowWidth` | **520** (was 280) | 490 of fixed columns plus a readable sliver for the expanding one. Below that IMGUI clips the pinned widths rather than reflowing them |
+| Roster fixed columns | 190 + 220 + 130 = **540 px** | longest realistic cells: `Valentina Kerman [Scientist]` (28 chars), `Reserved for Valentina Kerman until Y1, D23` (43 chars), one compact date |
+| Flights fixed columns | 130 + 210 + 110 = **450 px** | the same compact date, a mission name, `Outcome unknown` (15 chars) |
+| the two date columns | **130** (80 on the first flight) | MEASURED: `KSPUtil.PrintDateCompact` renders to the minute, so a cell reads `Y1, D01, 02:29` - 14 chars, about 98 px at the skin's ~7 px advance - and the first flight (`2026-09-15_1557` / `_1559`) photographed it clipped inside 80 |
+| `DefaultWindowWidth` | **760** (was 410) | 540 + 200 for the expanding "Last flight" column + chrome. The old 410 was half of Career's 820 so the two could sit side by side; two column tables do not fit in 410, and 760 still leaves Career's 820 room on a 1920-wide screen |
+| `MinWindowWidth` | **570** (was 280) | 540 of fixed columns plus a readable sliver for the expanding one. Below that IMGUI clips the pinned widths rather than reflowing them |
 | `DefaultWindowHeight` / `MinWindowHeight` | 400 / 150 | unchanged |
 
-Tooltip budget: `TooltipEchoBudgetTests.StripWindows` pins this file at `700f, 5,
-DoubleLine`, so the budget is `2 * (700 - 30) / 7 = 191` characters (it was
+Tooltip budget: `TooltipEchoBudgetTests.StripWindows` pins this file at `760f, 5,
+DoubleLine`, so the budget is `2 * (760 - 30) / 7 = 208` characters (it was
 `2 * 380 / 7 = 108`). Every literal in the file is still under the OLD 108, so the raise
 loosens nothing in practice - it stops the gate budgeting a width the window no longer opens
 at. The floor of 5 is unchanged and the file carries 9 literal `GUIContent` tooltips (two tab
