@@ -1,0 +1,15 @@
+diff --git a/Source/Parsek/CrewReservationManager.Serialization.cs b/Source/Parsek/CrewReservationManager.Serialization.cs
+index 14a7e96c7..57c1998ab 100644
+--- a/Source/Parsek/CrewReservationManager.Serialization.cs
++++ b/Source/Parsek/CrewReservationManager.Serialization.cs
+@@ -132,8 +132,8 @@ namespace Parsek
+                 foreach (var kvp in crewReplacements)
+                 {
+                     ConfigNode entry = replacementsNode.AddNode("ENTRY");
+-                    entry.AddValue("original", kvp.Key);
+-                    entry.AddValue("replacement", kvp.Value);
++                    entry.AddValue("original", kvp.Value); // MUTATION
++                    entry.AddValue("replacement", kvp.Key);
+                 }
+                 CrewLog($"Saved {crewReplacements.Count} crew replacement(s)");
+             }

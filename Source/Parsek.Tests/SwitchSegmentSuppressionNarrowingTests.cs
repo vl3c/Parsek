@@ -240,8 +240,19 @@ namespace Parsek.Tests
         // Filtering" item 2: "new recording IDs owned by SwitchSegmentSession
         // are not suppressed merely because a committed-tree restore attempt
         // is armed."
+        //
+        // NAME SCOPE (audit F-recording-tree-046-05): rec_segment_owned is
+        // added to committed storage AFTER the attempt is armed, so its id is
+        // in neither the attempt id set nor the cutoff map and the
+        // un-narrowed predicate already answers false. The Assert.False here
+        // therefore does NOT discriminate; the LOG line is the only witness of
+        // the marker-owned branch, which is what this cell pins. The boolean
+        // is made decisive by the sibling cell
+        // ShouldSuppressEventPersistence_MarkerOwnedIdAlsoInAttemptSet_NotSuppressed,
+        // which puts the stamped segment inside the armed tree so the cutoff
+        // map carries it.
         [Fact]
-        public void ShouldSuppressEventPersistence_MarkerOwnedRecordingId_ReturnsFalse_EvenWithRestoreAttemptArmed()
+        public void ShouldSuppressEventPersistence_MarkerOwnedIdOutsideAttemptSet_LogsMarkerOwnedBypass()
         {
             MakeScenarioWithSession(out SwitchSegmentSession session);
 

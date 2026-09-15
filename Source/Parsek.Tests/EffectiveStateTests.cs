@@ -378,12 +378,20 @@ namespace Parsek.Tests
         [Fact]
         public void IsUnfinishedFlight_NotCommitted_False()
         {
+            // The RP carries a slot for rec_A, so RP and slot both resolve and
+            // the NotCommitted merge-state guard in TryQualify is the DECIDING
+            // term. A slot-less RP (the previous fixture) rejected at
+            // noMatchingRpSlot before the merge state was ever read.
             var rec = Rec("rec_A", MergeState.NotCommitted, TerminalState.Destroyed,
                 parentBranchPointId: "bp_1");
-            var rp = new RewindPoint { RewindPointId = "rp_1", BranchPointId = "bp_1" };
+            var rp = Rp("rp_1", "bp_1", "rec_A");
             MakeScenario(rps: new List<RewindPoint> { rp });
 
             Assert.False(EffectiveState.IsUnfinishedFlight(rec));
+            Assert.Contains(logLines, l =>
+                l.Contains("[UnfinishedFlights]")
+                && l.Contains("rec_A")
+                && l.Contains("reason=mergeState:NotCommitted"));
         }
 
         [Fact]
@@ -672,11 +680,30 @@ namespace Parsek.Tests
             RecordingStore.AddRecordingWithTreeForTesting(head);
             RecordingStore.AddRecordingWithTreeForTesting(tip);
 
-            var rp = new RewindPoint { RewindPointId = "rp_stage", BranchPointId = "bp_stage" };
+            // The RP carries a slot for rec_head so RP and slot both resolve;
+            // the chain tip's SAFE terminal (Landed) is then the deciding term.
+            // With a slot-less RP the cell rejected at noMatchingRpSlot and a
+            // Destroyed tip would have passed the same assertion.
+            var rp = Rp("rp_stage", "bp_stage", "rec_head");
             MakeScenario(rps: new List<RewindPoint> { rp });
 
             Assert.False(EffectiveState.IsChainMemberOfUnfinishedFlight(head));
             Assert.False(EffectiveState.IsChainMemberOfUnfinishedFlight(tip));
+            // Pin the REJECT REASON, not just the false: the chain tip's Landed
+            // terminal must be what rejects. Without this the cell passes for a
+            // Destroyed or Orbiting tip too (and, before the slot-carrying RP
+            // above, it rejected at noMatchingRpSlot without reading the
+            // terminal at all).
+            Assert.Contains(logLines, l =>
+                l.Contains("[UnfinishedFlights]")
+                && l.Contains("rec=rec_head")
+                && l.Contains("reason=stableTerminal")
+                && l.Contains("terminal=Landed"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[UnfinishedFlights]")
+                && l.Contains("rec=rec_tip")
+                && l.Contains("reason=stableTerminal")
+                && l.Contains("terminal=Landed"));
         }
 
         [Fact]
@@ -899,13 +926,30 @@ namespace Parsek.Tests
                 RetiringRecordingId = "rec_new",
                 UT = 12.0
             };
-            MakeScenario(tombstones: new List<LedgerTombstone> { tomb });
+            // rec_superseded is REALLY superseded by rec_new (relation plus both
+            // recordings registered), so the pass-through claim is now witnessed:
+            // adding a superseded-RecordingId skip to ComputeELS drops the
+            // contract action and reds this cell.
+            var superseded = Rec("rec_superseded", MergeState.Immutable);
+            var replacement = Rec("rec_new", MergeState.Immutable);
+            RecordingStore.AddRecordingWithTreeForTesting(superseded);
+            RecordingStore.AddRecordingWithTreeForTesting(replacement);
+            MakeScenario(
+                supersedes: new List<RecordingSupersedeRelation> { Rel("rec_superseded", "rec_new") },
+                tombstones: new List<LedgerTombstone> { tomb });
+
+            // The supersede really took: rec_superseded is out of ERS.
+            var ersIds = EffectiveState.ComputeERS().Select(r => r.RecordingId).ToList();
+            Assert.DoesNotContain("rec_superseded", ersIds);
+            Assert.Contains("rec_new", ersIds);
 
             var els = EffectiveState.ComputeELS();
             var ids = els.Select(a => a.ActionId).ToList();
 
             Assert.Contains("act_contract_1", ids); // survives supersede (no tombstone)
             Assert.DoesNotContain("act_death_1", ids); // tombstoned
+            Assert.Contains(logLines, l =>
+                l.Contains("[ELS]") && l.Contains("skippedTombstoned=1"));
         }
 
         [Fact]

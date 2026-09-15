@@ -1,0 +1,16 @@
+diff --git a/Source/Parsek/UnfinishedFlightClassifier.cs b/Source/Parsek/UnfinishedFlightClassifier.cs
+index 1046af191..07d727d01 100644
+--- a/Source/Parsek/UnfinishedFlightClassifier.cs
++++ b/Source/Parsek/UnfinishedFlightClassifier.cs
+@@ -41,9 +41,10 @@ namespace Parsek
+                 return false;
+             }
+ 
++            // MUTATION: NotCommitted no longer excluded
+             if (rec.MergeState != MergeState.Immutable
+                 && rec.MergeState != MergeState.CommittedProvisional
+-                && !(allowNotCommitted && rec.MergeState == MergeState.NotCommitted))
++                && rec.MergeState != MergeState.NotCommitted)
+             {
+                 reason = "mergeState:" + rec.MergeState;
+                 LogVerdict(false, recId, reason, null);
