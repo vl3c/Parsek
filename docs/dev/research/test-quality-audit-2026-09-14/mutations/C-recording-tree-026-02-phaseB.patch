@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/SurfacePosition.cs b/Source/Parsek/SurfacePosition.cs
+index d0e5e8e7d..4e868b19f 100644
+--- a/Source/Parsek/SurfacePosition.cs
++++ b/Source/Parsek/SurfacePosition.cs
+@@ -42,7 +42,7 @@ namespace Parsek
+             node.AddValue("rotY", pos.rotation.y.ToString("R", ic));
+             node.AddValue("rotZ", pos.rotation.z.ToString("R", ic));
+             node.AddValue("rotW", pos.rotation.w.ToString("R", ic));
+-            node.AddValue("rotationRecorded", pos.HasRecordedRotation.ToString());
++            node.AddValue("rotationRecorded", (pos.rotationRecorded ?? false).ToString());
+             node.AddValue("situation", ((int)pos.situation).ToString(ic));
+         }
+ 

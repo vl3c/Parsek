@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/RecordingOptimizer.cs b/Source/Parsek/RecordingOptimizer.cs
+index 3bec5cc89..b216b7854 100644
+--- a/Source/Parsek/RecordingOptimizer.cs
++++ b/Source/Parsek/RecordingOptimizer.cs
+@@ -1749,7 +1749,7 @@ namespace Parsek
+                 for (int ci = 0; ci < straddle.checkpoints.Count; ci++)
+                 {
+                     OrbitSegment cp = straddle.checkpoints[ci];
+-                    if (cp.endUT <= splitUT)
++                    if (cp.endUT < splitUT)
+                     {
+                         headCheckpoints.Add(cp);
+                     }

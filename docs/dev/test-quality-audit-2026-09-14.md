@@ -583,6 +583,25 @@ C-logistics-route-002-01, C-recorder-events-003-01, C-recorder-events-004-01,
 C-recorder-events-021-01, C-recording-tree-001-01, C-recording-tree-001-02,
 C-recording-tree-008-01, C-recording-tree-009-01. Their `status` in the CSV is now `done`.
 
+**Phase B status, seventh PR (2026-09-16).** Twelve more priority-2 `recording` rows
+(recording-tree and rewind-refly), all `direct` and all `S`: eleven are new coverage and one
+is `already-covered` under the cross-class rule (C-recording-tree-050-01's isDebris-default
+mutant reds `RecordingFieldExtensionTests.BackwardCompat_NoIsDebris_DefaultsFalse` plus four
+fixture cells, so no duplicate cell was written), and none of the twelve is obsolete. The
+eleven landed cells are mutation-proved with no production change: C-recording-tree-010-01,
+C-recording-tree-011-02, C-recording-tree-013-01, C-recording-tree-022-02,
+C-recording-tree-026-01, C-recording-tree-026-02, C-recording-tree-040-01,
+C-recording-tree-040-02, C-rewind-refly-003-01, C-rewind-refly-003-02,
+C-rewind-refly-004-01. Their `status` in the CSV is now `done`. Two rows needed a fixture
+wider than the proposal sketch to discriminate at all: the touching-checkpoint split only
+reaches the straddle partition when the recording carries NO mirrored top-level
+`OrbitSegments` (seeding them makes the Ensure pass cut the section at the split UT first),
+and the child-PID filter is only load-bearing when a `focusedVesselRecordingIdHint` pins the
+walk, because otherwise every PID-matching terminal leaf is already a walk root. The
+cycle-guard mutant does not produce a failed assertion but a stack overflow that takes the
+test host down, so its evidence is the aborted run plus a green re-run of the same set with
+only the new cell excluded.
+
 Sixteen of the twenty are `direct` and `S` or `M` effort. Numbers 12 and 20 pair with High and
 Medium findings respectively (F-recorder-events-024-01 and F-recording-tree-039-01), which is the
 expected shape: where a test cannot fail, the guard also has no coverage.

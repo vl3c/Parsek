@@ -4100,6 +4100,82 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void IsPreRewindCarveOut_SameChainDifferentBranch_NotCarvedOut()
+        {
+            // An optimizer-branch sibling on the same ChainId but a DIFFERENT
+            // ChainBranch is not part of TIP's pre-rewind history, so it must
+            // keep its supersede row.
+            var tip = new Recording
+            {
+                RecordingId = "rec_tip_branch",
+                IsDebris = false,
+                ChainId = "chain_branch",
+                ChainBranch = 1,
+                ChainIndex = 1,
+                ExplicitStartUT = 34.0,
+                ExplicitEndUT = 52.0,
+            };
+            RecordingStore.AddCommittedInternal(tip);
+
+            var marker = new ReFlySessionMarker
+            {
+                RewindPointUT = 34.0,
+                InvokedUT = 34.0,
+                SupersedeTargetId = "rec_tip_branch",
+                PreSessionBranchPointIds = new List<string>(),
+            };
+            var sibling = new Recording
+            {
+                RecordingId = "rec_other_branch",
+                IsDebris = false,
+                ChainId = "chain_branch",
+                ChainBranch = 0, // DIFFERENT branch, same chain
+                ChainIndex = 0,
+                ExplicitStartUT = 8.42,
+                ExplicitEndUT = 34.0,
+            };
+            StampActualBounds(sibling, 8.42, 34.0);
+
+            bool result = SupersedeCommit.IsPreRewindCarveOut(
+                sibling, marker, out var reason);
+
+            Assert.False(result);
+            Assert.Equal(SupersedeCommit.PreRewindCarveOutReason.None, reason);
+        }
+
+        [Fact]
+        public void IsPreRewindCarveOut_SupersedeTargetIdUnresolvable_NotCarvedOut()
+        {
+            // Mirror direction of the no-SupersedeTargetId cell: the id IS set
+            // but no committed recording carries it, so TIP cannot be resolved
+            // and the chain-head case must not fire off a vanished TIP.
+            var marker = new ReFlySessionMarker
+            {
+                RewindPointUT = 34.0,
+                InvokedUT = 34.0,
+                SupersedeTargetId = "rec_missing",
+                PreSessionBranchPointIds = new List<string>(),
+            };
+            var head = new Recording
+            {
+                RecordingId = "rec_head_vanished_tip",
+                IsDebris = false,
+                ChainId = "chain_vanished",
+                ChainBranch = 0,
+                ChainIndex = 0,
+                ExplicitStartUT = 8.0,
+                ExplicitEndUT = 34.0,
+            };
+            StampActualBounds(head, 8.0, 34.0);
+
+            bool result = SupersedeCommit.IsPreRewindCarveOut(
+                head, marker, out var reason);
+
+            Assert.False(result);
+            Assert.Equal(SupersedeCommit.PreRewindCarveOutReason.None, reason);
+        }
+
+        [Fact]
         public void IsPreRewindCarveOut_NestedReFly_HEAD2EqualsFork1_CarvedOutCorrectly()
         {
             // Pass 4 regression test: this is the case my Pass 2 id-match

@@ -694,5 +694,94 @@ namespace Parsek.Tests
                 && l.Contains("recordingId=" + rec.RecordingId)
                 && l.Contains("missingBpId=" + missingBpId));
         }
+
+        // Fails if: WalkToTerminalLeaves follows a child whose
+        // VesselPersistentId differs from the focused vessel. The hint pins
+        // the walk to rec1, so the PID-matching grandchild is reachable ONLY
+        // through the mismatched child - without the filter it would be
+        // accepted as the focused vessel's continuation parent.
+        [Fact]
+        public void ResolveSwitchContinuationParent_ChildPidMismatch_SkipsChildAndReturnsStandalone()
+        {
+            var tree = MakeTree("tree-ChildPidMismatch");
+            var rec1 = MakeRecording("rec1", tree.Id, 42u, "Vessel", 10.0);
+            var rec2 = MakeRecording("rec2", tree.Id, 999u, "Debris", 20.0);
+            var rec3 = MakeRecording("rec3", tree.Id, 42u, "Vessel", 30.0);
+            var bp1 = new BranchPoint
+            {
+                Id = "bp-1",
+                Type = BranchPointType.VesselSwitchContinuation,
+                UT = 20.0,
+                ParentRecordingIds = new List<string> { rec1.RecordingId },
+                ChildRecordingIds = new List<string> { rec2.RecordingId },
+            };
+            var bp2 = new BranchPoint
+            {
+                Id = "bp-2",
+                Type = BranchPointType.VesselSwitchContinuation,
+                UT = 30.0,
+                ParentRecordingIds = new List<string> { rec2.RecordingId },
+                ChildRecordingIds = new List<string> { rec3.RecordingId },
+            };
+            rec1.ChildBranchPointId = bp1.Id;
+            rec2.ParentBranchPointId = bp1.Id;
+            rec2.ChildBranchPointId = bp2.Id;
+            rec3.ParentBranchPointId = bp2.Id;
+            tree.AddOrReplaceRecording(rec1);
+            tree.AddOrReplaceRecording(rec2);
+            tree.AddOrReplaceRecording(rec3);
+            tree.BranchPoints.Add(bp1);
+            tree.BranchPoints.Add(bp2);
+
+            SwitchContinuationParentResolution res =
+                SwitchSegmentBuilder.ResolveSwitchContinuationParent(
+                    tree, 42u, focusedVesselRecordingIdHint: "rec1");
+
+            Assert.Equal(SwitchContinuationParentStatus.NoMatchUseStandalone,
+                res.Status);
+            Assert.Null(res.TerminalLeafRecordingId);
+            Assert.Empty(res.CandidateRecordingIds);
+        }
+
+        // Fails if: the visited-set short-circuit is removed - a cyclic tree
+        // then recurses until the stack overflows instead of terminating.
+        [Fact]
+        public void ResolveSwitchContinuationParent_CyclicBranchPoints_TerminateWithoutHanging()
+        {
+            var tree = MakeTree("tree-Cycle");
+            var rec1 = MakeRecording("rec1", tree.Id, 42u, "Vessel", 10.0);
+            var rec2 = MakeRecording("rec2", tree.Id, 42u, "Vessel", 20.0);
+            var bp1 = new BranchPoint
+            {
+                Id = "bp-1",
+                Type = BranchPointType.VesselSwitchContinuation,
+                UT = 20.0,
+                ParentRecordingIds = new List<string> { rec1.RecordingId },
+                ChildRecordingIds = new List<string> { rec2.RecordingId },
+            };
+            var bp2 = new BranchPoint
+            {
+                Id = "bp-2",
+                Type = BranchPointType.VesselSwitchContinuation,
+                UT = 30.0,
+                ParentRecordingIds = new List<string> { rec2.RecordingId },
+                ChildRecordingIds = new List<string> { rec1.RecordingId },
+            };
+            rec1.ChildBranchPointId = bp1.Id;
+            rec2.ChildBranchPointId = bp2.Id;
+            tree.AddOrReplaceRecording(rec1);
+            tree.AddOrReplaceRecording(rec2);
+            tree.BranchPoints.Add(bp1);
+            tree.BranchPoints.Add(bp2);
+
+            SwitchContinuationParentResolution res =
+                SwitchSegmentBuilder.ResolveSwitchContinuationParent(tree, 42u);
+
+            // Neither recording is a terminal leaf, so the cycle yields no
+            // candidate at all - the contract is that it TERMINATES.
+            Assert.Equal(SwitchContinuationParentStatus.NoMatchUseStandalone,
+                res.Status);
+            Assert.Empty(res.CandidateRecordingIds);
+        }
     }
 }

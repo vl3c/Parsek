@@ -800,6 +800,45 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void SplitAtUT_StraddleCheckpointsTouchingSplitUT_AssignedToOwningHalfOnly()
+        {
+            // Both checkpoints touch splitUT=34 exactly:
+            //   cp0 [10,34] - ends AT the split, so it belongs wholly to HEAD.
+            //   cp1 [34,50] - starts AT the split, so it belongs wholly to TIP.
+            // Neither may take the straddle arm: that would emit a zero-length
+            // clone ([34,34]) into the opposite half.
+            var checkpoints = new List<OrbitSegment>
+            {
+                MakeCheckpoint(10.0, 34.0, inclination: 11.0, eccentricity: 0.11),
+                MakeCheckpoint(34.0, 50.0, inclination: 22.0, eccentricity: 0.22),
+            };
+            var rec = MakeRecordingWithSectionCheckpoints(10.0, 50.0, 34.0,
+                checkpoints, "rec-cp-touching");
+            // Deliberately NO top-level OrbitSegments mirror: seeding them makes the
+            // Ensure pass split the section at 34 so the straddle partition never runs.
+
+            var tip = RecordingOptimizer.SplitAtUT(rec, 34.0);
+
+            Assert.NotNull(tip);
+
+            Assert.Single(rec.TrackSections);
+            var headSection = rec.TrackSections[0];
+            Assert.NotNull(headSection.checkpoints);
+            Assert.Single(headSection.checkpoints);
+            Assert.Equal(10.0, headSection.checkpoints[0].startUT);
+            Assert.Equal(34.0, headSection.checkpoints[0].endUT);
+            Assert.Equal(11.0, headSection.checkpoints[0].inclination);
+
+            Assert.Single(tip.TrackSections);
+            var tailSection = tip.TrackSections[0];
+            Assert.NotNull(tailSection.checkpoints);
+            Assert.Single(tailSection.checkpoints);
+            Assert.Equal(34.0, tailSection.checkpoints[0].startUT);
+            Assert.Equal(50.0, tailSection.checkpoints[0].endUT);
+            Assert.Equal(22.0, tailSection.checkpoints[0].inclination);
+        }
+
+        [Fact]
         public void SplitAtUT_StraddleSectionWithNullCheckpoints_PreservesNullOnBothHalves()
         {
             // A straddling section with checkpoints=null must yield head+tail

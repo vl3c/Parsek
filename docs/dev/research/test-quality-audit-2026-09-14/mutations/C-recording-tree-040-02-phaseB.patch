@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/SwitchSegmentBuilder.cs b/Source/Parsek/SwitchSegmentBuilder.cs
+index 533ac31ee..d6c72ed6e 100644
+--- a/Source/Parsek/SwitchSegmentBuilder.cs
++++ b/Source/Parsek/SwitchSegmentBuilder.cs
+@@ -344,8 +344,7 @@ namespace Parsek
+         {
+             if (rec == null || string.IsNullOrEmpty(rec.RecordingId))
+                 return;
+-            if (!visited.Add(rec.RecordingId))
+-                return;
++            visited.Add(rec.RecordingId);
+ 
+             // Terminal: PID must still match.
+             if (string.IsNullOrEmpty(rec.ChildBranchPointId))
