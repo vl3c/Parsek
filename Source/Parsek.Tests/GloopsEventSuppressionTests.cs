@@ -269,46 +269,6 @@ namespace Parsek.Tests
             Assert.Equal(snapshotCountBefore - 1, GameStateStore.ContractSnapshots.Count);
         }
 
-        // Fails if: PurgeEventsForRecordings stops purging the milestone
-        // event lists. The cell above claims all three stores but seeds no
-        // milestone, so the MilestoneStore.PurgeTaggedEvents limb - the one
-        // that covers the F5-then-discard path, where the ghost-only events
-        // have already been flushed into a committed milestone - is
-        // unwitnessed. Dropping it leaks ghost-only tagged events into the
-        // career state and the returned count under-reports the purge.
-        [Fact]
-        public void PurgeEventsForRecordings_RemovesGloopsTaggedEventHeldInAMilestone()
-        {
-            MilestoneStore.AddMilestoneForTesting(new Milestone
-            {
-                MilestoneId = "m-gloops",
-                RecordingId = "gloops-milestone",
-                Committed = true,
-                LastReplayedEventIndex = -1,
-                Events = new List<GameStateEvent>
-                {
-                    new GameStateEvent
-                    {
-                        ut = 120.0,
-                        eventType = GameStateEventType.TechResearched,
-                        key = "basicRocketry",
-                        detail = "cost=5",
-                        recordingId = "gloops-milestone"
-                    }
-                }
-            });
-
-            Assert.Equal(1, MilestoneStore.MilestoneCount);
-            Assert.Single(MilestoneStore.Milestones[0].Events);
-
-            int removed = GameStateStore.PurgeEventsForRecordings(
-                new[] { "gloops-milestone" }, "test");
-
-            Assert.Equal(1, removed);
-            // The milestone held only that event, so it is dropped with it.
-            Assert.Equal(0, MilestoneStore.MilestoneCount);
-        }
-
         // ================================================================
         // RecalculateAndPatch integration — purge happens in-place, log fires once,
         // subsequent calls are no-ops because the ledger is already clean.

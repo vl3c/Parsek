@@ -365,9 +365,9 @@ _(unreleased — entries accumulate here per commit)_
   its own cell. Nothing a player sees changes.
 
 - **Tests: twelve priority-2 data-loss and career coverage gaps from the unit-test quality
-  audit now have cells.** All twelve rows were new coverage - none was already pinned by a
-  cell the recent audit PRs added - so twelve new cells landed and zero rows closed as
-  already covered. Eleven sit on the career ledger. The KSC expectation classifier's four
+  audit are closed.** Eleven rows were new coverage and one (the gloops milestone purge)
+  turned out to be guarded already by the discard-fate tests, so eleven new cells landed and
+  one row closed as already covered. Eleven sit on the career ledger. The KSC expectation classifier's four
   cost-bearing arms (facility upgrade, facility repair, kerbal hire, contract advance) are
   pinned directly for the first time, because the reconciler short-circuits on a zero
   expected delta and an arm reading a wrong (always-zero) field reported nothing. The
