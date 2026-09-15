@@ -1,0 +1,123 @@
+{
+ "batch_id": "map-render-009",
+ "cluster": "map-render",
+ "tier": "A",
+ "expected_methods": 26,
+ "files": [
+  {
+   "file": "Rendering/PannotationsSidecarRoundTripTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Write_Read_SingleSpline_RoundTripsBitExact",
+       "line": 64
+      },
+      {
+       "method": "Write_Read_EmptyReservedBlocks_StableLayout",
+       "line": 101
+      },
+      {
+       "method": "Probe_FileMissing_ReturnsFalseAnnotationAbsent",
+       "line": 123
+      },
+      {
+       "method": "Probe_VersionMismatch_ReturnsSupportedFalse",
+       "line": 135
+      },
+      {
+       "method": "Probe_AlgorithmStampMismatch_DiscardsFile",
+       "line": 159
+      },
+      {
+       "method": "Probe_SourceSidecarEpochMismatch_FieldExposed",
+       "line": 177
+      },
+      {
+       "method": "Probe_ConfigurationHashFieldExposed",
+       "line": 196
+      },
+      {
+       "method": "ComputeConfigurationHash_BitStableAcrossRuns",
+       "line": 213
+      },
+      {
+       "method": "ComputeConfigurationHash_PerturbingTensionChangesHash",
+       "line": 228
+      },
+      {
+       "method": "ComputeConfigurationHash_PerturbingSplineTypeChangesHash",
+       "line": 242
+      },
+      {
+       "method": "ComputeConfigurationHash_PerturbingMinSamplesChangesHash",
+       "line": 255
+      },
+      {
+       "method": "Write_UsesAtomicTmpRename",
+       "line": 269
+      },
+      {
+       "method": "TryRead_NegativeStringTableCount_ReturnsFalseWithReason",
+       "line": 314
+      },
+      {
+       "method": "TryRead_NegativeSplineCount_ReturnsFalseWithReason",
+       "line": 338
+      },
+      {
+       "method": "TryRead_OversizedStringTableCount_ReturnsFalseWithReason",
+       "line": 359
+      },
+      {
+       "method": "TryRead_OversizedSplineCount_ReturnsFalseWithReason",
+       "line": 382
+      },
+      {
+       "method": "TryRead_TruncatedFile_ReturnsFalseWithReason",
+       "line": 402
+      },
+      {
+       "method": "TryRead_GenericMalformedPayload_DoesNotThrow",
+       "line": 432
+      },
+      {
+       "method": "TryRead_StringTableCountExceedsRemainingBytes_RejectedBeforeAllocation",
+       "line": 467
+      },
+      {
+       "method": "TryRead_SplineCountAboveRealisticCap_RejectedWithExceedsCap",
+       "line": 497
+      },
+      {
+       "method": "Write_OverwritesExistingFile",
+       "line": 532
+      },
+      {
+       "method": "TryProbe_FileLockedByAnotherProcess_ReturnsFalse_DoesNotThrow",
+       "line": 562
+      },
+      {
+       "method": "TryProbe_MalformedRecordingIdLength_ReturnsFalse_DoesNotThrow",
+       "line": 593
+      },
+      {
+       "method": "AnchorCandidatesList_RoundTripsByteIdenticalAcrossWriteRead",
+       "line": 628
+      },
+      {
+       "method": "AnchorCandidatesList_EmptyList_RoundTripsAsEmpty",
+       "line": 685
+      },
+      {
+       "method": "AnchorCandidatesList_RoundTripsBubbleEntryAndBubbleExit",
+       "line": 706
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,267 @@
+{
+ "batch_id": "mission-groups-003",
+ "cluster": "mission-groups",
+ "tier": "A",
+ "expected_methods": 62,
+ "files": [
+  {
+   "file": "MissionSpanClockTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "TryComputeSpanLoopUT_WrapsSeamlessly_AtSpanEnd",
+       "line": 38
+      },
+      {
+       "method": "TryComputeSpanLoopUT_ClampsTinySpanToMinCycleDuration",
+       "line": 71
+      },
+      {
+       "method": "TryComputeSpanLoopUT_BeforeSpanStart_ReturnsFalseOrSpanStart",
+       "line": 97
+      },
+      {
+       "method": "TryComputeSpanLoopUT_ZeroDurationSpan_ReturnsFalse",
+       "line": 111
+      },
+      {
+       "method": "TryComputeSpanLoopUT_CadenceGreaterThanSpan_FlagsParkedTail",
+       "line": 123
+      },
+      {
+       "method": "TryComputeSpanLoopUT_EmptyOrNullCuts_BitIdenticalToNoCompression",
+       "line": 163
+      },
+      {
+       "method": "TryComputeSpanLoopUT_WithCut_WrapsOverCompressedSpan_SkipsCut_BoundaryMatches",
+       "line": 193
+      },
+      {
+       "method": "DecideUnitMemberRender_MemberWindowStraddlingCut_RendersNonCutPortions_NeverInsideCut",
+       "line": 242
+      },
+      {
+       "method": "DecideUnitMemberRender_MemberWindowFullyInsideCut_NeverRenders",
+       "line": 273
+      },
+      {
+       "method": "TryComputeSpanLoopUT_AnchorEqualsCurrentUT_StartsAtSpanStart",
+       "line": 297
+      },
+      {
+       "method": "TryComputeSpanLoopUT_AnchorBeforeCurrentByK_StartsAtSpanStartPlusK",
+       "line": 312
+      },
+      {
+       "method": "TryComputeSpanLoopUT_BeforeAnchor_ReturnsFalse",
+       "line": 328
+      },
+      {
+       "method": "DecideUnitMemberRender_AnchorEqualsCurrentUT_RendersAtSpanStart",
+       "line": 341
+      },
+      {
+       "method": "IsLoopUTInMemberWindow_InsideAndBoundary_True_OutsideFalse",
+       "line": 358
+      },
+      {
+       "method": "IsLoopUTInMemberWindow_OverlappingMembers_BothCoverTheOverlap",
+       "line": 370
+      },
+      {
+       "method": "DecideUnitMemberRender_RendersWhenClockInOwnWindow",
+       "line": 394
+      },
+      {
+       "method": "DecideUnitMemberRender_HiddenWhenClockOutsideOwnWindow",
+       "line": 409
+      },
+      {
+       "method": "DecideUnitMemberRender_ConcurrentMembers_BothRenderInOverlap",
+       "line": 420
+      },
+      {
+       "method": "DecideUnitMemberRender_InterCycleTail_HidesEveryMember",
+       "line": 435
+      },
+      {
+       "method": "DecideUnitMemberRender_BeforeSpanStart_SpanClockUnresolved",
+       "line": 454
+      },
+      {
+       "method": "DecideUnitMemberRender_CycleIndexAdvancesAfterWrap",
+       "line": 463
+      },
+      {
+       "method": "UnitMemberOverlaps_CadenceShorterThanSpan_True",
+       "line": 479
+      },
+      {
+       "method": "UnitMemberOverlaps_CadenceAtOrAboveSpan_False",
+       "line": 489
+      },
+      {
+       "method": "UnitMemberOverlaps_DegenerateSpan_False",
+       "line": 502
+      },
+      {
+       "method": "TryComputeMissionInstanceSpanLoopUT_LiveInstance_ReturnsSpanProgress",
+       "line": 512
+      },
+      {
+       "method": "TryComputeMissionInstanceSpanLoopUT_EndedOrNotLaunched_ReturnsFalse",
+       "line": 529
+      },
+      {
+       "method": "ComputeMemberOverlapScheduleStartUT_StaggersByMemberOffsetFromAnchor",
+       "line": 546
+      },
+      {
+       "method": "Scheduled_FlightTsSampler_AgreeOverSweep",
+       "line": 609
+      },
+      {
+       "method": "ResolveTrackingStationSampleUT_NonMember_ReturnsLiveUT_NotHidden",
+       "line": 689
+      },
+      {
+       "method": "ResolveTrackingStationSampleUT_NullSet_ReturnsLiveUT_NotHidden",
+       "line": 702
+      },
+      {
+       "method": "ResolveTrackingStationSampleUT_EmptySet_ReturnsLiveUT_NotHidden",
+       "line": 713
+      },
+      {
+       "method": "ResolveTrackingStationSampleUT_MemberInWindow_ReturnsLoopUT_NotHidden",
+       "line": 725
+      },
+      {
+       "method": "ResolveTrackingStationSampleUT_MemberInWindow_WrappedCycle_ReturnsFoldedLoopUT",
+       "line": 738
+      },
+      {
+       "method": "ResolveTrackingStationSampleUT_MemberOutsideWindow_ReportsHidden",
+       "line": 752
+      },
+      {
+       "method": "ResolveTrackingStationSampleUT_BeforeSpanStart_ReportsHidden",
+       "line": 765
+      },
+      {
+       "method": "ResolveTrackingStationSampleUT_AnchoredUnit_RemapsLiveUTThroughAnchor",
+       "line": 778
+      },
+      {
+       "method": "ResolveTrackingStationSampleUT_AnchoredUnit_AtAnchor_RendersAtSpanStart",
+       "line": 794
+      },
+      {
+       "method": "MapPresenceEpochShift_NonMember_IsZero",
+       "line": 814
+      },
+      {
+       "method": "MapPresenceEpochShift_WrappedCycle_EqualsWholeCadenceOffset",
+       "line": 828
+      },
+      {
+       "method": "MapPresenceEpochShift_AnchoredUnit_EqualsAnchorMinusSpanStart",
+       "line": 843
+      },
+      {
+       "method": "UnitMember_SpanClockBelowPayloadActivation_GateHidesMember",
+       "line": 860
+      },
+      {
+       "method": "UnitMember_ContiguousMember_GateDoesNotFire",
+       "line": 898
+      },
+      {
+       "method": "ShouldSourceDebrisFromUnitSpan_EmptySetOrNegativeParent_False",
+       "line": 929
+      },
+      {
+       "method": "ShouldRetargetWatchOnUnitHandoff_WatchedStopsRendering_NewLiveExists_True",
+       "line": 947
+      },
+      {
+       "method": "ShouldRetargetWatchOnUnitHandoff_StillRendering_False",
+       "line": 960
+      },
+      {
+       "method": "ShouldRetargetWatchOnUnitHandoff_WatchedIndexNotInUnit_False",
+       "line": 971
+      },
+      {
+       "method": "ShouldRetargetWatchOnUnitHandoff_NothingLive_False",
+       "line": 981
+      },
+      {
+       "method": "ShouldRetargetWatchOnUnitHandoff_WasNotRendering_False",
+       "line": 992
+      },
+      {
+       "method": "ShouldRetargetWatchOnUnitHandoff_NotWatching_False",
+       "line": 1003
+      },
+      {
+       "method": "IsBetterUnitCameraLiveMember_FirstInWindowMemberWins",
+       "line": 1018
+      },
+      {
+       "method": "IsBetterUnitCameraLiveMember_SameVesselNameBeatsHigherStartNonMatch",
+       "line": 1033
+      },
+      {
+       "method": "IsBetterUnitCameraLiveMember_NonMatchNeverBeatsMatch",
+       "line": 1049
+      },
+      {
+       "method": "IsBetterUnitCameraLiveMember_WithinTierHighestStartWins",
+       "line": 1059
+      },
+      {
+       "method": "ResolveUnitHandoffRetargetMember_Continuation_ReturnsLiveMember",
+       "line": 1075
+      },
+      {
+       "method": "ResolveUnitHandoffRetargetMember_NonContinuation_SuppressesRetarget",
+       "line": 1084
+      },
+      {
+       "method": "ResolveUnitHandoffStoredRenderingEdge_RetargetPending_PreservesEdge",
+       "line": 1102
+      },
+      {
+       "method": "ResolveUnitHandoffStoredRenderingEdge_TransferLanded_StoresRealValue",
+       "line": 1114
+      },
+      {
+       "method": "ResolveUnitHandoffStoredRenderingEdge_NoRetarget_StoresRealValue",
+       "line": 1125
+      },
+      {
+       "method": "ResolveUnitHandoffStoredRenderingEdge_NoRetargetNotRendering_StoresFalse",
+       "line": 1135
+      },
+      {
+       "method": "ComputeNewestMissionInstanceSpanLoopUT_TracksNewestInstancePhase",
+       "line": 1147
+      },
+      {
+       "method": "ComputeNewestMissionInstanceSpanLoopUT_PhaseClampedToSpan",
+       "line": 1165
+      },
+      {
+       "method": "ComputeNewestMissionInstanceSpanLoopUT_BeforeAnchor_ReturnsSpanStart",
+       "line": 1180
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

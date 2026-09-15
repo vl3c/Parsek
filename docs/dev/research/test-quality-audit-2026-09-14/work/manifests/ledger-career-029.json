@@ -1,0 +1,163 @@
+{
+ "batch_id": "ledger-career-029",
+ "cluster": "ledger-career",
+ "tier": "A",
+ "expected_methods": 36,
+ "files": [
+  {
+   "file": "KerbalExperienceFacetTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "CareerEntry_RoundtripsThroughTheWireFormat",
+       "line": 28
+      },
+      {
+       "method": "CareerEntry_EscapesTheSeparatorsItsOwnFormatUses",
+       "line": 44
+      },
+      {
+       "method": "CareerEntry_ParseSkipsMalformedSegmentsWithoutLosingTheRest",
+       "line": 62
+      },
+      {
+       "method": "CareerEntry_EmptyAndNullParseToEmpty",
+       "line": 73
+      },
+      {
+       "method": "CareerEntry_FlightNumberIsPartOfIdentity",
+       "line": 82
+      },
+      {
+       "method": "Accumulator_UnionIsIdempotent",
+       "line": 103
+      },
+      {
+       "method": "Accumulator_SkipsTypelessEntries",
+       "line": 118
+      },
+      {
+       "method": "Accumulator_OrderedListIsDeterministic",
+       "line": 132
+      },
+      {
+       "method": "Converter_MapsExperienceGainedToKerbalExperience",
+       "line": 169
+      },
+      {
+       "method": "Converter_DropsRowsWithNoEntriesOrNoKerbal",
+       "line": 187
+      },
+      {
+       "method": "Codec_RoundtripsAKerbalExperienceAction",
+       "line": 200
+      },
+      {
+       "method": "KerbalExperience_IsSupersedeTombstoneEligible",
+       "line": 235
+      },
+      {
+       "method": "KerbalExperience_NullScopedIsStillNeverTombstoned",
+       "line": 253
+      },
+      {
+       "method": "Module_AccumulatesPerKerbalAndUnionsAcrossActions",
+       "line": 283
+      },
+      {
+       "method": "Module_ResetClearsTheAccumulator",
+       "line": 303
+      },
+      {
+       "method": "Module_IgnoresRowsWithNoEntries",
+       "line": 318
+      },
+      {
+       "method": "Reassert_ReportsOnlyTheEntriesTheRosterIsMissing",
+       "line": 349
+      },
+      {
+       "method": "Reassert_NeverReportsEntriesTheRosterHasAndTheLedgerDoesNot",
+       "line": 368
+      },
+      {
+       "method": "Reassert_EmptyRosterLogYieldsEveryLedgerEntry",
+       "line": 387
+      },
+      {
+       "method": "Reassert_NoLedgerEntriesYieldsNothing",
+       "line": 401
+      },
+      {
+       "method": "Reassert_ResultIsDeterministicallyOrdered",
+       "line": 410
+      },
+      {
+       "method": "Reassert_NeverAppendsIntoAFlightGroupTheRosterEndedWithADeath",
+       "line": 426
+      },
+      {
+       "method": "Reassert_DeathInOneFlightDoesNotBlockAnother",
+       "line": 453
+      },
+      {
+       "method": "Reassert_IsDeferredWhileAReFlySessionIsActive",
+       "line": 474
+      },
+      {
+       "method": "Reassert_SkipsAKerbalTheRosterDoesNotHaveInsteadOfCreatingOne",
+       "line": 506
+      },
+      {
+       "method": "Parser_ReadsCareerLogNodeInStockShape",
+       "line": 576
+      },
+      {
+       "method": "Parser_SkipsNonNumericKeysAndEmptyValues",
+       "line": 601
+      },
+      {
+       "method": "Parser_NullOrEmptyNodeYieldsEmpty",
+       "line": 617
+      },
+      {
+       "method": "Parser_ReadsPerKerbalCareerLogsFromASyntheticSave",
+       "line": 624
+      },
+      {
+       "method": "Parser_SaveWithNoRosterLeavesTheFacetEmptyRatherThanFailingTheParse",
+       "line": 664
+      },
+      {
+       "method": "Diff_ReportsAnEntryTheReconCreditsAndTheSaveLacks",
+       "line": 696
+      },
+      {
+       "method": "Diff_DoesNotReportEntriesTheSaveHasAndTheReconDoesNot",
+       "line": 714
+      },
+      {
+       "method": "Diff_KerbalMissingFromTheSaveRosterIsReported",
+       "line": 731
+      },
+      {
+       "method": "KerbalXp_IsReportOnlyNotAlwaysHard",
+       "line": 745
+      },
+      {
+       "method": "Recorder_SubscribesAndUnsubscribesTheExperienceHandlerSymmetrically",
+       "line": 766
+      },
+      {
+       "method": "Recorder_ExperienceHandlerIsAnInstanceMethod",
+       "line": 785
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

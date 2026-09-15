@@ -1,0 +1,315 @@
+{
+ "batch_id": "trajectory-orbit-011",
+ "cluster": "trajectory-orbit",
+ "tier": "A",
+ "expected_methods": 74,
+ "files": [
+  {
+   "file": "AnchorDetectorTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "FindNearestAnchor_EmptyVesselList_ReturnsZeroPidAndMaxDistance",
+       "line": 40
+      },
+      {
+       "method": "FindNearestAnchor_NoVessels_ReturnsZeroPidAndMaxDistance",
+       "line": 53
+      },
+      {
+       "method": "FindNearestAnchor_SingleVesselWithinRange_ReturnsItsPidAndDistance",
+       "line": 71
+      },
+      {
+       "method": "FindNearestAnchor_SingleVesselOutOfRange_StillReturnsIt",
+       "line": 89
+      },
+      {
+       "method": "FindNearestAnchor_MultipleVessels_ReturnsNearest",
+       "line": 113
+      },
+      {
+       "method": "FindNearestAnchor_FocusedVesselExcludedFromCandidates",
+       "line": 137
+      },
+      {
+       "method": "FindNearestAnchor_OnlyFocusedVessel_ReturnsZero",
+       "line": 156
+      },
+      {
+       "method": "FindNearestAnchor_TreeVesselsExcluded",
+       "line": 178
+      },
+      {
+       "method": "FindNearestAnchor_AllVesselsInTree_ReturnsZero",
+       "line": 200
+      },
+      {
+       "method": "FindNearestAnchor_NullTreePids_NoExclusion",
+       "line": 221
+      },
+      {
+       "method": "TryCreateRecordingAnchorCandidate_ComputesPriorityMetadata",
+       "line": 244
+      },
+      {
+       "method": "TryCreateRecordingAnchorCandidate_RejectsLoopAnchoredCandidate",
+       "line": 283
+      },
+      {
+       "method": "TryCreateRecordingAnchorCandidate_RejectsFocusedRecording",
+       "line": 307
+      },
+      {
+       "method": "IsRecordingAnchorDAGOrderEligible_SameTreeRequiresOlderCandidate",
+       "line": 326
+      },
+      {
+       "method": "IsRecordingAnchorDAGOrderEligible_DifferentTreeAllowedButSameTreeUnassignedRejected",
+       "line": 359
+      },
+      {
+       "method": "TryResolveLoadedAnchorRecordingId_BackgroundVessel_ResolvesFromBackgroundMap",
+       "line": 394
+      },
+      {
+       "method": "TryResolveLoadedAnchorRecordingId_ActiveVesselNotInBackgroundMap_ResolvesActiveRecording",
+       "line": 412
+      },
+      {
+       "method": "TryResolveLoadedAnchorRecordingId_BackgroundMapWinsOverActive",
+       "line": 433
+      },
+      {
+       "method": "TryResolveLoadedAnchorRecordingId_UnknownVessel_ReturnsFalse",
+       "line": 453
+      },
+      {
+       "method": "TryResolveLoadedAnchorRecordingId_ZeroPid_ReturnsFalse",
+       "line": 471
+      },
+      {
+       "method": "TryResolveLoadedAnchorRecordingId_NoActiveRecording_ReturnsFalseForNonBackground",
+       "line": 489
+      },
+      {
+       "method": "TryResolveLoadedAnchorRecordingId_ActiveRecordingIdSetButPidMismatch_ReturnsFalse",
+       "line": 507
+      },
+      {
+       "method": "TryResolveLoadedAnchorRecordingId_NullBackgroundMap_StillResolvesActive",
+       "line": 527
+      },
+      {
+       "method": "LiveAnchorLaunchMatches_ConclusivelyDifferentLaunchGuid_Rejects",
+       "line": 559
+      },
+      {
+       "method": "LiveAnchorLaunchMatches_SameLaunchGuid_Accepts",
+       "line": 574
+      },
+      {
+       "method": "LiveAnchorLaunchMatches_SameLaunchGuidInADifferentTextForm_Accepts",
+       "line": 588
+      },
+      {
+       "method": "LiveAnchorLaunchMatches_UnknownLiveGuid_FallsBackToPriorBehaviour",
+       "line": 604
+      },
+      {
+       "method": "LiveAnchorLaunchMatches_LegacyRecordingWithNoRecordedGuid_FallsBackToPriorBehaviour",
+       "line": 617
+      },
+      {
+       "method": "LiveAnchorLaunchMatches_NullRecording_Rejects",
+       "line": 626
+      },
+      {
+       "method": "TryCreateRecordingAnchorCandidate_RejectsSameTreeNewerCandidate",
+       "line": 635
+      },
+      {
+       "method": "FindNearestRecordingAnchor_EmptyCandidates_ReturnsNotFound",
+       "line": 664
+      },
+      {
+       "method": "FindNearestRecordingAnchor_SealedCandidateBeatsNearerUnsealedCandidate",
+       "line": 678
+      },
+      {
+       "method": "FindNearestRecordingAnchor_RangeFilterRunsBeforePriority",
+       "line": 698
+      },
+      {
+       "method": "FindNearestRecordingAnchor_SameReplayPointBeatsSlightlyNearerGenericCandidate",
+       "line": 719
+      },
+      {
+       "method": "FindNearestRecordingAnchor_SameVesselLineageBeatsSlightlyNearerGenericCandidate",
+       "line": 739
+      },
+      {
+       "method": "FindNearestRecordingAnchor_DistanceBreaksTieInsideSamePriorityClass",
+       "line": 759
+      },
+      {
+       "method": "FindNearestRecordingAnchor_RecordingIdTieBreaksEqualRankAndDistance",
+       "line": 779
+      },
+      {
+       "method": "FindNearestRecordingAnchor_SkipsFocusedRecordingId",
+       "line": 799
+      },
+      {
+       "method": "FindNearestRecordingAnchor_SkipsSameNonzeroDiagnosticPidAsFocusedVessel",
+       "line": 819
+      },
+      {
+       "method": "FindNearestRecordingAnchor_SkipsNullAndEmptyRecordingIds",
+       "line": 839
+      },
+      {
+       "method": "FindNearestRecordingAnchor_SourceTieBreakIsDeterministic",
+       "line": 860
+      },
+      {
+       "method": "FindNearestRecordingAnchor_GhostIndexTieBreakIsDeterministicAndIgnoresPid",
+       "line": 880
+      },
+      {
+       "method": "ShouldUseRelativeFrame_NotRelative_InsideEntry_ReturnsTrue",
+       "line": 905
+      },
+      {
+       "method": "ShouldUseRelativeFrame_NotRelative_AtEntryBoundary_ReturnsFalse",
+       "line": 911
+      },
+      {
+       "method": "ShouldUseRelativeFrame_NotRelative_BeyondEntry_ReturnsFalse",
+       "line": 918
+      },
+      {
+       "method": "ShouldUseRelativeFrame_NotRelative_JustInsideEntry_ReturnsTrue",
+       "line": 924
+      },
+      {
+       "method": "ShouldUseRelativeFrame_Relative_InsideExit_ReturnsTrue",
+       "line": 934
+      },
+      {
+       "method": "ShouldUseRelativeFrame_Relative_AtExitBoundary_ReturnsFalse",
+       "line": 940
+      },
+      {
+       "method": "ShouldUseRelativeFrame_Relative_BeyondExit_ReturnsFalse",
+       "line": 947
+      },
+      {
+       "method": "ShouldUseRelativeFrame_Relative_JustInsideExit_ReturnsTrue",
+       "line": 953
+      },
+      {
+       "method": "ShouldUseRelativeFrame_HysteresisGap_NotRelative_ReturnsFalse",
+       "line": 963
+      },
+      {
+       "method": "ShouldUseRelativeFrame_HysteresisGap_AlreadyRelative_ReturnsTrue",
+       "line": 971
+      },
+      {
+       "method": "IsInDockingApproach_InsideRange_ReturnsTrue",
+       "line": 983
+      },
+      {
+       "method": "IsInDockingApproach_AtBoundary_ReturnsFalse",
+       "line": 989
+      },
+      {
+       "method": "IsInDockingApproach_BeyondRange_ReturnsFalse",
+       "line": 995
+      },
+      {
+       "method": "IsInDockingApproach_ZeroDistance_ReturnsTrue",
+       "line": 1001
+      },
+      {
+       "method": "Constants_EntryLessThanExit",
+       "line": 1011
+      },
+      {
+       "method": "Constants_DockingLessThanEntry",
+       "line": 1017
+      },
+      {
+       "method": "Constants_HysteresisGapIs200m",
+       "line": 1023
+      },
+      {
+       "method": "Constants_EntryMatchesPhysicsBubble",
+       "line": 1030
+      },
+      {
+       "method": "Constants_DockingMatchesProximityDockingRange",
+       "line": 1037
+      },
+      {
+       "method": "IsRecordingAnchorEligible_DebrisCandidate_NonDebrisFocus_Rejected",
+       "line": 1068
+      },
+      {
+       "method": "IsRecordingAnchorEligible_DebrisCandidate_DebrisFocus_Rejected",
+       "line": 1085
+      },
+      {
+       "method": "IsRecordingAnchorEligible_NonDebrisCandidate_Accepted",
+       "line": 1111
+      },
+      {
+       "method": "TryCreateRecordingAnchorCandidate_DebrisCandidate_Returns_False",
+       "line": 1130
+      },
+      {
+       "method": "TryCreateRecordingAnchorCandidate_NonDebrisCandidate_Returns_True",
+       "line": 1167
+      },
+      {
+       "method": "FindNearestAnchor_LogsWhenAnchorFound",
+       "line": 1227
+      },
+      {
+       "method": "FindNearestAnchor_NoLogWhenNoAnchor",
+       "line": 1244
+      },
+      {
+       "method": "ShouldUseRelativeFrame_LogsRelativeEntry",
+       "line": 1257
+      },
+      {
+       "method": "ShouldUseRelativeFrame_LogsRelativeExit",
+       "line": 1268
+      },
+      {
+       "method": "ShouldUseRelativeFrame_NoLogWhenStayingAbsolute",
+       "line": 1279
+      },
+      {
+       "method": "ShouldUseRelativeFrame_NoLogWhenStayingRelative",
+       "line": 1288
+      },
+      {
+       "method": "IsInDockingApproach_LogsWhenDetected",
+       "line": 1297
+      },
+      {
+       "method": "IsInDockingApproach_NoLogWhenOutOfRange",
+       "line": 1308
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,259 @@
+{
+ "batch_id": "recorder-events-001",
+ "cluster": "recorder-events",
+ "tier": "A1",
+ "expected_methods": 60,
+ "files": [
+  {
+   "file": "PartEventTests.cs",
+   "ranges": [
+    {
+     "start": 25,
+     "end": 934,
+     "methods": [
+      {
+       "method": "PartEvents_SerializationRoundtrip",
+       "line": 25
+      },
+      {
+       "method": "PartEvents_BackwardCompat_EmptyListWhenNoNodes",
+       "line": 89
+      },
+      {
+       "method": "BuildPartSubtreeMap_FourPartTree",
+       "line": 111
+      },
+      {
+       "method": "BuildPartSubtreeMap_NullSnapshot_ReturnsEmpty",
+       "line": 141
+      },
+      {
+       "method": "BuildPartSubtreeMap_EmptySnapshot_ReturnsEmpty",
+       "line": 148
+      },
+      {
+       "method": "ParachuteTransition_StowedToSemiDeployed_EmitsSemiDeployedEvent",
+       "line": 159
+      },
+      {
+       "method": "ParachuteTransition_SemiToFullyDeployed_EmitsDeployedEvent",
+       "line": 172
+      },
+      {
+       "method": "ParachuteTransition_StowedToFullyDeployed_EmitsDeployedEvent",
+       "line": 183
+      },
+      {
+       "method": "ParachuteTransition_SemiDeployedToCut_EmitsCutEvent",
+       "line": 195
+      },
+      {
+       "method": "ParachuteTransition_FullyDeployedToCut_EmitsCutEvent",
+       "line": 206
+      },
+      {
+       "method": "ParachuteTransition_NoChange_ReturnsNull",
+       "line": 217
+      },
+      {
+       "method": "ParachuteTransition_AlreadySemiDeployed_ReturnsNull",
+       "line": 226
+      },
+      {
+       "method": "ParachuteTransition_AlreadyFullyDeployed_ReturnsNull",
+       "line": 235
+      },
+      {
+       "method": "ParachuteDestroyed_SemiDeployedChuteDeath_EmitsParachuteDestroyed",
+       "line": 244
+      },
+      {
+       "method": "ParachuteDestroyed_FullyDeployedChuteDeath_EmitsParachuteDestroyed",
+       "line": 254
+      },
+      {
+       "method": "ParachuteDestroyed_StowedChuteDeath_EmitsDestroyed",
+       "line": 264
+      },
+      {
+       "method": "ParachuteDestroyed_NonChutePart_EmitsDestroyed",
+       "line": 273
+      },
+      {
+       "method": "ParentRecordingId_SerializationRoundtrip",
+       "line": 287
+      },
+      {
+       "method": "ParentRecordingId_BackwardCompat_NullWhenMissing",
+       "line": 301
+      },
+      {
+       "method": "RemoveSpecificCrew_RemovesNamedKerbal",
+       "line": 317
+      },
+      {
+       "method": "RemoveSpecificCrew_KeepsOtherCrew",
+       "line": 335
+      },
+      {
+       "method": "RemoveSpecificCrew_NullSnapshot_NoException",
+       "line": 352
+      },
+      {
+       "method": "RemoveSpecificCrew_NullExcludeSet_NoException",
+       "line": 359
+      },
+      {
+       "method": "FindDuplicateCrew_DetectsDuplicate",
+       "line": 374
+      },
+      {
+       "method": "FindDuplicateCrew_NoDuplicates_ReturnsEmpty",
+       "line": 386
+      },
+      {
+       "method": "FindDuplicateCrew_EmptyExisting_ReturnsEmpty",
+       "line": 397
+      },
+      {
+       "method": "FindDuplicateCrew_NullInputs_ReturnsEmpty",
+       "line": 408
+      },
+      {
+       "method": "FindDuplicateCrew_MultipleDuplicates",
+       "line": 415
+      },
+      {
+       "method": "CreateRecordingFromFlightData_WithPartEvents_StoresEvents",
+       "line": 432
+      },
+      {
+       "method": "CreateRecordingFromFlightData_WithoutPartEvents_EmptyList",
+       "line": 452
+      },
+      {
+       "method": "EngineTransition_Ignition_EmitsIgnitedEvent",
+       "line": 471
+      },
+      {
+       "method": "EngineTransition_Shutdown_EmitsShutdownEvent",
+       "line": 490
+      },
+      {
+       "method": "EngineTransition_ThrottleChange_EmitsThrottleEvent",
+       "line": 507
+      },
+      {
+       "method": "EngineTransition_SmallThrottleChange_NoEvent",
+       "line": 523
+      },
+      {
+       "method": "EngineTransition_NotIgnited_NoChange_NoEvent",
+       "line": 536
+      },
+      {
+       "method": "EngineTransition_MultiEngine_DifferentModuleIndex",
+       "line": 549
+      },
+      {
+       "method": "EncodeEngineKey_NoCollision_HighPid",
+       "line": 575
+      },
+      {
+       "method": "DeployableTransition_RetractedToExtended_EmitsExtendedEvent",
+       "line": 590
+      },
+      {
+       "method": "DeployableTransition_ExtendedToRetracted_EmitsRetractedEvent",
+       "line": 605
+      },
+      {
+       "method": "DeployableTransition_NoChange_ReturnsNull",
+       "line": 619
+      },
+      {
+       "method": "DeployableTransition_AlreadyExtended_ReturnsNull",
+       "line": 629
+      },
+      {
+       "method": "PartEvents_SerializationRoundtrip_DeployableExtended",
+       "line": 639
+      },
+      {
+       "method": "LadderTransition_RetractedToExtended_EmitsDeployableExtended",
+       "line": 659
+      },
+      {
+       "method": "LadderTransition_ExtendedToRetracted_EmitsDeployableRetracted",
+       "line": 674
+      },
+      {
+       "method": "AnimationGroupTransition_RetractedToDeployed_EmitsDeployableExtended",
+       "line": 688
+      },
+      {
+       "method": "AnimationGroupTransition_DeployedToRetracted_EmitsDeployableRetracted",
+       "line": 703
+      },
+      {
+       "method": "AnimationGroupTransition_NoChange_ReturnsNull",
+       "line": 717
+      },
+      {
+       "method": "ClassifyLadderState_Endpoints_AreDetected",
+       "line": 729
+      },
+      {
+       "method": "LadderStateFromEvents_CanRetract_MarksDeployed",
+       "line": 741
+      },
+      {
+       "method": "LadderStateFromEvents_CanExtend_MarksRetracted",
+       "line": 752
+      },
+      {
+       "method": "LadderStateFromEvents_Ambiguous_ReturnsFalse",
+       "line": 763
+      },
+      {
+       "method": "LightTransition_OffToOn_EmitsLightOnEvent",
+       "line": 779
+      },
+      {
+       "method": "LightTransition_OnToOff_EmitsLightOffEvent",
+       "line": 794
+      },
+      {
+       "method": "LightTransition_NoChange_ReturnsNull",
+       "line": 808
+      },
+      {
+       "method": "LightTransition_AlreadyOn_ReturnsNull",
+       "line": 818
+      },
+      {
+       "method": "LightBlinkTransition_OffToBlinking_EmitsBlinkEnabledEvent",
+       "line": 828
+      },
+      {
+       "method": "LightBlinkTransition_BlinkingToSteady_EmitsBlinkDisabledEvent",
+       "line": 846
+      },
+      {
+       "method": "LightBlinkTransition_RateChanged_EmitsBlinkRateEvent",
+       "line": 863
+      },
+      {
+       "method": "LightBlinkTransition_SameRate_ReturnsNoEvent",
+       "line": 880
+      },
+      {
+       "method": "PartEvents_SerializationRoundtrip_LightOn",
+       "line": 894
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

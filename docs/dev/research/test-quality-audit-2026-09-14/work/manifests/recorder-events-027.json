@@ -1,0 +1,301 @@
+{
+ "batch_id": "recorder-events-027",
+ "cluster": "recorder-events",
+ "tier": "B",
+ "expected_methods": 54,
+ "files": [
+  {
+   "file": "ReentryPotentialTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "NullTrajectory_ReturnsFalse",
+       "line": 28
+      },
+      {
+       "method": "EmptyTrajectory_NoOrbitSegments_ReturnsFalse",
+       "line": 34
+      },
+      {
+       "method": "StationaryShowcase_AllZeroVelocity_ReturnsFalse",
+       "line": 41
+      },
+      {
+       "method": "EvaWalk_SlowVelocity_ReturnsFalse",
+       "line": 50
+      },
+      {
+       "method": "SlowFleaHop_UnderFloor_ReturnsFalse",
+       "line": 69
+      },
+      {
+       "method": "JustBelowFloor_399MetersPerSecond_ReturnsFalse",
+       "line": 96
+      },
+      {
+       "method": "AtFloor_400MetersPerSecond_ReturnsTrue",
+       "line": 109
+      },
+      {
+       "method": "SuborbitalAscent_FastPoint_ReturnsTrue",
+       "line": 122
+      },
+      {
+       "method": "DiagonalVelocity_MagnitudeAboveFloor_ReturnsTrue",
+       "line": 147
+      },
+      {
+       "method": "OrbitSegmentsPresent_AlwaysReturnsTrue",
+       "line": 162
+      },
+      {
+       "method": "OrbitSegmentOnly_NoPoints_ReturnsTrue",
+       "line": 186
+      },
+      {
+       "method": "SpeedFloor_SaneDefault",
+       "line": 200
+      },
+      {
+       "method": "NanVelocityComponent_DoesNotThrow_ReturnsFalse",
+       "line": 209
+      },
+      {
+       "method": "InfinityVelocityComponent_ReturnsTrue",
+       "line": 229
+      },
+      {
+       "method": "NullPointsList_ReturnsFalse",
+       "line": 246
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TerminalStateStampSeamAuditTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "EveryRawTerminalStateAssignmentIsAllowlisted",
+       "line": 33
+      },
+      {
+       "method": "EveryAllowlistEntryStillExists",
+       "line": 94
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "CompoundPartDataTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "NoCModuleLinkedMesh_ReturnsFalse_NoLog",
+       "line": 41
+      },
+      {
+       "method": "NoPARTDATA_CompoundPart_ReturnsFalse",
+       "line": 54
+      },
+      {
+       "method": "PARTDATA_MissingPos_ReturnsFalse",
+       "line": 65
+      },
+      {
+       "method": "PARTDATA_UnparseablePos_ReturnsFalse",
+       "line": 77
+      },
+      {
+       "method": "PARTDATA_ValidPos_MissingRot_ReturnsTrue_DefaultsToIdentity",
+       "line": 90
+      },
+      {
+       "method": "PARTDATA_ValidPosAndRot_ReturnsTrue_ParsesCorrectly",
+       "line": 105
+      },
+      {
+       "method": "PARTDATA_TargetPersistentId_ParsesWhenPresent",
+       "line": 126
+      },
+      {
+       "method": "PARTDATA_TargetPersistentId_MissingDefaultsToZero",
+       "line": 142
+      },
+      {
+       "method": "PARTDATA_DefaultTransformNames_WhenNoOverrides",
+       "line": 157
+      },
+      {
+       "method": "PARTDATA_ReadsTransformNames_FromCModuleLinkedMeshConfig",
+       "line": 175
+      },
+      {
+       "method": "PARTDATA_PartialLinkedMeshConfig_KeepsDefaults",
+       "line": 195
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "LoopUnitSetCoherenceTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ParsekFlight_PushesItsCachedSetIntoTheEngine_AndExposesTheSameField",
+       "line": 42
+      },
+      {
+       "method": "Engine_StoresTheReference_AndNeverBuildsItsOwnSet",
+       "line": 54
+      },
+      {
+       "method": "FlightMapSurfaces_ReadTheSameSetTheEngineConsumes",
+       "line": 81
+      },
+      {
+       "method": "DescentHandoffHide_SharedDecision_WiredOnBothSides",
+       "line": 94
+      },
+      {
+       "method": "EngineHandoffHide_OrderedBetweenDescentBlockAndLoiterGapClamp_AndForcesTheHide",
+       "line": 107
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "FlightCameraReloadPinTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "DecideOnEventWhileArmed_NotArmed_Ignores",
+       "line": 16
+      },
+      {
+       "method": "DecideOnEventWhileArmed_ArmedWithinTtl_RePins",
+       "line": 32
+      },
+      {
+       "method": "DecideOnEventWhileArmed_ArmedAtOrPastTtl_AutoDisarms",
+       "line": 49
+      },
+      {
+       "method": "DecideOnEventWhileArmed_NonPositiveTtl_DisablesFailSafe",
+       "line": 65
+      },
+      {
+       "method": "KspEventDataAdd_StaticMethodDelegate_ThrowsNre_TheTrapThisFileMustAvoid",
+       "line": 97
+      },
+      {
+       "method": "KspEventDataAdd_NonCapturingLambda_SubscribesAndRemoves",
+       "line": 105
+      },
+      {
+       "method": "ArmSubscribesViaCachedLambdaFields_SourceGate",
+       "line": 118
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "AtmosphereSplitTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "NoAtmosphere_ReturnsFalse",
+       "line": 12
+      },
+      {
+       "method": "SameSide_ReturnsFalse",
+       "line": 22
+      },
+      {
+       "method": "CrossedButNotFarEnough_ReturnsFalse",
+       "line": 32
+      },
+      {
+       "method": "CrossedFarButNotLongEnough_ReturnsFalse",
+       "line": 42
+      },
+      {
+       "method": "CrossedFarAndLongEnough_ExitAtmo_ReturnsTrue",
+       "line": 52
+      },
+      {
+       "method": "CrossedFarAndLongEnough_EnterAtmo_ReturnsTrue",
+       "line": 62
+      },
+      {
+       "method": "HysteresisTimeNotMet_ReturnsFalse",
+       "line": 72
+      },
+      {
+       "method": "ExactlyAtHysteresisThreshold_ReturnsTrue",
+       "line": 82
+      },
+      {
+       "method": "CustomHysteresis_Respected",
+       "line": 92
+      },
+      {
+       "method": "GetSegmentPhaseLabel_Formats",
+       "line": 110
+      },
+      {
+       "method": "GetSegmentPhaseLabel_MixedEvaAtmoSurface_ShowsBodyOnly",
+       "line": 130
+      },
+      {
+       "method": "SoiChangeFlag_DefaultsFalse",
+       "line": 158
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "FlightGhostSkipCacheCleanupTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ClearGhostSkipReasonLogStateForTesting_AllowsPerRecordingSkipReasonsToReEmit",
+       "line": 30
+      },
+      {
+       "method": "DestroyAllTimelineGhosts_AllowsPerRecordingSkipReasonsToReEmit",
+       "line": 55
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

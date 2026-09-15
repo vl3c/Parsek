@@ -1,0 +1,258 @@
+{
+ "batch_id": "map-render-005",
+ "cluster": "map-render",
+ "tier": "A",
+ "expected_methods": 57,
+ "files": [
+  {
+   "file": "MapRender/RenderCompositionManifestTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Dwell_OpensOnFirstFrame_ClosesOnKeyChange_AndEmitsOneTransition",
+       "line": 44
+      },
+      {
+       "method": "Build_SnapshotsStillOpenDwells_WithoutClosingThem",
+       "line": 88
+      },
+      {
+       "method": "Dwell_AnomalyEchoes_AggregateByReasonInsideTheOpenDwell",
+       "line": 125
+      },
+      {
+       "method": "Dwell_CapHit_DropsTheNewRecord_AndEmitsATruncatedMarker",
+       "line": 149
+      },
+      {
+       "method": "SeamEndpoint_BelowTheDecimationThreshold_IsUnchanged",
+       "line": 173
+      },
+      {
+       "method": "SeamEndpoint_AboveTheThreshold_KeepsOneInN_AndCountsTheDecimatedDrops",
+       "line": 190
+      },
+      {
+       "method": "SeamEndpoint_DecimationIsPerPid_AndLeavesSeamTangentsAlone",
+       "line": 230
+      },
+      {
+       "method": "SeamEndpoint_TheCapsRemainTheFinalBound_AboveTheDecimationGate",
+       "line": 256
+      },
+      {
+       "method": "ClockEvent_CapHit_CountsATruncation",
+       "line": 284
+      },
+      {
+       "method": "ClockEvent_DedupeTableExhausted_FailsClosed_AndNeverWipesTheTable",
+       "line": 308
+      },
+      {
+       "method": "Dwell_GlobalCapHit_DropsTheRecord_AndMarksTheGlobalSection",
+       "line": 346
+      },
+      {
+       "method": "TotalCeiling_ExceedsTheSumOfEveryFamilyCap",
+       "line": 389
+      },
+      {
+       "method": "TotalRecordCount_CountsEveryFamily_AndResetsWithTheCore",
+       "line": 417
+      },
+      {
+       "method": "TruncationRows_AreThemselvesBounded_ByOneOverflowRow",
+       "line": 440
+      },
+      {
+       "method": "ClassifyWarpBucket_IsThePureFiveWayBucketing",
+       "line": 477
+      },
+      {
+       "method": "Dwell_WarpHistogram_CountsFramesPerBucket",
+       "line": 483
+      },
+      {
+       "method": "Dwell_MaxUtStep_IsTheLargestGapBetweenConsecutiveArmedFramesInThatDwell",
+       "line": 509
+      },
+      {
+       "method": "ClockEvent_Debounce_CollapsesRepeatsAndAdmitsEachDistinctKey",
+       "line": 532
+      },
+      {
+       "method": "LineBranch_DebouncesOnReasonLineActiveCoverage",
+       "line": 557
+      },
+      {
+       "method": "Serialization_UsesInvariantCulture_UnderACommaDecimalCulture",
+       "line": 575
+      },
+      {
+       "method": "BuildFileNode_WrapsExactlyOneRenderManifestChild",
+       "line": 633
+      },
+      {
+       "method": "StableHash_IsDeterministicAndNonNegative",
+       "line": 649
+      },
+      {
+       "method": "Reset_ClearsEverySection",
+       "line": 670
+      },
+      {
+       "method": "AnomalyEchoRecord_IsKeptForEveryRaise_IncludingNonNumericAndDwellLessOnes",
+       "line": 754
+      },
+      {
+       "method": "AnomalyEchoRecord_CapHit_DropsAndMarksItsOwnGlobalSection",
+       "line": 778
+      },
+      {
+       "method": "Dwell_FieldCompare_AgreesWithTheKeyOnEveryComponent",
+       "line": 798
+      },
+      {
+       "method": "Dwell_MarkerTriple_IsReSampledAtCloseOnlyWhenTheStampWasFalse",
+       "line": 848
+      },
+      {
+       "method": "Dwell_MarkerReSample_LeavesTheStampAloneWhenNoSampleCouldBeTaken",
+       "line": 891
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Rendering/SmoothingPipelineTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "FitAndStorePerSection_AbsoluteExoPropulsive_FitsSpline",
+       "line": 118
+      },
+      {
+       "method": "FitAndStorePerSection_AbsoluteExoBallistic_FitsSpline",
+       "line": 135
+      },
+      {
+       "method": "FitAndStorePerSection_ExoBallistic_DispatchLowersInertialFrame",
+       "line": 151
+      },
+      {
+       "method": "FitAndStorePerSection_Atmospheric_NotFitted",
+       "line": 191
+      },
+      {
+       "method": "FitAndStorePerSection_RelativeFrame_NotFitted",
+       "line": 205
+      },
+      {
+       "method": "FitAndStorePerSection_OrbitalCheckpoint_NotFitted",
+       "line": 217
+      },
+      {
+       "method": "FitAndStorePerSection_FewerThanMinSamples_LogsWarn",
+       "line": 230
+      },
+      {
+       "method": "LoadOrCompute_PannMissing_FitsAndWrites",
+       "line": 270
+      },
+      {
+       "method": "LoadOrCompute_PannPresent_NoRefit",
+       "line": 289
+      },
+      {
+       "method": "LoadOrCompute_StalePann_AlgStampMismatch_Recomputes",
+       "line": 315
+      },
+      {
+       "method": "LoadOrCompute_StalePann_RecordingIdMismatch_Recomputes",
+       "line": 344
+      },
+      {
+       "method": "LoadOrCompute_StalePann_EpochDrift_Recomputes",
+       "line": 377
+      },
+      {
+       "method": "LoadOrCompute_StalePann_FormatDrift_Recomputes",
+       "line": 401
+      },
+      {
+       "method": "LoadOrCompute_StalePann_ConfigHashDrift_Recomputes",
+       "line": 423
+      },
+      {
+       "method": "PersistAfterCommit_WritesPannSibling",
+       "line": 455
+      },
+      {
+       "method": "PersistAfterCommit_PrecUntouched",
+       "line": 480
+      },
+      {
+       "method": "PersistAfterCommit_WriteFailure_LogsWarn_DoesNotThrow",
+       "line": 502
+      },
+      {
+       "method": "LoadOrCompute_CurrentFormatVersion_LogsPipelineFormat",
+       "line": 531
+      },
+      {
+       "method": "FitAndStorePerSection_ExoBallistic_FitsInInertial",
+       "line": 552
+      },
+      {
+       "method": "FitAndStorePerSection_ExoPropulsive_FitsInInertial",
+       "line": 581
+      },
+      {
+       "method": "FitAndStorePerSection_NullBody_LogsWarnAndSkips",
+       "line": 605
+      },
+      {
+       "method": "FitAndStorePerSection_LogIncludesFrameTag",
+       "line": 632
+      },
+      {
+       "method": "AlgorithmStampBump_V1FilesInvalidatedAsAlgStampDrift",
+       "line": 659
+      },
+      {
+       "method": "FitAndStorePerSection_ClearsPriorEntries_OnRecompute",
+       "line": 721
+      },
+      {
+       "method": "LoadOrCompute_ReadPath_ClearsPriorEntries",
+       "line": 747
+      },
+      {
+       "method": "PannotationsHeader_WritesCurrentAlgorithmStamp",
+       "line": 780
+      },
+      {
+       "method": "FitAndStorePerSection_KrakenSampleRejected_FlagsStored",
+       "line": 829
+      },
+      {
+       "method": "FitAndStorePerSection_TooManyOutliers_FitFailsAndWarns",
+       "line": 867
+      },
+      {
+       "method": "LoadOrCompute_OutlierFlags_RoundTrip",
+       "line": 923
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

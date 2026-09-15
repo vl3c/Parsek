@@ -1,0 +1,187 @@
+{
+ "batch_id": "harness-seam-009",
+ "cluster": "harness-seam",
+ "tier": "B",
+ "expected_methods": 42,
+ "files": [
+  {
+   "file": "TestCommandEvaExitTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Resolve_NullArg_DefaultsToFirstCrew",
+       "line": 25
+      },
+      {
+       "method": "Resolve_EmptyArg_DefaultsToFirstCrew",
+       "line": 34
+      },
+      {
+       "method": "Resolve_ExactMatch_ReturnsNamed",
+       "line": 43
+      },
+      {
+       "method": "Resolve_Unknown_ErrorsKerbalNotAboard",
+       "line": 52
+      },
+      {
+       "method": "Resolve_CaseSensitive_ErrorsKerbalNotAboard",
+       "line": 61
+      },
+      {
+       "method": "Resolve_EmptyCrew_ErrorsNoCrew",
+       "line": 71
+      },
+      {
+       "method": "Resolve_NullCrew_ErrorsNoCrew",
+       "line": 79
+      },
+      {
+       "method": "Complete_AllConjuncts_NoRelease_NoDwell_Ok",
+       "line": 89
+      },
+      {
+       "method": "Complete_NotExists_StillWaiting",
+       "line": 98
+      },
+      {
+       "method": "Complete_NotActive_StillWaiting",
+       "line": 106
+      },
+      {
+       "method": "Complete_NotSettled_StillWaiting",
+       "line": 115
+      },
+      {
+       "method": "Complete_ReleaseRequestedNotApplied_StillWaiting",
+       "line": 123
+      },
+      {
+       "method": "Complete_ReleaseRequestedAndApplied_Ok",
+       "line": 132
+      },
+      {
+       "method": "Complete_DwellNotElapsed_StillWaiting",
+       "line": 141
+      },
+      {
+       "method": "Complete_BudgetExpired_ExitTimeout",
+       "line": 151
+      },
+      {
+       "method": "Complete_PositiveBeatsBudget",
+       "line": 159
+      },
+      {
+       "method": "Ladder_NotOnLadder_ConcludesNoop",
+       "line": 172
+      },
+      {
+       "method": "Ladder_OffLadderAfterFire_ConcludesVerified",
+       "line": 181
+      },
+      {
+       "method": "Ladder_OnLadder_TransitionalState_Waits",
+       "line": 190
+      },
+      {
+       "method": "Ladder_OnLadder_ReceptiveState_Fires",
+       "line": 201
+      },
+      {
+       "method": "Ladder_ReceptiveState_FiresUpToCapMinusOne",
+       "line": 211
+      },
+      {
+       "method": "Ladder_StillOnLadderAtCap_Exhausts",
+       "line": 220
+      },
+      {
+       "method": "Ladder_ExhaustionBeatsTransitionalWait",
+       "line": 230
+      },
+      {
+       "method": "Ladder_OffLadderBeatsExhaustion",
+       "line": 239
+      },
+      {
+       "method": "Ladder_MaxFiresCap_IsThree",
+       "line": 249
+      },
+      {
+       "method": "Ladder_EveryRunEventThrowing_ExhaustsBoundedWithZeroFires",
+       "line": 255
+      },
+      {
+       "method": "Payload_CarriesKerbalPidReleased",
+       "line": 286
+      },
+      {
+       "method": "Payload_NullKerbal_EmptyString_ReleasedFalse",
+       "line": 297
+      },
+      {
+       "method": "Standoff_ZeroMeans_Off_AndNeverWaits",
+       "line": 320
+      },
+      {
+       "method": "Standoff_ComparesTheObservedDistanceInclusively",
+       "line": 336
+      },
+      {
+       "method": "Standoff_UnreadableDistance_FailsClosed",
+       "line": 349
+      },
+      {
+       "method": "Standoff_RequiresTheDebounceRun_NotOneGoodFrame",
+       "line": 356
+      },
+      {
+       "method": "Standoff_BoundedWait_GivesUpAndSaysSo",
+       "line": 369
+      },
+      {
+       "method": "Standoff_ClearedBeatsTheBudgetOnTheSamePoll",
+       "line": 380
+      },
+      {
+       "method": "Standoff_TokenDistinguishesNeverAskedFromGaveUp",
+       "line": 391
+      },
+      {
+       "method": "Standoff_AnUnconcludedStageIsNotReportedAsCleared",
+       "line": 404
+      },
+      {
+       "method": "Standoff_TheWallClockBoundStaysInsideItsMeasuredFreeFallCost",
+       "line": 417
+      },
+      {
+       "method": "Standoff_GivesUpAtTheAltitudeFloorWhateverTheClockSays",
+       "line": 435
+      },
+      {
+       "method": "Standoff_NoFloorRequested_IsWallClockOnly",
+       "line": 452
+      },
+      {
+       "method": "Standoff_UnreadableAltitudeDoesNotAbandonTheStage",
+       "line": 460
+      },
+      {
+       "method": "Standoff_ClearedBeatsTheAltitudeFloorToo",
+       "line": 470
+      },
+      {
+       "method": "Standoff_DebounceIsARunAndResetsOnAnyNonClearPoll",
+       "line": 481
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

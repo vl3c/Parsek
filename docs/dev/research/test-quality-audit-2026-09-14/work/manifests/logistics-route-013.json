@@ -1,0 +1,178 @@
+{
+ "batch_id": "logistics-route-013",
+ "cluster": "logistics-route",
+ "tier": "A",
+ "expected_methods": 37,
+ "files": [
+  {
+   "file": "Logistics/RouteSendOnceBlockedPauseTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "SendOnceArmed_BlockedCycle_PausesRoute_ClearsFlags_KeepsHold",
+       "line": 271
+      },
+      {
+       "method": "SendOnceArmed_BlockedCycle_EmitsRoutePausedMarker",
+       "line": 306
+      },
+      {
+       "method": "SendOnceArmed_BlockedCycle_PostsScreenMessageNamingTheHold",
+       "line": 326
+      },
+      {
+       "method": "SendOnceArmed_BlockedCycle_StopsLooping_NoLateDelivery",
+       "line": 346
+      },
+      {
+       "method": "Unarmed_BlockedCycle_StaysActive_EmitsNoPauseMarker",
+       "line": 370
+      },
+      {
+       "method": "SendOnceArmed_BlockedCycle_MultiStop_PausesRoute_ClearsFlags_KeepsHold",
+       "line": 393
+      },
+      {
+       "method": "SendOnceArmed_MultiStop_BothWindowsInOneTick_EndsPaused_OneToast",
+       "line": 433
+      },
+      {
+       "method": "SendOnceArmed_MultiStop_WindowsAcrossTwoTicks_PausesOnlyOnCompletion",
+       "line": 477
+      },
+      {
+       "method": "SendOnceArmed_MultiStop_CatchUpStopsAfterThePause_NoNextCycleDispatch",
+       "line": 518
+      },
+      {
+       "method": "Unarmed_MultiStop_BothWindowsInOneTick_StaysActive_NoPauseNoToast",
+       "line": 570
+      },
+      {
+       "method": "PauseArmedWhileInTransit_MultiStopCycleCompletes_PausesWithoutToast",
+       "line": 595
+      },
+      {
+       "method": "PauseArmedWhileInTransit_BlockedCycle_PausesRoute_WithoutToast",
+       "line": 623
+      },
+      {
+       "method": "TickLoop_NeverMutatesCadenceOrInterval_PausedOrActive",
+       "line": 657
+      },
+      {
+       "method": "ApplyMultiplier_SameN_IsNoOp_NoRebase_NoIntervalRewrite",
+       "line": 684
+      },
+      {
+       "method": "DeriveDispatchInterval_IsDeterministic",
+       "line": 703
+      },
+      {
+       "method": "BlockedMessage_NamesRouteAndHoldInPlayerLanguage",
+       "line": 718
+      },
+      {
+       "method": "BlockedMessage_FundsShortfall_UsesInvariantCulture",
+       "line": 738
+      },
+      {
+       "method": "DeliveredMessage_UsesCountFormAndSingularPlural",
+       "line": 750
+      },
+      {
+       "method": "DeliveredMessage_PartialIsFlagged",
+       "line": 767
+      },
+      {
+       "method": "AlreadyDeliveredMessage_NamesRouteAndSaysWhyNothingNewHappened",
+       "line": 777
+      },
+      {
+       "method": "CycleDeliveredMessage_NamesRoute_FlagsPartial_IsCountsFree",
+       "line": 794
+      },
+      {
+       "method": "Messages_BlankRouteName_FallsBackToShortId_ThenUnnamed_NeverEmptyQuotes",
+       "line": 810
+      },
+      {
+       "method": "IsPostponementHold_CoversExactlyTheTwoSelfResolvingKinds",
+       "line": 845
+      },
+      {
+       "method": "SendOnceArmed_PostponementBlock_KeepsArm_RouteStaysActive",
+       "line": 862
+      },
+      {
+       "method": "SendOnceArmed_WaitingForPartnerBlock_KeepsArm_RouteStaysActive",
+       "line": 885
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/RouteEscrowFireTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "TwoSourceRun_BothSourceDebitsFire_EscrowEmptyAfterCycle_NoLeak",
+       "line": 312
+      },
+      {
+       "method": "Shuttle_DebitsRefineryAtItsWindow_EscrowEmptyAfterCycle",
+       "line": 363
+      },
+      {
+       "method": "PartialCycle_UnfiredWindowReservationLive_CompetingRouteSeesIt",
+       "line": 396
+      },
+      {
+       "method": "WindowEndpointLost_ReleasesReservation_CycleStillCompletes",
+       "line": 428
+      },
+      {
+       "method": "CrashedDisposition_StillDebitsSource",
+       "line": 463
+      },
+      {
+       "method": "CrossCycleGapTick_MultiPickup_EachSourceDebitsOncePerCycle_NoLeak",
+       "line": 497
+      },
+      {
+       "method": "IdempotentAcrossReload_NoDoubleDebit",
+       "line": 541
+      },
+      {
+       "method": "SingleWindowM3aPickup_BehaviourIdentical_EscrowNetsZeroInTick",
+       "line": 582
+      },
+      {
+       "method": "DeliveryOnlyRoute_ReservesNothing",
+       "line": 637
+      },
+      {
+       "method": "DispatchAlreadyResumeAfterClear_ReestablishesUnfiredWindowReservation",
+       "line": 712
+      },
+      {
+       "method": "DispatchAlreadyResumeNoClear_DoesNotDoubleReserve",
+       "line": 776
+      },
+      {
+       "method": "CycleComplete_DropsResidual_WhenReleasePidDiverges",
+       "line": 823
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

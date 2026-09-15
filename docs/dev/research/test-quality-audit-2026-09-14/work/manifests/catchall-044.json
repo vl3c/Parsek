@@ -1,0 +1,222 @@
+{
+ "batch_id": "catchall-044",
+ "cluster": "catchall",
+ "tier": "B",
+ "expected_methods": 48,
+ "files": [
+  {
+   "file": "TryAppendCapturedToTreeTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "TreeMode_AppendsToActiveRecording",
+       "line": 75
+      },
+      {
+       "method": "TreeMode_FallsBackToRoot_WhenActiveIdNull",
+       "line": 95
+      },
+      {
+       "method": "TreeMode_ReturnsFalse_WhenRecordingNotFound",
+       "line": 109
+      },
+      {
+       "method": "TreeMode_ReturnsFalse_WhenTreeNull",
+       "line": 124
+      },
+      {
+       "method": "TreeMode_ReturnsFalse_WhenCapturedTooShort",
+       "line": 134
+      },
+      {
+       "method": "TreeMode_DoesNotOverwriteSnapshots",
+       "line": 147
+      },
+      {
+       "method": "TreeMode_NonDestroyedVessel_DoesNotSetTerminalState",
+       "line": 172
+      },
+      {
+       "method": "PendingSplitDestructionOverride_FlipsStaleCaptureAndKeepsSnapshot",
+       "line": 187
+      },
+      {
+       "method": "PendingSplitDestructionOverride_StandaloneFallbackCoreCommitsDestroyedRecording",
+       "line": 214
+      },
+      {
+       "method": "TreeMode_AppendsPartEventsAndOrbitSegments",
+       "line": 252
+      },
+      {
+       "method": "TreeMode_PreservesMaxDist_WhenCapturedIsSmaller",
+       "line": 281
+      },
+      {
+       "method": "TreeMode_LiftsCapturedRewindSaveOntoRoot",
+       "line": 294
+      },
+      {
+       "method": "TreeMode_DoesNotOverwriteRootRewindSave_FirstWins",
+       "line": 330
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "TerrainCorrectorTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ShouldCorrectTerrain_Landed_ValidHeight_True",
+       "line": 39
+      },
+      {
+       "method": "ShouldCorrectTerrain_Splashed_ValidHeight_True",
+       "line": 49
+      },
+      {
+       "method": "ShouldCorrectTerrain_Orbiting_False",
+       "line": 59
+      },
+      {
+       "method": "ShouldCorrectTerrain_NaNHeight_False",
+       "line": 69
+      },
+      {
+       "method": "ShouldCorrectTerrain_NullTerminal_False",
+       "line": 79
+      },
+      {
+       "method": "ShouldCorrectTerrain_Destroyed_False",
+       "line": 89
+      },
+      {
+       "method": "ShouldCorrectTerrain_SubOrbital_False",
+       "line": 96
+      },
+      {
+       "method": "ClampAltitude_AboveTerrain_NoChange",
+       "line": 107
+      },
+      {
+       "method": "ClampAltitude_BelowTerrain_ClampsUp",
+       "line": 115
+      },
+      {
+       "method": "ClampAltitude_AtTerrain_ClampsUp",
+       "line": 123
+      },
+      {
+       "method": "ClampAltitude_NegativeTerrain_Ocean_NoChange",
+       "line": 131
+      },
+      {
+       "method": "ClampAltitude_DeepUnderground_ClampsUp",
+       "line": 139
+      },
+      {
+       "method": "ClampAltitude_CustomClearance",
+       "line": 147
+      },
+      {
+       "method": "ClampAltitude_LongRangeWatchRepro_UsesDistanceAwareClearance",
+       "line": 154
+      },
+      {
+       "method": "ResolveNaNFallbackLandedGhostClearance_BelowLegacyFloor_UsesLegacyMinimum",
+       "line": 167
+      },
+      {
+       "method": "ResolveNaNFallbackLandedGhostClearance_AboveLegacyFloor_UsesDistanceAwareFloor",
+       "line": 174
+      },
+      {
+       "method": "ResolveImmediateLandedGhostClearanceFallbackReason_AllLive_ReturnsNull",
+       "line": 181
+      },
+      {
+       "method": "ResolveImmediateLandedGhostClearanceFallbackReason_NoBody_ReturnsNoBody",
+       "line": 189
+      },
+      {
+       "method": "ResolveImmediateLandedGhostClearanceFallbackReason_NoActiveVessel_ReturnsNoActiveVessel",
+       "line": 197
+      },
+      {
+       "method": "ResolveImmediateLandedGhostClearanceFallbackReason_NeitherLive_ReturnsCombined",
+       "line": 205
+      },
+      {
+       "method": "ImmediateLandedGhostClearanceFallbackMeters_MatchesLegacyFloor",
+       "line": 213
+      },
+      {
+       "method": "ShouldApplyImmediateSurfacePositionClearance_NullTerminalNaNTerrain_False",
+       "line": 221
+      },
+      {
+       "method": "ShouldApplyImmediateSurfacePositionClearance_CapturedTerrain_True",
+       "line": 228
+      },
+      {
+       "method": "ShouldApplyImmediateSurfacePositionClearance_RecoveredSurfaceNaNTerrain_True",
+       "line": 235
+      },
+      {
+       "method": "ShouldApplyImmediateSurfacePositionClearance_SurfaceTerminalNaNTerrain_True",
+       "line": 244
+      },
+      {
+       "method": "ShouldApplyImmediateSurfacePositionClearance_RecoveredWithoutSurfaceNaNTerrain_False",
+       "line": 252
+      },
+      {
+       "method": "ShouldApplyImmediatePointSurfaceClearance_SurfaceTerminalsOnly",
+       "line": 265
+      },
+      {
+       "method": "ShouldApplyImmediatePointSurfaceClearance_NullTerminal_False",
+       "line": 275
+      },
+      {
+       "method": "ClampAltitude_JustAboveClearance_NoChange",
+       "line": 282
+      },
+      {
+       "method": "TerrainHeight_SerializationRoundTrip",
+       "line": 294
+      },
+      {
+       "method": "TerrainHeight_NaN_NotSerialized",
+       "line": 319
+      },
+      {
+       "method": "TerrainHeight_DefaultIsNaN",
+       "line": 341
+      },
+      {
+       "method": "TerrainHeight_ApplyPersistenceArtifacts_Copies",
+       "line": 348
+      },
+      {
+       "method": "TerrainHeight_ApplyPersistenceArtifacts_CopiesNaN",
+       "line": 361
+      },
+      {
+       "method": "TerrainHeight_NegativeValue_RoundTrips",
+       "line": 374
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,235 @@
+{
+ "batch_id": "harness-seam-006",
+ "cluster": "harness-seam",
+ "tier": "A",
+ "expected_methods": 54,
+ "files": [
+  {
+   "file": "TestCommandSimulateSwitchClickTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ParseSite_Absent_DefaultsToMap",
+       "line": 31
+      },
+      {
+       "method": "ParseSite_AcceptsTheThreeWireSpellings",
+       "line": 43
+      },
+      {
+       "method": "ParseSite_RejectsAnythingElse",
+       "line": 60
+      },
+      {
+       "method": "SiteToken_RoundTripsThroughTryParseSite",
+       "line": 71
+      },
+      {
+       "method": "SiteImplemented_MapOnly",
+       "line": 80
+      },
+      {
+       "method": "SiteEnum_HasExactlyTheThreeStockArmingSites",
+       "line": 88
+      },
+      {
+       "method": "SiteArgInvalidMsg_IsExact",
+       "line": 97
+      },
+      {
+       "method": "SiteNotImplementedMsg_IsExact",
+       "line": 105
+      },
+      {
+       "method": "Selector_PidOnly_ResolvesByPid",
+       "line": 116
+      },
+      {
+       "method": "Selector_VesselOnly_ResolvesByName",
+       "line": 126
+      },
+      {
+       "method": "Selector_Both_PidWins",
+       "line": 136
+      },
+      {
+       "method": "Selector_Neither_IsTargetArgMissing",
+       "line": 148
+      },
+      {
+       "method": "Selector_UnparseablePid_IsPidArgInvalid",
+       "line": 162
+      },
+      {
+       "method": "Selector_UnparseablePid_DoesNotFallBackToVessel",
+       "line": 170
+      },
+      {
+       "method": "Selector_EmptyVessel_IsVesselArgInvalid",
+       "line": 179
+      },
+      {
+       "method": "Selector_Pid_ToleratesSurroundingWhitespace",
+       "line": 189
+      },
+      {
+       "method": "Selector_Pid_ParsesMaxValue",
+       "line": 202
+      },
+      {
+       "method": "Selector_NameKeepsPunctuationAndSpacesVerbatim",
+       "line": 213
+      },
+      {
+       "method": "SelectorToken_RendersEachForm",
+       "line": 222
+      },
+      {
+       "method": "ClassifyResolution_Matrix",
+       "line": 242
+      },
+      {
+       "method": "ResolutionMsg_NotFound_NamesTheSelector",
+       "line": 249
+      },
+      {
+       "method": "ResolutionMsg_Ambiguous_ReportsTheMatchCount",
+       "line": 261
+      },
+      {
+       "method": "ResolutionMsg_GhostOnly_IsItsOwnReason",
+       "line": 271
+      },
+      {
+       "method": "ResolutionMsg_Resolved_HasNoRefusal",
+       "line": 281
+      },
+      {
+       "method": "Gate_CleanPlainPath_Proceeds",
+       "line": 300
+      },
+      {
+       "method": "Gate_SameTargetReClick_Proceeds_MatchingThePatchFilter",
+       "line": 309
+      },
+      {
+       "method": "Gate_ScenarioNull_RefusesFirst",
+       "line": 325
+      },
+      {
+       "method": "Gate_CannotSwitchVesselsFar_Refuses",
+       "line": 336
+      },
+      {
+       "method": "Gate_CannotSwitchVesselsFar_BeatsEveryLaterRefusal",
+       "line": 347
+      },
+      {
+       "method": "Gate_TargetAlreadyActive_Refuses",
+       "line": 356
+      },
+      {
+       "method": "Gate_TargetAlreadyActive_BeatsTheDialogDecision",
+       "line": 367
+      },
+      {
+       "method": "Gate_OpenDialog_RefusesDialogRequired",
+       "line": 378
+      },
+      {
+       "method": "Gate_OpenDialog_BeatsTheUnloadedScopeRefusal",
+       "line": 387
+      },
+      {
+       "method": "Gate_ReEntry_RefusesDialogPending",
+       "line": 399
+      },
+      {
+       "method": "Gate_UnloadedTarget_RefusesLast",
+       "line": 412
+      },
+      {
+       "method": "Gate_UnloadedTarget_RefusesUnderSameTargetToo",
+       "line": 424
+      },
+      {
+       "method": "Gate_EveryDialogDecisionValueIsHandled",
+       "line": 433
+      },
+      {
+       "method": "DialogCaseToken_MirrorsThePrefixOpenCaseString",
+       "line": 462
+      },
+      {
+       "method": "GateRefusalMsg_IsExact",
+       "line": 477
+      },
+      {
+       "method": "GateRefusalMsg_DialogRequired_CarriesTheCase",
+       "line": 487
+      },
+      {
+       "method": "GateRefusalMsg_Proceed_IsEmpty",
+       "line": 495
+      },
+      {
+       "method": "GateRefusalMsg_EveryRefusalHasANonEmptyMsg",
+       "line": 502
+      },
+      {
+       "method": "Marker_CarriesTheMapSiteFieldsVerbatim",
+       "line": 517
+      },
+      {
+       "method": "Marker_TtlIsTheMapSwitchToTwoSeconds_AndIsNotAnInput",
+       "line": 537
+      },
+      {
+       "method": "Marker_FreshAtArm_ThenStaleOncePastTheTtl",
+       "line": 553
+      },
+      {
+       "method": "Marker_FieldSetIsUnchanged_SoTheFactoryCannotSilentlyMissOne",
+       "line": 571
+      },
+      {
+       "method": "Payload_KeyOrderIsStable",
+       "line": 594
+      },
+      {
+       "method": "Payload_ReportsArmedAndObservedFacts",
+       "line": 604
+      },
+      {
+       "method": "Payload_SwitchedFalse_IsWhatMakesARefusedSwitchRed",
+       "line": 620
+      },
+      {
+       "method": "Payload_NullsRenderAsEmptyStrings",
+       "line": 632
+      },
+      {
+       "method": "Payload_SurvivesTheWireEncoding",
+       "line": 644
+      },
+      {
+       "method": "RefusalMsgs_SurviveTheWireEncoding",
+       "line": 657
+      },
+      {
+       "method": "PlainRoute_IsTheOnlyV1Route",
+       "line": 667
+      },
+      {
+       "method": "ClearReason_MatchesThePatchPostfix",
+       "line": 673
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

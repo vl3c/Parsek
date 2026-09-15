@@ -1,0 +1,199 @@
+{
+ "batch_id": "logistics-route-025",
+ "cluster": "logistics-route",
+ "tier": "B",
+ "expected_methods": 45,
+ "files": [
+  {
+   "file": "Logistics/LogisticsDeliveryPresentationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "FormatRealizedDelivery_FullFill_NoShortfallClause",
+       "line": 30
+      },
+      {
+       "method": "FormatRealizedDelivery_PartialFill_ShowsShortfall",
+       "line": 40
+      },
+      {
+       "method": "FormatRealizedDelivery_RequestedEqualsActual_NoShortfall",
+       "line": 51
+      },
+      {
+       "method": "FormatRealizedDelivery_EmptyActual_DeliveredNothing",
+       "line": 61
+      },
+      {
+       "method": "FormatRealizedDelivery_IsInvariantUnderCommaLocale",
+       "line": 72
+      },
+      {
+       "method": "HasShortfall_OnlyTrueWhenRequestedExceedsActual",
+       "line": 90
+      },
+      {
+       "method": "HasShortfall_RequestedResourceFullyBlocked_IsShortfall",
+       "line": 104
+      },
+      {
+       "method": "FormatRealizedDelivery_MultiResource_OrdinalSortedStableOrder",
+       "line": 115
+      },
+      {
+       "method": "FormatRealizedDelivery_RequestedButFullyBlocked_IncludesZeroDeliveredClause",
+       "line": 126
+      },
+      {
+       "method": "SummarizeRouteDeliveries_EmptyList_ZeroSummary",
+       "line": 141
+      },
+      {
+       "method": "SummarizeRouteDeliveries_NullList_ZeroSummary",
+       "line": 152
+      },
+      {
+       "method": "SummarizeRouteDeliveries_PicksLatestByUt_AndSumsCumulative",
+       "line": 162
+      },
+      {
+       "method": "FormatCumulativeTotal_EmptyOrNull_ShowsNone",
+       "line": 190
+      },
+      {
+       "method": "FormatCumulativeTotal_MultiResource_OrdinalSortedStableOrder",
+       "line": 198
+      },
+      {
+       "method": "FormatCumulativeTotal_IsInvariantNoSeparator",
+       "line": 206
+      },
+      {
+       "method": "ClassifyDeliveryBadge_DrivingAndDelivered_IsDelivering",
+       "line": 231
+      },
+      {
+       "method": "ClassifyDeliveryBadge_DrivingBlockedAfterRunning_IsFlyingNotDelivering",
+       "line": 244
+      },
+      {
+       "method": "ClassifyDeliveryBadge_DrivingHadCompletedButNoFreshRow_IsFlyingNotDelivering",
+       "line": 257
+      },
+      {
+       "method": "ClassifyDeliveryBadge_DrivingNeverRun_IsNew",
+       "line": 269
+      },
+      {
+       "method": "ClassifyDeliveryBadge_NotDriving_IsPaused",
+       "line": 284
+      },
+      {
+       "method": "ClassifyDeliveryBadge_FlyingWaitingForResources_IsFlyingNotDelivering",
+       "line": 298
+      },
+      {
+       "method": "ClassifyDeliveryBadge_PausedRoute_IsPaused",
+       "line": 314
+      },
+      {
+       "method": "DeliveryBadgeLabel_MatchesExpected",
+       "line": 331
+      },
+      {
+       "method": "ClassifyPausedRoute_ZeroCycles_IsNew",
+       "line": 344
+      },
+      {
+       "method": "ClassifyPausedRoute_PositiveCycles_IsPaused",
+       "line": 354
+      },
+      {
+       "method": "PausedRouteLabelText_New_MatchesH3BadgeNewLabel",
+       "line": 363
+      },
+      {
+       "method": "PausedRouteLabelText_Paused_IsPaused",
+       "line": 375
+      },
+      {
+       "method": "ShouldShowSendOnceGuidance_OnlyForNeverRun",
+       "line": 387
+      },
+      {
+       "method": "SendOnceGuidanceText_IsPlainAscii",
+       "line": 395
+      },
+      {
+       "method": "FormatWouldDeliver_ResourcesOnly_FormatsF1Invariant",
+       "line": 409
+      },
+      {
+       "method": "FormatWouldDeliver_InventoryOnly_CountsItems",
+       "line": 418
+      },
+      {
+       "method": "FormatWouldDeliver_ResourcesAndInventory_CommaJoined",
+       "line": 431
+      },
+      {
+       "method": "FormatWouldDeliver_NullBoth_IsNothing",
+       "line": 441
+      },
+      {
+       "method": "FormatWouldDeliver_EmptyBoth_IsNothing",
+       "line": 449
+      },
+      {
+       "method": "FormatDestinationDisplay_Resolved_ReturnsVesselName",
+       "line": 462
+      },
+      {
+       "method": "FormatDestinationDisplay_Unresolved_FallsBackToCoords",
+       "line": 479
+      },
+      {
+       "method": "FormatEndpointCoords_OrbitSituation_InvariantF2",
+       "line": 495
+      },
+      {
+       "method": "FormatDestinationDisplay_EmptyBodyAndNoName_ReturnsDash",
+       "line": 519
+      },
+      {
+       "method": "FormatSourceRecordingDisplay_NameTreeAndPosition_FullForm",
+       "line": 532
+      },
+      {
+       "method": "FormatSourceRecordingDisplay_NameAndPositionNoTree_RecClauseOnly",
+       "line": 541
+      },
+      {
+       "method": "FormatSourceRecordingDisplay_NameAndTreeUnknownPosition_TreeClauseOnly",
+       "line": 550
+      },
+      {
+       "method": "FormatSourceRecordingDisplay_NameOnly_BareName",
+       "line": 559
+      },
+      {
+       "method": "FormatSourceRecordingDisplay_Unresolved_FallsBackToShortId",
+       "line": 570
+      },
+      {
+       "method": "FormatSourceRecordingDisplay_UnresolvedNoShortId_ShowsNone",
+       "line": 578
+      },
+      {
+       "method": "FormatSourceRecordingDisplay_PositionIsInvariant",
+       "line": 586
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,127 @@
+{
+ "batch_id": "recording-tree-037",
+ "cluster": "recording-tree",
+ "tier": "A",
+ "expected_methods": 27,
+ "files": [
+  {
+   "file": "RecordingFinalizationCacheTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "TryApply_AppendsTailAfterLastRealSample_AndClampsFirstSegment",
+       "line": 29
+      },
+      {
+       "method": "TryApply_DropsSegmentsBeforeLastRealSample_AndTrimsAtTerminalUT",
+       "line": 65
+      },
+      {
+       "method": "TryApply_RejectsTerminalBeforeLastAuthoredSample",
+       "line": 93
+      },
+      {
+       "method": "TryApply_RejectsMismatchedRecordingId",
+       "line": 123
+      },
+      {
+       "method": "TryApply_RejectsMissingRecordingId",
+       "line": 143
+      },
+      {
+       "method": "TryApply_RejectsMismatchedVesselPid",
+       "line": 164
+      },
+      {
+       "method": "TryApply_RejectsStaleCacheByDefault",
+       "line": 182
+      },
+      {
+       "method": "TryApply_AllowsStaleCacheWhenConsumerExplicitlyPermitsIt",
+       "line": 202
+      },
+      {
+       "method": "TryApply_AllowsUnsetVesselPidAsLegacyWildcard",
+       "line": 226
+      },
+      {
+       "method": "TryApply_RejectsAlreadyFinalizedByDefault",
+       "line": 263
+      },
+      {
+       "method": "TryApply_PreservesAuthoredData_AndUsesTrackSectionEndUtAsLastAuthoredUT",
+       "line": 283
+      },
+      {
+       "method": "TryApply_ParentAnchoredDebris_IgnoresFlatBoundaryPointAndStaleRelativeSectionEnd",
+       "line": 318
+      },
+      {
+       "method": "TryApply_ReplacesExistingPredictedTailInRepairMode",
+       "line": 373
+      },
+      {
+       "method": "TryApply_ClearsStaleTerminalOrbitWhenRepairingToDestroyed",
+       "line": 402
+      },
+      {
+       "method": "TryApply_TerminalUtReplacesStaleExplicitEndWithoutShrinkingAuthoredData",
+       "line": 436
+      },
+      {
+       "method": "TryApply_RejectsWhenOnlyExistingOrbitSegmentsArePredicted",
+       "line": 456
+      },
+      {
+       "method": "TryApply_LogsRemainingRejectionClasses",
+       "line": 480
+      },
+      {
+       "method": "TryApply_StampsTerminalOrbitFromCache",
+       "line": 536
+      },
+      {
+       "method": "TryApply_StampsTerminalOrbitFromCache_ForOrbitalTerminalStates",
+       "line": 571
+      },
+      {
+       "method": "TryApply_OrbitingWithoutTailOrTerminalOrbit_AppliesWithoutStampingOrbit",
+       "line": 602
+      },
+      {
+       "method": "TryApply_AppliesSurfaceMetadata",
+       "line": 623
+      },
+      {
+       "method": "TryApply_AppliesSplashedSurfaceMetadata",
+       "line": 647
+      },
+      {
+       "method": "TryApply_SurfaceStateWithoutCachePosition_PreservesExistingSurfaceMetadata",
+       "line": 672
+      },
+      {
+       "method": "TryApply_SurfaceStateWithoutCachePosition_ClearsMismatchedExistingSurfaceState",
+       "line": 695
+      },
+      {
+       "method": "TryApply_SurfaceStateWithoutCachePosition_ClearsMismatchedExistingSurfaceBody",
+       "line": 716
+      },
+      {
+       "method": "TryApply_SurfaceStateWithoutCachePosition_ClearsBodylessExistingSurfaceMetadata",
+       "line": 738
+      },
+      {
+       "method": "TryPreservePreviousCacheAfterFailedRefresh_MarksPreviousStale",
+       "line": 761
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

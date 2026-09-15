@@ -1,0 +1,267 @@
+{
+ "batch_id": "trajectory-orbit-001",
+ "cluster": "trajectory-orbit",
+ "tier": "A1",
+ "expected_methods": 62,
+ "files": [
+  {
+   "file": "DescentTriggerTests.cs",
+   "ranges": [
+    {
+     "start": 19,
+     "end": 1157,
+     "methods": [
+      {
+       "method": "Trigger_IsInOneRotationPeriodWindow",
+       "line": 19
+      },
+      {
+       "method": "Trigger_IsCongruentToDeorbitModRotation",
+       "line": 29
+      },
+      {
+       "method": "Trigger_EntryAlreadyAligned_FiresAtEntry",
+       "line": 42
+      },
+      {
+       "method": "Trigger_BodyGeneral_AcrossPeriods",
+       "line": 52
+      },
+      {
+       "method": "Trigger_DegenerateInputs_ReturnNaN",
+       "line": 67
+      },
+      {
+       "method": "Head_BeforeTrigger_IsNaN_DescentHidden",
+       "line": 79
+      },
+      {
+       "method": "Head_AtTrigger_IsRecordedDeorbit",
+       "line": 87
+      },
+      {
+       "method": "Head_AfterTrigger_AdvancesForwardAtLiveRate",
+       "line": 96
+      },
+      {
+       "method": "Head_IsMonotone_NeverBeforeRecordedDeorbit_FreezeFree",
+       "line": 105
+      },
+      {
+       "method": "Head_NaNInputs_ReturnNaN",
+       "line": 122
+      },
+      {
+       "method": "MemberHead_BeforeEntry_IsInert",
+       "line": 168
+      },
+      {
+       "method": "MemberHead_WaitWindow_LoitersOnConicLastRev",
+       "line": 177
+      },
+      {
+       "method": "MemberHead_WaitHead_StaysOnConicLastRev",
+       "line": 189
+      },
+      {
+       "method": "MemberHead_WaitHead_ReachesDeorbitPointExactlyAtTrigger",
+       "line": 202
+      },
+      {
+       "method": "MemberHead_AtTrigger_DescentStartsAtRecordedDeorbit",
+       "line": 224
+      },
+      {
+       "method": "MemberHead_DuringDescent_PlaysForwardVerbatim",
+       "line": 232
+      },
+      {
+       "method": "MemberHead_AfterClip_IsDone_Hidden",
+       "line": 240
+      },
+      {
+       "method": "MemberHead_TriggerLandsAtRecordedRotationPhase",
+       "line": 249
+      },
+      {
+       "method": "MemberHead_NextCycle_ReArmsByCycleIndex",
+       "line": 258
+      },
+      {
+       "method": "MemberHead_LaunchSideCut_ShiftsEntryEarlier",
+       "line": 269
+      },
+      {
+       "method": "TransferDeorbitHead_Inert_ReturnsFalse_NaN",
+       "line": 306
+      },
+      {
+       "method": "TransferDeorbitHead_Loiter_HeadBelowSeam",
+       "line": 314
+      },
+      {
+       "method": "TransferDeorbitHead_AtTriggerMinus_ApproachesSeam",
+       "line": 329
+      },
+      {
+       "method": "TransferDeorbitHead_Descent_ReturnsFalse",
+       "line": 341
+      },
+      {
+       "method": "TransferDeorbitHead_Done_ReturnsFalse",
+       "line": 350
+      },
+      {
+       "method": "TransferDeorbitHead_Degenerate_ReturnsFalse",
+       "line": 358
+      },
+      {
+       "method": "ResolveTransferLegHeadUT_DeorbitTailUsesDeorbitHead_OthersUseLoopHead",
+       "line": 378
+      },
+      {
+       "method": "SelectDescent_PicksOnlyPostSeamTargetBodyMembers",
+       "line": 420
+      },
+      {
+       "method": "SelectDescent_ExcludesPreSeamMembersEvenOnTargetBody",
+       "line": 427
+      },
+      {
+       "method": "SelectDescent_ExcludesPostSeamWrongBody",
+       "line": 438
+      },
+      {
+       "method": "SelectDescent_DegenerateInputs_EmptySet",
+       "line": 448
+      },
+      {
+       "method": "SelectDescent_ReturnsAscendingOrder",
+       "line": 458
+      },
+      {
+       "method": "Dispatch_EachMemberOwnsOnlyItsOwnSlice",
+       "line": 484
+      },
+      {
+       "method": "Dispatch_HiddenInLoiterAndInertAndDone",
+       "line": 503
+      },
+      {
+       "method": "Dispatch_ContiguousClip_ExactlyOneMemberCoversEveryInstant",
+       "line": 521
+      },
+      {
+       "method": "Dispatch_ExactSeam_RendersAtLeastOne_DoubleIsAcceptedSamePosition",
+       "line": 538
+      },
+      {
+       "method": "Dispatch_RealGap_HidesDuringTheGap",
+       "line": 551
+      },
+      {
+       "method": "MemberHead_DegenerateInputs_AreInert_ByteIdenticalOff",
+       "line": 562
+      },
+      {
+       "method": "Engage_AllGatesPass_Engages",
+       "line": 601
+      },
+      {
+       "method": "Engage_GapBetweenWindows_Declines",
+       "line": 611
+      },
+      {
+       "method": "Engage_FirstWindowAfterSeam_Declines",
+       "line": 621
+      },
+      {
+       "method": "Engage_ConicBeforeSoiExit_Declines",
+       "line": 631
+      },
+      {
+       "method": "Engage_ConicAtOrAfterSoiExit_Engages",
+       "line": 641
+      },
+      {
+       "method": "Engage_WindowCountMismatch_Declines",
+       "line": 650
+      },
+      {
+       "method": "Engage_DegenerateInputs_Decline",
+       "line": 659
+      },
+      {
+       "method": "Resolver_DescentMember_RendersOnlyItsOwnSlice",
+       "line": 745
+      },
+      {
+       "method": "Resolver_DescentMember_HiddenInInertLoiterDone",
+       "line": 761
+      },
+      {
+       "method": "Resolver_NonDescentMember_ByteIdenticalWithTriggerOnOrOff",
+       "line": 773
+      },
+      {
+       "method": "Resolver_Frame_DescentMember_SuppressesSecondary",
+       "line": 789
+      },
+      {
+       "method": "Resolver_TransferMember_HiddenDuringDescent_CleanHandoffNoDoubleIcon",
+       "line": 799
+      },
+      {
+       "method": "EngineHandoff_TransferMember_HiddenDuringDescent_CleanHandoffNoDoubleGhost",
+       "line": 829
+      },
+      {
+       "method": "Resolver_TransferMember_LoiterGap_WrapsHeadWithinParkingPeriod",
+       "line": 878
+      },
+      {
+       "method": "Resolver_TransferMember_DeorbitWindow_RidesDeorbitArc_NotParkingWrap",
+       "line": 914
+      },
+      {
+       "method": "Resolver_TransferMember_JustBeforeDeorbitWindow_StaysOnParkingConic_NoMidLoiterDescent",
+       "line": 945
+      },
+      {
+       "method": "ClampTransferMemberHeadToLoiterGap_WrapsWithinParkingPeriod",
+       "line": 978
+      },
+      {
+       "method": "ClampTransferMemberHeadToLoiterGap_ContinuousAtEngage",
+       "line": 1009
+      },
+      {
+       "method": "ClampTransferMemberHeadToLoiterGap_WrapBoundaryContinuous",
+       "line": 1027
+      },
+      {
+       "method": "ClampTransferMemberHeadToLoiterGap_TparkNaNOrNonPositive_NeverWraps",
+       "line": 1047
+      },
+      {
+       "method": "ResolveIconDriveDecision_LoiterCircleActive_ReturnsWrappedNonSuppressed",
+       "line": 1074
+      },
+      {
+       "method": "ResolveIconDriveDecision_LoiterCircleInactive_PastWindowUnchanged",
+       "line": 1089
+      },
+      {
+       "method": "ResolveIconDriveDecision_LoiterCircleIgnoredWhenOnArc",
+       "line": 1103
+      },
+      {
+       "method": "IconDriveLoiterCircleGate_NonTransferMembers_StayInactive",
+       "line": 1117
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

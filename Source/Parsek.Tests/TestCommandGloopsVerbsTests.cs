@@ -1,9 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
-using System.IO;
 using System.Linq;
-using System.Text.RegularExpressions;
+using System.Reflection;
 using System.Threading;
 using Parsek.TestCommands;
 using Xunit;
@@ -17,16 +16,14 @@ namespace Parsek.Tests
     /// classification and the payload builders. These are the whole decision surface -
     /// the applier only samples state and reports what these say.</para>
     ///
-    /// <para>(2) A SOURCE GATE over the applier partial. The applier lives on a
+    /// <para>(2) AN IL GATE over the applier partial. The applier lives on a
     /// <c>MonoBehaviour</c> that reaches into <c>ParsekFlight</c>, so xUnit cannot call it,
     /// and the property that matters most about this pair is a NEGATIVE one the operator
     /// ruled (B4, 2026-09-15): it drives the EXISTING Gloops entry points and changes
-    /// nothing about Gloops. A cell that reads the applier's source is the only mechanical
-    /// witness for "it calls exactly StartGloopsRecording / StopGloopsRecording and no
-    /// other Gloops mutator". Comments are stripped first (the applier's own header
-    /// DISCUSSES DiscardGloopsInProgress and PreviewGloopsRecording as things it
-    /// deliberately does not drive, so a scan that read comments would report calls that
-    /// are not wired and fail against a source saying the opposite).</para>
+    /// nothing about Gloops. Its CALL SET, read out of the compiled method with
+    /// <see cref="ILCallSet"/>, is the mechanical witness for that - see the block comment
+    /// above those cells for why it is read from the IL and not from the source text, and
+    /// for the four mutants that shaped it.</para>
     /// </summary>
     public class TestCommandGloopsVerbsTests
     {
@@ -215,148 +212,157 @@ namespace Parsek.Tests
             }
         }
 
-        // ----- Applier source gate (the B4 no-Gloops-change ruling) -----
+        // ----- Applier gate: the B4 no-Gloops-change ruling, read out of the IL -----
         //
-        // AN ALLOWLIST, NOT A BLOCKLIST, and the distinction is the whole value of these
-        // cells. The first draft named four forbidden members and asserted the two wanted
-        // ones were present, which three one-line mutants walked straight past:
-        // `recorder.ForceStop()`, `flight.GloopsRecorderForUI.Recording.Clear()` and
-        // `RecordingStore.DeleteRecordingFull(0)` all changed Gloops state while naming
-        // nothing on the list. A FOURTH mutant, found in review, walked past the FIRST
-        // derivation too: `var r2 = flight.GloopsRecorderForUI; r2.ForceStop();` binds the
-        // recorder to a name the hop scan was not looking for. That is why the local's name
-        // is now DERIVED from its binding site, why a second binding site is itself a
-        // failure, and why a terminator blocklist sits behind both as a backstop. Each was pasted into a SCRATCH COPY of the applier
-        // and run through the cells below (2026-09-15): under the blocklist all three
-        // PASSED; under the derivations below `ForceStop` and `Clear` red on the two-hop
-        // member scan, `DeleteRecordingFull` reds on the empty store-call set, and the
-        // rebound `r2.ForceStop()` reds on the single-binding cell AND the terminator
-        // backstop (it passed every cell in the round before this one). The
-        // mutants were removed from the scratch copy afterwards; the committed applier
-        // never carried them. The two-hop shape is why `.Recording.Clear()` is caught at
-        // all: the name scan wants a "(" right after the Gloops name and a chained call
-        // does not have one.
+        // AN ALLOWLIST, NOT A BLOCKLIST, and READ FROM THE COMPILED METHOD rather than from
+        // its source text. Both halves of that were learned the hard way in review.
+        //
+        // The blocklist half: the first draft named four forbidden members and asserted the
+        // two wanted ones were present, which four one-line mutants walked straight past -
+        // `recorder.ForceStop()`, `flight.GloopsRecorderForUI.Recording.Clear()`,
+        // `RecordingStore.DeleteRecordingFull(0)` and, against the derivation that replaced
+        // it, `var r2 = flight.GloopsRecorderForUI; r2.ForceStop();`, which rebinds the
+        // recorder to a name no text scan was looking for.
+        //
+        // The source-text half: a regex over source is the instrument the house rule warns
+        // about (comments read as code and fail GREEN), and it has to model C# - locals,
+        // chains, `?.`, casts - to answer a question the compiler has already answered. The
+        // IL has no comments and no log strings in it, a deleted call site is VISIBLE, and a
+        // rebound local is not a thing that survives compilation: `r2.ForceStop()` and
+        // `recorder.ForceStop()` are the same `callvirt`. So these cells read the applier's
+        // CALL SET with `ILCallSet` (which landed on main in the same window, PR #1698) and
+        // compare it as a set.
+        //
+        // Mutation-tested 2026-09-15 on a scratch copy, FIVE mutants, all killed and each
+        // naming the member it added: the four above plus `flight.DiscardGloopsInProgress()`
+        // (the Gloops member one keystroke away from being wired here, which the B4 ruling
+        // says stays unwired). One of them shaped the gate rather than merely passing
+        // through it: the FIRST IL draft filtered to Parsek types and `Recording.Clear()`
+        // survived, because `Clear` is declared on `List<TrajectoryPoint>` and not on any
+        // Parsek type. Hence the three type families read as one allowlist below.
 
-        /// <summary>Members the applier is allowed to call on `ParsekFlight` - exactly the
-        /// two the Gloops window's primary button calls.</summary>
-        private static readonly string[] AllowedGloopsCalls =
+        /// <summary>The ONLY ParsekFlight members the appliers may call - exactly what the
+        /// Gloops window's primary button calls, plus the three read-only accessors the
+        /// verdict is derived from.</summary>
+        private static readonly string[] AllowedParsekFlightCalls =
         {
             "StartGloopsRecording",
             "StopGloopsRecording",
+            "get_IsGloopsRecording",
+            "get_GloopsRecorderForUI",
+            "get_LastGloopsRecording",
+            // The singleton accessor both appliers open with. A read, and the only way to
+            // reach the two entry points at all.
+            "get_Instance",
         };
 
         [Fact]
-        public void TheApplierCallsExactlyTheTwoExistingGloopsEntryPointsAndNoOther()
+        public void TheAppliersCallExactlyTheAllowedParsekFlightMembers()
         {
-            string src = ReadApplierSource();
+            var called = new SortedSet<string>(StringComparer.Ordinal);
+            foreach (string impl in new[] { "GloopsStartImpl", "GloopsStopImpl" })
+            {
+                foreach (MethodBase m in ILCallSet.CalledMethods(
+                             ILCallSet.Method(typeof(ParsekTestCommandAddon), impl)))
+                {
+                    if (m.DeclaringType == typeof(ParsekFlight))
+                        called.Add(m.Name);
+                }
+            }
 
-            // Every `.SomethingGloopsSomething(` call site in the file, as a SET compared
-            // against the allowlist. A new Gloops member wired in reds here by NAME,
-            // whether or not anyone thought to forbid it.
-            var called = new SortedSet<string>(
-                Regex.Matches(src, @"\.(\w*Gloops\w*)\s*\(")
-                    .Cast<Match>().Select(m => m.Groups[1].Value),
-                StringComparer.Ordinal);
-
+            // A SET comparison, so a newly wired Gloops member reds by NAME whether or not
+            // anyone thought to forbid it, and a DELETED entry point reds too.
             Assert.Equal(
-                new SortedSet<string>(AllowedGloopsCalls, StringComparer.Ordinal),
+                new SortedSet<string>(AllowedParsekFlightCalls, StringComparer.Ordinal),
                 called);
         }
 
         [Fact]
-        public void TheRecorderAccessorIsBoundToExactlyOneLocal()
+        public void TheAppliersOnlyReadTheRecorderTheRecordingAndTheirCounts()
         {
-            // The premise the scan below rests on, asserted rather than assumed. That scan
-            // has to name the local that holds the recorder, and a hand-written name is a
-            // hole: `var r2 = flight.GloopsRecorderForUI; r2.ForceStop();` binds the same
-            // object to a DIFFERENT name and walks past a scan keyed on `recorder`. So the
-            // local's name is DERIVED from the one assignment that creates it, and a
-            // second binding site reds here instead of silently widening the surface.
-            string src = ReadApplierSource();
-            var bindings = Regex.Matches(
-                    src, @"(?:\bvar\b|\bFlightRecorder\b)\s+(\w+)\s*=\s*[\w.]*\bGloopsRecorderForUI\b")
-                .Cast<Match>().Select(m => m.Groups[1].Value).ToList();
-            Assert.Single(bindings);
-            Assert.Equal("recorder", bindings[0]);
-
-            // And the accessor is reached ONLY through that binding - never inline, where
-            // a chained call would dodge the local scan entirely.
-            Assert.Single(Regex.Matches(src, @"\bGloopsRecorderForUI\b").Cast<Match>().ToList());
-        }
-
-        [Fact]
-        public void TheApplierOnlyReadsCountOffTheRecorderAndTheRecording()
-        {
-            // The mutant class the name scan above cannot see, in both of its shapes: a
-            // call on the recorder LOCAL, whose own members carry no "Gloops" in their
-            // spelling (`recorder.ForceStop()`), and a call reached THROUGH a Gloops
-            // accessor rather than on it (`flight.GloopsRecorderForUI.Recording.Clear()` -
-            // the name scan misses it because no "(" follows the Gloops name).
-            //
-            // The local's NAME is derived from its binding site rather than written here,
-            // so renaming it in the applier moves this scan with it and a second binding
-            // reds in the cell above.
-            //
-            // Derived in two hops. Hop one: every member reached off that local or off a
-            // Gloops-named accessor. Hop two: every member reached off THOSE.
-            string src = ReadApplierSource();
-            string local = RecorderLocalName(src);
-
-            var firstHop = new SortedSet<string>(
-                Regex.Matches(src,
-                        @"(?:\b" + local + @"\b|\.\w*Gloops\w*)\s*\??\.\s*(\w+)")
-                    .Cast<Match>().Select(m => m.Groups[1].Value),
-                StringComparer.Ordinal);
+            // Everything the appliers reach BELOW ParsekFlight, in one set: the recorder
+            // (`ForceStop` / `StopRecording` would end a take), the committed `Recording`
+            // (its id and its point list), and the point LIST itself - which is where the
+            // mutant that survived the first IL draft lived. `Recording.Clear()` declares
+            // `Clear` on `List<TrajectoryPoint>`, not on any Parsek type, so a gate filtered
+            // to Parsek types alone never saw it. Reading all three type families as ONE
+            // allowlist closes that: the list may be asked for its Count and nothing else.
+            var called = new SortedSet<string>(StringComparer.Ordinal);
+            foreach (string impl in new[] { "GloopsStartImpl", "GloopsStopImpl" })
+            {
+                foreach (MethodBase m in ILCallSet.CalledMethods(
+                             ILCallSet.Method(typeof(ParsekTestCommandAddon), impl)))
+                {
+                    Type t = m.DeclaringType;
+                    if (t == null) continue;
+                    bool isList = t.IsGenericType
+                        && t.GetGenericTypeDefinition() == typeof(List<>);
+                    if (t == typeof(FlightRecorder) || t == typeof(Recording) || isList)
+                        called.Add(t.Name + "." + m.Name);
+                }
+            }
             Assert.Equal(
                 new SortedSet<string>(
-                    new[] { "Points", "Recording", "RecordingId" }, StringComparer.Ordinal),
-                firstHop);
+                    new[] { "FlightRecorder.get_Recording", "List`1.get_Count" },
+                    StringComparer.Ordinal),
+                called);
 
-            var secondHop = new SortedSet<string>(
-                Regex.Matches(src, @"\.(?:Recording|Points)\s*\??\.\s*(\w+)")
-                    .Cast<Match>().Select(m => m.Groups[1].Value),
-                StringComparer.Ordinal);
+            // `Recording` reaches this set through FIELDS rather than properties
+            // (`RecordingId` and `Points` are both public fields on it), which a call-set
+            // gate cannot see at all - the hole ILCallSet's own header warns about. So the
+            // read-field set is asserted beside the call set, and it is an allowlist too.
+            var read = new SortedSet<string>(StringComparer.Ordinal);
+            foreach (string impl in new[] { "GloopsStartImpl", "GloopsStopImpl" })
+            {
+                foreach (FieldInfo f in ILCallSet.ReadFields(
+                             ILCallSet.Method(typeof(ParsekTestCommandAddon), impl)))
+                {
+                    if (f.DeclaringType == typeof(Recording))
+                        read.Add(f.Name);
+                }
+            }
             Assert.Equal(
-                new SortedSet<string>(new[] { "Count" }, StringComparer.Ordinal),
-                secondHop);
+                new SortedSet<string>(
+                    new[] { "Points", "RecordingId" }, StringComparer.Ordinal),
+                read);
         }
 
         [Fact]
-        public void TheApplierNamesNoRecorderTerminatorAtAll()
+        public void TheAppliersCallNoRecordingStoreMemberAtAll()
         {
-            // BELT AND BRACES over the derivations above, and cheap: the three members that
-            // would end or empty a take are forbidden by NAME anywhere in the file, however
-            // they are reached - through a local, a chain, a cast or a second accessor this
-            // gate has not thought of. A blocklist is the wrong PRIMARY instrument (that is
-            // the whole point of the header above) and a perfectly good backstop.
-            string src = ReadApplierSource();
-            foreach (string terminator in new[] { "ForceStop", "StopRecording", ".Clear(" })
-                Assert.DoesNotContain(terminator, src);
+            // Reaching PAST ParsekFlight into the store, where
+            // `RecordingStore.DeleteRecordingFull(0)` would undo a Gloops take with no
+            // Gloops-named member and no recorder local in sight. The appliers drive two
+            // ParsekFlight methods and report; they touch no other Parsek subsystem, so the
+            // allowlist here is EMPTY rather than curated.
+            foreach (string impl in new[] { "GloopsStartImpl", "GloopsStopImpl" })
+            {
+                var storeCalls = ILCallSet.CalledMethods(
+                        ILCallSet.Method(typeof(ParsekTestCommandAddon), impl))
+                    .Where(m => m.DeclaringType == typeof(RecordingStore))
+                    .Select(m => m.Name)
+                    .ToList();
+                Assert.Empty(storeCalls);
+            }
         }
 
         [Fact]
-        public void TheApplierCallsNoRecordingStoreMutator()
+        public void TheAppliersWriteNoGloopsFieldOrProperty()
         {
-            // The third mutant class: reaching PAST ParsekFlight into the store, where
-            // `RecordingStore.DeleteGhostOnlyRecording(...)` would undo a Gloops take with
-            // no Gloops-named member and no `recorder` local in sight. The applier's job is
-            // to drive two ParsekFlight methods and report; it calls into no other Parsek
-            // subsystem at all, so the allowlist here is EMPTY rather than curated.
-            string src = ReadApplierSource();
-            var storeCalls = Regex.Matches(src, @"\bRecordingStore\s*\.\s*(\w+)")
-                .Cast<Match>().Select(m => m.Groups[1].Value).ToList();
-            Assert.Empty(storeCalls);
-        }
-
-        [Fact]
-        public void TheApplierWritesNoGloopsField()
-        {
-            // The assignment half, kept from the first draft because it covers what a call
-            // scan cannot: a field or property SET rather than an invocation.
-            string src = ReadApplierSource();
-            var assignments = Regex.Matches(src, @"\.(\w*Gloops\w*)\s*=[^=]")
-                .Cast<Match>().Select(m => m.Groups[1].Value).ToList();
-            Assert.Empty(assignments);
+            // The assignment half. A property set is a `set_X` CALL (covered by the set
+            // comparisons above, which allow only getters); a raw field write is a `stfld`
+            // the call scan cannot see, so read the written-field set too.
+            foreach (string impl in new[] { "GloopsStartImpl", "GloopsStopImpl" })
+            {
+                var written = ILCallSet.WrittenFields(
+                        ILCallSet.Method(typeof(ParsekTestCommandAddon), impl))
+                    .Where(f => f.DeclaringType == typeof(ParsekFlight)
+                                || f.DeclaringType == typeof(FlightRecorder)
+                                || f.Name.IndexOf("Gloops", StringComparison.Ordinal) >= 0)
+                    .Select(f => f.Name)
+                    .ToList();
+                Assert.Empty(written);
+            }
         }
 
         // ----- helpers -----
@@ -368,39 +374,5 @@ namespace Parsek.Tests
             return hit.Value;
         }
 
-        /// <summary>The name of the local the applier binds `GloopsRecorderForUI` to, read
-        /// off the binding itself so a rename cannot leave a scan pointing at nothing.</summary>
-        private static string RecorderLocalName(string src)
-        {
-            Match m = Regex.Match(
-                src, @"(?:\bvar\b|\bFlightRecorder\b)\s+(\w+)\s*=\s*[\w.]*\bGloopsRecorderForUI\b");
-            Assert.True(m.Success, "the applier no longer binds GloopsRecorderForUI to a local");
-            return m.Groups[1].Value;
-        }
-
-        private static string ReadApplierSource()
-        {
-            string path = Path.Combine(
-                ResolveRepoRoot(), "Source", "Parsek", "TestCommands",
-                "ParsekTestCommandAddon.Gloops.cs");
-            Assert.True(File.Exists(path),
-                "the Gloops applier moved, this gate is vacuous: " + path);
-            return ParsekDialogNamePrefixSourceGateTests.StripComments(File.ReadAllText(path));
-        }
-
-        private static string ResolveRepoRoot()
-        {
-            string dir = AppContext.BaseDirectory;
-            for (int i = 0; i < 10 && !string.IsNullOrEmpty(dir); i++)
-            {
-                if (Directory.Exists(Path.Combine(dir, "scripts"))
-                    && Directory.Exists(Path.Combine(dir, "Source")))
-                {
-                    return dir;
-                }
-                dir = Path.GetDirectoryName(dir);
-            }
-            throw new InvalidOperationException("repo root not found from " + AppContext.BaseDirectory);
-        }
     }
 }

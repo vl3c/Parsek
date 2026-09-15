@@ -1,0 +1,234 @@
+{
+ "batch_id": "catchall-043",
+ "cluster": "catchall",
+ "tier": "B",
+ "expected_methods": 51,
+ "files": [
+  {
+   "file": "CameraFollowTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "IsVesselSituationSafe_Landed_ReturnsTrue",
+       "line": 21
+      },
+      {
+       "method": "IsVesselSituationSafe_Splashed_ReturnsTrue",
+       "line": 28
+      },
+      {
+       "method": "IsVesselSituationSafe_Prelaunch_ReturnsTrue",
+       "line": 35
+      },
+      {
+       "method": "IsVesselSituationSafe_Docked_ReturnsTrue",
+       "line": 42
+      },
+      {
+       "method": "IsVesselSituationSafe_Orbiting_SafePeriapsis_ReturnsTrue",
+       "line": 49
+      },
+      {
+       "method": "IsVesselSituationSafe_Orbiting_LowPeriapsis_ReturnsFalse",
+       "line": 57
+      },
+      {
+       "method": "IsVesselSituationSafe_Orbiting_ExactlyAtAtmosphere_ReturnsFalse",
+       "line": 65
+      },
+      {
+       "method": "IsVesselSituationSafe_Flying_ReturnsFalse",
+       "line": 73
+      },
+      {
+       "method": "IsVesselSituationSafe_SubOrbital_ReturnsFalse",
+       "line": 80
+      },
+      {
+       "method": "IsVesselSituationSafe_Escaping_ReturnsFalse",
+       "line": 87
+      },
+      {
+       "method": "IsVesselSituationSafe_Orbiting_NoAtmosphere_ReturnsTrue",
+       "line": 94
+      },
+      {
+       "method": "IsVesselSituationSafe_Orbiting_NegativePeriapsis_ReturnsFalse",
+       "line": 102
+      },
+      {
+       "method": "IsVesselSituationSafe_Orbiting_JustAboveAtmosphere_ReturnsTrue",
+       "line": 110
+      },
+      {
+       "method": "IsVesselSituationSafe_Orbiting_ZeroPeZeroAtmo_ReturnsFalse",
+       "line": 118
+      },
+      {
+       "method": "IsVesselSituationSafe_Landed_IgnoresPeriapsisAndAtmo",
+       "line": 127
+      },
+      {
+       "method": "IsVesselSituationSafe_Orbiting_VeryHighPeriapsis_ReturnsTrue",
+       "line": 137
+      },
+      {
+       "method": "IsVesselSituationSafe_Flying_IgnoresPeriapsis",
+       "line": 145
+      },
+      {
+       "method": "IsVesselSituationSafe_SubOrbital_IgnoresPeriapsis",
+       "line": 153
+      },
+      {
+       "method": "IsVesselSituationSafe_Escaping_IgnoresPeriapsis",
+       "line": 161
+      },
+      {
+       "method": "FormatWatchDistanceForLogs_MetersBelowOneKm",
+       "line": 169
+      },
+      {
+       "method": "FormatWatchDistanceForLogs_KilometersAtOrAboveOneKm",
+       "line": 175
+      },
+      {
+       "method": "ComputeWatchIndex_DeleteBelow_ShiftsDown",
+       "line": 198
+      },
+      {
+       "method": "ComputeWatchIndex_DeleteAtWatched_ExitsToMinusOne",
+       "line": 209
+      },
+      {
+       "method": "ComputeWatchIndex_DeleteAbove_NoChange",
+       "line": 219
+      },
+      {
+       "method": "ComputeWatchIndex_IdStableAfterShift",
+       "line": 230
+      },
+      {
+       "method": "ComputeWatchIndex_IdMismatch_ScansForCorrect",
+       "line": 243
+      },
+      {
+       "method": "ComputeWatchIndex_IdNotFound_ExitsToMinusOne",
+       "line": 256
+      },
+      {
+       "method": "ComputeWatchIndex_DeleteFirstWhenWatchingFirst_ExitsToMinusOne",
+       "line": 266
+      },
+      {
+       "method": "ComputeWatchIndex_EmptyListAfterDelete_ExitsToMinusOne",
+       "line": 276
+      },
+      {
+       "method": "ComputeWatchIndex_WatchingLast_DeleteFirst_ShiftsDown",
+       "line": 286
+      },
+      {
+       "method": "ComputeWatchIndex_AdjacentDeleteBelow_ShiftsDownByOne",
+       "line": 298
+      },
+      {
+       "method": "ComputeWatchIndex_DeleteFarAbove_NoChange",
+       "line": 310
+      },
+      {
+       "method": "ComputeWatchIndex_LargeList_DeleteFirst_ShiftsCorrectly",
+       "line": 321
+      },
+      {
+       "method": "WatchCycleOnRebuild_NotWatching_Unchanged",
+       "line": 337
+      },
+      {
+       "method": "WatchCycleOnRebuild_Watching_NeedsExplosion_NotPaused_ReturnsHold",
+       "line": 345
+      },
+      {
+       "method": "WatchCycleOnRebuild_Watching_NeedsExplosion_InPauseWindow_ReturnsReady",
+       "line": 352
+      },
+      {
+       "method": "WatchCycleOnRebuild_Watching_ExplosionAlreadyFired_ReturnsReady",
+       "line": 359
+      },
+      {
+       "method": "WatchCycleOnRebuild_Watching_NoExplosionTerminal_ReturnsReady",
+       "line": 366
+      },
+      {
+       "method": "WatchCycleOnRebuild_Watching_AlreadyInHold_StaysInHold",
+       "line": 373
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "RuntimeGapObservabilityTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "BackgroundStateDriftFormatters_SurfaceCountsAndIdentity",
+       "line": 25
+      },
+      {
+       "method": "BackgroundStateDriftCheck_BackwardsUtResetsThrottle",
+       "line": 58
+      },
+      {
+       "method": "TransitionToBackgroundMissingVesselWarning_IncludesFinalizerContext",
+       "line": 90
+      },
+      {
+       "method": "PostSwitchSummaries_FormatDecisionAndManifestDeltas",
+       "line": 120
+      },
+      {
+       "method": "PostSwitchManifestDeltaSummary_ReportsSkippedDiffs",
+       "line": 170
+      },
+      {
+       "method": "SplitSkipSummary_IncludesSourceAndPids",
+       "line": 198
+      },
+      {
+       "method": "MapMarkerSummary_IncludesPrioritySkipCounters",
+       "line": 216
+      },
+      {
+       "method": "MapMarkerSummary_LoopHiddenAloneHasSignal",
+       "line": 242
+      },
+      {
+       "method": "AtmosphericMarkerSummaryAndClassifier_ReportSkips",
+       "line": 253
+      },
+      {
+       "method": "GhostOrbitLineDecisionFormat_IncludesSuppressionReason",
+       "line": 281
+      },
+      {
+       "method": "EventAndKerbalSummaryFormatters_AreStable",
+       "line": 312
+      },
+      {
+       "method": "SpawnControlAndTestRunnerSummaries_AreCompact",
+       "line": 352
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

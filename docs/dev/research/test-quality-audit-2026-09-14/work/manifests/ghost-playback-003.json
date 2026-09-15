@@ -1,0 +1,287 @@
+{
+ "batch_id": "ghost-playback-003",
+ "cluster": "ghost-playback",
+ "tier": "A1",
+ "expected_methods": 67,
+ "files": [
+  {
+   "file": "GhostPlaybackEngineTests.cs",
+   "ranges": [
+    {
+     "start": 3089,
+     "end": 5040,
+     "methods": [
+      {
+       "method": "ReindexAfterDelete_AllSetsShifted",
+       "line": 3089
+      },
+      {
+       "method": "ReindexAfterDelete_LowerKeysUnaffected",
+       "line": 3105
+      },
+      {
+       "method": "ReindexAfterDelete_EmptyCollections_NoError",
+       "line": 3123
+      },
+      {
+       "method": "ReindexAfterDelete_PreservesGhostStateIdentity",
+       "line": 3134
+      },
+      {
+       "method": "CaptureGhostObservability_CountsPrimaryOverlapAndFxInstances",
+       "line": 3158
+      },
+      {
+       "method": "CaptureGhostObservability_IgnoresNullStatesAndEmptyFxMaps",
+       "line": 3213
+      },
+      {
+       "method": "HasLoopCycleChanged_UnloadedShellSameCycle_ReturnsFalse",
+       "line": 3248
+      },
+      {
+       "method": "ClearLoadedVisualReferences_PreservesLogicalPlaybackState",
+       "line": 3260
+      },
+      {
+       "method": "ClearLoadedVisualReferences_ResetsPendingSplitBuildState",
+       "line": 3316
+      },
+      {
+       "method": "ReusePrimaryGhostAcrossCycle_NullGhost_AdvancesCycleWithoutEvents",
+       "line": 3349
+      },
+      {
+       "method": "UpdateOverlapPlayback_PendingPrimaryDemotion_ClearsLifecycleBeforeOverlapList",
+       "line": 3388
+      },
+      {
+       "method": "UpdateOverlapPlayback_HighWarpStationaryOverlap_KeepsPrimaryAndClearsOverlaps",
+       "line": 3445
+      },
+      {
+       "method": "ShouldPrewarmHiddenGhost_NearVisibleTierBoundary_ReturnsTrue",
+       "line": 3502
+      },
+      {
+       "method": "ShouldPrewarmHiddenGhost_UpcomingDecoupleEvent_ReturnsTrue",
+       "line": 3516
+      },
+      {
+       "method": "ShouldPrewarmHiddenGhost_UpcomingThrottleOnlyEvent_ReturnsFalse",
+       "line": 3535
+      },
+      {
+       "method": "TryResolvePendingPlaybackInterpolation_PointInterpolation_UsesInterpolatedState",
+       "line": 3562
+      },
+      {
+       "method": "TryResolvePendingPlaybackInterpolation_BeforeStart_UsesFirstPointState",
+       "line": 3605
+      },
+      {
+       "method": "TryResolvePendingPlaybackInterpolation_AfterEnd_UsesLastPointStateAndLogsClamp",
+       "line": 3640
+      },
+      {
+       "method": "TryResolvePendingPlaybackInterpolation_OrbitOnlyTrajectory_UsesSegmentBody",
+       "line": 3683
+      },
+      {
+       "method": "TryResolvePendingPlaybackInterpolation_MixedPointAndOrbitData_PrefersActiveOrbitSegment",
+       "line": 3710
+      },
+      {
+       "method": "TryResolvePendingPlaybackInterpolation_SuborbitalMixedOrbitSegment_PrefersActiveOrbitSegment",
+       "line": 3755
+      },
+      {
+       "method": "TryResolvePendingPlaybackInterpolation_DegenerateMixedOrbitSegment_FallsBackToPoints",
+       "line": 3800
+      },
+      {
+       "method": "TryResolvePendingPlaybackInterpolation_RelativeSection_UsesBodyFixedPrimaryMetadata",
+       "line": 3845
+      },
+      {
+       "method": "TryResolvePendingPlaybackInterpolation_RelativeBodyFixedSingleFrame_DoesNotClamp",
+       "line": 3923
+      },
+      {
+       "method": "TryResolvePendingPlaybackInterpolation_RelativeBodyFixedOutOfRange_DoesNotClamp",
+       "line": 3991
+      },
+      {
+       "method": "TryResolvePendingPlaybackInterpolation_AuthoredFrameGapWithShadow_SkipsOrbitPrecedence",
+       "line": 4067
+      },
+      {
+       "method": "TryResolvePendingPlaybackInterpolation_SurfaceTrackSection_SkipsOrbitSegmentPrecedence",
+       "line": 4167
+      },
+      {
+       "method": "TryResolvePendingPlaybackInterpolation_SurfaceTrackSection_OffUtOrbitSegment_DoesNotLogSkippedOrbitPrecedence",
+       "line": 4226
+      },
+      {
+       "method": "TryResolvePendingPlaybackInterpolation_SurfaceTrackSection_SuborbitalOrbitSegment_LogsSkippedOrbitPrecedence",
+       "line": 4284
+      },
+      {
+       "method": "TryResolvePendingPlaybackInterpolation_SurfaceOnlyTrajectory_UsesSurfaceBody",
+       "line": 4342
+      },
+      {
+       "method": "CreatePendingSpawnState_ResolvedInterpolation_SeedsStateAndLogs",
+       "line": 4364
+      },
+      {
+       "method": "HasGhost_NoState_ReturnsFalse",
+       "line": 4421
+      },
+      {
+       "method": "HasGhost_WithState_ReturnsTrue",
+       "line": 4428
+      },
+      {
+       "method": "HasActiveGhost_NullGhostGameObject_ReturnsFalse",
+       "line": 4436
+      },
+      {
+       "method": "TryGetGhostState_ExistingIndex_ReturnsState",
+       "line": 4444
+      },
+      {
+       "method": "TryGetGhostState_MissingIndex_ReturnsFalse",
+       "line": 4456
+      },
+      {
+       "method": "GetActiveAnchorCandidates_FiltersMissingRecordingIdsAndCarriesPositionedFlag",
+       "line": 4464
+      },
+      {
+       "method": "PositionedThisFrame_ClearsAtFrameStartAndMarksAfterPositionSeam",
+       "line": 4498
+      },
+      {
+       "method": "IsGhostOnBody_MatchingBody_ReturnsTrue",
+       "line": 4519
+      },
+      {
+       "method": "IsGhostOnBody_DifferentBody_ReturnsFalse",
+       "line": 4530
+      },
+      {
+       "method": "IsGhostOnBody_NullBodyName_ReturnsFalse",
+       "line": 4541
+      },
+      {
+       "method": "IsGhostOnBody_NoState_ReturnsFalse",
+       "line": 4549
+      },
+      {
+       "method": "GetGhostBodyName_ExistingState_ReturnsBody",
+       "line": 4556
+      },
+      {
+       "method": "GetGhostBodyName_NoState_ReturnsNull",
+       "line": 4567
+      },
+      {
+       "method": "IsGhostWithinVisualRange_BeyondZone_ReturnsFalse",
+       "line": 4574
+      },
+      {
+       "method": "IsGhostWithinVisualRange_PhysicsZone_ReturnsTrue",
+       "line": 4585
+      },
+      {
+       "method": "IsGhostWithinVisualRange_VisualZone_ReturnsTrue",
+       "line": 4596
+      },
+      {
+       "method": "IsGhostWithinVisualRange_NoState_ReturnsFalse",
+       "line": 4607
+      },
+      {
+       "method": "GhostCount_ReflectsLoadedGhostVisualCount",
+       "line": 4614
+      },
+      {
+       "method": "CollectDeferredEnginePowerRestores_ReturnsOnlyActiveEngineModules",
+       "line": 4624
+      },
+      {
+       "method": "CollectDeferredRuntimePowerRestores_SeparatesEngineRcsAndAudioTrackedPower",
+       "line": 4655
+      },
+      {
+       "method": "ShouldRestoreDeferredRuntimeFxState_RequiresFirstActivationAndUnsuppressedFx",
+       "line": 4702
+      },
+      {
+       "method": "HiddenPrimeVisualPolicy_SuppressesFxAndTransientEvents",
+       "line": 4712
+      },
+      {
+       "method": "ShouldSuppressLazyReentryUntilPlaybackSync_BlocksPendingBuildBeforeFirstSyncedFrame",
+       "line": 4722
+      },
+      {
+       "method": "ShouldSuppressLazyReentryUntilPlaybackSync_AllowsAfterSyncOrWhenNotPending",
+       "line": 4739
+      },
+      {
+       "method": "FormatPlaybackDistanceForLog_FormatsFiniteAndUnresolved",
+       "line": 4763
+      },
+      {
+       "method": "ClearTrackedEnginePowerForPart_ClearsTrackedCurrentPower",
+       "line": 4771
+      },
+      {
+       "method": "ClearTrackedRcsPowerForPart_ClearsTrackedCurrentPower",
+       "line": 4793
+      },
+      {
+       "method": "ClearTrackedAudioPowerForPart_ClearsTrackedCurrentPower",
+       "line": 4815
+      },
+      {
+       "method": "ResolveVisiblePlaybackUT_ClampsFreshFirstFrameBackToActivationStart",
+       "line": 4837
+      },
+      {
+       "method": "ResolveVisiblePlaybackUT_V13ParentAnchoredDebrisWithBodyFixedPrimary_DoesNotClamp",
+       "line": 4852
+      },
+      {
+       "method": "ResolveVisiblePlaybackUT_V13ParentAnchoredDebrisWithoutBodyFixedPrimary_StillClamps",
+       "line": 4894
+      },
+      {
+       "method": "ResolveVisiblePlaybackUT_DoesNotRewindLargeLateFirstAppearance",
+       "line": 4922
+      },
+      {
+       "method": "ResolveVisiblePlaybackUT_DoesNotRewindOrdinaryFrameAfterActivation",
+       "line": 4937
+      },
+      {
+       "method": "ResolveVisiblePlaybackUT_DoesNotRewindReshownGhost",
+       "line": 4952
+      },
+      {
+       "method": "ResolveVisiblePlaybackUT_ClampsFreshDebrisSeedBridgeFirstFrameToFirstOrdinarySample",
+       "line": 4967
+      },
+      {
+       "method": "ResolveVisiblePlaybackUT_DoesNotClampSmallDebrisSeedBridge",
+       "line": 5000
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

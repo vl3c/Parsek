@@ -1,0 +1,195 @@
+{
+ "batch_id": "mission-groups-010",
+ "cluster": "mission-groups",
+ "tier": "A",
+ "expected_methods": 44,
+ "files": [
+  {
+   "file": "MissionsWindowPeriodicityDisplayTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "FormatCountdownCompact_SubMinute_ShowsSeconds",
+       "line": 32
+      },
+      {
+       "method": "FormatCountdownCompact_Minutes_ShowsMinutesAndSeconds",
+       "line": 40
+      },
+      {
+       "method": "FormatCountdownCompact_Hours_ShowsHoursAndMinutes",
+       "line": 48
+      },
+      {
+       "method": "FormatCountdownCompact_Days_ShowsDaysAndHours",
+       "line": 56
+      },
+      {
+       "method": "FormatCountdownCompact_Years_ShowsYearsAndDays",
+       "line": 66
+      },
+      {
+       "method": "FormatCountdownCompact_ZeroAndNegativeAndNaN_ClampToZeroSeconds",
+       "line": 74
+      },
+      {
+       "method": "FormatCountdownCompact_KerbinTime_UsesSixHourDays",
+       "line": 85
+      },
+      {
+       "method": "FormatPeriodCompact_PicksLargestUnit_OneDecimalDroppingTrailingZero",
+       "line": 96
+      },
+      {
+       "method": "FormatPeriodCompact_Days_WithDecimal",
+       "line": 105
+      },
+      {
+       "method": "FormatPeriodCompact_MinutesAndSeconds",
+       "line": 113
+      },
+      {
+       "method": "FormatPeriodCompact_NonPositiveOrNaN_ZeroSeconds",
+       "line": 120
+      },
+      {
+       "method": "BuildPeriodBasisLabel_RotationVsOrbital",
+       "line": 131
+      },
+      {
+       "method": "BuildPeriodBasisLabel_EmptyBody_EmptyLabel",
+       "line": 140
+      },
+      {
+       "method": "BuildPeriodBasisLabel_VesselOrbital_StationWindow",
+       "line": 148
+      },
+      {
+       "method": "BuildPeriodCellDisplay_VesselOrbital_CombinesPeriodAndStationWindow",
+       "line": 161
+      },
+      {
+       "method": "BuildPeriodCellDisplay_CombinesPeriodAndBasis",
+       "line": 169
+      },
+      {
+       "method": "BuildPeriodCellDisplay_NoBasis_DropsSuffix",
+       "line": 180
+      },
+      {
+       "method": "BuildReaimPeriodCellDisplay_ShowsSynodicAndTargetTransfer",
+       "line": 187
+      },
+      {
+       "method": "BuildTMinus_Reaim_ShowsCountdown_NotNotAligned",
+       "line": 199
+      },
+      {
+       "method": "BuildTMinus_Reaim_NoWindow_FallsBackToNotAligned",
+       "line": 211
+      },
+      {
+       "method": "BuildTMinus_NotLooping_Blank",
+       "line": 222
+      },
+      {
+       "method": "BuildTMinus_NotSolved_Blank",
+       "line": 231
+      },
+      {
+       "method": "BuildTMinus_Unsupported_NotAligned",
+       "line": 240
+      },
+      {
+       "method": "BuildTMinus_NoUnitBuilt_NotAligned",
+       "line": 251
+      },
+      {
+       "method": "BuildTMinus_Unconstrained_Continuous",
+       "line": 263
+      },
+      {
+       "method": "BuildTMinus_Supported_ShowsCountdownToRelaunch",
+       "line": 273
+      },
+      {
+       "method": "BuildTMinus_RelaunchAtOrBehindNow_ZeroCountdown",
+       "line": 285
+      },
+      {
+       "method": "ComputeNextRelaunchUT_OverlapShorterThanSpan_UsesOverlapCadence",
+       "line": 300
+      },
+      {
+       "method": "ComputeNextRelaunchUT_OverlapAtOrAboveSpan_UsesSpanCadence",
+       "line": 315
+      },
+      {
+       "method": "ComputeNextRelaunchUT_CadenceIsMultipleOfP_TargetsRelaunchNotNextPWindow",
+       "line": 330
+      },
+      {
+       "method": "ComputeNextRelaunchUT_ParkedBeforeForwardAnchor_ReportsAnchor",
+       "line": 352
+      },
+      {
+       "method": "ComputeNextRelaunchUT_AnchorExactlyOnWindowBoundary_DoesNotSkip",
+       "line": 366
+      },
+      {
+       "method": "ComputeNextRelaunchUT_DegenerateCadence_FallsBackToAnchor",
+       "line": 380
+      },
+      {
+       "method": "ComputeNextRelaunchUT_LaunchAlignmentEngaged_ReportsLNMinusDelta",
+       "line": 393
+      },
+      {
+       "method": "ComputeNextRelaunchUT_LaunchAlignmentEngaged_TargetsRealLaunch",
+       "line": 429
+      },
+      {
+       "method": "ComputeNextRelaunchUT_BoundaryOverlapEngaged_ReportsLNMinusRawDelta",
+       "line": 482
+      },
+      {
+       "method": "ShouldEnableWarpToWindow_LoopingBuiltFutureRelaunch_Enabled",
+       "line": 561
+      },
+      {
+       "method": "ShouldEnableWarpToWindow_Disabled_Cases",
+       "line": 573
+      },
+      {
+       "method": "ShouldEnableWarpToWindow_NaNOrInfiniteRelaunch_Disabled",
+       "line": 580
+      },
+      {
+       "method": "ComputeNextRelaunchUT_ScheduledUnit_TargetsTheNextScheduledLaunch",
+       "line": 591
+      },
+      {
+       "method": "LandingBodyAlignmentMode_IsPinnedLoose",
+       "line": 612
+      },
+      {
+       "method": "BuildScheduledPeriodCellDisplay_ShowsVariesWithBasis",
+       "line": 620
+      },
+      {
+       "method": "BuildScheduledPeriodCellDisplay_ShowsRangeWhenMinMaxDiffer",
+       "line": 639
+      },
+      {
+       "method": "FormatScheduledIntervalRange_CollapsesWithinFivePercent",
+       "line": 649
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

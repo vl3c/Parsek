@@ -1,0 +1,238 @@
+{
+ "batch_id": "recording-tree-044",
+ "cluster": "recording-tree",
+ "tier": "B",
+ "expected_methods": 52,
+ "files": [
+  {
+   "file": "SwitchSegmentNoOpClassifierTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "OrbitalCoast_WithInertEngineSeed_IsNoOp",
+       "line": 65
+      },
+      {
+       "method": "OrbitalCoast_WithTimeJumpOnly_IsNoOp",
+       "line": 80
+      },
+      {
+       "method": "LandedSitStill_IsNoOp",
+       "line": 90
+      },
+      {
+       "method": "EmptySegment_WithNoPayload_IsKept_InsufficientData",
+       "line": 99
+      },
+      {
+       "method": "OrbitalCoast_TwoPointsNoSections_StillEvaluatedAsNoOp",
+       "line": 110
+      },
+      {
+       "method": "CosmeticLightOnly_IsNoOp",
+       "line": 121
+      },
+      {
+       "method": "OrbitUnchanged_TwoIdenticalSegments_IsNoOp",
+       "line": 131
+      },
+      {
+       "method": "NullSegment_IsKept",
+       "line": 143
+      },
+      {
+       "method": "VesselDestroyed_IsKept",
+       "line": 150
+      },
+      {
+       "method": "TerminalDestroyed_WithoutBool_IsKept",
+       "line": 160
+      },
+      {
+       "method": "HasDescendants_IsKept",
+       "line": 177
+      },
+      {
+       "method": "NonBoringSection_IsKept",
+       "line": 191
+      },
+      {
+       "method": "PositiveThrottleEngine_IsKept",
+       "line": 202
+      },
+      {
+       "method": "PositiveRcsThrottle_IsKept",
+       "line": 216
+      },
+      {
+       "method": "StructuralPartEvent_IsKept",
+       "line": 235
+      },
+      {
+       "method": "DockTarget_IsKept",
+       "line": 246
+      },
+      {
+       "method": "MeaningfulSegmentEvent_IsKept",
+       "line": 262
+      },
+      {
+       "method": "FlagPlant_IsKept",
+       "line": 273
+      },
+      {
+       "method": "OrbitSmaChanged_IsKept",
+       "line": 284
+      },
+      {
+       "method": "OrbitBodyChanged_IsKept",
+       "line": 295
+      },
+      {
+       "method": "OrbitInclinationChanged_IsKept",
+       "line": 306
+      },
+      {
+       "method": "OrbitalCheckpointSectionChange_IsKept",
+       "line": 317
+      },
+      {
+       "method": "ResumeTail_BoringCoast_IsNoOp",
+       "line": 338
+      },
+      {
+       "method": "ResumeTail_MeaningfulPartEventAfterAnchor_IsKept",
+       "line": 352
+      },
+      {
+       "method": "ResumeTail_NonBoringSectionAfterAnchor_IsKept",
+       "line": 363
+      },
+      {
+       "method": "ResumeTail_NonBoringSectionBeforeAnchor_Ignored_IsNoOp",
+       "line": 373
+      },
+      {
+       "method": "ResumeTail_TerminalDestroyedInWindow_IsKept",
+       "line": 384
+      },
+      {
+       "method": "ResumeTail_TerminalDestroyedBeforeAnchor_IsNoOp",
+       "line": 400
+      },
+      {
+       "method": "ResumeTail_VesselDestroyedBoolBeforeAnchor_IsNoOp",
+       "line": 419
+      },
+      {
+       "method": "ResumeTail_NaNAnchor_IsKept",
+       "line": 435
+      },
+      {
+       "method": "ResumeTail_OrbitChangedAfterAnchor_IsKept",
+       "line": 445
+      },
+      {
+       "method": "ResumeTail_OrbitUnchangedAfterAnchor_IsNoOp",
+       "line": 456
+      },
+      {
+       "method": "ResumeTail_FlagAfterAnchor_IsKept_BeforeIgnored",
+       "line": 468
+      },
+      {
+       "method": "ResumeTail_CrewTransferAfterAnchor_IsKept_TimeJumpIgnored",
+       "line": 483
+      },
+      {
+       "method": "NoSession_KeepsWithReason",
+       "line": 587
+      },
+      {
+       "method": "StandaloneNoOpSegment_IsNoOp_WithStandaloneDisposition",
+       "line": 598
+      },
+      {
+       "method": "StandaloneActiveSegment_ThatDidSomething_IsKept",
+       "line": 614
+      },
+      {
+       "method": "ContinuationUnderParent_NoOp_IsBgMemberOrMixedDisposition",
+       "line": 630
+      },
+      {
+       "method": "SegmentNotActiveRecording_IsKept",
+       "line": 647
+      },
+      {
+       "method": "HasDescendantChild_IsKept",
+       "line": 664
+      },
+      {
+       "method": "LogsDecisionLine",
+       "line": 693
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "EffectiveLeafFinalizationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "FinalizeIndividualRecording_DifferentPidChild_TreatsParentAsEffectiveLeaf",
+       "line": 53
+      },
+      {
+       "method": "FinalizeIndividualRecording_DestroyedCacheRepairsStaleSubOrbitalEffectiveLeaf",
+       "line": 125
+      },
+      {
+       "method": "FinalizeTreeRecordingsAfterFlush_ActiveRecorderDestroyed_LiveFlyingVesselOverridesSubOrbital",
+       "line": 197
+      },
+      {
+       "method": "PendingSplitDestroyedCapture_AppendedActiveLeafBeatsLiveSplashedSceneExit",
+       "line": 236
+      },
+      {
+       "method": "FinalizeIndividualRecording_NotDestroyed_LiveStableVesselKeepsStableTerminal",
+       "line": 300
+      },
+      {
+       "method": "FinalizationLiveVesselAccess_DefaultDelegatesBindOuterLiveVesselMethods",
+       "line": 330
+      },
+      {
+       "method": "FinalizeIndividualRecording_DestroyedCacheDoesNotRepairFutureTerminal",
+       "line": 338
+      },
+      {
+       "method": "ShouldRepairExistingTerminalFromDestroyedCache_RejectsNonSubOrbitalTerminals",
+       "line": 383
+      },
+      {
+       "method": "FinalizeIndividualRecording_DestroyedCacheDoesNotRepairStableLandedTerminal",
+       "line": 418
+      },
+      {
+       "method": "FinalizeIndividualRecording_SamePidContinuation_StillSkipsTerminalAssignment",
+       "line": 458
+      },
+      {
+       "method": "FinalizeIndividualRecording_MultipleDifferentPidChildren_TreatsParentAsEffectiveLeaf",
+       "line": 517
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

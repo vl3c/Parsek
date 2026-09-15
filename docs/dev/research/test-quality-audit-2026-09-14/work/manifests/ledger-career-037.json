@@ -1,0 +1,328 @@
+{
+ "batch_id": "ledger-career-037",
+ "cluster": "ledger-career",
+ "tier": "B",
+ "expected_methods": 58,
+ "files": [
+  {
+   "file": "FundsSpendingDedupKeyTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "GetActionKey_KscPartPurchase_UsesDedupKey",
+       "line": 41
+      },
+      {
+       "method": "GetActionKey_TwoDifferentParts_YieldDifferentKeys",
+       "line": 57
+      },
+      {
+       "method": "GetActionKey_VesselBuildVsKscPurchase_DifferentKeys",
+       "line": 76
+      },
+      {
+       "method": "DeduplicateAgainstLedger_TwoPartPurchasesSameUT_BothSurvive",
+       "line": 99
+      },
+      {
+       "method": "DeduplicateAgainstLedger_SamePartSameUT_OneSurvives",
+       "line": 134
+      },
+      {
+       "method": "ConvertPartPurchased_SetsDedupKeyToPartName",
+       "line": 169
+      },
+      {
+       "method": "FundsSpending_DedupKey_RoundTripsThroughConfigNode",
+       "line": 189
+      },
+      {
+       "method": "FundsSpending_DedupKeyNull_RoundTripsAsNull",
+       "line": 216
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "KerbalLoadPipelineTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ColdStartLoadPath_RepairsStandInRows_AndPopulatesEvaRows",
+       "line": 45
+      },
+      {
+       "method": "ColdStartLoadPath_SecondPass_DoesNotRewriteEquivalentRows",
+       "line": 102
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "CrewManifestSerializationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "RoundTrip_BothStartAndEnd",
+       "line": 29
+      },
+      {
+       "method": "RoundTrip_StartOnly",
+       "line": 66
+      },
+      {
+       "method": "RoundTrip_NullBoth_NoNodeWritten",
+       "line": 91
+      },
+      {
+       "method": "RoundTrip_ViaTree",
+       "line": 105
+      },
+      {
+       "method": "LegacyRecording_NoNode_NullFields",
+       "line": 132
+      },
+      {
+       "method": "RoundTrip_EndOnly",
+       "line": 146
+      },
+      {
+       "method": "RoundTrip_EmptyDicts_NoNodeWritten",
+       "line": 169
+      },
+      {
+       "method": "RoundTrip_AsymmetricKeys",
+       "line": 183
+      },
+      {
+       "method": "MalformedTrait_Skipped",
+       "line": 216
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "KerbalDismissalTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "IsManaged_ReservedKerbal_ReturnsTrue",
+       "line": 65
+      },
+      {
+       "method": "IsManaged_RetiredKerbal_ReturnsTrue",
+       "line": 84
+      },
+      {
+       "method": "IsManaged_UnmanagedKerbal_ReturnsFalse",
+       "line": 105
+      },
+      {
+       "method": "IsManaged_StandInInChain_ReturnsTrue",
+       "line": 122
+      },
+      {
+       "method": "IsManaged_NullOrEmptyName_ReturnsFalse",
+       "line": 149
+      },
+      {
+       "method": "IsManaged_LoopRecording_NotReserved",
+       "line": 158
+      },
+      {
+       "method": "IsManaged_DeadKerbal_IsPermanent",
+       "line": 174
+      },
+      {
+       "method": "IsManaged_RecoveredKerbal_IsTemporary",
+       "line": 190
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "CrewDialogFilterTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ShouldFilterFromCrewDialog_ReservedKerbal_ReturnsTrue",
+       "line": 63
+      },
+      {
+       "method": "ShouldFilterFromCrewDialog_ReservedAndRetiredFilteredCorrectly",
+       "line": 75
+      },
+      {
+       "method": "ShouldFilterFromCrewDialog_ActiveStandIn_ReturnsFalse",
+       "line": 99
+      },
+      {
+       "method": "ShouldFilterFromCrewDialog_UnmanagedKerbal_ReturnsFalse",
+       "line": 128
+      },
+      {
+       "method": "ShouldFilterFromCrewDialog_NullOrEmpty_ReturnsFalse",
+       "line": 140
+      },
+      {
+       "method": "ShouldFilterFromCrewDialog_ExpiredReservation_ReturnsFalse",
+       "line": 149
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ScienceSubjectPatchHardeningTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "TryResolveCommittedScience_Uninitialized_FallsBackToStore",
+       "line": 42
+      },
+      {
+       "method": "TryResolveCommittedScience_LedgerInitialized_ReadsFromModule",
+       "line": 68
+      },
+      {
+       "method": "TryResolveCommittedScience_ModuleHasZero_ReturnsFalseIgnoringStore",
+       "line": 107
+      },
+      {
+       "method": "TryResolveCommittedScience_UnknownSubject_ReturnsFalse",
+       "line": 137
+      },
+      {
+       "method": "TryResolveCommittedScience_NullOrEmpty_ReturnsFalse",
+       "line": 149
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "GameStateRecorderResourceThresholdTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "IsReputationDeltaBelowThreshold_StockRoundedOnePointZero_ReturnsFalse",
+       "line": 10
+      },
+      {
+       "method": "IsReputationDeltaBelowThreshold_CumulativeFloatSubtractionShape_ReturnsFalse",
+       "line": 16
+      },
+      {
+       "method": "IsReputationDeltaBelowThreshold_ClearSubThresholdNoise_ReturnsTrue",
+       "line": 29
+      },
+      {
+       "method": "IsScienceDeltaBelowThreshold_RealSubOnePointScience_ReturnsFalse",
+       "line": 37
+      },
+      {
+       "method": "IsScienceDeltaBelowThreshold_ClearNoise_ReturnsTrue",
+       "line": 45
+      },
+      {
+       "method": "ShouldUseRecentScienceChangeCapture_MatchingDeltaWithinWindow_ReturnsTrue",
+       "line": 51
+      },
+      {
+       "method": "ShouldUseRecentScienceChangeCapture_ExpiredOrMismatchedCapture_ReturnsFalse",
+       "line": 66
+      },
+      {
+       "method": "IsScienceSubjectReasonKey_OnlySubjectScienceReasonsReturnTrue",
+       "line": 88
+      },
+      {
+       "method": "ShouldUseRecentScienceChangeCapture_UnrelatedPositiveScienceReason_ReturnsFalse",
+       "line": 96
+      },
+      {
+       "method": "ShouldUseRecentScienceChangeCapture_OtherRecording_ReturnsFalse",
+       "line": 111
+      },
+      {
+       "method": "ShouldForwardDirectScienceSubject_OnlyUnownedWithoutLiveOrPendingTreeForwards",
+       "line": 139
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "CrewRescueAfterEvaTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ShouldRescueFromMissing_MissingAndReserved_ReturnsTrue",
+       "line": 37
+      },
+      {
+       "method": "ShouldRescueFromMissing_MissingButNotReserved_ReturnsFalse",
+       "line": 48
+      },
+      {
+       "method": "ShouldRescueFromMissing_AssignedAndReserved_ReturnsFalse",
+       "line": 59
+      },
+      {
+       "method": "ShouldRescueFromMissing_AvailableAndReserved_ReturnsFalse",
+       "line": 70
+      },
+      {
+       "method": "ShouldRescueFromMissing_DeadAndReserved_ReturnsFalse",
+       "line": 81
+      },
+      {
+       "method": "ShouldRescueFromMissing_NullName_ReturnsFalse",
+       "line": 92
+      },
+      {
+       "method": "ShouldRescueFromMissing_EmptyName_ReturnsFalse",
+       "line": 103
+      },
+      {
+       "method": "ShouldRescueFromMissing_EmptyReplacements_ReturnsFalse",
+       "line": 114
+      },
+      {
+       "method": "ShouldRescueFromMissing_MultipleReserved_OnlyMatchingReturnsTrue",
+       "line": 125
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

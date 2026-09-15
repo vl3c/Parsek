@@ -1,0 +1,295 @@
+{
+ "batch_id": "catchall-057",
+ "cluster": "catchall",
+ "tier": "C",
+ "expected_methods": 58,
+ "files": [
+  {
+   "file": "IsLoopableRecordingTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Null_ReturnsFalse",
+       "line": 8
+      },
+      {
+       "method": "PlainRecording_ReturnsFalse",
+       "line": 14
+      },
+      {
+       "method": "LaunchSite_ReturnsTrue",
+       "line": 21
+      },
+      {
+       "method": "PrelaunchSituation_ReturnsTrue",
+       "line": 28
+      },
+      {
+       "method": "AtmoPhase_ReturnsTrue",
+       "line": 35
+      },
+      {
+       "method": "ApproachPhase_ReturnsTrue",
+       "line": 42
+      },
+      {
+       "method": "SurfacePhase_ReturnsTrue",
+       "line": 49
+      },
+      {
+       "method": "DockTargetPid_ReturnsTrue",
+       "line": 56
+      },
+      {
+       "method": "DockedTerminalState_WithoutDockTarget_ReturnsFalse",
+       "line": 63
+      },
+      {
+       "method": "DockedTerminalState_WithDockTarget_ReturnsTrue",
+       "line": 70
+      },
+      {
+       "method": "ExoPhase_NoOtherCriteria_ReturnsFalse",
+       "line": 81
+      },
+      {
+       "method": "Debris_ExcludedEvenWithLaunchSite",
+       "line": 88
+      },
+      {
+       "method": "Debris_ExcludedEvenWithDocking",
+       "line": 95
+      },
+      {
+       "method": "OrbitalTerminalState_ReturnsFalse",
+       "line": 107
+      },
+      {
+       "method": "BoardedTerminalState_ReturnsFalse",
+       "line": 114
+      },
+      {
+       "method": "DestroyedTerminalState_ReturnsFalse",
+       "line": 121
+      },
+      {
+       "method": "FlyingSituation_NoOtherCriteria_ReturnsFalse",
+       "line": 128
+      },
+      {
+       "method": "MultipleLoopableCriteria_ReturnsTrue",
+       "line": 135
+      },
+      {
+       "method": "RelativeTrackWithRecordedAnchor_ReturnsTrue",
+       "line": 147
+      },
+      {
+       "method": "RelativeTrackWithLiveAnchorVessel_ReturnsTrue",
+       "line": 163
+      },
+      {
+       "method": "RelativeTrackWithLoopAnchor_ReturnsTrue",
+       "line": 175
+      },
+      {
+       "method": "RelativeTrackWithoutAnchor_ReturnsFalse",
+       "line": 186
+      },
+      {
+       "method": "AbsoluteTrackOnly_NoOtherCriteria_ReturnsFalse",
+       "line": 199
+      },
+      {
+       "method": "ParentAnchoredRelativeTrack_ExcludedFromRelativeRule",
+       "line": 210
+      },
+      {
+       "method": "HasViewableRelativeTrack_NullOrEmpty_ReturnsFalse",
+       "line": 230
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "PreParsekBackupFixtureShapeTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "UntouchedCareerFixture_ReadsEligible",
+       "line": 87
+      },
+      {
+       "method": "BrandNewCareerFixture_ReadsBrandNewEmpty",
+       "line": 102
+      },
+      {
+       "method": "TheDerivationBase_StillReadsAlreadyFootprinted",
+       "line": 116
+      },
+      {
+       "method": "UntouchedCareerFixture_KeepsTheCareerItsSpecDependsOn",
+       "line": 133
+      },
+      {
+       "method": "BothFixtures_CarryTheLoadMenuFilesTheBackupCopies",
+       "line": 151
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "SettingWhitelistTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Accept_Bool",
+       "line": 29
+      },
+      {
+       "method": "Accept_Int_InRange",
+       "line": 41
+      },
+      {
+       "method": "Accept_Float_InRange",
+       "line": 50
+      },
+      {
+       "method": "Reject_ValueInvalid",
+       "line": 68
+      },
+      {
+       "method": "Reject_NonWhitelisted",
+       "line": 87
+      },
+      {
+       "method": "Route_GameParametersOnly_NoRecordMethod",
+       "line": 107
+      },
+      {
+       "method": "Route_SidecarTracked_CarriesExactRecordMethod",
+       "line": 121
+      },
+      {
+       "method": "Whitelist_HasExactly13Entries_5Tracked",
+       "line": 130
+      },
+      {
+       "method": "RecordMethodNames_MatchPersistenceMembers",
+       "line": 153
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "EvaBoardPromotionTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "RapidBoardWithBackgroundOnlyEvaRecording_Promotes",
+       "line": 52
+      },
+      {
+       "method": "LiveRecorderAlreadyOnEvaKerbal_NotNeeded",
+       "line": 62
+      },
+      {
+       "method": "LiveRecorderOnAnotherVessel_SkipsRecorderBusy",
+       "line": 72
+      },
+      {
+       "method": "NoActiveTree_SkipsNoTree",
+       "line": 81
+      },
+      {
+       "method": "RestoreCoroutineOwnsState_SkipsRestoring",
+       "line": 89
+      },
+      {
+       "method": "SourceVesselNotEva_SkipsNotEva",
+       "line": 97
+      },
+      {
+       "method": "SourceVesselPidZero_SkipsNotEva",
+       "line": 106
+      },
+      {
+       "method": "GhostMapVessel_SkipsGhostVessel",
+       "line": 114
+      },
+      {
+       "method": "EvaKerbalNoLongerActiveVessel_SkipsEvaNotActiveVessel",
+       "line": 122
+      },
+      {
+       "method": "EvaVesselNotTrackedInTree_SkipsNoTrackedRecording",
+       "line": 132
+      },
+      {
+       "method": "GhostCheckPrecedesRecorderChecks",
+       "line": 140
+      },
+      {
+       "method": "TreeActiveRecordingIsAnotherRecording_SkipsTreeActiveRecordingBusy",
+       "line": 149
+      },
+      {
+       "method": "TreeActiveRecordingIsTheEvaRecording_StillPromotes",
+       "line": 161
+      },
+      {
+       "method": "EmptyTreeActiveRecordingId_TreatedAsNoneAndPromotes",
+       "line": 170
+      },
+      {
+       "method": "RecorderBusyCheckPrecedesTreeActiveRecordingCheck",
+       "line": 179
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "LaunchHoldLoggingTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "PerLoopVerboseLine_FiresWithNonZeroDelta_AcrossTwoCycles",
+       "line": 61
+      },
+      {
+       "method": "NotEngaged_NoLaunchAdvanceLine",
+       "line": 87
+      },
+      {
+       "method": "Builder_GatesLaunchAlignmentOnPadDeclinedSupportedAndSoiExit_AndEmitsInfoLine",
+       "line": 113
+      },
+      {
+       "method": "Builder_ThreadsLaunchAlignmentArgsIntoLoopUnitCtor",
+       "line": 131
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

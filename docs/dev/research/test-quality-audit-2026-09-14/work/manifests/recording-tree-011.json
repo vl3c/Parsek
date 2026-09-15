@@ -1,0 +1,215 @@
+{
+ "batch_id": "recording-tree-011",
+ "cluster": "recording-tree",
+ "tier": "A1",
+ "expected_methods": 49,
+ "files": [
+  {
+   "file": "QuickloadResumeTests.cs",
+   "ranges": [
+    {
+     "start": 1339,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "PrepareQuickloadResumeStateIfNeeded_ReFlyMarkerClearedAfterArm_RefreshUsesTreeWide",
+       "line": 1339
+      },
+      {
+       "method": "PrepareQuickloadResumeStateIfNeeded_NoReFlyMarker_KeepsTreeWideTrim",
+       "line": 1394
+      },
+      {
+       "method": "PrepareQuickloadResumeStateIfNeeded_ReFlyMarkerForOtherTree_KeepsTreeWideTrim",
+       "line": 1449
+      },
+      {
+       "method": "SaveActiveTreeIfAny_CopiesRecorderRewindSaveToSerializedRoot",
+       "line": 1521
+      },
+      {
+       "method": "RecorderBackedCommitPaths_UseRecorderRootCopyOverload",
+       "line": 1554
+      },
+      {
+       "method": "RestoreActiveTreeFromPending_RearmsRecorderSessionHooks_AfterRecorderStart_BugKerbalXF5F9",
+       "line": 1568
+      },
+      {
+       "method": "TryRestoreActiveTreeNode_DoesNotWriteDeadBoundaryAnchorUT",
+       "line": 1614
+      },
+      {
+       "method": "TryRestoreActiveTreeNode_DedupeCommittedTreeById",
+       "line": 1635
+      },
+      {
+       "method": "LastRecordedAltitude_DefaultsToNaN",
+       "line": 1665
+      },
+      {
+       "method": "TryRestoreActiveTreeNode_HydrationFailureSalvagesIntoDiskTreeWithoutOverwriteWarning",
+       "line": 1677
+      },
+      {
+       "method": "ShouldKeepPendingTreeAfterHydrationFailure_MatchingPendingTreeAndStaleEpoch_ReturnsTrue",
+       "line": 1703
+      },
+      {
+       "method": "ShouldKeepPendingTreeAfterHydrationFailure_MatchingPendingTreeAndGenericFailure_ReturnsFalse",
+       "line": 1716
+      },
+      {
+       "method": "RestoreHydrationFailedRecordingsFromPendingTree_RestoresOnlyFailedMatches",
+       "line": 1729
+      },
+      {
+       "method": "RestoreHydrationFailedRecordingsFromCommittedTree_RestoresFailedActiveTreeMatches",
+       "line": 1752
+      },
+      {
+       "method": "RestoreHydrationFailedRecordingsFromCommittedTree_DirtyEmptyButNotHydrationFailed_NotRepaired",
+       "line": 1802
+      },
+      {
+       "method": "RestoreHydrationFailedRecordingsFromCommittedTree_SnapshotOnlyHydrationFailure_NotRepaired",
+       "line": 1841
+      },
+      {
+       "method": "RestoreHydrationFailedRecordingsFromCommittedTree_CopiesCrewEndStatesAndSpawnSuppression",
+       "line": 1875
+      },
+      {
+       "method": "RestoreHydrationFailedRecordingsFromCommittedTree_SkipsActiveRecording",
+       "line": 1930
+      },
+      {
+       "method": "RestoreHydrationFailedRecordingsFromPendingTree_SnapshotFailure_KeepsDiskTrajectory",
+       "line": 1959
+      },
+      {
+       "method": "RestoreHydrationFailedRecordingsFromPendingTree_AliasSnapshotFailure_RestoresCoherentAliasState",
+       "line": 1992
+      },
+      {
+       "method": "RestoreHydrationFailedRecordingsFromPendingTree_MultiSideSnapshotFailure_RestoresMissingSnapshotSet",
+       "line": 2021
+      },
+      {
+       "method": "RestoreHydrationFailedRecordingsFromPendingTree_UnrecoverableSnapshotFailure_DoesNotReplaceDiskTrajectory",
+       "line": 2049
+      },
+      {
+       "method": "RestoreHydrationFailedRecordingsFromPendingTree_ThenSaveRecordingFiles_HealsSidecarsAndClearsFilesDirty",
+       "line": 2081
+      },
+      {
+       "method": "RestoreHydrationFailedRecordingsFromPendingTree_MixedRestorabilitySubset_RestoresOnlyTheRecoverableRecordings",
+       "line": 2149
+      },
+      {
+       "method": "IsRevert_EpochDecreased_IsTrue",
+       "line": 2225
+      },
+      {
+       "method": "IsRevert_CountDecreased_IsTrue",
+       "line": 2238
+      },
+      {
+       "method": "IsRevert_QuickloadSameEpochSameCount_IsFalse",
+       "line": 2250
+      },
+      {
+       "method": "IsRevert_OrphanedLimboTree_FlightToFlight_IsTrue_Bug300",
+       "line": 2264
+      },
+      {
+       "method": "IsRevert_OrphanedLimboTree_NotFlightToFlight_IsFalse_Bug300",
+       "line": 2281
+      },
+      {
+       "method": "IsRevert_LimboTreeRestoredFromSave_IsFalse_Bug300",
+       "line": 2297
+      },
+      {
+       "method": "IsRevert_OrphanedLimboTree_VesselSwitch_IsFalse_Bug300",
+       "line": 2314
+      },
+      {
+       "method": "IsRevert_VesselSwitch_IsFalseEvenIfEpochRegresses",
+       "line": 2329
+      },
+      {
+       "method": "HasOrphanedLimboTree_LimboStashedButNotRestoredFromSave_IsTrue_Bug300",
+       "line": 2394
+      },
+      {
+       "method": "HasOrphanedLimboTree_LimboOverwrittenByRestore_IsFalse_Bug300",
+       "line": 2414
+      },
+      {
+       "method": "HasOrphanedLimboTree_FinalizedState_IsFalse_Bug300",
+       "line": 2439
+      },
+      {
+       "method": "LimboDispatch_OrphanedLimboTree_RoutesToFinalize_Bug300",
+       "line": 2457
+      },
+      {
+       "method": "LimboDispatch_Revert_Finalizes",
+       "line": 2476
+      },
+      {
+       "method": "LimboDispatch_Revert_OverridesLimboVesselSwitch",
+       "line": 2485
+      },
+      {
+       "method": "LimboDispatch_VesselSwitch_PreTransitioned_Restores_Bug266",
+       "line": 2496
+      },
+      {
+       "method": "LimboDispatch_VesselSwitch_NotPreTransitioned_FinalizesViaSafetyNet_Bug266",
+       "line": 2508
+      },
+      {
+       "method": "LimboDispatch_Quickload_DefersToQuickloadRestore",
+       "line": 2521
+      },
+      {
+       "method": "LimboDispatch_LimboVesselSwitch_WithoutSwitchFlag_StillRestores_Bug266",
+       "line": 2531
+      },
+      {
+       "method": "TryRestoreActiveTreeNode_TreeWithActiveRecording_StashesAsLimbo_Bug266",
+       "line": 2548
+      },
+      {
+       "method": "TryRestoreActiveTreeNode_TreeWithoutActiveRecording_StashesAsLimboVesselSwitch_Bug266",
+       "line": 2564
+      },
+      {
+       "method": "PreTransition_RecorderPidPreferred_MovesActiveToBackgroundMap_Bug266",
+       "line": 2591
+      },
+      {
+       "method": "PreTransition_FallbackToTreeRecPid_WhenRecorderPidZero_Bug266",
+       "line": 2609
+      },
+      {
+       "method": "PreTransition_NullActiveRec_NullsAndDoesNotMove_Bug266",
+       "line": 2624
+      },
+      {
+       "method": "PreTransition_BothPidsZero_NullsAndDoesNotMove_Bug266",
+       "line": 2637
+      },
+      {
+       "method": "PreTransition_PreservesExistingBackgroundMapEntries_Bug266",
+       "line": 2654
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

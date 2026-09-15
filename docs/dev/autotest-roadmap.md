@@ -57,9 +57,20 @@ M-A6 stack provisioner, M-B1 mission library, M-B2 ledger oracle, M-C1 seam verb
 batch 1, M-C2 EVA verbs. Status and per-module proof live in `autotest-status.md`.
 None of the items in this roadmap are blocked on a missing module.
 
-### Scenarios: 256 committed
+### Scenarios: 265 committed
 
-Re-derived 2026-09-11 on `loop-render-residue` after it merged origin/main `afa1d47c0`:
+RE-DERIVED AGAIN 2026-09-15 after the Gloops PR merged `origin/main`:
+`ls harness/scenarios/*.toml` returns **265** files; tiers: 129 nightly, 26 daily, 110
+operator, parsed from the specs' `tier` keys. The two new files are GL-1 and GL-2, both
+`operator` by the calibration discipline, so only that column moves.
+
+The derivation before it: re-derived 2026-09-15 on `registry-decisions-0911`, the registry
+PR: `ls harness/scenarios/*.toml` returned **263** files; tiers: 129 nightly, 26 daily, 108
+operator. Four lanes moved operator -> nightly in that PR under register item B7 (MC-3,
+GS-4, GS-8, GS-9), so the nightly / operator split moves by four while the total moves with
+the specs the parallel branches added.
+
+The derivation before it: re-derived 2026-09-11 on `loop-render-residue` after it merged origin/main `afa1d47c0`:
 `ls harness/scenarios/*.toml` returns **256** files, the total `autotest-status.md`'s
 `## Test cases` header states (255 on main `afa1d47c0`, whose `MC-3-better-time-warp`
 came in #1671; the branch adds `V20K-jool-kerbin-ksc-arrival`; tiers: 125 nightly, 26
@@ -103,9 +114,22 @@ EVA / CL / S0.x / H22-H25 / V1 / BDOCK waves and R14's MC-1/MC-2 took it from
 55 to 68. Adding a scenario is not the same as covering a cell. Re-derive
 these rather than editing them by memory; both numbers have moved many times.
 
-### Coverage: 184 of 248 registry cells (was 83 of 241 at the baseline, 108 of 242 on 2026-08-04, 162 of 247 on 2026-09-07 before G1 / G3b closed, 163 of 248 on 2026-09-08 before the ghost-replay claim pass, 166 after chain-interaction, 171 after Stage B, 172 after the D12 rep-penalty claim, 178 after the claim-gap wave's first pass, 181 after the claim-gap wave, 182 after the ghost-replay Tier B wave, 184 after wave package A2's two arming claims)
+### Coverage: 189 of 250 registry cells (was 187 of 250 on 2026-09-15 before the Gloops PR claimed D1 `manual-gloops` + `sub-2-point-drop`, 83 of 241 at the baseline, 108 of 242 on 2026-08-04, 162 of 247 on 2026-09-07 before G1 / G3b closed, 163 of 248 on 2026-09-08 before the ghost-replay claim pass, 166 after chain-interaction, 171 after Stage B, 172 after the D12 rep-penalty claim, 178 after the claim-gap wave's first pass, 181 after the claim-gap wave, 182 after the ghost-replay Tier B wave, 184 after wave package A2's two arming claims, 187 of 250 after the registry PR)
 
-Re-derived 2026-09-11 on `loop-render-residue` after it merged origin/main `afa1d47c0`
+RE-DERIVED AGAIN 2026-09-15 after the Gloops PR merged `origin/main`:
+`hlib.compute_coverage(specs, [], registry)` over the 265 committed specs returns
+`values 250 covered 189 uncovered 61`. The denominator does NOT move (both D1 cells were
+long-standing values); the numerator moves by TWO, `manual-gloops` (GL-1 + GL-2) and
+`sub-2-point-drop` (GL-2), each claimed off a lane that is LIVE-PROVEN and ARMED.
+
+Re-derived 2026-09-15 on `registry-decisions-0911`, the registry PR that ruled register
+items B1-B10: the same call over the 263 committed specs of that moment returned
+`values 250 covered 187 uncovered 63`. The denominator moves by TWO, the two values
+the operator ruled in (D4 `persistence-graze-suppression`, D9 `rewind-to-launch-repeat`),
+and the numerator by THREE: those two plus D1 `switch-backgrounds-recording` on CI-1, which
+is a RENAME of `stop-on-switch` and therefore adds no cell.
+
+The derivation before it, 2026-09-11 on `loop-render-residue` after it merged origin/main `afa1d47c0`
 (wave package A2, PR #1671, the last of the four wave PRs before this one):
 `hlib.compute_coverage(specs, [], registry)` over the 256 committed specs returns
 `values 248 covered 184 uncovered 64`, UNCHANGED by this branch: its one spec,
@@ -218,9 +242,10 @@ committed specs and `harness/coverage/registry.toml` returns exactly:
 values 248   covered 163   uncovered 85   expectedFailValues 0   xpass 0
 ```
 
-Per dimension (total / uncovered) for the CURRENT derivation above (256 specs, 184 of
-248, re-derived 2026-09-11 on `loop-render-residue` after its merge of origin/main
-`afa1d47c0`, every row identical to `cheap-flights-arming`'s read after its merge of
+Per dimension (total / uncovered) for the derivation of 2026-09-11 on `loop-render-residue`
+(256 specs, 184 of 248, after its merge of origin/main `afa1d47c0`;
+the registry PR then took it to 187 of 250 over 263 specs, moving the D1, D4 and D9 rows
+by one each, and the Gloops PR to 189 of 250 over 265 specs, moving the D1 row by two more - see the residue table below, which is re-derived), every row identical to `cheap-flights-arming`'s read after its merge of
 `f7141586f`; the retained `de5ac6112` block directly above it is history). The D1 row
 moved there with the ghost-replay Tier B wave's `switch-segment-noop-discard` claim, and
 the D2 / D17 rows with wave package A2's two claims. The 2026-08-04 uncovered count stays
@@ -277,10 +302,10 @@ with what closing the rest takes:
 | Dim | Subject | Covered | What the residue is, and what closes it |
 |---|---|---:|---|
 | D8 | ledger / career | 18 / 18 | Done. |
-| D4 | track sections / optimizer | 12 / 12 | Done. The claim-gap wave (A1) put a cell-level gating token on all six residue cells and claimed every one. On 2026-09-10: `tail-trim` (LT-2, armed `2026-09-10_1957`, control `_2000`), `split-at-ut` (R7c, armed `_2007`, control `_2009`) and `env-body-split` (RF-9, claim-only off its already-required split tokens, armed re-flight `_2050`). On 2026-09-11, the make-up round: `hysteresis` and `surface-graze-suppression` on RF-1 (EnvironmentDetector's debounced `Environment transition ... (debounce=3.0s)` and the Optimizer `Split summary ... surfaceGrazeForward=1 surfaceGrazeBackward=1 ...`; the first armed re-flight `_2011` red on a UT literal, re-pinned from bytes per RF1-HYSTERESIS-UT-LITERAL-REFUTED-BY-LAUNCH-TICK, then armed `2026-09-11_0138` with controls `_0142` / `_0147`), and `seed-event-split` on RF-9 (its four seed tokens, armed `_2050`, control `2026-09-11_0151`). |
-| D9 | rewind / re-fly | 16 / 17 | `load-time-sweep` only, a unit-level sweep no lane drives (ghost-replay Tier B item 7). |
+| D4 | track sections / optimizer | 13 / 13 | Done. `persistence-graze-suppression` was ADDED and claimed 2026-09-15 (register B1) on LT-2, off the `Split summary ... grazeForward=2 grazeBackward=2 ...` token: optimizer step 7, distinct from step 5's `surface-graze-suppression`. The claim-gap wave (A1) put a cell-level gating token on all six residue cells and claimed every one. On 2026-09-10: `tail-trim` (LT-2, armed `2026-09-10_1957`, control `_2000`), `split-at-ut` (R7c, armed `_2007`, control `_2009`) and `env-body-split` (RF-9, claim-only off its already-required split tokens, armed re-flight `_2050`). On 2026-09-11, the make-up round: `hysteresis` and `surface-graze-suppression` on RF-1 (EnvironmentDetector's debounced `Environment transition ... (debounce=3.0s)` and the Optimizer `Split summary ... surfaceGrazeForward=1 surfaceGrazeBackward=1 ...`; the first armed re-flight `_2011` red on a UT literal, re-pinned from bytes per RF1-HYSTERESIS-UT-LITERAL-REFUTED-BY-LAUNCH-TICK, then armed `2026-09-11_0138` with controls `_0142` / `_0147`), and `seed-event-split` on RF-9 (its four seed tokens, armed `_2050`, control `2026-09-11_0151`). |
+| D9 | rewind / re-fly | 17 / 18 | `rewind-to-launch-repeat` was ADDED and claimed 2026-09-15 (register B2) on GS-9, off its two existing backreference tokens, control discharged offline. `load-time-sweep` only, a unit-level sweep no lane drives (ghost-replay Tier B item 7). |
 | D10 | logistics / routes | 23 / 24 | `harvest-provenance` only; an operator ore-drill flight (supply-route hand-off). |
-| D1 | recording lifecycle | 14 / 18 | `manual-gloops`, `stop-on-switch` (R2 registry call), `commit-abort` (needs its definition), `sub-2-point-drop` (a registry / verb decision, todo D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE): the Tier D authoring pass, register item 8. `switch-segment-noop-discard` CLAIMED 2026-09-11 by `S0.12-switch-noop-discard` (negative control `2026-09-11_0044`). |
+| D1 | recording lifecycle | 15 / 18 | `manual-gloops`, `commit-abort` (needs its definition), `sub-2-point-drop` (B4: ruled yes with the constraint that Gloops code stays untouched, on branch `gloops-seam-verbs`; todo D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE): the Tier D authoring pass, register item 8. `stop-on-switch` has LEFT this residue: renamed `switch-backgrounds-recording` 2026-09-15 (register B3) and CLAIMED by `CI-1-eva-switch-bg-member`. `switch-segment-noop-discard` CLAIMED 2026-09-11 by `S0.12-switch-noop-discard` (negative control `2026-09-11_0044`). |
 | D7 | part events / FX | 12 / 16 | `chute-cut`, `bays` (GS-6 residues, need a descent variant and a ServiceBay tail), `engine-fx-effects`, `inventory-place-remove` (Tier 4 producer). |
 | D14 | bodies / scenes | 24 / 32 | Tylo / Bop / Pol (G9), `atmosphere`, `situation`, `warp-1x`, `warp-phys`, `scene-editor`: breadth, behind everything else. |
 | D11 | missions abstraction | 12 / 18 | `default-mission`, `leg-trim`, `whole-mission-loop`, `clone`, `station-phase-lock`, `s4-arrival-restitch`: Missions-tab semantics that need seam verbs equivalent to the tab's buttons (`MissionConfig` exists; the rest do not). |
@@ -303,10 +328,11 @@ D17 mods.
 **Distance to done.** Register items 1-3 plus the claim passes (D6 on 2026-09-08,
 D3 / D4 / D5 by the claim-gap wave on 2026-09-10 / -11, D1 `switch-segment-noop-discard`
 by the ghost-replay Tier B wave and D2 `proximity-cadence-bg` / D17 `better-time-warp` by
-wave package A2 on 2026-09-11) took the count to 184 of 248,
+wave package A2 on 2026-09-11) took the count to 184 of 248, the registry PR of
+2026-09-15 to 187 of 250 and the Gloops PR of the same day to 189 of 250,
 past the 175 this paragraph once projected (178 after the claim-gap wave's first pass,
 181 after the three D4 cells its make-up round flew, 182 with the Tier B D1 cell, then
-A2's two). The realistic ceiling for UNATTENDED coverage is
+A2's two, then the registry PR's three - two of which came with their own new cell). The realistic ceiling for UNATTENDED coverage is
 85-90 percent: the
 rest is mods, manual flights and the excluded classes. Two caveats keep the number
 honest. A covered cell means a lane GATES a token about that behaviour, not that
@@ -340,8 +366,8 @@ commit-revert-merge           commit-abort         auto-merge
 sub-2-point-drop              switch-segment-noop-discard
 ```
 
-(`stop-on-switch` is one of the two R2 phantom cells - it may leave this list by
-deletion rather than coverage.)
+(`stop-on-switch` was one of the two R2 phantom cells. It LEFT this list by REDEFINITION
+on 2026-09-15, register B3: renamed `switch-backgrounds-recording` and claimed on CI-1.)
 
 That block is a DATED SNAPSHOT and is not re-derived here; the counts above it come
 from the coverage report and move only when it is re-run.
@@ -385,10 +411,17 @@ no status rows: verdicts, run ids and armed state are recorded in `autotest-stat
 the few named below are pointers to it.
 
 Re-derive before acting:
-- `ls harness/scenarios/*.toml`: **256** specs (125 nightly, 26 daily, 105 operator, parsed
-  from the specs' `tier` keys).
-- Coverage, from `harness/`: the one-liner below prints `256 specs 184 of 248`, so **184 of
-  248** cells are covered and 64 are uncovered.
+- `ls harness/scenarios/*.toml`: **263** specs (129 nightly, 26 daily, 108 operator, parsed
+  from the specs' `tier` keys; re-derived 2026-09-15 after the registry PR, which was 256 =
+  125 / 26 / 105 when this register was written and moved four lanes operator -> nightly
+  under item B7).
+- Coverage, from `harness/`: the one-liner below prints `265 specs 189 of 250`, so **189 of
+  250** cells are covered and 61 are uncovered (was 187 of 250 over 263 specs; the Gloops PR
+  claimed D1 `manual-gloops` and `sub-2-point-drop` off GL-1 / GL-2, both long-standing
+  values, so the numerator moves by two and the denominator not at all. Before that: 184 of
+  248, taken to 187 of 250 by the registry PR, which added D4
+  `persistence-graze-suppression` and D9 `rewind-to-launch-repeat` and claimed both, plus D1
+  `switch-backgrounds-recording` on CI-1 - a rename, so no denominator move).
 - The in-game category axis: `hlib.parse_ingame_test_declarations` over every `.cs` under
   `Source/Parsek` gives **624 declarations in 113 categories**. The 2026-09-08 register's
   2026-09-11 note says all 113 are driven; only the two counts were re-derived here, not the
@@ -428,8 +461,9 @@ Pointers only; each lane's outcome is in its `autotest-status.md` row.
    calls were done 2026-09-08 (#1652). Left over, all as decisions: `making-history` (B5),
    the V26 controls (B9), MC-3's tier (B7), and BDOCK-1's fallback dialog (B6).
 8. Tier D D1 residue. Closed by the wave (#1673): `switch-segment-noop-discard` (S0.12).
-   `stop-on-switch` and `sub-2-point-drop` are now decisions (B3, B4); `commit-abort` still
-   needs a definition (D).
+   `stop-on-switch` and `sub-2-point-drop` became decisions (B3, B4), both RULED 2026-09-15:
+   B3 renamed the cell `switch-backgrounds-recording` and claimed it on CI-1; B4 sends
+   `sub-2-point-drop` to the Gloops verb PR. `commit-abort` still needs a definition (D).
 9. Trust risks: untouched (D).
 10. Operator-only hand-off: untouched (D).
 11. The re-fly continuation program: landed before the wave (#1658-#1665); the wave took its
@@ -440,20 +474,31 @@ Pointers only; each lane's outcome is in its `autotest-status.md` row.
 ### (B) Decisions owed by the operator
 
 Each line gives the question, the memo's recommendation, its cost, the memo section and the
-owning todo entry. All OPEN; none applied.
+owning todo entry. ALL TEN RULED 2026-09-15 by the operator; each line carries its ruling
+and one line on what was done. The ruling itself is recorded in the owning todo entry, and
+the run ids in `autotest-status.md`.
 
-1. **OPEN - D4 registry growth.** Add `persistence-graze-suppression` (optimizer step 7, the
+1. **RULED YES - D4 registry growth.** Add `persistence-graze-suppression` (optimizer step 7, the
    `IsGrazePattern` collapse-walk) and claim it on LT-2? Recommendation: yes. Cost: one
    registry value, one LT-2 token, an armed re-flight and one negative control (~50 s each),
-   no C#. Memo s1; todo REGISTRY-GROWTH-DECISIONS-2026-09-11.
-2. **OPEN - D9 registry growth.** Add `rewind-to-launch-repeat` and claim it on GS-9, off the
+   no C#. Memo s1; todo REGISTRY-GROWTH-DECISIONS-2026-09-11. DONE: value added with its
+   step-7 comment and claimed on LT-2 off the `Split summary ... grazeForward=2
+   grazeBackward=2 ...` token pinned from `2026-09-10_1957`; armed re-flight and control
+   (`grazeForward=2` -> `=3`) flown 2026-09-15.
+2. **RULED YES - D9 registry growth.** Add `rewind-to-launch-repeat` and claim it on GS-9, off the
    two backreference tokens GS-9 already requires? Recommendation: yes, with the token's
    control discharged offline over GS-9's `2026-09-11_0109` log. Cost: 0 flights. Memo s2;
-   todo REGISTRY-GROWTH-DECISIONS-2026-09-11.
-3. **OPEN - D1 `stop-on-switch` redefinition.** Rename it `switch-backgrounds-recording`
+   todo REGISTRY-GROWTH-DECISIONS-2026-09-11. DONE: value added and claimed on GS-9 off its
+   two existing backreference tokens; the token control discharged OFFLINE over
+   `2026-09-11_0109` via `hlib.evaluate_expectations`, the live control owed on the next
+   GS-9 flight.
+3. **RULED YES - D1 `stop-on-switch` redefinition.** Rename it `switch-backgrounds-recording`
    (witness `Transitioned to background (pid=`) and claim it on CI-1? Recommendation: yes.
    Cost: one token, an armed re-flight and one negative control, no C#. Memo s3; todo
-   D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE.
+   D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE. DONE: renamed in the registry and claimed
+   on CI-1 off a literal token pinned from `2026-09-08_1054`, armed re-flight and control
+   flown 2026-09-15; the stale "registry defect" / "unclaimable" doc lines were corrected
+   in the same PR.
 4. **RULED YES 2026-09-15 (B4) and DONE the same day - D1 `sub-2-point-drop` and
    `manual-gloops`.** The recommendation was taken as written, with one binding
    constraint: GLOOPS STAYS AS IS - the
@@ -474,37 +519,55 @@ owning todo entry. All OPEN; none applied.
    stationary pod COMMITS at three points, and the designed refusal Warn does not trip the
    log validator. Shipped in the Gloops PR (`gloops-seam-verbs`). Memo s3; todo
    D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE (now closed, both halves).
-5. **OPEN - D17 `making-history`: define it or delete it.** Recommendation: define it as
+5. **RULED DEFINE (do not fly) - D17 `making-history`: define it or delete it.** Recommendation: define it as
    alt-site launch capture on stock-minimal and rank it last (a GS-4 clone launching from
    `Desert_Launch_Site`, one operator reading flight); or delete the value with an honest
    comment. Cost: one flight, or none. Memo s4; todo D17-MAKING-HISTORY-NEEDS-A-DEFINITION.
-6. **OPEN - BDOCK-1's fallback merge dialog.** Recommendation: not a defect worth a fix now.
+   DONE: DEFINED, NOT FLOWN - the definition (alt-site launch capture on stock-minimal,
+   a GS-4 clone with `launchSite = "Desert_Launch_Site"`, operator tier, one reading
+   flight, ranked last of D17) is in the registry comment above D17's `values =`; the
+   clone spec and the one flight remain.
+6. **RULED NO FIX NOW - BDOCK-1's fallback merge dialog.** Recommendation: not a defect worth a fix now.
    File it as a low-priority UX item whose fix adds no UI: a refused resume of a Limbo
    committed-tree restore attempt auto-clears a no-op continuation and sends a meaningful one
    to the silent auto-commit. Keep BDOCK-1's shape, and do NOT add the `StopRecording`
    mitigation. Cost: 0 now; an optional Merge measurement is ~36 min. Memo s5; todo
-   BDOCK1-STATION-COMMIT-READOPT-LIMBO-FALLBACK-DIALOG.
-7. **OPEN - cadence promotions.** Move MC-3, GS-4, GS-8 and GS-9 from operator to nightly?
+   BDOCK1-STATION-COMMIT-READOPT-LIMBO-FALLBACK-DIALOG. DONE: filed as a low-priority UX
+   item with its fix direction; BDOCK-1's shape unchanged, the `StopRecording` mitigation
+   explicitly not added, the optional ~36 min Merge measurement skipped.
+7. **RULED ALL FOUR - cadence promotions.** Move MC-3, GS-4, GS-8 and GS-9 from operator to nightly?
    Recommendation: all four. Cost: ~1 min per night for MC-3, ~20 min for the three GS lanes.
-   Memo s6 and s12; todo CADENCE-PROMOTIONS-2026-09-11.
-8. **OPEN - GS-4's `unityExceptions` ceiling: 4 or 6.** Recommendation: 6 now, per the H23
+   Memo s6 and s12; todo CADENCE-PROMOTIONS-2026-09-11. DONE: all four flipped to nightly;
+   the nightly p50 sum moves from ~7.25 h to ~7.67 h (GS-8 645 s, GS-9 494 s, GS-4 338 s,
+   MC-3 53 s; method as #1652), and the tier counts re-derive to daily 26 / nightly 129 /
+   operator 108 over 263 specs (110 operator over 265 after the Gloops PR added GL-1 and
+   GL-2, both operator).
+8. **RULED SIX - GS-4's `unityExceptions` ceiling: 4 or 6.** Recommendation: 6 now, per the H23
    precedent (6 is the legal maximum of the known stock class set). Or pre-authorise the
    re-pin to 6 on the first no-Parsek-frame red at 5. Either answer reverses the wave's
    supervisor ruling to keep 4. Cost: 0 flights. Memo s7; todo
-   GS4-UNITY-CEILING-NEGCTL-VACUOUS.
-9. **OPEN - V26M / V26T controls.** Are they owed, or discharged by the B32X byte-identity
+   GS4-UNITY-CEILING-NEGCTL-VACUOUS. DONE: re-pinned 4 -> 6 (STAGING 1 + MAP-FOCUS 2 +
+   HATCH-TOOLTIP 1 + MECHJEB-ONDESTROY 1 + FLIGHT-CAMERA-STARTUP 1), 0 flights, the offline
+   control stands; only the opportunistic live control stays open.
+9. **RULED OWED - V26M / V26T controls.** Are they owed, or discharged by the B32X byte-identity
    argument? Recommendation: owed, one in-place control each (`routeLineBuilds = { min = 2 }`
    -> `{ min = 3 }`). Cost: ~60 s each. Memo s9; todo V26-CONTROLS-FLOWN-ON-B32X-COPIES.
-10. **OPEN - D14 game mode by fixture convention.** Keep claiming `sandbox` / `career` off the
+   DONE: both own in-place controls flown 2026-09-15, each red on exactly
+   `renderComposition.routeLineBuilds 2 < min 3`, reverted.
+10. **RULED YES - D14 game mode by fixture convention.** Keep claiming `sandbox` / `career` off the
     fixture's mode by convention, and pin it with a test cell? Recommendation: yes. Cost: ~30
-    lines of Python. Memo s10; todo D14-GAME-MODE-CLAIMS-UNPINNED.
+    lines of Python. Memo s10; todo D14-GAME-MODE-CLAIMS-UNPINNED. DONE:
+    `harness/lib/test_d14_game_mode.py` pins every spec's claim to its fixture's `Mode =`
+    line; 226 specs checked, 0 disagree, the two GUI census lanes skip as operator-local
+    fixtures.
 
 ### (C) Ranked work
 
 This is the memo's order (its items 2-7) with one change, so that decision-free items lead.
-The registry PR, the memo's first item, is listed third here because every one of its parts
-waits on a decision: eight of the ten above (B1-B5, B7, B9, B10), part by part. As each is
-ruled, its part is the cheapest work on the list and can go first.
+The registry PR, the memo's first item, was listed third here because every one of its parts
+waited on a decision: eight of the ten above (B1-B5, B7, B9, B10), part by part. All ten
+were ruled 2026-09-15, and the registry PR (item 3) then shipped every part but B4's Gloops
+verb pair, which is its own PR on branch `gloops-seam-verbs`.
 
 1. **Unity-scanner stack frames** (harness instrument).
    - Scope: `hlib.scan_unity_exceptions` learns to read the stack under each exception line
@@ -532,8 +595,9 @@ ruled, its part is the cheapest work on the list and can go first.
      OPTIMIZER-INGAME-CELLS-LEAK-RECORDINGSTORE-SUPPRESSLOGGING,
      GHOST-MAP-ENSURE-ORBIT-RENDERERS-TEARDOWN-NRE.
    - Decisions: none.
-3. **Registry PR** (no product C#).
-   - Scope; each part ships alone once its own decision is ruled:
+3. **Registry PR** (no product C#). SHIPPED 2026-09-15 on branch `registry-decisions-0911`,
+   every part below except B4's verb pair.
+   - Scope; each part shipped once its own decision was ruled:
      - D4 `persistence-graze-suppression` on LT-2 (B1, 2 flights);
      - D9 `rewind-to-launch-repeat` on GS-9 (B2, offline control);
      - `stop-on-switch` -> `switch-backgrounds-recording` on CI-1 (B3, 2 flights);
@@ -542,6 +606,8 @@ ruled, its part is the cheapest work on the list and can go first.
      - the fixture-Mode test cell (B10);
      - the four tier promotions (B7);
      - the two V26 controls (B9, 2 flights).
+   - NOT in it: B4's Gloops seam verb pair and the two lanes it unlocks, ruled yes with the
+     constraint that Gloops code stays untouched, on branch `gloops-seam-verbs`.
    - Flights: about 6 short ones.
    - Todos: REGISTRY-GROWTH-DECISIONS-2026-09-11,
      D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE, D17-MAKING-HISTORY-NEEDS-A-DEFINITION,
@@ -788,17 +854,20 @@ remains is, in order:
    `better-time-warp` is `MC-3-better-time-warp`, READ green on outcome (A) on
    `2026-09-10_2025` and pinned from those bytes, then armed (`_2208` PASS) and
    controlled (stock-minimal `_2213` red on exactly the zeroed-limit token), D17
-   `better-time-warp` claimed; `making-history` needs a cell definition first
-   (todo D17-MAKING-HISTORY-NEEDS-A-DEFINITION).
+   `better-time-warp` claimed; `making-history` needed a cell definition first and is
+   DEFINED 2026-09-15 (register B5) as alt-site launch capture on stock-minimal, still
+   unflown (todo D17-MAKING-HISTORY-NEEDS-A-DEFINITION).
 8. **Tier D D1 residue** as filler: `switch-segment-noop-discard`, `commit-abort`
    (needs its definition first), `sub-2-point-drop`, and the R2 registry decision
-   on `stop-on-switch` (still unclaimable as written; the other R2 cell,
-   `surface-body-fixed`, is claimed by `H17-flight-integration`, so R2 is down to
-   one cell and its "two unclaimable cells" text is stale).
+   on `stop-on-switch` (RULED 2026-09-15, register B3: renamed
+   `switch-backgrounds-recording` and CLAIMED on CI-1, so R2 is closed; the other R2 cell,
+   `surface-body-fixed`, was already claimed by `H17-flight-integration`, which is why its
+   "two unclaimable cells" text was stale).
    2026-09-10 (`ghost-replay-tier-b`): `switch-segment-noop-discard` authored as
-   `S0.12-switch-noop-discard` (read 2026-09-10, outcome P1; confirm re-flight `2026-09-10_2056` PASS; negative control `2026-09-11_0044` VALID, so the cell is CLAIMED and the lane is daily); `sub-2-point-drop` is BLOCKED on a
-   registry / verb decision to take together with R2 - its only producer is reached
-   in always-tree mode only through rare split-edge aborts no verb drives (todo
+   `S0.12-switch-noop-discard` (read 2026-09-10, outcome P1; confirm re-flight `2026-09-10_2056` PASS; negative control `2026-09-11_0044` VALID, so the cell is CLAIMED and the lane is daily); `sub-2-point-drop` was BLOCKED on a
+   registry / verb decision taken together with R2 and RULED 2026-09-15 (register B4):
+   Gloops is its only seam-reachable producer, so it closes with `manual-gloops` through
+   one seam verb pair on branch `gloops-seam-verbs`, Gloops code untouched (todo
    D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE).
 9. **Trust risks** that no lane moves by itself: risk 4 (the ledger oracle's
    independence check is a structural no-op; needs a reputation-producing scenario
@@ -1344,7 +1413,9 @@ crew-transfer action, and no inventory-part action in the mission action vocabul
   `gloops-airshow` fixture is named for it and nothing exercises it.
 - D1 `commit-abort`: no production symbol identified. Needs a definition before it
   needs a test.
-- D1 `stop-on-switch`: **registry defect.** `FlightRecorder.VesselSwitchDecision` is
+- D1 `stop-on-switch`: **registry defect** (RESOLVED 2026-09-15, register B3: renamed
+  `switch-backgrounds-recording` against `TransitionToBackground` and claimed on CI-1).
+  `FlightRecorder.VesselSwitchDecision` is
   `{None, ContinueOnEva, ChainToVessel, DockMerge, UndockSwitch,
   TransitionToBackground, PromoteFromBackground}`. There is no Stop member; always-tree
   mode removed it. The cell as named cannot be honestly claimed. Either delete it or
@@ -1541,19 +1612,21 @@ band 15 times; the token is REQUIRED on BDOCK-1 since then, and D2
 live `2026-09-10_2305`, each red on exactly the token inverted to 6.0 Hz (drift 15 / 0).
 Rule: one token per claimed class; never loosen a token to keep a claim.
 
-**R2. Resolve the two registry defects.** Registry-only. **STILL OPEN** -
-re-verified 2026-07-28 at `7f5efa738`: both `stop-on-switch` and
-`surface-body-fixed` are still in `registry.toml`, so the 242 denominator still
-carries two unclaimable cells. **UPDATED 2026-09-08: down to ONE.**
+**R2. Resolve the two registry defects.** Registry-only. **CLOSED 2026-09-15.**
+Re-verified 2026-07-28 at `7f5efa738`: both `stop-on-switch` and
+`surface-body-fixed` were still in `registry.toml`, so the 242 denominator then
+carried two unclaimable cells. **UPDATED 2026-09-08: down to ONE.**
 `surface-body-fixed` is claimed by `H17-flight-integration` (`D3 = ["surface-body-fixed"]`,
-gated on that lane's whole tally) and reads covered in `hlib.compute_coverage`;
-`stop-on-switch` is still in the registry and still unclaimed. The decision below
-now concerns that one cell.
+gated on that lane's whole tally) and reads covered in `hlib.compute_coverage`.
+**CLOSED 2026-09-15 (register B3):** `stop-on-switch` is RENAMED
+`switch-backgrounds-recording` against `TransitionToBackground`, with the rationale in the
+registry comment, and CLAIMED by `CI-1-eva-switch-bg-member` off a literal
+`Transitioned to background (pid=` token. Neither cell is unclaimable any more.
 
-D1 `stop-on-switch` and D3 `surface-body-fixed` cannot be honestly claimed as
-written (see Cause F). Both R1 and everything after it writes claims against the
-registry, and the denominator moves, so decide before the next coverage snapshot
-rather than retracting claims later. Cost: one edit to
+As written before that, D1 `stop-on-switch` and D3 `surface-body-fixed` could not be
+honestly claimed (see Cause F). Both R1 and everything after it writes claims against the
+registry, and the denominator moves, so this was decided before the next coverage snapshot
+rather than retracting claims later. Cost, as estimated and as spent: one edit to
 `harness/coverage/registry.toml` comments and values.
 
 **R3. Run S1.5 and S1.4's sibling S4.1 unattended. Two boots.**
@@ -4212,9 +4285,10 @@ first spawn frame (hold-then-retry, never a single eager ask).
 
 ### Tier D - cheap seam-drivable D1 residue (no mission, step sequences only)
 
-13. `stop-on-switch`, `switch-segment-noop-discard`, `commit-abort`,
-    `discard-rollback`, `sub-2-point-drop` - all UNCOVERED, all reachable
-    with existing verbs; batch as one authoring pass, one flight each.
+13. `stop-on-switch` (renamed `switch-backgrounds-recording` 2026-09-15, register B3, and
+    CLAIMED on CI-1), `switch-segment-noop-discard`, `commit-abort`,
+    `discard-rollback`, `sub-2-point-drop` - all UNCOVERED when this item was written, all
+    reachable with existing verbs; batch as one authoring pass, one flight each.
     2026-09-10 (`ghost-replay-tier-b`): `switch-segment-noop-discard` AUTHORED as
     `S0.12-switch-noop-discard` (S0.8's click with NO live recording, so the
     consume builds a fresh tree and the scene exit discards a Standalone no-op

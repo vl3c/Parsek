@@ -1,0 +1,119 @@
+{
+ "batch_id": "trajectory-orbit-004",
+ "cluster": "trajectory-orbit",
+ "tier": "A1",
+ "expected_methods": 25,
+ "files": [
+  {
+   "file": "RelativeAnchorResolverTests.cs",
+   "ranges": [
+    {
+     "start": 1157,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "TryResolveAnchorPose_AnchorPastOptimizerSplit_ChoosesFirstChronologicalContinuation",
+       "line": 1157
+      },
+      {
+       "method": "TryResolveAnchorPose_V6OrNewerWithoutTrackSections_FailsClosed",
+       "line": 1221
+      },
+      {
+       "method": "TryResolveAnchorPose_ActiveReFlyAnchorWithFrozenSnapshot_UsesSnapshot",
+       "line": 1250
+      },
+      {
+       "method": "TryResolveAnchorPose_ActiveReFlyAnchorWithoutFrozenSnapshot_ReturnsFalse",
+       "line": 1301
+      },
+      {
+       "method": "TryResolveAnchorPose_Cycle_ReturnsFalseWithReason",
+       "line": 1340
+      },
+      {
+       "method": "TryResolveAnchorPose_LoopRootedAnchor_ReturnsFalse",
+       "line": 1370
+      },
+      {
+       "method": "TryResolveAnchorPose_ProvisionalAnchorOverridesCommittedFocusTree",
+       "line": 1402
+      },
+      {
+       "method": "TryResolveAnchorPose_ProvisionalFocusDebrisAllowsLoopRootedAnchor",
+       "line": 1441
+      },
+      {
+       "method": "TryResolveAnchorPose_DebrisFocusAllowsLiveAnchorLeaf",
+       "line": 1488
+      },
+      {
+       "method": "TryResolveAnchorPose_DebrisFocusUsesRecordingLoopAnchorWhenSectionPidEmpty",
+       "line": 1539
+      },
+      {
+       "method": "TryResolveAnchorPose_DebrisFocusLoopAnchorPidMismatch_RejectsLiveAnchorCompose",
+       "line": 1589
+      },
+      {
+       "method": "TryResolveAnchorPose_DebrisCascadeFocusAllowsLoopAnchoredAncestorLeaf",
+       "line": 1644
+      },
+      {
+       "method": "TryResolveAnchorPose_DebrisFocusLiveAnchorLeafNull_ReturnsLoopLiveAnchorUnresolved",
+       "line": 1704
+      },
+      {
+       "method": "BuildFlightRelativeAnchorResolverContext_PopulatesSharedLiveAnchorCallback",
+       "line": 1765
+      },
+      {
+       "method": "TryResolveAnchorPose_NonDebrisFocusRejectsLiveAnchorLeaf",
+       "line": 1784
+      },
+      {
+       "method": "TryResolveAnchorPose_PendingTreeOutsideFocusScope_ReturnsFalse",
+       "line": 1828
+      },
+      {
+       "method": "TryResolveAnchorPose_PendingTreeOutsideFocusScope_ReturnsAnchorOutOfScopeFailure",
+       "line": 1859
+      },
+      {
+       "method": "TryResolveAnchorPose_RelativePoseNonFinite_ReturnsPoseNonFiniteFailure",
+       "line": 1890
+      },
+      {
+       "method": "TryResolveAnchorPose_RelativeFrameInterpolationMiss_ReturnsSectionRange",
+       "line": 1920
+      },
+      {
+       "method": "TryResolveAnchorPose_EmptybodyFixedFrames_ReturnsOutOfSectionRangeWithNaNRange",
+       "line": 1964
+      },
+      {
+       "method": "TryResolveAnchorPose_AbsolutePoseNonFinite_ReturnsPoseNonFiniteFailure",
+       "line": 1994
+      },
+      {
+       "method": "TryResolveAnchorPose_SinglebodyFixedFrameFailure_ReportsRequestedUT",
+       "line": 2022
+      },
+      {
+       "method": "TryResolveAnchorPose_SmallSectionGapResolverFailureDoesNotEmitOuterRangeWarning",
+       "line": 2057
+      },
+      {
+       "method": "TryResolveAnchorPose_SameChainContinuationRevisit_ReturnsCycleFailure",
+       "line": 2095
+      },
+      {
+       "method": "ResolverFalseReturns_HaveStructuredFailure",
+       "line": 2135
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,245 @@
+{
+ "batch_id": "catchall-035",
+ "cluster": "catchall",
+ "tier": "B",
+ "expected_methods": 51,
+ "files": [
+  {
+   "file": "PristinePartFxResolverTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "TryExtract_MatchesDiskUnderscoreNameAgainstRuntimeDotName",
+       "line": 122
+      },
+      {
+       "method": "TryExtract_MultiPartFile_PicksMatchingNodeOnly",
+       "line": 139
+      },
+      {
+       "method": "TryExtract_PartNotInFile_ReturnsFalseAndLogs",
+       "line": 158
+      },
+      {
+       "method": "TryExtract_MultiModeEngine_ExtractsEffectNamesPerOrdinal",
+       "line": 172
+      },
+      {
+       "method": "TryExtract_RcsModules_ExtractRunningNamesWithDefault",
+       "line": 200
+      },
+      {
+       "method": "ParseLegacyFxKeys_KeepsRunningExhaustFiltersTransientsLightsAndEvents",
+       "line": 223
+      },
+      {
+       "method": "TryExtract_RealSwivelShape_LegacyKeysNoEffectsNode",
+       "line": 255
+      },
+      {
+       "method": "LegacyFxValueIncludesRunningOrPower_Cases",
+       "line": 292
+      },
+      {
+       "method": "BuildLegacyFxNameCandidates_StripsSuffixTokensToFamilyBase",
+       "line": 298
+      },
+      {
+       "method": "ReadEngineEffectNames_ReadsAllFourKeysAndSkipsMissing",
+       "line": 331
+      },
+      {
+       "method": "GetForPart_CachesPerPartName_SingleFileLoad",
+       "line": 348
+      },
+      {
+       "method": "GetForPart_MissingPath_ReturnsNotFoundAndWarnsOnce",
+       "line": 366
+      },
+      {
+       "method": "GetForPart_LoaderReturnsNull_CachesNotFound",
+       "line": 378
+      },
+      {
+       "method": "ShouldAttemptPristineFxFallback_TruthTable",
+       "line": 394
+      },
+      {
+       "method": "SweShapedPostMmEffects_YieldsZeroParticleEntries",
+       "line": 404
+      },
+      {
+       "method": "PristineEffects_FilteredByPristineModuleNames_YieldsParticleEntries",
+       "line": 418
+      },
+      {
+       "method": "PristineRcsGroup_ScansModelMultiParticleNodes",
+       "line": 433
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "SaveActiveTreeSidecarBothOrNeitherTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "OverlapPlusMarkerOwnedSegment_PlanDefersEverySidecarWrite",
+       "line": 85
+      },
+      {
+       "method": "OverlapPlusMarkerOwnedSegment_VerdictIsIndependentOfIterationOrder",
+       "line": 126
+      },
+      {
+       "method": "MarkerOwnedRecordingSharingOverlapId_StaysAWriteCandidate",
+       "line": 147
+      },
+      {
+       "method": "OrdinaryActiveTree_PlanWritesEveryRecording",
+       "line": 177
+      },
+      {
+       "method": "DegradedEmptySidecarRecording_PlanDefersEverySidecarWrite",
+       "line": 200
+      },
+      {
+       "method": "NullOrEmptyTree_ReturnsEmptyWritablePlan",
+       "line": 230
+      },
+      {
+       "method": "SaveActiveTreeIfAny_ClassifiesBeforeAnySidecarWrite",
+       "line": 256
+      },
+      {
+       "method": "SaveActiveTreeIfAny_HasExactlyOneDeferredSidecarWriteSite",
+       "line": 285
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "DeadReflectionProbeFixTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "AnAirbrakeIsClassifiedFromItsRealStockField",
+       "line": 21
+      },
+      {
+       "method": "DeployLeadsTheDeployedFamilyTable",
+       "line": 41
+      },
+      {
+       "method": "TheControlSurfaceProbeShakesOutTheSameAsTheAeroOne",
+       "line": 49
+      },
+      {
+       "method": "ADeployedSurfaceWithAZeroCommandedAngleReadsAsRetracted",
+       "line": 60
+      },
+      {
+       "method": "ADeployedSurfaceWithARealAngleStaysDeployed",
+       "line": 76
+      },
+      {
+       "method": "ANegativeDeployAngleIsStillAVisibleDeflection",
+       "line": 91
+      },
+      {
+       "method": "ANaNDeployAngleDoesNotVetoTheDeploy",
+       "line": 105
+      },
+      {
+       "method": "AnAirbrakesOwnAeroDeployAngleWinsOverTheInheritedDeployAngle",
+       "line": 119
+      },
+      {
+       "method": "TheDeployAngleIsNeverUsedAsAStandaloneDeflectionSignal",
+       "line": 137
+      },
+      {
+       "method": "TheAngleVetoIsNotConsultedWhenTheEventStageAlreadyDecided",
+       "line": 153
+      },
+      {
+       "method": "HeatComesFromTheScalarModuleInterfaceWhenTheModuleImplementsIt",
+       "line": 172
+      },
+      {
+       "method": "TheScalarModuleAccessorIsConsultedBeforeAnyName",
+       "line": 187
+      },
+      {
+       "method": "AModuleThatDoesNotImplementTheInterfaceStillFallsBackToTheNameTable",
+       "line": 202
+      },
+      {
+       "method": "ANonFiniteInterfaceScalarFallsThroughRatherThanBeingReadAsZero",
+       "line": 215
+      },
+      {
+       "method": "TheInterfaceScalarGoesThroughTheSameNormalizer",
+       "line": 236
+      },
+      {
+       "method": "AHotEnoughInterfaceScalarCrossesTheRecordedHeatThresholds",
+       "line": 246
+      },
+      {
+       "method": "ThePistonPlanLeadsWithTheLiveExtension",
+       "line": 267
+      },
+      {
+       "method": "TheSpeedSliderIsNoLongerReadAsAPose",
+       "line": 280
+      },
+      {
+       "method": "APistonWithOnlyTheSpeedSliderNowReachesTheTransformFallback",
+       "line": 294
+      },
+      {
+       "method": "AStockPistonReadsItsCurrentExtension",
+       "line": 310
+      },
+      {
+       "method": "TargetExtensionBacksUpTheLiveExtensionWhenItIsAbsent",
+       "line": 325
+      },
+      {
+       "method": "TheSuspensionPlanNoLongerCarriesTheConfigConstant",
+       "line": 341
+      },
+      {
+       "method": "AStockSuspensionNowReachesTheLiveSuspensionVector",
+       "line": 352
+      },
+      {
+       "method": "SuspensionStillPrefersAModdedLiveScalarOverTheVector",
+       "line": 368
+      },
+      {
+       "method": "TheScannerProbeStillResolvesThroughItsInheritedExtendRetractEvents",
+       "line": 387
+      },
+      {
+       "method": "NoArmDeployStateNameWasAddedToTheScannerTable",
+       "line": 407
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

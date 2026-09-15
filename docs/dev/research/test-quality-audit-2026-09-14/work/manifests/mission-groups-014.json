@@ -1,0 +1,236 @@
+{
+ "batch_id": "mission-groups-014",
+ "cluster": "mission-groups",
+ "tier": "B",
+ "expected_methods": 46,
+ "files": [
+  {
+   "file": "GroupTreeDataTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "EmptyInput_ProducesEmptyOutputs",
+       "line": 64
+      },
+      {
+       "method": "SingleRecording_NoGroup_NotInAnyGroup",
+       "line": 87
+      },
+      {
+       "method": "TwoRecordings_DifferentGroups_EachGroupHasOne",
+       "line": 107
+      },
+      {
+       "method": "MultiGroupMembership_RecordingAppearsInBothGroups",
+       "line": 136
+      },
+      {
+       "method": "ChainRecordings_GroupedByChainId",
+       "line": 162
+      },
+      {
+       "method": "ChainWithNoGroups_IsRootChain",
+       "line": 188
+      },
+      {
+       "method": "ChainWithGroupMember_IsNotRootChain",
+       "line": 208
+      },
+      {
+       "method": "NestedHierarchy_ChildAppearsUnderParent",
+       "line": 233
+      },
+      {
+       "method": "RootGroups_SortedCaseInsensitive",
+       "line": 262
+      },
+      {
+       "method": "KnownEmptyGroups_AppearInRootGroups",
+       "line": 290
+      },
+      {
+       "method": "KnownEmptyGroup_WithParent_NotRootGroup",
+       "line": 307
+      },
+      {
+       "method": "SortedIndices_RemapsCorrectly",
+       "line": 335
+      },
+      {
+       "method": "DuplicateGroupMembership_NoDuplicateIndices",
+       "line": 359
+      },
+      {
+       "method": "PermanentRootGroup_IgnoresStoredParentAndStaysRoot",
+       "line": 380
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MissionVesselRowsTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Build_DecoupleShape_OneVesselRowWithTheBoosterAsLineageChild",
+       "line": 101
+      },
+      {
+       "method": "BuildEventPhrase_NamesThePieceThatLeftAtEachBoundary",
+       "line": 128
+      },
+      {
+       "method": "Build_EvaKerbal_IsAPersonChildAndStaysOutOfThePhrase",
+       "line": 141
+      },
+      {
+       "method": "Build_SameTreeDock_SubIntervalStaysInsideTheOneVesselRow",
+       "line": 168
+      },
+      {
+       "method": "Build_DockPartnerResolver_NamesThePartnerInThePhrase",
+       "line": 201
+      },
+      {
+       "method": "Build_ChildrenOrderedBySeparationUT",
+       "line": 238
+      },
+      {
+       "method": "ClassifyInclusion_AllPartialNone",
+       "line": 279
+      },
+      {
+       "method": "IntervalKeys_AreTheVesselsOwnOnly",
+       "line": 306
+      },
+      {
+       "method": "ApplyVesselInclusion_ExpandsToExplicitOwnKeysAndNeverCascades",
+       "line": 318
+      },
+      {
+       "method": "Build_NullOrEmptyRoots_YieldNoRows",
+       "line": 344
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MissionsWindowLoopGateTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "BasicHidesTheLoopAuthoringControlsAndAdvancedKeepsThem",
+       "line": 35
+      },
+      {
+       "method": "TheGateIsDerivedFromTheSharedSurfaceDecision",
+       "line": 48
+      },
+      {
+       "method": "HidingTheLoopControlsDoesNotHideTheMissionsTab",
+       "line": 62
+      },
+      {
+       "method": "EveryIncludeCheckboxIsDrawnInsideTheLoopAuthoringGate",
+       "line": 78
+      },
+      {
+       "method": "TheGateScanRedsWhenTheGateExistsOnlyInAComment",
+       "line": 92
+      },
+      {
+       "method": "TheGateScanRedsWhenTheGateResultIsNeverBranchedOn",
+       "line": 113
+      },
+      {
+       "method": "TheIncludeCheckboxContentFamilyIsStillFourFields",
+       "line": 149
+      },
+      {
+       "method": "TheFamilyScanIgnoresAFieldNameThatExistsOnlyInAComment",
+       "line": 161
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MissionStoreCrossTreeTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Reconcile_DropsStaleLinkId_AndWarns",
+       "line": 50
+      },
+      {
+       "method": "Reconcile_KeepsValidLink_AndForeignExcludedKey",
+       "line": 65
+      },
+      {
+       "method": "Reconcile_DropsForeignKey_WhenLinkGone",
+       "line": 82
+      },
+      {
+       "method": "Reconcile_OwnTreeUncommitted_LeavesLinksUntouched",
+       "line": 98
+      },
+      {
+       "method": "Clone_CopiesForeignDockLinks",
+       "line": 111
+      },
+      {
+       "method": "SetLoopEnabled_ClearsLoopOnLinkedForeignTree_WhenTreesGiven",
+       "line": 127
+      },
+      {
+       "method": "SetLoopEnabled_WithoutTrees_LegacyBehaviorUnchanged",
+       "line": 155
+      },
+      {
+       "method": "Reconcile_ParkedTreeUncommitted_DefersLinkAndKeyDrop",
+       "line": 177
+      },
+      {
+       "method": "NormalizeOneLoopPerTree_SpannedSets_ClearsCrossTreeConflict",
+       "line": 199
+      },
+      {
+       "method": "ClearLoopsConflictingWith_ClearsForeignTreeLoop_KeepsTargetUntouched",
+       "line": 224
+      },
+      {
+       "method": "SaveLoad_RoundTripsForeignDockLinks",
+       "line": 255
+      },
+      {
+       "method": "Save_ForeignDockLinks_WrittenSorted",
+       "line": 271
+      },
+      {
+       "method": "Save_LinkFreeMission_IsByteIdenticalToPreFeatureShape",
+       "line": 286
+      },
+      {
+       "method": "Save_PreFeatureNode_RoundTripsByteIdentically_ThroughStore",
+       "line": 326
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

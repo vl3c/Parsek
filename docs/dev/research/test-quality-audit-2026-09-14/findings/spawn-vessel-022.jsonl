@@ -1,0 +1,13 @@
+{"kind":"method","file":"Source/Parsek.Tests/DebrisFilterTests.cs","method":"SinglePartLowMass_NotRecorded","line":10,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/DebrisFilterTests.cs","method":"TwoPartsLowMass_NotRecorded","line":16,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/DebrisFilterTests.cs","method":"ZeroPartsZeroMass_NotRecorded","line":22,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/DebrisFilterTests.cs","method":"ThreeParts_Recorded","line":28,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/DebrisFilterTests.cs","method":"ManyParts_Recorded","line":35,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/DebrisFilterTests.cs","method":"HeavySinglePart_Recorded","line":41,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/DebrisFilterTests.cs","method":"HeavyMultiPart_Recorded","line":48,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/DebrisFilterTests.cs","method":"JustBelowBothThresholds_NotRecorded","line":54,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/DebrisFilterTests.cs","method":"AtExactMassThreshold_Recorded","line":60,"verdict":"duplicate","category":"T2","twin":"Source/Parsek.Tests/DebrisFilterTests.cs.HeavySinglePart_Recorded","falsifiability":"falsifiability: Source/Parsek/ParsekFlight.cs:4552; change mass >= MinMassTons to mass > MinMassTons -> both red","note":"byte-identical call ShouldRecordDebris(1, 0.5f) and identical assertion as the twin eleven lines above"}
+{"kind":"method","file":"Source/Parsek.Tests/DebrisFilterTests.cs","method":"AtExactPartThreshold_Recorded","line":66,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/DebrisFrameContractRecordingFixtureTests.cs","method":"Fixture_ProvidesMixedDualSurfaceDebrisRecording","line":9,"verdict":"ok"}
+{"kind":"method","file":"Source/Parsek.Tests/DebrisFrameContractRecordingFixtureTests.cs","method":"Fixture_ProvidesLoopAnchoredParentVariant","line":22,"verdict":"ok"}
+{"kind":"finding","id":"F-spawn-vessel-022-01","file":"Source/Parsek.Tests/DebrisFilterTests.cs","line":60,"method":"AtExactMassThreshold_Recorded","category":"T2","severity":"Low","confidence":"high","falsifiability":"falsifiability: Source/Parsek/ParsekFlight.cs:4552; change mass >= MinMassTons to mass > MinMassTons -> both red","what_it_asserts":"that ShouldRecordDebris(1, 0.5f) is true","why_weak":"HeavySinglePart_Recorded makes the same call with the same arguments and the same assertion; only the names and comments differ","proposed_action":"keep the boundary-named one, delete HeavySinglePart_Recorded, or fold the whole file into a single Theory over (partCount, mass, expected) rows","effort":"S","july_ref":"none"}

@@ -1,0 +1,115 @@
+{
+ "batch_id": "recording-tree-021",
+ "cluster": "recording-tree",
+ "tier": "A",
+ "expected_methods": 24,
+ "files": [
+  {
+   "file": "RescueCompletionGuardTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ApplyToRoster_RescuePlacedAndOnLiveVessel_GuardSkipsRecreate",
+       "line": 196
+      },
+      {
+       "method": "ApplyToRoster_OnLiveVesselButNotRescuePlaced_GuardDeclines_StandInGenerated",
+       "line": 301
+      },
+      {
+       "method": "ApplyToRoster_OnlyOneRescuePlaced_OnlyThatStandInSkipped",
+       "line": 401
+      },
+      {
+       "method": "ApplyToRoster_NoRescueMarkerAndNotOnLiveVessel_NoGuardFires",
+       "line": 462
+      },
+      {
+       "method": "ApplyToRoster_RescueMarkerButNotOnLiveVessel_GuardDeclines_StandInRecreated",
+       "line": 503
+      },
+      {
+       "method": "ApplyToRoster_RescueComplete_StandInAlreadyAvailable_NoChange",
+       "line": 543
+      },
+      {
+       "method": "ApplyToRoster_StandInOnLiveVessel_RetainedNotDeleted",
+       "line": 624
+      },
+      {
+       "method": "ApplyToRoster_StandInNotOnLiveVessel_DeletedAsBefore",
+       "line": 672
+      },
+      {
+       "method": "ApplyToRoster_PendingGeneration_RescueComplete_GuardSkipsCreate",
+       "line": 705
+      },
+      {
+       "method": "RescueThenUnreserveThenApplyToRoster_GuardFiresAndStandInNotRegenerated",
+       "line": 823
+      },
+      {
+       "method": "CleanUpReplacement_DoesNotClearRescuePlacedMarker",
+       "line": 921
+      },
+      {
+       "method": "ClearRescuePlaced_BulkLifecycleSemantics",
+       "line": 950
+      },
+      {
+       "method": "MarkRescuePlaced_AfterBulkClear_IdempotentRemark",
+       "line": 983
+      },
+      {
+       "method": "MarkRescuePlaced_RemarkDifferentPidOverwrites",
+       "line": 1020
+      },
+      {
+       "method": "RescuePlacedMarker_BulkClearWipesPidEntries",
+       "line": 1047
+      },
+      {
+       "method": "RescuePlacedMarker_ClearedByReset",
+       "line": 1068
+      },
+      {
+       "method": "RescuePlacedMarker_ClearedByRestoreReplacements",
+       "line": 1088
+      },
+      {
+       "method": "RescuePlacedMarker_ClearedByLoadCrewReplacements",
+       "line": 1112
+      },
+      {
+       "method": "MultipleApplyToRosterPasses_RescuedKerbalOnLiveVessel_GuardFiresEveryPass",
+       "line": 1161
+      },
+      {
+       "method": "MultipleApplyToRosterPasses_BulkClearWipesMarker_NextPassRegeneratesStandIn",
+       "line": 1256
+      },
+      {
+       "method": "MultipleApplyToRosterPasses_StaleMarker_VesselDestroyed_NextPassRecreatesStandIn",
+       "line": 1335
+      },
+      {
+       "method": "StaleNameMarker_KerbalOnUnrelatedActiveVessel_GuardDeclines_StandInGenerated",
+       "line": 1409
+      },
+      {
+       "method": "MarkerScopedByPid_KerbalOnDifferentVessel_GuardDeclines",
+       "line": 1512
+      },
+      {
+       "method": "MarkerScopedByPid_KerbalOnRescuedVessel_GuardFires",
+       "line": 1551
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

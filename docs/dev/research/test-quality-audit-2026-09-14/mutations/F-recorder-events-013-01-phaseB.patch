@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/BackgroundRecorder.cs b/Source/Parsek/BackgroundRecorder.cs
+index 78c6e85c4..805409df2 100644
+--- a/Source/Parsek/BackgroundRecorder.cs
++++ b/Source/Parsek/BackgroundRecorder.cs
+@@ -1304,7 +1304,7 @@ namespace Parsek
+             double branchUT, bool parentVesselAlive, string continuationRecordingId,
+             string liveParentGuid, List<ControllerInfo> controllers)
+         {
+-            if (!parentVesselAlive) return null;
++            // MUTATION-T1 phaseB: unconditional parent continuation (bug #285 guard removed)
+ 
+             // Create a continuation recording for the parent vessel itself
+             // (it keeps existing with potentially fewer parts).

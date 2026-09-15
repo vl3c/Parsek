@@ -1,0 +1,255 @@
+{
+ "batch_id": "map-render-008",
+ "cluster": "map-render",
+ "tier": "A",
+ "expected_methods": 59,
+ "files": [
+  {
+   "file": "MapRenderProbeTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "IsIconJump_BelowFloor_NoJump",
+       "line": 26
+      },
+      {
+       "method": "IsIconJump_AboveFloor_Jump",
+       "line": 41
+      },
+      {
+       "method": "IsIconJump_FastOrbit_BelowOrbitDerivedThreshold_NoJump",
+       "line": 59
+      },
+      {
+       "method": "IsIconJump_FastOrbit_AboveOrbitDerivedThreshold_Jump",
+       "line": 76
+      },
+      {
+       "method": "IsIconJump_OnFloatingOriginShiftFrame_Suppressed",
+       "line": 93
+      },
+      {
+       "method": "IsIconJump_OneFrameAfterFloatingOriginShift_StillSuppressed",
+       "line": 107
+      },
+      {
+       "method": "IsIconJump_TwoFramesAfterFloatingOriginShift_NotSuppressed",
+       "line": 122
+      },
+      {
+       "method": "IsIconJump_JustReset_Suppressed",
+       "line": 139
+      },
+      {
+       "method": "IsIconJump_BodyChanged_Suppressed",
+       "line": 158
+      },
+      {
+       "method": "IsIconJump_SameBody_AboveThreshold_Jump",
+       "line": 176
+      },
+      {
+       "method": "IsIconJump_NaNDelta_NoJump",
+       "line": 195
+      },
+      {
+       "method": "IsIconJump_NaNExpectedMotion_FallsBackToFloor",
+       "line": 209
+      },
+      {
+       "method": "IsIconJump_SuppressionLifted_Suppressed",
+       "line": 227
+      },
+      {
+       "method": "IsIconJump_NotSuppressionLifted_AboveThreshold_StillJumps",
+       "line": 245
+      },
+      {
+       "method": "IsIconJump_DefaultSuppressionLifted_PreservesLegacyBehavior",
+       "line": 262
+      },
+      {
+       "method": "IsLineBlink_NoToggle_NotBlink",
+       "line": 280
+      },
+      {
+       "method": "IsLineBlink_FirstToggleEver_NotBlink",
+       "line": 292
+      },
+      {
+       "method": "IsLineBlink_ToggleWithinWindow_Blink",
+       "line": 305
+      },
+      {
+       "method": "IsLineBlink_ToggleAtWindowEdge_Blink",
+       "line": 318
+      },
+      {
+       "method": "IsLineBlink_ToggleBeyondWindow_NotBlink",
+       "line": 330
+      },
+      {
+       "method": "IsLineBlink_NegativeSinceLast_NotBlink",
+       "line": 344
+      },
+      {
+       "method": "IsLineBlink_WithinWindow_BodyChanged_NotBlink",
+       "line": 358
+      },
+      {
+       "method": "IsLineBlink_WithinWindow_SameBody_StillBlink",
+       "line": 374
+      },
+      {
+       "method": "IsLineBlink_DefaultBodyChanged_PreservesLegacyBehavior",
+       "line": 389
+      },
+      {
+       "method": "IsLineBlink_WithinWindow_OffWindowCovered_NotBlink",
+       "line": 403
+      },
+      {
+       "method": "IsLineBlink_WithinWindow_OffWindowUnpainted_StillBlink",
+       "line": 423
+      },
+      {
+       "method": "IsLineBlink_DefaultOffWindowCovered_PreservesLegacyBehavior",
+       "line": 440
+      },
+      {
+       "method": "IsLineBlink_NoToggle_OffWindowCovered_NotBlink",
+       "line": 455
+      },
+      {
+       "method": "NextOffWindowUncovered_LineLit_PassesVerdictThrough",
+       "line": 474
+      },
+      {
+       "method": "NextOffWindowUncovered_NewWindowStartsClean",
+       "line": 485
+      },
+      {
+       "method": "NextOffWindowUncovered_FirstDarkFrameWithNoDraw_IsUncovered",
+       "line": 496
+      },
+      {
+       "method": "NextOffWindowUncovered_CoveredWindowStaysCovered",
+       "line": 506
+      },
+      {
+       "method": "NextOffWindowUncovered_UncoveredFramePoisonsWindow",
+       "line": 515
+      },
+      {
+       "method": "NextOffWindowUncovered_PoisonSurvivesLaterCoverage",
+       "line": 525
+      },
+      {
+       "method": "DarkWindow_FullyCoveredByPolyline_DoesNotRaise",
+       "line": 579
+      },
+      {
+       "method": "DarkWindow_WithOneUnpaintedFrame_StillRaises",
+       "line": 589
+      },
+      {
+       "method": "DarkWindow_NothingPaintedAtAll_StillRaises",
+       "line": 598
+      },
+      {
+       "method": "DarkWindow_InterLegStretch_PaintedThroughout_DoesNotRaise",
+       "line": 605
+      },
+      {
+       "method": "DarkWindow_InterLegStretch_OwnershipPatternWouldHaveRaised",
+       "line": 619
+      },
+      {
+       "method": "DarkWindow_OwningNeverWidensCoverage_UnpaintedFrameStillRaises",
+       "line": 633
+      },
+      {
+       "method": "DarkWindow_CoveredButBeyondFrameWindow_DoesNotRaise",
+       "line": 643
+      },
+      {
+       "method": "DarkWindow_UncoveredWindowDoesNotPoisonTheNextCoveredOne",
+       "line": 654
+      },
+      {
+       "method": "ComputeMaxOrbitalSpeed_Circular_EqualsCircularSpeed",
+       "line": 684
+      },
+      {
+       "method": "ComputeMaxOrbitalSpeed_EccentricProbe_MatchesPeriapsisFormula",
+       "line": 694
+      },
+      {
+       "method": "ComputeMaxOrbitalSpeed_Hyperbolic_Finite",
+       "line": 706
+      },
+      {
+       "method": "ComputeMaxOrbitalSpeed_Parabolic_FallsBackToInstantaneous",
+       "line": 718
+      },
+      {
+       "method": "ComputeMaxOrbitalSpeed_NaNElements_FallsBackToInstantaneous",
+       "line": 728
+      },
+      {
+       "method": "ComputeMaxOrbitalSpeed_NaNInstantaneousFallback_ReturnsZero",
+       "line": 737
+      },
+      {
+       "method": "IconTeleport_CapturedProbeMotion_NotFlaggedWithRealDeltaUTAndMaxSpeed",
+       "line": 747
+      },
+      {
+       "method": "IsIconOffOrbit_OnOrbit_NotOff",
+       "line": 776
+      },
+      {
+       "method": "IsIconOffOrbit_SmallJitterUnderThreshold_NotOff",
+       "line": 786
+      },
+      {
+       "method": "IsIconOffOrbit_AtThreshold_NotOff",
+       "line": 795
+      },
+      {
+       "method": "IsIconOffOrbit_LargeAngle_Off",
+       "line": 804
+      },
+      {
+       "method": "IsIconOffOrbit_NaN_NotOff",
+       "line": 815
+      },
+      {
+       "method": "IsIconOffOrbit_Infinity_NotOff",
+       "line": 825
+      },
+      {
+       "method": "ResolveIconReferenceUT_DriveRecorded_UsesDrivenUT",
+       "line": 836
+      },
+      {
+       "method": "ResolveIconReferenceUT_NoRecord_DirectorActive_UsesLiveClock",
+       "line": 848
+      },
+      {
+       "method": "ResolveIconReferenceUT_NoRecord_Legacy_UsesShiftedClock",
+       "line": 859
+      },
+      {
+       "method": "ResolveIconReferenceUT_RegressionFacet_RecordedShiftedWins_OverDirectorReDerivation",
+       "line": 870
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -474,7 +474,10 @@ namespace Parsek
                 return false;
             }
 
-            Recording chainTip = EffectiveState.ResolveChainTerminalRecording(rec);
+            // REFLY-QUALIFY-AND-TIP-WALKS-DISAGREE: the stash terminal read pairs
+            // with the TryQualify reject above, which already hops switch
+            // continuations, so it must read the terminal over the same recording.
+            Recording chainTip = EffectiveState.ResolveTerminalRecordingAcrossSwitchContinuations(rec, null);
             TerminalState? terminal = chainTip?.TerminalStateValue;
             if (!terminal.HasValue)
             {
@@ -780,7 +783,7 @@ namespace Parsek
             return true;
         }
 
-        private static bool IsPotentialManualStashShape(Recording rec)
+        internal static bool IsPotentialManualStashShape(Recording rec)
         {
             if (rec == null) return false;
             if (rec.MergeState != MergeState.Immutable
@@ -790,7 +793,10 @@ namespace Parsek
                 && string.IsNullOrEmpty(rec.ChildBranchPointId))
                 return false;
 
-            Recording terminalRec = EffectiveState.ResolveChainTerminalRecording(rec);
+            // REFLY-QUALIFY-AND-TIP-WALKS-DISAGREE: mirrors the candidate-shape gate
+            // IsUnfinishedFlightCandidateShape, which hops switch continuations; a
+            // stash shape read on the bare chain walk would see no terminal at all.
+            Recording terminalRec = EffectiveState.ResolveTerminalRecordingAcrossSwitchContinuations(rec, null);
             return terminalRec != null
                 && terminalRec.TerminalStateValue.HasValue
                 && StashedTerminalQualifies(terminalRec.TerminalStateValue.Value);

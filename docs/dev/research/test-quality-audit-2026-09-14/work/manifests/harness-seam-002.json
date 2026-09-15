@@ -1,0 +1,283 @@
+{
+ "batch_id": "harness-seam-002",
+ "cluster": "harness-seam",
+ "tier": "A",
+ "expected_methods": 66,
+ "files": [
+  {
+   "file": "InGameTestRunnerTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "OrderForBatchExecution_PlacesRunLastTestsAfterNormalTests",
+       "line": 14
+      },
+      {
+       "method": "OrderForBatchExecution_KeepsAlphabeticalOrderWithinEachPriorityBucket",
+       "line": 30
+      },
+      {
+       "method": "PrepareBatchExecution_SkipsSingleRunOnlyTestsWithExplicitReason",
+       "line": 46
+      },
+      {
+       "method": "PrepareBatchExecution_UsesDefaultReasonWhenSingleRunOnlyTestHasNoCustomReason",
+       "line": 66
+      },
+      {
+       "method": "OrderForBatchExecution_PlacesRestoreTestsAfterSharedSessionTests",
+       "line": 83
+      },
+      {
+       "method": "PrepareBatchExecutionIncludingFlightRestore_IncludesRestoreTestsButSkipsManualOnly",
+       "line": 98
+      },
+      {
+       "method": "FilterSceneEligibleBatchCandidates_MarksRejectedTestsBeforeBatch",
+       "line": 127
+      },
+      {
+       "method": "FormatBatchCompleteLine_ExactContractString",
+       "line": 170
+      },
+      {
+       "method": "FormatBatchCompleteLine_ZeroTotals_WellFormed",
+       "line": 186
+      },
+      {
+       "method": "GetBatchExecutionNote_ReturnsRestoreNoteForIsolatedTests",
+       "line": 198
+      },
+      {
+       "method": "ShouldWaitForStockStageManager_OnlyForPrelaunch",
+       "line": 214
+      },
+      {
+       "method": "IsStageManagerReadyForActivateNextStage_RequiresStableStockState",
+       "line": 229
+      },
+      {
+       "method": "StageManagerReady_ZeroStageVessel_ReadyWhenVesselExpectsNoStages",
+       "line": 246
+      },
+      {
+       "method": "CreateBatchFlightParsekSaveSnapshotStaging_MissingSnapshot_DoesNotTouchCurrentDirectory",
+       "line": 262
+      },
+      {
+       "method": "CreateBatchFlightParsekSaveSnapshotStaging_Activate_ReplacesCurrentDirectoryOnlyWhenInvoked",
+       "line": 288
+      },
+      {
+       "method": "ActivateStagedBatchFlightBaselineRestore_PreparesOnlyAfterActivation",
+       "line": 322
+      },
+      {
+       "method": "ActivateStagedBatchFlightBaselineRestore_ActivationFailure_DoesNotPrepare",
+       "line": 334
+      },
+      {
+       "method": "FormatCoroutineState_ReportsActiveAndIdleSlots",
+       "line": 347
+      },
+      {
+       "method": "FormatCoroutineState_ReportsIdleRunnerWhenNothingIsRunning",
+       "line": 358
+      },
+      {
+       "method": "FormatResultsReport_EmptyTests_ProducesHeaderWithNoScenesLine",
+       "line": 394
+      },
+      {
+       "method": "FormatResultsReport_SingleSceneRun_HasPerSceneHeader",
+       "line": 406
+      },
+      {
+       "method": "FormatResultsReport_TwoScenesSameTest_PreservesBothResults",
+       "line": 424
+      },
+      {
+       "method": "FormatResultsReport_FailuresGroupedByScene",
+       "line": 450
+      },
+      {
+       "method": "FormatResultsReport_NeverRunTest_AppearsAsNeverRun",
+       "line": 473
+      },
+      {
+       "method": "FormatResultsReport_AnySceneTest_ListsMissingScenesExplicitly",
+       "line": 488
+      },
+      {
+       "method": "FormatResultsReport_RerunInSameScene_OverwritesThatSceneSlot",
+       "line": 514
+      },
+      {
+       "method": "InGameTestInfo_PerSceneHistory_SurvivesTopLevelStatusReset",
+       "line": 547
+      },
+      {
+       "method": "InGameTestInfo_PerSceneHistory_ClearedByFullWipe",
+       "line": 568
+      },
+      {
+       "method": "RunCoroutineSafely_CapturesNestedCoroutineFailure",
+       "line": 594
+      },
+      {
+       "method": "ShouldRestoreBatchFlightBaselineAfterTest_RestoreBackedPassedTest_ReturnsTrue",
+       "line": 646
+      },
+      {
+       "method": "ShouldRestoreBatchFlightBaselineAfterTest_RestoreBackedFailedTest_ReturnsTrue",
+       "line": 659
+      },
+      {
+       "method": "ShouldRestoreBatchFlightBaselineAfterTest_RestoreBackedSelfSkippedTest_ReturnsTrue",
+       "line": 672
+      },
+      {
+       "method": "ShouldRestoreBatchFlightBaselineAfterTest_NotRestoreBacked_AnyStatus_ReturnsFalse",
+       "line": 692
+      },
+      {
+       "method": "ShouldRestoreBatchFlightBaselineAfterTest_NullTest_ReturnsFalse",
+       "line": 719
+      },
+      {
+       "method": "ShouldForceCloseSpaceCenterFacilities_OnlyTrueInSpaceCenter",
+       "line": 725
+      },
+      {
+       "method": "FormatFacilityForceCloseSummary_IncludesCountAndReason",
+       "line": 746
+      },
+      {
+       "method": "FormatFacilityForceCloseSummary_NullReason_RendersPlaceholder",
+       "line": 754
+      },
+      {
+       "method": "IsBatchBaselineRestoreSupportedScene_AllowsFlightAndTrackingStation",
+       "line": 761
+      },
+      {
+       "method": "BatchBaselineUnavailableReasonForScene_FlightHappyPath_ReturnsNull",
+       "line": 780
+      },
+      {
+       "method": "BatchBaselineUnavailableReasonForScene_TrackingStationHappyPath_NeedsNoActiveVessel",
+       "line": 787
+      },
+      {
+       "method": "BatchBaselineUnavailableReasonForScene_FlightWithoutActiveVessel_IsBlocked",
+       "line": 796
+      },
+      {
+       "method": "BatchBaselineUnavailableReasonForScene_UnsupportedScene_IsBlocked",
+       "line": 805
+      },
+      {
+       "method": "BatchBaselineUnavailableReasonForScene_MissingGameOrSaveFolder_IsBlocked",
+       "line": 814
+      },
+      {
+       "method": "IsReloadedNonFlightSceneReady_SameSceneNotYetReloaded_IsNotReady",
+       "line": 825
+      },
+      {
+       "method": "IsReloadedNonFlightSceneReady_SceneMatchesAndScenarioReplaced_IsReady",
+       "line": 836
+      },
+      {
+       "method": "IsReloadedNonFlightSceneReady_NoPriorScenario_OnlyNeedsFreshInstance",
+       "line": 844
+      },
+      {
+       "method": "IsReloadedNonFlightSceneReady_NoCurrentScenario_IsNotReady",
+       "line": 854
+      },
+      {
+       "method": "IsReloadedNonFlightSceneReady_WrongScene_IsNotReady",
+       "line": 863
+      },
+      {
+       "method": "IsExceptionStorm_BelowThreshold_IsFalse",
+       "line": 873
+      },
+      {
+       "method": "IsExceptionStorm_AtOrAboveThreshold_IsTrue",
+       "line": 884
+      },
+      {
+       "method": "IsExceptionStorm_NonPositiveThreshold_DisablesGuard",
+       "line": 896
+      },
+      {
+       "method": "ReloadStillFlooding_CleanSettleWindow_IsFalse",
+       "line": 905
+      },
+      {
+       "method": "ReloadStillFlooding_FloodingSettleWindow_IsTrue",
+       "line": 916
+      },
+      {
+       "method": "ReloadStillFlooding_NonPositiveThreshold_DisablesCheck",
+       "line": 927
+      },
+      {
+       "method": "ShouldAttemptSpaceCenterBounce_FloodingAndNotYetAttempted_IsTrue",
+       "line": 936
+      },
+      {
+       "method": "ShouldAttemptSpaceCenterBounce_AlreadyAttempted_IsFalseEvenWhileFlooding",
+       "line": 951
+      },
+      {
+       "method": "ShouldAttemptSpaceCenterBounce_CleanSettleWindow_IsFalse",
+       "line": 964
+      },
+      {
+       "method": "ShouldSampleBatchEndCorruption_InMemoryBaselineOrStorm_Samples",
+       "line": 978
+      },
+      {
+       "method": "ShouldSampleBatchEndCorruption_NoReloadsAndNoStorm_Skips",
+       "line": 993
+      },
+      {
+       "method": "ShouldAttemptSpaceCenterBounce_NonPositiveThreshold_DisablesRecovery",
+       "line": 1003
+      },
+      {
+       "method": "DescribeRestoreFailure_NullException_ReturnsPlaceholder",
+       "line": 1014
+      },
+      {
+       "method": "DescribeRestoreFailure_PlainException_NamesTypeAndMessage",
+       "line": 1020
+      },
+      {
+       "method": "DescribeRestoreFailure_NestedInnerException_IncludesEveryLayer",
+       "line": 1030
+      },
+      {
+       "method": "DescribeRestoreFailure_ThrownAndCaughtException_IncludesStackFrames",
+       "line": 1048
+      },
+      {
+       "method": "DescribeRestoreFailure_ExceptionDispatchInfoRethrow_PreservesOriginalThrowingFrame",
+       "line": 1079
+      },
+      {
+       "method": "IsOrphanedGhostMeshName_MatchesEngineGhostRootNamingConventionOnly",
+       "line": 1142
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

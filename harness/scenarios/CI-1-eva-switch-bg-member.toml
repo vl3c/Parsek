@@ -2,6 +2,39 @@ schema = 1
 id = "CI-1-eva-switch-bg-member"
 tier = "daily"
 # =====================================================================================
+# ADDED 2026-09-15 BY THE REGISTRY-DECISIONS PR (operator ruling B3, memo s3 of
+# docs/dev/research/wave-0910-open-decisions-2026-09-11.md): the D1
+# `switch-backgrounds-recording` claim - the registry value RENAMED in the same commit
+# from the phantom `stop-on-switch` - and its one gating token (the
+# `Transitioned to background` line at the bottom of [expectations.logContracts]).
+#
+# FLOWN 2026-09-15. The token was pinned OFF ARCHIVED BYTES of
+# this lane's 2026-09-08 run day, where BOTH collected logs carry it twice and the FIRST
+# occurrence is byte-identical in each. Reading run `2026-09-08_1054`
+# (../logs/2026-09-08_1355_CI-1-eva-switch-bg-member - collect-logs directory names are
+# WALL CLOCK, three hours ahead of the run ids):
+#   [LOG 13:54:37.228] [Parsek][INFO][Recorder] Transitioned to background
+#   (pid=3620499050, points=1, orbitSegments=0)
+# and the structure negative control `2026-09-08_1059`
+# (../logs/2026-09-08_1400_...) reads the same line at 13:59:36.457. The ARMED PASS
+# `2026-09-08_1057` between them is the run autotest-status.md records as green; its
+# KSP.log was not archived, so the pin rests on the two runs that bracket it, flown on
+# the same DLL (`de5ac6112`) with the same fixture.
+# WHY THE FIRST OCCURRENCE IS THE GATE AND THE SECOND IS NOT: the second line is the
+# driven `SimulateStockSwitchClick` backgrounding the EVA kerbal's recorder, and both
+# its pid and its point count are run-local (604211114 / points=48 on `_1054`,
+# 2408265811 / points=47 on `_1059`). The first is the EVA split backgrounding THE SHIP:
+# its pid is the fixture literal this spec already pins everywhere else, and points=1 is
+# deterministic. Both occurrences come from the same producer,
+# `FlightRecorder.TransitionToBackground` (FlightRecorder.cs:11280), which
+# `DecideOnVesselSwitch` (:11676) reaches on a vessel switch with NO Stop branch
+# anywhere in it - the fact the renamed value names.
+# THE DISCIPLINE IS COMPLETE. The ARMED RE-FLIGHT with the token in place is
+# `2026-09-15_1529`, PASS attempt 1, 64 s. The NEGATIVE CONTROL is `2026-09-15_1532`,
+# which inverted exactly this token (`points=1` -> `points=99`) and red on exactly that
+# leaf; the edit was reverted. Both are on the record in autotest-status.md, so the D1
+# entry below reads CLAIMED.
+# =====================================================================================
 # THE CHAIN-INTERACTION WAVE, LANE 1 (roadmap priority register item 2, riding R10).
 #
 # WHAT IT MEASURES. The stock-switch consume site has three routes -
@@ -120,7 +153,16 @@ steps = [
 #   D5  `eva-branch`            <- `Tree branch created: type=EVA`, as EVA-1/3/4 claim it.
 #   D1  `switch-segment`        <- `[SwitchSegment] created ... reason=MapSwitchTo` +
 #       `[SwitchIntent] cleared ... reason=consumed-into-segment`, as S0.8 and GS-3.
-D1  = ["switch-segment"]
+#   D1  `switch-backgrounds-recording` (ADDED 2026-09-15, ruling B3) <- the REQUIRED
+#       `Transitioned to background (pid=3620499050, points=1, orbitSegments=0)` line:
+#       the EVA split is a vessel switch, and what it does to the live ship recording
+#       is BACKGROUND it - the physics-frame patch disconnected, part events
+#       unsubscribed, `IsRecording` still true - not stop it. That is the whole content
+#       of the value the registry renamed from `stop-on-switch` in the same commit, and
+#       this lane is its first declarer. FLOWN 2026-09-15: armed re-flight
+#       `2026-09-15_1529` PASS, negative control `2026-09-15_1532` red on exactly this
+#       token. See the header.
+D1  = ["switch-segment", "switch-backgrounds-recording"]
 D5  = ["chain-continuation-switch", "eva-branch"]
 D14 = ["kerbin", "sandbox", "scene-flight"]
 
@@ -177,6 +219,12 @@ required  = [
   "\\[SwitchSegment\\] origin-terminal-stamped recId=[0-9a-f]{32} terminal=\\S+ source=(?:cache|live) focusedPid=3620499050",
   "\\[SwitchIntent\\] cleared: intentId=\\S+ action=MapSwitchTo targetPid=3620499050 reason=consumed-into-segment",
   "switchclick complete site=map targetPid=3620499050 targetName=Kerbal X .* activeVesselPid=3620499050 switched=true",
+  # D1 `switch-backgrounds-recording`, added 2026-09-15 (ruling B3). The EVA split's own
+  # backgrounding of the ship recorder, pinned WHOLE off the archived bytes named in the
+  # header. Literal pid + points=1 on purpose: the log's SECOND occurrence of this
+  # producer (the driven switch backgrounding the kerbal) carries a run-local pid and
+  # point count, so only this one can be a literal gate.
+  "Transitioned to background \\(pid=3620499050, points=1, orbitSegments=0\\)",
 ]
 # Every forbidden line is a DISTINCT real failure mode of this lane: the two other
 # routes; the three named fallthroughs INSIDE the bg-member branch (an origin can be

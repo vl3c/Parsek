@@ -172,7 +172,7 @@ id = "GS-4-kerbalx-rewind-watch"
 # re-checks; waiting for the ghost to get far forfeits the watch). See
 # docs/dev/todo-and-known-bugs.md GS4-WATCH-DISTANCE-CUTOFF.
 # =====================================================================================
-tier = "operator"
+tier = "nightly"
 description = "Full player workflow ghost-derender tripwire: staged Kerbal X ascent (fueled core discarded engines-off), commit, Rewind-to-Launch via the new InvokeRewindToLaunch seam verb, Jumping Flea on the pad as watch anchor, map view + watch mode on the replay, then every spawned ghost (parent, boosters, separated core) must derender - MeshSpawned/MeshDestroyed balance via the ghostLifecycle evaluator."
 instanceProfile = "stock-minimal"
 tags = ["GS4", "rewind-to-launch", "watch-mode", "ghost-render", "derender", "staging", "map-view", "ghost-lifecycle"]
@@ -417,24 +417,30 @@ recordings     = { min = 8 }
 branchPoints   = { JointBreak = { min = 4 } }
 terminalStates = { SubOrbital = { min = 2 }, Destroyed = { min = 4 } }
 
-# ARMED 2026-09-10 (`ghost-replay-tier-b`, ghost-replay Tier B item 9); the ceiling is
-# KEPT at 4 by supervisor ruling. It is a WINDOW, not a mechanism bound, and 4 is
-# REACHABLE on the wave DLL by this machine's identical stock class set. THE
-# COMPOSITION THAT MAKES 4: the MAP-FOCUS KnowledgeBase pair (one event counted twice,
-# [ERR] + [EXC]) + STAGING + a teardown NRE - `2026-08-27_2145` exactly (STAGING 1 +
-# MAP-FOCUS 2 + HATCH-TOOLTIP 1). n: GS-4's readings 4 / 1 / 2 on older DLLs
-# (`2026-08-27_2145` / `_2204` / `2026-08-28_1550`) and 2 / 1 on the wave DLL
-# (`2026-09-10_1924` / `_1930`). THE WAVE-DLL REACHABILITY PROOF is GS-9's reading
-# `2026-09-10_1944`: it flew this machine's unchanged cycle 1 and teardown and measured
-# 4 (MAP-FOCUS 2 + FLIGHT-CAMERA-STARTUP 1 + MECHJEB-ONDESTROY 1), so a ceiling of 2
-# would false-red a legal stock shape. No reading carried a `Parsek.` frame.
-# THE LEGAL SHAPE THAT WOULD EXCEED IT: 5 - those four plus one more stock NRE, e.g.
-# both teardown classes (HATCH-TOOLTIP and MECHJEB-ONDESTROY) in one flight. A red at
-# 5 whose stacks carry no `Parsek.` frame is that shape: file it with its per-class
-# census and re-pin with the new n. A `Parsek.` frame is a finding at any count, and
-# is never a reason to raise the ceiling.
+# ARMED 2026-09-10 (`ghost-replay-tier-b`, ghost-replay Tier B item 9) at 4, and
+# RE-PINNED TO 6 ON 2026-09-15 BY OPERATOR DECISION (wave-0910 memo section 7a,
+# priority register item B8). THIS REVERSES THE WAVE SUPERVISOR'S "KEEP 4" (ruling
+# R2-4), and the reason is the H23 PRECEDENT: 4 was a WINDOW (the observed band top),
+# where H23 sets its ceiling at the MECHANISM's own legal maximum so that a legal
+# shape cannot false-red. 6 IS THAT MAXIMUM on the KNOWN stock class set measured on
+# this machine: STAGING 1 + MAP-FOCUS 2 (one KnowledgeBase event counted twice, the
+# [ERR] and the [EXC] line) + HATCH-TOOLTIP 1 + MECHJEB-ONDESTROY 1 +
+# FLIGHT-CAMERA-STARTUP 1. Every one is stock KSP or MechJeb and no reading has ever
+# carried a `Parsek.` frame. NO FLIGHT IS OWED BY THE RE-PIN - it only WIDENS, so every
+# green run recorded below stays green, and the offline negative control at the end of
+# this file (which reds `2026-09-11_0049` at maxTotal 3 and passes it at 4) is
+# untouched by a wider ceiling. n, unchanged: GS-4 readings 4 / 1 / 2 on older DLLs
+# (`2026-08-27_2145` / `_2204` / `2026-08-28_1550`) and 2 / 1 / 4 / 0 / 0 on the wave
+# DLL (`2026-09-10_1924` / `_1930` / `2026-09-11_0049` / `_0056` / `_0102`); GS-9's
+# `2026-09-10_1944` measured 4 on this machine's unchanged cycle 1 and teardown
+# (MAP-FOCUS 2 + FLIGHT-CAMERA-STARTUP 1 + MECHJEB-ONDESTROY 1). THE COST IS STATED
+# RATHER THAN HIDDEN: a 5 or a 6 built purely from stock classes now PASSES silently
+# where 4 would have filed it. A `Parsek.` frame is a finding at ANY count and is never
+# a reason to raise a ceiling; the instrument that catches one UNDER the ceiling is
+# `maxParsekFrames` (memo section 7b, todo UNITY-SCANNER-BLIND-TO-PARSEK-STACK-FRAMES),
+# not a lower maxTotal.
 [expectations.unityExceptions]
-maxTotal = 4
+maxTotal = 6
 
 [runtime]
 # WALL clock for the WHOLE drive phase including KSP boot: 300 LoadGame + 1600
@@ -463,7 +469,7 @@ bugId = ""
 # =====================================================================================
 # RUN LEDGER (2026-09-11, the wave's make-up round; spec at `9a8c3e310`, wave DLL
 # a0abbed1 on stock-minimal). Kept at the END of the file so the unityExceptions
-# anchor (`maxTotal = 4`, line 437) keeps its line number for any further control.
+# anchor (`maxTotal = 6`, line 443) keeps its line number for any further control.
 #
 # ARMED RE-FLIGHT `2026-09-11_0049`, unedited: PASS attempt 1, 329 s wall, 282 s
 # mission, MISSION-OK, expectations [] (16 tokens, recordings.count 8), ghostLifecycle
@@ -493,7 +499,7 @@ bugId = ""
 # 792f3e6992f79939adac08e0a0492b2f22b881025f9872ffec5a5f64edd2d219), the live row-6b evaluator
 # hlib.evaluate_unity_exceptions with maxTotal = 3 (total - 1, the only spec change,
 # tree-diffed) returns FAIL with EXACTLY ONE mismatch `unityExceptions.total 4 >
-# maxTotal 3 (NullReferenceException=4)`, and the committed maxTotal = 4 PASSES the same
+# maxTotal 3 (NullReferenceException=4)`, and the then-committed maxTotal = 4 PASSES the same
 # bytes. Under the mutated spec expectations and ghostLifecycle stay PASS, so the unity
 # line is the only gating mismatch. Corroboration, same shape: `_1924` reds on exactly
 # `unityExceptions.total 2 > maxTotal 1 (NullReferenceException=2)` and `_1930` on

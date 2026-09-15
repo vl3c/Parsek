@@ -1,0 +1,147 @@
+{
+ "batch_id": "trajectory-orbit-010",
+ "cluster": "trajectory-orbit",
+ "tier": "A",
+ "expected_methods": 32,
+ "files": [
+  {
+   "file": "ReaimSegmentAssemblerTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ShiftInTime_MovesUTsAndEpochTogether",
+       "line": 27
+      },
+      {
+       "method": "ReplaceHeliocentricLeg_ReplacesOnlySunLeg_KeepsBodyRelativeLegs",
+       "line": 40
+      },
+      {
+       "method": "ReplaceHeliocentricLeg_TrimsTransferToInterplanetarySpan",
+       "line": 74
+      },
+      {
+       "method": "ReplaceHeliocentricLeg_InvalidTrimBounds_FallsBackToFullLeg",
+       "line": 104
+      },
+      {
+       "method": "ReplaceHeliocentricLeg_MidCourseCorrection_CollapsesBothSunLegs",
+       "line": 125
+      },
+      {
+       "method": "ReplaceHeliocentricLeg_MemberWithNoSunLeg_ReturnsNull",
+       "line": 151
+      },
+      {
+       "method": "HasHeliocentricLegInWindow_PredictedOrOutOfWindow_False",
+       "line": 168
+      },
+      {
+       "method": "CoalesceSameOrbitFragments_MergesContiguousSameOrbitFragmentsAcrossGaps",
+       "line": 183
+      },
+      {
+       "method": "CoalesceSameOrbitFragments_KeepsRealManeuverBoundary",
+       "line": 201
+      },
+      {
+       "method": "CoalesceSameOrbitFragments_DoesNotMergeAcrossPredictedMismatch",
+       "line": 220
+      },
+      {
+       "method": "CoalesceSameOrbitFragments_NullOrSingle_PassThrough",
+       "line": 234
+      },
+      {
+       "method": "CoalesceSameOrbitFragments_NothingMerges_ReturnsInputByReference",
+       "line": 246
+      },
+      {
+       "method": "CoalesceSameOrbitFragments_PredictedMismatch_ReturnsInputByReference",
+       "line": 264
+      },
+      {
+       "method": "ReplaceHeliocentricLeg_CoalescesFragmentedParkingBeforeTransfer",
+       "line": 277
+      },
+      {
+       "method": "RotateLanForParkRephase_AdvancesAndWrapsLan",
+       "line": 307
+      },
+      {
+       "method": "ComputeParkDeltaLonDegrees_IsOmegaTimesWindowOffset",
+       "line": 332
+      },
+      {
+       "method": "FindHeliocentricParkInclination_FindsLatestParkBeforeBurn",
+       "line": 349
+      },
+      {
+       "method": "TryComputeParkRephase_FailsClosedOnNonEquatorialOrDegenerate",
+       "line": 386
+      },
+      {
+       "method": "ReplaceHeliocentricLeg_RotatesOnlyTheSunParkBeforeBurn",
+       "line": 411
+      },
+      {
+       "method": "FindHeliocentricParkSegment_ReturnsLatestParkBeforeBurn_NullForDirect",
+       "line": 450
+      },
+      {
+       "method": "FindHeliocentricParkInclination_DelegatesToFindHeliocentricParkSegment",
+       "line": 497
+      },
+      {
+       "method": "RotateLanForParkRephase_OnlyLanTurns_AllOtherElementsAndUTsUnchanged",
+       "line": 526
+      },
+      {
+       "method": "DecideDepartureAnchor_DirectTransfer_LaunchCenterNoEval",
+       "line": 563
+      },
+      {
+       "method": "DecideDepartureAnchor_ParkingDeparture_RephaseOk_OverrideAtRecordedDepartureUT",
+       "line": 577
+      },
+      {
+       "method": "DecideDepartureAnchor_ParkingDeparture_RephaseDeclined_DeclineNotLaunchCenter",
+       "line": 598
+      },
+      {
+       "method": "ReplaceHeliocentricLeg_ZeroParkDelta_LeavesParkVerbatim",
+       "line": 629
+      },
+      {
+       "method": "ReplaceHeliocentricLeg_CaptureRetime_ShiftsOnlyTargetCaptureLeg_Earlier",
+       "line": 657
+      },
+      {
+       "method": "ReplaceHeliocentricLeg_CaptureRetime_ZeroOrNull_LeavesCaptureVerbatim",
+       "line": 698
+      },
+      {
+       "method": "ReplaceHeliocentricLeg_RenderEndPastArrival_FullSpanRender_NoGap",
+       "line": 735
+      },
+      {
+       "method": "ShiftCapturePartEvents_ShiftsOnlyInCaptureEvents_PreCaptureUntouched",
+       "line": 779
+      },
+      {
+       "method": "ShiftCapturePartEvents_ZeroShift_ReturnsContentCopy_Unmodified",
+       "line": 809
+      },
+      {
+       "method": "ShiftCapturePartEvents_NullOrEmpty_HandledCleanly",
+       "line": 822
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

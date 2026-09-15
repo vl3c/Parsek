@@ -194,6 +194,25 @@ namespace Parsek
             string originRecordingId,
             IReadOnlyList<RecordingSupersedeRelation> supersedes,
             IReadOnlyDictionary<string, Recording> recById)
+            => EffectiveTipRecordingId(originRecordingId, supersedes, recById, treeContext: null);
+
+        /// <summary>
+        /// Tree-context overload. The switch-continuation hop added for
+        /// REFLY-QUALIFY-AND-TIP-WALKS-DISAGREE needs the OWNING TREE to read
+        /// branch points, and <see cref="RecordingStore.CommitTree"/> runs the
+        /// promotion pass BEFORE the tree is in
+        /// <see cref="RecordingStore.CommittedTrees"/> (the recordings are not in
+        /// <see cref="RecordingStore.CommittedRecordings"/> yet either). Callers
+        /// holding the pending tree pass it here exactly as they do for
+        /// <see cref="ResolveChainTerminalRecording(Recording, RecordingTree)"/>;
+        /// everyone else keeps the null-context overload, which resolves the tree
+        /// from the committed store.
+        /// </summary>
+        internal static string EffectiveTipRecordingId(
+            string originRecordingId,
+            IReadOnlyList<RecordingSupersedeRelation> supersedes,
+            IReadOnlyDictionary<string, Recording> recById,
+            RecordingTree treeContext)
         {
             if (string.IsNullOrEmpty(originRecordingId))
                 return null;
@@ -230,10 +249,30 @@ namespace Parsek
                 // EffectiveTipRecordingId_MidChainSupersede_AssumptionHolds
                 // for a concrete fixture showing the current (correct-by-
                 // assumption) behavior.
+                //
+                // REFLY-QUALIFY-AND-TIP-WALKS-DISAGREE (2026-09-15): the hop
+                // routes through ResolveTerminalRecordingAcrossSwitchContinuations
+                // rather than the bare chain walk, so this walker answers over the
+                // SAME recording as UnfinishedFlightClassifier.TryQualify and the
+                // candidate-shape gate. PR #1427's contract is that a flight
+                // continued through a stock Switch-To is ONE flight, so the tip
+                // identity every slot consumer reads (ChildSlot.EffectiveRecordingId,
+                // IsSlotEffectiveTipOpen, the CommitTree tip promotion,
+                // RewindInvoker's slot resolution) must name what qualify named.
+                // The cheap-exit gate widens from "has a ChainId" to "has a ChainId
+                // OR a child branch point": a switch-continuation segment carries no
+                // ChainId, and those two fields are the only ways the combined walk
+                // can advance, so a recording with neither still skips the
+                // owning-tree scan the combined walker would otherwise run.
                 Recording currentRec = LookupRecordingId(current, recById);
-                if (currentRec != null && !string.IsNullOrEmpty(currentRec.ChainId))
+                if (currentRec == null && treeContext?.Recordings != null)
+                    treeContext.Recordings.TryGetValue(current, out currentRec);
+                if (currentRec != null
+                    && (!string.IsNullOrEmpty(currentRec.ChainId)
+                        || !string.IsNullOrEmpty(currentRec.ChildBranchPointId)))
                 {
-                    Recording chainTip = ResolveChainTerminalRecording(currentRec);
+                    Recording chainTip = ResolveTerminalRecordingAcrossSwitchContinuations(
+                        currentRec, treeContext);
                     if (chainTip != null
                         && !string.IsNullOrEmpty(chainTip.RecordingId)
                         && !string.Equals(chainTip.RecordingId, current, StringComparison.Ordinal))
@@ -490,10 +529,18 @@ namespace Parsek
                 // chain tip if it's a distinct recording id. Visited guard
                 // prevents revisiting; reaching the target via chain alone
                 // counts as in-trail.
+                // Same combined chain + switch-continuation hop as
+                // EffectiveTipRecordingId (REFLY-QUALIFY-AND-TIP-WALKS-DISAGREE):
+                // this BFS is the sibling walker that decides slot membership, so
+                // it must reach the same tip the composite walker returns or a
+                // fork behind a switch continuation would fail to match its slot.
                 Recording currentRec = LookupRecordingId(current, recById);
-                if (currentRec != null && !string.IsNullOrEmpty(currentRec.ChainId))
+                if (currentRec != null
+                    && (!string.IsNullOrEmpty(currentRec.ChainId)
+                        || !string.IsNullOrEmpty(currentRec.ChildBranchPointId)))
                 {
-                    Recording chainTip = ResolveChainTerminalRecording(currentRec);
+                    Recording chainTip = ResolveTerminalRecordingAcrossSwitchContinuations(
+                        currentRec, null);
                     if (chainTip != null
                         && !string.IsNullOrEmpty(chainTip.RecordingId)
                         && !string.Equals(chainTip.RecordingId, current, StringComparison.Ordinal))
@@ -1292,25 +1339,82 @@ namespace Parsek
             if (!string.IsNullOrEmpty(current.RecordingId))
                 visited.Add(current.RecordingId);
 
+            // Every stop and every hop is logged (rate-limited on the from|to
+            // pair, because EffectiveTipRecordingId now reaches this walker from
+            // per-slot / per-frame readers). The hop line is the grep-stable
+            // witness that a slot's tip was resolved THROUGH a switch
+            // continuation rather than at the origin.
+            int hopCount = 0;
             for (int hops = 0; hops < MaxSwitchContinuationHops; hops++)
             {
                 string childBpId = current.ChildBranchPointId;
                 if (string.IsNullOrEmpty(childBpId)) break;
 
                 BranchPoint bp = FindSwitchContinuationBranchPoint(tree, childBpId);
-                if (bp == null) break;
+                if (bp == null)
+                {
+                    LogSwitchWalkStop(current.RecordingId, childBpId, "notSwitchBranchPoint");
+                    break;
+                }
 
                 Recording child = FindSoleSwitchContinuationChild(tree, bp.Id);
-                if (child == null) break;
+                if (child == null)
+                {
+                    LogSwitchWalkStop(current.RecordingId, childBpId, "danglingOrAmbiguousChild");
+                    break;
+                }
 
                 Recording childTip = ResolveChainTerminalRecording(child, tree);
-                if (childTip == null || string.IsNullOrEmpty(childTip.RecordingId)) break;
-                if (!visited.Add(childTip.RecordingId)) break;
+                if (childTip == null || string.IsNullOrEmpty(childTip.RecordingId))
+                {
+                    LogSwitchWalkStop(current.RecordingId, childBpId, "childChainTipUnresolved");
+                    break;
+                }
+                if (!visited.Add(childTip.RecordingId))
+                {
+                    ParsekLog.Warn("Supersede",
+                        "SwitchContinuationWalk: cycle detected at switch-hop from " +
+                        $"{current.RecordingId ?? "<no-id>"} to {childTip.RecordingId} " +
+                        $"bp={childBpId}; returning last-visited={current.RecordingId ?? "<no-id>"}");
+                    break;
+                }
+
+                // ParsekLog.VerboseRateLimited checks IsVerboseEnabled INSIDE the call,
+                // but the key and message are interpolated at the CALL SITE, and this
+                // walker is now reached from per-slot / per-frame readers. Build
+                // neither string when verbose is off.
+                if (ParsekLog.IsVerboseEnabled)
+                {
+                    ParsekLog.VerboseRateLimited("Supersede",
+                        $"switchhop|{current.RecordingId}|{childTip.RecordingId}",
+                        "SwitchContinuationWalk: hop from=" +
+                        $"{current.RecordingId ?? "<no-id>"} to={childTip.RecordingId} " +
+                        $"bp={childBpId} hop={hops + 1}");
+                }
 
                 current = childTip;
+                hopCount++;
+            }
+
+            if (hopCount >= MaxSwitchContinuationHops)
+            {
+                ParsekLog.Warn("Supersede",
+                    $"SwitchContinuationWalk: hop cap {MaxSwitchContinuationHops} reached from " +
+                    $"origin={rec.RecordingId ?? "<no-id>"}; returning last-visited=" +
+                    $"{current.RecordingId ?? "<no-id>"}");
             }
 
             return current;
+        }
+
+        private static void LogSwitchWalkStop(string fromId, string childBpId, string reason)
+        {
+            // Same call-site interpolation guard as the hop line above.
+            if (!ParsekLog.IsVerboseEnabled) return;
+            ParsekLog.VerboseRateLimited("Supersede",
+                $"switchstop|{fromId}|{childBpId}|{reason}",
+                "SwitchContinuationWalk: stop from=" +
+                $"{fromId ?? "<no-id>"} bp={childBpId ?? "<none>"} reason={reason}");
         }
 
         /// <summary>

@@ -1,0 +1,199 @@
+{
+ "batch_id": "ghost-playback-016",
+ "cluster": "ghost-playback",
+ "tier": "A",
+ "expected_methods": 45,
+ "files": [
+  {
+   "file": "GhostAudioTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ClassifyPropellantType_NullReturnsUnknown",
+       "line": 41
+      },
+      {
+       "method": "ClassifyPropellantType_EmptyReturnsUnknown",
+       "line": 47
+      },
+      {
+       "method": "ClassifyPropellantType_IonMixedPropellants_PrefersXenonGas",
+       "line": 53
+      },
+      {
+       "method": "ClassifyPropellantType_PureElectricCharge_ReturnsElectricCharge",
+       "line": 61
+      },
+      {
+       "method": "ClassifyLoopedPriority_MapsPropellantsToExpectedTier",
+       "line": 78
+      },
+      {
+       "method": "ClassifyOneShotPriority_Destroyed_ReturnsExplosionTier",
+       "line": 86
+      },
+      {
+       "method": "ComputeRuntimePriority_ExplosionAtZeroDistance_StaysAtBaselineGamePriority",
+       "line": 94
+      },
+      {
+       "method": "ComputeRuntimePriority_DistancePenaltyLowersPriorityForFarGhosts",
+       "line": 104
+      },
+      {
+       "method": "ComputeRuntimePriority_RocketEngineBeatsJetAtSameDistance",
+       "line": 117
+      },
+      {
+       "method": "ResolvePartExplosionPower_BucketsByPrefabExplosionPotential",
+       "line": 145
+      },
+      {
+       "method": "ResolvePartExplosionPower_UnknownPartFallsBackToStockDefault",
+       "line": 159
+      },
+      {
+       "method": "ResolvePartExplosionPower_NullOrEmptyPartNameUsesStockDefault",
+       "line": 172
+      },
+      {
+       "method": "ResolveDestroyedClipByPower_PicksClipMatchingFxMongerSlot",
+       "line": 196
+      },
+      {
+       "method": "TryTriggerStockExplosionFxOrCustom_StockSucceeds_QueuesStock",
+       "line": 203
+      },
+      {
+       "method": "TryTriggerStockExplosionFxOrCustom_StockFails_FallsBackToCustomVisual",
+       "line": 231
+      },
+      {
+       "method": "TryPlayIndependentExplosionOneShot_UnavailableClipReturnsFalseAndDoesNotPlay",
+       "line": 267
+      },
+      {
+       "method": "TryPlayIndependentExplosionOneShot_PlaysWhenCandidateAvailable",
+       "line": 295
+      },
+      {
+       "method": "TryPlayIndependentExplosionOneShot_PlayThrows_LogsAndReturnsFalse",
+       "line": 333
+      },
+      {
+       "method": "ResolveAudioPriorityDistance_PrefersRenderDistanceThenFallsBackToActiveDistance",
+       "line": 363
+      },
+      {
+       "method": "SelectHighestPriorityActiveLoopedGhostAudioSources_PrefersActiveRocketsBeforeQuietAndJetSounds",
+       "line": 378
+      },
+      {
+       "method": "SelectHighestPriorityActiveLoopedGhostAudioSources_IgnoresDormantHigherTierEngines",
+       "line": 398
+      },
+      {
+       "method": "SetEngineAudio_MutedStillTracksLatestPower",
+       "line": 416
+      },
+      {
+       "method": "SetEngineAudio_PausedTracksLatestPowerWithoutEnforcingPlaybackCap",
+       "line": 443
+      },
+      {
+       "method": "CollectDeferredAudioPowerRestores_PausedReturnsEmpty",
+       "line": 478
+      },
+      {
+       "method": "SetEngineAudio_DeferredPlaybackCapEnforcesOnceAfterBatch",
+       "line": 502
+      },
+      {
+       "method": "ShouldRecordEngineAsIgnited_RequiresRealThrust",
+       "line": 579
+      },
+      {
+       "method": "ShouldRecordEngineAsIgnited_RejectsNonFiniteThrust",
+       "line": 590
+      },
+      {
+       "method": "ComputeRecordedEnginePower_UsesThrottleWhenPresent",
+       "line": 607
+      },
+      {
+       "method": "ComputeRecordedEnginePower_FallsBackToFinalThrustRatio",
+       "line": 616
+      },
+      {
+       "method": "ComputeRecordedEnginePower_IgnoresNonFiniteThrottleAndFallsBackToThrust",
+       "line": 625
+      },
+      {
+       "method": "ComputeRecordedEnginePower_ReturnsZeroForInvalidThrustFallback",
+       "line": 642
+      },
+      {
+       "method": "ClassifyThrustClass_CorrectBuckets",
+       "line": 671
+      },
+      {
+       "method": "ResolveOneShotClip_KnownTypes",
+       "line": 682
+      },
+      {
+       "method": "ResolveOneShotClip_UnknownTypesReturnNull",
+       "line": 692
+      },
+      {
+       "method": "ResolveEngineAudioClip_NullPrefab_ReturnsFallback",
+       "line": 704
+      },
+      {
+       "method": "ResolveEngineAudioClip_IonPropellants_UseQuietSubstituteAndQuietVolumeCurve",
+       "line": 715
+      },
+      {
+       "method": "ResolveEngineAudioClip_PureElectricCharge_UsesQuietSubstituteAndQuietVolumeCurve",
+       "line": 729
+      },
+      {
+       "method": "ResolveEngineAudioClip_JetPropellant_UsesQuietVolumeCurve",
+       "line": 743
+      },
+      {
+       "method": "ResolveEngineAudioClip_RocketFamilies_KeepRocketVolumeCurve",
+       "line": 765
+      },
+      {
+       "method": "ResolveEngineAudioClip_UnknownPropellant_WarnsAndUsesFallback",
+       "line": 780
+      },
+      {
+       "method": "ComputeAtmosphereFactor_NullBodyName_ReturnsZero",
+       "line": 802
+      },
+      {
+       "method": "ComputeAtmosphereFactor_EmptyBodyName_ReturnsZero",
+       "line": 809
+      },
+      {
+       "method": "CanStartLoopedGhostAudio_MissingSource_ReturnsFalse",
+       "line": 822
+      },
+      {
+       "method": "CanStartLoopedGhostAudio_InactiveOrDisabledSource_ReturnsFalse",
+       "line": 830
+      },
+      {
+       "method": "CanStartLoopedGhostAudio_ActiveEnabledSource_ReturnsTrue",
+       "line": 838
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

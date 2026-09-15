@@ -1,0 +1,167 @@
+{
+ "batch_id": "spawn-vessel-010",
+ "cluster": "spawn-vessel",
+ "tier": "B",
+ "expected_methods": 37,
+ "files": [
+  {
+   "file": "SnapshotBaselineParserTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "NullPartNode_ReturnsNull",
+       "line": 33
+      },
+      {
+       "method": "PartWithNoModules_ReturnsNull",
+       "line": 39
+      },
+      {
+       "method": "ModulesWithNoRecognizedKeys_ReturnsNull",
+       "line": 47
+      },
+      {
+       "method": "MalformedValues_ParseToNoOpinionWithoutThrowing",
+       "line": 59
+      },
+      {
+       "method": "DeployState_EndpointsParse",
+       "line": 79
+      },
+      {
+       "method": "DeployState_MidTravelOrBroken_NoOpinion",
+       "line": 95
+      },
+      {
+       "method": "DeployState_ReadFromAnySubclassNodeName",
+       "line": 111
+      },
+      {
+       "method": "GearStateString_EndpointsParse",
+       "line": 128
+      },
+      {
+       "method": "GearStateString_MidTravel_NoOpinion",
+       "line": 141
+      },
+      {
+       "method": "CargoBay_PairedNodeAtDeployModuleIndex_ResolvesAgainstClosedPosition",
+       "line": 159
+      },
+      {
+       "method": "CargoBay_InvertedClosedPosition_ResolvesTheOtherWay",
+       "line": 180
+      },
+      {
+       "method": "CargoBay_MidTravelAnimTime_NoOpinion",
+       "line": 195
+      },
+      {
+       "method": "StandaloneAnimateGeneric_EndpointsParse",
+       "line": 212
+      },
+      {
+       "method": "StandaloneAnimateGeneric_MidTravel_NoOpinion",
+       "line": 225
+      },
+      {
+       "method": "StandaloneAnimateGeneric_SuppressedByDedicatedHandler",
+       "line": 234
+      },
+      {
+       "method": "AnimationGroup_IsDeployedParses",
+       "line": 248
+      },
+      {
+       "method": "ParachutePersistentState_AllFiveStatesCarriedVerbatim",
+       "line": 272
+      },
+      {
+       "method": "ParachutePersistentState_NormalizedToUpperCase",
+       "line": 285
+      },
+      {
+       "method": "ModuleLight_PowerBlinkAndRateAllParse",
+       "line": 302
+      },
+      {
+       "method": "ModuleLight_ZeroBlinkRate_NoOpinion",
+       "line": 318
+      },
+      {
+       "method": "ColorChanger_AnimStateParsesWhenPartHasNoModuleLight",
+       "line": 334
+      },
+      {
+       "method": "ColorChanger_SuppressedWhenPartAlsoHasModuleLight",
+       "line": 347
+      },
+      {
+       "method": "RoboticOrdinals_CountOnlyRoboticModules",
+       "line": 429
+      },
+      {
+       "method": "RoboticOrdinals_WheelModulesAdvanceTheOrdinalButGetNoPose",
+       "line": 456
+      },
+      {
+       "method": "Hinge_RealPersistedNodeShape_ReadsTargetAngle",
+       "line": 476
+      },
+      {
+       "method": "Piston_RealPersistedNodeShape_ReadsTargetExtensionNotTraverseVelocity",
+       "line": 491
+      },
+      {
+       "method": "RotationServo_RealPersistedNodeShape_ReadsTargetAngle",
+       "line": 506
+      },
+      {
+       "method": "Robotic_LiveOnlyKeys_ParseToNoBaseline",
+       "line": 526
+      },
+      {
+       "method": "Robotic_TraverseVelocityAlone_IsNotAPose",
+       "line": 547
+      },
+      {
+       "method": "Rotor_RealPersistedNodeShape_NoPoseAtAll",
+       "line": 562
+      },
+      {
+       "method": "Rotor_KeepsItsOrdinalEvenWithNoPose",
+       "line": 580
+      },
+      {
+       "method": "SnapshotRoboticPoseKey_PosedFamilies",
+       "line": 600
+      },
+      {
+       "method": "SnapshotRoboticPoseKey_NoKeyFamilies",
+       "line": 616
+      },
+      {
+       "method": "Robotic_NonFiniteValue_NoPose",
+       "line": 624
+      },
+      {
+       "method": "Robotic_ZeroPose_IsARealOpinion",
+       "line": 638
+      },
+      {
+       "method": "RealisticPart_AllFamiliesReadInOnePass",
+       "line": 655
+      },
+      {
+       "method": "DuplicateFamilyModules_FirstOneWins",
+       "line": 678
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

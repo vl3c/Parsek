@@ -1,0 +1,263 @@
+{
+ "batch_id": "catchall-008",
+ "cluster": "catchall",
+ "tier": "A",
+ "expected_methods": 61,
+ "files": [
+  {
+   "file": "RecordedSignalFixTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ClassifyParachuteState_StowedAndActive_BothMapToStowed",
+       "line": 63
+      },
+      {
+       "method": "ClassifyParachuteState_SemiDeployedAndDeployed_MapToDistinctStates",
+       "line": 75
+      },
+      {
+       "method": "ClassifyParachuteState_Cut_NoLongerCollapsesIntoStowed",
+       "line": 86
+      },
+      {
+       "method": "ClassifyParachuteState_AllFourStatesAreDistinct",
+       "line": 96
+      },
+      {
+       "method": "Transition_CutToStowed_IsRepacked_NotCut",
+       "line": 113
+      },
+      {
+       "method": "Transition_DeployedToCut_IsCut",
+       "line": 123
+      },
+      {
+       "method": "Transition_SemiDeployedToCut_IsCut",
+       "line": 132
+      },
+      {
+       "method": "Transition_SameState_EmitsNoEvent",
+       "line": 145
+      },
+      {
+       "method": "Transition_StowedToCut_EmitsNoEvent_FirstSightOfAnAlreadyCutChute",
+       "line": 151
+      },
+      {
+       "method": "Transition_StowedToSemiDeployed_IsSemiDeployed",
+       "line": 161
+      },
+      {
+       "method": "Transition_AnythingToDeployed_IsDeployed",
+       "line": 173
+      },
+      {
+       "method": "Transition_CutToSemiDeployed_IsSemiDeployed",
+       "line": 182
+      },
+      {
+       "method": "Transition_CanopyOutToStowed_KeepsThePreSplitCutVerdict",
+       "line": 193
+      },
+      {
+       "method": "CheckParachuteTransition_DeployCutRepack_EmitsRepackedNotASecondCut",
+       "line": 208
+      },
+      {
+       "method": "CheckParachuteTransition_Cut_StoresTheCutStateSoARepackIsDetectable",
+       "line": 232
+      },
+      {
+       "method": "CheckParachuteTransition_PolledTwiceAtTheSameState_EmitsNothing",
+       "line": 246
+      },
+      {
+       "method": "CheckParachuteTransition_PrimedAsCut_ThenRepacked_EmitsRepacked",
+       "line": 260
+      },
+      {
+       "method": "CheckParachuteTransition_UnprimedAlreadyCutChute_DoesNotEmitASpuriousCut",
+       "line": 273
+      },
+      {
+       "method": "ClassifyPartDeath_CutChuteDies_IsOrdinaryDestroyed_NotParachuteDestroyed",
+       "line": 290
+      },
+      {
+       "method": "ClassifyPartDeath_CanopyOutWhenItDies_IsParachuteDestroyed",
+       "line": 305
+      },
+      {
+       "method": "IsDeployedParachuteState_OnlyCanopyOutStatesCount",
+       "line": 317
+      },
+      {
+       "method": "ParachuteRepacked_IsExplicitlyNumbered35_AndAcceptedByTheCodecGate",
+       "line": 334
+      },
+      {
+       "method": "BinarySidecar_RawCastsAnUndefinedPartEventType_AndEveryConsumerDegradesGracefully",
+       "line": 368
+      },
+      {
+       "method": "IsPermanentVisualStateEvent_RepackAndCutAreBothReversible",
+       "line": 451
+      },
+      {
+       "method": "ForwardPermanentStateEvents_CutThenRepack_ForwardsNoParachuteSeed",
+       "line": 461
+      },
+      {
+       "method": "BuildTransientStateSeeds_TailAfterCutThenRepack_SeedsTheRepackedPose",
+       "line": 477
+      },
+      {
+       "method": "BuildTransientStateSeeds_TailAfterDeployOnly_DoesSeedTheDeploy",
+       "line": 520
+      },
+      {
+       "method": "BuildTransientStateSeeds_RedeployAfterRepack_SeedsTheDeploy",
+       "line": 532
+      },
+      {
+       "method": "TryResolveParachuteCapActive_RepackIsTheOnlyEventThatRestoresTheCap",
+       "line": 578
+      },
+      {
+       "method": "TryResolveParachuteCapActive_EveryOtherParachuteEvent_LeavesTheCapOff",
+       "line": 593
+      },
+      {
+       "method": "TryResolveParachuteCapActive_NonParachuteEvent_SaysNothingAboutACap",
+       "line": 604
+      },
+      {
+       "method": "ShouldPrewarmHiddenGhostForPartEvent_Repacked_BuildsTheGhostSoTheCapRestoreLands",
+       "line": 611
+      },
+      {
+       "method": "IsGhostingTrigger_Repacked_IsHandledExplicitly_NotByTheUnknownTypeFallback",
+       "line": 618
+      },
+      {
+       "method": "IsWheelMotorSpinModuleName_OnlyTheMotorModules",
+       "line": 649
+      },
+      {
+       "method": "IsDerivedWheelVisualModuleName_CoversSteeringToo_ButNotSuspension",
+       "line": 663
+      },
+      {
+       "method": "IsDerivedWheelVisualModuleName_IsASupersetOfTheMotorSpinTest",
+       "line": 680
+      },
+      {
+       "method": "IsRoboticModuleName_StillMatchesWheelMotors_SoModuleIndicesStayInLockstep",
+       "line": 699
+      },
+      {
+       "method": "ComputeSurfaceHorizontalVelocity_ParkedOnARotatingBody_IsZero",
+       "line": 716
+      },
+      {
+       "method": "ComputeSurfaceHorizontalVelocity_DrivingOnARotatingBody_LeavesOnlyGroundSpeed",
+       "line": 732
+      },
+      {
+       "method": "ComputeSurfaceHorizontalVelocity_ClimbAndSink_AreRemoved",
+       "line": 746
+      },
+      {
+       "method": "ComputeWheelRollForward_IsPerpendicularToBothAxisAndUp",
+       "line": 762
+      },
+      {
+       "method": "ComputeWheelRollForward_MirroredWheels_RollOppositeWaysForTheSameLocalSpin",
+       "line": 775
+      },
+      {
+       "method": "ComputeWheelRollForward_DegenerateInputs_ReturnZero",
+       "line": 790
+      },
+      {
+       "method": "ComputeWheelSpinDeltaDegrees_SpeedOverRadius_InDegrees",
+       "line": 807
+      },
+      {
+       "method": "ComputeWheelSpinDeltaDegrees_SmallerWheelSpinsFaster",
+       "line": 820
+      },
+      {
+       "method": "ComputeWheelSpinDeltaDegrees_Reverse_IsTheNegativeOfForward",
+       "line": 833
+      },
+      {
+       "method": "ComputeWheelSpinDeltaDegrees_ZeroSpeed_IsStationary",
+       "line": 850
+      },
+      {
+       "method": "ComputeWheelSpinDeltaDegrees_CreepBelowThreshold_IsStationary",
+       "line": 859
+      },
+      {
+       "method": "ComputeWheelSpinDeltaDegrees_MotionAcrossTheWheel_DoesNotSpinIt",
+       "line": 872
+      },
+      {
+       "method": "ComputeWheelSpinDeltaDegrees_NonPositiveDelta_IsZero",
+       "line": 885
+      },
+      {
+       "method": "ComputeWheelSpinDeltaDegrees_UnusableRadius_IsZero",
+       "line": 894
+      },
+      {
+       "method": "ComputeWheelSpinDeltaDegrees_DegenerateRollDirection_IsZero",
+       "line": 908
+      },
+      {
+       "method": "DefaultWheelRadius_IsAUsablePositiveFallback",
+       "line": 917
+      },
+      {
+       "method": "IsWheelSpinGroundContactEnvironment_OnlyTheTwoSurfaceClassesAreContact",
+       "line": 935
+      },
+      {
+       "method": "ResolveWheelGroundContact_TheAscentCase_HoldsTheWheelsStillOffTheGround",
+       "line": 953
+      },
+      {
+       "method": "ResolveWheelGroundContact_DrivingOnTheSurface_OpensTheGate",
+       "line": 970
+      },
+      {
+       "method": "ResolveWheelGroundContact_TouchdownBoundary_FlipsExactlyAtTheSectionSeam",
+       "line": 980
+      },
+      {
+       "method": "ResolveWheelGroundContact_NoCoveringSection_FailsClosed",
+       "line": 999
+      },
+      {
+       "method": "ResolveWheelGroundContact_MemoIsWindowedToTheResolvedSection_AndClearedOnAMiss",
+       "line": 1014
+      },
+      {
+       "method": "ResolveWheelGroundContact_CachedWindowAnswersWithoutRescanning",
+       "line": 1032
+      },
+      {
+       "method": "CoastingRover_SpinsItsWheels_WhereTheRecordedTorqueSignalShowedThemStationary",
+       "line": 1089
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

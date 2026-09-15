@@ -1,0 +1,55 @@
+{"kind": "method", "file": "Source/Parsek.Tests/Rendering/LateUpdateSplineDispatchTests.cs", "method": "Pure_NullRecordingId_ReturnsFalse", "line": 105, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Rendering/LateUpdateSplineDispatchTests.cs", "method": "Pure_NegativeSectionIndex_ReturnsFalse", "line": 122, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Rendering/LateUpdateSplineDispatchTests.cs", "method": "Pure_NoSplineInStore_ReturnsFalse", "line": 134, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Rendering/LateUpdateSplineDispatchTests.cs", "method": "Pure_InvalidSpline_ReturnsFalse", "line": 146, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Rendering/LateUpdateSplineDispatchTests.cs", "method": "Pure_NullBody_ReturnsFalse", "line": 162, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Rendering/LateUpdateSplineDispatchTests.cs", "method": "Pure_FrameTag0_DispatchesBodyFixed", "line": 178, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Rendering/LateUpdateSplineDispatchTests.cs", "method": "Pure_FrameTag1_DispatchesInertial", "line": 199, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Rendering/LateUpdateSplineDispatchTests.cs", "method": "Pure_UnknownFrameTag_ReturnsFalse", "line": 230, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Rendering/LateUpdateSplineDispatchTests.cs", "method": "Pure_UnknownFrameTag_WarnDedupSuppressesLateUpdateRepeat", "line": 251, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/MapRenderTracerCoverageTests.cs", "method": "EveryRenderSurface_HasDistinctNonUnknownToken", "line": 63, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/MapRenderTracerCoverageTests.cs", "method": "TierA_StructuralEvent_RoutesToInfoWithSurfaceAndPhase", "line": 108, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/MapRenderTracerCoverageTests.cs", "method": "TierB_OnChangeEvent_RoutesToVerboseWithSurfaceAndPhase", "line": 131, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/MapRenderTracerCoverageTests.cs", "method": "TierC_Anomaly_RoutesToInfoWithSurfaceAndReason", "line": 151, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/MapRenderTracerCoverageTests.cs", "method": "PolylineLegChange_DiffDrawnSets_ProducesAppearAndDisappear", "line": 167, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/MapRenderTracerCoverageTests.cs", "method": "GhostMapPresence_EmitsGhostCreatedStructuralEvent_SourceGate", "line": 221, "verdict": "source-gate-ok", "category": "T6", "falsifiability": "falsifiability: sut=wiring-gate; Source/Parsek/GhostMapPresence.cs; delete the GhostCreated EmitStructural call site -> red", "note": "behavioral half exists (the emit-machinery matrix tests above plus the in-game coverage test); this gate only pins the call site"}
+{"kind": "method", "file": "Source/Parsek.Tests/MapRenderTracerCoverageTests.cs", "method": "GhostOrbitLinePatch_EmitsLineVisibilityOnChange_SourceGate", "line": 231, "verdict": "source-gate-ok", "category": "T6", "falsifiability": "falsifiability: sut=wiring-gate; Source/Parsek/Patches/GhostOrbitLinePatch.cs; delete the EmitLineVisibilityOnChange call site -> red", "note": "call-site-only gate; the Tier-B emit behavior is covered by TierB_OnChangeEvent_RoutesToVerboseWithSurfaceAndPhase"}
+{"kind": "method", "file": "Source/Parsek.Tests/MapRenderTracerCoverageTests.cs", "method": "MapRenderProbe_EmitsAnomalies_SourceGate", "line": 240, "verdict": "source-gate-ok", "category": "T6", "falsifiability": "falsifiability: sut=wiring-gate; Source/Parsek/MapRenderProbe.cs; delete the EmitAnomaly call site -> red", "note": "call-site-only gate; the Tier-C emit behavior is covered by TierC_Anomaly_RoutesToInfoWithSurfaceAndReason"}
+{"kind": "method", "file": "Source/Parsek.Tests/Rendering/SectionAnnotationStoreTests.cs", "method": "PutGet_RoundTrip", "line": 41, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Rendering/SectionAnnotationStoreTests.cs", "method": "Get_Missing_ReturnsFalse", "line": 59, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Rendering/SectionAnnotationStoreTests.cs", "method": "Get_DifferentRecording_ReturnsFalse", "line": 68, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Rendering/SectionAnnotationStoreTests.cs", "method": "Put_OverwritesSilently", "line": 78, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Rendering/SectionAnnotationStoreTests.cs", "method": "RemoveRecording_ClearsAllSections", "line": 91, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Rendering/SectionAnnotationStoreTests.cs", "method": "Clear_EmptiesEverything", "line": 108, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Rendering/SectionAnnotationStoreTests.cs", "method": "ResetForTesting_ClearsState", "line": 122, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Rendering/SectionAnnotationStoreTests.cs", "method": "RemoveRecording_NoOpOnMissing", "line": 133, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Rendering/SectionAnnotationStoreTests.cs", "method": "PutGet_AnchorCandidates_RoundTrip", "line": 147, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Rendering/SectionAnnotationStoreTests.cs", "method": "Get_AnchorCandidates_Missing_ReturnsFalse", "line": 163, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Rendering/SectionAnnotationStoreTests.cs", "method": "RemoveRecording_ClearsBothSplineAndCandidateMaps", "line": 169, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Rendering/SectionAnnotationStoreTests.cs", "method": "Clear_ClearsBothSplineAndCandidateMaps", "line": 188, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Rendering/SectionAnnotationStoreTests.cs", "method": "PutGet_OutlierFlags_RoundTrip", "line": 225, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Rendering/SectionAnnotationStoreTests.cs", "method": "PutOutlierFlags_OverwritesExisting", "line": 241, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Rendering/SectionAnnotationStoreTests.cs", "method": "Get_OutlierFlags_Missing_ReturnsFalse", "line": 252, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Rendering/SectionAnnotationStoreTests.cs", "method": "RemoveRecording_ClearsOutlierFlags", "line": 258, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Rendering/SectionAnnotationStoreTests.cs", "method": "Clear_ClearsAllFourMaps", "line": 271, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/Rendering/SectionAnnotationStoreTests.cs", "method": "GetOutlierFlagsCountForRecording_ReturnsZeroWhenAbsent", "line": 291, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/KscScienceSubjectLedgerTests.cs", "method": "TryRecordKscScienceSubject_UntaggedTransmission_AddsNullOwnerScienceEarning", "line": 48, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/KscScienceSubjectLedgerTests.cs", "method": "TryRecordKscScienceSubject_WithFutureLedgerActions_RecalculatesAtSubjectUt", "line": 84, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/KscScienceSubjectLedgerTests.cs", "method": "TryRecordKscScienceSubject_RecoveryWithMatchingRecording_UsesRecoveryOwner", "line": 129, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/KscScienceSubjectLedgerTests.cs", "method": "TryRecordKscScienceSubject_DuplicateSameSubjectAndUt_IsHandledWithoutSecondLedgerRow", "line": 173, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/KscScienceSubjectLedgerTests.cs", "method": "TryRecordKscScienceSubject_DirectThenRecordingCommitSameSubjectAndUt_DeduplicatesAcrossPaths", "line": 198, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/KscScienceSubjectLedgerTests.cs", "method": "GetDedupOccurrenceUt_ReturnsExpectedOccurrenceUt", "line": 323, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/MarkerDrawDecisionTests.cs", "method": "DirectorTracedPathDecisionIsAuthoritative", "line": 25, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/MarkerDrawDecisionTests.cs", "method": "PolylineOwningIsAuthoritative", "line": 37, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/MarkerDrawDecisionTests.cs", "method": "LegacyIconSuppressedKeptAsFallback", "line": 47, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/MarkerDrawDecisionTests.cs", "method": "NoSignal_ProtoIconIsTheIndicator_NoDoubleMarker", "line": 59, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/MarkerDrawDecisionTests.cs", "method": "IsSupersetOfLegacy_NoMarkerGap", "line": 70, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/MarkerDrawDecisionTests.cs", "method": "MapSkipReasonToMarkerOutcome_NativeIcon_MapsToProtoIcon", "line": 94, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/MarkerDrawDecisionTests.cs", "method": "MapSkipReasonToMarkerOutcome_Debris_MapsToSkippedDebris", "line": 102, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/MarkerDrawDecisionTests.cs", "method": "MapSkipReasonToMarkerOutcome_None_MapsToDrawnNonProto", "line": 110, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/MarkerDrawDecisionTests.cs", "method": "MapSkipReasonToMarkerOutcome_DecisionSkips_MapToSkippedDecisionFalse", "line": 120, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/MarkerDrawDecisionTests.cs", "method": "BuildMarkerDecisionSignature_TsOverlapInstance_CarriesRealRideAndPolylineSource", "line": 142, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/MarkerDrawDecisionTests.cs", "method": "BuildMarkerDecisionSignature_TsSkipParam_AppendsTokenWhenSet", "line": 169, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/MarkerDrawDecisionTests.cs", "method": "BuildMarkerDecisionSignature_TsSkipParam_OmittedWhenNullOrEmpty_FlightByteIdentical", "line": 193, "verdict": "ok"}
+{"kind": "method", "file": "Source/Parsek.Tests/MarkerDrawDecisionTests.cs", "method": "AtmosphericMarkerSkipReasonToken_MapsEveryReason", "line": 223, "verdict": "ok"}
+{"kind": "coverage", "sut": "ParsekTrackingStation.AtmosphericMarkerSkipReasonToken", "sut_file": "Source/Parsek/ParsekTrackingStation.cs", "sut_line": 105, "case_kind": "boundary", "proposed_name": "AtmosphericMarkerSkipReasonToken_CoversEveryEnumValue", "sketch": "loop Enum.GetValues(typeof(AtmosphericMarkerSkipReason)); assert each token is non-empty, not 'unknown', and distinct, mirroring EveryRenderSurface_HasDistinctNonUnknownToken", "guards": "a new skip reason added without a token mapping; the existing test lists the 8 current members by hand and would stay green", "risk": "ui"}

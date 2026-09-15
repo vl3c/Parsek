@@ -1,0 +1,167 @@
+{
+ "batch_id": "recording-tree-025",
+ "cluster": "recording-tree",
+ "tier": "A",
+ "expected_methods": 37,
+ "files": [
+  {
+   "file": "RecordingFinalizationCacheProducerTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ShouldRefresh_StableCoastDigestUnchanged_DoesNotRefreshAfterCadence",
+       "line": 32
+      },
+      {
+       "method": "ShouldRefresh_DynamicState_RefreshesAfterCadence",
+       "line": 47
+      },
+      {
+       "method": "ShouldRefresh_ForceBypassesDigestAndCadence",
+       "line": 59
+      },
+      {
+       "method": "ShouldRefresh_DigestChangeRefreshesImmediately",
+       "line": 68
+      },
+      {
+       "method": "HasMeaningfulThrust_UsesActiveEngineAndRcsThrottle",
+       "line": 80
+      },
+      {
+       "method": "IsSurfaceTerminalSituation_ClassifiesLandedSplashedAndPrelaunch",
+       "line": 95
+      },
+      {
+       "method": "LogRefreshSummary_ZeroRecordNoClassification_Suppressed",
+       "line": 104
+      },
+      {
+       "method": "LogRefreshSummary_NoDeltaPass_RoutesThroughVerbose",
+       "line": 128
+      },
+      {
+       "method": "LogRefreshSummary_FreshClassification_StaysInfo",
+       "line": 156
+      },
+      {
+       "method": "LogRefreshSummary_NoDeltaStablePass_RateLimitsRepeats",
+       "line": 178
+      },
+      {
+       "method": "LogRefreshSummary_CrossRecordingIdentitiesDoNotShareRateLimitWindow",
+       "line": 228
+      },
+      {
+       "method": "LogRefreshSummary_RepeatedClassification_InfoOnceThenVerboseRateLimited",
+       "line": 286
+      },
+      {
+       "method": "TryBuildFromLiveVessel_SurfaceTerminal_CachesSurfaceMetadataAndLogs",
+       "line": 332
+      },
+      {
+       "method": "TryBuildFromLiveVessel_DestroyEventReason_OverridesSurfaceTerminal_StampsDestroyed",
+       "line": 375
+      },
+      {
+       "method": "TryBuildFromLiveVessel_BackgroundDestroyReason_OverridesSurfaceTerminal_StampsDestroyed",
+       "line": 436
+      },
+      {
+       "method": "TryBuildFromLiveVessel_DestroyEventThenPartDieSameLandedSituation_KeepsDestroyed",
+       "line": 482
+      },
+      {
+       "method": "TryBuildFromLiveVessel_DestroyEventReason_DoesNotOverwriteExistingTerminalStateValue",
+       "line": 554
+      },
+      {
+       "method": "TryBuildFromLiveVessel_NonDestroyReason_LandedSituationStillStampsLanded",
+       "line": 598
+      },
+      {
+       "method": "IsDestroyRefreshReason_MatchesDestroyEventAndBackgroundDestroyOnly",
+       "line": 634
+      },
+      {
+       "method": "TryBuildFromLiveVessel_ExtrapolatorBranch_CachesDefaultFinalizerTailAndLogs",
+       "line": 647
+      },
+      {
+       "method": "TryBuildFromLiveVessel_DefaultFinalizerThrows_DeclinesLoudlyInsteadOfEscaping",
+       "line": 723
+      },
+      {
+       "method": "TryBuildFromLiveVessel_DefaultFinalizerThrows_LeavesThePreviousCachePreservable",
+       "line": 771
+      },
+      {
+       "method": "TryBuildFromLiveVessel_DefaultFinalizerDeclines_KeepsTheOrdinaryDeclineReason",
+       "line": 822
+      },
+      {
+       "method": "TryBuildFromLiveVessel_AlreadyDestroyed_SkipsAcrossPeriodicTicksWithoutMutatingTerminal",
+       "line": 848
+      },
+      {
+       "method": "TryBuildAlreadyClassifiedDestroyedSkip_NonFiniteTerminalUsesRefreshUt",
+       "line": 929
+      },
+      {
+       "method": "TryBuildFromLiveVessel_SubSurfaceDestroyed_LogsTransitionAndSummary",
+       "line": 956
+      },
+      {
+       "method": "TryBuildFromLiveVessel_DefaultFinalizerSuppressed_DoesNotAcceptFreshDestroyedCache",
+       "line": 1023
+      },
+      {
+       "method": "TryBuildFromLiveVessel_SuppressedSubSurfacePackedAtmospheric_DoesNotCacheDestroyedFallback",
+       "line": 1071
+      },
+      {
+       "method": "TryBuildFromLiveVessel_AtmosphericPackedDefaultDecline_CachesDestroyedFallbackAndLogs",
+       "line": 1119
+      },
+      {
+       "method": "TryBuildFromLiveVessel_NullVessel_DeclinesAndLogs",
+       "line": 1159
+      },
+      {
+       "method": "TryBuildFromStableOrbitSegment_CachesOrbitingTerminal",
+       "line": 1181
+      },
+      {
+       "method": "TryBuildFromStableOrbitSegment_InvalidSegment_PreservesDigestForCadence",
+       "line": 1215
+      },
+      {
+       "method": "BuildOrbitSegmentDigest_IncludesEpoch",
+       "line": 1249
+      },
+      {
+       "method": "TryTouchObservedTerminalCache_AdvancesStableTerminalWithoutRebuild",
+       "line": 1274
+      },
+      {
+       "method": "TryTouchObservedTerminalCache_AdvancesDockedTerminalWithoutRebuild",
+       "line": 1304
+      },
+      {
+       "method": "TryTouchObservedTerminalCache_DoesNotAdvancePredictedDestroyedTail",
+       "line": 1332
+      },
+      {
+       "method": "TryBuildAtmosphericDeletionCache_CachesDestroyedTerminal",
+       "line": 1358
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -44,6 +44,32 @@ schema = 1
 # terminal is gated by the landedOnTargetBody assertion + the airless
 # Approach -> Surface* log token).
 #
+# "switch-backgrounds-recording" (RENAMED 2026-09-15 from "stop-on-switch", operator
+# ruling B3 off memo s3 of docs/dev/research/wave-0910-open-decisions-2026-09-11.md):
+# the old name described a decision that DOES NOT EXIST. In always-tree mode
+# `FlightRecorder.DecideOnVesselSwitch` (FlightRecorder.cs:11676) has no Stop branch at
+# all - switching to a vessel already in the tree's BackgroundMap returns
+# PromoteFromBackground, switching to any other vessel returns TransitionToBackground,
+# and the safety fallback returns TransitionToBackground too. So the cell's SUBJECT is
+# what a vessel switch actually does to the live recording: it is BACKGROUNDED, not
+# stopped. `FlightRecorder.TransitionToBackground` (:11178-11281) disconnects the
+# physics-frame patch, unsubscribes the part events and leaves `IsRecording` TRUE.
+# THE WITNESS is that method's own terminal line, "Transitioned to background (pid="
+# (FlightRecorder.cs:11280).
+# The old name was one of the two R2 "phantom cell" registry defects and was recorded
+# as UNCLAIMABLE AS WRITTEN for exactly that reason; the rename retires that status,
+# and any roadmap / catalog text that still calls it unclaimable is stale from here on.
+# DECLARER: CI-1-eva-switch-bg-member, off one gating required token (see that spec).
+#
+# "sub-2-point-drop" IS NOT THAT CELL, and the two have been confused. Its drop lives
+# in `RecordingStore.CreateRecordingFromFlightData`, which the always-tree commit path
+# does not use: MC-3 measured the tree commit KEEPING a 1-point recording. This note
+# records only that the rename above does not touch it. UPDATED 2026-09-15 (merge of
+# the Gloops PR): register item B4 has since been RULED and the cell is defined, closed
+# and FLOWN - see its own entry directly below, which also supersedes this paragraph's
+# two loose ends (the S0.5 / S0.6 spec comments are corrected there, and the caller set
+# is re-derived in full rather than named in part).
+#
 # "manual-gloops" and "sub-2-point-drop" (both long-standing values, CLAIMED AND
 # FLOWN 2026-09-15 by GL-1 / GL-2, each LIVE-PROVEN + ARMED on its first flight
 # with the full three-run discipline - reading, armed re-flight, negative control):
@@ -79,7 +105,7 @@ schema = 1
 #   sub-2-point-drop", wording that predates always-tree mode and describes a path
 #   their own commits no longer take; both are corrected in the same change.
 values = ["auto-record-launch", "auto-record-eva", "auto-record-first-mod-switch",
-          "manual-gloops", "stop-on-switch", "commit-revert-merge", "commit-scene-exit",
+          "manual-gloops", "switch-backgrounds-recording", "commit-revert-merge", "commit-scene-exit",
           "commit-abort", "commit-in-foreign-soi", "commit-landed-foreign-body",
           "discard-rollback", "auto-merge",
           "sub-2-point-drop", "switch-segment", "switch-segment-noop-discard",
@@ -95,8 +121,32 @@ values = ["absolute", "surface-body-fixed", "orbital-checkpoint",
           "boundary-seam"]
 
 [D4]  # environment classification / optimizer
+# "persistence-graze-suppression" (added 2026-09-15 per the growth rule, operator ruling
+# B1 off memo s1): STEP 7 of `RecordingOptimizer.IsSplittableEnvOrBodyBoundary` - the
+# PERSISTENCE predicate, `IsGrazePattern` (RecordingOptimizer.cs:461), a collapse-walk
+# over `SplitEnvironmentClass` runs that suppresses a boundary when the run bracketed by
+# it is briefer than `BriefSectionMaxSeconds = 120s`. It FIRES here: the counters
+# `grazeForward` / `grazeBackward` are incremented at :680 / :683 and printed at
+# :715-716.
+# DISTINCT FROM "surface-graze-suppression", which is STEP 5 and a DIFFERENT PREDICATE
+# WITH DIFFERENT COUNTERS: `IsSurfaceGrazePattern` (:517) suppresses a brief
+# Atmospheric/Approach run bracketed by Surface on both sides, and feeds
+# `surfaceGrazeForward` / `surfaceGrazeBackward`. RF-1 claims that one off
+# `surfaceGrazeForward=1`. The two counters appear side by side on one log line, so the
+# distinction is mechanical rather than interpretive.
+# WHY IT IS A NEW VALUE RATHER THAN A RE-CLAIM: RF-1's required `Split summary` token
+# pins the step-7 counters LITERALLY AT ZERO around its step-5 claim
+# (RF-1-continuation-stays-open.toml:406), so before this value NO committed lane gated a
+# NONZERO step-7 count - the only reading in which the persistence predicate actually ran.
+# WITNESS / DECLARER: LT-2-long-tail-spacecenter, whose in-game cell
+# `EccentricGrazing_StaysOneSegment_InGame` (InGameTests/PersistenceSplitOptimizerTest.cs:166)
+# drives the production `RunOptimizationPass`, off the `Split summary ... grazeForward=2
+# grazeBackward=2 ...` line (gating token in that spec; FLOWN 2026-09-15 - armed
+# re-flight `2026-09-15_1525` PASS, negative control `2026-09-15_1527` red on exactly
+# that token).
 values = ["atmospheric", "exo-propulsive", "exo-ballistic", "surface-mobile",
           "surface-stationary", "hysteresis", "env-body-split", "surface-graze-suppression",
+          "persistence-graze-suppression",
           "cohesive-cross-body-coast", "tail-trim", "seed-event-split", "split-at-ut"]
 
 [D5]  # tree / chain topology
@@ -160,7 +210,24 @@ values = ["science", "funds", "reputation", "milestones", "kerbals", "facilities
 # CONSEQUENCE none of them asserts. `rewind-to-separation` is the closest and is
 # already claimed by three scenarios that were all green while the fleet was being
 # deleted, which is the case for a separate value rather than a re-labelled one.
-values = ["rewind-to-launch", "fast-forward", "rewind-to-separation", "refly-gate",
+# "rewind-to-launch-repeat" (added 2026-09-15 per the growth rule, operator ruling B2 off
+# memo s2): the SAME committed tree is rewound to launch TWICE, and the second rewind
+# reuses the SAME `parsek_rw_<id>` launch quicksave the first one used. The property is
+# that the rewind save is COPIED, NOT CONSUMED - `RecordingStore.ExecuteRewindSaveLoad`
+# copies `Parsek/Saves/parsek_rw_<id>.sfs` to the saves root, loads the copy and deletes
+# ONLY that temporary copy, so the source survives with the committed root's
+# `RewindSaveFileName` hint still pointing at it.
+# WHY IT IS A NEW VALUE RATHER THAN A RE-CLAIM of `rewind-to-launch`: that value is
+# satisfied by ONE invocation, and every committed lane that claims it calls
+# InvokeRewindToLaunch exactly once (GS-4, GS-6, GS-7, RF-4; H58's second call is a
+# REJECTED probe). IDEMPOTENCE - same StartUT, same save id, a second replay - is a
+# property none of them asserts, in the same shape the D9 `world-preservation` entry set.
+# WITNESS / DECLARER: GS-9-kerbalx-repeat-rewind, off the two BACKREFERENCE tokens it
+# already requires (same StartUT + same `parsek_rw_` id on the product's rewind line; the
+# same `parsek_rw_` id on the `Rewind: loading save` line). The token's negative control
+# was discharged OFFLINE over `2026-09-11_0109` rather than by a flight - commands and
+# outcomes in that spec's header.
+values = ["rewind-to-launch", "rewind-to-launch-repeat", "fast-forward", "rewind-to-separation", "refly-gate",
           "unfinished-flights-stash", "seal-stash-fly", "supersede-relation", "tombstones",
           "merge-journal", "head-tip-split", "terminal-kind-classify", "load-time-sweep",
           "rp-disk-reaper", "revert-during-refly-dialog", "read-back-guard",
@@ -504,6 +571,20 @@ values = ["sidecar-prec", "sidecar-craft", "sidecar-pann",
           "pre-parsek-backup"]
 
 [D17]  # mod compatibility (modded-compat instance profile only)
+# "making-history" is the EXCEPTION to the header above (DEFINED 2026-09-15, operator
+# ruling B5; NOT FLOWN). Making History is not a modded-compat distinguisher: it ships as
+# a stock asset payload junctioned into every provisioned instance by the CLONE phase
+# through `provlib.STOCK_JUNCTION_GAMEDATA` (SquadExpansion), so the cell is hosted on
+# stock-minimal. Parsek's MH-touching paths are `ResolveLaunchSiteName` /
+# `HumanizeLaunchSiteName` in FlightRecorder, the career rollout distinct-launch-site
+# guard in LedgerRolloutAdoption, and `IsKscOriginRecording` in RouteAnalysisEngine.
+# THE DEFINITION a claim must gate on is ALT-SITE LAUNCH CAPTURE: a recording rolled out
+# from an MH site captures that site into `Recording.LaunchSiteName` humanized, persists
+# it, and replays there. The lane is a GS-4 clone (mission `kx_rewind_watch`, whose
+# `params.launchSite` reaches kRPC `launch_vessel`) with `launchSite = "Desert_Launch_Site"`,
+# operator tier, ONE reading flight, tokens pinned from that flight's `launchSite=` line;
+# a MechJeb ascent failure from the Desert is driver-INVALID, never PARSEK-FAIL. Ranked
+# LAST of D17: the cell has no declarer until that spec and that flight exist.
 values = ["waterfall-swe-fallback", "restock", "persistent-rotation", "better-time-warp",
           "remotetech-commnet", "making-history"]
 

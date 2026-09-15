@@ -1,0 +1,254 @@
+{
+ "batch_id": "recording-tree-033",
+ "cluster": "recording-tree",
+ "tier": "A",
+ "expected_methods": 56,
+ "files": [
+  {
+   "file": "DiscardFateTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "CapturedEvent_OnCommit_EventSurvivesAndRetainsTag",
+       "line": 103
+      },
+      {
+       "method": "CapturedEvent_OnDiscard_EventAndSnapshotPurged",
+       "line": 132
+      },
+      {
+       "method": "DiscardPendingTree_CommittedOverlapPreservesTaggedEventsAndPurgesPendingOnly",
+       "line": 156
+      },
+      {
+       "method": "KscEvent_NoLiveRecording_SurvivesDiscardOfUnrelatedTree",
+       "line": 220
+      },
+      {
+       "method": "EvaSplitTree_BothRecordings_EventsPurgedOnDiscard",
+       "line": 243
+      },
+      {
+       "method": "PreFixUntaggedEvent_TreeHasNonEmptyIds_EventSurvives",
+       "line": 270
+      },
+      {
+       "method": "RecordingId_RoundTripsThroughSerialization",
+       "line": 290
+      },
+      {
+       "method": "ContractAcceptedAtKsc_CompletedInDiscardedMission_CompletionRehomedToLedger",
+       "line": 316
+      },
+      {
+       "method": "ContractAcceptedAndCompletedInDiscardedMission_CompletionRehomedToLedger",
+       "line": 356
+      },
+      {
+       "method": "LimboVesselSwitch_EmitsTaggedWithPendingTreeActiveId",
+       "line": 390
+      },
+      {
+       "method": "DriftWarn_OutsideFlight_ResolverReturnsTag_LogsWarn",
+       "line": 425
+      },
+      {
+       "method": "DriftWarn_OutsideFlightWithEmptyTag_NoWarn",
+       "line": 441
+      },
+      {
+       "method": "UpdateEventDetail_PreservesRecordingId",
+       "line": 457
+      },
+      {
+       "method": "ResetHygiene_EachResetWorksIndependently",
+       "line": 477
+      },
+      {
+       "method": "FlushThenDiscard_EventsAndMilestonePurged",
+       "line": 521
+      },
+      {
+       "method": "ResourceCoalesce_DifferentTags_NoMerge",
+       "line": 561
+      },
+      {
+       "method": "ResourceCoalesce_SameTag_Merges",
+       "line": 581
+      },
+      {
+       "method": "MixedTagMilestone_PartialDiscard_OnlyMatchingTagRemoved",
+       "line": 602
+      },
+      {
+       "method": "PurgeTaggedEvents_AdjustsLastReplayedEventIndex",
+       "line": 639
+      },
+      {
+       "method": "TeardownWindow_TaggedEventNotForwardedToLedger",
+       "line": 717
+      },
+      {
+       "method": "TechResearched_PredicateGateMatchesContractHandlers",
+       "line": 830
+      },
+      {
+       "method": "PartPurchased_PredicateGateMatchesContractHandlers",
+       "line": 836
+      },
+      {
+       "method": "CrewHired_PredicateGateMatchesContractHandlers",
+       "line": 842
+      },
+      {
+       "method": "MilestoneAchieved_PredicateGateMatchesContractHandlers",
+       "line": 848
+      },
+      {
+       "method": "StrategyActivated_PredicateGateMatchesContractHandlers",
+       "line": 854
+      },
+      {
+       "method": "StrategyDeactivated_PredicateGateMatchesContractHandlers",
+       "line": 860
+      },
+      {
+       "method": "FacilityUpgraded_PredicateGateMatchesContractHandlers",
+       "line": 866
+      },
+      {
+       "method": "DirectForwardingPredicate_UsesEventRecordingId_NotLiveTagResolver",
+       "line": 880
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "CheckpointDoubleCoverRetireTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "MeasuredTriple_ClearsBothCheckpointOverlaps",
+       "line": 208
+      },
+      {
+       "method": "MeasuredTriple_KeepsTheEnvelope_BecauseAShellCoversNothing",
+       "line": 225
+      },
+      {
+       "method": "MeasuredTriple_LogsOneSummaryLineNamingTheDroppedSpans",
+       "line": 249
+      },
+      {
+       "method": "SyntheticAllPayloadTriple_RetiresTheEnvelopeAndKeepsTheTiling",
+       "line": 267
+      },
+      {
+       "method": "RealBytes_RetireDropsTheShellAndTheReclip_AndTheUnionAndSplitsStayPut",
+       "line": 327
+      },
+      {
+       "method": "RealBytes_WhatStandsAfterwardsIsAlwaysAnEmptyAbsoluteExactSpanDuplicate",
+       "line": 371
+      },
+      {
+       "method": "PartialOverlap_IsNeverRetired",
+       "line": 417
+      },
+      {
+       "method": "SingleCheckpointSection_IsANoOp",
+       "line": 438
+      },
+      {
+       "method": "InterleavedAbsoluteSections_AreUntouchedEvenWhenTheyCoverTheCheckpointSpan",
+       "line": 458
+      },
+      {
+       "method": "PayloadLessCheckpointShell_IsRetiredWhenAPayloadBearingSectionCoversIt",
+       "line": 487
+      },
+      {
+       "method": "TwoShellsCoveringOnlyEachOther_RetireNeither",
+       "line": 516
+      },
+      {
+       "method": "CoveredSpanCarryingADifferentConic_IsNeverRetired",
+       "line": 535
+      },
+      {
+       "method": "BoundarySeamSection_IsNeverRetired",
+       "line": 553
+      },
+      {
+       "method": "DifferentConicTile_KeepsTheEnvelopeAndTheTile_AndInv2StaysRed",
+       "line": 583
+      },
+      {
+       "method": "UtToleranceBoundary_AGapBelowTheToleranceIsBridged",
+       "line": 631
+      },
+      {
+       "method": "UtToleranceBoundary_AGapAboveTheToleranceIsRefused",
+       "line": 640
+      },
+      {
+       "method": "EnvelopePlusTwoTiles_RetiresOnlyTheEnvelope",
+       "line": 654
+      },
+      {
+       "method": "ExactSpanDuplicatePair_RetiresTheSecondOccurrence",
+       "line": 672
+      },
+      {
+       "method": "MutualCoverCannotRetireEverySection",
+       "line": 693
+      },
+      {
+       "method": "TilesThatLeaveAGap_KeepTheEnvelopeAndGoThemselves",
+       "line": 715
+      },
+      {
+       "method": "SecondPassDropsZero",
+       "line": 748
+      },
+      {
+       "method": "TheDecisionIsDeterministicAcrossRepeatedEvaluation",
+       "line": 760
+      },
+      {
+       "method": "OptimizerSplitDecisionsAreIdenticalBeforeAndAfterTheRetire",
+       "line": 774
+      },
+      {
+       "method": "RouteProofHashIsUnchangedByTheRetire",
+       "line": 801
+      },
+      {
+       "method": "RetireAcrossRecordings_ReportsOneSummaryAndSkipsCleanRecordings",
+       "line": 834
+      },
+      {
+       "method": "RetireAcrossRecordings_LogsNothingWhenEveryRecordingIsClean",
+       "line": 861
+      },
+      {
+       "method": "ParsekScenarioOnLoad_CallsTheRetireAfterTheLoadTimeSweep_OnBothBranches",
+       "line": 887
+      },
+      {
+       "method": "FixtureCorpus_CarriesNoRetirableResidue_AndTheCoverageUnionNeverMoves",
+       "line": 938
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

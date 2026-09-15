@@ -1,0 +1,213 @@
+{
+ "batch_id": "analyzer-001",
+ "cluster": "analyzer",
+ "tier": "A",
+ "expected_methods": 43,
+ "files": [
+  {
+   "file": "SchemaRejectPruneChainTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "MidChainRecordingRejected_IsDroppedAndAllReferencesPruned",
+       "line": 115
+      },
+      {
+       "method": "MidChainRecordingRejected_SurvivorsStillHydrateFromSidecars",
+       "line": 172
+      },
+      {
+       "method": "PrunedTree_SaveThenReload_IsStable",
+       "line": 198
+      },
+      {
+       "method": "PrunedRecordingSidecars_AreQuarantinedByOrphanCleanup",
+       "line": 235
+      },
+      {
+       "method": "LeafRecordingRejected_PrunesOnlyTheOrphanedBranchPoint",
+       "line": 269
+      },
+      {
+       "method": "RecordingWithChildrenRejected_ClearsEveryChildParentReference",
+       "line": 300
+      },
+      {
+       "method": "RootRecordingRejected_DropsEntireTree",
+       "line": 327
+      },
+      {
+       "method": "ActiveRecordingRejected_ClearsActiveRecordingId",
+       "line": 351
+      },
+      {
+       "method": "NewerGenerationRecording_IsRejectedAndPrunedToo",
+       "line": 367
+      },
+      {
+       "method": "NoRejectedRecordings_LeavesTreeUntouched",
+       "line": 389
+      },
+      {
+       "method": "ClearRejectedRecordingReferences_ClearsOnlyMatchingIds",
+       "line": 414
+      },
+      {
+       "method": "ClearRejectedRecordingReferences_NoRemovedBranchPoints_StillClearsParentIds",
+       "line": 440
+      },
+      {
+       "method": "ClearRejectedRecordingReferences_UnrelatedRecording_IsUntouched",
+       "line": 464
+      },
+      {
+       "method": "ClearRejectedRecordingReferences_NullRecording_IsNoOp",
+       "line": 489
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Analyzer/ReportWriterTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Write_SameModelTwice_ProducesByteIdenticalJson",
+       "line": 59
+      },
+      {
+       "method": "BuildJson_IsInputOrderIndependent",
+       "line": 76
+      },
+      {
+       "method": "SortFindings_OrdersByLevelDescThenRuleIdThenTargetThenSection",
+       "line": 90
+      },
+      {
+       "method": "BuildJson_MatchesGoldenSchema",
+       "line": 124
+      },
+      {
+       "method": "BuildJson_NoFindings_EmitsEmptyArray",
+       "line": 175
+      },
+      {
+       "method": "BuildHumanSummary_HeaderAndFindingLines_MatchContract",
+       "line": 184
+      },
+      {
+       "method": "BuildJson_EscapesSpecialCharactersInStrings",
+       "line": 205
+      },
+      {
+       "method": "Baselined_FiveFails_CountsSplitAndJsonCarryFlag",
+       "line": 243
+      },
+      {
+       "method": "HumanSummary_AllBaselined_IsRed0_WithBaselinedSuffix",
+       "line": 266
+      },
+      {
+       "method": "HumanSummary_OneExtraNonBaselinedFail_IsRed1",
+       "line": 282
+      },
+      {
+       "method": "IsRed_TrueOnFailOrStale_FalseOnWarnInfoOnly",
+       "line": 300
+      },
+      {
+       "method": "BuildJson_PopulatedCareerSave_MatchesGoldenSchema",
+       "line": 395
+      },
+      {
+       "method": "BuildJson_PopulatedCareerSave_IsByteDeterministic",
+       "line": 477
+      },
+      {
+       "method": "BuildJson_NonFundsCareerSave_EmitsBlockWithFacetFlags",
+       "line": 491
+      },
+      {
+       "method": "BuildJson_NullCareerSave_EmitsParsedFalseBlock",
+       "line": 517
+      },
+      {
+       "method": "BuildJson_ParsedCareerSave_EmptyCollections_EmitCompactContainers",
+       "line": 531
+      },
+      {
+       "method": "BuildJson_EmptyRosterNode_IsDistinguishableFromNoRosterNode",
+       "line": 551
+      },
+      {
+       "method": "BuildJson_NonFinitePool_EmitsNullNotZero",
+       "line": 579
+      },
+      {
+       "method": "BuildJson_NonFiniteFacetMapAndResource_EmitNull",
+       "line": 607
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Analyzer/OfflineAnalyzerTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "CiFloor_SyntheticCorpus_IsGreen_AndWritesReports",
+       "line": 108
+      },
+      {
+       "method": "ParseBaselineMode_MapsEnvValues",
+       "line": 136
+      },
+      {
+       "method": "WriteThenApply_RedCorpus_GoesGreen_FindingsRemain",
+       "line": 146
+      },
+      {
+       "method": "Forbid_OverBaselinedSave_Reds",
+       "line": 172
+      },
+      {
+       "method": "Forbid_NoBaseline_GreenCorpus_Clean",
+       "line": 186
+      },
+      {
+       "method": "Ignore_OverBaselinedSave_LeavesRedsRed",
+       "line": 201
+      },
+      {
+       "method": "WriteBaseline_ExistingBaselineHardFault_Refuses_FileUntouched",
+       "line": 220
+      },
+      {
+       "method": "Manual_AnalyzeEnvSave_WritesReports",
+       "line": 252
+      },
+      {
+       "method": "Manual_WriteBaselineForEnvSave",
+       "line": 282
+      },
+      {
+       "method": "Manual_HistoricalSaves_GreenUnderApply",
+       "line": 324
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

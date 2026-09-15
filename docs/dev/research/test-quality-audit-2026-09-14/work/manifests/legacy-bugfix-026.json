@@ -1,0 +1,328 @@
+{
+ "batch_id": "legacy-bugfix-026",
+ "cluster": "legacy-bugfix",
+ "tier": "B",
+ "expected_methods": 58,
+ "files": [
+  {
+   "file": "Bug421GhostAudioDedupeTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "FirstWarn_ForNewGhostPidClip_Emits",
+       "line": 56
+      },
+      {
+       "method": "SecondWarn_ForSameGhostPidClip_IsSuppressed",
+       "line": 67
+      },
+      {
+       "method": "RepeatedWarns_ForSameGhostPidClip_EmitExactlyOnce",
+       "line": 79
+      },
+      {
+       "method": "DifferentClipName_OnSameGhostAndPid_EmitsSeparately",
+       "line": 93
+      },
+      {
+       "method": "DifferentPid_OnSameGhostAndClip_EmitsSeparately",
+       "line": 107
+      },
+      {
+       "method": "DifferentGhost_WithSamePidAndClip_EmitsSeparately",
+       "line": 121
+      },
+      {
+       "method": "ClearMissingAudioClipWarnings_AllowsSubsequentWarnToFireAgain",
+       "line": 135
+      },
+      {
+       "method": "ClearMissingAudioClipWarnings_DoesNotAffectOtherGhosts",
+       "line": 152
+      },
+      {
+       "method": "ClearMissingAudioClipWarnings_NullRootName_IsNoOp",
+       "line": 170
+      },
+      {
+       "method": "ResetMissingAudioClipWarningsForTesting_ClearsEveryBucket",
+       "line": 188
+      },
+      {
+       "method": "WarnMessage_IncludesClipPathPartNameAndPid",
+       "line": 210
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Bug414SpawnThrottleTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ShouldThrottleSpawn_MatchesCapBoundary",
+       "line": 52
+      },
+      {
+       "method": "MaxSpawnsPerFrame_IsTwo",
+       "line": 58
+      },
+      {
+       "method": "BreakdownLine_IncludesBuiltThrottledMaxFields",
+       "line": 66
+      },
+      {
+       "method": "BreakdownLine_DefaultPhases_RendersZeroThrottleFields",
+       "line": 94
+      },
+      {
+       "method": "EngineThrottle_BlocksThirdReservation_AndEmitsLog",
+       "line": 108
+      },
+      {
+       "method": "ApplyFlagEvents_NullState_NoOpWithNoEvents",
+       "line": 138
+      },
+      {
+       "method": "ApplyFlagEvents_NullTrajectory_NoOp",
+       "line": 151
+      },
+      {
+       "method": "LoopCycleRebuild_BypassesThrottle_WhenCycleChanged",
+       "line": 158
+      },
+      {
+       "method": "EngineThrottle_ResetPerFrameCounters_ReArmsBudget",
+       "line": 186
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Bug414BudgetBreakdownTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "WithBreakdown_AboveThreshold_FiresBudgetExceededWarn",
+       "line": 66
+      },
+      {
+       "method": "WithBreakdown_AboveThreshold_FiresBreakdownWarn_WithAllPhases",
+       "line": 78
+      },
+      {
+       "method": "WithBreakdown_BelowThreshold_DoesNotFireAnyWarn",
+       "line": 106
+      },
+      {
+       "method": "WithBreakdown_BelowThreshold_LatchNotConsumed",
+       "line": 119
+      },
+      {
+       "method": "WithBreakdown_SecondSpike_DoesNotReEmitBreakdown",
+       "line": 135
+      },
+      {
+       "method": "WithBreakdown_DefaultPhases_FormatsZeroedFields",
+       "line": 153
+      },
+      {
+       "method": "LegacyCheckPlaybackBudgetThreshold_StillFiresBudgetExceededWarn",
+       "line": 172
+      },
+      {
+       "method": "ResetPlaybackBreakdownOneShotForTesting_ReArmsLatch",
+       "line": 185
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Bug609Tests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ClassifySnapshotCrew_NullSnapshotCrew_ReturnsEmpty",
+       "line": 46
+      },
+      {
+       "method": "ClassifySnapshotCrew_EmptyList_ReturnsEmpty",
+       "line": 53
+      },
+      {
+       "method": "ClassifySnapshotCrew_NoRoster_AllClassifiedAsAlive",
+       "line": 60
+      },
+      {
+       "method": "FormatSummary_AllCategories_RendersCountsAndNames",
+       "line": 82
+      },
+      {
+       "method": "FormatSummary_AllStrictlyDead_RendersCorrectCounts",
+       "line": 110
+      },
+      {
+       "method": "FormatSummary_EmptyList_RendersZeroCounts",
+       "line": 134
+      },
+      {
+       "method": "ShouldBlock_DeadSetExcludesReservedMissing_DoesNotBlock",
+       "line": 155
+      },
+      {
+       "method": "ShouldBlock_OnlyOneOfThreeReservedMissing_DoesNotBlock",
+       "line": 170
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Bug616GhostMapReFlyLookaheadTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "AbsolutePrefixCreateLookahead_NoLongerSuppressesFutureLegacyPidAnchor",
+       "line": 14
+      },
+      {
+       "method": "UpdateTimeRelativeFlip_RemovesWhenCurrentAnchorIsActiveReFlyTarget",
+       "line": 47
+      },
+      {
+       "method": "UnrelatedRelativeAnchorAllowed_EvenWhenAnchorIsActiveReFlyTarget",
+       "line": 75
+      },
+      {
+       "method": "PendingTreeActiveReFlySearch_NoLongerDrivesCreateLookahead",
+       "line": 113
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "UnfinishedFlightsDragRejectTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "CanAddToUserGroup_UnfinishedFlight_UserGroup_False",
+       "line": 122
+      },
+      {
+       "method": "CanAddToUserGroup_RegularRecording_UserGroup_True",
+       "line": 140
+      },
+      {
+       "method": "CanAddToUserGroup_AnyRecording_SystemGroupTarget_False",
+       "line": 153
+      },
+      {
+       "method": "CanAddToUserGroup_NullRecording_True",
+       "line": 168
+      },
+      {
+       "method": "CanAddToUserGroup_EmptyGroupName_True",
+       "line": 178
+      },
+      {
+       "method": "LogAndToastRejectAdd_EmitsVerboseLine",
+       "line": 188
+      },
+      {
+       "method": "LogAndToastRejectAdd_NullRecId_UsesPlaceholder",
+       "line": 204
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Bug422SidecarHydrationRollupTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "IsSyntheticFixtureSidecarMarker_TrajectoryMissingWithZeroPoints_ReturnsTrue",
+       "line": 41
+      },
+      {
+       "method": "IsSyntheticFixtureSidecarMarker_TrajectoryMissingWithPoints_ReturnsFalse",
+       "line": 50
+      },
+      {
+       "method": "IsSyntheticFixtureSidecarMarker_OtherFailureReasons_ReturnFalse",
+       "line": 62
+      },
+      {
+       "method": "IsSyntheticFixtureSidecarMarker_NoFailure_ReturnsFalse",
+       "line": 85
+      },
+      {
+       "method": "IsSyntheticFixtureSidecarMarker_NullRecording_ReturnsFalse",
+       "line": 92
+      },
+      {
+       "method": "EmitRollup_AllSyntheticFixture_SuppressesWarnAndLogsInfo",
+       "line": 100
+      },
+      {
+       "method": "EmitRollup_MixedBatch_EmitsWarnWithBreakdown",
+       "line": 117
+      },
+      {
+       "method": "EmitRollup_AllGenuine_EmitsWarnWithZeroSynthetic",
+       "line": 131
+      },
+      {
+       "method": "EmitRollup_NoFailures_EmitsNothing",
+       "line": 144
+      },
+      {
+       "method": "EmitRollup_SingleSyntheticFixture_SuppressesWarn",
+       "line": 153
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Bug458BinaryFlatFallbackHealTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "BinaryFlatFallbackWithDuplicatedTrackSectionPrefix_HealsOnLoadWithoutDirtyingTheFile",
+       "line": 57
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

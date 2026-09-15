@@ -1,0 +1,131 @@
+{
+ "batch_id": "catchall-006",
+ "cluster": "catchall",
+ "tier": "A",
+ "expected_methods": 28,
+ "files": [
+  {
+   "file": "AtomicMarkerWriteTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ConsumePostLoad_FlightNotReady_DefersStripToOnFlightReady",
+       "line": 51
+      },
+      {
+       "method": "ConsumePostLoad_DeferredTempPath_PropagatesThroughSeam",
+       "line": 95
+      },
+      {
+       "method": "StartInvoke_CanInvokeFailsAfterDialog_AbortsBeforeStaging",
+       "line": 125
+      },
+      {
+       "method": "ConsumePostLoad_StartInvokeGatePreventsStaleContext_PinnedBySourceInspection",
+       "line": 191
+      },
+      {
+       "method": "ConsumePostLoad_PreFlightReadyWindow_CleansOnCatastrophicTimeout_PinnedBySourceInspection",
+       "line": 225
+      },
+      {
+       "method": "AtomicMarkerWrite_CapturesRewindPointUTFromRp_PinnedBySourceInspection",
+       "line": 271
+      },
+      {
+       "method": "ConsumePostLoad_FlightReady_RunsStripSynchronously",
+       "line": 318
+      },
+      {
+       "method": "Phase1And2_SameSyncBlock_NoInterleaving",
+       "line": 404
+      },
+      {
+       "method": "AtomicMarkerWrite_StampsSelectedRootPartPidFromRewindPoint",
+       "line": 458
+      },
+      {
+       "method": "ExceptionBetween_RemovesProvisional_NoLeak",
+       "line": 486
+      },
+      {
+       "method": "Phase1And2_NoOnSaveBetween",
+       "line": 526
+      },
+      {
+       "method": "AtomicMarkerWrite_InPlaceContinuation_ForksAttemptIntoNewProvisional",
+       "line": 622
+      },
+      {
+       "method": "AtomicMarkerWrite_InPlaceContinuation_AttachesForkToPendingTree",
+       "line": 743
+      },
+      {
+       "method": "AtomicMarkerWrite_InPlaceContinuation_NestsForkUnderExistingMissionFolder",
+       "line": 792
+      },
+      {
+       "method": "AtomicMarkerWrite_PlaceholderPath_NestsForkViaTreeIdLookup",
+       "line": 840
+      },
+      {
+       "method": "AtomicMarkerWrite_InPlaceContinuation_AttachesForkToCommittedTreeWhenPendingMissing",
+       "line": 894
+      },
+      {
+       "method": "AtomicMarkerWrite_InPlaceContinuation_NoTreeFound_DefersAttach",
+       "line": 943
+      },
+      {
+       "method": "AtomicMarkerWrite_InPlaceContinuation_RefreshesPendingQuickloadTrimScope",
+       "line": 1004
+      },
+      {
+       "method": "AtomicMarkerWrite_OriginPidMismatch_CreatesPlaceholder",
+       "line": 1069
+      },
+      {
+       "method": "AtomicMarkerWrite_OriginPidMismatch_StampsPriorTipOnMarkerAndPlaceholder",
+       "line": 1141
+      },
+      {
+       "method": "AtomicMarkerWrite_PidMatchButPriorTipDiffers_CreatesPlaceholder",
+       "line": 1183
+      },
+      {
+       "method": "AtomicMarkerWrite_PriorTipInCommittedList_InheritsFromChainTipAndForks",
+       "line": 1239
+      },
+      {
+       "method": "AtomicMarkerWrite_InPlaceContinuation_ExceptionRemovesForkLeavesOriginIntact",
+       "line": 1338
+      },
+      {
+       "method": "AtomicMarkerWrite_InPlaceContinuation_CheckpointBBeforeMarker_RemovesForkLeavesOriginIntact",
+       "line": 1400
+      },
+      {
+       "method": "SnapshotTreeBranchPointIds_PendingTreeOnly_ReturnsBaseline",
+       "line": 1471
+      },
+      {
+       "method": "SnapshotTreeBranchPointIds_CommittedTreeOnly_ReturnsBaseline",
+       "line": 1500
+      },
+      {
+       "method": "SnapshotTreeBranchPointIds_NoTreeMatches_ReturnsNull",
+       "line": 1527
+      },
+      {
+       "method": "SnapshotTreeBranchPointIds_NullOrEmptyId_ReturnsNull",
+       "line": 1538
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

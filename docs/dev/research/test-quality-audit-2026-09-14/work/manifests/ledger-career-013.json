@@ -1,0 +1,263 @@
+{
+ "batch_id": "ledger-career-013",
+ "cluster": "ledger-career",
+ "tier": "A",
+ "expected_methods": 61,
+ "files": [
+  {
+   "file": "GameActionSerializationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "UndefinedEnumValue_KeepsTheDefaultAndSaysSo",
+       "line": 16
+      },
+      {
+       "method": "ScienceEarning_RoundTrip",
+       "line": 52
+      },
+      {
+       "method": "ScienceEarning_Transmitted_RoundTrip",
+       "line": 87
+      },
+      {
+       "method": "ScienceSpending_RoundTrip",
+       "line": 117
+      },
+      {
+       "method": "FundsEarning_RoundTrip",
+       "line": 139
+      },
+      {
+       "method": "FundsEarning_Recovery_RoundTrip",
+       "line": 159
+      },
+      {
+       "method": "FundsSpending_RoundTrip",
+       "line": 179
+      },
+      {
+       "method": "FundsSpending_FacilityUpgrade_RoundTrip",
+       "line": 199
+      },
+      {
+       "method": "MilestoneAchievement_RoundTrip",
+       "line": 218
+      },
+      {
+       "method": "ContractAccept_RoundTrip",
+       "line": 240
+      },
+      {
+       "method": "ContractAccept_NoDeadline_RoundTrip",
+       "line": 265
+      },
+      {
+       "method": "ContractComplete_RoundTrip",
+       "line": 284
+      },
+      {
+       "method": "ContractFail_RoundTrip",
+       "line": 308
+      },
+      {
+       "method": "ContractCancel_RoundTrip",
+       "line": 329
+      },
+      {
+       "method": "ReputationEarning_RoundTrip",
+       "line": 351
+      },
+      {
+       "method": "ReputationPenalty_RoundTrip",
+       "line": 371
+      },
+      {
+       "method": "RepPenalty_InsideReputationSeed_RoundTrip",
+       "line": 391
+      },
+      {
+       "method": "RepPenalty_OutsideReputationSeed_WritesNoKey",
+       "line": 411
+      },
+      {
+       "method": "RepPenalty_WithoutInsideRepSeedKey_ReadsBackFalse",
+       "line": 435
+      },
+      {
+       "method": "KerbalAssignment_Recovered_RoundTrip",
+       "line": 453
+      },
+      {
+       "method": "KerbalAssignment_Stranded_NaNEndUT_RoundTrip",
+       "line": 481
+      },
+      {
+       "method": "KerbalAssignment_Dead_RoundTrip",
+       "line": 503
+      },
+      {
+       "method": "KerbalHire_RoundTrip",
+       "line": 524
+      },
+      {
+       "method": "KerbalRescue_RoundTrip",
+       "line": 546
+      },
+      {
+       "method": "KerbalStandIn_RoundTrip",
+       "line": 568
+      },
+      {
+       "method": "FacilityUpgrade_RoundTrip",
+       "line": 592
+      },
+      {
+       "method": "FacilityDestruction_RoundTrip",
+       "line": 614
+      },
+      {
+       "method": "FacilityRepair_RoundTrip",
+       "line": 632
+      },
+      {
+       "method": "StrategyActivate_RoundTrip",
+       "line": 651
+      },
+      {
+       "method": "StrategyDeactivate_RoundTrip",
+       "line": 676
+      },
+      {
+       "method": "FundsInitial_RoundTrip",
+       "line": 693
+      },
+      {
+       "method": "ScienceInitial_RoundTrips",
+       "line": 710
+      },
+      {
+       "method": "ReputationInitial_RoundTrips",
+       "line": 727
+      },
+      {
+       "method": "DerivedFields_NotSerialized",
+       "line": 748
+      },
+      {
+       "method": "UnknownFields_IgnoredGracefully",
+       "line": 784
+      },
+      {
+       "method": "UnknownActionType_DefaultsToZero",
+       "line": 817
+      },
+      {
+       "method": "NullRecordingId_NotSerialized",
+       "line": 843
+      },
+      {
+       "method": "ZeroSequence_NotSerialized",
+       "line": 866
+      },
+      {
+       "method": "NonZeroSequence_IsSerialized",
+       "line": 885
+      },
+      {
+       "method": "FloatPrecision_InvariantCulture_RoundTrip",
+       "line": 908
+      },
+      {
+       "method": "FundsSource_AllValues_RoundTrip",
+       "line": 944
+      },
+      {
+       "method": "FundsSpendingSource_AllValues_RoundTrip",
+       "line": 971
+      },
+      {
+       "method": "ReputationSource_AllValues_RoundTrip",
+       "line": 994
+      },
+      {
+       "method": "ReputationPenaltySource_AllValues_RoundTrip",
+       "line": 1022
+      },
+      {
+       "method": "KerbalEndState_AllValues_RoundTrip",
+       "line": 1045
+      },
+      {
+       "method": "StrategyResource_AllValues_RoundTrip",
+       "line": 1072
+      },
+      {
+       "method": "MultipleActions_SerializeDeserialize",
+       "line": 1094
+      },
+      {
+       "method": "Serialize_RouteDispatched_RoundTrips",
+       "line": 1134
+      },
+      {
+       "method": "Serialize_RouteCargoDebited_RoundTripsManifestAndKscCost",
+       "line": 1154
+      },
+      {
+       "method": "RouteCargoDebited_RoundTrips_ActualsRequestedAndOriginPid",
+       "line": 1186
+      },
+      {
+       "method": "RouteCargoDebited_OldShapeNode_ReadsBackWithDefaults",
+       "line": 1222
+      },
+      {
+       "method": "Serialize_RouteCargoDelivered_RoundTripsPartialFillRequested",
+       "line": 1254
+      },
+      {
+       "method": "Serialize_RoutePaused_RoundTripsReason",
+       "line": 1287
+      },
+      {
+       "method": "Serialize_RouteResumed_RoundTripsReason",
+       "line": 1307
+      },
+      {
+       "method": "Serialize_RouteDispatched_RouteSendOnce_RoundTripsAndStaysSparse",
+       "line": 1328
+      },
+      {
+       "method": "Serialize_RouteEndpointLost_RoundTripsReason",
+       "line": 1357
+      },
+      {
+       "method": "Serialize_RouteRecoveryCredited_RoundTripsIdsAndAmount",
+       "line": 1377
+      },
+      {
+       "method": "Serialize_RouteCargoPickedUp_RoundTripsManifestsAndEndpointPid_NoFunds",
+       "line": 1404
+      },
+      {
+       "method": "Serialize_RouteCargoPickedUp_NoInventory_OmitsInventoryNodes",
+       "line": 1485
+      },
+      {
+       "method": "Deserialize_UnknownRouteTypeId_WarnsAndDoesNotThrow",
+       "line": 1531
+      },
+      {
+       "method": "Serialize_RouteAction_OmitsZeroAndNullFields",
+       "line": 1548
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

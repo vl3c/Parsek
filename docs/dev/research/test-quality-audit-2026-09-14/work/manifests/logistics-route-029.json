@@ -1,0 +1,241 @@
+{
+ "batch_id": "logistics-route-029",
+ "cluster": "logistics-route",
+ "tier": "B",
+ "expected_methods": 50,
+ "files": [
+  {
+   "file": "Logistics/RouteLoopClockTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "TryGetRouteLoopState_ConsumesUnitSchedule_FiresOnScheduledLaunches",
+       "line": 71
+      },
+      {
+       "method": "TryGetRouteLoopState_ScheduledUnit_BeforeFirstLaunch_ReturnsFalse",
+       "line": 126
+      },
+      {
+       "method": "CycleIndex_IncrementsOncePerPeriod_WhenCadenceEqualsSpan",
+       "line": 140
+      },
+      {
+       "method": "LoopUT_WrapsBackIntoSpan_EachCycle",
+       "line": 161
+      },
+      {
+       "method": "PreAnchor_ReturnsFalse",
+       "line": 176
+      },
+      {
+       "method": "DegenerateSpan_ReturnsFalse",
+       "line": 187
+      },
+      {
+       "method": "IsInInterCycleTail_TrueWhenParked_CadenceExceedsSpan",
+       "line": 202
+      },
+      {
+       "method": "IsDockUTInSpan_InsideAndBoundary_True_OutsideFalse",
+       "line": 223
+      },
+      {
+       "method": "ComputeDockCycleIndex_BeforeAndAfterDockPhase",
+       "line": 241
+      },
+      {
+       "method": "IsDockCrossing_AtSpanStart_BeforeDockPhase_False",
+       "line": 259
+      },
+      {
+       "method": "IsDockCrossing_AtDockPhase_NewCycle_True",
+       "line": 271
+      },
+      {
+       "method": "IsDockCrossing_SameDockCycleAsLastObserved_False",
+       "line": 284
+      },
+      {
+       "method": "IsDockCrossing_ParkedTail_DockPassed_NotYetDelivered_True",
+       "line": 300
+      },
+      {
+       "method": "IsDockCrossing_DockOutsideSpan_False",
+       "line": 320
+      },
+      {
+       "method": "IsDockCrossing_WarpJump_PastDock_FiresHighestPassedCycle",
+       "line": 332
+      },
+      {
+       "method": "IsDockCrossing_WarpJump_BeforeNewDock_FiresPriorCycle",
+       "line": 346
+      },
+      {
+       "method": "DockPhaseAtSpanEnd_CrossingFiresOncePerCycle",
+       "line": 371
+      },
+      {
+       "method": "DockPhase_RaisedSpanStart_CrossingFiresOncePerCycle",
+       "line": 413
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/RouteWindowBasisTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "DeriveWindowBasis_NullScheduleNoReaim_Flat",
+       "line": 148
+      },
+      {
+       "method": "DeriveWindowBasis_RelaunchSchedule_ZeroDrift",
+       "line": 155
+      },
+      {
+       "method": "DeriveWindowBasis_ValidSupportedReaim_ReaimWindows",
+       "line": 162
+      },
+      {
+       "method": "DeriveWindowBasis_InvalidReaimSchedule_Flat",
+       "line": 171
+      },
+      {
+       "method": "DeriveWindowBasis_UnsupportedPlanValidSchedule_Flat",
+       "line": 180
+      },
+      {
+       "method": "ResolveResidualCadence_Flat_Off",
+       "line": 191
+      },
+      {
+       "method": "ResolveResidualCadence_ZeroDrift_One",
+       "line": 200
+      },
+      {
+       "method": "ResolveResidualCadence_Reaim_N",
+       "line": 208
+      },
+      {
+       "method": "IsDeliverableWindow_AnchorAdoption_FirstWindowDeliverable",
+       "line": 225
+      },
+      {
+       "method": "IsDeliverableWindow_EveryNth",
+       "line": 234
+      },
+      {
+       "method": "IsDeliverableWindow_NegativeAndLargeIndices",
+       "line": 251
+      },
+      {
+       "method": "ComputeHighestDeliverableWindow_WarpJump_PicksHighestDeliverable",
+       "line": 270
+      },
+      {
+       "method": "ComputeHighestDeliverableWindow_NoneInRange_ReturnsNone",
+       "line": 284
+      },
+      {
+       "method": "EvaluateWindowBasisTransition_Engage_RebaselinesIntoWindowSpace_NoSuppress",
+       "line": 307
+      },
+      {
+       "method": "EvaluateWindowBasisTransition_Decline_RebaselineNoFire",
+       "line": 344
+      },
+      {
+       "method": "EvaluateWindowBasisTransition_SteadyState_NoOp",
+       "line": 375
+      },
+      {
+       "method": "EvaluateWindowBasisTransition_DeclineTwice_Idempotent",
+       "line": 398
+      },
+      {
+       "method": "ApplyWindowBasisTransition_ColdLoadUtZero_NoOp",
+       "line": 418
+      },
+      {
+       "method": "ApplyWindowBasisTransition_MultiStop_PerStopDockPhaseExact",
+       "line": 433
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "Logistics/RouteEndpointDockedCompositeTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "VisitorDominant_TheBaseResolvesThroughItsPartOnTheComposite",
+       "line": 77
+      },
+      {
+       "method": "DestinationDominant_ResolvesThroughTheOrdinaryRootPass",
+       "line": 102
+      },
+      {
+       "method": "AnOwnRootMatchBeatsAContainsMatch",
+       "line": 124
+      },
+      {
+       "method": "AfterTheUndock_TheSameKeyResolvesTheBaseOnItsOwn",
+       "line": 145
+      },
+      {
+       "method": "AZeroRootIdNeverMatches_OnEitherPass",
+       "line": 174
+      },
+      {
+       "method": "GhostVesselsAreExcludedFromTheCompositePassToo",
+       "line": 190
+      },
+      {
+       "method": "ASnapshotWithNoPartSet_IsSimplyNotACompositeCandidate",
+       "line": 207
+      },
+      {
+       "method": "TwoCompositesCarryingOnePartId_AreReportedAsAmbiguous",
+       "line": 227
+      },
+      {
+       "method": "AStampedDestination_StartsAtRootPart_AnUnstampedOneStillDoesNot",
+       "line": 252
+      },
+      {
+       "method": "AStampedWindowEndpoint_SurvivesTheProofCodecRoundTrip",
+       "line": 285
+      },
+      {
+       "method": "TheStampReachesTheStopAndSurvivesTheRouteCodec",
+       "line": 333
+      },
+      {
+       "method": "TheEndpointStamp_DoesNotMoveTheRouteProofHash",
+       "line": 360
+      },
+      {
+       "method": "ShouldRunDeepRootScan_SuppressesOnlyTheRepeatedIdenticalMiss",
+       "line": 387
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,175 @@
+{
+ "batch_id": "ledger-career-006",
+ "cluster": "ledger-career",
+ "tier": "A1",
+ "expected_methods": 39,
+ "files": [
+  {
+   "file": "GameStateRecorderLedgerTests.cs",
+   "ranges": [
+    {
+     "start": 1381,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "OnVesselRecoveryFunds_CallbackBeforeFundsEvent_PairsWhenEventIsRecorded",
+       "line": 1381
+      },
+      {
+       "method": "OnVesselRecoveryFunds_DeferredSameNameWithinEpsilon_PairToDistinctEvents",
+       "line": 1413
+      },
+      {
+       "method": "OnVesselRecoveryFunds_EmptyVesselName_SkipsSilently",
+       "line": 1455
+      },
+      {
+       "method": "OnVesselRecoveryFunds_MultipleRecordingsSameName_TagsLatestByEndUt",
+       "line": 1467
+      },
+      {
+       "method": "OnVesselRecoveryFunds_GhostOnlyRecordingMatch_NotTagged",
+       "line": 1516
+      },
+      {
+       "method": "OnVesselRecoveryFunds_BackToBackRecoveriesWithinEpsilon_PairToDistinctEvents",
+       "line": 1555
+      },
+      {
+       "method": "OnVesselRecoveryFunds_BracketingRecordingPreferredOverLatestByEndUt",
+       "line": 1598
+      },
+      {
+       "method": "PickRecoveryRecordingId_FallsBackToMostRecentEndedBeforeUt",
+       "line": 1651
+      },
+      {
+       "method": "PickRecoveryRecordingId_ActiveSessionProvisional_IsEligible",
+       "line": 1724
+      },
+      {
+       "method": "PickRecoveryRecordingId_ZombieNotCommitted_IsSkipped_PrefersCommitted",
+       "line": 1752
+      },
+      {
+       "method": "PickRecoveryRecordingId_NotCommittedFromADifferentSession_IsSkipped",
+       "line": 1770
+      },
+      {
+       "method": "PickRecoveryRecordingId_OnlyZombieMatches_ReturnsNull",
+       "line": 1789
+      },
+      {
+       "method": "PickRecoveryRecordingId_CommittedProvisionalStillEligible",
+       "line": 1804
+      },
+      {
+       "method": "PickRecoveryRecordingId_BracketTie_PrefersSessionProvisionalOverOriginChild",
+       "line": 1830
+      },
+      {
+       "method": "PickRecoveryRecordingId_BracketTie_NoSessionArmed_KeepsMaxEndUt",
+       "line": 1857
+      },
+      {
+       "method": "PickRecoveryRecordingId_SessionProvisionalThatDoesNotBracket_KeepsMaxEndUt",
+       "line": 1879
+      },
+      {
+       "method": "PickRecoveryRecordingId_UnboundProvisional_NeverBrackets_DegradesToStatusQuo",
+       "line": 1898
+      },
+      {
+       "method": "PickRecoveryRecordingId_BracketTie_MovesAllThreeRecoveryLegsTogether",
+       "line": 1929
+      },
+      {
+       "method": "OnVesselRecoveryFunds_SameUtDifferentReasonKey_PicksVesselRecoveryEvent",
+       "line": 2043
+      },
+      {
+       "method": "OnVesselRecoveryFunds_PreSeededMatchingRecoveryAction_DedupsByEventFingerprint",
+       "line": 2089
+      },
+      {
+       "method": "OnKspLoad_LegacyRecoveryActionMissingDedupKey_IsRepairedAndReplayStillDedups",
+       "line": 2135
+      },
+      {
+       "method": "OnKspLoad_LegacyRecoveryActionMissingDedupKey_LargeFloatRoundedAmount_IsRepaired",
+       "line": 2186
+      },
+      {
+       "method": "FlushStalePendingRecoveryFunds_EvictsUnclaimedEntriesWithWarn",
+       "line": 2238
+      },
+      {
+       "method": "FlushStalePendingRecoveryFunds_EmptyQueue_IsSilentNoOp",
+       "line": 2257
+      },
+      {
+       "method": "OnVesselRecoveryFunds_QueueOverThreshold_EmitsWarn",
+       "line": 2267
+      },
+      {
+       "method": "OnRecoveryFundsEventRecorded_VesselNameMatch_PreferredOverNearestUT",
+       "line": 2295
+      },
+      {
+       "method": "OnRecoveryFundsEventRecorded_StructuredRawNormalizedNameMatch_Preferred",
+       "line": 2329
+      },
+      {
+       "method": "OnRecoveryFundsEventRecorded_VesselNameMatchTie_LogsWarn",
+       "line": 2374
+      },
+      {
+       "method": "OnRecoveryFundsEventRecorded_NoNameMatchFallsBackToNearestUT",
+       "line": 2403
+      },
+      {
+       "method": "OnRecoveryFundsEventRecorded_MismatchedIdentity_DoesNotFallbackToNearestUT",
+       "line": 2430
+      },
+      {
+       "method": "FundsSnapshotIsAuthoritative_ProcessingSeamShape_IsNotAuthoritative",
+       "line": 2467
+      },
+      {
+       "method": "FundsSnapshotIsAuthoritative_CoherentSnapshots_AreAuthoritative",
+       "line": 2475
+      },
+      {
+       "method": "RecoveryPayoutContext_ProcessingSeamSnapshot_DefersInsteadOfSuppressing",
+       "line": 2492
+      },
+      {
+       "method": "RecoveryPayoutContext_ProcessingSeamSnapshot_PairsTheRealCreditExactlyOnce",
+       "line": 2524
+      },
+      {
+       "method": "RecoveryPayoutContext_CoherentZeroPayout_StillWritesNothing",
+       "line": 2571
+      },
+      {
+       "method": "TryRefreshPayoutFromCompletion_FillsUnknownContextFromCoherentSnapshot",
+       "line": 2604
+      },
+      {
+       "method": "TryRefreshPayoutFromCompletion_NeverDowngradesOrAcceptsIncoherent",
+       "line": 2634
+      },
+      {
+       "method": "TryRefreshPayoutFromCompletion_SamePidSameUt_FillsTheNewestContext",
+       "line": 2685
+      },
+      {
+       "method": "BuildFundsEventDetail_UnknownExpectation_DoesNotPersistAStaleZero",
+       "line": 2730
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

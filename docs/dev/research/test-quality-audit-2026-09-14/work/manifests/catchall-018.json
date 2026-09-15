@@ -1,0 +1,242 @@
+{
+ "batch_id": "catchall-018",
+ "cluster": "catchall",
+ "tier": "B",
+ "expected_methods": 53,
+ "files": [
+  {
+   "file": "ArrivalAlignHoldTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Hold_DegenerateRotationPeriod_ReturnsZero",
+       "line": 24
+      },
+      {
+       "method": "Hold_NaNInputs_ReturnsZero",
+       "line": 30
+      },
+      {
+       "method": "Hold_AlreadyAligned_ReturnsZero",
+       "line": 37
+      },
+      {
+       "method": "Hold_GeneralCase_AlignsForward",
+       "line": 45
+      },
+      {
+       "method": "Hold_NegativeDelta_NormalizedForwardIntoRange",
+       "line": 55
+      },
+      {
+       "method": "Hold_AlwaysInRange_AndAligns",
+       "line": 69
+      },
+      {
+       "method": "Apply_ZeroOrNegativeHold_Identity",
+       "line": 85
+      },
+      {
+       "method": "Apply_BeforeBoundary_Identity",
+       "line": 92
+      },
+      {
+       "method": "Apply_WithinHold_HeldAtBoundary",
+       "line": 99
+      },
+      {
+       "method": "Apply_AfterHold_DeferredByHold",
+       "line": 107
+      },
+      {
+       "method": "Apply_IsContinuousAcrossTheHold",
+       "line": 115
+      },
+      {
+       "method": "Apply_InsertsExactlyHoldSeconds_PostBoundaryRoundTrip",
+       "line": 125
+      },
+      {
+       "method": "Clock_NoHold_NoCut_IsIdentityToTheRecordedSpan",
+       "line": 137
+      },
+      {
+       "method": "Clock_WithHold_BeforeIdentity_WithinHeld_AfterDeferred",
+       "line": 156
+      },
+      {
+       "method": "Clock_HoldComposesWithLoiterCut",
+       "line": 183
+      },
+      {
+       "method": "Clock_HoldClampedSoEffectiveSpanNeverExceedsCadence",
+       "line": 206
+      },
+      {
+       "method": "PerLoop_ZeroBaseHold_ReturnsZeroForEveryN",
+       "line": 229
+      },
+      {
+       "method": "PerLoop_NonPositiveBaseHold_ReturnsBaseUnchanged",
+       "line": 240
+      },
+      {
+       "method": "PerLoop_DegenerateRotationPeriod_ReturnsBaseHoldUnchanged",
+       "line": 252
+      },
+      {
+       "method": "PerLoop_NEquals0_ReturnsBaseHold",
+       "line": 262
+      },
+      {
+       "method": "PerLoop_NEquals1_SubtractsCadenceModTrot_Wrapped",
+       "line": 272
+      },
+      {
+       "method": "PerLoop_WrapAround_NegativeInnerBroughtBackIntoRange",
+       "line": 284
+      },
+      {
+       "method": "PerLoop_AlwaysInRange_AcrossManyLoops",
+       "line": 299
+      },
+      {
+       "method": "PerLoop_ReAlignsDeorbitRotationPhaseEveryLoop",
+       "line": 309
+      },
+      {
+       "method": "PerLoop_FirstLoopMatchesConstantHold",
+       "line": 327
+      },
+      {
+       "method": "Clock_NoHold_ByteIdenticalRegardlessOfRotationPeriod",
+       "line": 342
+      },
+      {
+       "method": "Clock_WithHold_InvalidRotationPeriod_KeepsConstantHoldBehavior",
+       "line": 364
+      },
+      {
+       "method": "Clock_WithHold_ValidRotationPeriod_AppliesPerLoopHoldOnLaterLoop",
+       "line": 384
+      },
+      {
+       "method": "Clock_StationHold_TStationDrivesPerLoopDrift_EndToEnd",
+       "line": 416
+      },
+      {
+       "method": "JointHold_StationExactAndRotationWithinTol_EveryCycle_NeverAccumulates",
+       "line": 444
+      },
+      {
+       "method": "JointHold_DegenerateJointInputs_EqualSinglePeriodHold",
+       "line": 472
+      },
+      {
+       "method": "JointHold_ZeroW0_OffFence_Unchanged",
+       "line": 490
+      },
+      {
+       "method": "SpanClock_JointHold_HoldsAtBoundaryThroughWholePeriodExtension",
+       "line": 499
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "BoundaryOverlapClockTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "GatedAdvance_ReturnsCappedDelta_WhenRawUnderSlack",
+       "line": 62
+      },
+      {
+       "method": "GatedAdvance_ReturnsFullRawDelta_WhenRawExceedsSlack",
+       "line": 77
+      },
+      {
+       "method": "GatedAdvance_Degenerate_ReturnsZero",
+       "line": 97
+      },
+      {
+       "method": "ZeroSlack_HasSecondary_InsideBorrowWindow_FalseOutside",
+       "line": 111
+      },
+      {
+       "method": "ZeroSlack_PrimaryEffectiveSpan_NeverTruncatesWithinCycle",
+       "line": 134
+      },
+      {
+       "method": "ZeroSlack_BoundaryContinuity_SecondaryHandsOffToNextPrimary",
+       "line": 166
+      },
+      {
+       "method": "ZeroSlack_SecondaryInSoiReplay_RotationAligned",
+       "line": 182
+      },
+      {
+       "method": "Wrapper_PrimaryOnly_MatchesFrame_AcrossSweep",
+       "line": 212
+      },
+      {
+       "method": "AlignedLoop_NeverHasSecondary_PrimaryByteIdenticalToCapHelper",
+       "line": 239
+      },
+      {
+       "method": "TargetingWindowIndex_Unchanged_ByScheduleNullCall",
+       "line": 257
+      },
+      {
+       "method": "DecideSecondary_RendersInMemberWindow_HiddenOutside",
+       "line": 275
+      },
+      {
+       "method": "DecideSecondary_AlignedLoop_NoSecondary",
+       "line": 317
+      },
+      {
+       "method": "TsSampleFrame_PrimaryPlusSecondary_InBorrowWindow",
+       "line": 348
+      },
+      {
+       "method": "TsSampleFrame_NonMember_NoSecondary",
+       "line": 367
+      },
+      {
+       "method": "TsSampleFrame_AlignedUnit_NeverHasSecondary",
+       "line": 381
+      },
+      {
+       "method": "SecondaryMarker_InBorrowWindow_DrawsAtSecondaryHead",
+       "line": 410
+      },
+      {
+       "method": "SecondaryMarker_NonMapSurface_NeverDraws",
+       "line": 426
+      },
+      {
+       "method": "SecondaryMarker_Debris_NeverDraws",
+       "line": 439
+      },
+      {
+       "method": "SecondaryMarker_NullRecording_NeverDraws",
+       "line": 454
+      },
+      {
+       "method": "SecondaryMarker_AlignedUnit_NeverDraws",
+       "line": 464
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

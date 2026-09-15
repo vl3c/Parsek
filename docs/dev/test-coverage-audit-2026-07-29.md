@@ -4,6 +4,8 @@ Full-stack audit of the three testing systems (xUnit unit tests, in-game runtime
 
 Method: eleven parallel investigation passes (one per subsystem slice, plus design-doc contract extraction, game-mode/craft feasibility, and visual-validation solution engineering), mechanically grepped and spot-verified at HEAD. Companion document: `design-testing-unified.md` (what the systems are, how they compose, and what to build next — recommendations live THERE, facts live here).
 
+xUnit-internal quality (are the existing cases sound, where is added coverage worth it) is audited separately in `test-quality-audit-2026-09-14.md` (baseline `4aedb0a1a`); that audit supersedes this one only for that question and keeps this register's IDs as primary where it re-finds a July item (`docs/dev/research/test-quality-audit-2026-09-14/july-crosswalk.csv`).
+
 ---
 
 ## 1. Executive summary

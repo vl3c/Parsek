@@ -1,0 +1,240 @@
+{
+ "batch_id": "io-serialization-004",
+ "cluster": "io-serialization",
+ "tier": "B",
+ "expected_methods": 47,
+ "files": [
+  {
+   "file": "SerializationEdgeCaseTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "Point_RoundTrip_InvariantCulture_CommaLocaleSafe",
+       "line": 50
+      },
+      {
+       "method": "Point_RoundTrip_VeryLargeDoubles",
+       "line": 92
+      },
+      {
+       "method": "Point_RoundTrip_NegativeCoordinates",
+       "line": 124
+      },
+      {
+       "method": "Point_RoundTrip_AllZeros",
+       "line": 154
+      },
+      {
+       "method": "Point_RoundTrip_MultiplePointsPreserveOrder",
+       "line": 187
+      },
+      {
+       "method": "Point_Deserialize_MissingBody_DefaultsToKerbin",
+       "line": 220
+      },
+      {
+       "method": "OrbitSegment_RoundTrip_WithOrbitalFrameRotation",
+       "line": 246
+      },
+      {
+       "method": "OrbitSegment_RoundTrip_WithoutOrbitalFrameRotation_DefaultSentinel",
+       "line": 274
+      },
+      {
+       "method": "OrbitSegment_RoundTrip_WithAngularVelocity",
+       "line": 302
+      },
+      {
+       "method": "OrbitSegment_RoundTrip_SubThresholdAngularVelocity_NotSerialized",
+       "line": 327
+      },
+      {
+       "method": "OrbitSegment_RoundTrip_ZeroEccentricity",
+       "line": 377
+      },
+      {
+       "method": "EnsureCheckpointSections_NaNSemiMajorAxis_IsIdempotent",
+       "line": 437
+      },
+      {
+       "method": "RepeatedSerialization_NaNSemiMajorAxis_DoesNotExplode",
+       "line": 464
+      },
+      {
+       "method": "OrbitSegment_RoundTrip_HighInclination",
+       "line": 484
+      },
+      {
+       "method": "OrbitSegment_Deserialize_MissingBody_DefaultsToKerbin",
+       "line": 510
+      },
+      {
+       "method": "OrbitSegment_RoundTrip_MultipleSegmentsPreserveOrder",
+       "line": 536
+      },
+      {
+       "method": "OrbitSegment_RoundTrip_InvariantCulture_CommaLocaleSafe",
+       "line": 570
+      },
+      {
+       "method": "Mixed_PointsAndSegments_RoundTrip_Independent",
+       "line": 611
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "FileIOUtilsSafeWriteTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "SafeWriteConfigNode_RoundTripsContent_AndLeavesNoScratchFiles",
+       "line": 130
+      },
+      {
+       "method": "SafeWriteConfigNode_OverwritesExistingDestination",
+       "line": 145
+      },
+      {
+       "method": "SafeWriteConfigNode_CreatesMissingParentDirectory",
+       "line": 157
+      },
+      {
+       "method": "SafeWriteConfigNode_TempWriteFails_DestinationPreservedByteIdentical",
+       "line": 169
+      },
+      {
+       "method": "SafeWriteConfigNode_TempWriteFails_LogsGrepStableWarnNamingThePath",
+       "line": 189
+      },
+      {
+       "method": "SafeWriteConfigNode_TempWriteFails_CreatesNoDestinationAtAll",
+       "line": 207
+      },
+      {
+       "method": "SafeWriteConfigNode_ReplaceStepFails_DestinationPreserved",
+       "line": 221
+      },
+      {
+       "method": "SafeWriteConfigNode_EmptyNode_WritesWithoutTrippingTheNonEmptyCheck",
+       "line": 251
+      },
+      {
+       "method": "SafeWriteBytes_RoundTripsContent_AndLeavesNoScratchFiles",
+       "line": 268
+      },
+      {
+       "method": "SafeWriteBytes_OverwritesExistingDestination",
+       "line": 280
+      },
+      {
+       "method": "SafeWriteBytes_TempWriteFails_DestinationPreservedByteIdentical",
+       "line": 293
+      },
+      {
+       "method": "SafeWriteBytes_ReplaceStepFails_DestinationPreserved",
+       "line": 314
+      },
+      {
+       "method": "SafeMove_ConsumesSource_AndOverwritesExistingDestination",
+       "line": 338
+      },
+      {
+       "method": "SafeMove_CreatesMissingDestinationDirectory",
+       "line": 353
+      },
+      {
+       "method": "SafeMove_DestinationLocked_PreservesBothSidesAndLogs",
+       "line": 365
+      },
+      {
+       "method": "SafeMove_MissingSource_FailsFastWithoutMovingTheDestinationAside",
+       "line": 391
+      },
+      {
+       "method": "ForcedMoveAsideFallback_ReplacesDestination_AndCleansUpTheBackup",
+       "line": 410
+      },
+      {
+       "method": "ForcedMoveAsideFallback_SecondMoveFails_RestoresTheOriginal",
+       "line": 425
+      },
+      {
+       "method": "SafeWriteConfigNode_RejectsNullNodeAndEmptyPath",
+       "line": 458
+      },
+      {
+       "method": "SafeWriteBytes_RejectsEmptyPath",
+       "line": 467
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "FileIOUtilsLoadMetaTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "DeletesOrphanedLoadMeta_LeavesOtherFilesAlone",
+       "line": 46
+      },
+      {
+       "method": "LogsVerbose_WhenSidecarDeleted",
+       "line": 62
+      },
+      {
+       "method": "NoOp_WhenSidecarMissing",
+       "line": 75
+      },
+      {
+       "method": "NoOp_WhenSavesDirNullOrEmpty",
+       "line": 87
+      },
+      {
+       "method": "NoOp_WhenBaseNameNullOrEmpty",
+       "line": 96
+      },
+      {
+       "method": "DoesNotDeleteSfs_OnlyLoadMeta",
+       "line": 104
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "SerializationTrackSectionCheckpointTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "CheckpointOpenTrackSectionForSerialization_ClosesOpenSectionAndStartsContinuation",
+       "line": 29
+      },
+      {
+       "method": "CheckpointOpenTrackSectionForSerialization_PreservesRelativeAnchor",
+       "line": 49
+      },
+      {
+       "method": "CheckpointOpenTrackSectionForSerialization_PreservesCheckpointSourceWithoutSeedingFrames",
+       "line": 69
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

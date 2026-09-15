@@ -1,0 +1,310 @@
+{
+ "batch_id": "catchall-055",
+ "cluster": "catchall",
+ "tier": "B",
+ "expected_methods": 59,
+ "files": [
+  {
+   "file": "ParsekSettingsTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "SamplingDensityField_UsesCustomIntParameterUi",
+       "line": 12
+      },
+      {
+       "method": "AutoRecordOnSwitchSettings_DefaultOn",
+       "line": 27
+      },
+      {
+       "method": "ClampHiddenSettingsToShippingValues_ResetsDriftAndReportsChange",
+       "line": 43
+      },
+      {
+       "method": "AutomationEnvPresent_ArmsOffTheHookEnvVars",
+       "line": 80
+      },
+      {
+       "method": "AutoMerge_DefaultOn",
+       "line": 118
+      },
+      {
+       "method": "HiddenSettings_CarryNoCustomParameterUiAttribute",
+       "line": 126
+      },
+      {
+       "method": "ResolveSamplingDensityFromConfig_UsesStoredSamplingDensityWhenPresent",
+       "line": 149
+      },
+      {
+       "method": "ResolveSamplingDensityFromConfig_PrePresetThresholdKeysAreIgnored",
+       "line": 168
+      },
+      {
+       "method": "ResolveSamplingDensityFromConfig_InvalidStoredValueFallsBackToMedium",
+       "line": 185
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "CommitTreeUnionActiveReFlyTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "UnionsActiveReFlyIncomingWithFewerBps_PreservesFork",
+       "line": 68
+      },
+      {
+       "method": "RejectsIncomingMissingBpsWithoutActiveReFlyMarker",
+       "line": 139
+      },
+      {
+       "method": "DoesNotUnion_WhenMarkerNamesDifferentTree",
+       "line": 178
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ContinuationRollbackTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "RollbackTruncatesContinuationPoints",
+       "line": 61
+      },
+      {
+       "method": "RollbackRestoresSnapshots",
+       "line": 79
+      },
+      {
+       "method": "BackupSurvivesInPlaceSnapshotMutation",
+       "line": 109
+      },
+      {
+       "method": "NoRollbackWhenBoundaryNotSet",
+       "line": 132
+      },
+      {
+       "method": "BoundaryAtZeroClearsAllPoints",
+       "line": 144
+      },
+      {
+       "method": "FilesDirtySetAfterRollback",
+       "line": 156
+      },
+      {
+       "method": "FilesDirtyNotSetWhenNothingToRollback",
+       "line": 169
+      },
+      {
+       "method": "EndUTReflectsRollback",
+       "line": 181
+      },
+      {
+       "method": "BakeInClearsBoundary",
+       "line": 199
+      },
+      {
+       "method": "RollbackLogsMessage",
+       "line": 222
+      },
+      {
+       "method": "RollbackWithBoundaryEqualToPointCount",
+       "line": 238
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ControlledChildParentAnchoredPlaybackTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ShouldRetireOnRecordedParentAnchorMiss_ControlledChild_WithParentAnchor_True",
+       "line": 42
+      },
+      {
+       "method": "ShouldRetireOnRecordedParentAnchorMiss_GenuineDebris_Unchanged_True",
+       "line": 54
+      },
+      {
+       "method": "ShouldRetireOnRecordedParentAnchorMiss_NonDebrisWithoutParent_False",
+       "line": 67
+      },
+      {
+       "method": "ShouldRetireOnRecordedParentAnchorMiss_DebrisWithoutParent_False",
+       "line": 80
+      },
+      {
+       "method": "ShouldRetireOnRecordedParentAnchorMiss_NullTrajectory_False",
+       "line": 93
+      },
+      {
+       "method": "ShouldRetireOutsideAuthoredRelativeCoverage_ControlledChild_NoSections_RetiresWithDiagnostic",
+       "line": 101
+      },
+      {
+       "method": "ShouldRetireOutsideAuthoredRelativeCoverage_NonDebrisWithoutParent_NotEligible_False",
+       "line": 121
+      },
+      {
+       "method": "ShouldRetireOutsideAuthoredRelativeCoverage_GenuineDebris_NoSections_RetiresWithDiagnostic",
+       "line": 140
+      },
+      {
+       "method": "ControlledChildRecording_AfterApplyParentAnchorContract_CarriesParentAnchor",
+       "line": 166
+      },
+      {
+       "method": "IsDebrisAwareSampleCapEligible_ControlledChildWithParentAnchor_False",
+       "line": 186
+      },
+      {
+       "method": "ShouldNormalizeParentAnchoredDebris_ControlledChildWithParentAnchor_False",
+       "line": 199
+      },
+      {
+       "method": "ShouldNormalizeParentAnchoredDebris_GenuineDebrisWithParentAnchor_True",
+       "line": 212
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "WaypointSearchTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "FindWaypointIndex_BeforeFirstPoint_ReturnsMinusOne",
+       "line": 55
+      },
+      {
+       "method": "FindWaypointIndex_AtOrAfterLastPoint_ReturnsSecondToLast",
+       "line": 68
+      },
+      {
+       "method": "FindWaypointIndex_BetweenPoints_ReturnsCorrectIndex",
+       "line": 83
+      },
+      {
+       "method": "FindWaypointIndex_ExactlyOnPoint_ReturnsCorrectIndex",
+       "line": 96
+      },
+      {
+       "method": "FindWaypointIndex_SequentialAccess_UsesCachedIndex",
+       "line": 108
+      },
+      {
+       "method": "FindWaypointIndex_NonSequentialAccess_FallsBackToBinarySearch",
+       "line": 126
+      },
+      {
+       "method": "FindWaypointIndex_LargeRecording_PerformsBinarySearch",
+       "line": 141
+      },
+      {
+       "method": "FindWaypointIndex_DuplicateTimestamps_HandlesGracefully",
+       "line": 159
+      },
+      {
+       "method": "FindWaypointIndex_TwoPoints_WorksCorrectly",
+       "line": 172
+      },
+      {
+       "method": "FindWaypointIndex_UnevenSpacing_WorksCorrectly",
+       "line": 185
+      },
+      {
+       "method": "FindWaypointIndex_EmptyRecording_ReturnsMinusOne",
+       "line": 197
+      },
+      {
+       "method": "FindWaypointIndex_SinglePoint_ReturnsMinusOne",
+       "line": 209
+      },
+      {
+       "method": "FindWaypointIndex_DuplicatesAtEnd_HandlesConsistently",
+       "line": 222
+      },
+      {
+       "method": "FindWaypointIndex_BackwardTimeSearch",
+       "line": 235
+      },
+      {
+       "method": "FindWaypointIndex_AllSameTimestamp_ReturnsLastPair",
+       "line": 251
+      },
+      {
+       "method": "FindWaypointIndex_CachedIndex_BeyondListSize_FallsBack",
+       "line": 262
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "ChildSlotEffectiveRecordingIdTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "EffectiveRecordingId_ChainLengthZero_NoSupersedes_ReturnsOrigin",
+       "line": 61
+      },
+      {
+       "method": "EffectiveRecordingId_ChainLengthOne_AtoB_ReturnsB",
+       "line": 69
+      },
+      {
+       "method": "EffectiveRecordingId_ChainLengthTwo_AtoBtoC_ReturnsC",
+       "line": 78
+      },
+      {
+       "method": "EffectiveRecordingId_ChainLengthThree_AtoBtoCtoD_ReturnsD",
+       "line": 91
+      },
+      {
+       "method": "EffectiveRecordingId_Cycle_AtoBtoA_WarnsAndReturnsLastVisited",
+       "line": 105
+      },
+      {
+       "method": "EffectiveRecordingId_OrphanEndpoint_AtoB_BNotInOldList_ReturnsB",
+       "line": 125
+      },
+      {
+       "method": "EffectiveRecordingId_NullOrigin_ReturnsNull",
+       "line": 136
+      },
+      {
+       "method": "EffectiveRecordingId_SlotPointsAtChainHead_ReturnsTipAfterChainAndSupersede",
+       "line": 144
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

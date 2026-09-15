@@ -1,0 +1,271 @@
+{
+ "batch_id": "ledger-career-002",
+ "cluster": "ledger-career",
+ "tier": "A1",
+ "expected_methods": 63,
+ "files": [
+  {
+   "file": "EarningsReconciliationTests.cs",
+   "ranges": [
+    {
+     "start": 2021,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "PostWalk_MilestoneAchievement_CoalescedWindow_MissingEvent_WarnsOncePerLeg",
+       "line": 2021
+      },
+      {
+       "method": "PostWalk_MilestoneAchievement_CoalescedTinyScienceLegs_AggregateWarnsOnce",
+       "line": 2092
+      },
+      {
+       "method": "PostWalk_MilestoneAchievement_NullTaggedLegacySibling_YieldsTaggedOwner_NoWarn",
+       "line": 2148
+      },
+      {
+       "method": "PostWalk_MilestoneAchievement_PrunedByCommittedThreshold_Skipped_NoWarn",
+       "line": 2188
+      },
+      {
+       "method": "PostWalk_MilestoneAchievement_WithoutLiveSourceAnchorInNewEpoch_Skipped_NoWarn",
+       "line": 2226
+      },
+      {
+       "method": "PostWalk_MilestoneAchievement_WithLiveSourceAnchorInNewEpoch_MissingFundsEvent_Warns",
+       "line": 2255
+      },
+      {
+       "method": "PostWalk_MilestoneAchievement_WithLiveFundsButNoSourceAnchorInNewEpoch_DoesNotSkip",
+       "line": 2301
+      },
+      {
+       "method": "PostWalk_MilestoneAchievement_StaleNeighborInsideCoalesceWindow_DoesNotInflateLiveExpected",
+       "line": 2324
+      },
+      {
+       "method": "PostWalk_MilestoneAchievement_StaleObservedEventIgnored_InLiveWindow",
+       "line": 2364
+      },
+      {
+       "method": "PostWalk_MilestoneAchievement_ThresholdStraddlingStaleNeighbor_DoesNotSuppressLiveFallback",
+       "line": 2404
+      },
+      {
+       "method": "PostWalk_MilestoneAchievement_LiveNoSourceOverlap_SkipsAmbiguousFallback",
+       "line": 2456
+      },
+      {
+       "method": "PostWalk_ReputationEarning_CurveMatch_NoWarn",
+       "line": 2490
+      },
+      {
+       "method": "PostWalk_ReputationEarning_CurveDiverges_Warn",
+       "line": 2515
+      },
+      {
+       "method": "PostWalk_ReputationPenalty_CurveMatch_NoWarn",
+       "line": 2540
+      },
+      {
+       "method": "PostWalk_FundsEarning_KscPath_Match_NoWarn",
+       "line": 2564
+      },
+      {
+       "method": "PostWalk_ScienceEarning_SubjectCapApplied_Match_NoWarn",
+       "line": 2588
+      },
+      {
+       "method": "PostWalk_ScienceEarning_EndAnchoredCommit_MatchesEarlierTransmissionWindow_NoWarn",
+       "line": 2612
+      },
+      {
+       "method": "PostWalk_ScienceEarning_EndAnchoredCommit_LargeUtFloatSpanStillMatchesEarlierTransmissionWindow_NoWarn",
+       "line": 2641
+      },
+      {
+       "method": "PostWalk_ScienceEarning_CollapsedLargeUtPersistedSpan_DoesNotFallbackToWholeRecording",
+       "line": 2674
+      },
+      {
+       "method": "PostWalk_ScienceEarning_CollapsedLargeUtPersistedSpan_UsesReconstructedScopeForUntaggedPreRecordingEvent",
+       "line": 2720
+      },
+      {
+       "method": "PostWalk_ScienceEarning_AndMilestoneAchievement_SameUtNeighborhood_DoNotCrossCoalesce",
+       "line": 2753
+      },
+      {
+       "method": "PostWalk_ScienceEarning_EndAnchoredCommit_MultiSubjectRecording_CoalescesOnce",
+       "line": 2804
+      },
+      {
+       "method": "PostWalk_ScienceEarning_PreRecordingUntaggedAndRecoveredEvents_Match_NoWarn",
+       "line": 2856
+      },
+      {
+       "method": "PostWalk_ScienceEarning_RepeatedNonConvergingWindow_WarnsOnce",
+       "line": 2939
+      },
+      {
+       "method": "Reconcile_ScienceWindow_IncludesPreRecordingUntaggedScienceEvents_NoWarn",
+       "line": 2967
+      },
+      {
+       "method": "Reconcile_ScienceWindow_CollapsedLargeUtPersistedSpan_UsesReconstructedWindowForCommitMatch",
+       "line": 3071
+      },
+      {
+       "method": "Reconcile_ScienceWindow_StillWarnsForUnmatchedTaggedInWindowScience",
+       "line": 3110
+      },
+      {
+       "method": "PostWalk_UtCutoff_FiltersFutureActions_NoWarn",
+       "line": 3150
+      },
+      {
+       "method": "PostWalk_NoMatchingEvent_WarnsMissingChannel",
+       "line": 3178
+      },
+      {
+       "method": "PostWalk_DoubleWarnGuard_TransformedActionOnlyFiresOnce",
+       "line": 3210
+      },
+      {
+       "method": "ReconcileKsc_PartPurchase_BypassOff_LegacyCostMismatch_WarnsDelta",
+       "line": 3263
+      },
+      {
+       "method": "Reconcile_ContractAcceptAdvance_MatchesStore_Silent",
+       "line": 3309
+      },
+      {
+       "method": "Reconcile_ContractFailPenalty_MatchesStore_Silent",
+       "line": 3336
+      },
+      {
+       "method": "Reconcile_ContractCancelPenalty_MatchesStore_Silent",
+       "line": 3372
+      },
+      {
+       "method": "Reconcile_MilestoneAchievementWithScience_MatchesStore_Silent",
+       "line": 3408
+      },
+      {
+       "method": "Reconcile_ScienceEarningMatchesStore_Silent",
+       "line": 3452
+      },
+      {
+       "method": "Reconcile_WorldFirstProgressReward_MatchesStore_Silent",
+       "line": 3488
+      },
+      {
+       "method": "Reconcile_FacilityUpgrade_MatchesStore_Silent",
+       "line": 3528
+      },
+      {
+       "method": "Reconcile_FacilityRepair_MatchesStore_Silent",
+       "line": 3556
+      },
+      {
+       "method": "Reconcile_ContractComplete_TransformedFundsReward_Silent",
+       "line": 3589
+      },
+      {
+       "method": "Reconcile_ContractComplete_TransformedFundsReward_RawDelta_Warns",
+       "line": 3626
+      },
+      {
+       "method": "Reconcile_ContractComplete_NotEffective_SkipsEmitted_Silent",
+       "line": 3662
+      },
+      {
+       "method": "Reconcile_MilestoneAchievement_NotEffective_SkipsEmitted_Silent",
+       "line": 3690
+      },
+      {
+       "method": "Reconcile_MilestoneAchievement_OtherRecordingProgressionIgnored_Silent",
+       "line": 3717
+      },
+      {
+       "method": "Reconcile_ScienceEarning_AtSubjectCap_EffectiveScienceZero_Silent",
+       "line": 3752
+      },
+      {
+       "method": "Reconcile_DoubleWarn_BothHooksReadSameDerivedValue_SingleWarn",
+       "line": 3780
+      },
+      {
+       "method": "Reconcile_CalledBeforeRecalculate_ReadsZeroDerived_WarnsVisibly",
+       "line": 3874
+      },
+      {
+       "method": "Reconcile_LateTaggedMilestoneFunds_NoWarn",
+       "line": 3911
+      },
+      {
+       "method": "Reconcile_LateTaggedFundsWithNoEmittedAction_StillWarns",
+       "line": 3949
+      },
+      {
+       "method": "Reconcile_LateCrossRecordingFunds_IsExcluded",
+       "line": 3976
+      },
+      {
+       "method": "Reconcile_KerbalDeathPenalty_FirstCommit_ExcludesBothSides_NoWarn",
+       "line": 4043
+      },
+      {
+       "method": "Reconcile_KerbalDeathPenalty_ReCommit_RowOnlyInLedger_NoWarn",
+       "line": 4058
+      },
+      {
+       "method": "Reconcile_VesselLossEventWithNoPairedRow_StillWarns",
+       "line": 4075
+      },
+      {
+       "method": "Reconcile_KerbalDeathRowForAnotherRecording_DoesNotExcludeThisEvent",
+       "line": 4093
+      },
+      {
+       "method": "Reconcile_NonDeathRepPenalty_StaysOnTheEmittedSide",
+       "line": 4106
+      },
+      {
+       "method": "IsKerbalDeathPairedVesselLossEvent_UntaggedEvent_IsNeverPaired",
+       "line": 4146
+      },
+      {
+       "method": "IsKerbalDeathPairedVesselLossEvent_WrongKeyOrGain_IsNotPaired",
+       "line": 4156
+      },
+      {
+       "method": "IsKerbalDeathPairedVesselLossEvent_ReadsEmittedAndLedgerSides",
+       "line": 4174
+      },
+      {
+       "method": "IsKerbalDeathPairedVesselLossEvent_MagnitudeDisagrees_IsNotPaired",
+       "line": 4192
+      },
+      {
+       "method": "IsMagnitudePairedKerbalDeathRepPenaltyRow_ReadsTheRowSide",
+       "line": 4214
+      },
+      {
+       "method": "Reconcile_KerbalDeathPenalty_MagnitudesDrifted_BothSidesCount_AndWarns",
+       "line": 4237
+      },
+      {
+       "method": "Reconcile_KerbalDeathPenalty_LedgerRowMagnitudeDrifted_StillWarns",
+       "line": 4263
+      },
+      {
+       "method": "Reconcile_KerbalDeathPenalty_MagnitudesAgreeAtAnotherValue_StaysQuiet",
+       "line": 4285
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

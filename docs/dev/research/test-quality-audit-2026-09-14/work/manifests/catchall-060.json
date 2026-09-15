@@ -1,0 +1,294 @@
+{
+ "batch_id": "catchall-060",
+ "cluster": "catchall",
+ "tier": "C",
+ "expected_methods": 55,
+ "files": [
+  {
+   "file": "WheelDamageFilterTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "GetDamagedWheelTransformNames_WithDamageModule_ReturnsNames",
+       "line": 12
+      },
+      {
+       "method": "GetDamagedWheelTransformNames_MultipleDamageModules_ReturnsAll",
+       "line": 27
+      },
+      {
+       "method": "GetDamagedWheelTransformNames_NoDamageModule_ReturnsEmpty",
+       "line": 48
+      },
+      {
+       "method": "GetDamagedWheelTransformNames_DamageModuleWithoutTransformName_ReturnsEmpty",
+       "line": 62
+      },
+      {
+       "method": "GetDamagedWheelTransformNames_NullNode_ReturnsEmpty",
+       "line": 78
+      },
+      {
+       "method": "GetDamagedWheelTransformNames_NoModuleNodes_ReturnsEmpty",
+       "line": 87
+      },
+      {
+       "method": "GetDamagedWheelTransformNames_MixedModules_OnlyReturnsDamageNames",
+       "line": 99
+      },
+      {
+       "method": "IsRendererOnDamagedTransform_NullTransform_ReturnsFalse",
+       "line": 130
+      },
+      {
+       "method": "IsRendererOnDamagedTransform_NullNames_ReturnsFalse",
+       "line": 137
+      },
+      {
+       "method": "IsRendererOnDamagedTransform_EmptyNames_ReturnsFalse",
+       "line": 145
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "QuaternionSanitizationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "SanitizeQuaternion_ValidQuaternion_ReturnsNormalized",
+       "line": 14
+      },
+      {
+       "method": "SanitizeQuaternion_NaNInX_ReplacesWithZero",
+       "line": 29
+      },
+      {
+       "method": "SanitizeQuaternion_AllNaN_ReturnsIdentity",
+       "line": 45
+      },
+      {
+       "method": "SanitizeQuaternion_ZeroMagnitude_ReturnsIdentity",
+       "line": 61
+      },
+      {
+       "method": "SanitizeQuaternion_VerySmallMagnitude_ReturnsIdentity",
+       "line": 74
+      },
+      {
+       "method": "SanitizeQuaternion_Identity_RemainsIdentity",
+       "line": 87
+      },
+      {
+       "method": "SanitizeQuaternion_InfinityInX_ReturnsIdentity",
+       "line": 103
+      },
+      {
+       "method": "SanitizeQuaternion_AllInfinity_ReturnsIdentity",
+       "line": 120
+      },
+      {
+       "method": "SanitizeQuaternion_NearIdentity_StaysNormalized",
+       "line": 138
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "SegmentEventTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "SegmentEventType_HasExpectedIntValue",
+       "line": 45
+      },
+      {
+       "method": "SegmentEventType_AllValues_Contiguous_0_To_8",
+       "line": 51
+      },
+      {
+       "method": "SegmentEventType_AllValues_RoundTripAsInts",
+       "line": 64
+      },
+      {
+       "method": "SegmentEvent_DefaultState_IsZeroed",
+       "line": 82
+      },
+      {
+       "method": "ToString_WithDetails_ProducesReadableOutput",
+       "line": 96
+      },
+      {
+       "method": "ToString_NullDetails_ShowsNone",
+       "line": 113
+      },
+      {
+       "method": "ToString_AllTypes_ContainTypeName",
+       "line": 130
+      },
+      {
+       "method": "LoggedSegmentEvent_ContainsTypeNameAndUT",
+       "line": 145
+      },
+      {
+       "method": "LoggedSegmentEvent_NullDetails_LogsNone",
+       "line": 163
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "LaunchWaitTimeoutClassifierTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "StillPrelaunch_NoThrustEver_SkipsNoThrust",
+       "line": 16
+      },
+      {
+       "method": "StillPrelaunch_BurnedButNeverLiftedOff_SkipsNeverLiftedOff",
+       "line": 25
+      },
+      {
+       "method": "StillPrelaunch_BurnedThenFlamedOut_SkipsNeverLiftedOff",
+       "line": 37
+      },
+      {
+       "method": "StillPrelaunch_ThrustOnlyAtDeadline_SkipsNeverLiftedOff",
+       "line": 48
+      },
+      {
+       "method": "LeftPrelaunch_ButConditionsUnmet_Fails",
+       "line": 60
+      },
+      {
+       "method": "VesselGone_Fails",
+       "line": 72
+      },
+      {
+       "method": "Reassert_NoFlightInputState_ReturnsFalse",
+       "line": 102
+      },
+      {
+       "method": "LogThrottleReasserts_ZeroCorrections_LogsNothing",
+       "line": 110
+      },
+      {
+       "method": "LogThrottleReasserts_Corrections_LogsWaitNameAndCount",
+       "line": 117
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "MultiControllableClassifierTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "IsMultiControllable_Count0_False",
+       "line": 42
+      },
+      {
+       "method": "IsMultiControllable_Count1_False",
+       "line": 48
+      },
+      {
+       "method": "IsMultiControllable_Count2_True",
+       "line": 54
+      },
+      {
+       "method": "IsMultiControllable_Count3_True",
+       "line": 61
+      },
+      {
+       "method": "IdentifyControllableChildren_FiltersUncontrollable",
+       "line": 69
+      },
+      {
+       "method": "IdentifyControllableChildren_EmptyList_LogsNoneAndReturnsEmpty",
+       "line": 97
+      },
+      {
+       "method": "IdentifyControllableChildren_AllUncontrollable_ReturnsEmpty",
+       "line": 110
+      },
+      {
+       "method": "IdentifyControllableChildren_AllControllable_PreservesOrder",
+       "line": 122
+      },
+      {
+       "method": "IdentifyControllableChildren_NullList_ReturnsEmpty",
+       "line": 134
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "file": "SaveContaminationTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "IsSaveFolderMismatch_DifferentFolders_ReturnsTrue",
+       "line": 35
+      },
+      {
+       "method": "IsSaveFolderMismatch_SameFolders_ReturnsFalse",
+       "line": 41
+      },
+      {
+       "method": "IsSaveFolderMismatch_NullScenarioFolder_ReturnsFalse",
+       "line": 47
+      },
+      {
+       "method": "IsSaveFolderMismatch_EmptyScenarioFolder_ReturnsFalse",
+       "line": 53
+      },
+      {
+       "method": "IsSaveFolderMismatch_BothNull_ReturnsFalse",
+       "line": 59
+      },
+      {
+       "method": "CommittedTrees_SurvivesRecordingsClear_DemonstratesBugScenario",
+       "line": 67
+      },
+      {
+       "method": "CommittedTrees_ExplicitClear_RemovesStaleTreesRegardlessOfNewTreeCount",
+       "line": 86
+      },
+      {
+       "method": "DiscardPendingTree_ClearsStalePendingTree",
+       "line": 103
+      },
+      {
+       "method": "CreateRecordingFromFlightData_DoesNotStorePending",
+       "line": 116
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

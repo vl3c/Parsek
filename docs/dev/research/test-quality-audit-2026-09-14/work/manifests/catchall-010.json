@@ -1,0 +1,119 @@
+{
+ "batch_id": "catchall-010",
+ "cluster": "catchall",
+ "tier": "A",
+ "expected_methods": 25,
+ "files": [
+  {
+   "file": "RevertDoubleRolloutTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "OnVesselRolloutSpending_RevertRelaunchSamePidSameCost_DroppedAsDuplicate",
+       "line": 108
+      },
+      {
+       "method": "OnVesselRolloutSpending_DuplicateLandsBeforeOriginal_StillCollapsesToOne",
+       "line": 138
+      },
+      {
+       "method": "OnVesselRolloutSpending_DifferentPidSameNameSiteCost_BothKept",
+       "line": 159
+      },
+      {
+       "method": "OnVesselRolloutSpending_OutsideDuplicateWindow_BothKept",
+       "line": 174
+      },
+      {
+       "method": "OnVesselRolloutSpending_SeventySecondGap_BothKept",
+       "line": 191
+      },
+      {
+       "method": "OnVesselRolloutSpending_SameVesselDifferentCost_BothKept",
+       "line": 207
+      },
+      {
+       "method": "OnVesselRolloutSpending_SamePidSameCostDifferentSite_BothKept",
+       "line": 225
+      },
+      {
+       "method": "OnVesselRolloutSpending_SamePidSameCostSameSiteWithinWindow_Deduped",
+       "line": 242
+      },
+      {
+       "method": "OnVesselRolloutSpending_NewWriteSmallerUT_SurvivorUTUpdatedInPlace",
+       "line": 263
+      },
+      {
+       "method": "OnVesselRolloutSpending_AdoptedRowDoesNotBlockRelaunchWrite",
+       "line": 299
+      },
+      {
+       "method": "OnVesselRolloutSpending_AdoptedRolloutDoesNotBlockNewWrite",
+       "line": 347
+      },
+      {
+       "method": "RepairDuplicateRolloutActions_ProductionLedger_CollapsesToOne",
+       "line": 389
+      },
+      {
+       "method": "RepairDuplicateRolloutActions_Idempotent",
+       "line": 440
+      },
+      {
+       "method": "RepairDuplicateRolloutActions_ThreeRowsInClusterCollapseToOne",
+       "line": 459
+      },
+      {
+       "method": "RepairDuplicateRolloutActions_LegitimateDistinctRollouts_AllKept",
+       "line": 488
+      },
+      {
+       "method": "RepairDuplicateRolloutActions_DifferentSiteSamePid_BothKept",
+       "line": 532
+      },
+      {
+       "method": "RepairDuplicateRolloutActions_AdoptedActionsUntouched_WhenRecordingUnknown",
+       "line": 566
+      },
+      {
+       "method": "RepairDuplicateRolloutActions_AdoptedSurvivesUnadoptedDuplicate",
+       "line": 610
+      },
+      {
+       "method": "RepairDuplicateRolloutActions_AdoptedAtHigherIndexStillSurvives",
+       "line": 684
+      },
+      {
+       "method": "RepairDuplicateRolloutActions_TwoAdoptedRollouts_KeptWithWarn",
+       "line": 748
+      },
+      {
+       "method": "RepairDuplicateRolloutActions_LegacyBareKey_NotCollapsed",
+       "line": 808
+      },
+      {
+       "method": "OnKspLoad_RunsDuplicateRolloutRepairOnAlreadyCorruptLedger",
+       "line": 844
+      },
+      {
+       "method": "OnKspLoad_RepairsAdoptedFutureRowBeforeReconcilePrunes",
+       "line": 889
+      },
+      {
+       "method": "RevertFlowSimulation_RelaunchEmissionAfterRevertDoesNotDouble",
+       "line": 948
+      },
+      {
+       "method": "RevertRelaunchTimeline_LedgerHoldsExactlyOneRolloutCharge",
+       "line": 983
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

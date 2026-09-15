@@ -1,0 +1,191 @@
+{
+ "batch_id": "ledger-career-027",
+ "cluster": "ledger-career",
+ "tier": "A",
+ "expected_methods": 43,
+ "files": [
+  {
+   "file": "ContractsModuleTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "BasicAcceptAndComplete",
+       "line": 97
+      },
+      {
+       "method": "OnceEverCompletion_RetroactivePriority",
+       "line": 125
+      },
+      {
+       "method": "SlotReservation_AcrossRewind",
+       "line": 168
+      },
+      {
+       "method": "Accept_ConsumesSlot",
+       "line": 209
+      },
+      {
+       "method": "Complete_FreesSlot",
+       "line": 221
+      },
+      {
+       "method": "Fail_FreesSlot",
+       "line": 234
+      },
+      {
+       "method": "Cancel_FreesSlot",
+       "line": 247
+      },
+      {
+       "method": "TerminalContractActionTypes_TrackLatestTerminalOutcome",
+       "line": 260
+      },
+      {
+       "method": "CompleteAfterExplicitFailOrCancel_NotEffective",
+       "line": 286
+      },
+      {
+       "method": "CompleteAtSameUtAsExplicitFailOrCancel_NotEffectiveAfterPrePass",
+       "line": 309
+      },
+      {
+       "method": "DuplicateCompletion_NotEffective",
+       "line": 339
+      },
+      {
+       "method": "AvailableSlots_WithMaxSlots",
+       "line": 360
+      },
+      {
+       "method": "Reset_ClearsState",
+       "line": 373
+      },
+      {
+       "method": "ProcessAction_IgnoresNonContractActions",
+       "line": 393
+      },
+      {
+       "method": "Accept_LogsContractId",
+       "line": 435
+      },
+      {
+       "method": "Complete_LogsEffective",
+       "line": 446
+      },
+      {
+       "method": "Fail_LogsContractIdAndPenalty",
+       "line": 459
+      },
+      {
+       "method": "Cancel_LogsContractIdAndPenalty",
+       "line": 473
+      },
+      {
+       "method": "Accept_Duplicate_LogsWarning",
+       "line": 487
+      },
+      {
+       "method": "Complete_LogsSlotFreed",
+       "line": 501
+      },
+      {
+       "method": "Reset_LogsClearedCounts",
+       "line": 516
+      },
+      {
+       "method": "SetMaxSlots_LogsNewValue",
+       "line": 532
+      },
+      {
+       "method": "DeadlineHelpers_TreatExactDeadlineAsElapsed",
+       "line": 549
+      },
+      {
+       "method": "DeadlineExpired_FreesSlot",
+       "line": 564
+      },
+      {
+       "method": "DeadlineNaN_NeverExpires",
+       "line": 593
+      },
+      {
+       "method": "CompletedBeforeDeadline_NoExpiration",
+       "line": 615
+      },
+      {
+       "method": "CompletedAtDeadline_NotEffectiveAndNotCredited",
+       "line": 644
+      },
+      {
+       "method": "CompletedAfterDeadline_NotEffectiveAndNotCredited",
+       "line": 667
+      },
+      {
+       "method": "DeadlineExpired_CheckDeadlinesReturnsExpiredIds",
+       "line": 690
+      },
+      {
+       "method": "DeadlineExpired_LogsExpiration",
+       "line": 711
+      },
+      {
+       "method": "DuplicateComplete_LogsNotEffective",
+       "line": 730
+      },
+      {
+       "method": "PrePass_InjectsFailForExpiredDeadline",
+       "line": 751
+      },
+      {
+       "method": "PrePass_NoInjectionWhenResolved",
+       "line": 783
+      },
+      {
+       "method": "PrePass_InjectsFailWhenCompletionAfterDeadline",
+       "line": 804
+      },
+      {
+       "method": "PrePass_InjectsFailWhenCompletionAtDeadline",
+       "line": 830
+      },
+      {
+       "method": "PrePass_ExplicitFailOrCancelAfterDeadline_NoSyntheticDuplicate",
+       "line": 858
+      },
+      {
+       "method": "PrePass_NoInjectionWhenDeadlineNaN",
+       "line": 877
+      },
+      {
+       "method": "PrePass_NoInjectionWhenDeadlineInFuture",
+       "line": 893
+      },
+      {
+       "method": "PrePass_NoInjectionWhenFailed",
+       "line": 911
+      },
+      {
+       "method": "PrePass_NoInjectionWhenCancelled",
+       "line": 929
+      },
+      {
+       "method": "PrePass_EmptyActions_NoException",
+       "line": 947
+      },
+      {
+       "method": "Accept_Fail_Reaccept_Complete_Effective",
+       "line": 955
+      },
+      {
+       "method": "PrePass_LogsInjectionCount",
+       "line": 986
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

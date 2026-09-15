@@ -1,0 +1,167 @@
+{
+ "batch_id": "trajectory-orbit-008",
+ "cluster": "trajectory-orbit",
+ "tier": "A",
+ "expected_methods": 37,
+ "files": [
+  {
+   "file": "BallisticExtrapolatorTests.cs",
+   "ranges": [
+    {
+     "start": 1,
+     "end": 1000000000,
+     "methods": [
+      {
+       "method": "ShouldExtrapolate_SurfaceAndHeldStates_ReturnFalse",
+       "line": 43
+      },
+      {
+       "method": "ShouldExtrapolate_UnstableFlightStates_ReturnTrue",
+       "line": 58
+      },
+      {
+       "method": "ShouldExtrapolate_OrbitingStable_ReturnsFalse",
+       "line": 70
+      },
+      {
+       "method": "ShouldExtrapolate_OrbitingDecayingIntoAtmo_ReturnsTrue",
+       "line": 82
+      },
+      {
+       "method": "Extrapolate_SubSurfaceStart_ClassifiesAsDestroyedWithoutRunningScan",
+       "line": 94
+      },
+      {
+       "method": "Extrapolate_SurfaceGrazingStart_DoesNotTripSubSurfaceGuard",
+       "line": 133
+      },
+      {
+       "method": "Extrapolate_JustAboveThresholdStart_DoesNotTripSubSurfaceGuard",
+       "line": 161
+      },
+      {
+       "method": "Extrapolate_JustBelowThresholdStart_TripsSubSurfaceGuard",
+       "line": 181
+      },
+      {
+       "method": "Extrapolate_SuborbitalKerbin_TerminatesAtAtmoEntry",
+       "line": 200
+      },
+      {
+       "method": "TryFindAtmosphericReentryClip_SuborbitalReentry_ClipsAtAtmosphereEntry",
+       "line": 264
+      },
+      {
+       "method": "TryFindAtmosphericReentryClip_GenuineOrbitalCoast_DoesNotClip",
+       "line": 296
+      },
+      {
+       "method": "TryFindAtmosphericReentryClip_PeriapsisJustAboveAtmosphere_DoesNotClip",
+       "line": 320
+      },
+      {
+       "method": "TryFindAtmosphericReentryClip_AirlessBody_DoesNotClip",
+       "line": 343
+      },
+      {
+       "method": "TryFindAtmosphericReentryClip_SecondSegmentReenters_ClipsLaterSegment",
+       "line": 368
+      },
+      {
+       "method": "TryFindAtmosphericReentryClip_SegmentStartsBelowAtmosphere_ClipsAtSegmentStart",
+       "line": 399
+      },
+      {
+       "method": "Extrapolate_InAtmoPlaneArc_TerminatesAtGround",
+       "line": 433
+      },
+      {
+       "method": "Extrapolate_StableOrbit_HitsHorizonCap",
+       "line": 464
+      },
+      {
+       "method": "Extrapolate_StableOrbit_CarriesFrozenPlaybackRotationIntoPredictedSegment",
+       "line": 499
+      },
+      {
+       "method": "ComputeOrbitalFrameRotationFromState_RoundTripsWorldRotation",
+       "line": 533
+      },
+      {
+       "method": "Extrapolate_HyperbolicHomeEscape_HandsOffToStar",
+       "line": 552
+      },
+      {
+       "method": "Extrapolate_HyperbolicHomeEscape_PreservesParentSegmentStartState",
+       "line": 589
+      },
+      {
+       "method": "Extrapolate_SoiTransitions_PreserveFrozenPlaybackWorldRotationAcrossSegments",
+       "line": 643
+      },
+      {
+       "method": "Extrapolate_MaxSoiTransitionsReached_TerminatesAtCap",
+       "line": 716
+      },
+      {
+       "method": "Extrapolate_NonAtmoBody_PqsUnavailable_UsesSeaLevel",
+       "line": 750
+      },
+      {
+       "method": "Extrapolate_TerrainAltitude_SamplesAlongCrossingAndUsesActualSurface",
+       "line": 775
+      },
+      {
+       "method": "Extrapolate_ParentExitWithoutResolver_FailsCleanly",
+       "line": 809
+      },
+      {
+       "method": "Extrapolate_DegenerateStateVector_ReturnsFailureReason",
+       "line": 842
+      },
+      {
+       "method": "Extrapolate_ImmediateParentExit_HandsOffToParent",
+       "line": 873
+      },
+      {
+       "method": "Extrapolate_LongHorizonSeaLevelImpact_NarrowsSurfaceScan",
+       "line": 915
+      },
+      {
+       "method": "Extrapolate_SurfaceCoordinatesResolver_OverridesFallbackLatitudeLongitude",
+       "line": 942
+      },
+      {
+       "method": "TryPropagate_ProducedSegment_RecreatesTerminalState",
+       "line": 982
+      },
+      {
+       "method": "TryPropagate_DegreeLanSegment_PlacesEpochPositionOnRotatedAxis",
+       "line": 1020
+      },
+      {
+       "method": "TryPropagate_DegreeInclinationSegment_ReachesPolarAxis",
+       "line": 1053
+      },
+      {
+       "method": "TryPropagate_DegreeArgumentOfPeriapsisSegment_RotatesPeriapsisAxis",
+       "line": 1085
+      },
+      {
+       "method": "Extrapolate_ProducedSegments_CarryDegreeLanAndArgPe",
+       "line": 1119
+      },
+      {
+       "method": "Extrapolate_ProducedSegments_CarryDegreeInclination",
+       "line": 1161
+      },
+      {
+       "method": "ParentFrameState_MustBeParentRelative_AbsoluteWorldDisplacesTheSoiHandover",
+       "line": 1215
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}
