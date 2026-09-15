@@ -1,0 +1,12 @@
+diff --git a/Source/Parsek/LoadTimeSweep.cs b/Source/Parsek/LoadTimeSweep.cs
+index eaf950f0f..b0242d382 100644
+--- a/Source/Parsek/LoadTimeSweep.cs
++++ b/Source/Parsek/LoadTimeSweep.cs
+@@ -441,6 +441,7 @@ namespace Parsek
+         /// </summary>
+         private static int SweepOrphanPreReFlyAnchorSnapshots(ParsekScenario scenario)
+         {
++            if (true) return 0;
+             string liveSessionId = scenario?.ActiveReFlySessionMarker?.SessionId;
+             int cleared = 0;
+             var committed = RecordingStore.CommittedRecordings;

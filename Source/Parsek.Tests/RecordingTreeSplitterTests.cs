@@ -1535,6 +1535,58 @@ namespace Parsek.Tests
             Assert.Equal(2, siblingAfter.ChainIndex);
         }
 
+        // Mirror direction of the cell above, on the OTHER side of the idempotency
+        // probe. Here the closure root itself looks like a TIP (ChainIndex 1, StartUT at
+        // the rewind UT), so the probe passes and TryFindChainPredecessor -- which
+        // matches purely on (ChainId, ChainBranch, ChainIndex-1) -- hands back an
+        // env-class sibling at slot 0 that ends at 30, NOT at the rewind UT. The Pass-5
+        // M5 EndUT check is what refuses to treat that sibling as HEAD; without it the
+        // splitter replays RunPostSplitSteps against the wrong origin.
+        [Fact]
+        public void SplitOriginAtRewindUT_ChainPredecessorEndUTMismatch_AbortsIdempotentReentry()
+        {
+            // Closure root [34..40]: StartUT == rewindUT and ChainIndex 1, so it reads
+            // as an already-mutated TIP. It does NOT span the rewind UT, so once the
+            // re-entry aborts the strict-span check refuses the fresh split too.
+            var origin = BuildRecording("rec_tip_lookalike", 34.0, 40.0, midUT: 37.0,
+                treeId: "tree_pred_mismatch", terminal: null);
+            origin.ChainId = "chain_pred_mismatch";
+            origin.ChainIndex = 1;
+            var tree = InstallOriginInTree(origin, "tree_pred_mismatch");
+
+            // Slot 0 on the same chain, but its EndUT (30) is an env-transition UT, not
+            // the rewind UT -- exactly the env-class sibling the guard is aimed at.
+            var predecessor = BuildRecording("rec_envclass_predecessor", 8.0, 30.0,
+                midUT: 20.0, treeId: "tree_pred_mismatch", terminal: null);
+            predecessor.ChainId = "chain_pred_mismatch";
+            predecessor.ChainIndex = 0;
+            tree.AddOrReplaceRecording(predecessor);
+            RecordingStore.AddCommittedInternal(predecessor);
+
+            var marker = BuildMarker(origin, rewindUT: 34.0);
+
+            var result = RecordingTreeSplitter.SplitOriginAtRewindUT(marker, null);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[Splitter]")
+                && l.Contains("idempotent re-entry aborted")
+                && l.Contains("rec_envclass_predecessor"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("[Splitter]")
+                && l.Contains("idempotent re-entry — closure root"));
+            // The abort falls through to the strict-span check, which refuses.
+            Assert.True(result.Skipped);
+            Assert.Equal("OriginDoesNotSpanRewindUT", result.SkipReason);
+            Assert.Null(result.TipRecordingId);
+            // No post-split replay ran against the wrong origin: the predecessor keeps
+            // its own bounds and slot, and no third recording was created.
+            Recording predecessorAfter = FindCommitted("rec_envclass_predecessor");
+            Assert.NotNull(predecessorAfter);
+            Assert.Equal(30.0, predecessorAfter.EndUT);
+            Assert.Equal(0, predecessorAfter.ChainIndex);
+            Assert.Equal(2, RecordingStore.CommittedRecordings.Count);
+        }
+
         // =====================================================================
         // 17. Env-homogeneous-origin defensive log (Pass 6 review L4)
         //
