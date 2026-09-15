@@ -1132,7 +1132,7 @@ namespace Parsek.Tests
         [Fact]
         public void BuildColorChangerInfos_NullPartNode_ReturnsNull()
         {
-            var result = GhostVisualBuilder.BuildColorChangerInfos(null, null, 100, "test");
+            var result = GhostVisualBuilder.BuildColorChangerInfos(null, null, null, 100, "test");
             Assert.Null(result);
         }
 
@@ -1142,7 +1142,7 @@ namespace Parsek.Tests
             var partNode = new ConfigNode("PART");
             partNode.AddValue("name", "testPart");
             // No MODULE nodes at all
-            var result = GhostVisualBuilder.BuildColorChangerInfos(partNode, null, 100, "testPart");
+            var result = GhostVisualBuilder.BuildColorChangerInfos(partNode, null, null, 100, "testPart");
             Assert.Null(result);
         }
 
@@ -1159,7 +1159,7 @@ namespace Parsek.Tests
             module.AddValue("toggleInFlight", "True");
             partNode.AddNode(module);
 
-            var result = GhostVisualBuilder.BuildColorChangerInfos(partNode, null, 100, "mk1pod.v2");
+            var result = GhostVisualBuilder.BuildColorChangerInfos(partNode, null, null, 100, "mk1pod.v2");
             Assert.Null(result);
         }
 
@@ -1173,7 +1173,7 @@ namespace Parsek.Tests
             module.AddValue("name", "ModuleCommand");
             partNode.AddNode(module);
 
-            var result = GhostVisualBuilder.BuildColorChangerInfos(partNode, null, 100, "testPart");
+            var result = GhostVisualBuilder.BuildColorChangerInfos(partNode, null, null, 100, "testPart");
             Assert.Null(result);
         }
 

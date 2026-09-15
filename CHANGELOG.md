@@ -689,6 +689,26 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **Ghost cabin lights work again on replayed flights: a pod's or docking port's lit
+  interior now lights up on the ghost the way it did on the flight.** A part whose light
+  is a colour change rather than a lamp - the Mk1-3 pod's cabin lights, a Clamp-O-Tron's
+  ring - is described entirely in the part's own config file, and none of that
+  description is written into a saved game. Parsek was reading only the saved copy, so a
+  ghost built from a recording never learned the part had a light at all, and every
+  recorded light switch was quietly dropped on replay. The ghost builder now reads those
+  fields from the part's config alongside the saved state, which is where they live.
+  Lamps (an actual light source, like the illuminator) were never affected.
+
+- **Permanently-fixed solar panels no longer fill recordings with panel-deployed events
+  that can never show anything.** An OX-STAT flat panel has no deploy animation: it is
+  always out, and there is nothing to animate on replay. Parsek recorded a "deployed"
+  event for each one at the start of every recording anyway - four per typical craft, on
+  every flight. Both the recorder and the ghost builder now decide "this panel has no
+  pose to show" with the same single rule, so the events stop being written and no replay
+  changes visually. Panels that really do fold record and replay exactly as before, and a
+  fixed panel that BREAKS is still recorded and still disappears on the ghost. Recordings
+  already on disk are unaffected.
+
 - **Parsek settings are no longer editable from KSP's own Difficulty Options screen,
   where the edit was quietly thrown away.** That screen used to show a "Parsek" section
   with eight of Parsek's settings in it - verbose logging, the three tracing switches,

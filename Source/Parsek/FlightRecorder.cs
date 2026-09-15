@@ -2025,6 +2025,7 @@ namespace Parsek
             if (v == null || v.parts == null) return;
 
             double ut = Planetarium.GetUniversalTime();
+            int poselessDeployables = 0;
             for (int i = 0; i < v.parts.Count; i++)
             {
                 Part p = v.parts[i];
@@ -2053,6 +2054,16 @@ namespace Parsek
                 // gone, and the ordinary check would read "not extended" and emit a retract.
                 if (isBroken) continue;
 
+                // MIRROR of PartStateSeeder.SeedDeployables' pose-animation gate, and load-bearing
+                // rather than cosmetic: with the seed removed, a pose-less module's first poll
+                // would read EXTENDED against an empty set and emit the very DeployableExtended
+                // the seed no longer writes, one frame later. Both ends read the same predicate.
+                if (PartStateSeeder.DeployableHasNoPoseAnimation(deployable.animationName))
+                {
+                    poselessDeployables++;
+                    continue;
+                }
+
                 // Transitional states — only fire on completed transitions.
                 if (ds == ModuleDeployablePart.DeployState.EXTENDING) continue;
                 if (ds == ModuleDeployablePart.DeployState.RETRACTING) continue;
@@ -2067,6 +2078,12 @@ namespace Parsek
                     ParsekLog.Verbose("Recorder", $"Part event: {evt.Value.eventType} '{evt.Value.partName}' pid={evt.Value.partPersistentId}");
                 }
             }
+
+            // Per-frame poll, so rate-limited and aggregated: one line, never one per panel.
+            if (poselessDeployables > 0)
+                ParsekLog.VerboseRateLimited("Recorder", "deployable-no-pose-animation",
+                    $"Deployable poll skipped {poselessDeployables} pose-animation-less module(s) " +
+                    "(deployable-no-pose-animation gate)", 60.0);
         }
 
         /// <summary>
