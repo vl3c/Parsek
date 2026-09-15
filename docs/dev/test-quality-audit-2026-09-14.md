@@ -1326,6 +1326,9 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
     asserts the `EndOfStreamException` together with the surviving first point's
     DEFAULTED body name - the sparse path the name claims. Renamed
     `TrajectorySidecarBinary_Read_SparsePointList_TruncatedSecondPoint_ThrowsEndOfStreamAfterDefaultedFirstPoint`.
+    Its mutation clears the decoded points when the sparse loop hits end of stream, which
+    reds this cell alone (207 passed, 1 failed) - the earlier mutant forced the dense
+    branch and red the whole sparse family, so it could not show what this cell adds.
   - Source gates bounded / added: F-recording-tree-035-02 (gate 3 now runs inside the
     `BindLiveRecorderToSwitchSegment` body, sliced from its declaration to the
     end-of-Phase-C marker; run file-wide the canonical-bind regex matched the
@@ -1335,10 +1338,18 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
     `DirectForwardingPredicate_StampedIdAndReResolvedTag_Disagree`, which is all the old
     body proved, plus a new wiring gate
     `DirectForwardingCallSites_AllPassStampedEventRecordingId` that walks every
-    `Source/Parsek` file with line comments stripped and requires each
-    `ShouldForwardDirectLedgerEvent` call site to pass `x.recordingId` /
-    `recordingId` / `recordingTag`, never a re-resolved tag, with a 15-call-site floor
-    against a collapsed scan).
+    `Source/Parsek` file with line comments stripped and requires each call site of
+    `ShouldForwardDirectLedgerEvent` AND of the two wrappers that delegate to it
+    (`ShouldForwardFacilityLedgerEvent`, `ShouldForwardDirectScienceSubject`) to pass
+    a `<expr>.recordingId` form, never a re-resolved tag. A bare `recordingId` /
+    `recordingTag` identifier is accepted only inside the two wrappers' own
+    brace-matched bodies, where it is the parameter already carrying the stamped id;
+    anywhere else that spelling can be a local alias re-resolved at decision time,
+    which is the #431 defect class itself. 21-call-site floor against a collapsed
+    scan. Proved by two mutants that the first draft of the gate survived: a local
+    `string recordingId = ResolveCurrentRecordingTag();` alias at
+    `GameStateRecorder.Handlers.cs:144`, and a re-resolved tag passed through the
+    facility wrapper at `GameStateFacilityRecorder.cs:113`).
   - Renamed to what the cell proves (the claimed contract is unreachable from xUnit and is
     named in the body): F-recording-tree-042-04 ->
     `SafeWritePersistent_TestSeamPassthrough_MainMenuDestination_ReturnsSeamValue` (the

@@ -1,13 +1,22 @@
 diff --git a/Source/Parsek/TrajectorySidecarBinary.cs b/Source/Parsek/TrajectorySidecarBinary.cs
-index 61c19dd2c..41e4aaad2 100644
+index 61c19dd2c..d1ae27034 100644
 --- a/Source/Parsek/TrajectorySidecarBinary.cs
 +++ b/Source/Parsek/TrajectorySidecarBinary.cs
-@@ -972,7 +972,7 @@ namespace Parsek
-         private static void ReadSparsePointList(BinaryReader reader, List<TrajectoryPoint> points, List<string> stringTable, int count, int binaryVersion, ref SparsePointReadStats stats)
-         {
-             byte listFlags = reader.ReadByte();
--            if ((listFlags & SparsePointListFlagEnabled) == 0)
-+            if (true) // MUTATION: never take the sparse branch
+@@ -1001,6 +1001,8 @@ namespace Parsek
+             stats.SparsePointLists++;
+             stats.SparsePoints += count;
+ 
++            try
++            {
+             for (int i = 0; i < count; i++)
              {
-                 for (int i = 0; i < count; i++)
-                     points.Add(ReadPoint(reader, stringTable, binaryVersion));
+                 var pt = new TrajectoryPoint
+@@ -1087,6 +1089,8 @@ namespace Parsek
+ 
+                 points.Add(pt);
+             }
++            }
++            catch (EndOfStreamException) { points.Clear(); throw; }
+         }
+ 
+         private static SparsePointListPlan BuildSparsePointListPlan(List<TrajectoryPoint> points)

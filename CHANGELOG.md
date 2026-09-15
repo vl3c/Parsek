@@ -327,8 +327,11 @@ _(unreleased — entries accumulate here per commit)_
   the end-of-stream failure plus the surviving point's defaulted body name. One source gate
   was bounded to the method it guards - run file-wide it was matching a different recorder
   bind further down the file, so mutating the helper it names changed nothing - and one new
-  gate pins that every direct-forward call site passes the recording id stamped on the
-  event rather than re-reading the live tag. Three cells were renamed to what they prove,
+  gate pins that every direct-forward call site, including the two wrappers that delegate
+  to the predicate, passes an `x.recordingId` stamped on the event rather than re-reading
+  the live tag; a bare parameter spelling is accepted only inside those two wrappers' own
+  bodies, so a local alias that re-resolves at decision time is refused everywhere else.
+  Three cells were renamed to what they prove,
   each saying in its body what it cannot witness and why (a save-persist seam that
   short-circuits before the main-menu hard block, a chain-manager cell whose asserted log
   line is the constructor's, and a suppression cell whose boolean cannot discriminate -

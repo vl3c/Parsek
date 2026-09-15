@@ -191,7 +191,7 @@ namespace Parsek.Tests
         // manager with continuation fields set neither clears the committed
         // snapshot nor skips the ctor log. The boarding write itself is pinned
         // by EvaBoardingContinuationStop_PreservesVesselSnapshot above; the
-        // preservation wording at ChainSegmentManager.cs:830-832 is in-game
+        // preservation wording at ChainSegmentManager.cs:846 is in-game
         // territory and stays untested here.
         [Fact]
         public void ChainSegmentManagerWithContinuationFields_LogsCreation_AndLeavesCommittedSnapshot()

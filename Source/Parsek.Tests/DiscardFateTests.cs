@@ -937,52 +937,161 @@ namespace Parsek.Tests
         }
 
         // Source wiring gate for F-recording-tree-033-02: every production call
-        // site of ShouldForwardDirectLedgerEvent must pass the STAMPED event id
-        // (x.recordingId) or a parameter already carrying it - never a fresh
-        // ResolveCurrentRecordingTag() read, which drifts to the new scene's
-        // empty tag during FLIGHT -> KSC teardown and flips the gate to
-        // "forward" (#431). No runtime test can witness this: the sibling cell
-        // above only shows the two inputs disagree.
+        // site of the direct-forward predicate AND of the two wrappers that
+        // delegate to it (ShouldForwardFacilityLedgerEvent,
+        // ShouldForwardDirectScienceSubject) must pass the STAMPED event id
+        // (x.recordingId) - never a fresh ResolveCurrentRecordingTag() read,
+        // which drifts to the new scene's empty tag during FLIGHT -> KSC
+        // teardown and flips the gate to "forward" (#431). A bare recordingId /
+        // recordingTag identifier is accepted ONLY inside the two wrapper
+        // bodies, where it is the wrapper's own parameter already carrying the
+        // stamped id; anywhere else that spelling can be a local alias
+        // re-resolved at decision time, which IS the defect class. No runtime
+        // test can witness this: the sibling cell above only shows the two
+        // inputs disagree.
         [Fact]
         public void DirectForwardingCallSites_AllPassStampedEventRecordingId()
         {
-            const string Call = "ShouldForwardDirectLedgerEvent(";
+            string[] calls =
+            {
+                "ShouldForwardDirectLedgerEvent(",
+                "ShouldForwardFacilityLedgerEvent(",
+                "ShouldForwardDirectScienceSubject(",
+            };
+            // The only bodies where a bare parameter spelling is the stamped id.
+            string[] wrapperDeclarations =
+            {
+                "bool ShouldForwardFacilityLedgerEvent(",
+                "bool ShouldForwardDirectScienceSubject(",
+            };
+
             var offenders = new List<string>();
             int callSites = 0;
 
             foreach (string file in EnumerateParsekSourceFiles())
             {
                 string src = StripLineComments(File.ReadAllText(file));
-                int idx = 0;
-                while ((idx = src.IndexOf(Call, idx, StringComparison.Ordinal)) >= 0)
+                List<int[]> wrapperBodies = FindMethodBodySpans(src, wrapperDeclarations);
+
+                foreach (string call in calls)
                 {
-                    int argStart = idx + Call.Length;
-                    int comma = src.IndexOf(',', argStart);
-                    int close = src.IndexOf(')', argStart);
-                    int end = comma >= 0 && (close < 0 || comma < close) ? comma : close;
-                    idx = argStart;
-                    if (end < 0) continue;
+                    int idx = 0;
+                    while ((idx = src.IndexOf(call, idx, StringComparison.Ordinal)) >= 0)
+                    {
+                        int argStart = idx + call.Length;
+                        idx = argStart;
 
-                    string arg = src.Substring(argStart, end - argStart).Trim();
-                    // The declaration itself ("string recordingTag, bool ...").
-                    if (arg.StartsWith("string ", StringComparison.Ordinal)) continue;
+                        string arg;
+                        if (!TryReadFirstArgument(src, argStart, out arg)) continue;
+                        // The declaration itself ("string recordingTag, bool ...").
+                        if (arg.StartsWith("string ", StringComparison.Ordinal)) continue;
 
-                    callSites++;
-                    bool ok = arg.EndsWith(".recordingId", StringComparison.Ordinal)
-                        || string.Equals(arg, "recordingId", StringComparison.Ordinal)
-                        || string.Equals(arg, "recordingTag", StringComparison.Ordinal);
-                    if (!ok)
-                        offenders.Add(Path.GetFileName(file) + ": " + arg);
+                        callSites++;
+                        bool bareParameter =
+                            string.Equals(arg, "recordingId", StringComparison.Ordinal)
+                            || string.Equals(arg, "recordingTag", StringComparison.Ordinal);
+                        bool ok = arg.EndsWith(".recordingId", StringComparison.Ordinal)
+                            || (bareParameter && IsInsideAnySpan(wrapperBodies, argStart));
+                        if (!ok)
+                            offenders.Add(Path.GetFileName(file) + ": " + call + arg + ")");
+                    }
                 }
             }
 
-            Assert.True(callSites >= 15,
-                "Expected the direct-forward gate to be wired at 15+ call sites; found "
+            Assert.True(callSites >= 21,
+                "Expected the direct-forward gate to be wired at 21+ call sites; found "
                 + callSites + ". A collapsed call-site set means this gate stopped guarding anything.");
             Assert.True(offenders.Count == 0,
-                "Every ShouldForwardDirectLedgerEvent call site must pass the stamped "
-                + "event recording id, not a re-resolved tag. Offenders: "
+                "Every direct-forward call site must pass the stamped event recording id "
+                + "(x.recordingId), not a re-resolved tag or a local alias. Offenders: "
                 + string.Join(" | ", offenders));
+        }
+
+        // Brace-matched [openBrace, closeBrace] spans of the named declarations'
+        // bodies in comment-stripped source.
+        private static List<int[]> FindMethodBodySpans(string src, string[] declarations)
+        {
+            var spans = new List<int[]>();
+            foreach (string decl in declarations)
+            {
+                int idx = 0;
+                while ((idx = src.IndexOf(decl, idx, StringComparison.Ordinal)) >= 0)
+                {
+                    int open = src.IndexOf('{', idx + decl.Length);
+                    idx += decl.Length;
+                    if (open < 0) continue;
+
+                    int depth = 0;
+                    for (int i = open; i < src.Length; i++)
+                    {
+                        if (src[i] == '{') depth++;
+                        else if (src[i] == '}')
+                        {
+                            depth--;
+                            if (depth == 0)
+                            {
+                                spans.Add(new[] { open, i });
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            return spans;
+        }
+
+        private static bool IsInsideAnySpan(List<int[]> spans, int position)
+        {
+            foreach (int[] span in spans)
+                if (position > span[0] && position < span[1]) return true;
+            return false;
+        }
+
+        // First argument of a call whose '(' has already been consumed, with
+        // nested parens and brackets balanced so a call-valued argument reads
+        // whole instead of being cut at its own ')'.
+        private static bool TryReadFirstArgument(string src, int argStart, out string arg)
+        {
+            arg = null;
+            int depth = 0;
+            for (int i = argStart; i < src.Length; i++)
+            {
+                char c = src[i];
+                if (c == '(' || c == '[') depth++;
+                else if (c == ']') depth--;
+                else if (c == ')')
+                {
+                    if (depth == 0)
+                    {
+                        arg = NormalizeWhitespace(src.Substring(argStart, i - argStart));
+                        return true;
+                    }
+                    depth--;
+                }
+                else if (c == ',' && depth == 0)
+                {
+                    arg = NormalizeWhitespace(src.Substring(argStart, i - argStart));
+                    return true;
+                }
+                else if (c == ';' || c == '{')
+                {
+                    return false;
+                }
+            }
+            return false;
+        }
+
+        private static string NormalizeWhitespace(string text)
+        {
+            var sb = new System.Text.StringBuilder(text.Length);
+            bool pendingSpace = false;
+            foreach (char c in text)
+            {
+                if (char.IsWhiteSpace(c)) { pendingSpace = sb.Length > 0; continue; }
+                if (pendingSpace) { sb.Append(' '); pendingSpace = false; }
+                sb.Append(c);
+            }
+            return sb.ToString();
         }
 
         private static IEnumerable<string> EnumerateParsekSourceFiles()
