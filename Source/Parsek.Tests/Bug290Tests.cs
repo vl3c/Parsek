@@ -230,33 +230,27 @@ namespace Parsek.Tests
         [Fact]
         public void MapView_SkipsWarpSuppression()
         {
-            // In map view, suppressGhosts should be false even at high warp
-            // because map markers need the ghost position to be updated.
-            float highWarp = 100f;
-            bool mapViewEnabled = true;
-            bool suppress = !mapViewEnabled
-                && GhostPlaybackLogic.ShouldSuppressGhosts(highWarp);
-            Assert.False(suppress);
+            // The map-view carve-out bug #290 fixed lives in the composition, not in
+            // the warp threshold: GhostPlaybackLogic.ShouldSuppressGhostsInView is what
+            // UpdatePlayback calls, so a dropped mapViewEnabled term reds here. Writing
+            // the composition in the test body pinned only the threshold, which
+            // RuntimePolicyTests.ShouldSuppressGhosts_ThresholdAt50x already owns.
+            Assert.False(GhostPlaybackLogic.ShouldSuppressGhostsInView(
+                mapViewEnabled: true, currentWarpRate: 100f));
         }
 
         [Fact]
         public void FlightView_HighWarp_SuppressesGhosts()
         {
-            float highWarp = 100f;
-            bool mapViewEnabled = false;
-            bool suppress = !mapViewEnabled
-                && GhostPlaybackLogic.ShouldSuppressGhosts(highWarp);
-            Assert.True(suppress);
+            Assert.True(GhostPlaybackLogic.ShouldSuppressGhostsInView(
+                mapViewEnabled: false, currentWarpRate: 100f));
         }
 
         [Fact]
         public void FlightView_LowWarp_DoesNotSuppressGhosts()
         {
-            float lowWarp = 10f;
-            bool mapViewEnabled = false;
-            bool suppress = !mapViewEnabled
-                && GhostPlaybackLogic.ShouldSuppressGhosts(lowWarp);
-            Assert.False(suppress);
+            Assert.False(GhostPlaybackLogic.ShouldSuppressGhostsInView(
+                mapViewEnabled: false, currentWarpRate: 10f));
         }
 
         [Fact]

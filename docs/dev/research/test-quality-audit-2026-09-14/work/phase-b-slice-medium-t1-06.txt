@@ -1,0 +1,14 @@
+F-catchall-006-02	Source/Parsek.Tests/AtomicMarkerWriteTests.cs:526	Phase1And2_NoOnSaveBetween
+F-catchall-010-01	Source/Parsek.Tests/RevertDoubleRolloutTests.cs:440	RepairDuplicateRolloutActions_Idempotent
+F-catchall-021-01	Source/Parsek.Tests/DockUndockChainTests.cs:240	BuildExcludeCrewSet_DockChain_SkipsBranch1
+F-catchall-035-01	Source/Parsek.Tests/DeadReflectionProbeFixTests.cs:49	TheControlSurfaceProbeShakesOutTheSameAsTheAeroOne
+F-catchall-036-01	Source/Parsek.Tests/RenameOnUnfinishedFlightTests.cs:130	Hide_UnfinishedFlight_WarnsAndDoesNotFlip
+F-catchall-050-01	Source/Parsek.Tests/CopyRewindSaveToRootTests.cs:248	NoOp_WhenBothSourcesHaveNoSave
+F-catchall-053-02	Source/Parsek.Tests/DuplicateBlockerRecoveryTests.cs:157	DuplicateBlockerRecovered_PreventsSecondRecoveryCheck
+F-catchall-059-01	Source/Parsek.Tests/AltitudeSplitExtendedTests.cs:117	AltitudeBoundaryConfirmed_LogsCorrectly
+F-catchall-060-01	Source/Parsek.Tests/SaveContaminationTests.cs:86	CommittedTrees_ExplicitClear_RemovesStaleTreesRegardlessOfNewTreeCount
+F-catchall-062-01	Source/Parsek.Tests/BackwardCompatTests.cs:69	RevertDetection_TreeRecordingsCounted_InTotalSavedRecCount
+F-legacy-bugfix-009-02	Source/Parsek.Tests/Bug585InPlaceContinuationRestoreTests.cs:825	ReconcileInPlaceForkIntoTreeIfNeeded_NotInPlaceMarker_NoOp
+F-legacy-bugfix-009-03	Source/Parsek.Tests/Bug585InPlaceContinuationRestoreTests.cs:967	ReconcileInPlaceForkIntoTreeIfNeeded_TreeIdMismatch_NoOp
+F-legacy-bugfix-025-01	Source/Parsek.Tests/Bug290Tests.cs:231	MapView_SkipsWarpSuppression
+F-legacy-bugfix-026-01	Source/Parsek.Tests/Bug414SpawnThrottleTests.cs:158	LoopCycleRebuild_BypassesThrottle_WhenCycleChanged

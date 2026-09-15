@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/ParsekFlight.cs b/Source/Parsek/ParsekFlight.cs
+index 9435ae44c..62c080d9a 100644
+--- a/Source/Parsek/ParsekFlight.cs
++++ b/Source/Parsek/ParsekFlight.cs
+@@ -25275,8 +25275,6 @@ namespace Parsek
+             // AtomicMarkerWrite is the only writer of the
+             // InPlaceContinuation flag and always pairs it with a fresh
+             // provisional recording.
+-            if (!marker.InPlaceContinuation)
+-                return false;
+             if (string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
+                 || string.IsNullOrEmpty(marker.OriginChildRecordingId))
+                 return false;

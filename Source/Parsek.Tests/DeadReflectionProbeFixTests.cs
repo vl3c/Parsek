@@ -46,14 +46,68 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TheControlSurfaceProbeShakesOutTheSameAsTheAeroOne()
+        public void TheControlSurfaceProbeDelegatesToTheAeroProbeRatherThanClassifyingItself()
         {
-            // TryClassifyControlSurfaceState delegates to the aero core; both families share the
-            // `deploy` field because ModuleAeroSurface derives from ModuleControlSurface.
-            var fields = new FakeModuleFieldValues().WithBool("deploy", true);
-            Assert.True(FlightRecorder.TryClassifyAeroSurfaceStateFromFieldValues(
-                fields, out bool isDeployed, out _));
-            Assert.True(isDeployed);
+            // TryClassifyControlSurfaceState takes a live PartModule, so the delegation cannot be
+            // driven headlessly; the behaviour of the shared core is covered by
+            // AnAirbrakeIsClassifiedFromItsRealStockField. What is pinned here is the wiring that
+            // makes that coverage apply to control surfaces at all: the control-surface probe
+            // body's every return is the aero-probe call. A body that classified on its own (or
+            // returned a constant) would leave ModuleControlSurface unprobed on every stock craft
+            // with no cell to notice.
+            string body = ExtractMethodBody(
+                ReadStrippedProductionSource("FlightRecorder.cs"),
+                "internal static bool TryClassifyControlSurfaceState(");
+
+            Assert.True(SourceScanText.ContainsIdentifier(body, "TryClassifyAeroSurfaceState"),
+                "TryClassifyControlSurfaceState no longer calls TryClassifyAeroSurfaceState: " + body);
+
+            var returns = body.Split(new[] { "return" }, System.StringSplitOptions.None).Skip(1).ToList();
+            Assert.NotEmpty(returns);
+            foreach (string tail in returns)
+            {
+                Assert.StartsWith("TryClassifyAeroSurfaceState(", tail.TrimStart());
+            }
+        }
+
+        private static string ReadStrippedProductionSource(string fileName)
+        {
+            string srcRoot = System.IO.Path.GetFullPath(
+                System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory,
+                    "..", "..", "..", "..", "Parsek"));
+            return SourceScanText.StripCommentsAndMaskLiterals(
+                System.IO.File.ReadAllText(System.IO.Path.Combine(srcRoot, fileName)));
+        }
+
+        /// <summary>
+        /// Brace-matched body of the single method whose signature text appears in
+        /// <paramref name="prepared"/> (comment-stripped, literal-masked source), so a
+        /// neighbouring member cannot satisfy the scan.
+        /// </summary>
+        private static string ExtractMethodBody(string prepared, string signature)
+        {
+            int sigIndex = prepared.IndexOf(signature, System.StringComparison.Ordinal);
+            Assert.True(sigIndex >= 0, "signature not found in production source: " + signature);
+            Assert.True(
+                prepared.IndexOf(signature, sigIndex + 1, System.StringComparison.Ordinal) < 0,
+                "signature is not unique in production source: " + signature);
+
+            int open = prepared.IndexOf('{', sigIndex);
+            Assert.True(open >= 0, "no body brace after: " + signature);
+
+            int depth = 0;
+            for (int i = open; i < prepared.Length; i++)
+            {
+                if (prepared[i] == '{') depth++;
+                else if (prepared[i] == '}')
+                {
+                    depth--;
+                    if (depth == 0) return prepared.Substring(open + 1, i - open - 1);
+                }
+            }
+
+            Assert.True(false, "unbalanced braces after: " + signature);
+            return null;
         }
 
         [Fact]

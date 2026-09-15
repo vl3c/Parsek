@@ -111,14 +111,31 @@ namespace Parsek.Tests
             Assert.Equal(expectedThreshold, threshold);
         }
 
-        // --- Log assertion: altitude boundary confirmed ---
+        // --- Fresh-recorder altitude flag defaults ---
 
         [Fact]
-        public void AltitudeBoundaryConfirmed_LogsCorrectly()
+        public void FreshRecorder_AltitudeFlagsDefaultFalse()
         {
-            // Direct test of the pure method — it doesn't log (instance method does).
-            // Verify the FlightRecorder constructor creates valid initial state for altitude fields.
+            // The name this cell used to carry (AltitudeBoundaryConfirmed_LogsCorrectly)
+            // claimed the confirm log; nothing here logs and nothing crosses a boundary.
+            // What it can prove is the field defaults, and those are load-bearing:
+            // ParsekFlight's altitude-phase split early-returns on
+            // !recorder.AltitudeBoundaryCrossed and then reads DescendedBelowThreshold to
+            // pick the phase, so a fresh recorder defaulting either flag to true would
+            // split a phase on a flight that never crossed anything.
+            //
+            // The confirm path itself (CheckAltitudeBoundary -> AltitudeBoundaryCrossed =
+            // true plus the "Altitude boundary confirmed" Info line) needs a live Vessel
+            // with a mainBody, an altitude and a UT, so it stays out of the headless
+            // suite; its pure decision half is covered by ShouldSplitAtAltitudeBoundary
+            // above and in AltitudeSplitTests.
             var recorder = new FlightRecorder();
+            Assert.False(recorder.AltitudeBoundaryCrossed);
+            Assert.False(recorder.DescendedBelowThreshold);
+
+            // The not-recording guard must not set either flag either: this is the state
+            // every physics frame of a stopped recorder lands in.
+            recorder.CheckAltitudeBoundary(null);
             Assert.False(recorder.AltitudeBoundaryCrossed);
             Assert.False(recorder.DescendedBelowThreshold);
         }

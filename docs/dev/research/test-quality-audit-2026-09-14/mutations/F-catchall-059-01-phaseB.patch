@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/FlightRecorder.cs b/Source/Parsek/FlightRecorder.cs
+index 1862354df..159eb6d70 100644
+--- a/Source/Parsek/FlightRecorder.cs
++++ b/Source/Parsek/FlightRecorder.cs
+@@ -1252,7 +1252,7 @@ namespace Parsek
+         private bool altitudeBoundaryPending;
+         private double altitudeBoundaryPendingUT;
+         private double currentAltitudeThreshold;
+-        public bool AltitudeBoundaryCrossed { get; private set; }
++        public bool AltitudeBoundaryCrossed { get; private set; } = true;
+         public bool DescendedBelowThreshold { get; private set; }
+ 
+         // SOI change detection
