@@ -703,6 +703,24 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A flight you continued by clicking Switch-To now answers as ONE flight everywhere,
+  so its Unfinished Flight row cannot be shown and then quietly closed.** Parsek asked
+  two questions about such a flight and answered them over two different recordings:
+  "does this qualify as an Unfinished Flight" was answered over the segment the stock
+  Switch-To opened (which carries how the flight actually ended), while "is that flight
+  still open" was answered over the segment it left behind (which carries no ending at
+  all). Nothing in play had been seen to hit the disagreement, but on paper it goes both
+  ways: a row could be offered and then read as closed, or the promotion that keeps the
+  row alive could be written to a recording the qualify side never looks at. Both
+  questions now walk the same path. The confirmation box that asks before sealing such a
+  flight is part of this: it used to say "Unknown" where the flight's ending belongs, and
+  now names the real ending, so the one dialog that asks approval for something permanent
+  describes what it is about to close. The same correction reaches the seal and stash log
+  lines and four internal safety checks that read a flight's ending and, finding none,
+  used to wave a re-fly through. A real split - an undock, a dock, an EVA, a breakup -
+  still ends the walk exactly where it did, and a switch point with more than one thing
+  hanging off it is left alone rather than guessed at.
+
 - **Parsek settings are no longer editable from KSP's own Difficulty Options screen,
   where the edit was quietly thrown away.** That screen used to show a "Parsek" section
   with eight of Parsek's settings in it - verbose logging, the three tracing switches,
