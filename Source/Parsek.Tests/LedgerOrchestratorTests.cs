@@ -3144,7 +3144,7 @@ namespace Parsek.Tests
             Assert.False(deathRow.InsideReputationSeed);
             Assert.Contains(logLines, l =>
                 l.Contains("[LedgerOrchestrator]") &&
-                l.Contains("1 KerbalDeath rep penalty row(s) were stamped inside a seed") &&
+                l.Contains("1 reputation row(s) were stamped inside a seed") &&
                 l.Contains("read from career start") &&
                 l.Contains("re-stamped outside so the walk applies them"));
 
@@ -3153,7 +3153,7 @@ namespace Parsek.Tests
             Assert.Equal(-7.999828f, WalkReputation(), 1e-4f);
             Assert.Equal(-9.999828f, deathRow.EffectiveRep, 1e-4f);
             Assert.DoesNotContain(logLines, l =>
-                l.Contains("KerbalDeath rep penalty is inside the reputation seed"));
+                l.Contains("Reputation row is inside the reputation seed"));
         }
 
         // Same repair through the other career-start branch: a career-start baseline is
@@ -3221,12 +3221,12 @@ namespace Parsek.Tests
             Assert.Equal(0f, deathRow.EffectiveRep);
         }
 
-        // Only KerbalDeath rows carry the seed hazard, so only they are re-stamped. A
-        // non-KerbalDeath penalty stamped inside is left exactly as it was: the module
-        // applies it regardless of the stamp, and touching it here would widen the fix
-        // into reconstruction changes nobody asked for.
+        // THE GENERALIZATION, and this cell used to assert the opposite: the re-stamp was
+        // scoped to KerbalDeath rows. The seed is ONE absolute figure, so a career-start
+        // value fails to contain a milestone exactly as it fails to contain a death, and
+        // every reputation-affecting row stamped inside is now flipped back.
         [Fact]
-        public void RestampInsideSeedRows_NonKerbalDeathRow_IsLeftAlone()
+        public void RestampInsideSeedRows_EveryRepAffectingRow_IsFlippedBack()
         {
             var otherRow = new GameAction
             {
@@ -3237,14 +3237,195 @@ namespace Parsek.Tests
                 NominalPenalty = 5f,
                 InsideReputationSeed = true
             };
+            var milestoneRow = new GameAction
+            {
+                Type = GameActionType.MilestoneAchievement,
+                UT = 12.5,
+                RecordingId = "rec_other",
+                MilestoneId = "Progression",
+                MilestoneRepAwarded = 1f,
+                Effective = true,
+                InsideReputationSeed = true
+            };
             Ledger.AddAction(otherRow);
+            Ledger.AddAction(milestoneRow);
 
             LedgerOrchestrator.RestampInsideSeedRowsAgainstCareerStartSeed(
                 ReputationSeedOrigin.CreatedThisCommitFromRefusalFallback);
 
-            Assert.True(otherRow.InsideReputationSeed);
+            Assert.False(otherRow.InsideReputationSeed);
+            Assert.False(milestoneRow.InsideReputationSeed);
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("2 reputation row(s) were stamped inside a seed") &&
+                l.Contains("re-stamped outside so the walk applies them"));
+        }
+
+        // A row that moves no reputation never carries the flag and is never touched by
+        // the re-stamp, whatever a caller managed to set on it.
+        [Fact]
+        public void RestampInsideSeedRows_NonReputationRow_IsLeftAlone()
+        {
+            var fundsRow = new GameAction
+            {
+                Type = GameActionType.FundsEarning,
+                UT = 50.0,
+                RecordingId = "rec_other",
+                FundsAwarded = 100f,
+                InsideReputationSeed = true
+            };
+            Ledger.AddAction(fundsRow);
+
+            LedgerOrchestrator.RestampInsideSeedRowsAgainstCareerStartSeed(
+                ReputationSeedOrigin.CreatedThisCommitFromRefusalFallback);
+
+            Assert.True(fundsRow.InsideReputationSeed);
             Assert.DoesNotContain(logLines, l =>
                 l.Contains("re-stamped outside so the walk applies them"));
+        }
+
+        // ================================================================
+        // StampReputationRowsAgainstSeed - the producer-side stamp
+        // ================================================================
+
+        private static GameAction MakeMilestoneRow(double ut, float rep = 1f)
+        {
+            return new GameAction
+            {
+                Type = GameActionType.MilestoneAchievement,
+                UT = ut,
+                RecordingId = "rec_stamp",
+                MilestoneId = "Progression",
+                MilestoneRepAwarded = rep,
+                Effective = true
+            };
+        }
+
+        // An origin that says "the seed contains what this commit files" stamps every
+        // reputation-affecting row and leaves everything else alone.
+        [Fact]
+        public void StampReputationRows_InsideSeedOrigin_StampsOnlyTheRepRows()
+        {
+            var milestone = MakeMilestoneRow(12.5);
+            var funds = new GameAction
+            {
+                Type = GameActionType.FundsEarning,
+                UT = 12.5,
+                RecordingId = "rec_stamp",
+                FundsAwarded = 800f
+            };
+            var rows = new List<GameAction> { milestone, funds, null };
+
+            int stamped = LedgerOrchestrator.StampReputationRowsAgainstSeed(
+                rows, ReputationSeedOrigin.CreatedThisCommitFromLivePool, "recording=rec_stamp");
+
+            Assert.Equal(1, stamped);
+            Assert.True(milestone.InsideReputationSeed);
+            Assert.False(funds.InsideReputationSeed);
+            Assert.Contains(logLines, l =>
+                l.Contains("[LedgerOrchestrator]") &&
+                l.Contains("Reputation seed stamp: 1 row(s) stamped insideRepSeed=True") &&
+                l.Contains("recording=rec_stamp") &&
+                l.Contains("repSeedOrigin=CreatedThisCommitFromLivePool"));
+        }
+
+        // NotYetCaptured is the other inside-seed origin: the seed is deferred and will be
+        // read off a later live pool that has already taken these rows.
+        [Fact]
+        public void StampReputationRows_NotYetCaptured_AlsoStamps()
+        {
+            var milestone = MakeMilestoneRow(12.5);
+
+            int stamped = LedgerOrchestrator.StampReputationRowsAgainstSeed(
+                new List<GameAction> { milestone },
+                ReputationSeedOrigin.NotYetCaptured, "recording=rec_stamp");
+
+            Assert.Equal(1, stamped);
+            Assert.True(milestone.InsideReputationSeed);
+        }
+
+        // The three career-start / pre-existing origins describe a seed that cannot
+        // contain these rows, so nothing is stamped and nothing is logged.
+        [Fact]
+        public void StampReputationRows_OutsideSeedOrigins_StampNothing()
+        {
+            var origins = new[]
+            {
+                ReputationSeedOrigin.PreExisting,
+                ReputationSeedOrigin.CreatedThisCommitFromCareerBaseline,
+                ReputationSeedOrigin.CreatedThisCommitFromRefusalFallback
+            };
+
+            foreach (var origin in origins)
+            {
+                var milestone = MakeMilestoneRow(12.5);
+
+                int stamped = LedgerOrchestrator.StampReputationRowsAgainstSeed(
+                    new List<GameAction> { milestone }, origin, "recording=rec_stamp");
+
+                Assert.Equal(0, stamped);
+                Assert.False(milestone.InsideReputationSeed);
+            }
+
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("Reputation seed stamp:"));
+        }
+
+        // Idempotent: a row the KerbalDeath producer already stamped in step 3d is
+        // counted as already-stamped rather than re-counted, and the pass never flips a
+        // stamp back out - that is the re-stamp method's job, at the seed's own site.
+        [Fact]
+        public void StampReputationRows_AlreadyStampedRow_IsNotRecounted()
+        {
+            var death = MakeInsideSeedKerbalDeathRow(119.92, 9.999828f);
+
+            int stamped = LedgerOrchestrator.StampReputationRowsAgainstSeed(
+                new List<GameAction> { death },
+                ReputationSeedOrigin.CreatedThisCommitFromLivePool, "recording=rec_stamp");
+
+            Assert.Equal(0, stamped);
+            Assert.True(death.InsideReputationSeed);
+            Assert.Contains(logLines, l =>
+                l.Contains("Reputation seed stamp: 0 row(s) stamped insideRepSeed=True") &&
+                l.Contains("(1 already stamped)"));
+        }
+
+        // THE MIRROR DIRECTION. The stamp reads production order and nothing else: a row
+        // whose game UT is EARLIER than the seed's capture UT - which is every row a
+        // re-fly from a RewindPoint files - is stamped or not by the ORIGIN alone. Under
+        // an outside-seed origin it keeps applying however small its UT is.
+        [Fact]
+        public void StampReputationRows_EarlyUtRowUnderAnOutsideOrigin_IsNotStamped()
+        {
+            var early = MakeMilestoneRow(1.0);
+            var late = MakeMilestoneRow(9999.0);
+
+            LedgerOrchestrator.StampReputationRowsAgainstSeed(
+                new List<GameAction> { early, late },
+                ReputationSeedOrigin.PreExisting, "recording=rec_refly");
+
+            Assert.False(early.InsideReputationSeed);
+            Assert.False(late.InsideReputationSeed);
+
+            // And under an inside-seed origin BOTH are stamped - the UT never splits them.
+            LedgerOrchestrator.StampReputationRowsAgainstSeed(
+                new List<GameAction> { early, late },
+                ReputationSeedOrigin.CreatedThisCommitFromLivePool, "recording=rec_refly");
+
+            Assert.True(early.InsideReputationSeed);
+            Assert.True(late.InsideReputationSeed);
+        }
+
+        // An empty or null list is a no-op with no log line.
+        [Fact]
+        public void StampReputationRows_EmptyList_IsANoOp()
+        {
+            Assert.Equal(0, LedgerOrchestrator.StampReputationRowsAgainstSeed(
+                null, ReputationSeedOrigin.CreatedThisCommitFromLivePool, "ctx"));
+            Assert.Equal(0, LedgerOrchestrator.StampReputationRowsAgainstSeed(
+                new List<GameAction>(),
+                ReputationSeedOrigin.CreatedThisCommitFromLivePool, "ctx"));
+            Assert.DoesNotContain(logLines, l => l.Contains("Reputation seed stamp:"));
         }
 
         // ================================================================

@@ -689,6 +689,25 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Fixed
 
+- **A reputation award earned during a flight is no longer counted twice on a career
+  Parsek first meets mid-game.** Parsek has to guess a starting reputation for a save
+  that was already under way when it was installed, and it does that by reading the
+  live reputation the first time it commits a flight. That reading already contains
+  whatever the flight just earned - a progress milestone, a contract reward, the
+  reputation hit of a crew loss - and the flight's own record of the same award was
+  then added on top of it. On a measured case a single +1 "Progression" milestone came
+  out as +2 and was written back into the career that way. Awards earned before that
+  first reading are now marked as already counted, so the rebuilt reputation matches
+  what the game itself is showing. Only the crew-death hit was handled this way
+  before; milestones, contract completions, contract failures and cancellations,
+  strategy setup costs and every other reputation change now are too. The marking
+  follows the order the rows were produced in, never the mission clock, because
+  rewinding a flight moves the clock backwards - so a re-flown mission whose clock
+  reads earlier than the first reading still counts normally. When the starting
+  reputation later turns out to come from the career's own beginning instead of the
+  live pool, everything marked is unmarked again and counted as usual. Saves written
+  before this change carry no mark and behave exactly as they did.
+
 - **Parsek settings are no longer editable from KSP's own Difficulty Options screen,
   where the edit was quietly thrown away.** That screen used to show a "Parsek" section
   with eight of Parsek's settings in it - verbose logging, the three tracing switches,

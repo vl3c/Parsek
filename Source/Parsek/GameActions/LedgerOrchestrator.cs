@@ -372,6 +372,17 @@ namespace Parsek
                 recordingId, startUT, endUT, repSeedOrigin);
             actions.AddRange(deathRepActions);
 
+            // 3e. THE INSIDE-SEED STAMP, for every OTHER reputation-changing row this
+            // commit is about to file. Steps 1-3d produced them from the recording's
+            // captured events, so they are under exactly the production-order rule the
+            // death row is: whatever the seed was, or will be, read from had already
+            // taken their hit too. Measured on 2026-09-09_1815_CL-4-refly-crew-standin -
+            // a +1 'Progression' milestone raised the live pool to 0.999999464, the seed
+            // was taken at that value, the walk applied the milestone row again, and
+            // PatchReputation wrote 1.00 -> 2.00 into the career. The death row stamps
+            // itself in 3d with the same answer, so this pass finds it already stamped.
+            StampReputationRowsAgainstSeed(actions, repSeedOrigin, "recording=" + recordingId);
+
             // 4. Deduplicate: remove actions already in the ledger from KSC real-time writes.
             // KSC events (tech, facility, hire, milestone) written via OnKscSpending may overlap
             // with the recording's time range. Compare by type + UT + key to avoid double-adding.
@@ -1617,7 +1628,7 @@ namespace Parsek
                     $"(ut={decision.UT.ToString("R", CultureInfo.InvariantCulture)})");
             }
 
-            bool insideSeed = KerbalDeathRepPenalty.IsInsideReputationSeed(repSeedOrigin);
+            bool insideSeed = ReputationSeedMembership.IsInsideReputationSeed(repSeedOrigin);
 
             result.Add(new GameAction
             {
@@ -2183,6 +2194,76 @@ namespace Parsek
         }
 
         /// <summary>
+        /// The KSC live-write door's half of the inside-seed stamp: ensure the reputation
+        /// seed exists BEFORE <paramref name="action"/> reaches the ledger, then stamp the
+        /// row against where that seed came from. A no-op for every row
+        /// <see cref="ReputationSeedMembership.IsReputationAffectingRow"/> answers false
+        /// for, so the tech / facility / hire doors are untouched.
+        /// </summary>
+        private static void EnsureReputationSeedAndStampKscRow(GameAction action, string context)
+        {
+            if (action == null) return;
+            if (!ReputationSeedMembership.IsReputationAffectingRow(action.Type)) return;
+
+            ReputationSeedOrigin origin = EnsureReputationSeedForCommit();
+            StampReputationRowsAgainstSeed(new List<GameAction> { action }, origin, context);
+        }
+
+        /// <summary>
+        /// Stamps <see cref="GameAction.InsideReputationSeed"/> on every reputation-changing
+        /// row in <paramref name="actions"/> that is inside the seed described by
+        /// <paramref name="repSeedOrigin"/>. Returns how many rows it changed.
+        ///
+        /// <para>
+        /// PRODUCTION ORDER, NOT UT, and that is the whole contract. The rows handed here
+        /// are the ones the calling producer is about to file; the origin says whether the
+        /// pool the seed came from had already taken their hit. Nothing in this method
+        /// reads <see cref="GameAction.UT"/>, deliberately: a re-fly from a RewindPoint
+        /// files rows whose game UT is EARLIER than the seed's capture UT and which must
+        /// still apply, and the mirror case reads the other way round.
+        /// </para>
+        ///
+        /// <para>
+        /// Idempotent and additive-only: a row already stamped inside is left alone and
+        /// never counted, and no row is ever flipped OUT here - that is
+        /// <see cref="RestampInsideSeedRowsAgainstCareerStartSeed"/>'s job, at the seed's
+        /// own creation site. The rows are not in the ledger yet on the commit path, so no
+        /// StateVersion bump is owed; the KSC doors stamp before their own
+        /// <c>Ledger.AddAction</c> for the same reason.
+        /// </para>
+        /// </summary>
+        internal static int StampReputationRowsAgainstSeed(
+            IList<GameAction> actions, ReputationSeedOrigin repSeedOrigin, string context)
+        {
+            if (actions == null || actions.Count == 0)
+                return 0;
+            if (!ReputationSeedMembership.IsInsideReputationSeed(repSeedOrigin))
+                return 0;
+
+            int stamped = 0, alreadyStamped = 0;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                var action = actions[i];
+                if (action == null) continue;
+                if (!ReputationSeedMembership.IsReputationAffectingRow(action.Type)) continue;
+                if (action.InsideReputationSeed) { alreadyStamped++; continue; }
+
+                action.InsideReputationSeed = true;
+                stamped++;
+            }
+
+            if (stamped == 0 && alreadyStamped == 0)
+                return 0;
+
+            ParsekLog.Info(Tag,
+                $"Reputation seed stamp: {stamped.ToString(CultureInfo.InvariantCulture)} row(s) " +
+                $"stamped insideRepSeed=True " +
+                $"({alreadyStamped.ToString(CultureInfo.InvariantCulture)} already stamped) " +
+                $"for {context ?? "(none)"} - repSeedOrigin={repSeedOrigin}");
+            return stamped;
+        }
+
+        /// <summary>
         /// Flips every KerbalDeath <see cref="GameActionType.ReputationPenalty"/> row that
         /// is stamped INSIDE the reputation seed back to OUTSIDE, because the seed this
         /// call just created carries a career-start value that cannot contain those deaths.
@@ -2216,7 +2297,7 @@ namespace Parsek
         /// </summary>
         internal static void RestampInsideSeedRowsAgainstCareerStartSeed(ReputationSeedOrigin origin)
         {
-            if (!KerbalDeathRepPenalty.CareerStartSeedInvalidatesInsideStamps(origin))
+            if (!ReputationSeedMembership.CareerStartSeedInvalidatesInsideStamps(origin))
                 return;
 
             var actions = Ledger.Actions;
@@ -2225,8 +2306,7 @@ namespace Parsek
             {
                 var action = actions[i];
                 if (action == null) continue;
-                if (action.Type != GameActionType.ReputationPenalty) continue;
-                if (action.RepPenaltySource != ReputationPenaltySource.KerbalDeath) continue;
+                if (!ReputationSeedMembership.IsReputationAffectingRow(action.Type)) continue;
                 if (!action.InsideReputationSeed) continue;
 
                 action.InsideReputationSeed = false;
@@ -2245,7 +2325,7 @@ namespace Parsek
                 : "the career-start baseline";
             ParsekLog.Info(Tag,
                 $"SeedInitialReputation: {restamped.ToString(CultureInfo.InvariantCulture)} " +
-                $"KerbalDeath rep penalty row(s) were stamped inside a seed that was then " +
+                $"reputation row(s) were stamped inside a seed that was then " +
                 $"read from {seedSource}; re-stamped outside so the walk applies them");
         }
 
@@ -2321,7 +2401,22 @@ namespace Parsek
                 // own KerbalDeath row talk the seed out of the live pool it belongs to,
                 // seeding career start with a WARN on a save that was only waiting for a
                 // non-zero pool.
-                if (action != null && action.InsideReputationSeed)
+                //
+                // DELIBERATELY STILL SCOPED TO KerbalDeath, even though the stamp itself
+                // was generalized to every reputation-affecting row in 2026-09-15. This
+                // predicate does not decide whether a row is applied - it decides WHICH
+                // BRANCH creates the seed. Skipping stamped milestone / contract rows here
+                // too would talk the refusal branch out of firing on a save whose ledger
+                // really does carry reputation history, changing the seed VALUE (and with
+                // it the reconstruction) for every such save in one step nothing has
+                // flown. Measured consequence of keeping it narrow: CL-2-pod-impact-ledger
+                // takes the same refusal branch it took on 2026-09-09_2316, seeds career
+                // start, and RestampInsideSeedRowsAgainstCareerStartSeed flips every
+                // stamped row back out - so its armed ledger totals are untouched.
+                if (action != null
+                    && action.InsideReputationSeed
+                    && action.Type == GameActionType.ReputationPenalty
+                    && action.RepPenaltySource == ReputationPenaltySource.KerbalDeath)
                     continue;
 
                 if (ActionTouchesReputationBudget(action))
@@ -3778,6 +3873,17 @@ namespace Parsek
             kscSequenceCounter++;
             action.Sequence = kscSequenceCounter;
 
+            // THE SEED, BEFORE THE ROW, and only for a reputation-changing one. Same
+            // ordering argument as OnRecordingCommitted's step 3c-post: the recalc at the
+            // bottom of this method would otherwise be the first ensure, by which time
+            // this row is already in the ledger - so the seed's refusal branch would see
+            // its own fresh row through LedgerHasReputationTimelineActions and decline the
+            // live pool because of it, and the row could not be told whether the pool it
+            // will be seeded from had already taken this award. Stock applies a KSC award
+            // the moment it happens, so a live-pool seed read after it contains it.
+            // Non-reputation KSC rows (tech, facility, hire) take neither call.
+            EnsureReputationSeedAndStampKscRow(action, "ksc " + action.Type);
+
             Ledger.AddAction(action);
 
             ParsekLog.Info(Tag,
@@ -3887,6 +3993,7 @@ namespace Parsek
 
                 kscSequenceCounter++;
                 action.Sequence = kscSequenceCounter;
+                EnsureReputationSeedAndStampKscRow(action, "strategy conversion " + action.Type);
                 Ledger.AddAction(action);
                 written++;
 
