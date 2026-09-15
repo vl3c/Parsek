@@ -718,13 +718,36 @@ namespace Parsek
         /// Remove a replacement kerbal from the roster if they're still Available.
         /// If the replacement is Assigned (on a mission), leave them as a "real" kerbal.
         /// </summary>
-        private static void CleanUpReplacement(string originalName, KerbalRoster roster)
+        /// <summary>
+        /// The mapping half of <see cref="CleanUpReplacement"/>: drop the
+        /// original-to-stand-in entry and hand back the stand-in name, WITHOUT
+        /// touching the rescue-placed marker (see the contract note in
+        /// CleanUpReplacement below). Shared with the xUnit seam
+        /// <c>CleanUpReplacementForTesting</c> so the marker invariant is pinned
+        /// on the code the game runs, not on a copy of it: the roster half needs a
+        /// live KerbalRoster and cannot run headlessly.
+        /// Returns false when there was no mapping for the name.
+        /// </summary>
+        internal static bool TryRemoveReplacementMappingPreservingRescueMarker(
+            string originalName, out string replacementName)
         {
-            if (!crewReplacements.TryGetValue(originalName, out string replacementName))
-                return;
+            if (originalName == null
+                || !crewReplacements.TryGetValue(originalName, out replacementName))
+            {
+                replacementName = null;
+                return false;
+            }
 
             // Always remove the mapping
             crewReplacements.Remove(originalName);
+            return true;
+        }
+
+        private static void CleanUpReplacement(string originalName, KerbalRoster roster)
+        {
+            if (!TryRemoveReplacementMappingPreservingRescueMarker(
+                    originalName, out string replacementName))
+                return;
 
             // #615 P1 review (third pass): the rescue-placed marker is
             // INTENTIONALLY NOT cleared here. The Re-Fly spawn pipeline runs

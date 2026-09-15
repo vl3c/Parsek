@@ -48,11 +48,11 @@ namespace Parsek
         internal static void CleanUpReplacementForTesting(string originalName)
         {
             if (string.IsNullOrEmpty(originalName)) return;
-            // Mirrors the production CleanUpReplacement dictionary path:
-            // remove the entry, do NOT touch the rescue-placed marker. The
-            // roster-touching cleanup is intentionally omitted because
-            // it has no effect on the marker contract.
-            crewReplacements.Remove(originalName);
+            // Runs the PRODUCTION dictionary path of CleanUpReplacement, not a copy
+            // of it: remove the entry, do NOT touch the rescue-placed marker. The
+            // roster-touching half is intentionally omitted because it needs a live
+            // KerbalRoster and has no effect on the marker contract.
+            TryRemoveReplacementMappingPreservingRescueMarker(originalName, out _);
         }
 
         /// <summary>

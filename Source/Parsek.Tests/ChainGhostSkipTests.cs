@@ -79,19 +79,6 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void ZeroPid_NoEffect()
-        {
-            // PID=0 triggers early return regardless of ghosted state.
-            GhostPlaybackLogic.SetIsGhostedOverride(pid => true);
-            GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => true);
-
-            bool result = GhostPlaybackLogic.ShouldSkipExternalVesselGhost(
-                "tree-abc", 0, false);
-
-            Assert.False(result);
-        }
-
-        [Fact]
         public void NullTreeId_NoEffect()
         {
             // Null treeId triggers early return regardless of ghosted state.

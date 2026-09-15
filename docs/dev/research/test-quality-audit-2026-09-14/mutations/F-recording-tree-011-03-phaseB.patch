@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/ParsekScenario.cs b/Source/Parsek/ParsekScenario.cs
+index 0df59bde9..5b2662f42 100644
+--- a/Source/Parsek/ParsekScenario.cs
++++ b/Source/Parsek/ParsekScenario.cs
+@@ -751,8 +751,7 @@ namespace Parsek
+             bool activeTreeRestoredFromSave)
+         {
+             return hasPendingTree
+-                && pendingTreeState == PendingTreeState.Limbo
+-                && !activeTreeRestoredFromSave;
++                && pendingTreeState == PendingTreeState.Limbo;
+         }
+ 
+         /// <summary>

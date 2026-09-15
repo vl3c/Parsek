@@ -736,6 +736,26 @@ namespace Parsek
         }
 
         /// <summary>
+        /// Diagnostic classification used by OnLoad's revert-detection log line
+        /// (bug #300): a pending tree that StashActiveTreeAsPendingLimbo put into
+        /// Limbo, where the save handed to TryRestoreActiveTreeNode carried no
+        /// active tree to overwrite it with. A quickload (F5/F9) always restores
+        /// an active tree from the save, so it never reads as orphaned.
+        ///
+        /// <para>Pure so it can be unit-tested; the OnLoad call site is not
+        /// reachable from xUnit (ScenarioModule lifecycle).</para>
+        /// </summary>
+        internal static bool ComputeHasOrphanedLimboTree(
+            bool hasPendingTree,
+            PendingTreeState pendingTreeState,
+            bool activeTreeRestoredFromSave)
+        {
+            return hasPendingTree
+                && pendingTreeState == PendingTreeState.Limbo
+                && !activeTreeRestoredFromSave;
+        }
+
+        /// <summary>
         /// Disposition of the OnLoad pending-Limbo dispatch. The block this
         /// classifies only runs when a pending tree is in Limbo or
         /// LimboVesselSwitch; on a revert the branch above has already discarded
@@ -3498,9 +3518,10 @@ namespace Parsek
                     // StashActiveTreeAsPendingLimbo call before this OnLoad.
                     // Quickloads (F5/F9) always have an active tree in the save file
                     // because OnSave writes it, so activeTreeRestoredFromSave=true.
-                    bool hasOrphanedLimboTree = RecordingStore.HasPendingTree
-                        && RecordingStore.PendingTreeStateValue == PendingTreeState.Limbo
-                        && !activeTreeRestoredFromSave;
+                    bool hasOrphanedLimboTree = ComputeHasOrphanedLimboTree(
+                        RecordingStore.HasPendingTree,
+                        RecordingStore.PendingTreeStateValue,
+                        activeTreeRestoredFromSave);
                     // #434: event-based revert detection. GameEvents.OnRevertTo{Launch,Prelaunch}FlightState
                     // fires synchronously inside FlightDriver.RevertToLaunch / RevertToPrelaunch,
                     // BEFORE HighLogic.LoadScene, so by the time OnLoad runs the flag is set.

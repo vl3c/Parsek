@@ -920,8 +920,8 @@ namespace Parsek.Tests
         public void CommitTree_AlreadyConcludedOrbitingChild_StaysImmutable()
         {
             // A previously concluded (sealed) orbiting child: its tip is
-            // already Immutable when the tree is committed. The first-commit
-            // guard skips it on re-commit, and promotion does not re-open it.
+            // already Immutable when the promotion pass runs again. The
+            // first-commit guard skips it, and promotion does not re-open it.
             // Open/closed is read from the tip MergeState, so the slot stays
             // closed (collapse-seal-into-mergestate).
             var tree = MakeTreeWithBranch("stable_leaf_sealed_tree");
@@ -948,9 +948,12 @@ namespace Parsek.Tests
             RecordingStore.CommitTree(tree);
             Assert.Equal(MergeState.CommittedProvisional, tree.Recordings["child2"].MergeState);
 
-            // Seal it (flip the tip to Immutable), then re-commit the tree.
+            // Seal it (flip the tip to Immutable), then re-run the promotion pass
+            // the way a later CommitTree would. A second CommitTree(tree) returns at
+            // the reference-equal duplicate skip before the pass runs, so it could not
+            // witness the first-commit guard this cell is named for.
             tree.Recordings["child2"].MergeState = MergeState.Immutable;
-            RecordingStore.CommitTree(tree);
+            RecordingStore.ApplyRewindProvisionalMergeStatesForTesting(tree);
 
             Assert.Equal(MergeState.Immutable, tree.Recordings["child1"].MergeState);
             // The first-commit guard keeps the concluded tip Immutable; the
