@@ -68,40 +68,50 @@ namespace Parsek.Tests
         [Fact]
         public void RevertDetection_TreeRecordingsCounted_InTotalSavedRecCount()
         {
-            // Simulate the counting logic from ParsekScenario.OnLoad lines 235-242:
-            //   savedTreeRecCount = sum of RECORDING nodes inside each RECORDING_TREE
-            //   totalSavedRecCount = savedRecNodes.Length + savedTreeRecCount
-
-            // Build a scenario ConfigNode with 2 standalone RECORDING nodes
+            // ParsekScenario.CountSavedCommittedRecordingNodes is the production
+            // arithmetic OnLoad's revert classification runs on. Re-implementing the
+            // loop in the test body (as this cell used to) also got the rule wrong:
+            // in-flight and pending marker trees are NOT committed and must not count.
             var scenarioNode = new ConfigNode("SCENARIO");
             scenarioNode.AddNode("RECORDING");
             scenarioNode.AddNode("RECORDING");
 
-            // Build 1 RECORDING_TREE node containing 2 RECORDING child nodes
             var treeNode = scenarioNode.AddNode("RECORDING_TREE");
             treeNode.AddValue("id", "tree1");
             treeNode.AddValue("treeName", "Test Tree");
             treeNode.AddValue("rootRecordingId", "r1");
-            var recNode1 = treeNode.AddNode("RECORDING");
-            recNode1.AddValue("recordingId", "r1");
-            recNode1.AddValue("vesselName", "Ship 1");
-            var recNode2 = treeNode.AddNode("RECORDING");
-            recNode2.AddValue("recordingId", "r2");
-            recNode2.AddValue("vesselName", "Ship 2");
+            treeNode.AddNode("RECORDING").AddValue("recordingId", "r1");
+            treeNode.AddNode("RECORDING").AddValue("recordingId", "r2");
 
-            // Replicate the counting logic from ParsekScenario.OnLoad
-            ConfigNode[] savedRecNodes = scenarioNode.GetNodes("RECORDING");
-            ConfigNode[] savedTreeNodes = scenarioNode.GetNodes("RECORDING_TREE");
-            int savedTreeRecCount = 0;
-            for (int t = 0; t < savedTreeNodes.Length; t++)
-                savedTreeRecCount += savedTreeNodes[t].GetNodes("RECORDING").Length;
-            int totalSavedRecCount = savedRecNodes.Length + savedTreeRecCount;
+            // In-flight marker tree: its recordings are not committed.
+            var activeNode = scenarioNode.AddNode("RECORDING_TREE");
+            activeNode.AddValue("id", "tree_active");
+            activeNode.AddValue("isActive", "True");
+            activeNode.AddNode("RECORDING").AddValue("recordingId", "r3");
 
-            // 2 standalone + 2 tree recordings = 4 total
-            Assert.Equal(2, savedRecNodes.Length);
-            Assert.Single(savedTreeNodes);
+            // Finalized pending tree: likewise not committed yet.
+            var pendingNode = scenarioNode.AddNode("RECORDING_TREE");
+            pendingNode.AddValue("id", "tree_pending");
+            pendingNode.AddValue("isPending", "True");
+            pendingNode.AddNode("RECORDING").AddValue("recordingId", "r4");
+
+            int savedTreeRecCount;
+            int totalSavedRecCount = ParsekScenario.CountSavedCommittedRecordingNodes(
+                scenarioNode, out savedTreeRecCount);
+
+            // 2 standalone + 2 committed tree recordings; the marker trees' two
+            // recordings are excluded.
             Assert.Equal(2, savedTreeRecCount);
             Assert.Equal(4, totalSavedRecCount);
+
+            // A save with no nodes at all counts zero rather than throwing, and a null
+            // node (no SCENARIO written yet) is the same answer.
+            Assert.Equal(0, ParsekScenario.CountSavedCommittedRecordingNodes(
+                new ConfigNode("SCENARIO"), out savedTreeRecCount));
+            Assert.Equal(0, savedTreeRecCount);
+            Assert.Equal(0, ParsekScenario.CountSavedCommittedRecordingNodes(
+                null, out savedTreeRecCount));
+            Assert.Equal(0, savedTreeRecCount);
         }
 
         #endregion

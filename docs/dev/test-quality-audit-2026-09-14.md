@@ -1190,6 +1190,96 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
     deferred, 0 deleted. Three sibling cells were added on the `rewind-refly` half and
     one on the `recording-tree` half (the other two recording-tree method additions are renames), each carrying the mirror or positive direction the
     original cell could not reach.
+- `testfix-t1t2`, sixth PR (2026-09-15): the final slice of Medium T1 rows
+  (`work/phase-b-slice-medium-t1-06.txt`, 14 ids: 10 catchall, 4 legacy-bugfix), first
+  commit. Every fixed row has a proof row in
+  `research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a `*-phaseB.patch`
+  that `git apply --check`s against a clean tree.
+  - Fixed: F-catchall-006-02 (the `onGameStateSave` watch is unfalsifiable headlessly, so
+    the cell now watches the two observable counters instead: `RecordingStore.StateVersion`
+    must NOT move between CheckpointA:AfterProvisional and CheckpointB:AfterMarker, and
+    `ParsekScenario.SupersedeStateVersion` - the reader wake-up - must bump exactly once and
+    only after the marker field is readable; the mutant moves the bump into phase 1);
+    F-catchall-010-01 (the idempotency cell seeded two legitimately distinct rollouts, so
+    nothing collapsed; it now seeds the production duplicate cluster directly, asserts pass
+    one returns 1 and pass two returns 0, and pins EXACTLY ONE collapse summary across both
+    passes - the mutant emits that summary unconditionally); F-catchall-021-01 (the
+    dock-chain branch-1 sibling now carries an EVA kerbal PAST the branch-0 tip, a branch-0
+    kerbal boards back before it, and a positive control adds a branch-0 EVA past the tip
+    that IS excluded, so the null is a decision rather than a dead walk);
+    F-catchall-035-01 (renamed and re-pointed: the control-surface probe takes a live
+    `PartModule`, so the delegation is pinned as a brace-matched body gate over
+    comment-stripped source - every `return` in `TryClassifyControlSurfaceState` is the
+    aero-probe call; the mutant leaves the delegation standing as a COMMENT, so the strip is
+    proved at the same time); F-catchall-050-01 (the root's `RewindSaveFileName` starts null,
+    so the no-op cell now asserts the BUDGET the empty-save early return protects -
+    reserved and pre-launch figures stay 0 while the capture carries non-zero ones);
+    F-catchall-053-02 (the `CheckSpawnCollisions` recovery latch is extracted as
+    `VesselSpawner.ShouldEnterDuplicateBlockerRecovery` - the only production change in this
+    commit - and the cell calls it, with a positive control that clears the latch and an
+    unloaded-blocker case; the call site passes `blockerVesselLoaded` false for a null
+    blocker so no member of a missing blocker is read).
+  - Deleted (twins named in the register): F-catchall-036-01's three inline hide-policy
+    replays (`Hide_UnfinishedFlight_WarnsAndDoesNotFlip`,
+    `Hide_NonUnfinishedRecording_FlipsNormally`,
+    `Hide_NormalListUnfinishedFlight_RefusesWithoutVirtualGroup`). All three emitted the Warn
+    and the ScreenMessage themselves and modelled a depth-AND-classifier expression the
+    shipped code does not use; the shipped predicate is covered behaviourally by
+    `ArchiveRefusal_AppliesToHidingOnly` (all four direction / classification combinations)
+    and at wiring level by `Hide_PolicyGate_IsClassifierOnly_NoDepthCheck` and
+    `TheGroupHideAllScanRedsWhenTheRoutingExistsOnlyInAComment` in the same file. A comment
+    at the site names the twins.
+
+- `testfix-t1t2`, sixth PR (2026-09-15), second commit: the rest of
+  `work/phase-b-slice-medium-t1-06.txt`. Slice total 14 ids: 11 fixed, 3 deleted (twins
+  named), 0 deferred. This CLOSES the Medium T1 register - no Medium T1 row is left
+  unhandled. Every fixed row has a proof row in
+  `research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a `*-phaseB.patch`.
+  - Fixed: F-catchall-059-01 (renamed `FreshRecorder_AltitudeFlagsDefaultFalse` - the
+    confirm log it claimed needs a live Vessel, so the cell states the field-default claim
+    it can make, notes that ParsekFlight's altitude-phase split early-returns on
+    `AltitudeBoundaryCrossed`, and also drives the not-recording guard; the mutant
+    initialises the field to true); F-catchall-060-01 (drives the real load path -
+    `ParsekScenario.LoadRecordingTrees` over a SCENARIO node with no `RECORDING_TREE`
+    child - instead of calling `CommittedTrees.Clear()` in the test body, and asserts the
+    `OnLoad initial: cleared CommittedTrees, loading 0 tree(s)` line);
+    F-catchall-062-01 (the OnLoad counting loop is extracted as
+    `ParsekScenario.CountSavedCommittedRecordingNodes`, and the cell feeds it a node
+    carrying an in-flight marker tree AND a pending marker tree whose recordings must NOT
+    count - the rule the old in-test replay got wrong on top of being detached);
+    F-legacy-bugfix-009-02 / -009-03 (both fixtures now seed the fork into
+    `RecordingStore.CommittedRecordings`, so the guard-removed path would ATTACH it rather
+    than land on the missing-from-BOTH branch that also returns false; the mutants delete
+    the `InPlaceContinuation` guard and the marker-TreeId-vs-tree-Id guard respectively);
+    F-legacy-bugfix-025-01 (the map-view carve-out is extracted as
+    `GhostPlaybackLogic.ShouldSuppressGhostsInView(mapViewEnabled, warpRate)` - the
+    composition `UpdatePlayback` now calls - and all three cells assert the helper, so a
+    dropped `mapViewEnabled` term reds instead of leaving the warp threshold restated).
+  - Replaced (stale claim, no twin to delete into): F-legacy-bugfix-026-01. The cell
+    quoted a gate expression the engine no longer carries; the shipped line is a bare
+    `if (!TryReserveSpawnSlot(index, "loop-first-spawn"))` inside the `state == null`
+    first-spawn block, and the cycle-rebuild branch runs only when `state != null`, so a
+    rebuild cannot reach it and no bypass term is needed. Renamed
+    `LoopFirstSpawn_IsThrottledWithNoCycleChangedBypass` and re-pointed at the real
+    reservation primitive under the loop site tag (budget available -> reserved; budget
+    exhausted -> deferred, counted and named in the throttle log). The mutant exempts the
+    `loop-first-spawn` site from the frame cap.
+  - Two production helpers were extracted in this slice
+    (`VesselSpawner.ShouldEnterDuplicateBlockerRecovery` in the first commit,
+    `ParsekScenario.CountSavedCommittedRecordingNodes` and
+    `GhostPlaybackLogic.ShouldSuppressGhostsInView` here); each call site keeps the same
+    inputs, order and log lines. After each production edit the test tree was grepped for
+    the moved identifiers and every source-scanning class over the touched file was re-run
+    (`ProgrammaticRecoveryCrewSuppressionGateTests`, `SpawnWalkbackFallbackTests`,
+    `CareerSeedReadinessTests`, `ChainSaveLoadTests`, `CheckpointDoubleCoverRetireTests`,
+    `ObservabilityPersistencePhase3Tests`, `QuickloadResumeTests`,
+    `SaveActiveTreeSidecarBothOrNeitherTests`, `ScenarioGameEventHandlerContractTests`,
+    `SceneChangeTerminalStateWiringGateTests`, `SwitchSegmentSaveLoadTests`,
+    `SwitchSegmentSuppressionNarrowingTests`, `TestBatchIsolationTests`,
+    `GhostRenderTraceTests`, `GhostSpawnPendingNotifyTests`,
+    `GrepAuditNonLoopLivePidTests`, `LoopUnitSetCoherenceTests`,
+    `OverlapPerInstanceTests`, `WatchEntryAcceptanceWiringGateTests`,
+    `RuntimePolicyTests`), plus `GrepAuditTests` each time. No gate needed re-anchoring.
 
 ## July crosswalk
 

@@ -3427,18 +3427,11 @@ namespace Parsek
                             $"OnLoad: found {savedRecNodes.Length} legacy standalone RECORDING node(s) — " +
                             "these are no longer loaded (T56). Re-save to remove them.");
 
-                    // Count tree recordings from saved tree nodes for accurate revert detection.
-                    // All committed recordings are serialized under RECORDING_TREE nodes.
-                    // Skip active-tree (in-flight) marker nodes — they're not "committed" recordings.
-                    ConfigNode[] savedTreeNodesForRevert = node.GetNodes("RECORDING_TREE");
-                    int savedTreeRecCount = 0;
-                    for (int t = 0; t < savedTreeNodesForRevert.Length; t++)
-                    {
-                        if (IsActiveTreeNode(savedTreeNodesForRevert[t])) continue;
-                        if (IsPendingTreeNode(savedTreeNodesForRevert[t])) continue;
-                        savedTreeRecCount += savedTreeNodesForRevert[t].GetNodes("RECORDING").Length;
-                    }
-                    int totalSavedRecCount = savedRecNodes.Length + savedTreeRecCount;
+                    // Count tree recordings from saved tree nodes for accurate revert
+                    // detection. Pure node arithmetic, extracted so the rule is testable.
+                    int savedTreeRecCount;
+                    int totalSavedRecCount = CountSavedCommittedRecordingNodes(
+                        node, out savedTreeRecCount);
 
                     // FLIGHT→FLIGHT can be a revert, a quickload, or a vessel switch.
                     // The event-based revert detector below owns the distinction; the
@@ -5594,6 +5587,33 @@ namespace Parsek
                 }
             }
             return ids;
+        }
+
+        /// <summary>
+        /// Revert-detection arithmetic over a SCENARIO node: the number of committed
+        /// recordings the save claims. All committed recordings are serialized under
+        /// RECORDING_TREE nodes, so this is the legacy standalone RECORDING count plus
+        /// the RECORDING children of every committed tree node. Active-tree (in-flight)
+        /// and pending-tree marker nodes are skipped - their recordings are not
+        /// committed, and counting them reads a live flight as extra committed data and
+        /// suppresses the revert classification. <paramref name="savedTreeRecCount"/>
+        /// returns the tree half on its own for the OnLoad log line.
+        /// </summary>
+        internal static int CountSavedCommittedRecordingNodes(
+            ConfigNode node, out int savedTreeRecCount)
+        {
+            savedTreeRecCount = 0;
+            if (node == null) return 0;
+
+            ConfigNode[] standaloneRecNodes = node.GetNodes("RECORDING");
+            ConfigNode[] treeNodes = node.GetNodes("RECORDING_TREE");
+            for (int t = 0; t < treeNodes.Length; t++)
+            {
+                if (IsActiveTreeNode(treeNodes[t])) continue;
+                if (IsPendingTreeNode(treeNodes[t])) continue;
+                savedTreeRecCount += treeNodes[t].GetNodes("RECORDING").Length;
+            }
+            return standaloneRecNodes.Length + savedTreeRecCount;
         }
 
         internal static bool IsActiveTreeNode(ConfigNode treeNode)
