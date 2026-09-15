@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/FlightRecorder.cs b/Source/Parsek/FlightRecorder.cs
+index 1862354df..fc7167a97 100644
+--- a/Source/Parsek/FlightRecorder.cs
++++ b/Source/Parsek/FlightRecorder.cs
+@@ -4847,7 +4847,8 @@ namespace Parsek
+             float delta = hadLastPosition ? Mathf.Abs(positionValue - lastPosition) : float.PositiveInfinity;
+             bool changedEnough = !hadLastPosition || delta >= deadband;
+             bool inferredMoving = hadLastPosition && delta >= Math.Max(deadband * 0.25f, 0.0001f);
+-            bool movingNow = movingSignal || inferredMoving;
++            // MUTANT: the inferredMoving disjunct removed
++            bool movingNow = movingSignal;
+ 
+             if (movingNow && !wasMoving)
+             {

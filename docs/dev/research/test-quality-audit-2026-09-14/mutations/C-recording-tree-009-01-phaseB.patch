@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/SessionMerger.cs b/Source/Parsek/SessionMerger.cs
+index 5cbc07a7f..c75f7d750 100644
+--- a/Source/Parsek/SessionMerger.cs
++++ b/Source/Parsek/SessionMerger.cs
+@@ -1730,8 +1730,8 @@ namespace Parsek
+                 string key = string.Concat(
+                     e.ut.ToString("R", ic), "|",
+                     e.partPersistentId.ToString(ic), "|",
++                    // MUTANT: the moduleIndex component of the dedup key dropped
+                     ((int)e.eventType).ToString(ic), "|",
+-                    e.moduleIndex.ToString(ic), "|",
+                     e.value.ToString("R", ic));
+ 
+                 if (seen.Add(key))

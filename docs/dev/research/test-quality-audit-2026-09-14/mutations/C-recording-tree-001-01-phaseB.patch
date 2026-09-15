@@ -1,0 +1,15 @@
+diff --git a/Source/Parsek/RecordingOptimizer.cs b/Source/Parsek/RecordingOptimizer.cs
+index 3bec5cc89..ee18db0be 100644
+--- a/Source/Parsek/RecordingOptimizer.cs
++++ b/Source/Parsek/RecordingOptimizer.cs
+@@ -2130,9 +2130,7 @@ namespace Parsek
+                 && a.ParentRecordingId != b.ParentRecordingId)
+                 return false;
+ 
+-            if (a.VesselPersistentId != 0 && b.VesselPersistentId != 0
+-                && a.VesselPersistentId != b.VesselPersistentId)
+-                return false;
++            // MUTANT: the VesselPersistentId mismatch conjunct removed
+ 
+             return true;
+         }
