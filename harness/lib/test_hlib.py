@@ -8625,6 +8625,18 @@ class PendingOperatorTagHonestyTests(unittest.TestCase):
         # the second pair of captures, because a whole-log `forbidden` cannot be scoped to
         # the hidden window - if the operator wants the restore gated by a marker line
         # instead, that is a second lane with no restore step in it.
+        # GUI-10 is the DIALOG census lane: the first pictures of any Parsek modal, over
+        # the two new `op=raise` / `op=dismiss` seam ops. Operator-tier by CADENCE for the
+        # same reason GUI-9 is - it is a capture host, and it RAISES MODALS, which is the
+        # one thing no cadence tier should be doing unattended beside other lanes.
+        "GUI-10-census-dialogs.toml":
+                                       "tier=operator by CADENCE (capture host, and it "
+                                       "raises modals). Owed: the first flight, and the "
+                                       "reviewer's call on which of the remaining 14 "
+                                       "dialogs are worth a raise path (each needs a "
+                                       "live Vessel, RewindPoint, Route, RouteCandidate "
+                                       "or session marker - all named in the spec "
+                                       "header and in the todo entry).",
         "GUI-9-playback-toggle-map-scope.toml":
                                        "tier=operator by CADENCE (capture host, one "
                                        "ruling proven once). Owed: the first flight, and "
@@ -15040,6 +15052,140 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
     def test_uiaction_dialog_needs_nothing(self):
         self.assertEqual([], hlib.validate_ui_action_step(0, {"op": "dialog"}))
 
+    def test_uiaction_pointer_takes_the_two_opt_in_flags_and_they_default_false(self):
+        """GUI-10, deliverable 1. `focus=` and `nudge=` are OPT-IN on op=pointer: both
+        default to false so every lane written before them is byte-identical, and both are
+        closed-valued so `focus = "1"` fails pre-launch instead of costing a whole KSP
+        boot to learn."""
+        # Absent: the shape every wave-2 lane writes, and it stays clean.
+        self.assertEqual([], hlib.validate_ui_action_step(
+            0, {"op": "pointer", "x": "133", "y": "196"}))
+        # The pair the census flies.
+        self.assertEqual([], hlib.validate_ui_action_step(
+            1, {"op": "pointer", "x": "133", "y": "196",
+                "focus": "true", "nudge": "true"}))
+        # Orthogonal to park: taking the foreground and THEN parking where nothing is
+        # hovered is a legitimate request.
+        self.assertEqual([], hlib.validate_ui_action_step(
+            2, {"op": "pointer", "park": "true", "focus": "true"}))
+        # Both are UiAction-owned closed rows, so the VALUE half is caught by the shared
+        # VERB_SCOPED_CLOSED_ARGS loop rather than by a per-op branch.
+        for key in (hlib.UIACTION_FOCUS_KEY, hlib.UIACTION_NUDGE_KEY):
+            self.assertEqual("UiAction", hlib.VERB_SCOPED_CLOSED_ARGS[key][0])
+            self.assertEqual(("true", "false"), hlib.VERB_SCOPED_CLOSED_ARGS[key][1])
+
+    def test_uiaction_pointer_flags_are_flagged_on_ops_that_ignore_them(self):
+        """The mirror direction: only op=pointer reads either flag, so anywhere else they
+        would be sent and silently ignored - the `park=` guard they sit beside had exactly
+        this shape already."""
+        for key in ("focus", "nudge", "park"):
+            errors = hlib.validate_ui_action_step(
+                0, {"op": "open", "window": "main", key: "true"})
+            self.assertTrue(
+                any(("args.%s: only op=pointer reads it" % key) in e for e in errors),
+                (key, errors))
+
+    def test_uiaction_raise_and_dismiss_require_a_popup_and_name_no_window(self):
+        """GUI-10, deliverable 2. `popup=` is REQUIRED on both (there is no default modal,
+        and guessing one would photograph a dialog the lane never asked for), neither op
+        names a window (a PopupDialog is uGUI, which no window-table row can name), and
+        `press=` is op=dismiss ONLY - a raise that pressed would take down the modal it
+        exists to leave standing, which is exactly what makes AnswerMergeDialog unusable
+        for a census."""
+        for op in ("raise", "dismiss"):
+            errors = hlib.validate_ui_action_step(0, {"op": op})
+            self.assertTrue(any("popup-arg-missing" in e for e in errors), (op, errors))
+            self.assertNotIn(op, hlib.UIACTION_OPS_NEEDING_WINDOW)
+            self.assertIn(op, hlib.UIACTION_OP_VALUES)
+            self.assertEqual([], hlib.validate_ui_action_step(
+                1, {"op": op, "popup": "wiperecordings"}))
+            # A window= is the ops-needing-window rule's own refusal.
+            errors = hlib.validate_ui_action_step(
+                2, {"op": op, "popup": "wiperecordings", "window": "missions"})
+            self.assertTrue(any("does not read it" in e for e in errors), (op, errors))
+
+        # press= on a dismiss is legal; on a raise it is refused with the reason.
+        self.assertEqual([], hlib.validate_ui_action_step(
+            3, {"op": "dismiss", "popup": "wiperecordings", "press": "Cancel"}))
+        errors = hlib.validate_ui_action_step(
+            4, {"op": "raise", "popup": "wiperecordings", "press": "Cancel"})
+        self.assertTrue(any("only op=dismiss reads it" in e for e in errors), errors)
+
+    def test_uiaction_popup_and_press_are_flagged_on_ops_that_ignore_them(self):
+        for key in ("popup", "press"):
+            errors = hlib.validate_ui_action_step(
+                0, {"op": "dialog", key: "wiperecordings"})
+            self.assertTrue(
+                any(("args.%s: only op=raise and op=dismiss read it" % key) in e
+                    for e in errors), (key, errors))
+
+    def test_the_popup_key_is_not_spelled_dialog_because_that_key_is_taken(self):
+        """VERB_SCOPED_CLOSED_ARGS admits exactly ONE owner verb per arg key, and
+        `dialog=` is AnswerMergeDialog's - so a `UiAction dialog=<name>` step would be a
+        hard pre-launch error ("only the AnswerMergeDialog verb reads it") on every raise
+        step ever written. The new ops therefore spell it `popup=`, which is the same
+        resolution `op=find` used when it spelled its filter `ctrl` rather than the
+        already-taken `kind`."""
+        self.assertEqual("popup", hlib.UIACTION_POPUP_KEY)
+        self.assertNotEqual(hlib.UIACTION_POPUP_KEY, hlib.ANSWERMERGE_DIALOG_KEY)
+        self.assertEqual("UiAction",
+                         hlib.VERB_SCOPED_CLOSED_ARGS[hlib.UIACTION_POPUP_KEY][0])
+        self.assertEqual("AnswerMergeDialog",
+                         hlib.VERB_SCOPED_CLOSED_ARGS[hlib.ANSWERMERGE_DIALOG_KEY][0])
+
+    def test_the_raisable_popup_set_mirrors_the_c_sharp_table(self):
+        """The popup vocabulary is MIRRORED, not derived: a spec naming a popup the seam
+        does not know is a typed REJECTED that costs a KSP boot to learn. Read out of
+        TestCommandUiDialogRaise.cs by its per-row `Name = <Token>Dialog` assignments with
+        comments stripped - the table's own header names the dialogs it deliberately does
+        NOT raise, so a parse over the raw text would import them."""
+        path = os.path.join(PARSEK_SOURCE_DIR, "TestCommands",
+                            "TestCommandUiDialogRaise.cs")
+        with open(path, encoding="utf-8-sig") as fh:
+            src = fh.read()
+        code = "\n".join(
+            line for line in src.splitlines()
+            if not line.strip().startswith("//")
+            and not line.strip().startswith("///"))
+        consts = dict(re.findall(
+            r'internal const string ([A-Za-z0-9_]+Dialog)\s*=\s*"([^"]+)"', code))
+        used = re.findall(r"Name = ([A-Za-z0-9_]+Dialog),", code)
+        self.assertTrue(used, "no table rows parsed out of TestCommandUiDialogRaise.cs")
+        self.assertEqual(tuple(hlib.UIACTION_POPUP_VALUES),
+                         tuple(consts[name] for name in used))
+        # The dialogs the table names but refuses to raise must NOT have leaked in.
+        for absent in ("merge", "preswitch", "ghosticon", "refly"):
+            self.assertNotIn(absent, hlib.UIACTION_POPUP_VALUES)
+
+    def test_the_popup_table_parse_is_not_vacuous(self):
+        """Anti-vacuity for the parse above, over a SYNTHETIC source: the real table's
+        header comment names four dialogs it excludes, so a parse that read comments would
+        import them and the mirror would pass against a table that does not contain
+        them."""
+        synthetic = "\n".join([
+            '        // internal const string MergeDialog = "merge";',
+            '        internal const string SealDialog = "seal";',
+            '        // A comment naming Name = MergeDialog, which must NOT be parsed.',
+            '                Name = SealDialog,',
+        ])
+        code = "\n".join(
+            line for line in synthetic.splitlines()
+            if not line.strip().startswith("//"))
+        consts = dict(re.findall(
+            r'internal const string ([A-Za-z0-9_]+Dialog)\s*=\s*"([^"]+)"', code))
+        used = re.findall(r"Name = ([A-Za-z0-9_]+Dialog),", code)
+        self.assertEqual(("seal",), tuple(consts[name] for name in used))
+
+    def test_every_pressable_label_is_space_free(self):
+        """The command wire is space-separated key=value pairs and TestCommandProtocol
+        encodes only % and =, so a `press=No, cancel` would split the command. Every
+        pressable label is space-free by construction today (OK / Cancel); this cell is
+        what makes that a checked property rather than a coincidence."""
+        for label in hlib.UIACTION_PRESS_VALUES:
+            self.assertNotIn(" ", label)
+            self.assertNotIn("=", label)
+            self.assertNotIn("%", label)
+
     def test_the_window_table_parse_is_not_vacuous(self):
         """Anti-vacuity for the parse above, and specifically for the comment-stripping
         half: the C# table's header comment mentions tab-shaped and window-shaped words,
@@ -15276,7 +15422,9 @@ class GuiCensusSeamVerbTests(unittest.TestCase):
                          % sorted(shape_checked & closed))
         for key in (hlib.UIACTION_OP_KEY, hlib.UIACTION_WINDOW_KEY,
                     hlib.UIACTION_CTRL_KEY, hlib.UIACTION_STATE_KEY,
-                    hlib.UIACTION_PARK_KEY, hlib.ANSWERMERGE_DIALOG_KEY):
+                    hlib.UIACTION_PARK_KEY, hlib.UIACTION_FOCUS_KEY,
+                    hlib.UIACTION_NUDGE_KEY, hlib.UIACTION_POPUP_KEY,
+                    hlib.UIACTION_PRESS_KEY, hlib.ANSWERMERGE_DIALOG_KEY):
             with self.subTest(key=key):
                 self.assertIn(key, closed)
 

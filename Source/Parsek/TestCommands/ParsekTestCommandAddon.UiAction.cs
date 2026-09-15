@@ -157,6 +157,23 @@ namespace Parsek.TestCommands
 
             internal bool PlaybackState;
             internal int PlaybackChanged;
+
+            // pointer flags (op=pointer focus= / nudge=)
+            internal bool PointerFocus;
+            internal bool PointerNudge;
+            internal UiPointerFocusOutcome PointerFocusOutcome;
+            internal bool PointerForegroundIsGame;
+
+            // raise / dismiss
+            /// <summary>The <c>popup=</c> wire token, re-resolved against the table by the
+            /// settle rather than carried as the spec struct: the table is the authority
+            /// and a copied row could not drift, but re-resolving keeps the settle's read
+            /// of PopupName on exactly one source.</summary>
+            internal string RaiseDialogName;
+
+            /// <summary>The button <c>op=dismiss</c> pressed, or null for a plain
+            /// dismissal.</summary>
+            internal string DismissPressButton;
         }
 
         private UiActionPending uiActionPending;
@@ -224,6 +241,16 @@ namespace Parsek.TestCommands
                 if (op == UiActionOp.Playback)
                 {
                     UiActionPlaybackOp(cmd);
+                    return;
+                }
+                if (op == UiActionOp.Raise)
+                {
+                    UiActionRaiseOp(cmd);
+                    return;
+                }
+                if (op == UiActionOp.Dismiss)
+                {
+                    UiActionDismissOp(cmd);
                     return;
                 }
                 UiActionDescribe(ui, scene);
@@ -603,6 +630,16 @@ namespace Parsek.TestCommands
                     return;
                 case UiActionOp.Playback:
                     CompleteUiActionPlayback(ctx, pending);
+                    return;
+                // Both dialog ops read the live PopupDialog set, which is uGUI and drawn
+                // outside either host's showUI gate - so they pass the preamble's
+                // host-visibility check by not being in SettleChecksHostShowUi, and they
+                // take no window handle at all.
+                case UiActionOp.Raise:
+                    CompleteUiActionRaise(id, seq, verb, pending);
+                    return;
+                case UiActionOp.Dismiss:
+                    CompleteUiActionDismiss(id, seq, verb, pending);
                     return;
             }
 
