@@ -3239,6 +3239,65 @@ namespace Parsek.Tests
                 "with NullSolver");
             Assert.Equal(0, otherWarnCount);
             Assert.Equal(1, otherVerboseCount);
+
+            // Every hit above used NullSolver, so the REASON half of the
+            // (recordingId, failureReason) key was unexercised. Fire the FIRST
+            // recording twice more inside the same 30 s window with two
+            // DIFFERENT failure reasons. Both are non-NullSolver, so both take
+            // the WarnRateLimited arm - which keeps its own key store, so the
+            // NullSolver verbose floor cannot stand in for them. With the
+            // reason in the key each emits once; without it the second is
+            // suppressed by the first.
+            var missingBody = new PatchedConicSnapshotResult
+            {
+                FailureReason = PatchedConicSnapshotFailureReason.MissingPatchBody,
+                Segments = new List<OrbitSegment>()
+            };
+            var updateFailed = new PatchedConicSnapshotResult
+            {
+                FailureReason = PatchedConicSnapshotFailureReason.UpdateFailed,
+                Segments = new List<OrbitSegment>()
+            };
+            foreach (var otherReasonSnapshot in new[] { missingBody, updateFailed })
+            {
+                clockSeconds += 0.1;
+                IncompleteBallisticSceneExitFinalizer.TryCompleteFinalizationFromPatchedSnapshotForTesting(
+                    rec,
+                    otherReasonSnapshot,
+                    bodies,
+                    delegate(out BallisticStateVector startState)
+                    {
+                        startState = new BallisticStateVector
+                        {
+                            ut = 500.0,
+                            bodyName = "Kerbin",
+                            position = new Vector3d(5.0, 0.0, 0.0),
+                            velocity = new Vector3d(0.0, 0.0, 0.0),
+                            orbitalFrameRotation = Quaternion.identity
+                        };
+                        return true;
+                    },
+                    (startState, extrapolationBodies) =>
+                        BallisticExtrapolator.Extrapolate(
+                            startState,
+                            extrapolationBodies,
+                            warnOnSubSurfaceStart: false),
+                    out IncompleteBallisticFinalizationResult _);
+            }
+
+            Assert.Equal(1, CountLogLines(
+                "[Parsek][WARN][Extrapolator]",
+                "patched-conic snapshot failed for 'scene-exit-rate-limit-floor'",
+                "with MissingPatchBody"));
+            Assert.Equal(1, CountLogLines(
+                "[Parsek][WARN][Extrapolator]",
+                "patched-conic snapshot failed for 'scene-exit-rate-limit-floor'",
+                "with UpdateFailed"));
+            // The NullSolver floor is untouched by the two extra hits.
+            Assert.Equal(1, CountLogLines(
+                "[Parsek][VERBOSE][Extrapolator]",
+                "patched-conic snapshot failed for 'scene-exit-rate-limit-floor'",
+                "with NullSolver"));
         }
 
         /// <summary>

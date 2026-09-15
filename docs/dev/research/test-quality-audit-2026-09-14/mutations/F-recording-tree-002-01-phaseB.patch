@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/RecordingOptimizer.cs b/Source/Parsek/RecordingOptimizer.cs
+index 3bec5cc89..4f0ab90d9 100644
+--- a/Source/Parsek/RecordingOptimizer.cs
++++ b/Source/Parsek/RecordingOptimizer.cs
+@@ -189,6 +189,8 @@ namespace Parsek
+         internal static bool CanAutoSplitIgnoringGhostTriggers(Recording rec, int sectionIndex)
+         {
+             if (rec == null) return false;
++            // MUTATION: tree recordings refused.
++            if (!string.IsNullOrEmpty(rec.TreeId)) return false;
+             if (rec.TrackSections == null || rec.TrackSections.Count < 2) return false;
+             if (sectionIndex < 1 || sectionIndex >= rec.TrackSections.Count) return false;
+             if (ShouldKeepContinuousEvaAtmoSurfaceTogether(rec, sectionIndex)) return false;

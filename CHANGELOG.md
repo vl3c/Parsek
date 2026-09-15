@@ -265,6 +265,26 @@ _(unreleased — entries accumulate here per commit)_
   nothing a player sees changes. Each cell was re-checked by breaking the named
   production line on purpose and confirming it goes red.
 
+- **Tests: the other eight T3 rows, all recording-tree, now fail when the thing their
+  name promises breaks.** Two optimizer cells claimed to cover "tree recordings" while
+  the optimizer reads a recording's tree id nowhere, so they were renamed to the
+  boundary they actually cover and each gained a no-tree control, which makes the pair
+  a real contrast instead of a claim. Two loop-sync cells asserted a value that is also
+  the field's own default, because their fixture list held a single recording and no
+  partner could ever be found; each now carries the partner the scan WOULD accept, so
+  the guard is what produces the answer. A tail-trim cell pinned a window that a zero
+  buffer also satisfies and now pins the exact trimmed end. A scene-exit rate-limit
+  cell fired one failure reason five times while claiming a per-reason key, and now
+  fires two further reasons on the same recording inside the same window. A merge cell
+  named a version-threading that the measured code path does not read, so it was
+  renamed to the anchor-local measurement it does cover and gained a sibling that
+  stamps a format version the field default cannot be. And a sidecar cell asserting
+  "sparse encoding" touched nothing sparse: it now reads the writer's own accounting
+  line and pins the sparse list, point and per-field omission counts. No production
+  code changed; no log text changed; nothing a player sees changes. Each cell was
+  re-checked by breaking the named production line on purpose and confirming it goes
+  red.
+
 - **Tests: the seven worst tests in the suite now test what their names say.** The test
   quality audit read every one of the ~23,400 unit tests and found seven that could not
   fail: each did the work the production code does inside the test body and then checked

@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/IncompleteBallisticSceneExitFinalizer.cs b/Source/Parsek/IncompleteBallisticSceneExitFinalizer.cs
+index 635bd2d84..b3064df8a 100644
+--- a/Source/Parsek/IncompleteBallisticSceneExitFinalizer.cs
++++ b/Source/Parsek/IncompleteBallisticSceneExitFinalizer.cs
+@@ -547,7 +547,8 @@ namespace Parsek
+                 // is the expected no-solver path for destroyed stock debris/EVA
+                 // vessels and still falls through to the live-orbit fallback.
+                 // Other snapshot failures are unexpected enough to stay WARN.
+-                string key = $"finalize-snapshot-failed-{recordingId}-{snapshot.FailureReason}";
++                // MUTATION: failure reason dropped from the rate-limit key.
++                string key = $"finalize-snapshot-failed-{recordingId}";
+                 string message =
+                     $"TryFinalizeRecording: patched-conic snapshot failed for '{recordingId}' " +
+                     $"with {snapshot.FailureReason}; falling back to live orbit state";

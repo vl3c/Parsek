@@ -1704,6 +1704,8 @@ namespace Parsek.Tests
 
             string path = Path.Combine(tempDir, "current-binary.prec");
 
+            logLines.Clear();
+            ParsekLog.VerboseOverrideForTesting = true;
             RecordingStore.WriteTrajectorySidecar(path, rec, sidecarEpoch: 1);
 
             TrajectorySidecarProbe probe;
@@ -1712,6 +1714,24 @@ namespace Parsek.Tests
             Assert.Equal(TrajectorySidecarEncoding.BinaryV0, probe.Encoding);
             Assert.Equal(RecordingStore.CurrentRecordingFormatVersion, probe.FormatVersion);
             Assert.True(new FileInfo(path).Length > 0);
+            // The probe asserts only "binary, current version". The SPARSE
+            // half the name claims is a separate decision
+            // (BuildSparsePointListPlan) that the probe cannot see: disabling
+            // it leaves the encoding BinaryV0 and the probe green. Read the
+            // writer's own accounting line instead.
+            string writeLine = Assert.Single(logLines,
+                l => l.Contains("[RecordingStore]")
+                     && l.Contains("WriteBinaryTrajectoryFile"));
+            Assert.Contains("recording=current-binary", writeLine);
+            // Both of the fixture's track sections take the sparse plan, and
+            // the shared body / funds / science / reputation defaults are
+            // actually omitted from the payload.
+            Assert.Contains("sparsePointLists=2", writeLine);
+            Assert.Contains("sparsePoints=6", writeLine);
+            Assert.Contains("omittedBody=6", writeLine);
+            Assert.Contains("omittedFunds=5", writeLine);
+            Assert.Contains("omittedScience=5", writeLine);
+            Assert.Contains("omittedRep=6", writeLine);
         }
 
         [Fact]

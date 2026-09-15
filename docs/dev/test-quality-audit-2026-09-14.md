@@ -1134,6 +1134,49 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
     `RewindB9FixtureTests.Inject_RpSidecarVesselGuidsAgreeWithRecordedVesselGuid`).
     Their mutation patches are over `Source/Parsek.Tests/Generators/ScenarioWriter.cs`,
     the code under test for these two rows.
+  - The eight `recording-tree` ids close the slice: 6 strengthened, 2 renamed AND
+    strengthened, 0 deferred, 0 deleted. Still no production change.
+    F-recording-tree-002-01 and -002-02 are the two renames
+    (`CanAutoSplitIgnoringGhostTriggers_TreeIdIsNotAGate_SameVerdictAsCanAutoSplit`
+    and `FindSplitCandidatesForOptimizer_ExoToAtmoBoundary_TreeIdIsNotAGate`):
+    `RecordingOptimizer` reads `Recording.TreeId` NOWHERE, so "allows tree recordings"
+    / "finds tree recordings" named a property no fixture in that file can witness.
+    Each cell keeps its original assertions, gains an identical no-`TreeId` control and
+    (for -002-01) the base `CanAutoSplit` agreement, so a newly added tree skip reds the
+    tree arm and leaves the control green. The pass-level tree-split contract stays with
+    `RunOptimizationPass_SplitsMultiEnvRecording` as the register noted.
+    F-recording-tree-003-01 and -003-03 (the two loop-sync cells asserted
+    `LoopSyncParentIdx == -1` against a one-element list, which is also the field's
+    default; each now holds the partner the candidate scan WOULD accept - non-debris,
+    different pid, covering the subject's `StartUT`, and for -003-03 carrying the SAME
+    null `TreeId`, since the scan compares the two ids for EQUALITY: a partner with a
+    real tree id could never link and would leave the guard unwitnessed, which is where
+    the register's sketch would have gone wrong).
+    F-recording-tree-003-04 (exact `EndUT == 17060` - the previous `>= 17050 &&
+    <= 17060` window is satisfied by a ZERO buffer too).
+    F-recording-tree-007-01 (the reason half of the `(recordingId, failureReason)`
+    rate-limit key is now driven with TWO further non-`NullSolver` reasons on the SAME
+    recording inside the window. Note the register's sketch of one `MissingPatchBody`
+    hit would NOT have red'd: `WarnRateLimited` keeps its own key store behind a `W|`
+    prefix, so the `NullSolver` verbose floor can never suppress a WARN - it takes two
+    WARN-arm reasons sharing the recording id to make the key's reason segment load-bearing).
+    F-recording-tree-008-01 (renamed
+    `MergeTree_SameAnchorRelativeBoundary_MeasuresAnchorLocalDiscontinuity`, since
+    `MergeTree` only forwards the format version to `MeasureRelativeAwareBoundary` /
+    `TryGetBodyFixedBoundaryPoint` and neither body reads it. The register's suggested
+    `Assert.Equal(CurrentRecordingFormatVersion, merged.RecordingFormatVersion)` is a
+    TAUTOLOGY - `Recording.RecordingFormatVersion` is initialised to that constant, so
+    deleting the copy in `SessionMerger` leaves it green - so the copy is pinned by a new
+    sibling, `MergeTree_CopiesTheSourceRecordingFormatVersion_NotTheFieldDefault`, which
+    stamps `CurrentRecordingFormatVersion + 7`).
+    F-recording-tree-013-01 (the cell now reads `WriteBinaryTrajectoryFile`'s own
+    accounting line and pins `sparsePointLists=2`, `sparsePoints=6` and the four
+    `omitted*` counts; the probe asserts encoding and version only, which is why
+    disabling `BuildSparsePointListPlan` used to leave it green).
+  - Slice total: 20 of 20 addressed - 18 strengthened, 2 renamed and strengthened, 0
+    deferred, 0 deleted. Three sibling cells were added on the `rewind-refly` half and
+    two on the `recording-tree` half, each carrying the mirror or positive direction the
+    original cell could not reach.
 
 ## July crosswalk
 
