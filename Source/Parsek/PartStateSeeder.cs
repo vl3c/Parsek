@@ -39,6 +39,10 @@ namespace Parsek
         {
             if (v == null || v.parts == null) return;
 
+            // Batch counter for the pose-animation gate below: one summary line after the
+            // loop rather than one line per static panel (most craft carry several).
+            int poselessDeployables = 0;
+
             for (int i = 0; i < v.parts.Count; i++)
             {
                 Part p = v.parts[i];
@@ -47,7 +51,7 @@ namespace Parsek
                 SeedFairings(p, sets, logTag);
                 SeedJettisons(p, sets, logTag);
                 SeedParachutes(p, sets, logTag);
-                SeedDeployables(p, sets, logTag);
+                if (!SeedDeployables(p, sets, logTag)) poselessDeployables++;
                 SeedLights(p, sets, seedColorChangerLights, logTag);
                 SeedGear(p, sets, logTag);
 
@@ -67,6 +71,11 @@ namespace Parsek
             SeedEngines(cachedEngines, sets, logTag);
             SeedRcs(cachedRcsModules, sets, logTag);
             SeedAnimateHeat(v, sets, logTag);
+
+            if (poselessDeployables > 0)
+                ParsekLog.Verbose(logTag,
+                    $"Deployable seeding skipped {poselessDeployables} pose-animation-less module(s) " +
+                    "(deployable-no-pose-animation gate)");
 
             ParsekLog.Verbose(logTag,
                 $"Initial state seeding complete: fairings={sets.deployedFairings.Count} shrouds={sets.jettisonedShrouds.Count} " +
@@ -140,10 +149,42 @@ namespace Parsek
             }
         }
 
-        private static void SeedDeployables(Part p, PartTrackingSets sets, string logTag)
+        /// <summary>
+        /// THE ONE CONVENTION for "this ModuleDeployablePart cannot be posed". A module with no
+        /// <c>animationName</c> has no stowed/deployed transform pair, so
+        /// <see cref="GhostVisualBuilder"/> samples nothing for it and the ghost's
+        /// <c>DeployableGhostInfo</c> (if one exists at all) carries an EMPTY transform list -
+        /// which is exactly the condition <c>GhostPlaybackLogic.ApplyDeployableStateWithOutcome</c>
+        /// reports as <c>no-resolved-visual</c>. An OX-STAT (`solarPanels5`) is the canonical
+        /// population: permanently EXTENDED, permanently static, four per typical craft.
+        ///
+        /// Both ends read this predicate rather than each spelling the condition out, so the
+        /// recorder's "do not record what cannot be rendered" gate and the ghost builder's
+        /// sampling gate cannot drift apart. It deliberately screens only the EXTEND/RETRACT
+        /// opinion: a static panel can still BREAK, and the break subtree IS resolved onto the
+        /// ghost independently of the animation cascade, so DeployableBroken stays recorded.
+        /// </summary>
+        internal static bool DeployableHasNoPoseAnimation(string animationName)
+            => string.IsNullOrEmpty(animationName);
+
+        /// <summary>
+        /// Seeds the extended/broken deployable sets for one part.
+        /// Returns false when the part carries a ModuleDeployablePart that the
+        /// <see cref="DeployableHasNoPoseAnimation"/> gate screened out, so the caller can
+        /// tally it into one summary line; true in every other case (including "no module").
+        /// </summary>
+        private static bool SeedDeployables(Part p, PartTrackingSets sets, string logTag)
         {
             var deployable = p.FindModuleImplementing<ModuleDeployablePart>();
-            if (deployable == null) return;
+            if (deployable == null) return true;
+
+            // Visual & recording design principle: a permanently-extended static panel has no
+            // motion to replay, so seeding a DeployableExtended for it stores an event that every
+            // later replay of the craft must carry and can never render. The BROKEN branch below
+            // is deliberately NOT gated.
+            if (DeployableHasNoPoseAnimation(deployable.animationName)
+                && deployable.deployState != ModuleDeployablePart.DeployState.BROKEN)
+                return false;
 
             if (deployable.deployState == ModuleDeployablePart.DeployState.EXTENDED)
             {
@@ -162,6 +203,8 @@ namespace Parsek
                 ParsekLog.Verbose(logTag,
                     $"Seeded already-broken deployable: '{p.partInfo?.name}' pid={p.persistentId}");
             }
+
+            return true;
         }
 
         /// <summary>
