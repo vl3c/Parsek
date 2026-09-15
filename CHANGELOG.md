@@ -303,6 +303,29 @@ _(unreleased — entries accumulate here per commit)_
   differently, no new surface appears, and the automation seam's pointer op reports the
   same value on its own answer.
 
+- **Tests: twelve more priority-2 recording-risk coverage gaps from the unit-test quality
+  audit are closed.** Six rows were new coverage, six were guarded already by cells that
+  landed after the audit was taken, and none is obsolete, so seven new cells landed with no
+  production change. On scene-exit finalization: a recording with no track sections at all
+  is proved to reseed its first predicted tail segment from the latest in-window flat
+  trajectory point, a fallback no fixture reached because the only section-less fixture
+  fails at anchor-point-missing by design; and a recovered controlled-decoupled child is
+  proved to hand back the segments it extrapolated AND to stamp its terminal orbit from the
+  last of them, so a recovered child cannot ship without ghost / map orbit metadata. On the
+  splitter: an already-mutated closure root whose chain predecessor ends at an
+  env-transition UT rather than the rewind UT is proved to abort the idempotent re-entry
+  instead of replaying the post-split steps against the wrong origin. On the supersede
+  closure: anchored debris is proved to stay out when its branch point is a docking-port
+  separation rather than a breakup or joint break, and when its parent anchor names a
+  recording other than the one being walked - the two gates the committed cells never made
+  load-bearing. On load-time sweep: a pre-Re-Fly anchor snapshot whose session is over is
+  proved to be cleared with its warning and counted in the sweep summary, and the live
+  session's own snapshot is proved to survive. The six already-guarded rows are the
+  committed split's section-annotation drop, the track-section sample-rate formula on both
+  the foreground and background close paths, the subtree walk's iteration cap, the two
+  marker-owned switch-segment narrowing predicates, and the staging load's marker clears;
+  each row's mutant reds a pre-existing cell, so no duplicate cells were written.
+
 - **Tests: twelve more priority-2 recording-tree and rewind coverage gaps from the
   unit-test quality audit are closed.** Eleven rows were new coverage, one was guarded
   already, and none is obsolete, so eleven new cells landed with no production change. On

@@ -1,0 +1,26 @@
+diff --git a/Source/Parsek/BackgroundRecorder.cs b/Source/Parsek/BackgroundRecorder.cs
+index 38dd093ac..6730d6c65 100644
+--- a/Source/Parsek/BackgroundRecorder.cs
++++ b/Source/Parsek/BackgroundRecorder.cs
+@@ -7188,7 +7188,7 @@ namespace Parsek
+                 double duration = state.currentTrackSection.endUT - state.currentTrackSection.startUT;
+                 if (duration > 0)
+                     state.currentTrackSection.sampleRateHz =
+-                        (float)(state.currentTrackSection.frames.Count / duration);
++                        (float)(duration / state.currentTrackSection.frames.Count);
+             }
+ 
+             int frameCount = state.currentTrackSection.frames?.Count ?? 0;
+diff --git a/Source/Parsek/FlightRecorder.cs b/Source/Parsek/FlightRecorder.cs
+index bf1e687b9..e432a2199 100644
+--- a/Source/Parsek/FlightRecorder.cs
++++ b/Source/Parsek/FlightRecorder.cs
+@@ -5478,7 +5478,7 @@ namespace Parsek
+             {
+                 double duration = currentTrackSection.endUT - currentTrackSection.startUT;
+                 if (duration > 0)
+-                    currentTrackSection.sampleRateHz = (float)(currentTrackSection.frames.Count / duration);
++                    currentTrackSection.sampleRateHz = (float)(duration / currentTrackSection.frames.Count);
+             }
+ 
+             int frameCount = currentTrackSection.frames?.Count ?? 0;

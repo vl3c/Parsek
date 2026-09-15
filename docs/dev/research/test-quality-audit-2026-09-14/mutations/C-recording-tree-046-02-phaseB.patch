@@ -1,0 +1,17 @@
+diff --git a/Source/Parsek/ParsekScenario.cs b/Source/Parsek/ParsekScenario.cs
+index 3aa082d2f..275c2012a 100644
+--- a/Source/Parsek/ParsekScenario.cs
++++ b/Source/Parsek/ParsekScenario.cs
+@@ -2471,12 +2471,6 @@ namespace Parsek
+                     continue;
+                 }
+ 
+-                if (RecordingStore.IsMarkerOwnedSwitchSegmentRecordingId(evt.recordingId))
+-                {
+-                    markerOwnedSkipped++;
+-                    continue;
+-                }
+-
+                 if (RecordingStore.IsCommittedTreeRestoreAttemptRecordingId(evt.recordingId))
+                 {
+                     sawNonMarkerOwnedOverlap = true;

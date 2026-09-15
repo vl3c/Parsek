@@ -255,6 +255,72 @@ namespace Parsek.Tests
             Assert.Equal(112.0, segments[0].startUT, precision: 3);
         }
 
+        // Mirror direction of the two cells above: a recording with NO TrackSections at
+        // all falls through to the flat `Recording.Points` list. The only committed
+        // no-sections fixture (the distant-anchor cell) fails at anchor-point-missing by
+        // design, so deleting the Points else-branch in the anchor search leaves the
+        // suite green while every section-less recording silently loses its reseed.
+        [Fact]
+        public void TryReseedFirstPredictedTailSegmentFromRecordedAnchor_PointsFallback_ReseedsFromLastFlatPoint()
+        {
+            var rec = new Recording { RecordingId = "scene-exit-tail-reseed-points" };
+            // Two in-window flat points: the search keeps the LATEST one (110), so the
+            // cell also pins the best-candidate walk, not just the branch being entered.
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = 108.0,
+                latitude = 7.0,
+                longitude = 8.0,
+                altitude = 64000.0,
+                bodyName = "Kerbin",
+                velocity = new Vector3(5f, 5f, 5f)
+            });
+            rec.Points.Add(new TrajectoryPoint
+            {
+                ut = 110.0,
+                latitude = 4.0,
+                longitude = 5.0,
+                altitude = 65000.0,
+                bodyName = "Kerbin",
+                velocity = new Vector3(10f, 20f, 30f)
+            });
+            Assert.Empty(rec.TrackSections);
+            var segments = new List<OrbitSegment>
+            {
+                MakePredictedSegmentForReseedTest(112.0, 500.0)
+            };
+
+            bool applied = IncompleteBallisticSceneExitFinalizer
+                .TryReseedFirstPredictedTailSegmentFromRecordedAnchor(
+                    rec,
+                    segments,
+                    (TrajectoryPoint anchorPoint,
+                        OrbitSegment originalSegment,
+                        out OrbitSegment reseededSegment,
+                        out double rawOffsetMeters,
+                        out double residualOffsetMeters,
+                        out string reason) =>
+                    {
+                        Assert.Equal(110.0, anchorPoint.ut, precision: 3);
+                        Assert.Equal(65000.0, anchorPoint.altitude, precision: 3);
+                        reseededSegment = originalSegment;
+                        reseededSegment.semiMajorAxis = 733333.0;
+                        rawOffsetMeters = 12.0;
+                        residualOffsetMeters = 0.5;
+                        reason = "test-builder-points";
+                        return true;
+                    },
+                    out PredictedTailReseedDiagnostics diagnostics);
+
+            Assert.True(applied);
+            Assert.Equal("Points", diagnostics.AnchorSource);
+            Assert.Equal(110.0, diagnostics.AnchorUT, precision: 3);
+            Assert.Equal(2.0, diagnostics.GapSeconds, precision: 3);
+            Assert.Equal(110.0, segments[0].startUT, precision: 3);
+            Assert.Equal(500.0, segments[0].endUT, precision: 3);
+            Assert.Equal(733333.0, segments[0].semiMajorAxis, precision: 3);
+        }
+
         [Fact]
         public void ResetLifecycleDiagnostics_AllowsFreshSubSurfaceClassificationLog()
         {
@@ -2822,6 +2888,53 @@ namespace Parsek.Tests
         [Fact]
         public void TryCompleteFinalizationFromPatchedSnapshot_ParentAnchoredControlledChild_NotWronglyDestroyed()
         {
+            IncompleteBallisticFinalizationResult result =
+                RunParentAnchoredControlledChildRecovery(out bool built, out int extrapolateCallCount);
+
+            Assert.True(built);
+            Assert.Equal(2, extrapolateCallCount);
+            // Alive: classified Orbiting, NOT wrongly Destroyed off the bogus live alt.
+            Assert.Equal(TerminalState.Orbiting, result.terminalState);
+            Assert.NotEqual(ExtrapolationFailureReason.SubSurfaceStart, result.extrapolationFailureReason);
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("classified Destroyed by sub-surface path")
+                && l.Contains("parent-anchored-controlled-child"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("Start rejected: sub-surface state rec=parent-anchored-controlled-child"));
+        }
+
+        // Same recovered-Orbiting child, the other half of the contract: the recovery
+        // arm must also hand back the segments it extrapolated AND stamp the terminal
+        // orbit from the last of them. Without that fingerprint a recovered child ships
+        // with no ghost / map orbit metadata on playback, and the cell above stays green
+        // because it only reads terminalState.
+        [Fact]
+        public void TryCompleteFinalizationFromPatchedSnapshot_ParentAnchoredControlledChild_SetsTerminalOrbitFromRecoveredSegment()
+        {
+            IncompleteBallisticFinalizationResult result =
+                RunParentAnchoredControlledChildRecovery(out bool built, out int extrapolateCallCount);
+
+            Assert.True(built);
+            Assert.Equal(2, extrapolateCallCount);
+            Assert.NotNull(result.appendedOrbitSegments);
+            Assert.Single(result.appendedOrbitSegments);
+            Assert.Equal(5000.0, result.appendedOrbitSegments[0].endUT, precision: 3);
+            Assert.True(result.terminalOrbit.HasValue);
+            Assert.Equal("Kerbin", result.terminalOrbit.Value.bodyName);
+            Assert.Equal(700000.0, result.terminalOrbit.Value.semiMajorAxis, precision: 3);
+            Assert.Equal(0.05, result.terminalOrbit.Value.eccentricity, precision: 6);
+            Assert.Equal(21.4, result.terminalOrbit.Value.epoch, precision: 3);
+            // The recovery clears every field the SubSurfaceStart arm had populated.
+            Assert.Null(result.subSurfaceDestroyedBodyName);
+            Assert.Null(result.terminalPosition);
+        }
+
+        // Shared arrange/act for the two cells above: extracted so the second cell reads
+        // the SAME recovery result rather than re-deriving a near-copy of the fixture.
+        private IncompleteBallisticFinalizationResult RunParentAnchoredControlledChildRecovery(
+            out bool built,
+            out int extrapolateCallCountOut)
+        {
             // Scenario (c): a near-parent controlled-decoupled child (IsDebris=false)
             // that does NOT crash. Same NullSolver origin-collapse on the live orbit,
             // but its body-fixed surface + recorded velocity reseed to an alive
@@ -2884,7 +2997,7 @@ namespace Parsek.Tests
                 isPredicted = true
             };
 
-            bool built = IncompleteBallisticSceneExitFinalizer.TryCompleteFinalizationFromPatchedSnapshotForTesting(
+            built = IncompleteBallisticSceneExitFinalizer.TryCompleteFinalizationFromPatchedSnapshotForTesting(
                 rec,
                 NullSolverSnapshot(),
                 KerbinBodies(),
@@ -2924,16 +3037,8 @@ namespace Parsek.Tests
                 },
                 out IncompleteBallisticFinalizationResult result);
 
-            Assert.True(built);
-            Assert.Equal(2, extrapolateCallCount);
-            // Alive: classified Orbiting, NOT wrongly Destroyed off the bogus live alt.
-            Assert.Equal(TerminalState.Orbiting, result.terminalState);
-            Assert.NotEqual(ExtrapolationFailureReason.SubSurfaceStart, result.extrapolationFailureReason);
-            Assert.DoesNotContain(logLines, l =>
-                l.Contains("classified Destroyed by sub-surface path")
-                && l.Contains("parent-anchored-controlled-child"));
-            Assert.DoesNotContain(logLines, l =>
-                l.Contains("Start rejected: sub-surface state rec=parent-anchored-controlled-child"));
+            extrapolateCallCountOut = extrapolateCallCount;
+            return result;
         }
 
         [Fact]

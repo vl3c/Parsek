@@ -1,0 +1,25 @@
+diff --git a/Source/Parsek/RecordingTreeSplitter.cs b/Source/Parsek/RecordingTreeSplitter.cs
+index 427b12168..75e6486a5 100644
+--- a/Source/Parsek/RecordingTreeSplitter.cs
++++ b/Source/Parsek/RecordingTreeSplitter.cs
+@@ -403,20 +403,6 @@ namespace Parsek
+                 // sits within epsilon of rewindUT. Mismatch → abort the
+                 // idempotent re-entry (falls through to the strict-span check
+                 // below, which either runs a fresh split or skips).
+-                if (predecessor != null
+-                    && Math.Abs(predecessor.EndUT - rewindUT) >= epsilon)
+-                {
+-                    ParsekLog.Warn(Tag,
+-                        $"SplitOriginAtRewindUT: idempotent re-entry aborted — chain " +
+-                        $"predecessor '{predecessor.RecordingId}' ends at " +
+-                        $"{predecessor.EndUT.ToString("F2", ic)} but rewindUT=" +
+-                        $"{rewindUT.ToString("F2", ic)} " +
+-                        $"(epsilon={epsilon.ToString("R", ic)}). Predecessor is not " +
+-                        "HEAD — likely an env-class sibling at ChainIndex-1 from a " +
+-                        "prior optimizer split. Treating closure root as fresh-split " +
+-                        "candidate instead of replaying post-split steps.");
+-                    predecessor = null;
+-                }
+                 if (predecessor != null)
+                 {
+                     ParsekLog.Info(Tag,

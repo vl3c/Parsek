@@ -1295,5 +1295,116 @@ namespace Parsek.Tests
             Assert.DoesNotContain("rec_sideOff", closure);
             Assert.Single(closure);
         }
+
+        [Fact]
+        public void DebrisChildren_AnchorMatchedBpOfNonSplitType_NotAdmitted()
+        {
+            // The BP-type fence in isolation. Both committed AnchorOnly cells above
+            // feed an ACCEPTED type (JointBreak, Breakup) and are rejected one gate
+            // later by the parents-contains check, so deleting the type fence leaves
+            // them green. Here everything else lines up - the debris is anchored to
+            // the dequeued origin AND its BP names the origin as a parent - and only
+            // the BP's type (Undock: a docking-port separation, not a breakup) keeps
+            // it out of the supersede closure.
+            var origin = Rec("rec_origin", "tree_1", childBranchPointId: "bp_undock");
+            origin.VesselPersistentId = 100u;
+            origin.ExplicitStartUT = 0.0;
+
+            var debris = Rec("rec_undock_child", "tree_1", parentBranchPointId: "bp_undock");
+            debris.VesselPersistentId = 200u;
+            debris.ExplicitStartUT = 10.0;
+            debris.IsDebris = true;
+            debris.ParentAnchorRecordingId = "rec_origin";
+
+            var undockBp = Bp("bp_undock", BranchPointType.Undock,
+                parents: new List<string> { "rec_origin" },
+                children: new List<string> { "rec_undock_child" });
+
+            InstallTree("tree_1",
+                new List<Recording> { origin, debris },
+                new List<BranchPoint> { undockBp });
+
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess_1",
+                TreeId = "tree_1",
+                ActiveReFlyRecordingId = "rec_provisional",
+                OriginChildRecordingId = "rec_origin",
+                RewindPointId = "rp_1",
+                InvokedUT = 20.0
+            };
+            InstallScenario(marker);
+
+            var closure = EffectiveState.ComputeSessionSuppressedSubtree(marker);
+
+            Assert.Contains("rec_origin", closure);
+            Assert.DoesNotContain("rec_undock_child", closure);
+            Assert.Single(closure);
+            Assert.Contains(logLines, l =>
+                l.Contains("[ReFlySession]")
+                && l.Contains("SessionSuppressedSubtree")
+                && l.Contains("debrisAnchorOnlySkips=1"));
+        }
+
+        [Fact]
+        public void DebrisChildren_AnchorMismatchWithOwnedBp_NotAdmitted()
+        {
+            // The anchor-ownership equality in isolation. ParentAnchorRecordingId does
+            // double duty (topology edge vs relative-sampling anchor), so the walker
+            // only follows it when it names the recording being dequeued. The three
+            // committed exclusion cells leave ParentBranchPointId empty, which means a
+            // later gate decides and the equality is never load-bearing. Here the BP is
+            // an ACCEPTED Breakup that names the origin as its parent, so every gate
+            // after the equality would admit the debris; only the equality - the anchor
+            // points at an unrelated recording outside the closure - keeps it out.
+            var origin = Rec("rec_origin", "tree_1", childBranchPointId: "bp_breakup");
+            origin.VesselPersistentId = 100u;
+            origin.ExplicitStartUT = 0.0;
+
+            // Outside the closure: nothing links it to the origin, so it is never
+            // dequeued and the debris is only ever tested against rec_origin.
+            var unrelated = Rec("rec_unrelated", "tree_1");
+            unrelated.VesselPersistentId = 300u;
+            unrelated.ExplicitStartUT = 0.0;
+
+            var debris = Rec("rec_debris", "tree_1", parentBranchPointId: "bp_breakup");
+            debris.VesselPersistentId = 200u;
+            debris.ExplicitStartUT = 10.0;
+            debris.IsDebris = true;
+            // Anchored to the unrelated recording, NOT to the BP parent.
+            debris.ParentAnchorRecordingId = "rec_unrelated";
+
+            var breakupBp = Bp("bp_breakup", BranchPointType.Breakup,
+                parents: new List<string> { "rec_origin" },
+                children: new List<string> { "rec_debris" });
+
+            InstallTree("tree_1",
+                new List<Recording> { origin, unrelated, debris },
+                new List<BranchPoint> { breakupBp });
+
+            var marker = new ReFlySessionMarker
+            {
+                SessionId = "sess_1",
+                TreeId = "tree_1",
+                ActiveReFlyRecordingId = "rec_provisional",
+                OriginChildRecordingId = "rec_origin",
+                RewindPointId = "rp_1",
+                InvokedUT = 20.0
+            };
+            InstallScenario(marker);
+
+            var closure = EffectiveState.ComputeSessionSuppressedSubtree(marker);
+
+            Assert.Contains("rec_origin", closure);
+            Assert.DoesNotContain("rec_debris", closure);
+            Assert.DoesNotContain("rec_unrelated", closure);
+            Assert.Single(closure);
+            // The equality's `continue` is silent by construction: it fires BEFORE the
+            // anchor-only counter, so a skip here must not be reported as one.
+            Assert.Contains(logLines, l =>
+                l.Contains("[ReFlySession]")
+                && l.Contains("SessionSuppressedSubtree")
+                && l.Contains("debrisAnchorOnlySkips=0"));
+        }
     }
 }

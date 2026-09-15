@@ -1994,6 +1994,84 @@ namespace Parsek.Tests
                 && l.Contains("removing"));
         }
 
+        // ---------- Stray pre-Re-Fly anchor snapshots ---------------------
+
+        // Step 8 backstop: an anchor snapshot whose session id is not the live
+        // marker's belongs to a session that ended (the marker was cleared, or a
+        // different one is armed). The sweep clears it and reports the count in
+        // the summary line. Nothing else in the suite drives the anchor sweep, so
+        // stubbing it out to `return 0` without clearing stayed green while the
+        // bulk PreReFlyAnchor* lists leaked past session end on every load.
+        [Fact]
+        public void LoadTimeSweep_StrayPreReFlyAnchorSnapshot_ClearedWithWarning()
+        {
+            var stray = Rec("rec_stray_anchor", MergeState.Immutable);
+            var source = Rec("rec_anchor_source", MergeState.Immutable);
+            source.Points.Add(new TrajectoryPoint { ut = 10.0, bodyName = "Kerbin" });
+            source.Points.Add(new TrajectoryPoint { ut = 20.0, bodyName = "Kerbin" });
+            // Captured under a session that is over: no marker is armed below.
+            stray.CapturePreReFlyAnchorTrajectoryFrom(source, "sess_dead");
+            Assert.True(stray.HasPreReFlyAnchorTrajectory("sess_dead"));
+
+            InstallTree("tree_1",
+                new List<Recording> { stray, source },
+                new List<BranchPoint>());
+            InstallScenario();
+
+            LoadTimeSweep.Run();
+
+            Recording after = FindRecording("rec_stray_anchor");
+            Assert.NotNull(after);
+            Assert.False(after.HasPreReFlyAnchorTrajectory("sess_dead"));
+            Assert.Null(after.PreReFlyAnchorSessionId);
+            Assert.Null(after.PreReFlyAnchorPoints);
+
+            Assert.Contains(logLines, l =>
+                l.Contains("[ReFlySession]")
+                && l.Contains("Stray pre-Re-Fly anchor snapshot on rec=rec_stray_anchor")
+                && l.Contains("sess=sess_dead"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[ReFlySession]")
+                && l.Contains("Cleared 1 stray pre-Re-Fly anchor snapshot(s) at load time"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[LoadSweep]")
+                && l.Contains("orphanReFlyAnchors=1"));
+        }
+
+        // Mirror direction: the snapshot of the LIVE session is exactly what the
+        // resolver paths read, so the sweep must leave it alone. A sweep that
+        // cleared unconditionally would pass the cell above.
+        [Fact]
+        public void LoadTimeSweep_LiveSessionPreReFlyAnchorSnapshot_Survives()
+        {
+            var active = Rec("rec_active", MergeState.NotCommitted, sessionId: "sess_1",
+                supersedeTarget: "rec_origin");
+            var origin = Rec("rec_origin", MergeState.CommittedProvisional);
+            origin.Points.Add(new TrajectoryPoint { ut = 10.0, bodyName = "Kerbin" });
+            origin.Points.Add(new TrajectoryPoint { ut = 20.0, bodyName = "Kerbin" });
+            active.CapturePreReFlyAnchorTrajectoryFrom(origin, "sess_1");
+
+            InstallTree("tree_1",
+                new List<Recording> { active, origin },
+                new List<BranchPoint> { Bp("bp_1", "rp_1") });
+            var rp = Rp("rp_1", "bp_1", sessionProvisional: true,
+                creatingSessionId: "sess_1", slots: new[] { Slot(0, "rec_origin") });
+            var marker = Marker("sess_1", "tree_1", "rec_active", "rec_origin", "rp_1",
+                invokedUt: 500.0);
+            InstallScenario(rps: new List<RewindPoint> { rp }, marker: marker);
+
+            LoadTimeSweep.Run();
+
+            Recording after = FindRecording("rec_active");
+            Assert.NotNull(after);
+            Assert.True(after.HasPreReFlyAnchorTrajectory("sess_1"));
+            Assert.Contains(logLines, l =>
+                l.Contains("[LoadSweep]")
+                && l.Contains("orphanReFlyAnchors=0"));
+            Assert.DoesNotContain(logLines, l =>
+                l.Contains("stray pre-Re-Fly anchor snapshot(s) at load time"));
+        }
+
         // ---------- Internal helpers --------------------------------------
 
         private static Recording FindRecording(string recordingId)
