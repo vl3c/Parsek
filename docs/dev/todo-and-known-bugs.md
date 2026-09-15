@@ -4954,7 +4954,7 @@ scope. Walk: `docs/dev/research/g10-interbody-route-feasibility.md` (its blocker
 now historical; blocker 2, that no COMMITTED fixture carries an inter-body dock, is
 answered by the B32 harvest of the operator's `orbital supply route` save).
 
-## EMPTY-ABSOLUTE-SECTION-EXACT-SPAN-DUPLICATE-OF-ITS-CHECKPOINT: a frame-LESS `Absolute` TrackSection sits on exactly the span of the `OrbitalCheckpoint` section beside it, so INV2 reports the pair and nothing retires either [MEASURED 2026-09-07 on branch `inv2-checkpoint-retire`, through the production read path, on the three operator sidecars committed at `Source/Parsek.Tests/Fixtures/Inv2DoubleCoverResidue/`. DEFECT in produced DATA, split out of INTERBODY-SAVE-CARRIES-INV2-DOUBLE-COVER below. OPEN, no fix proposed here]
+## ~~EMPTY-ABSOLUTE-SECTION-EXACT-SPAN-DUPLICATE-OF-ITS-CHECKPOINT: a frame-LESS `Absolute` TrackSection sits on exactly the span of the `OrbitalCheckpoint` section beside it, so INV2 reports the pair and nothing retires either~~ [MEASURED 2026-09-07 on branch `inv2-checkpoint-retire`, through the production read path, on the three operator sidecars committed at `Source/Parsek.Tests/Fixtures/Inv2DoubleCoverResidue/`. DEFECT in produced DATA, split out of INTERBODY-SAVE-CARRIES-INV2-DOUBLE-COVER below. CLOSED 2026-09-15 on branch `render-and-recorder-hygiene`: the producer is identified off the real bytes and was ALREADY FIXED on 2026-08-28, after the play that wrote these sidecars and before they were committed. NO CODE CHANGE]
 
 **What was measured.** After `CheckpointDoubleCoverRetire` clears every
 checkpoint-vs-checkpoint overlap in those three recordings, four INV2 findings stand
@@ -4985,7 +4985,7 @@ taken on this evidence: nothing here establishes what an empty `Absolute` sectio
 to the recorder, the optimizer's environment classification or
 `boundaryDiscontinuityMeters`, and the producer that emits it has not been identified.
 
-**What closing this needs**, in order: find the producer - the span is exactly the
+**What closing this needed**, in order: find the producer - the span is exactly the
 packed/on-rails stretch the checkpoint section describes, and the empty section is
 `src = Active`, so the lead is the ACTIVE recorder's section close at the on-rails
 transition rather than the checkpoint bridge, but that has NOT been driven and the
@@ -4995,6 +4995,68 @@ and `boundaryDiscontinuityMeters` both read sections regardless of payload), and
 then either fix the producer or widen the retire. The shared build-time containment dedupe in
 `harness/tools/build_duna_one_recorded.py` already drops frame-less shells, so the
 committed fixture corpus does not carry these and no lane is blocked by them.
+
+**THE PRODUCER, NAMED OFF THE REAL BYTES 2026-09-15, AND IT IS ALREADY FIXED.** The lead was
+right, and the `src` value was not the only evidence available - the section ORDER is. Dumping
+the three sidecars through the production read path
+(`RecordingStore.LoadTrajectorySidecarForTesting`) after `CheckpointDoubleCoverRetire` shows
+every one of the four standing shells sitting immediately after an `OrbitalCheckpoint` section
+that ENDS exactly at the shell's `startUT` and carries a conic of a DIFFERENT body than the
+checkpoint covering the shell's own span:
+
+| recording | shell span | body before -> body of the covering checkpoint |
+| --- | --- | --- |
+| `041770246...` | `[6675562.0340952, 6676373.1069955891]` | Kerbin -> Mun |
+| `36c7688b...` | `[63901473.58333458, 68378174.685928717]` | Kerbin -> Sun |
+| `36c7688b...` | `[72258643.296207383, 72279764.818765983]` | Sun -> Duna |
+| `58130506...` | `[6646497.6471289583, 6647570.0420407793]` | Kerbin -> Mun |
+
+Four shells, four ON-RAILS SOI CROSSINGS. That is the exact signature of
+`FlightRecorder.TransitionTrackSectionAtSoiBoundary` (`FlightRecorder.cs:5717`) as it stood
+BEFORE commit `b3c130aef` (2026-08-28, "Fix SOI-seam double emit: the on-rails crossing opened
+an unfillable Absolute section"): it opened `ReferenceFrame.Absolute` unconditionally at the
+crossing, `OnPhysicsFrame` early-returns on `isOnRails`, so that section could never receive a
+frame and closed payload-free at the next boundary, while the new SOI's orbit segment went into
+the flat `OrbitSegments` list and was later promoted to an `OrbitalCheckpoint` section over the
+byte-equal span by `OrbitSegmentCheckpointBridge`. The fix routes the frame through
+`ResolveSoiBoundarySectionFrame` (`FlightRecorder.cs:5700`), which answers `OrbitalCheckpoint` /
+`TrackSectionSource.Checkpoint` while on rails, so `AddOrbitSegmentToCurrentTrackSection` can
+attach the new SOI's segment to THAT section and nothing is synthesized alongside it.
+
+So there is NOTHING LEFT TO FIX AT THE PRODUCER, and no retire is widened. The dates line up
+with the sibling entry's own observation that the producer's guard "is dated after the play":
+the fix is 2026-08-28, the play these sidecars come from was measured 2026-09-02, and the bytes
+were committed 2026-09-07. The read path is byte-freeze by contract - committed recordings are
+never migrated - so these four findings stand on these bytes forever, which is exactly what
+`CheckpointDoubleCoverRetireTests.RealBytes_WhatStandsAfterwardsIsAlwaysAnEmptyAbsoluteExactSpanDuplicate`
+pins. The shipped producer is pinned by
+`SoiSeamDoubleEmitTests.OnRailsSoiCrossing_EmitsNoFramelessSection` (drives the primitive
+sequence of one on-rails interplanetary leg and asserts zero payload-free sections), by
+`OnRailsSoiCrossing_ReadPathEnsure_IsInv2Clean`, and at the source by
+`SoiSeamProducerWiringGateTests` (the seam must call the resolver, never a literal). The
+attribution above is now a cell of its own rather than prose:
+`SoiSeamDoubleEmitTests.RealBytes_EveryStandingEmptyAbsoluteSitsOnAnOnRailsSoiBodyChange`.
+
+**THE SECOND QUESTION, ANSWERED: the shells are NOT load-bearing.** All four read
+`isBoundarySeam = false` and `boundaryDiscontinuityMeters = 0`, so the optimizer's split
+predicate gets no seam short-circuit from them and no discontinuity, and both neighbours on
+every pair are `ExoBallistic` `OrbitalCheckpoint`-framed sections of the same environment class -
+the case section 3 of `IsSplittableEnvOrBodyBoundary` keeps COHESIVE anyway. Nothing about a
+split decision changes for their presence. Had they been seam-flagged the answer would have been
+the opposite, and this entry would have said so and stopped there.
+
+**ONE RESIDUAL, STATED RATHER THAN FIXED.** `TrackSectionCloseClassifier` discards a payload-free
+section only when it spanned less than `PayloadFreeMaxDurationSeconds = 1.0`, so a payload-free
+section of ANY longer span still persists - which is how these four reached disk. That bound is
+deliberate (it is a hygiene threshold, not the load-bearing fix: the codec predicates skip a
+payload-free section whatever its span, and the analyzer's INV11-EMPTY-SECTION reports it), and
+with the one identified producer fixed there is no live emitter left to catch, so tightening it
+now would be a speculative change to a classifier the `isBoundarySeam` persistence contract also
+runs through. Adjacent and already handled: an OnSave mid-coast
+(`CheckpointOpenTrackSectionForSerialization`) closes and REOPENS the same reference frame, so a
+packed `OrbitalCheckpoint` section that has not yet taken its conic persists payload-free too -
+that population is `OrbitalCheckpoint`, and `CheckpointDoubleCoverRetire` is exactly the pass
+that retires it at load.
 
 ## ~~INTERBODY-SAVE-CARRIES-INV2-DOUBLE-COVER~~: three recordings in the operator's real play carry a coarse checkpoint envelope alongside a payload-less shell and a re-clip of itself, and the producer's own guard against that shape is dated after the play [MEASURED 2026-09-02 by the B32 / V26M / V26T reading runs over the new `interbody-route-recorded` fixture. DEFECT in produced DATA; the analyzer is RIGHT and no fixture edit is proposed. FIXED 2026-09-07 by the load-time retire below, for the checkpoint-vs-checkpoint half; what stands afterwards is a DIFFERENT population, split out as EMPTY-ABSOLUTE-SECTION-EXACT-SPAN-DUPLICATE-OF-ITS-CHECKPOINT]
 
