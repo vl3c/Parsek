@@ -114,7 +114,43 @@ id = "GS-9-kerbalx-repeat-rewind"
 #     with no `Parsek.` frame; the classes are listed in GS-4's STATUS block.
 #
 # =====================================================================================
-tier = "operator"
+# ADDED 2026-09-15 BY THE REGISTRY-DECISIONS PR (operator rulings B2 and B7, memo s2 and
+# s12 of docs/dev/research/wave-0910-open-decisions-2026-09-11.md):
+#   (a) the D9 `rewind-to-launch-repeat` claim, a NEW registry value added in the same
+#       commit, claimed off the two BACKREFERENCE tokens this spec ALREADY requires -
+#       no new token, no new flight;
+#   (b) `tier = "operator"` -> `"nightly"` (ruling B7 covers MC-3 / GS-4 / GS-8 / GS-9;
+#       only THIS file's flip belongs to this PR).
+#
+# THE NEGATIVE CONTROL FOR (a) WAS DISCHARGED OFFLINE, not by a flight. GS-9's live
+# control `2026-09-11_0119` inverted `destroyLines`, which says nothing about whether
+# the backreference tokens can fire. So the tokens were re-evaluated over the ARMED
+# RE-FLIGHT'S OWN collected log, through the REAL harness code path -
+# `hlib.evaluate_expectations`, the same call `run.py` makes at verifier 7 - loading
+# this spec with `run.load_all_specs()` rather than re-typing any pattern:
+#
+#   cd harness && python <script> . \
+#     ../logs/wave-0910/runs/2026-09-11_0109_GS-9-kerbalx-repeat-rewind/KSP.log
+#   (the script: load_all_specs -> pick this id -> deepcopy [expectations] ->
+#    substitute the required list -> hlib.evaluate_expectations(exp, 8, log_text))
+#
+#   INTACT (the committed required list)          status=PASS mismatches=0
+#   MUTATED token 1: the second half's save
+#     backreference \2 -> the literal
+#     `parsek_rw_deadbeef` (\1, the UT, kept)     status=FAIL mismatches=1 (that token)
+#   MUTATED token 1: both \1 and \2 -> that
+#     literal                                     status=FAIL mismatches=1 (that token)
+#   MUTATED token 2: the load line's \1 -> that
+#     literal                                     status=FAIL mismatches=1 (that token)
+#
+# So each token matches ONLY because the second occurrence carried the SAME UT and the
+# SAME `parsek_rw_` id as the first, which is exactly the idempotence the value names -
+# and each can fail on its own. WHAT AN OFFLINE CONTROL DOES NOT PROVE, stated so nobody
+# overreads it: it exercises the EVALUATOR against real bytes, not a fresh flight, so it
+# cannot witness a product change that would alter the log between runs. The live
+# control stays owed on the next GS-9 flight, per memo s2.
+# =====================================================================================
+tier = "nightly"
 description = "Repeat-rewind idempotence on the GS-4 subject (ghost-replay Tier B item 8): staged Kerbal X ascent, commit, Rewind-to-Launch, Jumping Flea watch anchor, map view + watch mode, playback to completion - then a SECOND Rewind-to-Launch off the SAME committed tree with the same watcher and the same watch, via the kx machine's new rewindCycles=2 opt-in. Asks whether the parsek_rw_* quicksave is reusable and whether the second replay renders and derenders exactly what the first did. READ 2026-09-10 (`2026-09-10_1944`, PASS attempt 1, outcome O1 IDEMPOTENT: the same parsek_rw_ quicksave reloaded twice, 8 MeshSpawned + 8 MeshDestroyed in each cycle). ARMED off those bytes: ghostLifecycle gating at exact 8 / 16 / 16 and a per-cycle exactly-8 census in the logContracts. LIVE-PROVEN 2026-09-11: armed re-flight `2026-09-11_0109` PASS (O1 again, 8 + 8 per cycle) and negative control `2026-09-11_0119` (destroyLines 16 -> 17) red PARSEK-FAIL(ghost-lifecycle) on exactly that window; D9 rewind-to-launch and D6 basic-playback / mesh-lifecycle-derender re-claimed."
 instanceProfile = "stock-minimal"
 tags = ["GS9", "rewind-to-launch", "repeat-rewind", "watch-mode", "ghost-render", "derender", "ghost-lifecycle"]
@@ -166,7 +202,18 @@ rewindCycles     = 2
 #   surfaces as INVALID(autopilot-flake), never as PARSEK-FAIL (the header's O2); the
 #   armed run's two cycles both read rewindResult OK, so this claim rests on a run in
 #   which the second rewind ran.
-D9 = ["rewind-to-launch"]
+#
+# `rewind-to-launch-repeat` (ADDED 2026-09-15, ruling B2; the registry value is new in
+#   the same commit) <- THE SAME TWO BACKREFERENCE TOKENS, read for the property no
+#   single-invocation lane can assert: the second rewind pinned to the FIRST one's UT
+#   and `parsek_rw_` id, and the load line pinned to that same id, so the launch
+#   quicksave was COPIED rather than consumed (`ExecuteRewindSaveLoad` deletes only its
+#   temp copy) and the committed root's hint still resolved. `rewind-to-launch` above is
+#   satisfied by ONE invocation and is claimed by four lanes that each call
+#   InvokeRewindToLaunch exactly once, so this is an atom rather than a re-label.
+#   ITS NEGATIVE CONTROL IS THE OFFLINE ONE recorded in the header; the live control is
+#   owed on the next flight of this lane.
+D9 = ["rewind-to-launch", "rewind-to-launch-repeat"]
 # `basic-playback`          <- "phase=MeshSpawned ... vessel=Kerbal X reason=ghost-created",
 #   also required AFTER the second rewind line (GROUP 6).
 # `mesh-lifecycle-derender` <- the MeshDestroyed tokens (every population, both

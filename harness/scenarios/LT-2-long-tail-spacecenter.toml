@@ -1,6 +1,31 @@
 schema = 1
 id = "LT-2-long-tail-spacecenter"
 tier = "nightly"
+# =====================================================================================
+# ADDED 2026-09-15 BY THE REGISTRY-DECISIONS PR (operator ruling B1, memo s1 of
+# docs/dev/research/wave-0910-open-decisions-2026-09-11.md): the D4
+# `persistence-graze-suppression` claim and its one gating token (the `Split summary`
+# line at the bottom of [expectations.logContracts]).
+#
+# INERT UNTIL FLOWN. Nothing in this PR flew: the token was pinned OFF ARCHIVED BYTES of
+# the last GREEN LT-2 run, the armed re-flight `2026-09-10_1957` (PASS attempt 1, 48 s,
+# mismatches=0), whose collected KSP.log carries the line ONCE, byte for byte:
+#   [LOG 22:58:32.250] [Parsek][VERBOSE][Optimizer] Split summary:
+#   rec=rec_persistence_smoke_grazing evaluated=4 grazeForward=2 grazeBackward=2
+#   surfaceGrazeForward=0 surfaceGrazeBackward=0 seamSkipped=0 exoCoastBodyChangeKept=0
+#   splittableButRejected=0
+# (The same line is byte-identical in the three control runs `_2000` / `_2002` / `_2005`,
+# whose collected copies are ../logs/2026-09-10_2301 / _2303 / _2305 - the collect-logs
+# directory names are WALL CLOCK, three hours ahead of the run ids.) Memo s1 reports the
+# line byte-identical in 9 of 9 logs that ran the cell.
+# THE FLIGHT OPERATOR STILL OWES, before this claim is anything but declared: an ARMED
+# re-flight with the token in place, and ONE NEGATIVE CONTROL inverting exactly this
+# token (`grazeForward=2` -> `grazeForward=3`), about 50 s each. Until both are on the
+# record in autotest-status.md, read the [dimensionsCovered] D4 entry as PENDING.
+#
+# THE RE-PIN OF THIS LANE'S BATCH_COMPLETE TALLIES IS NOT THIS PR'S WORK. Register item
+# C2 re-pins them from the operator's own session bytes; nothing below touches a tally.
+# =====================================================================================
 # THE LONG TAIL'S SPACECENTER SLICE, ONE BOOT. Six categories whose executable cells
 # are SPACECENTER-scoped or need an EMPTY store, as one multi-category batch (the
 # LT-1 contract, at the other scene the seam can boot to). `fresh-sandbox` has no
@@ -139,8 +164,20 @@ steps = [
 #  - D5 `bg-on-rails`: the post-assert `BgOnRailsNoEnvSectionsWitness` line, WITH the
 #    three bypasses the logContracts comment names. Only the CheckpointAllVessels close
 #    path is production.
+#  - D4 `persistence-graze-suppression` (ADDED 2026-09-15, ruling B1): the production
+#    `Split summary` line of the SAME `RunOptimizationPass` that
+#    EccentricGrazing_StaysOneSegment_InGame drives, read for its NONZERO STEP-7
+#    counters `grazeForward=2 grazeBackward=2`. Those two come from `IsGrazePattern`
+#    (RecordingOptimizer.cs:461, the `BriefSectionMaxSeconds = 120s` collapse-walk),
+#    incremented at :680 / :683 - a DIFFERENT predicate from step 5's
+#    `IsSurfaceGrazePattern` (:517), whose own counters read zero on this very line and
+#    which is what RF-1 claims as `surface-graze-suppression`. RF-1's token pins the
+#    step-7 pair literally AT ZERO, so this is the suite's first gate on the
+#    persistence predicate having actually FIRED. Every value in the line is a fixture
+#    literal (rec id, 4 boundaries, 2 + 2), so the pattern is literal. INERT UNTIL
+#    FLOWN: see the header for what the operator still owes.
 D3  = ["relative-anchored-nonloop"]
-D4  = ["tail-trim"]
+D4  = ["tail-trim", "persistence-graze-suppression"]
 D5  = ["bg-on-rails"]
 D14 = ["sandbox", "scene-ksc"]
 
@@ -202,6 +239,13 @@ required  = [
   "BgOnRailsNoEnvSectionsWitness: on-rails BG vessel emitted no env-classified TrackSections across 50 orbits pid=8888001 perFrameEnvSections=0 checkpointSections=50 orbitSegments=50",
   "KSC relative runtime probe resolved anchorRec=runtime-ksc-recorded-anchor error=0\\.[0-9]{3}m",
   "RELATIVE KSC playback resolved: recording=rec\\[runtime-\\|Runtime KSC Relative Probe\\|tree\\|-\\] contract=anchor-local version=1 dx=15\\.00 dy=25\\.00 dz=35\\.00 anchorRec=runtime-ksc-recorded-anchor \\|offset\\|=45\\.55m",
+  # D4 `persistence-graze-suppression`, added 2026-09-15 (ruling B1). The production
+  # Optimizer summary of the pass EccentricGrazing_StaysOneSegment_InGame drives,
+  # pinned WHOLE off `2026-09-10_1957`'s bytes so the step-7 counters cannot read
+  # nonzero-by-accident and the step-5 pair is held at zero in the same assertion.
+  # UNSCOPED for the same reason as TrimBoringTail above: the first Optimizer cell runs
+  # before the runner logs `runtests start`.
+  "Split summary: rec=rec_persistence_smoke_grazing evaluated=4 grazeForward=2 grazeBackward=2 surfaceGrazeForward=0 surfaceGrazeBackward=0 seamSkipped=0 exoCoastBodyChangeKept=0 splittableButRejected=0",
 ]
 forbidden = ["\\[Parsek\\]\\[ERROR\\]"]
 

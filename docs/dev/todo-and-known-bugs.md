@@ -163,7 +163,16 @@ V15T and V18T will red on the teardown NRE: land that entry's guard first, or ca
 expectedFail. About 80 lines of Python plus tests, and 0 flights by the memo's estimate.
 Roadmap "Priority register (2026-09-11)" item C1.
 
-## REGISTRY-GROWTH-DECISIONS-2026-09-11: two registry values the 2026-09-10 wave measured but was not allowed to register, D4 `persistence-graze-suppression` and D9 `rewind-to-launch-repeat` [FILED 2026-09-11 off the wave-0910 decision memo (`docs/dev/research/wave-0910-open-decisions-2026-09-11.md` sections 1 and 2). An OPERATOR DECISION, not a defect. OPEN]
+## REGISTRY-GROWTH-DECISIONS-2026-09-11: two registry values the 2026-09-10 wave measured but was not allowed to register, D4 `persistence-graze-suppression` and D9 `rewind-to-launch-repeat` [FILED 2026-09-11 off the wave-0910 decision memo (`docs/dev/research/wave-0910-open-decisions-2026-09-11.md` sections 1 and 2). An OPERATOR DECISION, not a defect. RULED YES and APPLIED 2026-09-15 (register B1 / B2); only D9's LIVE control stays owed]
+
+**RULED YES and APPLIED 2026-09-15:** D4 `persistence-graze-suppression` added (registry
+comment names step 7 `IsGrazePattern` vs step 5 `IsSurfaceGrazePattern`) and claimed on LT-2
+off the `Split summary ... grazeForward=2 grazeBackward=2 ...` token pinned from run
+`2026-09-10_1957`; armed re-flight and control (`grazeForward=2` -> `=3`) flown this session
+(run ids recorded in `autotest-status.md`). D9 `rewind-to-launch-repeat` added and claimed on
+GS-9 off its two existing backreference tokens; the token control was discharged OFFLINE over
+`2026-09-11_0109` via `hlib.evaluate_expectations` (intact PASS/0; each mutated backreference
+FAIL/1), the live control owed on the next GS-9 flight.
 
 **Why it is a decision.** The wave's ruling G5 forbade registry growth and sent both
 candidates to the operator. A new value is a registry change (`harness/coverage/registry.toml`
@@ -199,15 +208,18 @@ plus its catalog line), so it moves the cell total as well as the covered count.
   expect exactly one mismatch), and fly a live control on the next GS-9 flight.
 - Cost: 0 flights.
 
-**Fix (pending the operator, roadmap "Priority register (2026-09-11)" items B1 / B2).** In the
-registry PR (item C3):
-- add each accepted value with its comment;
-- claim it only after its armed run and its control (the wave's G4 discipline);
-- re-derive the coverage count.
+**Fix (DONE 2026-09-15 in the registry PR, roadmap "Priority register (2026-09-11)" items
+B1 / B2).** Both values carry their comment in `harness/coverage/registry.toml`, each is
+claimed only after its armed run and its control (the wave's G4 discipline, D9's control
+offline), and the coverage count is re-derived: 187 of 250 over 263 specs.
 
-A refused value is recorded here, and this entry is struck.
+## ~~CADENCE-PROMOTIONS-2026-09-11: MC-3, GS-4, GS-8 and GS-9 are operator tier, so their gates run only when someone flies them by hand~~ [FILED 2026-09-11 off the wave-0910 decision memo (`docs/dev/research/wave-0910-open-decisions-2026-09-11.md` sections 6 and 12). An OPERATOR DECISION. DONE 2026-09-15, register B7]
 
-## CADENCE-PROMOTIONS-2026-09-11: MC-3, GS-4, GS-8 and GS-9 are operator tier, so their gates run only when someone flies them by hand [FILED 2026-09-11 off the wave-0910 decision memo (`docs/dev/research/wave-0910-open-decisions-2026-09-11.md` sections 6 and 12). An OPERATOR DECISION. OPEN]
+**Done: all four to nightly 2026-09-15.** The nightly p50 sum moves from ~7.25 h to
+~7.67 h (GS-8 645 s, GS-9 494 s, GS-4 338 s, MC-3 53 s; method as #1652: committed
+`duration.json` p50 where sampled, else the lane's result JSONs - GS-8 and GS-4 are
+sampled, GS-9 and MC-3 are not). Counts re-derived mechanically from the specs' own
+`tier` keys: daily 26 / nightly 125 / operator 112 -> 26 / 129 / 108 over 263 specs.
 
 **What is true.** All four specs read `tier = "operator"` at `b21fc2096`, and the operator
 tier is excluded from every cadence. MC-1 and MC-2, MC-3's siblings on the modded-compat
@@ -220,13 +232,20 @@ decision that moved V18T, V20M, V20T, V25M, B29, V3C and GS-6 to nightly. Decide
 with GS4-UNITY-CEILING-NEGCTL-VACUOUS: putting GS-4 on cadence is what makes its
 `unityExceptions` ceiling bite.
 
-**Fix (pending the operator, roadmap "Priority register (2026-09-11)" item B7).** In the
-registry PR (item C3):
-- flip the four `tier` keys;
-- update the tier cells of their status rows and every doc line that states tier counts;
-- re-derive the nightly budget sum.
+**Fix (DONE 2026-09-15 in the registry PR, roadmap "Priority register (2026-09-11)" item
+B7).** The four `tier` keys are flipped, the tier cells of their status rows say
+`nightly (PROMOTED 2026-09-15 by operator decision; was operator, armed-discipline
+complete, cadence was the only open item)`, the doc lines that state tier counts are
+re-derived, and the nightly budget sum is re-derived above.
 
-## D14-GAME-MODE-CLAIMS-UNPINNED: a spec's D14 `sandbox` / `career` claim follows fixture convention, and nothing checks it against the fixture's own `Mode =` [FILED 2026-09-11 off the wave-0910 decision memo (`docs/dev/research/wave-0910-open-decisions-2026-09-11.md` section 10). A HARNESS GUARD gap, not a defect: every resolvable claim agrees today. OPEN, pending the operator's call on the convention]
+## ~~D14-GAME-MODE-CLAIMS-UNPINNED: a spec's D14 `sandbox` / `career` claim follows fixture convention, and nothing checks it against the fixture's own `Mode =`~~ [FILED 2026-09-11 off the wave-0910 decision memo (`docs/dev/research/wave-0910-open-decisions-2026-09-11.md` section 10). A HARNESS GUARD gap, not a defect: every resolvable claim agrees today. RULED YES and DONE 2026-09-15, register B10]
+
+**Done 2026-09-15.** `harness/lib/test_d14_game_mode.py` pins every spec's D14 `sandbox` /
+`career` / `science-mode` claim to its own fixture's `Mode =` line (via
+`hlib.claimed_d14_game_modes` + `hlib.d14_game_mode_value`, reusing
+`harvest_bdock_station.read_game_mode`); 226 specs checked, 0 disagree; the two GUI census
+lanes skip as operator-local fixtures and the cell asserts that skip set is exactly the
+local-fixture set; mutation-tested both directions on a scratch corpus copy.
 
 **What is true (re-derived 2026-09-11 at `b21fc2096`).** The check walked
 `run.load_all_specs()` and read the first `Mode =` line of each spec's
@@ -1509,11 +1528,29 @@ and do NOT take the `StopRecording` mitigation above. Optional settling measurem
 BDOCK-1 copy with `AnswerMergeDialog choice=merge` (about 36 min). Operator call: roadmap
 "Priority register (2026-09-11)" item B6.
 
-**Fix (low priority, pending B6; adds no UI).** On a refused resume of a Limbo committed-tree
-restore attempt, auto-clear a no-op continuation and route a meaningful one to the silent
-auto-commit, so the fallback dialog never shows.
+**Fix (low priority, RULED NO FIX NOW 2026-09-15; adds no UI).** On a refused resume of a
+Limbo committed-tree restore attempt, auto-clear a no-op continuation and route a meaningful
+one to the silent auto-commit, so the fallback dialog never shows.
 
-## D17-MAKING-HISTORY-NEEDS-A-DEFINITION: the registry cell `making-history` has no subject, because Parsek has no Making-History-specific compatibility path to witness [FILED 2026-09-10 by wave package A2 (`cheap-flights-arming`) planning. A DEFINITION question for the operator, not a defect and not instance-blocked. OPEN; no experiment flight is authorized until it is answered]
+**Decision 2026-09-15 (register B6): NO FIX NOW; low-priority UX item.** The dialog is the
+guid-gated refusal working: the seam commit arms the designed copy-on-write committed-tree
+restore, kRPC `launch_vessel` is a FLIGHT->FLIGHT reload that
+`FinalizeTreeOnSceneChangeCore` can only stash, and `SavePendingTreeIfAny` then skips the
+Limbo tree until it evaporates at quit with committed history untouched. No stock path
+reaches this shape. Fix direction when taken, no new UI: on a refused resume of a Limbo
+committed-tree restore attempt, auto-clear a no-op continuation and route a meaningful one
+to the silent auto-commit (the promotion `RecordingStore` already performs on every
+copy-on-write host), so the dialog never draws. BDOCK-1's spec shape is unchanged; the
+`StopRecording` mitigation is explicitly NOT to be added; the optional ~36 min
+`AnswerMergeDialog choice=merge` measurement is skipped.
+
+## D17-MAKING-HISTORY-NEEDS-A-DEFINITION: the registry cell `making-history` has no subject, because Parsek has no Making-History-specific compatibility path to witness [FILED 2026-09-10 by wave package A2 (`cheap-flights-arming`) planning. A DEFINITION question for the operator, not a defect and not instance-blocked. DEFINED 2026-09-15, register B5; the clone spec and its one flight remain]
+
+**DEFINED 2026-09-15, not flown:** alt-site launch capture on stock-minimal, a GS-4 clone
+with `launchSite = "Desert_Launch_Site"`, `tier = "operator"`, one reading flight, ranked
+last of D17; Making History is junctioned into every instance via `SquadExpansion`, so no
+modded-compat run is needed. Remaining: the clone spec plus the one flight. The definition
+is written into the registry comment above D17's `values =`.
 
 **What is true.** Unlike BetterTimeWarp (one concrete interaction, `StockWarpAltitudeLimits`,
 now read by `MC-3-better-time-warp`), there is no Making-History mechanism in Parsek to
@@ -1565,10 +1602,12 @@ site (`FlightRecorder.cs:6613-6652`), persisted, and the ghost replays there.
 - The marginal value is low: rank it last of the open work, or delete the value with an
   honest "DLC present, no Parsek-specific path worth a lane" comment.
 
-Operator call: roadmap "Priority register (2026-09-11)" item B5.
+Operator call: roadmap "Priority register (2026-09-11)" item B5, RULED 2026-09-15 for
+answer (1) as recorded at the top of this entry.
 
-**Fix (pending B5).** Either the registry comment plus that one reading flight, or deleting
-the value with its rationale comment.
+**Fix (registry comment DONE 2026-09-15; the flight remains).** The definition is in the
+registry comment; what is left is the GS-4 clone spec and its one reading flight, ranked
+last of D17.
 
 ---
 
@@ -1634,11 +1673,27 @@ own total measures >= 1; a total-0 run is vacuous again, not a failed control.
 - The bigger gap is the scanner, which cannot see a Parsek frame under any ceiling:
   UNITY-SCANNER-BLIND-TO-PARSEK-STACK-FRAMES.
 
-**Fix (pending B8).** Re-pin `maxTotal = 6`, with n and the class composition in the spec
-comment and in test_hlib's CEILINGS comment; or record the pre-authorised re-pin in both
-places. The opportunistic live control above is unchanged.
+**Fix (DONE 2026-09-15, register B8).** The ceiling is re-pinned 4 -> 6 on 2026-09-15 per
+the H23 precedent (6 is the legal maximum of the known stock class set, STAGING 1 +
+MAP-FOCUS 2 + HATCH-TOOLTIP 1 + MECHJEB-ONDESTROY 1 + FLIGHT-CAMERA-STARTUP 1), reversing
+the wave supervisor's keep-4 ruling; 0 flights, the offline control stands (`_0049` reds at
+3); only an opportunistic live control on an NRE-bearing run remains open. n and the class
+composition are in the spec comment and in test_hlib's CEILINGS comment.
 
-## D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE: the registry cell's only producer is reached in always-tree mode only through rare split-edge aborts, and no seam verb drives one [FILED 2026-09-10 by the ghost-replay Tier B / Tier D wave (`ghost-replay-tier-b`) while authoring the Tier D residue. A REGISTRY / VERB DECISION, not a product defect. BLOCKED on the operator, paired with the R2 `stop-on-switch` call]
+## D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE: the registry cell's only producer is reached in always-tree mode only through rare split-edge aborts, and no seam verb drives one [FILED 2026-09-10 by the ghost-replay Tier B / Tier D wave (`ghost-replay-tier-b`) while authoring the Tier D residue. A REGISTRY / VERB DECISION, not a product defect. BOTH HALVES RULED 2026-09-15 (register B3 / B4); the `sub-2-point-drop` half stays open until the Gloops PR lands]
+
+**B3 RULED YES and APPLIED 2026-09-15 (the R2 half).** `stop-on-switch` is RENAMED
+`switch-backgrounds-recording` in `harness/coverage/registry.toml` and CLAIMED on CI-1 off
+a literal token (`Transitioned to background (pid=`) pinned from run `2026-09-08_1054`,
+with an armed re-flight and one negative control flown this session (run ids in
+`autotest-status.md`). The cell is no longer a registry defect and no longer unclaimable;
+every doc line that still said so was corrected in the same PR.
+
+**B4 RULED YES with the constraint that Gloops code stays untouched; implemented on branch
+`gloops-seam-verbs` (separate PR).** The `sub-2-point-drop` half is therefore NOT closed
+here: this PR only rewrites the registry comment to record that the always-tree commit path
+keeps a 1-point recording (MC-3 measured it) so Gloops is the drop's only seam-reachable
+producer, and corrects the stale S0.5 / S0.6 comments.
 
 **What the cell names.** `harness/coverage/registry.toml` D1 `sub-2-point-drop`: a
 recording shorter than two points is dropped instead of committed. The only producer
@@ -1691,7 +1746,9 @@ is real: the edges are RARE, not proven dead.
 **Why no lane closes it now.** No existing seam verb reliably makes a split edge abort
 before the split recorder's second sample, and the wave allows no C# change.
 
-**Fix options (operator decision; take it together with R2's `stop-on-switch`):**
+**Fix options (operator decision, RULED (1) on 2026-09-15 as register B4; taken together
+with the R2 call on `stop-on-switch`, renamed `switch-backgrounds-recording` 2026-09-15,
+register B3):**
 (1) keep the cell and add a Gloops seam verb (a C# change), so `manual-gloops` and
 `sub-2-point-drop` close together - the drop driven by a Gloops recording stopped
 before its second sample;
@@ -1732,11 +1789,13 @@ Line numbers re-checked 2026-09-11 at `b21fc2096`:
 - `FallbackCommitSplitRecorder` is declared at `:6843`;
 - the Gloops `too short - discarded` ScreenMessage is at `:17085` (cited as `:17058` above).
 
-**Fix (revised 2026-09-11, pending B3 / B4).**
-- A registry PR redefines `stop-on-switch` and claims it on CI-1, rewrites the
-  `sub-2-point-drop` comment, and corrects the S0.5 / S0.6 comments.
-- A separate C# PR adds the Gloops verb pair and the lanes that claim `manual-gloops` and
-  `sub-2-point-drop`.
+**Fix (revised 2026-09-15; the registry half DONE, the C# half pending).**
+- The registry PR redefined `stop-on-switch` as `switch-backgrounds-recording` and claimed
+  it on CI-1, rewrote the `sub-2-point-drop` comment, and corrected the S0.5 / S0.6
+  comments. DONE 2026-09-15.
+- A separate C# PR on branch `gloops-seam-verbs` adds the Gloops verb pair (Gloops code
+  itself untouched, per B4's constraint) and the lanes that claim `manual-gloops` and
+  `sub-2-point-drop`. PENDING.
 
 ## ~~RF1-HYSTERESIS-UT-LITERAL-REFUTED-BY-LAUNCH-TICK: RF-1's armed re-flight red on a UT the claim-gap wave had pinned literal, because the autopilot launch landed one physics tick later~~ [FILED 2026-09-10 by the claim-gap wave (package A1-6). A HARNESS PIN finding, not a product defect. CLOSED 2026-09-11: the re-pinned spec flew green and both D4 claims were taken]
 
@@ -7768,7 +7827,11 @@ teardown) and RC-COVER-DARK-WINDOWS-READ-ON-BARE-LANES (V17M, V23M, report-only)
 
 ---
 
-## V26-CONTROLS-FLOWN-ON-B32X-COPIES: the V26 pair's negative controls ran on uncommitted copies of B32, not on either V26 spec [OPENED 2026-09-10 on branch `loop-render-residue`. TODO, an operator decision, not a defect]
+## ~~V26-CONTROLS-FLOWN-ON-B32X-COPIES: the V26 pair's negative controls ran on uncommitted copies of B32, not on either V26 spec~~ [OPENED 2026-09-10 on branch `loop-render-residue`. An operator decision, not a defect. RULED (b) and DONE 2026-09-15, register B9]
+
+**Done: own in-place controls flown 2026-09-15** (`routeLineBuilds min 2 -> 3`, red on
+exactly `renderComposition.routeLineBuilds 2 < min 3`, reverted): V26M `2026-09-15_1534`,
+V26T `2026-09-15_1536`.
 
 The V26M and V26T status rows record two NEGATIVE CONTROLS, both on uncommitted
 supervisor-scratchpad copies of B32: `B32X-interbody-scope-negative-control` (`_1917`, one
@@ -7788,8 +7851,8 @@ renderComposition window `routeLineBuilds = { min = 2 }`
 `{ min = 3 }`, about 60 s each. Operator call: roadmap "Priority register (2026-09-11)" item
 B9.
 
-**Fix (pending B9).** Fly the two controls; each is valid only if it reds on exactly that
-facet. Record them in both spec headers and status rows, and strike this entry.
+**Fix (DONE 2026-09-15, register B9).** The two controls flew, each red on exactly that
+facet, and are recorded in both spec headers and status rows.
 
 ---
 
@@ -13610,8 +13673,10 @@ register (2026-09-11)" item C4; no decision needed.
 
 **R2. Two registry cells cannot be honestly claimed as written. Decide before anyone
 claims against them.**
-`harness/coverage/registry.toml` D1 `stop-on-switch` describes a decision that does
-not exist: `FlightRecorder.VesselSwitchDecision` is `{None, ContinueOnEva,
+`harness/coverage/registry.toml` D1 `stop-on-switch` described a decision that does
+not exist (RESOLVED 2026-09-15, register B3: the cell is renamed
+`switch-backgrounds-recording` and claimed on CI-1): `FlightRecorder.VesselSwitchDecision`
+is `{None, ContinueOnEva,
 ChainToVessel, DockMerge, UndockSwitch, TransitionToBackground, PromoteFromBackground}`
 with no Stop member (always-tree mode removed it). D3 `surface-body-fixed` does not
 name a `ReferenceFrame` member either: the enum has exactly `Absolute`, `Relative`,
@@ -13620,9 +13685,10 @@ name a `ReferenceFrame` member either: the enum has exactly `Absolute`, `Relativ
 `parent-anchored-debris`.
 Build: delete each cell or redefine it against a real symbol, with the rationale in the
 registry comment. The coverage denominator moves, so do it before the next snapshot.
-The `stop-on-switch` call is now owned by D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE
-(roadmap "Priority register (2026-09-11)" item B3), which carries the redefinition
-recommendation; this paragraph keeps only the `surface-body-fixed` half.
+The `stop-on-switch` call was owned by D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE
+(roadmap "Priority register (2026-09-11)" item B3) and was RULED YES on 2026-09-15: the
+cell is renamed `switch-backgrounds-recording` and claimed on CI-1. This paragraph keeps
+only the `surface-body-fixed` half.
 
 **R3. Run S1.5 and S4.1 unattended; their operator-tier premise looks stale.**
 Both are `tier = "operator"` (excluded from every cadence, never run) on the stated
@@ -13864,7 +13930,8 @@ item and must not be counted as one:
   reading lane, `MC-3-better-time-warp`, READ green on outcome (A) on
   `2026-09-10_2025` and pinned from it, armed re-flight `_2208` PASS and negative control
   `_2213` valid, D17 `better-time-warp` CLAIMED 2026-09-11; `making-history`
-  is definition-blocked, see D17-MAKING-HISTORY-NEEDS-A-DEFINITION); the FX-fingerprint A/B diff ran REPORT-ONLY
+  was definition-blocked and is DEFINED 2026-09-15 as alt-site launch capture on
+  stock-minimal, still unflown - see D17-MAKING-HISTORY-NEEDS-A-DEFINITION); the FX-fingerprint A/B diff ran REPORT-ONLY
   and surfaced a corpus limitation filed as **T48 under TODO — Compatibility**
   (the synthetic corpus is trajectory-only for all but a handful of
   recordings, so a save-based A/B exercises ~1 engine key; a dedicated

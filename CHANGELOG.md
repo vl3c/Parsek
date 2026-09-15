@@ -1539,6 +1539,17 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Dev
 
+- **Test tooling: ten open decisions about the automated-test coverage registry were ruled
+  and applied.** Two new coverage cells were added and claimed (a second, distinct
+  optimizer graze-suppression path, and rewinding one committed flight to its launch twice
+  off the same quicksave); one cell that named a decision the recorder no longer makes was
+  renamed to what a vessel switch actually does - it backgrounds the live recording - and
+  claimed for the first time; four test lanes moved from run-by-hand to the nightly
+  rotation; one lane's tolerance for stray engine exceptions was widened to the maximum
+  the known set can legally produce; a new check pins every lane's declared game mode to
+  its own save fixture; and the Making History coverage cell finally has a definition.
+  Test-tooling only; no gameplay change.
+
 - **Docs: GUI inventory and feature-exposure design doc.** `docs/dev/design-gui-inventory.md`
   is the condensed structural map of every player-facing surface and of what the backend
   exposes through it, measured 2026-09-11 against `4eb427e9e`; the two raw census passes it
