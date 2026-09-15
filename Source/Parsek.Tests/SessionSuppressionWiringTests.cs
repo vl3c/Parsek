@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using Xunit;
@@ -382,51 +382,50 @@ namespace Parsek.Tests
         // =====================================================================
 
         [Fact]
-        public void IsLiveReFlyCrew_MarkerNull_False()
+        public void IsLiveReFlyCrew_NullKerbal_False()
         {
-            // Intentionally no scenario/marker installed.
+            // What this pins is the kerbal-null guard, which is the FIRST guard
+            // in the method: both calls pass kerbal=null, so the marker is never
+            // read and the null-marker guard below it is not what answers. A
+            // ProtoCrewMember cannot be constructed here (the ctor needs Unity
+            // state and ProtoCrewMember.name is read-only in this KSP version),
+            // so the marker-null case is an in-game cell
+            // (KerbalDualResidenceCarveOutTest), not this one. The second call
+            // carries a real marker precisely to show the kerbal guard, not the
+            // marker guard, is what returns false.
             Assert.False(CrewReservationManager.IsLiveReFlyCrew(kerbal: null, marker: null));
-            // A null kerbal is sufficient to exercise the null-marker guard
-            // without constructing a ProtoCrewMember (the ctor requires Unity
-            // state and ProtoCrewMember.name is read-only in this KSP version).
             Assert.False(CrewReservationManager.IsLiveReFlyCrew(
                 kerbal: null, marker: Marker("rec_origin")));
         }
 
         [Fact]
-        public void ActiveVesselMatchesReFlyRecording_UnknownRecordingId_False()
+        public void ActiveVesselMatchesReFlyRecording_NullVessel_False()
         {
-            // Provisional recording with a known VesselPersistentId — but no
-            // live ActiveVessel in a test process, so the helper must degrade
-            // gracefully rather than NRE.
+            // What this pins is the null-vessel guard: with a provisional
+            // recording present AND a marker naming it, the only reason the
+            // answer is false is the activeVessel==null short-circuit. The
+            // committed-list lookup below it is never reached without a live
+            // Vessel, so the unknown-id miss is an in-game cell, not this one.
             var provisional = Rec("rec_provisional", "tree_1",
                 state: MergeState.NotCommitted, vesselPid: 12345);
             RecordingStore.AddRecordingWithTreeForTesting(provisional, "tree_1");
 
             var marker = Marker("rec_origin", activeReFlyId: "rec_provisional");
-            // Null vessel passes through ActiveVesselMatchesReFlyRecording's
-            // null guard; we use this to assert the guard path.
             Assert.False(CrewReservationManager.ActiveVesselMatchesReFlyRecording(null, marker));
             Assert.False(CrewReservationManager.ActiveVesselMatchesReFlyRecording(null, null));
         }
 
         [Fact]
-        public void ActiveVesselMatchesReFlyRecording_MissingProvisionalRecording_False()
+        public void ActiveVesselMatchesReFlyRecording_NullVessel_UnknownMarkerId_False()
         {
+            // Sibling of the cell above with the store EMPTY of the marker's id:
+            // the answer is still the null-vessel guard, not the missing-recording
+            // fallthrough, because that fallthrough sits after the committed-list
+            // walk which a null vessel never reaches. A KSP Vessel cannot be
+            // instantiated outside Unity, so the genuine missing-provisional case
+            // belongs to the in-game KerbalDualResidenceCarveOutTest.
             var marker = Marker("rec_origin", activeReFlyId: "rec_missing_provisional");
-            // Use a raw Vessel stub — but we can't instantiate a KSP Vessel
-            // outside Unity. ActiveVesselMatchesReFlyRecording has a null guard
-            // on activeVessel, so the path through committed-list lookup is
-            // reached only when a Vessel is available. We exercise the
-            // committed-list path via the marker/empty-store: no recording
-            // with id 'rec_missing_provisional' exists, so the method falls
-            // through the loop and returns false.
-            //
-            // We emulate the Vessel argument by calling the method with a null
-            // Vessel (which the null guard short-circuits) and additionally
-            // verifying the lookup returns false when the recording is absent
-            // by asserting IsSuppressed on an unrelated id (which exercises
-            // the same raw-lookup path in SessionSuppressionState).
+
             Assert.False(CrewReservationManager.ActiveVesselMatchesReFlyRecording(null, marker));
         }
 

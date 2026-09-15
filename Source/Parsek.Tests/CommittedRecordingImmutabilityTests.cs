@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using UnityEngine;
 using Xunit;
@@ -143,29 +143,6 @@ namespace Parsek.Tests
 
             Assert.False(needsSpawn);
             Assert.Contains("vessel destroyed", reason);
-        }
-
-        [Fact]
-        public void ContinuationVesselDestroyed_SnapshotPreservedForRevertSpawn()
-        {
-            // After revert, VesselDestroyed is reset (it's a transient playback flag).
-            // The snapshot must still be present for spawn to work.
-            var rec = MakeCommittedRecording();
-            rec.VesselDestroyed = true;
-
-            // Simulate revert: reset playback state
-            rec.VesselDestroyed = false;
-            rec.VesselSpawned = false;
-            rec.SpawnedVesselPersistentId = 0;
-
-            // Should be eligible for spawn now
-            var (needsSpawn, reason) = GhostPlaybackLogic.ShouldSpawnAtRecordingEnd(
-                rec,
-                isActiveChainMember: false,
-                isChainLooping: false);
-
-            Assert.True(needsSpawn, $"Expected spawn eligible after revert, but got: {reason}");
-            Assert.NotNull(rec.VesselSnapshot);
         }
 
         // ────────────────────────────────────────────────────────────
@@ -328,6 +305,7 @@ namespace Parsek.Tests
                 isChainLooping: false);
 
             Assert.True(needsSpawn, $"Should be spawn-eligible after reset, but got: {reason}");
+            Assert.NotNull(rec.VesselSnapshot);
         }
 
         // ────────────────────────────────────────────────────────────

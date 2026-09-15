@@ -1,0 +1,19 @@
+diff --git a/Source/Parsek/RecordingTreeRecordCodec.cs b/Source/Parsek/RecordingTreeRecordCodec.cs
+index d248a92b8..0a31a8b27 100644
+--- a/Source/Parsek/RecordingTreeRecordCodec.cs
++++ b/Source/Parsek/RecordingTreeRecordCodec.cs
+@@ -1,4 +1,4 @@
+-using System;
++﻿using System;
+ using System.Collections.Generic;
+ using System.Globalization;
+ 
+@@ -824,7 +824,7 @@ namespace Parsek
+             rec.IsGhostOnly = ParseBoolOr(recNode, "isGhostOnly", rec.IsGhostOnly);
+ 
+             // Max distance from launch (#302)
+-            rec.MaxDistanceFromLaunch = ParseDoubleOr(recNode, "maxDist", rec.MaxDistanceFromLaunch);
++            rec.MaxDistanceFromLaunch = ParseDoubleOr(recNode, "maxDist", 42.0);
+ 
+             // Cascade depth (#284). Missing key = 0 (legacy save or gen-0 recording).
+             rec.Generation = ParseIntOr(recNode, "generation", rec.Generation);

@@ -715,6 +715,32 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
     committed-cost sign convention) survives as
     `RewindLoggingTests.FullCommittedCost_SignConvention_PositiveMeansSpent`.
 
+- `testfix-t1t2`, third PR (2026-09-15): the second slice of Medium T1 rows
+  (`work/phase-b-slice-medium-t1-02.txt`, 20 ids, all recording-tree). Each fixed row has
+  a proof row in `research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a
+  `*-phaseB.patch`.
+  - Fixed: F-recording-tree-050-01 / -050-02 / -050-03 (the three `BackwardCompat_*`
+    nodes are stamped with `RecordingStore.CurrentRecordingFormatVersion` /
+    `CurrentRecordingSchemaGeneration`, so `LoadRecordingFrom` passes the schema gate and
+    the asserted null / false / zero is the loader's own default; each cell also asserts
+    the recording was not rejected); F-recording-tree-035-04 / -035-05 (both
+    session-priority cells now pass the session's own focused pid as the target, the one
+    input where Case A answers `SkipDialogSameTarget` and the no-session arm answers
+    `OpenDialog`, so reordering the arms reds them); F-recording-tree-048-01 / -048-02 /
+    -048-03 (renamed to the guards their inputs actually reach -
+    `IsLiveReFlyCrew_NullKerbal_False`,
+    `ActiveVesselMatchesReFlyRecording_NullVessel_False`,
+    `ActiveVesselMatchesReFlyRecording_NullVessel_UnknownMarkerId_False` - with the false
+    comment about an `IsSuppressed` lookup dropped; the marker-null and unknown-id cases
+    need a live `Vessel` and stay with the in-game `KerbalDualResidenceCarveOutTest`).
+  - Deleted: F-recording-tree-050-06 (`ContinuationVesselDestroyed_SnapshotPreservedForRevertSpawn`
+    replayed the revert inline; twin
+    `ResetAllPlaybackState_ClearsVesselDestroyed_SpawnEligibleAfter` in the same class
+    drives `RecordingStore.ResetAllPlaybackState` and now carries the deleted cell's
+    snapshot assertion); F-recording-tree-052-04 (`ZeroPid_NoEffect`; the `pid == 0`
+    short-circuit returns what every path below it returns, so no unit test can pin it -
+    twin `CommitFlowTests.ShouldSkip_ZeroPid_ReturnsFalse` keeps the documentation).
+
 ## July crosswalk
 
 `research/test-quality-audit-2026-09-14/july-crosswalk.csv` maps every July register ID (42 rows: A1-A7, B1-B8, C1-C6, D1-D5, and Tier E numbered E1-E16 in source order) to the SUT or file it names and to the D2/D3 rows here that touch the same SUT. `status_now` is judged from the xUnit tree only and says `unknown` for harness and in-game items this audit cannot decide (closed 15, unknown 19, open 7, superseded 1). 49 findings and 14 coverage proposals carry a `july_ref` / `dupe_of_july_id`; for those the July ID stays primary and this audit adds evidence.

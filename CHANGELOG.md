@@ -193,6 +193,26 @@ _(unreleased — entries accumulate here per commit)_
   which sees a deleted call where a name-existence check cannot. Each was re-checked by
   breaking the production line on purpose and confirming the test goes red. Nothing a
   player sees changes.
+- **Tests: a second slice of twenty recording-tree cells from the audit's T1
+  (vacuous) register now reaches the production line their names claim.** The first ten:
+  three backward-compatibility cells loaded a RECORDING node that the schema gate
+  rejected before the loader ran, so the null controller list, the false debris flag and
+  the zero max-distance they checked were the field defaults of a rejected recording, not
+  the loader's missing-key answers - the nodes are now stamped with the current format and
+  generation, and each cell asserts the load was accepted before reading the value. Two
+  pre-switch dialog cells claimed to witness that an armed switch session outranks the
+  no-session arm, but both arms answer the same for the inputs they used; they now use the
+  one input where the two paths disagree (a re-click of the vessel the session already
+  owns), so reordering the two arms reds them. Three Re-Fly crew cells were named for
+  guards their inputs could never reach - a null kerbal never reaches the marker check, a
+  null vessel never reaches the recording lookup - and now carry the names of the guards
+  they actually pin, with the unreachable cases left to the in-game cell that can build a
+  live vessel. Two cells were removed: one replayed a revert by hand and then checked its
+  own writes (the cell that drives the real reset covers it, and inherits its one extra
+  assertion), and one pinned a short-circuit no unit test can distinguish from the paths
+  below it. Each repair was re-checked by breaking the production line on purpose and
+  confirming the cell goes red. No production change, nothing a player sees changes.
+
 - **Tests: twenty rewind / Re-Fly and recording-tree cells from the audit's T1
   (vacuous) register now exercise the production line their names claim.** Each one
   passed for a reason unrelated to its subject: a branch-point fixture with no parent

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using Xunit;
 
@@ -74,19 +74,6 @@ namespace Parsek.Tests
 
             bool result = GhostPlaybackLogic.ShouldSkipExternalVesselGhost(
                 "tree-abc", 300, false);
-
-            Assert.False(result);
-        }
-
-        [Fact]
-        public void ZeroPid_NoEffect()
-        {
-            // PID=0 triggers early return regardless of ghosted state.
-            GhostPlaybackLogic.SetIsGhostedOverride(pid => true);
-            GhostPlaybackLogic.SetVesselExistsOverrideForTesting(pid => true);
-
-            bool result = GhostPlaybackLogic.ShouldSkipExternalVesselGhost(
-                "tree-abc", 0, false);
 
             Assert.False(result);
         }

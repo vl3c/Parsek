@@ -1,0 +1,22 @@
+diff --git a/Source/Parsek/RecordingTreeRecordCodec.cs b/Source/Parsek/RecordingTreeRecordCodec.cs
+index d248a92b8..62bb56a66 100644
+--- a/Source/Parsek/RecordingTreeRecordCodec.cs
++++ b/Source/Parsek/RecordingTreeRecordCodec.cs
+@@ -1,4 +1,4 @@
+-using System;
++﻿using System;
+ using System.Collections.Generic;
+ using System.Globalization;
+ 
+@@ -812,6 +812,11 @@ namespace Parsek
+                     $"LoadRecordingResourceAndState: loaded {rec.Controllers.Count} controller(s) for recording={rec.RecordingId}");
+             }
+ 
++            else
++            {
++                rec.Controllers = new List<ControllerInfo>();
++            }
++
+             rec.IsDebris = ParseBoolOr(recNode, "isDebris", rec.IsDebris);
+ 
+             // Parent-anchor recording id (sparse on disk). Missing key on recordings

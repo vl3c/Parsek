@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Reflection;
 using HarmonyLib;
@@ -287,24 +287,25 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void DecidePreSwitchDialogAction_SessionActive_LoadedSeparateCommitted_StillSessionPath()
+        public void DecidePreSwitchDialogAction_SessionActive_SameTarget_LoadedSeparateCommitted_SessionSkipWins()
         {
-            // Fails if: a future refactor lets Case C inputs override the
-            // session-first priority. When both Case A (session) and Case C
-            // (active recording + loaded separate committed) inputs are
-            // set, the session-armed handler MUST take precedence — Case A
-            // keeps its scoped-discard / ClearSwitchSegmentSession
-            // bookkeeping that the no-session path doesn't have. The
-            // session path opens its own (session-aware) dialog here.
+            // Fails if: a future refactor lets the no-session arm override the
+            // session-first priority. Both Case A (session) and the loaded
+            // separate-committed arm are satisfied, and the target pid equals
+            // the session's focused pid: only Case A answers SkipDialogSameTarget
+            // (the re-click of the vessel the session already owns). The
+            // no-session arm answers OpenDialog for the same inputs, so this is
+            // the input where the two paths actually disagree — the priority is
+            // witnessed, not assumed.
             var actual = MapFocusObjectOnSelectPatch.DecidePreSwitchDialogAction(
                 hasActiveSession: true,
-                priorFocusedPid: 100u,
+                priorFocusedPid: 200u,
                 newTargetPid: 200u,
                 anotherDialogOpen: false,
                 hasActiveRecording: true,
                 targetIsUnloaded: false,
                 targetIsSeparateCommittedVessel: true);
-            Assert.Equal(MapFocusObjectOnSelectPatch.PreSwitchDialogDecision.OpenDialog, actual);
+            Assert.Equal(MapFocusObjectOnSelectPatch.PreSwitchDialogDecision.SkipDialogSameTarget, actual);
         }
 
         [Fact]
@@ -345,23 +346,24 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void DecidePreSwitchDialogAction_SessionActive_ActiveRecording_UnloadedTarget_StillSessionPath()
+        public void DecidePreSwitchDialogAction_SessionActive_SameTarget_UnloadedTarget_SessionSkipWins()
         {
-            // Fails if: a future refactor merges the two cases and breaks
-            // the session-first priority. When both Case A (session) and
-            // Case B (active recording + unloaded) inputs are set, the
-            // session-armed handler MUST take precedence — Case A keeps
-            // its scoped-discard / ClearSwitchSegmentSession bookkeeping
-            // that Case B doesn't have.
+            // Fails if: a future refactor merges the two cases and breaks the
+            // session-first priority. Both Case A (session) and Case B (active
+            // recording + unloaded target) are satisfied and the target pid is
+            // the session's own focused pid, so only Case A's same-target skip
+            // can answer SkipDialogSameTarget; Case B answers OpenDialog for
+            // these inputs. Case A keeps its scoped-discard /
+            // ClearSwitchSegmentSession bookkeeping that Case B doesn't have.
             var actual = MapFocusObjectOnSelectPatch.DecidePreSwitchDialogAction(
                 hasActiveSession: true,
-                priorFocusedPid: 100u,
+                priorFocusedPid: 200u,
                 newTargetPid: 200u,
                 anotherDialogOpen: false,
                 hasActiveRecording: true,
                 targetIsUnloaded: true,
                 targetIsSeparateCommittedVessel: false);
-            Assert.Equal(MapFocusObjectOnSelectPatch.PreSwitchDialogDecision.OpenDialog, actual);
+            Assert.Equal(MapFocusObjectOnSelectPatch.PreSwitchDialogDecision.SkipDialogSameTarget, actual);
         }
 
         // -----------------------------------------------------------------

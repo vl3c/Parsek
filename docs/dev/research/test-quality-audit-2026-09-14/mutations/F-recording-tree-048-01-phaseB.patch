@@ -1,0 +1,18 @@
+diff --git a/Source/Parsek/CrewReservationManager.cs b/Source/Parsek/CrewReservationManager.cs
+index 3e212fbd1..27ca8ac48 100644
+--- a/Source/Parsek/CrewReservationManager.cs
++++ b/Source/Parsek/CrewReservationManager.cs
+@@ -1,4 +1,4 @@
+-using System;
++﻿using System;
+ using System.Collections.Generic;
+ 
+ namespace Parsek
+@@ -1113,7 +1113,6 @@ namespace Parsek
+         /// </summary>
+         internal static bool IsLiveReFlyCrew(ProtoCrewMember kerbal, ReFlySessionMarker marker)
+         {
+-            if (kerbal == null) return false;
+             if (marker == null) return false;
+ 
+             var active = FlightGlobals.ActiveVessel;
