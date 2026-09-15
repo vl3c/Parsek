@@ -561,23 +561,35 @@ namespace Parsek.Tests
         [Fact]
         public void GrowthRate_ZeroElapsed_NoNaN()
         {
-            DiagnosticsState.activeGrowthRate = new RecordingGrowthRate
-            {
-                totalPoints = 1,
-                totalEvents = 0,
-                elapsedSeconds = 0.0,
-                pointsPerSecond = 0.0,  // caller must set this safely
-                eventsPerSecond = 0.0
-            };
+            // The zero-elapsed guard lives in the recorder's growth-rate computation, so the cell
+            // drives that (FlightRecorder.ComputeGrowthRate, the helper both commit paths call)
+            // instead of hand-filling the struct with the answer: a hand-filled 0.0 is safe by
+            // construction and cannot witness a deleted guard.
+            DiagnosticsState.activeGrowthRate = FlightRecorder.ComputeGrowthRate(
+                default(RecordingGrowthRate),
+                totalPoints: 1, totalEvents: 0,
+                startUT: 500.0, currentUT: 500.0,   // a recording that has just started
+                avgBytesPerPoint: 64.0);
             DiagnosticsState.hasActiveGrowthRate = true;
 
-            // Verify the struct values are safe
+            // The guard clamps both rates to 0 rather than dividing by zero elapsed time.
+            Assert.Equal(0.0, DiagnosticsState.activeGrowthRate.elapsedSeconds);
             Assert.Equal(0.0, DiagnosticsState.activeGrowthRate.pointsPerSecond);
             Assert.Equal(0.0, DiagnosticsState.activeGrowthRate.eventsPerSecond);
             Assert.False(double.IsNaN(DiagnosticsState.activeGrowthRate.pointsPerSecond));
             Assert.False(double.IsInfinity(DiagnosticsState.activeGrowthRate.pointsPerSecond));
             Assert.False(double.IsNaN(DiagnosticsState.activeGrowthRate.eventsPerSecond));
             Assert.False(double.IsInfinity(DiagnosticsState.activeGrowthRate.eventsPerSecond));
+
+            // Control: a non-zero elapsed span DOES divide, so the clamp is not a blanket zero.
+            RecordingGrowthRate running = FlightRecorder.ComputeGrowthRate(
+                default(RecordingGrowthRate),
+                totalPoints: 10, totalEvents: 4,
+                startUT: 500.0, currentUT: 502.0,
+                avgBytesPerPoint: 64.0);
+            Assert.Equal(2.0, running.elapsedSeconds, 6);
+            Assert.Equal(5.0, running.pointsPerSecond, 6);
+            Assert.Equal(2.0, running.eventsPerSecond, 6);
 
             // Also verify FormatReport handles this without crash
             var snap = new MetricSnapshot { perRecording = new StorageBreakdown[0] };

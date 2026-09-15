@@ -1870,12 +1870,25 @@ namespace Parsek.Tests
         [Fact]
         public void LoiterGap_ParkingConicEndIsShifted_DescentRunEndPlusCaptureShift()
         {
-            // Arithmetic identity mirroring MissionLoopUnitBuilder: descentParkingConicEndUT = descentRun.EndUT +
-            // descCaptureShift. RECORDED_PARKING_END models descentRun.EndUT (recorded frame); CapShift is the
-            // captureShift; ParkingConicEnd is the value the predicate compares (shifted frame).
-            Assert.Equal(ParkingConicEnd, RECORDED_PARKING_END + CapShift, 3);
+            // The builder line is the one under test, so it is CALLED:
+            // MissionLoopUnitBuilder.ComputeDescentParkingConicEndUT is the helper the build
+            // path uses for descentParkingConicEndUT and for the frame-mismatch guard. The old
+            // body asserted `ParkingConicEnd == RECORDED_PARKING_END + CapShift` over test
+            // constants where RECORDED_PARKING_END is DEFINED as ParkingConicEnd - CapShift, so
+            // it was an arithmetic identity and the 0ba10f594 unshifted bug left it green.
+            double parkingConicEnd = MissionLoopUnitBuilder.ComputeDescentParkingConicEndUT(
+                RECORDED_PARKING_END, CapShift, OldLoiterGapConicEnd, out bool frameMismatch);
+            Assert.Equal(ParkingConicEnd, parkingConicEnd, 3);
             // It must NOT equal the broken (unshifted) value descentRun.EndUT.
-            Assert.NotEqual(RECORDED_PARKING_END, ParkingConicEnd);
+            Assert.NotEqual(RECORDED_PARKING_END, parkingConicEnd);
+            // In the shifted frame the parking conic ends BEFORE the deorbit-arc end, so the
+            // guard stays silent.
+            Assert.False(frameMismatch);
+            // Mirror direction: drop the shift (the 0ba10f594 shape) and the same guard fires,
+            // because the unshifted value is compared against a shifted conicEnd.
+            MissionLoopUnitBuilder.ComputeDescentParkingConicEndUT(
+                RECORDED_PARKING_END, 0.0, RECORDED_PARKING_END, out bool unshiftedMismatch);
+            Assert.True(unshiftedMismatch);
             // And the unit actually carries the SHIFTED value (the clamp resolves it).
             var units = BuildDescentUnit(engage: true);
             Assert.Equal(ParkingConicEnd, GhostPlaybackLogic.ResolveLoiterGapConicEndUT(units, 5), 3);

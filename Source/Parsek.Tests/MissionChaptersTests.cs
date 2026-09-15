@@ -521,23 +521,32 @@ namespace Parsek.Tests
         {
             // Design 7.2 / edge case 25: the toggle is a BULK EDIT through the existing
             // ExcludedIntervalKeys mechanism - explicit keys in, explicit keys out, no cascade and
-            // no new namespace. This pins the pure half of the IMGUI handler (the handler itself
-            // is covered by the source-text wiring gate). Catches an exclusion that leaks onto
-            // rows outside the chapter, and catches an include that fails to fully undo itself.
+            // no new namespace. The write itself is MissionChapters.ApplyChapterToggle, the helper
+            // the IMGUI handler calls, so the cell drives it rather than performing the
+            // UnionWith / ExceptWith itself: a handler that cascaded past the chapter's own keys,
+            // or lost its Remove branch, cannot red a test that does the edit in its own body.
+            // Catches an exclusion that leaks onto rows outside the chapter, and an include that
+            // fails to fully undo itself.
             List<RecordingTree> trees = AllTrees();
             var (structure, comp) = Derive(trees[1]);
             HashSet<string> chapterKeys = MissionChapters.ExpandChapterToIntervalKeys(
                 RootFor(Roots(trees), "B1"), structure, comp);
+            Assert.NotEmpty(chapterKeys);
 
             var excluded = new HashSet<string>(new[] { "A0" }, StringComparer.Ordinal);
 
-            excluded.UnionWith(chapterKeys);
+            int excludedCount = MissionChapters.ApplyChapterToggle(chapterKeys, excluded, include: false);
+            Assert.Equal(chapterKeys.Count, excludedCount);   // every key moved, and only those
             Assert.Equal(ChapterSelectionState.AllExcluded,
                 MissionChapters.ClassifyChapterState(chapterKeys, excluded));
             Assert.Contains("A0", excluded);              // an unrelated trim is untouched
             Assert.DoesNotContain("A0/seg1@dock1", excluded);
 
-            excluded.ExceptWith(chapterKeys);
+            // Re-excluding is a no-op: the changed count reports what actually moved.
+            Assert.Equal(0, MissionChapters.ApplyChapterToggle(chapterKeys, excluded, include: false));
+
+            int includedCount = MissionChapters.ApplyChapterToggle(chapterKeys, excluded, include: true);
+            Assert.Equal(chapterKeys.Count, includedCount);
             Assert.Equal(ChapterSelectionState.AllIncluded,
                 MissionChapters.ClassifyChapterState(chapterKeys, excluded));
             Assert.Equal(new[] { "A0" }, new List<string>(excluded).ToArray());

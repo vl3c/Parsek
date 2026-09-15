@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/UI/RecordingsTableUI.cs b/Source/Parsek/UI/RecordingsTableUI.cs
+index 058f7c276..a69b4559d 100644
+--- a/Source/Parsek/UI/RecordingsTableUI.cs
++++ b/Source/Parsek/UI/RecordingsTableUI.cs
+@@ -6376,7 +6376,7 @@ namespace Parsek
+ 
+             for (int row = 0; row < sortedIndices.Length; row++)
+             {
+-                int ri = sortedIndices[row];
++                int ri = row; // MUTANT: sortedIndices remap dropped
+                 var rec = committed[ri];
+                 if (IsInactiveForDisplay(rec, supersedes, retirements))
+                     continue;

@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/ParsekFlight.cs b/Source/Parsek/ParsekFlight.cs
+index 9435ae44c..ef43a999c 100644
+--- a/Source/Parsek/ParsekFlight.cs
++++ b/Source/Parsek/ParsekFlight.cs
+@@ -4968,7 +4968,7 @@ namespace Parsek
+                 VesselName = backgroundVesselName,
+                 ParentBranchPointId = bpId,
+                 ExplicitStartUT = branchUT,
+-                Generation = parentGeneration + 1
++                Generation = parentGeneration // MUTANT: spinoff generation not advanced
+             };
+ 
+             // For EVA: kerbal child gets EvaCrewName and ParentRecordingId.

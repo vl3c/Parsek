@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/Reaim/ReaimLoiterCompressor.cs b/Source/Parsek/Reaim/ReaimLoiterCompressor.cs
+index 1368688fc..a3e22b321 100644
+--- a/Source/Parsek/Reaim/ReaimLoiterCompressor.cs
++++ b/Source/Parsek/Reaim/ReaimLoiterCompressor.cs
+@@ -107,7 +107,7 @@ namespace Parsek.Reaim
+                 while (j + 1 < segs.Count)
+                 {
+                     OrbitSegment next = segs[j + 1];
+-                    if (next.isPredicted || next.bodyName != body)
++                    if (next.isPredicted) // MUTANT: bodyName guard dropped
+                         break;
+                     double nextPeriod = OrbitalPeriod(next.semiMajorAxis, bodyMu(next.bodyName));
+                     if (double.IsNaN(nextPeriod) || nextPeriod <= 0.0)

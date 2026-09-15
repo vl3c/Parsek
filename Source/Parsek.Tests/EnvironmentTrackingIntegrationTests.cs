@@ -96,32 +96,32 @@ namespace Parsek.Tests
         [Fact]
         public void CloseCurrentTrackSection_ComputesCorrectSampleRate()
         {
-            recorder.StartNewTrackSection(SegmentEnvironment.Atmospheric, ReferenceFrame.Absolute, 100.0);
-
-            // Simulate adding 10 frames over a 5-second section
-            var section = recorder.TrackSections; // TrackSections is the output list
-            // We need to manually add points to the internal current section's frames.
-            // Since StartNewTrackSection sets trackSectionActive, we can close and check.
-            // Instead, we use the internal method pattern: open section, add frames, close.
-
-            // Add frames directly via the recorder's internal mechanism:
-            // Create points and add them to Recording, then check they appear in TrackSection.
-            // But we don't have OnPhysicsFrame here. Let's test sample rate with a helper approach.
-
-            // We'll create a section with known frame count by calling StartNewTrackSection,
-            // manually adding points, then closing.
-            recorder.CloseCurrentTrackSection(100.0); // close empty section first
-            recorder.TrackSections.Clear();
-
-            // Start fresh section
+            // The frames.Count > 1 branch is what the name claims, so the section is given
+            // frames: TrackSection is a struct but `frames` is a shared List reference, so
+            // appending through CurrentTrackSectionForTesting fills the very list the close
+            // divides by. The old body closed an EMPTY section and asserted sampleRateHz == 0,
+            // which is the struct default - deleting the whole computation left it green.
             recorder.StartNewTrackSection(SegmentEnvironment.Atmospheric, ReferenceFrame.Absolute, 200.0);
 
-            // Manually construct frames to test sample rate computation
-            // Access the internal state: the recorder adds frames to currentTrackSection in OnPhysicsFrame.
-            // Since we can't call OnPhysicsFrame in tests, we test the math directly.
+            List<TrajectoryPoint> frames = recorder.CurrentTrackSectionForTesting.frames;
+            Assert.NotNull(frames);
+            for (int i = 0; i < 11; i++)
+                frames.Add(new TrajectoryPoint { ut = 200.0 + i, bodyName = "Kerbin" });
+
             recorder.CloseCurrentTrackSection(210.0);
 
-            // With 0 frames over 10s, sampleRateHz stays 0 (no frames to compute from)
+            // 11 frames over a 10 s section -> 1.1 Hz.
+            Assert.Single(recorder.TrackSections);
+            Assert.Equal(11, recorder.TrackSections[0].frames.Count);
+            Assert.Equal(1.1, (double)recorder.TrackSections[0].sampleRateHz, 4);
+
+            // The single-frame and zero-duration shapes stay at the struct default: the
+            // computation is guarded, not unconditional.
+            recorder.TrackSections.Clear();
+            recorder.StartNewTrackSection(SegmentEnvironment.Atmospheric, ReferenceFrame.Absolute, 300.0);
+            recorder.CurrentTrackSectionForTesting.frames.Add(
+                new TrajectoryPoint { ut = 300.0, bodyName = "Kerbin" });
+            recorder.CloseCurrentTrackSection(310.0);
             Assert.Single(recorder.TrackSections);
             Assert.Equal(0f, recorder.TrackSections[0].sampleRateHz);
         }
