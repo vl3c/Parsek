@@ -65,8 +65,8 @@ schema = 1
 # in `RecordingStore.CreateRecordingFromFlightData`, which the always-tree commit path
 # does not use: MC-3 measured the tree commit KEEPING a 1-point recording. Reached only
 # through `ParsekFlight.FallbackCommitSplitRecorder` (the `captured.Points.Count < 2`
-# guard, ParsekFlight.cs:4773; the method at :6843) on abort edges, and through Gloops
-# (:17085). Its definition and its closure are a SEPARATE open operator decision
+# guard, ParsekFlight.cs:4777; the method at :6847) on abort edges, and through Gloops
+# (:17083). Its definition and its closure are a SEPARATE open operator decision
 # (register item B4, memo s3) and are NOT taken here; this note only records that the
 # rename above does not touch it, and that the S0.5 / S0.6 spec comments describing a
 # "stationary-pod sub-2-point-drop" on the live commit path are stale against MC-3's

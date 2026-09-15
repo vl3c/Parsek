@@ -27,7 +27,6 @@ tier = "nightly"
 # THE RE-PIN OF THIS LANE'S BATCH_COMPLETE TALLIES IS NOT THIS PR'S WORK. Register item
 # C2 owns it, and no tally moved this session, so no re-pin was needed; nothing below
 # touches a tally.
-# C2 re-pins them from the operator's own session bytes; nothing below touches a tally.
 # =====================================================================================
 # THE LONG TAIL'S SPACECENTER SLICE, ONE BOOT. Six categories whose executable cells
 # are SPACECENTER-scoped or need an EMPTY store, as one multi-category batch (the

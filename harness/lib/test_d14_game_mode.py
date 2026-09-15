@@ -14,13 +14,17 @@ WHAT IT PINS. For every committed spec that claims a game-mode value:
     exactly the value claimed;
   - a spec claims AT MOST ONE game mode (a save has exactly one `Mode`).
 
-WHAT IT SKIPS, AND WHY. Operator-local fixtures (`hlib.is_local_fixture_template`,
-the `fixtures/local-saves/` prefix used by the GUI census) are gitignored by
-construction: the directory is absent on every machine but the operator's, so the
-claim is unresolvable here in the same way the other per-spec cells that read a
-template off disk are. Those specs are collected and reported by id, never silently
-dropped, and the cell asserts the SKIPPED SET IS EXACTLY THE LOCAL-FIXTURE SET - so a
-spec that acquires a game-mode claim with no fixture at all reds here rather than
+WHAT IT SKIPS, AND WHY. TWO POPULATIONS ARE OUTSIDE THE PIN. First, the 35 committed
+specs that claim NO D14 game mode at all: only a spec that makes a claim can have one
+checked, so a lane with no `sandbox` / `career` / `science-mode` value in its
+[dimensionsCovered] D14 list is never read here, whatever its fixture stages. Second,
+among the specs that DO claim one, operator-local fixtures
+(`hlib.is_local_fixture_template`, the `fixtures/local-saves/` prefix used by the GUI
+census) are gitignored by construction: the directory is absent on every machine but
+the operator's, so the claim is unresolvable here in the same way it is for the other
+per-spec cells that read a template off disk. Those specs are collected and reported
+by id, never silently dropped, and the cell asserts the SKIPPED SET IS EXACTLY THE
+LOCAL-FIXTURE SET - so a claiming spec with no fixture at all reds here rather than
 disappearing into the skip list.
 
 THE MODE PARSE IS NOT A SECOND COPY. It reuses `harvest_bdock_station.read_game_mode`,
