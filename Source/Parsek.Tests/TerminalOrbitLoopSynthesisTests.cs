@@ -499,15 +499,19 @@ namespace Parsek.Tests
             double activationUT = PlaybackTrajectoryBoundsResolver.ResolveGhostActivationStartUT(rec);
             Assert.True(activationUT <= 500.0);
 
-            // Drive the predicate indirectly via the synthesizer (the helper itself is
-            // private). A successful synthesizer call confirms IsTerminalMapPresenceRegion
-            // accepted the call site (the inner gate's first early-out is on it).
+            // The predicate itself, not a literal standing in for it: an effUT near
+            // the recording's end is inside the activation region for an Orbiting
+            // terminal, and an effUT before the activation start is not.
+            Assert.True(GhostMapPresence.IsTerminalMapPresenceRegion(rec, 500.0));
+            Assert.False(GhostMapPresence.IsTerminalMapPresenceRegion(rec, activationUT - 1.0));
+
+            // The synthesizer accepts the region the predicate just reported.
             InstallAcceptedTailSeed();
             bool ok = GhostMapPresence.TryResolveEndpointTailForMapPresence(
                 rec,
                 currentUT: 500.0,
                 selectedSegment: null,
-                terminalMapPresenceRegion: true,
+                terminalMapPresenceRegion: GhostMapPresence.IsTerminalMapPresenceRegion(rec, 500.0),
                 out _,
                 out _,
                 out _,

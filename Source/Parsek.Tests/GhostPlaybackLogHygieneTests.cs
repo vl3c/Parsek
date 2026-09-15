@@ -138,20 +138,31 @@ namespace Parsek.Tests
         [Fact]
         public void DebrisSkip_StableIndexKey_CollapsesToOneEmitPerWindow()
         {
-            // Mirrors GhostMapPresence.cs HandleFlightGhostCreatedMapPresence debris
-            // skip: key "skip-map-debris-{index}", 3 s window, cycle/UT in the body.
-            int index = 7;
-            for (int cycle = 0; cycle < 60; cycle++)
+            // Driven through the real debris-skip gate in
+            // GhostMapPresence.HandleFlightGhostCreatedMapPresence (key
+            // "skip-map-debris-{index}", 3 s window), not a copy of the call: 60
+            // ghost-created events for the same debris recording across ~1 s of wall
+            // clock must collapse to ONE line. A warp-advancing value moved into
+            // that key would emit 60.
+            var debris = new MockTrajectory
             {
-                ParsekLog.VerboseRateLimited("Policy", $"skip-map-debris-{index}",
-                    $"Skipped ghost map for #{index} \"Debris\" - debris (cycle={cycle})",
-                    3.0);
+                RecordingId = "hygiene-debris",
+                VesselName = "Debris",
+                IsDebris = true,
+            };
+            var evt = new GhostLifecycleEvent { Index = 7, Trajectory = debris };
+
+            for (int frame = 0; frame < 60; frame++)
+            {
+                GhostMapPresence.HandleFlightGhostCreatedMapPresence(
+                    evt, GhostPlaybackLogic.LoopUnitSet.Empty);
                 clock += 1.0 / 60.0; // ~1 s of wall clock total
             }
 
             int emitted = lines.Count(l =>
                 l.Contains("[Policy]") && l.Contains("- debris"));
             Assert.Equal(1, emitted);
+            Assert.Contains(lines, l => l.Contains("Skipped ghost map for #7"));
         }
 
         [Fact]

@@ -229,9 +229,32 @@ namespace Parsek
             if (!TryFindSelectedVariantNode(prefab, partNode, out ConfigNode selectedVariantNode, out selectedVariantName))
                 return false;
 
+            List<VariantTextureRule> rules = ParseVariantTextureRules(selectedVariantNode);
+            if (rules == null)
+                return false;
+
+            textureRules = rules;
+            return true;
+        }
+
+        /// <summary>
+        /// Parses every TEXTURE node of a selected VARIANT node into the rule list
+        /// <see cref="TryGetSelectedVariantTextureRules"/> hands back: material /
+        /// shader / transform filters plus the remaining values as properties (the
+        /// three wiring keys are never repeated as properties). Returns null when the
+        /// variant carries no TEXTURE node or no rule could be built, which is the
+        /// false return of the caller. Split out of the caller so the parse can be
+        /// driven without a live Part prefab; the caller keeps the prefab-dependent
+        /// variant-node resolution.
+        /// </summary>
+        internal static List<VariantTextureRule> ParseVariantTextureRules(ConfigNode selectedVariantNode)
+        {
+            if (selectedVariantNode == null)
+                return null;
+
             ConfigNode[] textureNodes = selectedVariantNode.GetNodes("TEXTURE");
             if (textureNodes == null || textureNodes.Length == 0)
-                return false;
+                return null;
 
             var rules = new List<VariantTextureRule>();
             for (int t = 0; t < textureNodes.Length; t++)
@@ -263,10 +286,9 @@ namespace Parsek
             }
 
             if (rules.Count == 0)
-                return false;
+                return null;
 
-            textureRules = rules;
-            return true;
+            return rules;
         }
 
         internal static VariantPropertyType ClassifyVariantProperty(string key)

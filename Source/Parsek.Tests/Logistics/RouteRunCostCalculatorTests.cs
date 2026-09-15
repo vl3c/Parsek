@@ -190,25 +190,12 @@ namespace Parsek.Tests.Logistics
             Assert.Equal(1, count);
         }
 
-        // catches: a superseded recovery still counting. The live ELS strips
-        // superseded/tombstoned rows; the calculator reads whatever ELS hands
-        // it. We feed an els list that ALREADY omits the superseded row to prove
-        // the calculator simply honors the filtered input (it does not re-add it).
-        [Fact]
-        public void SupersededRecovery_ExcludedByElsInput()
-        {
-            var route = MakeKscRoute();
-            // The superseded "rec-a" recovery is intentionally absent from this
-            // list, mirroring what ComputeELS() returns after a supersede.
-            var els = new List<GameAction> { MakeRecoveryRow("rec-b", 2000f) };
-
-            double sum = RouteRunCostCalculator.SumRecoveredCredits(
-                route, els, TreeMembers("rec-a", "rec-b"), out int count);
-
-            // Only the surviving rec-b recovery is summed; rec-a is gone.
-            Assert.Equal(2000.0, sum, 3);
-            Assert.Equal(1, count);
-        }
+        // SupersededRecovery_ExcludedByElsInput was deleted: it handed the
+        // calculator an els list it had pre-filtered itself, so the supersede
+        // stripping it named (EffectiveState.ComputeELS) never ran and no
+        // supersede regression could red it. RecoveryFromDifferentTree_Excluded
+        // above is the behavioural twin for "a row the calculator must not sum":
+        // it passes the unwanted row IN and proves the calculator drops it.
 
         // catches: an NRE / wrong count when the tree resolves to no members.
         [Fact]

@@ -326,18 +326,18 @@ namespace Parsek.Tests
 
             GhostTrajectoryPolylineRenderer.RefreshForRecording(rec);
             int firstCount = GhostTrajectoryPolylineRenderer.CacheCountForTesting;
-            int initialBuildLogs =
-                logLines.Count(l => l.Contains("[GhostMap]") && l.Contains("Polyline build:"));
+            // The build LOG is VerboseRateLimited per recording, so a genuine second
+            // build inside the window is suppressed and the log counts match either
+            // way. The build-invocation counter is the instrument that separates the
+            // cache hit from a rebuild (mirrors the sibling below).
+            int buildsBefore = GhostTrajectoryPolylineRenderer.BuildInvocationCountForTesting;
 
             GhostTrajectoryPolylineRenderer.RefreshForRecording(rec);
-            int secondBuildLogs =
-                logLines.Count(l => l.Contains("[GhostMap]") && l.Contains("Polyline build:"));
+            int buildsAfter = GhostTrajectoryPolylineRenderer.BuildInvocationCountForTesting;
 
             Assert.Equal(1, firstCount);
             Assert.Equal(GhostTrajectoryPolylineRenderer.CacheCountForTesting, firstCount);
-            // Cache hit means the second call did NOT log a fresh "Polyline
-            // build" line.
-            Assert.Equal(initialBuildLogs, secondBuildLogs);
+            Assert.Equal(buildsBefore, buildsAfter);
         }
 
         [Fact]

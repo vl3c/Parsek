@@ -275,12 +275,23 @@ namespace Parsek.Tests.Rendering
             // good file, never a partial one.
             string path = Path.Combine(tempDir, "rec_atomic.pann");
             byte[] hash = PannotationsSidecarBinary.ComputeConfigurationHash(SmoothingConfiguration.Default);
+
+            // A stale .tmp from a crashed earlier flush. The atomic path writes the
+            // payload THERE and renames it onto the destination, so the stale file is
+            // consumed; a direct write to the destination would leave it sitting next
+            // to the sidecar with its junk contents intact.
+            File.WriteAllBytes(path + ".tmp", new byte[] { 0xDE, 0xAD, 0xBE, 0xEF });
+
             PannotationsSidecarBinary.Write(path, "recA", 1, 7, hash,
                 new List<KeyValuePair<int, SmoothingSpline>>());
 
             Assert.True(File.Exists(path));
             Assert.False(File.Exists(path + ".tmp"),
-                "FileIOUtils.SafeWriteBytes must clean up the .tmp after rename.");
+                "FileIOUtils.SafeWriteBytes must write through the .tmp and rename it away.");
+            // The destination holds the new sidecar, not the stale scratch bytes.
+            Assert.True(PannotationsSidecarBinary.TryProbe(path, out var probe));
+            Assert.True(probe.Success);
+            Assert.Equal("recA", probe.RecordingId);
         }
 
         // --- P2#2: malformed-payload defence ---

@@ -749,9 +749,11 @@ namespace Parsek.Tests
             // entry alongside the retired pid so the drift loop actually iterates
             // and the assertion exercises the warner's per-entry logic.
             const uint retiredPid = 9201u;
-            const string retiredRecId = "retired-drift-check";
+            // No "drift" substring in the id: the retirement's own log line names
+            // the recording, and the absence assertion below matches on that word.
+            const string retiredRecId = "retired-destroyed-remnant";
             const uint livePid = 9202u;
-            const string liveRecId = "live-drift-companion";
+            const string liveRecId = "live-companion";
 
             var tree = new RecordingTree { Id = "tree-retired-drift" };
             var retiredRec = new Recording
@@ -759,10 +761,11 @@ namespace Parsek.Tests
                 RecordingId = retiredRecId,
                 VesselPersistentId = retiredPid
             };
-            retiredRec.MarkDestroyedAtTerminal(100.0, "test-seed");
             tree.Recordings[retiredRecId] = retiredRec;
-            // Retired recording: present in Recordings but NOT in BackgroundMap —
-            // the post-retirement state established by RetireDestroyedBackgroundEntry.
+            // Seeded INTO BackgroundMap, and marked destroyed only after the
+            // recorder is built, so the retirement below drains a real entry
+            // instead of asserting a post-retirement state the test wrote itself.
+            tree.BackgroundMap[retiredPid] = retiredRecId;
 
             // Live companion entry that the drift loop will actually iterate.
             tree.Recordings[liveRecId] = new Recording
@@ -775,8 +778,20 @@ namespace Parsek.Tests
             var bgRecorder = new BackgroundRecorder(tree);
             Assert.True(bgRecorder.HasOnRailsState(livePid),
                 "Precondition: live companion was seeded into onRailsStates");
-            Assert.False(bgRecorder.HasOnRailsState(retiredPid),
-                "Precondition: retired pid is not in onRailsStates");
+            Assert.True(bgRecorder.HasOnRailsState(retiredPid),
+                "Precondition: the soon-to-be-retired pid IS tracked on rails");
+
+            // Identity loss seals the recording; the retirement is what drops it
+            // out of every BG-tracking structure.
+            retiredRec.MarkDestroyedAtTerminal(100.0, "test-seed");
+            bgRecorder.RetireDestroyedBackgroundEntry(retiredPid, retiredRecId, 100.0);
+
+            Assert.False(tree.BackgroundMap.ContainsKey(retiredPid));
+            Assert.False(bgRecorder.HasOnRailsState(retiredPid));
+            // The live companion is untouched, so the drift loop below still has
+            // an entry to iterate.
+            Assert.Equal(liveRecId, tree.BackgroundMap[livePid]);
+            Assert.True(bgRecorder.HasOnRailsState(livePid));
 
             bgRecorder.WarnIfBackgroundStateDriftForTesting(150.0, "test-post-retirement");
 

@@ -2794,20 +2794,28 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void TryComputeLoopPlaybackUT_CycleIndexNeverNegative()
+        public void TryComputeLoopPlaybackUT_NegativePhaseOffset_DefersScheduleAndYieldsNoCycle()
         {
             var engine = new GhostPlaybackEngine(null);
             var traj = new MockTrajectory().WithTimeRange(100, 200).WithLoop(110);
 
-            // Negative phase offset that could make elapsed negative
+            // A negative phase offset is SUBTRACTED from the schedule start, so it
+            // pushes the schedule into the future (100 - (-1000) = 1100). At UT 150
+            // the schedule has not opened: no playback, no cycle. (The old body only
+            // asserted cycleIndex >= 0, which the `cycleIndex = 0` initialisation
+            // satisfies on the early-out, so no production change could red it.)
             engine.loopPhaseOffsets[0] = -1000;
 
             double loopUT;
             long cycleIndex;
             bool inPause;
-            engine.TryComputeLoopPlaybackUT(traj, 150, 110,
+            bool ok = engine.TryComputeLoopPlaybackUT(traj, 150, 110,
                 out loopUT, out cycleIndex, out inPause, 0);
-            Assert.True(cycleIndex >= 0);
+
+            Assert.False(ok);
+            Assert.Equal(0, cycleIndex);
+            Assert.False(inPause);
+            Assert.Equal(0.0, loopUT);
         }
 
         [Fact]

@@ -257,6 +257,55 @@ _(unreleased — entries accumulate here per commit)_
   which sees a deleted call where a name-existence check cannot. Each was re-checked by
   breaking the production line on purpose and confirming the test goes red. Nothing a
   player sees changes.
+- **Tests: a fourth slice of twenty recorder-event, ghost-playback, spawn, logistics and
+  map-render cells from the audit's T1 (vacuous) register now reaches the production line
+  their names claim.** Seven cells replayed production inline and now call it. Five TEXTURE
+  parsing cells ran a line-for-line copy of the variant parser living in the test file; the
+  parse is extracted as `GhostVisualBuilder.ParseVariantTextureRules` (behaviour-identical,
+  called by `TryGetSelectedVariantTextureRules`, which keeps the prefab-dependent variant
+  resolution) and the copy is deleted. The chain map-orbit change check is extracted as
+  `ParsekFlight.TryStampChainMapOrbit` (same comparison, same field writes, same early-out)
+  and the ghost ProtoVessel's FLIGHTPLAN / CTRLSTATE / VESSELMODULES insertion as
+  `GhostMapPresence.EnsureDefensiveVesselNodes`; both cells drive the production helper. The
+  spawn-death abandon branch is extracted as
+  `ParsekPlaybackPolicy.ApplySpawnDeathDisposition` (returning the disposition plus the pid
+  the recording carried on entry, with the counters and the two log lines left at the call
+  site, unchanged), so the at-cap cell no longer sets `SpawnAbandoned` itself. The debris
+  map-skip log-hygiene cell now fires 60 real ghost-created events through
+  `GhostMapPresence.HandleFlightGhostCreatedMapPresence` instead of re-typing the rate key,
+  and the background-retirement cell seeds the pid INTO `BackgroundMap` and calls
+  `BackgroundRecorder.RetireDestroyedBackgroundEntry` (visibility widened to internal)
+  instead of hand-building the post-retirement state. Six cells asserted a value their own
+  fixture had fixed: a background section's sample rate was the struct default over zero
+  frames (three frames across ten seconds now pin the 0.3 Hz formula, with the empty case
+  kept as its own cell); a rotor spawn baseline and a rotor loop-cycle restore both started
+  parked, so a pass that did nothing passed too (the first asserts the baseline was reached,
+  the second arms the rotor first and reads the restored count); a terminal map-presence
+  region cell passed the predicate's own answer in as a literal
+  (`GhostMapPresence.IsTerminalMapPresenceRegion` is now internal and asserted directly, in
+  and out of the region); a polyline cache-hit cell counted a rate-limited log line that is
+  suppressed either way, and now reads the build-invocation counter; and a loop phase-offset
+  cell asserted `cycleIndex >= 0` on a path that returns before the clamp, and now pins what
+  a negative offset really does (the schedule is deferred, so no playback and no cycle). A
+  structural-event cell compared two literals and now asserts the flag value and the
+  caller's UT, so a pass-through stub fails. A watch-hold cell could not see the target
+  choice at all (its transfer declines one guard earlier); it keeps that claim and gains a
+  new sibling that pins the debris exclusion on an undock branch with a non-debris control
+  arm. A sidecar atomic-write cell held for any write path; it now leaves a stale `.tmp`
+  behind and proves the safe-write consumes it. A career-KSC loop-crossing cell asserted a
+  number its own delivery fake authored; it now pins the production career-KSC funds arm via
+  a sentinel the arm must overwrite (the cost VALUE is zero headlessly - the basis is priced
+  through PartLoader). Three cells were deleted in favour of named twins:
+  `TreeCreation_BackgroundMap_PopulatedCorrectly` (twin
+  `TreeCreation_RebuildBackgroundMap_MatchesManualSetup`, which drives the real
+  `RebuildBackgroundMap`), `SupersededRecovery_ExcludedByElsInput` (twin
+  `RecoveryFromDifferentTree_Excluded`, which passes the unwanted row in rather than
+  pre-filtering it) and `RegeneratePartIdentities_MultipleParts_LogNotEmpty` (twin
+  `RegeneratePartIdentities_MultipleParts_EachGetsUniqueIds`). One row is deferred: the
+  background joint-break dedup guard needs a live `PartJoint`, so its cell is renamed to the
+  set-level claim it can make and names the in-game category as the detector. Every fixed
+  cell was re-checked by breaking the production line on purpose and confirming it goes red.
+  No log text changed and nothing a player sees changes.
 - **Tests: a third slice of twenty ledger / career and recorder-event cells from the
   audit's T1 (vacuous) register now reaches the production line their names claim.**
   Sixteen were fixtures that over-determined their own answer. Four post-walk and

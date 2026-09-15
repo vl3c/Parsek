@@ -18118,20 +18118,34 @@ namespace Parsek
             OrbitSegment? seg = TrajectoryMath.FindOrbitSegment(segments, currentUT);
             if (!seg.HasValue) return;
 
-            // Detect change: body, SMA, or eccentricity shifted (covers SOI transitions,
-            // orbit changes, and inclination maneuvers at constant altitude).
-            // Exact equality is intentional: segment values are stored doubles that don't drift.
-            // A change means a different OrbitSegment was found, not floating-point accumulation.
-            if (seg.Value.bodyName == chain.LastMapOrbitBodyName
-                && seg.Value.semiMajorAxis == chain.LastMapOrbitSma
-                && seg.Value.eccentricity == chain.LastMapOrbitEcc)
+            if (!TryStampChainMapOrbit(chain, seg.Value))
                 return;
 
-            chain.LastMapOrbitBodyName = seg.Value.bodyName;
-            chain.LastMapOrbitSma = seg.Value.semiMajorAxis;
-            chain.LastMapOrbitEcc = seg.Value.eccentricity;
-
             GhostMapPresence.UpdateGhostOrbit(chain.OriginalVesselPid, seg.Value);
+        }
+
+        /// <summary>
+        /// Stamps the chain's last-rendered map orbit from <paramref name="seg"/> and reports
+        /// whether it changed. Change detection reads body, SMA, and eccentricity (covers SOI
+        /// transitions, orbit changes, and inclination maneuvers at constant altitude). Exact
+        /// equality is intentional: segment values are stored doubles that don't drift, so a
+        /// difference means a different OrbitSegment was found, not floating-point accumulation.
+        /// An unchanged segment leaves the chain untouched and returns false, which is the
+        /// caller's early-out; a changed one writes the three fields and returns true.
+        /// </summary>
+        internal static bool TryStampChainMapOrbit(GhostChain chain, OrbitSegment seg)
+        {
+            if (chain == null) return false;
+
+            if (seg.bodyName == chain.LastMapOrbitBodyName
+                && seg.semiMajorAxis == chain.LastMapOrbitSma
+                && seg.eccentricity == chain.LastMapOrbitEcc)
+                return false;
+
+            chain.LastMapOrbitBodyName = seg.bodyName;
+            chain.LastMapOrbitSma = seg.semiMajorAxis;
+            chain.LastMapOrbitEcc = seg.eccentricity;
+            return true;
         }
 
         /// <summary>

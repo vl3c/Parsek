@@ -529,7 +529,16 @@ namespace Parsek.Tests
 
             RoboticGhostInfo info =
                 state.roboticInfos[FlightRecorder.EncodeEngineKey(100000, 0)];
+            // The pass REACHED this servo (a skipped baseline leaves both of these
+            // at their defaults, so active=false alone would pass a no-op).
+            Assert.True(info.hasSnapshotBaseline);
+            Assert.Equal(460f, info.spawnValue);
+            Assert.Equal(460f, info.currentValue);
+            // And having reached it, it parked instead of arming spin.
             Assert.False(info.active);
+            Assert.True(double.IsNaN(info.lastUpdateUT));
+            Assert.Contains(logLines, l => l.Contains("Snapshot baseline applied")
+                && l.Contains("servos=1") && l.Contains("servosSkipped=0"));
         }
 
         [Fact]
@@ -716,20 +725,27 @@ namespace Parsek.Tests
                         {
                             moduleName = "ModuleRoboticServoRotor",
                             visualMode = RoboticVisualMode.RotorRpm,
-                            currentValue = 0f,
+                            currentValue = 123f,
                             spawnValue = 460f,
                             hasSnapshotBaseline = true,
-                            active = false,
+                            // Armed on entry: the exact shape the old re-arm bug left
+                            // behind at a cycle boundary. Starting from active=false
+                            // would let a restore that does nothing at all pass.
+                            active = true,
+                            lastUpdateUT = 500.0,
                         }
                     },
                 },
             };
 
-            GhostPlaybackLogic.RestoreRoboticSpawnBaselines(state);
+            int restored = GhostPlaybackLogic.RestoreRoboticSpawnBaselines(state);
 
             RoboticGhostInfo info =
                 state.roboticInfos[FlightRecorder.EncodeEngineKey(100000, 0)];
+            Assert.Equal(1, restored);
             Assert.False(info.active);
+            Assert.Equal(info.spawnValue, info.currentValue);
+            Assert.True(double.IsNaN(info.lastUpdateUT));
         }
 
         [Fact]
