@@ -26,8 +26,14 @@ namespace Parsek.Tests
             ParsekLog.SuppressLogging = true;
         }
 
+        // Renamed from ...LogsBeforeDestroyAllGhosts. The ordering half the old name headlined
+        // compared the helper's own log against a destroy line the TEST wrote immediately after
+        // the call, so it could not fail: moving the production call below DestroyAllGhosts left
+        // it green. The real call-site order is pinned by
+        // DestroyAllTimelineGhosts_ExitsWatchModeBeforeDestroyingTheGhosts below; what this cell
+        // proves is the helper's own contract - detach first, then exit with skipCameraRestore.
         [Fact]
-        public void ExitWatchModeBeforeTimelineGhostCleanup_WhenWatching_LogsBeforeDestroyAllGhosts()
+        public void ExitWatchModeBeforeTimelineGhostCleanup_WhenWatching_DetachesThenExitsSkippingCameraRestore()
         {
             bool? skipCameraRestore = null;
             var steps = new List<string>();
@@ -43,23 +49,80 @@ namespace Parsek.Tests
                 context: "unit-test",
                 watchFocusForLogs: "watch=rec#7");
 
-            ParsekLog.Info("Engine", "DestroyAllGhosts: clearing 1 primary + 0 overlap entries");
-
             Assert.True(exited);
             Assert.True(skipCameraRestore.HasValue && skipCameraRestore.Value);
             Assert.Equal(new[] { "detach", "exit-true" }, steps);
 
-            int exitIndex = logLines.FindIndex(line =>
+            Assert.Contains(logLines, line =>
                 line.Contains("[CameraFollow]")
-                && line.Contains("Exiting watch mode before timeline ghost cleanup"));
-            int destroyIndex = logLines.FindIndex(line =>
-                line.Contains("[Engine]")
-                && line.Contains("DestroyAllGhosts: clearing 1 primary + 0 overlap entries"));
+                && line.Contains("Exiting watch mode before timeline ghost cleanup")
+                && line.Contains("unit-test")
+                && line.Contains("watch=rec#7"));
+        }
 
-            Assert.True(exitIndex >= 0, "expected CameraFollow exit log");
-            Assert.True(destroyIndex >= 0, "expected Engine destroy log");
-            Assert.True(exitIndex < destroyIndex,
-                $"expected watch exit log before destroy log, exitIndex={exitIndex} destroyIndex={destroyIndex}");
+        // The call-site ORDER, which no runtime cell can see (DestroyAllTimelineGhosts needs a
+        // live ParsekFlight, an engine and the ghost map). Pinned as a source gate over the
+        // brace-matched method body, on comment-stripped and literal-masked text so a
+        // commented-out or quoted call cannot satisfy it: the watch-mode exit must run BEFORE the
+        // engine destroys the ghost GameObjects, or the stock camera is left following a
+        // destroyed transform.
+        [Fact]
+        public void DestroyAllTimelineGhosts_ExitsWatchModeBeforeDestroyingTheGhosts()
+        {
+            string path = LocateParsekFlightSource();
+            Assert.True(System.IO.File.Exists(path), $"ParsekFlight.cs not found at {path}");
+
+            string prepared = SourceScanText.StripCommentsAndMaskLiterals(
+                System.IO.File.ReadAllText(path));
+            const string signature = "void DestroyAllTimelineGhosts()";
+            int sigIdx = prepared.IndexOf(signature, StringComparison.Ordinal);
+            Assert.True(sigIdx >= 0, "DestroyAllTimelineGhosts() no longer exists");
+            Assert.Equal(sigIdx, prepared.LastIndexOf(signature, StringComparison.Ordinal));
+
+            int bodyStart = prepared.IndexOf('{', sigIdx);
+            Assert.True(bodyStart > 0, "DestroyAllTimelineGhosts has no body");
+            string body = BraceMatchedBlock(prepared, bodyStart);
+
+            int exitIdx = body.IndexOf(
+                "ExitWatchModeBeforeTimelineGhostCleanup(", StringComparison.Ordinal);
+            int destroyIdx = body.IndexOf("engine.DestroyAllGhosts();", StringComparison.Ordinal);
+            Assert.True(exitIdx >= 0,
+                "DestroyAllTimelineGhosts no longer exits watch mode");
+            Assert.True(destroyIdx >= 0,
+                "DestroyAllTimelineGhosts no longer calls engine.DestroyAllGhosts()");
+            Assert.True(exitIdx < destroyIdx,
+                "REGRESSION: watch mode must be exited BEFORE the engine destroys the ghost "
+                + "GameObjects, or the stock camera keeps following a destroyed transform.");
+        }
+
+        private static string BraceMatchedBlock(string prepared, int openBrace)
+        {
+            int depth = 0;
+            for (int i = openBrace; i < prepared.Length; i++)
+            {
+                if (prepared[i] == '{') depth++;
+                else if (prepared[i] == '}')
+                {
+                    depth--;
+                    if (depth == 0) return prepared.Substring(openBrace, i - openBrace + 1);
+                }
+            }
+            throw new InvalidOperationException("unbalanced braces from " + openBrace);
+        }
+
+        private static string LocateParsekFlightSource()
+        {
+            string dir = AppDomain.CurrentDomain.BaseDirectory;
+            for (int i = 0; i < 10 && !string.IsNullOrEmpty(dir); i++)
+            {
+                string candidate = System.IO.Path.Combine(dir, "Source", "Parsek", "ParsekFlight.cs");
+                if (System.IO.File.Exists(candidate)) return candidate;
+                dir = System.IO.Path.GetDirectoryName(dir);
+            }
+
+            return System.IO.Path.GetFullPath(System.IO.Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory,
+                "..", "..", "..", "..", "Parsek", "ParsekFlight.cs"));
         }
 
         [Fact]

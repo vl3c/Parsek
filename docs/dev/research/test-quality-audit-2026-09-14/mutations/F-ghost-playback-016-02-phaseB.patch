@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/GhostPlaybackLogic.cs b/Source/Parsek/GhostPlaybackLogic.cs
+index 175fec1dd..72951cfab 100644
+--- a/Source/Parsek/GhostPlaybackLogic.cs
++++ b/Source/Parsek/GhostPlaybackLogic.cs
+@@ -3594,7 +3594,8 @@ namespace Parsek
+         internal static bool ShouldEnforceLoopedAudioPlaybackCap(
+             bool hasAudioSource, bool enforcePlaybackCap)
+         {
+-            return hasAudioSource && enforcePlaybackCap;
++            // MUTANT: the cap enforcement is unconditional (the enforcePlaybackCap flag is gone).
++            return hasAudioSource;
+         }
+ 
+         internal static bool CanStartLoopedGhostAudio(bool sourceExists, bool sourceIsActiveAndEnabled)
