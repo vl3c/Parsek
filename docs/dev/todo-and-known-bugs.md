@@ -39,6 +39,24 @@ again, regenerate and read the KNOTS greedy cuts and the upward-edge count; the 
 items (ARCH-RECORDINGSTORE-GOD-OBJECT, ARCH-PARSEKFLIGHT-CHANGE-HUB, VesselSpawner steps 2-5,
 ARCH-TOOLING-ROSLYN-AND-CI) are design work planned one PR at a time.
 
+## TQ-1-mapview-refused-doc-says-rejected: the `MapViewToggleOutcome.Refused` XML doc promises a REJECTED verdict but the seam emits ERROR [FILED 2026-09-15 off test-quality-audit, evidence `Source/Parsek/TestCommands/TestCommandMapViewVerbs.cs:21-24@4aedb0a`]
+
+**What is true.** `RefusalVerdict` (`TestCommandMapViewVerbs.cs:171-177`) returns `"REJECTED"` only
+for `Unavailable` (the pre-call `MapView.fetch == null` gate) and `"ERROR"` for `Refused` (stock was
+called and declined). That split is the seam-wide convention - `harness/lib/hlib.py:1080-1090`
+(`SEAM_VERDICT_OUTCOME_TERMINAL = "ERROR"`), mirrored by `EnterWatchMode`'s post-call
+`watch-not-entered` - and it is pinned by
+`TestCommandMapViewVerbsTests.RefusalVerdict_IsRejectedOnlyBeforeStockIsCalled`. The XML doc on the
+`Refused` enum member still says "REJECTED with the per-direction reason", which is the stale half.
+No lane is red today: every committed `EnterMapView` / `ExitMapView` step is `expect = "OK"` (B32,
+GUI-6, GUI-9, H59, RF-7M), so nothing exercises the refusal branch. The cost is authorship - a spec
+author who reads the enum doc writes `expect = "REJECTED"` for a stock-declined toggle and the lane
+mismatches against the ERROR the seam emits.
+
+**Fix.** Documentation only: change the last sentence of the `MapViewToggleOutcome.Refused` doc to
+say ERROR with the per-direction reason (and, optionally, point at `RefusalVerdict` for the
+REJECTED/ERROR rule). Do not touch `RefusalVerdict` - the behavior is the contract.
+
 ## ARCH-PARSEKFLIGHT-CHANGE-HUB: ParsekFlight.cs is 27,591 lines and on one side of every top cross-module co-change pair [FILED 2026-09-14 off the architecture program (`docs/dev/research/architecture-opportunities-2026-09-14.md` item 1). A STRUCTURAL debt, not a defect. OPEN; the largest item on the list and the last to start]
 
 **What is true.**
