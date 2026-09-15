@@ -896,6 +896,52 @@ namespace Parsek.Tests
         }
 
         /// <summary>
+        /// A preferred-child walk whose branch points form a loop (A's child BP names B,
+        /// B's child BP names A again) must terminate on the visited set and answer null.
+        /// The walk runs per playback frame, so a missed guard freezes the flight scene
+        /// rather than mis-positioning a ghost.
+        /// </summary>
+        [Fact]
+        public void FindExactChainRecordingAtUT_PreferredChildCycle_ReturnsNull()
+        {
+            var cycA = MakeRecordingNoPoints("cyc-a", 100, 1000, 1020);
+            cycA.ChildBranchPointId = "bp-a-to-b";
+
+            var cycB = MakeRecordingNoPoints("cyc-b", 100, 1020, 1040);
+            cycB.ParentBranchPointId = "bp-a-to-b";
+            cycB.ChildBranchPointId = "bp-b-to-a";
+
+            var tree = MakeTree("tree-cycle",
+                new[] { cycA, cycB },
+                new[]
+                {
+                    MakeBranchPoint("bp-a-to-b", BranchPointType.Dock, 1020, 100,
+                        new[] { "cyc-a" }, new[] { "cyc-b" }),
+                    // The corrupt edge: B's child branch point points back at A.
+                    MakeBranchPoint("bp-b-to-a", BranchPointType.Dock, 1040, 100,
+                        new[] { "cyc-b" }, new[] { "cyc-a" })
+                });
+
+            var chain = new GhostChain
+            {
+                OriginalVesselPid = 100,
+                TipTreeId = "tree-cycle"
+            };
+            chain.Links.Add(new ChainLink
+            {
+                recordingId = "cyc-a",
+                treeId = "tree-cycle",
+                ut = 1000,
+                interactionType = "MERGE"
+            });
+
+            // 5000 is past both recordings, so no walk step can answer and the walk is
+            // forced all the way around the loop before the visited set stops it.
+            Assert.Null(ParsekFlight.FindExactChainRecordingAtUT(
+                new List<RecordingTree> { tree }, chain, 5000));
+        }
+
+        /// <summary>
         /// UT equals exactly the recording's StartUT. Returns the recording.
         /// Guards: inclusive start boundary.
         /// </summary>
