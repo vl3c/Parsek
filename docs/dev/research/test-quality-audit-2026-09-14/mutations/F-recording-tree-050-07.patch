@@ -2,12 +2,6 @@ diff --git a/Source/Parsek/ChainSegmentManager.cs b/Source/Parsek/ChainSegmentMa
 index 49bd30f55..6c4bdd57d 100644
 --- a/Source/Parsek/ChainSegmentManager.cs
 +++ b/Source/Parsek/ChainSegmentManager.cs
-@@ -1,4 +1,4 @@
--using System;
-+﻿using System;
- using System.Collections.Generic;
- using System.Globalization;
- using UnityEngine;
 @@ -826,7 +826,10 @@ namespace Parsek
                  // The next chain segment handles spawning, but after revert the snapshot
                  // is needed for re-spawn. VesselSnapshot is immutable after commit.

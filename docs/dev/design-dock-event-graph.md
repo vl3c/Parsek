@@ -245,7 +245,7 @@ Nothing new is persisted. The one persistence-visible effect: `targetVesselPid` 
 | `Logistics/` (all files) | zero reads of the BP field; routes derive from `Recording.TransferTargetVesselPid` / `RouteConnectionWindow` | n/a | Fully insulated |
 | `Analyzer/` (all 13 rules) | zero reads; `Inv7TreeTopology` never walks `tree.BranchPoints` | n/a | No rule fires or changes verdict |
 | UI | zero direct reads; `MissionsWindowUI` renders link fields, never the pid | n/a | Safe |
-| Type-only readers (`GhostingTriggerClassifier:96`, `RouteHarvestAnalysis:625`, `MissionComposition:189/:720`, `MissionRouteStructureList:372`, `Rendering/AnchorCandidateBuilder:179/:230`, `Rendering/AnchorPropagator:313`, `SupersedeCommit:1251`) | `bp.Type` only | n/a | Safe |
+| Type-only readers (`GhostingTriggerClassifier:96`, `RouteHarvestAnalysis:625`, `MissionComposition:189/:720`, `MissionStructureList:343`, `Rendering/AnchorCandidateBuilder:179/:230`, `Rendering/AnchorPropagator:313`, `SupersedeCommit:1251`) | `bp.Type` only | n/a | Safe |
 
 **Tests pinned on gated behavior** (update in PR1, only the named lines): `MergeEventDetectionTests.cs:54` and `:102` (assert 0 on no-target merges; survive if the new parameter defaults to 0), `:209` (drop the bp-target line only; `:210-211` TransferTargetVesselPid==0/TransferKind==None remain the test's point), `ClawCoupleRecordingTests.cs:106` (drop the bp-target line only; `:107-108` remain). `MissionCrossTreeDockTests.cs:242` (`FindLinks_ZeroTargetPid_Skipped`) mutates the fixture directly and stays valid.
 
@@ -421,7 +421,7 @@ Can "D is made of CD's parts" be derived from data already on disk, fixing (a) m
 
 ### 9.3 Verification steps (1-2 days)
 
-1. **Code read:** trace the undock-child snapshot path (`CreateSplitBranch` -> `VesselSpawner.TryBackupSnapshot` / `CollectPartPersistentIds`) and answer: do split-child snapshots preserve LIVE part `persistentId`s, or are pids re-minted/synthesized? Caution: `VesselSnapshotBuilder.AddPart` assigns synthetic pids (`100000 + idx*1111`), but that is the TEST generator; the live capture path must be verified independently, and ghost-visual snapshots may differ from vessel snapshots. Also verify which snapshot (VesselSnapshot vs GhostVisualSnapshot) survives on committed undock children after optimization.
+1. **Code read:** trace the undock-child snapshot path (`CreateSplitBranch` -> `VesselSpawner.TryBackupSnapshot` / `VesselSnapshotOps.CollectPartPersistentIds`) and answer: do split-child snapshots preserve LIVE part `persistentId`s, or are pids re-minted/synthesized? Caution: `VesselSnapshotBuilder.AddPart` assigns synthetic pids (`100000 + idx*1111`), but that is the TEST generator; the live capture path must be verified independently, and ghost-visual snapshots may differ from vessel snapshots. Also verify which snapshot (VesselSnapshot vs GhostVisualSnapshot) survives on committed undock children after optimization.
 2. **Fixture check:** run BDOCK-1 (or reuse its recorded fixture; note the machine lock contract in `.claude/CLAUDE.md` before any harness run) and inspect the produced save: does the departing child's snapshot pid set sit inside the window's partner set, and does the continuing child's not?
 3. **Collision analysis:** part pids are craft-baked like vessel pids. Scope every intersection to one merged stack (same tree, the window on the direct dock ancestor), and require the dock and undock to bracket the child (window `DockUT <= childStartUT <= UndockUT + epsilon`), so cross-launch pid collisions cannot enter the comparison.
 

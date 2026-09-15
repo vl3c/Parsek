@@ -1459,7 +1459,7 @@ namespace Parsek.Tests
             Assert.NotNull(result.RouteInventoryManifest);
             Assert.Single(result.RouteInventoryManifest);
             Assert.Equal(
-                VesselSpawner.ComputeInventoryPayloadKindKey(
+                VesselSnapshotOps.ComputeInventoryPayloadKindKey(
                     result.RouteInventoryManifest[0].StoredPartSnapshot),
                 result.RouteInventoryManifest[0].IdentityHash);
             Assert.NotEqual("ore-container-hash", result.RouteInventoryManifest[0].IdentityHash);

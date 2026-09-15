@@ -2,12 +2,6 @@ diff --git a/Source/Parsek/BackgroundRecorder.cs b/Source/Parsek/BackgroundRecor
 index e7bf2117a..88ab212a7 100644
 --- a/Source/Parsek/BackgroundRecorder.cs
 +++ b/Source/Parsek/BackgroundRecorder.cs
-@@ -1,4 +1,4 @@
--using System;
-+﻿using System;
- using System.Collections.Generic;
- using System.Globalization;
- using KSP.UI.Screens;
 @@ -650,7 +650,7 @@ namespace Parsek
              // candidate controllable child if the parent is still alive and trackable.
              Recording parentContRec = null;

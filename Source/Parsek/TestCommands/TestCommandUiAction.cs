@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 
@@ -62,6 +62,14 @@ namespace Parsek.TestCommands
         /// <c>PopupDialog</c> (name, title, ordered button labels). uGUI, so it is
         /// invisible to <c>DumpGuiTree</c> and visible only in a PNG.</summary>
         Dialog = 12,
+
+        /// <summary><c>op=playback state=true|false [recording=&lt;id&gt;]</c>: flip the
+        /// per-recording ghost-playback tick box the Recordings tab draws - one recording,
+        /// or (with no <c>recording=</c>) every recording at once, which is the select-all
+        /// header toggle's own path and the only form a COMMITTED spec can write, since a
+        /// RecordingId is save-specific. Names no window: it drives a field on the
+        /// Recording, not on a window host.</summary>
+        Playback = 13,
     }
 
     /// <summary>What one settle poll of a TWO-PHASE <c>UiAction</c> op concludes.</summary>
@@ -205,6 +213,13 @@ namespace Parsek.TestCommands
         internal const string TargetOpToken = "target";
         internal const string PickerOpToken = "picker";
         internal const string DialogOpToken = "dialog";
+        internal const string PlaybackOpToken = "playback";
+
+        /// <summary>The <c>recording=</c>-less spelling the payload and the log line echo
+        /// for an ALL-recordings flip. A sentinel token rather than an empty value, the
+        /// describe payload's <c>-</c> rule: a trailing <c>recording=</c> on the wire reads
+        /// as a truncated line.</summary>
+        internal const string PlaybackAllRecordingsToken = "all";
 
         // ----- complexity tokens (the wire spelling of UiComplexityMode) -----
 
@@ -365,6 +380,32 @@ namespace Parsek.TestCommands
         /// <see cref="RectAppliedWithinTolerance"/>.</summary>
         internal const string RectNotAppliedReason = "rect-not-applied";
 
+        /// <summary>
+        /// <c>op=playback</c> without a <c>state=</c> arg.
+        ///
+        /// <para>REQUIRED here, unlike on <c>op=expand</c>, where an absent <c>state=</c>
+        /// means <c>true</c> because expanding is what a census asks for. This op has no
+        /// such default direction: a lane drives the box BOTH ways (off to prove a hidden
+        /// ghost stays hidden, on to prove it comes back), so guessing one would silently
+        /// run the opposite half of the check. There is no
+        /// <c>playback-state-arg-invalid</c> sibling: the invalid half REUSES
+        /// <see cref="TestCommandUiState.StateArgInvalidReason"/>, since <c>state=</c> is
+        /// one arg key with one closed vocabulary across both ops.</para>
+        /// </summary>
+        internal const string StateArgMissingReason = "state-arg-missing";
+
+        /// <summary>A <c>recording=</c> id that matches no recording in the effective set.
+        /// REJECTED rather than a no-op OK: a lane that names a recording and gets a
+        /// cheerful "0 changed" cannot tell a typo'd id from a box that was already
+        /// right.</summary>
+        internal const string RecordingUnknownReason = "recording-unknown";
+
+        /// <summary>POST-SETTLE terminal for <c>op=playback</c>: the write went through
+        /// <c>RecordingStore.SetRecordingPlaybackEnabled</c> and, after a drawn frame, at
+        /// least one considered recording's <c>PlaybackEnabled</c> disagrees with the
+        /// requested state. ERROR - we acted and the game did not follow.</summary>
+        internal const string PlaybackNotAppliedReason = "playback-not-applied";
+
         /// <summary>POST-CALL terminal for the one thing a read-back cannot describe: a
         /// live-state touch THREW.</summary>
         internal const string ThrewReason = "ui-action-threw";
@@ -513,7 +554,7 @@ namespace Parsek.TestCommands
         {
             OpenOpToken, CloseOpToken, TabOpToken, ComplexityOpToken, RectOpToken,
             DescribeOpToken, PointerOpToken, FindOpToken, ExpandOpToken, TargetOpToken,
-            PickerOpToken, DialogOpToken,
+            PickerOpToken, DialogOpToken, PlaybackOpToken,
         });
 
         /// <summary>A window's tab tokens, comma-joined, or the empty string when it has
@@ -548,6 +589,7 @@ namespace Parsek.TestCommands
                 case TargetOpToken: op = UiActionOp.Target; break;
                 case PickerOpToken: op = UiActionOp.Picker; break;
                 case DialogOpToken: op = UiActionOp.Dialog; break;
+                case PlaybackOpToken: op = UiActionOp.Playback; break;
                 default:
                     rejectReason = OpArgInvalidReason;
                     return false;
@@ -573,6 +615,7 @@ namespace Parsek.TestCommands
                 case UiActionOp.Target: return TargetOpToken;
                 case UiActionOp.Picker: return PickerOpToken;
                 case UiActionOp.Dialog: return DialogOpToken;
+                case UiActionOp.Playback: return PlaybackOpToken;
                 default: return string.Empty;
             }
         }
@@ -637,12 +680,21 @@ namespace Parsek.TestCommands
         /// <c>tab</c> and <c>complexity</c> are likewise single-phase: the tab clamp runs
         /// from the complexity latch (which the applier drives synchronously in
         /// <c>Update</c>, before any draw), not from a draw.</para>
+        ///
+        /// <para><c>playback</c> is here for the SAME reason <c>expand</c> is, and not for
+        /// the <c>open</c> one: it changes DRAWN state (the tick box, and with it every
+        /// ghost, map icon and orbit line the flag gates), so the read-back is only a
+        /// statement about the game once a frame has run. It is deliberately NOT in
+        /// <see cref="SettleChecksHostShowUi"/>: the value it reads back lives on the
+        /// <c>Recording</c> rather than on a window host, so a hidden Parsek surface
+        /// cannot fake it, and driving the box with that surface closed is a legitimate
+        /// thing for a lane to do.</para>
         /// </summary>
         internal static bool OpIsTwoPhase(UiActionOp op)
             => op == UiActionOp.Open || op == UiActionOp.Rect
                || op == UiActionOp.Pointer || op == UiActionOp.Find
                || op == UiActionOp.Expand || op == UiActionOp.Target
-               || op == UiActionOp.Picker;
+               || op == UiActionOp.Picker || op == UiActionOp.Playback;
 
         /// <summary>
         /// Whether a SETTLED two-phase op's read-back must additionally be refused when the
@@ -650,12 +702,13 @@ namespace Parsek.TestCommands
         ///
         /// <para>ONLY <c>open</c> and <c>rect</c>, and the asymmetry is the point rather
         /// than an oversight. Those two read back a FIELD, so a frame that never reached
-        /// the window compares the written value with itself. The five later two-phase ops
+        /// the window compares the written value with itself. The six later two-phase ops
         /// do not have that hole: <c>find</c> reads a captured TREE, in which an undrawn
         /// window is simply absent (<see cref="TestCommandUiFind.WindowNotDrawnReason"/>);
         /// <c>pointer</c> reads <c>Input.mousePosition</c>, which no window draws at all;
         /// and <c>expand</c> / <c>target</c> / <c>picker</c> read a collection or an open
-        /// flag whose only other writer is a player click this seam never synthesises.
+        /// flag whose only other writer is a player click this seam never synthesises, and
+        /// <c>playback</c> reads a field on the <c>Recording</c>, which no window owns.
         /// Applying the host gate to them would refuse correct work - a <c>pointer</c> park
         /// with the Parsek surface deliberately hidden is exactly the hover-free capture a
         /// census wants.</para>
@@ -922,6 +975,139 @@ namespace Parsek.TestCommands
             return true;
         }
 
+        // ----- op=playback -----
+
+        /// <summary>
+        /// Parses <c>op=playback</c>'s REQUIRED <c>state=</c> arg.
+        ///
+        /// <para>Absent is <see cref="StateArgMissingReason"/> rather than a default, the
+        /// <c>op=</c> rule: this op is driven BOTH ways by design (off to prove a hidden
+        /// ghost stays hidden, on to prove it comes back), so a default direction would
+        /// silently run the opposite half of a lane's check. The INVALID half reuses
+        /// <see cref="TestCommandUiState.StateArgInvalidReason"/> - <c>state=</c> is ONE
+        /// arg key with one closed vocabulary, and a second spelling of the same refusal
+        /// would be a second thing for a spec author to learn.</para>
+        /// </summary>
+        internal static bool TryParsePlaybackState(string raw, out bool enabled,
+                                                   out string rejectReason)
+        {
+            enabled = false;
+            if (raw == null)
+            {
+                rejectReason = StateArgMissingReason;
+                return false;
+            }
+            if (raw == TestCommandUiState.StateTrueToken)
+            {
+                enabled = true;
+                rejectReason = null;
+                return true;
+            }
+            if (raw == TestCommandUiState.StateFalseToken)
+            {
+                enabled = false;
+                rejectReason = null;
+                return true;
+            }
+            rejectReason = TestCommandUiState.StateArgInvalidReason;
+            return false;
+        }
+
+        /// <summary>
+        /// Resolves <c>op=playback</c>'s OPTIONAL <c>recording=</c> arg into the selection
+        /// the applier drives and the token the payload echoes.
+        ///
+        /// <para>ABSENT means EVERY recording, which is not a convenience: a committed spec
+        /// cannot name a RecordingId (they are save-specific Guid-ish strings), so the
+        /// all-recordings form is the only one a lane can write and assert INDEX-FREE -
+        /// exactly the reason <c>op=expand key=all</c> exists. An empty or whitespace
+        /// <c>recording=</c> is treated as ABSENT rather than as an unknown id: the wire
+        /// carries <c>recording=</c> with nothing after it for both, so refusing one and
+        /// not the other would be a distinction no author can act on.</para>
+        /// </summary>
+        /// <param name="recordingId">The single recording's id, or null for all.</param>
+        /// <param name="echoToken">What the payload and the log line carry:
+        /// <paramref name="recordingId"/>, or <see cref="PlaybackAllRecordingsToken"/>.</param>
+        internal static void ResolvePlaybackSelection(string rawRecording,
+                                                     out string recordingId,
+                                                     out string echoToken)
+        {
+            recordingId = string.IsNullOrEmpty(rawRecording) || rawRecording.Trim().Length == 0
+                ? null
+                : rawRecording;
+            echoToken = recordingId ?? PlaybackAllRecordingsToken;
+        }
+
+        /// <summary>
+        /// POST-SETTLE read-back predicate: whether every CONSIDERED recording's
+        /// <c>PlaybackEnabled</c> agreed with the requested state after a drawn frame.
+        ///
+        /// <para>An already-correct recording is a NO-OP and not a failure, which is why
+        /// the predicate reads <paramref name="agreeing"/> against
+        /// <paramref name="considered"/> and never against a changed count: the single
+        /// writer (<c>RecordingStore.SetRecordingPlaybackEnabled</c>) returns false for an
+        /// unchanged value by design, so <c>changed=0 total=7</c> is the honest report of a
+        /// save that was already in the requested state.</para>
+        ///
+        /// <para>An EMPTY set (<paramref name="considered"/> zero, i.e. a save with no
+        /// committed recordings on an all-recordings flip) is APPLIED. The alternative -
+        /// erroring - would report a Parsek defect for a fixture fact, and the payload's
+        /// <c>total=0</c> already says what happened.</para>
+        /// </summary>
+        internal static bool PlaybackAppliedToEveryConsidered(int agreeing, int considered)
+            => agreeing == considered;
+
+        /// <summary>
+        /// The recordings one <c>op=playback</c> call considers: the whole effective set
+        /// when <paramref name="recordingId"/> is null, or the single match for it.
+        ///
+        /// <para>Returns NULL - never an empty list - when a NAMED id matches nothing, so
+        /// the caller can tell <see cref="RecordingUnknownReason"/> from an empty save. The
+        /// two are different answers: a lane that names a recording and gets a cheerful
+        /// "0 changed" cannot tell a typo'd id from a box that was already right.</para>
+        ///
+        /// <para>The id match is ORDINAL, like every other id comparison in the seam: a
+        /// RecordingId is a generated token rather than display text, and a culture-aware
+        /// match here would be a different predicate from the store's own.</para>
+        /// </summary>
+        internal static List<Recording> SelectPlaybackTargets(
+            IReadOnlyList<Recording> effective, string recordingId)
+        {
+            var targets = new List<Recording>(effective != null ? effective.Count : 0);
+            if (effective == null) return recordingId == null ? targets : null;
+            for (int i = 0; i < effective.Count; i++)
+            {
+                Recording rec = effective[i];
+                if (rec == null) continue;
+                if (recordingId == null)
+                {
+                    targets.Add(rec);
+                    continue;
+                }
+                if (string.Equals(rec.RecordingId, recordingId, StringComparison.Ordinal))
+                    targets.Add(rec);
+            }
+            if (recordingId != null && targets.Count == 0) return null;
+            return targets;
+        }
+
+        /// <summary>How many of <paramref name="considered"/> carry
+        /// <paramref name="enabled"/> as their <c>PlaybackEnabled</c>. The numerator of
+        /// <see cref="PlaybackAppliedToEveryConsidered"/>; separate so the read-back is a
+        /// tested function rather than an inline loop.</summary>
+        internal static int CountPlaybackAgreeing(IReadOnlyList<Recording> considered,
+                                                  bool enabled)
+        {
+            if (considered == null) return 0;
+            int agreeing = 0;
+            for (int i = 0; i < considered.Count; i++)
+            {
+                Recording rec = considered[i];
+                if (rec != null && rec.PlaybackEnabled == enabled) agreeing++;
+            }
+            return agreeing;
+        }
+
         /// <summary>True for a window whose rect SIZE the scene host owns rather than the
         /// window itself: only <see cref="MainWindow"/> today.</summary>
         internal static bool SizeIsHostControlled(string windowName)
@@ -1013,6 +1199,28 @@ namespace Parsek.TestCommands
                 Kv("tab", tab ?? string.Empty),
                 Kv("index", index.ToString(CultureInfo.InvariantCulture)),
                 Kv("already", Bool(already)),
+            };
+
+        /// <summary>
+        /// OK payload for <c>playback</c>:
+        /// <c>op=playback recording=&lt;id|all&gt; state= changed= total=</c>.
+        ///
+        /// <para><c>changed</c> and <c>total</c> are the <c>op=expand</c> pair and answer
+        /// the same question a bare verdict cannot: <c>changed=0 total=7</c> means the save
+        /// was already in the requested state, which reads differently from
+        /// <c>changed=7 total=7</c> in a capture that came out looking the same. There is
+        /// no <c>already=</c> key here because <c>changed</c> subsumes it over a SET.</para>
+        /// </summary>
+        internal static List<KeyValuePair<string, string>> BuildPlaybackPayload(
+            string recordingToken, bool enabled, int changed, int total)
+            => new List<KeyValuePair<string, string>>
+            {
+                Kv("op", PlaybackOpToken),
+                Kv("recording", string.IsNullOrEmpty(recordingToken)
+                    ? PlaybackAllRecordingsToken : recordingToken),
+                Kv("state", Bool(enabled)),
+                Kv("changed", changed.ToString(CultureInfo.InvariantCulture)),
+                Kv("total", total.ToString(CultureInfo.InvariantCulture)),
             };
 
         /// <summary>OK payload for <c>complexity</c>: <c>op=complexity mode= already=</c>.</summary>

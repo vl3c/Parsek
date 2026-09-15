@@ -19,7 +19,7 @@ namespace Parsek.Logistics
     /// undefined-name pickup), so a mod uninstall can never flip a
     /// rejection into Eligible (plan D2, direction-sensitive exclusion).
     ///
-    /// Capture stays permissive: <see cref="VesselSpawner"/>'s manifest
+    /// Capture stays permissive: <see cref="VesselSnapshotOps"/>'s manifest
     /// extraction records whatever names the snapshot carries (recordings
     /// are immutable witnesses; a definition check at capture would bake
     /// mod-install state into recorded data), so reinstalling the mod
@@ -58,7 +58,7 @@ namespace Parsek.Logistics
         /// rule 7 ("after EC/IntakeAir filtering") and section 6 ("EC-only
         /// delivery ... remains excluded") filter them out of BOTH the pickup
         /// gate and the delivery manifest, matching
-        /// <c>VesselSpawner.ExtractResourceManifest</c>. These two are the
+        /// <c>VesselSnapshotOps.ExtractResourceManifest</c>. These two are the
         /// only always-ignored resources the design names.
         /// </summary>
         internal static bool IsAlwaysIgnored(string name)

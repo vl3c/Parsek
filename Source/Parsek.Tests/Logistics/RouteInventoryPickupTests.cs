@@ -208,8 +208,8 @@ namespace Parsek.Tests.Logistics
             ConfigNode onVesselB = StoredPartWithInnerPart(
                 cid: "9999000111", persistentId: "55000", position: "123,4,-9", temp: "284.3");
 
-            string hashA = VesselSpawner.ComputeInventoryPayloadIdentityHash(onVesselA);
-            string hashB = VesselSpawner.ComputeInventoryPayloadIdentityHash(onVesselB);
+            string hashA = VesselSnapshotOps.ComputeInventoryPayloadIdentityHash(onVesselA);
+            string hashB = VesselSnapshotOps.ComputeInventoryPayloadIdentityHash(onVesselB);
 
             Assert.False(string.IsNullOrEmpty(hashA));
             Assert.Equal(hashA, hashB);
@@ -240,8 +240,8 @@ namespace Parsek.Tests.Logistics
             loadedShape.SetValue("quantity", "5", true);
             loadedShape.AddValue("stackCapacity", "8");
 
-            string protoHash = VesselSpawner.ComputeInventoryPayloadIdentityHash(protoShape);
-            string loadedHash = VesselSpawner.ComputeInventoryPayloadIdentityHash(loadedShape);
+            string protoHash = VesselSnapshotOps.ComputeInventoryPayloadIdentityHash(protoShape);
+            string loadedHash = VesselSnapshotOps.ComputeInventoryPayloadIdentityHash(loadedShape);
 
             // stackCapacity is NOT a stripped value at the STOREDPART level (only
             // slotIndex / quantity are), so a difference there WOULD split the
@@ -250,7 +250,7 @@ namespace Parsek.Tests.Logistics
             // difference does not split.
             ConfigNode protoWithStack = protoShape.CreateCopy();
             protoWithStack.AddValue("stackCapacity", "8");
-            string protoWithStackHash = VesselSpawner.ComputeInventoryPayloadIdentityHash(protoWithStack);
+            string protoWithStackHash = VesselSnapshotOps.ComputeInventoryPayloadIdentityHash(protoWithStack);
             Assert.Equal(protoWithStackHash, loadedHash);
         }
 
@@ -430,8 +430,8 @@ namespace Parsek.Tests.Logistics
             atSlot2.SetValue("slotIndex", "2", true);
 
             // Both hash identically (transients stripped); compute the target.
-            string hash = VesselSpawner.ComputeInventoryPayloadIdentityHash(atSlot5);
-            Assert.Equal(hash, VesselSpawner.ComputeInventoryPayloadIdentityHash(atSlot2));
+            string hash = VesselSnapshotOps.ComputeInventoryPayloadIdentityHash(atSlot5);
+            Assert.Equal(hash, VesselSnapshotOps.ComputeInventoryPayloadIdentityHash(atSlot2));
 
             // Build a STOREDPARTS container with slot 5 listed BEFORE slot 2 so a
             // naive first-match would wrongly pick slot 5.

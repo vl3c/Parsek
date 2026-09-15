@@ -15,7 +15,7 @@ require a dated amendment note at the bottom and a supervisor adjudication of al
 - `misleading` - the name or comment claims more/different than the assertions prove.
 - `organization` - placement/naming/structure issue only (mega-file, bug-number file); behavior sound.
 - `source-gate-ok` - asserts on production source text but legitimately (wiring gate per
-  `design-testing-unified.md` §2, or the only cheap mechanical way to pin a wiring fact).
+  `design-testing-unified.md` section 2, or the only cheap mechanical way to pin a wiring fact).
 - `source-gate-misplaced` - source-text assertion where a behavioral test is feasible and absent, or
   regex-over-source where an AST walk is required (comments read as code and fail GREEN).
 - `fixture-limited` - the test is sound but constrained by a fixture/generator ceiling; note the

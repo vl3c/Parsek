@@ -618,7 +618,7 @@ fields (patched-conic arrival) are NOT the docking channel and are not reused.
   via `VesselLaunchIdentity`); the cross-tree Dock link is guid-gated. When the pids
   already differ the guid is only WEAKLY load-bearing; the strong guid path is hit
   only if KSP does NOT regenerate (section 6 invariant 6 is two-branch).
-- **ResourceManifest deltas.** `VesselSpawner.ExtractResourceManifest` +
+- **ResourceManifest deltas.** `VesselSnapshotOps.ExtractResourceManifest` +
   `ResourceManifest.ComputeResourceDelta` produce the per-resource deltas the route
   window records.
 - **The commit-time "Create Supply Route?" modal was REMOVED**

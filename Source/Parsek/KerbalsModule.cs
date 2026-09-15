@@ -24,6 +24,34 @@ namespace Parsek
     {
         private const string Tag = "KerbalsModule";
 
+        private static bool terminalStampObserverInstalled;
+
+        /// <summary>
+        /// Installs <see cref="InvalidateCrewEndStatesForTerminalStamp"/> as
+        /// <see cref="Recording.OnTerminalStamped"/> on first touch of this type. Belt to
+        /// <see cref="EnsureTerminalStampObserverInstalled"/>'s braces: a static
+        /// constructor alone would leave the observer uninstalled until something happens
+        /// to mention KerbalsModule, and a save can load (and stamp) recordings first.
+        /// </summary>
+        static KerbalsModule()
+        {
+            EnsureTerminalStampObserverInstalled();
+        }
+
+        /// <summary>
+        /// Idempotent installer for the terminal-stamp observer. Called from the Harmony
+        /// startup addon so the hook exists before any save can load; safe to call again
+        /// from anywhere that wants the guarantee locally.
+        /// </summary>
+        internal static void EnsureTerminalStampObserverInstalled()
+        {
+            if (terminalStampObserverInstalled && Recording.OnTerminalStamped != null) return;
+            Recording.OnTerminalStamped = InvalidateCrewEndStatesForTerminalStamp;
+            if (terminalStampObserverInstalled) return;
+            terminalStampObserverInstalled = true;
+            ParsekLog.Verbose("Kerbals", "terminal stamp observer installed");
+        }
+
         // ── Derived state (recomputed on every recalculation walk) ──
         private Dictionary<string, KerbalReservation> reservations
             = new Dictionary<string, KerbalReservation>();

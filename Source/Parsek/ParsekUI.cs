@@ -2111,6 +2111,13 @@ namespace Parsek
             // frame (inter-cycle tail / not yet / already past): the engine hides the mesh too, so
             // the custom marker is intentionally skipped (distinct from a position failure).
             public int LoopHidden;
+            // GUI-P1: recordings the player hid with the per-recording playback tick box.
+            // It is part of HasSignal on purpose: with EVERY recording unticked the pass has
+            // nothing else to count, and a summary suppressed for "no signal" cannot say
+            // that it drew nothing BECAUSE the player turned them off - which is the one
+            // reading the GUI-9 lane exists to gate. Without this bucket `drawn=0` is
+            // unreachable by construction.
+            public int PlaybackDisabled;
 
             internal bool HasSignal =>
                 Candidates > 0
@@ -2123,13 +2130,14 @@ namespace Parsek
                 || ChainNonTip > 0
                 || PositionFailure > 0
                 || MissingBody > 0
-                || LoopHidden > 0;
+                || LoopHidden > 0
+                || PlaybackDisabled > 0;
         }
 
         internal static string FormatMapMarkerSummary(MapMarkerSummary summary)
         {
             return string.Format(CultureInfo.InvariantCulture,
-                "Map marker summary: view={0} candidates={1} previewDrawn={2} drawn={3} cameraUnavailable={4} hiddenInFlight={5} nativeIcon={6} debris={7} chainNonTip={8} positionFailure={9} missingBody={10} loopHidden={11}",
+                "Map marker summary: view={0} candidates={1} previewDrawn={2} drawn={3} cameraUnavailable={4} hiddenInFlight={5} nativeIcon={6} debris={7} chainNonTip={8} positionFailure={9} missingBody={10} loopHidden={11} playbackDisabled={12}",
                 summary.IsMapView ? "map" : "flight",
                 summary.Candidates,
                 summary.PreviewDrawn,
@@ -2141,7 +2149,8 @@ namespace Parsek
                 summary.ChainNonTip,
                 summary.PositionFailure,
                 summary.MissingBody,
-                summary.LoopHidden);
+                summary.LoopHidden,
+                summary.PlaybackDisabled);
         }
 
         private static void LogMapMarkerSummary(MapMarkerSummary summary)
@@ -2712,6 +2721,17 @@ namespace Parsek
                 {
                     var rec = committed[ri];
                     if (rec == null || string.IsNullOrEmpty(rec.RecordingId)) continue;
+                    // GUI-P1: the per-recording playback tick box is OFF - no marker anywhere.
+                    // Transitively covered already (this loop only draws for a recording whose
+                    // polyline OWNS the phase, and the gated Driver walk never publishes
+                    // ownership for a hidden recording), but stated here so the flight-map
+                    // non-proto marker path carries the gate explicitly rather than inheriting
+                    // it from another file's draw decision.
+                    if (GhostMapPresence.IsMapPresenceHiddenByPlaybackToggle(rec))
+                    {
+                        summary.PlaybackDisabled++;
+                        continue;
+                    }
                     if (flight.Engine.ghostStates.TryGetValue(ri, out var coveredState)
                         && coveredState != null)
                         continue; // covered (drawn or intentionally skipped) by the pid-keyed walk

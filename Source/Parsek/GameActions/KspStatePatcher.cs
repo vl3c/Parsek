@@ -72,15 +72,15 @@ namespace Parsek
             using (SuppressionGuard.ResourcesAndReplay())
             {
                 // Rewind read-back divergence guard (audit rec #1): when armed at the
-                // rewind apply boundary, flag (and optionally abort) a recalc that would
-                // write the economy below the real career floor. Default warn-only — the
-                // runner returns false unless abort is opt-in/forced, so the normal path
-                // logs and proceeds with NO behavior change. Inert (returns false fast)
-                // when not armed.
+                // rewind apply boundary, flag a recalc that would write the economy below
+                // the real career floor. Warn-and-proceed in production - the runner returns
+                // false unless the abort test seam is forced, so the normal path logs and
+                // proceeds with NO behavior change. Inert (returns false fast) when not
+                // armed.
                 if (RunRewindReadbackGuard(science, funds, reputation, authoritativeReduction))
                 {
                     ParsekLog.Warn(Tag,
-                        "PatchAll: ABORTING rewind ledger patch: divergence flagged and abort enabled; " +
+                        "PatchAll: ABORTING rewind ledger patch: divergence flagged and abort forced; " +
                         "economy/tech/contracts/milestones NOT patched, crew roster already applied; " +
                         "loaded quicksave values stand");
                     return;
@@ -3517,11 +3517,13 @@ namespace Parsek
 
         // ================================================================
         // Rewind read-back divergence guard (audit rec #1,
-        // docs/dev/ledger-state-reconstruction-audit.md §8). Catches the case where a
-        // Rewind-to-Separation recalc would write an economy BELOW the real career
-        // economy — silent career corruption. Two-witness floor, downward-only,
-        // realized-vs-realized. Default warn-only; abort is opt-in via
-        // RewindReadbackGuard.AbortRewindPatchOnDivergence.
+        // docs/dev/ledger-state-reconstruction-audit.md §8). Reports the case where a
+        // Rewind-to-Separation recalc writes an economy BELOW the real career floor.
+        // Two-witness floor, downward-only, realized-vs-realized. Warn-and-proceed with no
+        // production abort switch: the flag is a reporting signal, not a gate, because a
+        // Step-3b resurrected-recovery retirement puts the target legitimately below both
+        // witnesses. The abort branch exists only under
+        // RewindReadbackGuard.ForceAbortForTesting.
         // ================================================================
 
         /// <summary>
@@ -3646,10 +3648,10 @@ namespace Parsek
         /// matching <c>Patch*</c> writes (funds <c>GetRunningBalance()</c>, science the
         /// pending-adjusted <see cref="ComputePendingAdjustedRunningScience"/>, rep
         /// <c>GetRunningRep()</c>), resolves the verdict against the two witnesses, and logs
-        /// every branch. Returns <c>true</c> iff (any resource flagged divergence) AND
-        /// (abort is enabled or forced) — i.e. PatchAll should abort. Default warn-only path
-        /// always returns <c>false</c>. Early-returns <c>false</c> when the guard is not armed,
-        /// so it is inert on ordinary (non-rewind) recalc patches.
+        /// every branch. Returns <c>true</c> iff (any resource flagged divergence) AND the
+        /// abort test seam is forced - i.e. PatchAll should abort. The production path is
+        /// warn-and-proceed and always returns <c>false</c>. Early-returns <c>false</c> when
+        /// the guard is not armed, so it is inert on ordinary (non-rewind) recalc patches.
         /// </summary>
         internal static bool RunRewindReadbackGuard(
             ScienceModule science, FundsModule funds, ReputationModule reputation,
@@ -3689,9 +3691,7 @@ namespace Parsek
                 RewindReadbackReputationTolerance,
                 authoritativeReduction);
 
-            return anyFlagged &&
-                (RewindReadbackGuard.AbortRewindPatchOnDivergence ||
-                 RewindReadbackGuard.ForceAbortForTesting);
+            return anyFlagged && RewindReadbackGuard.ForceAbortForTesting;
         }
 
         // Evaluates one resource and logs its branch. Returns true iff flagged divergence.
@@ -3735,8 +3735,11 @@ namespace Parsek
                         $"eBefore={FmtNullable(eBefore)} eRp={FmtNullable(eRp)} " +
                         $"floor={floor.ToString("R", IC)} target={target} " +
                         $"delta={delta.ToString("R", IC)} tolerance={tolerance.ToString("R", IC)} " +
-                        $"authoritativeReduction={authoritativeReduction}: recalc would write the " +
-                        "economy BELOW the real career floor (possible silent career corruption)");
+                        $"authoritativeReduction={authoritativeReduction}: the recalc target is below " +
+                        "the pre-rewind / rewind-point floor and is written anyway under the " +
+                        "authoritative rewind. Two known legitimate causes: a Step-3b " +
+                        "resurrected-recovery retirement after post-RP spending, and an earning " +
+                        "channel the ledger does not model (strategy conversion, mod grant)");
                     return true;
 
                 default:

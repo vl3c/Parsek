@@ -668,7 +668,7 @@ namespace Parsek
 
         /// <summary>
         /// Captures a structured snapshot of every recorder-relevant field at the
-        /// current instant. Used by <see cref="ParsekLog.RecState"/> emit sites for
+        /// current instant. Used by <see cref="RecorderStateLog.RecState"/> emit sites for
         /// the structured <c>[RecState]</c> diagnostic dump. Pure data gather — no
         /// side effects, safe to call from any lifecycle event handler.
         /// </summary>
@@ -710,7 +710,7 @@ namespace Parsek
         {
             if (recorder == null || activeTree == null) return;
 
-            ParsekLog.RecState("FlushRecorderIntoActiveTree:entry", CaptureRecorderState());
+            RecorderStateLog.RecState("FlushRecorderIntoActiveTree:entry", CaptureRecorderState());
             string recId = activeTree.ActiveRecordingId;
             if (recId == null)
             {
@@ -790,7 +790,7 @@ namespace Parsek
                 $"(+{treeRec.Points.Count - prevPointCount}), " +
                 $"{treeRec.PartEvents.Count} part events " +
                 $"(+{treeRec.PartEvents.Count - prevEventCount}))");
-            ParsekLog.RecState("FlushRecorderIntoActiveTree:post", CaptureRecorderState());
+            RecorderStateLog.RecState("FlushRecorderIntoActiveTree:post", CaptureRecorderState());
         }
 
         // Debris persistence enforcement: saved original value when Parsek overrides it
@@ -2318,7 +2318,7 @@ namespace Parsek
             ParsekLog.Info("Flight",
                 "Scene change requested: " + scene + " at UT=" +
                 preChangeUT.ToString("F2", CultureInfo.InvariantCulture));
-            ParsekLog.RecState("OnSceneChangeRequested", CaptureRecorderState());
+            RecorderStateLog.RecState("OnSceneChangeRequested", CaptureRecorderState());
 
             // Exit watch mode on scene change
             if (watchMode.IsWatchingGhost)
@@ -3080,7 +3080,7 @@ namespace Parsek
             }
 
             if (logRecorderState)
-                ParsekLog.RecState("FinalizeTreeOnSceneChange:entry", CaptureRecorderState());
+                RecorderStateLog.RecState("FinalizeTreeOnSceneChange:entry", CaptureRecorderState());
 
             // Checkpoint all background vessels before finalization.
             // This captures clean orbital reference points at the scene-change boundary.
@@ -3200,7 +3200,7 @@ namespace Parsek
                 $"tree='{treeName}' recordings={recordingCount} active='{activeRecordingId}' " +
                 $"reason='{suppressReason ?? "<unspecified>"}' - discarding in-memory tree without STASH");
             if (logRecorderState)
-                ParsekLog.RecState("FinalizeTreeOnSceneChange:suppressed-entry", CaptureRecorderState());
+                RecorderStateLog.RecState("FinalizeTreeOnSceneChange:suppressed-entry", CaptureRecorderState());
 
             RestoreDebrisPersistence();
 
@@ -3225,7 +3225,7 @@ namespace Parsek
 
             activeTree = null;
             if (logRecorderState)
-                ParsekLog.RecState("FinalizeTreeOnSceneChange:suppressed-post", CaptureRecorderState());
+                RecorderStateLog.RecState("FinalizeTreeOnSceneChange:suppressed-post", CaptureRecorderState());
         }
 
         void OnVesselWillDestroy(Vessel v)
@@ -3241,7 +3241,7 @@ namespace Parsek
                 return;
             }
 
-            ParsekLog.RecState("OnVesselWillDestroy:entry", CaptureRecorderState());
+            RecorderStateLog.RecState("OnVesselWillDestroy:entry", CaptureRecorderState());
 
             // EVA-construction pocket: the LAST part of a DroppedPart/Debris vessel
             // being stored in an inventory is a deliberate disassembly, not a loss.
@@ -3343,7 +3343,7 @@ namespace Parsek
         /// </summary>
         IEnumerator ShowPostDestructionTreeMergeDialog()
         {
-            ParsekLog.RecState("ShowPostDestructionTreeMergeDialog:entry", CaptureRecorderState());
+            RecorderStateLog.RecState("ShowPostDestructionTreeMergeDialog:entry", CaptureRecorderState());
 
             // Wait one frame for destruction events to settle
             yield return null;
@@ -3731,7 +3731,7 @@ namespace Parsek
                     $"Post-switch auto-record suppressed: vessel='{newVessel.vesselName ?? "<unnamed>"}' " +
                     $"pid={newPid} reason=marker-in-place-continuation " +
                     $"sess={ParsekScenario.Instance?.ActiveReFlySessionMarker?.SessionId ?? "<no-id>"}");
-                ParsekLog.RecState("OnVesselSwitchComplete:post", CaptureRecorderState());
+                RecorderStateLog.RecState("OnVesselSwitchComplete:post", CaptureRecorderState());
                 return;
             }
 
@@ -3782,11 +3782,11 @@ namespace Parsek
         {
             if (!recoveryDiagnosticContext.IsRecovery)
             {
-                ParsekLog.RecState(phase, snapshot);
+                RecorderStateLog.RecState(phase, snapshot);
                 return;
             }
 
-            ParsekLog.RecStateRateLimited(
+            RecorderStateLog.RecStateRateLimited(
                 phase,
                 snapshot,
                 recoveryDiagnosticContext.BuildRecStateRateLimitKey(),
@@ -4155,7 +4155,7 @@ namespace Parsek
         {
             if (activeTree == null || newVessel == null) return;
 
-            ParsekLog.RecState("PromoteFromBackground:entry", CaptureRecorderState());
+            RecorderStateLog.RecState("PromoteFromBackground:entry", CaptureRecorderState());
 
             // Callers pass the target recording id explicitly; BackgroundMap membership is
             // not a hard precondition here. The committed-tree restore path may already have
@@ -4199,7 +4199,7 @@ namespace Parsek
 
             ParsekLog.Info("Flight", $"Promoted recording '{backgroundRecordingId}' from background " +
                 $"(pid={newVessel.persistentId})");
-            ParsekLog.RecState("PromoteFromBackground:exit", CaptureRecorderState());
+            RecorderStateLog.RecState("PromoteFromBackground:exit", CaptureRecorderState());
         }
 
         private bool TryRestoreCommittedTreeForSpawnedActiveVessel()
@@ -4266,7 +4266,7 @@ namespace Parsek
                     $"TryRestoreCommittedTreeForSpawnedActiveVessel: tree '{activeTree.TreeName}' " +
                     $"matched vessel '{activeVessel.vesselName}' pid={activeVesselPid} via {action}, " +
                     "but recorder attach failed; tree remains restored for late recovery");
-                ParsekLog.RecState("CommittedSpawnedRestore:failed", CaptureRecorderState());
+                RecorderStateLog.RecState("CommittedSpawnedRestore:failed", CaptureRecorderState());
                 return false;
             }
 
@@ -4281,7 +4281,7 @@ namespace Parsek
             // works because it posts from OnVesselSituationChange after physics starts,
             // well after scene-load.
             StartCoroutine(DeferredResumeScreenMessage());
-            ParsekLog.RecState("CommittedSpawnedRestore:post", CaptureRecorderState());
+            RecorderStateLog.RecState("CommittedSpawnedRestore:post", CaptureRecorderState());
             return true;
         }
 
@@ -5543,7 +5543,7 @@ namespace Parsek
             // a pre-couple record of the endpoint, so its `root` index names the launch-unique
             // part flightID. An unreadable root leaves 0, which degrades this endpoint to the
             // pid + proximity walk it always had rather than refusing it.
-            VesselSpawner.TryReadRootPartFlightId(snapshot, out uint snapshotRootPartUId);
+            VesselSnapshotOps.TryReadRootPartFlightId(snapshot, out uint snapshotRootPartUId);
 
             endpoint = new RouteEndpoint
             {
@@ -5665,7 +5665,7 @@ namespace Parsek
             double branchUT, string evaCrewName = null, uint evaVesselPid = 0,
             TrajectoryPoint? backgroundInitialTrajectoryPoint = null)
         {
-            ParsekLog.RecState("CreateSplitBranch:entry", CaptureRecorderState());
+            RecorderStateLog.RecState("CreateSplitBranch:entry", CaptureRecorderState());
             if (pendingSplitRecorder == null)
             {
                 ParsekLog.Warn("Flight", "CreateSplitBranch: no pending split recorder — aborting");
@@ -5873,7 +5873,7 @@ namespace Parsek
                 $"bgChild={bgChild.RecordingId} (pid={bgChild.VesselPersistentId})" +
                 (backgroundInitialTrajectoryPoint.HasValue ? ", bgInitialSeed=part-origin" : "") +
                 (evaCrewName != null ? $", evaCrew={evaCrewName}" : ""));
-            ParsekLog.RecState("CreateSplitBranch:exit", CaptureRecorderState());
+            RecorderStateLog.RecState("CreateSplitBranch:exit", CaptureRecorderState());
 
             // Phase 4 (Rewind-to-Staging): Undock + EVA paths call CreateSplitBranch
             // directly. Both are multi-controllable when both outputs carry command
@@ -5916,8 +5916,8 @@ namespace Parsek
             if (proof == null)
                 return;
 
-            List<uint> activePids = VesselSpawner.CollectPartPersistentIds(activeSnapshot);
-            List<uint> backgroundPids = VesselSpawner.CollectPartPersistentIds(bgSnapshot);
+            List<uint> activePids = VesselSnapshotOps.CollectPartPersistentIds(activeSnapshot);
+            List<uint> backgroundPids = VesselSnapshotOps.CollectPartPersistentIds(bgSnapshot);
 
             uint backgroundLivePid = backgroundVessel != null ? backgroundVessel.persistentId : 0u;
             string backgroundLiveGuid = (backgroundVessel != null && backgroundVessel.id != Guid.Empty)
@@ -5987,7 +5987,7 @@ namespace Parsek
             uint evaVesselPid,
             string branchPath)
         {
-            ParsekLog.RecState("CreateSplitBranchFromBackgroundParent:entry", CaptureRecorderState());
+            RecorderStateLog.RecState("CreateSplitBranchFromBackgroundParent:entry", CaptureRecorderState());
 
             if (activeTree == null)
             {
@@ -6194,7 +6194,7 @@ namespace Parsek
                 $"bgChild={bgChild.RecordingId} (pid={bgChild.VesselPersistentId}), " +
                 $"path={branchPath}" +
                 (evaCrewName != null ? $", evaCrew={evaCrewName}" : ""));
-            ParsekLog.RecState("CreateSplitBranchFromBackgroundParent:exit", CaptureRecorderState());
+            RecorderStateLog.RecState("CreateSplitBranchFromBackgroundParent:exit", CaptureRecorderState());
 
             TryAuthorRewindPointForSplit(bp, BranchPointType.EVA, activeVessel, activeChild, backgroundVessel, bgChild);
         }
@@ -6465,7 +6465,7 @@ namespace Parsek
                 ConfigNode partnerSnapshot = VesselSpawner.TryBackupSnapshot(partnerVessel);
                 if (partnerSnapshot != null)
                 {
-                    List<uint> pids = VesselSpawner.CollectPartPersistentIds(partnerSnapshot);
+                    List<uint> pids = VesselSnapshotOps.CollectPartPersistentIds(partnerSnapshot);
                     if (pids != null && pids.Count > 0)
                     {
                         ParsekLog.Verbose("Flight",
@@ -6483,7 +6483,7 @@ namespace Parsek
                     Recording r = kvp.Value;
                     if (r != null && r.VesselPersistentId == partnerPid && r.VesselSnapshot != null)
                     {
-                        List<uint> pids = VesselSpawner.CollectPartPersistentIds(r.VesselSnapshot);
+                        List<uint> pids = VesselSnapshotOps.CollectPartPersistentIds(r.VesselSnapshot);
                         if (pids != null && pids.Count > 0)
                         {
                             ParsekLog.Verbose("Flight",
@@ -6503,7 +6503,7 @@ namespace Parsek
                     Recording r = committed[i];
                     if (r != null && r.VesselPersistentId == partnerPid && r.VesselSnapshot != null)
                     {
-                        List<uint> pids = VesselSpawner.CollectPartPersistentIds(r.VesselSnapshot);
+                        List<uint> pids = VesselSnapshotOps.CollectPartPersistentIds(r.VesselSnapshot);
                         if (pids != null && pids.Count > 0)
                         {
                             ParsekLog.Verbose("Flight",
@@ -6599,7 +6599,7 @@ namespace Parsek
             {
                 ConfigNode transportSnapshot =
                     stoppedRecorder?.CaptureAtStop?.VesselSnapshot ?? activeParentRec?.VesselSnapshot;
-                List<uint> transportPartPids = VesselSpawner.CollectPartPersistentIds(transportSnapshot);
+                List<uint> transportPartPids = VesselSnapshotOps.CollectPartPersistentIds(transportSnapshot);
 
                 // Prefer the pre-couple partner snapshot captured in OnPartCouple
                 // (before KSP reparented data.to.vessel to include transport parts).
@@ -6624,12 +6624,12 @@ namespace Parsek
                 List<uint> endpointPartPids = null;
                 if (endpointPreCoupleSnapshot != null)
                 {
-                    endpointPartPids = VesselSpawner.CollectPartPersistentIds(endpointPreCoupleSnapshot);
+                    endpointPartPids = VesselSnapshotOps.CollectPartPersistentIds(endpointPreCoupleSnapshot);
                 }
                 if ((endpointPartPids == null || endpointPartPids.Count == 0)
                     && bgParentRec?.VesselSnapshot != null)
                 {
-                    endpointPartPids = VesselSpawner.CollectPartPersistentIds(bgParentRec.VesselSnapshot);
+                    endpointPartPids = VesselSnapshotOps.CollectPartPersistentIds(bgParentRec.VesselSnapshot);
                 }
 
                 // Cross-tree partner fallback: when the partner has a committed
@@ -6688,11 +6688,11 @@ namespace Parsek
                 // match to the part-pid overlap rather than refusing it.
                 uint endpointRootPartUId = 0u;
                 if (endpointPreCoupleSnapshot == null
-                    || !VesselSpawner.TryReadRootPartFlightId(endpointPreCoupleSnapshot, out endpointRootPartUId))
+                    || !VesselSnapshotOps.TryReadRootPartFlightId(endpointPreCoupleSnapshot, out endpointRootPartUId))
                 {
                     if (bgParentRec?.VesselSnapshot == null
                         || bgParentRec.VesselPersistentId != routeTargetVesselPid
-                        || !VesselSpawner.TryReadRootPartFlightId(bgParentRec.VesselSnapshot, out endpointRootPartUId))
+                        || !VesselSnapshotOps.TryReadRootPartFlightId(bgParentRec.VesselSnapshot, out endpointRootPartUId))
                     {
                         endpointRootPartUId = 0u;
                     }
@@ -6846,7 +6846,7 @@ namespace Parsek
         /// </summary>
         void FallbackCommitSplitRecorder(FlightRecorder splitRec)
         {
-            ParsekLog.RecState("FallbackCommitSplitRecorder:entry", CaptureRecorderState());
+            RecorderStateLog.RecState("FallbackCommitSplitRecorder:entry", CaptureRecorderState());
             if (splitRec?.CaptureAtStop == null) return;
 
             var captured = splitRec.CaptureAtStop;
@@ -6950,7 +6950,7 @@ namespace Parsek
         /// </summary>
         void ResumeSplitRecorder(FlightRecorder splitRec, string reason)
         {
-            ParsekLog.RecState("ResumeSplitRecorder:entry", CaptureRecorderState());
+            RecorderStateLog.RecState("ResumeSplitRecorder:entry", CaptureRecorderState());
             if (splitRec == null)
             {
                 ParsekLog.Warn("Flight", $"ResumeSplitRecorder: no recorder to resume ({reason})");
@@ -7653,9 +7653,9 @@ namespace Parsek
                 : (preCapturedSnapshot != null ? preCapturedSnapshot.CreateCopy() : null);
 
             ConfigNode manifestSnapshot = childRec.GhostVisualSnapshot ?? childRec.VesselSnapshot;
-            childRec.StartResources = VesselSpawner.ExtractResourceManifest(manifestSnapshot);
+            childRec.StartResources = VesselSnapshotOps.ExtractResourceManifest(manifestSnapshot);
             int childInvSlots;
-            childRec.StartInventory = VesselSpawner.ExtractInventoryManifest(manifestSnapshot, out childInvSlots);
+            childRec.StartInventory = VesselSnapshotOps.ExtractInventoryManifest(manifestSnapshot, out childInvSlots);
             childRec.StartInventorySlots = childInvSlots;
             childRec.StartCrew = VesselSpawner.ExtractCrewManifest(manifestSnapshot);
 
@@ -8377,7 +8377,7 @@ namespace Parsek
 
         void OnCrewBoardVessel(GameEvents.FromToAction<Part, Part> data)
         {
-            ParsekLog.RecState("OnCrewBoardVessel:entry", CaptureRecorderState());
+            RecorderStateLog.RecState("OnCrewBoardVessel:entry", CaptureRecorderState());
             if (chainManager.ActiveChainId == null && activeTree == null)
             {
                 ParsekLog.Verbose("Flight", "OnCrewBoardVessel: no active chain or tree — ignoring");
@@ -8590,7 +8590,7 @@ namespace Parsek
 
         void OnCrewOnEva(GameEvents.FromToAction<Part, Part> data)
         {
-            ParsekLog.RecState("OnCrewOnEva:entry", CaptureRecorderState());
+            RecorderStateLog.RecState("OnCrewOnEva:entry", CaptureRecorderState());
             // Mid-recording EVA: tree branch (replaces legacy chain continuation)
             if (IsRecording)
             {
@@ -10239,8 +10239,8 @@ namespace Parsek
                 currentUT);
             state.AttitudeThresholdExceededAtUt = double.NaN;
             state.BaselineOrbit = CapturePostSwitchOrbitSnapshot(v);
-            state.BaselineResources = VesselSpawner.ExtractResourceManifest(vesselSnapshot);
-            state.BaselineInventory = VesselSpawner.ExtractInventoryManifest(vesselSnapshot, out _);
+            state.BaselineResources = VesselSnapshotOps.ExtractResourceManifest(vesselSnapshot);
+            state.BaselineInventory = VesselSnapshotOps.ExtractInventoryManifest(vesselSnapshot, out _);
             state.BaselineCrew = VesselSpawner.ExtractCrewManifest(vesselSnapshot);
             state.BaselinePartStateTokens = CapturePostSwitchPartStateTokens(v);
             RefreshPostSwitchAutoRecordModuleCaches(state, v);
@@ -10580,7 +10580,7 @@ namespace Parsek
                 crewChanged = crewDeltaKeys > 0;
                 if (!crewChanged)
                 {
-                    var currentResources = VesselSpawner.ExtractResourceManifest(currentSnapshot);
+                    var currentResources = VesselSnapshotOps.ExtractResourceManifest(currentSnapshot);
                     var resourceDelta = ResourceManifest.ComputeResourceDelta(
                         state.BaselineResources,
                         currentResources);
@@ -10600,7 +10600,7 @@ namespace Parsek
                     }
                     else
                     {
-                        var currentInventory = VesselSpawner.ExtractInventoryManifest(currentSnapshot, out _);
+                        var currentInventory = VesselSnapshotOps.ExtractInventoryManifest(currentSnapshot, out _);
                         var inventoryDelta = InventoryManifest.ComputeInventoryDelta(
                             state.BaselineInventory,
                             currentInventory);
@@ -11152,7 +11152,7 @@ namespace Parsek
                 return;
             }
 
-            ParsekLog.RecState("OnPartCouple:entry", CaptureRecorderState());
+            RecorderStateLog.RecState("OnPartCouple:entry", CaptureRecorderState());
             if (data.to?.vessel == null) return;
             uint mergedPid = data.to.vessel.persistentId;
 
@@ -11506,7 +11506,7 @@ namespace Parsek
                 return;
             }
 
-            ParsekLog.RecState("OnPartUndock:entry", CaptureRecorderState());
+            RecorderStateLog.RecState("OnPartUndock:entry", CaptureRecorderState());
             ClearPendingUndockSeed();
             if (recorder == null || !recorder.IsRecording) return;
             if (pendingSplitInProgress) return; // another split is already being processed
@@ -11579,7 +11579,7 @@ namespace Parsek
                 return;
             }
 
-            ParsekLog.RecState("OnVesselsUndocking:entry", CaptureRecorderState());
+            RecorderStateLog.RecState("OnVesselsUndocking:entry", CaptureRecorderState());
 
             // Snapshot + clear the pre-split seed stashed by OnPartUndock this same frame.
             TrajectoryPoint? undockRootPartSeed = pendingUndockRootPartSeed;
@@ -12049,7 +12049,7 @@ namespace Parsek
         {
             FlightReadyObserved = true;
             Log("Flight ready. Checking for pending recordings...");
-            ParsekLog.RecState("OnFlightReady", CaptureRecorderState());
+            RecorderStateLog.RecState("OnFlightReady", CaptureRecorderState());
 
             // #267: if a restore coroutine is already running (double OnFlightReady fire),
             // skip ResetFlightReadyState and the dispatch — the running coroutine owns
@@ -12271,7 +12271,7 @@ namespace Parsek
         private void ResetFlightReadyState()
         {
             ParsekLog.Info("Flight", "Resetting flight-ready state");
-            ParsekLog.RecState("ResetFlightReady:entry", CaptureRecorderState());
+            RecorderStateLog.RecState("ResetFlightReady:entry", CaptureRecorderState());
             DisarmPostSwitchAutoRecord("flight ready reset");
 
             // Phase 6b: Clean up ghost chain state from previous flight scene
@@ -13610,7 +13610,7 @@ namespace Parsek
 
             uint pid = FlightGlobals.ActiveVessel != null ? FlightGlobals.ActiveVessel.persistentId : 0;
             ParsekLog.Info("Flight", $"StartRecording succeeded: pid={pid}, chainActive={chainManager.ActiveChainId != null}, tree={activeTree != null}");
-            ParsekLog.RecState("StartRecording:post", CaptureRecorderState());
+            RecorderStateLog.RecState("StartRecording:post", CaptureRecorderState());
         }
 
         private void PrepareSessionStateForRecorderStart(string reason)
@@ -14117,7 +14117,7 @@ namespace Parsek
             if (activeTree == null) return;
 
             ParsekLog.Info("Flight", $"CommitTreeRevert: finalizing tree at UT={commitUT:F1}");
-            ParsekLog.RecState("CommitTreeRevert:entry", CaptureRecorderState());
+            RecorderStateLog.RecState("CommitTreeRevert:entry", CaptureRecorderState());
 
             // Finalize all recordings (active + background)
             FinalizeTreeRecordings(activeTree, commitUT, isSceneExit: false);
@@ -14127,7 +14127,7 @@ namespace Parsek
 
             ParsekLog.Info("Flight",
                 $"CommitTreeRevert: stashed pending tree '{activeTree.TreeName}' with snapshots preserved");
-            ParsekLog.RecState("CommitTreeRevert:post", CaptureRecorderState());
+            RecorderStateLog.RecState("CommitTreeRevert:post", CaptureRecorderState());
         }
 
         /// <summary>
@@ -14155,7 +14155,7 @@ namespace Parsek
             try
             {
             // NOTE: body intentionally not re-indented to minimize diff
-            ParsekLog.RecState("Restore:start", CaptureRecorderState());
+            RecorderStateLog.RecState("Restore:start", CaptureRecorderState());
             // Re-Fly retry carve-out: when the previous Re-Fly attempt was
             // post-destruction finalized before the player clicked Esc >
             // Revert > Retry from Rewind Point, the in-memory pending tree
@@ -14494,7 +14494,7 @@ namespace Parsek
             // After a parent-fallback match, the rest of the coroutine uses matchedRec/matchedRecId
             activeRec = matchedRec;
             activeRecId = matchedRecId;
-            ParsekLog.RecState("Restore:matched", CaptureRecorderState());
+            RecorderStateLog.RecState("Restore:matched", CaptureRecorderState());
 
             // PID remap: KSP may have regenerated the persistentId across quickload.
             // Tree.BackgroundMap is keyed by PID, so update any old-PID entries too.
@@ -14582,7 +14582,7 @@ namespace Parsek
             ParsekLog.Info("Flight",
                 $"RestoreActiveTreeFromPending: resumed recording tree '{activeTree.TreeName}' " +
                 $"activeRec='{activeRecId}' vessel='{targetName}' pid={newPid} at UT={Planetarium.GetUniversalTime():F1}");
-            ParsekLog.RecState("Restore:after-start", CaptureRecorderState());
+            RecorderStateLog.RecState("Restore:after-start", CaptureRecorderState());
             } // try
             finally
             {
@@ -14621,7 +14621,7 @@ namespace Parsek
             try
             {
             // NOTE: body intentionally not re-indented to minimize diff
-            ParsekLog.RecState("RestoreSwitch:start", CaptureRecorderState());
+            RecorderStateLog.RecState("RestoreSwitch:start", CaptureRecorderState());
             if (!RecordingStore.HasPendingTree
                 || RecordingStore.PendingTreeStateValue != PendingTreeState.LimboVesselSwitch)
             {
@@ -14723,7 +14723,7 @@ namespace Parsek
                 }
             }
 
-            ParsekLog.RecState("RestoreSwitch:after-install", CaptureRecorderState());
+            RecorderStateLog.RecState("RestoreSwitch:after-install", CaptureRecorderState());
             } // try
             finally
             {
@@ -14757,7 +14757,7 @@ namespace Parsek
             ParsekLog.Info("Flight",
                 $"StashActiveTreeAsPendingLimbo: stashing tree '{activeTree.TreeName}' at UT={commitUT:F1} " +
                 $"(activeRecId={activeTree.ActiveRecordingId ?? "<null>"})");
-            ParsekLog.RecState("StashTreeLimbo:entry", CaptureRecorderState());
+            RecorderStateLog.RecState("StashTreeLimbo:entry", CaptureRecorderState());
 
             // Flush active recorder's buffered points/events into the active tree's
             // current recording, without setting terminal state. FinalizeRecorderForLimbo
@@ -14843,7 +14843,7 @@ namespace Parsek
             ParsekLog.Info("Flight",
                 $"StashActiveTreeAsPendingLimbo: stashed tree '{activeTree.TreeName}' as Limbo " +
                 $"({activeTree.Recordings.Count} recording(s)) — OnLoad will dispatch");
-            ParsekLog.RecState("StashTreeLimbo:post", CaptureRecorderState());
+            RecorderStateLog.RecState("StashTreeLimbo:post", CaptureRecorderState());
         }
 
         /// <summary>
@@ -15451,7 +15451,7 @@ namespace Parsek
             ParsekLog.Info("Flight",
                 $"StashActiveTreeForVesselSwitch: pre-transitioning tree '{activeTree.TreeName}' " +
                 $"at UT={commitUT:F1} (activeRecId={activeTree.ActiveRecordingId ?? "<null>"})");
-            ParsekLog.RecState("StashTreeForSwitch:entry", CaptureRecorderState());
+            RecorderStateLog.RecState("StashTreeForSwitch:entry", CaptureRecorderState());
 
             // 1. Flush the recorder buffers into the active tree's current recording
             //    WITHOUT setting terminal state. Same shape as the in-session path.
@@ -15518,7 +15518,7 @@ namespace Parsek
                 $"StashActiveTreeForVesselSwitch: stashed tree '{activeTree.TreeName}' as " +
                 $"LimboVesselSwitch ({activeTree.Recordings.Count} recording(s), " +
                 $"{activeTree.BackgroundMap.Count} background entry(ies)) — OnLoad will dispatch");
-            ParsekLog.RecState("StashTreeForSwitch:post", CaptureRecorderState());
+            RecorderStateLog.RecState("StashTreeForSwitch:post", CaptureRecorderState());
         }
 
         /// <summary>
@@ -15533,7 +15533,7 @@ namespace Parsek
             if (activeTree == null) return;
 
             ParsekLog.Info("Flight", $"CommitTreeSceneExit: finalizing tree at UT={commitUT:F1}");
-            ParsekLog.RecState("CommitTreeSceneExit:entry", CaptureRecorderState());
+            RecorderStateLog.RecState("CommitTreeSceneExit:entry", CaptureRecorderState());
 
             // Finalize all recordings
             FinalizeTreeRecordings(activeTree, commitUT, isSceneExit: true);
@@ -15593,7 +15593,7 @@ namespace Parsek
             RecordingStore.StashPendingTree(activeTree);
 
             ParsekLog.Info("Flight", $"CommitTreeSceneExit: stashed pending tree '{activeTree.TreeName}'");
-            ParsekLog.RecState("CommitTreeSceneExit:post", CaptureRecorderState());
+            RecorderStateLog.RecState("CommitTreeSceneExit:post", CaptureRecorderState());
         }
 
         /// <summary>

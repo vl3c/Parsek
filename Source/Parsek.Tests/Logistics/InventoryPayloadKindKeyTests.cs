@@ -69,8 +69,8 @@ namespace Parsek.Tests.Logistics
             Assert.Null(FindModuleValue(beforeMove, "ModuleGroundExpControl", "canComm"));
             Assert.Equal("False", FindModuleValue(afterMove, "ModuleGroundExpControl", "canComm"));
 
-            string before = VesselSpawner.ComputeInventoryPayloadKindKey(beforeMove);
-            string after = VesselSpawner.ComputeInventoryPayloadKindKey(afterMove);
+            string before = VesselSnapshotOps.ComputeInventoryPayloadKindKey(beforeMove);
+            string after = VesselSnapshotOps.ComputeInventoryPayloadKindKey(afterMove);
 
             Assert.False(string.IsNullOrEmpty(before));
             Assert.Equal(before, after);
@@ -88,7 +88,7 @@ namespace Parsek.Tests.Logistics
             ConfigNode station = FindStoredPartSnapshot(
                 window, "UNDOCK_TRANSPORT_INVENTORY", PreFixUndockHash);
 
-            string canonical = VesselSpawner.BuildInventoryPayloadKindCanonicalString(station);
+            string canonical = VesselSnapshotOps.BuildInventoryPayloadKindCanonicalString(station);
 
             // The station carries no stored resources and no variant.
             Assert.Equal(
@@ -176,12 +176,12 @@ namespace Parsek.Tests.Logistics
         public void StoredPartLevelPlacementValuesDoNotChangeTheKind(string key, string value)
         {
             ConfigNode baseline = MakeStoredPart();
-            string baselineKey = VesselSpawner.ComputeInventoryPayloadKindKey(baseline);
+            string baselineKey = VesselSnapshotOps.ComputeInventoryPayloadKindKey(baseline);
 
             ConfigNode mutated = MakeStoredPart();
             mutated.SetValue(key, value, true);
 
-            Assert.Equal(baselineKey, VesselSpawner.ComputeInventoryPayloadKindKey(mutated));
+            Assert.Equal(baselineKey, VesselSnapshotOps.ComputeInventoryPayloadKindKey(mutated));
         }
 
         [Theory]
@@ -193,12 +193,12 @@ namespace Parsek.Tests.Logistics
         public void ProtoPartTransientsDoNotChangeTheKind(string key, string value)
         {
             ConfigNode baseline = MakeStoredPart();
-            string baselineKey = VesselSpawner.ComputeInventoryPayloadKindKey(baseline);
+            string baselineKey = VesselSnapshotOps.ComputeInventoryPayloadKindKey(baseline);
 
             ConfigNode mutated = MakeStoredPart();
             mutated.GetNode("PART").SetValue(key, value, true);
 
-            Assert.Equal(baselineKey, VesselSpawner.ComputeInventoryPayloadKindKey(mutated));
+            Assert.Equal(baselineKey, VesselSnapshotOps.ComputeInventoryPayloadKindKey(mutated));
         }
 
         // catches: the exact regression - a module value ADDED in transit (the
@@ -207,14 +207,14 @@ namespace Parsek.Tests.Logistics
         public void AModuleValueAddedInTransitDoesNotChangeTheKind()
         {
             ConfigNode baseline = MakeStoredPart();
-            string baselineKey = VesselSpawner.ComputeInventoryPayloadKindKey(baseline);
+            string baselineKey = VesselSnapshotOps.ComputeInventoryPayloadKindKey(baseline);
 
             ConfigNode mutated = MakeStoredPart();
             ConfigNode module = mutated.GetNode("PART").GetNodes("MODULE")[0];
             module.AddValue("canComm", "False");
             module.SetValue("isEnabled", "False", true);
 
-            Assert.Equal(baselineKey, VesselSpawner.ComputeInventoryPayloadKindKey(mutated));
+            Assert.Equal(baselineKey, VesselSnapshotOps.ComputeInventoryPayloadKindKey(mutated));
         }
 
         // catches: a genuinely different cargo reading as the same kind.
@@ -226,8 +226,8 @@ namespace Parsek.Tests.Logistics
             other.SetValue("partName", "evaChute", true);
 
             Assert.NotEqual(
-                VesselSpawner.ComputeInventoryPayloadKindKey(baseline),
-                VesselSpawner.ComputeInventoryPayloadKindKey(other));
+                VesselSnapshotOps.ComputeInventoryPayloadKindKey(baseline),
+                VesselSnapshotOps.ComputeInventoryPayloadKindKey(other));
         }
 
         [Theory]
@@ -254,8 +254,8 @@ namespace Parsek.Tests.Logistics
             }
 
             Assert.NotEqual(
-                VesselSpawner.ComputeInventoryPayloadKindKey(baseline),
-                VesselSpawner.ComputeInventoryPayloadKindKey(other));
+                VesselSnapshotOps.ComputeInventoryPayloadKindKey(baseline),
+                VesselSnapshotOps.ComputeInventoryPayloadKindKey(other));
         }
 
         // catches: the fill bucket collapsing into "any amount is the same kind"
@@ -270,13 +270,13 @@ namespace Parsek.Tests.Logistics
             ConfigNode empty = MakeStoredPartWithResource(0.0, 200.0);
             ConfigNode nearlyEmpty = MakeStoredPartWithResource(0.5, 200.0);
 
-            string fullKey = VesselSpawner.ComputeInventoryPayloadKindKey(full);
-            string halfKey = VesselSpawner.ComputeInventoryPayloadKindKey(half);
-            string emptyKey = VesselSpawner.ComputeInventoryPayloadKindKey(empty);
+            string fullKey = VesselSnapshotOps.ComputeInventoryPayloadKindKey(full);
+            string halfKey = VesselSnapshotOps.ComputeInventoryPayloadKindKey(half);
+            string emptyKey = VesselSnapshotOps.ComputeInventoryPayloadKindKey(empty);
 
             // Drift inside a bucket does not split.
-            Assert.Equal(fullKey, VesselSpawner.ComputeInventoryPayloadKindKey(nearlyFull));
-            Assert.Equal(emptyKey, VesselSpawner.ComputeInventoryPayloadKindKey(nearlyEmpty));
+            Assert.Equal(fullKey, VesselSnapshotOps.ComputeInventoryPayloadKindKey(nearlyFull));
+            Assert.Equal(emptyKey, VesselSnapshotOps.ComputeInventoryPayloadKindKey(nearlyEmpty));
             // The three buckets are three kinds.
             Assert.NotEqual(fullKey, halfKey);
             Assert.NotEqual(fullKey, emptyKey);
@@ -292,7 +292,7 @@ namespace Parsek.Tests.Logistics
         [InlineData(5.0, 0.0, "empty")]
         public void FillBucketBoundaries(double amount, double max, string expected)
         {
-            Assert.Equal(expected, VesselSpawner.ClassifyResourceFillBucket(amount, max));
+            Assert.Equal(expected, VesselSnapshotOps.ClassifyResourceFillBucket(amount, max));
         }
 
         // ==============================================================
@@ -356,7 +356,7 @@ namespace Parsek.Tests.Logistics
         public void LoadRecomputesTheKindFromTheSnapshotAndLeavesSnapshotLessItemsAlone()
         {
             ConfigNode snapshot = MakeStoredPart();
-            string expected = VesselSpawner.ComputeInventoryPayloadKindKey(snapshot);
+            string expected = VesselSnapshotOps.ComputeInventoryPayloadKindKey(snapshot);
 
             var withSnapshot = new InventoryPayloadItem
             {
@@ -375,7 +375,7 @@ namespace Parsek.Tests.Logistics
             };
 
             List<InventoryPayloadItem> healed =
-                VesselSpawner.NormalizeLoadedInventoryPayloadItems(
+                VesselSnapshotOps.NormalizeLoadedInventoryPayloadItems(
                     new List<InventoryPayloadItem> { withSnapshot, withoutSnapshot },
                     "TEST_MANIFEST");
 
@@ -399,7 +399,7 @@ namespace Parsek.Tests.Logistics
             b.GetNode("PART").GetNodes("MODULE")[0].AddValue("canComm", "False");
 
             List<InventoryPayloadItem> healed =
-                VesselSpawner.NormalizeLoadedInventoryPayloadItems(
+                VesselSnapshotOps.NormalizeLoadedInventoryPayloadItems(
                     new List<InventoryPayloadItem>
                     {
                         new InventoryPayloadItem
@@ -431,18 +431,18 @@ namespace Parsek.Tests.Logistics
         public void TheKindKeyIsCultureInvariant()
         {
             ConfigNode node = MakeStoredPartWithResource(123.75, 200.0);
-            string invariant = VesselSpawner.ComputeInventoryPayloadKindKey(node);
+            string invariant = VesselSnapshotOps.ComputeInventoryPayloadKindKey(node);
             string canonicalInvariant =
-                VesselSpawner.BuildInventoryPayloadKindCanonicalString(node);
+                VesselSnapshotOps.BuildInventoryPayloadKindCanonicalString(node);
 
             CultureInfo previous = Thread.CurrentThread.CurrentCulture;
             try
             {
                 Thread.CurrentThread.CurrentCulture = new CultureInfo("de-DE");
-                Assert.Equal(invariant, VesselSpawner.ComputeInventoryPayloadKindKey(node));
+                Assert.Equal(invariant, VesselSnapshotOps.ComputeInventoryPayloadKindKey(node));
                 Assert.Equal(
                     canonicalInvariant,
-                    VesselSpawner.BuildInventoryPayloadKindCanonicalString(node));
+                    VesselSnapshotOps.BuildInventoryPayloadKindCanonicalString(node));
             }
             finally
             {

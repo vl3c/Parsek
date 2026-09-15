@@ -2804,7 +2804,7 @@ namespace Parsek.InGameTests
         private static InventoryPayloadItem FindUniquePayloadByPartName(
             ConfigNode vesselSnapshot, uint partPersistentId, string partName)
         {
-            List<InventoryPayloadItem> items = VesselSpawner.ExtractInventoryPayloadItems(
+            List<InventoryPayloadItem> items = VesselSnapshotOps.ExtractInventoryPayloadItems(
                 vesselSnapshot, new List<uint> { partPersistentId });
             if (items == null)
                 return null;

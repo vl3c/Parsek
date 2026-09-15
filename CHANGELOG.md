@@ -8,6 +8,74 @@ All notable changes to Parsek are documented here.
 
 _(unreleased — entries accumulate here per commit)_
 
+### Added
+
+- **Developer tooling: the source tree now has a module dependency map with four
+  ways to look at it, and a boundary check that reports without failing anything.**
+  Parsek is a single assembly of roughly 750 files, and until now nothing showed how
+  its parts depend on one another. `scripts/arch/archview.py` groups every file into
+  a module using the hand-written `scripts/arch/modules.toml`, then counts which
+  modules reference which by matching identifiers against declared type names (a
+  source-text approximation, not a compiler) and writes the result to
+  `docs/dev/arch/`: a graph layered along the stability gradient (modules that
+  mostly depend on others at the top, pure sinks at the bottom, with the arrows
+  that point back up drawn in red), a dependency structure matrix, and an
+  interactive explorer where clicking a module shows its direct neighbours. Running
+  it with `--check` also prints a metrics table, every upward edge, every pair of
+  modules that reference each other, and every declared boundary it finds crossed.
+  Today that last list flags one real crossing: Missions code building the route
+  structure list reads Logistics route types. Preprocessor lines, method calls that
+  merely share a type's name, and type names declared in more than one module are
+  excluded from the scan, which removed the phantom hits an earlier pass reported.
+  The checker always exits 0 and gates nothing, even on a typo in the module map; a
+  version that could fail a build would have to read the compiled code (Roslyn),
+  because a text scan cannot see conditional compilation or reflection.
+
+  The map now also gives every production type a role, a fan-in and a level, and
+  lays them out as a ladder in `docs/dev/arch/ladder.html` (the raw data is
+  `types.json`): modules are columns, levels are rows, a chip is one type, and a
+  bottom-up read follows the dependency order, with a click showing what a type
+  references and what references it. Roles are heuristics over the same text scan
+  (entry point, interface, abstract, enum, static, implements, data, service), and
+  the report also prints the 25 most-referenced types, the count per role, and a
+  per-module level profile.
+
+  The ladder now also explains why its biggest row is flat: the 391 types that
+  reference one another in a cycle (a "knot") are reported with their size and
+  module mix, the largest knot's hub types, and a greedy cut sequence that names
+  the few references worth untangling first, while the knot's ladder row is
+  split into ordered sub-rows with the cut sinks marked. Nothing about the code
+  changes; the cuts are a display order for the view.
+
+  The module map's catch-all is now a maintenance queue with a placement report
+  rather than a pile: `--place` scores every root file still in it by who
+  references it, moves the 48 files a name family or a clear owner claims
+  (including two new modules, the GUI census recorder and the settings types),
+  and lists the rest with their evidence in `docs/dev/arch/core-placement.md`.
+  67 of the 75 that remained were then placed by hand into the module each
+  belongs to, which leaves the eight kernel vocabulary files in `Core`.
+
+  The ranked reading of all three signals is
+  `docs/dev/research/architecture-opportunities-2026-09-14.md`; it names candidates
+  with their numbers and changes nothing. A member-level split plan for `VesselSpawner`
+  (`docs/dev/research/vesselspawner-split-plan-2026-09-14.md`) sits beside it; the
+  scene-exit finalizer, the trajectory sidecar codecs and the checkpoint
+  bookkeeping are now placed in Recording, which leaves Trajectory reading as the
+  near-pure math module the docs describe. The generated views are not committed: they are gitignored and regenerated on
+  demand, so a reader never meets a stale one. The atlas is now generated rather
+  than hand-assembled: `atlas.html` renders
+  every number, table and the map from the live model, while the prose lives in
+  `scripts/arch/atlas.toml`, and the checker reports prose that no longer
+  matches the model instead of letting the page go quietly stale.
+
+  The map's `Core` module is a guard now rather than a catch-all: it names the
+  eight kernel files explicitly, so a new root file that no rule matches is
+  reported as an unplaced root file instead of quietly joining the kernel. The
+  map is also cross-checked against change history: one `git log` pass over the
+  last 18 months reports type hotspots, module co-change (Jaccard), and the
+  cross-module file pairs that keep changing together, in the checker and in a
+  new atlas section. No player-visible behavior changes.
+
 ### Changed
 
 - **Tests: six repairs from the unit-test quality audit's T4 (brittle / flaky) register.**
@@ -23,6 +91,69 @@ _(unreleased — entries accumulate here per commit)_
   leaking into every later test in the Sequential collection; the kerbals seam is saved and
   restored in Dispose, the frame-transform seam is reset on both ends of the class. Each repair carries a mutation or leak-check proof under
   `docs/dev/research/test-quality-audit-2026-09-14/mutations/`. No player-visible change.
+
+- **Unticking a recording's playback box now hides that flight everywhere, not just in
+  the world.** The tick box at the left of every row in the Recordings tab promised that
+  "the flight stays recorded but no ghost appears" - and it hid the ghost you fly past,
+  while the same flight kept its icon on the map, its orbit line, its row in the Tracking
+  Station and its drawn trajectory. So the one control you reach for when the screen is
+  crowded with ghosts turned off about a third of what it claimed. It now turns off all of
+  it: no icon, no orbit line, no Tracking Station entry, no trajectory line, no marker.
+  Re-ticking the box brings every one of them straight back, and the group, folder,
+  flight-block and select-all tick boxes behave exactly like the single row's, because
+  they all now go through one piece of code instead of five copies of it. What has NOT
+  changed is what the flight did to your career: an unticked recording still delivers its
+  craft and its rewards at the Space Center exactly as before, because hiding a ghost is a
+  view decision and rewriting a career is not. The tooltip now says where the ghost
+  disappears from. The map's own diagnostic line can now say it drew no markers *because*
+  the player turned them off, which it could not before - with every recording hidden it had
+  nothing to report and so reported nothing at all.
+
+- **The rewind career self-check is now warn-and-proceed with no abort switch, and says
+  what it actually measured.** The check that compares a Rewind-to-Separation's rebuilt
+  career economy against your real funds, science and reputation carried an unused option to
+  abort the rebuild when the comparison came out low. That option is gone: aborting would
+  have skipped the whole economy, tech, facility and contract rebuild after the crew roster
+  had already been applied, the next ordinary recalculation would have written the same
+  values anyway, and a low reading can be entirely correct - rewinding a flight that
+  resurrects a recovered vessel correctly takes that recovery's payout back off your
+  balance. The warning itself no longer says "possible silent career corruption"; it states
+  that the rebuilt value sits below your pre-rewind and rewind-point balance and is being
+  written anyway, and names the two known innocent causes.
+- **Internal: the logging helper no longer depends on anything else in the mod.** Every
+  part of Parsek writes to the log, so the logging helper is the one piece nearly all the
+  code touches - and it used to reach back out to two things itself: the settings object,
+  to ask whether verbose logging is on, and the recorder's state summary, to format one
+  diagnostic line. Those two reaches were enough to tie it into a single tangle of 391
+  types that cannot be reasoned about, changed or tested apart from one another. The
+  verbose switch is now handed TO the logger by the settings when they first load (with the
+  same answer as before, including "on" while no save is loaded yet), and the recorder
+  diagnostic line moved into its own small file, so the logger reaches for nothing. That
+  tangle drops from 391 types to 336 on its own, and 110 more types leave it once the
+  companion change lands. Nothing a player sees, reads or does changes: the log lines,
+  their wording and the verbose setting all behave exactly as before.
+- **Internal: the recording data type no longer calls back into its own store or the crew
+  ledger.** A recording is the piece of data almost everything in Parsek reads, and it used
+  to reach upwards twice: it asked the recording store for the two schema numbers it stamps
+  itself with, and it told the crew bookkeeping directly whenever a flight's ending was
+  decided. Both directions are now one-way. The schema numbers live in a small holder of
+  their own that the store passes through under exactly the same names, and the crew
+  bookkeeping registers itself with the recording type at startup instead of being called by
+  name. Together with the same treatment for the logger, that takes 110 types out of a
+  single tangle in which nothing could be read, tested or changed on its own. Nothing a
+  player sees or reaches changes.
+- **Internal tidy: the supply-route step list now lives next to the routes it reads.**
+  The code that turns a supply route into the step-by-step log shown in the Log window
+  sat among the mission code, which meant the mission half of Parsek had to know about
+  supply routes in order to build at all. It moved in with the rest of the route code, so
+  the two halves are independent again. Nothing about the windows, the wording of a step,
+  or what gets recorded changes.
+- **Housekeeping: the snapshot readers moved out of the spawner.** The code that reads a
+  saved craft and answers "what fuel is aboard", "what is in the cargo holds" and "is this
+  the same piece of cargo as that one" had grown up inside the file that also spawns and
+  recovers vessels, even though it never touches the live game. It now sits in a file of
+  its own - the first of five steps that take the oversized spawner apart. Nothing visible
+  changes: the same numbers come out in the same places.
 
 - **Automated testing: five fixes to the new hover / point / open-everything support,
   found by reviewing it.** Pointing at a control by its label and then moving the mouse
@@ -571,6 +702,17 @@ _(unreleased — entries accumulate here per commit)_
   is fixed.
 
 ### Fixed
+
+- **Parsek settings are no longer editable from KSP's own Difficulty Options screen,
+  where the edit was quietly thrown away.** That screen used to show a "Parsek" section
+  with eight of Parsek's settings in it - verbose logging, the three tracing switches,
+  readable sidecar mirrors, supply-route paths on the map, recorder sample density and
+  ghost audio volume. Changing one there looked like it worked and then reverted at the
+  next load, because Parsek keeps those preferences in its own file and puts them back
+  over whatever a save happens to carry. Two settings screens for the same settings, one
+  of which loses the change, was the confusion; the stock screen no longer lists Parsek at
+  all. Every setting is still in Parsek's own Settings window, still remembered exactly as
+  before, and every stored value in existing saves is kept and read as before.
 
 - **Table cells now sit under their own column headings in Real Spawn Control, Career
   State and the Structure window.** Photographing every window and measuring the rects
