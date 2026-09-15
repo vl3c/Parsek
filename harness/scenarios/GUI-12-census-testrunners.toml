@@ -220,7 +220,17 @@ forbidden = []
 # 300 s cold load allowance, ~20 single-phase UI ops and ONE one-cell in-game batch whose
 # baseline capture and revert are a `persistent.sfs` copy on a small committed career.
 # 900 s is generous on purpose: the product is the images and the trees, and a KILLED run
-# leaves neither. Not yet measured - this lane has never flown.
+# leaves neither. THE MEASURED WALL IS 89 s (reading run `2026-09-15_2057`, PASS attempt 1),
+# so the budget is 10x the measurement and stays where it is rather than being trimmed to
+# it.
+#
+# THE IN-GAME BOUND ON THE RUN STEP IS 60 s AND IT IS NOT THIS BUDGET. A step `budget` is
+# the HARNESS's own wait; the seam's own deferral bound for every `UiAction` op is
+# `DeferralBudget.BudgetSeconds("UiAction")`, which has no row and therefore takes the 60 s
+# default. The `GuiTree` cell here finishes in ~0.14 s, so the margin is three orders of
+# magnitude - but a lane that picked a multi-minute category would read
+# `ERROR run-not-finished` on a batch that was working, which is why the category above is
+# named for being ONE fast scene-agnostic cell.
 budgetSeconds = 900
 
 [retry]

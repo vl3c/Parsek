@@ -2523,6 +2523,18 @@ from `idle | 0 passed  0 failed  0 skipped  (624 total)` to
 `idle | 1 passed  0 failed  0 skipped  (624 total)` and the category header from
 `GuiTree (0/1)` to `GuiTree (1/1)`.
 
+THE FOUR NUMBERS ON THE WIRE ARE THAT CATEGORY'S ROWS, not the runner's whole-discovery
+counters (`TestCommandUiState.TallyCategory`). `InGameTestRunner.RecountResults` recomputes
+`Passed` / `Failed` / `Skipped` over EVERY discovered test while `ResetCategory` clears only
+the named category, so on a runner that has run two categories those counters carry both -
+and a lane whose second `op=run` step gated on `failed=0` would have been reading the first
+step's failure. `total` is the CONSIDERED count (`Status != NotRun`), the same quantity the
+runner's own `BATCH_COMPLETE` line calls `total`, and `discovered=` on the log line is the
+pre-dispatch count of that category's rows, so a category whose cells were all scene-skipped
+reads `discovered=N total=N skipped=N` rather than a silent zero. The window's summary LABEL
+still draws the whole-runner counters, so wire and label agree only on a runner that has run
+one category - which is the census shape, and why the log line carries both.
+
 ONE CATEGORY, NEVER "ALL". `category=` is REQUIRED and a blank one is a typo rather than
 an omission: the full batch is minutes of tests, half of which mutate the save, and a
 census step must not be able to ask for that by leaving an arg out. The ISOLATED entry
@@ -2545,6 +2557,18 @@ was unreachable rather than wrong. It is reachable now, so both that gate and
 `CommandRunnerIsRunningForGating` (the autorun fire gate's mirror) read it. Two-phase
 completion is checked BEFORE the batch gate in the pump, which is what lets this op
 complete on the very batch it started.
+
+THE IN-GAME BOUND IS 60 s, AND IT IS NOT THE STEP'S `budget`. Every `UiAction` op reads
+`DeferralBudget.BudgetSeconds("UiAction")`, which has no row in that table and therefore
+takes `DefaultSeconds = 60.0`; a step's `budget = <n>` is the HARNESS's own wait and never
+reaches the seam. So a category that takes longer than a minute answers
+`ERROR run-not-finished` while its batch keeps running - the batch is not cancelled, the
+widened `IsBatchRunning` simply holds the pump until it ends. A lane therefore names a
+category sized in SECONDS (GUI-12 names `GuiTree`: one scene-agnostic cell, ~0.14 s
+measured), and a lane that genuinely needs a multi-minute batch wants the `RunTests` verb
+- which carries the 600 s `RunTestsFallbackSeconds` and takes the scenario's declared
+budget - plus the knowledge that its results will not appear in either runner window's
+table.
 
 THE LANE PINS `uiaction run ok ... failed=0` AND NOT THE `BATCH_COMPLETE` TALLY. The batch
 does emit one (`category=GuiTree`), but a spec that pins the tally must OWN a batch in the

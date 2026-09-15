@@ -1,6 +1,7 @@
 ﻿using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using Parsek.InGameTests;
 using Parsek.Logistics;
 using Parsek.TestCommands;
 using Xunit;
@@ -1228,6 +1229,70 @@ namespace Parsek.Tests
             // An unknown token answers false (refuse the read-back), the safe direction.
             Assert.False(TestCommandUiAction.WindowDrawsOutsideHostShowUi("nosuchwindow"));
             Assert.False(TestCommandUiAction.WindowDrawsOutsideHostShowUi(null));
+        }
+
+        [Fact]
+        public void RunTally_CountsTHATCategorysRowsOnly_NotTheWholeRunner()
+        {
+            // THE DEFECT THIS KILLS, and it is why the op does not report
+            // runner.Passed / Failed / Skipped: those are recomputed over EVERY discovered
+            // test (InGameTestRunner.RecountResults) while ResetCategory clears only the
+            // named category, so on a runner that has run two categories they carry both.
+            // A lane whose second op=run step gated on `failed=0` would have been reading
+            // the FIRST step's failure.
+            //
+            // The stand-in for the runner is its own discovery list: `runner.Tests` is
+            // exactly an IReadOnlyList<InGameTestInfo>, and constructing a real runner
+            // needs a MonoBehaviour host xUnit cannot supply.
+            var tests = new List<InGameTestInfo>
+            {
+                new InGameTestInfo { Category = "Alpha", Name = "a1",
+                                     Status = TestStatus.Failed },
+                new InGameTestInfo { Category = "Alpha", Name = "a2",
+                                     Status = TestStatus.Passed },
+                new InGameTestInfo { Category = "Beta", Name = "b1",
+                                     Status = TestStatus.Passed },
+                new InGameTestInfo { Category = "Beta", Name = "b2",
+                                     Status = TestStatus.Skipped },
+                // NotRun rows are NOT considered, the runner's own BATCH_COMPLETE rule: a
+                // category whose second cell never ran reads total=1, not total=2.
+                new InGameTestInfo { Category = "Beta", Name = "b3",
+                                     Status = TestStatus.NotRun },
+            };
+
+            UiRunTally beta = TestCommandUiState.TallyCategory(tests, "Beta");
+            Assert.Equal(2, beta.Total);
+            Assert.Equal(1, beta.Passed);
+            Assert.Equal(0, beta.Failed);
+            Assert.Equal(1, beta.Skipped);
+
+            // The mirror direction: Alpha's failure must not leak into Beta's step, and
+            // Beta's pass must not leak into Alpha's.
+            UiRunTally alpha = TestCommandUiState.TallyCategory(tests, "Alpha");
+            Assert.Equal(2, alpha.Total);
+            Assert.Equal(1, alpha.Passed);
+            Assert.Equal(1, alpha.Failed);
+            Assert.Equal(0, alpha.Skipped);
+        }
+
+        [Fact]
+        public void RunTally_IsOrdinalAndNullSafe()
+        {
+            var tests = new List<InGameTestInfo>
+            {
+                new InGameTestInfo { Category = "GuiTree", Status = TestStatus.Passed },
+                null,
+            };
+            // ORDINAL, matching the runner's own category filter and the applier's
+            // pre-dispatch discovery count: a case-folded compare would tally a category
+            // the batch never ran.
+            Assert.Equal(0, TestCommandUiState.TallyCategory(tests, "guitree").Total);
+            Assert.Equal(1, TestCommandUiState.TallyCategory(tests, "GuiTree").Total);
+            // A null list is the runner-went-away path in the settle; a null category
+            // cannot reach it (TryParseRun refused), and both answer zeros rather than
+            // throwing inside a completion.
+            Assert.Equal(0, TestCommandUiState.TallyCategory(null, "GuiTree").Total);
+            Assert.Equal(0, TestCommandUiState.TallyCategory(tests, null).Total);
         }
 
         // ================================================================ reason vocabulary

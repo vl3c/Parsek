@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using Parsek.InGameTests;
 
 namespace Parsek.TestCommands
 {
@@ -72,6 +73,16 @@ namespace Parsek.TestCommands
     /// carry them. The window classes enumerate their own keys, the op applies the state to
     /// all of them, and the payload reports how many changed.</para>
     /// </summary>
+    /// <summary>The four counts <c>op=run</c> reports for the category it ran
+    /// (<see cref="TestCommandUiState.TallyCategory"/>).</summary>
+    internal struct UiRunTally
+    {
+        internal int Total;
+        internal int Passed;
+        internal int Failed;
+        internal int Skipped;
+    }
+
     internal static class TestCommandUiState
     {
         // ----- arg keys -----
@@ -548,13 +559,57 @@ namespace Parsek.TestCommands
         }
 
         /// <summary>
+        /// The four counts for ONE category's rows, over a runner's whole discovery.
+        ///
+        /// <para><b>WHY NOT <c>runner.Passed</c> / <c>Failed</c> / <c>Skipped</c>.</b>
+        /// Those are recomputed by <c>InGameTestRunner.RecountResults</c> over EVERY
+        /// discovered test, and <c>ResetCategory</c> clears only the named category, so on
+        /// a runner that has run more than one category they carry the other categories'
+        /// rows as well. A lane whose second <c>op=run</c> step gated on <c>failed=0</c>
+        /// would then be reading the first step's failures - or passing on the first
+        /// step's passes - which is the one thing the wire numbers exist to prevent.</para>
+        ///
+        /// <para><c>Total</c> is the CONSIDERED count (<c>Status != NotRun</c>), the same
+        /// quantity the runner's own <c>BATCH_COMPLETE</c> line calls <c>total</c>, so a
+        /// category whose cells were all scene-skipped reads <c>total=N skipped=N</c>
+        /// rather than <c>total=0</c>.</para>
+        /// </summary>
+        internal static UiRunTally TallyCategory(
+            IReadOnlyList<InGameTestInfo> tests, string category)
+        {
+            var tally = new UiRunTally();
+            if (tests == null || category == null) return tally;
+            for (int i = 0; i < tests.Count; i++)
+            {
+                InGameTestInfo test = tests[i];
+                if (test == null) continue;
+                // ORDINAL, matching the runner's own category filters and the applier's
+                // pre-dispatch discovery count: a culture-aware compare could tally a
+                // category the batch never ran.
+                if (!string.Equals(test.Category, category, StringComparison.Ordinal))
+                    continue;
+                switch (test.Status)
+                {
+                    case TestStatus.Passed: tally.Passed++; break;
+                    case TestStatus.Failed: tally.Failed++; break;
+                    case TestStatus.Skipped: tally.Skipped++; break;
+                    case TestStatus.NotRun: continue;
+                }
+                tally.Total++;
+            }
+            return tally;
+        }
+
+        /// <summary>
         /// OK payload for <c>run</c>:
         /// <c>op=run window= category= total= passed= failed= skipped=</c>.
         ///
-        /// <para><c>total</c> is the runner's own considered count for the batch that just
-        /// ended, so a lane reads the same four numbers the window's summary line draws -
-        /// which is what makes the PICTURE checkable against the wire rather than only
-        /// against itself.</para>
+        /// <para>The four numbers are THAT CATEGORY's rows (<see cref="TallyCategory"/>),
+        /// not the runner's whole-discovery counters, so a lane that runs two categories
+        /// through one window reads each step's own outcome. The window's summary LABEL
+        /// draws the whole-runner counters instead, so the two agree only on a runner that
+        /// has run one category - which is the normal census shape and is why the log line
+        /// carries both the tally and the discovered count.</para>
         /// </summary>
         internal static List<KeyValuePair<string, string>> BuildRunPayload(
             string window, string category, int total, int passed, int failed, int skipped)

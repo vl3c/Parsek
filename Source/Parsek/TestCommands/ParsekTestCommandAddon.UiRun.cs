@@ -162,17 +162,21 @@ namespace Parsek.TestCommands
                 return;
             }
 
-            int passed = runner != null ? runner.Passed : 0;
-            int failed = runner != null ? runner.Failed : 0;
-            int skipped = runner != null ? runner.Skipped : 0;
-            int total = passed + failed + skipped;
+            // THE CATEGORY'S OWN ROWS, not the runner's whole-discovery counters: those
+            // are recomputed over every discovered test (InGameTestRunner.RecountResults)
+            // while ResetCategory clears only the named category, so a second op=run step
+            // on the same window would report the first step's rows as well - and a lane
+            // gating on `failed=0` would be reading the wrong batch.
+            UiRunTally tally = TestCommandUiState.TallyCategory(
+                runner != null ? runner.Tests : null, pending.RunCategory);
             ParsekLog.Info(Tag, $"uiaction run ok window={pending.Window} "
                 + $"category={pending.RunCategory} discovered={Int(pending.RunTests)} "
-                + $"total={Int(total)} passed={Int(passed)} failed={Int(failed)} "
-                + $"skipped={Int(skipped)}");
+                + $"total={Int(tally.Total)} passed={Int(tally.Passed)} "
+                + $"failed={Int(tally.Failed)} skipped={Int(tally.Skipped)}");
             EmitExecutedTerminal(id, seq, verb, "OK",
                 TestCommandUiState.BuildRunPayload(
-                    pending.Window, pending.RunCategory, total, passed, failed, skipped),
+                    pending.Window, pending.RunCategory,
+                    tally.Total, tally.Passed, tally.Failed, tally.Skipped),
                 null, dequeueHead: true);
         }
 
