@@ -213,6 +213,15 @@ namespace Parsek.Tests
                     $"The live-anchor pose producer reads Vessel.{comMember} through a property " +
                     "accessor. Same CoM drift as the field read.");
             }
+            // Stock Vessel also spells the same value as the CurrentCoM property and the
+            // findWorldCenterOfMass() method; refuse those spellings too.
+            foreach (string comAccessor in new[] { "get_CurrentCoM", "findWorldCenterOfMass" })
+            {
+                Assert.False(
+                    ILCallSet.Calls(producer, typeof(Vessel), comAccessor),
+                    $"The live-anchor pose producer reads the centre of mass through " +
+                    $"Vessel.{comAccessor}. Same CoM drift as the field read.");
+            }
         }
 
         // Regression: pins that the recorder's live anchor position must match the
