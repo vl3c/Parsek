@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/ParsekFlight.cs b/Source/Parsek/ParsekFlight.cs
+index 9435ae44c..dedb17709 100644
+--- a/Source/Parsek/ParsekFlight.cs
++++ b/Source/Parsek/ParsekFlight.cs
+@@ -18137,7 +18137,7 @@ namespace Parsek
+         {
+             if (chain == null) return false;
+ 
+-            if (seg.bodyName == chain.LastMapOrbitBodyName
++            if (seg.bodyName != chain.LastMapOrbitBodyName
+                 && seg.semiMajorAxis == chain.LastMapOrbitSma
+                 && seg.eccentricity == chain.LastMapOrbitEcc)
+                 return false;

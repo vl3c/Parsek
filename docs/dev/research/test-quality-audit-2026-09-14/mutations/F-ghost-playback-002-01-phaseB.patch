@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/GhostPlaybackEngine.cs b/Source/Parsek/GhostPlaybackEngine.cs
+index 15201ad36..8ba59f1b6 100644
+--- a/Source/Parsek/GhostPlaybackEngine.cs
++++ b/Source/Parsek/GhostPlaybackEngine.cs
+@@ -5816,7 +5816,7 @@ namespace Parsek
+             if (recIdx >= 0 && loopPhaseOffsets.TryGetValue(recIdx, out phaseOffset))
+             {
+                 ParsekLog.Verbose("Engine", $"TryComputeLoopPlaybackUT: applying phase offset {phaseOffset:F2}s for recIdx={recIdx}");
+-                scheduleStartUT -= phaseOffset;
++                scheduleStartUT += phaseOffset;
+             }
+ 
+             if (!GhostPlaybackLogic.TryComputeLoopPlaybackPhase(

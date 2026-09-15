@@ -1,0 +1,12 @@
+diff --git a/Source/Parsek/GhostPlaybackLogic.cs b/Source/Parsek/GhostPlaybackLogic.cs
+index 3057033f3..6fd6e3681 100644
+--- a/Source/Parsek/GhostPlaybackLogic.cs
++++ b/Source/Parsek/GhostPlaybackLogic.cs
+@@ -844,6 +844,7 @@ namespace Parsek
+         {
+             if (info == null) return;
+ 
++            if (true) return;
+             info.currentValue = info.spawnValue;
+             if (info.visualMode == RoboticVisualMode.RotorRpm)
+             {

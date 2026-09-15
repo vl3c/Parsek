@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/PannotationsSidecarBinary.cs b/Source/Parsek/PannotationsSidecarBinary.cs
+index d90aba48c..d9c3701f2 100644
+--- a/Source/Parsek/PannotationsSidecarBinary.cs
++++ b/Source/Parsek/PannotationsSidecarBinary.cs
+@@ -591,7 +591,7 @@ namespace Parsek
+                 }
+ 
+                 writer.Flush();
+-                FileIOUtils.SafeWriteBytes(stream.ToArray(), path, "Pipeline-Sidecar");
++                File.WriteAllBytes(path, stream.ToArray());
+             }
+         }
+ 

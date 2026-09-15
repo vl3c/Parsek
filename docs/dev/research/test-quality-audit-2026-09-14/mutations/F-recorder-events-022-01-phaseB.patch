@@ -1,0 +1,12 @@
+diff --git a/Source/Parsek/FlightRecorder.cs b/Source/Parsek/FlightRecorder.cs
+index 1862354df..e9882e40b 100644
+--- a/Source/Parsek/FlightRecorder.cs
++++ b/Source/Parsek/FlightRecorder.cs
+@@ -10470,7 +10470,6 @@ namespace Parsek
+         /// </summary>
+         internal static TrajectoryPoint ApplyStructuralEventFlag(TrajectoryPoint pt)
+         {
+-            pt.flags = (byte)((TrajectoryPointFlags)pt.flags | TrajectoryPointFlags.StructuralEventSnapshot);
+             return pt;
+         }
+ 
