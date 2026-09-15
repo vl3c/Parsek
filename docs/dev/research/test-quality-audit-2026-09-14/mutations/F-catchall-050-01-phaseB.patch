@@ -1,0 +1,12 @@
+diff --git a/Source/Parsek/ParsekFlight.cs b/Source/Parsek/ParsekFlight.cs
+index 9435ae44c..576a8e474 100644
+--- a/Source/Parsek/ParsekFlight.cs
++++ b/Source/Parsek/ParsekFlight.cs
+@@ -4127,7 +4127,6 @@ namespace Parsek
+             if (tree == null || string.IsNullOrEmpty(tree.RootRecordingId)) return;
+ 
+             string rewindSave = captureAtStop?.RewindSaveFileName ?? recorderFallbackSave;
+-            if (string.IsNullOrEmpty(rewindSave)) return;
+ 
+             Recording rootRec;
+             if (!tree.Recordings.TryGetValue(tree.RootRecordingId, out rootRec)) return;

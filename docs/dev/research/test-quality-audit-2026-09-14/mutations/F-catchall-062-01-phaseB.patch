@@ -1,0 +1,12 @@
+diff --git a/Source/Parsek/ParsekScenario.cs b/Source/Parsek/ParsekScenario.cs
+index 3aa082d2f..0c392c017 100644
+--- a/Source/Parsek/ParsekScenario.cs
++++ b/Source/Parsek/ParsekScenario.cs
+@@ -5611,7 +5611,6 @@ namespace Parsek
+             {
+                 if (IsActiveTreeNode(treeNodes[t])) continue;
+                 if (IsPendingTreeNode(treeNodes[t])) continue;
+-                savedTreeRecCount += treeNodes[t].GetNodes("RECORDING").Length;
+             }
+             return standaloneRecNodes.Length + savedTreeRecCount;
+         }

@@ -1858,10 +1858,12 @@ namespace Parsek
                 // ShipConstruction.RecoverVesselFromFlight; if that clears the overlap, the
                 // original position is still valid and we must NOT walk back unnecessarily.
                 string resolvedRecName = Recording.ResolveLocalizedName(rec.VesselName);
-                if (!rec.DuplicateBlockerRecovered
-                    && blockerVessel != null
-                    && blockerVessel.loaded
-                    && ShouldRecoverBlockerVessel(rec, blockerName, resolvedRecName, blockerVessel.persistentId))
+                if (ShouldEnterDuplicateBlockerRecovery(
+                        rec,
+                        blockerVessel != null && blockerVessel.loaded,
+                        blockerName,
+                        resolvedRecName,
+                        blockerVessel != null ? blockerVessel.persistentId : 0u))
                 {
                     ParsekLog.Warn("Spawner",
                         $"Duplicate blocker detected for #{index} ({rec.VesselName}): " +
@@ -2533,6 +2535,30 @@ namespace Parsek
             return rec.VesselSpawned
                 && rec.SpawnedVesselPersistentId != 0
                 && rec.SpawnedVesselPersistentId == blockerPid;
+        }
+
+        /// <summary>
+        /// Pure decision half of the duplicate-blocker-recovery guard in
+        /// <c>CheckSpawnCollisions</c>: the once-per-recording
+        /// <see cref="Recording.DuplicateBlockerRecovered"/> latch, the live-blocker
+        /// requirement, and the same-spawn discriminator in
+        /// <see cref="ShouldRecoverBlockerVessel"/>. Kept separate from the call site so
+        /// the recovery-loop latch is testable without a live blocker Vessel; the call
+        /// site passes <paramref name="blockerVesselLoaded"/> false for a null blocker, so
+        /// no member of a missing blocker is read.
+        /// </summary>
+        internal static bool ShouldEnterDuplicateBlockerRecovery(
+            Recording rec,
+            bool blockerVesselLoaded,
+            string blockerName,
+            string resolvedRecordingName,
+            uint blockerPid)
+        {
+            if (rec == null) return false;
+            // Recovery-loop latch: one recovery per recording, ever.
+            if (rec.DuplicateBlockerRecovered) return false;
+            if (!blockerVesselLoaded) return false;
+            return ShouldRecoverBlockerVessel(rec, blockerName, resolvedRecordingName, blockerPid);
         }
 
         /// <summary>

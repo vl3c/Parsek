@@ -276,6 +276,36 @@ _(unreleased — entries accumulate here per commit)_
   differently, no new surface appears, and the automation seam's pointer op reports the
   same value on its own answer.
 
+- **Tests: the final slice of the audit's Medium T1 register - fourteen catch-all and
+  legacy-bugfix cells - now reaches the production line each name claims, closing that
+  register.** Eleven cells
+  rebuilt a production expression in the test body and then checked their own arithmetic:
+  the atomic Re-Fly marker write (retargeted onto the two version counters the critical
+  section must and must not move, since no production change can raise a save event
+  headlessly), the rollout-duplicate repair's idempotency (which seeded two legitimately
+  distinct rollouts, so there was nothing to collapse), the dock-chain crew-exclusion walk
+  (whose branch-1 sibling carried no EVA kerbal, leaving the branch skip dead in the
+  fixture), the duplicate-blocker recovery latch, and the copy-rewind-save no-op (which
+  asserted a field that starts null instead of the budget the early return protects).
+  Four more re-pointed at real production entry points: the cross-save tree-contamination
+  cell now drives the actual load path instead of calling `List.Clear` itself, the
+  revert-detection counter is read from production rather than re-implemented (and the
+  re-implementation had the rule wrong - in-flight and pending marker trees must not
+  count), and the two in-place Re-Fly no-op cells now seed the fork where a removed guard
+  would actually attach it. One cell whose production expression no longer exists was
+  rewritten against the line that shipped instead, and one that claimed a log it never
+  checked was renamed to the field-default claim it can make headlessly. Three
+  hide-policy cells were deleted outright: they emitted the Warn and the toast themselves,
+  and the shipped predicate has a behavioural twin plus two source gates in the same file.
+  Three production helpers were extracted so guards could be called without a running
+  game: `VesselSpawner.ShouldEnterDuplicateBlockerRecovery` (the once-per-recording
+  recovery latch, the live-blocker requirement and the same-spawn discriminator that
+  `CheckSpawnCollisions` composed inline), `ParsekScenario.CountSavedCommittedRecordingNodes`
+  (the OnLoad revert-detection count, marker trees excluded) and
+  `GhostPlaybackLogic.ShouldSuppressGhostsInView` (the map-view carve-out on the
+  high-warp ghost suppression). Each call site passes the same inputs in the same order,
+  and no log line changed. Every fixed cell was re-checked by breaking the production line
+  on purpose and confirming it goes red. Nothing a player sees changes.
 - **Tests: twelve more priority-2 recording coverage gaps from the unit-test quality
   audit are closed.** Ten rows were new coverage and two turned out to be guarded
   already, so ten new cells landed with no production change and none is obsolete. On the

@@ -1,0 +1,16 @@
+diff --git a/Source/Parsek/FlightRecorder.cs b/Source/Parsek/FlightRecorder.cs
+index 1862354df..988efb053 100644
+--- a/Source/Parsek/FlightRecorder.cs
++++ b/Source/Parsek/FlightRecorder.cs
+@@ -2767,7 +2767,10 @@ namespace Parsek
+             PartModule controlSurfaceModule, out bool isDeployed, out bool isRetracted)
+         {
+             // ModuleControlSurface exposes similar fields/deflection semantics to ModuleAeroSurface.
+-            return TryClassifyAeroSurfaceState(controlSurfaceModule, out isDeployed, out isRetracted);
++            // return TryClassifyAeroSurfaceState(controlSurfaceModule, out isDeployed, out isRetracted);
++            isDeployed = false;
++            isRetracted = false;
++            return false;
+         }
+ 
+         /// <summary>
