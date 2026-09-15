@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/TrajectoryTextSidecarCodec.cs b/Source/Parsek/TrajectoryTextSidecarCodec.cs
+index e53c1c2c0..b7c3be20e 100644
+--- a/Source/Parsek/TrajectoryTextSidecarCodec.cs
++++ b/Source/Parsek/TrajectoryTextSidecarCodec.cs
+@@ -1572,7 +1572,7 @@ namespace Parsek
+             var ns = NumberStyles.Float;
+             var ic = CultureInfo.InvariantCulture;
+ 
+-            ConfigNode[] peNodes = sourceNode.GetNodes("PART_EVENT");
++            ConfigNode[] peNodes = new ConfigNode[0];
+             for (int pe = 0; pe < peNodes.Length; pe++)
+             {
+                 var peNode = peNodes[pe];

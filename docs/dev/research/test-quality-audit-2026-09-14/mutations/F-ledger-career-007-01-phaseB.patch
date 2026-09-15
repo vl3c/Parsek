@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/GameStateStore.cs b/Source/Parsek/GameStateStore.cs
+index 7492afc21..5a712bae8 100644
+--- a/Source/Parsek/GameStateStore.cs
++++ b/Source/Parsek/GameStateStore.cs
+@@ -63,7 +63,7 @@ namespace Parsek
+                 {
+                     var existing = events[i];
+                     string existingTag = existing.recordingId ?? "";
+-                    bool withinWindow = Math.Abs(existing.ut - e.ut) <= ResourceCoalesceEpsilon;
++                    bool withinWindow = Math.Abs(existing.ut - e.ut) <= 1.0;
+                     if (withinWindow &&
+                         (BlocksResourceCoalescing(existing) || BlocksResourceCoalescing(e)))
+                     {

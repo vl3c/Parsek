@@ -838,6 +838,64 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
     (`RecordingStore.RestoreFromSnapshotForTesting`); -034-01 has no mutant by construction
     and is the one deferred row of the twenty.
 
+- `testfix-t1t2`, fourth PR (2026-09-15): the third slice of Medium T1 rows
+  (`work/phase-b-slice-medium-t1-03.txt`, 20 ids: 16 ledger-career, 4 recorder-events).
+  18 fixed, 2 deleted (twin named), 0 deferred. Every fixed row has a proof row in
+  `research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a `*-phaseB.patch`.
+  No production file changed in this slice.
+  - Fixed: F-ledger-career-001-07 (the duplicate milestone moved onto the live event's own
+    UT with a divergent award, and it is now the ONLY action in the list - a second,
+    effective milestone in the same window makes both rows ambiguous-coverage skips and
+    hides the Effective gate again, which is why the register's two-action shape does not
+    red); F-ledger-career-002-01 (a divergent `FundsChanged(Progression)` at the action's
+    UT plus an assertion on the emitted `ut is at/below live prune threshold=650.0` skip
+    line); F-ledger-career-002-02 (the absence assertion now matches the prefix the
+    per-action path really writes, `KSC reconciliation (`, and the silent path is
+    positively witnessed by its `KSC reconciliation: ContractComplete skipped` verbose
+    line - the mutant has to give the Transformed classification a funds leg, since the
+    skip arm it names carries no legs at all); F-ledger-career-002-03 (non-zero
+    `TransformedFundsReward` / `EffectiveRep` / `TransformedScienceReward` behind the
+    `Effective=false` gate); F-ledger-career-006-01 (asserts
+    `PendingRecoveryFundsCountForTesting == 0` and the guard's own verbose line, so a
+    silent defer no longer reads as a skip); F-ledger-career-007-01 / -007-02 / -007-03
+    (the coalescing fixtures now vary ONLY the subject under test - same key across the
+    window boundary, the same key on both sides of the recovery barrier, the same key on
+    two non-resource rows); F-ledger-career-008-03 (renamed
+    `OnScienceReceived_SuppressResourceEvents_ReturnsBeforeAnyCapture` and reflection-drives
+    the real private handler, whose suppression early-return precedes every KSP read; the
+    max-wins half it duplicated stays in `CommitScienceSubjects_MaxWins` /
+    `CommitScienceSubjects_LowerValueIgnored`); F-ledger-career-010-01 (a fresh milestone
+    id, so the AlreadyCredited arm cannot stand in for the Effective arm);
+    F-ledger-career-010-02 (MissionControl 2 vs Administration 3, so a crossed key read
+    moves both the echoed level and the slot count); F-ledger-career-017-01 (a standing rep
+    balance plus every rep-bearing field set non-zero, `HasSeed` asserted false, and
+    `StrategyActivate` dropped from the ignored list because `ProcessAction` routes it to
+    `ProcessStrategySetupReputation`); F-ledger-career-029-01 (the roster facade records
+    every append / create / recreate CALL, refused or not, so a dropped skip is an
+    attempt rather than a refusal the fixture configured); F-ledger-career-030-01 (reads
+    `KerbalLoadRepairDiagnostics.CurrentForTesting.RetiredStandInsRecreated` / `Kept`
+    before `EmitAndReset`, so a false record reds without depending on the summary gate);
+    F-recorder-events-001-01 (a real `SerializeTrajectoryInto` / `DeserializeTrajectoryFrom`
+    round trip instead of a hand-rolled PART_EVENT parse); F-recorder-events-003-02 (drives
+    `VesselSpawner.RemoveDuplicateCrewFromSnapshotCore` over a snapshot with no live
+    holder; its mutant is a fail-open `FindDuplicateCrew`, because a no-op stub of the
+    removal cannot red a no-removal cell); F-recorder-events-007-01 (inputs UNDER the
+    visibility floor, `Assert.Equal(60f, rate)`); F-recorder-events-008-01
+    (`hasActiveTree: true`, so `isActiveVessel=false` is the only reason `None` returns).
+  - Deleted: F-ledger-career-028-01
+    (`ResolveFundsPatch_LeakClamp_FeedsTheGuardWarnLogWithClampedValue`; `PatchFunds`
+    early-returns on the null KSP singletons headlessly, so the cell re-issued
+    resolve-then-emit and supplied `clampedTo` itself. Twins:
+    `ResolveFundsPatch_MissingEarningLeak_ClampsToLiveAndCollapsesToNoOp` in the same class
+    and `DrawdownGuardTests.EmitDrawdownGuardClamp_Funds_WarnsWithNumbersAndToastsOnce`);
+    F-ledger-career-028-02
+    (`ResolveMissingSubjectCreation_CreatedSubjectFeedsTheNormalPatchDecision`; the
+    composition lives in `PatchPerSubjectScience`, which needs a live R&D table, and the
+    cell performed the feed inline with a hardcoded `currentScience: 0`. Twins:
+    `ResolveMissingSubjectCreation_LedgerCreditsSubjectRnDLacks_Creates` and
+    `ResolveSubjectSciencePatch_ScientificValueFromCap`. The composition itself is in-game
+    work). Both deletions leave a comment at the site naming the twins.
+
 ## July crosswalk
 
 `research/test-quality-audit-2026-09-14/july-crosswalk.csv` maps every July register ID (42 rows: A1-A7, B1-B8, C1-C6, D1-D5, and Tier E numbered E1-E16 in source order) to the SUT or file it names and to the D2/D3 rows here that touch the same SUT. `status_now` is judged from the xUnit tree only and says `unknown` for harness and in-game items this audit cannot decide (closed 15, unknown 19, open 7, superseded 1). 49 findings and 14 coverage proposals carry a `july_ref` / `dupe_of_july_id`; for those the July ID stays primary and this audit adds evidence.

@@ -1,0 +1,19 @@
+diff --git a/Source/Parsek/KerbalsModule.cs b/Source/Parsek/KerbalsModule.cs
+index c8f01dde7..04ece9196 100644
+--- a/Source/Parsek/KerbalsModule.cs
++++ b/Source/Parsek/KerbalsModule.cs
+@@ -2000,12 +2000,8 @@ namespace Parsek
+             int absentKerbals = 0;
+             foreach (var kvp in careerEntriesByKerbal)
+             {
+-                var rosterEntries = roster.GetCareerLogEntries(kvp.Key);
+-                if (rosterEntries == null)
+-                {
+-                    absentKerbals++;
+-                    continue;
+-                }
++                var rosterEntries = roster.GetCareerLogEntries(kvp.Key)
++                    ?? new List<KerbalCareerLogEntry>();
+ 
+                 var missing = ResolveMissingCareerEntries(kvp.Value, rosterEntries);
+                 if (missing.Count == 0)

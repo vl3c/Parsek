@@ -1,0 +1,18 @@
+diff --git a/Source/Parsek/GameActions/KscActionExpectationClassifier.cs b/Source/Parsek/GameActions/KscActionExpectationClassifier.cs
+index 406e1509f..67c8eb6f8 100644
+--- a/Source/Parsek/GameActions/KscActionExpectationClassifier.cs
++++ b/Source/Parsek/GameActions/KscActionExpectationClassifier.cs
+@@ -222,8 +222,11 @@ namespace Parsek
+                     // silent; post-walk hook reconciles (#440).
+                     return new KscActionExpectation
+                     {
+-                        Class = KscReconcileClass.Transformed,
+-                        SkipReason = "contract rewards -- post-walk hook reconciles (#440)"
++                        Class = KscReconcileClass.Untransformed,
++                        FundsLeg = CreateExpectationLeg(
++                            GameStateEventType.FundsChanged,
++                            "ContractReward",
++                            action.TransformedFundsReward)
+                     };
+ 
+                 case GameActionType.ContractFail:

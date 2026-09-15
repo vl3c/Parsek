@@ -1,0 +1,12 @@
+diff --git a/Source/Parsek/GameActions/PostWalkActionReconciler.cs b/Source/Parsek/GameActions/PostWalkActionReconciler.cs
+index 6450078c3..e0771badb 100644
+--- a/Source/Parsek/GameActions/PostWalkActionReconciler.cs
++++ b/Source/Parsek/GameActions/PostWalkActionReconciler.cs
+@@ -181,7 +181,6 @@ namespace Parsek
+ 
+                 case GameActionType.MilestoneAchievement:
+                     // All three legs gated on Effective (duplicates skip).
+-                    if (!action.Effective) return exp;
+                     exp.Reconcile = true;
+                     exp.Funds = new PostWalkLeg
+                     {

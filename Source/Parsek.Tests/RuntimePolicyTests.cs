@@ -207,10 +207,12 @@ namespace Parsek.Tests
         [Fact]
         public void ComputeScaledRcsEmissionRate_ShowcaseEnforcesVisibilityFloor()
         {
+            // power*100*scale = 0.001*100*120 = 12, which is UNDER the floor, so the
+            // Max(emRate, 60f) line is the only reason the result is 60.
             float rate = GhostPlaybackLogic.ComputeScaledRcsEmissionRate(
-                emissionCurve: null, power: 0.01f, emissionScale: 120f);
+                emissionCurve: null, power: 0.001f, emissionScale: 120f);
 
-            Assert.True(rate >= 60f, $"Expected showcase emission >= 60, got {rate}");
+            Assert.Equal(60f, rate);
         }
 
         [Fact]
@@ -629,8 +631,10 @@ namespace Parsek.Tests
         [Fact]
         public void ClassifyVesselDestruction_None_WhenNotActiveVessel()
         {
+            // hasActiveTree is true and every other TreeAllLeavesCheck term is satisfied,
+            // so isActiveVessel=false is the only reason None comes back.
             var mode = ParsekFlight.ClassifyVesselDestruction(
-                hasActiveTree: false,
+                hasActiveTree: true,
                 isRecording: true,
                 vesselDestroyedDuringRecording: true,
                 isActiveVessel: false,

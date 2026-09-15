@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/ParsekFlight.TerminalEvents.cs b/Source/Parsek/ParsekFlight.TerminalEvents.cs
+index 57d61688d..926da7c69 100644
+--- a/Source/Parsek/ParsekFlight.TerminalEvents.cs
++++ b/Source/Parsek/ParsekFlight.TerminalEvents.cs
+@@ -192,7 +192,7 @@ namespace Parsek
+             if (hasActiveTree && shouldDeferForTree)
+                 return DestructionMode.TreeDeferred;
+ 
+-            if (hasActiveTree && vesselDestroyedDuringRecording && isActiveVessel
++            if (hasActiveTree && vesselDestroyedDuringRecording
+                 && !treeDestructionDialogPending)
+                 return DestructionMode.TreeAllLeavesCheck;
+ 
