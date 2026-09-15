@@ -38,8 +38,9 @@ namespace Parsek.Display
     /// <see cref="ShouldSkipGroupAsGhostDrawn"/> whether the ghost owns the member's phase at all and
     /// then <see cref="ShouldSkipLegAsGhostOwned"/> whether the owning draw's published span reaches
     /// this leg, the paint arm asks <see cref="ShouldSkipLegAsGhostPainted"/> - so a member the ghost
-    /// is only partly drawing or painting still draws the rest of its legs. The leg the animated ghost is on is drawn once (by the ghost) and
-    /// the rest of the route path is drawn statically here.
+    /// is only partly drawing or painting still draws the rest of its legs. The leg the animated
+    /// ghost is on is drawn once (by the ghost) and the rest of the route path is drawn statically
+    /// here.
     /// </para>
     ///
     /// <para>
