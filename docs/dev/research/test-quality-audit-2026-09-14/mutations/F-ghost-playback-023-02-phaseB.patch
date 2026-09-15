@@ -1,0 +1,16 @@
+diff --git a/Source/Parsek/ParsekFlight.cs b/Source/Parsek/ParsekFlight.cs
+index b5e79c0fa..f5aea379c 100644
+--- a/Source/Parsek/ParsekFlight.cs
++++ b/Source/Parsek/ParsekFlight.cs
+@@ -20202,6 +20202,11 @@ namespace Parsek
+         internal bool HasActiveGhost(int index) => watchMode.HasActiveGhost(index);
+         internal bool IsGhostWithinVisualRange(int index) => watchMode.IsGhostWithinVisualRange(index);
+         internal bool IsGhostOnSameBody(int index) => watchMode.IsGhostOnSameBody(index);
++
++        internal bool WatchGateDecoyConsumer(int index)
++        {
++            string note = "see docs // cache"; return note != null && engine.IsGhostOnBody(index, "Kerbin");
++        }
+         internal bool IsGhostBodyReadingCurrent(int index) => watchMode.IsGhostBodyReadingCurrent(index);
+         internal void EnterWatchMode(int index) => watchMode.EnterWatchMode(index);
+         internal void ExitWatchMode(bool skipCameraRestore = false) => watchMode.ExitWatchMode(skipCameraRestore);

@@ -581,6 +581,30 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
   one-line doc-vs-behavior call. Verified rows get a `TQ-<n>-<slug>` entry in
   `docs/dev/todo-and-known-bugs.md` in the same commit; unverified rows stay in this document.
 
+### Phase B status
+
+- `testfix-t4-flaky`, first PR (2026-09-15): all six rows of the suggested first PR are FIXED on
+  branch `testfix-t4-flaky`, each with a proof row in
+  `research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a `*-phaseB.patch`.
+  - F-logistics-route-034-03 fixed: the tick gate scans `SourceScanText.StripCommentsAndMaskLiterals`
+    output, so the catch-block log twin no longer stands in for the deleted hook.
+  - F-logistics-route-040-01 fixed: `ExtractDriveMissionLoopUnitsBody` slices the SANITIZED,
+    brace-matched method body instead of a fixed 4000-character window.
+  - F-ghost-playback-023-02 fixed: the consumer sweep's hand-rolled line-split strip now delegates to
+    `SourceScanText.StripCSharpComments` (literal-aware, `/* */` aware); literals stay readable
+    because two cells pin production log text.
+  - F-mission-groups-015-02 fixed: all three scans run over stripped + literal-masked source, each
+    proximity window is anchored to the enclosing method body, and one comment-only decoy cell pins
+    the stripping.
+  - F-map-render-021-02 fixed: `TrajectoryMath.FrameTransform.ResetForTesting()` on both ends of the
+    class, so the rotation-period seam cannot cross the Sequential collection.
+  - F-ledger-career-015-07 fixed: `LedgerOrchestrator.Kerbals` is saved in the ctor and restored in
+    Dispose, matching `CrewReservationRecomputeTests`.
+  - The two leak rows were proved with a temporary in-process probe
+    (`mutations/phaseB-leak-probe.cs`) that drives ctor -> cell -> Dispose and asserts the static is
+    the value it found; RED without the restore, GREEN with it. The probe is scaffolding, not a
+    committed test.
+
 ## July crosswalk
 
 `research/test-quality-audit-2026-09-14/july-crosswalk.csv` maps every July register ID (42 rows: A1-A7, B1-B8, C1-C6, D1-D5, and Tier E numbered E1-E16 in source order) to the SUT or file it names and to the D2/D3 rows here that touch the same SUT. `status_now` is judged from the xUnit tree only and says `unknown` for harness and in-game items this audit cannot decide (closed 15, unknown 19, open 7, superseded 1). 49 findings and 14 coverage proposals carry a `july_ref` / `dupe_of_july_id`; for those the July ID stays primary and this audit adds evidence.
