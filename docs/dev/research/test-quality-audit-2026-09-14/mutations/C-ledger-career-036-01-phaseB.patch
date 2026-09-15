@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/Recording.cs b/Source/Parsek/Recording.cs
+index b7ecce655..9e9ed75af 100644
+--- a/Source/Parsek/Recording.cs
++++ b/Source/Parsek/Recording.cs
+@@ -684,8 +684,6 @@ namespace Parsek
+         {
+             if (string.IsNullOrEmpty(source))
+                 return false;
+-            if (!string.IsNullOrEmpty(RecordedVesselGuid))
+-                return false;
+             RecordedVesselGuid = source;
+             return true;
+         }

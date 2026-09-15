@@ -1,0 +1,12 @@
+diff --git a/Source/Parsek/VesselSpawner.cs b/Source/Parsek/VesselSpawner.cs
+index 6a8ad26a2..4bfca2f2f 100644
+--- a/Source/Parsek/VesselSpawner.cs
++++ b/Source/Parsek/VesselSpawner.cs
+@@ -2575,7 +2575,6 @@ namespace Parsek
+                     var sibling = committed[c];
+                     if (sibling.ChainId != rec.ChainId) continue;
+                     // Skip branch > 0 segments for crew exclusion logic
+-                    if (sibling.ChainBranch != 0) continue;
+ 
+                     if (!string.IsNullOrEmpty(sibling.EvaCrewName))
+                     {

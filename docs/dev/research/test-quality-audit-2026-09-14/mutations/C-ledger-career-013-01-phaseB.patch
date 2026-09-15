@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/GameActions/GameAction.cs b/Source/Parsek/GameActions/GameAction.cs
+index 834f5d132..3de473464 100644
+--- a/Source/Parsek/GameActions/GameAction.cs
++++ b/Source/Parsek/GameActions/GameAction.cs
+@@ -1978,7 +1978,7 @@ namespace Parsek
+                 {
+                     ParsekLog.Warn("GameAction",
+                         $"Route manifest entry malformed under key '{key}': '{raw}' (expected 'name|amount')");
+-                    continue;
++                    return null;
+                 }
+                 string name = raw.Substring(0, sep);
+                 string amountStr = raw.Substring(sep + 1);

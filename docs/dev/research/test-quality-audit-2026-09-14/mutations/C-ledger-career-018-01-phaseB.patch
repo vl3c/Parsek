@@ -1,0 +1,12 @@
+diff --git a/Source/Parsek/GameActions/KspStatePatcher.cs b/Source/Parsek/GameActions/KspStatePatcher.cs
+index 8d15fb3f3..fdf110835 100644
+--- a/Source/Parsek/GameActions/KspStatePatcher.cs
++++ b/Source/Parsek/GameActions/KspStatePatcher.cs
+@@ -91,7 +91,6 @@ namespace Parsek
+                 PatchFunds(funds, suppressSuspiciousDrawdownWarnings, authoritativeReduction);
+                 PatchReputation(reputation, authoritativeReduction);
+                 PatchFacilities(facilities);
+-                PatchMilestones(milestones, authoritativeRepeatableRecordState);
+                 PatchContracts(contracts);
+ 
+                 VerboseStablePatchState("patch-all-complete", "complete", "PatchAll complete");
