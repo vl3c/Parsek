@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/CrewReservationManager.cs b/Source/Parsek/CrewReservationManager.cs
+index 419a714fd..706609827 100644
+--- a/Source/Parsek/CrewReservationManager.cs
++++ b/Source/Parsek/CrewReservationManager.cs
+@@ -128,7 +128,7 @@ namespace Parsek
+             if (roster == null)
+             {
+                 crewReplacements.Clear();
+-                rescuePlacedKerbals.Clear();
++                // MUTANT: the rescue-placed marker set survives the wipe-all
+                 return;
+             }
+ 

@@ -1,0 +1,12 @@
+C-ledger-career-014-01	career	Source/Parsek/GameActions/ScienceModule.cs:416	direct	ScienceModule_StrategyCredit_AlsoFeedsEffectiveEarnings
+C-ledger-career-014-02	career	Source/Parsek/GameActions/StrategyConversionCapture.cs:314	direct	EvaluateLegs_AtExactlyMinCaptureMagnitude_IsCaptured
+C-ledger-career-015-02	career	Source/Parsek/KerbalsModule.cs:2108	direct	ApplyToRoster_TombstonedAvailableKerbalOnLiveVessel_SkippedLive
+C-ledger-career-017-01	career	Source/Parsek/GameActions/ReputationModule.cs:281	direct	ProcessAction_StrategyActivate_NonZeroSetupRepCost_AppliesTheLossCurve
+C-ledger-career-021-01	career	Source/Parsek/GameActions/FundsModule.cs:371	direct	FundsModule_NegativeAmounts_AreNoOps
+C-ledger-career-025-01	career	Source/Parsek/GameActions/KscActionExpectationClassifier.cs:272	direct	ClassifyAction_StrategyScienceCredit_TransformedSkip
+C-ledger-career-031-01	career	Source/Parsek/GameActions/StrategiesModule.cs:221	direct	CreateProjectionClone_CopiesMaxSlotsAndStartsWithNoActiveStrategies
+C-legacy-bugfix-016-01	career	Source/Parsek/MilestoneStore.cs:562	direct	GetPendingEventCount_ExcludesUncommittedMilestones
+C-logistics-route-014-01	career	Source/Parsek/Logistics/RouteOrchestrator.cs:5697	direct	RouteHasDeliveryManifest_TrueOnInventoryOnlyStop
+C-recording-tree-021-02	career	Source/Parsek/CrewReservationManager.cs:131	direct	ClearReplacements_NullRoster_ClearsRescuePlacedMarkerSet
+C-recording-tree-032-01	career	Source/Parsek/EffectiveState.cs:1500	direct	ComputeELS_SupersededRecordingAction_StillIncluded
+C-recording-tree-051-02	career	Source/Parsek/MilestoneStore.cs:626	direct	GetCommittedTechIds_HiddenByTimelineFilter_NotIncluded

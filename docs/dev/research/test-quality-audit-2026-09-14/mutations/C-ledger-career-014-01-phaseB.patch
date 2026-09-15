@@ -1,0 +1,12 @@
+diff --git a/Source/Parsek/GameActions/ScienceModule.cs b/Source/Parsek/GameActions/ScienceModule.cs
+index 5a25b3b1c..4ead42a82 100644
+--- a/Source/Parsek/GameActions/ScienceModule.cs
++++ b/Source/Parsek/GameActions/ScienceModule.cs
+@@ -413,7 +413,6 @@ namespace Parsek
+             }
+ 
+             runningScience += credit;
+-            totalEffectiveEarnings += credit;
+ 
+             ParsekLog.Verbose("ScienceModule",
+                 $"StrategyScienceCredit: credit={credit.ToString("R", IC)}, " +

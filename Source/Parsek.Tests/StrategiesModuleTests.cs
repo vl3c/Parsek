@@ -763,5 +763,28 @@ namespace Parsek.Tests
             module.ProcessAction(MakeActivate("S1", 100.0));
             Assert.Equal(0, module.GetAvailableSlots());
         }
+
+        [Fact]
+        public void CreateProjectionClone_CopiesMaxSlotsAndStartsWithNoActiveStrategies()
+        {
+            // The projection clone is the module a what-if walk runs on. It must carry
+            // maxSlots (or slot accounting in the projection differs from the timeline it
+            // is projecting) and must start with an EMPTY activation map (or the replay
+            // that re-activates each strategy would double-count against the same slots).
+            module.SetMaxSlots(3);
+            module.ProcessAction(MakeActivate("S1", 100.0));
+            module.ProcessAction(MakeActivate("S2", 200.0));
+            Assert.Equal(2, module.GetActiveStrategyCount());
+
+            var clone = (StrategiesModule)module.CreateProjectionClone();
+
+            Assert.Equal(3, clone.GetAvailableSlots());
+            Assert.Equal(0, clone.GetActiveStrategyCount());
+            Assert.False(clone.IsStrategyActive("S1"));
+
+            // The source is untouched by the clone.
+            Assert.Equal(2, module.GetActiveStrategyCount());
+            Assert.Equal(1, module.GetAvailableSlots());
+        }
     }
 }

@@ -544,6 +544,16 @@ C-ledger-career-003-01, C-ledger-career-004-01, C-ledger-career-006-01, C-ledger
 C-ledger-career-007-02, C-ledger-career-008-01, C-ledger-career-009-01, C-ledger-career-009-02,
 C-ledger-career-011-01. Their `status` in the CSV is now `done`.
 
+**Phase B status, fourth PR (2026-09-15).** Twelve more priority-2 career-risk rows, all
+`direct` / S: ten are new coverage, two are `already-covered` under the cross-class rule
+(C-ledger-career-017-01 reds `StrategyCaptureTests.RecalculateAndPatch_StrategyActivateSetupCostsAffectScienceAndRepBalances`,
+C-recording-tree-032-01 reds `SupersedeCommitTombstoneTests.CommitTombstones_PreRewindPayoutAttributedToOriginChild_NotTombstoned`),
+so no duplicate cell was written for either. The ten landed cells are mutation-proved with
+the mutant the CSV names, with no production change: C-ledger-career-014-01,
+C-ledger-career-014-02, C-ledger-career-015-02, C-ledger-career-021-01, C-ledger-career-025-01,
+C-ledger-career-031-01, C-legacy-bugfix-016-01, C-logistics-route-014-01,
+C-recording-tree-021-02, C-recording-tree-051-02. Their `status` in the CSV is now `done`.
+
 Sixteen of the twenty are `direct` and `S` or `M` effort. Numbers 12 and 20 pair with High and
 Medium findings respectively (F-recorder-events-024-01 and F-recording-tree-039-01), which is the
 expected shape: where a test cannot fail, the guard also has no coverage.

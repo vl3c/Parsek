@@ -1,0 +1,15 @@
+diff --git a/Source/Parsek/Logistics/RouteOrchestrator.cs b/Source/Parsek/Logistics/RouteOrchestrator.cs
+index c70f9af33..8784638fa 100644
+--- a/Source/Parsek/Logistics/RouteOrchestrator.cs
++++ b/Source/Parsek/Logistics/RouteOrchestrator.cs
+@@ -5699,8 +5699,8 @@ namespace Parsek.Logistics
+             RouteStop stop = ResolveCycleStop(route);
+             if (stop == null) return false;
+             bool hasResource = stop.DeliveryManifest != null && stop.DeliveryManifest.Count > 0;
+-            bool hasInventory = stop.InventoryDeliveryManifest != null && stop.InventoryDeliveryManifest.Count > 0;
+-            return hasResource || hasInventory;
++            // MUTANT: the inventory dimension is dropped from the OR
++            return hasResource;
+         }
+ 
+         /// <summary>

@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/GameActions/StrategiesModule.cs b/Source/Parsek/GameActions/StrategiesModule.cs
+index 300260067..b8db88a90 100644
+--- a/Source/Parsek/GameActions/StrategiesModule.cs
++++ b/Source/Parsek/GameActions/StrategiesModule.cs
+@@ -221,7 +221,7 @@ namespace Parsek
+         public IResourceModule CreateProjectionClone()
+         {
+             var clone = new StrategiesModule();
+-            clone.maxSlots = maxSlots;
++            // MUTANT: maxSlots is not carried onto the projection clone
+             return clone;
+         }
+ 

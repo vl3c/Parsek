@@ -1581,6 +1581,28 @@ namespace Parsek.Tests
 
         // ---------- Test-only roster facade --------------------------------
 
+        // ClearReplacements is the Wipe All path. Headless xUnit has no
+        // HighLogic.CurrentGame.CrewRoster, so the call takes the NULL-ROSTER arm - the
+        // only arm reachable from a unit test, and the one no committed cell drove. It
+        // must empty BOTH surfaces: the per-name marker set is deliberately NOT cleared by
+        // CleanUpReplacement (the cell above pins that), so if the wipe-all arm leaves it
+        // standing the markers outlive every recording they belonged to and the rescue
+        // guard keeps firing for kerbals that no longer have a rescue.
+        [Fact]
+        public void ClearReplacements_NullRoster_ClearsRescuePlacedMarkerSet()
+        {
+            CrewReservationManager.SeedReplacementForTesting("Jebediah Kerman", "Erilan Kerman");
+            CrewReservationManager.MarkRescuePlaced("Jebediah Kerman", RescuedVesselPid);
+
+            Assert.True(CrewReservationManager.IsRescuePlaced("Jebediah Kerman"));
+            Assert.True(CrewReservationManager.CrewReplacements.ContainsKey("Jebediah Kerman"));
+
+            CrewReservationManager.ClearReplacements();
+
+            Assert.False(CrewReservationManager.IsRescuePlaced("Jebediah Kerman"));
+            Assert.Empty(CrewReservationManager.CrewReplacements);
+        }
+
         /// <summary>
         /// In-process facade mirroring the production
         /// <see cref="KerbalsModule.IKerbalRosterFacade"/> contract for

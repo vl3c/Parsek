@@ -756,6 +756,29 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ClassifyAction_StrategyScienceCredit_TransformedSkip()
+        {
+            // The MIRROR of the debit cell above: the query family's science OUTPUT leg.
+            // Same reason, same verdict - the converter mutates a CurrencyModifierQuery in
+            // place and the ScienceChanged that follows carries the ORIGINAL reason, so no
+            // reason-keyed event exists to pair against and an Untransformed leg would
+            // WARN on every converter row. Falling through to the generic earning default
+            // would carry exactly that leg.
+            var a = new GameAction
+            {
+                UT = 8599.8755059835421,
+                Type = GameActionType.StrategyScienceCredit,
+                ScienceAwarded = 5f
+            };
+
+            var exp = LedgerOrchestrator.ClassifyAction(a);
+
+            Assert.Equal(KscActionExpectationClassifier.KscReconcileClass.Transformed, exp.Class);
+            Assert.False(exp.ScienceLeg.IsPresent);
+            Assert.Contains("strategy currency-converter science yield", exp.SkipReason);
+        }
+
+        [Fact]
         public void ClassifyAction_StrategyConverterFundsSpending_TransformedSkip()
         {
             // The QUERY family's funds debit. The default FundsSpending arm expects a
