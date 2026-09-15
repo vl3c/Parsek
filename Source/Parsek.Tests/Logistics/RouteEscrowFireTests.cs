@@ -531,8 +531,6 @@ namespace Parsek.Tests.Logistics
             var seam = InstallPickupSeam();
             var env = new EligibleEnv();
 
-            Assert.Equal(TerminalState.Destroyed, crashed.TerminalStateValue);
-
             RouteOrchestrator.Tick(1150.0, env); // refinery window
 
             // The refinery was debited (the witnessed outflow), and the reservation

@@ -1302,10 +1302,16 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
 
 - `testfix-t3-c` (2026-09-16): the FOURTH slice of Medium T3 rows
   (`work/phase-b-slice-medium-t3-04.txt`, 20 ids: 12 `logistics-route`,
-  7 `recorder-events`, 1 `ledger-career`). Slice total: 20 strengthened (8 of those
-  also renamed), 0 deleted, 0 deferred, no production change. The first commit covers
-  the 8 non-logistics ids: 8 strengthened, 3 of those also renamed. Each has a proof
-  row in
+  7 `recorder-events`, 1 `ledger-career`). Counting rule: every row is strengthened, and
+  a rename is a SUBSET of that, never a separate bucket. Slice total: 20 strengthened,
+  11 of those also renamed, 0 deleted, 0 deferred, no production change. The first
+  commit covers the 8 non-logistics ids: 8 strengthened, 5 of those also renamed
+  (`ZeroTimeDelta_IdenticalVelocity_NoRecord`,
+  `ShouldForceWatchProtectedFullFidelity_AllInputPairs`,
+  `ShouldAllowWarpZoneHideExemption_AllInputPairs`,
+  `ShouldTriggerExplosion_AllGuardsPass_WarpGateDecidesFxSuppression`,
+  `ResolveMapPresenceGhostSource_CrossBodyLoopMember_PredicateComputedFlag_StillRejects`).
+  Each has a proof row in
   `research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a
   `*-phaseB.patch` that `git apply --check`s against a clean tree.
   - F-recorder-events-012-01 and -012-02, both renamed `..._AllInputPairs`: the two
@@ -1330,7 +1336,11 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
     (the mutant is inserting the guard the old name implied), and the negative-elapsed
     mirror is refused by the min-interval floor, not by a backward-time guard. The
     register's optional production change (add a non-positive-elapsed guard) was NOT
-    taken: it is a behaviour change, not a test fix.
+    taken: it is a behaviour change, not a test fix. Scope, as T7-3 above already records:
+    the duplicate-UT regime needs a ZERO min-interval floor, which is this test class's
+    legacy constant - `ParsekSettings.GetMinSampleInterval` returns 0.5 / 0.2 / 0.05 for
+    Low / Medium / High, so no shipped density reaches it. The cells pin the pure
+    function's contract, not an in-game duplicate sample, and both say so.
   - F-recorder-events-015-01: the `_RecordingTree` half decoded through
     `ParsekScenario.LoadRecordingMetadataForTests`, the same call as its own
     `_ParsekScenario` twin. It now saves a real `RECORDING_TREE` and reads it back
@@ -1351,8 +1361,14 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
     injects a module through `LedgerOrchestrator.SetKerbalsForTesting` that manages a
     DIFFERENT kerbal, and the null-module fallback is kept as its own cell
     (`ShouldSuppress_NoKerbalsModule_ReturnsFalse`).
-  - Second commit, the 12 `logistics-route` ids: 12 strengthened, 5 of those also
-    renamed, 0 deleted, 0 deferred, still no production change.
+  - Second commit, the 12 `logistics-route` ids: 12 strengthened, 6 of those also
+    renamed (`FormatRejectMessage_AllEnumValuesProduceDedicatedText`,
+    `SumRecoveredCredits_HonoursThePassedScopeSet_NotRouteMembers`,
+    `Delivery_ProbeAndWriter_StoreInjectedLoadedGate_AndTheWriterDispatchesOnIt`,
+    `EmitPendingRecoveryCreditCall_WithCareerKscPendingMarker_EmitsOwedCreditOnce`,
+    `PaintMembership_IsClearedOnlyByAHideOrAFlush`,
+    `UnloadedStoredPartNode_IsAFreshCopyCarryingTheOverriddenSlotAndUnits`),
+    0 deleted, 0 deferred, still no production change.
     F-logistics-route-003-01 (the name says FRESH guid but 32-characters-and-non-empty
     is satisfied by one constant `DefaultIdFactory` return; the cell builds twice from
     the same analysis and pins distinctness).

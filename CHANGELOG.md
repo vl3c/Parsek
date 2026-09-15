@@ -304,8 +304,9 @@ _(unreleased — entries accumulate here per commit)_
   same value on its own answer.
 
 - **Tests: twelve Supply Route cells from the audit's T3 (weak or misleading) register
-  now let the production term they name decide the verdict.** No production change; ten
-  strengthened, five of those renamed to what they prove. The "fresh guid" cell built
+  now let the production term they name decide the verdict.** No production change; all
+  twelve strengthened, six of those also renamed to what they prove (renames are a subset
+  of the strengthened set, not a separate bucket). The "fresh guid" cell built
   one route and checked the id was 32 characters, which a constant id satisfies - it now
   builds twice and pins distinctness. The reject-message sweep asserted only
   non-emptiness, which the switch default also produces, so it now asserts each status
@@ -330,14 +331,15 @@ _(unreleased — entries accumulate here per commit)_
   now carries the crashed terminal, so a disposition gate added later reds there and not
   in the twin. The competing-route escrow cell asserted its headline with test-side
   arithmetic; it now nets through the production `RoutePickupSourceGate.NettedAvailable`
-  and runs the competitor's gate, asserting the exact `source-reserved:` hold token. Two
-  cells are renamed to what they actually prove, because the claim in the old name needs
-  Unity: the paint-membership cell cannot advance a frame, and the unloaded stored-part
-  cell does its own appending (the writer's append is private and needs a ProtoVessel).
+  and runs the competitor's gate, asserting the exact `source-reserved:` hold token. The
+  last two renames go to cells whose old names claimed something only Unity can witness:
+  the paint-membership cell cannot advance a frame, and the unloaded stored-part cell
+  does its own appending (the writer's append is private and needs a ProtoVessel).
 
 - **Tests: eight recorder, playback and crew cells from the audit's T3 (weak or
   misleading) register now let the term they name decide the verdict.** No production
-  change; six cells strengthened, three of them renamed to what they actually prove.
+  change; all eight strengthened, five of them also renamed to what they actually prove
+  (renames are a subset of the strengthened set, not a separate bucket).
   The two warp / watch-protection predicates take the same two booleans, so a
   single-pair cell could not tell the conjunction from a constant: both are now
   theories over all four pairs, which pins the load-bearing arm (a watch-protected
@@ -353,7 +355,10 @@ _(unreleased — entries accumulate here per commit)_
   could fire either way): it is renamed to the identical-velocity case and joined by two
   siblings pinning the real behaviour - a velocity change at the SAME UT does record a
   duplicate-UT sample, and the negative-elapsed mirror is refused by the min-interval
-  floor rather than by any backward-time guard. The tree-side missing-loop-anchor-body
+  floor rather than by any backward-time guard. The duplicate-UT regime is fixture-only:
+  it needs a zero min-interval floor, and `ParsekSettings.GetMinSampleInterval` returns
+  0.5 / 0.2 / 0.05, so no shipped sampling density can reach it. The cells pin the pure
+  function's contract, not an in-game sample. The tree-side missing-loop-anchor-body
   cell decoded through the `ParsekScenario` test helper its own twin already drove, so
   it now loads a real `RECORDING_TREE` through `RecordingTree.Load` and carries a second
   recording WITH the key, making the codec's assignment the deciding term. The

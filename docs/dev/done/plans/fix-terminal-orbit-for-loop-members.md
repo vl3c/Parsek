@@ -748,7 +748,7 @@ relevant trajectories during loop tracking (verified by grep).
   (the create-path end-to-end test the reviewer's MAJOR-2 asks for).
 - `ResolveMapPresenceGhostSource_NoSegmentNonLoopMember_StillRejects`
   (regression: non-loop unchanged).
-- `ResolveMapPresenceGhostSource_NoSegmentCrossBodyLoopMember_StillRejects`
+- `ResolveMapPresenceGhostSource_CrossBodyLoopMember_PredicateComputedFlag_StillRejects`
   (predicate suppresses 181 Mm class).
 - `ResolveMapPresenceGhostSource_NonLoopCallerOnNoSegmentOrbitingRecording_StillReturnsNone`
   (regression: relaxation default false stays safe for non-loop callers).

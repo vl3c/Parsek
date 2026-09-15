@@ -264,6 +264,10 @@ namespace Parsek.Tests
             // check (0 < 0) is false and the max backstop (0 >= 3) is false, so the
             // speed gate alone decides and a 10 -> 11 m/s change at the SAME UT records.
             // Production has no non-positive-elapsed guard; adding one would red this.
+            // The regime is FIXTURE-ONLY: minInterval 0 is this class's legacy constant,
+            // and ParsekSettings.GetMinSampleInterval returns 0.5 / 0.2 / 0.05 for Low /
+            // Medium / High, so no shipped density can reach the zero floor. What the
+            // cell pins is the pure function's contract, not an in-game duplicate sample.
             var last = new Vector3(10, 0, 0);
             var current = new Vector3(11, 0, 0);
 
