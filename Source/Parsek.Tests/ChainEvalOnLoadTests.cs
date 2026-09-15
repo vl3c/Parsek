@@ -94,16 +94,6 @@ namespace Parsek.Tests
             return bp;
         }
 
-        /// <summary>
-        /// Simulates the UT-based ghost skip decision from EvaluateAndApplyGhostChains:
-        /// returns true if the vessel should be ghosted (currentUT is before SpawnUT).
-        /// This is the pure decision extracted from ParsekFlight for testability.
-        /// </summary>
-        static bool ShouldGhostAtUT(GhostChain chain, double currentUT)
-        {
-            return currentUT < chain.SpawnUT;
-        }
-
         #endregion
 
         #region SingleChain
@@ -197,8 +187,8 @@ namespace Parsek.Tests
             Assert.Equal(1120.0, chain.SpawnUT);
 
             // The UT-based decision: currentUT >= SpawnUT means DON'T ghost
-            Assert.False(ShouldGhostAtUT(chain, 1200));
-            Assert.False(ShouldGhostAtUT(chain, 1120)); // exact boundary: spawn has happened
+            Assert.False(GhostChainWalker.ShouldGhostChainAtUT(chain, 1200));
+            Assert.False(GhostChainWalker.ShouldGhostChainAtUT(chain, 1120)); // exact boundary: spawn has happened
         }
 
         /// <summary>
@@ -225,8 +215,8 @@ namespace Parsek.Tests
             Assert.Equal(1120.0, chain.SpawnUT);
 
             // The UT-based decision: currentUT < SpawnUT means DO ghost
-            Assert.True(ShouldGhostAtUT(chain, 900));
-            Assert.True(ShouldGhostAtUT(chain, 1119.9)); // just before spawn
+            Assert.True(GhostChainWalker.ShouldGhostChainAtUT(chain, 900));
+            Assert.True(GhostChainWalker.ShouldGhostChainAtUT(chain, 1119.9)); // just before spawn
         }
 
         /// <summary>
@@ -261,10 +251,10 @@ namespace Parsek.Tests
             Assert.Equal(2, chains.Count);
 
             // Chain for PID=100: SpawnUT=1120, currentUT=1200 -> skip
-            Assert.False(ShouldGhostAtUT(chains[100], currentUT));
+            Assert.False(GhostChainWalker.ShouldGhostChainAtUT(chains[100], currentUT));
 
             // Chain for PID=200: SpawnUT=2120, currentUT=1200 -> ghost
-            Assert.True(ShouldGhostAtUT(chains[200], currentUT));
+            Assert.True(GhostChainWalker.ShouldGhostChainAtUT(chains[200], currentUT));
         }
 
         #endregion

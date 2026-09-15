@@ -763,6 +763,70 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
     committed-cost sign convention) survives as
     `RewindLoggingTests.FullCommittedCost_SignConvention_PositiveMeansSpent`.
 
+- `testfix-t1t2`, third PR (2026-09-15): the second slice of Medium T1 rows
+  (`work/phase-b-slice-medium-t1-02.txt`, 20 ids, all recording-tree). Each fixed row has
+  a proof row in `research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a
+  `*-phaseB.patch`.
+  - Fixed: F-recording-tree-050-01 / -050-02 / -050-03 (the three `BackwardCompat_*`
+    nodes are stamped with `RecordingStore.CurrentRecordingFormatVersion` /
+    `CurrentRecordingSchemaGeneration`, so `LoadRecordingFrom` passes the schema gate and
+    the asserted null / false / zero is the loader's own default; each cell also asserts
+    the recording was not rejected); F-recording-tree-035-04 / -035-05 (both
+    session-priority cells now pass the session's own focused pid as the target, the one
+    input where Case A answers `SkipDialogSameTarget` and the no-session arm answers
+    `OpenDialog`, so reordering the arms reds them); F-recording-tree-048-01 / -048-02 /
+    -048-03 (renamed to the guards their inputs actually reach -
+    `IsLiveReFlyCrew_NullKerbal_False`,
+    `ActiveVesselMatchesReFlyRecording_NullVessel_False`,
+    `ActiveVesselMatchesReFlyRecording_NullVessel_UnknownMarkerId_False` - with the false
+    comment about an `IsSuppressed` lookup dropped; the marker-null and unknown-id cases
+    need a live `Vessel` and stay with the in-game `KerbalDualResidenceCarveOutTest`).
+  - Deleted: F-recording-tree-050-06 (`ContinuationVesselDestroyed_SnapshotPreservedForRevertSpawn`
+    replayed the revert inline; twin
+    `ResetAllPlaybackState_ClearsVesselDestroyed_SpawnEligibleAfter` in the same class
+    drives `RecordingStore.ResetAllPlaybackState` and now carries the deleted cell's
+    snapshot assertion); F-recording-tree-052-04 (`ZeroPid_NoEffect`; the `pid == 0`
+    short-circuit returns what every path below it returns, so no unit test can pin it -
+    twin `CommitFlowTests.ShouldSkip_ZeroPid_ReturnsFalse` keeps the documentation).
+  - Fixed (second half): F-recording-tree-011-03 (production grew
+    `ParsekScenario.ComputeHasOrphanedLimboTree`, called from `OnLoad`'s revert-detection
+    log line, and the three `HasOrphanedLimboTree_*` cells drive it instead of re-deriving
+    the expression); F-recording-tree-020-01 (the re-commit is now
+    `RecordingStore.ApplyRewindProvisionalMergeStatesForTesting`, since a second
+    `CommitTree` returns at the reference-equal duplicate skip before the promotion pass
+    the cell is named for); F-recording-tree-021-01 (the mapping half of
+    `CleanUpReplacement` is extracted as
+    `CrewReservationManager.TryRemoveReplacementMappingPreservingRescueMarker`, called by
+    production and by the xUnit seam, so the marker-preservation contract is pinned on the
+    code the game runs; the roster half still needs a live `KerbalRoster`);
+    F-recording-tree-036-01 (a real `KerbalsModule` is installed and the cell asserts
+    `CrewReservationManager`'s own "Recomputed after tombstones" line, not the caller's);
+    F-recording-tree-039-01 (`RecordingPaths.SaveRootOverrideForTesting` lets the cell drive
+    the REAL `RecordingStore.DeleteRecordingFiles` against the staged temp save, so the
+    eighth limb - the quickload-resume save - is behaviourally covered for the first time,
+    with the RewindPoints quicksave as the blast-radius witness);
+    F-recording-tree-042-03 (the postChoice closure body is extracted as
+    `SceneExitInterceptor.RunPostChoice(destination, loadScene)` - same guard, same order of
+    side effects - and two cells drive it: the token is read INSIDE the injected load, and a
+    failed persist arms nothing and loads nothing; the original cell keeps the
+    not-armed-until-invoked claim under that name);
+    F-recording-tree-046-06 (the marker-owned segment is now IN the armed attempt tree, the
+    shared-id case, plus a `markerOwned=2` assertion and a fixture precondition);
+    F-recording-tree-051-01 (production grew `GhostChainWalker.ShouldGhostChainAtUT`, called
+    by `ParsekFlight.FilterAndGhostChains`; the test-local mirror is deleted and all three
+    cells drive the production rule. The terminated-chain arm stays at the call site because
+    it logs its own reason).
+  - Renamed, behavioural coverage deferred: F-recording-tree-034-01 and -034-02, the two
+    batch-flight-baseline SIMULATION cells. The runner's step order lives inside
+    `InGameTestRunner.RestoreBatchFlightBaselineCore`, which needs a live KSP batch
+    (quicksave + `GamePersistence` load), so no xUnit mutant of that sequence can red them;
+    they are now `Simulation_ValidationFailureBeforeWipe_DocumentsIntendedSequence_RecordingStoreOnly`
+    and `Simulation_PostTestRollback_RestoresFromTheBatchStartSnapshot_NotTestMutations`,
+    each saying in the body what it cannot witness and naming the in-game batch as the
+    detector. -034-02 carries a mutation proof against the store primitive it does pin
+    (`RecordingStore.RestoreFromSnapshotForTesting`); -034-01 has no mutant by construction
+    and is the one deferred row of the twenty.
+
 ## July crosswalk
 
 `research/test-quality-audit-2026-09-14/july-crosswalk.csv` maps every July register ID (42 rows: A1-A7, B1-B8, C1-C6, D1-D5, and Tier E numbered E1-E16 in source order) to the SUT or file it names and to the D2/D3 rows here that touch the same SUT. `status_now` is judged from the xUnit tree only and says `unknown` for harness and in-game items this audit cannot decide (closed 15, unknown 19, open 7, superseded 1). 49 findings and 14 coverage proposals carry a `july_ref` / `dupe_of_july_id`; for those the July ID stays primary and this audit adds evidence.

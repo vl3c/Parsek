@@ -55,8 +55,21 @@ namespace Parsek
             return Path.Combine("Parsek", "Recordings", $"{recordingId}_ghost.craft.txt");
         }
 
+        /// <summary>
+        /// Test seam: when set, supplies the save root that
+        /// <see cref="ResolveSaveScopedPath"/> would otherwise read from
+        /// <c>KSPUtil.ApplicationRootPath</c> + <c>HighLogic.SaveFolder</c>, which
+        /// throw outside Unity. Null in the game; set and cleared by the test that
+        /// drives a real sidecar delete against a temp directory.
+        /// </summary>
+        internal static string SaveRootOverrideForTesting;
+
         internal static string ResolveSaveScopedPath(string relativePath)
         {
+            string overrideRoot = SaveRootOverrideForTesting;
+            if (!string.IsNullOrEmpty(overrideRoot) && !string.IsNullOrEmpty(relativePath))
+                return Path.GetFullPath(Path.Combine(overrideRoot, relativePath));
+
             if (!TryGetSaveContext(
                     "ResolveSaveScopedPath",
                     "resolve-save-scoped-missing-context",

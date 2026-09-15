@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/RecordingStore.cs b/Source/Parsek/RecordingStore.cs
+index bb9af7e10..78cb34504 100644
+--- a/Source/Parsek/RecordingStore.cs
++++ b/Source/Parsek/RecordingStore.cs
+@@ -1233,7 +1233,7 @@ namespace Parsek
+                 // Demote the qualifying HEAD on first commit. The first-commit guard
+                 // keeps a manually-sealed HEAD==tip (Immutable) from being re-opened on a
+                 // later re-commit (plan §4.1).
+-                if (isFirstCommit(rec.RecordingId))
++                if (true)
+                 {
+                     rec.MergeState = MergeState.CommittedProvisional;
+                     rec.FilesDirty = true;

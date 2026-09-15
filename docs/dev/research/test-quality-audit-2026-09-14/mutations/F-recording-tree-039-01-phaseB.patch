@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/RecordingStore.OrphanCleanup.cs b/Source/Parsek/RecordingStore.OrphanCleanup.cs
+index d635dcadc..ed1f4207e 100644
+--- a/Source/Parsek/RecordingStore.OrphanCleanup.cs
++++ b/Source/Parsek/RecordingStore.OrphanCleanup.cs
+@@ -53,8 +53,6 @@ namespace Parsek
+             allDeleted &= DeleteFileIfExists(RecordingPaths.BuildReadableVesselSnapshotMirrorRelativePath(rec.RecordingId));
+             allDeleted &= DeleteFileIfExists(RecordingPaths.BuildReadableGhostSnapshotMirrorRelativePath(rec.RecordingId));
+ 
+-            if (!string.IsNullOrEmpty(rec.RewindSaveFileName))
+-                allDeleted &= DeleteFileIfExists(RecordingPaths.BuildRewindSaveRelativePath(rec.RewindSaveFileName));
+ 
+             return allDeleted;
+         }

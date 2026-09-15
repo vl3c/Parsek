@@ -211,14 +211,20 @@ namespace Parsek.Tests
         [Fact]
         public void BackwardCompat_NoControllerNodes_ControllersIsNull()
         {
-            // Simulate a legacy RECORDING node with no CONTROLLER sub-nodes
+            // A current-schema RECORDING node with no CONTROLLER sub-nodes. The node is
+            // stamped so LoadRecordingFrom passes the schema gate and actually reaches the
+            // controller loader; an unstamped node is rejected before it.
             var node = new ConfigNode("RECORDING");
             node.AddValue("recordingId", "legacy_rec");
+            node.AddValue("recordingFormatVersion", RecordingStore.CurrentRecordingFormatVersion.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            node.AddValue("recordingSchemaGeneration", RecordingStore.CurrentRecordingSchemaGeneration.ToString(System.Globalization.CultureInfo.InvariantCulture));
             node.AddValue("vesselName", "LegacyVessel");
 
             var rec = new Recording();
             RecordingTree.LoadRecordingFrom(node, rec);
 
+            // The gate passed, so the null is the loader's no-CONTROLLER branch.
+            Assert.NotEqual(-1, rec.RecordingFormatVersion);
             Assert.Null(rec.Controllers);
         }
 
@@ -227,13 +233,18 @@ namespace Parsek.Tests
         [Fact]
         public void BackwardCompat_NoIsDebris_DefaultsFalse()
         {
+            // Stamped with the current format/generation so the schema gate passes and the
+            // missing-key parse in LoadRecordingResourceAndState is what supplies the false.
             var node = new ConfigNode("RECORDING");
             node.AddValue("recordingId", "legacy_no_debris");
+            node.AddValue("recordingFormatVersion", RecordingStore.CurrentRecordingFormatVersion.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            node.AddValue("recordingSchemaGeneration", RecordingStore.CurrentRecordingSchemaGeneration.ToString(System.Globalization.CultureInfo.InvariantCulture));
             node.AddValue("vesselName", "OldVessel");
 
             var rec = new Recording();
             RecordingTree.LoadRecordingFrom(node, rec);
 
+            Assert.NotEqual(-1, rec.RecordingFormatVersion);
             Assert.False(rec.IsDebris);
         }
 
@@ -462,13 +473,18 @@ namespace Parsek.Tests
         [Fact]
         public void BackwardCompat_NoMaxDist_DefaultsToZero()
         {
+            // Stamped so the schema gate passes: the zero comes from the loader default,
+            // not from the field initializer of a rejected recording.
             var node = new ConfigNode("RECORDING");
             node.AddValue("recordingId", "legacy_no_maxdist");
+            node.AddValue("recordingFormatVersion", RecordingStore.CurrentRecordingFormatVersion.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            node.AddValue("recordingSchemaGeneration", RecordingStore.CurrentRecordingSchemaGeneration.ToString(System.Globalization.CultureInfo.InvariantCulture));
             node.AddValue("vesselName", "OldVessel");
 
             var rec = new Recording();
             RecordingTree.LoadRecordingFrom(node, rec);
 
+            Assert.NotEqual(-1, rec.RecordingFormatVersion);
             Assert.Equal(0.0, rec.MaxDistanceFromLaunch);
         }
 

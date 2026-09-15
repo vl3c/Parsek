@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/CrewReservationManager.cs b/Source/Parsek/CrewReservationManager.cs
+index ebdbb2f1b..28d237a59 100644
+--- a/Source/Parsek/CrewReservationManager.cs
++++ b/Source/Parsek/CrewReservationManager.cs
+@@ -1174,7 +1174,7 @@ namespace Parsek
+         /// </summary>
+         internal static bool ActiveVesselMatchesReFlyRecording(Vessel activeVessel, ReFlySessionMarker marker)
+         {
+-            if (activeVessel == null || marker == null) return false;
++            if (marker == null) return false;
+             string reflyId = marker.ActiveReFlyRecordingId;
+             if (string.IsNullOrEmpty(reflyId)) return false;
+ 

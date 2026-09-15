@@ -257,6 +257,43 @@ _(unreleased — entries accumulate here per commit)_
   which sees a deleted call where a name-existence check cannot. Each was re-checked by
   breaking the production line on purpose and confirming the test goes red. Nothing a
   player sees changes.
+- **Tests: a second slice of twenty recording-tree cells from the audit's T1
+  (vacuous) register now reaches the production line their names claim.** The first ten:
+  three backward-compatibility cells loaded a RECORDING node that the schema gate
+  rejected before the loader ran, so the null controller list, the false debris flag and
+  the zero max-distance they checked were the field defaults of a rejected recording, not
+  the loader's missing-key answers - the nodes are now stamped with the current format and
+  generation, and each cell asserts the load was accepted before reading the value. Two
+  pre-switch dialog cells claimed to witness that an armed switch session outranks the
+  no-session arm, but both arms answer the same for the inputs they used; they now use the
+  one input where the two paths disagree (a re-click of the vessel the session already
+  owns), so reordering the two arms reds them. Three Re-Fly crew cells were named for
+  guards their inputs could never reach - a null kerbal never reaches the marker check, a
+  null vessel never reaches the recording lookup - and now carry the names of the guards
+  they actually pin, with the unreachable cases left to the in-game cell that can build a
+  live vessel. Two cells were removed: one replayed a revert by hand and then checked its
+  own writes (the cell that drives the real reset covers it, and inherits its one extra
+  assertion), and one pinned a short-circuit no unit test can distinguish from the paths
+  below it. Each repair was re-checked by breaking the production line on purpose and
+  confirming the cell goes red. The other ten were the same story in bigger code: a
+  cell asserted its own inline copy of the orphaned-Limbo classification, of the
+  chain ghost-skip rule, and of a batch-restore sequence; another re-committed an
+  already-committed tree, which returns at a duplicate check before the promotion
+  pass it was named for; another asserted a log line written by the caller of the
+  recompute rather than by the recompute; another watched its own staged file
+  deleter unlink a save the production delete is supposed to unlink; and the
+  scene-exit cell could only check that a closure had been built, never what it
+  does. Five small pieces of production code were lifted out so the game's own
+  decision can be called without a running game - the orphaned-Limbo
+  classification, the chain spawn-UT rule, the post-choice body (with the scene
+  load passed in), the stand-in mapping removal that must leave the rescue marker
+  alone, and a save-root resolution seam that lets one test drive the real sidecar
+  delete against a temp directory - each still called from its original site, with
+  the same guards and the same order of side effects. Two cells that only simulate
+  the in-game batch-restore runner were renamed to say so, with the sequence they
+  cannot witness named in the body. No behaviour changes, no log text changes, and
+  nothing a player sees changes.
+
 - **Tests: twenty rewind / Re-Fly and recording-tree cells from the audit's T1
   (vacuous) register now exercise the production line their names claim.** Each one
   passed for a reason unrelated to its subject: a branch-point fixture with no parent

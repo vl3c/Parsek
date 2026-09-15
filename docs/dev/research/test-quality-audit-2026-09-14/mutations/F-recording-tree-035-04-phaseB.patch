@@ -1,0 +1,34 @@
+diff --git a/Source/Parsek/Patches/MapFocusObjectOnSelectPatch.cs b/Source/Parsek/Patches/MapFocusObjectOnSelectPatch.cs
+index dc8a4cb86..3a323b4fb 100644
+--- a/Source/Parsek/Patches/MapFocusObjectOnSelectPatch.cs
++++ b/Source/Parsek/Patches/MapFocusObjectOnSelectPatch.cs
+@@ -1172,14 +1172,6 @@ namespace Parsek.Patches
+             bool targetIsUnloaded,
+             bool targetIsSeparateCommittedVessel)
+         {
+-            if (hasActiveSession)
+-            {
+-                if (priorFocusedPid == newTargetPid)
+-                    return PreSwitchDialogDecision.SkipDialogSameTarget;
+-                if (anotherDialogOpen)
+-                    return PreSwitchDialogDecision.SkipDialogReEntry;
+-                return PreSwitchDialogDecision.OpenDialog;
+-            }
+             // Case B: no session armed, but a recording is in flight AND
+             // either (1) the target is unloaded — stock would scene-reload
+             // silently and skip the Esc-to-SC dialog filter; or (2) the
+@@ -1194,6 +1186,14 @@ namespace Parsek.Patches
+                     return PreSwitchDialogDecision.SkipDialogReEntry;
+                 return PreSwitchDialogDecision.OpenDialog;
+             }
++            if (hasActiveSession)
++            {
++                if (priorFocusedPid == newTargetPid)
++                    return PreSwitchDialogDecision.SkipDialogSameTarget;
++                if (anotherDialogOpen)
++                    return PreSwitchDialogDecision.SkipDialogReEntry;
++                return PreSwitchDialogDecision.OpenDialog;
++            }
+             return PreSwitchDialogDecision.NoPriorSession;
+         }
+     }

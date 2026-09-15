@@ -13,6 +13,19 @@ namespace Parsek
         private const string Tag = "ChainWalker";
 
         /// <summary>
+        /// The UT arm of the on-load ghost-chain filter: a chain is ghosted only
+        /// while its tip spawn is still in the future. At or after the spawn UT the
+        /// real vessel exists already, so ghosting it would double it.
+        /// Called by ParsekFlight.FilterAndGhostChains; the terminated-chain arm
+        /// stays at the call site because it logs its own reason.
+        /// </summary>
+        internal static bool ShouldGhostChainAtUT(GhostChain chain, double currentUT)
+        {
+            if (chain == null) return false;
+            return currentUT < chain.SpawnUT;
+        }
+
+        /// <summary>
         /// Scans all committed trees and builds ghost chains for every pre-existing
         /// vessel claimed by a ghosting-trigger interaction.
         /// Returns dict of vessel PID -> GhostChain.
