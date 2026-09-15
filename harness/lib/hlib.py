@@ -372,6 +372,37 @@ IMPLEMENTED_SEAM_VERBS: Tuple[str, ...] = (
     # NOT a DEFERRED_SEAM_VERB: it rides the 60 s default, behind the recorder's own
     # shorter 900-frame give-up (GuiTreeRecorder.ArmTimeoutFrames).
     "DumpGuiTree",
+    # The Gloops pair. ADDITIVE (36 -> 38 implemented, reserved unchanged at 5): the
+    # reserved envelope never carried a ghost-only-recorder verb, so neither name is a
+    # promotion. They exist because the Gloops recorder is the ONLY producer in Parsek
+    # for two D1 coverage cells and nothing unattended could reach it - its three
+    # buttons live in one window whose open flag is only ever written by a player click,
+    # the CaptureScreenshot / UiAction gap one subsystem over.
+    #   `manual-gloops` is the MANUAL, career-invisible recorder lifecycle. Emphatically
+    #     NOT what StartRecording drives: that verb owns the auto-record tree that
+    #     commits into the career, while this one runs a PARALLEL FlightRecorder whose
+    #     take is committed IsGhostOnly with looping off. Two mechanisms, two verbs -
+    #     the argument that kept InvokeRewindToLaunch separate from InvokeRewind.
+    #   `sub-2-point-drop` is a finalized recording with fewer than two trajectory
+    #     points, which RecordingStore.CreateRecordingFromFlightData refuses to build.
+    #     The Gloops stop is its ONLY seam-reachable producer, re-derived from the full
+    #     caller set rather than assumed (todo
+    #     D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE): in always-tree mode a tree
+    #     commit never passes through that factory at all - it appends through
+    #     TryAppendCapturedToTree, which KEEPS a 1-point recording - and the factory's
+    #     other remaining callers are abnormal split-edge aborts no seam verb can
+    #     provoke on demand. The S0.5 / S0.6 headers that called the same outcome a
+    #     TOLERATED accident of a stationary-pod start/stop predate always-tree mode and
+    #     are corrected in the same change.
+    # BOTH SINGLE-PHASE and neither is a DEFERRED_SEAM_VERB: the recorder attaches to
+    # the physics-frame patch INSIDE FlightRecorder.StartRecording, and the stop half
+    # stops / builds / commits / nulls inside one synchronous call, so each read-back is
+    # a final answer rather than a value written a frame ago (the
+    # SimulateStockSwitchClick / map-view row). What a later frame changes is the POINT
+    # COUNT, which is a property of the flight BETWEEN the two verbs - the spec's
+    # business, not a completion criterion, which is why a lane that wants a real take
+    # puts steps between them and a lane that wants the drop does not.
+    "GloopsStart", "GloopsStop",
 )
 
 # The M-A7 export verb, named once. Referenced by the verb/block coupling rule in
@@ -904,6 +935,14 @@ SEAM_VERB_TAIL_ROLE: Dict[str, str] = {
     # side of this table from its census partner UiAction for the reason that row states:
     # `op=complexity` PERSISTS a setting, and this verb persists nothing.
     "DumpGuiTree": TAIL_ROLE_INERT,
+    # The Gloops pair is WORLD-MUTATING, and "ghost-only" is exactly the word that
+    # invites the wrong call here. A committed Gloops take is a REAL row in the
+    # committed store with its own .prec sidecar that a save captures and every
+    # index-keyed host mirrors; the ghost-only flag governs whether the career sees its
+    # resource deltas, not whether anything was written. GloopsStart also leaves a live
+    # parallel recorder sampling the active vessel, which an unmet tail must not start.
+    "GloopsStart": TAIL_ROLE_WORLD_MUTATING,
+    "GloopsStop": TAIL_ROLE_WORLD_MUTATING,
 }
 
 # ---------------------------------------------------------------------------
@@ -1063,6 +1102,18 @@ SEAM_VERB_POST_MISSION_ROLE: Dict[str, str] = {
     # about instrumentation. The `outcome` set is exactly the verbs whose verdict is a
     # claim about a KERBAL's physical in-world state that no other verifier re-derives.
     "DumpGuiTree": POST_MISSION_ROLE_RECORDING,
+    # The Gloops pair. Both `recording`, and neither is near the line: the `outcome`
+    # set is exactly the verbs whose verdict is a claim about a KERBAL's physical
+    # in-world state that no other verifier re-derives. GloopsStart's OK means "a
+    # parallel ghost-only recorder is live" and GloopsStop's means "the take committed,
+    # or was dropped for being under two points" - statements about PARSEK's own
+    # recorder, which the analyzer / expectations / saveParse chain already owns. That
+    # is the original carve-out exactly: a good flight whose Gloops take Parsek then
+    # failed to commit is a PARSEK-FAIL(expectation), never a retryable driver-INVALID.
+    # Note the DROP is not a failure at all - it is the subject of a lane - so gating on
+    # this verdict would certify nothing either way.
+    "GloopsStart": POST_MISSION_ROLE_RECORDING,
+    "GloopsStop": POST_MISSION_ROLE_RECORDING,
 }
 
 
@@ -7549,6 +7600,17 @@ _SEAM_REFUSAL_SUBKINDS: Dict[str, str] = {
     "max-rate-invalid": "driver-arg",
     "warp-unavailable": "driver-gate",
     "warp-locked": "driver-gate",
+    # The Gloops pair: every refusal is a GATE the verb asked for and did not get (the
+    # verb takes no args, so there is no arg-class fault it can have). Each token is a
+    # read-back of an EXISTING Gloops guard's decision, and each is distinct so a report
+    # names which one: a pre-existing recorder, a scene with no active vessel, a
+    # FlightRecorder.StartRecording that declined (paused / not recordable), and a stop
+    # with no recorder to stop. The sub-2-point DROP is deliberately absent - it is an
+    # OK terminal with committed=false, not a refusal.
+    "gloops-already-recording": "driver-gate",
+    "gloops-no-active-vessel": "driver-gate",
+    "gloops-start-blocked": "driver-gate",
+    "no-gloops-recorder": "driver-gate",
     # KscAction: dispatch not-ready + career-state declines are career-class; unknown /
     # missing targets are arg-class.
     "career-not-ready": "driver-career",

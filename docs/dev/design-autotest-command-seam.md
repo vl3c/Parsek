@@ -2447,6 +2447,132 @@ cell reads out of the source.
 makes the census's first flight a MEASUREMENT of the interception layer rather than only a
 picture gallery.
 
+#### GloopsStart / GloopsStop (additive; the manual ghost-only recorder)
+
+**Grammar.** `cmd=GloopsStart` and `cmd=GloopsStop`, NO ARGS on either. There is nothing to
+parameterise: the Gloops recorder binds to whatever `FlightGlobals.ActiveVessel` is, and a
+spec that wants a different subject switches vessels with the verbs that already exist.
+
+**Precondition.** `RequiresFlight` on both, and here it is a HARD precondition rather than a
+convenience: the recorder samples the ACTIVE VESSEL from the flight-scene physics-frame
+patch, and `ParsekFlight.Instance` - which owns both entry points - exists in no other
+scene. A DEFER (not a REJECT) on wrong-scene, for every other FLIGHT-only verb's reason: the
+wrong-scene case is overwhelmingly a scene still settling in from the previous step, and the
+budget still bounds a genuinely wrong-scene spec.
+
+**Phases.** SINGLE-PHASE on both, and neither is a `DEFERRED_SEAM_VERB` (they ride the 60 s
+default and spend none of it). See the update block above for why: both production calls
+resolve fully before they return, so a read-back taken the instant each returns is a final
+answer. Neither has a `TryComplete*` counterpart in `TryCompleteTwoPhaseCore`.
+
+**Action.** Exactly the two calls the Gloops window's primary button makes:
+`ParsekFlight.StartGloopsRecording()` and `ParsekFlight.StopGloopsRecording()`. Both are
+driven UNCONDITIONALLY so their OWN guards decide and log; the appliers pre-check nothing,
+because a pre-check would be a second copy of those guards and the one thing this pair must
+not add is a rule of its own. Three samples taken around each call carry the verdict -
+whether a recorder existed, whether an active vessel existed, and which recording
+`LastGloopsRecording` named - plus the recorder's point count, sampled BEFORE the stop
+because the commit nulls the recorder and takes the count with it.
+
+**Terminals.**
+
+| Verb | Verdict | Payload / msg | Meaning |
+|---|---|---|---|
+| `GloopsStart` | OK | `started=true`, `vessel=<name>` | the ghost-only recorder is live on that vessel |
+| `GloopsStart` | REJECTED | `gloops-already-recording` | a Gloops recorder was ALREADY sampling; production no-ops and warns, and no second recorder was forced |
+| `GloopsStart` | REJECTED | `gloops-no-active-vessel` | no active vessel (production: `StartGloopsRecording: no active vessel`) |
+| `GloopsStart` | REJECTED | `gloops-start-blocked` | `FlightRecorder.StartRecording` declined - paused, or the vessel was not recordable - and production cleared the recorder again |
+| `GloopsStart` | ERROR | `no-flight-instance` | `ParsekFlight.Instance` absent for a frame around a scene teardown (the `StartRecording` row) |
+| `GloopsStop` | OK | `committed=true`, `points=<n>`, `recordingId=<id>` | the take was committed as a ghost-only recording |
+| `GloopsStop` | OK | `committed=false`, `points=<n>`, `dropped=too-short` | THE SUB-2-POINT DROP. Not a refusal - see above |
+| `GloopsStop` | REJECTED | `no-gloops-recorder` | nothing to stop (production: `StopGloopsRecording: no Gloops recorder`) |
+| `GloopsStop` | ERROR | `no-flight-instance` | as above |
+
+Every REJECTED token is a READ-BACK of an existing Gloops guard's decision, and all four map
+to `driver-gate` in `hlib._SEAM_REFUSAL_SUBKINDS` - the verbs take no args, so there is no
+arg-class fault they can have.
+
+**Why the stop keys on the recorder OBJECT, not on `IsGloopsRecording`.** Production commits
+a recorder that a vessel switch already auto-stopped (`CheckGloopsAutoStoppedByVesselSwitch`
+-> `CommitGloopsRecorderData`), so a refusal keyed on "is it sampling" would report
+`no-gloops-recorder` for a call that went on to commit.
+
+**Why the commit is detected by ID CHANGE.** Both the commit path and the drop path null the
+recorder, so "the recorder is gone" separates nothing. The only observable that does is
+`LastGloopsRecording` naming a DIFFERENT recording after the call than before it.
+
+**Tail / post-mission roles.** `world-mutating` on the tail axis, and "ghost-only" is exactly
+the word that invites the wrong call there: a committed Gloops take is a REAL row in the
+committed store with its own `.prec` sidecar that a save captures and every index-keyed host
+mirrors - the ghost-only flag governs whether the career sees its resource deltas, not
+whether anything was written. `recording` on the post-mission axis (its verdict is a claim
+about Parsek's own recorder, which the analyzer / expectations / saveParse chain owns).
+Neither appears in `NonMutatingVerbs`, so `FlushAndQuit` still saves after one.
+
+**First consumers.** `GL-1-gloops-manual-lifecycle` (the lifecycle, dwelling at High density)
+and `GL-2-gloops-sub-2-point-drop` (the drop, adjacent steps at Low density), both authored
+as reading-run specs and neither armed.
+
+> Update (the Gloops pair, 2026-09-15): TWO further ADDITIVE verbs, `GloopsStart` and
+> `GloopsStop`, both no-arg. The same shape as every addition since M-C1.1 - the reserved
+> list never carried a ghost-only-recorder verb, so neither is a promotion and the
+> implemented table moves alone, by two: **38 implemented / 5 reserved**.
+>
+> WHY THEY EXIST, and it is a measured gap rather than a wish. The Gloops recorder is a
+> SECOND `FlightRecorder` running in parallel with the auto-record one on the same vessel,
+> whose take is committed `IsGhostOnly` with looping off and the loop period at auto - a
+> recording the career never sees. It is the ONLY producer in Parsek for two D1 coverage
+> cells, and nothing unattended could reach it, because its three buttons live in one
+> window whose open flag is only ever written by a player click. That is the same gap
+> `CaptureScreenshot` / `UiAction` closed one subsystem over.
+>   `manual-gloops` is the manual recorder LIFECYCLE. `StartRecording` does not cover it
+>   and must not be made to: that verb owns the auto-record tree that commits into the
+>   career, and folding the two recorders into one wire token would make a spec ambiguous
+>   about which one it exercised - the argument that kept `InvokeRewindToLaunch` separate
+>   from `InvokeRewind`.
+>   `sub-2-point-drop` is `RecordingStore.CreateRecordingFromFlightData` refusing to build
+>   a `Recording` from fewer than two trajectory points, after which
+>   `ParsekFlight.CommitGloopsRecorderData` warns `StopGloopsRecording: not enough points
+>   (< 2)` and discards. The Gloops stop is its only SEAM-REACHABLE producer, re-derived
+>   from the full caller set rather than assumed (todo
+>   `D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE`): in always-tree mode a tree commit
+>   never passes through that factory at all - it appends through
+>   `TryAppendCapturedToTree`, which KEEPS a 1-point recording - so no `StartRecording`
+>   lane can produce this drop however short its take, and the factory's other remaining
+>   callers are abnormal split-edge aborts no seam verb can provoke on demand. Two stale
+>   comments fall out of the same derivation and are corrected in this change: S0.5 and
+>   S0.6 each attributed a possible count to "the stationary-pod sub-2-point-drop",
+>   wording that predates always-tree mode and describes a path their own commits no
+>   longer take.
+>
+> NO GLOOPS CODE CHANGED, by operator ruling B4 (2026-09-15: Gloops stays as is). The
+> appliers call the same two internal `ParsekFlight` members the window's primary button
+> calls and touch nothing else; `GLOOPS-STANDALONE-WINDDOWN` and GUI-P13 stay open and
+> unchanged. A unit cell reads the applier's source and asserts it reaches no other Gloops
+> mutator - no `DiscardGloopsInProgress`, no `DiscardLastGloopsRecording`, no
+> `PreviewGloopsRecording` - and writes no Gloops field. THERE IS DELIBERATELY NO VERB PER
+> BUTTON: the gap is the lifecycle and the drop, both of which live on start/stop, and a
+> Discard / Preview sibling would be a wider surface than the gap.
+>
+> BOTH SINGLE-PHASE, and neither is a borderline call. The recorder attaches to the
+> physics-frame patch INSIDE `FlightRecorder.StartRecording`
+> (`PhysicsFramePatch.GloopsRecorderInstance = this`), so a read-back of
+> `IsGloopsRecording` taken the instant the call returns is a final answer rather than a
+> value written a frame ago; and the stop half stops, builds, commits (or drops) and nulls
+> the recorder inside one synchronous call. This is the `SimulateStockSwitchClick` /
+> map-view row. What a LATER frame changes is the recorder's POINT COUNT - sampling runs on
+> the physics frame, gated by the density preset's max sample interval - and that is a
+> property of the flight BETWEEN the two verbs, which is the spec's business rather than a
+> completion criterion. It is also what makes the two first consumers mirror images: `GL-1`
+> pins `samplingDensity=2` (High, 1.0 s) and puts eight inert probes between start and
+> stop, `GL-2` pins `samplingDensity=0` (Low, 8.0 s) and puts nothing.
+>
+> THE DROP IS NOT A REFUSAL, which is the load-bearing contract decision here. The window's
+> Stop button behaves identically, so `GloopsStop` terminates **OK** with
+> `committed=false points=<n> dropped=too-short` and a lane gates on the PRODUCTION log
+> line. A REJECTED would have forced the `sub-2-point-drop` lane to declare its own subject
+> a driver fault. Full contract below (`#### GloopsStart / GloopsStop`).
+
 ## Behavior
 
 ### Addon lifecycle
@@ -2513,6 +2639,8 @@ parsed, N deferred), with bounded per-command Info lines (command counts are sma
 | `CaptureScreenshot` | any scene (the `ExportRenderManifest` row; the safe-point gate already excludes LOADING / a transition / the settle window, which is when a capture would photograph a black frame) | pre-delete a colliding target, then the reflectively-resolved `UnityEngine.ScreenCapture.CaptureScreenshot(<KSP root>/Screenshots/<label>.png, superSize)`; TWO-PHASE, holding the head until the file reports the same non-zero size on two consecutive polls | `label`, `path` (relative), `bytes` (settled), `superSize`, `overwrote` |
 | `UiAction` | game loaded, any scene that HOSTS the Parsek UI (FLIGHT / SPACECENTER); a scene with no host is `REJECTED ui-host-unavailable`, never a defer | per `op`: write a window's `IsOpen`, write a tab selector, `ParsekUI.SetUiComplexityMode` + the production `Update` latch, write a window rect (CLAMPED to that window's own resize floor), walk the window table read-only, move the OS cursor (`user32!SetCursorPos` after `ClientToScreen`), capture one in-memory GUI tree and locate a control by text, drive a window's set-of-expanded-keys, call `StructureListWindowUI.OpenForMission` / `OpenForRoute`, open `GroupPickerUI` / the Logistics link picker the way a row's button does, or report the live `PopupDialog`. Every op read-back-verified - and every op that changes drawn state TWO-PHASE, holding the head for one DRAWN frame (or, for `find`, for one CAPTURE) so the read-back describes what the game did rather than the value just written | per op: `op window open already` / `op window tab index already` / `op mode already` / `op window rect clamped minW minH` / the describe inventory (`scene complexity count` + seven keys per window) / `op x y park sx sy via` / `op window text ctrl match matches x y w h cx cy` / `op window key state changed expanded total` / `op window target id title steps open` / `op window picker target open` / `op open count name title buttons nbuttons` |
 | `DumpGuiTree` | any scene (the `CaptureScreenshot` row) | `GuiTreeRecorder.ArmForNextRepaint(label)` from the Update-phase pump (the recorder REFUSES to arm from inside an IMGUI pass), then TWO-PHASE, holding the head until the recorder reports THIS arm's dump written to `<KSP root>/Screenshots/<label>.gui.json` | `label`, `path` (relative), `bytes`, `windows`, `nodes`, `patched` (`<ok>/<of>`, the arm-time reading), `hits` |
+| `GloopsStart` | FLIGHT; else Defer | `ParsekFlight.StartGloopsRecording()` driven unconditionally, then RE-SAMPLE `IsGloopsRecording` - the production guards decide and log, the verb reports what it observed | `started`, `vessel` |
+| `GloopsStop` | FLIGHT; else Defer | `ParsekFlight.StopGloopsRecording()`; a take under two points is DROPPED by production and reported OK with `committed=false`, not REJECTED | `committed`, `points`, and `recordingId` XOR `dropped` |
 | `FlushAndQuit` | any scene (incl. menus) | if a game is loaded, force a scenario/game save so committed data is durable, THEN `Application.Quit()` deferred one frame; response + journal `DONE` written and flushed BEFORE quitting. Deliberately replaces kRPC master's `Quit()` RPC (a bare `Application.Quit()`, not commit-safe). | `saved` bool |
 
 Notes:

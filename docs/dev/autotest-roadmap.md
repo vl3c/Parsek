@@ -454,10 +454,18 @@ owning todo entry. All OPEN; none applied.
    (witness `Transitioned to background (pid=`) and claim it on CI-1? Recommendation: yes.
    Cost: one token, an armed re-flight and one negative control, no C#. Memo s3; todo
    D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE.
-4. **OPEN - D1 `sub-2-point-drop` and `manual-gloops`.** Close both through one Gloops seam
-   verb pair (`GloopsStart` / `GloopsStop`), with the registry comment naming Gloops as the
-   drop's only seam-reachable producer? Recommendation: yes. Cost: ~150 lines of C# plus the
-   lanes. Memo s3; todo D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE.
+4. **RULED 2026-09-15 (B4) - D1 `sub-2-point-drop` and `manual-gloops`.** The
+   recommendation was taken as written, with one binding addition: GLOOPS STAYS AS IS - the
+   recorder, its window and every code path they call are UNTOUCHED, and
+   `GLOOPS-STANDALONE-WINDDOWN` / GUI-P13 stay open. BUILT on branch `gloops-seam-verbs`:
+   the ADDITIVE no-arg pair `GloopsStart` / `GloopsStop` (36 -> 38 implemented, reserved
+   unchanged at 5; both `RequiresFlight`, both single-phase), the registry comment naming
+   Gloops as the drop's only seam-reachable producer (re-derived from the full caller set -
+   a tree commit never passes through `CreateRecordingFromFlightData` and KEEPS a 1-point
+   recording), the two stale S0.5 / S0.6 remarks corrected, and two READING-RUN lanes:
+   `GL-1-gloops-manual-lifecycle` and `GL-2-gloops-sub-2-point-drop`. NEITHER IS ARMED and
+   neither has flown - the operator arms them after the reading runs. Memo s3; todo
+   D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE.
 5. **OPEN - D17 `making-history`: define it or delete it.** Recommendation: define it as
    alt-site launch capture on stock-minimal and rank it last (a GS-4 clone launching from
    `Desert_Launch_Site`, one operator reading flight); or delete the value with an honest

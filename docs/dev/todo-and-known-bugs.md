@@ -1638,7 +1638,7 @@ own total measures >= 1; a total-0 run is vacuous again, not a failed control.
 comment and in test_hlib's CEILINGS comment; or record the pre-authorised re-pin in both
 places. The opportunistic live control above is unchanged.
 
-## D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE: the registry cell's only producer is reached in always-tree mode only through rare split-edge aborts, and no seam verb drives one [FILED 2026-09-10 by the ghost-replay Tier B / Tier D wave (`ghost-replay-tier-b`) while authoring the Tier D residue. A REGISTRY / VERB DECISION, not a product defect. BLOCKED on the operator, paired with the R2 `stop-on-switch` call]
+## D1-SUB-2-POINT-DROP-UNREACHABLE-IN-TREE-MODE: the registry cell's only producer is reached in always-tree mode only through rare split-edge aborts, and no seam verb drives one [FILED 2026-09-10 by the ghost-replay Tier B / Tier D wave (`ghost-replay-tier-b`) while authoring the Tier D residue. A REGISTRY / VERB DECISION, not a product defect. RULED 2026-09-15 (operator ruling B4: option (1), Gloops stays as is). The `sub-2-point-drop` half is BUILT and awaiting its reading flight; the `stop-on-switch` half (B3) is still OPEN]
 
 **What the cell names.** `harness/coverage/registry.toml` D1 `sub-2-point-drop`: a
 recording shorter than two points is dropped instead of committed. The only producer
@@ -1703,11 +1703,12 @@ DIFFERENT predicate (`Points.Count == 0`);
 (3) delete the value with a rationale comment - DEMOTED, because a same-predicate
 tree-mode path exists and deletion would drop a real behaviour from the registry.
 
-**Stale comments to correct in the PR that takes the decision (not a drive-by):** the
-"stationary-pod sub-2-point-drop" remarks at
-`harness/scenarios/S0.5-live-record-discard.toml:74` and
-`harness/scenarios/S0.6-live-record-commit.toml:62` predate always-tree mode; a tree
-commit never passes through `CreateRecordingFromFlightData`.
+**~~Stale comments to correct in the PR that takes the decision (not a drive-by)~~ DONE
+2026-09-15:** the "stationary-pod sub-2-point-drop" remarks at
+`harness/scenarios/S0.5-live-record-discard.toml` and
+`harness/scenarios/S0.6-live-record-commit.toml` predated always-tree mode - a tree commit
+never passes through `CreateRecordingFromFlightData`. Both now say what their count range
+is actually robust to, and both point at `GL-2-gloops-sub-2-point-drop` for the drop itself.
 
 **Recommendation (2026-09-11, see docs/dev/research/wave-0910-open-decisions-2026-09-11.md section 3):**
 two separate answers, both operator calls (roadmap "Priority register (2026-09-11)" items B3
@@ -1732,11 +1733,40 @@ Line numbers re-checked 2026-09-11 at `b21fc2096`:
 - `FallbackCommitSplitRecorder` is declared at `:6843`;
 - the Gloops `too short - discarded` ScreenMessage is at `:17085` (cited as `:17058` above).
 
-**Fix (revised 2026-09-11, pending B3 / B4).**
-- A registry PR redefines `stop-on-switch` and claims it on CI-1, rewrites the
-  `sub-2-point-drop` comment, and corrects the S0.5 / S0.6 comments.
-- A separate C# PR adds the Gloops verb pair and the lanes that claim `manual-gloops` and
-  `sub-2-point-drop`.
+**RULING B4, taken 2026-09-15 (operator): option (1), and GLOOPS STAYS AS IS.** The cell
+is KEPT and closed through a seam verb pair, with no change to the Gloops recorder, its
+window or any code it calls - `GLOOPS-STANDALONE-WINDDOWN` and GUI-P13 stay open and
+untouched. Option (2) was not taken (it would have redefined a real behaviour away from its
+own producer) and option (3) was already demoted.
+
+**Fix (`sub-2-point-drop` half: BUILT 2026-09-15, branch `gloops-seam-verbs`; awaiting its
+reading flight).**
+- ADDITIVE M-A2 verb pair `GloopsStart` / `GloopsStop`, no args, both `RequiresFlight`,
+  both SINGLE-PHASE (the recorder attaches to the physics-frame patch inside
+  `FlightRecorder.StartRecording`, and the stop half stops / builds / commits / nulls in one
+  synchronous call, so each read-back is a final answer). 36 -> 38 implemented, reserved
+  unchanged at 5. They drive the EXISTING entry points - the same two internal
+  `ParsekFlight` members the window's primary button calls - and every REJECTED token is a
+  READ-BACK of an existing Gloops guard's decision rather than a second copy of it. A unit
+  cell reads the applier's source and asserts it reaches no other Gloops mutator (no
+  Discard, no Preview) and writes no Gloops field.
+- THE DROP IS NOT A REFUSAL: the button behaves identically, so `GloopsStop` terminates OK
+  with `committed=false points=<n> dropped=too-short`, and a lane gates on the PRODUCTION
+  log line. A REJECTED would have forced the lane to call its own subject a driver fault.
+- Two lanes, both authored as READING-RUN specs and neither armed:
+  `GL-1-gloops-manual-lifecycle` (claims `manual-gloops`; `samplingDensity=2` and eight
+  inert probes between start and stop, with the commit token deliberately UNGATED because
+  whether a stationary pod accrues two points is the reading-run unknown) and
+  `GL-2-gloops-sub-2-point-drop` (claims both; `samplingDensity=0` and ADJACENT steps, so
+  the take cannot reach two points, with the drop gated on four independently-failing
+  tokens).
+- The registry comment now names Gloops as the drop's only seam-reachable producer, and the
+  stale S0.5 / S0.6 "stationary-pod sub-2-point-drop" remarks named below are CORRECTED in
+  the same change.
+
+**Still OPEN: the `stop-on-switch` half (B3).** A registry PR must still redefine it as
+`switch-backgrounds-recording` and claim it on CI-1 with the `Transitioned to background
+(pid=` token, an armed re-flight and one negative control. No C#.
 
 ## ~~RF1-HYSTERESIS-UT-LITERAL-REFUTED-BY-LAUNCH-TICK: RF-1's armed re-flight red on a UT the claim-gap wave had pinned literal, because the autopilot launch landed one physics tick later~~ [FILED 2026-09-10 by the claim-gap wave (package A1-6). A HARNESS PIN finding, not a product defect. CLOSED 2026-09-11: the re-pinned spec flew green and both D4 claims were taken]
 

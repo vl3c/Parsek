@@ -59,9 +59,16 @@ allowedAnomalies = []
 [expectations.recordings]
 # The corpus floor (274) is the STRONG assertion: a commit that dropped or
 # corrupted the injected corpus would sink below it and red. The +1 ceiling is
-# TOLERANT of the stationary-pod sub-2-point-drop: a near-instant start/stop on a
-# motionless PRELAUNCH pod (default max sample interval 3.0s Medium) may finalize
-# to <2 points and be dropped, leaving the count at 274; if it survives, 275.
+# TOLERANT of whatever finalization decides about a near-instant start/stop on a
+# motionless PRELAUNCH pod: 274 if nothing was added, 275 if it was.
+# CORRECTED 2026-09-15 (package P2, the D1 `sub-2-point-drop` ruling): this comment
+# used to attribute the 274 case to "the stationary-pod sub-2-point-drop", which
+# PREDATES always-tree mode. A tree commit never passes through
+# RecordingStore.CreateRecordingFromFlightData - the only producer of that drop -
+# and the tree path KEEPS a 1-point recording, so whatever leaves this lane at 274
+# is not that drop. The range stays because either count keeps the corpus intact,
+# which is the point. The drop has its own lane now, GL-2-gloops-sub-2-point-drop,
+# over the Gloops recorder - the one commit path that still reaches the factory.
 # recorded-signal-fixes 2026-08-11: the corpus grew by TWO rows (the chute-repack
 # showcase + the surface rover drive, both added to InjectAllRecordings). Every number
 # in this spec that counts the corpus was DERIVED (+2) when it landed and is now

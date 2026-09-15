@@ -10,6 +10,22 @@ _(unreleased — entries accumulate here per commit)_
 
 ### Added
 
+- **Automated testing: the manual Gloops recorder can be driven without a mouse.**
+  Parsek's Gloops Flight Recorder - the parallel, ghost-only recorder whose takes the
+  career never sees - could only ever be started and stopped by clicking its window,
+  so no unattended test could reach it. The test-command seam gains two verbs,
+  `GloopsStart` and `GloopsStop`, that call exactly the two methods the window's own
+  button calls. Nothing about the recorder, its window or its commit path changed:
+  the verbs drive what is already there and report what the existing guards decided,
+  so a refusal repeats the reason the recorder itself gives (already recording, no
+  active vessel, the recorder declined, nothing to stop). Stopping a take that is too
+  short to keep is not treated as a failure, because the button does the same thing:
+  the verb answers successfully and says the take was dropped for being under two
+  points. Two new test scenarios use the pair - one records and stops a real take, the
+  other deliberately produces a take too short to keep and checks that Parsek refuses
+  it - closing the last two recording-lifecycle coverage cells that had no automated
+  producer at all.
+
 - **Developer tooling: the source tree now has a module dependency map with four
   ways to look at it, and a boundary check that reports without failing anything.**
   Parsek is a single assembly of roughly 750 files, and until now nothing showed how
