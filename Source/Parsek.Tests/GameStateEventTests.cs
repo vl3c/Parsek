@@ -184,6 +184,79 @@ namespace Parsek.Tests
             Assert.Equal(49200, events[1].valueAfter);
         }
 
+        // Fails if: the legacy candidate test stops comparing the observed
+        // funds delta against entryCost. The migration rewrites cost to 0 and
+        // flattens valueBefore onto valueAfter, so a row whose funds delta is
+        // not the entry cost is not the legacy free-unlock shape and
+        // rewriting it destroys a real purchase's recorded cost.
+        [Fact]
+        public void NormalizeLegacyPartPurchaseCostsForLoad_DeltaMismatch_SkipsMigration()
+        {
+            var events = new List<GameStateEvent>
+            {
+                new GameStateEvent
+                {
+                    ut = 1000,
+                    eventType = GameStateEventType.TechResearched,
+                    key = "basicRocketry",
+                    detail = "cost=5;parts=solidBooster.v2"
+                },
+                new GameStateEvent
+                {
+                    ut = 1000,
+                    eventType = GameStateEventType.PartPurchased,
+                    key = "solidBooster.v2",
+                    detail = "cost=800;entryCost=800",
+                    valueBefore = 50000,
+                    // 500 spent, not the 800 entry cost.
+                    valueAfter = 49500
+                }
+            };
+
+            int migrated = GameStateEvent.NormalizeLegacyPartPurchaseCostsForLoad(
+                events, "unit-test");
+
+            Assert.Equal(0, migrated);
+            Assert.Equal("cost=800;entryCost=800", events[1].detail);
+            Assert.Equal(50000, events[1].valueBefore);
+            Assert.Equal(49500, events[1].valueAfter);
+        }
+
+        // Fails if: the nearby-TechResearched probe stops checking that THIS
+        // part is in the unlock list. Mirror of the delta cell on the
+        // membership dimension: any tech researched in the same window would
+        // otherwise qualify every part purchase around it as a free unlock.
+        [Fact]
+        public void NormalizeLegacyPartPurchaseCostsForLoad_PartNotInUnlockList_SkipsMigration()
+        {
+            var events = new List<GameStateEvent>
+            {
+                new GameStateEvent
+                {
+                    ut = 1000,
+                    eventType = GameStateEventType.TechResearched,
+                    key = "basicRocketry",
+                    detail = "cost=5;parts=otherPart"
+                },
+                new GameStateEvent
+                {
+                    ut = 1000,
+                    eventType = GameStateEventType.PartPurchased,
+                    key = "solidBooster.v2",
+                    detail = "cost=800;entryCost=800",
+                    valueBefore = 50000,
+                    valueAfter = 49200
+                }
+            };
+
+            int migrated = GameStateEvent.NormalizeLegacyPartPurchaseCostsForLoad(
+                events, "unit-test");
+
+            Assert.Equal(0, migrated);
+            Assert.Equal("cost=800;entryCost=800", events[1].detail);
+            Assert.Equal(49200, events[1].valueAfter);
+        }
+
         [Fact]
         public void NormalizeLegacyPartPurchaseCostsForLoad_WithoutMatchingTechUnlock_SkipsMigration()
         {

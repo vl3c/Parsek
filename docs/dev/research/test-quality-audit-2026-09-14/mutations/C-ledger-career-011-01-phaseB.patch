@@ -1,0 +1,18 @@
+diff --git a/Source/Parsek/GameActions/GameStateEventConverter.cs b/Source/Parsek/GameActions/GameStateEventConverter.cs
+index 6ed5c5d48..3c7fe680a 100644
+--- a/Source/Parsek/GameActions/GameStateEventConverter.cs
++++ b/Source/Parsek/GameActions/GameStateEventConverter.cs
+@@ -615,12 +615,8 @@ namespace Parsek
+             // 0.0 = tier 1, 0.5 = tier 2, 1.0 = tier 3. GameAction.ToLevel is
+             // stored as the same 1-based tier number FacilitiesModule uses.
+             int toLevel = (int)Math.Round(evt.valueAfter * 2) + 1;
++            // MUTANT: tier floor removed
+             bool clamped = false;
+-            if (toLevel < 1)
+-            {
+-                toLevel = 1;
+-                clamped = true;
+-            }
+ 
+             ParsekLog.Verbose(Tag,
+                 $"ConvertFacilityUpgraded: facility='{evt.key}' " +

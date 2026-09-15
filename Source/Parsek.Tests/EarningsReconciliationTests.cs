@@ -1290,6 +1290,45 @@ namespace Parsek.Tests
             Assert.Empty(logLines);
         }
 
+        // Fails if: a cost-bearing untransformed arm reads the wrong action
+        // field or names the wrong reason key. These four arms have no direct
+        // classifier pin, and ReconcileKscExpectationLeg short-circuits on
+        // |expected| <= tolerance (KscActionReconciler), so an arm that reads
+        // an always-zero field (e.g. FundsSpent on a FacilityUpgrade) reports
+        // nothing and ships green through the KSC reconciliation cells.
+        [Theory]
+        [InlineData(GameActionType.FacilityUpgrade, 75000f, "StructureConstruction", -75000.0)]
+        [InlineData(GameActionType.FacilityRepair, 25000f, "StructureRepair", -25000.0)]
+        [InlineData(GameActionType.KerbalHire, 62113f, "CrewRecruited", -62113.0)]
+        [InlineData(GameActionType.ContractAccept, 2000f, "ContractAdvance", 2000.0)]
+        public void ClassifyAction_CostBearingUntransformedArms_KeysAndDeltas(
+            GameActionType type, float amount, string expectedKey, double expectedDelta)
+        {
+            var a = new GameAction { Type = type };
+            switch (type)
+            {
+                case GameActionType.FacilityUpgrade:
+                case GameActionType.FacilityRepair:
+                    a.FacilityCost = amount;
+                    break;
+                case GameActionType.KerbalHire:
+                    a.HireCost = amount;
+                    break;
+                case GameActionType.ContractAccept:
+                    a.AdvanceFunds = amount;
+                    break;
+            }
+
+            var exp = LedgerOrchestrator.ClassifyAction(a);
+
+            Assert.Equal(KscActionExpectationClassifier.KscReconcileClass.Untransformed, exp.Class);
+            Assert.Equal(1, exp.LegCount);
+            Assert.True(exp.FundsLeg.IsPresent);
+            Assert.Equal(GameStateEventType.FundsChanged, exp.FundsLeg.EventType);
+            Assert.Equal(expectedKey, exp.FundsLeg.ExpectedReasonKey);
+            Assert.Equal(expectedDelta, exp.FundsLeg.ExpectedDelta);
+        }
+
         [Fact]
         public void ClassifyAction_ContractComplete_Transformed()
         {

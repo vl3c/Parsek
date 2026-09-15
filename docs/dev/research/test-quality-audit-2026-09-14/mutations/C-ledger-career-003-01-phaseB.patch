@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/GameActions/LedgerOrchestrator.cs b/Source/Parsek/GameActions/LedgerOrchestrator.cs
+index f0a7d8a40..56b948fe9 100644
+--- a/Source/Parsek/GameActions/LedgerOrchestrator.cs
++++ b/Source/Parsek/GameActions/LedgerOrchestrator.cs
+@@ -6068,8 +6068,7 @@ namespace Parsek
+                     var evt = events[i];
+                     if (evt.eventType != GameStateEventType.ScienceChanged)
+                         continue;
+-                    if (!string.Equals(evt.key, TechResearchScienceReasonKey, StringComparison.Ordinal))
+-                        continue;
++                    // MUTANT: reason-key filter removed
+                     if (evt.valueAfter >= evt.valueBefore)
+                         continue;
+                     if (Math.Abs(evt.ut - nowUt) > KscReconcileEpsilonSeconds)

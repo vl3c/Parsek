@@ -1,0 +1,17 @@
+diff --git a/Source/Parsek/GameActions/Ledger.cs b/Source/Parsek/GameActions/Ledger.cs
+index f8687564a..053073312 100644
+--- a/Source/Parsek/GameActions/Ledger.cs
++++ b/Source/Parsek/GameActions/Ledger.cs
+@@ -680,9 +680,9 @@ namespace Parsek
+                 bool versionOk = versionStr != null
+                     && int.TryParse(versionStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out version)
+                     && version == CurrentLedgerVersion;
+-                bool generationOk = schemaGenerationStr != null
+-                    && int.TryParse(schemaGenerationStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out schemaGeneration)
+-                    && schemaGeneration == RecordingStore.CurrentRecordingSchemaGeneration;
++                // MUTANT: generation half of the gate always passes
++                int.TryParse(schemaGenerationStr, NumberStyles.Integer, CultureInfo.InvariantCulture, out schemaGeneration);
++                bool generationOk = true;
+ 
+                 if (!versionOk || !generationOk)
+                 {

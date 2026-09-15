@@ -1,0 +1,14 @@
+diff --git a/Source/Parsek/GameStateStore.cs b/Source/Parsek/GameStateStore.cs
+index 7492afc21..b29123b6f 100644
+--- a/Source/Parsek/GameStateStore.cs
++++ b/Source/Parsek/GameStateStore.cs
+@@ -510,7 +510,8 @@ namespace Parsek
+             }
+ 
+             // 2. Milestone event lists — covers the F5-then-discard path.
+-            var milestoneRemoved = MilestoneStore.PurgeTaggedEvents(set, reason);
++            // MUTANT: milestone purge limb removed
++            var milestoneRemoved = new List<GameStateEvent>();
+ 
+             // 3. Contract snapshots — only those whose ContractAccepted event was purged.
+             var allPurged = new List<GameStateEvent>(liveRemoved.Count + milestoneRemoved.Count);

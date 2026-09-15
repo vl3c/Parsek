@@ -318,6 +318,34 @@ _(unreleased — entries accumulate here per commit)_
   the ledger cutoff tests own that contract, and its one unique assertion survives as
   its own cell. Nothing a player sees changes.
 
+- **Tests: twelve priority-2 data-loss and career coverage gaps from the unit-test quality
+  audit now have cells.** All twelve rows were new coverage - none was already pinned by a
+  cell the recent audit PRs added - so twelve new cells landed and zero rows closed as
+  already covered. Eleven sit on the career ledger. The KSC expectation classifier's four
+  cost-bearing arms (facility upgrade, facility repair, kerbal hire, contract advance) are
+  pinned directly for the first time, because the reconciler short-circuits on a zero
+  expected delta and an arm reading a wrong (always-zero) field reported nothing. The
+  tech-unlock holdback is driven with a wrong-reason row and out-of-window rows on both
+  sides, so dropping any of its three filters now reds. The crew-end-state gate's EVA arm
+  gets a bare EVA recording with no ghost snapshot, the one shape where that conjunct is
+  load-bearing. A vessel recovery whose paired funds event has a non-positive delta is
+  proved to write no row AND to consume the event, so a negative credit cannot reach the
+  ledger and the request cannot re-pair later. The legacy part-purchase migration gains its
+  two negative mirrors: a funds delta that does not match the entry cost, and an unlock list
+  that names a different part. The committed-science commit is driven with a null, a
+  wrong-type, an empty-subject and a zero-award row against one valid one. The ledger's
+  load gate is proved to reject a mismatched recording schema generation, not only a
+  mismatched ledger version. Reconcile's prune path is proved to bump the state version,
+  read through the real ELS consumer, so pruned rows cannot be served from cache. The
+  facility-upgrade converter's tier floor is driven with a negative normalized level that
+  would otherwise reach the facilities module as tier 0. Outside the ledger, the
+  milestone limb of the event purge is finally seeded (the F5-then-discard path), and the
+  switch-segment marker-owned bypass is driven with an id that is ALSO in the restore
+  attempt's cutoff map - the precondition the existing cell lacked, so ordering the bypass
+  after the cutoff check now reds. Each cell carries a mutation proof under
+  `docs/dev/research/test-quality-audit-2026-09-14/mutations/`. No production change, no
+  player-visible change.
+
 - **Tests: the eleven priority-1 recording-risk coverage gaps from the unit-test quality
   audit now have cells.** Ten new cells, all pure or headless, nine against paths where the
   suite stayed green with the guard removed (the tenth, the sealed-tip membership shape,

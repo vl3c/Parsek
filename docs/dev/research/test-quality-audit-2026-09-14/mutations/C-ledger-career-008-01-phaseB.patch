@@ -1,0 +1,15 @@
+diff --git a/Source/Parsek/GameStateStore.cs b/Source/Parsek/GameStateStore.cs
+index 7492afc21..a55036a0f 100644
+--- a/Source/Parsek/GameStateStore.cs
++++ b/Source/Parsek/GameStateStore.cs
+@@ -818,8 +818,8 @@ namespace Parsek
+                 var action = actions[i];
+                 if (action == null ||
+                     action.Type != GameActionType.ScienceEarning ||
+-                    string.IsNullOrEmpty(action.SubjectId) ||
+-                    action.ScienceAwarded <= 0f)
++                    // MUTANT: non-positive-award skip dropped
++                    string.IsNullOrEmpty(action.SubjectId))
+                 {
+                     skipped++;
+                     continue;
