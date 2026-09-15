@@ -560,21 +560,28 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void PaintMembership_IsTheMeshFact_NotAPerFrameStamp()
+        public void PaintMembership_IsClearedOnlyByAHideOrAFlush()
         {
-            // THE READING-RUN-2 DEFECT, as a cell. The ghost's draw pass early-returns whenever its
-            // -50 decide walk did not run, and the deactivation sweep lives inside that pass - so on
-            // such a frame nothing paints, nothing is hidden, and last frame's mesh is still on
-            // screen. Membership must survive that frame; only an actual HIDE may clear it.
+            // Renamed. The old name claimed the READING-RUN-2 defect (membership surviving a
+            // frame on which the ghost's draw pass bailed), but nothing here advances a frame:
+            // the two reads below used to be identical calls with nothing between them, so a
+            // re-introduced per-frame stamp would have left the cell green. No headless seam
+            // can advance that frame - the draw pass and its deactivation sweep are Unity
+            // onPreCull code - and the staleness half is pinned separately by
+            // ResolveLegPaintFromMesh_IsMembershipAndTheDeadRendererGuard via
+            // SetPaintMaintenanceRanForTesting. What this cell does prove is the clearer set:
+            // a hide and a Clear, and nothing else, drop the paint fact.
             GhostTrajectoryPolylineRenderer.SetLegPaintForTesting("seg1", 0, 1100.0, 1200.0, true);
             Assert.True(GhostTrajectoryPolylineRenderer.IsPaintingNonOrbitalLegSpan(
                 "seg1", 1100.0, 1200.0));
 
-            // A bailed frame maintains nothing at all - and the answer does not change, because the
-            // mesh did not. (The old frame-stamped set flipped to false here, the route line drew,
-            // and V26M recorded 403 co-draw violations.)
+            // Maintaining an UNRELATED recording's leg is not a clearer either: membership is
+            // keyed per recording and per leg, not rebuilt wholesale by whoever paints next.
+            GhostTrajectoryPolylineRenderer.SetLegPaintForTesting("seg2", 0, 5000.0, 5100.0, true);
             Assert.True(GhostTrajectoryPolylineRenderer.IsPaintingNonOrbitalLegSpan(
                 "seg1", 1100.0, 1200.0));
+            Assert.True(GhostTrajectoryPolylineRenderer.IsPaintingNonOrbitalLegSpan(
+                "seg2", 5000.0, 5100.0));
 
             // Hiding that leg's mesh clears the paint fact.
             GhostTrajectoryPolylineRenderer.SetLegPaintForTesting("seg1", 0, 1100.0, 1200.0, false);

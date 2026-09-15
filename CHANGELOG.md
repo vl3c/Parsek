@@ -303,6 +303,73 @@ _(unreleased — entries accumulate here per commit)_
   differently, no new surface appears, and the automation seam's pointer op reports the
   same value on its own answer.
 
+- **Tests: twelve Supply Route cells from the audit's T3 (weak or misleading) register
+  now let the production term they name decide the verdict.** No production change; all
+  twelve strengthened, six of those also renamed to what they prove (renames are a subset
+  of the strengthened set, not a separate bucket). The "fresh guid" cell built
+  one route and checked the id was 32 characters, which a constant id satisfies - it now
+  builds twice and pins distinctness. The reject-message sweep asserted only
+  non-emptiness, which the switch default also produces, so it now asserts each status
+  produces copy that is NOT the fallback (with a control proving the fallback is still
+  reachable). The harvest-window cell claimed LOCATION coverage without asserting
+  latitude, longitude or altitude; all three are pinned, so swapping the assignments
+  reds. The recovery-credit scope cell claimed the G1 tree-scope guard but
+  `SumRecoveredCredits` takes the scope as a parameter - it is retitled, and a new cell
+  composes `ResolveTreeRecordingIds` with the sum so the real rescoping regression reds.
+  The root-part-id cell round-tripped a hand-built endpoint through the codec while
+  claiming the BUILDER stamps it; it now drives `RouteBuilder.BuildRoute` over a
+  docked-origin proof first. The loaded-gate cell called no probe or writer method at
+  all; the writer is now driven and the `path=` token read off the delivery log, so a
+  per-call re-evaluation of `vessel.loaded` reds (the probe stays construction-pinned -
+  every probe entry point returns before its branch on a null vessel, and that is stated
+  in the cell). The never-InTransit loop cell read fields the fake applier itself had
+  just cleared; it now captures them inside the applier, before its bookkeeping. The
+  endpoint-lost recovery-credit cell called the shared helper directly and conceded the
+  wiring was "verified by reading"; it is renamed after the helper and a new cell reaches
+  the endpoint-lost call site through a tick. The crashed-disposition cell never set a
+  disposition (its body was a twin of the shuttle cell); the route's backing recording
+  now carries the crashed terminal, so a disposition gate added later reds there and not
+  in the twin. The competing-route escrow cell asserted its headline with test-side
+  arithmetic; it now nets through the production `RoutePickupSourceGate.NettedAvailable`
+  and runs the competitor's gate, asserting the exact `source-reserved:` hold token. The
+  last two renames go to cells whose old names claimed something only Unity can witness:
+  the paint-membership cell cannot advance a frame, and the unloaded stored-part cell
+  does its own appending (the writer's append is private and needs a ProtoVessel).
+
+- **Tests: eight recorder, playback and crew cells from the audit's T3 (weak or
+  misleading) register now let the term they name decide the verdict.** No production
+  change; all eight strengthened, five of them also renamed to what they actually prove
+  (renames are a subset of the strengthened set, not a separate bucket).
+  The two warp / watch-protection predicates take the same two booleans, so a
+  single-pair cell could not tell the conjunction from a constant: both are now
+  theories over all four pairs, which pins the load-bearing arm (a watch-protected
+  NON-orbit-tail recording stays full fidelity and keeps the warp-zone hide exemption).
+  `ShouldTriggerExplosion_PassesButWarpSuppresses_LogsSuppression` promised a log
+  assertion neither helper could make - renamed
+  `ShouldTriggerExplosion_AllGuardsPass_WarpGateDecidesFxSuppression` and given rows at
+  and just above the 10x threshold, so the strict comparison and the constant decide.
+  The already-Destroyed fallback cell now also asserts `VesselDestroyed`, the field set
+  ahead of the early return and read by the no-op switch-segment classifier, with the
+  two not-destroyed cells asserting its absence. `ZeroTimeDelta_NoRecord` credited the
+  sampler with a guard that does not exist (both velocities were identical, so no gate
+  could fire either way): it is renamed to the identical-velocity case and joined by two
+  siblings pinning the real behaviour - a velocity change at the SAME UT does record a
+  duplicate-UT sample, and the negative-elapsed mirror is refused by the min-interval
+  floor rather than by any backward-time guard. The duplicate-UT regime is fixture-only:
+  it needs a zero min-interval floor, and `ParsekSettings.GetMinSampleInterval` returns
+  0.5 / 0.2 / 0.05, so no shipped sampling density can reach it. The cells pin the pure
+  function's contract, not an in-game sample. The tree-side missing-loop-anchor-body
+  cell decoded through the `ParsekScenario` test helper its own twin already drove, so
+  it now loads a real `RECORDING_TREE` through `RecordingTree.Load` and carries a second
+  recording WITH the key, making the codec's assignment the deciding term. The
+  cross-body terminal-orbit cell hand-passed the loop-synthesis flag as false, which made
+  it the same branch as the non-loop cell beside it; it now COMPUTES the flag through
+  `IsTerminalOrbitSynthesisSafeForLoopMember` the way the map-presence caller does, with
+  a same-body control proving the composition is not constant-false. And the unmanaged
+  crew cell injected no `KerbalsModule` at all, so only the null fallback ran and
+  `IsManaged` was never called: it now injects a real module that manages a different
+  kerbal, with the null-module fallback kept as its own cell.
+
 - **Tests: twenty recording-tree cells from the audit's Medium T3 register (weak or
   misleading) now turn on the production line their name names.** Ten of them were decided
   by something other than the guard under test - an empty store, a lone committed record,

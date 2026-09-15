@@ -1,0 +1,12 @@
+diff --git a/Source/Parsek/Logistics/RouteOrchestrator.cs b/Source/Parsek/Logistics/RouteOrchestrator.cs
+index c70f9af33..69c9a3242 100644
+--- a/Source/Parsek/Logistics/RouteOrchestrator.cs
++++ b/Source/Parsek/Logistics/RouteOrchestrator.cs
+@@ -4243,7 +4243,6 @@ namespace Parsek.Logistics
+                 // this cycle dispatched + armed its pending credit during EmitLoopCycle,
+                 // and an EndpointLost route stops crossing, so flush the owed credit
+                 // before the route goes quiet. Idempotent / gated; no-ops if nothing owed.
+-                EmitPendingRecoveryCredit(route, currentUT, env);
+                 route.TransitionTo(RouteStatus.EndpointLost, "endpoint-lost-at-delivery");
+                 // M4b escrow-strand fix (PR #1180 review): see ApplyEndpointLost - drop any
+                 // held escrow on the delivery-time endpoint-lost transition too (the cycle

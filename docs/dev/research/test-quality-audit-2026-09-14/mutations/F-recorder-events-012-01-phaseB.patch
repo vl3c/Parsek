@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/GhostPlaybackLogic.WarpLoopPolicy.cs b/Source/Parsek/GhostPlaybackLogic.WarpLoopPolicy.cs
+index f397ac6c9..505baa767 100644
+--- a/Source/Parsek/GhostPlaybackLogic.WarpLoopPolicy.cs
++++ b/Source/Parsek/GhostPlaybackLogic.WarpLoopPolicy.cs
+@@ -177,7 +177,7 @@ namespace Parsek
+         internal static bool ShouldForceWatchProtectedFullFidelity(
+             bool isWatchProtectedRecording, bool isOrbitTailPlayback)
+         {
+-            return isWatchProtectedRecording && !isOrbitTailPlayback;
++            return isWatchProtectedRecording || !isOrbitTailPlayback;
+         }
+ 
+         internal static bool ShouldFlushDeferredSpawns(int pendingCount, bool isWarpActive)

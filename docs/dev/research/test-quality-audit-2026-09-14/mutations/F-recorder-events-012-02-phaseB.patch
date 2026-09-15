@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/GhostPlaybackLogic.WarpLoopPolicy.cs b/Source/Parsek/GhostPlaybackLogic.WarpLoopPolicy.cs
+index f397ac6c9..efe3c82dc 100644
+--- a/Source/Parsek/GhostPlaybackLogic.WarpLoopPolicy.cs
++++ b/Source/Parsek/GhostPlaybackLogic.WarpLoopPolicy.cs
+@@ -171,7 +171,7 @@ namespace Parsek
+         internal static bool ShouldAllowWarpZoneHideExemption(
+             bool isWatchProtectedRecording, bool isOrbitTailPlayback)
+         {
+-            return !(isWatchProtectedRecording && isOrbitTailPlayback);
++            return !(isWatchProtectedRecording || isOrbitTailPlayback);
+         }
+ 
+         internal static bool ShouldForceWatchProtectedFullFidelity(

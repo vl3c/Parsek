@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/Logistics/RouteOrchestrator.cs b/Source/Parsek/Logistics/RouteOrchestrator.cs
+index c70f9af33..26ff92645 100644
+--- a/Source/Parsek/Logistics/RouteOrchestrator.cs
++++ b/Source/Parsek/Logistics/RouteOrchestrator.cs
+@@ -2603,6 +2603,8 @@ namespace Parsek.Logistics
+             // -> calls ApplyDelivery VERBATIM).
+             if (RouteHasDeliveryManifest(route))
+             {
++                route.CurrentCycleStartUT = currentUT;
++                route.PendingDeliveryUT = currentUT;
+                 var deliveryApplier = DeliveryApplierForTesting;
+                 if (deliveryApplier != null)
+                     deliveryApplier(route, currentUT, env);

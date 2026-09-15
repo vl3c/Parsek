@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/GhostMapPresence.cs b/Source/Parsek/GhostMapPresence.cs
+index e0d742cb5..137c5769a 100644
+--- a/Source/Parsek/GhostMapPresence.cs
++++ b/Source/Parsek/GhostMapPresence.cs
+@@ -4607,7 +4607,7 @@ namespace Parsek
+                     10.0);
+                 return false;
+             }
+-            bool sameBody = string.Equals(lastPointBody, terminalBody, StringComparison.Ordinal);
++            bool sameBody = true;
+             ParsekLog.VerboseRateLimited(Tag, safeKey,
+                 string.Format(ic,
+                     "IsTerminalOrbitSynthesisSafeForLoopMember: rec={0} result={1} reason={2} terminalBody={3} lastPointBody={4}",

@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/Display/GhostTrajectoryPolylineRenderer.cs b/Source/Parsek/Display/GhostTrajectoryPolylineRenderer.cs
+index d116e3973..f8c5c5bc7 100644
+--- a/Source/Parsek/Display/GhostTrajectoryPolylineRenderer.cs
++++ b/Source/Parsek/Display/GhostTrajectoryPolylineRenderer.cs
+@@ -627,7 +627,7 @@ namespace Parsek.Display
+         /// that is the whole 2026-09-06 reading-run-2 finding. Unit-testable without Unity.
+         /// </summary>
+         internal static bool ResolveLegPaintFromMesh(bool meshCoversSpan, bool maintenanceRan)
+-            => meshCoversSpan && maintenanceRan;
++            => maintenanceRan;
+ 
+         /// <summary>
+         /// True when the ghost polyline currently has a VISIBLE mesh for <paramref name="recordingId"/>
