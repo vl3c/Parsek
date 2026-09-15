@@ -106,6 +106,19 @@ namespace Parsek
             return currentWarpRate > WarpThresholds.GhostHide;
         }
 
+        /// <summary>
+        /// Per-frame playback-update gate (#290): ghosts are suppressed at high warp in
+        /// the flight view only. In map view they keep being positioned so the map
+        /// markers draw at the right place - the mesh is invisible at orbital distances
+        /// anyway, and only the icon plus text matters there. The engine's
+        /// <c>UpdatePlayback</c> calls this; the composition lives here so the map-view
+        /// carve-out is testable without an engine frame.
+        /// </summary>
+        internal static bool ShouldSuppressGhostsInView(bool mapViewEnabled, float currentWarpRate)
+        {
+            return !mapViewEnabled && ShouldSuppressGhosts(currentWarpRate);
+        }
+
         internal static bool ShouldSuppressGhostMeshAtWarp(
             float currentWarpRate, IPlaybackTrajectory traj, double playbackUT)
         {

@@ -1,0 +1,16 @@
+diff --git a/Source/Parsek/ParsekFlight.cs b/Source/Parsek/ParsekFlight.cs
+index 9435ae44c..47549d8a4 100644
+--- a/Source/Parsek/ParsekFlight.cs
++++ b/Source/Parsek/ParsekFlight.cs
+@@ -25280,11 +25280,6 @@ namespace Parsek
+             if (string.IsNullOrEmpty(marker.ActiveReFlyRecordingId)
+                 || string.IsNullOrEmpty(marker.OriginChildRecordingId))
+                 return false;
+-            if (!string.IsNullOrEmpty(marker.TreeId)
+-                && !string.Equals(marker.TreeId, tree.Id, StringComparison.Ordinal))
+-            {
+-                return false;
+-            }
+ 
+             // Locate the fork in the committed list. Allowlisted raw read
+             // per [ERS-exempt - Phase 6] file-level note in RewindInvoker.

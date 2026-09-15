@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/GhostPlaybackLogic.WarpLoopPolicy.cs b/Source/Parsek/GhostPlaybackLogic.WarpLoopPolicy.cs
+index f397ac6c9..fa3306e02 100644
+--- a/Source/Parsek/GhostPlaybackLogic.WarpLoopPolicy.cs
++++ b/Source/Parsek/GhostPlaybackLogic.WarpLoopPolicy.cs
+@@ -116,7 +116,7 @@ namespace Parsek
+         /// </summary>
+         internal static bool ShouldSuppressGhostsInView(bool mapViewEnabled, float currentWarpRate)
+         {
+-            return !mapViewEnabled && ShouldSuppressGhosts(currentWarpRate);
++            return ShouldSuppressGhosts(currentWarpRate);
+         }
+ 
+         internal static bool ShouldSuppressGhostMeshAtWarp(

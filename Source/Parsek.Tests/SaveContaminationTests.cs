@@ -83,20 +83,30 @@ namespace Parsek.Tests
         }
 
         [Fact]
-        public void CommittedTrees_ExplicitClear_RemovesStaleTreesRegardlessOfNewTreeCount()
+        public void CommittedTrees_InitialLoadOfATreelessSave_RemovesStaleTrees()
         {
-            // Simulate save A: commit a tree
+            // The contamination this guards is cross-save: save A's trees must not
+            // survive into save B when save B's SCENARIO node carries no
+            // RECORDING_TREE at all. Calling CommittedTrees.Clear() in the test body
+            // proved only that List.Clear works; the clear that matters is the one
+            // inside the real load path, so this drives it.
             var tree = MakeSimpleTree("tree_saveA");
             RecordingStore.CommitTree(tree);
             Assert.Single(RecordingStore.CommittedTrees);
+            Assert.Single(RecordingStore.CommittedRecordings);
 
-            // Simulate the fix: always clear both lists on initial load
+            // OnLoad's cold-load order for save B: clear the committed recordings,
+            // then hand the new save's node to the tree loader. The node has no
+            // RECORDING_TREE children - the exact shape that used to leak.
             RecordingStore.ClearCommittedInternal();
-            RecordingStore.CommittedTrees.Clear();
+            ParsekScenario.LoadRecordingTrees(
+                new ConfigNode("SCENARIO"), new List<Recording>());
 
-            // Now save B has no trees — both lists are empty
             Assert.Empty(RecordingStore.CommittedTrees);
             Assert.Empty(RecordingStore.CommittedRecordings);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Scenario]") &&
+                l.Contains("OnLoad initial: cleared CommittedTrees, loading 0 tree(s)"));
         }
 
         [Fact]

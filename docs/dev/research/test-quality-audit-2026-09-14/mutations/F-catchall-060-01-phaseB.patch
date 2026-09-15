@@ -1,0 +1,12 @@
+diff --git a/Source/Parsek/ParsekScenario.cs b/Source/Parsek/ParsekScenario.cs
+index 36d064728..af834bc35 100644
+--- a/Source/Parsek/ParsekScenario.cs
++++ b/Source/Parsek/ParsekScenario.cs
+@@ -5312,7 +5312,6 @@ namespace Parsek
+             // from the previous save would otherwise persist and contaminate this save.
+             ConfigNode[] treeNodes = node.GetNodes("RECORDING_TREE");
+             var committedTrees = RecordingStore.CommittedTrees;
+-            committedTrees.Clear();
+             ParsekLog.Info("Scenario",
+                 $"OnLoad initial: cleared CommittedTrees, loading {treeNodes.Length} tree(s)");
+ 

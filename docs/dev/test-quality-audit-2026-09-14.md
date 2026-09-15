@@ -1032,6 +1032,57 @@ before each PR, run alone in the machine-wide suite slot, and the PR body says i
     `TheGroupHideAllScanRedsWhenTheRoutingExistsOnlyInAComment` in the same file. A comment
     at the site names the twins.
 
+- `testfix-t1t2`, sixth PR (2026-09-15), second commit: the rest of
+  `work/phase-b-slice-medium-t1-06.txt`. Slice total 14 ids: 11 fixed, 3 deleted (twins
+  named), 0 deferred. This CLOSES the Medium T1 register - no Medium T1 row is left
+  unhandled. Every fixed row has a proof row in
+  `research/test-quality-audit-2026-09-14/mutations/mutations.csv` and a `*-phaseB.patch`.
+  - Fixed: F-catchall-059-01 (renamed `FreshRecorder_AltitudeFlagsDefaultFalse` - the
+    confirm log it claimed needs a live Vessel, so the cell states the field-default claim
+    it can make, notes that ParsekFlight's altitude-phase split early-returns on
+    `AltitudeBoundaryCrossed`, and also drives the not-recording guard; the mutant
+    initialises the field to true); F-catchall-060-01 (drives the real load path -
+    `ParsekScenario.LoadRecordingTrees` over a SCENARIO node with no `RECORDING_TREE`
+    child - instead of calling `CommittedTrees.Clear()` in the test body, and asserts the
+    `OnLoad initial: cleared CommittedTrees, loading 0 tree(s)` line);
+    F-catchall-062-01 (the OnLoad counting loop is extracted as
+    `ParsekScenario.CountSavedCommittedRecordingNodes`, and the cell feeds it a node
+    carrying an in-flight marker tree AND a pending marker tree whose recordings must NOT
+    count - the rule the old in-test replay got wrong on top of being detached);
+    F-legacy-bugfix-009-02 / -009-03 (both fixtures now seed the fork into
+    `RecordingStore.CommittedRecordings`, so the guard-removed path would ATTACH it rather
+    than land on the missing-from-BOTH branch that also returns false; the mutants delete
+    the `InPlaceContinuation` guard and the marker-TreeId-vs-tree-Id guard respectively);
+    F-legacy-bugfix-025-01 (the map-view carve-out is extracted as
+    `GhostPlaybackLogic.ShouldSuppressGhostsInView(mapViewEnabled, warpRate)` - the
+    composition `UpdatePlayback` now calls - and all three cells assert the helper, so a
+    dropped `mapViewEnabled` term reds instead of leaving the warp threshold restated).
+  - Replaced (stale claim, no twin to delete into): F-legacy-bugfix-026-01. The cell
+    quoted a gate expression the engine no longer carries; the shipped line is a bare
+    `if (!TryReserveSpawnSlot(index, "loop-first-spawn"))` inside the `state == null`
+    first-spawn block, and the cycle-rebuild branch runs only when `state != null`, so a
+    rebuild cannot reach it and no bypass term is needed. Renamed
+    `LoopFirstSpawn_IsThrottledWithNoCycleChangedBypass` and re-pointed at the real
+    reservation primitive under the loop site tag (budget available -> reserved; budget
+    exhausted -> deferred, counted and named in the throttle log). The mutant exempts the
+    `loop-first-spawn` site from the frame cap.
+  - Two production helpers were extracted in this slice
+    (`VesselSpawner.ShouldEnterDuplicateBlockerRecovery` in the first commit,
+    `ParsekScenario.CountSavedCommittedRecordingNodes` and
+    `GhostPlaybackLogic.ShouldSuppressGhostsInView` here); each call site keeps the same
+    inputs, order and log lines. After each production edit the test tree was grepped for
+    the moved identifiers and every source-scanning class over the touched file was re-run
+    (`ProgrammaticRecoveryCrewSuppressionGateTests`, `SpawnWalkbackFallbackTests`,
+    `CareerSeedReadinessTests`, `ChainSaveLoadTests`, `CheckpointDoubleCoverRetireTests`,
+    `ObservabilityPersistencePhase3Tests`, `QuickloadResumeTests`,
+    `SaveActiveTreeSidecarBothOrNeitherTests`, `ScenarioGameEventHandlerContractTests`,
+    `SceneChangeTerminalStateWiringGateTests`, `SwitchSegmentSaveLoadTests`,
+    `SwitchSegmentSuppressionNarrowingTests`, `TestBatchIsolationTests`,
+    `GhostRenderTraceTests`, `GhostSpawnPendingNotifyTests`,
+    `GrepAuditNonLoopLivePidTests`, `LoopUnitSetCoherenceTests`,
+    `OverlapPerInstanceTests`, `WatchEntryAcceptanceWiringGateTests`,
+    `RuntimePolicyTests`), plus `GrepAuditTests` each time. No gate needed re-anchoring.
+
 ## July crosswalk
 
 `research/test-quality-audit-2026-09-14/july-crosswalk.csv` maps every July register ID (42 rows: A1-A7, B1-B8, C1-C6, D1-D5, and Tier E numbered E1-E16 in source order) to the SUT or file it names and to the D2/D3 rows here that touch the same SUT. `status_now` is judged from the xUnit tree only and says `unknown` for harness and in-game items this audit cannot decide (closed 15, unknown 19, open 7, superseded 1). 49 findings and 14 coverage proposals carry a `july_ref` / `dupe_of_july_id`; for those the July ID stays primary and this audit adds evidence.
