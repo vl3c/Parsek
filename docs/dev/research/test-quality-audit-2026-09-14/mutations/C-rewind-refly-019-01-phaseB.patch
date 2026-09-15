@@ -1,0 +1,18 @@
+diff --git a/Source/Parsek/RewindInvoker.cs b/Source/Parsek/RewindInvoker.cs
+index ad7f0e20d..0906af2fd 100644
+--- a/Source/Parsek/RewindInvoker.cs
++++ b/Source/Parsek/RewindInvoker.cs
+@@ -2430,12 +2430,7 @@ namespace Parsek
+ 
+                 // Pending tree.
+                 bool fromPendingTree = false;
+-                var pending = RecordingStore.PendingTree;
+-                if (pending?.Recordings != null && pending.Recordings.Remove(id))
+-                {
+-                    pending.RebuildBackgroundMap();
+-                    fromPendingTree = true;
+-                }
++                // MUTANT: PendingTree removal block deleted
+ 
+                 // Live active tree (the s11 evidence case).
+                 bool fromActiveTree = false;

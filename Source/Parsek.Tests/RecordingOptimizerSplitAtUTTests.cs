@@ -7,7 +7,7 @@ using Xunit;
 namespace Parsek.Tests
 {
     /// <summary>
-    /// Unit tests for <see cref="RecordingOptimizer.SplitAtUT"/> — the arbitrary-UT
+    /// Unit tests for <see cref="RecordingOptimizer.SplitAtUT"/> - the arbitrary-UT
     /// split helper used by the Re-Fly supersede-identity orchestrator. Covers
     /// pre-condition guards, OrbitSegment tail-cloning across the split (Task A7
     /// removed the prior orbit-segment-straddle guard in favour of struct-copy
@@ -57,7 +57,7 @@ namespace Parsek.Tests
         /// TrackSection (Atmospheric, Absolute frame). Used for the precondition
         /// and "splitUT in middle of single section" cases. When midUT is supplied
         /// a third point is inserted at midUT so SplitAtSection's interpolation
-        /// branch (which calls UnityEngine.Quaternion.Slerp — not callable outside
+        /// branch (which calls UnityEngine.Quaternion.Slerp - not callable outside
         /// the Unity runtime) is bypassed.
         /// </summary>
         private static Recording MakeSimpleRecording(double startUT, double endUT,
@@ -188,7 +188,7 @@ namespace Parsek.Tests
                 && l.Contains("rec-pre")
                 && l.Contains("do not strictly span"));
             // The precondition fires BEFORE the Ensure call, so no mutation
-            // is possible — but pin the byte-identical contract anyway so a
+            // is possible - but pin the byte-identical contract anyway so a
             // future refactor that reorders the guards trips this test.
             Assert.Equal(sectionCountBefore, rec.TrackSections.Count);
             Assert.Equal(sectionEndUtBefore, rec.TrackSections[0].endUT);
@@ -267,7 +267,7 @@ namespace Parsek.Tests
             //  - OrbitSegment.isPredicted=true so the EnsureCheckpoint bridge skips
             //    creating an OrbitalCheckpoint section, which would otherwise be
             //    inserted at startUT=20 and then re-sorted in front of the synthetic
-            //    [34, 53] tail section — invalidating sectionIndex and routing
+            //    [34, 53] tail section - invalidating sectionIndex and routing
             //    SplitAtSection into the boundary-interpolation Slerp path that
             //    requires the Unity runtime.
             var rec = new Recording
@@ -481,7 +481,7 @@ namespace Parsek.Tests
         public void SplitAtUT_TailClonesHyperbolicOrbitSegment_PreservesKeplerElements()
         {
             // Pass 5 review L4: SplitAtSection's tail-clone is a struct
-            // value-copy with adjusted startUT — Kepler elements describe
+            // value-copy with adjusted startUT - Kepler elements describe
             // the whole conic regardless of eccentricity, so the same
             // value-copy is correct for elliptical, parabolic, and
             // hyperbolic. This test pins the hyperbolic case (escape
@@ -510,7 +510,7 @@ namespace Parsek.Tests
             });
             // e=1.5 > 1 → hyperbolic; a<0 by Kepler convention for
             // hyperbolic orbits. semi-major-axis as negative makes the
-            // ellipse formula degenerate — only Kepler-conic-handling code
+            // ellipse formula degenerate - only Kepler-conic-handling code
             // should accept this struct without normalization.
             rec.OrbitSegments.Add(new OrbitSegment
             {
@@ -559,7 +559,7 @@ namespace Parsek.Tests
             // ellipse formula has a singularity there. The tail-clone is
             // pure struct value-copy so the parabolic markers (e=1.0,
             // whatever the codebase chooses to store for semiMajorAxis in
-            // the parabolic case — typically a sentinel like double.PositiveInfinity
+            // the parabolic case - typically a sentinel like double.PositiveInfinity
             // or a very large value) must round-trip identically.
             //
             // Most KSP saves never see e=1.0 exactly in stock; mods like
@@ -582,7 +582,7 @@ namespace Parsek.Tests
             });
             // Parabolic markers chosen to surface any "normalize to ellipse"
             // bug: e=1.0 exactly, semiMajorAxis = a large finite value
-            // (real codebases may use infinity, NaN, or a sentinel — the
+            // (real codebases may use infinity, NaN, or a sentinel - the
             // test just locks whatever the splitter sees).
             rec.OrbitSegments.Add(new OrbitSegment
             {
@@ -677,8 +677,8 @@ namespace Parsek.Tests
         public void SplitAtUT_StraddleSectionCheckpointsPartitionedByUT()
         {
             // Single TrackSection [10, 50] with two checkpoints:
-            //   cp0 [10, 30] — entirely pre-split.
-            //   cp1 [20, 40] — straddles splitUT=34.
+            //   cp0 [10, 30] - entirely pre-split.
+            //   cp1 [20, 40] - straddles splitUT=34.
             // splitUT=34 falls inside the section -> synthetic boundary insert
             // path partitions the section's checkpoints list.
             //
@@ -693,7 +693,7 @@ namespace Parsek.Tests
             var rec = MakeRecordingWithSectionCheckpoints(10.0, 50.0, 34.0,
                 checkpoints, "rec-cp-straddle");
             // Mirror the per-section checkpoints into the top-level
-            // OrbitSegments list — SplitAtSection's step 7 will partition this
+            // OrbitSegments list - SplitAtSection's step 7 will partition this
             // list symmetrically with the per-section partition under test.
             rec.OrbitSegments.Add(MakeCheckpoint(10.0, 30.0, 11.0, 0.11));
             rec.OrbitSegments.Add(MakeCheckpoint(20.0, 40.0, 22.0, 0.22));
@@ -744,9 +744,9 @@ namespace Parsek.Tests
         public void SplitAtUT_StraddleSectionCheckpointsPartition_PreservesNonStraddlingCheckpoints()
         {
             // Three checkpoints in a single straddling TrackSection [5, 80]:
-            //   cp0 [5,15]   — entirely pre-split, no straddle.
-            //   cp1 [20,50]  — straddles splitUT=34.
-            //   cp2 [55,80]  — entirely post-split, no straddle.
+            //   cp0 [5,15]   - entirely pre-split, no straddle.
+            //   cp1 [20,50]  - straddles splitUT=34.
+            //   cp2 [55,80]  - entirely post-split, no straddle.
             //
             // Expected:
             //   headSection.checkpoints = [ [5,15], [20,34] (trimmed) ]
@@ -761,7 +761,7 @@ namespace Parsek.Tests
             var rec = MakeRecordingWithSectionCheckpoints(5.0, 80.0, 34.0,
                 checkpoints, "rec-cp-three");
             // Mirror at the top level so SplitAtSection's step 7 partition runs
-            // symmetrically — keeps the recording self-consistent.
+            // symmetrically - keeps the recording self-consistent.
             rec.OrbitSegments.Add(MakeCheckpoint(5.0, 15.0, 11.0, 0.11));
             rec.OrbitSegments.Add(MakeCheckpoint(20.0, 50.0, 22.0, 0.22));
             rec.OrbitSegments.Add(MakeCheckpoint(55.0, 80.0, 33.0, 0.33));
@@ -841,7 +841,7 @@ namespace Parsek.Tests
         public void SplitAtUT_SplitUTAlignsToTrackSectionBoundary_NoSyntheticInsert()
         {
             // Two-section recording joined at midUT=34. splitUT exactly at midUT
-            // (within epsilon) should reuse the existing boundary — no new
+            // (within epsilon) should reuse the existing boundary - no new
             // section inserted.
             var rec = MakeRecordingWithBoundary(8.0, 34.0, 53.0, "rec-aligned");
             int sectionsBefore = rec.TrackSections.Count;
@@ -1011,6 +1011,75 @@ namespace Parsek.Tests
             Assert.Equal(pointsCountBefore, rec.Points.Count);
         }
 
+        [Fact]
+        public void SplitAtUT_V13HeadBodyFixedFramesUnderMinimum_ReturnsNull()
+        {
+            // Mirror of the tail-half cell above: the HEAD half of the same
+            // two-branch v13 debris minimum-sample guard. Only the tail branch
+            // had a cell, so a broken head branch would ship debris whose head
+            // carries a one-sample bodyFixedFrames surface - below the two-sample
+            // floor body-fixed primary playback needs.
+            var rec = new Recording
+            {
+                RecordingId = "rec-bf-head-undermin",
+                IsDebris = true,
+                ParentAnchorRecordingId = "parent-rec",
+            };
+            rec.Points.Add(PointAt(8.0));
+            rec.Points.Add(PointAt(42.0));
+            rec.Points.Add(PointAt(53.0));
+            var sectionFrames = new List<TrajectoryPoint>
+            {
+                PointAt(8.0),
+                PointAt(42.0),
+                PointAt(53.0),
+            };
+            // bodyFixedFrames: 1 sample pre-splitUT (40), 3 post (45, 50, 53).
+            // The head half fails the minimum; the tail half would pass.
+            var bodyFixedFrames = new List<TrajectoryPoint>
+            {
+                PointAt(40.0),
+                PointAt(45.0),
+                PointAt(50.0),
+                PointAt(53.0),
+            };
+            rec.TrackSections.Add(new TrackSection
+            {
+                environment = SegmentEnvironment.Atmospheric,
+                referenceFrame = ReferenceFrame.Relative,
+                anchorRecordingId = "parent-rec",
+                startUT = 8.0,
+                endUT = 53.0,
+                sampleRateHz = 1f,
+                minAltitude = float.NaN,
+                maxAltitude = float.NaN,
+                frames = sectionFrames,
+                bodyFixedFrames = bodyFixedFrames,
+            });
+
+            int sectionCountBefore = rec.TrackSections.Count;
+            double sectionEndUtBefore = rec.TrackSections[0].endUT;
+            int framesCountBefore = rec.TrackSections[0].frames.Count;
+            int bodyFixedCountBefore = rec.TrackSections[0].bodyFixedFrames.Count;
+            int pointsCountBefore = rec.Points.Count;
+
+            var tip = RecordingOptimizer.SplitAtUT(rec, 42.0);
+
+            Assert.Null(tip);
+            Assert.Contains(logLines, l => l.Contains("[Optimizer]")
+                && l.Contains("v13 debris contract")
+                && l.Contains("head-half bodyFixedFrames")
+                && l.Contains("rec-bf-head-undermin"));
+
+            // Mutation-ordering invariant: original.TrackSections must be
+            // structurally identical to its pre-call state.
+            Assert.Equal(sectionCountBefore, rec.TrackSections.Count);
+            Assert.Equal(sectionEndUtBefore, rec.TrackSections[0].endUT);
+            Assert.Equal(framesCountBefore, rec.TrackSections[0].frames.Count);
+            Assert.Equal(bodyFixedCountBefore, rec.TrackSections[0].bodyFixedFrames.Count);
+            Assert.Equal(pointsCountBefore, rec.Points.Count);
+        }
+
         #endregion
 
         #region Defensive guards (Pass 2 review Opus-H1 / Opus-H2)
@@ -1020,7 +1089,7 @@ namespace Parsek.Tests
         {
             // Pass 2 review Opus-H1: the prior gap-fallback fell through with
             // sectionIndex = TrackSections.Count, which SplitAtSection's first
-            // line dereferenced as `original.TrackSections[Count].startUT` —
+            // line dereferenced as `original.TrackSections[Count].startUT` -
             // ArgumentOutOfRangeException. The fix returns null with a Warn
             // so callers (the splitter) fall back to whole-recording supersede
             // instead of the merge crashing.
@@ -1139,7 +1208,7 @@ namespace Parsek.Tests
 
             int trackSectionsBefore = rec.TrackSections.Count;
             int orbitSegmentsBefore = rec.OrbitSegments.Count;
-            // CachedStats is null by default — no pre-existing cache to restore.
+            // CachedStats is null by default - no pre-existing cache to restore.
 
             Recording tip = RecordingOptimizer.SplitAtUT(rec, 40.0);
 
@@ -1452,7 +1521,7 @@ namespace Parsek.Tests
         public void BuildTransientStateSeeds_ParachuteDestroyed_NoDuplicateAgainstPermanentForward()
         {
             // ParachuteDestroyed is in IsPermanentVisualStateEvent, so
-            // ForwardPermanentStateEvents copies it verbatim — and it runs AFTER the
+            // ForwardPermanentStateEvents copies it verbatim - and it runs AFTER the
             // transient insertion, so the boundary dedupe cannot see the forwarded copy.
             // The inactive emitter therefore has to skip it itself or the TIP gets two.
             var rec = MakeSimpleRecording(8.0, 53.0, "rec-chute-destroyed", midUT: 34.0);
@@ -1472,7 +1541,7 @@ namespace Parsek.Tests
         /// Repacked its own event type and its own cap-restoring pose, and bidirectional
         /// emission is what makes an INACTIVE terminal state reach the tail as a seed at
         /// all. Composed, the pair has to carry the terminal state ACROSS the cut with its
-        /// identity intact — a repacked chute and a cut chute are both "not flying" and
+        /// identity intact - a repacked chute and a cut chute are both "not flying" and
         /// were both once seeded as nothing, but they render differently, so collapsing
         /// them to one inactive type (or to no seed) is now a visible defect on the TIP.
         ///
@@ -1506,8 +1575,8 @@ namespace Parsek.Tests
 
         /// <summary>
         /// The CUT-terminal variant of the cell above, and the reason that one is not
-        /// vacuous: same reducer, same emitter, same head prefix — only the last event
-        /// differs — and the tail must render the OPPOSITE cap state. If the merge had
+        /// vacuous: same reducer, same emitter, same head prefix - only the last event
+        /// differs - and the tail must render the OPPOSITE cap state. If the merge had
         /// collapsed the parachute family to a single inactive seed type, these two cells
         /// would disagree with each other rather than both passing.
         /// </summary>
@@ -1558,7 +1627,7 @@ namespace Parsek.Tests
         /// The other half of the composition: family-9 (parachute, main's ParachuteRepacked)
         /// and family-10 (robotics, this branch's servo poses) must keep DISTINCT ids, or the
         /// boundary dedupe would let a chute event at the split suppress a servo seed for the
-        /// same part — the two families are keyed differently (parachutes pid-collapsed,
+        /// same part - the two families are keyed differently (parachutes pid-collapsed,
         /// robotics module-scoped), so a collision is silent rather than loud.
         /// </summary>
         [Fact]
@@ -1672,7 +1741,7 @@ namespace Parsek.Tests
         public void BuildTransientStateSeeds_OpposingEventExactlyAtTheCutWinsInTheReducer()
         {
             // An event AT splitUT is inside the reducer's window (SplitSeedTimeEpsilon),
-            // so the seed it produces already agrees with it — and the boundary dedupe
+            // so the seed it produces already agrees with it - and the boundary dedupe
             // then drops the duplicate. The TIP keeps exactly the real event.
             var rec = MakeSimpleRecording(8.0, 53.0, "rec-gear-at-cut", midUT: 34.0);
             rec.PartEvents.Add(VisualEvent(10.0, PartEventType.GearDeployed));

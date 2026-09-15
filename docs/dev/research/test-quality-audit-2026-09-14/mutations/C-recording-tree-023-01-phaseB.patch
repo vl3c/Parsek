@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/RecordingTreeSplitter.cs b/Source/Parsek/RecordingTreeSplitter.cs
+index 427b12168..2f7553597 100644
+--- a/Source/Parsek/RecordingTreeSplitter.cs
++++ b/Source/Parsek/RecordingTreeSplitter.cs
+@@ -782,7 +782,7 @@ namespace Parsek
+                     $"SplitOriginAtRewindUT: caught {ex.GetType().Name} during split of " +
+                     $"origin '{origin.RecordingId}' at rewindUT={rewindUT.ToString("F2", ic)}: " +
+                     $"{ex.Message} — rolling back in memory and re-throwing");
+-                RollBackInMemory(scenario, freshSnapshot);
++                // MUTANT: RollBackInMemory call deleted
+                 throw;
+             }
+         }

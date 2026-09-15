@@ -292,6 +292,57 @@ namespace Parsek.Tests
             Assert.True(ParsekFlight.HasOnlySubOrbitalFallbackEvidence(rec));
         }
 
+        [Fact]
+        public void InferTerminal_StableOrbitWithResolvedBodyRadius_ReturnsOrbiting()
+        {
+            // The orbit arm of InferTerminalStateFromTrajectory itself (the cells
+            // above only drive the HasOnlySubOrbitalFallbackEvidence refusal
+            // predicate). A closed orbit whose periapsis clears the resolved body
+            // radius must stamp Orbiting; the mirror row keeps the surface-
+            // intersecting orbit falling through to the SubOrbital default, so the
+            // periapsis-above-radius comparison is pinned in both directions.
+            ParsekFlight.TerminalInferenceBodyRadiusResolverForTesting =
+                bodyName => bodyName == "Kerbin" ? 600000.0 : (double?)null;
+
+            var orbiting = new Recording { RecordingId = "infer-orbiting" };
+            orbiting.Points.Add(new TrajectoryPoint
+            {
+                ut = 100.0,
+                altitude = 100000.0,
+                bodyName = "Kerbin",
+            });
+            // Periapsis radius = 700000 * (1 - 0.05) = 665000 > 600000.
+            orbiting.OrbitSegments.Add(new OrbitSegment
+            {
+                bodyName = "Kerbin",
+                semiMajorAxis = 700000.0,
+                eccentricity = 0.05,
+            });
+
+            Assert.Equal(
+                TerminalState.Orbiting,
+                ParsekFlight.InferTerminalStateFromTrajectory(orbiting));
+
+            var surfaceIntersecting = new Recording { RecordingId = "infer-suborbital" };
+            surfaceIntersecting.Points.Add(new TrajectoryPoint
+            {
+                ut = 100.0,
+                altitude = 100000.0,
+                bodyName = "Kerbin",
+            });
+            // Periapsis radius = 500000 * (1 - 0.10) = 450000 < 600000.
+            surfaceIntersecting.OrbitSegments.Add(new OrbitSegment
+            {
+                bodyName = "Kerbin",
+                semiMajorAxis = 500000.0,
+                eccentricity = 0.10,
+            });
+
+            Assert.Equal(
+                TerminalState.SubOrbital,
+                ParsekFlight.InferTerminalStateFromTrajectory(surfaceIntersecting));
+        }
+
         // -- Round-trip through the regression sequence -----------------------
 
         /// <summary>

@@ -318,6 +318,32 @@ _(unreleased — entries accumulate here per commit)_
   the ledger cutoff tests own that contract, and its one unique assertion survives as
   its own cell. Nothing a player sees changes.
 
+- **Tests: the eleven priority-1 recording-risk coverage gaps from the unit-test quality
+  audit now have cells.** Ten new cells, all pure or headless, nine against paths where the
+  suite stayed green with the guard removed (the tenth, the sealed-tip membership shape,
+  adds a case two existing cells already guarded). Terminal inference's orbit arm is driven
+  directly for the first time, with the surface-intersecting mirror row that keeps the
+  periapsis-above-radius comparison honest. A sealed (Immutable) crashed leaf under a rewind
+  point is proved NOT to resurface as a re-flyable Unfinished Flight row. The destroyed
+  fallback is proved to set `VesselDestroyed` ahead of its already-Destroyed early return -
+  the bool the no-op classifier reads, so a destroyed resume cannot auto-discard as a boring
+  coast. Hydration repair is proved to refuse a pending tree that carries the same recording
+  id under a DIFFERENT tree id, which is the only shape that discriminates the cross-identity
+  guard. The v13 debris minimum-sample guard gains its head-half cell to match the tail's.
+  The recording factory's leading-stationary trim is driven end to end (points trimmed, the
+  early orbit segment dropped, part and flag events pulled forward). The supersede rollback
+  is proved to skip malformed relation rows whose old or new id is empty, with both shapes
+  built so they WOULD drop if their guard went. A branch point whose PARENT endpoint empties
+  is proved to drop, mirroring the child-side cell, so no dangling parent edge serializes.
+  The prior-provisional reap is proved to clear the stashed pending tree, not only the
+  committed one. And the recording-tree splitter's production catch path finally runs: a
+  one-shot throwing timeline-signal subscriber injects a mid-split failure, and the rollback
+  is asserted against the snapshot the orchestrator itself populated rather than a
+  hand-built one. The eleventh row needed nothing - the IL call-set parity gate that landed
+  with the background part-event audit already is the proposed cell. Each cell carries a
+  mutation proof under `docs/dev/research/test-quality-audit-2026-09-14/mutations/`. No
+  production change, no player-visible change.
+
 - **Tests: the five priority-1 data-loss coverage gaps from the unit-test quality audit now
   have cells.** Each guards a path where a wrong answer destroys recorded flights and where
   the suite stayed green with the guard removed. The orphan-file sweep's second pending
