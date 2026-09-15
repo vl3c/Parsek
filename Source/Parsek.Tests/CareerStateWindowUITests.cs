@@ -426,7 +426,9 @@ namespace Parsek.Tests
             var actions = new List<GameAction>
             {
                 Milestone("FirstLaunch", ut: 100.0, effective: true, funds: 10000f),
-                Milestone("FirstLaunch", ut: 200.0, effective: false)
+                // A FRESH id, so the AlreadyCredited arm below the Effective guard cannot
+                // catch it: only the Effective guard keeps the second row out.
+                Milestone("GhostMilestone", ut: 200.0, effective: false, funds: 500f)
             };
 
             var vm = CareerStateWindowUI.Build(actions, liveUT: 500.0,
@@ -448,8 +450,10 @@ namespace Parsek.Tests
             var (c, s, f, m) = Modules();
             var actions = new List<GameAction>
             {
+                // DIFFERENT levels, so a crossed key read changes both the echoed level
+                // and the slot count on each tab.
                 Upgrade("SpaceCenter/MissionControl", 2, ut: 50.0),
-                Upgrade("SpaceCenter/Administration", 2, ut: 100.0)
+                Upgrade("SpaceCenter/Administration", 3, ut: 100.0)
             };
 
             var vm = CareerStateWindowUI.Build(actions, liveUT: 150.0,
@@ -461,11 +465,11 @@ namespace Parsek.Tests
             Assert.Equal(7, vm.Contracts.CurrentMaxSlots);
             Assert.Equal(7, vm.Contracts.ProjectedMaxSlots);
 
-            Assert.Equal(2, vm.Strategies.AdminLevel);
-            Assert.Equal(2, vm.Strategies.ProjectedAdminLevel);
-            // GetStrategySlots(2) == 3 per LedgerOrchestrator.cs:1476.
-            Assert.Equal(3, vm.Strategies.CurrentMaxSlots);
-            Assert.Equal(3, vm.Strategies.ProjectedMaxSlots);
+            Assert.Equal(3, vm.Strategies.AdminLevel);
+            Assert.Equal(3, vm.Strategies.ProjectedAdminLevel);
+            // GetStrategySlots(3) == 5.
+            Assert.Equal(5, vm.Strategies.CurrentMaxSlots);
+            Assert.Equal(5, vm.Strategies.ProjectedMaxSlots);
         }
 
         [Fact]

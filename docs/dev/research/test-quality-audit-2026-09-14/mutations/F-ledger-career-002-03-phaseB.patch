@@ -1,0 +1,12 @@
+diff --git a/Source/Parsek/GameActions/LedgerOrchestrator.cs b/Source/Parsek/GameActions/LedgerOrchestrator.cs
+index f0a7d8a40..b309d4575 100644
+--- a/Source/Parsek/GameActions/LedgerOrchestrator.cs
++++ b/Source/Parsek/GameActions/LedgerOrchestrator.cs
+@@ -810,7 +810,6 @@ namespace Parsek
+                         case GameActionType.ContractComplete:
+                             // #440B: read post-walk Transformed* / EffectiveRep. Gate on
+                             // Effective to skip duplicate completions (module skips credit).
+-                            if (!a.Effective) break;
+                             deltas.EmittedFundsDelta += a.TransformedFundsReward;
+                             deltas.EmittedRepDelta += a.EffectiveRep;
+                             deltas.EmittedSciDelta += a.TransformedScienceReward;

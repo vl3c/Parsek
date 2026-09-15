@@ -386,6 +386,14 @@ namespace Parsek.Tests
             logLines.Clear();
             KerbalLoadRepairDiagnostics.Begin();
             module.ApplyToRoster(fakeRoster);
+
+            // Read the counters BEFORE EmitAndReset clears them: the summary line is gated
+            // on the whole counter set, so its absence alone cannot tell "nothing was
+            // recorded" from "something was recorded but the gate stayed shut". A false
+            // keep or recreate for a kerbal the roster never got moves these directly.
+            Assert.Equal(0, KerbalLoadRepairDiagnostics.CurrentForTesting.RetiredStandInsRecreated);
+            Assert.Equal(0, KerbalLoadRepairDiagnostics.CurrentForTesting.RetiredStandInsKept);
+
             KerbalLoadRepairDiagnostics.EmitAndReset();
 
             Assert.False(fakeRoster.Contains("Kirrim"));

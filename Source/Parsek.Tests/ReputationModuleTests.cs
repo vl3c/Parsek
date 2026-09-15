@@ -1053,15 +1053,39 @@ namespace Parsek.Tests
         [InlineData(GameActionType.KerbalAssignment)]
         [InlineData(GameActionType.KerbalHire)]
         [InlineData(GameActionType.FacilityUpgrade)]
-        [InlineData(GameActionType.StrategyActivate)]
         [InlineData(GameActionType.FundsInitial)]
+        // StrategyActivate is deliberately NOT in this list: ProcessAction routes it to
+        // ProcessStrategySetupReputation, so it is a rep type, not an ignored one.
         public void ProcessAction_IgnoresNonRepActions(GameActionType type)
         {
-            var action = new GameAction { Type = type, UT = 1000.0 };
+            // A standing rep balance plus every rep-bearing field set non-zero, so a
+            // misroute into ANY rep handler moves an observable: the seed handler would
+            // overwrite the balance and set HasSeed, and each reward / penalty handler
+            // would add or subtract its own field.
+            module.ProcessAction(MakeRepEarning(40f, 500.0));
+            float before = module.GetRunningRep();
+            Assert.True(before > 0f);
+
+            var action = new GameAction
+            {
+                Type = type,
+                UT = 1000.0,
+                Effective = true,
+                NominalRep = 25f,
+                MilestoneRepAwarded = 25f,
+                RepReward = 25f,
+                RepPenalty = 25f,
+                InitialReputation = 25f,
+                SetupReputationCost = 25f,
+                RepSource = ReputationSource.Other,
+                RepPenaltySource = ReputationPenaltySource.Other
+            };
 
             module.ProcessAction(action);
 
-            Assert.Equal(0f, module.GetRunningRep());
+            Assert.Equal(before, module.GetRunningRep());
+            Assert.Equal(0f, action.EffectiveRep);
+            Assert.False(module.HasSeed);
         }
 
         // ================================================================

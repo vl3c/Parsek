@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/GhostPlaybackLogic.cs b/Source/Parsek/GhostPlaybackLogic.cs
+index 3057033f3..266fd1192 100644
+--- a/Source/Parsek/GhostPlaybackLogic.cs
++++ b/Source/Parsek/GhostPlaybackLogic.cs
+@@ -4845,8 +4845,6 @@ namespace Parsek
+ 
+             float emRate = emissionCurve != null ? emissionCurve.Evaluate(power) : power * 100f;
+             emRate *= emissionScale > 0f ? emissionScale : 1f;
+-            if (emissionScale > 1f)
+-                emRate = Math.Max(emRate, 60f);
+ 
+             return emRate;
+         }

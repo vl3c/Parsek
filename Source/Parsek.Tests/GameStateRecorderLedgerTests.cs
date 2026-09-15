@@ -1498,12 +1498,18 @@ namespace Parsek.Tests
         public void OnVesselRecoveryFunds_EmptyVesselName_SkipsSilently()
         {
             // Defensive guard: caller (ParsekScenario) already filters empty names but
-            // the entry point also handles it — no ledger entry, verbose-only log.
+            // the entry point also handles it. A ledger count alone cannot tell a SKIP
+            // from a silent DEFER - a nameless deferred request would later pair through
+            // the nameless nearest-UT fallback - so the pending queue and the guard's own
+            // verbose line are what pin the skip.
             int before = Ledger.Actions.Count;
             LedgerOrchestrator.OnVesselRecoveryFunds(8000.0, "", fromTrackingStation: false);
             LedgerOrchestrator.OnVesselRecoveryFunds(8000.0, null, fromTrackingStation: false);
 
             Assert.Equal(before, Ledger.Actions.Count);
+            Assert.Equal(0, LedgerOrchestrator.PendingRecoveryFundsCountForTesting);
+            Assert.Contains(logLines, l =>
+                l.Contains("OnVesselRecoveryFunds: empty vesselName at ut="));
         }
 
         [Fact]

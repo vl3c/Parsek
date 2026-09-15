@@ -1,0 +1,20 @@
+diff --git a/Source/Parsek/GameActions/PostWalkActionReconciler.cs b/Source/Parsek/GameActions/PostWalkActionReconciler.cs
+index 6450078c3..e368d1cda 100644
+--- a/Source/Parsek/GameActions/PostWalkActionReconciler.cs
++++ b/Source/Parsek/GameActions/PostWalkActionReconciler.cs
+@@ -515,15 +515,6 @@ namespace Parsek
+             if (action == null)
+                 return false;
+ 
+-            if (action.UT <= livePruneThreshold)
+-            {
+-                LogPostWalkLiveCoverageSkip(
+-                    action,
+-                    "ut is at/below live prune threshold=" +
+-                    livePruneThreshold.ToString("F1", CultureInfo.InvariantCulture));
+-                return true;
+-            }
+-
+             if (HasOnlyTimelineHiddenPostWalkCoverage(
+                     action, expectation, events, livePruneThreshold))
+             {

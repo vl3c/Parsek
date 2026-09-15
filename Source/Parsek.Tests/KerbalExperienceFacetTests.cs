@@ -507,6 +507,9 @@ namespace Parsek.Tests
         {
             // This facet re-asserts experience; manufacturing a roster member from an XP row
             // would be a much larger claim. Fails if the absent-kerbal skip becomes a create.
+            // The facade records every ATTEMPT (append, create, recreate) independently of
+            // whether it refuses it, so a dropped skip is visible as an attempt rather than
+            // hidden behind the refusal.
             var module = new KerbalsModule();
             module.ProcessAction(XpAction("Ghost Kerman", new KerbalCareerLogEntry(0, "Orbit", "Kerbin")));
 
@@ -522,6 +525,9 @@ namespace Parsek.Tests
             }
 
             Assert.Empty(roster.Appended);
+            Assert.Empty(roster.AppendAttempts);
+            Assert.Empty(roster.CreateAttempts);
+            Assert.Empty(roster.RecreateAttempts);
         }
 
         /// <summary>
@@ -534,6 +540,12 @@ namespace Parsek.Tests
                 new HashSet<string>(StringComparer.Ordinal) { "Jeb" };
             public readonly List<KerbalCareerLogEntry> Appended = new List<KerbalCareerLogEntry>();
 
+            // Every CALL, refused or not. Without these the facade's own refusal stands in
+            // for a production skip and a dropped guard reads green.
+            public readonly List<string> AppendAttempts = new List<string>();
+            public readonly List<string> CreateAttempts = new List<string>();
+            public readonly List<string> RecreateAttempts = new List<string>();
+
             public bool TryGetStatus(string name, out ProtoCrewMember.RosterStatus status)
             {
                 status = default(ProtoCrewMember.RosterStatus);
@@ -542,11 +554,16 @@ namespace Parsek.Tests
 
             public bool TryCreateGeneratedStandIn(string trait, out string generatedName)
             {
+                CreateAttempts.Add(trait ?? "");
                 generatedName = null;
                 return false;
             }
 
-            public bool TryRecreateStandIn(string desiredName, string trait) { return false; }
+            public bool TryRecreateStandIn(string desiredName, string trait)
+            {
+                RecreateAttempts.Add(desiredName ?? "");
+                return false;
+            }
             public bool TryRemove(string name) { return false; }
             public bool IsKerbalOnLiveVessel(string kerbalName) { return false; }
             public bool IsKerbalOnVesselWithPid(string kerbalName, ulong vesselPersistentId) { return false; }
@@ -561,6 +578,7 @@ namespace Parsek.Tests
             public int AppendCareerLogEntries(
                 string kerbalName, IReadOnlyList<KerbalCareerLogEntry> entries)
             {
+                AppendAttempts.Add(kerbalName ?? "");
                 if (!KnownKerbals.Contains(kerbalName)) return -1;
                 if (entries == null) return 0;
                 Appended.AddRange(entries);

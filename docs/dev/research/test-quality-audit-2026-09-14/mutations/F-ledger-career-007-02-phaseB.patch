@@ -1,0 +1,18 @@
+diff --git a/Source/Parsek/GameStateStore.cs b/Source/Parsek/GameStateStore.cs
+index 7492afc21..fb652711e 100644
+--- a/Source/Parsek/GameStateStore.cs
++++ b/Source/Parsek/GameStateStore.cs
+@@ -64,13 +64,6 @@ namespace Parsek
+                     var existing = events[i];
+                     string existingTag = existing.recordingId ?? "";
+                     bool withinWindow = Math.Abs(existing.ut - e.ut) <= ResourceCoalesceEpsilon;
+-                    if (withinWindow &&
+-                        (BlocksResourceCoalescing(existing) || BlocksResourceCoalescing(e)))
+-                    {
+-                        // VesselRecovery is a hard barrier: do not coalesce across it.
+-                        break;
+-                    }
+-
+                     if (existing.eventType == e.eventType &&
+                         withinWindow &&
+                         string.Equals(existing.key ?? "", e.key ?? "", StringComparison.Ordinal) &&

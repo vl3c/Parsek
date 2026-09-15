@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/VesselSpawner.cs b/Source/Parsek/VesselSpawner.cs
+index 6a8ad26a2..e918f9521 100644
+--- a/Source/Parsek/VesselSpawner.cs
++++ b/Source/Parsek/VesselSpawner.cs
+@@ -2819,7 +2819,7 @@ namespace Parsek
+ 
+             foreach (string name in snapshotCrew)
+             {
+-                if (!string.IsNullOrEmpty(name) && existingCrew.Contains(name))
++                if (!string.IsNullOrEmpty(name))
+                     duplicates.Add(name);
+             }
+             return duplicates;

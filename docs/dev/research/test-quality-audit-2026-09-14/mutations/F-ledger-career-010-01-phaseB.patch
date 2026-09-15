@@ -1,0 +1,17 @@
+diff --git a/Source/Parsek/UI/CareerStateWindowUI.cs b/Source/Parsek/UI/CareerStateWindowUI.cs
+index 13357e589..615143f7b 100644
+--- a/Source/Parsek/UI/CareerStateWindowUI.cs
++++ b/Source/Parsek/UI/CareerStateWindowUI.cs
+@@ -542,12 +542,6 @@ namespace Parsek
+                     case GameActionType.MilestoneAchievement:
+                         {
+                             string mid = a.MilestoneId ?? "";
+-                            if (!a.Effective)
+-                            {
+-                                // Mirrors MilestonesModule: ineffective duplicates are skipped.
+-                                LogSkip("MilestoneAchievement", "Ineffective", a);
+-                                break;
+-                            }
+                             if (creditedMilestonesTerm.Contains(mid))
+                             {
+                                 // Defensive: Effective=true but already credited (should not happen

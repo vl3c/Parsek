@@ -1,0 +1,18 @@
+diff --git a/Source/Parsek/GameActions/LedgerRecoveryFundsPairing.cs b/Source/Parsek/GameActions/LedgerRecoveryFundsPairing.cs
+index 906fc6d44..4824f361e 100644
+--- a/Source/Parsek/GameActions/LedgerRecoveryFundsPairing.cs
++++ b/Source/Parsek/GameActions/LedgerRecoveryFundsPairing.cs
+@@ -501,13 +501,6 @@ namespace Parsek
+             RecoveryPayoutContext payoutContext,
+             Func<double, RecoveredVesselIdentity, bool, bool> tryAddRecoveryFundsAction)
+         {
+-            if (!identity.HasName)
+-            {
+-                ParsekLog.Verbose(Tag,
+-                    $"OnVesselRecoveryFunds: empty vesselName at ut={ut.ToString("F1", CultureInfo.InvariantCulture)} — skipping");
+-                return;
+-            }
+-
+             if (ShouldSkipRecoveryFundsBeforePairing(payoutContext, out string skipReason))
+             {
+                 ParsekLog.Verbose(Tag,

@@ -1955,31 +1955,29 @@ namespace Parsek.Tests
         [Fact]
         public void PostWalk_MilestoneAchievement_EffectiveFalseDuplicate_Skipped_NoWarn()
         {
-            // Two milestone actions with the same id. The second is Effective=false
-            // (duplicate; MilestonesModule already credited the first). The live
-            // FundsChanged(Progression) event reflects only the first credit.
-            // Post-walk must NOT reconcile the second -> no WARN.
+            // The milestone was already credited (MilestonesModule fired the live
+            // FundsChanged(Progression) of +2000); the walk produced a second,
+            // Effective=false row for the same id. It sits at the live event's own UT, so
+            // the live-coverage skip does NOT catch it, and its award DIVERGES from what
+            // the store saw - the Effective gate is the only thing keeping post-walk from
+            // reconciling 3000 against 2000 and WARNing.
+            //
+            // The duplicate is the only action in the list on purpose: a second, effective
+            // milestone action in the same window would make BOTH rows ambiguous-coverage
+            // skips (HasAmbiguousLiveCoverageOverlap), which would hide the gate again.
             var events = new List<GameStateEvent>
             {
-                MakeKeyedFundsChanged(600, 20000, 22000, "Progression")      // +2000 from first
+                MakeKeyedFundsChanged(600, 20000, 22000, "Progression")      // +2000 already credited
             };
-            var firstMilestone = new GameAction
+            var dupMilestone = new GameAction
             {
                 UT = 600,
                 Type = GameActionType.MilestoneAchievement,
                 MilestoneId = "FirstLaunch",
-                Effective = true,
-                MilestoneFundsAwarded = 2000f
-            };
-            var dupMilestone = new GameAction
-            {
-                UT = 700,   // different UT, no matching event in window
-                Type = GameActionType.MilestoneAchievement,
-                MilestoneId = "FirstLaunch",
                 Effective = false,           // duplicate
-                MilestoneFundsAwarded = 2000f
+                MilestoneFundsAwarded = 3000f
             };
-            var actions = new List<GameAction> { firstMilestone, dupMilestone };
+            var actions = new List<GameAction> { dupMilestone };
 
             LedgerOrchestrator.ReconcilePostWalk(events, actions, utCutoff: null);
 
@@ -2253,12 +2251,23 @@ namespace Parsek.Tests
                 MilestoneFundsAwarded = 2000f
             };
 
+            // A live Progression credit at the action's own UT with a divergent delta:
+            // without the prune-threshold skip the action reconciles 2000 against 123 and
+            // WARNs, so the threshold is the sole reason this stays silent.
+            var events = new List<GameStateEvent>
+            {
+                MakeKeyedFundsChanged(600, 20000, 20123, "Progression")
+            };
+
             LedgerOrchestrator.ReconcilePostWalk(
-                new List<GameStateEvent>(),
+                events,
                 new List<GameAction> { action },
                 utCutoff: null);
 
             Assert.DoesNotContain(logLines, l => l.Contains("Earnings reconciliation (post-walk,"));
+            Assert.Contains(logLines, l =>
+                l.Contains("Post-walk live-coverage skip: MilestoneAchievement") &&
+                l.Contains("ut is at/below live prune threshold=650.0"));
         }
 
         [Fact]
@@ -3288,12 +3297,18 @@ namespace Parsek.Tests
                 l.Contains("Earnings reconciliation (post-walk, funds)") &&
                 l.Contains("ContractComplete"));
 
-            // The KSC-path ReconcileKscAction must NOT have emitted a non-post-walk
-            // funds WARN for the same action (it VERBOSE-skips Transformed types).
+            // The KSC-path ReconcileKscAction must NOT have emitted a WARN for the same
+            // action. Its WARNs are prefixed "KSC reconciliation (<channel>)", not
+            // "Earnings reconciliation", so that prefix is what has to be absent.
+            Assert.DoesNotContain(logLines, l => l.Contains("KSC reconciliation ("));
             Assert.DoesNotContain(logLines, l =>
                 l.Contains("Earnings reconciliation") &&
                 l.Contains("(funds)") &&
                 !l.Contains("(post-walk"));
+
+            // and the silent path is positively witnessed by its own VERBOSE skip line.
+            Assert.Contains(logLines, l =>
+                l.Contains("KSC reconciliation: ContractComplete skipped"));
         }
 
         #endregion
@@ -3713,9 +3728,12 @@ namespace Parsek.Tests
                     ContractId = "c-dup",
                     Effective = false,                 // duplicate -- walk skips credit
                     FundsReward = 5000f,               // raw non-zero (would leak without gate)
-                    TransformedFundsReward = 0f,
-                    EffectiveRep = 0f,
-                    TransformedScienceReward = 0f
+                    // All three post-walk fields are non-zero as well, so the gate is the
+                    // only thing keeping the emitted deltas at zero: with it removed the
+                    // arm below it adds 5000 / 3 / 20 against an empty store and WARNs.
+                    TransformedFundsReward = 5000f,
+                    EffectiveRep = 3f,
+                    TransformedScienceReward = 20f
                 }
             };
 
