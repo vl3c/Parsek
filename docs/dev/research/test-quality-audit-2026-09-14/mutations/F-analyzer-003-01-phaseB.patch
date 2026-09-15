@@ -1,0 +1,26 @@
+diff --git a/Source/Parsek/Analyzer/Rules/Inv9RewindPoint.cs b/Source/Parsek/Analyzer/Rules/Inv9RewindPoint.cs
+index 85e4454fd..a26df7e77 100644
+--- a/Source/Parsek/Analyzer/Rules/Inv9RewindPoint.cs
++++ b/Source/Parsek/Analyzer/Rules/Inv9RewindPoint.cs
+@@ -117,15 +117,18 @@ namespace Parsek.Analyzer.Rules
+                 }
+                 referencedRewindIds.Add(rwId);
+ 
+-                if (string.IsNullOrEmpty(model.SaveDirectory))
+-                    continue;
++                // MUTANT: the save-directory gate is dropped; an in-memory model
++                // falls back to a real directory and the probe below runs anyway.
++                string saveDir = model.SaveDirectory;
++                if (string.IsNullOrEmpty(saveDir))
++                    saveDir = Path.GetTempPath();
+ 
+                 // RewindSaveFileName lives at Parsek/Saves/<id>.sfs, NOT under
+                 // Parsek/RewindPoints/. Route through the production path builder.
+                 string rel = RecordingPaths.BuildRewindSaveRelativePath(rwId);
+                 if (rel == null)
+                     continue; // validated above; defensive
+-                string rwPath = Path.Combine(model.SaveDirectory, rel);
++                string rwPath = Path.Combine(saveDir, rel);
+ 
+                 if (!File.Exists(rwPath))
+                 {

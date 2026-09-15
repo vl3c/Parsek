@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using Parsek;
 using Xunit;
 
@@ -246,11 +247,14 @@ namespace Parsek.Tests
             Assert.Equal(ForwardRenderWindow.ForwardStopReason.BodyChange, w.Reason);
         }
 
-        // (CRITICAL) The stop is computed off the EFFECTIVE list, not the recorded one: feed two
-        // lists that differ in where the body change lands and assert the stop tracks the effective
-        // list's geometry.
+        // The helper is pure and takes its segment list as a parameter, so this cell can only show
+        // that the stop tracks the geometry it is HANDED: two lists whose body change lands at
+        // different UTs give different stops. WHICH list the renderer supplies is a caller
+        // property that no argument to a pure function can witness; it is pinned separately by
+        // ForwardWindowSource_IsBuiltFromTheEffectiveReAimedSegments below. This cell used to be
+        // named for that caller claim.
         [Fact]
-        public void ComputeForwardStopUT_UsesEffectiveListNotRecorded()
+        public void ComputeForwardStopUT_TracksTheSuppliedGeometry()
         {
             // "Recorded": SOI change at UT=200.
             var recorded = new List<OrbitSegment>
@@ -274,6 +278,99 @@ namespace Parsek.Tests
             Assert.Equal(200.0, stopRecorded, 6);  // recorded geometry
             Assert.Equal(150.0, stopEffective, 6); // effective geometry — the value the helper must use
             Assert.NotEqual(stopRecorded, stopEffective);
+        }
+
+        // (CRITICAL, caller side) The forward window's segment source is built from the EFFECTIVE
+        // (re-aimed) per-member lists, never from the recorded rec.OrbitSegments. The renderer's
+        // chain-run pass needs FlightGlobals, so the claim is pinned as a source gate over the
+        // method that hosts the ComputeForwardWindow call: windowSegs is assembled only from the
+        // coalesced effective scratch lists, and those are fed from
+        // GhostMapPresence.ResolveEffectiveMapOrbitSegments. Pointing windowSegs at a recorded
+        // list puts a .OrbitSegments read into that assignment and reds this cell. The scan is
+        // over comment-stripped, literal-masked text and a brace-matched method body, so a
+        // commented-out or quoted mention cannot satisfy it. The other rec.OrbitSegments reads in
+        // the same method (leg-anchor candidacy, hover text) are deliberately NOT covered: they
+        // are not the window source.
+        [Fact]
+        public void ForwardWindowSource_IsBuiltFromTheEffectiveReAimedSegments()
+        {
+            string path = LocatePolylineRendererSource();
+            Assert.True(File.Exists(path), $"GhostTrajectoryPolylineRenderer.cs not found at {path}");
+
+            string prepared = SourceScanText.StripCommentsAndMaskLiterals(File.ReadAllText(path));
+            int callIdx = prepared.IndexOf(
+                "ForwardRenderWindow.ComputeForwardWindow(", StringComparison.Ordinal);
+            Assert.True(callIdx >= 0,
+                "the renderer no longer calls ForwardRenderWindow.ComputeForwardWindow");
+
+            List<int> open = SourceScanText.OpenBlockStack(prepared, callIdx);
+            Assert.Equal(4, open.Count); // namespace -> static class -> Driver -> method
+            string body = BraceMatchedBlock(prepared, open[3]);
+
+            // 1. The window is computed from windowSegs.
+            int argStart = body.IndexOf(
+                "ForwardRenderWindow.ComputeForwardWindow(", StringComparison.Ordinal)
+                + "ForwardRenderWindow.ComputeForwardWindow(".Length;
+            string firstArg = body.Substring(argStart, body.IndexOf(',', argStart) - argStart).Trim();
+            Assert.Equal("windowSegs", firstArg);
+
+            // 2. windowSegs is assigned exactly once, and from the scratch lists only - no
+            //    recorded-segment read anywhere in that assignment.
+            const string decl = "List<OrbitSegment> windowSegs =";
+            int declIdx = body.IndexOf(decl, StringComparison.Ordinal);
+            Assert.True(declIdx >= 0, "windowSegs is no longer declared in the chain-run method");
+            Assert.Equal(declIdx, body.LastIndexOf(decl, StringComparison.Ordinal));
+            string assignment = body.Substring(declIdx, body.IndexOf(';', declIdx) - declIdx);
+            Assert.DoesNotContain(".OrbitSegments", assignment);
+            Assert.Contains("chainRunMemberSegsScratch", assignment);
+            Assert.Contains("chainRunConcatScratch", assignment);
+
+            // 3. Both scratch lists carry the COALESCED EFFECTIVE member list.
+            Assert.Contains("chainRunMemberSegsScratch.Add(memberCoalesced)", body);
+            Assert.Contains("chainRunConcatScratch.AddRange(memberCoalesced)", body);
+
+            // 4. memberCoalesced coalesces memberEffective, which comes from the effective
+            //    (re-aim aware) resolver, not from the recording's own list.
+            int coalescedIdx = body.IndexOf("memberCoalesced =", StringComparison.Ordinal);
+            Assert.True(coalescedIdx >= 0, "memberCoalesced is no longer assigned");
+            string coalesced = body.Substring(coalescedIdx, body.IndexOf(';', coalescedIdx) - coalescedIdx);
+            Assert.Contains("CoalesceSameOrbitFragments(memberEffective)", coalesced);
+
+            int effectiveIdx = body.IndexOf("memberEffective =", StringComparison.Ordinal);
+            Assert.True(effectiveIdx >= 0, "memberEffective is no longer assigned");
+            string effective = body.Substring(effectiveIdx, body.IndexOf(';', effectiveIdx) - effectiveIdx);
+            Assert.Contains("GhostMapPresence.ResolveEffectiveMapOrbitSegments(", effective);
+        }
+
+        private static string BraceMatchedBlock(string prepared, int openBrace)
+        {
+            int depth = 0;
+            for (int i = openBrace; i < prepared.Length; i++)
+            {
+                if (prepared[i] == '{') depth++;
+                else if (prepared[i] == '}')
+                {
+                    depth--;
+                    if (depth == 0) return prepared.Substring(openBrace, i - openBrace + 1);
+                }
+            }
+            throw new InvalidOperationException("unbalanced braces from " + openBrace);
+        }
+
+        private static string LocatePolylineRendererSource()
+        {
+            string dir = AppDomain.CurrentDomain.BaseDirectory;
+            for (int i = 0; i < 10 && !string.IsNullOrEmpty(dir); i++)
+            {
+                string candidate = Path.Combine(
+                    dir, "Source", "Parsek", "Display", "GhostTrajectoryPolylineRenderer.cs");
+                if (File.Exists(candidate)) return candidate;
+                dir = Path.GetDirectoryName(dir);
+            }
+
+            return Path.GetFullPath(Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory,
+                "..", "..", "..", "..", "Parsek", "Display", "GhostTrajectoryPolylineRenderer.cs"));
         }
 
         // No element brackets/follows the current UT (icon past the last endUT) and NO dataEndUT is
