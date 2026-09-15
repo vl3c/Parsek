@@ -1,0 +1,15 @@
+diff --git a/Source/Parsek/ParsekScenario.cs b/Source/Parsek/ParsekScenario.cs
+index 3aa082d2f..d4c3db035 100644
+--- a/Source/Parsek/ParsekScenario.cs
++++ b/Source/Parsek/ParsekScenario.cs
+@@ -1233,8 +1233,9 @@ namespace Parsek
+         /// </summary>
+         internal static void CommitPendingTreeAsApplied(RecordingTree tree)
+         {
+-            RecordingStore.CommitPendingTree();
++            // MUTANT: the seam marks the tree applied BEFORE committing it.
+             RecordingStore.MarkTreeAsApplied(tree);
++            RecordingStore.CommitPendingTree();
+         }
+ 
+         /// <summary>

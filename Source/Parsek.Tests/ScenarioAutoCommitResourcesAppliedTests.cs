@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using Xunit;
 
 namespace Parsek.Tests
@@ -322,14 +323,15 @@ namespace Parsek.Tests
         // ================================================================
 
         [Fact]
-        public void AutoCommit_CommitOrderingIsCommitThenMark()
+        public void AutoCommit_EndState_TreeCommittedAndResourceIndexAdvanced()
         {
-            // Regression guard: the seam must CommitPendingTree first, then
-            // MarkTreeAsApplied. If a future edit inverts the order, MarkTreeAsApplied
-            // would flip the flag on a tree still sitting in the pending slot, and
-            // CommitPendingTree would then move the applied tree into committed
-            // storage — same end state today, but the ordering is the one we
-            // document. Pin it so a future reorder is caught.
+            // End state only. This cell used to be named for the commit-then-mark
+            // ORDER, but every assertion below is order-independent (the comment said
+            // as much): MarkTreeAsApplied advances the indexes on the tree OBJECT the
+            // caller hands it, so swapping the two calls produces exactly this state.
+            // The ordering claim now lives in
+            // CommitPendingTreeAsApplied_CommitsBeforeMarkingApplied, a source gate over
+            // the seam body - the only place the order is visible at all.
             var rec = MakeRecording("rec-order", "tree-order", 100.0, 200.0);
             var tree = MakeTree("tree-order", "rec-order", rec);
             RecordingStore.StashPendingTree(tree);
@@ -345,6 +347,69 @@ namespace Parsek.Tests
             Assert.False(RecordingStore.HasPendingTree);
             Assert.Contains(RecordingStore.CommittedTrees, t => t.Id == "tree-order");
             Assert.Equal(2, rec.LastAppliedResourceIndex);
+        }
+
+        // The documented ORDER inside the seam: CommitPendingTree() first, then
+        // MarkTreeAsApplied(tree). Inverting it would flip the applied indexes on a tree
+        // still sitting in the pending slot, and CommitTree's in-place merge branch would
+        // then be handed an already-marked object. No runtime assertion can see the
+        // difference today (the end state is identical either way), so the order is
+        // pinned as a source gate over the seam's brace-matched body, over
+        // comment-stripped and literal-masked text so a commented-out or quoted call
+        // cannot satisfy it.
+        [Fact]
+        public void CommitPendingTreeAsApplied_CommitsBeforeMarkingApplied()
+        {
+            string path = LocateParsekScenarioSource();
+            Assert.True(File.Exists(path), $"ParsekScenario.cs not found at {path}");
+
+            string prepared = SourceScanText.StripCommentsAndMaskLiterals(File.ReadAllText(path));
+            const string signature = "void CommitPendingTreeAsApplied(RecordingTree tree)";
+            int sigIdx = prepared.IndexOf(signature, StringComparison.Ordinal);
+            Assert.True(sigIdx >= 0, "CommitPendingTreeAsApplied(RecordingTree) no longer exists");
+            Assert.Equal(sigIdx, prepared.LastIndexOf(signature, StringComparison.Ordinal));
+
+            int bodyStart = prepared.IndexOf('{', sigIdx);
+            Assert.True(bodyStart > 0, "the seam has no body");
+            string body = BraceMatchedBlock(prepared, bodyStart);
+
+            int commitIdx = body.IndexOf("RecordingStore.CommitPendingTree();", StringComparison.Ordinal);
+            int markIdx = body.IndexOf("RecordingStore.MarkTreeAsApplied(tree);", StringComparison.Ordinal);
+            Assert.True(commitIdx >= 0, "the seam no longer calls RecordingStore.CommitPendingTree()");
+            Assert.True(markIdx >= 0, "the seam no longer calls RecordingStore.MarkTreeAsApplied(tree)");
+            Assert.True(commitIdx < markIdx,
+                "REGRESSION: CommitPendingTreeAsApplied must commit the pending tree BEFORE marking " +
+                "it applied, so the mark lands on a tree that is already in committed storage.");
+        }
+
+        private static string BraceMatchedBlock(string prepared, int openBrace)
+        {
+            int depth = 0;
+            for (int i = openBrace; i < prepared.Length; i++)
+            {
+                if (prepared[i] == '{') depth++;
+                else if (prepared[i] == '}')
+                {
+                    depth--;
+                    if (depth == 0) return prepared.Substring(openBrace, i - openBrace + 1);
+                }
+            }
+            throw new InvalidOperationException("unbalanced braces from " + openBrace);
+        }
+
+        private static string LocateParsekScenarioSource()
+        {
+            string dir = AppDomain.CurrentDomain.BaseDirectory;
+            for (int i = 0; i < 10 && !string.IsNullOrEmpty(dir); i++)
+            {
+                string candidate = Path.Combine(dir, "Source", "Parsek", "ParsekScenario.cs");
+                if (File.Exists(candidate)) return candidate;
+                dir = Path.GetDirectoryName(dir);
+            }
+
+            return Path.GetFullPath(Path.Combine(
+                AppDomain.CurrentDomain.BaseDirectory,
+                "..", "..", "..", "..", "Parsek", "ParsekScenario.cs"));
         }
     }
 }
