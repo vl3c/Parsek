@@ -602,6 +602,28 @@ cycle-guard mutant does not produce a failed assertion but a stack overflow that
 test host down, so its evidence is the aborted run plus a green re-run of the same set with
 only the new cell excluded.
 
+**Phase B status, eighth PR (2026-09-16).** Twelve more priority-2 `recording` rows, all
+`direct` and all `M`: six are new coverage and six are `already-covered` under the
+cross-class rule, and none is obsolete. The six landed rows are mutation-proved with no
+production change: C-recording-tree-005-01, C-recording-tree-006-01, C-recording-tree-023-02,
+C-recording-tree-029-01, C-recording-tree-029-02, C-rewind-refly-005-01 (seven cells: the
+sweep row landed with its mirror). Their `status` in the CSV is now `done`. The six
+already-covered rows each red a cell that landed after the audit snapshot was taken:
+C-catchall-011-01 reds `EnsurePassIntegrityTests.SplitAtUT_CommittedSplit_DropsTheHeadsSectionAnnotations`,
+C-legacy-bugfix-007-01 reds both twins
+(`EnvironmentTrackingIntegrationTests.CloseCurrentTrackSection_ComputesCorrectSampleRate`
+and `BackgroundTrackSectionTests.ClosedSection_ComputesSampleRateHz`), C-recording-tree-031-01
+reds `SwitchSegmentDiscardScopeTests.CollectSubtree_PastTheIterationCap_BreaksWithWarn_AndPartialList`,
+C-recording-tree-046-01 and -046-02 red the shared-id narrowing cells in
+`SwitchSegmentSuppressionNarrowingTests`, and C-recording-tree-047-01 reds
+`SwitchSegmentSaveLoadTests.F9_ToPreSwitchSave_ClearsMarker_DropsPendingAttempt`. Two notes
+for the next slice. The reseed anchor search accepts a gap of at most 5 s, so the proposal
+sketch's ut=100 anchor against a segment starting at 112 could never be admitted; the cell
+uses ut=110. And `ParsekScenario` inherits Unity's overloaded `==`, so a mutant written as
+`if (scenario != null) return 0;` inside `LoadTimeSweep` is inert against a test-constructed
+scenario (Unity reports the fake-null as null, which is why `Run` itself uses
+`ReferenceEquals`); the recorded mutant stubs the body unconditionally instead.
+
 Sixteen of the twenty are `direct` and `S` or `M` effort. Numbers 12 and 20 pair with High and
 Medium findings respectively (F-recorder-events-024-01 and F-recording-tree-039-01), which is the
 expected shape: where a test cannot fail, the guard also has no coverage.

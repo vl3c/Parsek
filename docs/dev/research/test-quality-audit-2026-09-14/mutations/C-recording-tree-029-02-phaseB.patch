@@ -1,0 +1,12 @@
+diff --git a/Source/Parsek/EffectiveState.cs b/Source/Parsek/EffectiveState.cs
+index 35f60c54b..fe566a7e4 100644
+--- a/Source/Parsek/EffectiveState.cs
++++ b/Source/Parsek/EffectiveState.cs
+@@ -2236,7 +2236,6 @@ namespace Parsek
+                 if (!cand.IsDebris) continue;
+                 if (string.IsNullOrEmpty(cand.RecordingId)) continue;
+                 if (string.IsNullOrEmpty(cand.ParentAnchorRecordingId)) continue;
+-                if (!string.Equals(cand.ParentAnchorRecordingId, rec.RecordingId, StringComparison.Ordinal)) continue;
+                 if (!string.Equals(cand.TreeId, rec.TreeId, StringComparison.Ordinal)) continue;
+                 if (result.Contains(cand.RecordingId)) continue;
+ 
