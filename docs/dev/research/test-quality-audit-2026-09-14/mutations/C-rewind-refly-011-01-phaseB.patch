@@ -1,0 +1,12 @@
+diff --git a/Source/Parsek/RewindPointReaper.cs b/Source/Parsek/RewindPointReaper.cs
+index e0933e3c1..59ec6876b 100644
+--- a/Source/Parsek/RewindPointReaper.cs
++++ b/Source/Parsek/RewindPointReaper.cs
+@@ -283,7 +283,6 @@ namespace Parsek
+             {
+                 if (File.Exists(absolute))
+                 {
+-                    File.Delete(absolute);
+                     ParsekLog.Verbose(Tag,
+                         $"Deleted rewind quicksave rp={rp.RewindPointId} path={absolute}");
+                 }

@@ -121,6 +121,34 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ResetForTesting_ThrowsInPlayMode_WhenOnlySavedPendingTreeExists()
+        {
+            // Coverage cell C-recording-tree-034-01. The saved-pending-during-active-restore
+            // slot is the fourth arm of the play-mode guard and the only one with no cell:
+            // it holds the save's pending tree while an active-tree restore owns the
+            // pending-Limbo slot, so wiping it loses a whole tree's worth of recordings
+            // that live on disk but in no other in-memory list.
+            var tree = new RecordingTree { Id = "saved", TreeName = "Saved" };
+            RecordingStore.PreservePendingTreeFromSaveDuringActiveRestore(tree);
+            Assert.True(RecordingStore.HasSavedPendingTreeDuringActiveRestore);
+            Assert.Empty(RecordingStore.CommittedRecordings);
+            Assert.Empty(RecordingStore.CommittedTrees);
+            Assert.False(RecordingStore.HasPendingTree);
+
+            RecordingStore.ApplicationIsPlayingForTesting = () => true;
+
+            var ex = Assert.Throws<InvalidOperationException>(
+                () => RecordingStore.ResetForTesting());
+
+            Assert.Contains("hasSavedPendingDuringActiveRestore=True", ex.Message);
+            Assert.NotNull(RecordingStore.SavedPendingTreeDuringActiveRestore);
+            Assert.Same(tree, RecordingStore.SavedPendingTreeDuringActiveRestore);
+
+            Assert.Contains(logLines,
+                l => l.Contains("[ERROR][RecordingStore]") && l.Contains("ResetForTesting blocked"));
+        }
+
+        [Fact]
         public void ResetForTesting_AllowsReset_WhenNotInPlayMode()
         {
             // xUnit / dotnet-test path: Application.isPlaying = false. The guard must
