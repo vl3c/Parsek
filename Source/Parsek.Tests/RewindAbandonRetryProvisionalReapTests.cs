@@ -93,6 +93,42 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ReapPriorProvisionalsForRp_RemovesFromPendingTree()
+        {
+            // The reap removes the orphan from EVERY collection that can hold
+            // it; only the committed-tree arm was asserted. A stashed pending
+            // tree is the same s11 evidence case in PendingTree form: an orphan
+            // left there is re-added to the committed list by FinalizeTreeCommit.
+            var orphan = Provisional(
+                "rec_orphan_pending", sessionId: "sess_old", rpId: "rp_target",
+                supersedeTarget: "rec_origin");
+            RecordingStore.AddCommittedInternal(orphan);
+
+            var pendingTree = new RecordingTree
+            {
+                Id = "tree_1",
+                TreeName = "Pending Tree",
+                RootRecordingId = "rec_origin",
+                ActiveRecordingId = "rec_orphan_pending",
+            };
+            pendingTree.AddOrReplaceRecording(orphan);
+            RecordingStore.StashPendingTree(pendingTree, PendingTreeState.Limbo);
+            ParsekScenario.SetInstanceForTesting(new ParsekScenario());
+
+            int reaped = RewindInvoker.ReapPriorProvisionalsForRp(
+                rpId: "rp_target", newSessionId: "sess_new");
+
+            Assert.Equal(1, reaped);
+            Assert.Null(FindCommitted("rec_orphan_pending"));
+            Assert.DoesNotContain("rec_orphan_pending",
+                RecordingStore.PendingTree.Recordings.Keys);
+            Assert.Contains(logLines, l =>
+                l.Contains("[Parsek][INFO][ReFlySession]") &&
+                l.Contains("ReapPriorProvisional: removed orphan rec=rec_orphan_pending") &&
+                l.Contains("removedFromPendingTree=True"));
+        }
+
+        [Fact]
         public void DoesNotRemoveCommittedRecordingOnSameRp()
         {
             // A CommittedProvisional recording also tagged to the RP

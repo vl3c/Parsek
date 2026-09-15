@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/RecordingStore.cs b/Source/Parsek/RecordingStore.cs
+index bb9af7e10..36b22945b 100644
+--- a/Source/Parsek/RecordingStore.cs
++++ b/Source/Parsek/RecordingStore.cs
+@@ -514,7 +514,7 @@ namespace Parsek
+             // Trim leading stationary points (vessel sitting on pad/runway before launch).
+             // This prevents the ghost from overlapping the real vessel at the start position.
+             // Also trims any orbit segments and part events that fall before the new start.
+-            int firstMoving = TrajectoryMath.FindFirstMovingPoint(points);
++            int firstMoving = 0; // MUTANT: trim block never runs
+             if (firstMoving > 0)
+             {
+                 double trimUT = points[firstMoving].ut;

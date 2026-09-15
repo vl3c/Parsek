@@ -1,0 +1,11 @@
+C-legacy-bugfix-005-01	recording	Source/Parsek/ParsekFlight.cs:16405	direct	InferTerminal_StableOrbitWithResolvedBodyRadius_ReturnsOrbiting
+C-legacy-bugfix-010-01	recording	Source/Parsek/EffectiveState.cs:1065	direct	ImmutableDestroyedUnderRP_NotMember_SealedTipClosed
+C-recorder-events-023-01	recording	Source/Parsek/ParsekFlight.TerminalEvents.cs:326	direct	ApplyDestroyedFallback_WasDestroyed_SetsVesselDestroyedFlag
+C-recorder-events-024-01	recording	Source/Parsek/BackgroundRecorder.PartEventPolling.cs:92	direct	PollPartEvents_CallSet_MatchesFlightRecorderOnPhysicsFrame
+C-recording-tree-011-01	recording	Source/Parsek/ParsekScenario.HydrationRepair.cs:25	direct	RestoreHydrationFailedRecordingsFromPendingTree_DifferentTreeId_ReturnsZero
+C-recording-tree-022-01	recording	Source/Parsek/RecordingOptimizer.cs:1849	direct	SplitAtUT_V13HeadBodyFixedFramesUnderMinimum_ReturnsNull
+C-recording-tree-023-01	recording	Source/Parsek/RecordingTreeSplitter.cs:785	direct	SplitOriginAtRewindUT_MidSplitThrow_RollsBackRealSnapshot
+C-recording-tree-030-01	recording	Source/Parsek/RecordingStore.cs:539	direct	CreateRecordingFromFlightData_LeadingStationaryPoints_TrimsAndRetimesEvents
+C-rewind-refly-004-02	recording	Source/Parsek/RecordingStore.RewindSupersedeRollback.cs:99	direct	Pure_SkipsRelation_WithEmptyOldOrNewId
+C-rewind-refly-015-01	recording	Source/Parsek/RecordingStore.cs:4216	direct	RemoveSessionProvisionalRecordings_DropsBranchPointWhenParentEndpointEmpties
+C-rewind-refly-019-01	recording	Source/Parsek/RewindInvoker.cs:2433	direct	ReapPriorProvisionalsForRp_RemovesFromPendingTree

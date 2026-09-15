@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/EffectiveState.cs b/Source/Parsek/EffectiveState.cs
+index 35f60c54b..5c05660c7 100644
+--- a/Source/Parsek/EffectiveState.cs
++++ b/Source/Parsek/EffectiveState.cs
+@@ -1108,7 +1108,7 @@ namespace Parsek
+             // in TryResolveUnfinishedFlight so an Immutable peer cannot slip
+             // through the malformed-slot path (collapse-seal-into-mergestate
+             // plan §7.7).
+-            if (!UnfinishedFlightClassifier.IsSlotEffectiveTipOpen(slot, rec))
++            if (false && !UnfinishedFlightClassifier.IsSlotEffectiveTipOpen(slot, rec))
+             {
+                 ParsekLog.VerboseRateLimited("UnfinishedFlights",
+                     $"sealedTipClosed-{recId}",

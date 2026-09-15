@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/RecordingOptimizer.cs b/Source/Parsek/RecordingOptimizer.cs
+index 3bec5cc89..3041f7c74 100644
+--- a/Source/Parsek/RecordingOptimizer.cs
++++ b/Source/Parsek/RecordingOptimizer.cs
+@@ -1846,7 +1846,7 @@ namespace Parsek
+             // bodyFixedFrames samples when the straddling section had them.
+             if (hadBodyFixedFrames)
+             {
+-                if (headSection.bodyFixedFrames.Count < 2)
++                if (headSection.bodyFixedFrames.Count < 1)
+                 {
+                     ParsekLog.Warn("Optimizer",
+                         $"SplitAtUT: v13 debris contract — head-half bodyFixedFrames " +

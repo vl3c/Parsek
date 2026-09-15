@@ -331,6 +331,41 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void ApplyDestroyedFallback_WasDestroyed_SetsVesselDestroyedFlag()
+        {
+            // The VesselDestroyed bool is set UNCONDITIONALLY, ahead of the
+            // already-Destroyed early return: it is the field
+            // SwitchSegmentNoOpClassifier gates on, so a destruction that emits
+            // no onPartDie Destroyed PartEvent would otherwise leave the flag
+            // false and let a destroyed resume auto-discard as a no-op coast.
+            // The already-Destroyed row is the one the early return can hide.
+            var alreadyDestroyed = new Recording();
+            alreadyDestroyed.TerminalStateValue = TerminalState.Destroyed;
+            alreadyDestroyed.VesselDestroyed = false;
+
+            bool result = ParsekFlight.ApplyDestroyedFallback(true, alreadyDestroyed);
+
+            Assert.False(result);
+            Assert.True(alreadyDestroyed.VesselDestroyed);
+
+            // Mirror row: the re-stamping arm sets it too.
+            var landed = new Recording();
+            landed.TerminalStateValue = TerminalState.Landed;
+            landed.VesselDestroyed = false;
+
+            Assert.True(ParsekFlight.ApplyDestroyedFallback(true, landed));
+            Assert.True(landed.VesselDestroyed);
+
+            // Negative row: no destruction, no flag.
+            var untouched = new Recording();
+            untouched.TerminalStateValue = TerminalState.Landed;
+            untouched.VesselDestroyed = false;
+
+            Assert.False(ParsekFlight.ApplyDestroyedFallback(false, untouched));
+            Assert.False(untouched.VesselDestroyed);
+        }
+
+        [Fact]
         public void ApplyDestroyedFallback_NotDestroyed_NullTerminal_NoChange()
         {
             var rec = new Recording();

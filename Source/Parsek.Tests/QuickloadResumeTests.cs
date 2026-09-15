@@ -1123,10 +1123,10 @@ namespace Parsek.Tests
         public void PrepareQuickloadResumeStateIfNeeded_ReFlyActive_TrimsActiveOnlyKeepsSibling()
         {
             // Models the post-splice tree shape from Re-Fly load:
-            //   active rec (booster atmo) — needs tail trimmed so the recorder can
+            //   active rec (booster atmo) - needs tail trimmed so the recorder can
             //   append fresh post-cutoff data without colliding with the pre-cutoff
             //   timeline.
-            //   sibling rec (capsule exo, started past cutoff) — represents the OTHER
+            //   sibling rec (capsule exo, started past cutoff) - represents the OTHER
             //   vessel's continued timeline; tree-wide trim would prune it.
             var tree = MakeTree("refly_tree", "ReFly Tree", 2);
             var activeRec = tree.Recordings[tree.ActiveRecordingId];
@@ -1458,7 +1458,7 @@ namespace Parsek.Tests
         [Fact]
         public void PrepareQuickloadResumeStateIfNeeded_ReFlyMarkerForOtherTree_KeepsTreeWideTrim()
         {
-            // Marker exists but pins a DIFFERENT tree — fall through to tree-wide
+            // Marker exists but pins a DIFFERENT tree - fall through to tree-wide
             // trim so a stale or unrelated marker can't accidentally protect a
             // separate tree's post-cutoff payload.
             var tree = MakeTree("isolated_tree", "Isolated Tree", 2);
@@ -1733,6 +1733,35 @@ namespace Parsek.Tests
                 diskTree, staleEpochHydrationFailures: 0);
 
             Assert.False(keepPending);
+        }
+
+        [Fact]
+        public void RestoreHydrationFailedRecordingsFromPendingTree_DifferentTreeId_ReturnsZero()
+        {
+            // Cross-identity guard: the pending tree carries the SAME recording
+            // id as the loaded tree but a DIFFERENT tree id. Every other cell in
+            // this region uses a matching pending/loaded id, so only this shape
+            // discriminates the id check that keeps a stale pending tree from
+            // overwriting another tree's recording payload.
+            var pendingTree = TreeWithSharedRecording(
+                "tree_pending_other", "rec_shared", "Pending Payload", pointUT: 999.0);
+            RecordingStore.StashPendingTree(pendingTree, PendingTreeState.Limbo);
+
+            var loadedTree = TreeWithSharedRecording(
+                "tree_loaded_other", "rec_shared", "Disk Payload", pointUT: 110.0);
+            var loadedRec = loadedTree.Recordings["rec_shared"];
+            loadedRec.SidecarLoadFailed = true;
+            loadedRec.SidecarLoadFailureReason = "trajectory-missing";
+
+            int restored = ParsekScenario.RestoreHydrationFailedRecordingsFromPendingTree(
+                loadedTree);
+
+            Assert.Equal(0, restored);
+            Assert.Same(loadedRec, loadedTree.Recordings["rec_shared"]);
+            Assert.Equal("Disk Payload", loadedRec.VesselName);
+            Assert.Equal(110.0, loadedRec.Points[0].ut);
+            Assert.True(loadedRec.SidecarLoadFailed);
+            Assert.Equal("trajectory-missing", loadedRec.SidecarLoadFailureReason);
         }
 
         [Fact]
@@ -2420,7 +2449,7 @@ namespace Parsek.Tests
         [Fact]
         public void TryRestoreActiveTreeNode_TreeWithActiveRecording_StashesAsLimbo_Bug266()
         {
-            // Tree has a populated ActiveRecordingId — quickload-resume path.
+            // Tree has a populated ActiveRecordingId - quickload-resume path.
             var scenarioNode = new ConfigNode("PARSEK_SCENARIO");
             var activeNode = scenarioNode.AddNode("RECORDING_TREE");
             var tree = MakeTree("tree_alive", "Live Recording", 2);
@@ -2455,7 +2484,7 @@ namespace Parsek.Tests
         }
 
         // ============================================================
-        // Bug #266: pre-transition logic — calls the real production
+        // Bug #266: pre-transition logic - calls the real production
         // helper ParsekFlight.ApplyPreTransitionForVesselSwitch so the
         // tests stay locked to the actual implementation.
         // ============================================================
@@ -2512,7 +2541,7 @@ namespace Parsek.Tests
             var tree = MakeTree("tree_t", "Launch", 2);
             tree.Recordings["root_tree_t"].VesselPersistentId = 0;
 
-            // No PID source available (degenerate case — recorder gone, tree
+            // No PID source available (degenerate case - recorder gone, tree
             // recording was never populated). Tree is still nulled out, but
             // there's no entry in BackgroundMap. Restore will treat the new
             // active vessel as outsider regardless of who it is.
@@ -2544,6 +2573,36 @@ namespace Parsek.Tests
         // ============================================================
         // Test helpers
         // ============================================================
+
+        /// <summary>
+        /// A one-recording tree whose recording id is supplied independently of
+        /// the tree id. <see cref="MakeTree"/> derives recording ids from the
+        /// tree id, so it cannot express "same recording id, different tree" -
+        /// the only shape that discriminates the cross-tree hydration guard.
+        /// </summary>
+        private static RecordingTree TreeWithSharedRecording(
+            string treeId, string recordingId, string vesselName, double pointUT)
+        {
+            var tree = new RecordingTree
+            {
+                Id = treeId,
+                TreeName = treeId,
+                RootRecordingId = recordingId,
+                ActiveRecordingId = recordingId,
+            };
+            var rec = new Recording
+            {
+                RecordingId = recordingId,
+                VesselName = vesselName,
+                TreeId = treeId,
+                ExplicitStartUT = pointUT,
+                ExplicitEndUT = pointUT + 10.0,
+            };
+            rec.Points.Add(new TrajectoryPoint { ut = pointUT });
+            rec.Points.Add(new TrajectoryPoint { ut = pointUT + 10.0 });
+            tree.Recordings[recordingId] = rec;
+            return tree;
+        }
 
         private static RecordingTree MakeTree(string id, string name, int recordingCount)
         {

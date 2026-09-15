@@ -1,0 +1,13 @@
+diff --git a/Source/Parsek/ParsekScenario.HydrationRepair.cs b/Source/Parsek/ParsekScenario.HydrationRepair.cs
+index fc6460949..f96075f6d 100644
+--- a/Source/Parsek/ParsekScenario.HydrationRepair.cs
++++ b/Source/Parsek/ParsekScenario.HydrationRepair.cs
+@@ -22,7 +22,7 @@ namespace Parsek
+             if (loadedTree == null
+                 || !RecordingStore.HasPendingTree
+                 || RecordingStore.PendingTree == null
+-                || RecordingStore.PendingTree.Id != loadedTree.Id)
++                )
+             {
+                 return 0;
+             }

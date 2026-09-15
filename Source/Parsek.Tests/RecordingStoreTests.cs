@@ -51,6 +51,67 @@ namespace Parsek.Tests
         }
 
         [Fact]
+        public void CreateRecordingFromFlightData_LeadingStationaryPoints_TrimsAndRetimesEvents()
+        {
+            // The factory's leading-stationary trim block: drop the pre-launch
+            // pad points, drop orbit segments that end before the new start, and
+            // pull every earlier part / flag event forward to the new startUT.
+            // The existing cells all feed points that never trip
+            // FindFirstMovingPoint, so the whole block was unpinned.
+            var points = MakePoints(2);                 // ut 100, 110 @ alt 100
+            for (int i = 2; i < 5; i++)                 // ut 120, 130, 140, rising
+            {
+                points.Add(new TrajectoryPoint
+                {
+                    ut = 100 + i * 10,
+                    latitude = 0,
+                    longitude = 0,
+                    altitude = 100 + (i - 1) * 500,
+                    rotation = Quaternion.identity,
+                    velocity = Vector3.zero,
+                    bodyName = "Kerbin"
+                });
+            }
+
+            var orbitSegments = new List<OrbitSegment>
+            {
+                new OrbitSegment { startUT = 100, endUT = 110, bodyName = "Kerbin" },
+                new OrbitSegment { startUT = 120, endUT = 140, bodyName = "Kerbin" },
+            };
+            var partEvents = new List<PartEvent>
+            {
+                new PartEvent
+                {
+                    ut = 105,
+                    partPersistentId = 42,
+                    eventType = PartEventType.Decoupled,
+                    partName = "tank",
+                },
+            };
+            var flagEvents = new List<FlagEvent>
+            {
+                new FlagEvent { ut = 100, flagSiteName = "Pad", bodyName = "Kerbin" },
+            };
+
+            var rec = RecordingStore.CreateRecordingFromFlightData(
+                points, "TrimVessel",
+                orbitSegments: orbitSegments,
+                partEvents: partEvents,
+                flagEvents: flagEvents);
+
+            Assert.NotNull(rec);
+            // Two stationary leading points trimmed; the new start is ut=120.
+            Assert.Equal(3, rec.Points.Count);
+            Assert.Equal(120.0, rec.Points[0].ut);
+            // The segment ending inside the trimmed window is gone; the other stays.
+            Assert.Single(rec.OrbitSegments);
+            Assert.Equal(140.0, rec.OrbitSegments[0].endUT);
+            // Both pre-trim events are pulled forward to the new startUT.
+            Assert.Equal(120.0, rec.PartEvents[0].ut);
+            Assert.Equal(120.0, rec.FlagEvents[0].ut);
+        }
+
+        [Fact]
         public void CreateRecordingFromFlightData_EmptyList_ReturnsNull()
         {
             var rec = RecordingStore.CreateRecordingFromFlightData(new List<TrajectoryPoint>(), "Empty");
